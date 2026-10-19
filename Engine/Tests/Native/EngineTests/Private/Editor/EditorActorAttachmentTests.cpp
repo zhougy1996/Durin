@@ -158,8 +158,8 @@ TEST(FEditorActorAttachmentTests, SnapToExistingParentStillChangesTransform)
 	auto* Editor = Fixture.Editor.GetActorEditor();
 	AActor* Target = Child;
 	const auto Result = Editor->AttachActors(*Fixture.Level, {&Target, 1}, Parent, EAttachmentTransformRule::SnapToTarget, {false});
-	ASSERT_TRUE(Result) << Result.Message;
-	EXPECT_TRUE(Result.Changed());
+	ASSERT_TRUE(Result);
+	EXPECT_TRUE(Fixture.Editor.GetTransactions()->CanUndo());
 	ExpectTransformNear(Child->GetActorTransform(), Parent->GetActorTransform());
 	ASSERT_TRUE(Transactions->Undo());
 	ExpectTransformNear(Child->GetActorTransform(), Before);

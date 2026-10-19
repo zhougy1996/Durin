@@ -1291,6 +1291,14 @@ namespace Durin
 			std::make_shared<FAssetCompatibilityWindow>();
 		Context.Console = std::make_unique<FConsolePanel>(Editor);
 		Context.PythonScripts = std::make_unique<FPythonScriptPanel>(Editor);
+#if defined(_WIN32)
+		char* StartupScript = nullptr; size_t StartupScriptSize = 0;
+		if (_dupenv_s(&StartupScript, &StartupScriptSize, "DURIN_PYTHON_SCRIPT") == 0 && StartupScript)
+		{
+			std::unique_ptr<char, decltype(&std::free)> Owner(StartupScript, &std::free);
+			if (StartupScriptSize > 1) Context.PythonScripts->RunFile(std::filesystem::u8path(StartupScript));
+		}
+#endif
 		Context.Activity = std::make_unique<FEditorNotificationOverlay>();
 
 		const FIntPoint WindowSize{

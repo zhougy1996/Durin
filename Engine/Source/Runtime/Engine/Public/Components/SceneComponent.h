@@ -14,6 +14,7 @@ namespace Durin
 	class FSceneInterface;
 
 	// Selects which transform is preserved or snapped while attaching a component.
+	DENUM(ScriptType)
 	enum class EAttachmentTransformRule : uint8
 	{
 		KeepWorld,
@@ -22,6 +23,7 @@ namespace Durin
 	};
 
 	// Selects whether detachment preserves world or relative transform values.
+	DENUM(ScriptType)
 	enum class EDetachmentTransformRule : uint8
 	{
 		KeepWorld,

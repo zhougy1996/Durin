@@ -560,6 +560,26 @@ def test_default_only_export_edit_invalidates_dependents_without_signature_chang
         ExportedSymbolInfo.from_json(corrupt)
 
 
+def test_export_preserves_external_enum_defaults_without_enumerator_declarations(tmp_path):
+    from durin_header_tool.extractors.export_symbol_extractor import extract_header_export_symbols
+    header = tmp_path / "Public/Functions.h"
+    header.parent.mkdir()
+    header.write_text('''
+        namespace Sample {
+        enum class EMode : uint8;
+        DCLASS() class AActions { GENERATED_BODY()
+            DFUNCTION() void Run(const std::string& Tag = "a,b", EMode Mode = EMode::Ready);
+        };
+        }
+    ''', encoding="utf-8")
+    config = DurinModuleConfig(module_name="Fixture", module_dir=tmp_path, reflect_headers=["Public/Functions.h"])
+    with (mock.patch.object(configs, "get_module_config", return_value=config),
+          mock.patch.object(configs, "collect_all_dependent_modules", return_value=set())):
+        symbol = extract_header_export_symbols("Fixture", "Public/Functions.h")["Sample::AActions"]
+    assert symbol.Functions[0]["Defaults"] == ['"a,b"', 'EMode :: Ready']
+    assert ExportedSymbolInfo.from_json(symbol.to_json(), allow_unresolved_functions=True) == symbol
+
+
 def test_unresolved_named_types_are_private_to_export_phase_cache():
     from durin_header_tool.cache.phase_state import ExportPhaseState
     from durin_header_tool.model.function_signature import function_cpp_type

@@ -161,8 +161,18 @@ def _signature_parts(member, *, require_concrete: bool, symbols=None, namespace=
     if not result:
         return None
     parameters = []
-    for index, argument in enumerate(member.get_arguments()):
-        parameter_tokens = [token.spelling for token in argument.get_tokens()]
+    arguments = list(member.get_arguments())
+    declaration_tokens = list(member.get_tokens())
+    for index, argument in enumerate(arguments):
+        # Clang can truncate a parameter's extent at '=' when an external enum's
+        # enumerators are absent in the hermetic export pass. Use the full source
+        # declaration up to the next parameter (or closing parenthesis) instead.
+        end = (arguments[index + 1].extent.start.offset if index + 1 < len(arguments)
+               else declaration_tokens[close].location.offset)
+        parameter_tokens = [token.spelling for token in declaration_tokens
+                            if argument.extent.start.offset <= token.location.offset < end]
+        if parameter_tokens and parameter_tokens[-1] == ",":
+            parameter_tokens.pop()
         default_expression = None
         if "=" in parameter_tokens:
             equals = parameter_tokens.index("=")

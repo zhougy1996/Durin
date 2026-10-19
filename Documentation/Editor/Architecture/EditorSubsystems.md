@@ -191,8 +191,11 @@ innermost recording scope and commit with the outer transaction, retaining its
 description; with no outer scope they submit an independent history entry.
 Executing, Undoing, Redoing, pending asynchronous operations, RecoveryRequired
 and Destroying still reject admission. Detached, foreign, template or unsupported
-participants fail before preparation. Results distinguish Changed, NoOp and Failed, retain resulting
-participants and transactor failure evidence, and provide an owned display message.
+participants fail before preparation. Creation returns the Actor/Component pointer
+or null; Actor duplication returns the new Actors in input order or an empty
+array. Other edits return bool, with true also covering successful no-ops. Public
+operations carry no error strings, status enum or history result. Detailed
+execution/recovery state stays in DTransactor.
 Same-name rename and same-parent reparent produce no history entry. Empty or
 duplicate batch participants are rejected; valid batches submit once.
 
@@ -213,6 +216,50 @@ Document adapters retain selection, focus, confirmation and error presentation.
 The subsystem does not retain a LevelEditor context or depend on UI modules.
 See [structural history](ViewportEditing.md#actor-structure-commands) and
 [Component history](LevelEditorDetails.md#component-structure-history).
+
+## Script Actor Adapter
+
+The Actor subsystem publishes ScriptCallable native adapters with explicit
+ScriptName aliases. Scripts resolve the existing service through
+`durin.get_editor_subsystem(durin.EditorActorSubsystem)`; methods use the generic
+reflection bridge without an Actor Toolset dependency.
+
+| Script method | Inputs / result |
+| --- | --- |
+| `get_editor_level()` | Current editor Level, or None when absent |
+| `get_all_level_actors(level)` | Live published Actors in Level order |
+| `get_actor_info(level, actor)` | ActorScriptInfo snapshot |
+| `spawn_actor(level, actor_class, transform, name="")` | Actor or None |
+| `destroy_actors(level, actors)` | bool |
+| `duplicate_actors(level, actors)` | Array[Actor], empty on failure |
+| `rename_actor(level, actor, name)` | bool |
+| `attach_actors(level, actors, parent, rule=AttachmentTransformRule.KEEP_WORLD)` | bool |
+| `detach_actors(level, actors, rule=DetachmentTransformRule.KEEP_WORLD)` | bool |
+
+Queries require the active job's Host and current editor Level. They may inspect
+that editor Level during PIE, but never substitute the play World. An invalid
+query raises a script access error rather than returning an empty snapshot.
+ActorScriptInfo contains actor, name, actor_class, parent, direct children in Level
+order, root_component and world_transform, all read-only detached fields.
+
+Edits derive FActorEditContext from native job/document authority. Native admission
+rechecks live script authority on entry and after preparation callbacks, keeping
+the existing stopped-play, ownership, hierarchy, batching and history rules.
+DocumentManaged requires live writable document policy; non-document access is
+an explicit native session option. Native read-only policy always wins.
+
+Script edits expose the same simple return values as native calls. A rejected
+domain edit returns None, an empty array or false; no per-operation failure
+diagnostic is exposed. Binding rejection of invalid types or stale arguments
+still precedes domain execution and raises an exception. Successful no-ops return
+true without entering history. Structural deletion preserves identity for Undo,
+and retained proxies remain subject to published-membership checks.
+
+Structural edits and generic property edits join the same Host transaction;
+there is no automatic rollback of earlier completed edits on later failure.
+Component structural adapters, selection/focus and specialized transform setters
+are not exposed. Use the root Component's generic relative_transform editor
+property for transform editing; see the [script guide](../Guides/PythonScripts.md).
 
 ## Notifications
 

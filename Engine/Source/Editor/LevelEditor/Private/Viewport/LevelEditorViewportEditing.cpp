@@ -21,15 +21,21 @@ namespace Durin::Editor::Level
 					std::vector<AActor*> Actors;
 					for (const auto& Actor : Context.GetSelectedActors()) Actors.push_back(Actor.Get());
 					const bool bDuplicate = Input.bDuplicate;
-					const auto Result = bDuplicate ? (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateActors(*Context.Level, Actors, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."})
-						: (Context.GetActorEditor() ? Context.GetActorEditor()->DestroyActors(*Context.Level, Actors, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
-					if (!Result) Context.SetError(Result.Message);
-					else
-					{
-						Actors.clear();
-						if (bDuplicate) for (const auto& Actor : Result.Actors) Actors.push_back(Actor.Get());
-						Context.SetSelectedActors(Actors);
-					}
+                    auto* Editor = Context.GetActorEditor();
+                    if (!Editor) Context.SetError("Actor editing service is unavailable.");
+                    else if (bDuplicate)
+                    {
+                        const auto Copies = Editor->DuplicateActors(*Context.Level, Actors, {Context.bReadOnly});
+                        if (Copies.empty()) Context.SetError("Actor duplication failed.");
+                        else
+                        {
+                            Actors.clear();
+                            for (const auto& Actor : Copies) Actors.push_back(Actor.Get());
+                            Context.SetSelectedActors(Actors);
+                        }
+                    }
+                    else if (Editor->DestroyActors(*Context.Level, Actors, {Context.bReadOnly})) Context.SetSelectedActors({});
+                    else Context.SetError("Actor deletion failed.");
 					Input.bDuplicate = Input.bDelete = false;
 					return true;
 				}

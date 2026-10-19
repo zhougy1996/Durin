@@ -196,6 +196,9 @@ namespace Durin::Editor
 		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue) -> FPropertyEditOperationResult;
 		DURINED_API auto Commit() -> FPropertyEditOperationResult;
 		DURINED_API auto Cancel() -> FPropertyEditOperationResult;
+		// Close a rejected/no-change edit without discarding an enclosing recording.
+		// Applied previews and pending asynchronous validation must use Cancel instead.
+		DURINED_API auto CancelUnchanged() -> FPropertyEditOperationResult;
 
 		auto IsActive() const -> bool { return bActive; }
 		DURINED_API auto MatchesTarget(const FPropertyEditTarget& Other) const -> bool;

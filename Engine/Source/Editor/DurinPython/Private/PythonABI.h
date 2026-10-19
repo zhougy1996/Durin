@@ -7,6 +7,12 @@ namespace Durin::PythonABI
 {
     struct FAPI
     {
+        decltype(&::PyObject_GC_UnTrack) pPyObject_GC_UnTrack = nullptr;
+        decltype(&::PyTuple_SetItem) pPyTuple_SetItem = nullptr;
+        decltype(&::PyTuple_New) pPyTuple_New = nullptr;
+        decltype(&::PyTuple_Size) pPyTuple_Size = nullptr;
+        decltype(&::PyTuple_GetItem) pPyTuple_GetItem = nullptr;
+        decltype(&::PySequence_Size) pPySequence_Size = nullptr;
         decltype(&::_Py_NotImplementedStruct) p_Py_NotImplementedStruct = nullptr;
         decltype(&::PyExc_AttributeError) pPyExc_AttributeError = nullptr;
         decltype(&::PyExc_ReferenceError) pPyExc_ReferenceError = nullptr;
@@ -337,6 +343,24 @@ namespace Durin::PythonABI
             if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "_Py_NotImplementedStruct"); Symbol)
                 p_Py_NotImplementedStruct = reinterpret_cast<decltype(p_Py_NotImplementedStruct)>(*Symbol);
             else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PySequence_Size"); Symbol)
+                pPySequence_Size = reinterpret_cast<decltype(pPySequence_Size)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyTuple_GetItem"); Symbol)
+                pPyTuple_GetItem = reinterpret_cast<decltype(pPyTuple_GetItem)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyTuple_Size"); Symbol)
+                pPyTuple_Size = reinterpret_cast<decltype(pPyTuple_Size)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyTuple_New"); Symbol)
+                pPyTuple_New = reinterpret_cast<decltype(pPyTuple_New)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyTuple_SetItem"); Symbol)
+                pPyTuple_SetItem = reinterpret_cast<decltype(pPyTuple_SetItem)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyObject_GC_UnTrack"); Symbol)
+                pPyObject_GC_UnTrack = reinterpret_cast<decltype(pPyObject_GC_UnTrack)>(*Symbol);
+            else return std::unexpected(Symbol.error());
             return {};
         }
     };
@@ -438,3 +462,19 @@ namespace Durin::PythonABI
 #define PyExc_AttributeError (*Durin::PythonABI::API.pPyExc_AttributeError)
 
 #define _Py_NotImplementedStruct (*Durin::PythonABI::API.p_Py_NotImplementedStruct)
+
+#define PySequence_Size Durin::PythonABI::API.pPySequence_Size
+
+#define PyTuple_GetItem Durin::PythonABI::API.pPyTuple_GetItem
+
+#define PyTuple_Size Durin::PythonABI::API.pPyTuple_Size
+
+#define PyTuple_New Durin::PythonABI::API.pPyTuple_New
+
+#define PyTuple_SetItem Durin::PythonABI::API.pPyTuple_SetItem
+
+#define PyObject_GC_UnTrack Durin::PythonABI::API.pPyObject_GC_UnTrack
+
+// Python.h's inline helper otherwise retains a direct import-library reference.
+#undef PyObject_TypeCheck
+#define PyObject_TypeCheck(object, type) (Py_IS_TYPE((object), (type)) || PyType_IsSubtype(Py_TYPE(object), (type)))

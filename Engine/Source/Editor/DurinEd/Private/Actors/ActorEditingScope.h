@@ -18,9 +18,7 @@ namespace Durin::Editor
 			explicit FScope(bool& InFlag) : Flag(InFlag) { Flag = true; }
 			~FScope() { Flag = false; }
 		} Scope(bEditing);
-		std::invoke_result_t<F> Result;
-		Result.Error = decltype(Result.Error)::Unavailable;
-		Result.Message = "The actor editing host retired before execution.";
+		std::invoke_result_t<F> Result{};
 		Host->DispatchSubsystemCallback([&] { Result = Operation(); });
 		return Result;
 	}

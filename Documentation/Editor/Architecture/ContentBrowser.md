@@ -25,6 +25,12 @@ Import snapshot for a selected virtual directory; MainFrame neither enumerates
 nor dispatches concrete import families. Reimport remains capability-driven
 through `FReimportManager` rather than this presentation registry.
 
+MainFrame contributes **Run Python Script** for a single ordinary `.py` file.
+It opens the host's Python Scripts presenter and submits the physical file through
+the existing runtime session. The action declares `MutatesContent`, follows Play
+mutation gating, and is retired with its presenter. Python-specific execution,
+job state and errors remain owned by MainFrame/DurinPython rather than the browser.
+
 Releasing a feature handle removes it from future snapshots. The host stops
 dispatch and releases captured descriptors before unloading feature code. An extension may also
 contribute one host presenter for its feature-owned modal state. MainFrame

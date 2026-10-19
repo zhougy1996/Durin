@@ -2,10 +2,10 @@
 
 Summary: Add a generic runtime Python binding over native reflection, using EditorActorSubsystem as the first production consumer.
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-19
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-19
 
 ## Current Status
 
@@ -13,8 +13,21 @@ Stages 0-1 completed on 2026-10-18. Stage 1 implementation and validation use
 baseline `a7a7d0548` plus the source manifest recorded below. Generic native
 classes/structs/enums are published as interpreter-owned heap types, and exposed
 editor subsystem objects support identity, inheritance and guarded bootstrap
-introspection. Stage 1 has no Actor-specific binding code. Stages 2-5 remain
-unimplemented; reflected function dispatch and value/property conversion are next.
+introspection. Stage 1 has no Actor-specific binding code. Stage 2 completed on
+2026-10-19: generic method descriptors, checked values, native dispatch and
+readable reflected attributes now work with real CPython. Mutable detached
+structs support named construction and field edits. Stage 3 completed on
+2026-10-19: generic editor-property helpers and writable attributes share native
+validation, notification and transactional editing. Stage 4 completed on
+2026-10-19: the production EditorActorSubsystem exposes reflected queries and
+all six Actor edits through the generic bridge. The Stage 4 follow-up simplifies
+native and script edit returns to pointers, arrays and bool. Stage 5 now provides
+native member documentation and deterministic IDE declarations from the published
+registry. Stage 5 completed on 2026-10-19 after final Windows integration,
+disabled-runtime/restoration, consumer-build and documentation acceptance.
+The Stage 2 implementation is organized into independent private translation
+units for registry, objects, values, conversion and members; its public script
+and native reflection contracts are unchanged.
 
 UE alignment changes two initial decisions: object proxies participate in native
 GC reference collection with explicit purge, replacing the initial weak-only
@@ -311,11 +324,13 @@ remain unchanged.
 ### Frozen EditorActorSubsystem script API
 
 Add reflected native members to DEditorActorSubsystem using C++ names prefixed
-`Script`, ScriptCallable and explicit ScriptName values below. Existing native
-methods/signatures remain unchanged. The new members take DLevel*/AActor* and
+`Script`, ScriptCallable and explicit ScriptName values below. The simplification
+follow-up also migrates existing native methods to direct pointer/array/bool
+returns. The new members take DLevel*/AActor* and
 const vector references instead of non-reflectable references/spans/callbacks;
-forward to the existing service. Query methods are const. All six edit methods
-return FActorScriptEditResult. Transform is required on spawn because its native
+forward to the existing service. Query methods are const. Edit methods return
+Actor pointers, Actor arrays or bool, without script result wrappers. Transform
+is required on spawn because its native
 construction expression is not a reflected default; name uses std::string = "".
 Attach/detach rules get reflected DENUM registration and enum defaults.
 
@@ -324,12 +339,12 @@ Attach/detach rules get reflected DENUM registration and enum defaults.
 | `get_editor_level()` | `() -> DLevel*`; None only when no editor Level exists |
 | `get_all_level_actors(level)` | `(DLevel*) -> vector<TObjectPtr<AActor>>`; native Level order, live published actors only |
 | `get_actor_info(level, actor)` | `(DLevel*, AActor*) -> FActorScriptInfo` |
-| `spawn_actor(level, actor_class, transform, name="")` | `(DLevel*, DClass*, const FTransform&, const string&) -> FActorScriptEditResult` |
-| `destroy_actors(level, actors)` | `(DLevel*, const vector<TObjectPtr<AActor>>&) -> FActorScriptEditResult` |
-| `duplicate_actors(level, actors)` | Same parameter/result types as destroy |
-| `rename_actor(level, actor, name)` | `(DLevel*, AActor*, const string&) -> FActorScriptEditResult` |
-| `attach_actors(level, actors, parent, rule=AttachmentTransformRule.KEEP_WORLD)` | `(DLevel*, const vector<TObjectPtr<AActor>>&, AActor*, EAttachmentTransformRule) -> FActorScriptEditResult` |
-| `detach_actors(level, actors, rule=DetachmentTransformRule.KEEP_WORLD)` | `(DLevel*, const vector<TObjectPtr<AActor>>&, EDetachmentTransformRule) -> FActorScriptEditResult` |
+| `spawn_actor(level, actor_class, transform, name="")` | `(DLevel*, DClass*, const FTransform&, const string&) -> AActor*` |
+| `destroy_actors(level, actors)` | `(DLevel*, const vector<TObjectPtr<AActor>>&) -> bool` |
+| `duplicate_actors(level, actors)` | `(DLevel*, const vector<TObjectPtr<AActor>>&) -> vector<TObjectPtr<AActor>>` |
+| `rename_actor(level, actor, name)` | `(DLevel*, AActor*, const string&) -> bool` |
+| `attach_actors(level, actors, parent, rule=AttachmentTransformRule.KEEP_WORLD)` | `(DLevel*, const vector<TObjectPtr<AActor>>&, AActor*, EAttachmentTransformRule) -> bool` |
+| `detach_actors(level, actors, rule=DetachmentTransformRule.KEEP_WORLD)` | `(DLevel*, const vector<TObjectPtr<AActor>>&, EDetachmentTransformRule) -> bool` |
 
 No mutation infers its Level or participants from selection/focus. Match existing
 native naming/conflict, batching, no-op and result order rules; do not add bridge
@@ -337,16 +352,11 @@ batch loops or promises of rollback beyond native guarantees. Spawn leaves its
 native Configure callback empty. Asset-specific placement, component structural
 methods, UI selection/focus and specialized Transform setters remain deferred.
 
-Promote EActorEditStatus/EActorEditError to reflected enums without changing native
-values; alias them as ActorEditStatus/ActorEditError. Add ScriptType result/info
-structs with ScriptReadOnly fields. Do not expose std::optional or raw native
-history objects. FActorScriptEditResult fields are:
-
-- `status: ActorEditStatus`, `error: ActorEditError`, `message: str`;
-- `actors: list[Actor]`, preserving the native result, including Failed results;
-- `history: ActorScriptHistoryResult`, containing `available: bool`,
-  `code: str` (native transactor result code name), and `message: str` (formatted
-  native history diagnostic). Absent history has false/empty/empty fields.
+The selected simplification removes edit/history result structs and status/error
+enums. Spawn returns Actor or None, duplicate returns an Actor array or an empty
+array, and the other edits return bool. Successful no-ops return true without a
+new transaction. Domain failures do not carry error strings or history payloads;
+detailed recovery state remains native in DTransactor.
 
 FActorScriptInfo contains `actor: Actor`, `name: str`, `actor_class: type[Actor]`,
 `parent: Actor | None`, `children: list[Actor]`, `root_component: SceneComponent |
@@ -355,8 +365,8 @@ use existing native transform behavior for rootless Actors. These snapshots do
 not grant structural property writes. RelativeTransform on the root Component is
 already Edit and becomes the initial generic transform-edit target.
 
-Native wrappers convert results once; the generic Python bridge sees ordinary
-reflected fields, with no Actor-specific codecs or implicit bool conversion.
+The generic Python bridge converts direct native return values and the read-only
+info snapshot, with no Actor-specific codecs.
 Pre-dispatch invalid/stale object arguments raise binding exceptions; live but
 invalid domain targets return domain failure for edits and a native script-call
 error for queries. Query rejection never masquerades as an empty list.
@@ -366,7 +376,7 @@ error for queries. Query rejection never masquerades as an empty list.
 These scripts run after Stage 4 in the existing real-CPython CPU editor fixture.
 The fixture owns a current Level with at least one constructible rooted Actor,
 and explicitly selects NonDocumentReadWrite. The same calls in an interactive
-editor require a live writable Level document. They are not runnable today.
+editor require a live writable Level document.
 
 ```python
 import durin
@@ -386,15 +396,13 @@ if seed is None:
     raise RuntimeError("This example needs a constructible rooted Actor")
 
 with durin.ScopedEditorTransaction("Create and move preview Actor"):
-    created = actors.spawn_actor(
+    preview = actors.spawn_actor(
         level, seed.actor_class, seed.world_transform, name="PreviewActor"
     )
-    if created.status != durin.ActorEditStatus.CHANGED:
-        raise RuntimeError(created.message)
-    preview = created.actors[0]
-    renamed = actors.rename_actor(level, preview, "PreviewActorRenamed")
-    if renamed.status == durin.ActorEditStatus.FAILED:
-        raise RuntimeError(renamed.message)
+    if preview is None:
+        raise RuntimeError("Actor creation failed")
+    if not actors.rename_actor(level, preview, "PreviewActorRenamed"):
+        raise RuntimeError("Actor rename failed")
 
     root = actors.get_actor_info(level, preview).root_component
     relative = root.get_editor_property("relative_transform")
@@ -404,17 +412,17 @@ with durin.ScopedEditorTransaction("Create and move preview Actor"):
     root.set_editor_property("relative_transform", relative)
 ```
 
-A second fixture script uses the same typed results for the remaining operations:
+A second fixture script checks the direct return values for the remaining operations:
 
 ```python
 with durin.ScopedEditorTransaction("Duplicate and attach preview"):
     copied = actors.duplicate_actors(level, [preview])
-    if copied.status != durin.ActorEditStatus.CHANGED:
-        raise RuntimeError(copied.message)
-    duplicate = copied.actors[0]
+    if not copied:
+        raise RuntimeError("Actor duplication failed")
+    duplicate = copied[0]
     def require_success(result):
-        if result.status == durin.ActorEditStatus.FAILED:
-            raise RuntimeError(result.message)
+        if not result:
+            raise RuntimeError("Actor edit failed")
 
     require_success(actors.attach_actors(level, [duplicate], preview))
     require_success(actors.detach_actors(level, [duplicate]))
@@ -460,7 +468,7 @@ and RoadEditor on preset `MacOS-arm64-Debug-DurinEditor`. Concrete selections:
 | Property writes, Stage 3 | EditorPropertyTests plus bridge real-Python normalization/read-only/notifications/Undo cases |
 | Actor adapter, Stage 4 | LevelMutationTests Actor/attachment cases, WorldTests Actor subsystem cases, bridge scripts above |
 | Compatibility, Stage 5 | PythonToolIntegrationTests, MCPPythonJobTests, MCPCodecTests, MCPIntegrationTests; PythonRuntimeUnavailableTests in the Python-disabled configuration |
-| Native consumers, Stage 5 | Owning CoreDObject/Engine/DurinEd/DurinPython plus LevelEditor/MainFrame/DurinMCP and DurinEditor; compile SandboxGameplayTests and RoadEditorIntegrationTests for cross-project shared-header consumption |
+| Native consumers, Stage 5 | Owning CoreDObject/Engine/DurinEd/DurinPython plus LevelEditor/MainFrame/DurinMCP and the DurinEditor executable (DurinLauncher build target); compile SandboxGameplayTests and RoadEditorIntegrationTests for cross-project shared-header consumption |
 
 There is no configured standalone Function or Subsystem test target: function
 reflection belongs to CoreObjectTests and editor subsystem cases belong to
@@ -538,6 +546,211 @@ Symbol searches cover Source/Tests in Engine, Sandbox and RoadWeaver; the invent
 is `stage1-consumers.json`. No GPU, application-hosted, Windows execution or full
 Stage 2 invocation/value support is claimed.
 
+## Stage 2 Implementation and Acceptance
+
+The private generic bridge publishes native method/property descriptors, binds
+positional and keyword inputs, applies only reflected defaults, and calls
+ProcessEvent with an owned FFunctionParameterBuffer. Two unrelated reflected
+services exercise the same bridge without handwritten Python business classes.
+Inherited calls resolve the effective native override on every invocation;
+unexposed overrides also block cached base descriptors. Unsupported signatures
+are omitted with member/parameter diagnostics before becoming callable.
+
+Codecs cover the selected scalars, enums, object/class references, Name/Guid,
+struct/math values, fixed/dynamic arrays and maps. Native struct storage uses
+native lifetime operations, collector-visible object roots and explicit purge.
+Detached field edits publish a fully validated draft by swapping owned storage.
+Read-only attributes, nested copy semantics, numeric ranges, conversion budgets,
+return/out packing and native error cleanup are exercised by the bridge tests.
+Intrinsic math registration now records explicit CoreDObject script provenance.
+No public native signatures, generated ABI layout or build graph changed.
+
+Validation used baseline `e42495f2594e87919d6b95f9716bef983bf556d8` plus the seven
+native/generator inputs in `Build/PythonReflectionBridge/stage2-source-manifest.json`
+(SHA256 `381a3c7f63481a1be673bd6d68f2d2be43ac912b451983e1aea528481c09dd0a`).
+The host was Windows x64, preset `Win64-Debug-DurinEditor`, MSVC 14.44 and the
+pinned CPython 3.13.15 release GIL ABI. Receipts are ignored local Build artifacts.
+
+| Gate | Result / receipt |
+| --- | --- |
+| Real CPython generic bridge | 20 cases passed grouped in the final regression selection and all 20 passed independently with serial isolation; `stage2-regression.xml`, `stage2-isolated.xml` |
+| Native reflection/property/persistence and existing Python/MCP compatibility | All 10 targets in `@domain=reflection+python` passed with four scheduling slots; `stage2-regression.xml` |
+| Production DHT parser/generator | 434 passed, 1 skipped because Windows directory-symlink privilege is unavailable; `stage2-dht.xml`, `stage2-dht.log` |
+| Owning modules and consumers | The selected tests built CoreDObject, DurinPython and their required editor/MCP consumers; no foundational header or native ABI change requires an all build |
+
+The ordinary affected selection expands to all Engine tests because the test
+fixture header belongs to that project. The bounded reflection/Python set covers
+this stage's private bridge and intrinsic registration changes; Actor/property
+editing and cross-project application qualification remain later-stage gates.
+Initial sandbox runs hit MSVC C1902 and pytest temporary-directory access errors;
+the final runs succeeded outside that sandbox, with DHT temporary data scoped to
+Build/PythonReflectionBridge. Later documentation-only changes preserve the
+recorded native/generator inputs. Python-disabled configuration, GPU/application
+execution and other-platform qualification were not repeated for this stage.
+
+The Stage 2 structural follow-up replaces the included implementation fragment
+with five private translation units and a self-contained shared declaration
+header. Type lookup now uses a borrowed reverse registry index, and property-name
+validation/publication share one conversion helper. Value constructors delegate
+field initialization to the member layer without depending on descriptor layout.
+The ownership, admission, conversion budgets and detached-copy behavior remain
+unchanged. This follow-up adds no public native ABI or module dependency changes.
+Validation used baseline `0a7ae182e7f3e476a06590d29ec8c7e3fce215bb` and the final
+inputs in `Build/PythonReflectionBridge/refactor-source-manifest.json` (SHA256
+`f4036ece0903f0f6a1d64c387947be8654be8dcca1e28753eb8ce2e8e6a052b8`).
+On the same Windows preset/SDK, all three targets selected by `test affected`
+passed (`refactor-regression.xml`), and all 20 bridge cases passed serial process
+isolation (`refactor-isolated.xml`). DHT/native reflection inputs and fixtures
+are unchanged from the original Stage 2 receipt; only the affected Python
+targets need rebuilding. Documentation and all-plan validation also passed.
+The remaining Stage 3-5 gates, including disabled-runtime and other-platform
+qualification, are unchanged.
+
+Lasting implemented contracts are maintained in the Python adapter and script
+guide. Stage 3 acceptance follows below.
+
+## Stage 3 Implementation and Acceptance
+
+The private property adapter resolves eligible reflected fields, converts a
+complete detached candidate and composes one native FPropertyEditSession per
+write. Helpers and direct writable attributes use the same implementation;
+native object storage is never assigned directly by the Python layer. Only
+current-Level Actors and owned Components pass native write policy. Proposal
+normalization, native notifications, shared transactions, dirty/save checkpoints
+and Undo/Redo retain their native behavior.
+
+DurinEd rechecks live script authority immediately before publication, after
+proposal hooks. Policy callbacks also revalidate target ownership after resolving
+document access. Synchronous script writes reject deferred validation before work
+starts. CancelUnchanged ends a rejected unchanged session without discarding an
+enclosing recording; changed previews retain ordinary cancellation semantics.
+Top-level fixed arrays remain excluded for the atomicity reason recorded in the
+stage boundary. No Actor-specific Python binding or LevelEditor dependency was
+added. Lasting contracts are in the Python adapter, script guide and reflected
+property editing documentation.
+
+Validation used baseline `bc4bdfe1a72d72d6ec6d98434b2c92d51fee1fcf` plus the
+native/generator inputs in `Build/PythonReflectionBridge/stage3-source-manifest.json`
+(SHA256 `b7a6205776874fd7243fc6c1f3ff7a7fad251c1ec40707fa228e9483d28e53b9`).
+The host was Windows x64, preset `Win64-Debug-DurinEditor`, MSVC 14.44 and
+CPython 3.13.15 release GIL ABI. Later documentation edits leave these inputs
+unchanged. Raw receipts remain local ignored Build artifacts.
+
+| Gate | Result / receipt |
+| --- | --- |
+| Real CPython property and reflection bridge | All 30 cases passed grouped in regression and independently with serial process isolation; `stage3-regression.xml`, `stage3-isolated.xml` |
+| Native property editing, policy and Python/MCP compatibility | All eight targets selected by `@domain=property-editor+python+editor-operation+world` passed; `stage3-regression.xml` |
+| Workspace consumers | RoadEditorIntegrationTests: 8 passed; SandboxGameplayTests: 13 passed; `stage3-road.xml`, `stage3-sandbox.xml` |
+| Production DHT parser/generator | 434 passed, 1 skipped for unavailable Windows directory-symlink privilege; `stage3-dht.xml`, `stage3-dht.log` |
+
+The affected selection expands to all Engine tests because of the shared fixture
+header. The bounded selection covers DurinEd's changed property/policy paths,
+the Python bridge and existing job compatibility; workspace symbol searches and
+consumer targets cover the additive shared session API. No foundational layout
+or build-graph change requires an all build. Python-disabled, other-platform,
+GPU and application execution were not repeated; later-stage gates remain open.
+Stage 4 acceptance follows below.
+
+## Stage 4 Implementation and Acceptance
+
+Selected simplification follow-up: replace custom native Actor/Component result
+bundles with direct object pointers, arrays and bool. Failed creation returns
+null, failed duplication an empty array, and other failed edits false. Successful
+no-ops remain successful without a new history entry. Keep
+detailed transaction disposition/recovery evidence in DTransactor. Remove the
+script edit/history result structs and status/error enums; script edits return
+Actor, Actor arrays or bool with the same empty/failure values; no per-operation
+error strings are retained. Binding/admission exceptions remain at generic bridge
+boundaries. Preserve the read-only Actor info query snapshot,
+explicit targets, native admission and replay behavior. Migrate all native and
+script consumers together; no legacy result facade is retained.
+
+The original Stage 4 implementation added nine reflected ScriptName adapters:
+current-Level discovery,
+Actor enumeration/info and spawn/destroy/duplicate/rename/attach/detach. The six
+edits forward once to existing subsystem implementations; vector-to-span
+adaptation preserves native batch and result order. Reflected result/info structs
+have read-only fields and preserve optional history diagnostics. Existing status,
+error and attachment-rule enum values are unchanged. No Actor-specific Python
+class, codec, Toolset or second editing implementation was added.
+
+Native admission derives document authority from FScopedEditorScriptCall and
+rechecks it after construction/PostLoad preparation. Real-CPython fixtures cover
+both frozen script examples, rootless queries, explicit invalid/foreign Levels,
+read-only/headless policies, PIE query/edit separation, batch order, hierarchy
+constraints, native normalization/history, same-object Undo/Redo and retained
+proxies across structural deletion. Native callbacks revoke policy, retire
+candidates or close the Host without allowing prepared edits to publish.
+
+Production use exposed two generic compatibility gaps. DHT now captures default
+arguments from complete declaration token ranges, preserving external enum
+expressions when Clang truncates an export parameter extent. A regression covers
+export serialization with unresolved enumerators and comma-containing strings.
+Automatic Python publication preflights the same dependency traversal used for
+registration, defers unavailable module graphs with one diagnostic, and retries
+at safe points. Explicit lookup still rejects unavailable providers. A lean-host
+test verifies startup before Engine activation and publication afterward.
+
+Validation used baseline `3bf7a99384a2b8abd62849b12411f34c4675763e` plus the final
+inputs in `Build/PythonReflectionBridge/stage4-source-manifest.json` (SHA256
+`0c3aa35fc73dc2342ef96a2d75302f79a8506efd3577637c0b43e26193d537d6`).
+The host was Windows x64, preset `Win64-Debug-DurinEditor`, MSVC 14.44 and
+CPython 3.13.15 release GIL ABI. Later documentation-only edits leave these
+native/generator inputs unchanged. Receipts remain ignored local Build artifacts.
+
+| Gate | Result / receipt |
+| --- | --- |
+| Production Actor and generic Python bridge | All 40 cases passed grouped and with serial process isolation; `stage4-regression.xml`, `stage4-isolated.xml` |
+| Reflection, property editing, World/Actor and Python/MCP compatibility | All 15 targets selected by `@domain=reflection+python+world+editor-operation+property-editor` passed with four scheduling slots; includes all 48 PythonToolIntegrationTests cases; `stage4-regression.xml` |
+| Lean-host module activation | Passed independently with serial isolation; `stage4-module-isolated.xml` |
+| Workspace consumers | RoadEditorIntegrationTests: 8 passed; SandboxGameplayTests: 13 passed; `stage4-road.xml`, `stage4-sandbox.xml` |
+| Complete production DHT suite | 435 passed, 1 skipped for unavailable Windows directory-symlink privilege; `stage4-dht.xml`, `stage4-dht.log` |
+
+The affected selector expands to all tests for the shared fixture and unregistered
+DHT runtime input. Complete DHT coverage plus the bounded reflection/editor set
+covers the parser change and generated native dispatch. Workspace symbol searches
+and consumer builds cover the additive service API and enum registration changes;
+native layouts and existing signatures remain unchanged, so no all build is
+required. Python-disabled, other-platform, GPU and application execution were not
+repeated; Stage 5 acceptance gates remain open. Lasting API/admission contracts
+are in the editor subsystem architecture, Python adapter and script guide.
+
+### Stage 4 simplification acceptance
+
+The follow-up removes FActorEditResult, FComponentEditResult,
+FActorScriptEditResult, FActorScriptHistoryResult and both edit status/error enums.
+Native Actor/Component creation returns a pointer, Actor duplication returns an
+array, and the remaining edits return bool. Rejection returns null/empty/false;
+successful no-ops return true. UI consumers provide contextual failure feedback.
+No error-string output, replacement result wrapper or legacy facade was added.
+The transactor still retains its typed execution/recovery evidence, and recovery
+tests inspect that authoritative state directly. Query info snapshots are unchanged.
+
+Validation used baseline `66dfd8af76355bacad8f07cde656458043e83022` plus the final
+inputs in `Build/PythonReflectionBridge/simplify-source-manifest.json` (SHA256
+`17793ffa443f64025281e4a6f04e021d6a27b76a17a894a95cf6d4a4251fe121`), on the
+same Windows preset/compiler/CPython ABI as the original Stage 4 receipt.
+
+| Gate | Result / receipt |
+| --- | --- |
+| Actor/Component structural edits and recovery | 51 cases passed; `simplify-native.xml` |
+| Native World/Actor, editor operations and Python/MCP compatibility | All six targets selected by `@domain=world+python+editor-operation` passed with four scheduling slots; `simplify-regression.xml` |
+| Real Python direct returns, rejected targets and unchanged history | All 41 bridge cases passed grouped and with serial isolation, including absence of the retired wrapper types and a no-op dirty/history check; `simplify-regression.xml`, `simplify-isolated.xml` |
+| Additional shared-source consumers | ViewportTests: 101 passed; SplineTests: 49 passed; `simplify-viewport.xml`, `simplify-spline.xml` |
+| Workspace consumers | RoadEditorIntegrationTests: 8 passed; SandboxGameplayTests: 13 passed; `simplify-road.xml`, `simplify-sandbox.xml` |
+
+Workspace-wide source/test searches found no external-project calls to the changed
+Actor service signatures. The selected tests compiled the owning module and all
+changed LevelEditor UI consumers. The affected selection also includes unrelated
+editor/rendering domains through shared modules; the bounded set covers these
+return-value changes without introducing GPU/application execution. DHT inputs
+and its unit fixtures are unchanged from the original Stage 4 suite receipt;
+production reflection was regenerated and compiled for the new return signatures.
+An existing unrelated PythonReflectionObjects.cpp worktree edit was excluded:
+validation temporarily used its committed baseline and restored the original
+bytes afterward. The source manifest lists only this task's inputs. Later edits
+are documentation-only. Stage 5 gates remain open.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze exposure, lifetime and Actor contracts
@@ -584,15 +797,15 @@ dependencies leaking into public native headers/runtime modules.
 Outcome: an unrelated fixture class can execute reflected methods through
 normal Python syntax. Depends on Stage 1.
 
-- [ ] Implement the selected scalar/enum/object/class/struct/container codecs
+- [x] Implement the selected scalar/enum/object/class/struct/container codecs
   using native property operations and owned value lifetimes.
-- [ ] Add method descriptors, argument binding, reflected defaults,
+- [x] Add method descriptors, argument binding, reflected defaults,
   ProcessEvent dispatch and return/out conversion.
-- [ ] Add read-only reflected property access and detached struct field access.
-- [ ] Verify inheritance/virtual dispatch, signed/unsigned bounds, math values,
+- [x] Add read-only reflected property access and detached struct field access.
+- [x] Verify inheritance/virtual dispatch, signed/unsigned bounds, math values,
   nulls, nontrivial storage cleanup, malformed kwargs, missing/native-only
   defaults, cycles, wrong classes/enums and unsupported signatures.
-- [ ] Prove invalid inputs never enter the native fixture method and all
+- [x] Prove invalid inputs never enter the native fixture method and all
   temporary references/storage are released after conversion/dispatch failure.
 
 Gate: a second native reflected type needs only metadata, with no handwritten
@@ -603,12 +816,21 @@ Python class or per-method bridge implementation.
 Outcome: eligible reflected properties can be edited with native validation,
 notifications, dirty state and Undo/Redo. Depends on Stage 2.
 
-- [ ] Adapt supported one-shot property edits through DurinEd's existing edit
+Implementation boundary: reuse one native member edit session per synchronous
+write, including an unchanged-cancellation path that preserves enclosing history.
+Recheck script admission and target policy after native proposal hooks and before
+publication; asynchronous proposal validation is unavailable in this entry point.
+Top-level fixed-array writes remain unavailable because native sessions snapshot
+one fixed-array element at a time, which cannot provide atomic whole-array
+replacement. Fixed arrays nested inside a supported struct remain part of its
+atomic snapshot; dynamic arrays and maps support whole-member replacement.
+
+- [x] Adapt supported one-shot property edits through DurinEd's existing edit
   pipeline without constructing UI widgets or importing LevelEditor internals.
-- [ ] Enforce writable exposure, target ownership and authoritative editability.
-- [ ] Verify normalization/rejection, nested struct replacement, snapshot
+- [x] Enforce writable exposure, target ownership and authoritative editability.
+- [x] Verify normalization/rejection, nested struct replacement, snapshot
   container semantics, notification order, shared scopes and Undo/Redo.
-- [ ] Cover read-only, foreign, closed and stale targets with no partial writes.
+- [x] Cover read-only, foreign, closed and stale targets with no partial writes.
 
 Gate: Python property writes preserve the same editor invariants as native edits.
 
@@ -617,14 +839,20 @@ Gate: Python property writes preserve the same editor invariants as native edits
 Outcome: real scripts query and edit Actors via the subsystem proxy.
 Depends on Stages 2-3 and the frozen native admission contract.
 
-- [ ] Add reflected query/edit signatures and result types, forwarding all six
+Compatibility boundary: automatic type publication defers graphs whose native
+module dependencies are not active. Explicit lookup still rejects unavailable
+owners; later safe-point publication adds the types after activation. This keeps
+lean Toolset/MCP hosts usable without granting access to inactive Actor types.
+Preserve external enum default expressions through DHT's hermetic export pass.
+
+- [x] Add reflected query/edit signatures and result types, forwarding all six
   structural operations to existing subsystem implementations.
-- [ ] Support class and transform arguments without per-Actor Python codecs.
-- [ ] Verify explicit Level targeting, current editor Level/Host membership,
+- [x] Support class and transform arguments without per-Actor Python codecs.
+- [x] Verify explicit Level targeting, current editor Level/Host membership,
   read-only/headless policy, unsupported PIE state and hierarchy constraints.
-- [ ] Exercise query, spawn, destroy, duplicate, rename, attach, detach and
+- [x] Exercise query, spawn, destroy, duplicate, rename, attach, detach and
   generic transform property editing in real-CPython CPU fixtures.
-- [ ] Verify Changed/NoOp/Failed results, batch semantics, shared transaction
+- [x] Verify direct success/failure returns, successful no-ops, batch semantics, shared transaction
   Undo/Redo, retained proxies across delete/undo, and native lifecycle callbacks
   that retire objects or close the Host during an operation.
 
@@ -635,23 +863,61 @@ dependency, second editing implementation or Python-only lifecycle exceptions.
 
 Outcome: documented, discoverable APIs with final evidence. Depends on Stage 4.
 
-- [ ] Provide help/dir/docstrings and deterministic IDE stubs from the same
+- [x] Provide help/dir/docstrings and deterministic IDE stubs from the same
   exposed registry, including Actor signatures; record output location and
   generation workflow. Generated declarations contain no business implementation.
-- [ ] Update Python architecture/usage and affected reflection/editor contracts,
+- [x] Update Python architecture/usage and affected reflection/editor contracts,
   including copy semantics, errors, supported types and explicit limitations.
-- [ ] Run final bounded coverage for generic reflection, DHT changes, property
+- [x] Run final bounded coverage for generic reflection, DHT changes, property
   editing, Actor editing and real CPython; run critical lifetime cases alone.
-- [ ] Verify existing Toolset/Python continuation/transaction and MCP Python-job
+- [x] Verify existing Toolset/Python continuation/transaction and MCP Python-job
   compatibility, Python-disabled startup, and enabled-runtime restoration.
-- [ ] Compile affected owning/consumer targets across workspace projects; record
+- [x] Compile affected owning/consumer targets across workspace projects; record
   tested revision, configuration, SDK, selections, receipts and remaining limits.
-- [ ] Validate changed documentation and all plan lifecycles; mark complete only
+- [x] Validate changed documentation and all plan lifecycles; mark complete only
   after every required gate passes and lasting contracts are in owning docs.
 
 Gate: all above pass on the available supported host. No other-platform execution
 or GPU qualification is claimed. Cross-platform SDK/ABI loader coverage must be
 recorded explicitly rather than inferred from this host's result.
+
+### Stage 5 Completion Evidence
+
+Validated baseline `ffb392e064fcd3353e48b60eb6092f52e1a4a215` plus the nine
+implementation/package/test inputs in
+`Build/PythonReflectionBridge/stage5-source-manifest.json` (SHA256
+`5a6c047aef326884fcc2a671f38d1d99751c1b4e6b7a308ab4e73f0b354cd5f4`).
+Host: Windows x64, `windows-msvc-x64`, `Win64-Debug-DurinEditor`, MSVC 14.44,
+packaged CPython 3.13.15 release GIL ABI with the default SDK root. Later edits
+are documentation-only and preserve these validated source inputs. Receipts below
+are ignored artifacts under `Build/PythonReflectionBridge/`.
+
+| Gate | Result / receipt |
+| --- | --- |
+| Published API discovery and declarations | `dir`, native docstrings, pydoc rendering, parsed/compiled declaration syntax, default/out packing, Actor direct returns, alias collisions and identical snapshots across sessions passed in the real interpreter |
+| Final native/Python/MCP compatibility | All 17 targets in `@domain=reflection+python+property-editor+world+editor-operation+mcp` passed with four scheduling slots; `stage5-restored-regression.xml` |
+| Lifetime and independent setup | All 42 reflection cases passed individually with serial isolation after runtime restoration; `stage5-restored-isolated.xml` |
+| Production DHT suite | 435 passed, 1 skipped for unavailable Windows directory-symlink privilege; `stage5-dht.xml`, `stage5-dht.log`; a non-failing pytest cache-write warning did not affect fixture execution |
+| Python-disabled editor Host | `DURIN_ENABLE_PYTHON=OFF` configured and compiled; the native CPU editor Host started with its Tool subsystem available while interpreter startup returned unavailable; `stage5-disabled.xml` |
+| Enabled-runtime restoration | Explicitly configured `DURIN_ENABLE_PYTHON=ON`, rebuilt and passed the final 17-target set and all isolated reflection cases; ON remains the checkout's final configuration |
+| Owning/editor consumers | The selected native graph built CoreDObject, Engine, DurinEd, DurinPython, LevelEditor and DurinMCP; explicit MainFrame and DurinLauncher builds passed; `stage5-builds.txt` records build logs and the DurinEditor executable path |
+| Cross-project consumers | SandboxGameplayTests: 13 passed; RoadEditorIntegrationTests: 8 passed; `stage5-sandbox.xml`, `stage5-road.xml` |
+| Documentation lifecycle | Changed-document validation and all-plan lifecycle validation passed |
+
+The existing broad affected selection includes unrelated Engine domains through
+shared fixture/module ownership. The bounded set covers private bridge discovery,
+the generic Python facade, native Actor/property behavior and transport consumers;
+the disabled-only test adds CPU Host validation without changing production ABI
+or foundational headers. No workspace-wide all build is required. This stage has
+no GPU/application-hosted execution or timing qualification. Windows dynamic SDK
+loading and the interpreter-unavailable path were exercised; macOS/other-platform
+SDK and ABI loader behavior were not executed or inferred from these results.
+
+Lasting discovery, declaration generation, copying, error, type and limitation
+contracts are owned by [Python architecture](../Editor/Architecture/PythonTools.md)
+and the [script guide](../Editor/Guides/PythonScripts.md). The generation workflow
+writes `Build/PythonStubs/durin/__init__.pyi`; no generated business bindings or
+versioned declaration snapshots are introduced.
 
 ## Validation Policy
 

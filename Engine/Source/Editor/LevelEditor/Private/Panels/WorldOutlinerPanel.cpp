@@ -151,10 +151,10 @@ namespace Durin::Editor::Level
 	{
 		std::vector<AActor*> Actors;
 		for (const auto& Actor : Context.GetSelectedActors()) Actors.push_back(Actor.Get());
-		const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateActors(*Context.Level, Actors, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
-		if (!Result) { Context.SetError(Result.Message); return; }
+		const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateActors(*Context.Level, Actors, {Context.bReadOnly}) : std::vector<TObjectPtr<AActor>>{});
+		if (Result.empty()) { Context.SetError("Actor duplication failed."); return; }
 		Actors.clear();
-		for (const auto& Actor : Result.Actors) Actors.push_back(Actor.Get());
+		for (const auto& Actor : Result) Actors.push_back(Actor.Get());
 		Context.SetSelectedActors(Actors);
 	}
 
@@ -272,8 +272,8 @@ namespace Durin::Editor::Level
 				{
 					const auto Result = Context.GetActorEditor()
 						? Context.GetActorEditor()->AttachActors(*Context.Level, MoveActors, Actor, AttachmentRule, {Context.bReadOnly})
-						: FActorEditResult{{}, "Actor editing service is unavailable."};
-					if (!Result) Context.SetError(Result.Message);
+						: false;
+					if (!Result) Context.SetError("Actor or component edit failed.");
 				}
 			}
 			ImGui::EndDragDropTarget();
@@ -344,8 +344,8 @@ namespace Durin::Editor::Level
 			{
 				const auto Result = Context.GetActorEditor()
 					? Context.GetActorEditor()->DetachActors(*Context.Level, Actors, DetachmentRule, {Context.bReadOnly})
-					: FActorEditResult{{}, "Actor editing service is unavailable."};
-				if (!Result) Context.SetError(Result.Message);
+					: false;
+				if (!Result) Context.SetError("Actor or component edit failed.");
 			}
 		}
 		ImGui::EndDragDropTarget();
@@ -385,14 +385,14 @@ namespace Durin::Editor::Level
 					if (!ContainsInsensitive(DisplayName, ActorTypeSearchText.data())) continue;
 					if (ImGui::MenuItem(DisplayName.c_str()))
 					{
-						const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, Class, FName(), FTransform{}, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
+						const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, Class, FName(), FTransform{}, {Context.bReadOnly}) : nullptr);
 						if (Result)
 						{
-							Context.SelectActor(Result.Actors.front().Get());
+							Context.SelectActor(Result);
 							bLevelSelected = false;
 						}
 						else
-							Context.SetError(Result.Message);
+							Context.SetError("Actor or component edit failed.");
 					}
 				}
 				ImGui::EndMenu();
@@ -450,7 +450,7 @@ namespace Durin::Editor::Level
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw(RenamePopupTitle, CurrentRenameName, [&](std::string_view NewName) -> std::string {
 			if (bRenameActor)
 			{
-				return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameActor(*Context.Level, RenamingActor.Get(), FName(NewName), {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."}).Message;
+				return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameActor(*Context.Level, RenamingActor.Get(), FName(NewName), {Context.bReadOnly}) : false) ? std::string{} : "Rename failed.";
 			}
 			return Context.RenameLevel && Context.RenameLevel(NewName) ? std::string() : "Failed to rename level.";
 		});
@@ -474,8 +474,8 @@ namespace Durin::Editor::Level
 			{
 				std::vector<AActor*> Actors;
 				for (const auto& Actor : PendingDeleteActors) Actors.push_back(Actor.Get());
-				const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DestroyActors(*Context.Level, Actors, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
-				if (!Result) Context.SetError(Result.Message);
+				const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DestroyActors(*Context.Level, Actors, {Context.bReadOnly}) : false);
+				if (!Result) Context.SetError("Actor or component edit failed.");
 				else Context.ClearSelection();
 				PendingDeleteActors.clear();
 				ImGui::CloseCurrentPopup();

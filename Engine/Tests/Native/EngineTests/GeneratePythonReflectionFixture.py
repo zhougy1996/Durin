@@ -23,7 +23,16 @@ symbols = {"Durin::DObject": ExportedSymbolInfo(
 symbols["Durin::DEditorSubsystem"] = ExportedSymbolInfo(
     Kind="class", ShortName="DEditorSubsystem", Namespace="Durin", QualifiedName="Durin::DEditorSubsystem",
     Header="Public/Editor/EditorSubsystem.h", API="DURINED_API", BaseQualifiedName="Durin::DObject")
+symbols["Durin::DClass"] = ExportedSymbolInfo(
+    Kind="class", ShortName="DClass", Namespace="Durin", QualifiedName="Durin::DClass",
+    Header="Public/DObject/Class.h", API="COREDOBJECT_API", BaseQualifiedName="Durin::DObject")
 _add_builtin_symbols(symbols)
+symbols["Durin::AActor"] = ExportedSymbolInfo(
+    Kind="class", ShortName="AActor", Namespace="Durin", QualifiedName="Durin::AActor",
+    Header="Public/Engine/Actor.h", API="ENGINE_API", BaseQualifiedName="Durin::DObject")
+symbols["Durin::PythonFixtures::FReflectionValue"] = ExportedSymbolInfo(
+    Kind="struct", ShortName="FReflectionValue", Namespace="Durin::PythonFixtures",
+    QualifiedName="Durin::PythonFixtures::FReflectionValue", Header=config.reflect_headers[0], API="PYTHONFIXTURE_API")
 with (mock.patch.object(configs, "get_module_config", return_value=config),
       mock.patch.object(configs, "collect_all_dependent_modules", return_value=set())):
     info = parse_reflection_header("PythonFixture", config.reflect_headers[0], symbols)

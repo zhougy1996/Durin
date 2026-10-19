@@ -318,10 +318,10 @@ namespace Durin::Editor::Level
 							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
 								PlacementTransform.Translation = Origin + Direction * 5.0;
 
-							const auto ApplyResult = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, AStaticMeshActor::StaticClass(), FName(AssetPath.GetAssetPath().GetAssetName()), PlacementTransform, {Context.bReadOnly}, [StaticMesh](AActor& Created) { static_cast<AStaticMeshActor&>(Created).GetStaticMeshComponent()->SetStaticMesh(StaticMesh); }) : FActorEditResult{{}, "Actor editing service is unavailable."});
+							const auto ApplyResult = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, AStaticMeshActor::StaticClass(), FName(AssetPath.GetAssetPath().GetAssetName()), PlacementTransform, {Context.bReadOnly}, [StaticMesh](AActor& Created) { static_cast<AStaticMeshActor&>(Created).GetStaticMeshComponent()->SetStaticMesh(StaticMesh); }) : nullptr);
 							if (!ApplyResult)
-								Context.SetError(ApplyResult.Message);
-							else Actor = ApplyResult.Actors.front().Get();
+								Context.SetError("Actor creation failed.");
+							else Actor = ApplyResult;
 						}
 						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
 						{

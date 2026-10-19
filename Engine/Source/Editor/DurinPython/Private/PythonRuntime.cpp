@@ -287,6 +287,11 @@ namespace Durin
                 PyObject* Type; if (!PyArg_ParseTuple(Params, "O", &Type)) return nullptr;
                 return PythonReflection::GetEditorSubsystem(Type);
             }
+            if (Op == "reflection_stubs")
+            {
+                if (!PyArg_ParseTuple(Params, "")) return nullptr;
+                return PythonReflection::GenerateStubs();
+            }
             if (Op == "transaction_begin")
             {
                 const char* Description;

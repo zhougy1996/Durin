@@ -38,7 +38,7 @@ namespace Durin
 	};
 
 	// Defines actor-owned lifecycle, registration, play, and optional tick behavior.
-	DCLASS()
+	DCLASS(ScriptType)
 	class DActorComponent : public DObject
 	{
 		GENERATED_BODY()

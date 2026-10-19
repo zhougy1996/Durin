@@ -8,6 +8,7 @@
 #include "Engine/World.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Threading/RunnableThread.h"
+#include "Tools/EditorScriptCall.h"
 
 namespace Durin
 {
@@ -15,42 +16,48 @@ namespace Durin
 	DEditorActorSubsystem::DEditorActorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 	auto DEditorActorSubsystem::Admit(const FActorEditContext& Context, DLevel* Level, AActor* Owner, bool bDuringEdit) const
-		-> std::expected<DTransactor*, FActorEditResult>
+		-> DTransactor*
 	{
-		const auto Reject = [](EActorEditError Error, std::string Message) -> std::expected<DTransactor*, FActorEditResult> {
-			return std::unexpected(FActorEditResult{{}, std::move(Message), EActorEditStatus::Failed, Error});
-		};
-		if (!IsInGameThread()) return Reject(EActorEditError::WrongThread, "Actor editing requires the game thread.");
-		if (!IsValid(this)) return Reject(EActorEditError::Unavailable, "The actor editing service is unavailable.");
+
+		if (!IsInGameThread()) return nullptr;
+		if (!IsValid(this)) return nullptr;
 		if (Owner)
 		{
-			if (!IsValid(Owner)) return Reject(EActorEditError::InvalidTarget, "The owning actor is unavailable.");
+			if (!IsValid(Owner)) return nullptr;
 			auto* OwnerLevel = Cast<DLevel>(Owner->GetOuter());
-			if (Level && Level != OwnerLevel) return Reject(EActorEditError::InvalidTarget, "The actor belongs to another Level.");
+			if (Level && Level != OwnerLevel) return nullptr;
 			Level = OwnerLevel;
 		}
-		if (bEditing && !bDuringEdit) return Reject(EActorEditError::HistoryUnavailable, "An actor edit is already in progress.");
-		if (Context.bReadOnly) return Reject(EActorEditError::ReadOnly, "The document is read-only.");
+		if (bEditing && !bDuringEdit) return nullptr;
+		if (Context.bReadOnly) return nullptr;
 		auto* Host = GetEditor();
 		const auto Gate = GetWorkGate();
 		if (!IsValid(Host) || Host != GEditor || !Gate || !Gate->IsOpen()
 			|| Host->GetEditorSubsystem<DEditorActorSubsystem>() != this)
-			return Reject(EActorEditError::Unavailable, "The actor editing service is unavailable or retiring.");
-		if (Host->IsPlaying()) return Reject(EActorEditError::PlayState, "Actor editing is unavailable during play-in-editor.");
+			return nullptr;
+		if (Host->IsPlaying()) return nullptr;
 		if (!IsValid(Level) || !IsValid(Host->GetEditorWorld()) || Level->GetWorld() != Host->GetEditorWorld()
 			|| Host->GetEditorWorld()->GetCurrentLevel() != Level)
-			return Reject(EActorEditError::InvalidTarget, "The Level is not owned by this editor.");
+			return nullptr;
 		auto* Transactions = Host->GetTransactor();
 		if (!IsValid(Level) || Level->IsTemplateObject()
 			|| (Owner && (!IsValid(Owner) || Owner->IsTemplateObject() || Owner->IsBeingDestroyed() || Owner->HasBegunPlay()
 				|| Owner->GetOuter() != Level || !Level->ContainsActor(Owner))))
-			return Reject(EActorEditError::InvalidTarget, "The Level or owning actor is unavailable or detached.");
+			return nullptr;
 		if (auto* World = Level->GetWorld(); World && (!IsValid(World) || World->IsShutdownRequested()))
-			return Reject(EActorEditError::InvalidTarget, "The owning World is unavailable or shutting down.");
+			return nullptr;
 		if (auto* World = Level->GetWorld(); World && World->GetPlayState() != EWorldPlayState::Stopped)
-			return Reject(EActorEditError::PlayState, "Actor editing requires a stopped World.");
+			return nullptr;
+		if (auto* Script = FScopedEditorScriptCall::Current())
+		{
+			if (!Script->IsAdmitted() || Script->GetContext().Host != Host)
+				return nullptr;
+			const auto Access = Script->ResolveEditAccess(*Level);
+			if (Access != EEditorScriptTargetAccess::Writable)
+				return nullptr;
+		}
 		if (!IsValid(Transactions) || !Transactions->CanTransact())
-			return Reject(EActorEditError::HistoryUnavailable, "Actor editing requires an idle or recording editor transactor.");
+			return nullptr;
 		return Transactions;
 	}
 
@@ -67,50 +74,48 @@ namespace Durin
 			return true;
 		}
 		auto SubmitAttachment(DTransactor& Transactions, std::vector<FActorAttachmentTransaction::FEntry> Entries,
-			bool bAttach) -> FActorEditResult
+			bool bAttach) -> bool
 		{
-			if (Entries.empty()) return {{}, {}, EActorEditStatus::NoOp, EActorEditError::None};
-			std::vector<TObjectPtr<AActor>> Actors;
-			for (const auto& Entry : Entries) Actors.push_back(Entry.Actor);
+			if (Entries.empty()) return true;
 			const auto Result = ::Durin::Editor::ApplyEditorChange(Transactions, std::make_unique<FActorAttachmentTransaction>(std::move(Entries), bAttach));
-			return Result ? FActorEditResult{std::move(Actors), {}, EActorEditStatus::Changed, EActorEditError::None, Result}
-				: FActorEditResult{{}, FormatTransactorResult(Result), EActorEditStatus::Failed, EActorEditError::HistoryRejected, Result};
+			if (!Result) return false;
+			return true;
 		}
 	}
 	auto DEditorActorSubsystem::AttachActors(DLevel& Level, std::span<AActor* const> Actors, AActor* Parent,
-		EAttachmentTransformRule Rule, const FActorEditContext& Context) -> FActorEditResult
+		EAttachmentTransformRule Rule, const FActorEditContext& Context) -> bool
 	{
 		auto Admission = Admit(Context, &Level);
-		if (!Admission) return Admission.error();
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		if (!Admission) return false;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
 			if (!ValidateActors(Level, Actors) || !IsValid(Parent) || !ValidateActors(Level, {&Parent, 1}))
-				return {{}, "Invalid actor attachment selection."};
+				return false;
 			std::vector<FActorAttachmentTransaction::FEntry> Entries;
 			for (auto* Actor : Actors)
 			{
-				if (Parent == Actor) return {{}, "An actor cannot attach to itself."};
+				if (Parent == Actor) return false;
 				for (auto* Ancestor = Parent; Ancestor; Ancestor = Ancestor->GetAttachParentActor())
-					if (Ancestor == Actor) return {{}, "Actor attachment would create a cycle."};
+					if (Ancestor == Actor) return false;
 				if (Actor->GetAttachParentActor() != Parent || Rule == EAttachmentTransformRule::SnapToTarget)
 					Entries.push_back(MakeActorAttachmentEntry(*Actor, *Parent, Rule));
 			}
-			return SubmitAttachment(**Admission, std::move(Entries), true);
+			return SubmitAttachment(*Admission, std::move(Entries), true);
 
 		});
 	}
 	auto DEditorActorSubsystem::DetachActors(DLevel& Level, std::span<AActor* const> Actors,
-		EDetachmentTransformRule Rule, const FActorEditContext& Context) -> FActorEditResult
+		EDetachmentTransformRule Rule, const FActorEditContext& Context) -> bool
 	{
 		auto Admission = Admit(Context, &Level);
-		if (!Admission) return Admission.error();
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		if (!Admission) return false;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			if (!ValidateActors(Level, Actors)) return {{}, "Invalid actor detachment selection."};
+			if (!ValidateActors(Level, Actors)) return false;
 			std::vector<FActorAttachmentTransaction::FEntry> Entries;
 			for (auto* Actor : Actors)
 				if (Actor->GetAttachParentActor()) Entries.push_back(MakeActorDetachmentEntry(*Actor, Rule));
-			return SubmitAttachment(**Admission, std::move(Entries), false);
+			return SubmitAttachment(*Admission, std::move(Entries), false);
 
 		});
 	}

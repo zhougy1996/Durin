@@ -11,6 +11,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Logging/LogMacros.h"
 #include "Misc/AssertionMacros.h"
+#include "Tools/EditorScriptCall.h"
 
 namespace Durin::Editor
 {
@@ -181,6 +182,7 @@ namespace Durin::Editor
 				return RejectDraft(Result.error());
 			if (Proposal.DeferredAction)
 			{
+				if (FScopedEditorScriptCall::Current()) return Reject(EPropertyMutationError::DeferredUnavailable);
 				if (!OutDeferred)
 					return Reject(EPropertyMutationError::DeferredUnavailable);
 				OutDeferred->ProposedValue = std::move(Normalized);
@@ -201,6 +203,19 @@ namespace Durin::Editor
 				}
 				return Result;
 			};
+			// Proposal hooks can retire a document, target or endpoint. Check live authority
+			// at the publication boundary, after all synchronous normalization callbacks.
+			if (Phase == EPropertyChangePhase::Interactive && Origin == EPropertyChangeOrigin::Edit)
+				if (auto* Script = FScopedEditorScriptCall::Current(); Script
+					&& Script->ResolveEditAccess(*Target.Object) != EEditorScriptTargetAccess::Writable)
+				{
+					Script->Reject("Property target is no longer writable.");
+					auto Result = Reject(EPropertyMutationError::ObjectValidation);
+					Result.error().ValidationCause = FObjectValidationError{
+						.Code = EObjectValidationError::PropertyRejected, .PropertyReason = EPropertyEditRejection::Rejected,
+						.Message = "Script property publication lost target admission."};
+					return Result;
+				}
 			if (const auto Publication = RestoreTargetValue(Target, Normalized); !Publication)
 				return Recover(EPropertyMutationError::Publication, Publication.error());
 
@@ -1190,6 +1205,26 @@ namespace Durin::Editor
 		}
 		Reset();
 		return {.Status = bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
+	}
+
+	auto FPropertyEditSession::CancelUnchanged() -> FPropertyEditOperationResult
+	{
+		if (!bActive || HasChanges() || bDeferredPending)
+			return Reject("Unchanged cancellation requires an active unchanged synchronous edit.");
+		if (IsValid(Target.Object))
+			if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
+				EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit); !Mutation)
+				return Reject(FormatPropertyMutationError(Mutation.Error));
+		if (TransactionScope && TransactionScope->IsOutstanding())
+		{
+			(void)TransactionScope->End();
+			const auto Result = Transactor->GetLastResult();
+			if (Result.Code == ETransactorResultCode::Rejected || Result.Code == ETransactorResultCode::Failed
+				|| Result.Code == ETransactorResultCode::RecoveryRequired)
+				return Reject(FormatTransactorResult(Result));
+		}
+		Reset();
+		return {};
 	}
 
 	auto FPropertyEditSession::Cancel() -> FPropertyEditOperationResult

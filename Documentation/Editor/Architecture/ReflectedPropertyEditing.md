@@ -153,6 +153,12 @@ session owner before a late completion can publish. Committed property records
 remain callback-free and synchronous; a domain extension with asynchronous
 preview work must also provide a synchronous Undo/Redo path.
 
+Synchronous script property writes reject deferred proposals before launching
+their work. With an active `FScopedEditorScriptCall`, interactive publication
+rechecks target admission and authoritative editability after proposal hooks,
+before restoring the normalized draft into live storage. The native seam has no
+Python dependency; the Python adapter owns conversion and exception mapping.
+
 ## Edit Session Lifecycle
 
 `Editor::FPropertyEditSession` implements one logical edit. Begin, Apply,
@@ -197,6 +203,12 @@ but only one transaction. Escape restores the original value. Every successful
 Begin has exactly one terminal Committed or Cancelled event, including an
 interaction that never changes or returns to its original snapshot; those no-op
 interactions do not dirty the package or enter history.
+
+`CancelUnchanged()` closes an active unchanged session with no deferred work,
+emits Cancelled for a live target, and ends its transaction scope. It preserves
+an enclosing recording and earlier edits, allowing a synchronous rejected
+proposal to report failure without discarding shared history. Changed or pending
+sessions must use the ordinary restoration/cancellation path.
 
 Destroying a session cancels an applied preview as a safety fallback. Hosts
 should still explicitly commit or cancel when selection, document, read-only

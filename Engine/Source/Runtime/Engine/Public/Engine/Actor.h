@@ -31,7 +31,7 @@ namespace Durin
 	};
 
 	// Owns a root scene component plus default and runtime-added component lifecycles.
-	DCLASS()
+	DCLASS(ScriptType)
 	class AActor : public DObject
 	{
 		GENERATED_BODY()

@@ -5,9 +5,10 @@ if(TARGET DurinPython AND NOT TARGET DurinCPython)
         MODULES durin-python
         STACKS editor
         SOURCES Private/PythonRuntimeUnavailableTests.cpp
-        LIBRARIES Core CoreDObject DurinPython
+        LIBRARIES Core CoreDObject Engine DurinEd DurinPython
         REQUIRES editor
         REQUIREMENT_RATIONALE "Verifies the optional interpreter-unavailable contract without a Python loader dependency."
+        HEAVY_RUNTIME_RATIONALE "Starts a CPU editor Host and checks native tool availability while Python is disabled."
     )
 else()
     durin_exclude_native_test_sources(
@@ -17,9 +18,27 @@ endif()
 if(NOT TARGET DurinCPython OR NOT TARGET DurinPython)
     durin_exclude_native_test_sources(
         RATIONALE "Requires the optional qualified CPython SDK and editor module."
-        SOURCES Private/PythonToolIntegrationTests.cpp Private/MCPPythonJobTests.cpp Private/PythonReflectionIntegrationTests.cpp)
+        SOURCES Private/PythonToolIntegrationTests.cpp Private/MCPPythonJobTests.cpp Private/PythonReflectionIntegrationTests.cpp Private/PythonScriptPanelTests.cpp)
     return()
 endif()
+durin_add_native_test(PythonScriptPanelTests
+    KIND integration
+    DOMAINS python editor-shell
+    MODULES main-frame durin-python content-browser
+    STACKS editor
+    PRIVATE_SOURCE_OWNER MainFrame
+    PRIVATE_SOURCE_RATIONALE "Exercises the production Python presenter and scoped browser action without exporting host UI state."
+    SOURCES Private/PythonScriptPanelTests.cpp
+    PRIVATE_SOURCES ${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private/Panels/PythonScriptPanel.cpp
+    INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private
+    LIBRARIES Core CoreDObject Engine DurinEd DurinPython ContentBrowser MonaImGui
+    REQUIRES editor
+    REQUIREMENT_RATIONALE "Runs the browser command through the real interpreter on a CPU editor Host."
+    HEAVY_RUNTIME_RATIONALE "Loads native editor modules without an application window or GPU renderer."
+)
+target_compile_definitions(PythonScriptPanelTests PRIVATE
+    DURIN_PYTHON_EXAMPLE_PATH="${CMAKE_SOURCE_DIR}/Engine/Content/Scripts/Examples/CreateTestScene.py")
+
 durin_add_native_test(PythonToolIntegrationTests
     KIND integration
     DOMAINS python editor-tools

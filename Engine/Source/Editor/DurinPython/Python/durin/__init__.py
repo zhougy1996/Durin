@@ -19,3 +19,12 @@ def get_type(qualified_name):
 def get_editor_subsystem(subsystem_type):
     """Return the selected editor Host's existing subsystem instance."""
     return _request("editor_subsystem", (subsystem_type,))
+
+
+def generate_stubs():
+    """Return deterministic .pyi declarations for the currently published native API.
+
+    Save as Build/PythonStubs/durin/__init__.pyi and add Build/PythonStubs to
+    your IDE's Python search paths. Regenerate after loading native modules.
+    """
+    return _request("reflection_stubs", ())

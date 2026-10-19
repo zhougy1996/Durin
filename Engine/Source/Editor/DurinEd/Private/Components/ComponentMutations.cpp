@@ -266,13 +266,14 @@ namespace Durin
 		};
 
 		auto Execute(std::unique_ptr<FActorCommandChange> Change, DActorComponent* Component,
-			DTransactor* Transactions) -> FComponentEditResult
+			DTransactor* Transactions) -> bool
 		{
-			if (!Transactions) return {nullptr, "Component editing requires an editor transactor."};
+			if (!Transactions) return false;
 			const auto Result = ::Durin::Editor::ApplyEditorChange(*Transactions, std::move(Change));
 			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired && IsValid(Component))
 				if (auto* Owner = Component->GetOwner(); !IsValid(Owner) || !Owner->OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
-			return Result ? FComponentEditResult{Component, {}, EActorEditStatus::Changed, EActorEditError::None, Result} : FComponentEditResult{nullptr, FormatTransactorResult(Result), EActorEditStatus::Failed, EActorEditError::HistoryRejected, Result};
+			if (!Result) return false;
+			return true;
 		}
 		auto UniqueName(AActor& Owner, FName Requested, DObject* Ignored = nullptr) -> FName
 		{
@@ -285,22 +286,22 @@ namespace Durin
 	}
 
 	auto DEditorActorSubsystem::AddComponent(AActor& Owner, DClass* Class, DSceneComponent* Parent,
-		const FActorEditContext& Context) -> FComponentEditResult
+		const FActorEditContext& Context) -> DActorComponent*
 	{
 		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) { const auto& Error = Admission.error(); return {nullptr, Error.Message, Error.Status, Error.Error, Error.History}; }
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FComponentEditResult
+		if (!Admission) return nullptr;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> DActorComponent*
 		{
-			auto* Transactions = *Admission;
+			auto* Transactions = Admission;
 			if (!CanConstructObjectOfClass(Class, DActorComponent::StaticClass())
 				|| (Parent && (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay()
-					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)))) return {nullptr, "Invalid component addition target."};
+					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)))) return nullptr;
 			DActorComponent* Component = nullptr;
 			{
 				FScopedPackageDirtySuppression SuppressPreparation;
 				Component = NewObject<DActorComponent>(Class, &Owner, UniqueName(Owner, FName(Class->GetDefaultObjectName())), EObjectFlags::Transactional);
 			}
-			if (!Component) return {nullptr, "Component construction failed."};
+			if (!Component) return nullptr;
 			Component->SetTransient(true);
 			auto Change = std::make_unique<FComponentMembershipChange>(Owner, *Component, false);
 			auto* Scene = Cast<DSceneComponent>(Component);
@@ -315,24 +316,24 @@ namespace Durin
 			if (auto Revalidated = Admit(Context, nullptr, &Owner, true); !Revalidated)
 			{
 				if (IsValid(Component)) MarkObjectHierarchyAsGarbage(Component);
-				const auto& Error = Revalidated.error();
-				return {nullptr, Error.Message, Error.Status, Error.Error, Error.History};
+				return nullptr;
 			}
-			return Execute(std::move(Change), Component, Transactions);
+			if (auto Applied = Execute(std::move(Change), Component, Transactions); !Applied) return nullptr;
+			return Component;
 
 		});
 	}
 
 	auto DEditorActorSubsystem::DuplicateComponent(AActor& Owner, DActorComponent* Source,
-		const FActorEditContext& Context) -> FComponentEditResult
+		const FActorEditContext& Context) -> DActorComponent*
 	{
 		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) { const auto& Error = Admission.error(); return {nullptr, Error.Message, Error.Status, Error.Error, Error.History}; }
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FComponentEditResult
+		if (!Admission) return nullptr;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> DActorComponent*
 		{
-			auto* Transactions = *Admission;
+			auto* Transactions = Admission;
 			if (!IsValid(Source) || !Owner.IsInstanceComponent(Source)
-				|| Owner.GetRootComponent() == Source) return {nullptr, "Invalid component duplication target."};
+				|| Owner.GetRootComponent() == Source) return nullptr;
 			auto Copy = [&] {
 				FScopedPackageDirtySuppression SuppressPreparation;
 				auto Prepared = DuplicateObject(Source, &Owner, UniqueName(Owner, Source->GetFName()));
@@ -341,7 +342,7 @@ namespace Durin
 						Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
 				return Prepared;
 			}();
-			if (!Copy) return {nullptr, ToString(Copy.error())};
+			if (!Copy) return nullptr;
 			auto* Component = *Copy;
 			auto Change = std::make_unique<FComponentMembershipChange>(Owner, *Component, false);
 			Component->SetTransient(true);
@@ -352,63 +353,63 @@ namespace Durin
 			if (auto Revalidated = Admit(Context, nullptr, &Owner, true); !Revalidated)
 			{
 				if (IsValid(Component)) MarkObjectHierarchyAsGarbage(Component);
-				const auto& Error = Revalidated.error();
-				return {nullptr, Error.Message, Error.Status, Error.Error, Error.History};
+				return nullptr;
 			}
-			return Execute(std::move(Change), Component, Transactions);
+			if (auto Applied = Execute(std::move(Change), Component, Transactions); !Applied) return nullptr;
+			return Component;
 
 		});
 	}
 
 	auto DEditorActorSubsystem::RenameComponent(AActor& Owner, DActorComponent* Component, FName RequestedName,
-		const FActorEditContext& Context) -> FComponentEditResult
+		const FActorEditContext& Context) -> bool
 	{
 		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) { const auto& Error = Admission.error(); return {nullptr, Error.Message, Error.Status, Error.Error, Error.History}; }
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FComponentEditResult
+		if (!Admission) return false;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = *Admission;
+			auto* Transactions = Admission;
 			if (!IsValid(Component) || Component->IsTemplateObject()
 				|| Component->GetOwner() != &Owner || !Owner.OwnsComponent(Component) || RequestedName.IsNone()
-				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return {nullptr, "Invalid component rename target."};
+				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return false;
 			const FName Name = UniqueName(Owner, RequestedName, Component);
-			if (Name == Component->GetFName()) return {Component, {}, EActorEditStatus::NoOp, EActorEditError::None};
+			if (Name == Component->GetFName()) return true;
 			return Execute(std::make_unique<FComponentRenameChange>(Owner, *Component, Name), Component, Transactions);
 
 		});
 	}
 
 	auto DEditorActorSubsystem::ReparentComponent(AActor& Owner, DSceneComponent* Component, DSceneComponent* Parent,
-		const FActorEditContext& Context) -> FComponentEditResult
+		const FActorEditContext& Context) -> bool
 	{
 		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) { const auto& Error = Admission.error(); return {nullptr, Error.Message, Error.Status, Error.Error, Error.History}; }
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FComponentEditResult
+		if (!Admission) return false;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = *Admission;
+			auto* Transactions = Admission;
 			if (!IsValid(Component) || Component->GetOwner() != &Owner
 				|| !Owner.OwnsComponent(Component) || Owner.GetRootComponent() == Component
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated
 				|| (Parent && (!IsValid(Parent) || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)
 					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent == Component || Parent->IsAttachedTo(Component))))
-				return {nullptr, "Invalid component attachment target."};
-			if (Component->GetAttachParent() == Parent) return {Component, {}, EActorEditStatus::NoOp, EActorEditError::None};
+				return false;
+			if (Component->GetAttachParent() == Parent) return true;
 			return Execute(std::make_unique<FComponentReparentChange>(Owner, *Component, Parent), Component, Transactions);
 
 		});
 	}
 
 	auto DEditorActorSubsystem::DeleteComponent(AActor& Owner, DActorComponent* Component,
-		const FActorEditContext& Context) -> FComponentEditResult
+		const FActorEditContext& Context) -> bool
 	{
 		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) { const auto& Error = Admission.error(); return {nullptr, Error.Message, Error.Status, Error.Error, Error.History}; }
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FComponentEditResult
+		if (!Admission) return false;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = *Admission;
+			auto* Transactions = Admission;
 			if (!IsValid(Component) || !Owner.IsInstanceComponent(Component)
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated)
-				return {nullptr, "Invalid component deletion target."};
+				return false;
 			return Execute(std::make_unique<FComponentMembershipChange>(Owner, *Component, true), Component, Transactions);
 
 		});

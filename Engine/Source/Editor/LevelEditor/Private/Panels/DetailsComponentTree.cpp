@@ -75,14 +75,14 @@ namespace Durin::Editor::Level
 			RenameDialog.Open(Component->GetName());
 		};
 		auto DuplicateComponent = [&](DActorComponent* Source) {
-			const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateComponent(*Actor, Source, {Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."});
-			if (!Result) { Context.SetError(Result.Message); return; }
-			Context.SelectComponent(Result.Component);
-			if (auto* Scene = Cast<DSceneComponent>(Result.Component)) PendingExpandComponent = Scene->GetAttachParent();
+			const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateComponent(*Actor, Source, {Context.bReadOnly}) : nullptr);
+			if (!Result) { Context.SetError("Actor or component edit failed."); return; }
+			Context.SelectComponent(Result);
+			if (auto* Scene = Cast<DSceneComponent>(Result)) PendingExpandComponent = Scene->GetAttachParent();
 		};
 		auto ReparentComponent = [&](DSceneComponent* Moving, DSceneComponent* Parent) {
-			const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->ReparentComponent(*Actor, Moving, Parent, {Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."});
-			if (!Result) { Context.SetError(Result.Message); return; }
+			const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->ReparentComponent(*Actor, Moving, Parent, {Context.bReadOnly}) : false);
+			if (!Result) { Context.SetError("Actor or component edit failed."); return; }
 			PendingExpandComponent = Parent;
 		};
 
@@ -270,7 +270,7 @@ namespace Durin::Editor::Level
 		}
 		DActorComponent* RenameTarget = RenamingComponent.Get();
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw("Rename Component", RenameTarget ? RenameTarget->GetName() : std::string_view(), [&](std::string_view NewName) -> std::string {
-			return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameComponent(*Actor, RenameTarget, FName(NewName), {Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."}).Message;
+			return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameComponent(*Actor, RenameTarget, FName(NewName), {Context.bReadOnly}) : false) ? std::string{} : "Rename failed.";
 		});
 		if (RenameResult != EEditorRenameDialogResult::None) RenamingComponent = nullptr;
 		if (bOpenAddPopup) ImGui::OpenPopup("Add Component");
@@ -291,13 +291,13 @@ namespace Durin::Editor::Level
 				if (ImGui::Selectable(DisplayName.c_str()))
 				{
 					const auto Result = bAddComponentAsChild && !AddComponentParent
-						? FComponentEditResult{nullptr, "The component parent is unavailable."}
-						: (Context.GetActorEditor() ? Context.GetActorEditor()->AddComponent(*Actor, Class, bAddComponentAsChild ? AddComponentParent.Get() : nullptr, {Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."});
-					if (!Result) Context.SetError(Result.Message);
+						? nullptr
+						: (Context.GetActorEditor() ? Context.GetActorEditor()->AddComponent(*Actor, Class, bAddComponentAsChild ? AddComponentParent.Get() : nullptr, {Context.bReadOnly}) : nullptr);
+					if (!Result) Context.SetError("Actor or component edit failed.");
 					else
 					{
-						Context.SelectComponent(Result.Component);
-						if (auto* Scene = Cast<DSceneComponent>(Result.Component)) PendingExpandComponent = Scene->GetAttachParent();
+						Context.SelectComponent(Result);
+						if (auto* Scene = Cast<DSceneComponent>(Result)) PendingExpandComponent = Scene->GetAttachParent();
 					}
 					ImGui::CloseCurrentPopup();
 				}
@@ -316,8 +316,8 @@ namespace Durin::Editor::Level
 			if (ImGui::Button("Delete"))
 			{
 				DActorComponent* Component = PendingDeleteComponent.Get();
-				const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DeleteComponent(*Actor, Component, {Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."});
-				if (!Result) Context.SetError(Result.Message);
+				const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DeleteComponent(*Actor, Component, {Context.bReadOnly}) : false);
+				if (!Result) Context.SetError("Actor or component edit failed.");
 				else if (Context.GetSelectedComponent() == Component) Context.SelectComponent(nullptr);
 				PendingDeleteComponent = nullptr;
 				ImGui::CloseCurrentPopup();

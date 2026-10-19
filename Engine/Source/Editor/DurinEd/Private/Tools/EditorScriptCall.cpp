@@ -42,7 +42,8 @@ namespace Durin
         if (!IsAdmitted() || Context.Host->IsPlaying() || !IsValid(&Target)) return EEditorScriptTargetAccess::Unavailable;
         DLevel* Level = Cast<DLevel>(&Target);
         auto* Actor = Cast<AActor>(&Target);
-        if (auto* Component = Cast<DActorComponent>(&Target))
+        auto* Component = Cast<DActorComponent>(&Target);
+        if (Component)
         {
             Actor = Component->GetOwner();
             if (!IsValid(Actor) || !Actor->OwnsComponent(Component)) return EEditorScriptTargetAccess::Unavailable;
@@ -63,7 +64,10 @@ namespace Durin
         {
             const auto Result = Match->Resolve();
             return Match->Active && IsAdmitted() && Context.Host->GetEditorWorld() == World && World->GetCurrentLevel() == Level
-                && IsValid(Level) && !Context.Host->IsPlaying() ? Result : EEditorScriptTargetAccess::Unavailable;
+                && IsValid(Level) && !Context.Host->IsPlaying() && IsValid(&Target)
+                && (!Actor || (IsValid(Actor) && Actor->GetOuter() == Level && Level->ContainsActor(Actor)))
+                && (!Component || (Component->GetOwner() == Actor && Actor->OwnsComponent(Component)))
+                ? Result : EEditorScriptTargetAccess::Unavailable;
         }
         return Context.EditPolicy == EEditorScriptEditPolicy::NonDocumentReadWrite
             ? EEditorScriptTargetAccess::Writable : Context.EditPolicy == EEditorScriptEditPolicy::NonDocumentReadOnly

@@ -111,6 +111,31 @@ namespace
         int Calls = 0;
     };
 
+    TEST_F(FPythonToolIntegrationTests, DefersInactiveReflectionDependenciesUntilModuleActivation)
+    {
+        const auto Engine = FModuleManager::Get().FindModule("Engine");
+        if (!Engine || Engine->State != EModuleState::Active)
+        {
+            const auto Before = Wait(Submit(R"(
+import durin
+assert not hasattr(durin, 'EditorActorSubsystem')
+try:
+    durin.get_type('Durin::DEditorActorSubsystem')
+except durin.ScriptAccessError:
+    pass
+else:
+    raise AssertionError('inactive native dependency was exported')
+)"));
+            ASSERT_EQ(Before.State, EPythonJobState::Succeeded) << Before.Error;
+        }
+        ASSERT_TRUE(FModuleManager::Get().LoadModule("Engine"));
+        const auto After = Wait(Submit(R"(
+import durin
+assert durin.get_type('Durin::DEditorActorSubsystem') is durin.EditorActorSubsystem
+assert durin.get_editor_subsystem(durin.EditorActorSubsystem).get_editor_level() is None
+)"));
+        EXPECT_EQ(After.State, EPythonJobState::Succeeded) << After.Error;
+    }
     TEST_F(FPythonToolIntegrationTests, ImportsDeployedPackageAndPreservesNativeExceptions)
     {
         auto Result = Wait(Submit(R"PY(
@@ -900,7 +925,10 @@ def edit():
         durin.tools.call('python.tests', 'echo', {'value': 3})
 )PY";
         auto A = Submit(Code); auto B = Runtime.RunString(*OtherSession, Code); ASSERT_TRUE(B);
-        for (int I = 0; I < 3; ++I) Tools->TickScripts();
+        // The per-pump time budget can defer a session under load. Observe both
+        // pending native requests before checking their shared recording.
+        for (int I = 0; I < 100 && PendingCalls < 2; ++I) Tools->TickScripts();
+        ASSERT_EQ(2, PendingCalls);
         EXPECT_TRUE(Host->GetTransactor()->IsActive());
         EXPECT_EQ(1.0, Target->GetRelativeLocation().x);
         Source.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{}});

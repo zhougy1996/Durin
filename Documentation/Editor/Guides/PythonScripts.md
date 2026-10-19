@@ -3,7 +3,7 @@
 Summary: Run trusted GameThread scripts using the selected editor's native Toolsets and transaction scopes.
 Modules: DurinPython, MainFrame, DurinEd
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-19
 
 ## Prepare and Run
 
@@ -33,6 +33,23 @@ and exception details.
 Cancel requests cooperative cancellation. Scripts run in the editor process with
 normal process privileges; use trusted scripts. No packages are installed from
 the user's Python environment.
+
+You can also select a single `.py` file in the Content Browser, right-click it,
+and choose **Run Python Script**. This works for ordinary files under Engine or
+project content, including physical directories without an asset identity. The
+Python Scripts panel opens with the selected path and shows the same job state,
+output, errors and Cancel control. A running panel job must finish or be cancelled
+before another file can run through this entry. The action is disabled while Play
+disallows content mutation; it does not add script authority to edit read-only
+documents. Missing files and unavailable Python are reported in the panel.
+
+For a ready-to-run example, open Engine content at
+`Scripts/Examples/CreateTestScene.py` and choose **Run Python Script** with an
+empty writable Level open. It creates six `Example_*` Actors: an empty origin,
+camera, directional light, procedural sky, point light and player start. It also
+edits camera position and light properties. Ctrl+Z removes the whole example;
+Ctrl+Y restores it. It loads no geometry assets and does not save the Level.
+Running it again while those names exist reports an error before editing.
 
 For an explicit startup script, set `DURIN_PYTHON_SCRIPT` to its absolute path in
 the launching process before starting the editor. Unset it after the intended
@@ -136,6 +153,110 @@ and other jobs on the same host can join it, and Undo/Redo stays unavailable dur
 recording. Other hosts keep separate histories. Prefer waiting outside a transaction,
 then revalidate the target and apply within a short synchronous scope.
 
+## Query and Edit Actors
+
+Actor edits require a writable current Level document. Native headless hosts must
+explicitly grant NonDocumentReadWrite when creating the session.
+
+```python
+import durin
+
+actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
+level = actors.get_editor_level()
+if level is None:
+    raise RuntimeError('No editor Level')
+
+with durin.ScopedEditorTransaction('Create empty Actor and camera'):
+    empty = actors.spawn_actor(level, durin.Actor, durin.Transform(),
+                               name='PythonEmptyActor')
+    camera = actors.spawn_actor(level, durin.CameraActor, durin.Transform(),
+                                name='PythonCamera')
+    if empty is None or camera is None:
+        raise RuntimeError('Actor creation failed')
+
+    root = actors.get_actor_info(level, camera).root_component
+    pose = root.get_editor_property('relative_transform')
+    position = pose.translation
+    position.x += 100.0
+    pose.translation = position
+    root.set_editor_property('relative_transform', pose)
+```
+
+This works in an empty writable Level: the Actor and ActorComponent bases expose
+their derived types through inherited `ScriptType`, without an existing instance
+or per-subclass annotation. `ScriptNoExport` excludes a class and its descendants.
+Other members still require their own exposure. Plain Actor has no default root
+component; the camera above supplies one for transform editing. After the scope
+ends, Ctrl+Z removes both actors and Ctrl+Y restores them with the edited camera
+transform as one history entry.
+
+The same service provides duplicate_actors, destroy_actors, rename_actor,
+attach_actors and detach_actors. Supply explicit Level and Actor arguments;
+selection does not determine targets. Creation returns Actor or None, duplication
+returns an Actor list (empty on failure), and other edits return bool. Successful
+no-ops also return true and create no history. Per-operation failure details are
+not exposed. Invalid queries raise durin.ScriptAccessError. Type errors and stale
+arguments raise binding exceptions before the edit. Empty and duplicate batches
+are rejected. Queries inspect the editor Level during PIE; editing requires
+stopped play.
+
+## Edit Reflected Properties
+
+When an exposed native method returns an Actor or Component, use editor-property
+helpers to read and replace eligible fields:
+
+```python
+def move_component(component):
+    pose = component.get_editor_property('relative_transform')
+    translation = pose.translation
+    translation.x += 10
+    pose.translation = translation
+    with durin.ScopedEditorTransaction('Move component'):
+        component.set_editor_property('relative_transform', pose)
+```
+
+Values are copies, so assign modified nested values back before replacing the
+native property. Direct assignment is also available for `ScriptReadWrite`
+fields. Helpers require editable reflected fields; native read-only,
+nontransactional and excluded fields reject writes. The target must belong to
+the current editor Level and the native Host must grant write access. Assets and
+subsystem fields cannot be edited this way. Root fixed arrays cannot be replaced;
+supported structs, dynamic arrays and maps can.
+
+Native validation, notifications, dirty state and Undo/Redo follow ordinary editor
+editing. A rejected value raises `ValueError`; denied editability raises
+`durin.ScriptAccessError`. Earlier successful edits and their undo history remain
+when a later value is rejected. Deferred validation is unavailable in this
+synchronous helper.
+
+## Discover Native APIs and Generate IDE Hints
+
+Use `dir(durin)` to find the native types published by loaded modules and
+`dir(durin.EditorActorSubsystem)` to find its methods. Inspect a method's
+`__doc__` or call `help(durin.EditorActorSubsystem.spawn_actor)` for its Python
+signature. Type docstrings retain the native qualified name for `get_type`.
+
+Run this in an editor Python job to write completion declarations, using your
+checkout's absolute path:
+
+```python
+from pathlib import Path
+import durin
+
+output = Path(r'D:\Studyspace\Durin-architect\Build\PythonStubs\durin\__init__.pyi')
+output.parent.mkdir(parents=True, exist_ok=True)
+output.write_text(durin.generate_stubs(), encoding='utf-8')
+```
+
+Add the checkout's `Build/PythonStubs` directory to your IDE's Python analysis
+paths. Regenerate after loading modules or changing reflected APIs. The snapshot
+contains declarations for published native APIs, including Actor editing;
+generation itself performs no scene edits. Defaults displayed as `...` can be
+omitted. Native-only defaults still require an explicit value. Hints cannot prove
+object lifetime, editor permissions or numeric/container limits; those checks
+still occur when the script runs. Dynamic Toolset calls retain their runtime
+discovery workflow above.
+
 ## Supported Scope
 
 Scripts have fresh globals but share imported module state. Source is limited to
@@ -147,9 +268,26 @@ Use builtin/pure-Python standard-library facilities. Native extension packages,
 background Python threads and cancellation suppression remain unsupported.
 Exposed native types are available through durin.get_type(qualified_name), and
 get_editor_subsystem(type) returns an existing exposed service on the selected
-Host. These object wrappers currently support identity, inheritance and
-get_name/get_class introspection. General reflected function calls, value
-construction and property editing are not yet available.
+Host. These object wrappers support identity, inheritance, get_name/get_class
+introspection and direct calls to methods explicitly marked ScriptCallable.
+Calls accept positional/keyword arguments and reflected defaults. Native-only
+defaults require explicit arguments; unsupported signatures are not published.
+Services must opt their methods into script exposure. The Actor subsystem above
+uses ordinary reflected native methods and result types.
+
+Script-exposed attributes can be read. Mutable ScriptType structs and intrinsic
+math values support default/named-field construction and detached writable
+fields. Struct and container reads return copies: write modified nested values
+back to their containing struct or object with the property helpers above.
+Name and Guid accept validated strings; enums require the exact reflected enum
+type, and object parameters require compatible live proxies (or None).
+
+Methods return None, a single output, or a return-first tuple. A bool return with
+out parameters uses None for failure and packs only the out values on success.
+Input/output reference parameters still need inputs. Invalid arguments and
+conversion budgets reject calls before native effects; failure while converting
+outputs preserves a native operation that already completed. See the adapter
+contract for exact supported types, budgets and lifetime rules.
 
 Use ScopedEditorTransaction when multiple native edits should share one history
 entry. A job alone does not create a transaction. Completed edits remain if a

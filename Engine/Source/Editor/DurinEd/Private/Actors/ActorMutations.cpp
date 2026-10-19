@@ -242,14 +242,15 @@ namespace Durin
 			FName Before, After;
 			std::array<DPackage*, 1> Packages;
 		};
-		auto Execute(std::unique_ptr<FActorCommandChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> FActorEditResult
+		auto Execute(std::unique_ptr<FActorCommandChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> bool
 		{
 			const auto Result = ::Durin::Editor::ApplyEditorChange(Transactions, std::move(Change));
 			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired)
 				for (const auto& Actor : Actors)
 					if (IsValid(Actor.Get()))
 						if (auto* Level = Cast<DLevel>(Actor->GetOuter()); Level && !Level->ContainsActor(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get());
-			return Result ? FActorEditResult{std::move(Actors), {}, EActorEditStatus::Changed, EActorEditError::None, Result} : FActorEditResult{{}, FormatTransactorResult(Result), EActorEditStatus::Failed, EActorEditError::HistoryRejected, Result};
+			if (!Result) return false;
+			return true;
 		}
 	}
 
@@ -264,14 +265,14 @@ namespace Durin
 	}
 
 	auto DEditorActorSubsystem::SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
-		const FActorEditContext& Context, std::function<void(AActor&)> Configure) -> FActorEditResult
+		const FActorEditContext& Context, std::function<void(AActor&)> Configure) -> AActor*
 	{
 		auto Admission = Admit(Context, &Level);
-		if (!Admission) return Admission.error();
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		if (!Admission) return nullptr;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> AActor*
 		{
-			auto* Transactions = *Admission;
-			if (!CanConstructObjectOfClass(Class, AActor::StaticClass())) return {{}, "Invalid actor creation target."};
+			auto* Transactions = Admission;
+			if (!CanConstructObjectOfClass(Class, AActor::StaticClass())) return nullptr;
 			AActor* Actor = nullptr;
 			{
 				FScopedPackageDirtySuppression SuppressPreparation;
@@ -282,46 +283,47 @@ namespace Durin
 					if (Configure)
 					{
 						try { Configure(*Actor); }
-						catch (...) { MarkObjectHierarchyAsGarbage(Actor); return {{}, "Actor preparation failed."}; }
+						catch (...) { MarkObjectHierarchyAsGarbage(Actor); return nullptr; }
 					}
 					if (auto Revalidated = Admit(Context, &Level, nullptr, true); !Revalidated)
-					{ if (IsValid(Actor)) MarkObjectHierarchyAsGarbage(Actor); return Revalidated.error(); }
-					if (!IsValid(Actor)) return {{}, "The prepared actor is unavailable."};
+					{ if (IsValid(Actor)) MarkObjectHierarchyAsGarbage(Actor); return nullptr; }
+					if (!IsValid(Actor)) return nullptr;
 				}
-				else { if (Actor) MarkObjectHierarchyAsGarbage(Actor); return {{}, "Actor construction failed."}; }
+				else { if (Actor) MarkObjectHierarchyAsGarbage(Actor); return nullptr; }
 			}
 			auto Change = MakeActorPresenceChange(Level, {&Actor, 1}, false, "Add actor");
 			Actor->SetTransient(true);
-			return Execute(std::move(Change), {Actor}, *Transactions);
+			if (auto Applied = Execute(std::move(Change), {Actor}, *Transactions); !Applied) return nullptr;
+			return Actor;
 
 		});
 	}
-	auto DEditorActorSubsystem::DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> FActorEditResult
+	auto DEditorActorSubsystem::DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> bool
 	{
 		auto Admission = Admit(Context, &Level);
-		if (!Admission) return Admission.error();
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		if (!Admission) return false;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = *Admission;
-			if (Actors.empty()) return {{}, "Invalid actor deletion target."};
+			auto* Transactions = Admission;
+			if (Actors.empty()) return false;
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
-				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {{}, "Invalid actor deletion selection."};
+				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return false;
 			return Execute(MakeActorPresenceChange(Level, Actors, true, "Delete actors"), {Actors.begin(), Actors.end()}, *Transactions);
 
 		});
 	}
-	auto DEditorActorSubsystem::DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> FActorEditResult
+	auto DEditorActorSubsystem::DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> std::vector<TObjectPtr<AActor>>
 	{
 		auto Admission = Admit(Context, &Level);
-		if (!Admission) return Admission.error();
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		if (!Admission) return {};
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> std::vector<TObjectPtr<AActor>>
 		{
-			auto* Transactions = *Admission;
-			if (Actors.empty()) return {{}, "Invalid actor duplication target."};
+			auto* Transactions = Admission;
+			if (Actors.empty()) return {};
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
-				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {{}, "Invalid actor duplication selection."};
+				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {};
 			std::vector<TObjectPtr<AActor>> Copies;
 			std::vector<AActor*> Raw;
 			std::unique_ptr<FActorCommandChange> Change;
@@ -332,7 +334,7 @@ namespace Durin
 				{
 					std::unordered_map<DObject*, DObject*> Graph;
 					auto Copy = DuplicateObject(Source, &Level, UniqueName(Level, Source->GetFName()), &Graph);
-					if (!Copy) { for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {{}, ToString(Copy.error())}; }
+					if (!Copy) { for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {}; }
 					Copies.push_back(*Copy);
 					Raw.push_back(*Copy);
 					Duplicates.insert(Graph.begin(), Graph.end());
@@ -345,7 +347,7 @@ namespace Durin
 				{
 					if (!IsValid(Copy)) continue;
 					if (const auto Result = CopyEditableObjectProperties(Source, Copy, Duplicates); !Result)
-					{ for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {{}, ToString(Result.error())}; }
+					{ for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {}; }
 					if (auto* Scene = Cast<DSceneComponent>(Copy))
 					{
 						auto* Parent = static_cast<DSceneComponent*>(Source)->GetAttachParent();
@@ -376,21 +378,22 @@ namespace Durin
 				}
 			}
 			if (auto Revalidated = Admit(Context, &Level, nullptr, true); !Revalidated)
-			{ for (const auto& Actor : Copies) if (IsValid(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get()); return Revalidated.error(); }
-			return Execute(std::move(Change), std::move(Copies), *Transactions);
+			{ for (const auto& Actor : Copies) if (IsValid(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get()); return {}; }
+			if (auto Applied = Execute(std::move(Change), Copies, *Transactions); !Applied) return {};
+			return Copies;
 
 		});
 	}
-	auto DEditorActorSubsystem::RenameActor(DLevel& Level, AActor* Actor, FName Name, const FActorEditContext& Context) -> FActorEditResult
+	auto DEditorActorSubsystem::RenameActor(DLevel& Level, AActor* Actor, FName Name, const FActorEditContext& Context) -> bool
 	{
 		auto Admission = Admit(Context, &Level);
-		if (!Admission) return Admission.error();
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		if (!Admission) return false;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = *Admission;
-			if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsTemplateObject() || Name.IsNone()) return {{}, "Invalid actor rename target."};
+			auto* Transactions = Admission;
+			if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsTemplateObject() || Name.IsNone()) return false;
 			Name = UniqueName(Level, Name, Actor);
-			if (Actor->GetFName() == Name) return {{Actor}, {}, EActorEditStatus::NoOp, EActorEditError::None};
+			if (Actor->GetFName() == Name) return true;
 			return Execute(std::make_unique<FActorRenameChange>(Level, *Actor, Name), {Actor}, *Transactions);
 
 		});
