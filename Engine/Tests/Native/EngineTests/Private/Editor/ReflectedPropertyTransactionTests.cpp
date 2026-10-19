@@ -268,6 +268,42 @@ TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRev
 	EXPECT_FALSE(Package->IsDirty());
 }
 
+TEST(FReflectedPropertyEditSessionTests, FocusedFallbackPreservesInitialPackageDirtyState)
+{
+	for (const bool bInitiallyDirty : {false, true})
+	{
+		SCOPED_TRACE(bInitiallyDirty ? "initially dirty" : "initially clean");
+		auto* Package = MakeReflectedRevisionTestPackage();
+		auto* Object = Durin::NewObject<DReflectedTransactionTestObject>(Package, "FocusedFallbackTarget");
+		Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(Object);
+		Object->ClearFlags(Durin::EObjectFlags::Transactional);
+		auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
+		Object->Value = 19;
+		Durin::FPropertyValueSnapshot Proposed;
+		ASSERT_TRUE(Durin::CapturePropertyValue(Property, Object, 0, Proposed));
+		Object->Value = 7;
+		Package->ClearDirty();
+		if (bInitiallyDirty) Package->MarkDirty();
+		FTestTransactorOwner Transactions;
+		ASSERT_FALSE(Transactions.Get()->GetPackageRevisionState(*Package).has_value());
+
+		Durin::Editor::FPropertyEditSession Session;
+		ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Object, Property),
+			"Edit Focused Value", Transactions.Get()));
+		EXPECT_EQ(Package->IsDirty(), bInitiallyDirty);
+		EXPECT_FALSE(Object->HasAnyObjectFlags(Durin::EObjectFlags::Transactional));
+		ASSERT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+		ASSERT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+		EXPECT_TRUE(Package->IsDirty());
+		ASSERT_TRUE(Transactions.Get()->Undo());
+		EXPECT_EQ(Object->Value, 7);
+		EXPECT_EQ(Package->IsDirty(), bInitiallyDirty);
+		ASSERT_TRUE(Transactions.Get()->Redo());
+		EXPECT_EQ(Object->Value, 19);
+		EXPECT_TRUE(Package->IsDirty());
+	}
+}
+
 TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransactions)
 {
 	InitializeDObjectSystem();

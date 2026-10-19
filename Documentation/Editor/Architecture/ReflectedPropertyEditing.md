@@ -4,7 +4,7 @@ Summary: Define detached property validation, stable edit targets, notifications
 
 Modules: DurinEd, CoreDObject
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-19
 
 ## Scope And Ownership
 
@@ -208,9 +208,12 @@ discarding the preview state.
 
 ## History Submission
 
-The session opens one scope and calls Modify for transaction-owned object
-capture, including fields authored by edit reactions. When whole-object capture
-is unavailable, the existing focused backend updates a pending member record
+The session opens one scope and calls `Modify(false)` for transaction-owned
+object capture, including fields authored by edit reactions. Successful capture
+still marks the package dirty. An uncaptured probe leaves its dirty state intact
+so the focused record observes the original package checkpoint before preview
+or commit marks it dirty. When whole-object capture is unavailable, the existing
+focused backend updates a pending member record
 as previews change the live value. Commit ends that scope after the
 Committed notification; it records the already-applied value without a second
 write. An unchanged nested commit ends its action without canceling an enclosing
@@ -225,6 +228,12 @@ New edits continue to use detached validation; replay emits the normal
 property notifications followed by balanced object completion hooks. Record identity and payload
 rules belong to [Transaction records](TransactionRecords.md#focused-object-snapshots);
 ordering, rollback, and recovery belong to [Transactors](Transactors.md#structural-history-and-barriers).
+
+Editor object creation supplies `EObjectFlags::Transactional` for automatic
+whole-object capture. Explicit focused records also support low-level targets
+without that object flag; the session does not add it. A snapshot member marked
+`EPropertyFlags::NonTransactional` disables session history rather than selecting
+the focused fallback. Object eligibility and property exclusion are distinct.
 
 Dirty-state and save-checkpoint behavior belongs to
 [Package and discovery revisions](Transactors.md#package-and-discovery-revisions).

@@ -958,7 +958,9 @@ namespace Durin::Editor
 				return Result;
 			}
 			// Capture other reflected fields that edit reactions may author, too.
-			if (!Target.Object->Modify())
+			// An uncaptured probe must leave the package checkpoint intact for
+			// the focused record below to observe before the edit marks it dirty.
+			if (!Target.Object->Modify(false))
 			{
 				auto Capture = FTransactionObjectRecord::Capture(
 					Target, OriginalValue, CurrentValue);

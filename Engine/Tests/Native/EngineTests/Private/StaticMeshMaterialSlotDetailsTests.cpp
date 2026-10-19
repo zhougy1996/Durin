@@ -191,6 +191,9 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotDetails/DirtyComponent", Path));
 	Durin::DStaticMeshComponent* Component = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Component));
+	// The low-level fixture helper supplies Public only; editor-created objects
+	// participate in whole-object recording through Transactional.
+	Component->SetFlags(Durin::EObjectFlags::Transactional);
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "DirtySlotMaterial");
 	Component->SetStaticMesh(Mesh);
