@@ -86,6 +86,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Volumetric-cloud components, eligibility, scene selection, or texture-reference recovery | [Volumetric cloud scene contract](Runtime/Rendering/VolumetricCloudSceneContract.md) |
 | Volumetric-cloud spatial inputs, compute/fragment fallback, composition order, target budget, or recovery | [Volumetric cloud spatial rendering](Runtime/Rendering/VolumetricCloudSpatialRendering.md) |
 | Volumetric-cloud quality tiers, low-resolution reconstruction, per-view history, invalidation, temporal diagnostics, or 4K budgets | [Volumetric cloud temporal reconstruction](Runtime/Rendering/VolumetricCloudTemporalReconstruction.md) |
+| StaticMesh retained batch inputs, publication invalidation, or capture lifetime | [Retained StaticMesh batch inputs](Runtime/Rendering/StaticMeshBatchPublication.md) |
 | Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/DirectionalShadows.md) |
 | Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/MaterialQueries.md) |
 | Material geometry/Pass usage, required shader stages, or vertex/pixel artifact reuse | [Shader stage selection and sharing](Runtime/Rendering/MaterialShaderStages.md) |

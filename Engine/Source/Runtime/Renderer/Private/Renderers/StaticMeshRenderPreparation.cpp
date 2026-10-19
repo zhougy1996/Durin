@@ -1,5 +1,7 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/MaterialBindingResolution.h"
+#include "Rendering/StaticMeshSceneProxy.h"
+#include <typeinfo>
 #include "Renderers/MeshRendererExecution.h"
 #include "Renderers/MeshRendererShared.h"
 #include "SceneInfo.h"
@@ -32,12 +34,15 @@ namespace Durin
 			{
 				const auto& Input = (*Owner)[Index];
 				auto& Fact = Facts.emplace_back();
+				Fact.StaticBatches = Input.StaticBatches;
 				Fact.Projected = ComputeProjectedScreenSize(FrozenView, Input.WorldBounds);
-				if (Input.LODs)
+				if (Input.StaticBatches || Input.LODs)
 				{
+					const auto LODs = Input.StaticBatches ? std::span<const FMeshLODSelectionEntry>(Input.StaticBatches->Geometry->LODs)
+						: std::span<const FMeshLODSelectionEntry>(*Input.LODs);
 					const uint32 Requested = FrozenView.Settings.Mode.LODMode == EViewLODMode::ForceLOD0 ? 0u
-						: SelectStaticMeshLOD(Fact.Projected.NormalizedScreenSize, *Input.LODs);
-					Fact.LOD = FPreparedMeshLODSelection{Requested, ResolveAvailableStaticMeshLOD(Requested, *Input.LODs)};
+						: SelectStaticMeshLOD(Fact.Projected.NormalizedScreenSize, LODs);
+					Fact.LOD = FPreparedMeshLODSelection{Requested, ResolveAvailableStaticMeshLOD(Requested, LODs)};
 				}
 			}
 			return Facts;
@@ -172,7 +177,8 @@ namespace Durin
 	auto CollectStaticMeshView_RenderThread(
 		const FRHICommandListImmediate& CommandList,
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
-		const FSceneView& View, ERasterMode RasterMode, ERenderPreparationMode Mode)
+		const FSceneView& View, ERasterMode RasterMode, ERenderPreparationMode Mode,
+		FStaticMeshPreparationCache* SharedCache)
 		-> std::shared_ptr<const FCollectedStaticMeshView>
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.CollectMeshView");
@@ -191,9 +197,20 @@ namespace Durin
 		Collected->Primitives.reserve(SceneInfos.size());
 		std::vector<FMeshViewPreparationInput> ViewInputs;
 		ViewInputs.reserve(SceneInfos.size());
+		FStaticMeshBatchCaptureContext LocalCapture;
+		auto& Capture = SharedCache ? SharedCache->StaticBatchCapture : LocalCapture;
 		for (const auto* SceneInfo : SceneInfos)
-			ViewInputs.push_back(SceneInfo ? FMeshViewPreparationInput{SceneInfo->GetWorldBounds(),
-				SceneInfo->GetProxy().CaptureLODSelection_RenderThread()} : FMeshViewPreparationInput{});
+		{
+			auto& Input = ViewInputs.emplace_back();
+			if (!SceneInfo) continue;
+			Input.WorldBounds = SceneInfo->GetWorldBounds();
+			const auto& Proxy = SceneInfo->GetProxy();
+			// Extensions with custom collection stay dynamic until they explicitly
+			// provide their own retained contract.
+			if (typeid(Proxy) == typeid(FStaticMeshSceneProxy))
+				Input.StaticBatches = static_cast<const FStaticMeshSceneProxy&>(Proxy).CaptureStaticMeshBatches_RenderThread(Capture);
+			if (!Input.StaticBatches) Input.LODs = Proxy.CaptureLODSelection_RenderThread();
+		}
 		const auto ViewFacts = PrepareMeshViewFacts(std::move(ViewInputs), View);
 		size_t PrimitiveIndex = 0;
 		for (const auto* SceneInfo : SceneInfos)
@@ -227,7 +244,8 @@ namespace Durin
 			FMeshBatchCollector Collector(Context.Purpose);
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.CollectMeshBatches");
-				SceneInfo->GetProxy().CollectMeshBatches(Context, Collector);
+				if (ViewFact.StaticBatches) CollectPublishedStaticMeshBatch(*ViewFact.StaticBatches, Context, Collector);
+				else SceneInfo->GetProxy().CollectMeshBatches(Context, Collector);
 			}
 			for (size_t I = 0; I < Primitive.Outcomes.size(); ++I)
 				Primitive.Outcomes[I] = Collector.GetOutcomeCount(static_cast<EGeometrySubmissionOutcome>(I));
@@ -270,7 +288,7 @@ namespace Durin
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareStaticMeshes");
 		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("candidates={} shadow={}", SceneInfos.size(), Mode == ERenderPreparationMode::ShadowDepth));
-		const auto Collected = CollectStaticMeshView_RenderThread(CommandList, SceneInfos, View, RasterMode, Mode);
+		const auto Collected = CollectStaticMeshView_RenderThread(CommandList, SceneInfos, View, RasterMode, Mode, SharedCache);
 		return PrepareCollectedStaticMeshView_RenderThread(CommandList, Collected, SharedCache);
 	}
 

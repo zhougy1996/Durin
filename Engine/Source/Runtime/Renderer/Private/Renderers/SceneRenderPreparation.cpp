@@ -65,7 +65,7 @@ namespace Durin
 			);
 			ReceiverWork.emplace(StartCollectedStaticMeshView_RenderThread(CommandList,
 				CollectStaticMeshView_RenderThread(CommandList, Visibility.SceneInfos, RenderView,
-					RenderView.Settings.Mode.RasterMode), &MeshPreparationCache));
+					RenderView.Settings.Mode.RasterMode, ERenderPreparationMode::Full, &MeshPreparationCache), &MeshPreparationCache));
 			Visibility.SceneInfos.clear();
 			if (!PreparedView.Environment)
 				if (const auto Sky = Scene->GetProceduralSky_RenderThread())
@@ -142,7 +142,7 @@ namespace Durin
 						CascadeWork.push_back(StartCollectedStaticMeshView_RenderThread(CommandList,
 							CollectStaticMeshView_RenderThread(CommandList, CasterTable.Cascades[CascadeIndex].SceneInfos,
 								PreparedView.DirectionalShadow->View.Cascades[CascadeIndex].CasterView,
-								ERasterMode::Solid, ERenderPreparationMode::ShadowDepth), &MeshPreparationCache));
+								ERasterMode::Solid, ERenderPreparationMode::ShadowDepth, &MeshPreparationCache), &MeshPreparationCache));
 						Telemetry.View.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 								std::chrono::steady_clock::now() - Start).count());

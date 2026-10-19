@@ -67,6 +67,9 @@ Boundary contact and invalid finite bounds are included conservatively
 and counted per cascade. Static/Spline LOD selection is evaluated against
 the resolved shadow-view resolution.
 The camera's prepared visibility and LOD values are not mutated.
+Ordinary StaticMesh receiver and cascade collection share
+[retained batch inputs](StaticMeshBatchPublication.md); each cascade still
+captures its own instance overlay and LOD selection.
 
 ## Pass and material contract
 

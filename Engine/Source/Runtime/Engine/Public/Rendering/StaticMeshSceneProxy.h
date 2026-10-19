@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Rendering/PrimitiveSceneProxy.h"
+#include "Rendering/StaticMeshBatchPublication.h"
 
 namespace Durin
 {
@@ -19,6 +20,10 @@ namespace Durin
 		ENGINE_API auto SetRenderInstances(FStaticMeshRenderInstances InInstances) -> bool;
 
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
+		// Explicit retained capability for ordinary, non-instanced StaticMesh.
+		// Callers retain the returned owner, not this proxy or its RenderData borrow.
+		ENGINE_API auto CaptureStaticMeshBatches_RenderThread(FStaticMeshBatchCaptureContext& Context) const
+			-> FStaticMeshBatchPublication::FRef;
 		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::StaticMesh; }
 		ENGINE_API auto GetLocalBounds() const -> FBox override;
 		ENGINE_API auto CaptureLODSelection_RenderThread() const -> std::optional<FMeshLODSelectionSnapshot> override;
@@ -44,6 +49,7 @@ namespace Durin
 		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
 		FStaticMeshRenderInstances Instances;
+		mutable FStaticMeshBatchPublication::FRef StaticBatches;
 
 	};
 }

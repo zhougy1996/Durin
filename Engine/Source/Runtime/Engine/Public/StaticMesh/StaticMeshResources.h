@@ -12,6 +12,7 @@
 namespace Durin
 {
 	class FMeshGeometryRecord;
+	struct FStaticMeshBatchGeometry;
 	// Stores one normalized 16-bit tangent frame in the tangent stream.
 	struct FStaticMeshPackedTangentBasis
 	{
@@ -405,6 +406,10 @@ namespace Durin
 	// Owns all renderable LODs, material slots, and bounds for a static mesh.
 	struct FStaticMeshRenderData
 	{
+		// Render-thread-owned immutable publication; capture detects LOD policy,
+		// readiness and geometry replacement even for direct native producers.
+		mutable std::shared_ptr<const FStaticMeshBatchGeometry> BatchGeometry;
+		ENGINE_API auto CaptureBatchGeometry_RenderThread() const -> std::shared_ptr<const FStaticMeshBatchGeometry>;
 		std::vector<FStaticMeshLODResources> LODResources;
 		std::vector<FStaticMeshVertexFactories> LODVertexFactories;
 		std::vector<FStaticMeshMaterialSlot> MaterialSlots;

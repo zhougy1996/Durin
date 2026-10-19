@@ -23,11 +23,13 @@ namespace Durin
 	{
 		FBox WorldBounds;
 		std::optional<FMeshLODSelectionSnapshot> LODs;
+		FStaticMeshBatchPublication::FRef StaticBatches;
 	};
 	struct FMeshViewPreparationFact
 	{
 		FProjectedScreenSizeResult Projected;
 		std::optional<FPreparedMeshLODSelection> LOD;
+		FStaticMeshBatchPublication::FRef StaticBatches;
 	};
 	struct FMeshViewPreparationFacts
 	{
@@ -37,10 +39,12 @@ namespace Durin
 	RENDERER_API auto PrepareMeshViewFacts(std::vector<FMeshViewPreparationInput> Inputs,
 		const FSceneView& View, bool bAllowTasks = true) -> FMeshViewPreparationFacts;
 
-	// Command-local facts only. Providers still collect independently for each view/LOD.
+	// Command-local facts; retained providers share stable inputs while each view
+	// independently selects LOD and captures instance state.
 	struct FStaticMeshPreparationCache
 	{
 		FMeshDrawDescriptionCache* Commands = nullptr;
+		FStaticMeshBatchCaptureContext StaticBatchCapture;
 		struct FTransform
 		{
 			FMatrix LocalToWorld{1.0};
@@ -328,7 +332,8 @@ namespace Durin
 		const FRHICommandListImmediate& CommandList,
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View, ERasterMode RasterMode,
-		ERenderPreparationMode Mode = ERenderPreparationMode::Full)
+		ERenderPreparationMode Mode = ERenderPreparationMode::Full,
+		FStaticMeshPreparationCache* SharedCache = nullptr)
 		-> std::shared_ptr<const FCollectedStaticMeshView>;
 
 	// Every shared-cache decision is resolved before this immutable owner is

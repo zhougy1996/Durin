@@ -5,6 +5,7 @@
 #include "RHI.h"
 #include "Rendering/MeshGeometryRecord.h"
 #include "Rendering/StaticMeshBatchBinding.h"
+#include "Rendering/StaticMeshBatchPublication.h"
 
 namespace Durin
 {
@@ -489,9 +490,33 @@ namespace Durin
 		return true;
 	}
 
+	auto FStaticMeshRenderData::CaptureBatchGeometry_RenderThread() const -> std::shared_ptr<const FStaticMeshBatchGeometry>
+	{
+		check(IsInRenderingThread());
+		const bool bValidLayout = !LODResources.empty() && LODVertexFactories.size() == LODResources.size();
+		bool bCurrent = BatchGeometry && BatchGeometry->bValidLayout == bValidLayout
+			&& BatchGeometry->LODs.size() == LODResources.size();
+		for (size_t Index = 0; bCurrent && Index < LODResources.size(); ++Index)
+		{
+			const auto& LOD = LODResources[Index];
+			bCurrent = BatchGeometry->LODs[Index].ScreenSize == LOD.ScreenSize
+				&& BatchGeometry->LODs[Index].bReadyForRendering == LOD.bReadyForRendering
+				&& BatchGeometry->Geometry[Index] == LOD.GeometryRecord;
+		}
+		if (bCurrent) return BatchGeometry;
+		auto Candidate = std::make_shared<FStaticMeshBatchGeometry>();
+		Candidate->bValidLayout = bValidLayout;
+		Candidate->LODs = CaptureStaticMeshLODSelection(LODResources);
+		Candidate->Geometry.reserve(LODResources.size());
+		for (const auto& LOD : LODResources) Candidate->Geometry.push_back(LOD.GeometryRecord);
+		BatchGeometry = std::move(Candidate);
+		return BatchGeometry;
+	}
+
 	auto FStaticMeshRenderData::ReleaseResources() -> void
 	{
 		check(IsInRenderingThread());
+		BatchGeometry.reset();
 		for (FStaticMeshVertexFactories& Factories
 			: LODVertexFactories | std::views::reverse)
 		{

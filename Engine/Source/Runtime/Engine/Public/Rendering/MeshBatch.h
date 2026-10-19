@@ -9,6 +9,7 @@
 #include "Rendering/PrimitiveCustomData.h"
 #include "VertexFactory.h"
 #include "Rendering/MeshGeometryRecord.h"
+#include "Rendering/StaticMeshBatchPublication.h"
 
 namespace Durin
 {
@@ -92,6 +93,9 @@ namespace Durin
 		std::vector<FMeshBatchElement> Elements;
 		// Exactly one material per published element. Dynamic batches use Elements.
 		std::vector<FMaterialRenderData> PublishedMaterials;
+		// Ordinary StaticMesh uses an immutable owner instead of rebuilding the
+		// per-section material array for every primitive/view/cascade.
+		std::shared_ptr<const FStaticMeshBatchInputs> StaticInputs;
 		// Optional provider diagnostics; execution never dereferences an asset LOD.
 		uint32 RequestedLOD = 0;
 		uint32 SelectedLOD = 0;
@@ -103,13 +107,18 @@ namespace Durin
 		{
 			return GeometryRecord ? GeometryRecord->GetElements().size() : Elements.size();
 		}
+		auto GetPublishedMaterials() const -> std::span<const FMaterialRenderData>
+		{
+			return StaticInputs ? std::span<const FMaterialRenderData>(StaticInputs->Materials)
+				: std::span<const FMaterialRenderData>(PublishedMaterials);
+		}
 		auto GetElement(size_t Index) const -> FMeshBatchElementView
 		{
 			if (GeometryRecord)
 			{
 				const auto& Element = GeometryRecord->GetElements()[Index];
 				return {Element.ElementId, Element.Draw, Element.Vertices, Element.Indices,
-					Element.InstanceStreams, PublishedMaterials[Index], Element.LocalBounds, Element.MaterialSlotDiagnostic};
+					Element.InstanceStreams, GetPublishedMaterials()[Index], Element.LocalBounds, Element.MaterialSlotDiagnostic};
 			}
 			const auto& Element = Elements[Index];
 			return {Element.ElementId, Element.Draw, Element.Vertices, Element.Indices,
@@ -149,8 +158,10 @@ namespace Durin
 			if ((Purpose == EMeshCollectionPurpose::Receiver && !Batch.bReceiver)
 				|| (Purpose == EMeshCollectionPurpose::Shadow && !Batch.bShadowCaster))
 				return EGeometrySubmissionOutcome::Excluded;
-			if ((Batch.GeometryRecord && (!Batch.Elements.empty()
-				|| Batch.PublishedMaterials.size() != Batch.GetNumElements()
+			if ((Batch.StaticInputs && (!Batch.GeometryRecord || !Batch.PublishedMaterials.empty()
+					|| Batch.StaticInputs->Geometry != Batch.GeometryRecord))
+				|| (Batch.GeometryRecord && (!Batch.Elements.empty()
+				|| Batch.GetPublishedMaterials().size() != Batch.GetNumElements()
 				|| Batch.Binding != Batch.GeometryRecord->GetBinding()))
 				|| (!Batch.GeometryRecord && !Batch.PublishedMaterials.empty()))
 				return EGeometrySubmissionOutcome::InvalidSubmission;

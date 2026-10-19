@@ -19,6 +19,7 @@ namespace Durin
 	{
 		if (InInstances && !ValidateStaticMeshRenderInstances(*InInstances)) return false;
 		Instances = std::move(InInstances);
+		StaticBatches.reset();
 		return true;
 	}
 
@@ -69,8 +70,104 @@ namespace Durin
 		CheckRenderingThread();
 		if (Update.SlotIndex >= Materials.size()) return false;
 		Materials[Update.SlotIndex] = Update.MaterialProxy;
+		StaticBatches.reset();
 		RecordMaterialBindingUpdate();
 		return true;
+	}
+
+	auto FStaticMeshBatchCaptureContext::ResolveMaterial(const FMaterialRenderProxyRef& Proxy) -> const FMaterialRenderData&
+	{
+		CheckRenderingThread();
+		const auto Key = Proxy.GetReference();
+		if (const auto Found = Materials.find(Key); Found != Materials.end()) return Found->second;
+		if (!Proxy) RecordMaterialFallbackReason(EMaterialFallbackReason::MissingProxy);
+		return Materials.emplace(Key, Proxy ? Proxy->Resolve_RenderThread() : GetErrorMaterialRenderData()).first->second;
+	}
+
+	auto FStaticMeshSceneProxy::CaptureStaticMeshBatches_RenderThread(FStaticMeshBatchCaptureContext& Context) const
+		-> FStaticMeshBatchPublication::FRef
+	{
+		CheckRenderingThread();
+		if (const auto Found = Context.Publications.find(this); Found != Context.Publications.end()) return Found->second;
+		if (Instances || !RenderData) return Context.Publications.emplace(this, nullptr).first->second;
+		const auto Geometry = RenderData->CaptureBatchGeometry_RenderThread();
+		if (!Geometry->bValidLayout) return Context.Publications.emplace(this, nullptr).first->second;
+		bool bCurrent = StaticBatches && StaticBatches->Geometry == Geometry
+			&& StaticBatches->MaterialRecords.size() == Materials.size();
+		for (size_t Index = 0; Index < Materials.size(); ++Index)
+		{
+			const auto& Material = Context.ResolveMaterial(Materials[Index]);
+			if (bCurrent && StaticBatches->MaterialRecords[Index] != Material.Representation.GetRecordId()) bCurrent = false;
+		}
+		if (bCurrent && StaticBatches->bUsesFallbackMaterial)
+			bCurrent = StaticBatches->FallbackMaterialRecord == Context.ResolveMaterial({}).Representation.GetRecordId();
+		if (!bCurrent)
+		{
+			auto Candidate = std::make_shared<FStaticMeshBatchPublication>();
+			Candidate->Geometry = Geometry;
+			Candidate->MaterialRecords.reserve(Materials.size());
+			for (const auto& Material : Materials)
+				Candidate->MaterialRecords.push_back(Context.ResolveMaterial(Material).Representation.GetRecordId());
+			Candidate->LODs.reserve(Geometry->Geometry.size());
+			for (const auto& Record : Geometry->Geometry)
+			{
+				if (!Record) { Candidate->LODs.push_back(nullptr); continue; }
+				auto Inputs = std::make_shared<FStaticMeshBatchInputs>();
+				Inputs->Geometry = Record;
+				Inputs->Materials.reserve(Record->GetElements().size());
+				for (const auto& Element : Record->GetElements())
+				{
+					const auto& Proxy = GetMaterialRenderProxy(Element.MaterialSlotDiagnostic);
+					const auto& Material = Context.ResolveMaterial(Proxy);
+					Inputs->Materials.push_back(Material);
+					if (!Proxy)
+					{
+						Candidate->bUsesFallbackMaterial = true;
+						Candidate->FallbackMaterialRecord = Material.Representation.GetRecordId();
+					}
+				}
+				Candidate->LODs.push_back(std::move(Inputs));
+			}
+			StaticBatches = std::move(Candidate);
+		}
+		return Context.Publications.emplace(this, StaticBatches).first->second;
+	}
+
+	auto CollectPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
+		const FMeshCollectionContext& Context, FMeshBatchCollector& Collector) -> void
+	{
+		CheckRenderingThread();
+		if (!Publication.Geometry || !Publication.Geometry->bValidLayout)
+		{
+			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
+			return;
+		}
+		const auto& LODs = Publication.Geometry->LODs;
+		const uint32 Requested = Context.PreparedLOD ? Context.PreparedLOD->Requested
+			: Context.bForceLOD0 ? 0u : SelectStaticMeshLOD(Context.NormalizedScreenSize, LODs);
+		const uint32 Selected = Context.PreparedLOD ? Context.PreparedLOD->Selected : ResolveAvailableStaticMeshLOD(Requested, LODs);
+		if (Requested >= LODs.size() || Selected >= LODs.size() || !LODs[Selected].bReadyForRendering
+			|| Selected >= Publication.LODs.size() || !Publication.LODs[Selected] || !Publication.LODs[Selected]->Geometry)
+		{
+			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
+			return;
+		}
+		FMeshBatch Batch;
+		Batch.StaticInputs = Publication.LODs[Selected];
+		Batch.GeometryRecord = Batch.StaticInputs->Geometry;
+		Batch.Binding = Batch.GeometryRecord->GetBinding();
+		Batch.FactoryKey = Batch.Binding->GetFactoryKey();
+		Batch.LayoutKey = Batch.Binding->GetLayoutKey();
+		Batch.PrimitiveId = Context.PrimitiveId;
+		Batch.BatchId = Context.BatchId;
+		Batch.LocalToWorld = Context.LocalToWorld;
+		Batch.WorldBounds = Context.WorldBounds;
+		Batch.CustomPrimitiveData = Context.CustomPrimitiveData;
+		Batch.CustomInstanceData = Context.CustomInstanceData;
+		Batch.RequestedLOD = Requested;
+		Batch.SelectedLOD = Selected;
+		Batch.LODCount = static_cast<uint32>(LODs.size());
+		Collector.Add(std::move(Batch));
 	}
 
 	auto FStaticMeshSceneProxy::CollectMeshBatches(const FMeshCollectionContext& Context,
