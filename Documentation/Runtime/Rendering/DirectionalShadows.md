@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-19
 
 ## Ownership and selection
 
@@ -248,6 +248,12 @@ compares the selected candidate against exact Low in the same fragment: red is
 darker, blue is lighter, and green is unchanged. Only the difference diagnostic
 performs the additional Low comparison; diagnostic-disabled production uses
 only the selected tier's nominal 1, 9, or 25 comparisons.
+
+Production forward and deferred lighting skip cascade sampling when the BRDF's
+mapped shading normal has no positive light cosine. Geometric normals remain
+the bias input; diagnostic modes bypass this lighting shortcut. Exact depth
+loads for coverage and direct-comparison diagnostics execute only in the modes
+that consume them, after the production filtered result has been computed.
 
 Q2 adds `CascadeIndex`, `CascadeTransition`, `CascadeCoverage`, and
 `CascadeDifference`. Index uses fixed red/green/blue layer colors; transition

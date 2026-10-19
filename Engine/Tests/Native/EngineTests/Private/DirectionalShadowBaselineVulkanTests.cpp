@@ -907,8 +907,29 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	Fixtures.push_back({.Name = "q2_cascades_index_perspective", .Primitives = {{{24.0, 0.0, 0.0}, {7.0, 7.0, 1.0}, 90.0}, {{22.0, 0.5, 0.0}, {2.0, 2.0, 1.0}, 90.0}}, .LightDirection = {-1.0, 0.2, -0.25}, .DiagnosticMode = Durin::EDirectionalShadowDiagnosticMode::CascadeIndex, .FilterQuality = Durin::EDirectionalShadowFilterQuality::Medium, .Candidate = Durin::EDirectionalShadowCandidate::ThreeCascades, .bPerspective = true});
 	const std::filesystem::path OutputDirectory =
 		Durin::Testing::CreateTestFixtureDirectory("DirectionalShadowQ0Baseline");
-	const size_t RecordingParityStart = Fixtures.size();
 	const auto CascadeFixture = Fixtures.back();
+	// A back-lit receiver has no directional BRDF contribution, but shadow
+	// diagnostics must still show coverage rather than take the lighting shortcut.
+	const size_t BacklitFixtureStart = Fixtures.size();
+	for (const auto Quality : {Durin::EDirectionalShadowFilterQuality::Low,
+		Durin::EDirectionalShadowFilterQuality::Medium,
+		Durin::EDirectionalShadowFilterQuality::High})
+	{
+		for (uint32 Variant = 0; Variant < 3; ++Variant)
+		{
+			auto Fixture = Fixtures[2];
+			Fixture.Name = std::format("pcf_backlit_{}_{}", static_cast<uint32>(Quality), Variant);
+			Fixture.LightDirection = {0.35, 0.2, 1.0};
+			Fixture.FilterQuality = Quality;
+			Fixture.bCastShadows = Variant != 0;
+			Fixture.DiagnosticMode = Variant == 2
+				? Durin::EDirectionalShadowDiagnosticMode::ShadowDepthCoverage
+				: Durin::EDirectionalShadowDiagnosticMode::Lit;
+			Fixtures.push_back(std::move(Fixture));
+		}
+	}
+	const size_t BacklitFixtureEnd = Fixtures.size();
+	const size_t RecordingParityStart = Fixtures.size();
 	for (const char* Policy : {"immediate", "serial", "parallel"})
 	{
 		auto Fixture = CascadeFixture;
@@ -1140,6 +1161,11 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		EXPECT_GT(Covered, 0u) << "empty shadow layer=" << Layer;
 	}
 	ASSERT_EQ(Statistics.size(), Fixtures.size());
+	for (size_t Index = BacklitFixtureStart; Index < BacklitFixtureEnd; Index += 3)
+	{
+		EXPECT_EQ(Captures[Index], Captures[Index + 1]) << Fixtures[Index].Name;
+		EXPECT_NE(Captures[Index + 1], Captures[Index + 2]) << Fixtures[Index + 2].Name;
+	}
 	EXPECT_NE(Captures[CascadeFixtureStart], Captures[8]);
 	const std::array<size_t, 3> MotionChangedPixels{
 		CountChangedPixels(Captures[9], Captures[10], 2),

@@ -144,16 +144,23 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
             : float3(0.0, 0.0, 1.0);
         float3 radiance = Lighting.DirectionalColorIntensity.rgb
             * Lighting.DirectionalColorIntensity.a;
-        FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
-            worldPosition,
-            record.geometricNormal,
-            Lighting.DirectionalShadowControl,
-            Lighting.DirectionalShadowViewDepthTransform,
-            Lighting.DirectionalShadowSplitDepths,
-            Lighting.DirectionalShadowLightTransition,
-            Lighting.DirectionalShadowCascades,
-            DirectionalShadowTexture,
-            DirectionalShadowSampler);
+        FDirectionalShadowSample shadow;
+        shadow.attenuation = 1.0;
+        shadow.diagnosticColor = float3(1.0);
+        // Use the BRDF's shading normal; normal maps can face the light even
+        // when the geometric normal does not. Diagnostics still sample both sides.
+        if (Lighting.DirectionalShadowControl.y > 0.5
+            || dot(frame.normal, toLight) > 0.0)
+            shadow = EvaluateDirectionalShadow(
+                worldPosition,
+                record.geometricNormal,
+                Lighting.DirectionalShadowControl,
+                Lighting.DirectionalShadowViewDepthTransform,
+                Lighting.DirectionalShadowSplitDepths,
+                Lighting.DirectionalShadowLightTransition,
+                Lighting.DirectionalShadowCascades,
+                DirectionalShadowTexture,
+                DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)
             return MakeDeferredLightingOutput(
                 float4(shadow.diagnosticColor, record.effectiveOpacity),

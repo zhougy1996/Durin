@@ -705,14 +705,20 @@ float4 FragmentMain(
         float3 toLight = SafeSurfaceNormal(-Lighting.DirectionalDirection.xyz);
         float3 radiance = Lighting.DirectionalColorIntensity.rgb
             * Lighting.DirectionalColorIntensity.a;
-        FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
-            input.worldPosition, shading.normalFrame.geometricNormal,
-            Lighting.DirectionalShadowControl,
-            Lighting.DirectionalShadowViewDepthTransform,
-            Lighting.DirectionalShadowSplitDepths,
-            Lighting.DirectionalShadowLightTransition,
-            Lighting.DirectionalShadowCascades,
-            DirectionalShadowTexture, DirectionalShadowSampler);
+        FDirectionalShadowSample shadow;
+        shadow.attenuation = 1.0;
+        shadow.diagnosticColor = float3(1.0);
+        // Match the BRDF's mapped shading normal, preserving diagnostic output.
+        if (Lighting.DirectionalShadowControl.y > 0.5
+            || dot(lightingFrame.normal, toLight) > 0.0)
+            shadow = EvaluateDirectionalShadow(
+                input.worldPosition, shading.normalFrame.geometricNormal,
+                Lighting.DirectionalShadowControl,
+                Lighting.DirectionalShadowViewDepthTransform,
+                Lighting.DirectionalShadowSplitDepths,
+                Lighting.DirectionalShadowLightTransition,
+                Lighting.DirectionalShadowCascades,
+                DirectionalShadowTexture, DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)
             return float4(shadow.diagnosticColor, s.opacity);
         direct += EvaluateSurfaceDirectionalLighting(s.baseColor, s.metallic,

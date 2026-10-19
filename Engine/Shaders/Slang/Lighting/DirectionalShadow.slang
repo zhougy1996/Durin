@@ -111,10 +111,6 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     uint layers;
     shadowTexture.GetDimensions(width, height, layers);
     filter.xy = 1.0 / float2(width, height);
-    int2 texel = clamp(int2(coordinate.xy * float2(width, height)),
-        int2(0), int2(int(width) - 1, int(height) - 1));
-    float storedDepth = shadowTexture.Load(int4(texel, int(layer), 0));
-    bool covered = storedDepth < 0.999999;
 	// Comparison bias and normal displacement have independent light controls.
 	// Normal displacement uses geometry rather than the material's mapped normal.
 	float normalWorld = 0.0;
@@ -138,9 +134,22 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 		shadowTexture, shadowSampler, validTapWeight);
 	result.attenuation = finalComparison;
 
+    // Production needs only the filtered comparison. Keep exact depth reads
+    // behind the uniform diagnostic mode, including the cascade-only modes.
+    uint mode = (uint)(control.y + 0.5);
+    if (mode == 0u)
+        return result;
+    float storedDepth = 1.0;
+    if (mode == 1u || mode == 2u || mode == 7u)
+    {
+        int2 texel = clamp(int2(coordinate.xy * float2(width, height)),
+            int2(0), int2(int(width) - 1, int(height) - 1));
+        storedDepth = shadowTexture.Load(int4(texel, int(layer), 0));
+    }
+    bool covered = storedDepth < 0.999999;
 	bool unbiasedDirect = coordinate.z <= storedDepth;
 	bool receiverDirect = true;
-	if (IsValidShadowCoordinate(receiverCoordinate))
+	if (mode == 3u && IsValidShadowCoordinate(receiverCoordinate))
 	{
 		int2 receiverTexel = clamp(
 			int2(receiverCoordinate.xy * float2(width, height)),
@@ -149,7 +158,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 			<= shadowTexture.Load(int4(receiverTexel, int(layer), 0));
 	}
 	bool finalDirect = true;
-	if (IsValidShadowCoordinate(finalCoordinate))
+	if ((mode == 4u || mode == 7u) && IsValidShadowCoordinate(finalCoordinate))
 	{
 		int2 finalTexel = clamp(
 			int2(finalCoordinate.xy * float2(width, height)),
@@ -158,7 +167,6 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 			<= shadowTexture.Load(int4(finalTexel, int(layer), 0));
 	}
 
-    uint mode = (uint)(control.y + 0.5);
     if (mode == 1u)
     {
         float depth = saturate(storedDepth);
