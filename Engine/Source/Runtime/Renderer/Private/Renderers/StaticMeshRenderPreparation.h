@@ -18,6 +18,36 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 
+	namespace RendererPrivate
+	{
+		class FMeshVertexFactoryImplementation;
+	}
+	struct FMeshDrawDescription;
+	struct FStaticMeshSectionFact
+	{
+		EGeometrySubmissionOutcome InputOutcome = EGeometrySubmissionOutcome::Submitted;
+		bool bSupportsPreparation = false;
+		bool bSupportsGBuffer = false;
+	};
+	struct FStaticMeshSectionFacts
+	{
+		std::shared_ptr<const FStaticMeshBatchInputs> Inputs;
+		std::shared_ptr<const FVertexFactoryInputBinding> Binding;
+		std::shared_ptr<const RendererPrivate::FMeshVertexFactoryImplementation> Factory;
+		bool bFactoryCompatible = false;
+		std::vector<FStaticMeshSectionFact> Elements;
+	};
+	struct FStaticMeshPassSections
+	{
+		std::shared_ptr<const FStaticMeshSectionFacts> Facts;
+		std::vector<std::shared_ptr<const FMeshDrawDescription>> Commands;
+	};
+	struct FResolvedStaticMeshSection
+	{
+		std::shared_ptr<const FMeshDrawDescription> Command;
+		uint32 MaterialUniformIndex = 0;
+		bool bTemplateReused = false;
+	};
 	class FMeshDrawDescriptionCache;
 	struct FMeshViewPreparationInput
 	{
@@ -45,15 +75,15 @@ namespace Durin
 	{
 		FMeshDrawDescriptionCache* Commands = nullptr;
 		FStaticMeshBatchCaptureContext StaticBatchCapture;
-		struct FTransform
+		// Frame-local uniform indices never enter the persistent Section tables.
+		struct FResolvedSections
 		{
-			FMatrix LocalToWorld{1.0};
-			FMatrix4f NormalToWorld{1.0f};
-			FMatrix WorldToLocal{1.0};
-			double Determinant = 0.0;
-			bool bValid = false;
+			std::shared_ptr<const FStaticMeshPassSections> Owner;
+			std::shared_ptr<const std::vector<FResolvedStaticMeshSection>> Elements;
 		};
-		std::map<std::pair<uint64, uint64>, FTransform> Transforms;
+		std::unordered_map<const FStaticMeshPassSections*, FResolvedSections> ResolvedSections;
+		using FTransform = FMeshBatchValidationCache::FTransform;
+		FMeshBatchValidationCache Admission;
 		std::unordered_multimap<uint64, uint32> MaterialIndices;
 		std::unordered_map<uint64, uint32> MaterialRecordIndices;
 		std::vector<FMaterialRenderRepresentation> Materials;
@@ -131,11 +161,43 @@ namespace Durin
 		RENDERER_API auto Find(const FKey& Key, const FMaterialRenderData& Material)
 			-> std::shared_ptr<const FMeshDrawDescription>;
 		RENDERER_API auto Store(const FKey& Key, std::shared_ptr<const FMeshDrawDescription> Command) -> void;
+		RENDERER_API auto CaptureStaticFacts(const std::shared_ptr<const FStaticMeshBatchInputs>& Inputs, bool bShadow)
+			-> std::shared_ptr<const FStaticMeshSectionFacts>;
+		RENDERER_API auto FindStaticSections(const std::shared_ptr<const FStaticMeshBatchInputs>& Inputs, uint64 Policy)
+			-> std::shared_ptr<const FStaticMeshPassSections>;
+		RENDERER_API auto StoreStaticSections(uint64 Policy, std::shared_ptr<const FStaticMeshPassSections> Sections)
+			-> void;
 		auto Num() const -> size_t { return Entries.size(); }
-		auto Reset() -> void { Entries.clear(); }
+		auto Reset() -> void
+		{
+			Entries.clear();
+			StaticFacts.clear();
+			StaticSections.clear();
+		}
+
 	private:
 		struct FEntry { std::shared_ptr<const FMeshDrawDescription> Command; bool bUsed = false; };
 		std::map<FKey, FEntry> Entries;
+		using FStaticKey = std::array<uint64, 2>;
+		struct FFactsEntry
+		{
+			std::shared_ptr<const FStaticMeshSectionFacts> Value;
+			bool bUsed = false;
+		};
+		struct FSectionsEntry
+		{
+			std::shared_ptr<const FStaticMeshPassSections> Value;
+			bool bUsed = false;
+		};
+		struct FStaticKeyHash
+		{
+			auto operator()(const FStaticKey& Key) const -> size_t
+			{
+				return static_cast<size_t>((Key[0] >> 4) ^ (Key[1] * 0x9e3779b97f4a7c15ull));
+			}
+		};
+		std::unordered_map<FStaticKey, FFactsEntry, FStaticKeyHash> StaticFacts;
+		std::unordered_map<FStaticKey, FSectionsEntry, FStaticKeyHash> StaticSections;
 	};
 
 	// Compact per-view references; stable planning state belongs to the description.
@@ -299,18 +361,18 @@ namespace Durin
 	// Dynamic provider bindings retain their existing resource-retirement contract.
 	struct FCollectedStaticMeshView
 	{
-		struct FElementFacts
-		{
-			EGeometrySubmissionOutcome InputOutcome = EGeometrySubmissionOutcome::Submitted;
-			bool bSupportsPreparation = false;
-			bool bSupportsGBuffer = false;
-		};
+		using FElementFacts = FStaticMeshSectionFact;
 		struct FBatch
 		{
 			FMeshBatch Batch;
 			std::shared_ptr<const FVertexFactoryInputBinding> InputBinding;
 			bool bFactoryCompatible = false;
 			std::vector<FElementFacts> Elements;
+			std::shared_ptr<const FStaticMeshSectionFacts> StaticFacts;
+			auto GetElementFacts(size_t Index) const -> const FElementFacts&
+			{
+				return StaticFacts ? StaticFacts->Elements[Index] : Elements[Index];
+			}
 		};
 		struct FPrimitive
 		{
@@ -340,16 +402,16 @@ namespace Durin
 	// published. Logical consumers need neither a command list nor a cache.
 	struct FStaticMeshPreparationInputs
 	{
-		struct FElement
-		{
-			std::shared_ptr<const FMeshDrawDescription> Command;
-			uint32 MaterialUniformIndex = 0;
-			bool bTemplateReused = false;
-		};
+		using FElement = FResolvedStaticMeshSection;
 		struct FBatch
 		{
 			FStaticMeshPreparationCache::FTransform Transform;
 			std::vector<FElement> Elements;
+			std::shared_ptr<const std::vector<FElement>> StaticElements;
+			auto GetElement(size_t Index) const -> const FElement&
+			{
+				return StaticElements ? (*StaticElements)[Index] : Elements[Index];
+			}
 		};
 		std::shared_ptr<const FCollectedStaticMeshView> Collected;
 		std::vector<std::vector<FBatch>> Primitives;

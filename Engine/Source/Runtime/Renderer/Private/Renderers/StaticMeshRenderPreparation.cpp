@@ -93,16 +93,27 @@ namespace Durin
 	auto FMeshDrawDescriptionCache::BeginSubmission() -> void
 	{
 		for (auto& [Key, Entry] : Entries) Entry.bUsed = false;
+		for (auto& [Key, Entry] : StaticFacts)
+			Entry.bUsed = false;
+		for (auto& [Key, Entry] : StaticSections)
+			Entry.bUsed = false;
 	}
 
 	auto FMeshDrawDescriptionCache::EndSubmission() -> void
 	{
-		while (Entries.size() > 512)
-		{
-			const auto Unused = std::ranges::find_if(Entries, [](const auto& Pair) { return !Pair.second.bUsed; });
-			if (Unused == Entries.end()) break;
-			Entries.erase(Unused);
-		}
+		auto Trim = [](auto& Table) {
+			// Keep the active working set; scan idle entries once even after large scene changes.
+			for (auto It = Table.begin(); Table.size() > 512 && It != Table.end();)
+			{
+				if (!It->second.bUsed)
+					It = Table.erase(It);
+				else
+					++It;
+			}
+		};
+		Trim(Entries);
+		Trim(StaticSections);
+		Trim(StaticFacts);
 	}
 
 	auto FMeshDrawDescriptionCache::Find(const FKey& Key, const FMaterialRenderData& Material)
@@ -120,23 +131,66 @@ namespace Durin
 		Entries.insert_or_assign(Key, FEntry{std::move(Command), true});
 	}
 
+	auto FMeshDrawDescriptionCache::CaptureStaticFacts(const std::shared_ptr<const FStaticMeshBatchInputs>& Inputs,
+		bool bShadow) -> std::shared_ptr<const FStaticMeshSectionFacts>
+	{
+		check(IsInRenderingThread());
+		if (!Inputs || !Inputs->Geometry) return {};
+		const FStaticKey Key{reinterpret_cast<uintptr_t>(Inputs.get()), bShadow ? 1u : 0u};
+		if (const auto Found = StaticFacts.find(Key); Found != StaticFacts.end())
+		{
+			Found->second.bUsed = true;
+			return Found->second.Value;
+		}
+		auto Binding = std::dynamic_pointer_cast<const FVertexFactoryInputBinding>(Inputs->Geometry->GetBinding());
+		if (!Binding || !Binding->Declaration || Binding->Streams.empty()) return {};
+		// Only the ordinary local factory has an audited view-independent Section contract.
+		// Custom factories retain per-view preparation until they opt into an equivalent contract.
+		if (typeid(*Binding) != typeid(FStaticMeshBatchBinding)) return {};
+		auto Factory = FindMeshVertexFactory(Binding->GetFactoryKey());
+		// Missing registrations may arrive later; never retain a missing-factory result.
+		if (!Factory) return {};
+		auto Facts = std::make_shared<FStaticMeshSectionFacts>();
+		Facts->Inputs = Inputs;
+		Facts->Binding = std::move(Binding);
+		Facts->Factory = std::move(Factory);
+		Facts->bFactoryCompatible = Facts->Factory->GetLayoutKey() == Facts->Binding->GetLayoutKey();
+		Facts->Elements.resize(Inputs->Geometry->GetElements().size());
+		if (Facts->bFactoryCompatible)
+			for (size_t Index = 0; Index < Facts->Elements.size(); ++Index)
+			{
+				auto& Element = Facts->Elements[Index];
+				const auto& Draw = Inputs->Geometry->GetElements()[Index].Draw;
+				Element.bSupportsPreparation =
+					Facts->Factory->Supports(bShadow ? MaterialMeshPassShadow : MaterialMeshPassForward, Draw);
+				if (Element.bSupportsPreparation)
+					Element.bSupportsGBuffer = Facts->Factory->Supports(MaterialMeshPassGBuffer, Draw);
+			}
+		StaticFacts.emplace(Key, FFactsEntry{Facts, true});
+		return Facts;
+	}
+	auto FMeshDrawDescriptionCache::FindStaticSections(const std::shared_ptr<const FStaticMeshBatchInputs>& Inputs,
+		uint64 Policy) -> std::shared_ptr<const FStaticMeshPassSections>
+	{
+		check(IsInRenderingThread());
+		const auto Found = StaticSections.find(FStaticKey{reinterpret_cast<uintptr_t>(Inputs.get()), Policy});
+		if (Found == StaticSections.end()) return {};
+		Found->second.bUsed = true;
+		return Found->second.Value;
+	}
+	auto FMeshDrawDescriptionCache::StoreStaticSections(
+		uint64 Policy, std::shared_ptr<const FStaticMeshPassSections> Sections) -> void
+	{
+		check(IsInRenderingThread());
+		const FStaticKey Key{reinterpret_cast<uintptr_t>(Sections->Facts->Inputs.get()), Policy};
+		StaticSections.insert_or_assign(Key, FSectionsEntry{std::move(Sections), true});
+	}
+
 	auto FStaticMeshPreparationCache::ResolveTransform(FPrimitiveComponentId PrimitiveId,
 		uint64 BatchId, const FMatrix& LocalToWorld) -> const FTransform&
 	{
-		auto [It, bInserted] = Transforms.try_emplace({PrimitiveId.Value, BatchId});
-		auto& Fact = It->second;
-		if (!bInserted && Fact.LocalToWorld == LocalToWorld) return Fact;
-		++TransformBuilds;
-		Fact.LocalToWorld = LocalToWorld;
-		Fact.bValid = false;
-		if (!Math::IsFinite(LocalToWorld)) return Fact;
-		Fact.Determinant = Math::LinearDeterminant(LocalToWorld);
-		FMatrix WorldToLocal;
-		if (!std::isfinite(Fact.Determinant) || !Math::TryInverse(LocalToWorld, WorldToLocal)) return Fact;
-		Fact.NormalToWorld = Math::TransposeToFloat(Math::Transpose(WorldToLocal));
-		Fact.WorldToLocal = WorldToLocal;
-		Fact.bValid = Math::IsFinite(FMatrix(Fact.NormalToWorld))
-			&& Math::IsFinite(FMatrix(Fact.WorldToLocal));
+		const auto& Fact = Admission.ResolveTransform(PrimitiveId, BatchId, LocalToWorld);
+		TransformBuilds = Admission.GetTransformBuilds();
 		return Fact;
 	}
 
@@ -182,6 +236,7 @@ namespace Durin
 		-> std::shared_ptr<const FCollectedStaticMeshView>
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.CollectMeshView");
+
 		check(IsInRenderingThread());
 		checkf(!CommandList.IsInsideRenderPass(), "Mesh collection must precede scene render passes.");
 		auto Collected = std::make_shared<FCollectedStaticMeshView>();
@@ -197,6 +252,7 @@ namespace Durin
 		Collected->Primitives.reserve(SceneInfos.size());
 		std::vector<FMeshViewPreparationInput> ViewInputs;
 		ViewInputs.reserve(SceneInfos.size());
+
 		FStaticMeshBatchCaptureContext LocalCapture;
 		auto& Capture = SharedCache ? SharedCache->StaticBatchCapture : LocalCapture;
 		for (const auto* SceneInfo : SceneInfos)
@@ -212,6 +268,7 @@ namespace Durin
 			if (!Input.StaticBatches) Input.LODs = Proxy.CaptureLODSelection_RenderThread();
 		}
 		const auto ViewFacts = PrepareMeshViewFacts(std::move(ViewInputs), View);
+
 		size_t PrimitiveIndex = 0;
 		for (const auto* SceneInfo : SceneInfos)
 		{
@@ -241,9 +298,10 @@ namespace Durin
 			Context.bForceLOD0 = View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0;
 			Context.Purpose = Mode == ERenderPreparationMode::ShadowDepth
 				? EMeshCollectionPurpose::Shadow : EMeshCollectionPurpose::Receiver;
-			FMeshBatchCollector Collector(Context.Purpose);
+			FMeshBatchCollector Collector(Context.Purpose, SharedCache ? &SharedCache->Admission : nullptr);
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.CollectMeshBatches");
+
 				if (ViewFact.StaticBatches) CollectPublishedStaticMeshBatch(*ViewFact.StaticBatches, Context, Collector);
 				else SceneInfo->GetProxy().CollectMeshBatches(Context, Collector);
 			}
@@ -251,8 +309,18 @@ namespace Durin
 				Primitive.Outcomes[I] = Collector.GetOutcomeCount(static_cast<EGeometrySubmissionOutcome>(I));
 			for (auto& Batch : std::move(Collector).TakeBatches())
 			{
+
 				auto& Captured = Primitive.Batches.emplace_back();
 				Captured.Batch = std::move(Batch);
+				if (Captured.Batch.StaticInputs && SharedCache && SharedCache->Commands)
+					Captured.StaticFacts = SharedCache->Commands->CaptureStaticFacts(
+						Captured.Batch.StaticInputs, Mode == ERenderPreparationMode::ShadowDepth);
+				if (Captured.StaticFacts)
+				{
+					Captured.InputBinding = Captured.StaticFacts->Binding;
+					Captured.bFactoryCompatible = Captured.StaticFacts->bFactoryCompatible;
+					continue;
+				}
 				Captured.InputBinding = std::dynamic_pointer_cast<const FVertexFactoryInputBinding>(Captured.Batch.Binding);
 				if (!Captured.InputBinding || !Captured.InputBinding->Declaration || Captured.InputBinding->Streams.empty()) continue;
 				const auto Factory = FindMeshVertexFactory(Captured.Batch.FactoryKey);
@@ -298,6 +366,7 @@ namespace Durin
 		FStaticMeshPreparationCache* SharedCache) -> std::shared_ptr<const FStaticMeshPreparationInputs>
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveCollectedMeshes");
+
 		check(IsInRenderingThread());
 		check(Collected && !CommandList.IsInsideRenderPass());
 		FStaticMeshPreparationCache LocalCache;
@@ -337,10 +406,45 @@ namespace Durin
 						bReverseCulling ^= Start < 0.0;
 					}
 				}
+				const uint64 Policy =
+					static_cast<uint64>(RasterMode) | (static_cast<uint64>(View.DepthConvention) << 8) |
+					(static_cast<uint64>(Mode) << 16) | (static_cast<uint64>(bReverseCulling) << 24) |
+					(static_cast<uint64>(bSplineMesh) << 25) | (static_cast<uint64>(bSplineChangesOrientation) << 26);
+
+				const auto StableSections = Captured.StaticFacts && Cache.Commands
+												? Cache.Commands->FindStaticSections(Batch.StaticInputs, Policy)
+												: nullptr;
+				if (StableSections)
+				{
+					auto Found = Cache.ResolvedSections.find(StableSections.get());
+					if (Found == Cache.ResolvedSections.end())
+					{
+						auto Elements =
+							std::make_shared<std::vector<FResolvedStaticMeshSection>>(StableSections->Commands.size());
+						for (size_t Index = 0; Index < Elements->size(); ++Index)
+						{
+							const auto& Command = StableSections->Commands[Index];
+							if (!Command) continue;
+							auto Material = Command->Material;
+
+							const auto MaterialIndex = Cache.ResolveMaterial(Material);
+							if (!MaterialIndex) continue;
+							(*Elements)[Index] = {Command, *MaterialIndex, true};
+						}
+						Found =
+							Cache.ResolvedSections
+								.emplace(StableSections.get(),
+									FStaticMeshPreparationCache::FResolvedSections{StableSections, std::move(Elements)})
+								.first;
+					}
+					FrozenBatch.StaticElements = Found->second.Elements;
+					continue;
+				}
+				bool bStableMaterials = true;
 				FrozenBatch.Elements.resize(Batch.GetNumElements());
 				for (size_t ElementIndex = 0; ElementIndex < Batch.GetNumElements(); ++ElementIndex)
 				{
-					const auto& Facts = Captured.Elements[ElementIndex];
+					const auto& Facts = Captured.GetElementFacts(ElementIndex);
 					if (Facts.InputOutcome != EGeometrySubmissionOutcome::Submitted || !Facts.bSupportsPreparation) continue;
 					const auto Element = Batch.GetElement(ElementIndex);
 					const auto SectionIndex = Element.ElementId;
@@ -348,17 +452,20 @@ namespace Durin
 					auto Material = Element.Material;
 					{
 						DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveMeshMaterial");
+
 						const auto MaterialIndex = Cache.ResolveMaterial(Material);
-						if (!MaterialIndex) continue;
+						if (!MaterialIndex)
+						{
+							bStableMaterials = false;
+							continue;
+						}
 						Item.MaterialUniformIndex = *MaterialIndex;
 
 					}
-					const uint64 Policy = static_cast<uint64>(RasterMode)
-						| (static_cast<uint64>(View.DepthConvention) << 8)
-						| (static_cast<uint64>(Mode) << 16)
-						| (static_cast<uint64>(bReverseCulling) << 24)
-						| (static_cast<uint64>(bSplineMesh) << 25)
-						| (static_cast<uint64>(bSplineChangesOrientation) << 26);
+					bStableMaterials &=
+						Material.Representation.GetRecordId() == Element.Material.Representation.GetRecordId() &&
+						Material.CompiledProgram == Element.Material.CompiledProgram;
+
 					const FMeshDrawDescriptionCache::FKey Key{
 						Batch.GeometryRecord ? Batch.GeometryRecord->GetRecordId() : 0,
 						ElementIndex, Material.Representation.GetRecordId(), Policy};
@@ -372,7 +479,7 @@ namespace Durin
 						Candidate->GeometryOwner = Batch.GeometryRecord;
 						Candidate->SectionIndex = SectionIndex;
 						Candidate->Geometry = Element.Draw;
-						Candidate->bSupportsGBuffer = Captured.Elements[ElementIndex].bSupportsGBuffer;
+						Candidate->bSupportsGBuffer = Captured.GetElementFacts(ElementIndex).bSupportsGBuffer;
 						Candidate->Vertices = Element.Vertices;
 						Candidate->Indices = Element.Indices;
 						Candidate->MaterialSlotDiagnostic = Element.MaterialSlotDiagnostic;
@@ -416,6 +523,15 @@ namespace Durin
 						if (Batch.GeometryRecord && Cache.Commands) Cache.Commands->Store(Key, Item.Command);
 					}
 				}
+				if (Captured.StaticFacts && Cache.Commands && bStableMaterials)
+				{
+					auto Sections = std::make_shared<FStaticMeshPassSections>();
+					Sections->Facts = Captured.StaticFacts;
+					Sections->Commands.reserve(FrozenBatch.Elements.size());
+					for (const auto& Element : FrozenBatch.Elements)
+						Sections->Commands.push_back(Element.Command);
+					Cache.Commands->StoreStaticSections(Policy, std::move(Sections));
+				}
 			}
 		}
 		Resolved->MaterialCount = Cache.Materials.size();
@@ -444,6 +560,7 @@ namespace Durin
 
 	auto FinishStaticMeshView(FStaticMeshPreparationWork Work) -> FPreparedStaticMeshView
 	{
+
 		auto Prepared = FinishStaticMeshPreparation(std::move(Work));
 		if (Prepared) return std::move(*Prepared);
 		DURIN_ERROR("Mesh preparation failed at chunk {} (state {}).", Prepared.error().ChunkIndex, static_cast<uint32>(Prepared.error().State));
@@ -456,6 +573,7 @@ namespace Durin
 		size_t FirstPrimitive, size_t PrimitiveCount) -> FPreparedStaticMeshView
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareCollectedMeshes");
+
 		check(Resolved.Collected);
 		const auto& Collected = *Resolved.Collected;
 		const auto& View = Collected.View;
@@ -530,7 +648,7 @@ namespace Durin
 					if (!Batch.GeometryRecord)
 					{
 						++Result.DynamicGeometryInputValidations;
-						const auto InputOutcome = Captured.Elements[ElementIndex].InputOutcome;
+						const auto InputOutcome = Captured.GetElementFacts(ElementIndex).InputOutcome;
 						if (InputOutcome != EGeometrySubmissionOutcome::Submitted)
 						{
 							++Result.SubmissionOutcomes[static_cast<size_t>(InputOutcome)];
@@ -539,7 +657,7 @@ namespace Durin
 						}
 					}
 					else ++Result.PublishedGeometryElements;
-					if (!Captured.Elements[ElementIndex].bSupportsPreparation)
+					if (!Captured.GetElementFacts(ElementIndex).bSupportsPreparation)
 					{
 						++Result.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::Unsupported)];
 						continue;
@@ -548,7 +666,7 @@ namespace Durin
 					const uint64 SectionIndex = Element.ElementId;
 					++Result.SharedSectionFactBuilds;
 					FPreparedStaticMeshDraw Item;
-					const auto& FrozenElement = FrozenBatch.Elements[ElementIndex];
+					const auto& FrozenElement = FrozenBatch.GetElement(ElementIndex);
 					if (!FrozenElement.Command) continue;
 					Item.Command = FrozenElement.Command;
 					Item.MaterialUniformIndex = FrozenElement.MaterialUniformIndex;
@@ -649,6 +767,7 @@ namespace Durin
 	static auto FinalizeStaticMeshPreparation(FPreparedStaticMeshView& Result, size_t MaterialCount) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.FinalizeMeshPreparation");
+
 		Result.RejectedSplinePrimitives = Result.VisibleSplineCandidates
 										  - std::min(Result.VisibleSplineCandidates, Result.PreparedSplinePrimitives);
 		{

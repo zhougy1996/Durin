@@ -7,6 +7,7 @@
 #include "Math/Operations.h"
 #include "Rendering/PrimitiveComponentId.h"
 #include "Rendering/PrimitiveCustomData.h"
+#include "Rendering/MeshBatchValidationCache.h"
 #include "VertexFactory.h"
 #include "Rendering/MeshGeometryRecord.h"
 #include "Rendering/StaticMeshBatchPublication.h"
@@ -130,8 +131,9 @@ namespace Durin
 	class FMeshBatchCollector
 	{
 	public:
-		explicit FMeshBatchCollector(EMeshCollectionPurpose InPurpose)
-			: Purpose(InPurpose) {}
+		explicit FMeshBatchCollector(EMeshCollectionPurpose InPurpose,
+			FMeshBatchValidationCache* InValidationCache = nullptr)
+			: Purpose(InPurpose), ValidationCache(InValidationCache) {}
 
 		auto Add(FMeshBatch Batch) -> EGeometrySubmissionOutcome
 		{
@@ -166,16 +168,16 @@ namespace Durin
 				|| (!Batch.GeometryRecord && !Batch.PublishedMaterials.empty()))
 				return EGeometrySubmissionOutcome::InvalidSubmission;
 			if (Batch.GetNumElements() == 0) return EGeometrySubmissionOutcome::Empty;
-			if (!Batch.CustomPrimitiveData.IsValid() || !Batch.CustomInstanceData.IsValid())
+			if (ValidationCache
+					? !ValidationCache->ValidateValues(Batch.PrimitiveId, Batch.BatchId, Batch.WorldBounds,
+						  Batch.CustomPrimitiveData, Batch.CustomInstanceData)
+					: (!Batch.CustomPrimitiveData.IsValid() || !Batch.CustomInstanceData.IsValid()
+						  || !Batch.WorldBounds.bIsValid || !Math::IsFinite(Batch.WorldBounds.Min)
+						  || !Math::IsFinite(Batch.WorldBounds.Max) || Batch.WorldBounds.Min.x > Batch.WorldBounds.Max.x
+						  || Batch.WorldBounds.Min.y > Batch.WorldBounds.Max.y
+						  || Batch.WorldBounds.Min.z > Batch.WorldBounds.Max.z))
 				return EGeometrySubmissionOutcome::InvalidSubmission;
 			if (Batch.PrimitiveId == InvalidPrimitiveComponentId
-				|| !Math::IsFinite(Batch.LocalToWorld)
-				|| !Batch.WorldBounds.bIsValid
-				|| !Math::IsFinite(Batch.WorldBounds.Min)
-				|| !Math::IsFinite(Batch.WorldBounds.Max)
-				|| Batch.WorldBounds.Min.x > Batch.WorldBounds.Max.x
-				|| Batch.WorldBounds.Min.y > Batch.WorldBounds.Max.y
-				|| Batch.WorldBounds.Min.z > Batch.WorldBounds.Max.z
 				|| Batch.LODCount == 0 || Batch.RequestedLOD >= Batch.LODCount
 				|| Batch.SelectedLOD >= Batch.LODCount
 				|| !Batch.Binding || Batch.FactoryKey.IsZero() || Batch.LayoutKey.IsZero()
@@ -183,7 +185,10 @@ namespace Durin
 				|| Batch.LayoutKey != Batch.Binding->GetLayoutKey())
 				return EGeometrySubmissionOutcome::InvalidSubmission;
 			FMatrix WorldToLocal;
-			if (!Math::TryInverse(Batch.LocalToWorld, WorldToLocal))
+			if (ValidationCache
+					? !ValidationCache->ResolveTransform(Batch.PrimitiveId, Batch.BatchId, Batch.LocalToWorld)
+						  .bAdmissible
+					: (!Math::IsFinite(Batch.LocalToWorld) || !Math::TryInverse(Batch.LocalToWorld, WorldToLocal)))
 				return EGeometrySubmissionOutcome::InvalidSubmission;
 			if (std::ranges::any_of(Batches, [&](const FMeshBatch& Existing) {
 				return Existing.PrimitiveId == Batch.PrimitiveId && Existing.BatchId == Batch.BatchId;
@@ -213,6 +218,7 @@ namespace Durin
 
 		std::array<size_t, 6> OutcomeCounts{};
 		EMeshCollectionPurpose Purpose;
+		FMeshBatchValidationCache* ValidationCache = nullptr;
 		std::vector<FMeshBatch> Batches;
 	};
 }
