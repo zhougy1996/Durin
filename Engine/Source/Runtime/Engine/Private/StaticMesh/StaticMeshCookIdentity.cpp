@@ -17,7 +17,7 @@ namespace Durin
 	{
 		Context.VersionCoveredClasses.insert("Durin::DStaticMesh");
 		Context.UsedCustomVersions.insert(FStaticMeshSourceVersion::Guid);
-		AssetPrivate::AppendCookSchemaVersion(Context, "static-mesh", 2);
+		AssetPrivate::AppendCookSchemaVersion(Context, "static-mesh", 5);
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto* Module = IMeshBuilderModule::Get();
 		const auto Version = Module ? Module->GetBuildVersion() : 0;

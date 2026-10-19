@@ -34,6 +34,7 @@ namespace Durin::StaticMeshPrivate
 			explicit FRenderResolver(const FStaticMeshBuildRequest& Request)
 				: Geometry(Request.Source.GetGeometryBulk()), SourceHash(Request.Source.GetIdentity()),
 				SlotCount(Request.Source.GetMaterialSlotCount()), MeshCount(Request.Source.GetMeshCount()),
+				LODCount(Request.Source.GetNumLODs()),
 				NormalizedSize(Request.Settings.NormalizedSize), Slots(Request.Settings.MaterialSlots)
 			{
 				ReconciliationHash = BuildStaticMeshReconciliationHash(Slots, NormalizedSize);
@@ -62,9 +63,10 @@ namespace Durin::StaticMeshPrivate
 				if (!Payload) return std::unexpected(Error(FormatStaticMeshSourceError(
 					{.Code = EStaticMeshSourceError::Read, .ReadCause = Payload})));
 				if (Payload->GetSize() != Geometry.GetPayloadSize() || Payload->GetSize() > MaximumStaticMeshSourceBytes
-					|| BuildSourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Payload->GetBytes())) != SourceHash)
+					|| BuildSourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Payload->GetBytes()), LODCount) != SourceHash)
 					return std::unexpected(Error("StaticMesh source bytes do not match captured identity."));
 				FBinaryWriter SourceMetadata; SourceMetadata.WriteU32(SlotCount); SourceMetadata.WriteU32(MeshCount);
+				SourceMetadata.WriteU32(LODCount);
 				FBinaryWriter Settings({.MaximumTotalBytes = MaximumReconciliationBytes});
 				Settings.WriteFloat(NormalizedSize); Settings.WriteU32(uint32(Slots.size()));
 				for (const auto& Slot : Slots)
@@ -85,7 +87,7 @@ namespace Durin::StaticMeshPrivate
 		private:
 			FEditorBulkData Geometry;
 			FXxHash128 SourceHash, ReconciliationHash;
-			uint32 SlotCount, MeshCount;
+			uint32 SlotCount, MeshCount, LODCount;
 			float NormalizedSize;
 			std::vector<FStaticMeshBuildMaterialSlot> Slots;
 		};
@@ -109,12 +111,13 @@ namespace Durin::StaticMeshPrivate
 				const FBuildInput* Source = Context.FindInput("Source"); const FBuildInput* Settings = Context.FindInput("Reconciliation");
 				if (!Source || !Settings || Source->Identity != SourceReference(Source->Identity.Identity) || Settings->Identity != ReconciliationReference(Settings->Identity.Identity)
 					|| Source->Values.size() != 1 || Settings->Values.size() != 1 || Source->Values[0].Name != "Geometry" || Settings->Values[0].Name != "Settings" || !Settings->Metadata.IsEmpty()) return Fail("StaticMesh input representation is invalid.");
-				FBinaryReader Metadata(Source->Metadata.GetBytes(), {.MaximumTotalBytes = 8});
-				uint32 SlotCount = 0, MeshCount = 0;
-				if (!Metadata.ReadU32(SlotCount) || !Metadata.ReadU32(MeshCount) || !Metadata.IsAtEnd())
+				FBinaryReader Metadata(Source->Metadata.GetBytes(), {.MaximumTotalBytes = 12});
+				uint32 SlotCount = 0, MeshCount = 0, LODCount = 1;
+				if (!Metadata.ReadU32(SlotCount) || !Metadata.ReadU32(MeshCount)
+					|| (!Metadata.IsAtEnd() && !Metadata.ReadU32(LODCount)) || !Metadata.IsAtEnd())
 					return Fail("StaticMesh source metadata is invalid.");
 				const auto Bytes = Source->Values[0].Data.GetBytes();
-				if (BuildSourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Bytes)) != Source->Identity.Identity)
+				if (BuildSourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Bytes), LODCount) != Source->Identity.Identity)
 					return Fail("StaticMesh source semantic identity is invalid.");
 				FBinaryReader Reader(Settings->Values[0].Data.GetBytes(), {.MaximumTotalBytes = MaximumReconciliationBytes});
 				uint32 ActualCount = 0; float Size = 0;
@@ -136,11 +139,12 @@ namespace Durin::StaticMeshPrivate
 				if (!Reader.IsAtEnd() || BuildStaticMeshReconciliationHash(Slots, Size) != Settings->Identity.Identity)
 					return Fail("StaticMesh reconciliation semantic identity is invalid.");
 
-				auto Geometry = DecodeSourceGeometry(Bytes, SlotCount, MeshCount, ShouldCancel);
+				auto Geometry = DecodeSourceLODs(Bytes, SlotCount, MeshCount, ShouldCancel);
 				if (!Geometry) return Fail(Geometry.error().Code == EStaticMeshSourceError::Cancelled ? Cancelled().Description : FormatStaticMeshSourceError(Geometry.error()));
+				if (Geometry->size() != LODCount) return Fail("StaticMesh LOD count does not match source metadata.");
 				auto Product = std::make_unique<FStaticMeshRenderData>();
-				const bool bBuilt = Module->BuildRender(*Product, {.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size,
-					.Control = {.Cancellation = Context.GetCancellation()}});
+				const bool bBuilt = Module->BuildRender(*Product, {.Geometry = Geometry->front(), .MaterialSlots = Slots, .NormalizedSize = Size,
+					.Control = {.Cancellation = Context.GetCancellation()}, .LODGeometries = *Geometry});
 				if (ShouldCancel()) return Fail(Cancelled().Description);
 				if (!bBuilt) return Context.FailExecution("StaticMesh render construction failed; see MeshBuilder logs for details.");
 				auto Output = MakeSharedOutput(std::move(Product), *Count, ShouldCancel);

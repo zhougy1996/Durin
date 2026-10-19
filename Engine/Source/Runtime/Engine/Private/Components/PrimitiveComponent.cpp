@@ -218,6 +218,7 @@ namespace Durin
 				ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
 		Desc.UserToken = reinterpret_cast<uint64>(this);
 		Desc.MotionType = BodyInstance.MotionType;
+		ConfigureCollisionQueries(Desc);
 		return Desc;
 	}
 

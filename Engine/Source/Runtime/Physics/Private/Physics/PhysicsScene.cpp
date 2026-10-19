@@ -190,10 +190,36 @@ namespace Durin
 			return Math::IsFinite(OutMin) && Math::IsFinite(OutMax);
 		}
 
+		auto SelectQueryGeometry(const FPhysicsBodyDesc& Body, EPhysicsQueryComplexity Complexity,
+			FTransform& OutTransform) -> const FCollisionGeometryRef&
+		{
+			OutTransform = Body.Transform;
+			if (Complexity == EPhysicsQueryComplexity::Default
+				&& Body.TracePolicy == EPhysicsCollisionTracePolicy::SimpleAndComplex) return Body.Geometry;
+			if (Body.TracePolicy == EPhysicsCollisionTracePolicy::SimpleAsComplex) Complexity = EPhysicsQueryComplexity::Simple;
+			if (Body.TracePolicy == EPhysicsCollisionTracePolicy::ComplexAsSimple) Complexity = EPhysicsQueryComplexity::Complex;
+			if (Complexity == EPhysicsQueryComplexity::Simple)
+			{
+				OutTransform = Body.SimpleGeometry ? Body.SimpleTransform : Body.Transform;
+				return Body.SimpleGeometry ? Body.SimpleGeometry
+					: (!Body.bHasQueryGeometry && !Body.ComplexGeometry && Body.Geometry.GetKind() != ECollisionGeometryKind::TriangleMesh ? Body.Geometry : Body.SimpleGeometry);
+			}
+			OutTransform = Body.ComplexGeometry ? Body.ComplexTransform : Body.Transform;
+			return Body.ComplexGeometry ? Body.ComplexGeometry
+				: (!Body.bHasQueryGeometry && !Body.SimpleGeometry && Body.Geometry.GetKind() == ECollisionGeometryKind::TriangleMesh ? Body.Geometry : Body.ComplexGeometry);
+		}
+
 		auto HasSameSpatialState(const FPhysicsBodyDesc& Left, const FPhysicsBodyDesc& Right) -> bool
 		{
 			if (Left.MotionType != Right.MotionType
-				|| Left.Geometry.GetIdentity() != Right.Geometry.GetIdentity()) return false;
+				|| Left.Geometry.GetIdentity() != Right.Geometry.GetIdentity()
+				|| Left.SimpleGeometry.GetIdentity() != Right.SimpleGeometry.GetIdentity()
+				|| Left.ComplexGeometry.GetIdentity() != Right.ComplexGeometry.GetIdentity()
+				|| Left.TracePolicy != Right.TracePolicy
+				|| Left.SimpleTransform.Translation != Right.SimpleTransform.Translation
+				|| Left.SimpleTransform.Rotation != Right.SimpleTransform.Rotation || Left.SimpleTransform.Scale3D != Right.SimpleTransform.Scale3D
+				|| Left.ComplexTransform.Translation != Right.ComplexTransform.Translation
+				|| Left.ComplexTransform.Rotation != Right.ComplexTransform.Rotation || Left.ComplexTransform.Scale3D != Right.ComplexTransform.Scale3D) return false;
 			for (uint32 Index = 0; Index < 4; ++Index)
 				if (Left.Transform.Rotation[Index] != Right.Transform.Rotation[Index]) return false;
 			for (uint32 Index = 0; Index < 3; ++Index)
@@ -253,6 +279,8 @@ namespace Durin
 		Slot.ProxyParent = InvalidSpatialIndex;
 		Bodies.push_back({Desc, Bounds, SlotIndex});
 		RetainGeometry(Desc.Geometry);
+		RetainGeometry(Desc.SimpleGeometry);
+		RetainGeometry(Desc.ComplexGeometry);
 		if (Desc.MotionType == EPhysicsBodyMotionType::Static) bStaticTreeDirty = true;
 		else InsertMovingProxy(SlotIndex);
 		if (Desc.MotionType == EPhysicsBodyMotionType::Static) ++Diagnostics.Mutations.StaticBodies;
@@ -282,7 +310,8 @@ namespace Durin
 		}
 		const uint32 SlotIndex = Body->Slot;
 		const uint32 DenseIndex = Slots[SlotIndex].DenseOrNext;
-		const FCollisionGeometryRef RemovedGeometry = Body->Desc.Geometry;
+		const FPhysicsBodyDesc RemovedDesc = Body->Desc;
+		const FCollisionGeometryRef RemovedGeometry = RemovedDesc.Geometry;
 		if (Body->Desc.MotionType == EPhysicsBodyMotionType::Static) bStaticTreeDirty = true;
 		else RemoveMovingProxy(SlotIndex);
 		if (Body->Desc.MotionType == EPhysicsBodyMotionType::Static) --Diagnostics.Mutations.StaticBodies;
@@ -296,6 +325,8 @@ namespace Durin
 		}
 		Bodies.pop_back();
 		ReleaseGeometry(RemovedGeometry);
+		ReleaseGeometry(RemovedDesc.SimpleGeometry);
+		ReleaseGeometry(RemovedDesc.ComplexGeometry);
 		FSlot& Slot = Slots[SlotIndex];
 		Slot.ProxyParent = InvalidSpatialIndex;
 		if (Slot.Generation != std::numeric_limits<uint32>::max())
@@ -347,7 +378,8 @@ namespace Durin
 		}
 		CountMutation(Diagnostics.Mutations.BoundBuilds);
 		const EPhysicsBodyMotionType OldMotion = Body->Desc.MotionType;
-		const FCollisionGeometryRef OldGeometry = Body->Desc.Geometry;
+		const FPhysicsBodyDesc OldDesc = Body->Desc;
+		const FCollisionGeometryRef OldGeometry = OldDesc.Geometry;
 		const bool bMigration = OldMotion != Desc.MotionType;
 		const bool bContainedMovingUpdate = !bMigration && OldMotion != EPhysicsBodyMotionType::Static
 			&& ContainsBounds(MovingProxyBounds(Body->Bounds), Bounds);
@@ -363,6 +395,16 @@ namespace Durin
 		{
 			RetainGeometry(Desc.Geometry);
 			ReleaseGeometry(OldGeometry);
+		}
+		if (OldDesc.SimpleGeometry.GetIdentity() != Desc.SimpleGeometry.GetIdentity())
+		{
+			RetainGeometry(Desc.SimpleGeometry);
+			ReleaseGeometry(OldDesc.SimpleGeometry);
+		}
+		if (OldDesc.ComplexGeometry.GetIdentity() != Desc.ComplexGeometry.GetIdentity())
+		{
+			RetainGeometry(Desc.ComplexGeometry);
+			ReleaseGeometry(OldDesc.ComplexGeometry);
 		}
 		Body->Bounds = Bounds;
 		if (bMigration || bSpatialChange)
@@ -400,6 +442,7 @@ namespace Durin
 
 	auto FPhysicsScene::RetainGeometry(const FCollisionGeometryRef& Geometry) -> void
 	{
+		if (!Geometry) return;
 		auto [Entry, bInserted] = GeometryResources.try_emplace(
 			Geometry.GetIdentity(), std::pair<uint64, uint64>{0, Geometry.GetRetainedBytes()});
 		++Entry->second.first;
@@ -412,6 +455,7 @@ namespace Durin
 
 	auto FPhysicsScene::ReleaseGeometry(const FCollisionGeometryRef& Geometry) -> void
 	{
+		if (!Geometry) return;
 		const auto Entry = GeometryResources.find(Geometry.GetIdentity());
 		if (Entry == GeometryResources.end()) return;
 		if (--Entry->second.first != 0) return;
@@ -731,7 +775,9 @@ namespace Durin
 		const FPhysicsQueryFilter& Filter) const -> bool
 	{
 		return IsOwningThread() && Math::IsFinite(Start) && Math::IsFinite(End)
-			&& Filter.QueryChannel < MaximumPhysicsChannels;
+			&& Filter.QueryChannel < MaximumPhysicsChannels
+			&& (Filter.Complexity == EPhysicsQueryComplexity::Default || Filter.Complexity == EPhysicsQueryComplexity::Simple
+				|| Filter.Complexity == EPhysicsQueryComplexity::Complex);
 	}
 
 	auto FPhysicsScene::IsSweepValid(
@@ -741,7 +787,9 @@ namespace Durin
 		const FPhysicsQueryFilter& Filter) const -> bool
 	{
 		return IsOwningThread() && Shape.IsValid() && IsValidPhysicsTransform(StartTransform)
-			&& Math::IsFinite(Delta) && Filter.QueryChannel < MaximumPhysicsChannels;
+			&& Math::IsFinite(Delta) && Filter.QueryChannel < MaximumPhysicsChannels
+			&& (Filter.Complexity == EPhysicsQueryComplexity::Default || Filter.Complexity == EPhysicsQueryComplexity::Simple
+				|| Filter.Complexity == EPhysicsQueryComplexity::Complex);
 	}
 
 	auto FPhysicsScene::IsOverlapValid(
@@ -750,7 +798,9 @@ namespace Durin
 		const FPhysicsQueryFilter& Filter) const -> bool
 	{
 		return IsOwningThread() && Shape.IsValid() && IsValidPhysicsTransform(Transform)
-			&& Filter.QueryChannel < MaximumPhysicsChannels;
+			&& Filter.QueryChannel < MaximumPhysicsChannels
+			&& (Filter.Complexity == EPhysicsQueryComplexity::Default || Filter.Complexity == EPhysicsQueryComplexity::Simple
+				|| Filter.Complexity == EPhysicsQueryComplexity::Complex);
 	}
 
 	auto FPhysicsScene::ExecuteReferenceLineTrace(
@@ -777,11 +827,13 @@ namespace Durin
 			}
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
+			FTransform QueryTargetTransform;
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Raycast");
-				Status = CollisionGeometry::Raycast(Start, End, Body.Desc.Geometry, Body.Desc.Transform,
+				Status = CollisionGeometry::Raycast(Start, End, QueryTarget, QueryTargetTransform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Reference, Candidate, &GeometryCounters);
 			}
 			AccumulateGeometryCounters(Work, GeometryCounters);
@@ -822,11 +874,13 @@ namespace Durin
 			}
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
+			FTransform QueryTargetTransform;
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Raycast");
-				Status = CollisionGeometry::Raycast(Start, End, Body.Desc.Geometry, Body.Desc.Transform,
+				Status = CollisionGeometry::Raycast(Start, End, QueryTarget, QueryTargetTransform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Production, Candidate, &GeometryCounters);
 			}
 			AccumulateGeometryCounters(Work, GeometryCounters);
@@ -875,6 +929,8 @@ namespace Durin
 			}
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
+			FTransform QueryTargetTransform;
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
@@ -883,8 +939,8 @@ namespace Durin
 					Shape,
 					StartTransform,
 					Delta,
-					Body.Desc.Geometry,
-					Body.Desc.Transform,
+					QueryTarget,
+					QueryTargetTransform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Reference,
 					Candidate,
 					&GeometryCounters);
@@ -932,6 +988,8 @@ namespace Durin
 			}
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
+			FTransform QueryTargetTransform;
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
@@ -940,8 +998,8 @@ namespace Durin
 					Shape,
 					StartTransform,
 					Delta,
-					Body.Desc.Geometry,
-					Body.Desc.Transform,
+					QueryTarget,
+					QueryTargetTransform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Production,
 					Candidate,
 					&GeometryCounters);
@@ -991,11 +1049,13 @@ namespace Durin
 			}
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Hit;
+			FTransform QueryTargetTransform;
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Overlap");
-				Status = CollisionGeometry::Overlap(Shape, Transform, Body.Desc.Geometry, Body.Desc.Transform,
+				Status = CollisionGeometry::Overlap(Shape, Transform, QueryTarget, QueryTargetTransform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Reference, Hit, &GeometryCounters);
 			}
 			AccumulateGeometryCounters(Work, GeometryCounters);
@@ -1037,11 +1097,13 @@ namespace Durin
 			}
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Hit;
+			FTransform QueryTargetTransform;
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Overlap");
-				Status = CollisionGeometry::Overlap(Shape, Transform, Body.Desc.Geometry, Body.Desc.Transform,
+				Status = CollisionGeometry::Overlap(Shape, Transform, QueryTarget, QueryTargetTransform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit, &GeometryCounters);
 			}
 			AccumulateGeometryCounters(Work, GeometryCounters);
@@ -1301,6 +1363,33 @@ namespace Durin
 	auto FPhysicsScene::BuildBodyBounds(
 		const FPhysicsBodyDesc& Desc, std::array<float, 6>& OutBounds) const -> bool
 	{
+		if (Desc.TracePolicy != EPhysicsCollisionTracePolicy::SimpleAndComplex
+			&& Desc.TracePolicy != EPhysicsCollisionTracePolicy::SimpleAsComplex
+			&& Desc.TracePolicy != EPhysicsCollisionTracePolicy::ComplexAsSimple) return false;
+		if ((Desc.SimpleGeometry && !IsValidPhysicsTransform(Desc.SimpleTransform))
+			|| (Desc.ComplexGeometry && !IsValidPhysicsTransform(Desc.ComplexTransform))) return false;
+		if (Desc.SimpleGeometry || Desc.ComplexGeometry)
+		{
+			FPhysicsBodyDesc Part = Desc;
+			Part.SimpleGeometry = {};
+			Part.ComplexGeometry = {};
+			if (!BuildBodyBounds(Part, OutBounds)) return false;
+			for (uint32 Index = 0; Index < 2; ++Index)
+			{
+				Part.Geometry = Index == 0 ? Desc.SimpleGeometry : Desc.ComplexGeometry;
+				if (!Part.Geometry) continue;
+				Part.Transform = Index == 0 ? Desc.SimpleTransform : Desc.ComplexTransform;
+				std::array<float, 6> Other;
+				if (!BuildBodyBounds(Part, Other)) return false;
+				for (uint32 Axis = 0; Axis < 3; ++Axis)
+				{
+					OutBounds[Axis] = std::min(OutBounds[Axis], Other[Axis]);
+					OutBounds[Axis + 3] = std::max(OutBounds[Axis + 3], Other[Axis + 3]);
+				}
+			}
+			return true;
+		}
+
 		if (!Desc.Geometry.IsValid()) return false;
 		if (Desc.Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
 			|| Desc.Geometry.GetKind() == ECollisionGeometryKind::TriangleMesh)
@@ -1332,7 +1421,17 @@ namespace Durin
 			if (!Child) return false;
 			FVector3 ChildMin;
 			FVector3 ChildMax;
-			if (!BuildShapeBounds(Child->Shape, FTransform::Combine(Desc.Transform, Child->LocalTransform),
+			if (Child->Geometry)
+			{
+				FPhysicsBodyDesc Part;
+				Part.Geometry = Child->Geometry;
+				Part.Transform = FTransform::Combine(Desc.Transform, Child->LocalTransform);
+				std::array<float, 6> Bounds;
+				if (!BuildBodyBounds(Part, Bounds)) return false;
+				ChildMin = FVector3(Bounds[0], Bounds[1], Bounds[2]);
+				ChildMax = FVector3(Bounds[3], Bounds[4], Bounds[5]);
+			}
+			else if (!BuildShapeBounds(Child->Shape, FTransform::Combine(Desc.Transform, Child->LocalTransform),
 				ChildMin, ChildMax)) return false;
 			if (!bHasBounds)
 			{

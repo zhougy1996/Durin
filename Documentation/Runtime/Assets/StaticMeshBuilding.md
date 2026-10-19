@@ -2,9 +2,9 @@
 
 Summary: Define StaticMesh source ownership, detached builds, payload validation, and compatibility.
 
-Modules: Engine
+Modules: Engine, MeshBuilder, AssetForgeBuiltins
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-10-19
 
 ## Source ownership and publication
 
@@ -28,14 +28,16 @@ tangents, UVs and colors are per instance, allowing seams at shared positions.
 An empty mapping is the compact one-instance-per-vertex representation. This
 section-local triangle model does not implement UE edge or arbitrary polygon APIs.
 The reflected `FStaticMeshSource` retains `Geometry: FEditorBulkData`,
-`MaterialSlotCount: uint32` and `MeshCount: uint32`.
+`MaterialSlotCount: uint32`, aggregate section `MeshCount: uint32`, and
+`LODCount: uint32` (default 1).
 The owning `DStaticMesh::Source` remains EditorOnly. Authored packages use
 `FStaticMeshSourceVersion`; see [source versioning](Versioning.md#static-mesh-source-versions).
 The independent geometry bulk codec uses `StaticMeshSourceGeometryPayloadVersion`.
 Compact descriptions retain version-1 canonical bytes, XXH3-128 hashing and source
 identity. Version 2 appends the explicit instance mapping to each section; readers
-accept both formats. The identity envelope remains version 1, with the bulk hash
-distinguishing the extended topology. Render expands instances into render vertices;
+accept both formats and the version-3 multi-LOD container, whose entries use the
+same per-description encoding. Single-LOD bytes and identities remain unchanged;
+multi-LOD identity also qualifies the LOD count. Render expands instances into render vertices;
 collision maps triangle instances back to geometric vertices. Render borrows
 section attributes and indices, allocating only expanded positions before
 constructing output streams. Both use all source
@@ -71,8 +73,29 @@ Fresh standalone/Scene import initializes source once before Engine DDC lookup.
 Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining owned validation,
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
+
+`InitializeLODs` accepts one to eight complete descriptions in a shared source
+coordinate and material-index namespace. It validates the aggregate source before
+publication. `AcquireLODs` and `AcquireLODGeometry` return immutable handles;
+`AcquireGeometry` remains the LOD0 convenience API. Release and copying apply to
+all decoded levels, and the source identity covers every level.
+
+`ImportStaticMeshLODFromFile` appends or replaces a contiguous level from 1 to 7
+on an authored standalone asset. Primary provenance uses `source`; lower files
+use `lod1` through `lod7`. Imported material indices are reconciled by source name
+into the primary namespace, including materials used only in lower levels.
+Reimport decodes all recorded files before accepting source or provenance; any
+missing/invalid input preserves the accepted asset. Canonical data remains usable
+after import files disappear. There is no automatic LOD generation.
+
+Each level produces its own sections, attributes, bounds and default screen-size
+threshold. All levels normalize using LOD0 source bounds and `NormalizedSize`,
+preserving relative placement rather than independently resizing lower levels.
+Shared DDC outputs and Cook retain all levels; lower-level edits change source
+and render build identity. The builder checks aggregate construction budgets.
+
 The module-private Developer `FStaticMeshBuilder::Build` receives
-`FStaticMeshBuildParameters` with an owning decoded handle, fixed material slots,
+`FStaticMeshBuildParameters` with immutable decoded LOD handles, fixed material slots,
 normalization and borrowed cancellation/memory controls.
 `IMeshBuilderModule::BuildRender(FStaticMeshRenderData& OutRenderData,
 const FStaticMeshBuildParameters& Parameters)` synchronously writes detached CPU
@@ -280,6 +303,12 @@ LOD0 streams only for source-less procedural/debug meshes. Authored collision us
 and creates normalized positions/indices on the worker without RenderData or RHI.
 Both projections use `GetStaticMeshPositionNormalization` to preserve identical
 coordinates. No public combined render/collision build product exists.
+Optional independent complex collision input is resolved by StaticMesh using
+the primary source's normalization, while convex/simple input stays on the
+primary source. The resolved CPU triangles are persisted for runtime deformation;
+the editor proxy reference contributes a direct Cook source-package dependency.
+See [collision sources](../Physics/Collision.md#assets-and-components) for the
+coordinate, one-hop selection, and invalidation contracts.
 Shared DDC render output owns CPU geometry and the section-to-slot mapping.
 Asset slot definitions remain inputs and are not persisted in that output. `IMeshBuilderModule` is an Engine-declared
 module interface, implemented by Developer/MeshBuilder without feature registration.

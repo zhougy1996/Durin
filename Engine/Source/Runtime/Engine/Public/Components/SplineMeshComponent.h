@@ -5,7 +5,8 @@
 #include "Components/MeshComponent.h"
 #include "Collision/CollisionGeometry.h"
 #include "Spline/SplineTypes.h"
-#include "StaticMesh/StaticMeshResources.h"
+#include "Physics/CollisionDataProvider.h"
+#include "Physics/BodySetupTypes.h"
 
 #include "SplineMeshComponent.gen.h"
 
@@ -13,6 +14,7 @@ namespace Durin
 {
 	class DMaterialInterface;
 	class DStaticMesh;
+	class DBodySetup;
 	class FStaticMeshRenderStateRecreateContext;
 
 	enum class ESplineMeshDerivedStateStatus : uint8
@@ -28,22 +30,18 @@ namespace Durin
 	enum class ESplineMeshCollisionMode : uint8
 	{
 		Disabled,
-		DeformedTriangleMesh
+		DeformedTriangleMesh,
+		DeformedSimpleCollision,
+		DeformedSimpleAndComplex
 	};
 
-	// Immutable deformation snapshot. Exact CPU geometry is populated only on demand.
+	// Immutable render deformation snapshot. Collision is owned separately by BodySetup.
 	struct FSplineMeshDerivedState
 	{
 		FSplineMeshParams Params;
 		FBox ConservativeLocalBounds;
-		// Empty in a valid render-only snapshot; request GetDerivedStateForQueries for exact geometry.
-		std::vector<FVector3f> DeformedLOD0Positions;
-		std::vector<uint32> LOD0Indices;
-		std::shared_ptr<const FStaticMeshLODResources::FRayQueryAcceleration> EditorAcceleration;
 		uint64 SourceRenderResourceRevision = 0;
 		uint64 DeformationRevision = 0;
-		uint64 CollisionInputIdentity = 0;
-		FCollisionGeometryRef CollisionGeometry;
 		ESplineMeshDerivedStateStatus Status = ESplineMeshDerivedStateStatus::NoStaticMesh;
 		std::string Diagnostic;
 
@@ -52,7 +50,7 @@ namespace Durin
 
 	// Deforms a borrowed StaticMesh through a value-only Hermite interval.
 	DCLASS()
-	class DSplineMeshComponent : public DMeshComponent
+	class DSplineMeshComponent : public DMeshComponent, public IInterface_CollisionDataProvider
 	{
 		GENERATED_BODY()
 	public:
@@ -71,16 +69,17 @@ namespace Durin
 		// Applies pending edits, invalidates failed results, and logs diagnostics internally.
 		// Also retries a failed update; clean successful updates do nothing.
 		ENGINE_API auto UpdateMesh() -> void;
+		ENGINE_API auto HandleStaticMeshCollisionSourceChanged(DStaticMesh* ChangedMesh, EBodySetupChange Changes) -> void;
 		auto GetMeshUpdateError() const -> const std::string& { return MeshUpdateError; }
 		auto GetCollisionBuildError() const -> const std::string& { return CollisionBuildError; }
-		auto GetQueryBuildError() const -> const std::string& { return QueryBuildError; }
 		auto IsMeshDirty() const -> bool { return bSourceDirty || bDeformationDirty || bCollisionDirty; }
 		// Reads the published snapshot without building CPU geometry. IsValid describes render readiness.
 		ENGINE_API auto GetDerivedState() const -> std::shared_ptr<const FSplineMeshDerivedState>;
-		// Call on the component's owning thread. Builds and caches exact geometry for this revision;
-		// Returns null on failure or when uncached geometry belongs to a pending source replacement,
-		// without changing the published render state.
-		ENGINE_API auto GetDerivedStateForQueries() -> std::shared_ptr<const FSplineMeshDerivedState>;
+		auto GetBodySetup() const -> DBodySetup* { return BodySetup.Get(); }
+		ENGINE_API auto ContainsPhysicsTriMeshData() const -> bool override;
+		// Owner-thread capture of source collision triangles deformed with the applied parameters.
+		ENGINE_API auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override;
+		ENGINE_API auto ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void override;
 		ENGINE_API auto BuildCollisionGeometry(
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
 
@@ -97,11 +96,10 @@ namespace Durin
 	private:
 		friend class FStaticMeshRenderStateRecreateContext;
 		auto RebuildDerivedState(std::string* OutError = nullptr) -> bool;
-		auto BuildDerivedGeometry(FSplineMeshDerivedState& Candidate, std::string* OutError) const -> bool;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto PushDynamicDataToScene() -> void;
 		auto GetCollisionStateRevision() const -> uint64 override;
-		auto RebuildCollisionGeometryForPublishedState() -> void;
+		auto RebuildCollisionGeometryForPublishedState(bool bRebuildSimple, bool bRebuildComplex) -> void;
 
 		DPROPERTY(Category = "Static Mesh", Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
@@ -112,17 +110,22 @@ namespace Durin
 		DPROPERTY(Category = "Collision", Edit)
 		ESplineMeshCollisionMode CollisionMode = ESplineMeshCollisionMode::Disabled;
 
+		DPROPERTY(Transient, NonTransactional)
+		TObjectPtr<DBodySetup> BodySetup;
+
 		std::shared_ptr<const FSplineMeshDerivedState> DerivedState;
 		uint64 DeformationRevision = 0;
 		bool bSourceDirty = false;
 		bool bDeformationDirty = false;
 		bool bCollisionDirty = false;
+		bool bSimpleCollisionDirty = false;
+		bool bComplexCollisionDirty = false;
 		// Resource requests can synchronously notify this component while UpdateMesh is rebuilding it.
 		bool bUpdatingMesh = false;
 		std::string MeshUpdateError;
 		std::string CollisionBuildError;
-		std::string QueryBuildError;
 		// Physics reads the applied mode until deferred authored edits are applied.
 		ESplineMeshCollisionMode PublishedCollisionMode = ESplineMeshCollisionMode::Disabled;
+		uint64 PublishedCollisionSourceRevision = 0;
 	};
 }

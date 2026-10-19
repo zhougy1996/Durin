@@ -130,6 +130,7 @@ namespace Durin
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void override;
+		ENGINE_API auto OnCookEvent(ECookEvent Event, FObjectCookContext& Context) const -> void override;
 		ENGINE_API static auto AppendToClassSchema(FObjectCookContext& Context) -> void;
 		// Owner-thread detached preparation; output fields are not installed on the mesh.
 		ENGINE_API auto PrepareCookedPayloads(ECookTargetPlatform Target, FBulkData& Render, FBulkData& Collision,
@@ -161,8 +162,18 @@ namespace Durin
 		ENGINE_API auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override;
 		ENGINE_API auto CreatePhysicsMeshInputTask() const
 			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string> override;
+		// Complex triangles are resolved in this mesh's canonical local space. External
+		// sources are one-hop only; authored proxy vertices share the primary source space.
+		ENGINE_API auto SetComplexCollisionMesh(DStaticMesh* Mesh) -> bool;
+		ENGINE_API auto GetComplexCollisionMesh() const -> DStaticMesh*;
+		// Fixed complex collision LOD, clamped to the available source levels. Rendering
+		// and convex cooking continue to use their own LOD selection policies.
+		ENGINE_API auto SetLODForCollision(int32 LODIndex) -> void;
+		auto GetLODForCollision() const -> int32 { return LODForCollision; }
+		// Resident metadata only; never decodes source or calls a provider/build path.
+		ENGINE_API auto GetComplexCollisionSourceTriangleCount() const -> std::optional<uint32>;
+		auto GetCollisionSourceRevision() const -> uint64 { return CollisionSourceRevision; }
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
-		ENGINE_API auto NotifyCollisionDataChanged() -> void;
 		ENGINE_API auto SetBodySetup(DBodySetup* InBodySetup) -> bool;
 		// Accepts declared enum values on the owner thread, invalidates old collision and
 		// schedules detached work from canonical source or procedural CPU values.
@@ -171,8 +182,6 @@ namespace Durin
 		ENGINE_API auto SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> void;
 		// Explicit retry; missing collision source is reported independently of render work.
 		ENGINE_API auto RebuildCollision() -> void;
-		// Owner notification after BodySetup invalidation; absent collision source is allowed.
-		ENGINE_API auto NotifyCollisionSettingsChanged() -> void;
 		ENGINE_API auto GetCollisionBuildStatus() const -> EPhysicsMeshBuildStatus;
 		// Last collision build error, including admission and worker failure.
 		ENGINE_API auto GetCollisionBuildError() const -> const std::optional<std::string>&;
@@ -290,7 +299,14 @@ namespace Durin
 		auto InvalidateCollisionData() -> void;
 		auto ScheduleCollisionData(bool bAllowUnavailable, bool bPersistDerivedData = true) -> void;
 		auto RebuildCollisionData(bool bAllowUnavailable, bool bPersistDerivedData = true) -> void;
-		auto RefreshCollisionBodies() -> void;
+		friend class DBodySetup;
+		auto HandleBodySetupChanged(EBodySetupChange Changes) -> void;
+		auto RefreshCollisionBodies(EBodySetupChange Changes = EBodySetupChange::SimpleGeometry
+			| EBodySetupChange::SourceRecipe | EBodySetupChange::QuerySettings) -> void;
+		auto NotifyCollisionSourceChanged(bool bRebuildComplexBody = false) -> void;
+		auto RefreshComplexCollisionSource() -> void;
+		auto CreateOwnPhysicsMeshInputTask(const DStaticMesh& NormalizationOwner, int32 LODIndex = 0) const
+			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string>;
 		auto CommitPreparedMeshData(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition>*
@@ -313,7 +329,21 @@ namespace Durin
 
 		DPROPERTY(EditorOnly)
 		FStaticMeshSource Source;
+
+		DPROPERTY(EditorOnly, Category = "Collision", Edit)
+		TObjectPtr<DStaticMesh> ComplexCollisionMesh;
 #endif
+		// Resolved proxy input survives editor-data stripping and needs no proxy asset or GPU.
+		DPROPERTY()
+		bool bHasComplexCollisionSource = false;
+		DPROPERTY(Category = "Collision", Edit)
+		int32 LODForCollision = 0;
+		DPROPERTY()
+		std::vector<FVector3f> ComplexCollisionPositions;
+		DPROPERTY()
+		std::vector<uint32> ComplexCollisionIndices;
+		uint64 CollisionSourceRevision = 1;
+		bool bRefreshingCollisionSource = false;
 
 		DPROPERTY()
 		float NormalizedSize = 1.5f;

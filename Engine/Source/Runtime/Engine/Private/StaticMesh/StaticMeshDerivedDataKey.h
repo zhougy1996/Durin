@@ -11,7 +11,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 StaticMeshRenderBuildFunctionVersion = 2;
+	inline constexpr uint32 StaticMeshRenderBuildFunctionVersion = 3;
 	inline constexpr uint32 StaticMeshRenderConstantsSchemaVersion = 2;
 	inline constexpr std::string_view StaticMeshRenderOutputType = "StaticMesh.RenderOutput";
 	inline constexpr uint32 StaticMeshRenderOutputSchemaVersion = 2;

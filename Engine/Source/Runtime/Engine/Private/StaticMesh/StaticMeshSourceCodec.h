@@ -8,13 +8,14 @@
 
 namespace Durin::StaticMeshPrivate
 {
-	inline auto BuildSourceIdentity(uint32 MaterialSlotCount, uint32 MeshCount, FXxHash128 PayloadId) -> FXxHash128
+	inline auto BuildSourceIdentity(uint32 MaterialSlotCount, uint32 MeshCount, FXxHash128 PayloadId, uint32 LODCount = 1) -> FXxHash128
 	{
 		FXxHash128Builder Builder;
 		Builder.UpdateValue(StaticMeshSourceGeometryIdentityVersion);
 		Builder.UpdateValue(MaterialSlotCount);
 		Builder.UpdateValue(MeshCount);
 		Builder.UpdateValue(PayloadId);
+		if (LODCount != 1) Builder.UpdateValue(LODCount);
 		return Builder.Finalize();
 	}
 
@@ -22,6 +23,9 @@ namespace Durin::StaticMeshPrivate
 	ENGINE_API auto DecodeSourceGeometry(FByteView Bytes, uint32 MaterialSlotCount, uint32 MeshCount,
 		const std::function<bool()>& ShouldCancel = {})
 		-> std::expected<FMeshDescriptionReadHandle, FStaticMeshSourceError>;
+	ENGINE_API auto DecodeSourceLODs(FByteView Bytes, uint32 MaterialSlotCount, uint32 MeshCount,
+		const std::function<bool()>& ShouldCancel = {})
+		-> std::expected<std::vector<FMeshDescriptionReadHandle>, FStaticMeshSourceError>;
 }
 
 #endif

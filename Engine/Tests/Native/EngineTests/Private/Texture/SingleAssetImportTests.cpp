@@ -158,6 +158,22 @@ TEST(FSingleAssetImportTests, DerivedStateValidationChecksBaseBeforeEmptyStateSh
 	EXPECT_EQ(Validation.error().Code, EAssetImportDataError::ModuleRejected);
 }
 
+TEST(FSingleAssetImportTests, StaticMeshAcceptsOptionalLODProvenanceAndRejectsUnknownLevels)
+{
+	InitializeSingleAssetImportTests();
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	FStaticMeshImportDataState State;
+	State.SourceData.Sources = {
+		{.Role = "source", .ContentHashLow = 1, .ContentHashHigh = 2, .ByteCount = 1},
+		{.Role = "lod3", .ContentHashLow = 3, .ContentHashHigh = 4, .ByteCount = 1}};
+	State.SourceData.Normalize();
+	EXPECT_TRUE(State.Validate());
+	State.SourceData.Sources.front().Role = "lod8";
+	State.SourceData.Normalize();
+	EXPECT_FALSE(State.Validate());
+}
+
 TEST(FSingleAssetImportTests, DerivedValidationRejectsInvalidAxisAtlasAndRole)
 {
 	InitializeSingleAssetImportTests();

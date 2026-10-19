@@ -154,7 +154,7 @@ namespace Durin
 			const uint64 WireBytes = Request.Source.GetGeometryBulk().GetPayloadSize();
 			FAssetBuildMemoryEstimate Memory{MaximumAssetBuildRequestBytes, 1024 * 1024};
 			if (!Memory.Add(WireBytes, 64) || !Memory.Add(Request.Source.GetMeshCount(), 1024)
-				|| !Memory.Add(std::max<size_t>(Request.Source.GetMaterialSlotCount(), InputSlots.size()), 32768))
+				|| !Memory.Add(std::max<size_t>(Request.Source.GetMaterialSlotCount(), InputSlots.size()) * Request.Source.GetNumLODs(), 32768))
 				return Reject(std::format("StaticMesh compilation request exceeds its {} byte budget ({} x {} bytes rejected).", Memory.Limit, Memory.RejectedCount, Memory.RejectedWidth));
 			const uint64 Bytes = Memory.Bytes;
 			auto Module = IMeshBuilderModule::Get();

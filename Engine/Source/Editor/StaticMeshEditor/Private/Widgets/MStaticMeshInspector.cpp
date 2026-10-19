@@ -57,7 +57,7 @@ namespace Durin::Editor::StaticMesh
 			{
 			case EBodySetupCollisionSourceMode::None: return "None";
 			case EBodySetupCollisionSourceMode::ConvexHullFromLOD0: return "Convex hull from LOD 0";
-			case EBodySetupCollisionSourceMode::TriangleMeshFromLOD0: return "Triangle mesh from LOD 0";
+			case EBodySetupCollisionSourceMode::TriangleMeshFromLOD0: return "Triangle mesh from collision LOD";
 			}
 			return "Invalid";
 		}

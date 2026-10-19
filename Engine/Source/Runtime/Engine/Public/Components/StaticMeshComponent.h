@@ -30,6 +30,7 @@ namespace Durin
 		ENGINE_API auto RefreshReloadedAssetBindings() -> void;
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
 		ENGINE_API auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool override;
+		ENGINE_API auto ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void override;
 		ENGINE_API auto BuildCollisionGeometry(
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
 		ENGINE_API auto GetNumMaterials() const -> uint32 override;

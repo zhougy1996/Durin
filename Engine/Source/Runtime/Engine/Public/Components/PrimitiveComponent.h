@@ -73,6 +73,7 @@ namespace Durin
 
 
 	protected:
+		ENGINE_API virtual auto ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void {}
 		ENGINE_API auto OnUpdateTransform() -> void override;
 		ENGINE_API virtual auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool;

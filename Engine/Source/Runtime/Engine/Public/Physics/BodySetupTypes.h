@@ -4,6 +4,7 @@
 #include "EngineAPI.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
+#include "Misc/EnumClassFlags.h"
 #include "BodySetupTypes.gen.h"
 
 namespace Durin
@@ -25,6 +26,17 @@ namespace Durin
 		ComplexOnly,
 		SimpleAndComplex
 	};
+
+	// Describes which published body inputs changed. Independent from asset source revisions.
+	enum class EBodySetupChange : uint8
+	{
+		None = 0,
+		SimpleGeometry = 1,
+		GeneratedGeometry = 2,
+		QuerySettings = 4,
+		SourceRecipe = 8
+	};
+	ENUM_CLASS_FLAGS(EBodySetupChange)
 
 	enum class EPhysicsCookCompletionStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
 	struct FPhysicsCookCompletionResult

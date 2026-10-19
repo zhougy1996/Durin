@@ -9,12 +9,7 @@ namespace Durin
 {
 	struct FPhysicsQueryHit;
 
-	// Describes one stable simple child supplied to immutable compound geometry creation.
-	struct FCollisionGeometryChild
-	{
-		FCollisionShape Shape;
-		FTransform LocalTransform;
-	};
+	struct FCollisionGeometryChild;
 
 	// Identifies the immutable payload behind a geometry reference without exposing storage.
 	enum class ECollisionGeometryKind : uint8
@@ -230,6 +225,15 @@ namespace Durin
 
 		std::shared_ptr<const FCollisionGeometry> Payload;
 	};
+	// A flat simple aggregate accepts an analytic shape or a convex resource, never both.
+	// Nested aggregates and triangle meshes are rejected at construction.
+	struct FCollisionGeometryChild
+	{
+		FCollisionShape Shape;
+		FTransform LocalTransform;
+		FCollisionGeometryRef Geometry;
+	};
+
 }
 
 namespace Durin::CollisionGeometry

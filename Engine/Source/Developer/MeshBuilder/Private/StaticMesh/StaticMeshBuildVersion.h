@@ -7,5 +7,5 @@
 namespace Durin
 {
 	// Algorithm revision of the built-in builder; combined into its build identity.
-	inline constexpr uint32 StaticMeshBuilderVersion = 5;
+	inline constexpr uint32 StaticMeshBuilderVersion = 6;
 }

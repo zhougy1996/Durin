@@ -17,7 +17,9 @@ namespace Durin
 	inline constexpr FGuid StaticMeshSourceGeometryPayloadId{
 		0x442898cd, 0x801d49ed, 0x93459533, 0x4531fc1d};
 	inline constexpr uint32 StaticMeshSourceGeometryPayloadVersion = 2;
+	inline constexpr uint32 StaticMeshSourceLODsPayloadVersion = 3;
 	inline constexpr uint32 StaticMeshSourceGeometryIdentityVersion = 1;
+	inline constexpr uint32 MaximumStaticMeshSourceLODs = 8;
 	inline constexpr uint64 MaximumStaticMeshSourceBytes =
 		1024ull * 1024ull * 1024ull;
 
@@ -65,6 +67,13 @@ namespace Durin
 
 		// Validates the complete candidate before replacement and seeds residency without decoding.
 		ENGINE_API auto Initialize(FMeshDescription Value) -> std::expected<void, FStaticMeshSourceError>;
+		// LODs share source coordinates and source-material indices; LOD0 owns normalization.
+		ENGINE_API auto InitializeLODs(std::vector<FMeshDescription> Values) -> std::expected<void, FStaticMeshSourceError>;
+		ENGINE_API auto AcquireLODs(const std::function<bool()>& ShouldCancel = {}) const
+			-> std::expected<std::vector<FMeshDescriptionReadHandle>, FStaticMeshSourceError>;
+		ENGINE_API auto AcquireLODGeometry(uint32 LODIndex, const std::function<bool()>& ShouldCancel = {}) const
+			-> std::expected<FMeshDescriptionReadHandle, FStaticMeshSourceError>;
+		auto GetNumLODs() const -> uint32 { return LODCount; }
 		// May read bulk and block. Concurrent callers share one successful decode; failures are not cached.
 		// Cancellation is borrowed under the residency lock and must not reenter this source.
 		ENGINE_API auto AcquireGeometry(
@@ -88,9 +97,12 @@ namespace Durin
 
 		DPROPERTY()
 		uint32 MeshCount = 0;
+		DPROPERTY()
+		uint32 LODCount = 1;
 
 		mutable std::mutex ResidencyMutex;
 		mutable FMeshDescriptionReadHandle ResidentGeometry;
+		mutable std::vector<FMeshDescriptionReadHandle> ResidentLODs;
 		// Reflection can replace persistent fields without invoking assignment.
 		mutable FXxHash128 ResidentIdentity;
 	};

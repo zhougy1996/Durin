@@ -22,7 +22,10 @@ namespace Durin
 		Result.Mode = BodySetup->GetCollisionSourceMode();
 		Result.Policy = BodySetup->GetCollisionQueryPolicy();
 		Result.BuildRevision = BodySetup->GetCollisionBuildRevision();
-		if (RenderData && !RenderData->LODResources.empty())
+		const auto ComplexTriangles = Mesh.GetComplexCollisionSourceTriangleCount();
+		if (Result.Mode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+			Result.SourceTriangles = ComplexTriangles.value_or(0);
+		else if (RenderData && !RenderData->LODResources.empty())
 			Result.SourceTriangles = static_cast<uint32>(
 				RenderData->LODResources.front().IndexBuffer.GetIndices().size() / 3);
 		FCollisionGeometryRef Geometry;
@@ -37,7 +40,7 @@ namespace Durin
 		Result.bHasGeometry = true;
 		Result.RetainedTriangles = Geometry.GetTriangleCount();
 		Result.bTriangleCountsComparable = Result.Mode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0
-			&& Result.GeometryKind == ECollisionGeometryKind::TriangleMesh;
+			&& ComplexTriangles.has_value() && Result.GeometryKind == ECollisionGeometryKind::TriangleMesh;
 		Result.RemovedTriangles = Result.bTriangleCountsComparable && Result.SourceTriangles >= Result.RetainedTriangles
 			? Result.SourceTriangles - Result.RetainedTriangles : 0;
 		Result.Nodes = Geometry.GetNodeCount();

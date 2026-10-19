@@ -3365,3 +3365,55 @@ TEST(FStaticMeshRenderPreparationVulkanTests, RepeatedVulkanInitializationPreser
 		EXPECT_EQ(GDynamicRHI, nullptr);
 	}
 }
+
+TEST(FStaticMeshRenderPreparationVulkanTests, AuthoredLODsInitializeAllResourcesAndCollisionSelectionPreservesGeometryRecords)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	FMeshDescription Primary;
+	Primary.PolygonGroups.push_back({"Default", 0, "Default"});
+	auto& Section = Primary.Sections.emplace_back();
+	Section.Name = "Primary";
+	Section.Positions = {{-1, -1, 0}, {1, -1, 0}, {1, 1, 0}, {-1, 1, 0}};
+	Section.Indices = {0, 1, 2, 0, 2, 3};
+	auto Lower = Primary;
+	Lower.Sections.front().Indices = {0, 1, 2};
+	FStaticMeshSource Source;
+	ASSERT_TRUE(Source.InitializeLODs({std::move(Primary), std::move(Lower)}));
+	auto* Mesh = NewObject<DStaticMesh>(nullptr, "AuthoredMultiLODVulkanMesh");
+	const auto Built = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous,
+		{.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(Source)});
+	ASSERT_TRUE(Built) << Built.error();
+	ASSERT_EQ(GDynamicRHI, nullptr);
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	Mesh->InitResources();
+	FlushRenderingCommands();
+	const auto* Render = Mesh->GetRenderData();
+	ASSERT_NE(Render, nullptr);
+	ASSERT_EQ(Render->LODResources.size(), 2u);
+	ASSERT_TRUE(Render->IsReadyForRendering());
+	std::array<uint64, 2> Records;
+	for (uint32 LOD = 0; LOD < 2; ++LOD)
+	{
+		ASSERT_TRUE(Render->LODResources[LOD].GeometryRecord);
+		Records[LOD] = Render->LODResources[LOD].GeometryRecord->GetRecordId();
+		EXPECT_NE(Records[LOD], 0u);
+	}
+	const auto RenderRevision = Mesh->GetRenderResourceStatus().Revision;
+	Mesh->SetLODForCollision(1);
+	FlushRenderingCommands();
+	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, RenderRevision);
+	EXPECT_EQ(Mesh->GetPhysicsTriMeshData()->Indices.size(), 3u);
+	for (uint32 LOD = 0; LOD < 2; ++LOD)
+		EXPECT_EQ(Render->LODResources[LOD].GeometryRecord->GetRecordId(), Records[LOD]);
+	MarkAsGarbage(Mesh);
+	CollectGarbage();
+	FlushRenderingCommands();
+	ShutdownRenderingThread();
+	RHIExit();
+}

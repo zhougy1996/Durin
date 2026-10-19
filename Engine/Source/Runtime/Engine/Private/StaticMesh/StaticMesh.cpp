@@ -498,6 +498,7 @@ namespace Durin
 #endif
 			PublishRenderResourceState(CandidateState);
 			if (OldRenderData) RetireStaticMeshRenderData(OldRenderData);
+			if (bGeometryChanged) NotifyCollisionSourceChanged();
 		}
 
 		return {};
@@ -717,7 +718,7 @@ namespace Durin
 			MaterialSlots = std::move(Slots);
 			AssetImportData = &ImportData;
 			AcceptedGeometryNormalizedSize = NormalizedSize;
-
+			NotifyCollisionSourceChanged();
 		}
 		MarkPackageDirty();
 		return {};
@@ -728,6 +729,13 @@ namespace Durin
 	{
 		Super::PostEditChangeProperty(Event);
 #if DURIN_WITH_EDITORONLY_DATA
+		if (Event.MemberProperty && (Event.MemberProperty->NamePrivate == FName("ComplexCollisionMesh")
+			|| Event.MemberProperty->NamePrivate == FName("LODForCollision")))
+		{
+			if (ComplexCollisionMesh == this) ComplexCollisionMesh = nullptr;
+			NotifyCollisionSourceChanged(true);
+			return;
+		}
 		if (Event.MemberProperty || Event.Phase != EPropertyChangePhase::Committed || IsTemplateObject()
 			|| GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 		if (const auto Admitted = Build(EStaticMeshBuildMode::Asynchronous, {.bMarkPackageDirty = false}); !Admitted)
@@ -750,6 +758,7 @@ namespace Durin
 		RenderData.reset();
 		PublishRenderResourceState(EStaticMeshRenderResourceState::Uninitialized);
 		InvalidateCollisionData();
+		NotifyCollisionSourceChanged();
 		// The qualified Box shape is derived from render bounds, unlike authored primitives.
 		if (BodySetup && BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None
 			&& GetObjectPath().starts_with("/Engine/Models/Box"))

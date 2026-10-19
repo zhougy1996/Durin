@@ -186,7 +186,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto ImportFromFilename(DStaticMesh& Mesh, std::string Filename, ESourceHintBase HintBase,
 			const FStaticMeshImportSettings& Settings,
-			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> std::expected<void, std::string>
+			std::optional<std::filesystem::path> SelectedPhysicalPath = {}, uint32 LODIndex = 0) -> std::expected<void, std::string>
 		{
 			if (const auto Valid = Settings.Validate(); !Valid)
 				return std::unexpected(FormatStaticMeshImportSettingsError(Valid.error()));
@@ -232,11 +232,87 @@ namespace Durin::AssetForge::Builtins
 				return std::unexpected(std::move(Diagnostic));
 			}
 			auto Geometry = MakeMeshDescription(Scene);
-			auto ImportedSlots = Geometry.PolygonGroups;
-			FStaticMeshSource Source;
-			if (const auto Initialized = Source.Initialize(std::move(Geometry)); !Initialized)
-				return std::unexpected(FormatStaticMeshSourceError(Initialized.error()));
 			auto State = MakeImportDataState(Filename, HintBase, PhysicalPath, Snapshot, Settings);
+			std::vector<FMeshDescription> LODs;
+			const auto* Previous = dynamic_cast<const DStaticMeshImportData*>(Mesh.GetAssetImportData());
+			const auto Count = Mesh.GetSource().IsValid() ? Mesh.GetSource().GetNumLODs()
+				: Previous ? std::max(Mesh.GetSource().GetNumLODs(), static_cast<uint32>(Previous->GetSourceData().Sources.size())) : 0;
+			if (Count > MaximumStaticMeshSourceLODs) return std::unexpected("StaticMesh source LOD count is invalid.");
+			bool bReloadAll = LODIndex == 0 && Previous && Count > 1;
+			for (uint32 LOD = 1; bReloadAll && LOD < Count; ++LOD)
+				bReloadAll = Previous->GetSourceData().FindByRole(FName(std::format("lod{}", LOD))) != nullptr;
+			if (LODIndex == 0 && Count > 1 && !bReloadAll && !Mesh.GetSource().IsValid())
+				return std::unexpected("Unrecorded authored LODs require readable canonical source geometry.");
+			if (bReloadAll) LODs.resize(Count);
+			else if (Mesh.GetSource().IsValid() && (LODIndex != 0 || Count > 1))
+			{
+				const auto Existing = Mesh.GetSource().AcquireLODs();
+				if (!Existing) return std::unexpected(FormatStaticMeshSourceError(Existing.error()));
+				for (const auto& LOD : *Existing) LODs.push_back(*LOD);
+			}
+			if (LODIndex > LODs.size() || LODIndex >= MaximumStaticMeshSourceLODs)
+				return std::unexpected("LOD import requires contiguous levels within the eight-LOD limit.");
+			if (Previous)
+			{
+				const auto Prior = Previous->GetStaticMeshState();
+				if (LODIndex != 0)
+				{
+					auto File = State.SourceData.Sources.front();
+					File.Role = FName(std::format("lod{}", LODIndex));
+					State = Prior;
+					std::erase_if(State.SourceData.Sources, [&](const auto& Entry) { return Entry.Role == File.Role; });
+					State.SourceData.Sources.push_back(std::move(File));
+				}
+				else
+				{
+					for (const auto& Entry : Prior.SourceData.Sources)
+						if (Entry.Role != FName("source")) State.SourceData.Sources.push_back(Entry);
+					// Decode every recorded lower source before accepting any new authored state.
+					for (uint32 LOD = 1; LOD < LODs.size(); ++LOD)
+					{
+						auto Found = std::ranges::find(State.SourceData.Sources, FName(std::format("lod{}", LOD)), &FSourceFile::Role);
+						if (Found == State.SourceData.Sources.end()) continue;
+						const auto Path = ResolveSourceHint(Found->HintBase, Found->Hint, PackagePath.generic_string());
+						if (!Path) return std::unexpected(FormatSourceHintError(Path.error()));
+						auto Input = CaptureEncodedSource(Found->Hint, *Path, MaximumStaticMeshEncodedBytes);
+						if (!Input) return std::unexpected(FormatEncodedSourceError(Input.error()));
+						FImportedSceneData LowerScene;
+						if (!ImportGeometryFromMemory(Input->GetBytes(), Path->extension().generic_string(), LowerScene, MakeOptions(Settings, {})))
+							return std::unexpected("Failed to decode StaticMesh LOD source: " + Path->generic_string());
+						LODs[LOD] = MakeMeshDescription(LowerScene);
+						Found->ContentHashLow = Input->ContentHash.HashLow;
+						Found->ContentHashHigh = Input->ContentHash.HashHigh;
+						Found->ByteCount = Input->FileSize;
+					}
+				}
+			}
+			if (LODIndex == LODs.size()) LODs.push_back(std::move(Geometry));
+			else LODs[LODIndex] = std::move(Geometry);
+			// Separate files have independent material indices. Reconcile them into the
+			// primary namespace by source name before producing immutable source data.
+			auto& Groups = LODs.front().PolygonGroups;
+			for (size_t LOD = 1; LOD < LODs.size(); ++LOD)
+			{
+				std::unordered_map<uint32, uint32> Remap;
+				for (auto& Group : LODs[LOD].PolygonGroups)
+				{
+					auto Match = std::ranges::find(Groups, Group.SourceName, &FMeshPolygonGroup::SourceName);
+					uint32 Index = 0;
+					if (Match != Groups.end()) Index = Match->SourceMaterialIndex;
+					else
+					{
+						while (std::ranges::find(Groups, Index, &FMeshPolygonGroup::SourceMaterialIndex) != Groups.end()) ++Index;
+						auto Added = Group; Added.SourceMaterialIndex = Index; Groups.push_back(std::move(Added));
+					}
+					Remap.emplace(Group.SourceMaterialIndex, Index);
+					Group.SourceMaterialIndex = Index;
+				}
+				for (auto& Section : LODs[LOD].Sections) Section.SourceMaterialIndex = Remap.at(Section.SourceMaterialIndex);
+			}
+			auto ImportedSlots = Groups;
+			FStaticMeshSource Source;
+			if (const auto Initialized = Source.InitializeLODs(std::move(LODs)); !Initialized)
+				return std::unexpected(FormatStaticMeshSourceError(Initialized.error()));
 			State.SourceData.Normalize();
 			if (const auto Valid = State.Validate(); !Valid)
 				return std::unexpected(FormatAssetImportDataError(Valid.error()));
@@ -378,6 +454,20 @@ namespace Durin::AssetForge::Builtins
 		const auto* Source = State.SourceData.FindByRole("source");
 		if (!Source || Source->Hint.empty()) return MakeReimportResult(std::unexpected(std::string("StaticMesh has no source filename to reimport.")));
 		return MakeReimportResult(ImportFromFilename(Mesh, Source->Hint, Source->HintBase, State.ImportSettings));
+	}
+
+	auto ImportStaticMeshLODFromFile(DStaticMesh& Mesh, uint32 LODIndex, std::string_view FilePath) -> FReimportResult
+	{
+		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(Mesh.GetAssetImportData());
+		if (!Data || LODIndex == 0 || LODIndex >= MaximumStaticMeshSourceLODs)
+			return MakeReimportResult(std::unexpected(std::string("LOD import requires an authored StaticMesh and a level from 1 to 7.")));
+		if (IsOneTimeModelImportedAsset(Mesh) || IsOneTimeModelSource(FilePath))
+			return MakeReimportResult(std::unexpected(std::string(ModelOneTimeImportDiagnostic)));
+		std::error_code Error;
+		const auto Path = std::filesystem::absolute(FilePath, Error).lexically_normal();
+		if (Error) return MakeReimportResult(std::unexpected(Error.message()));
+		return MakeReimportResult(ImportFromFilename(Mesh, Path.generic_string(), ESourceHintBase::Absolute,
+			Data->GetImportSettings(), Path, LODIndex));
 	}
 
 	auto ReimportStaticMeshFromFile(DStaticMesh& Mesh, std::string_view FilePath) -> FReimportResult

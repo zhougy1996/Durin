@@ -32,7 +32,8 @@ disabled; that flag gates future simulation stepping, not query-only geometry.
 value. Bodies instead retain a copyable `FCollisionGeometryRef` to one
 validated immutable PhysicsCore payload. A primitive payload contains one
 shape. A compound contains 1 through 64 simple children in stable input order,
-each with one valid local transform; compounds do not nest. Every payload has
+each with an analytic shape or a convex resource and one valid local transform;
+triangle children and nested compounds are rejected. Every payload has
 a non-zero process-local identity, immutable local bounds, and retained-byte
 facts. Scene bodies copy the two-word reference and never copy child data.
 
@@ -85,13 +86,15 @@ detached payloads before serialization; runtime decoding requires no Developer
 TargetPlatform service. PhysicsCore remains the algorithm authority for direct
 and DDC construction.
 
-`DBodySetup` owns collision source mode, Simple/Complex query policy, build
-revision, a local shape offset, and independent immutable-resource
-caches. Repeated publication for one revision
-returns the same identity; successful collision-relevant setters invalidate
-geometry. Material, thumbnail, and render-readiness changes do not.
-The BodySetup source-mode and query-policy setters require declared enum values
-and return void; external input is validated before calling them.
+`DBodySetup` owns source recipes, query settings and independent immutable
+geometry caches. Simple authoring edits invalidate only simple caches; query
+settings preserve all geometry and pending cooks. Generated-resource publication
+preserves authored simple caches. `FScopedBodySetupUpdate` batches nested edits,
+synchronous cooks and publication into one revision and one typed owner
+notification at the outer scope exit. Inputs change immediately inside the scope;
+this is publication batching, not rollback or concurrent editing. Invalid edits
+are rejected before changing authored data. Material and render readiness do not
+invalidate collision. Enum setters require declared values.
 `IInterface_CollisionDataProvider` exposes `ContainsPhysicsTriMeshData` and
 `GetPhysicsTriMeshData`. The latter synchronously returns owning
 `FTriMeshCollisionData` arrays; it never returns a callback or deferred data source.
@@ -134,8 +137,10 @@ canonical bytes and schema versions are independent of the DDC namespace. Collis
 derived data uses the flat `StaticMeshCollision` bucket; its spelling is a cache
 compatibility identity, not a code dependency.
 
-`DBodySetup::InvalidatePhysicsData` withdraws unstarted prior requests, clears derived geometry,
-advances request/resource revisions, and refreshes physics consumers.
+`DBodySetup::InvalidatePhysicsData` withdraws unstarted prior requests and clears
+only generated geometry. Repeated invalidation before the next request/publication
+reuses the same invalidated generation. Simple authoring and query edits preserve
+that request generation; source recipe/input changes supersede it.
 `CreatePhysicsMeshesAsync` accepts a provider capture and submits bounded work;
 `CreatePhysicsMeshes` also waits, while `FinishPhysicsMeshes` waits for that setup
 only. Accepted asynchronous work delivers `FOnAsyncPhysicsCookFinished` once on
@@ -181,7 +186,7 @@ finishing physics can dispatch ready render CPU continuations, without accessing
 the render manager or applying its results. Pending DDC requests occupy no asset
 execution slots; their memory/record reservations remain until terminal retirement.
 
-The mesh setters invalidate derived collision and schedule when a collision source
+Source-recipe setters invalidate generated collision and schedule when a collision source
 is available, even without CPU RenderData. Missing source retains configuration as
 Unavailable; explicit `RebuildCollision` reports a missing-source failure.
 Failure retains the new configuration without derived geometry and leaves rendering
@@ -191,9 +196,69 @@ derived collision. Unchanged settings do not retry; use `RebuildCollision`.
 Each collision request owns a detached input task and cook descriptor; the mesh retains
 its setup and installed immutable geometry, without a per-generation snapshot cache. Collision is opt-in: `None`, `ConvexHullFromLOD0`, or
 `TriangleMeshFromLOD0`; imported meshes never silently use render bounds or triangles.
-`SimpleOnly`, `ComplexOnly`, and `SimpleAndComplex` select the published resource
-without changing component filters. The qualified `/Engine/Models/Box` asset
+`SimpleOnly`, `ComplexOnly`, and `SimpleAndComplex` retain their existing
+representation-availability rules without changing component filters.
+`FCollisionQueryParams::Complexity` (forwarded to `FPhysicsQueryFilter`) accepts
+`Default`, `Simple`, or `Complex`. Default preserves the historical geometry
+choice; explicit queries select one representation and emit at most one hit per
+body. Asset source modes continue to select the existing cooked recipe; a trace
+mode does not implicitly enable generated asset collision.
+`EBodySetupCollisionTraceMode` adds UE-style `SimpleAndComplex`,
+`SimpleAsComplex`, and `ComplexAsSimple` routing. The latter two also change the
+default geometry when explicitly selected. Missing representations do not fall
+back to the other kind under `SimpleAndComplex`. Scene bounds include every
+published representation, including separate offsets; updates and retirement
+retain and release all geometry resources.
+
+`DBodySetup::SetSimpleCollision` atomically replaces an aggregate of at most 64
+mesh-local `FSimpleCollisionElement` values (Box, Sphere, Capsule, Convex).
+Invalid dimensions, transforms, point sets or topology reject the whole edit.
+Convex elements retain validated hull vertices and triangle topology in both
+authored and cooked packages; immutable resources are reconstructed lazily
+without imported source data or Developer modules. Empty aggregates restore the
+legacy single shape; `SetBox`, `SetSphere`, and `SetCapsule` replace an aggregate.
+The aggregate is independent of the triangle source recipe, allowing authored
+simple elements and collision-LOD/proxy triangles in the same body. A legacy
+single shape can also answer explicit Simple queries alongside triangles; its
+presence does not alter the old default triangle choice. The qualified `/Engine/Models/Box` asset
 continues to derive its authored Box setup from verified LOD 0 bounds.
+
+`DStaticMesh::SetComplexCollisionMesh` optionally replaces complex triangle input.
+The editor-only reference selects the proxy's own geometry in one hop; its own
+proxy reference is ignored and self-reference is rejected. Simple primitives and
+`ConvexHullFromLOD0` continue to use the primary asset. Clearing the reference
+restores primary triangles; an unavailable selected proxy fails without silently
+falling back to visual geometry. Existing defaults remain unchanged.
+
+`LODForCollision` defaults to 0 and selects a fixed complex collision level,
+clamped to the available range at input capture. It never follows camera distance
+or render LOD selection. A selected proxy delegates to its own `LODForCollision`
+in one hop; the primary asset's setting does not override it. Simple primitives
+and convex cooking stay on primary LOD0. Changing the setting invalidates collision
+input and direct consumers without republishing rendering, while deferred spline
+edits keep their old body until application. Cook retains the selected CPU input
+for non-default LODs as well as proxies; cooked runtime selection is fixed and
+does not require editor geometry or GPU initialization. Collision enablement,
+query policy and default LOD0 behavior are unchanged.
+
+Authored proxies share the primary mesh's original source coordinate system.
+Their vertices use the primary source bounds and `NormalizedSize`, never their
+own bounds or size. Source-less procedural vertices are already canonical local
+coordinates and are copied unchanged. Resolved proxy positions and indices are
+persisted on the primary asset, including Cooked packages, for CPU-only runtime
+spline deformation without loading the proxy or editor source. Cook declares a
+direct source-package dependency and refreshes the resolved input before capture.
+
+Collision input has an asset-local revision independent of render-resource
+publication and BodySetup cook completion. Source replacement, normalization and
+proxy selection refresh direct proxy consumers and rebuild spline collision.
+Pending component edits retain their applied physics body until `UpdateMesh`;
+provider capture rejects a changed collision-source revision until application.
+Collision-only changes preserve the spline render snapshot. Typed body changes
+refresh StaticMesh components and only dependent simple-collision splines in one
+object traversal. Source hull completion refreshes splines using that hull; triangle
+completion does not rebuild splines from unchanged triangle inputs. Notifications
+never recursively invalidate asset input sources.
 
 Editor derived data uses the separate `StaticMeshCollision` namespace
 and a key containing collision builder/schema/platform versions, exact source
@@ -204,10 +269,13 @@ Failure cannot roll back accepted render/source state.
 Invalidation and successful collision installation refresh registered component
 physics bodies through a collision-specific notification. Render-data notifications
 refresh only rendering for StaticMeshComponent. Stale results are rejected using
-BodySetup identity, request/settings revisions and provider registration. Render-only pending work is
+BodySetup identity, request generation, source mode and provider registration.
+Unrelated query/simple changes do not supersede in-flight generated work. Render-only pending work is
 not collision readiness. Authored primitives survive render replacement.
-`DBodySetup::SetCollisionGeometry` validates compatible immutable values and advances
-revisions without accepting build metadata or recursively scheduling compilation.
+`DBodySetup::InstallPhysicsMeshes` validates externally supplied immutable products,
+supersedes prior requests, and publishes without accepting build provenance or
+scheduling compilation. Async completion publishes through its matching request
+generation. Late success or failure cannot overwrite an externally installed result.
 Engine logs bounded cache warnings internally; cache-origin history is not exposed.
 A cache miss or corruption is rebuildable only
 while detached source inputs exist.
@@ -236,25 +304,46 @@ while requiring an owning-thread readiness barrier before gameplay. Analytic
 and ordinary mesh primitives remain Eager. Policy selection is a component contract rather than a branch in primitive
 registration.
 
+Spline simple collision is enabled explicitly with `DeformedSimpleCollision` or
+`DeformedSimpleAndComplex`. Elements come from the primary mesh BodySetup, never
+its complex proxy or collision LOD. Boxes become eight-corner convex hulls;
+convex points are transformed into mesh space, deformed, and rebuilt separately
+with identity element transforms. Multiple elements retain their gaps instead
+of becoming one enclosing hull. Spheres use the center slice and maximum axis
+scale. Capsules use that radius approximation and transform the cylindrical
+axis/length; Durin half-height includes caps, unlike UE Sphyl.Length. Forward
+axes, roll, signed spline cross-section scale and element transforms participate
+in this conversion. Component/world physics transforms still require positive
+scale. These modes inherit the source trace mode; SimpleAsComplex skips unused triangle
+construction, while ComplexAsSimple discards simple
+elements and uses deformed complex geometry, including for simple queries.
+Source settings and completed source hull cooks refresh applied spline bodies;
+deferred edits retain their previous body until `UpdateMesh`.
+
 `DSplineMeshComponent` adds an explicit
-`ESplineMeshCollisionMode::{Disabled,DeformedTriangleMesh}` policy. Disabled is
-the default and builds or retains no collision BVH. DeformedTriangleMesh builds
-one immutable triangle resource from the same normalized LOD 0 positions and
-indices used by collision queries and CPU/shader parity; its input identity
-combines the source render-resource revision and deformation revision. Rendering
+`ESplineMeshCollisionMode` policy. Disabled is
+the default and builds or retains no collision BVH. DeformedTriangleMesh obtains
+source triangles through the StaticMesh collision provider, deforms them with
+the applied Spline parameters, and cooks one immutable triangle resource through
+a transient component-owned `DBodySetup`. It does not inherit disabled collision
+or Simple/Complex query policy from the source asset. The component uses the
+BodySetup revision for physics publication; request generations reject stale
+build results. `UpdateMesh()` retains synchronous collision application and
+disables persistent cache writes for dynamic segment products. Rendering
 can remain valid when all deformed triangles are degenerate and collision is
-therefore invalid. A successful deformation publishes the new immutable CPU
+therefore invalid. A successful deformation publishes the new immutable render
 state before ordinary physics-state replacement, so the old handle is retired
 and no stale handle remains queryable. Disable, source removal/reimport,
 component retirement, Actor segment removal, PIE teardown, and World teardown
-release the body and shared geometry normally.
+release the body and shared geometry normally. CPU collision capture never
+constructs an editor-picking acceleration hierarchy; viewport selection uses
+the renderer's GPU HitProxy pass.
 
 `ASplineMeshActor` defaults generated segments to Disabled plus `NoCollision`.
 Its reflected path collision policy enables DeformedTriangleMesh and QueryOnly
-consistently for every segment. On the frozen 256-vertex/254-triangle road strip
-in `Win64-Debug-DurinEditor`, 300 post-warm-up synchronous builds measured 2.97
-ms p95; one payload multiplied by the 128-segment stress count retains 1,736,704
-bytes, below the 8 ms and 32 MiB gates.
+consistently for every segment. The 256-vertex/254-triangle road-strip
+qualification measures geometry construction and retained collision resources;
+it does not measure the component provider and BodySetup cook lifecycle.
 
 `AStaticMeshActor` selects `WorldStatic`; an independently created
 `DStaticMeshComponent` remains `NoCollision`. `DBoxComponent`,
@@ -439,6 +528,8 @@ without exposing mutable scene storage. Feature detail is globally capped at
 256 triangles per snapshot. StaticMesh Inspector reports mode/policy, actual geometry readiness, source
 and retained counts, nodes/bounds, runtime bytes, versions, and
 revision coherence without retaining or displaying cache-operation history.
+Complex source counts use resident selected collision input, including proxies
+and lower LODs; unavailable input is not compared against visual LOD0 counts.
 
 The implementation is synchronous and query-only. Programmatic low-level
 compounds are qualified; reflected compound authoring is deferred. Writable

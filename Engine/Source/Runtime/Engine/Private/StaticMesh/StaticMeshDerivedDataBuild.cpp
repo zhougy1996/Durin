@@ -83,7 +83,7 @@ namespace Durin
 			FAssetBuildMemoryEstimate SourceMemory{Control.MaximumWorkingSetBytes};
 			if (!SourceMemory.Add(Request.Source.GetGeometryBulk().GetPayloadSize(), 8)
 				|| !SourceMemory.Add(Request.Source.GetMeshCount(), sizeof(FMeshDescriptionSection))
-				|| !SourceMemory.Add(Request.Source.GetMaterialSlotCount(), 32768)
+				|| !SourceMemory.Add(uint64(Request.Source.GetMaterialSlotCount()) * Request.Source.GetNumLODs(), 32768)
 				|| !SourceMemory.Add(Request.Settings.MaterialSlots.size(), 32768))
 				return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh decoded source exceeds its reservation."));
 			if (Request.Settings.MaterialSlots.size() > MaximumMeshMaterialSlots)

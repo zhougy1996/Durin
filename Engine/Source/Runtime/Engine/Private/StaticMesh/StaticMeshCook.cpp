@@ -45,7 +45,7 @@ namespace Durin
 			if (Mesh.GetSource().IsValid()) {
 				if (!Memory.Add(Mesh.GetSource().GetGeometryBulk().GetPayloadSize(), 64)
 					|| !Memory.Add(Mesh.GetSource().GetMeshCount(), 1024)
-					|| !Memory.Add(Mesh.GetMaterialSlots().size(), 32768))
+					|| !Memory.Add(Mesh.GetMaterialSlots().size() * Mesh.GetSource().GetNumLODs(), 32768))
 					return std::unexpected("Cook mesh source exceeds its working-set budget.");
 			} else
 #endif
@@ -67,9 +67,15 @@ namespace Durin
 	auto DStaticMesh::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
 	{
 		Super::BeginCacheForCookedPlatformData(Context);
+		RefreshComplexCollisionSource();
 		auto* Preparation = FCookPreparationContext::Get(*this, Context);
 		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing mesh Cook preparation context."}; return; }
 		if (Context.CheckCancellation()) return;
+		if (bHasComplexCollisionSource && (ComplexCollisionPositions.empty() || ComplexCollisionIndices.empty()))
+		{
+			Context.Result = {EObjectCookError::InvalidInput, "Selected complex collision mesh has no usable input."};
+			return;
+		}
 		if (HasPendingStaticMeshSourceMutation(*this)) {
 			Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::SourceMutation,
 				.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package}; return;
@@ -82,22 +88,35 @@ namespace Durin
 		if (!Captured) { Context.Result = {EObjectCookError::Preparation, std::move(Captured.error())}; return; }
 		const auto Metadata = BuildStaticCookedMetadataIdentity(*this);
 		const auto RenderRevision = GetRenderResourceStatus().Revision;
+		const auto CollisionRevision = GetCollisionSourceRevision();
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto SourceIdentity = GetSource().GetIdentity();
 		const auto Size = GetNormalizedSize();
 #endif
-		Preparation->ValidatePreparedInputs = [this, Metadata, RenderRevision
+		Preparation->ValidatePreparedInputs = [this, Metadata, RenderRevision, CollisionRevision
 #if DURIN_WITH_EDITORONLY_DATA
 			, SourceIdentity, Size
 #endif
 		] {
-			return Metadata == BuildStaticCookedMetadataIdentity(*this) && RenderRevision == GetRenderResourceStatus().Revision
+			return CollisionRevision == GetCollisionSourceRevision()
+				&& Metadata == BuildStaticCookedMetadataIdentity(*this) && RenderRevision == GetRenderResourceStatus().Revision
 #if DURIN_WITH_EDITORONLY_DATA
 				&& SourceIdentity == GetSource().GetIdentity() && Size == GetNormalizedSize()
 #endif
 				;
 		};
 		Preparation->StartDetachedWork(std::move(*Captured));
+	}
+
+	auto DStaticMesh::OnCookEvent(ECookEvent Event, FObjectCookContext& Context) const -> void
+	{
+		Super::OnCookEvent(Event, Context);
+		if (Event != ECookEvent::PlatformCookDependencies) return;
+		if (const auto* Proxy = GetComplexCollisionMesh())
+		{
+			if (const auto* Package = Proxy->GetPackage(); Package && Package != GetPackage())
+				Context.Dependencies.push_back({ECookBuildDependencyKind::DirectPackage, Package->GetPackagePath()});
+		}
 	}
 	namespace
 	{
@@ -132,6 +151,28 @@ namespace Durin
 				: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 			Builder.UpdateValue(Mode);
 			Builder.UpdateValue(Policy);
+			if (BodySetup)
+			{
+				Builder.UpdateValue(BodySetup->GetCollisionTraceMode());
+				Builder.UpdateValue(BodySetup->GetSimpleCollision().size());
+				for (const auto& Element : BodySetup->GetSimpleCollision())
+				{
+					Builder.UpdateValue(Element.Type);
+					for (uint32 Axis = 0; Axis < 3; ++Axis)
+					{
+						Builder.UpdateValue(Element.Dimensions[Axis]);
+						Builder.UpdateValue(Element.Transform.Translation[Axis]);
+						Builder.UpdateValue(Element.Transform.Scale3D[Axis]);
+					}
+					for (uint32 Axis = 0; Axis < 4; ++Axis) Builder.UpdateValue(Element.Transform.Rotation[Axis]);
+					Builder.UpdateValue(Element.Indices.size());
+					for (uint32 Index : Element.Indices) Builder.UpdateValue(Index);
+					Builder.UpdateValue(Element.Vertices.size());
+					for (const auto& Vertex : Element.Vertices)
+						for (uint32 Axis = 0; Axis < 3; ++Axis) Builder.UpdateValue(Vertex[Axis]);
+				}
+			}
+
 			for (const FMeshMaterialSlotDefinition& Slot : Mesh.GetMaterialSlots())
 			{
 				Builder.Update(Slot.Name.ToString());
@@ -319,6 +360,19 @@ namespace Durin
 	auto DStaticMesh::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
+		if (GetComplexCollisionMesh() == this)
+			return RejectLoadedObjectGraph(GetObjectPath(), "A mesh cannot be its own complex collision source.");
+		if (ComplexCollisionPositions.size() > 6'000'000 || ComplexCollisionIndices.size() > 6'000'000
+			|| (!bHasComplexCollisionSource && (!ComplexCollisionPositions.empty() || !ComplexCollisionIndices.empty())))
+			return RejectLoadedObjectGraph(GetObjectPath(), "Complex collision input has invalid counts or source selection.");
+		for (const auto& Position : ComplexCollisionPositions)
+			if (!Math::IsFinite(Position))
+				return RejectLoadedObjectGraph(GetObjectPath(), "Complex collision positions must be finite.");
+		if (ComplexCollisionIndices.size() % 3 != 0)
+			return RejectLoadedObjectGraph(GetObjectPath(), "Complex collision indices must form triangles.");
+		for (uint32 Index : ComplexCollisionIndices)
+			if (Index >= ComplexCollisionPositions.size())
+				return RejectLoadedObjectGraph(GetObjectPath(), "Complex collision index is out of range.");
 		if (Context.bCooked && CookedRenderData.GetMetadata().LogicalSize == 0)
 			return RejectLoadedObjectGraph(GetObjectPath(), "Required cooked RenderData field is missing.");
 		if (MaterialSlots.size() > MaximumMeshMaterialSlots)
@@ -474,7 +528,7 @@ namespace Durin
 		}
 		if (bRequiresCollision)
 		{
-			const bool bPublished = BodySetup->SetCollisionGeometry(
+			const bool bPublished = BodySetup->InstallPhysicsMeshes(
 				Product.SimpleCollision, Product.ComplexCollision);
 			check(bPublished);
 		}
@@ -578,7 +632,7 @@ namespace Durin
 				if (Product.bHasCollision)
 				{
 					if (!Mesh->BodySetup
-						|| !Mesh->BodySetup->SetCollisionGeometry(
+						|| !Mesh->BodySetup->InstallPhysicsMeshes(
 							Product.SimpleCollision, Product.ComplexCollision))
 					{
 						return {.Error = {.Code = ECookedMeshLoadError::CollisionPublication}};

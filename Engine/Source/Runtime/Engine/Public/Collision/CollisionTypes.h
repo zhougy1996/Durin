@@ -65,6 +65,7 @@ namespace Durin
 	// Selects actors and components that must be excluded from one synchronous query.
 	struct FCollisionQueryParams
 	{
+		EPhysicsQueryComplexity Complexity = EPhysicsQueryComplexity::Default;
 		std::vector<const AActor*> IgnoredActors;
 		std::vector<const DPrimitiveComponent*> IgnoredComponents;
 

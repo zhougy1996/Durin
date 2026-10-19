@@ -35,12 +35,12 @@ namespace
 {
 #if defined(_WIN32)
 	inline constexpr uint64 ExpectedPrimitiveRetainedBytes =
-		DURIN_BUILD_DEBUG ? 208u : 200u;
+		DURIN_BUILD_DEBUG ? 224u : 216u;
 	inline constexpr uint64 ExpectedCompoundRetainedBytes =
-		DURIN_BUILD_DEBUG ? 7'264u : 7'256u;
+		DURIN_BUILD_DEBUG ? 8'288u : 8'280u;
 #else
-	inline constexpr uint64 ExpectedPrimitiveRetainedBytes = 200u;
-	inline constexpr uint64 ExpectedCompoundRetainedBytes = 7'256u;
+	inline constexpr uint64 ExpectedPrimitiveRetainedBytes = 216u;
+	inline constexpr uint64 ExpectedCompoundRetainedBytes = 8'280u;
 #endif
 	auto MakeBoxBody(
 		const Durin::FVector3& Center,
@@ -518,8 +518,14 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	EXPECT_EQ(FirstWorld->GetPhysicsScene().GetBodyCount(), 1u);
 	EXPECT_EQ(SecondWorld->GetPhysicsScene().GetBodyCount(), 1u);
+	const auto QueryRequest = Mesh->GetBodySetup()->GetPhysicsMeshRequestGeneration();
+	const auto QueryBuild = Mesh->GetBodySetup()->GetCollisionBuildRevision();
+	const auto QueryGeometry = Mesh->GetBodySetup()->GetResidentComplexGeometry();
 	Mesh->GetBodySetup()->SetCollisionQueryPolicy(Durin::EBodySetupCollisionQueryPolicy::ComplexOnly);
-	EXPECT_EQ(FirstWorld->GetPhysicsScene().GetBodyCount(), 0u);
+	EXPECT_EQ(FirstWorld->GetPhysicsScene().GetBodyCount(), 1u);
+	EXPECT_EQ(Mesh->GetBodySetup()->GetPhysicsMeshRequestGeneration(), QueryRequest);
+	EXPECT_EQ(Mesh->GetBodySetup()->GetCollisionBuildRevision(), QueryBuild);
+	EXPECT_EQ(Mesh->GetBodySetup()->GetResidentComplexGeometry().GetIdentity(), QueryGeometry.GetIdentity());
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	EXPECT_EQ(FirstWorld->GetPhysicsScene().GetBodyCount(), 1u);
@@ -625,7 +631,7 @@ TEST(FPhysicsBodySetupTests, SharesAssetGeometryWhileInstancesKeepDistinctHandle
 TEST(FPhysicsCollisionGeometryResourceTests, ValidatesIdentityBoundsChildrenAndRetainedBytes)
 {
 	static_assert(sizeof(Durin::FCollisionGeometryRef) == 16);
-	static_assert(sizeof(Durin::FCollisionGeometryChild) == 112);
+	static_assert(sizeof(Durin::FCollisionGeometryChild) == 128);
 	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakePrimitive({}).IsValid());
 	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeCompound({}).IsValid());
 	std::vector<Durin::FCollisionGeometryChild> Children(65);
@@ -1317,4 +1323,184 @@ TEST(FPhysicsWorldTests, QualifiedBoxUsesGeometryNotificationsAndRenderPublicati
 	MarkObjectHierarchyAsGarbage(World);
 	MarkObjectHierarchyAsGarbage(Mesh->GetPackage());
 	CollectGarbage();
+}
+
+TEST(FPhysicsSimpleComplexTests, RoutesAllQueriesAndUnionsBoundsAcrossRepresentations)
+{
+	using namespace Durin;
+	FPhysicsScene Scene;
+	auto Body = MakeBoxBody({0, 0, 0});
+	Body.SimpleGeometry = Body.Geometry;
+	Body.ComplexGeometry = MakeStage1CubeHull();
+	Body.ComplexTransform.Translation = {0, 8, 0};
+	const auto Handle = Scene.AddBody(Body);
+	ASSERT_TRUE(Handle.IsValid());
+	const auto Query = FCollisionShape::MakeSphere(0.1);
+	for (const auto Execution : {EPhysicsSceneQueryExecutionPolicy::Reference, EPhysicsSceneQueryExecutionPolicy::Production, EPhysicsSceneQueryExecutionPolicy::Compare})
+	{
+		ASSERT_TRUE(Scene.SetQueryExecutionPolicy(Execution));
+		for (const auto Complexity : {EPhysicsQueryComplexity::Default, EPhysicsQueryComplexity::Simple, EPhysicsQueryComplexity::Complex})
+		{
+			FPhysicsQueryFilter Filter;
+			Filter.Complexity = Complexity;
+			const double Y = Complexity == EPhysicsQueryComplexity::Complex ? 8 : 0;
+			FPhysicsQueryHit Hit;
+			ASSERT_TRUE(Scene.LineTraceSingle({-4, Y, 0}, {4, Y, 0}, Filter, Hit));
+			EXPECT_EQ(Hit.ActorHandle, Handle);
+			EXPECT_FALSE(Scene.LineTraceSingle({-4, 8 - Y, 0}, {4, 8 - Y, 0}, Filter, Hit));
+			FTransform Start; Start.Translation = {-4, Y, 0};
+			EXPECT_TRUE(Scene.SweepSingle(Query, Start, {8, 0, 0}, Filter, Hit));
+			Start.Translation = {0, Y, 0};
+			std::vector<FPhysicsQueryHit> Hits;
+			ASSERT_TRUE(Scene.OverlapMulti(Query, Start, Filter, Hits));
+			EXPECT_EQ(Hits.size(), 1u);
+		}
+	}
+	for (const auto Policy : {EPhysicsCollisionTracePolicy::SimpleAsComplex, EPhysicsCollisionTracePolicy::ComplexAsSimple})
+	{
+		Body.TracePolicy = Policy;
+		ASSERT_TRUE(Scene.UpdateBody(Handle, Body));
+		for (const auto Complexity : {EPhysicsQueryComplexity::Default, EPhysicsQueryComplexity::Simple, EPhysicsQueryComplexity::Complex})
+		{
+			FPhysicsQueryFilter Filter; Filter.Complexity = Complexity;
+			const double Y = Policy == EPhysicsCollisionTracePolicy::ComplexAsSimple ? 8 : 0;
+			FPhysicsQueryHit Hit;
+			EXPECT_TRUE(Scene.LineTraceSingle({-4, Y, 0}, {4, Y, 0}, Filter, Hit));
+			EXPECT_FALSE(Scene.LineTraceSingle({-4, 8 - Y, 0}, {4, 8 - Y, 0}, Filter, Hit));
+		}
+	}
+	Body.ComplexTransform.Translation.y = 16;
+	ASSERT_TRUE(Scene.UpdateBody(Handle, Body));
+	FPhysicsQueryFilter Complex; Complex.Complexity = EPhysicsQueryComplexity::Complex;
+	FPhysicsQueryHit Hit;
+	EXPECT_TRUE(Scene.LineTraceSingle({-4, 16, 0}, {4, 16, 0}, Complex, Hit));
+	EXPECT_FALSE(Scene.LineTraceSingle({-4, 8, 0}, {4, 8, 0}, Complex, Hit));
+	ASSERT_TRUE(Scene.RemoveBody(Handle));
+	EXPECT_EQ(Scene.CaptureQueryDiagnostics().Mutations.UniqueGeometryResources, 0u);
+}
+
+TEST(FPhysicsSimpleComplexTests, MixedAggregatePreservesGapsAndRejectsNestedOrMeshChildren)
+{
+	using namespace Durin;
+	const auto Hull = MakeStage1CubeHull();
+	std::array<FCollisionGeometryChild, 2> Children;
+	Children[0].Geometry = Hull;
+	Children[0].LocalTransform.Translation = {0, -3, 0};
+	Children[1].Shape = FCollisionShape::MakeSphere(1);
+	Children[1].LocalTransform.Translation = {0, 3, 0};
+	Children[0].LocalTransform.Rotation = Math::MakeQuaternionFromAxisAngleDegrees(90, FVectorConstants::Up) * 4.0;
+	const auto Aggregate = FCollisionGeometryRef::MakeCompound(Children);
+	ASSERT_TRUE(Aggregate);
+	EXPECT_NEAR(Math::Length(Aggregate.GetChild(0)->LocalTransform.Rotation), 1.0, 1.e-12);
+	for (const auto Algorithm : {CollisionGeometry::ECollisionQueryAlgorithm::Reference, CollisionGeometry::ECollisionQueryAlgorithm::Production})
+	{
+		FPhysicsQueryHit Hit;
+		for (double Y : {-3.0, 3.0})
+		{
+			EXPECT_EQ(CollisionGeometry::Raycast({-4, Y, 0}, {4, Y, 0}, Aggregate, FTransform(), Algorithm, Hit), CollisionGeometry::ECollisionQueryStatus::Hit);
+			FTransform Start; Start.Translation = {-4, Y, 0};
+			EXPECT_EQ(CollisionGeometry::Sweep(FCollisionShape::MakeSphere(0.1), Start, {8, 0, 0}, Aggregate, FTransform(), Algorithm, Hit), CollisionGeometry::ECollisionQueryStatus::Hit);
+			Start.Translation = {0, Y, 0};
+			EXPECT_EQ(CollisionGeometry::Overlap(FCollisionShape::MakeSphere(0.1), Start, Aggregate, FTransform(), Algorithm, Hit), CollisionGeometry::ECollisionQueryStatus::Hit);
+		}
+		EXPECT_EQ(CollisionGeometry::Raycast({-4, 0, 0}, {4, 0, 0}, Aggregate, FTransform(), Algorithm, Hit), CollisionGeometry::ECollisionQueryStatus::Miss);
+	}
+	Children[0].Geometry = Aggregate;
+	EXPECT_FALSE(FCollisionGeometryRef::MakeCompound(Children));
+	Children[0].Geometry = FCollisionGeometryRef::MakeTriangleMesh(std::array<FVector3, 3>{{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}}, std::array<uint32, 3>{0, 1, 2});
+	EXPECT_FALSE(FCollisionGeometryRef::MakeCompound(Children));
+}
+
+TEST(FPhysicsBodySetupTests, AggregateArchivesReconstructRuntimeGeometryAndRejectInvalidEdits)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	auto* Source = NewObject<DBodySetup>(nullptr, "AggregateArchiveSource");
+	FSimpleCollisionElement Box; Box.Type = EBodySetupShapeType::Box; Box.Dimensions = {1, 2, 3}; Box.Transform.Translation = {2, 3, 4};
+	FSimpleCollisionElement Convex; Convex.Type = EBodySetupShapeType::Convex;
+	Convex.Vertices = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+	ASSERT_TRUE(Source->SetSimpleCollision({Box, Convex}));
+	FCollisionGeometryRef Original; ASSERT_TRUE(Source->BuildSimpleGeometry(Original));
+	auto Invalid = Box; Invalid.Transform.Scale3D.x = 0;
+	EXPECT_FALSE(Source->SetSimpleCollision({Invalid}));
+	FCollisionGeometryRef After; ASSERT_TRUE(Source->BuildSimpleGeometry(After));
+	EXPECT_EQ(After.GetIdentity(), Original.GetIdentity());
+	EXPECT_FALSE(Source->SetSimpleCollision(std::vector<FSimpleCollisionElement>(65, Box)));
+	auto* Property = Source->GetClass()->FindPropertyByName("SimpleCollision"); ASSERT_NE(Property, nullptr);
+	for (const auto Purpose : {EArchivePurpose::Duplicate, EArchivePurpose::AuthoredPackage, EArchivePurpose::CookedPackage})
+	{
+		FByteBuffer Bytes; FObjectMemoryWriter Writer(Bytes, Purpose);
+		SerializeReflectedPropertyValue(Writer, *Property, Source); ASSERT_FALSE(Writer.IsError());
+		auto* Loaded = NewObject<DBodySetup>(nullptr, "AggregateArchiveTarget");
+		FObjectMemoryReader Reader(Bytes, Purpose); SerializeReflectedPropertyValue(Reader, *Property, Loaded); ASSERT_FALSE(Reader.IsError());
+		FCollisionGeometryRef Geometry; ASSERT_TRUE(Loaded->BuildSimpleGeometry(Geometry));
+		EXPECT_EQ(Geometry.GetChildCount(), 2u);
+		EXPECT_EQ(Geometry.GetChild(0)->LocalTransform.Translation, Box.Transform.Translation);
+		EXPECT_EQ(Geometry.GetChild(1)->Geometry.GetKind(), ECollisionGeometryKind::ConvexHull);
+		FVector3 Min, Max; ASSERT_TRUE(Geometry.GetLocalBounds(Min, Max));
+		EXPECT_EQ(Min, FVector3(0)); EXPECT_EQ(Max, FVector3(3, 5, 7));
+		MarkObjectHierarchyAsGarbage(Loaded);
+	}
+	MarkObjectHierarchyAsGarbage(Source); CollectGarbage();
+}
+
+TEST(FPhysicsWorldTests, StaticMeshKeepsDefaultSelectionAndExposesBothRepresentations)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	if (!IsTaskSchedulerRunning()) ASSERT_TRUE(InitializeTaskScheduler(2));
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	auto* Actor = World->SpawnActor<ACameraActor>("DualMeshOwner");
+	auto* Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(DStaticMeshComponent::StaticClass(), "DualMesh"));
+	auto* Mesh = DStaticMesh::CreateDebugTriangle(World);
+	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	auto* Body = Mesh->GetBodySetup(); ASSERT_NE(Body, nullptr); Body->FinishPhysicsMeshes();
+	ASSERT_TRUE(Body->GetResidentComplexGeometry());
+	const auto OriginalComplex = Body->GetResidentComplexGeometry();
+	ASSERT_TRUE(Body->SetSphere(0.25, {0, 4, 0})); Body->FinishPhysicsMeshes();
+	Component->SetStaticMesh(Mesh); Component->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	ASSERT_EQ(World->GetPhysicsScene().GetBodyCount(), 1u);
+	FHitResult Hit; FCollisionQueryParams Simple; Simple.Complexity = EPhysicsQueryComplexity::Simple;
+	FCollisionQueryParams Complex; Complex.Complexity = EPhysicsQueryComplexity::Complex;
+	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, {0, 4, 1}, {0, 4, -1}, ECollisionChannel::Visibility, Simple));
+	EXPECT_FALSE(World->LineTraceSingleByChannel(Hit, {0, 4, 1}, {0, 4, -1}, ECollisionChannel::Visibility, Complex));
+	// The pre-existing source-mode default remains triangles even with a legacy analytic shape.
+	EXPECT_FALSE(World->LineTraceSingleByChannel(Hit, {0, 4, 1}, {0, 4, -1}, ECollisionChannel::Visibility));
+	const auto Data = Mesh->GetPhysicsTriMeshData(); ASSERT_TRUE(Data);
+	const FVector3 Center = (FVector3(Data->Positions[Data->Indices[0]]) + FVector3(Data->Positions[Data->Indices[1]]) + FVector3(Data->Positions[Data->Indices[2]])) / 3.0;
+	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, Center + FVector3(0, 0, 1), Center - FVector3(0, 0, 1), ECollisionChannel::Visibility, Complex));
+	Body->SetCollisionTraceMode(EBodySetupCollisionTraceMode::SimpleAsComplex); Body->FinishPhysicsMeshes();
+	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, {0, 4, 1}, {0, 4, -1}, ECollisionChannel::Visibility, Complex));
+	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, {0, 4, 1}, {0, 4, -1}, ECollisionChannel::Visibility));
+	MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+}
+
+TEST(FPhysicsBodySetupTests, ExplicitQueriesRespectAvailabilityAndRejectInvalidSelections)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	auto* Body = NewObject<DBodySetup>(nullptr, "Availability"); ASSERT_TRUE(Body->SetBox(FVector3(1)));
+	Body->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
+	FPhysicsBodyDesc Desc; ASSERT_TRUE(Body->BuildGeometry(Desc.Geometry, Desc.Transform));
+	Body->ConfigureQueryGeometry(Desc, FTransform());
+	FPhysicsScene Scene; const auto Handle = Scene.AddBody(Desc); ASSERT_TRUE(Handle.IsValid());
+	FPhysicsQueryHit Hit;
+	EXPECT_TRUE(Scene.LineTraceSingle({-2, 0, 0}, {2, 0, 0}, {}, Hit));
+	FPhysicsQueryFilter Filter;
+	for (const auto Complexity : {EPhysicsQueryComplexity::Simple, EPhysicsQueryComplexity::Complex, static_cast<EPhysicsQueryComplexity>(255)})
+	{
+		Filter.Complexity = Complexity;
+		EXPECT_FALSE(Scene.LineTraceSingle({-2, 0, 0}, {2, 0, 0}, Filter, Hit));
+	}
+	Body->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::SimpleOnly);
+	Body->ConfigureQueryGeometry(Desc, FTransform()); EXPECT_TRUE(Desc.SimpleGeometry);
+	Body->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
+	Body->ConfigureQueryGeometry(Desc, FTransform()); EXPECT_FALSE(Desc.SimpleGeometry); EXPECT_FALSE(Desc.ComplexGeometry);
+	Body->SetCollisionTraceMode(EBodySetupCollisionTraceMode::SimpleAsComplex);
+	FCollisionGeometryRef Unavailable; FTransform Transform;
+	EXPECT_FALSE(Body->BuildGeometry(Unavailable, Transform));
+
+	Desc.TracePolicy = static_cast<EPhysicsCollisionTracePolicy>(255);
+	EXPECT_FALSE(Scene.UpdateBody(Handle, Desc)); EXPECT_TRUE(Scene.ContainsBody(Handle));
+	MarkObjectHierarchyAsGarbage(Body); CollectGarbage();
 }

@@ -1,5 +1,6 @@
 #include "StaticMesh/StaticMeshGeometry.h"
 #include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshDerivedData.h"
 
 #include "Logging/LogMacros.h"
 #include "Math/Operations.h"
@@ -404,7 +405,8 @@ namespace Durin
 			}
 
 			FBox SourceBounds;
-			for (const auto& Section : ImportedData.Sections)
+			const auto& Primary = Parameters.NormalizationGeometry ? *Parameters.NormalizationGeometry : ImportedData;
+			for (const auto& Section : Primary.Sections)
 				for (const auto& Position : Section.Positions)
 				{
 					Control.Tick();
@@ -459,27 +461,52 @@ namespace Durin
 				DURIN_ERROR("StaticMesh render build: requires decoded geometry.");
 				return false;
 			}
-			FBuildLOD Source;
-			if (!BuildLODStreams(Parameters, Source, Control)) return false;
-
 			FStaticMeshRenderData Product;
-			Product.LocalBounds = Source.LocalBounds;
 			for (const auto& Slot : Parameters.MaterialSlots)
 				Product.MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
-			auto& LOD = Product.LODResources.emplace_back();
-			auto& Buffers = LOD.VertexBuffers;
-			Buffers.PositionVertexBuffer.Init(std::move(Source.Positions));
-			Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(std::move(Source.Normals), std::move(Source.Tangents));
-			const auto Count = Buffers.PositionVertexBuffer.GetNumVertices();
-			Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(std::move(Source.TexCoords), Count, Source.NumTexCoords);
-			Buffers.ColorVertexBuffer.Init(std::move(Source.Colors), Count);
-			LOD.IndexBuffer.Init(std::move(Source.Indices));
-			LOD.Sections = std::move(Source.Sections);
-			LOD.LocalBounds = Source.LocalBounds;
-			LOD.ScreenSize = GenerateDefaultStaticMeshLODScreenSizes(1).front();
-			LOD.NumTexCoords = Source.NumTexCoords;
-			LOD.bHasColorVertexData = Source.bHasColorVertexData;
-			Buffers.Finalize(LOD.NumTexCoords, LOD.bHasColorVertexData);
+			const std::array Fallback{Parameters.Geometry};
+			const auto Geometries = Parameters.LODGeometries.empty()
+				? std::span<const FMeshDescriptionReadHandle>(Fallback) : Parameters.LODGeometries;
+			if (Geometries.empty() || Geometries.size() > MaximumStaticMeshLODs) return false;
+			const auto ScreenSizes = GenerateDefaultStaticMeshLODScreenSizes(static_cast<uint32>(Geometries.size()));
+			FAssetBuildMemoryEstimate Memory{Parameters.Control.MaximumWorkingSetBytes};
+			if (!Memory.Add(1, 1024 * 1024)) return false;
+			for (const auto& Geometry : Geometries)
+			{
+				Control.Tick();
+				if (!Geometry || !Memory.Add(Geometry->PolygonGroups.size(), 32768)
+					|| !Memory.Add(Geometry->Sections.size(), 1024)) return false;
+				for (const auto& Section : Geometry->Sections)
+				{
+					Control.Tick();
+					if (!Memory.Add(std::max(Section.Positions.size(), Section.GetVertexInstanceCount()), 512)
+						|| !Memory.Add(Section.Indices.size(), 192)) return false;
+				}
+			}
+			for (uint32 Index = 0; Index < Geometries.size(); ++Index)
+			{
+				FStaticMeshBuildParameters LODParameters = Parameters;
+				LODParameters.Geometry = Geometries[Index];
+				LODParameters.NormalizationGeometry = Geometries.front();
+				FBuildLOD Source;
+				if (!BuildLODStreams(LODParameters, Source, Control)) return false;
+				Product.LocalBounds.AddPoint(Source.LocalBounds.Min);
+				Product.LocalBounds.AddPoint(Source.LocalBounds.Max);
+				auto& LOD = Product.LODResources.emplace_back();
+				auto& Buffers = LOD.VertexBuffers;
+				Buffers.PositionVertexBuffer.Init(std::move(Source.Positions));
+				Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(std::move(Source.Normals), std::move(Source.Tangents));
+				const auto Count = Buffers.PositionVertexBuffer.GetNumVertices();
+				Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(std::move(Source.TexCoords), Count, Source.NumTexCoords);
+				Buffers.ColorVertexBuffer.Init(std::move(Source.Colors), Count);
+				LOD.IndexBuffer.Init(std::move(Source.Indices));
+				LOD.Sections = std::move(Source.Sections);
+				LOD.LocalBounds = Source.LocalBounds;
+				LOD.ScreenSize = ScreenSizes[Index];
+				LOD.NumTexCoords = Source.NumTexCoords;
+				LOD.bHasColorVertexData = Source.bHasColorVertexData;
+				Buffers.Finalize(LOD.NumTexCoords, LOD.bHasColorVertexData);
+			}
 			Control.Check();
 			OutRenderData = std::move(Product);
 			return true;

@@ -35,6 +35,8 @@ namespace Durin
 		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots;
 		float NormalizedSize = 1.5f;
 		FAssetBuildTaskContext Control;
+		std::span<const FMeshDescriptionReadHandle> LODGeometries;
+		FMeshDescriptionReadHandle NormalizationGeometry;
 	};
 
 }

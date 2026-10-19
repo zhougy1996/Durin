@@ -217,22 +217,59 @@ axis, interpolation, or extent proposals are rejected before the authored
 object, package state, or published CPU state changes.
 
 Every accepted mesh-resource or deformation change atomically publishes an
-immutable `FSplineMeshDerivedState`. The state copies normalized parameters,
-conservative all-LOD local bounds, exact deformed LOD 0 positions and indices,
-an exact-query acceleration hierarchy, the source resource revision, a
-monotonic deformation revision, collision input identity, optional immutable
-deformed triangle collision, and a diagnostic
-status. Consumers retain this value snapshot rather than borrowing mutable CPU
-asset data. Missing assets and temporarily unavailable source data are explicit
-diagnostic states; malformed indexed geometry is never published as valid.
+immutable `FSplineMeshDerivedState`. The render snapshot contains normalized
+parameters, conservative all-LOD local bounds, source and deformation revisions,
+and diagnostic status. It retains no deformed CPU geometry, picking acceleration,
+or physics resource. Missing assets and temporarily unavailable source data are
+explicit diagnostic states. Viewport picking uses the GPU HitProxy pass with
+the same Spline vertex deformation, independently of collision.
 
 `UpdateMesh()` applies deferred edits without a return value. Setters retain
 accepted authored values; failed updates publish an invalid snapshot and remove
 old rendering, picking geometry, and physics bodies. Errors are logged internally
 and exposed through `GetMeshUpdateError()`. Collision construction is independent:
 its failure clears collision while retaining valid render data, with diagnostics
-available through `GetCollisionBuildError()`. Lazy query failures are reported by
-`GetQueryBuildError()` and logged once until an update retries them.
+available through `GetCollisionBuildError()`.
+
+The component implements `IInterface_CollisionDataProvider`. Owner-thread capture
+obtains source collision triangles through the StaticMesh provider and deforms
+them with the published parameters. Pending source replacement cannot mix the
+new mesh with old parameters. The default detached input task owns copied arrays,
+without component, source-asset, or render-resource references. Provider calls
+do not populate a retained CPU query cache or build a picking BVH.
+
+The StaticMesh provider resolves optional independent complex collision meshes
+in the primary mesh's canonical coordinates. The spline forward interval still
+comes from visual LOD 0. Collision-source revisions trigger a collision-only
+rebuild when render data is unchanged; deferred edits retain the existing body
+and reject new provider captures until `UpdateMesh` applies the new source.
+Cooked primary meshes retain resolved proxy triangles, so runtime deformation
+does not require the editor-only proxy asset or GPU resource initialization.
+The same provider honors fixed complex collision LODs, including the selected
+proxy's own LOD setting, while spline deformation intervals remain based on visual
+LOD0. Lower collision levels use the primary mesh's normalization and retain
+their selected CPU input in Cooked packages.
+
+Explicit collision opt-in creates a transient component-owned `DBodySetup`.
+The existing `DeformedTriangleMesh` mode uses triangle geometry independently of
+the source asset's collision enablement or Simple/Complex policy. New
+`DeformedSimpleCollision` and `DeformedSimpleAndComplex` modes deform the primary
+BodySetup's simple aggregate and inherit its trace mode. Boxes and convexes are
+rebuilt per element; spheres and capsules use UE-style slice approximations.
+ComplexAsSimple selects deformed triangles instead of simple elements. Explicit
+Simple/Complex World queries select the corresponding representation; default
+Disabled and existing triangle behavior are unchanged. `UpdateMesh()` synchronously waits for the
+standard BodySetup physics cook, with persistent cache writes disabled for these
+dynamic products. Simple inputs are prepared before generated cooking, within one
+`FScopedBodySetupUpdate`; the component replaces its physics body once after
+publication. Simple-source changes preserve complex products, complex-source
+changes preserve simple products, and trace changes reuse geometry where still
+applicable. Dirty domains are captured before rebuilding so notifications received
+during a synchronous cook remain pending for a subsequent update. BodySetup owns
+geometry, request generations and build status. Disabled collision,
+missing sources and invalid deformation clear the component's collision resource.
+Duplication and loading rebuild independent BodySetup instances. See
+[runtime collision](../Physics/Collision.md#assets-and-components).
 
 `bUpdateMesh=false` keeps the applied snapshot during a batch. Dirty flags describe
 unapplied edits only and are cleared even when application fails. `UpdateMesh()`

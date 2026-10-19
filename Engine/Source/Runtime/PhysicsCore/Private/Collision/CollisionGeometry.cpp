@@ -421,7 +421,25 @@ namespace Durin
 		auto BuildGeometryChildBounds(
 			const FCollisionGeometryChild& Child, FVector3& OutMin, FVector3& OutMax) -> bool
 		{
-			if (!Child.Shape.IsValid() || !IsValidPhysicsTransform(Child.LocalTransform)) return false;
+			if (!IsValidPhysicsTransform(Child.LocalTransform)) return false;
+			if (Child.Geometry)
+			{
+				if (Child.Geometry.GetKind() != ECollisionGeometryKind::ConvexHull || Child.Shape.IsValid()) return false;
+				FVector3 Min, Max;
+				if (!Child.Geometry.GetLocalBounds(Min, Max)) return false;
+				OutMin = FVector3(std::numeric_limits<double>::infinity());
+				OutMax = -OutMin;
+				for (uint32 Corner = 0; Corner < 8; ++Corner)
+				{
+					const FVector3 Point = FVector3(Child.LocalTransform.ToMatrix() * FVector4(
+						(Corner & 1) ? Max.x : Min.x, (Corner & 2) ? Max.y : Min.y,
+						(Corner & 4) ? Max.z : Min.z, 1.0));
+					OutMin = Math::Min(OutMin, Point);
+					OutMax = Math::Max(OutMax, Point);
+				}
+				return Math::IsFinite(OutMin) && Math::IsFinite(OutMax);
+			}
+			if (!Child.Shape.IsValid()) return false;
 			FVector3 LocalExtent;
 			switch (Child.Shape.GetType())
 			{
@@ -589,8 +607,10 @@ namespace Durin
 		if (Children.empty() || Children.size() > 64) return {};
 		auto Payload = std::make_shared<FCollisionGeometry>();
 		Payload->Children.reserve(Children.size());
-		for (const FCollisionGeometryChild& Child : Children)
+		for (const FCollisionGeometryChild& Input : Children)
 		{
+			FCollisionGeometryChild Child = Input;
+			if (!Math::TryNormalize(Input.LocalTransform.Rotation, Child.LocalTransform.Rotation)) return {};
 			FVector3 ChildMin;
 			FVector3 ChildMax;
 			if (!BuildGeometryChildBounds(Child, ChildMin, ChildMax)) return {};
@@ -606,10 +626,11 @@ namespace Durin
 			}
 			Payload->Children.push_back(Child);
 		}
-		Payload->Identity = AllocateCollisionGeometryIdentity(Children.size() > 1
+		Payload->Identity = AllocateCollisionGeometryIdentity(Children.size() > 1 || Children.front().Geometry
 			? ECollisionGeometryKind::Compound : ECollisionGeometryKind::Primitive);
 		Payload->RetainedBytes = sizeof(FCollisionGeometry)
 			+ Payload->Children.capacity() * sizeof(FCollisionGeometryChild);
+		for (const auto& Child : Children) Payload->RetainedBytes += Child.Geometry.GetRetainedBytes();
 		return FCollisionGeometryRef(std::move(Payload));
 	}
 
@@ -2996,12 +3017,14 @@ namespace Durin::CollisionGeometry
 			{
 				AddSimpleCounter(Counters->LeafTests, Counters);
 				if (Target.GetChildCount() > 1) AddSimpleCounter(Counters->CompoundChildren, Counters);
-				AddSimpleCounter(Counters->AnalyticDispatches, Counters);
+				if (!Child->Geometry) AddSimpleCounter(Counters->AnalyticDispatches, Counters);
 			}
 			FPhysicsQueryHit Candidate;
 			const FTransform ChildTransform = FTransform::Combine(TargetTransform, Child->LocalTransform);
 			bool bHit = false;
-			switch (Child->Shape.GetType())
+			if (Child->Geometry)
+				bHit = Raycast(Start, End, Child->Geometry, ChildTransform, Algorithm, Candidate, Counters) == ECollisionQueryStatus::Hit;
+			else switch (Child->Shape.GetType())
 			{
 			case ECollisionShapeType::Box:
 				bHit = RaycastBox(Start, End, Child->Shape, ChildTransform, Candidate, Counters);
@@ -3078,8 +3101,9 @@ namespace Durin::CollisionGeometry
 			}
 			FPhysicsQueryHit Candidate;
 			const FTransform ChildTransform = FTransform::Combine(TargetTransform, Child->LocalTransform);
-			ECollisionQueryStatus Status = SweepLeaf(
-				Query, QueryTransform, Delta, Child->Shape, ChildTransform, Candidate, Counters);
+			ECollisionQueryStatus Status = Child->Geometry
+				? Sweep(Query, QueryTransform, Delta, Child->Geometry, ChildTransform, Algorithm, Candidate, Counters)
+				: SweepLeaf(Query, QueryTransform, Delta, Child->Shape, ChildTransform, Candidate, Counters);
 			if ((Status == ECollisionQueryStatus::NonConverged
 				|| Status == ECollisionQueryStatus::Unsupported)
 				&& Algorithm == ECollisionQueryAlgorithm::Production
@@ -3109,7 +3133,7 @@ namespace Durin::CollisionGeometry
 			bFound = true;
 			FinalStatus = ECollisionQueryStatus::Hit;
 		}
-		return FinalStatus;
+		return bFound ? ECollisionQueryStatus::Hit : FinalStatus;
 	}
 
 	auto Overlap(
@@ -3144,11 +3168,12 @@ namespace Durin::CollisionGeometry
 			{
 				AddSimpleCounter(Counters->LeafTests, Counters);
 				if (Target.GetChildCount() > 1) AddSimpleCounter(Counters->CompoundChildren, Counters);
-				AddSimpleCounter(Counters->AnalyticDispatches, Counters);
+				if (!Child->Geometry) AddSimpleCounter(Counters->AnalyticDispatches, Counters);
 			}
 			const FTransform ChildTransform = FTransform::Combine(TargetTransform, Child->LocalTransform);
-			const bool bHit = OverlapLeaf(
-				Query, QueryTransform, Child->Shape, ChildTransform, OutHit, Counters);
+			const bool bHit = Child->Geometry
+				? Overlap(Query, QueryTransform, Child->Geometry, ChildTransform, Algorithm, OutHit, Counters) == ECollisionQueryStatus::Hit
+				: OverlapLeaf(Query, QueryTransform, Child->Shape, ChildTransform, OutHit, Counters);
 			if (bHit)
 				return ECollisionQueryStatus::Hit;
 		}

@@ -49,9 +49,20 @@ namespace Durin
 	};
 
 	// Describes one immutable body publication to an FPhysicsScene.
+	// Default retains the historical geometry choice. Explicit queries use the selected representation.
+	enum class EPhysicsQueryComplexity : uint8 { Default, Simple, Complex };
+	enum class EPhysicsCollisionTracePolicy : uint8 { SimpleAndComplex, SimpleAsComplex, ComplexAsSimple };
+
 	struct FPhysicsBodyDesc
 	{
 		FCollisionGeometryRef Geometry;
+		FCollisionGeometryRef SimpleGeometry;
+		FCollisionGeometryRef ComplexGeometry;
+		FTransform SimpleTransform;
+		FTransform ComplexTransform;
+		EPhysicsCollisionTracePolicy TracePolicy = EPhysicsCollisionTracePolicy::SimpleAndComplex;
+		// Allows an explicit empty representation set; legacy callers classify Geometry by kind.
+		bool bHasQueryGeometry = false;
 		FTransform Transform;
 		FPhysicsFilterData Filter;
 		EPhysicsBodyMotionType MotionType = EPhysicsBodyMotionType::Kinematic;
@@ -78,6 +89,7 @@ namespace Durin
 	// Low-level query filter copied by value for synchronous query execution.
 	struct FPhysicsQueryFilter
 	{
+		EPhysicsQueryComplexity Complexity = EPhysicsQueryComplexity::Default;
 		uint8 QueryChannel = 0;
 		std::array<EPhysicsQueryResponse, MaximumPhysicsChannels> Responses{};
 		std::vector<FPhysicsActorHandle> IgnoredActors;

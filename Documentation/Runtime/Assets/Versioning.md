@@ -135,6 +135,12 @@ geometry and version 2 explicit vertex-instance mappings. Compact saves retain
 version 1 bytes and the version 1 identity envelope; extended topology is
 distinguished by its bulk hash. Changing the authored package domain
 does not implicitly change this bulk codec, source identity, or DDC keys.
+`StaticMeshSourceLODsPayloadVersion` (3) wraps one to eight descriptions using
+their existing per-description codecs. The optional reflected LOD count defaults
+to 1 for existing authored packages; multi-LOD source identity qualifies the
+aggregate bulk hash and count. Single-LOD saves retain their original bytes and
+identity. The render recipe and MeshBuilder versions independently invalidate
+derived outputs when multi-LOD construction changes.
 Incompatible changes must advance the owning domain; authored package custom
 versions have no legacy load fallback.
 

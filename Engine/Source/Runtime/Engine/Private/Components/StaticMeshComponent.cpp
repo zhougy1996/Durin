@@ -96,6 +96,11 @@ namespace Durin
 		return IsValidPhysicsTransform(OutWorldTransform);
 	}
 
+	auto DStaticMeshComponent::ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void
+	{
+		if (auto* Setup = GetBodySetup()) Setup->ConfigureQueryGeometry(Desc, GetWorldTransform());
+	}
+
 	auto DStaticMeshComponent::BuildCollisionGeometry(
 		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
 	{

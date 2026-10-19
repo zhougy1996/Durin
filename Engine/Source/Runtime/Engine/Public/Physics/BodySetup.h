@@ -6,6 +6,8 @@
 #include "Physics/BodySetupTypes.h"
 #include "Physics/CookBodySetupInfo.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectKey.h"
+#include "DObject/StructOps.h"
 #include "Physics/PhysicsTypes.h"
 
 #include "BodySetup.gen.h"
@@ -19,7 +21,29 @@ namespace Durin
 		None,
 		Box,
 		Sphere,
-		Capsule
+		Capsule,
+		Convex
+	};
+
+	DENUM()
+	enum class EBodySetupCollisionTraceMode : uint8 { SimpleAndComplex, SimpleAsComplex, ComplexAsSimple };
+
+	// Runtime mesh-local units, independent of imported source coordinates and collision LOD.
+	DSTRUCT()
+	struct FSimpleCollisionElement
+	{
+		GENERATED_BODY()
+		DPROPERTY()
+		EBodySetupShapeType Type = EBodySetupShapeType::None;
+		DPROPERTY()
+		FVector3 Dimensions{0.0};
+		DPROPERTY()
+		FTransform Transform;
+		DPROPERTY()
+		std::vector<FVector3> Vertices;
+		// Validated hull topology is retained in authored and cooked packages; empty means cook from points.
+		DPROPERTY()
+		std::vector<uint32> Indices;
 	};
 
 	// Owns reusable asset collision independently from render data and component transforms.
@@ -64,6 +88,13 @@ namespace Durin
 		ENGINE_API auto SetBox(const FVector3& HalfExtent, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetSphere(double Radius, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetCapsule(double Radius, double HalfHeight, const FVector3& Center = FVector3(0.0)) -> bool;
+		// Atomically replaces the flat authored aggregate (up to 64 elements). Empty restores the legacy shape.
+		ENGINE_API auto SetSimpleCollision(std::vector<FSimpleCollisionElement> Elements) -> bool;
+		auto GetSimpleCollision() const -> const std::vector<FSimpleCollisionElement>& { return SimpleCollision; }
+		ENGINE_API auto SetCollisionTraceMode(EBodySetupCollisionTraceMode Mode) -> void;
+		auto GetCollisionTraceMode() const -> EBodySetupCollisionTraceMode { return CollisionTraceMode; }
+		// Publishes both representations using component-world coordinates; Geometry remains the legacy default.
+		ENGINE_API auto ConfigureQueryGeometry(FPhysicsBodyDesc& Desc, const FTransform& WorldTransform) const -> void;
 		ENGINE_API auto BuildShape(FCollisionShape& OutShape, FTransform& OutLocalTransform) const -> bool;
 		ENGINE_API auto BuildGeometry(FCollisionGeometryRef& OutGeometry, FTransform& OutLocalTransform) const -> bool;
 		ENGINE_API auto BuildSimpleGeometry(FCollisionGeometryRef& OutGeometry) const -> bool;
@@ -72,12 +103,11 @@ namespace Durin
 		ENGINE_API auto SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> void;
 		// Requires a declared EBodySetupCollisionQueryPolicy value.
 		ENGINE_API auto SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> void;
-		// Installs compatible immutable geometry and advances its revision.
+		// Installs external immutable geometry, supersedes prior requests and advances publication.
 		// Build/cache provenance is deliberately not retained by the physics owner.
-		ENGINE_API auto SetCollisionGeometry(
+		ENGINE_API auto InstallPhysicsMeshes(
 			const FCollisionGeometryRef& Simple,
 			const FCollisionGeometryRef& Complex) -> bool;
-		ENGINE_API auto ClearCollisionGeometry() -> void;
 		ENGINE_API auto IsValid(std::string* OutDiagnostic = nullptr) const -> bool;
 		// Borrow installed geometry without constructing or refreshing primitive caches.
 		auto GetResidentSimpleGeometry() const -> const FCollisionGeometryRef& { return CachedSimpleCollision; }
@@ -94,8 +124,18 @@ namespace Durin
 
 	private:
 		friend class DStaticMesh;
+		friend class FScopedBodySetupUpdate;
+		auto BeginUpdate() -> void;
+		auto EndUpdate() -> void;
+		auto MarkChanged(EBodySetupChange Changes) -> void;
+		auto InvalidateSimpleGeometry() -> void;
+		auto FlushChanges() -> void;
+		auto PublishPhysicsMeshes(const FCollisionGeometryRef& Simple, const FCollisionGeometryRef& Complex, bool bSupersedeRequest) -> bool;
+		uint32 UpdateDepth = 0;
+		EBodySetupChange PendingChanges = EBodySetupChange::None;
+		uint64 SimpleGeometryRevision = 1;
+		bool bPhysicsDataInvalidated = false;
 		bool bCompilationMutationBlocked = false;
-		auto NotifyPhysicsDataChanged() -> void;
 		EPhysicsMeshBuildStatus PhysicsMeshStatus = EPhysicsMeshBuildStatus::Ready;
 		std::optional<std::string> PhysicsMeshError;
 		uint64 PhysicsMeshRequestGeneration = 1;
@@ -123,9 +163,28 @@ namespace Durin
 		uint64 CollisionBuildRevision = 0;
 #endif
 
+		DPROPERTY()
+		std::vector<FSimpleCollisionElement> SimpleCollision;
+		DPROPERTY()
+		EBodySetupCollisionTraceMode CollisionTraceMode = EBodySetupCollisionTraceMode::SimpleAndComplex;
+		mutable FCollisionGeometryRef CachedAggregate;
+		mutable uint64 CachedAggregateRevision = 0;
 		mutable FCollisionGeometryRef CachedGeometry;
 		mutable uint64 CachedGeometryRevision = 0;
 		FCollisionGeometryRef CachedSimpleCollision;
 		FCollisionGeometryRef CachedComplexCollision;
 	};
+	// Owner-thread batching: inputs and caches change immediately; revision and owner notification
+	// publish once at the outer scope exit. Synchronous cooks may finish inside the scope.
+	class FScopedBodySetupUpdate final
+	{
+	public:
+		ENGINE_API explicit FScopedBodySetupUpdate(DBodySetup& Body);
+		ENGINE_API ~FScopedBodySetupUpdate();
+		FScopedBodySetupUpdate(const FScopedBodySetupUpdate&) = delete;
+		auto operator=(const FScopedBodySetupUpdate&) -> FScopedBodySetupUpdate& = delete;
+	private:
+		FObjectKey Body;
+	};
+
 }

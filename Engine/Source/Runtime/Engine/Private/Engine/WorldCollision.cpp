@@ -14,6 +14,7 @@ namespace Durin
 			const FCollisionResponseParams& ResponseParams) -> FPhysicsQueryFilter
 		{
 			FPhysicsQueryFilter Result;
+			Result.Complexity = QueryParams.Complexity;
 			Result.QueryChannel = static_cast<uint8>(TraceChannel);
 			for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
 				Result.Responses[Index] = ToPhysicsResponse(ResponseParams.CollisionResponse.Responses[Index]);
@@ -160,7 +161,7 @@ namespace Durin
 			if (const FCollisionGeometryChild* Child = Body.Desc.Geometry.GetChild(0))
 			{
 				DebugBody.Shape = Child->Shape;
-				DebugBody.bHasPrimitiveShape = true;
+				DebugBody.bHasPrimitiveShape = Child->Shape.IsValid();
 			}
 			Body.Desc.Geometry.GetLocalBounds(DebugBody.LocalBoundsMinimum, DebugBody.LocalBoundsMaximum);
 			DebugBody.TotalTriangles = Body.Desc.Geometry.GetTriangleCount();

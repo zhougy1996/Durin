@@ -21,6 +21,10 @@ namespace Durin::AssetForge::Builtins
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportStaticMesh(DStaticMesh& Mesh) -> FReimportResult;
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportStaticMeshFromFile(DStaticMesh& Mesh,
 		std::string_view FilePath) -> FReimportResult;
+	// Append or replace a contiguous authored LOD (1..7), preserving primary geometry
+	// and axis settings. Reimport reloads every recorded LOD source transactionally.
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto ImportStaticMeshLODFromFile(DStaticMesh& Mesh,
+		uint32 LODIndex, std::string_view FilePath) -> FReimportResult;
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto CreateTransientStaticMeshFromFile(std::string_view FilePath,
 		DObject* Outer, std::string_view ObjectName, const FStaticMeshImportSettings& Settings = {})
 		-> std::expected<DStaticMesh*, std::string>;

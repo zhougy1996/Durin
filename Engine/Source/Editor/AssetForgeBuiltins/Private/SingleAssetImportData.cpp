@@ -1,6 +1,7 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
+#include "StaticMesh/StaticMeshSource.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -32,7 +33,15 @@ namespace Durin::AssetForge::Builtins
 	{
 		if (auto Validation = FAssetImportDataState::Validate(); !Validation) return Validation;
 		if (SourceData.Sources.empty()) return {};
-		if (auto Validation = ValidateSingleSource(*this, "StaticMesh"); !Validation) return Validation;
+		if (!SourceData.FindByRole("source") || SourceData.Sources.size() > MaximumStaticMeshSourceLODs)
+			return RejectImportData("StaticMesh requires a primary source and at most seven lower LOD sources.");
+		for (const auto& Source : SourceData.Sources)
+		{
+			bool bKnown = Source.Role == FName("source");
+			for (uint32 LOD = 1; !bKnown && LOD < MaximumStaticMeshSourceLODs; ++LOD)
+				bKnown = Source.Role == FName(std::format("lod{}", LOD));
+			if (!bKnown) return RejectImportData("StaticMesh source roles must be source or lod1 through lod7.");
+		}
 		if (const auto Validation = ImportSettings.Validate(); !Validation)
 		{
 			return RejectImportData(FormatStaticMeshImportSettingsError(Validation.error()));

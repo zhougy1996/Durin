@@ -84,9 +84,8 @@ namespace Durin
 		struct FPhysicsRecord
 		{
 			FObjectKey Body, AssetOwner;
-			uint64 Revision = 0, Generation = 0, EstimatedWorkingSetBytes = 0;
+			uint64 Generation = 0, EstimatedWorkingSetBytes = 0;
 			EBodySetupCollisionSourceMode Mode;
-			EBodySetupCollisionQueryPolicy Policy;
 			std::shared_ptr<FPhysicsWork> Work;
 			FTaskHandle Task;
 			FOnAsyncPhysicsCookFinished Completion;
@@ -149,10 +148,8 @@ namespace Durin
 			auto Record = std::make_shared<FPhysicsRecord>();
 			Record->Body = FObjectKey(&Body);
 			Record->AssetOwner = FObjectKey(Body.GetOuter());
-			Record->Revision = Body.GetRevision();
 			Record->Generation = Body.GetPhysicsMeshRequestGeneration();
 			Record->Mode = Body.GetCollisionSourceMode();
-			Record->Policy = Body.GetCollisionQueryPolicy();
 			Record->EstimatedWorkingSetBytes = Bytes;
 			Record->Work = std::make_shared<FPhysicsWork>();
 			Record->Work->InputTask = std::move(InputTask);
@@ -329,8 +326,8 @@ namespace Durin
 					Cancel(*Record);
 					Completion.Status = EPhysicsCookCompletionStatus::Cancelled;
 				}
-				else if (Body->GetRevision() != Record->Revision || Body->GetPhysicsMeshRequestGeneration() != Record->Generation
-					|| Body->GetCollisionSourceMode() != Record->Mode || Body->GetCollisionQueryPolicy() != Record->Policy)
+				else if (Body->GetPhysicsMeshRequestGeneration() != Record->Generation
+					|| Body->GetCollisionSourceMode() != Record->Mode)
 					Completion.Status = EPhysicsCookCompletionStatus::Superseded;
 				else if (!Outcome)
 				{
