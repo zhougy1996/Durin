@@ -411,6 +411,11 @@ scheduler-lifetime mutex. Bounded aggregate counters/histograms retain no
 completed-task history. Result-owner counters can outlive scheduler shutdown
 without contaminating a restarted lifetime.
 
+Routine task acceptance and queued-work start/finish do not emit text logs.
+Use task snapshots, aggregate counters and Tracy execution zones to inspect
+normal activity. Text logs retain executor lifecycle summaries, rejected/invalid
+operations, exceptions, overload transitions and long waits.
+
 Diagnostic reads do not emit profiler work. EngineLoop publishes fixed
 attribution plots once per frame through PublishTaskSchedulerProfilerPlots;
 Tracy-disabled execution remains a no-op after bounded aggregate traversal.

@@ -1263,8 +1263,6 @@ namespace Durin
 				{
 					QueueTask(State);
 				}
-
-				DURIN_TRACE("Task accepted. (task: {}, id: {}, prerequisites: {})", State->GetDebugName(), State->GetTaskId(), Options.Prerequisites.size());
 			}
 			catch (const std::bad_alloc&)
 			{

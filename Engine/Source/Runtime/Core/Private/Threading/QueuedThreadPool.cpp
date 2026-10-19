@@ -2,7 +2,6 @@
 #include "Threading/Private/QueuedWorkNode.h"
 
 #include "CoreGlobals.h"
-#include "HAL/PlatformLTS.h"
 #include "Profiling/Profiling.h"
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
@@ -410,7 +409,6 @@ namespace Durin
 		auto ExecuteQueuedWork(std::shared_ptr<Private::FQueuedWorkNode> Work) -> void
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("QueuedTask.Execute");
-			DURIN_TRACE("Queued task started. (task: {}, thread: {}, id: {})", Work->GetName(), GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
 			try
 			{
 				Work->Execute();
@@ -423,7 +421,6 @@ namespace Durin
 			{
 				DURIN_ERROR("Queued task escaped its callable boundary with an unknown exception. (task: {})", Work->GetName());
 			}
-			DURIN_TRACE("Queued task finished. (task: {}, thread: {}, id: {})", Work->GetName(), GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
 			Work.reset();
 
 			{
