@@ -666,7 +666,6 @@ namespace Durin
 			LOD.NumTexCoords, LOD.bHasColorVertexData);
 		LOD.Sections.push_back({"Default", 0, 3, 0, 2, 0, {}});
 		RenderData->RecalculateBounds();
-		StaticMeshPrivate::PrepareRenderRayQueries(*RenderData);
 		if (const auto Published = Mesh->CommitPreparedMeshData(
 			std::move(RenderData), nullptr); !Published)
 		{
@@ -846,7 +845,6 @@ namespace Durin
 #endif
 		}
 		InRenderData->RecalculateBounds();
-		StaticMeshPrivate::PrepareRenderRayQueries(*InRenderData);
 		if (const auto Published = CommitPreparedMeshData(std::move(InRenderData), &InMaterialSlots); !Published)
 		{
 			return std::unexpected(Published.error());

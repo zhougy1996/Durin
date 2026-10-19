@@ -37,7 +37,7 @@ namespace Durin
 				if (!Memory.Add(LOD.VertexBuffers.PositionVertexBuffer.GetPositionCapacity(), 512)
 					|| !Memory.Add(LOD.IndexBuffer.GetIndicesCapacity(), 192)
 					|| !Memory.Add(LOD.Sections.capacity(), sizeof(FStaticMeshSection)))
-					return BudgetFailure("StaticMesh predicted ray preparation working set exceeds its reservation.", Memory);
+					return BudgetFailure("StaticMesh render preparation working set exceeds its reservation.", Memory);
 			}
 			return {};
 		}
@@ -133,8 +133,6 @@ namespace Durin
 			if (auto Metadata = RestoreRuntimeMetadata(Settings.MaterialSlots, **Product); !Metadata)
 				return std::unexpected(MakeAssetBuildDiagnostic(std::move(Metadata.error())));
 			if (auto Budget = CheckRenderPreparationBudget(**Product, Control); !Budget) return std::unexpected(std::move(Budget.error()));
-			if (!StaticMeshPrivate::PrepareRenderRayQueries(**Product, Control.Cancellation.WithObserver([Control] { return Control.IsCancelled(); })))
-				return {};
 			return std::move(*Product);
 		}
 		auto DispatchRenderBuild(FStaticMeshBuildRequest& Request, uint64 BuilderVersion,

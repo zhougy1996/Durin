@@ -23,8 +23,3 @@ namespace Durin::StaticMeshPrivate
 		const FAssetBuildTaskContext& Control) -> FRenderBuildResult;
 }
 #endif
-
-namespace Durin::StaticMeshPrivate
-{
-	auto PrepareRenderRayQueries(FStaticMeshRenderData& Render, const FCancellationToken& Cancellation = {}) -> bool;
-}

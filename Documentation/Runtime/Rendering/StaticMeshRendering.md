@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-19
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -15,8 +15,7 @@ per-LOD lifecycle, vertex-factory boundary, and shader input contract.
 Engine keeps one `DStaticMesh` contract while separating its implementation by
 responsibility: `StaticMesh.cpp` owns lifecycle and publication,
 `StaticMeshCook.cpp` owns authored/Cooked transitions,
-`StaticMeshCollision.cpp` and `StaticMeshCollisionQuery.cpp` own collision
-state and CPU query acceleration, and `StaticMeshRenderResources.cpp` owns
+`StaticMeshCollision.cpp` owns collision state, and `StaticMeshRenderResources.cpp` owns
 vertex/index/RHI resource mechanics. These are implementation partitions, not
 additional owners or forwarding layers.
 
@@ -93,16 +92,11 @@ is idempotent, including the record ID of an unchanged ready LOD, and any partia
 failure releases all resources already initialized so a later retry starts
 clean.
 
-## Editor Ray-Query Acceleration
-
-In editor builds each published `FStaticMeshLODResources` may carry one
-immutable CPU ray-query acceleration allocation built from the same validated
-positions and indices. It shares the LOD generation's lifetime, is neither
-serialized nor stored in derived data, and is omitted from non-editor builds.
-Invalid or over-budget geometry leaves acceleration absent rather than
-publishing a partial hierarchy. Level Editor traversal, fallback, budgets, and
-semantic picking behavior are owned by
-[Viewport Editing Architecture](../../Editor/Architecture/ViewportEditing.md).
+Editor viewport picking uses the renderer's HitProxy pass and GPU readback.
+LOD resources retain no dedicated CPU picking hierarchy. Collision acceleration
+belongs to PhysicsCore geometry resources published through BodySetup. See
+[Viewport Editing Architecture](../../Editor/Architecture/ViewportEditing.md)
+for picking behavior.
 
 `IsReadyForRendering()` requires the selected LOD's vertex buffers, index
 buffer, and vertex factory to be ready and the same geometry validation to
@@ -455,7 +449,7 @@ validated as another fallback, so no partial payload can reach a draw.
 
 ## Source and Payload Compatibility
 
-StaticMesh builds publish a complete detached render, ray, and collision product
+StaticMesh builds publish a complete detached render and collision products
 on the owner thread. Render consumers retain the accepted mesh until publication;
 bounds queries and scene preparation do not finish authored work. Source ownership,
 payload validation, cancellation, and schema compatibility are defined in

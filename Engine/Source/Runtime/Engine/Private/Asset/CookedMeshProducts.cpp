@@ -128,10 +128,6 @@ namespace Durin
 		if (const auto Result = RestoreStaticMeshRuntimeMetadata(MaterialSlots, *Candidate.RenderData); !Result)
 			return Result;
 		Candidate.RenderData->RecalculateBounds();
-#if DURIN_WITH_EDITOR
-		for (auto& LOD : Candidate.RenderData->LODResources)
-			LOD.RayQueryAcceleration = BuildStaticMeshRayQueryAcceleration(LOD);
-#endif
 		OutProduct = std::move(Candidate);
 		return {};
 	}

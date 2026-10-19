@@ -1605,12 +1605,9 @@ TEST(FStaticMeshAuthoredCompilationTests, PreparedRenderPublishesWithoutRebuildi
 	auto Built = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Snapshot.MaterialSlots, Snapshot.NormalizedSize), .Source = Mesh->GetSource()});
 	ASSERT_TRUE(Built) << Built.error();
 	auto Candidate = std::move(*Built);
-	const auto Ray = Candidate->LODResources.front().RayQueryAcceleration;
-	ASSERT_NE(Ray, nullptr);
 	const auto Start = std::chrono::steady_clock::now();
 	ASSERT_TRUE(PublishStaticMeshRenderData(*Mesh, std::move(Candidate))) << Error;
 	const auto Duration = std::chrono::steady_clock::now() - Start;
-	EXPECT_EQ(Mesh->GetRenderData()->LODResources.front().RayQueryAcceleration, Ray);
 	FCollisionGeometryRef PublishedCollision;
 	EXPECT_TRUE(Mesh->GetBodySetup()->BuildComplexGeometry(PublishedCollision));
 	EXPECT_EQ(Mesh->GetBodySetup()->GetRevision(), PhysicsRevision);
@@ -1647,7 +1644,7 @@ TEST(FStaticMeshAuthoredCompilationTests, StaleRenderPreservesLiveState)
 	EXPECT_NE(Outcome.error().find("current 'Changed'"), std::string::npos);
 }
 
-TEST(FStaticMeshAuthoredCompilationTests, CancellationAbandonsDecodeAndRayScratch)
+TEST(FStaticMeshAuthoredCompilationTests, CancellationAbandonsDecodeScratch)
 {
 	using namespace Durin;
 	auto Geometry = MakeResidencyGeometry();
@@ -1664,16 +1661,6 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationAbandonsDecodeAndRayScratc
 	EXPECT_FALSE(Source.IsGeometryResident());
 	EXPECT_EQ(Checks, 8u);
 	ASSERT_TRUE(Source.AcquireGeometry().value()) << Error;
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Render;
-	FCacheLogCapture RenderCacheLog;
-	ASSERT_TRUE((Render = BuildRenderForTest({.Source = Source}, {}, &RenderCacheLog)));
-	for (const uint32 StopAt : {1u, 16u, 64u})
-	{
-		Checks = 0;
-		EXPECT_EQ(BuildStaticMeshRayQueryAcceleration((*Render)->LODResources.front(),
-			[&] { return ++Checks == StopAt; }), nullptr);
-		EXPECT_EQ(Checks, StopAt);
-	}
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, CacheWarningsDoNotFailBuild)
@@ -3367,7 +3354,6 @@ TEST(FStaticMeshSeparatedBuildTests, CollisionSnapshotOutlivesRenderAndOwnsCance
 	auto Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
 	ASSERT_TRUE(Render);
 	ASSERT_TRUE((*Render)->LocalBounds.bIsValid);
-	ASSERT_TRUE((*Render)->LODResources.front().RayQueryAcceleration);
 	auto Request = CaptureCollisionCookInfoForTest(**Render,
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, false);
 	Render->reset();

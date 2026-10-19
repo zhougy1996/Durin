@@ -230,9 +230,6 @@ namespace StaticMeshBuildTestSupport
 				{.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const auto RenderEnd = std::chrono::steady_clock::now();
 			ASSERT_NE((*Render), nullptr);
-			const auto& LOD = (*Render)->LODResources.front();
-			const auto Acceleration = BuildStaticMeshRayQueryAcceleration(LOD);
-			ASSERT_NE(Acceleration, nullptr);
 			std::expected<FPhysicsCookResult, std::string> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
 			ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*(*Render),
@@ -244,14 +241,10 @@ namespace StaticMeshBuildTestSupport
 			};
 			if (bMeasure) std::cout << "authored_budget_fixture triangles=" << TriangleCount
 				<< " canonical_bytes=" << Source.GetGeometryBulk().GetPayloadSize()
-				<< " ray_retained_bytes=" << Acceleration->RetainedBytes
 				<< " collision_retained_bytes=" << Collision->Complex.GetRetainedBytes()
 				<< " decode_render_ns=" << Nanoseconds(RenderEnd - Start)
-				<< " ray_ns=" << Acceleration->BuildNanoseconds
 				<< " collision_ns=" << Nanoseconds(CollisionEnd - CollisionStart) << std::endl;
 			EXPECT_FALSE(Source.IsGeometryResident());
-			EXPECT_LE(Acceleration->RetainedBytes,
-				std::max<uint64>(1024, uint64(TriangleCount) * 96));
 		}
 	}
 
@@ -302,11 +295,9 @@ namespace StaticMeshBuildTestSupport
 		ASSERT_TRUE(Outcome) << Outcome.error();
 		auto Candidate = std::move(*Outcome);
 		ASSERT_NE(Candidate, nullptr);
-		const auto Ray = Candidate->LODResources.front().RayQueryAcceleration;
 		auto PreparedSlots = Input.MaterialSlots;
 		ASSERT_TRUE(CommitStaticMeshBuild(*Mesh, std::move(Candidate), Source, Snapshot, true, nullptr, &PreparedSlots)) << Error;
 		const auto Published = std::chrono::steady_clock::now();
-		EXPECT_EQ(Mesh->GetRenderData()->LODResources.front().RayQueryAcceleration, Ray);
 		EXPECT_FALSE(Source.IsGeometryResident());
 		EXPECT_GT(Metrics.CancellationCheckpoints, bMeasure ? 1000u : 4u);
 		if (bMeasure) std::cout << "render_build_fixture triangles=" << (bMeasure ? 100000u : 32u) << " build_ns="

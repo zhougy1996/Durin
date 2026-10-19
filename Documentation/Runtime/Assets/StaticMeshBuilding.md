@@ -114,9 +114,9 @@ A warm hit
 uses source identity even with unreadable canonical bulk; a miss resolves the
 captured canonical bytes and decodes them inside the registered function.
 `BuildStaticMeshRenderData` constructs owned, validated render data, including
-bounds and optional ray acceleration. `CommitStaticMeshBuild` consumes that prepared
+bounds. `CommitStaticMeshBuild` consumes that prepared
 render data on the owner thread after checking the captured source, normalization,
-material bindings and cancellation state. It does no bounds, ray or collision
+material bindings and cancellation state. It does no bounds or collision
 construction. Resource initialization precedes live mutation. Source, slots,
 render and prevalidated import provenance become current within one consumer
 refresh boundary. A changed accepted source or normalization invalidates derived
@@ -188,9 +188,7 @@ entrypoint; assembly and finalization retain their existing validation boundarie
 Source acquisition returns `std::expected<FMeshDescriptionReadHandle, FStaticMeshSourceError>`, retaining resource-read causes, Archive code/path and owned validation
 counts, mesh/field identity and rejected values. It supports a borrowed cancellation
 predicate under its residency lock; the predicate must not reenter that source. A canceled decode never publishes
-partial residency. Ray construction supports borrowed cancellation through its
-triangle/bounds loops and sort/partition work. Null optional ray acceleration
-retains exact reference traversal. Render/collision payload conversion, encoding,
+partial residency. Render/collision payload conversion, encoding,
 decoding and validation also accept borrowed predicates and check at most every
 256 scalar/record work units. Collision payload extraction and reconstruction
 return `std::expected<void, FPhysicsCollisionPayloadError>`, owning geometry/mode, counts, rejected
@@ -292,7 +290,7 @@ Queries, cancellation, invalidation and snapshot capture do not introduce anothe
 error domain. Async admission and eventual completion are separate contracts;
 cancellation and supersession are completion states, not ordinary build failures.
 `StaticMeshBuild.h` is the advanced detached Engine API. `BuildStaticMeshRenderData`
-returns validated render data with bounds and ray-query acceleration;
+returns validated render data with bounds;
 `FPhysicsCookHelper::Cook` returns collision geometry from owned LOD0
 positions/indices copied into a detached value snapshot, with per-request
 settings captured independently of render ownership. Workers read the snapshot
