@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-10-20
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -300,10 +300,10 @@ shutdown order directly:
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; reflection cleanup is owned by this explicit exit stage. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Shut down modules | Call module Shutdown in reverse Startup-completion order after object cleanup; keep task executors and render/RHI threads available for module-owned waits. |
-| Stop CPU work | After CPU producers close work admission and publication, shut down both CPU and blocking-I/O pools through the process [task system](TaskSystem.md) in `Drain` mode. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
 | Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and its final RHI deletion submission drain. The RHI thread remains alive. |
 | Stop RHI | Atomically install backend shutdown with RHI admission `Draining`, wait its exact serial, then stop and join the RHI thread. |
+| Stop CPU work | After render/RHI teardown, shut down both CPU and blocking-I/O pools through the process [task system](TaskSystem.md) in `Drain` mode. Keep task-event admission open until all render fences have retired. |
 | Close the application | Shut down the platform application and publish successful process termination. |
 
 There is no global exit phase or pre-exit callback registry. Each owner closes
@@ -317,8 +317,10 @@ references:
 - consumers retain stable counted RHI references or non-owning snapshots only
   while their component, viewport, scene, or preview owner remains attached.
 
-CPU-work owners close their work admission and publication before the process
-task-system boundary. Work that accesses objects must finish during host/service
+CPU-work owners close admission and join work that can publish render/RHI commands
+during host/service or module teardown, before render admission closes. The task
+system remains open through render/RHI teardown because render fences create
+task events. Work that accesses objects must finish during host/service
 or object teardown before those objects are collected; retaining the executors
 for later module cleanup does not extend object lifetimes. Owners are responsible
 for their manager mailboxes, providers, caches, objects, render and RHI work. The

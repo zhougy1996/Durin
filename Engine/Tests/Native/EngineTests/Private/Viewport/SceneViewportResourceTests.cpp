@@ -6,6 +6,7 @@
 #include "RHI.h"
 #include "RHIContext.h"
 #include "RenderingThread.h"
+#include "Threading/Task.h"
 #include "Rendering/MonaRHIRenderer.h"
 #include "Widgets/MWindow.h"
 #include "Runtime/MonaImGui/Private/Backend/ImGuiRHIViewportData.h"
@@ -121,6 +122,7 @@ namespace Durin
 					GIsGameThreadIdInitialized = true;
 				}
 				GDynamicRHI = &RHI;
+				if (!IsTaskSchedulerRunning()) ASSERT_TRUE(InitializeTaskScheduler(2));
 				InitRenderingThread();
 				bRenderingStarted = true;
 			}

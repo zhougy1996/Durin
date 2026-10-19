@@ -15,6 +15,7 @@
 #include "RHIResources.h"
 #include "InlineRHITestScope.h"
 #include "RenderingThread.h"
+#include "Threading/Task.h"
 #include "SlangShaderCompiler.h"
 #include "Shader/Shader.h"
 #if DURIN_WITH_EDITOR
@@ -531,6 +532,7 @@ namespace Durin
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 			GIsGameThreadIdInitialized = true;
 		}
+		if (!IsTaskSchedulerRunning()) ASSERT_TRUE(InitializeTaskScheduler(2));
 		struct FRenderingThreadScope
 		{
 			FRenderingThreadScope() { InitRenderingThread(); }

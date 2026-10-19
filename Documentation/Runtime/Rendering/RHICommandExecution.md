@@ -426,10 +426,15 @@ does not change GPU submission scope routing or enable production async compute.
 
 `FFrameSync::EndFrame` preserves the two-slot render-command pacing fence and
 does not wait for RHI completion. A `Threads` sync, including
-`FlushRenderingCommands`, retains shared fence state, submits pending immediate
-work, and waits the exact RHI serial. Destroying the fence object cannot leave
-its queued callback with a dangling address; render rejection or RHI failure
-makes the shared state terminal and wakes waiters.
+`FlushRenderingCommands`, submits pending immediate work and waits the exact RHI
+serial. Render commands trigger a shared `Tasks::FTaskEvent`; the GameThread-owned
+fence stores its `FTaskHandle` and, for RHI-inclusive fences, an independently
+retained RHI receipt published before the event completes. Completion remains
+visible whether it precedes or races a wait. Destroying or restarting the fence
+does not invalidate queued event/receipt captures. RHI submission or execution
+failure is terminal rather than a successful flush. Task-event admission remains
+open until rendering and RHI have stopped; render-producing task owners must
+close admission and join before render teardown. See [runtime shutdown](../Core/RuntimeLifecycle.md).
 
 Render shutdown closes render-command admission, drains every accepted command,
 flushes the immediate timeline and deferred deletion, then verifies all of the

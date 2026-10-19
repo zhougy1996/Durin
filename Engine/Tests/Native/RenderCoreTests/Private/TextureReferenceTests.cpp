@@ -5,6 +5,7 @@
 #include "RHICommandList.h"
 #include "RenderResource.h"
 #include "RenderingThread.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {
@@ -109,6 +110,7 @@ namespace Durin
 					GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 					GIsGameThreadIdInitialized = true;
 				}
+				if (!IsTaskSchedulerRunning()) ASSERT_TRUE(InitializeTaskScheduler(2));
 				InitRenderingThread();
 			}
 

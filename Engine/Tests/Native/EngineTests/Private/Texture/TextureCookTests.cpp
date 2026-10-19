@@ -735,12 +735,13 @@ TEST(FTextureResourceUpdateIntegrationTests, OwnedUpdatesInvalidateOldDataCoales
 	EXPECT_FALSE(Draining->IsResourceUpdatePending());
 	EXPECT_FALSE(Draining->HasUsableResource());
 	EXPECT_EQ(Draining->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
+	// Restart event admission for render cleanup, without reinstalling deferred callbacks.
+	ASSERT_TRUE(Durin::InitializeTaskScheduler());
 	Durin::RemoveFromRoot(Draining);
 	Durin::MarkAsGarbage(Draining);
 	Durin::CollectGarbage();
 	Durin::FlushRenderingCommands();
 
-	ASSERT_TRUE(Durin::InitializeTaskScheduler());
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 	auto* Canceled = Durin::NewObject<Durin::DTexture2D>(nullptr, "CanceledTextureHandoff");
 	Durin::AddToRoot(Canceled);
@@ -748,12 +749,12 @@ TEST(FTextureResourceUpdateIntegrationTests, OwnedUpdatesInvalidateOldDataCoales
 	Canceled->UpdateResource();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Cancel);
+	ASSERT_TRUE(Durin::InitializeTaskScheduler());
 	// No deferred callback is needed for destruction to reclaim a published candidate.
 	Durin::RemoveFromRoot(Canceled);
 	Durin::MarkAsGarbage(Canceled);
 	Durin::CollectGarbage();
 	Durin::FlushRenderingCommands();
-	ASSERT_TRUE(Durin::InitializeTaskScheduler());
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 	Durin::EnqueueRenderCommand("EndOwnedTextureFrame", [](Durin::FRHICommandListImmediate& Commands) {
 		Durin::GDynamicRHI->RHIEndFrame_RenderThread(Commands);
@@ -770,6 +771,6 @@ TEST(FTextureResourceUpdateIntegrationTests, OwnedUpdatesInvalidateOldDataCoales
 	Durin::MarkAsGarbage(Rejected);
 	Durin::CollectGarbage();
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
-	Durin::ShutdownTaskSystem();
 	Durin::RHIExit();
+	Durin::ShutdownTaskSystem();
 }

@@ -416,10 +416,6 @@ namespace Durin
 			CheckNoDeferredDestroyObjects("shutdown object destruction");
 			FModuleManager::Get().ShutdownModulesAtExit();
 		}
-		// Module shutdown may still drain work on either executor.
-		ShutdownTaskSystem(bGameThreadDeferredExecutorStarted
-			? ETaskShutdownMode::Drain : ETaskShutdownMode::Cancel);
-		bGameThreadDeferredExecutorStarted = false;
 #if DURIN_WITH_EDITOR
 		DerivedData::LogCacheDiagnostics();
 #endif
@@ -432,6 +428,11 @@ namespace Durin
 		{
 			RHIExit();
 		}
+		// Producers have retired through host/object/module shutdown. Render fences
+		// still admit task events until the final render and RHI drains complete.
+		ShutdownTaskSystem(bGameThreadDeferredExecutorStarted
+			? ETaskShutdownMode::Drain : ETaskShutdownMode::Cancel);
+		bGameThreadDeferredExecutorStarted = false;
 
 		ShutdownApplicationCore();
 #if DURIN_WITH_EDITOR

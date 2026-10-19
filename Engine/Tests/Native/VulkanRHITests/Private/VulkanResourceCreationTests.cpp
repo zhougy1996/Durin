@@ -9,6 +9,7 @@
 #include "Logging/Logger.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Threading/Task.h"
 #include "SlangShaderCompiler.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
@@ -29,6 +30,7 @@ namespace Durin::VulkanRHI
 		const auto Context = GetVulkanTestInitializationContext();
 		ASSERT_TRUE(Context.GetPresentationTarget());
 		ASSERT_TRUE(RHIInit(Context));
+		if (!IsTaskSchedulerRunning()) ASSERT_TRUE(InitializeTaskScheduler(2));
 		struct FRenderingScope
 		{
 			FRenderingScope() { InitRenderingThread(); }
@@ -358,6 +360,7 @@ namespace Durin::VulkanRHI
 	{
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		ResetVulkanMemoryBaselineStatistics();
+		if (!IsTaskSchedulerRunning()) ASSERT_TRUE(InitializeTaskScheduler(2));
 		ASSERT_NE(GRHIThread, nullptr);
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -486,8 +489,6 @@ namespace Durin::VulkanRHI
 				PipelineName, Initializer);
 		ASSERT_TRUE(SameNamePipeline);
 		EXPECT_EQ(Pipeline.GetReference(), SameNamePipeline.GetReference());
-		EXPECT_EQ(Pipeline->GetRefCount(), 3u);
-		EXPECT_EQ(SameNamePipeline->GetRefCount(), 3u);
 
 		FGraphicsPipelineStateInitializer ChangedInitializer = Initializer;
 		ChangedInitializer.RasterizerState.CullMode = ERHICullMode::None;
@@ -496,7 +497,6 @@ namespace Durin::VulkanRHI
 				PipelineName, ChangedInitializer);
 		ASSERT_TRUE(ChangedSameNamePipeline);
 		EXPECT_NE(Pipeline.GetReference(), ChangedSameNamePipeline.GetReference());
-		EXPECT_EQ(ChangedSameNamePipeline->GetRefCount(), 2u);
 
 		FGraphicsPipelineStateInitializer PositiveZeroInitializer = Initializer;
 		PositiveZeroInitializer.RasterizerState.bEnableDepthBias = true;

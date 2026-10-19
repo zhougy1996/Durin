@@ -2,6 +2,7 @@
 
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
+#include "Threading/TaskComposition.h"
 
 #include "RHICommandList.h"
 #include "RenderResource.h"
@@ -125,117 +126,53 @@ namespace Durin
 		GRenderingThreadRunnable = nullptr;
 	}
 
-	class FRenderCommandFence::FState
-	{
-	public:
-		explicit FState(ERenderCommandFenceMode InMode)
-			: Mode(InMode)
-		{
-		}
-
-		auto CompleteRenderCommand(bool bInSucceeded, uint64 InRHISerial, FRHICommandListFence InFence = {}) -> void
-		{
-			{
-				std::lock_guard Lock(Mutex);
-				bSucceeded = bInSucceeded;
-				RHISerial = InRHISerial;
-				RHIFence = std::move(InFence);
-			}
-			bRenderCommandComplete.store(true, std::memory_order_release);
-			CV.notify_all();
-		}
-
-		ERenderCommandFenceMode Mode;
-		std::atomic<bool> bRenderCommandComplete = false;
-		bool bSucceeded = true;
-		uint64 RHISerial = 0;
-		FRHICommandListFence RHIFence;
-		std::condition_variable CV;
-		std::mutex Mutex;
-	};
-
-	FRenderCommandFence::FRenderCommandFence()
-		: State(std::make_shared<FState>(
-			ERenderCommandFenceMode::RenderThread))
-	{
-		State->CompleteRenderCommand(true, 0);
-	}
-
+	FRenderCommandFence::FRenderCommandFence() = default;
 	FRenderCommandFence::~FRenderCommandFence() = default;
 
 	auto FRenderCommandFence::BeginFence(ERenderCommandFenceMode Mode) -> void
 	{
-		auto FenceState = std::make_shared<FState>(Mode);
-		State = FenceState;
+		check(IsInGameThread());
+		// This signal is produced by the render queue, never by GameThread work.
+		Tasks::FTaskEvent Event("RenderCommandFence", false);
+		auto Receipt = Mode == ERenderCommandFenceMode::RHIThread
+			? std::make_shared<FRHICommandListFence>() : nullptr;
+		CompletionTask = Event;
+		RHIFence = Receipt;
 		FRenderThreadCommandPipe::Enqueue<FFenceRenderCommand>(
-				[FenceState = std::move(FenceState), Mode](
-					FRHICommandListImmediate&) {
-					if (Mode == ERenderCommandFenceMode::RenderThread)
-					{
-						FenceState->CompleteRenderCommand(true, 0);
-						return;
-					}
-
-					try
-					{
-						const FRHICommandListSubmission Submission =
-							GCommandListExecutor.TrySubmit(
-								{}, ERHISubmitFlags::None);
-						if (!Submission.IsAccepted())
-						{
-							DURIN_ERROR(
-								"RHI-inclusive render fence submission was rejected ({}).",
-								static_cast<uint32>(Submission.Result));
-						}
-						FenceState->CompleteRenderCommand(
-							Submission.IsAccepted(), Submission.Serial,
-							Submission.IsAccepted() ? GCommandListExecutor.CreateFence(Submission.Serial) : FRHICommandListFence{});
-					}
-					catch (...)
-					{
-						FenceState->CompleteRenderCommand(false, 0);
-					}
-				});
+			[Event = std::move(Event), Receipt = std::move(Receipt)](FRHICommandListImmediate&) mutable {
+				if (Receipt)
+				{
+					const uint64 Serial = GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
+					*Receipt = GCommandListExecutor.CreateFence(Serial);
+				}
+				Event.Trigger();
+			});
 	}
 
 	auto FRenderCommandFence::Wait() -> void
 	{
-		const std::shared_ptr<FState> FenceState = State;
-		std::unique_lock Lock(FenceState->Mutex);
-		FenceState->CV.wait(Lock, [&FenceState]() {
-			return FenceState->bRenderCommandComplete.load(
-				std::memory_order_acquire);
-		});
-		const bool bSucceeded = FenceState->bSucceeded;
-		const ERenderCommandFenceMode Mode = FenceState->Mode;
-		const uint64 RHISerial = FenceState->RHISerial;
-		const auto RHIFence = FenceState->RHIFence;
-		Lock.unlock();
-		if (bSucceeded && Mode == ERenderCommandFenceMode::RHIThread)
-		{
-			if (!RHIFence.TryWait())
-			{
-				DURIN_ERROR(
-					"RHI-inclusive render fence failed while waiting for serial {}.",
-					RHISerial);
-			}
-		}
+		check(IsInGameThread());
+		if (!CompletionTask.IsValid()) return;
+		const FTaskWaitResult Result = WaitTask(CompletionTask);
+		requiref(Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded,
+			"Render fence completion failed: {}", CompletionTask.GetDiagnostic());
+		if (RHIFence) RHIFence->Wait();
+		CompletionTask = {};
+		RHIFence.reset();
 	}
 
 	auto FRenderCommandFence::IsFenceComplete() const -> bool
 	{
-		const std::shared_ptr<FState> FenceState = State;
-		if (!FenceState->bRenderCommandComplete.load(std::memory_order_acquire))
-		{
-			return false;
-		}
-		std::lock_guard Lock(FenceState->Mutex);
-		if (!FenceState->bSucceeded
-			|| FenceState->Mode == ERenderCommandFenceMode::RenderThread)
-		{
-			return true;
-		}
-		return FenceState->RHIFence.GetState() != ERHICommandBatchState::Pending;
+		check(IsInGameThread());
+		if (!CompletionTask.IsValid()) return true;
+		if (!CompletionTask.IsComplete()) return false;
+		requiref(CompletionTask.GetState() == ETaskState::Succeeded,
+			"Render fence completion failed: {}", CompletionTask.GetDiagnostic());
+		if (!RHIFence) return true;
+		const ERHICommandBatchState State = RHIFence->GetState();
+		requiref(State == ERHICommandBatchState::Pending || State == ERHICommandBatchState::Succeeded,
+			"RHI render fence failed for serial {}.", RHIFence->GetTargetSerial());
+		return State == ERHICommandBatchState::Succeeded;
 	}
 
 	namespace FFrameSync

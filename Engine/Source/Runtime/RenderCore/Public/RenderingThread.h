@@ -4,10 +4,12 @@
 
 #include "RenderCoreAPI.h"
 #include "Threading/RunnableThread.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {
 	class FRHICommandListImmediate;
+	class FRHICommandListFence;
 
 	enum class ERenderCommandFenceMode : uint8
 	{
@@ -15,7 +17,7 @@ namespace Durin
 		RHIThread,
 	};
 
-	// Lets the game thread wait until all render commands queued before the fence have completed.
+	// GameThread-owned fence. The task scheduler must remain open through render teardown.
 	class FRenderCommandFence
 	{
 	public:
@@ -36,8 +38,9 @@ namespace Durin
 		RENDERCORE_API auto Wait() -> void;
 		RENDERCORE_API auto IsFenceComplete() const -> bool;
 	private:
-		class FState;
-		std::shared_ptr<FState> State;
+		FTaskHandle CompletionTask;
+		// Published before CompletionTask completes; retained independently by the render command.
+		std::shared_ptr<FRHICommandListFence> RHIFence;
 	};
 
 	namespace FFrameSync

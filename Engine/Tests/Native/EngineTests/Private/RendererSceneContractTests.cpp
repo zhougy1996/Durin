@@ -19,6 +19,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "Math/Operations.h"
 #include "RenderingThread.h"
+#include "Threading/Task.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Renderers/SceneRenderPipeline.h"
@@ -1179,6 +1180,7 @@ namespace
 				Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 				Durin::GIsGameThreadIdInitialized = true;
 			}
+			if (!Durin::IsTaskSchedulerRunning()) require(Durin::InitializeTaskScheduler(2));
 			Durin::InitRenderingThread();
 		}
 		~FRenderingThreadScope() { Durin::ShutdownRenderingThread(); }
@@ -2916,6 +2918,7 @@ namespace Durin::Tests
 					GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 					GIsGameThreadIdInitialized = true;
 				}
+				if (!IsTaskSchedulerRunning()) require(InitializeTaskScheduler(2));
 				InitRenderingThread();
 			}
 			~FAllocatorRenderingThreadScope() { ShutdownRenderingThread(); }

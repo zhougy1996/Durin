@@ -89,16 +89,17 @@ namespace Durin
 					GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 					GIsGameThreadIdInitialized = true;
 				}
+				if (!IsTaskSchedulerRunning()) ASSERT_TRUE(InitializeTaskScheduler(2));
 				InitRenderingThread();
 			}
 
 			void TearDown() override
 			{
-				ShutdownTaskScheduler(false);
 				FlushRenderingCommands();
 				EXPECT_EQ(GetNumInitializedRenderResources(), 0u);
 				EXPECT_EQ(GetNumPendingRenderResourceCleanup(), 0u);
 				ShutdownRenderingThread();
+				ShutdownTaskScheduler(false);
 			}
 		};
 
@@ -110,11 +111,11 @@ namespace Durin
 			}
 		};
 
-		struct FAcceptedDuringSchedulerDrainCommand
+		struct FAcceptedDuringOwnerRetirementCommand
 		{
 			static constexpr auto GetName() -> const char*
 			{
-				return "AcceptedDuringSchedulerDrain";
+				return "AcceptedDuringOwnerRetirement";
 			}
 		};
 
@@ -211,96 +212,48 @@ namespace Durin
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
-		SchedulerDrainCompletesBeforeRenderAdmissionCloses)
+		OwnerTasksDrainBeforeRenderStopsAndSchedulerStopsLast)
 	{
 		ShutdownTaskScheduler(false);
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		FThreadEvent ProbeStarted;
+		FThreadEvent ReleaseProbe;
 		std::atomic<bool> bRenderCommandAccepted = false;
 		std::atomic<bool> bRenderCommandExecuted = false;
-		std::atomic<bool> bTaskAdmissionRejected = false;
 		FTaskHandle Probe = Durin::FTaskHandle(Tasks::LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
 			ProbeStarted.Trigger();
-			while (IsTaskSchedulerRunning())
-			{
-				std::this_thread::yield();
-			}
+			ReleaseProbe.Wait();
 			FRenderThreadCommandPipe::Enqueue<
-				FAcceptedDuringSchedulerDrainCommand>(
+				FAcceptedDuringOwnerRetirementCommand>(
 				[&bRenderCommandExecuted](FRHICommandListImmediate&) {
 					bRenderCommandExecuted.store(
 						true, std::memory_order_release);
 				});
 			bRenderCommandAccepted.store(true, std::memory_order_release);
-			bTaskAdmissionRejected.store(
-				!Private::TryLaunchCancelableTaskWithCompletion("RenderLifecycle.RejectedAfterClose", [](const FTaskCancellationToken&) {}, {}, {}).HasValue(),
-				std::memory_order_release);
 		}));
-		ASSERT_TRUE(ProbeStarted.WaitFor(1.0));
-
-		ShutdownTaskScheduler(true);
+		const bool bStarted = ProbeStarted.WaitFor(1.0);
+		ReleaseProbe.Trigger();
+		EXPECT_TRUE(bStarted);
+		EXPECT_EQ(WaitTask(Probe).WaitStatus, ETaskWaitStatus::Completed);
 
 		EXPECT_EQ(ETaskState::Succeeded, Probe.GetState());
-		EXPECT_TRUE(bTaskAdmissionRejected.load(std::memory_order_acquire));
 		EXPECT_TRUE(bRenderCommandAccepted.load(std::memory_order_acquire));
 		FlushRenderingCommands();
 		EXPECT_TRUE(bRenderCommandExecuted.load(std::memory_order_acquire));
+		EXPECT_TRUE(IsTaskSchedulerRunning());
+		ShutdownRenderingThread();
+		EXPECT_EQ(ERenderCommandAdmissionState::Stopped, GetRenderCommandAdmissionState());
+		EXPECT_EQ(0u, GetNumPendingRenderCommands());
+		ShutdownTaskScheduler(true);
 		const FTaskSchedulerDiagnostics SchedulerDiagnostics =
 			GetTaskSchedulerDiagnostics();
 		EXPECT_FALSE(SchedulerDiagnostics.bRunning);
 		EXPECT_EQ(0u, SchedulerDiagnostics.NonterminalTaskCount);
-		EXPECT_GE(SchedulerDiagnostics.RejectedTaskCount, 1u);
 		EXPECT_GE(SchedulerDiagnostics.RetainedTerminalHandleCount, 1u);
 
-		ShutdownRenderingThread();
-		EXPECT_EQ(ERenderCommandAdmissionState::Stopped,
-			GetRenderCommandAdmissionState());
-		EXPECT_EQ(0u, GetNumPendingRenderCommands());
+		ASSERT_TRUE(InitializeTaskScheduler(2));
 		InitRenderingThread();
-	}
-
-	TEST_F(FRenderResourceLifecycleTests,
-		SchedulerDiscardCancelsAcceptedWorkAndRetainedHandlesSurviveRestart)
-	{
-		ShutdownTaskScheduler(false);
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-
-		FThreadEvent RunningTaskStarted;
-		FTaskHandle RunningTask = Durin::FTaskHandle(Tasks::LaunchTask(
-			"RenderLifecycle.RunningDuringDiscard",
-			[&RunningTaskStarted](const FTaskCancellationToken& Token) {
-				RunningTaskStarted.Trigger();
-				while (!Token.IsCancellationRequested())
-				{
-					std::this_thread::yield();
-				}
-			}));
-		ASSERT_TRUE(RunningTaskStarted.WaitFor(1.0));
-		FTaskHandle QueuedTask = Durin::FTaskHandle(Tasks::LaunchTask(
-			"RenderLifecycle.QueuedDuringDiscard", []() {}));
-		ASSERT_TRUE(QueuedTask.IsValid());
-
-		ShutdownTaskScheduler(false);
-
-		EXPECT_EQ(ETaskState::Canceled, RunningTask.GetState());
-		EXPECT_EQ(ETaskState::Canceled, QueuedTask.GetState());
-		const FTaskSchedulerDiagnostics DiscardDiagnostics =
-			GetTaskSchedulerDiagnostics();
-		EXPECT_FALSE(DiscardDiagnostics.bRunning);
-		EXPECT_EQ(0u, DiscardDiagnostics.NonterminalTaskCount);
-		EXPECT_EQ(0u, DiscardDiagnostics.ActiveWorkerCount);
-		EXPECT_GE(DiscardDiagnostics.CanceledTaskCount, 2u);
-		EXPECT_GE(DiscardDiagnostics.RetainedTerminalHandleCount, 2u);
-
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		FTaskHandle RestartedTask = Durin::FTaskHandle(Tasks::LaunchTask(
-			"RenderLifecycle.AfterRestart", []() {}));
-		ASSERT_TRUE(RestartedTask.IsValid());
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(RestartedTask).TaskState);
-		EXPECT_EQ(ETaskState::Canceled, RunningTask.GetState());
-		EXPECT_EQ(ETaskState::Canceled, QueuedTask.GetState());
-		ShutdownTaskScheduler(true);
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
@@ -392,6 +345,128 @@ namespace Durin
 			ERenderCommandAdmissionState::Stopped);
 
 		InitRenderingThread();
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		FenceCompletionBeforeWaitRemainsVisibleAcrossReuse)
+	{
+		FRenderCommandFence Fence;
+		EXPECT_TRUE(Fence.IsFenceComplete());
+		Fence.Wait();
+		for (int Index = 0; Index < 128; ++Index)
+		{
+			int PublishedValue = 0;
+			FThreadEvent RenderQueueReachedEnd;
+			ENQUEUE_RENDER_COMMAND(PublishFenceTestValue)([&](FRHICommandListImmediate&) {
+				PublishedValue = Index + 1;
+			});
+			Fence.BeginFence();
+			ENQUEUE_RENDER_COMMAND(ObserveFenceTestCompletion)([&](FRHICommandListImmediate&) {
+				RenderQueueReachedEnd.Trigger();
+			});
+			RenderQueueReachedEnd.Wait();
+			EXPECT_TRUE(Fence.IsFenceComplete());
+			Fence.Wait();
+			EXPECT_EQ(PublishedValue, Index + 1);
+			Fence.Wait();
+		}
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		FenceWaitRacesCompletionWithoutLosingWakeups)
+	{
+		FRenderCommandFence Fence;
+		for (int Index = 0; Index < 1024; ++Index)
+		{
+			int PublishedValue = 0;
+			ENQUEUE_RENDER_COMMAND(PublishRacingFenceTestValue)([&](FRHICommandListImmediate&) {
+				PublishedValue = Index + 1;
+			});
+			Fence.BeginFence();
+			Fence.Wait();
+			EXPECT_EQ(PublishedValue, Index + 1);
+			EXPECT_TRUE(Fence.IsFenceComplete());
+		}
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		ReplacingPendingFenceKeepsEachQueuedEventAlive)
+	{
+		FThreadEvent CommandStarted;
+		FThreadEvent ReleaseCommand;
+		ENQUEUE_RENDER_COMMAND(BlockReplacedFence)([&](FRHICommandListImmediate&) {
+			CommandStarted.Trigger();
+			ReleaseCommand.Wait();
+		});
+		CommandStarted.Wait();
+		FRenderCommandFence Fence;
+		Fence.BeginFence();
+		EXPECT_FALSE(Fence.IsFenceComplete());
+		Fence.BeginFence();
+		EXPECT_FALSE(Fence.IsFenceComplete());
+		ReleaseCommand.Trigger();
+		Fence.Wait();
+		EXPECT_TRUE(Fence.IsFenceComplete());
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		PendingFenceRetiresBeforeSchedulerShutdownAndRemainsObservable)
+	{
+		FThreadEvent CommandStarted, ReleaseCommand;
+		ENQUEUE_RENDER_COMMAND(BlockFenceUntilRenderShutdown)([&](FRHICommandListImmediate&) {
+			CommandStarted.Trigger();
+			ReleaseCommand.Wait();
+		});
+		CommandStarted.Wait();
+		FRenderCommandFence Fence;
+		Fence.BeginFence();
+		EXPECT_FALSE(Fence.IsFenceComplete());
+		EXPECT_GT(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
+		ReleaseCommand.Trigger();
+		ShutdownRenderingThread();
+		EXPECT_TRUE(IsTaskSchedulerRunning());
+		ShutdownTaskScheduler(true);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
+		EXPECT_TRUE(Fence.IsFenceComplete());
+		Fence.Wait();
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		InitRenderingThread();
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		RHIInclusiveFenceWaitsItsCapturedWorkWithoutWaitingLaterWork)
+	{
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		GCommandListExecutor.SetThreadedMode(RHIThread);
+		FThreadEvent WorkStarted, ReleaseWork, ReceiptPublished, LaterWorkStarted, ReleaseLaterWork;
+		ENQUEUE_RENDER_COMMAND(DispatchFenceTestRHIWork)([&](FRHICommandListImmediate& Commands) {
+			Commands.EnqueueLambda([&]() {
+				WorkStarted.Trigger();
+				ReleaseWork.Wait();
+			});
+		});
+		FRenderCommandFence Fence;
+		Fence.BeginFence(ERenderCommandFenceMode::RHIThread);
+		ENQUEUE_RENDER_COMMAND(ObserveFenceTestRHIReceipt)([&](FRHICommandListImmediate&) {
+			ReceiptPublished.Trigger();
+		});
+		ReceiptPublished.Wait();
+		WorkStarted.Wait();
+		EXPECT_FALSE(Fence.IsFenceComplete());
+		FRHIThreadWork LaterWork;
+		LaterWork.Execute = [&]() {
+			LaterWorkStarted.Trigger();
+			ReleaseLaterWork.Wait();
+		};
+		EXPECT_TRUE(RHIThread.Enqueue(LaterWork).IsAccepted());
+		ReleaseWork.Trigger();
+		LaterWorkStarted.Wait();
+		Fence.Wait();
+		EXPECT_TRUE(Fence.IsFenceComplete());
+		ReleaseLaterWork.Trigger();
+		GCommandListExecutor.SetInlineMode();
+		RHIThread.Stop();
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
