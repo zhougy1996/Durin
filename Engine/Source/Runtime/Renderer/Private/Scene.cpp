@@ -285,6 +285,7 @@ namespace Durin
 		if (!bQueueCommand) return;
 		EnqueueRenderCommand("UpdateMaterialParameterCollections",
 			[this](FRHICommandListImmediate&) {
+				++HitProxyRevision;
 				CheckRenderingThread();
 				decltype(PendingMaterialParameterCollections) Pending;
 				{
@@ -312,6 +313,7 @@ namespace Durin
 		}
 		EnqueueRenderCommand("RemoveMaterialParameterCollection",
 			[this, CollectionId](FRHICommandListImmediate&) {
+				++HitProxyRevision;
 				CheckRenderingThread();
 				MaterialParameterCollections.erase(CollectionId);
 			});
@@ -337,6 +339,7 @@ namespace Durin
 		requiref(LifecycleState.compare_exchange_strong(Expected, ELifecycleState::Releasing, std::memory_order_acq_rel), "FScene::Release is a single-use operation.");
 		PublishedSkyBoxProxy = nullptr;
 		EnqueueRenderCommand("ReleaseScene", [this](FRHICommandListImmediate&) {
+			++HitProxyRevision;
 			CheckRenderingThread();
 			if (Renderer) Renderer->RetirePreparations_RenderThread(this);
 			Clear_RenderThread();
@@ -483,6 +486,7 @@ namespace Durin
 		requiref(Math::IsFinite(Transform), "AddPrimitiveProxy requires a finite transform.");
 		std::shared_ptr<FPrimitiveSceneProxy> SharedProxy(std::move(Proxy));
 		EnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
+			++HitProxyRevision;
 			CheckRenderingThread();
 			requiref(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
 			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform);
@@ -502,6 +506,7 @@ namespace Durin
 		RequireActive("UpdatePrimitiveVisibility");
 		if (PrimitiveId == InvalidPrimitiveComponentId) return;
 		EnqueueRenderCommand("UpdatePrimitiveVisibility", [this, PrimitiveId, bVisible](FRHICommandListImmediate&) {
+			++HitProxyRevision;
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
 				Found != PrimitiveInfosById.end())
@@ -516,6 +521,7 @@ namespace Durin
 		RequireActive("RemovePrimitiveProxy");
 		requiref(PrimitiveId != InvalidPrimitiveComponentId, "RemovePrimitiveProxy requires a valid primitive ID.");
 		EnqueueRenderCommand("RemovePrimitive", [this, PrimitiveId](FRHICommandListImmediate&) {
+			++HitProxyRevision;
 			CheckRenderingThread();
 			const auto Found = PrimitiveInfosById.find(PrimitiveId);
 			if (Found == PrimitiveInfosById.end()) return;
@@ -529,6 +535,7 @@ namespace Durin
 		RequireActive("UpdatePrimitiveTransform");
 		if (PrimitiveId == InvalidPrimitiveComponentId || !Math::IsFinite(Transform)) return;
 		EnqueueRenderCommand("UpdatePrimitiveTransform", [this, PrimitiveId, Transform](FRHICommandListImmediate&) {
+			++HitProxyRevision;
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->SetTransform(Transform);
 		});
@@ -540,6 +547,7 @@ namespace Durin
 		RequireActive("UpdatePrimitiveCustomData");
 		if (!Data.IsValid()) return;
 		EnqueueRenderCommand("UpdatePrimitiveCustomData", [this, Id, Data](FRHICommandListImmediate&) {
+			++HitProxyRevision;
 			if (const auto Found = PrimitiveInfosById.find(Id); Found != PrimitiveInfosById.end())
 				Found->second->GetProxy().SetCustomPrimitiveData(Data);
 		});
@@ -551,6 +559,7 @@ namespace Durin
 		RequireActive("UpdateStaticMeshRenderInstances");
 		if (Instances && !ValidateStaticMeshRenderInstances(*Instances)) return;
 		EnqueueRenderCommand("UpdateStaticMeshRenderInstances", [this, Id, Instances = std::move(Instances)](FRHICommandListImmediate&) {
+			++HitProxyRevision;
 			if (const auto Found = PrimitiveInfosById.find(Id); Found != PrimitiveInfosById.end()
 				&& Found->second->GetKind() == EPrimitiveSceneProxyKind::StaticMesh)
 			{
@@ -568,6 +577,7 @@ namespace Durin
 		// targets the publication alive at this point in that ordered lifecycle.
 		if (PrimitiveId == InvalidPrimitiveComponentId) return;
 		EnqueueRenderCommand("UpdatePrimitiveMaterialBinding", [this, PrimitiveId, Update](FRHICommandListImmediate&) {
+			++HitProxyRevision;
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->UpdateMaterialBinding(Update);
 		});
@@ -582,6 +592,7 @@ namespace Durin
 		if (PrimitiveId == InvalidPrimitiveComponentId || DynamicData.Revision == 0
 			|| !DynamicData.LocalBounds.bIsValid) return;
 		EnqueueRenderCommand("UpdateSplineMeshDynamicData", [this, PrimitiveId, DynamicData = std::move(DynamicData)](FRHICommandListImmediate&) mutable {
+			++HitProxyRevision;
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
 				Found != PrimitiveInfosById.end())

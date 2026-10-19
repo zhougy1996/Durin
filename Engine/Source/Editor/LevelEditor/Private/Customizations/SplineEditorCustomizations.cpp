@@ -289,12 +289,10 @@ namespace Durin::Editor::Level
 				if (Input.bDuplicate) return DuplicateSelected(Context, *Spline, Transactions);
 				if (Input.bAppend) return AppendPoint(Context, *Spline, Transactions);
 				if (!Input.bRequestSelection) return false;
-				const FViewportPickSubmission Submission = Client.SubmitViewportPick(
+				const FViewportPickResult Result = Client.PickViewport(
 					Context.Level, View, Input.MousePosition, EViewportPickLayer::EditorVisualization);
-				const std::optional<FViewportPickHit> Hit = Submission.Completion.Status == EViewportPickStatus::Completed
-					? Submission.Completion.Hit : std::nullopt;
-				if (Submission.Completion.Status == EViewportPickStatus::Pending) Client.CancelViewportPick(Submission.Ticket);
-				Client.ReleaseViewportPick(Submission.Ticket);
+				const std::optional<FViewportPickHit> Hit = Result.Status == EViewportPickStatus::Completed
+					? Result.Hit : std::nullopt;
 				if (!Hit || Hit->Component.Get() != Spline || !Hit->Element.IsValid()) { Context.ClearSubElementSelection(); return true; }
 				if (Input.bLeftMouseDoubleClicked && Hit->Element.Kind == EEditorSubElementKind::Segment)
 				{

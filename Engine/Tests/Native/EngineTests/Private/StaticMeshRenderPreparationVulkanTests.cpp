@@ -3129,7 +3129,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 	RHIExit();
 }
 
-TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundAndCancellation)
+TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundAndCacheInvalidation)
 {
 	using namespace Durin;
 	if (!GIsGameThreadIdInitialized)
@@ -3171,39 +3171,81 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	Request.View.ViewportWidth = Request.View.ViewportHeight = 64;
 	Request.View.Settings.Mode.LODMode = EViewLODMode::ForceLOD0;
 	Request.Primitives = {{501, {0xabcdef12}}, {502, {17}}};
+	Request.Cache = std::make_shared<FHitProxyMapCache>();
 	float CenterDistance = 0.0f;
+	bool bSubmitDuplicate = true;
+	std::shared_ptr<const FHitProxyMap> LastMap, DuplicateMap, SameFrameMap;
 	const auto CaptureCenter = [&]() -> uint32 {
-		Request.Readback = std::make_shared<FRHITextureReadback>();
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			++GRenderFrameCounterRenderThread;
 			GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-			Renderer.RenderHitProxies(Commands, &Scene, Request);
+			LastMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
+			if (bSubmitDuplicate)
+			{
+				DuplicateMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
+				auto Uncached = Request;
+				Uncached.Cache.reset();
+				SameFrameMap = Renderer.RenderHitProxies(Commands, &Scene, Uncached);
+			}
+
 			GDynamicRHI->RHIEndFrame_RenderThread(Commands);
 		});
 		FlushRenderingCommands();
-		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-		while (Request.Readback->GetState() == ERHITextureReadbackState::Pending && std::chrono::steady_clock::now() < Deadline)
-		{
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([](FRHICommandListImmediate& Commands) {
-				Commands.PollTextureReadbacks();
-			});
-			FlushRenderingCommands();
-			std::this_thread::sleep_for(std::chrono::milliseconds(10));
-		}
-		EXPECT_EQ(Request.Readback->GetState(), ERHITextureReadbackState::Ready);
-		FByteBuffer Pixels;
-		if (!Request.Readback->TakePixels(Pixels) || Pixels.size() != 64u * 64u * 8u) { ADD_FAILURE(); return 0; }
-		std::array<uint32, 2> Center;
-		std::memcpy(Center.data(), Pixels.data() + (32 * 64 + 32) * 8, 8);
-		CenterDistance = std::bit_cast<float>(Center[1]);
+		if (!LastMap) { ADD_FAILURE() << "Synchronous hit proxy readback failed"; return 0; }
+		FHitProxyPixel Center;
+		if (!LastMap->ReadPixel(Request.View.ViewportX + Request.View.ViewportWidth / 2,
+			Request.View.ViewportY + Request.View.ViewportHeight / 2, Center)) { ADD_FAILURE(); return 0; }
+		CenterDistance = Center.Distance;
 		EXPECT_TRUE(std::isfinite(CenterDistance));
-		uint32 Background;
-		std::memcpy(&Background, Pixels.data(), 4);
-		EXPECT_EQ(Background, 0u);
-		return Center[0];
+		FHitProxyPixel Background;
+		EXPECT_TRUE(LastMap->ReadPixel(0, 0, Background));
+		EXPECT_EQ(Background.Id.Value, 0u);
+		return Center.Id.Value;
 	};
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	bSubmitDuplicate = false;
+	const auto InitialMap = LastMap;
+	ASSERT_TRUE(DuplicateMap);
+	EXPECT_EQ(DuplicateMap, InitialMap);
+	ASSERT_TRUE(SameFrameMap); // Further GPU work in this frame remains valid after the blocking readback.
+	EXPECT_NE(SameFrameMap, InitialMap);
+	FHitProxyPixel SameFramePixel;
+	ASSERT_TRUE(SameFrameMap->ReadPixel(32, 32, SameFramePixel));
+	EXPECT_EQ(SameFramePixel.Id.Value, 0xabcdef12u);
+	const auto ReuseCount = Request.Cache->GetStatistics().ReuseCount;
+	const auto RenderCount = Request.Cache->GetStatistics().RenderCount;
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_EQ(LastMap, InitialMap);
+	EXPECT_EQ(Request.Cache->GetStatistics().RenderCount, RenderCount);
+	EXPECT_EQ(Request.Cache->GetStatistics().ReuseCount, ReuseCount + 1);
+	// Publication occurs through RenderCore/RHI, while the cache reads the epoch in Renderer.
+	const auto BeforeTexturePublication = LastMap;
+	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([](FRHICommandListImmediate&) {
+		FTextureReference Reference;
+		const auto Texture = RHICreateTexture(FRHITextureCreateDesc::Create2D("HitProxyEpoch", 1, 1, EPixelFormat::RG32_UINT)
+			.SetFlags(ETextureCreateFlags::ShaderResource));
+		ASSERT_TRUE(Texture);
+		Reference.SetReferencedTexture_RenderThread(Texture);
+	});
+	FlushRenderingCommands();
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_NE(LastMap, BeforeTexturePublication);
+	Request.View.ViewportWidth = Request.View.ViewportHeight = 32;
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_NE(LastMap, InitialMap);
+	EXPECT_EQ(Request.Cache->GetStatistics().RenderCount, RenderCount + 2);
+	Request.View.ViewportWidth = Request.View.ViewportHeight = 64;
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
 	const float OriginDistance = CenterDistance;
+	const auto BeforeVisibilityChange = LastMap;
+	Scene.UpdatePrimitiveVisibility(FPrimitiveComponentId(501), false);
+	EXPECT_EQ(CaptureCenter(), 17u);
+	EXPECT_NE(LastMap, BeforeVisibilityChange);
+	FHitProxyPixel PreviousPixel;
+	ASSERT_TRUE(BeforeVisibilityChange->ReadPixel(32, 32, PreviousPixel));
+	EXPECT_EQ(PreviousPixel.Id.Value, 0xabcdef12u);
+	Scene.UpdatePrimitiveVisibility(FPrimitiveComponentId(501), true);
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
 	const FVector3 LargeOrigin{1099511627776.0, -1099511627776.0, 1099511627776.0};
 	const FMatrix LargeTranslation = Math::TranslationMatrix(LargeOrigin);
 	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
@@ -3215,7 +3257,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	Request.View.ViewProjectionMatrix = Request.View.ProjectionMatrix * Request.View.ViewMatrix;
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
 	EXPECT_NEAR(CenterDistance, OriginDistance, 1.0e-4f);
-	// Restore the origin for the existing depth, mask, spline, and cancellation cases.
+	// Restore the origin for the existing depth, mask, spline, and invalid-output cases.
 	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
 		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), FMatrix(1.0));
 	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(502),
@@ -3272,13 +3314,28 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
 		std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}, Spline), FMatrix(1.0));
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
-	Request.Readback = std::make_shared<FRHITextureReadback>();
-	Request.Readback->Cancel();
+	const auto BeforeInvalidOutput = Request.Cache->GetStatistics().RenderCount;
+	const auto BeforeInvalidMap = LastMap;
+	Request.View.ViewportWidth = 0;
 	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
-		Renderer.RenderHitProxies(Commands, &Scene, Request);
+		LastMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
 	});
 	FlushRenderingCommands();
-	EXPECT_EQ(Request.Readback->GetState(), ERHITextureReadbackState::Canceled);
+	EXPECT_FALSE(LastMap);
+	EXPECT_EQ(Request.Cache->GetStatistics().RenderCount, BeforeInvalidOutput);
+	Request.View.ViewportWidth = 64;
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_EQ(LastMap, BeforeInvalidMap);
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+		Request.Cache->Invalidate_RenderThread();
+	});
+	FlushRenderingCommands();
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_NE(LastMap, BeforeInvalidMap);
+	EXPECT_EQ(Request.Cache->GetStatistics().RenderCount, BeforeInvalidOutput + 1);
+	FHitProxyPixel RetiredPixel;
+	ASSERT_TRUE(BeforeInvalidMap->ReadPixel(32, 32, RetiredPixel));
+	EXPECT_EQ(RetiredPixel.Id.Value, 0xabcdef12u);
 	Owner.Reset();
 	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) { Data->ReleaseResources(); });
 	FlushRenderingCommands();

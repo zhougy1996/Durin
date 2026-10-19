@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "SceneView.h"
-#include "RHITextureReadback.h"
+#include "PixelFormat.h"
 
 namespace Durin
 {
@@ -36,13 +36,86 @@ namespace Durin
 		int32 Priority = 0;
 	};
 
-	// Detached GPU input. The caller retains the corresponding weak identity table.
+	// RG32_UINT stores the ID word followed by the bit-preserved IEEE 754 distance.
+	struct FHitProxyPixel
+	{
+		static constexpr EPixelFormat Format = EPixelFormat::RG32_UINT;
+		FHitProxyId Id;
+		float Distance = 0.f;
+	};
+	static_assert(std::is_trivially_copyable_v<FHitProxyPixel> && std::is_standard_layout_v<FHitProxyPixel>
+		&& sizeof(FHitProxyPixel) == 2 * sizeof(uint32) && offsetof(FHitProxyPixel, Distance) == sizeof(uint32));
+	static_assert(sizeof(float) == sizeof(uint32) && std::numeric_limits<float>::is_iec559);
+
+	// Validated immutable CPU pixels returned after synchronous full-viewport readback.
+	class FHitProxyMap final
+	{
+	public:
+		static auto IsValidExtent(uint64 Width, uint64 Height) -> bool
+		{ return Width && Height && Width <= 8192 && Height <= 8192 && Width * Height <= 8ull * 1024 * 1024; }
+		static auto Create(uint32 Width, uint32 Height, FByteBuffer Pixels) -> std::shared_ptr<const FHitProxyMap>
+		{
+			if (!IsValidExtent(Width, Height) || Pixels.size() != uint64(Width) * Height * sizeof(FHitProxyPixel)) return {};
+			return std::shared_ptr<const FHitProxyMap>(new FHitProxyMap(Width, Height, std::move(Pixels)));
+		}
+		auto ReadPixel(uint32 X, uint32 Y, FHitProxyPixel& Out) const -> bool
+		{
+			if (X >= Width || Y >= Height) return false;
+			std::memcpy(&Out, Pixels.data() + (uint64(Y) * Width + X) * sizeof(FHitProxyPixel), sizeof(FHitProxyPixel));
+			return true;
+		}
+	private:
+		FHitProxyMap(uint32 InWidth, uint32 InHeight, FByteBuffer InPixels)
+			: Width(InWidth), Height(InHeight), Pixels(std::move(InPixels)) {}
+		const uint32 Width, Height;
+		const FByteBuffer Pixels;
+	};
+
+	struct FHitProxyMapCacheStatistics
+	{
+		uint64 RenderCount = 0;
+		uint64 ReuseCount = 0;
+	};
+
+	// Entries are owned by the render thread; statistics may be sampled from any thread.
+	class FHitProxyMapCache final
+	{
+	public:
+		auto Find_RenderThread(const FXxHash128& Key) -> std::shared_ptr<const FHitProxyMap>
+		{
+			if (!Entry || Entry->Key != Key) return {};
+			++ReuseCount;
+			return Entry->Map;
+		}
+		auto Publish_RenderThread(FXxHash128 Key, std::shared_ptr<const FHitProxyMap> Map, bool bFrameDependent) -> void
+		{
+			check(Map);
+			Entry = FEntry{Key, std::move(Map), bFrameDependent};
+			++RenderCount;
+		}
+		auto Invalidate_RenderThread() -> void { Entry.reset(); }
+		auto IsFrameDependent_RenderThread() const -> bool { return Entry && Entry->bFrameDependent; }
+		auto GetStatistics() const -> FHitProxyMapCacheStatistics
+		{ return {RenderCount.load(), ReuseCount.load()}; }
+	private:
+		struct FEntry
+		{
+			FXxHash128 Key;
+			std::shared_ptr<const FHitProxyMap> Map;
+			bool bFrameDependent = false;
+		};
+		std::optional<FEntry> Entry;
+		std::atomic<uint64> RenderCount = 0;
+		std::atomic<uint64> ReuseCount = 0;
+	};
+
+	// GPU input for a synchronous full-map query. IDs resolve through the caller's weak identity table.
 	struct FHitProxyRenderRequest
 	{
 		FSceneView View;
 		std::vector<FHitProxyPrimitive> Primitives;
 		std::vector<FHitProxyOverlay> Overlays;
 		bool bSceneGeometry = true;
-		std::shared_ptr<FRHITextureReadback> Readback;
+		std::shared_ptr<FHitProxyMapCache> Cache;
 	};
 }

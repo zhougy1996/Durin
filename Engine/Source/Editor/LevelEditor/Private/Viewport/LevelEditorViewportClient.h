@@ -89,11 +89,8 @@ namespace Durin::Editor::Level
 		auto IsFlyNavigating() const -> bool { return bFlyNavigation; }
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel; }
 		auto BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool;
-		auto SubmitViewportPick(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition,
-			EViewportPickLayer Layers = EViewportPickLayer::SceneGeometry | EViewportPickLayer::EditorVisualization) -> FViewportPickSubmission;
-		auto PollViewportPick(FViewportPickTicket Ticket) -> FViewportPickCompletion;
-		auto CancelViewportPick(FViewportPickTicket Ticket) -> void;
-		auto ReleaseViewportPick(FViewportPickTicket Ticket) -> void;
+		auto PickViewport(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition,
+			EViewportPickLayer Layers = EViewportPickLayer::SceneGeometry | EViewportPickLayer::EditorVisualization) -> FViewportPickResult;
 		auto SetPickingBackendForTesting(std::unique_ptr<IViewportPickingBackend> Backend) -> void;
 		auto UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void;
 		auto UpdateHoveredVisualizationWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) -> void;

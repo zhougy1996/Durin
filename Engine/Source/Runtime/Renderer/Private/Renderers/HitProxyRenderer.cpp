@@ -3,12 +3,55 @@
 #include "Renderers/MaterialBindingResolution.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Logging/Logger.h"
+#include "Materials/MaterialRenderProxy.h"
+#include "Scene.h"
+#include "CoreGlobals.h"
 
 namespace Durin
 {
 	using namespace RendererPrivate;
 	namespace
 	{
+		auto MakeHitProxyMapKey(FScene* Scene, const FHitProxyRenderRequest& Request, const FRenderResourceGeneration& RendererGeneration,
+			bool bFrameDependent) -> FXxHash128
+		{
+			FXxHash128Builder Hash;
+			const auto Add = [&]<typename T>(const T& Value) { Hash.UpdateValue(Value); };
+			const auto Matrix = [&](const FMatrix& Value) {
+				for (uint32 Column = 0; Column < 4; ++Column)
+					for (uint32 Row = 0; Row < 4; ++Row) Add(Value[Column][Row]);
+			};
+			Add(reinterpret_cast<uintptr_t>(Scene));
+			Add(Scene ? Scene->GetHitProxyRevision_RenderThread() : 0);
+			Add(GetMaterialRenderProxyPublicationRevision());
+			Add(FRHITextureReference::GetPublicationRevision());
+			Add(RendererGeneration.Shader); Add(RendererGeneration.Device); Add(RendererGeneration.Manual);
+			Add(bFrameDependent);
+			if (bFrameDependent) Add(GRenderFrameCounterRenderThread);
+			const auto& View = Request.View;
+			Matrix(View.ViewMatrix); Matrix(View.ProjectionMatrix); Matrix(View.ViewProjectionMatrix);
+			Add(View.ViewLocation.x); Add(View.ViewLocation.y); Add(View.ViewLocation.z);
+			Add(View.ViewportX); Add(View.ViewportY); Add(View.ViewportWidth); Add(View.ViewportHeight);
+			Add(View.MaterialTimeSeconds); Add(View.DepthConvention);
+			Add(View.AspectRatioConstraint); Add(View.bDiscardHistory);
+			Add(View.NearClipDistance); Add(View.FarClipDistance); Add(View.ViewFadeStart); Add(View.ViewRenderDistance);
+			Add(View.Settings.Mode.VisibilityMode); Add(View.Settings.Mode.LODMode);
+			Add(View.Settings.Mode.TranslucentSortPolicy);
+			Add(Request.bSceneGeometry); Add(Request.Primitives.size());
+			for (const auto& Primitive : Request.Primitives) { Add(Primitive.PrimitiveId); Add(Primitive.Id.Value); }
+			Add(Request.Overlays.size());
+			for (const auto& Overlay : Request.Overlays)
+			{
+				Add(Overlay.Id.Value); Add(Overlay.Priority); Add(Overlay.bForeground);
+				for (const auto& Vertex : Overlay.Vertices)
+				{
+					for (uint32 Axis = 0; Axis < 4; ++Axis) Add(Vertex.ClipPosition[Axis]);
+					Add(Vertex.Distance);
+				}
+			}
+			return Hash.Finalize();
+		}
+
 		class FHitProxyFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
@@ -55,7 +98,7 @@ namespace Durin
 		auto MakeHitProxyLayout() -> FRHIRenderTargetLayout
 		{
 			auto Layout = RenderTargetLayouts::MakeSceneTargets();
-			Layout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RG32_UINT;
+			Layout.ColorAttachments[0].RenderTarget.Format = FHitProxyPixel::Format;
 			return Layout;
 		}
 
@@ -76,29 +119,31 @@ namespace Durin
 	}
 
 	auto FSceneRenderingService::RenderHitProxies_RenderThread(FRHICommandListImmediate& Commands,
-		FScene* Scene, const FHitProxyRenderRequest& Request) -> void
+		FScene* Scene, const FHitProxyRenderRequest& Request) -> std::shared_ptr<const FHitProxyMap>
 	{
 		check(IsInRenderingThread());
-		if (!Request.Readback || Request.Readback->GetState() != ERHITextureReadbackState::Pending) return;
-		const auto Fail = [&] { Request.Readback->Fail(); };
 		const auto& View = Request.View;
 		const uint64 Width = uint64(View.ViewportX) + View.ViewportWidth;
 		const uint64 Height = uint64(View.ViewportY) + View.ViewportHeight;
-		if ((Request.bSceneGeometry && !Scene) || !View.ViewportWidth || !View.ViewportHeight || Width > 8192 || Height > 8192
-			|| Width * Height > 8ull * 1024 * 1024 || Commands.IsInsideRenderPass()) { Fail(); return; }
+		if ((Request.bSceneGeometry && !Scene) || !View.ViewportWidth || !View.ViewportHeight || !FHitProxyMap::IsValidExtent(Width, Height) || Commands.IsInsideRenderPass()) { return {}; }
+		const auto CacheKey = MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(),
+			Request.Cache && Request.Cache->IsFrameDependent_RenderThread());
+		if (!View.bDiscardHistory && Request.Cache)
+			if (auto Map = Request.Cache->Find_RenderThread(CacheKey)) return Map;
 		FViewRenderTelemetry Telemetry;
 		FSceneVisibilityResult Visibility;
 		if (Request.bSceneGeometry) PrepareSceneVisibility(*Scene, View, Telemetry, Visibility);
 		const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Visibility.SceneInfos, View, ERasterMode::Solid);
-		if (Prepared.bResourceFailure) { Fail(); return; }
+		if (Prepared.bResourceFailure) { return {}; }
 		std::unordered_map<uint64, uint32> Ids;
 		for (const auto& Entry : Request.Primitives)
 		{
-			if (!Entry.Id || !Entry.PrimitiveId || !Ids.emplace(Entry.PrimitiveId, Entry.Id.Value).second) { Fail(); return; }
+			if (!Entry.Id || !Entry.PrimitiveId || !Ids.emplace(Entry.PrimitiveId, Entry.Id.Value).second) { return {}; }
 		}
 		const auto ViewUniform = PrepareMeshViewUniform(Commands, View, false);
 		std::vector<FHitProxyDraw> Draws;
 		bool bReady = true;
+		bool bFrameDependent = false;
 		ForEachBasePassBucket(Prepared, [&](const auto& Bucket, EMeshBasePass) {
 			for (const auto& Draw : Bucket)
 			{
@@ -110,12 +155,19 @@ namespace Durin
 				FMaterialRenderBinding Binding;
 				if (!Item.Primitive || !Factory || !Factory->GetShaderType(MaterialMeshPassForward)
 					|| !ResolvePreparedMaterialBinding(Draw.Command->Material, Binding, "HitProxyMaterial")) { bReady = false; break; }
+				// Until time dependence is a separate material requirement, conservatively
+				// expire all live view-dependent programs once per render frame.
+				const auto Program = Draw.Command->Material.CompiledProgram;
+				bFrameDependent |= View.MaterialTimeSeconds < 0.0 && Program && Program->GetArtifact().Requirements.bMaterialView;
+				for (const auto& Texture : Binding.CompiledTextures)
+					if (Texture && Texture->GetReferencedTexture_RenderThread())
+						bFrameDependent |= EnumHasAnyFlags(Texture->GetReferencedTexture_RenderThread()->GetFlags(), ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::Storage);
 				FShaderCompileOptions Options;
 				const auto& Identity = Draw.Command->Material.PlanningPassIdentity.ShaderMap;
 				const auto ShaderCompletion = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward), FHitProxyFragmentShader::StaticType(),
 					Factory->GetType(), MaterialMeshPassForward, Identity, Coordinator.GetGeneration_RenderThread(),
 					Draw.Command->Material.CompiledProgram.get(), Options, Item.ShaderMap);
-				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { Request.Readback->Cancel(); bReady = false; break; }
+				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { bReady = false; break; }
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", ShaderCompletion.Diagnostic); bReady = false; break; }
 				Item.Vertex = Factory->Resolve(Item.ShaderMap, MaterialMeshPassForward);
 				Item.Fragment = TMaterialShaderRef<FHitProxyFragmentShader>(Item.ShaderMap);
@@ -168,8 +220,8 @@ namespace Durin
 				Draws.push_back(std::move(Item));
 			}
 		});
-		if (!bReady) { Fail(); return; }
-		if (Request.Overlays.size() > 65536) { Fail(); return; }
+		if (!bReady) { return {}; }
+		if (Request.Overlays.size() > 65536) { return {}; }
 		FGlobalShaderSetRef OverlayShaders;
 		TShaderMapRef<FHitProxyOverlayFragmentShader> OverlayFragment;
 		FBufferRHIRef OverlayBuffer;
@@ -180,8 +232,8 @@ namespace Durin
 		{
 			const std::array<const FGlobalShaderType*, 2> Types{&FHitProxyOverlayVertexShader::StaticType(), &FHitProxyOverlayFragmentShader::StaticType()};
 			const auto ShaderCompletion = GetGlobalShaderMap().ResolveShaderSet("HitProxy.Overlay", Types, true, ReportRendererResourceCreateDiagnostic);
-			if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { Request.Readback->Cancel(); return; }
-			if (!ShaderCompletion) { Fail(); return; }
+			if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { return {}; }
+			if (!ShaderCompletion) { return {}; }
 			OverlayShaders = *ShaderCompletion;
 			TShaderMapRef<FHitProxyOverlayVertexShader> Vertex(OverlayShaders);
 			OverlayFragment = TShaderMapRef<FHitProxyOverlayFragmentShader>(OverlayShaders);
@@ -189,7 +241,7 @@ namespace Durin
 			Elements[0] = FVertexElement(0, 0, EVertexElementType::Float4, 0, sizeof(FHitProxyOverlayVertex));
 			Elements[1] = FVertexElement(0, 16, EVertexElementType::Float1, 1, sizeof(FHitProxyOverlayVertex));
 			const auto Declaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
-			if (!Declaration) { Fail(); return; }
+			if (!Declaration) { return {}; }
 			for (uint32 Foreground = 0; Foreground < 2; ++Foreground)
 			{
 				FGraphicsPipelineStateInitializer Pipeline;
@@ -203,15 +255,15 @@ namespace Durin
 				Pipeline.DepthStencilState.CompareOp = View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual;
 				Pipeline.PipelineLayout = OverlayShaders.GetPipelineLayout();
 				OverlayPipelines[Foreground] = FRenderPipelineRequestScope::Graphics("HitProxyOverlay", Pipeline);
-				if (!OverlayPipelines[Foreground]) { Fail(); return; }
+				if (!OverlayPipelines[Foreground]) { return {}; }
 			}
 			std::vector<FHitProxyOverlayVertex> Vertices;
 			Vertices.reserve(Request.Overlays.size() * 6);
 			for (const auto& Overlay : Request.Overlays)
 			{
-				if (!Overlay.Id) { Fail(); return; }
+				if (!Overlay.Id) { return {}; }
 				for (const auto& Vertex : Overlay.Vertices)
-					if (!Math::IsFinite(Vertex.ClipPosition) || !std::isfinite(Vertex.Distance) || Vertex.Distance < 0.f) { Fail(); return; }
+					if (!Math::IsFinite(Vertex.ClipPosition) || !std::isfinite(Vertex.Distance) || Vertex.Distance < 0.f) { return {}; }
 				Vertices.insert(Vertices.end(), Overlay.Vertices.begin(), Overlay.Vertices.end());
 				const std::array<uint32, 4> Id{Overlay.Id.Value, 0, 0, 0};
 				OverlayIds.push_back(Commands.CreateUniformBufferRange(Id.data(), sizeof(Id)));
@@ -224,17 +276,17 @@ namespace Durin
 			auto BufferDesc = FRHIBufferCreateDesc::CreateVertex("HitProxyOverlays", Bytes);
 			BufferDesc.Usage |= EBufferUsageFlags::DestinationCopy;
 			OverlayBuffer = GDynamicRHI->RHICreateBuffer(Commands, BufferDesc);
-			if (!OverlayBuffer) { Fail(); return; }
+			if (!OverlayBuffer) { return {}; }
 			Commands.WriteBuffer(OverlayBuffer, Vertices.data(), Bytes, 0);
 			const std::array BufferTransitions{FRHIBufferTransition{
 				OverlayBuffer, 0, Bytes, ERHIAccess::TransferWrite, ERHIAccess::VertexBufferRead}};
 			Commands.TransitionBuffers(BufferTransitions);
 		}
-		const auto Color = RHICreateTexture(FRHITextureCreateDesc::Create2D("HitProxyIds", uint32(Width), uint32(Height), EPixelFormat::RG32_UINT)
+		const auto Color = RHICreateTexture(FRHITextureCreateDesc::Create2D("HitProxyIds", uint32(Width), uint32(Height), FHitProxyPixel::Format)
 			.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
 		const auto Depth = RHICreateTexture(FRHITextureCreateDesc::Create2D("HitProxyDepth", uint32(Width), uint32(Height), EPixelFormat::D32)
 			.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
-		if (!Color || !Depth) { Fail(); return; }
+		if (!Color || !Depth) { return {}; }
 		FRHIRenderPassInfo Pass;
 		Pass.RenderTargetLayout = MakeHitProxyLayout();
 		Pass.ColorRenderTargets[0] = Color;
@@ -269,7 +321,13 @@ namespace Durin
 			}
 		}
 		Commands.EndRenderPass();
-		if (!bReady) { Fail(); return; }
-		Commands.EnqueueTextureReadback(Color, 0, 0, Request.Readback);
+		if (!bReady) { return {}; }
+		FByteBuffer Pixels;
+		if (!Commands.ReadTexture2D(Color, 0, 0, Pixels)) return {};
+		const auto Map = FHitProxyMap::Create(uint32(Width), uint32(Height), std::move(Pixels));
+		if (!Map) return {};
+		if (Request.Cache)
+			Request.Cache->Publish_RenderThread(MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(), bFrameDependent), Map, bFrameDependent);
+		return Map;
 	}
 }

@@ -13,21 +13,9 @@ namespace Durin::Editor::Level
 		class FSelectViewportEditMode final : public ILevelViewportEditMode
 		{
 		public:
-			auto Exit(FLevelEditorContext&, bool) -> void override
-			{
-				if (LastClient && PendingTicket)
-				{
-					LastClient->CancelViewportPick(PendingTicket);
-					LastClient->ReleaseViewportPick(PendingTicket);
-				}
-				PendingTicket = {};
-				LastClient = nullptr;
-			}
-
 			auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
 				FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool override
 			{
-				LastClient = &Client;
 				if (!Context.bReadOnly && Context.Level && !Context.GetSelectedActors().empty() && (Input.bDuplicate || Input.bDelete))
 				{
 					std::vector<AActor*> Actors;
@@ -49,30 +37,11 @@ namespace Durin::Editor::Level
 				Client.GetTransformGizmo().Update(Targets, View, Input, Transactions);
 				if (Client.GetTransformGizmo().IsHovered() || Client.GetTransformGizmo().IsDragging())
 				{
-					if (Input.bRequestSelection) CancelPending(Client);
 					return true;
 				}
-				if (Input.bRequestSelection)
-				{
-					CancelPending(Client);
-					const FViewportPickSubmission Submission = Client.SubmitViewportPick(Context.Level, View, Input.MousePosition);
-					if (Submission.Completion.Status == EViewportPickStatus::Pending)
-					{
-						PendingTicket = Submission.Ticket;
-						bPendingCtrl = Input.bCtrl;
-						return true;
-					}
-					ApplyCompletion(Context, Submission.Completion, Input.bCtrl);
-					Client.ReleaseViewportPick(Submission.Ticket);
-					return true;
-				}
-				if (!PendingTicket) return false;
-				const FViewportPickCompletion Completion = Client.PollViewportPick(PendingTicket);
-				if (Completion.Status == EViewportPickStatus::Pending) return false;
-				const bool bApplied = ApplyCompletion(Context, Completion, bPendingCtrl);
-				Client.ReleaseViewportPick(PendingTicket);
-				PendingTicket = {};
-				return bApplied;
+				if (!Input.bRequestSelection) return false;
+				ApplyResult(Context, Client.PickViewport(Context.Level, View, Input.MousePosition), Input.bCtrl);
+				return true;
 			}
 
 			auto GetGizmoTargets(const FLevelEditorContext& Context) const -> FTransformGizmoTargetSet override
@@ -81,40 +50,29 @@ namespace Durin::Editor::Level
 			}
 
 		private:
-			auto CancelPending(FLevelEditorViewportClient& Client) -> void
+			static auto ApplyResult(FLevelEditorContext& Context, const FViewportPickResult& Result, bool bCtrl) -> bool
 			{
-				if (!PendingTicket) return;
-				Client.CancelViewportPick(PendingTicket);
-				Client.ReleaseViewportPick(PendingTicket);
-				PendingTicket = {};
-			}
-
-			static auto ApplyCompletion(FLevelEditorContext& Context, const FViewportPickCompletion& Completion, bool bCtrl) -> bool
-			{
-				if (Completion.Status != EViewportPickStatus::Completed) return false;
-				if (!Completion.Hit)
+				if (Result.Status != EViewportPickStatus::Completed) return false;
+				if (!Result.Hit)
 				{
 					Context.ClearSelection();
 					return true;
 				}
-				AActor* Actor = Completion.Hit->Actor.Get();
-				DActorComponent* Component = Completion.Hit->Component.Get();
+				AActor* Actor = Result.Hit->Actor.Get();
+				DActorComponent* Component = Result.Hit->Component.Get();
 				if (!Actor || !Component) return false;
-				if (Completion.Hit->Kind == EViewportPickHitKind::SceneGeometry)
+				if (Result.Hit->Kind == EViewportPickHitKind::SceneGeometry)
 				{
 					if (bCtrl) Context.ToggleActorSelection(Actor);
 					else Context.SelectActor(Actor);
 					return true;
 				}
 				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
-				if (Completion.Hit->Element.IsValid()) Context.SelectSubElement(Component, Completion.Hit->Element);
+				if (Result.Hit->Element.IsValid()) Context.SelectSubElement(Component, Result.Hit->Element);
 				else Context.SelectComponent(Component);
 				return true;
 			}
 
-			FLevelEditorViewportClient* LastClient = nullptr;
-			FViewportPickTicket PendingTicket;
-			bool bPendingCtrl = false;
 		};
 
 		auto EnsureSelectModeRegistered() -> void

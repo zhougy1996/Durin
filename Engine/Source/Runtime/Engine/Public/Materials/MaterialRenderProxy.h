@@ -70,6 +70,9 @@ namespace Durin
 		uint64 IndexedParameterWriteCount = 0;
 	};
 
+	// Monotonic accepted-publication epoch; independent of resettable diagnostics.
+	ENGINE_API auto GetMaterialRenderProxyPublicationRevision() -> uint64;
+
 	ENGINE_API auto GetMaterialRenderProxyCounters()
 		-> FMaterialRenderProxyCounters;
 	// Reset only on GameThread after relevant publication commands are drained.

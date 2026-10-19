@@ -244,10 +244,10 @@ namespace Durin
 	}
 
 	auto FRendererModule::RenderHitProxies(FRHICommandListImmediate& Commands,
-		FSceneInterface* Scene, const FHitProxyRenderRequest& Request) -> void
+		FSceneInterface* Scene, const FHitProxyRenderRequest& Request) -> std::shared_ptr<const FHitProxyMap>
 	{
-		if (!RenderingService || (Request.bSceneGeometry && !Scene)) { if (Request.Readback) Request.Readback->Fail(); return; }
-		RenderingService->RenderHitProxies_RenderThread(Commands, static_cast<FScene*>(Scene), Request);
+		if (!RenderingService || (Request.bSceneGeometry && !Scene)) return {};
+		return RenderingService->RenderHitProxies_RenderThread(Commands, static_cast<FScene*>(Scene), Request);
 	}
 
 	auto FRendererModule::PrepareViewResources(

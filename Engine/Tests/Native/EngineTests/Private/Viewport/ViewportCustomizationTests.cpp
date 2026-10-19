@@ -911,8 +911,8 @@ TEST(FLevelEditorViewportClientTests, ReusesOneVisualizationSnapshotAcrossInputA
 	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, InteractionView));
 	Client.UpdateHoveredVisualizationWithView(Level, InteractionView, {400.0f, 300.0f});
 	Client.SetPickingBackendForTesting(std::make_unique<FCaptureHitProxyBackend>());
-	const Durin::Editor::Level::FViewportPickSubmission Pick = Client.SubmitViewportPick(Level, InteractionView, {400.0f, 300.0f});
-	ASSERT_EQ(Pick.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Pending);
+	const Durin::Editor::Level::FViewportPickResult Pick = Client.PickViewport(Level, InteractionView, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	EXPECT_EQ(DrawCount, 1);
 
 	Client.PrepareSceneView(Level, 800, 600);

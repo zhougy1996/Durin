@@ -69,16 +69,15 @@ the generated segment set is reconciled synchronously from stable point GUIDs.
 ## Semantic Picking Contract
 
 Each `FLevelEditorViewportClient` owns one `FViewportPickingService`. A mode
-submits an immutable `FViewportPickRequest` in the prepared `FSceneView` output
-pixel rectangle and receives a non-zero per-viewport ticket plus an immediate
-or pending completion. Empty space is `Completed` with no hit; invalid input,
-cancellation, stale ownership, and backend failure remain distinct statuses.
-Modes poll rather than receiving callbacks, so a mode can cancel its ticket on
-exit without leaving a callback into a retired instance.
+calls `PickViewport` with an immutable `FViewportPickRequest` in the prepared
+`FSceneView` output pixel rectangle and consumes the result in that input event.
+Empty space is `Completed` with no hit; invalid input or ownership is `Invalid`,
+and rendering failure is `Failed`. There are no pending tickets, polling,
+cancellation, callbacks, or deferred selection state.
 
 The public result is semantic and backend-independent. It retains hit kind,
 weak Actor and exact component identity, optional typed sub-element,
-non-negative world distance, semantic priority/depth policy, stable tie key,
+non-negative world distance,
 and `FPrimitiveComponentId` for scene primitives. Ordinary geometry clicks still
 select the Actor; visualization clicks select their exact component or
 sub-element. `FLevelEditorContext`, not the service or backend, performs those
@@ -88,11 +87,13 @@ The service captures a request-local table mapping nonzero `FHitProxyId` values
 to weak Actor/component identity, registration generation, and optional typed
 sub-element. Zero identifies background. The Renderer receives only numeric
 primitive IDs, view values, and detached overlay geometry; reflected objects
-remain on the game thread. Completion verifies viewport/Level generation,
-weak identity, ownership, registration cycle, visibility, and primitive identity.
-World or Level replacement, client reset/destruction, mode exit, cancellation,
-and a newer click retire old work. Camera movement alone does not reinterpret
-the clicked view.
+remain on the game thread. The immediate result verifies weak identity,
+ownership, registration cycle, visibility, and primitive identity before a mode
+applies selection. The identity table is local to the call. The backend accepts
+only a render-scene pointer and numeric `FHitProxyRenderRequest` values, returning
+the complete immutable CPU map. Pixel sampling, ID/distance decoding, and weak
+identity resolution belong to the picking service; no weak identity table or
+mouse position crosses the backend boundary.
 
 `IRendererModule::RenderHitProxies` renders an on-demand integer ID/depth pass
 using the renderer's current scene visibility, selected LOD, mesh vertex
@@ -106,12 +107,33 @@ Terrain or SkeletalMesh requires their renderer mesh-batch/vertex-factory path;
 the Hit Proxy framework does not restore removed geometry modules. Unsupported
 renderer resources fail the request explicitly.
 
-The `RG32_UINT` target stores ID and bit-preserved world distance. Forward and
-reversed depth conventions are supported. Readback uses the existing asynchronous
-RHI staging path; clicks never wait for GPU completion. The current implementation
-copies the complete target (at most 8,388,608 pixels / 64 MiB, dimensions no larger
-than 8192) and decodes the clicked pixel. Requests exceeding the limit fail.
-Region-only copies and persistent hit-buffer caching are not implemented.
+`FHitProxyPixel` defines the `RG32_UINT` ID/distance layout shared by CPU sampling
+and renderer target creation. The second integer word preserves the IEEE 754
+float distance bits; callers consume typed ID and distance fields. `FHitProxyMap`
+can only be created through its validating factory, which checks nonzero extent,
+dimension/pixel limits, and exact byte count before exposing immutable pixels.
+Pixel reads only check coordinates. Invalid readback payloads never enter the
+cache. Overlay priority and foreground policy remain render inputs rather than
+returned hit metadata. Forward and
+reversed depth conventions are supported. The viewport submits an ordered
+render command and flushes it before returning. On a cache miss,
+`ReadTexture2D` synchronously copies the complete target and waits for that copy's
+GPU completion. The limit is 8,388,608 pixels / 64 MiB, with dimensions no larger
+than 8192; requests exceeding it fail.
+Each viewport backend retains one full-map cache. Ordered render-thread lookup
+checks view/projection and pixel extent, scene publication revision, accepted
+material and texture-reference publication epochs, renderer generation, numeric
+ID mapping, and overlay geometry/priority. A valid map shares an immutable CPU
+pixel allocation; another query does not render or read back that map again.
+Only successful reads enter the cache, and failed requests can be retried.
+Scene changes retire the reusable map without altering previously returned CPU
+snapshots. Cache lookup, publication, and invalidation are render-thread operations;
+the key, map, and frame-dependence policy form one private entry. Statistics are
+read-only snapshots and remain cumulative across invalidation. Viewport reset or
+Level replacement invalidates the entry before the next map lookup. Live
+view-dependent material programs conservatively expire each render frame unless
+material time is frozen; render-target texture inputs expire each frame.
+Region-only copies and box-selection UI are not implemented.
 
 Visualization lines become screen-expanded quads, and icons/boxes include their
 pixel hit padding. World overlays depth-test against scene geometry. Foreground

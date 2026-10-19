@@ -79,6 +79,8 @@ namespace Durin
 		) const -> bool;
 		RENDERER_API auto GetVolumetricCloudCount_RenderThread() const -> size_t;
 
+		auto GetHitProxyRevision_RenderThread() const -> uint64 { return HitProxyRevision; }
+
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
 		RENDERER_API auto GetDirectionalLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
@@ -91,6 +93,7 @@ namespace Durin
 	private:
 		RENDERER_API explicit FScene(FSceneRenderingService* InRenderer = nullptr);
 		FSceneRenderingService* Renderer = nullptr;
+		uint64 HitProxyRevision = 1;
 		RENDERER_API ~FScene() override;
 
 		enum class ELifecycleState : uint8

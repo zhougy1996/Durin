@@ -24,9 +24,9 @@ namespace Durin::Editor::Level
 				if (!Actor || !Component || !Component->IsRegistered() || Actor->IsHidden()) return;
 				if (Overlays.size() >= 65536) { bOverflow = true; return; }
 				const uint32 Token = uint32(Targets.size() + 1);
-				Targets.push_back({Token, FPrimitiveComponentId{}, Actor, Component, TWeakObjectPtr<DActorComponent>(Component).GetKey().GetHash(),
+				Targets.push_back({Token, FPrimitiveComponentId{}, Actor, Component,
 					Component->GetRegistrationGeneration(), EViewportPickHitKind::EditorVisualization,
-					Source.Element, bForeground, Source.HitPriority});
+					Source.Element});
 				FHitProxyOverlay Overlay;
 				Overlay.Id = FHitProxyId{Token};
 				Overlay.bForeground = bForeground;
@@ -86,112 +86,56 @@ namespace Durin::Editor::Level
 		class FHitProxyPickingBackend final : public IViewportPickingBackend
 		{
 		public:
-			auto Submit(FViewportPickingBackendRequest Request) -> FViewportPickingBackendCompletion override
+			auto GetHitProxyMap(FSceneInterface* Scene, FHitProxyRenderRequest Request) -> std::shared_ptr<const FHitProxyMap> override
 			{
 				auto* Renderer = GEngine ? GEngine->GetRendererModule() : nullptr;
-				if (!Renderer || (Request.bSceneGeometry && !Request.Scene)) return {EViewportPickStatus::Failed};
-				FHitProxyRenderRequest Render;
-				Render.View = Request.View;
-				Render.Overlays = std::move(Request.Overlays);
-				Render.bSceneGeometry = Request.bSceneGeometry;
-				Render.Readback = std::make_shared<FRHITextureReadback>();
-				for (const auto& Target : Request.Targets)
-					if (Target.Kind == EViewportPickHitKind::SceneGeometry) Render.Primitives.push_back({Target.PrimitiveId.Value, FHitProxyId{Target.Token}});
-				Pending.emplace(Request.Ticket.Id, FPending{Render.Readback,
-					Request.View.ViewportX + Request.View.ViewportWidth,
-					Request.View.ViewportY + Request.View.ViewportHeight,
-					uint32(Request.Position.x), uint32(Request.Position.y)});
-				ENQUEUE_RENDER_COMMAND(RenderViewportHitProxies)([Renderer, Scene = Request.Scene, Render = std::move(Render)](FRHICommandListImmediate& Commands) {
-					Renderer->RenderHitProxies(Commands, Scene, Render);
+				if (!Renderer || (Request.bSceneGeometry && !Scene)) return {};
+				Request.Cache = Cache;
+				const bool bInvalidate = std::exchange(bInvalidateCache, false);
+				std::shared_ptr<const FHitProxyMap> Map;
+				ENQUEUE_RENDER_COMMAND(ReadViewportHitProxies)([Renderer, Scene, Request = std::move(Request), bInvalidate, &Map](FRHICommandListImmediate& Commands) {
+					if (bInvalidate) Request.Cache->Invalidate_RenderThread();
+					Map = Renderer->RenderHitProxies(Commands, Scene, Request);
 				});
-				return {EViewportPickStatus::Pending};
+				FlushRenderingCommands();
+				return Map;
 			}
-			auto Poll(FViewportPickTicket Ticket) -> FViewportPickingBackendCompletion override
-			{
-				const auto It = Pending.find(Ticket.Id);
-				if (It == Pending.end()) return {EViewportPickStatus::Invalid};
-				const auto& Entry = It->second;
-				const auto State = Entry.Readback->GetState();
-				if (State == ERHITextureReadbackState::Pending) return {EViewportPickStatus::Pending};
-				FViewportPickingBackendCompletion Result{EViewportPickStatus::Failed};
-				FByteBuffer Pixels;
-				if (Entry.Readback->TakePixels(Pixels) && Entry.X < Entry.Width && Entry.Y < Entry.Height
-					&& Pixels.size() == uint64(Entry.Width) * Entry.Height * 8)
-				{
-					std::array<uint32, 2> Pixel;
-					std::memcpy(Pixel.data(), Pixels.data() + (uint64(Entry.Y) * Entry.Width + Entry.X) * 8, sizeof(Pixel));
-					Result.Status = EViewportPickStatus::Completed;
-					if (Pixel[0]) Result.Hit = FViewportPickingBackendHit{Pixel[0], double(std::bit_cast<float>(Pixel[1])), 0};
-				}
-				Pending.erase(It);
-				return Result;
-			}
-			auto Cancel(FViewportPickTicket Ticket) -> void override
-			{
-				if (const auto It = Pending.find(Ticket.Id); It != Pending.end())
-				{ It->second.Readback->Cancel(); Pending.erase(It); }
-			}
+			auto Invalidate() -> void override { bInvalidateCache = true; }
 		private:
-			struct FPending
-			{
-				std::shared_ptr<FRHITextureReadback> Readback;
-				uint32 Width, Height, X, Y;
-			};
-			std::unordered_map<uint64, FPending> Pending;
+			std::shared_ptr<FHitProxyMapCache> Cache = std::make_shared<FHitProxyMapCache>();
+			bool bInvalidateCache = false;
 		};
 	}
 
 	auto MakeHitProxyPickingBackend() -> std::unique_ptr<IViewportPickingBackend>
-	{
-		return std::make_unique<FHitProxyPickingBackend>();
-	}
+	{ return std::make_unique<FHitProxyPickingBackend>(); }
 
 	FViewportPickingService::FViewportPickingService()
-		: Backend(MakeHitProxyPickingBackend())
-	{
-	}
+		: Backend(MakeHitProxyPickingBackend()) {}
 
 	FViewportPickingService::FViewportPickingService(std::unique_ptr<IViewportPickingBackend> InBackend)
-		: Backend(InBackend ? std::move(InBackend)
-			: MakeHitProxyPickingBackend())
-	{
-	}
-
-	FViewportPickingService::~FViewportPickingService()
-	{
-		Invalidate();
-	}
+		: Backend(InBackend ? std::move(InBackend) : MakeHitProxyPickingBackend()) {}
 
 	auto FViewportPickingService::SetLevel(DLevel* Level) -> void
 	{
-		Invalidate();
+		Backend->Invalidate();
 		CurrentLevel = Level;
 	}
 
-	auto FViewportPickingService::Submit(FViewportPickRequest Request, const FEditorVisualizationCollector* Visualizations) -> FViewportPickSubmission
+	auto FViewportPickingService::Pick(const FViewportPickRequest& Request, const FEditorVisualizationCollector* Visualizations) -> FViewportPickResult
 	{
-		const FViewportPickTicket Ticket{NextTicketId++};
-		if (const auto It = PurposeTickets.find(Request.Purpose); It != PurposeTickets.end()) Cancel(It->second);
-		PurposeTickets[Request.Purpose] = Ticket;
-		if (!Ticket || !Request.Level.Get() || Request.Level.Get() != CurrentLevel.Get()
-			|| Request.Precision != EViewportPickPrecision::ActorComponentSurface)
-			return {Ticket, MakeTerminal(EViewportPickStatus::Invalid)};
-		FVector3 RayOrigin;
-		FVector3 RayDirection;
+		DLevel* Level = Request.Level.Get();
+		if (!Level || Level != CurrentLevel.Get()) return {EViewportPickStatus::Invalid};
+		FVector3 RayOrigin, RayDirection;
 		if (!SceneViewProjection::BuildViewportRay(Request.View, Request.ViewportPosition, RayOrigin, RayDirection)
-			|| !Math::IsFinite(RayOrigin) || !Math::IsFinite(RayDirection))
-			return {Ticket, MakeTerminal(EViewportPickStatus::Invalid)};
+			|| !Math::IsFinite(RayOrigin) || !Math::IsFinite(RayDirection)) return {EViewportPickStatus::Invalid};
 
-		Request.RequestId = Ticket.Id;
-		Request.ViewportGeneration = Generation;
-
-		FRequestRecord Record;
-		Record.Level = Request.Level;
-		Record.Generation = Generation;
-
+		FHitProxyRenderRequest Render;
+		Render.View = Request.View;
+		Render.bSceneGeometry = EnumHasAnyFlags(Request.Layers, EViewportPickLayer::SceneGeometry);
+		std::vector<FViewportPickingTarget> Targets;
 		if (EnumHasAnyFlags(Request.Layers, EViewportPickLayer::SceneGeometry))
 		{
-			DLevel* Level = Request.Level.Get();
 			for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
 			{
 				AActor* Actor = ActorPtr.Get();
@@ -202,128 +146,59 @@ namespace Durin::Editor::Level
 					if (!Component || !Component->IsRegistered() || !Component->IsVisible()) continue;
 					const FPrimitiveComponentId PrimitiveId = Component->GetPrimitiveComponentId();
 					if (PrimitiveId == InvalidPrimitiveComponentId) continue;
-					Record.Targets.push_back({static_cast<uint32>(Record.Targets.size() + 1), PrimitiveId,
-						Actor, Component, PrimitiveId.Value, Component->GetRegistrationGeneration()});
+					Targets.push_back({static_cast<uint32>(Targets.size() + 1), PrimitiveId,
+						Actor, Component, Component->GetRegistrationGeneration()});
 				}
 			}
 		}
-
 		std::vector<FHitProxyOverlay> Overlays;
 		if (Visualizations && EnumHasAnyFlags(Request.Layers, EViewportPickLayer::EditorVisualization)
-			&& !BuildHitProxyOverlays(*Visualizations, Request.View, Record.Targets, Overlays))
-			return {Ticket, MakeTerminal(EViewportPickStatus::Failed)};
-		FViewportPickingBackendCompletion BackendCompletion{EViewportPickStatus::Completed, std::nullopt};
-		if (EnumHasAnyFlags(Request.Layers, EViewportPickLayer::SceneGeometry) || !Overlays.empty())
-			BackendCompletion = Backend->Submit({Ticket, RayOrigin, RayDirection, Record.Targets, Request.View, Request.ViewportPosition,
-				Request.Level.Get()->GetWorld() ? Request.Level.Get()->GetWorld()->GetRenderScene() : nullptr,
-				std::move(Overlays), EnumHasAnyFlags(Request.Layers, EViewportPickLayer::SceneGeometry)});
-		FViewportPickCompletion Completion = Complete(Record, BackendCompletion);
-		if (Completion.Status != EViewportPickStatus::Pending) Record.Completion = Completion;
-		Requests.emplace(Ticket.Id, std::move(Record));
-		return {Ticket, Completion};
-	}
-
-	auto FViewportPickingService::Poll(FViewportPickTicket Ticket) -> FViewportPickCompletion
-	{
-		const auto It = Requests.find(Ticket.Id);
-		if (!Ticket || It == Requests.end()) return MakeTerminal(EViewportPickStatus::Invalid);
-		FRequestRecord& Record = It->second;
-		if (Record.Completion) return *Record.Completion;
-		if (Record.Generation != Generation || Record.Level.Get() != CurrentLevel.Get())
-		{
-			Record.Completion = MakeTerminal(EViewportPickStatus::Invalidated);
-			return *Record.Completion;
-		}
-		const FViewportPickingBackendCompletion BackendCompletion = Backend->Poll(Ticket);
-		FViewportPickCompletion Completion = Complete(Record, BackendCompletion);
-		if (Completion.Status != EViewportPickStatus::Pending) Record.Completion = Completion;
-		return Completion;
-	}
-
-	auto FViewportPickingService::Cancel(FViewportPickTicket Ticket) -> void
-	{
-		const auto It = Requests.find(Ticket.Id);
-		if (!Ticket || It == Requests.end()) return;
-		Backend->Cancel(Ticket);
-		It->second.Completion = MakeTerminal(EViewportPickStatus::Cancelled);
-	}
-
-	auto FViewportPickingService::Release(FViewportPickTicket Ticket) -> void
-	{
-		if (!Ticket) return;
-		for (auto It = PurposeTickets.begin(); It != PurposeTickets.end();)
-			if (It->second == Ticket) It = PurposeTickets.erase(It); else ++It;
-		Backend->Cancel(Ticket);
-		Requests.erase(Ticket.Id);
-	}
-
-	auto FViewportPickingService::Invalidate() -> void
-	{
-		for (auto& [Id, Record] : Requests)
-		{
-			Backend->Cancel({Id});
-			Record.Completion = MakeTerminal(EViewportPickStatus::Invalidated);
-		}
-		PurposeTickets.clear();
-		++Generation;
+			&& !BuildHitProxyOverlays(*Visualizations, Request.View, Targets, Overlays)) return {EViewportPickStatus::Failed};
+		if (!EnumHasAnyFlags(Request.Layers, EViewportPickLayer::SceneGeometry) && Overlays.empty()) return {EViewportPickStatus::Completed};
+		for (const auto& Target : Targets)
+			if (Target.Kind == EViewportPickHitKind::SceneGeometry) Render.Primitives.push_back({Target.PrimitiveId.Value, FHitProxyId{Target.Token}});
+		Render.Overlays = std::move(Overlays);
+		const auto Map = Backend->GetHitProxyMap(Level->GetWorld() ? Level->GetWorld()->GetRenderScene() : nullptr, std::move(Render));
+		FHitProxyPixel Pixel;
+		if (!Map || !Map->ReadPixel(uint32(Request.ViewportPosition.x), uint32(Request.ViewportPosition.y), Pixel)) return {EViewportPickStatus::Failed};
+		if (!Pixel.Id) return {EViewportPickStatus::Completed};
+		return Resolve(Level, Targets, Pixel.Id.Value, double(Pixel.Distance));
 	}
 
 	auto FViewportPickingService::SetBackendForTesting(std::unique_ptr<IViewportPickingBackend> InBackend) -> void
+	{ Backend = InBackend ? std::move(InBackend) : MakeHitProxyPickingBackend(); }
+
+	auto FViewportPickingService::Resolve(DLevel* Level, const std::vector<FViewportPickingTarget>& Targets,
+		uint32 Token, double Distance) const -> FViewportPickResult
 	{
-		Invalidate();
-		Backend = InBackend ? std::move(InBackend)
-			: MakeHitProxyPickingBackend();
+		const auto It = std::ranges::find(Targets, Token, &FViewportPickingTarget::Token);
+		if (It == Targets.end()) return {EViewportPickStatus::Failed};
+		FViewportPickHit Hit{
+			.Kind = It->Kind,
+			.PrimitiveId = It->PrimitiveId,
+			.Actor = It->Actor,
+			.Component = It->Component.Get(),
+			.Element = It->Element,
+			.Distance = Distance,
+		};
+		if (!std::isfinite(Hit.Distance) || Hit.Distance < 0.0) return {EViewportPickStatus::Failed};
+		if (!It->Component.Get() || It->Component.Get()->GetRegistrationGeneration() != It->RegistrationGeneration
+			|| !ValidateHit(Level, Hit)) return {EViewportPickStatus::Invalid};
+		return {EViewportPickStatus::Completed, Hit};
 	}
 
-	auto FViewportPickingService::Complete(FRequestRecord& Record,
-		const FViewportPickingBackendCompletion& BackendCompletion) const -> FViewportPickCompletion
+	auto FViewportPickingService::ValidateHit(DLevel* Level, const FViewportPickHit& Hit) const -> bool
 	{
-		if (BackendCompletion.Status == EViewportPickStatus::Pending) return MakeTerminal(EViewportPickStatus::Pending);
-		if (BackendCompletion.Status != EViewportPickStatus::Completed) return MakeTerminal(BackendCompletion.Status);
-		std::optional<FViewportPickHit> Winner;
-		if (BackendCompletion.Hit)
-		{
-			const auto It = std::ranges::find(Record.Targets, BackendCompletion.Hit->Token, &FViewportPickingTarget::Token);
-			if (It == Record.Targets.end()) return MakeTerminal(EViewportPickStatus::Failed);
-			FViewportPickHit Geometry{
-				.Kind = It->Kind,
-				.PrimitiveId = It->PrimitiveId,
-				.Actor = It->Actor,
-				.Component = It->Component.Get(),
-				.Element = It->Element,
-				.Distance = BackendCompletion.Hit->Distance,
-				.Priority = It->Priority,
-				.StableTieKey = It->StableTieKey,
-				.bDepthIndependent = It->bForeground,
-			};
-			if (!It->Component.Get() || It->Component.Get()->GetRegistrationGeneration() != It->RegistrationGeneration) return MakeTerminal(EViewportPickStatus::Invalidated);
-			if (!std::isfinite(Geometry.Distance) || Geometry.Distance < 0.0) return MakeTerminal(EViewportPickStatus::Failed);
-			Winner = Geometry;
-		}
-		if (Winner && !ValidateHit(Record, *Winner)) return MakeTerminal(EViewportPickStatus::Invalidated);
-		return {EViewportPickStatus::Completed, Winner};
-	}
-
-	auto FViewportPickingService::ValidateHit(const FRequestRecord& Record, const FViewportPickHit& Hit) const -> bool
-	{
-		DLevel* Level = Record.Level.Get();
 		AActor* Actor = Hit.Actor.Get();
 		DActorComponent* Component = Hit.Component.Get();
-		if (!Level || Level != CurrentLevel.Get() || Record.Generation != Generation || !Actor || !Component
+		if (!Level || Level != CurrentLevel.Get() || !Actor || !Component
 			|| Actor->IsHidden() || !Level->ContainsActor(Actor) || !Actor->OwnsComponent(Component)
 			|| Component->GetOwner() != Actor || !Component->IsRegistered() || Component->IsBeingDestroyed()) return false;
 		if (Hit.Kind == EViewportPickHitKind::SceneGeometry)
 		{
 			auto* Primitive = Cast<DPrimitiveComponent>(Component);
 			if (!Primitive || !Primitive->IsVisible() || Hit.PrimitiveId == InvalidPrimitiveComponentId || Primitive->GetPrimitiveComponentId() != Hit.PrimitiveId) return false;
-			const auto Target = std::ranges::find(Record.Targets, Hit.PrimitiveId, &FViewportPickingTarget::PrimitiveId);
-			if (Target == Record.Targets.end() || Primitive->GetRegistrationGeneration() != Target->RegistrationGeneration) return false;
 		}
 		return true;
-	}
-
-	auto FViewportPickingService::MakeTerminal(EViewportPickStatus Status) const -> FViewportPickCompletion
-	{
-		return {Status, std::nullopt};
 	}
 } // namespace Durin::Editor::Level

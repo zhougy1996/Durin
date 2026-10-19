@@ -31,7 +31,7 @@ namespace Durin
 	class IRendererModule : public IModuleInterface
 	{
 	public:
-		virtual auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest& Request) -> void { if (Request.Readback) Request.Readback->Fail(); }
+		virtual auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap> { return {}; }
 		virtual auto CreateScene() -> FScenePtr = 0;
 		// Starts CPU-only built-in shader work for the lit scene-thumbnail profile.
 		virtual auto PrepareSceneThumbnailShaders() -> FShaderMapPreparation { return {}; }

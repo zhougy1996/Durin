@@ -20,7 +20,7 @@ namespace Durin
 
 		RENDERER_API auto StartupModule() -> void override;
 		RENDERER_API auto ShutdownModule() -> void override;
-		RENDERER_API auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest&) -> void override;
+		RENDERER_API auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap> override;
 		RENDERER_API auto CreateScene() -> FScenePtr override;
 		RENDERER_API auto PrepareSceneThumbnailShaders() -> FShaderMapPreparation override;
 		RENDERER_API auto UpdateScenes_RenderThread(FRHICommandListImmediate& Commands) -> void override;

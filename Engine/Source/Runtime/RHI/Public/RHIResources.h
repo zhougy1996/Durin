@@ -745,6 +745,8 @@ namespace Durin
 	class FRHITextureReference : public FRHITexture
 	{
 	public:
+		RHI_API static auto GetPublicationRevision() -> uint64;
+
 		auto GetReferencedTexture_RenderThread() const -> FRHITexture*
 		{
 			return ReferencedTexture.GetReference();
@@ -763,11 +765,8 @@ namespace Durin
 		{
 		}
 
-		auto SetReferencedTexture_RenderThread(
-			TRefCountPtr<FRHITexture> InTexture) -> void
-		{
-			ReferencedTexture = std::move(InTexture);
-		}
+		RHI_API auto SetReferencedTexture_RenderThread(
+			TRefCountPtr<FRHITexture> InTexture) -> void;
 
 		TRefCountPtr<FRHITexture> ReferencedTexture;
 	};

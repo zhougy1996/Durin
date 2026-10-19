@@ -65,7 +65,7 @@ namespace Durin
 		auto InvalidateAllViewStates_RenderThread() -> void;
 		auto ReleaseViewStates_RenderThread() -> size_t;
 		auto GetViewStateCount_RenderThread() const -> size_t;
-		auto RenderHitProxies_RenderThread(FRHICommandListImmediate&, FScene*, const FHitProxyRenderRequest&) -> void;
+		auto RenderHitProxies_RenderThread(FRHICommandListImmediate&, FScene*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap>;
 		auto RetirePreparations_RenderThread(FScene* Scene = nullptr) -> void;
 		auto PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
 			const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,

@@ -471,8 +471,8 @@ namespace Durin::Editor::Level
 		return SceneViewProjection::BuildViewportRay(View, ViewportPosition, OutOrigin, OutDirection);
 	}
 
-	auto FLevelEditorViewportClient::SubmitViewportPick(DLevel* Level, const FSceneView& View,
-		const FVector2f& ViewportPosition, EViewportPickLayer Layers) -> FViewportPickSubmission
+	auto FLevelEditorViewportClient::PickViewport(DLevel* Level, const FSceneView& View,
+		const FVector2f& ViewportPosition, EViewportPickLayer Layers) -> FViewportPickResult
 	{
 		if (Level != CurrentLevel) InitializeForLevel(Level);
 		FEditorVisualizationCollector ColdVisualizations;
@@ -482,7 +482,7 @@ namespace Durin::Editor::Level
 			PopulateEditorOverlays(Level, View, ColdVisualizations);
 			Visualizations = &ColdVisualizations;
 		}
-		return PickingService->Submit({
+		return PickingService->Pick({
 			.Level = Level,
 			.View = View,
 			.ViewportPosition = ViewportPosition,
@@ -490,13 +490,6 @@ namespace Durin::Editor::Level
 		}, Visualizations);
 	}
 
-	auto FLevelEditorViewportClient::PollViewportPick(FViewportPickTicket Ticket) -> FViewportPickCompletion
-	{
-		return PickingService->Poll(Ticket);
-	}
-
-	auto FLevelEditorViewportClient::CancelViewportPick(FViewportPickTicket Ticket) -> void { PickingService->Cancel(Ticket); }
-	auto FLevelEditorViewportClient::ReleaseViewportPick(FViewportPickTicket Ticket) -> void { PickingService->Release(Ticket); }
 	auto FLevelEditorViewportClient::SetPickingBackendForTesting(std::unique_ptr<IViewportPickingBackend> Backend) -> void
 	{
 		PickingService->SetBackendForTesting(std::move(Backend));

@@ -14,6 +14,18 @@
 
 namespace Durin
 {
+	// One RHI-owned epoch across module boundaries, independent of diagnostics resets.
+	namespace { std::atomic<uint64> GTextureReferencePublicationRevision = 1; }
+
+	auto FRHITextureReference::GetPublicationRevision() -> uint64
+	{ return GTextureReferencePublicationRevision.load(); }
+
+	auto FRHITextureReference::SetReferencedTexture_RenderThread(TRefCountPtr<FRHITexture> InTexture) -> void
+	{
+		if (ReferencedTexture != InTexture) GTextureReferencePublicationRevision.fetch_add(1);
+		ReferencedTexture = std::move(InTexture);
+	}
+
 
 	std::atomic<uint64> FRHIGPUTimingQuery::InvalidRecordingCount = 0;
 

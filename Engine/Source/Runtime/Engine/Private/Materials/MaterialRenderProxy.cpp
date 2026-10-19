@@ -8,6 +8,8 @@ namespace Durin
 {
 	namespace
 	{
+		std::atomic<uint64> GMaterialPublicationRevision = 1;
+
 		struct FMaterialRenderProxyAtomicCounters
 		{
 			std::atomic<uint64> QueuedPublicationCount = 0;
@@ -54,6 +56,8 @@ namespace Durin
 				StaticProperties.DepthWritePolicy;
 		}
 	}
+
+	auto GetMaterialRenderProxyPublicationRevision() -> uint64 { return GMaterialPublicationRevision.load(); }
 
 	auto GetMaterialRenderProxyCounters() -> FMaterialRenderProxyCounters
 	{
@@ -214,6 +218,7 @@ namespace Durin
 			&FMaterialLocalRenderParameter::Id));
 		LocalLayer = std::move(Publication.LocalLayer);
 		LocalVersion = Publication.LocalVersion;
+		GMaterialPublicationRevision.fetch_add(1);
 		GMaterialRenderProxyCounters.PublicationCount.fetch_add(1);
 		return true;
 	}

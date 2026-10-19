@@ -180,18 +180,25 @@ namespace
 		}
 	};
 
+	inline auto MakeHitProxyTestMap(const Durin::FSceneView& View, uint32 Token, float Distance = 3.f) -> std::shared_ptr<const Durin::FHitProxyMap>
+	{
+		const uint32 Width = View.ViewportX + View.ViewportWidth, Height = View.ViewportY + View.ViewportHeight;
+		Durin::FByteBuffer Pixels(uint64(Width) * Height * sizeof(Durin::FHitProxyPixel));
+		const Durin::FHitProxyPixel Pixel{{Token}, Distance};
+		const uint64 Index = uint64(View.ViewportY + View.ViewportHeight / 2) * Width + View.ViewportX + View.ViewportWidth / 2;
+		std::memcpy(Pixels.data() + Index * sizeof(Pixel), &Pixel, sizeof(Pixel));
+		return Durin::FHitProxyMap::Create(Width, Height, std::move(Pixels));
+	}
+
 	class FCaptureHitProxyBackend final : public Durin::Editor::Level::IViewportPickingBackend
 	{
 	public:
-		Durin::Editor::Level::FViewportPickingBackendRequest Captured;
-		auto Submit(Durin::Editor::Level::FViewportPickingBackendRequest Request) -> Durin::Editor::Level::FViewportPickingBackendCompletion override
+		Durin::FHitProxyRenderRequest Captured;
+		auto GetHitProxyMap(Durin::FSceneInterface*, Durin::FHitProxyRenderRequest Request) -> std::shared_ptr<const Durin::FHitProxyMap> override
 		{
 			Captured = std::move(Request);
-			return {Durin::Editor::Level::EViewportPickStatus::Pending};
+			return MakeHitProxyTestMap(Captured.View, Captured.Overlays.empty() ? 0u : Captured.Overlays.front().Id.Value);
 		}
-		auto Poll(Durin::Editor::Level::FViewportPickTicket) -> Durin::Editor::Level::FViewportPickingBackendCompletion override
-		{ return {Durin::Editor::Level::EViewportPickStatus::Pending}; }
-		auto Cancel(Durin::Editor::Level::FViewportPickTicket) -> void override {}
 	};
 
 	class FTestComponentVisualizer final : public Durin::Editor::Level::IComponentEditorVisualizer

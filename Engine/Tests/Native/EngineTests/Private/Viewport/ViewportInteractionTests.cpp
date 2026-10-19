@@ -276,14 +276,12 @@ TEST(FLevelEditorViewportClientTests, SubmitsVisualizerForActorWithoutStaticMesh
 	auto Backend = std::make_unique<FCaptureHitProxyBackend>();
 	auto* Capture = Backend.get();
 	Client.SetPickingBackendForTesting(std::move(Backend));
-	const Durin::Editor::Level::FViewportPickSubmission Pick = Client.SubmitViewportPick(Level, PickView, {400.0f, 300.0f});
-	ASSERT_EQ(Pick.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Pending);
+	const Durin::Editor::Level::FViewportPickResult Pick = Client.PickViewport(Level, PickView, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_FALSE(Capture->Captured.Overlays.empty());
-	const auto Id = Capture->Captured.Overlays.front().Id.Value;
-	const auto Target = std::ranges::find(Capture->Captured.Targets, Id, &Durin::Editor::Level::FViewportPickingTarget::Token);
-	ASSERT_NE(Target, Capture->Captured.Targets.end());
-	EXPECT_EQ(Target->Actor.Get(), Camera);
-	EXPECT_EQ(Target->Kind, Durin::Editor::Level::EViewportPickHitKind::EditorVisualization);
+	ASSERT_TRUE(Pick.Hit);
+	EXPECT_EQ(Pick.Hit->Actor.Get(), Camera);
+	EXPECT_EQ(Pick.Hit->Kind, Durin::Editor::Level::EViewportPickHitKind::EditorVisualization);
 	EXPECT_FALSE(Capture->Captured.Overlays.front().bForeground);
 }
 
@@ -308,15 +306,13 @@ TEST(FLevelEditorViewportClientTests, SubmitsPlayerStartActorVisualizerWithoutSc
 	auto Backend = std::make_unique<FCaptureHitProxyBackend>();
 	auto* Capture = Backend.get();
 	Client.SetPickingBackendForTesting(std::move(Backend));
-	const Durin::Editor::Level::FViewportPickSubmission Pick =
-		Client.SubmitViewportPick(Level, PickView, {400.0f, 300.0f});
-	ASSERT_EQ(Pick.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Pending);
+	const Durin::Editor::Level::FViewportPickResult Pick =
+		Client.PickViewport(Level, PickView, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_FALSE(Capture->Captured.Overlays.empty());
-	const auto Id = Capture->Captured.Overlays.front().Id.Value;
-	const auto Target = std::ranges::find(Capture->Captured.Targets, Id, &Durin::Editor::Level::FViewportPickingTarget::Token);
-	ASSERT_NE(Target, Capture->Captured.Targets.end());
-	EXPECT_EQ(Target->Actor.Get(), PlayerStart);
-	EXPECT_EQ(Target->Kind, Durin::Editor::Level::EViewportPickHitKind::EditorVisualization);
+	ASSERT_TRUE(Pick.Hit);
+	EXPECT_EQ(Pick.Hit->Actor.Get(), PlayerStart);
+	EXPECT_EQ(Pick.Hit->Kind, Durin::Editor::Level::EViewportPickHitKind::EditorVisualization);
 	EXPECT_TRUE(Capture->Captured.Overlays.front().bForeground);
 }
 
