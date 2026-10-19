@@ -55,7 +55,15 @@ camera visibility. One frame-local table evaluates hidden state and supported
 kind once, then classifies every retained caster against every enabled cascade
 and stores the result in a bounded membership mask. Cascade-local reserved
 family reference lists are materialized from that table without another scene
-walk. Boundary contact and invalid finite bounds are included conservatively
+walk. World-AABB centers and half-extents are projected once per distinct enabled
+cascade basis and reused across matching cascades. Each axis uses the projected
+center plus/minus the dot product of the absolute basis axis and world
+half-extents. The existing scale-relative contact tolerance is retained; boxes
+within the arithmetic rounding guard of a classification threshold use the
+original eight-corner calculation to preserve boundary decisions. Disabled
+culling bypasses projection. Different bases keep independent projections, and
+non-finite projection results use the conservative invalid-bounds fallback.
+Boundary contact and invalid finite bounds are included conservatively
 and counted per cascade. Static/Spline LOD selection is evaluated against
 the resolved shadow-view resolution.
 The camera's prepared visibility and LOD values are not mutated.
@@ -321,6 +329,26 @@ and uniform caches for a same-binary comparison; logical description caching
 remains enabled. Timings are diagnostic, not FPS acceptance gates. Hot cached
 frames require zero primitive uploads and complete command hits for their
 shadow draw membership.
+
+A 2026-10-19 diagnostic comparison of the center/half-extent projection against
+the previous eight-corner path used Win64 Debug, Tracy, Vulkan validation, and
+the same GTX 1060. Each revision had three runs with 30 warm-up and 120 measured
+frames per candidate. The median of run medians was:
+
+| ThreeCascades CPU duration | Before | After |
+| --- | ---: | ---: |
+| Discovery/membership, 5 boxes | 0.0718 ms | 0.0411 ms |
+| Total logical preparation, 5 boxes | 0.9542 ms | 0.9299 ms |
+| Discovery/membership, 128 high-overlap casters | 1.2185 ms | 0.4791 ms |
+| Total logical preparation, 128 high-overlap casters | 21.0559 ms | 19.5185 ms |
+
+These Debug, nonexclusive observations do not establish Release timing gates or
+editor FPS. Raw per-frame samples, reports, and image comparisons are retained
+locally under ignored `Build/ShadowCasterProjection/`. All 97 baseline captures
+were byte-identical. A temporary reference check also matched 30,000 deterministic
+classifications across contact-threshold neighbors, degenerate extents, rotated
+bases, and large coordinates, plus membership and invalid-bounds masks for shared
+and distinct bases, disabled cascades, and disabled culling.
 
 An isolated same-binary run on 2026-10-12 (Win64 Debug, Vulkan validation,
 GeForce GTX 1060 6GB) measured the following ThreeCascades medians:

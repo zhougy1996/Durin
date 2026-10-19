@@ -485,48 +485,133 @@ namespace Durin
 		return true;
 	}
 
+	namespace
+	{
+		struct FCasterWorldBox
+		{
+			FVector3 Center;
+			FVector3 Extent;
+		};
+
+		struct FCasterProjectionBasis
+		{
+			FVector3 Right;
+			FVector3 Up;
+			FVector3 Forward;
+			FVector3 AbsoluteRight;
+			FVector3 AbsoluteUp;
+			FVector3 AbsoluteForward;
+			double MaximumAxisSum;
+		};
+
+		struct FProjectedCasterBox
+		{
+			FVector3 Minimum;
+			FVector3 Maximum;
+			double ContactEpsilon;
+			double Roundoff;
+		};
+
+		auto MakeCasterProjectionBasis(const FDirectionalShadowVolume& Volume) -> FCasterProjectionBasis
+		{
+			const auto Right = Math::Abs(Volume.Right);
+			const auto Up = Math::Abs(Volume.Up);
+			const auto Forward = Math::Abs(Volume.Forward);
+			return {Volume.Right, Volume.Up, Volume.Forward, Right, Up, Forward,
+				std::max({Right.x + Right.y + Right.z, Up.x + Up.y + Up.z,
+					Forward.x + Forward.y + Forward.z})};
+		}
+
+		auto PrepareCasterWorldBox(const FBox& Bounds) -> std::optional<FCasterWorldBox>
+		{
+			if (!Bounds.bIsValid || !Math::IsFinite(Bounds.Min) || !Math::IsFinite(Bounds.Max)
+				|| Math::AnyGreaterThan(Bounds.Min, Bounds.Max)) return {};
+			// Halve first so finite world endpoints do not overflow during addition/subtraction.
+			return FCasterWorldBox{Bounds.Min * 0.5 + Bounds.Max * 0.5,
+				Bounds.Max * 0.5 - Bounds.Min * 0.5};
+		}
+
+		auto ShadowBoundsContactEpsilon(const FVector3& Minimum, const FVector3& Maximum) -> double
+		{
+			const auto Min = Math::Abs(Minimum);
+			const auto Max = Math::Abs(Maximum);
+			return BoundsContactEpsilon * std::max({1.0, Min.x, Min.y, Min.z, Max.x, Max.y, Max.z});
+		}
+
+		auto ProjectCasterBox(const FCasterProjectionBasis& Basis, const FCasterWorldBox& Box)
+			-> std::optional<FProjectedCasterBox>
+		{
+			const FVector3 Center{Math::Dot(Basis.Right, Box.Center), Math::Dot(Basis.Up, Box.Center),
+				Math::Dot(Basis.Forward, Box.Center)};
+			const FVector3 Extent{Math::Dot(Basis.AbsoluteRight, Box.Extent),
+				Math::Dot(Basis.AbsoluteUp, Box.Extent), Math::Dot(Basis.AbsoluteForward, Box.Extent)};
+			const FVector3 Minimum = Center - Extent;
+			const FVector3 Maximum = Center + Extent;
+			if (!Math::IsFinite(Minimum) || !Math::IsFinite(Maximum)) return {};
+			const FVector3 Magnitude = Math::Abs(Box.Center) + Box.Extent;
+			const double ArithmeticScale = std::max({1.0, Magnitude.x, Magnitude.y, Magnitude.z})
+				* Basis.MaximumAxisSum;
+			return FProjectedCasterBox{Minimum, Maximum, ShadowBoundsContactEpsilon(Minimum, Maximum),
+				32.0 * std::numeric_limits<double>::epsilon() * ArithmeticScale};
+		}
+
+		auto ClassifyCasterBoxRange(const FDirectionalShadowVolume& Volume,
+			const FVector3& Minimum, const FVector3& Maximum, double Epsilon)
+			-> EDirectionalShadowBoundsClassification
+		{
+			const bool bOutside = Maximum.x < Volume.Minimum.x - Epsilon
+				|| Minimum.x > Volume.Maximum.x + Epsilon
+				|| Maximum.y < Volume.Minimum.y - Epsilon
+				|| Minimum.y > Volume.Maximum.y + Epsilon
+				|| Maximum.z < Volume.Minimum.z - Epsilon
+				|| Minimum.z > Volume.Maximum.z + Epsilon;
+			return bOutside ? EDirectionalShadowBoundsClassification::Outside
+				: EDirectionalShadowBoundsClassification::InsideOrIntersecting;
+		}
+
+		auto ClassifyProjectedCasterBox(const FDirectionalShadowVolume& Volume,
+			const std::optional<FProjectedCasterBox>& Projected, const FBox& WorldBounds)
+			-> EDirectionalShadowBoundsClassification
+		{
+			if (!Projected) return EDirectionalShadowBoundsClassification::InvalidBoundsFallback;
+			bool bNearBoundary = false;
+			for (uint32 Axis = 0; Axis < 3; ++Axis)
+			{
+				const double Lower = Volume.Minimum[Axis] - Projected->ContactEpsilon;
+				const double Upper = Volume.Maximum[Axis] + Projected->ContactEpsilon;
+				bNearBoundary |= std::abs(Projected->Maximum[Axis] - Lower) <= Projected->Roundoff
+					|| std::abs(Projected->Minimum[Axis] - Upper) <= Projected->Roundoff;
+			}
+			if (!bNearBoundary)
+				return ClassifyCasterBoxRange(Volume, Projected->Minimum, Projected->Maximum, Projected->ContactEpsilon);
+
+			// Center/extent changes rounding order. Preserve the old decision at the
+			// contact tolerance threshold; ordinary interior/exterior boxes avoid this path.
+			FVector3 Minimum(std::numeric_limits<double>::max());
+			FVector3 Maximum(std::numeric_limits<double>::lowest());
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
+			{
+				const FVector3 World{(Corner & 1u) != 0 ? WorldBounds.Max.x : WorldBounds.Min.x,
+					(Corner & 2u) != 0 ? WorldBounds.Max.y : WorldBounds.Min.y,
+					(Corner & 4u) != 0 ? WorldBounds.Max.z : WorldBounds.Min.z};
+				const FVector3 LightSpace{Math::Dot(Volume.Right, World), Math::Dot(Volume.Up, World),
+					Math::Dot(Volume.Forward, World)};
+				Minimum = Math::Min(Minimum, LightSpace);
+				Maximum = Math::Max(Maximum, LightSpace);
+			}
+			return ClassifyCasterBoxRange(Volume, Minimum, Maximum, ShadowBoundsContactEpsilon(Minimum, Maximum));
+		}
+	}
+
 	auto ClassifyDirectionalShadowCasterBounds(
 		const FPreparedDirectionalShadowCascade& Cascade,
 		const FBox& WorldBounds) -> EDirectionalShadowBoundsClassification
 	{
-		if (!Cascade.bEnabled || !WorldBounds.bIsValid
-			|| !Math::IsFinite(WorldBounds.Min) || !Math::IsFinite(WorldBounds.Max)
-			|| Math::AnyGreaterThan(WorldBounds.Min, WorldBounds.Max))
-			return EDirectionalShadowBoundsClassification::InvalidBoundsFallback;
-		FVector3 Minimum(std::numeric_limits<double>::max());
-		FVector3 Maximum(std::numeric_limits<double>::lowest());
-		for (uint32 Corner = 0; Corner < 8; ++Corner)
-		{
-			const FVector3 World{
-				(Corner & 1u) != 0 ? WorldBounds.Max.x : WorldBounds.Min.x,
-				(Corner & 2u) != 0 ? WorldBounds.Max.y : WorldBounds.Min.y,
-				(Corner & 4u) != 0 ? WorldBounds.Max.z : WorldBounds.Min.z};
-			const FVector3 LightSpace{
-				Math::Dot(Cascade.CasterVolume.Right, World),
-				Math::Dot(Cascade.CasterVolume.Up, World),
-				Math::Dot(Cascade.CasterVolume.Forward, World)};
-			Minimum = Math::Min(Minimum, LightSpace);
-			Maximum = Math::Max(Maximum, LightSpace);
-		}
-		const FVector3 AbsoluteMinimum = Math::Abs(Minimum);
-		const FVector3 AbsoluteMaximum = Math::Abs(Maximum);
-		const double Scale = std::max({
-			1.0,
-			AbsoluteMinimum.x,
-			AbsoluteMinimum.y,
-			AbsoluteMinimum.z,
-			AbsoluteMaximum.x,
-			AbsoluteMaximum.y,
-			AbsoluteMaximum.z});
-		const double Epsilon = BoundsContactEpsilon * Scale;
-		const bool bOutside = Maximum.x < Cascade.CasterVolume.Minimum.x - Epsilon
-			|| Minimum.x > Cascade.CasterVolume.Maximum.x + Epsilon
-			|| Maximum.y < Cascade.CasterVolume.Minimum.y - Epsilon
-			|| Minimum.y > Cascade.CasterVolume.Maximum.y + Epsilon
-			|| Maximum.z < Cascade.CasterVolume.Minimum.z - Epsilon
-			|| Minimum.z > Cascade.CasterVolume.Maximum.z + Epsilon;
-		return bOutside ? EDirectionalShadowBoundsClassification::Outside
-			: EDirectionalShadowBoundsClassification::InsideOrIntersecting;
+		if (!Cascade.bEnabled) return EDirectionalShadowBoundsClassification::InvalidBoundsFallback;
+		const auto Box = PrepareCasterWorldBox(WorldBounds);
+		return ClassifyProjectedCasterBox(Cascade.CasterVolume,
+			Box ? ProjectCasterBox(MakeCasterProjectionBasis(Cascade.CasterVolume), *Box) : std::nullopt,
+			WorldBounds);
 	}
 
 	auto MakeDirectionalShadowSamplerDesc() -> FRHISamplerDesc
@@ -554,6 +639,25 @@ namespace Durin
 		if (Shadow.CascadeCount > DirectionalShadowCascadeCount) return Result;
 		Result.SceneTraversals = 1;
 		Result.Records.reserve(Scene.GetPrimitiveSceneInfos().size());
+		std::array<FCasterProjectionBasis, DirectionalShadowCascadeCount> ProjectionBases;
+		std::array<uint32, DirectionalShadowCascadeCount> ProjectionOwners{};
+		uint32 ProjectionCount = 0;
+		if (!bDisableCulling)
+		{
+			for (uint32 Index = 0; Index < Shadow.CascadeCount; ++Index)
+			{
+				if (!Shadow.Cascades[Index].bEnabled) continue;
+				const auto& Volume = Shadow.Cascades[Index].CasterVolume;
+				uint32 Owner = 0;
+				for (; Owner < ProjectionCount; ++Owner)
+					if (ProjectionBases[Owner].Right == Volume.Right
+						&& ProjectionBases[Owner].Up == Volume.Up
+						&& ProjectionBases[Owner].Forward == Volume.Forward) break;
+				if (Owner == ProjectionCount)
+					ProjectionBases[ProjectionCount++] = MakeCasterProjectionBasis(Volume);
+				ProjectionOwners[Index] = Owner;
+			}
+		}
 		for (const FPrimitiveSceneInfo* Info : Scene.GetPrimitiveSceneInfos())
 		{
 			check(Info != nullptr);
@@ -570,6 +674,13 @@ namespace Durin
 				++Result.UniqueEligibleSplineMeshes;
 			else if (Info->GetKind() == EPrimitiveSceneProxyKind::StaticMesh)
 				++Result.UniqueEligibleStaticMeshes;
+			std::array<std::optional<FProjectedCasterBox>, DirectionalShadowCascadeCount> ProjectedBoxes;
+			if (!bDisableCulling && ProjectionCount > 0)
+			{
+				if (const auto Box = PrepareCasterWorldBox(Info->GetWorldBounds()))
+					for (uint32 Owner = 0; Owner < ProjectionCount; ++Owner)
+						ProjectedBoxes[Owner] = ProjectCasterBox(ProjectionBases[Owner], *Box);
+			}
 			for (uint32 CascadeIndex = 0;
 				 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
 			{
@@ -579,8 +690,8 @@ namespace Durin
 				const EDirectionalShadowBoundsClassification Classification =
 					bDisableCulling
 						? EDirectionalShadowBoundsClassification::InsideOrIntersecting
-						: ClassifyDirectionalShadowCasterBounds(
-							Cascade, Info->GetWorldBounds());
+						: ClassifyProjectedCasterBox(Cascade.CasterVolume,
+							ProjectedBoxes[ProjectionOwners[CascadeIndex]], Info->GetWorldBounds());
 				if (Classification == EDirectionalShadowBoundsClassification::Outside)
 					continue;
 				const uint8 Bit = static_cast<uint8>(1u << CascadeIndex);
