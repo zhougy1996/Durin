@@ -309,7 +309,7 @@ Out of scope:
   generic mesh/factory execution and final performance qualification. Preserve its
   shared material execution boundary and do not add geometry-family collection paths.
 - The active [RHI Asynchronous Buffer Upload Refactor](RhiAsyncBufferUploadRefactor.md)
-  and [RDG/RHI Multi-Queue Execution](../../RdgRhiMultiQueueExecution.md) own upload storage,
+  and [RDG/RHI Multi-Queue Execution](../2026-10/RdgRhiMultiQueueExecution.md) own upload storage,
   GPU readiness and retirement. Reconcile their current stages before Stage 3
   changes uniform preparation or retained resource lifetime.
 - Start source inspection in `Engine/Source/Runtime/Engine/Public/Materials`,

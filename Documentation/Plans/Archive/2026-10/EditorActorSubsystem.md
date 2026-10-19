@@ -4,7 +4,7 @@ Summary: Move general Actor and Component editing and structural history into Du
 
 Last reviewed: 2026-10-17
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-17
 
 ## Current Status
@@ -286,8 +286,8 @@ Dependencies: Stage 3.
 
 ## Validation and Acceptance
 
-Follow [Build and Run](../Agents/BuildAndRun.md) and
-[Testing](../Agents/Testing.md), using DevTool's host-selected profile and registry
+Follow [Build and Run](../../../Agents/BuildAndRun.md) and
+[Testing](../../../Agents/Testing.md), using DevTool's host-selected profile and registry
 discovery rather than guessed target names. Inspect affected coverage before
 execution. Implementation requires the bounded runtime and consumer validation below.
 
@@ -448,7 +448,7 @@ Checked Epic's UE 5.3.2 source at mirror revision
 before appending a new transaction; `End` does not reject or remove that transaction
 for exceeding MaxMemory. Thus immediate Undo for oversized edits agrees with
 Durin, while trimming time differs. The owning
-[transactor contract](../Editor/Architecture/Transactors.md#bounds-and-accounting)
+[transactor contract](../../../Editor/Architecture/Transactors.md#bounds-and-accounting)
 records pinned source references and the version boundary. No later UE version
 is claimed verified.
 
@@ -534,12 +534,12 @@ source/consumer searches and Git diff review passed. No required gates remain op
 
 ## Required References
 
-- [Editor subsystems](../Editor/Architecture/EditorSubsystems.md)
-- [Editor transactor core](../Editor/Architecture/Transactors.md)
-- [Transaction record foundation](../Editor/Architecture/TransactionRecords.md)
-- [Level Editor Details](../Editor/Architecture/LevelEditorDetails.md)
-- [Viewport editing](../Editor/Architecture/ViewportEditing.md)
-- [Static mesh level mutations](../Editor/Architecture/StaticMeshLevelMutations.md)
-- [Level system](../Runtime/World/LevelSystem.md)
-- [Code modules](../Workspace/CodeModules.md)
-- [Documentation workflow](../Agents/Documentation.md)
+- [Editor subsystems](../../../Editor/Architecture/EditorSubsystems.md)
+- [Editor transactor core](../../../Editor/Architecture/Transactors.md)
+- [Transaction record foundation](../../../Editor/Architecture/TransactionRecords.md)
+- [Level Editor Details](../../../Editor/Architecture/LevelEditorDetails.md)
+- [Viewport editing](../../../Editor/Architecture/ViewportEditing.md)
+- [Static mesh level mutations](../../../Editor/Architecture/StaticMeshLevelMutations.md)
+- [Level system](../../../Runtime/World/LevelSystem.md)
+- [Code modules](../../../Workspace/CodeModules.md)
+- [Documentation workflow](../../../Agents/Documentation.md)

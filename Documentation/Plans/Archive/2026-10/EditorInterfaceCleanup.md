@@ -4,7 +4,7 @@ Summary: Internalize recording hooks, make editor activation explicit, and remov
 
 Last reviewed: 2026-10-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-19
 
 ## Current Status
@@ -66,7 +66,7 @@ Depends on Stage 0.
 - [x] Validate changed documents/all plans, review final diff and removed-symbol
   searches, preserve receipts and commit the completed plan.
 
-Follow [build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md)
+Follow [build](../../../Agents/BuildAndRun.md) and [test](../../../Agents/Testing.md)
 workflows. GPU/application-hosted qualification and full UE serialization are
 outside this interface/lifetime cleanup. Preserve passing results when relevant
 inputs are unchanged; record any unavailable coverage explicitly.

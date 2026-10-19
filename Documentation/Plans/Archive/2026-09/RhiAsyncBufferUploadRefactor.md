@@ -66,7 +66,7 @@ affected run passed 94 of 95 targets; `VulkanRHIIntegrationTests` then passed al
 implementation and local functional coverage are delivered. The unavailable
 Windows runtime comparison is operator-deferred, and the intermittent Vulkan
 lifecycle investigation remains explicitly owned by the active
-[RDG and RHI multi-queue plan](../../RdgRhiMultiQueueExecution.md). Exact evidence and
+[RDG and RHI multi-queue plan](../2026-10/RdgRhiMultiQueueExecution.md). Exact evidence and
 limits are recorded under Stage 4.
 
 Source inspection establishes the following baseline:
@@ -424,7 +424,7 @@ Consumer migration must cover every project in `Durin.dworkspace`: Engine,
 Sandbox, and RoadWeaver, including their source and test roots.
 
 Reuse the existing GPU sync-point, payload ownership, submission coordinator,
-and retirement machinery. The [RDG and RHI multi-queue plan](../../RdgRhiMultiQueueExecution.md)
+and retirement machinery. The [RDG and RHI multi-queue plan](../2026-10/RdgRhiMultiQueueExecution.md)
 continues to own async-compute rollout, split barriers, and transient aliasing;
 this work must preserve its implemented queue and lifetime contracts without
 claiming its remaining qualification gates are complete.
@@ -892,7 +892,7 @@ Dependency: Stage 3 migration complete.
 - [x] Record the disposition of the intermittent Vulkan lifecycle access
   violations. A later passing run does not establish that the cause is fixed;
   the unavailable Windows investigation remains tracked by the active
-  [RDG and RHI multi-queue plan](../../RdgRhiMultiQueueExecution.md).
+  [RDG and RHI multi-queue plan](../2026-10/RdgRhiMultiQueueExecution.md).
 - [x] Update owning runtime contracts, close evidence-backed implementation and
   local-correctness checklists, and record the operator-approved disposition of
   unavailable platform gates.
@@ -931,7 +931,7 @@ Evidence:
   integration targets. The latter reproduced without parallel target execution;
   debugger and subsequent normal runs passed without identifying a fault stack.
   Do not attribute the failure to scheduling or a driver without evidence.
-  [Multi-queue execution](../../RdgRhiMultiQueueExecution.md) already tracks a similar
+  [Multi-queue execution](../2026-10/RdgRhiMultiQueueExecution.md) already tracks a similar
   unresolved lifecycle stability issue; a shared cause is not established.
 - The sky retained-generation fixture now polls the published request identity
   before retaining the next generation. It no longer assumes BeginFrame waits
@@ -940,7 +940,7 @@ Evidence:
 Completion disposition (2026-09-29): preserve the Stage 0 RTX 3090 captures and
 budgets for any future same-host workload/trace comparison. The operator chose
 not to keep that unavailable Windows rerun as a completion gate. The active
-[RDG and RHI multi-queue plan](../../RdgRhiMultiQueueExecution.md) records the deferred
+[RDG and RHI multi-queue plan](../2026-10/RdgRhiMultiQueueExecution.md) records the deferred
 Windows lifecycle investigation. No replacement GTX 1060 baseline, performance
 pass, or measured improvement is claimed.
 

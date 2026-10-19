@@ -26,7 +26,7 @@ workspace `all` build across Engine, Sandbox and RoadWeaver. Lasting rules are i
 [RHI implementation documentation](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#metal-native-ownership-and-cocoa-boundary).
 Stage receipts and diagnostic limits are recorded below. Native window/application
 presentation remains the separate open gate identified in Stage 0 and owned by
-[Metal RHI](../../MetalRHI.md); it is not claimed as passing migration evidence.
+[Metal RHI](MetalRHI.md); it is not claimed as passing migration evidence.
 
 ## Goal and Scope
 
@@ -35,7 +35,7 @@ Keep backend-neutral RHI interfaces, supported capabilities, shader routes,
 resource descriptors, synchronization, failure behavior, and rendered/readback
 output unchanged. Keep native types private to MetalRHI.
 
-The [Metal RHI plan](../../MetalRHI.md) owns feature delivery, platform qualification,
+The [Metal RHI plan](MetalRHI.md) owns feature delivery, platform qualification,
 shader-route decisions, and production adoption. This independent plan owns
 only the refactor; its completion does not close that plan's acceptance gates.
 New features, wider hardware support, performance optimization, and changing

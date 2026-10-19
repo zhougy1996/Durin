@@ -10,7 +10,7 @@ Completed:
 ## Current Status
 
 P0 is complete through
-[Road Surface Foundation](../Plans/RoadSurfaceFoundation.md), including final-curve
+[Road Surface Foundation](../Plans/Archive/2026-10/RoadSurfaceFoundation.md), including final-curve
 plane/sphere previews, validated graph publication, persistence, full editor
 transaction replay, GPU viewport picking and material display. The plan records
 the 2026-10-18 Apple M4 Metal/MoltenVK closeout and earlier build evidence.

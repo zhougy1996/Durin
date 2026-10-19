@@ -4,7 +4,7 @@ Summary: Remove Actor service host selection and production test modes, then mak
 
 Last reviewed: 2026-10-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-19
 
 ## Current Status
@@ -86,5 +86,5 @@ Depends on Stage 1.
   final diff, record evidence and commit the completed plan.
 
 Use the existing Win64-Debug-DurinEditor profile and the repository
-[build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md) workflows.
+[build](../../../Agents/BuildAndRun.md) and [test](../../../Agents/Testing.md) workflows.
 Application-hosted and GPU qualification are outside this ownership/query change.

@@ -4,7 +4,7 @@ Summary: Enforce complete transactor implementations and consolidate editor test
 
 Last reviewed: 2026-10-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-19
 
 ## Current Status
@@ -67,6 +67,6 @@ bookkeeping changed after final qualification.
   modules, and bounded tests cannot prove every production consumer still links.
 - [x] Validate changed documents/all plans, review the diff and commit.
 
-Follow the [build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md)
+Follow the [build](../../../Agents/BuildAndRun.md) and [test](../../../Agents/Testing.md)
 workflows. Preserve final-code receipts locally under ignored Build/. GPU and
 application-hosted behavior is unchanged and requires no execution here.

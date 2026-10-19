@@ -4,7 +4,7 @@ Summary: Remove property UI and material command transactor selection and make u
 
 Last reviewed: 2026-10-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-19
 
 ## Current Status
@@ -70,5 +70,5 @@ passing target's relevant fixtures remain covered by their final receipts.
   consumer changes across editor modules not represented by bounded tests.
 - [x] Validate documents/all plans, preserve final-code receipts and commit.
 
-Follow [build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md)
+Follow [build](../../../Agents/BuildAndRun.md) and [test](../../../Agents/Testing.md)
 workflows. No GPU or application-hosted behavior changes are intended.

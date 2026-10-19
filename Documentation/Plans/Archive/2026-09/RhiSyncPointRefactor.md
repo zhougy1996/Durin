@@ -91,7 +91,7 @@ passed 98 Vulkan integration tests. That evidence does not validate the future
 sync-point implementation.
 
 This plan owns the replacement of ticket/receipt API decisions in the
-[RDG and RHI multi-queue plan](../../RdgRhiMultiQueueExecution.md).
+[RDG and RHI multi-queue plan](../2026-10/RdgRhiMultiQueueExecution.md).
 Its scheduling, ownership-transfer, independent-compute, split-barrier and
 aliasing goals remain owned there. Existing failure and lifetime guarantees
 remain mandatory. Update that plan's affected API descriptions as each

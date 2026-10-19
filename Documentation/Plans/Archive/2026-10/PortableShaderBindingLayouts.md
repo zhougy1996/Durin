@@ -4,7 +4,7 @@ Summary: Preserve one logical binding layout across backends, move target-specif
 
 Last reviewed: 2026-10-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-18
 
 ## Current Status
@@ -561,7 +561,7 @@ The final fixture uses the complete frame lifecycle to retire descriptor caches.
 A 1024-command pilot without frame retirement hit the existing descriptor-pool
 expansion limit; no runtime limit was raised to accommodate the test. Pilot
 failures are not timing evidence. The stable owning workload is documented in
-the [performance protocol](../Development/Build/RenderingPerformanceBaseline.md#binding-update-and-submission-workload).
+the [performance protocol](../../../Development/Build/RenderingPerformanceBaseline.md#binding-update-and-submission-workload).
 
 Summary calculation: sort each group of 120 rows by each metric, average sorted
 positions 60/61 for median, and use sorted position 114 for nearest-rank p95
@@ -900,16 +900,16 @@ are not promoted to passing results.
 
 ## Validation and Contract References
 
-Follow [build guidance](../Agents/BuildAndRun.md) and
-[native test selection](../Agents/Testing.md) before executing implementation
-validation. Use the [rendering performance protocol](../Development/Build/RenderingPerformanceBaseline.md)
+Follow [build guidance](../../../Agents/BuildAndRun.md) and
+[native test selection](../../../Agents/Testing.md) before executing implementation
+validation. Use the [rendering performance protocol](../../../Development/Build/RenderingPerformanceBaseline.md)
 for authoritative timing; no universal percentage improvement is promised.
 
-Update the [RHI public API contract](../Runtime/Rendering/RHIPublicAPIStability.md),
-[graphics binding contract](../Runtime/Rendering/GraphicsStateAndBindings.md),
-[compute pipeline contract](../Runtime/Rendering/SynchronousComputePipelines.md),
-[global shader contract](../Runtime/Rendering/GlobalShaders.md), and
-[module ownership](../Workspace/CodeModules.md) as behavior lands, not in advance.
+Update the [RHI public API contract](../../../Runtime/Rendering/RHIPublicAPIStability.md),
+[graphics binding contract](../../../Runtime/Rendering/GraphicsStateAndBindings.md),
+[compute pipeline contract](../../../Runtime/Rendering/SynchronousComputePipelines.md),
+[global shader contract](../../../Runtime/Rendering/GlobalShaders.md), and
+[module ownership](../../../Workspace/CodeModules.md) as behavior lands, not in advance.
 
 The design borrows explicit logical layouts and backend preparation from
 [NVRHI's binding guide](https://github.com/NVIDIA-RTX/NVRHI/blob/main/doc/ProgrammingGuide.md)

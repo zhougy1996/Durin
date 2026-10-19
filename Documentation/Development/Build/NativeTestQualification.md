@@ -40,7 +40,7 @@ variables supplied only before the launcher. Record the actual selected device,
 API/driver versions, queue families/counts, and manifest/library hashes.
 Software ICD execution validates Vulkan API behavior and exact output, not GPU
 performance or unavailable independent queue topologies. The 2026-10-18 closeout
-matrix is recorded in the [multi-queue plan](../../Plans/RdgRhiMultiQueueExecution.md).
+matrix is recorded in the [multi-queue plan](../../Plans/Archive/2026-10/RdgRhiMultiQueueExecution.md).
 
 ## Performance Qualification and Concurrent Agents
 

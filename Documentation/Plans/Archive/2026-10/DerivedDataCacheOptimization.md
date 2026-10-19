@@ -4,7 +4,7 @@ Summary: Harden cache-hit validation and inline dispatch, then simplify DDC owne
 
 Last reviewed: 2026-10-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-18
 
 ## Current Status
@@ -18,7 +18,7 @@ architecture review revised Stage 3 to simplify dispatch policy and public
 integration before adding further infrastructure. Stage 2 completion records
 validated behavior, not a requirement to retain every implementation mechanism.
 This plan continues the completed
-[Modern Derived Data Cache plan](Archive/2026-10/ModernDerivedDataCache.md) without reopening its
+[Modern Derived Data Cache plan](ModernDerivedDataCache.md) without reopening its
 record/value format or asset-publication decisions.
 
 Stage 1 evidence (Win64-Debug-DurinEditor, 2026-10-13):
@@ -282,9 +282,9 @@ Cook reports, parsed counters, inventories, and verification are retained as
 Raw workload logs are
 `Build/Stage5/SandboxCook/Logs/Durin-Durin-20261018-171011-84943.log` and
 `Build/Stage5/SandboxCook/Logs/Durin-Durin-20261018-171200-85145.log`.
-The [storage contract](../Runtime/Assets/DerivedDataCacheStorage.md#bounded-diagnostics)
+The [storage contract](../../../Runtime/Assets/DerivedDataCacheStorage.md#bounded-diagnostics)
 owns implemented counters, ownership, maintenance limits and baseline procedure;
-the [DevTool interface](../Development/Tooling/DurinDevTool.md#offline-local-cache-maintenance)
+the [DevTool interface](../../../Development/Tooling/DurinDevTool.md#offline-local-cache-maintenance)
 owns commands and exit/report behavior.
 
 ## Goal
@@ -312,8 +312,8 @@ miss, deterministic negative caching, and successful local results on store fail
   still tracked by its owner.
 
 Implemented contracts remain authoritative in
-[build protocol](../Runtime/Assets/DerivedDataBuild.md) and
-[cache storage](../Runtime/Assets/DerivedDataCacheStorage.md). Update those contracts
+[build protocol](../../../Runtime/Assets/DerivedDataBuild.md) and
+[cache storage](../../../Runtime/Assets/DerivedDataCacheStorage.md). Update those contracts
 when each stage lands; this plan does not specify already implemented behavior.
 
 ## Implementation Stages
@@ -477,7 +477,7 @@ Acceptance for 3B: producer services outlive callbacks and unload only after dra
 registration snapshots remain predictable. Reentrant callbacks and shutdown do not
 deadlock. Texture2D/Cube/Volume, mesh render, collision, and Shader cold/warm results
 remain equivalent. Validate affected consumers using the repository's
-[shared API coverage policy](../../AGENTS.md#task-routing), including an `all`
+[shared API coverage policy](../../../../AGENTS.md#task-routing), including an `all`
 build when that policy requires it. Stage 3 completes only after both
 3A and 3B pass; do not add DAGs, remote workers, new cache tiers, or storage-format
 changes in this stage. The historical Shader manifest fixture exception was
@@ -579,9 +579,9 @@ Stages 6–7 or the deferred online-maintenance features.
 
 ## Validation and Handoff
 
-Follow [agent testing](../Agents/Testing.md),
-[build workflow](../Agents/BuildAndRun.md), and
-[documentation validation](../Agents/Documentation.md). Run lifecycle plan validation
+Follow [agent testing](../../../Agents/Testing.md),
+[build workflow](../../../Agents/BuildAndRun.md), and
+[documentation validation](../../../Agents/Documentation.md). Run lifecycle plan validation
 when adding this plan. Keep evidence and passed checklists current in each stage
 commit, with exact Plan and Stage trailers. Subsequent stages remain open until
 their acceptance gates are met; passing Stage 1 does not complete this plan.

@@ -21,7 +21,7 @@ or run.
 The completed [material async build plan](MaterialAsyncDerivedDataBuild.md)
 is the baseline: retain translation/Shader cache separation, shared flights,
 bounded execution, and generation-safe application. Coordinate overlapping DDC
-changes with [DDC optimization](../../DerivedDataCacheOptimization.md); this plan does
+changes with [DDC optimization](DerivedDataCacheOptimization.md); this plan does
 not replace its storage or execution work.
 
 ## Goal

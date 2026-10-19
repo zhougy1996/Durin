@@ -214,4 +214,4 @@ other stable breaking change.
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
 - [RHI diagnostics and conformance](RHIDiagnosticsAndConformance.md)
 - [Render Graph](RenderGraph.md)
-- [RDG and RHI multi-queue execution plan](../../Plans/RdgRhiMultiQueueExecution.md)
+- [RDG and RHI multi-queue execution plan](../../Plans/Archive/2026-10/RdgRhiMultiQueueExecution.md)

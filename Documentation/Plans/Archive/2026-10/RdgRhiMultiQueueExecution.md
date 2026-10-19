@@ -4,7 +4,7 @@ Summary: Introduce explicit GPU queue submission, completion, and resource retir
 
 Last reviewed: 2026-10-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-18
 
 ## Current Status
@@ -115,7 +115,7 @@ enables graph async scheduling only for an explicitly opted-in view. Allocator
 and backend capability gates still map the graph to graphics when independent
 compute is unavailable.
 
-The completed [RHI Sync Point Refactor Plan](Archive/2026-09/RhiSyncPointRefactor.md)
+The completed [RHI Sync Point Refactor Plan](../2026-09/RhiSyncPointRefactor.md)
 supersedes public ticket/receipt APIs with stable `FRHIGPUSyncPointRef` ownership
 and backend-only physical coordinates. Its 2026-09-17 evidence records an `all`
 build and all 22 affected test targets passing, including 93 RHI
@@ -133,7 +133,7 @@ qualification workload exercises that route on its supported host.
 
 The two 2026-09-12 `0xc0000005` failures are Windows NVIDIA driver-worker
 faults tracked separately by
-[Vulkan Integration Driver Worker Crash](../Investigations/VulkanIntegrationDriverWorkerCrash.md).
+[Vulkan Integration Driver Worker Crash](../../../Investigations/VulkanIntegrationDriverWorkerCrash.md).
 Their root cause is not claimed fixed. On 2026-09-29 the operator explicitly
 authorized Windows acceptance to be skipped because no Windows device is
 available; this is a platform qualification deferral, not contrary evidence or
@@ -150,7 +150,7 @@ an Apple M4 Release/Tracy-off diagnostic run. Six of seven available targets
 passed; the directional-shadow target retained a deterministic high-motion
 output mismatch and its timings are not accepted. The normalized measurements,
 environment, report paths, and remaining gaps are in the
-[2026-09-29 receipt](../Development/Build/RenderingPerformanceBaselineReceipt20260929.md).
+[2026-09-29 receipt](../../../Development/Build/RenderingPerformanceBaselineReceipt20260929.md).
 This closes measurement discovery and local pipeline setup, not the quiet-lane
 baseline or numerical-budget gate.
 
@@ -376,7 +376,7 @@ ownership simultaneously.
 
 #### Completion, Failure, and Ownership Protocol
 
-The completed [sync-point refactor](Archive/2026-09/RhiSyncPointRefactor.md) supersedes the
+The completed [sync-point refactor](../2026-09/RhiSyncPointRefactor.md) supersedes the
 ticket/receipt API in historical checkpoints: callers retain one `FRHIGPUSyncPointRef` throughout
 recording, replay and completion. Creation reserves no native coordinate;
 backend association is single assignment, including coalesced logical signals.
@@ -390,7 +390,7 @@ The caller-facing contract is an owning `FRHIGPUSyncPointRef` with stable
 logical identity and thread-safe Pending/Submitted/Complete/Canceled/Failed/
 DeviceLost observation. Native coordinates are backend-only metadata with
 RHI-owned device generations. No caller resolves a second handle. See the
-[RHI completion contract](../Runtime/Rendering/RHICommandExecution.md) for
+[RHI completion contract](../../../Runtime/Rendering/RHICommandExecution.md) for
 storage, bounded waits and shutdown behavior. Retained observers hold no native
 fence or backend pointer and require no unbounded completed-signal registry.
 
@@ -434,8 +434,8 @@ retained sync points remain terminal and cannot address a replacement device.
 
 These selected API boundaries record the plan's intended shape, updated for
 sync-point ownership. Exact implemented signatures and readiness semantics are
-owned by [RHI command execution](../Runtime/Rendering/RHICommandExecution.md)
-and [Render Graph](../Runtime/Rendering/RenderGraph.md); verify their headers
+owned by [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
+and [Render Graph](../../../Runtime/Rendering/RenderGraph.md); verify their headers
 before an API migration rather than treating this inventory as a second contract.
 
 ```cpp
@@ -506,7 +506,7 @@ out-of-order observations, stale generations, failure after native acceptance,
 partial graph submission, extraction producer failure, fan-out readers and
 descriptor/upload reuse under delayed compute completion. Select affected tests
 and shared API consumer builds under the repository's
-[coverage policy](../../AGENTS.md#task-routing). Retain the stage acceptance
+[coverage policy](../../../../AGENTS.md#task-routing). Retain the stage acceptance
 builds and GPU gates below; reuse passing coverage while relevant inputs and
 environment are unchanged instead of repeating it after every edit.
 
@@ -529,7 +529,7 @@ recorded unchanged single-queue revision and the implementation revision:
    overlap using supported timestamp semantics, not summed queue-local times.
 
 Use the inventory and protocol in
-[Rendering Performance Baseline](../Development/Build/RenderingPerformanceBaseline.md).
+[Rendering Performance Baseline](../../../Development/Build/RenderingPerformanceBaseline.md).
 Frame-oriented measurement fixtures use at least 30 warm-up iterations followed
 by 120 samples and three consecutive runs; creation fixtures may use a smaller
 documented round count because cold-state reset is part of the workload. Preserve
@@ -734,7 +734,7 @@ without conflating logical lifetime positions with observed GPU completion.
   compression/joins without measurements.
 - [x] Run final affected native tests, multi-queue Vulkan integration gates,
   single-queue fallback gates, and an `all` build across the workspace targets.
-  Apply the [result reuse policy](AGENTS.md#writing-rules) when existing receipts
+  Apply the [result reuse policy](../../AGENTS.md#writing-rules) when existing receipts
   cover the final relevant inputs; preserve every gate's queue-topology,
   hardware, configuration, and timing conditions.
 - [x] Update the owning runtime contracts and record reproducible completion
@@ -746,8 +746,8 @@ waiver. Diagnostics explain queue assignment, handoffs, aliasing and retirement.
 
 ## Validation and Handoff
 
-Use [agent build guidance](../Agents/BuildAndRun.md) and
-[agent testing guidance](../Agents/Testing.md) for execution and target selection.
+Use [agent build guidance](../../../Agents/BuildAndRun.md) and
+[agent testing guidance](../../../Agents/Testing.md) for execution and target selection.
 Use registry discovery for new target selections rather than inferring target
 names. CPU fixtures must model independent queue progress; GPU integration
 must exercise actual supported queue configurations. Unsupported hardware is
@@ -760,15 +760,15 @@ its relevant code, configuration, or environment.
 
 ## Owning Code and References
 
-- [RDG public records](../../Engine/Source/Runtime/RenderCore/Public/RDG/RDG.h)
-  and [compiler/recording](../../Engine/Source/Runtime/RenderCore/Private/RDG/RDG.cpp).
-- [RHI command submission](../../Engine/Source/Runtime/RHI/Public/RHICommandList.h)
-  and [implementation](../../Engine/Source/Runtime/RHI/Private/RHICommandList.cpp).
-- [Vulkan completion](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanCompletion.h)
-  and [submission payloads](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanSubmission.h).
-- [Render Graph contract](../Runtime/Rendering/RenderGraph.md),
-  [Renderer frame preparation](../Runtime/Rendering/RendererFramePreparation.md),
-  and [render resource lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md).
+- [RDG public records](../../../../Engine/Source/Runtime/RenderCore/Public/RDG/RDG.h)
+  and [compiler/recording](../../../../Engine/Source/Runtime/RenderCore/Private/RDG/RDG.cpp).
+- [RHI command submission](../../../../Engine/Source/Runtime/RHI/Public/RHICommandList.h)
+  and [implementation](../../../../Engine/Source/Runtime/RHI/Private/RHICommandList.cpp).
+- [Vulkan completion](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanCompletion.h)
+  and [submission payloads](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanSubmission.h).
+- [Render Graph contract](../../../Runtime/Rendering/RenderGraph.md),
+  [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md),
+  and [render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md).
 - [UE barrier batches](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/RenderCore/FRDGBarrierBatchBegin)
   provide reference boundaries for transition creation and submission.
 - [UE transient allocation fences](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/RHI/FRHITransientAllocationFences)
@@ -793,7 +793,7 @@ on 2026-09-21 adds no native execution evidence.
 ### Status History Through 2026-09-17
 
 Completion API follow-up (2026-09-17): the completed
-[RHI Sync Point Refactor Plan](Archive/2026-09/RhiSyncPointRefactor.md) replaces public
+[RHI Sync Point Refactor Plan](../2026-09/RhiSyncPointRefactor.md) replaces public
 submission tickets/receipts with stable one-shot sync-point references and
 backend-only coordinates. It passed the workspace `all` build and all 22
 affected test targets, including 93 RHI command/completion and 100 Vulkan

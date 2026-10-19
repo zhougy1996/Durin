@@ -4,7 +4,7 @@ Summary: Adopt one active editor engine, UE-shaped transaction entry points, and
 
 Last reviewed: 2026-10-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-19
 
 ## Current Status
@@ -148,8 +148,8 @@ Depends on all implementation stages.
 - [x] Commit each validated stage with Plan and Stage trailers, then mark the
   plan completed only after every required gate passes.
 
-Validation follows [build](../Agents/BuildAndRun.md) and
-[test](../Agents/Testing.md) selection and result-reuse rules. Use the existing
+Validation follows [build](../../../Agents/BuildAndRun.md) and
+[test](../../../Agents/Testing.md) selection and result-reuse rules. Use the existing
 Win64-Debug-DurinEditor profile; application-hosted and GPU qualification are
 not acceptance gates for this ownership refactor.
 
@@ -159,5 +159,5 @@ not acceptance gates for this ownership refactor.
 - [UE scoped transactions](https://dev.epicgames.com/documentation/unreal-engine/API/Editor/UnrealEd/FScopedTransaction)
 - [UE transaction buffer](https://dev.epicgames.com/documentation/unreal-engine/API/Editor/UnrealEd/UTransBuffer)
 - [UE World context](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FWorldContext)
-- [Current transaction contract](../Editor/Architecture/Transactors.md)
-- [Editor subsystem ownership](../Editor/Architecture/EditorSubsystems.md)
+- [Current transaction contract](../../../Editor/Architecture/Transactors.md)
+- [Editor subsystem ownership](../../../Editor/Architecture/EditorSubsystems.md)

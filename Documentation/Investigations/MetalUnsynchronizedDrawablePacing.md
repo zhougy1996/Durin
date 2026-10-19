@@ -594,7 +594,7 @@ adoption is recorded above and in the qualification receipt below.
 
 ### Fixed-Capacity Production Qualification On 2026-10-18
 
-The [Metal plan's bounded Stage 1/4 receipt](../Plans/MetalRHI.md#closeout-evidence-and-remaining-work)
+The [Metal plan's bounded Stage 1/4 receipt](../Plans/Archive/2026-10/MetalRHI.md#closeout-evidence-and-remaining-work)
 records the final source selection, four passing Metal-API-validation viewport
 tests, restored-production Editor startup/presentation/shutdown, and the failed
 secondary-window shrink case. It also distinguishes completed multi-window

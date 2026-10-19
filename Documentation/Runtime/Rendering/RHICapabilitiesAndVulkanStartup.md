@@ -315,7 +315,7 @@ lifecycle, selected shader/material pixels and basic normal-window presentation/
 shutdown. Other device/OS cohorts require their own receipts before expanding
 the release claim. Full scene/preview image parity, extended real-window stress,
 current-schema Cook/Game package requalification and comparable performance
-were waived in the [Metal closeout](../../Plans/MetalRHI.md#current-status);
+were waived in the [Metal closeout](../../Plans/Archive/2026-10/MetalRHI.md#current-status);
 the bounded results establish no acceptance in those areas.
 
 The lasting validation owners are the target-level RHI initialization and render

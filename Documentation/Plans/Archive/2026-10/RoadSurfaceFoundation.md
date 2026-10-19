@@ -4,7 +4,7 @@ Summary: Validate RoadWeaver graph semantics and preview authoritative final roa
 
 Last reviewed: 2026-10-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-18
 
 ## Current Status
@@ -90,9 +90,9 @@ planes or spheres without imposing a permanent surface constraint.
 
 The implemented authority, coordinate system, numerical tolerances, normalized
 station remapping and versioned compatibility are owned by
-[Road Geometry](../Runtime/World/RoadGeometry.md). That contract replaces the
+[Road Geometry](../../../Runtime/World/RoadGeometry.md). That contract replaces the
 previous instance Surface descriptor decisions in this plan. The shared spline
-foundation remains [Spline System](../Runtime/World/SplineSystem.md).
+foundation remains [Spline System](../../../Runtime/World/SplineSystem.md).
 
 ## Implementation Stages
 
@@ -158,9 +158,9 @@ Completion: all stage gates pass; no broader completion is inferred from this ch
 
 ## Related Code
 
-- [Road types](../../RoadWeaver/Source/Runtime/RoadWeaver/Public/RoadNet/RoadNetTypes.h)
-- [Road validation](../../RoadWeaver/Source/Runtime/RoadWeaver/Private/RoadNet/RoadNet.cpp)
-- [Explicit fitting and snapshots](../../RoadWeaver/Source/Runtime/RoadWeaver/Private/RoadNet/RoadSurface.cpp)
-- [Scene adapter and migration](../../RoadWeaver/Source/Runtime/RoadWeaver/Private/RoadNet/RoadNetActor.cpp)
-- [Creation dialog](../../RoadWeaver/Source/Editor/RoadWeaverEditor/Private/Dialogs/RoadNetCreateDialog.cpp)
-- [Road System Evolution](../Roadmaps/RoadSystemEvolution.md)
+- [Road types](../../../../RoadWeaver/Source/Runtime/RoadWeaver/Public/RoadNet/RoadNetTypes.h)
+- [Road validation](../../../../RoadWeaver/Source/Runtime/RoadWeaver/Private/RoadNet/RoadNet.cpp)
+- [Explicit fitting and snapshots](../../../../RoadWeaver/Source/Runtime/RoadWeaver/Private/RoadNet/RoadSurface.cpp)
+- [Scene adapter and migration](../../../../RoadWeaver/Source/Runtime/RoadWeaver/Private/RoadNet/RoadNetActor.cpp)
+- [Creation dialog](../../../../RoadWeaver/Source/Editor/RoadWeaverEditor/Private/Dialogs/RoadNetCreateDialog.cpp)
+- [Road System Evolution](../../../Roadmaps/RoadSystemEvolution.md)

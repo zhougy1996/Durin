@@ -4,7 +4,7 @@ Summary: Remove repeated editor selection from tool dispatch and ordinary UI tra
 
 Last reviewed: 2026-10-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-19
 
 ## Current Status
@@ -81,8 +81,8 @@ Depends on Stage 0.
 - [x] Validate changed documents and all plans, review the diff and removed
   symbols, record receipts and commit with plan/stage provenance.
 
-Validation follows [build](../Agents/BuildAndRun.md) and
-[test](../Agents/Testing.md) using Win64-Debug-DurinEditor. Application-hosted,
+Validation follows [build](../../../Agents/BuildAndRun.md) and
+[test](../../../Agents/Testing.md) using Win64-Debug-DurinEditor. Application-hosted,
 GPU and complete UE transaction serialization qualification are outside this
 ownership-only change. The previous plan remains historical completion evidence;
 lasting contracts stay in their owning documentation domains.

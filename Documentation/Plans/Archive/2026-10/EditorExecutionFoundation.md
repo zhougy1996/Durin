@@ -4,7 +4,7 @@ Summary: Unify native tool completion, editor transaction lifetime and cooperati
 
 Last reviewed: 2026-10-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-18
 
 ## Current Status
@@ -348,8 +348,8 @@ lifetime, so no additional upstream parity claim or reference-access gate is add
 
 The accepted native and Python transaction reference is UE 5.3.2 at Epic mirror
 revision `c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf`, with source provenance in
-[Transactors](../Editor/Architecture/Transactors.md#transactions-and-scoped-recording)
-and [PythonTools](../Editor/Architecture/PythonTools.md#transactions).
+[Transactors](../../../Editor/Architecture/Transactors.md#transactions-and-scoped-recording)
+and [PythonTools](../../../Editor/Architecture/PythonTools.md#transactions).
 Do not relabel that evidence as UE 5.8 qualification.
 
 UE 5.8's [FToolset](https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/ToolsetRegistry/FToolset)
@@ -490,8 +490,8 @@ final integration and compatibility matrix; deferred features do not block closu
 
 ## Validation And Evidence
 
-Follow the [build workflow](../Agents/BuildAndRun.md) and
-[test selection/result reuse workflow](../Agents/Testing.md). Resolve registrations
+Follow the [build workflow](../../../Agents/BuildAndRun.md) and
+[test selection/result reuse workflow](../../../Agents/Testing.md). Resolve registrations
 on the validation host rather than assuming names from historical receipts.
 Shared API changes require consumer searches and appropriate builds across Engine,
 Sandbox and RoadWeaver. Require an all build when foundational headers/ABI or the
@@ -779,7 +779,7 @@ checks remain, and feature/host scopes pin code and editor lifetime. Controls
 read owned runtime/job state only, including when the ordinary queue is full.
 The worker interpreter, tool receipt polling, per-call Tick wait and worker join
 were removed. Handles now contain synchronous results; timeout cannot preempt
-native work. These contracts live in [PythonTools](../Editor/Architecture/PythonTools.md).
+native work. These contracts live in [PythonTools](../../../Editor/Architecture/PythonTools.md).
 
 | Gate | Result | Evidence under Build/UETransactionAlignment/Stage4/ |
 | --- | --- | --- |
@@ -820,20 +820,20 @@ reuses the same SDK/source/package inputs as the passing real-runtime receipt.
 
 ## Required References
 
-- [Core Toolsets](../Runtime/Core/Tools.md),
-  [editor ToolService](../Editor/Architecture/EditorTools.md),
-  [Python runtime](../Editor/Architecture/PythonTools.md),
-  [Python usage](../Editor/Guides/PythonScripts.md), and
-  [existing MCP adapter](../Editor/Architecture/MCPTools.md).
-- [Transactors](../Editor/Architecture/Transactors.md),
-  [transaction records](../Editor/Architecture/TransactionRecords.md),
-  [property replay](../Editor/Architecture/ReflectedPropertyEditing.md),
-  [function actions](../Editor/Architecture/EditorFunctionActions.md), and
-  [GC ownership](../Runtime/Core/GarbageCollection.md).
-- Related code: [Toolset API](../../Engine/Source/Runtime/Core/Public/Tools/Tool.h),
-  [native bindings](../../Engine/Source/Runtime/Core/Public/Tools/NativeToolset.h),
-  [task composition](../../Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h),
-  [transactor API](../../Engine/Source/Editor/DurinEd/Public/Transactions/Transactor.h),
-  [recording implementation](../../Engine/Source/Editor/DurinEd/Private/Transactions/Transactor.cpp),
-  [tool dispatch](../../Engine/Source/Editor/DurinEd/Private/Tools/EditorToolService.cpp), and
-  [Python execution](../../Engine/Source/Editor/DurinPython/Private/PythonRuntime.cpp).
+- [Core Toolsets](../../../Runtime/Core/Tools.md),
+  [editor ToolService](../../../Editor/Architecture/EditorTools.md),
+  [Python runtime](../../../Editor/Architecture/PythonTools.md),
+  [Python usage](../../../Editor/Guides/PythonScripts.md), and
+  [existing MCP adapter](../../../Editor/Architecture/MCPTools.md).
+- [Transactors](../../../Editor/Architecture/Transactors.md),
+  [transaction records](../../../Editor/Architecture/TransactionRecords.md),
+  [property replay](../../../Editor/Architecture/ReflectedPropertyEditing.md),
+  [function actions](../../../Editor/Architecture/EditorFunctionActions.md), and
+  [GC ownership](../../../Runtime/Core/GarbageCollection.md).
+- Related code: [Toolset API](../../../../Engine/Source/Runtime/Core/Public/Tools/Tool.h),
+  [native bindings](../../../../Engine/Source/Runtime/Core/Public/Tools/NativeToolset.h),
+  [task composition](../../../../Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h),
+  [transactor API](../../../../Engine/Source/Editor/DurinEd/Public/Transactions/Transactor.h),
+  [recording implementation](../../../../Engine/Source/Editor/DurinEd/Private/Transactions/Transactor.cpp),
+  [tool dispatch](../../../../Engine/Source/Editor/DurinEd/Private/Tools/EditorToolService.cpp), and
+  [Python execution](../../../../Engine/Source/Editor/DurinPython/Private/PythonRuntime.cpp).

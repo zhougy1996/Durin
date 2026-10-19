@@ -1006,7 +1006,7 @@ explicit RDG culling decision for unlit receivers, and retains positive shadow
 draw assertions for lit receivers. The documented Base Scene decomposition
 already increased exposed attachment/sample handoffs from 15 to 22; the test now
 checks that current shape. See the prior
-[decomposition evidence](../../RdgAccessDeclarationsAndBaseSceneDecomposition.md).
+[decomposition evidence](RdgAccessDeclarationsAndBaseSceneDecomposition.md).
 Image, motion, masked coverage, cascade parity and contact-shadow checks remain.
 This is a structural expectation repair; no production rendering behavior changes.
 

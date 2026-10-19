@@ -4,7 +4,7 @@ Summary: Accept native default arguments and ordinary C++ overloads beside one r
 
 Last reviewed: 2026-10-17
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-17
 
 ## Current Status
@@ -55,8 +55,8 @@ reflected function per name, exact native signatures, inherited function slot
 identity, synchronous invocation, and existing parameter lifetime/GC rules.
 
 Authoritative implemented contracts remain in
-[Native Function Reflection](../Runtime/Core/FunctionReflection.md) and
-[Reflection Generation](../Development/Tooling/ReflectionGeneration.md).
+[Native Function Reflection](../../../Runtime/Core/FunctionReflection.md) and
+[Reflection Generation](../../../Development/Tooling/ReflectionGeneration.md).
 This plan selects future behavior; update those documents as stages land.
 
 ## Selected Contract
@@ -227,8 +227,8 @@ are observable failures and never implicit type initialization.
 
 ## Validation and Handoff
 
-Follow [Build And Run](../Agents/BuildAndRun.md) before any native build and
-[Testing](../Agents/Testing.md) for target discovery, execution, and result reuse.
+Follow [Build And Run](../../../Agents/BuildAndRun.md) before any native build and
+[Testing](../../../Agents/Testing.md) for target discovery, execution, and result reuse.
 Use one source/build writer; do not overlap build process trees.
 
 - [x] Run focused DHT function parsing/generation tests for each affected stage,

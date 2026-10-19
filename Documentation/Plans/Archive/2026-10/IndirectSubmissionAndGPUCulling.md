@@ -4,7 +4,7 @@ Summary: Add validated indirect draw and dispatch commands, then prove them thro
 
 Last reviewed: 2026-10-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-18
 
 ## Current Status
@@ -110,8 +110,8 @@ reported as passes. Full-barrier/shared-queue fallbacks pass; the separate
 multi-queue plan retains its hardware gate. Shadows remain an independent
 direct consumer; this pilot does not introduce an indirect shadow-output gate.
 Lasting grouping, ABI, telemetry, fallback and opt-in rules live in the
-[GBuffer contract](../Runtime/Rendering/GBuffer.md#compatible-instance-culling)
-and [performance baseline](../Development/Build/RenderingPerformanceBaseline.md).
+[GBuffer contract](../../../Runtime/Rendering/GBuffer.md#compatible-instance-culling)
+and [performance baseline](../../../Development/Build/RenderingPerformanceBaseline.md).
 
 ## Goal
 
@@ -219,7 +219,7 @@ multiple-command indirect draw, and the maximum admitted command count when
 applicable.
 
 Stage 0 selects the public-header boundary under the rules in
-[RHI public API stability](../Runtime/Rendering/RHIPublicAPIStability.md). A
+[RHI public API stability](../../../Runtime/Rendering/RHIPublicAPIStability.md). A
 stable additive family must land atomically with validation, Vulkan execution,
 fallback semantics, and owning Runtime documentation. If staged exposure is
 required, use one coherent `Public/Experimental/` family and do not scatter
@@ -302,7 +302,7 @@ incompatible, capacity, preparation, and terminal execution outcomes.
 The production path remains explicitly opt-in while this plan is active. Device
 support alone never enables it. Stage 0 records a representative repeated-mesh
 workload and the current CPU path using the shared
-[rendering performance baseline](../Development/Build/RenderingPerformanceBaseline.md).
+[rendering performance baseline](../../../Development/Build/RenderingPerformanceBaseline.md).
 
 Qualification compares identical candidate counts, visibility ratios, camera
 paths, output settings, RHI execution mode, validation state, and instrumentation
@@ -565,7 +565,7 @@ documents.
 - [x] Validate changed documents and run all-plan validation for completion.
   Retain valid affected-test, GPU-gate, and required workspace-build receipts
   covering the final relevant inputs under the
-  [result reuse policy](AGENTS.md#writing-rules); run missing or invalidated
+  [result reuse policy](../../AGENTS.md#writing-rules); run missing or invalidated
   coverage, then record exact tested revisions, applicability to the final state,
   and completion provenance.
 
@@ -575,8 +575,8 @@ follow-up is implied, and every required validation gate is reproducible.
 
 ## Validation and Handoff
 
-Use [agent build guidance](../Agents/BuildAndRun.md), [agent testing
-guidance](../Agents/Testing.md), and the registered test catalog rather than
+Use [agent build guidance](../../../Agents/BuildAndRun.md), [agent testing
+guidance](../../../Agents/Testing.md), and the registered test catalog rather than
 inferring target names. RHI/RDG CPU contracts, Renderer preparation contracts,
 Vulkan integration, selected rendered-output qualification, and the workspace
 `all` build are independently required according to the stage that changes
@@ -586,7 +586,7 @@ does not require rerunning valid runtime coverage. Reused GPU or timing evidence
 must still satisfy the gate's backend, hardware, workload, and environment conditions.
 
 GPU correctness may proceed on an available supported host. Timing acceptance
-follows [native-test qualification](../Development/Build/NativeTestQualification.md)
+follows [native-test qualification](../../../Development/Build/NativeTestQualification.md)
 and requires an exclusive quiet lane. A missing adapter, queue topology, native
 split-event implementation, or timing lane remains an explicit coverage gap;
 it does not become a pass and does not justify weakening the graphics-queue,
@@ -594,21 +594,21 @@ full-barrier, or direct-draw fallback.
 
 Each implementation commit updates `Last reviewed`, `Current Status`, and the
 completed checklist items with exact evidence. Active-plan commits use
-`Documentation/Plans/IndirectSubmissionAndGPUCulling.md` as the `Plan` trailer
+`Documentation/Plans/Archive/2026-10/IndirectSubmissionAndGPUCulling.md` as the `Plan` trailer
 and the exact stage title as the `Stage` trailer.
 
 ## Related Documentation
 
-- [RHI public API stability](../Runtime/Rendering/RHIPublicAPIStability.md)
-- [RHI command execution](../Runtime/Rendering/RHICommandExecution.md)
-- [RHI resource transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI resource views and transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [RHI capabilities and Vulkan startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [Graphics state and bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Synchronous compute pipelines](../Runtime/Rendering/SynchronousComputePipelines.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Static mesh rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Renderer frame preparation](../Runtime/Rendering/RendererFramePreparation.md)
+- [RHI public API stability](../../../Runtime/Rendering/RHIPublicAPIStability.md)
+- [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [RHI resource transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI resource views and transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+- [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
+- [Graphics state and bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
+- [Synchronous compute pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Static mesh rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
 - [RDG and RHI multi-queue execution plan](RdgRhiMultiQueueExecution.md)
-- [Geometry submission refactor plan](Archive/2026-10/GeometrySubmissionRefactor.md)
-- [Rendering performance baseline](../Development/Build/RenderingPerformanceBaseline.md)
+- [Geometry submission refactor plan](GeometrySubmissionRefactor.md)
+- [Rendering performance baseline](../../../Development/Build/RenderingPerformanceBaseline.md)

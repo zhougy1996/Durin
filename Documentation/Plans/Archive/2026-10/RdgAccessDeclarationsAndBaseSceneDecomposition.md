@@ -4,7 +4,7 @@ Summary: Introduce instance-based RDG access and attachment declarations, expose
 
 Last reviewed: 2026-10-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-18
 
 ## Current Status
@@ -102,7 +102,7 @@ migration. Baseline execution at reference
 defect, now fixed with an independently reproduced regression. Full Vulkan
 integration passes 114/114 and affected validation passes 8/8 targets; three
 preserved Release GBuffer runs pass on GTX 1060.
-The [diagnostic receipt](../Development/Build/RenderingPerformanceBaselineReceipt20261008.md)
+The [diagnostic receipt](../../../Development/Build/RenderingPerformanceBaselineReceipt20261008.md)
 records exact evidence and authority. Stage 0 remains open for complete route
 captures and an accepted timing baseline; GTX 1060 observations do not replace
 named RTX 3090 gates. Stage 1 is implemented: typed instance
@@ -186,11 +186,11 @@ while keeping the multi-stage Base Scene callback is not the final architecture.
   split barriers, and aliasing. This plan must consume its existing contracts and
   preserve its gates; it does not accept or close that plan's outstanding stages.
 
-Follow [build guidance](../Agents/BuildAndRun.md),
-[test guidance](../Agents/Testing.md), and
-[documentation guidance](../Agents/Documentation.md). For shared Engine API
+Follow [build guidance](../../../Agents/BuildAndRun.md),
+[test guidance](../../../Agents/Testing.md), and
+[documentation guidance](../../../Agents/Documentation.md). For shared Engine API
 changes, follow the repository's
-[consumer search and build coverage policy](../../AGENTS.md#task-routing).
+[consumer search and build coverage policy](../../../../AGENTS.md#task-routing).
 Preserve unrelated working-tree changes. Existing stage-specific GPU, timing,
 and integration gates remain required; recorded builds remain historical evidence.
 
@@ -218,19 +218,19 @@ between those protocols.
 
 Current Durin evidence:
 
-- [RDGParameters.h](../../Engine/Source/Runtime/RenderCore/Public/RDG/RDGParameters.h)
+- [RDGParameters.h](../../../../Engine/Source/Runtime/RenderCore/Public/RDG/RDGParameters.h)
   stores access, discard, load/store, and managed result access in static member
   metadata. Resource wrappers primarily supply handles and ranges.
-- [RDG.cpp](../../Engine/Source/Runtime/RenderCore/Private/RDG/RDG.cpp),
+- [RDG.cpp](../../../../Engine/Source/Runtime/RenderCore/Private/RDG/RDG.cpp),
   `LowerParameterUse`, starts from `MakeParameterUse(Member, FieldPath)` and then
   supplies instance resource identity and range.
-- [BaseSceneRendering.cpp](../../Engine/Source/Runtime/Renderer/Private/Renderers/BaseSceneRendering.cpp)
+- [BaseSceneRendering.cpp](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/BaseSceneRendering.cpp)
   selects four managed depth fields and hides bootstrap, production deferred,
   and retained-forward raster work inside one callback.
-- [RenderTargetLayouts.cpp](../../Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.cpp)
+- [RenderTargetLayouts.cpp](../../../../Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.cpp)
   encodes shader-readable entry/exit states in hybrid depth layouts; several
   color layouts also publish shader-read state at native render-pass end.
-- [SceneColorRendering.cpp](../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneColorRendering.cpp)
+- [SceneColorRendering.cpp](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneColorRendering.cpp)
   expects a managed graphics-read-to-depth handoff for translucency. Migrating
   Base Scene alone would leave this neighboring state assumption in place.
 
@@ -396,9 +396,9 @@ Test owners are `RenderCoreTests/Private/RDGTests.cpp`,
 `GBufferQualificationTests.cpp`, and RHI/Vulkan/Metal transition and replay tests
 under `Engine/Tests/Native`. Test target selection uses the registry, not these
 filenames. Shared API stages follow the repository's
-[consumer search and build coverage policy](../../AGENTS.md#task-routing),
+[consumer search and build coverage policy](../../../../AGENTS.md#task-routing),
 including affected consumers in both game projects. Stage-specific integration
-gates remain required; apply the [result reuse policy](AGENTS.md#writing-rules)
+gates remain required; apply the [result reuse policy](../../AGENTS.md#writing-rules)
 when final relevant inputs are unchanged.
 
 #### Frozen instance API and lowering boundary
@@ -560,7 +560,7 @@ Outcome: an implementable API/boundary decision record and a reproducible baseli
   remain in the historical decision record; no stable timing result is claimed.
   Preserve the selected registered GPU cases and supported backend environments.
   The original protocol remains the
-  [rendering baseline protocol](../Development/Build/RenderingPerformanceBaseline.md).
+  [rendering baseline protocol](../../../Development/Build/RenderingPerformanceBaseline.md).
 
 Gate: decisions resolve the above choices, with baseline evidence and an exact
 change inventory. Missing GPU evidence is recorded as outstanding, not inferred
@@ -786,7 +786,7 @@ by the user; optional unrelated qualifications do not block intermediate stages.
 
 Local qualification receipt (2026-10-08):
 
-The [matched receipt](../Development/Build/RenderingPerformanceBaselineReceipt20261008.md#resumed-execution-matched-rtx-3090-observations)
+The [matched receipt](../../../Development/Build/RenderingPerformanceBaselineReceipt20261008.md#resumed-execution-matched-rtx-3090-observations)
 records candidate `92366a6cc9e14cb85e3ac98e2d8882e1874dafb4`, reference
 `32bbb237222e3fc3c1d60904d59ae779d0611e1a` and the identical diagnostic probe.
 Six alternating pairs pass correctness/memory; CPU author median/p95 investigation
@@ -860,13 +860,13 @@ Test-only host-policy follow-up (2026-10-08):
 
 ## Permanent Contract Owners
 
-- [Render Graph](../Runtime/Rendering/RenderGraph.md): instance declaration,
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md): instance declaration,
   normalization, validation, dependency, content, and managed escape-hatch rules.
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md):
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md):
   route authoring, local binding construction, results, telemetry and publication.
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md): attachment
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md): attachment
   recording/replay authority and any changed shared binding execution contracts.
-- [Rendering Performance Baseline](../Development/Build/RenderingPerformanceBaseline.md):
+- [Rendering Performance Baseline](../../../Development/Build/RenderingPerformanceBaseline.md):
   selection and comparison protocol; store new evidence in its prescribed form.
 
 Implementation commits update this plan's status/checklists and use exact `Plan`

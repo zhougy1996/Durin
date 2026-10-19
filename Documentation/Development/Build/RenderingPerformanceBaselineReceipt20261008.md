@@ -112,7 +112,7 @@ resumed Stage 3-5 execution, the runtime reports RTX 3090 / Vulkan 1.4.351 / dri
 `0x9a100000` (616.64). Their timings must not be compared across these environments.
 The same-date candidate/reference observations below preserve this distinction.
 
-- The [RDG access plan](../../Plans/RdgAccessDeclarationsAndBaseSceneDecomposition.md)
+- The [RDG access plan](../../Plans/Archive/2026-10/RdgAccessDeclarationsAndBaseSceneDecomposition.md)
   still requires the complete feature matrix's graph captures, rendered output
   comparison, failure/result and finalization continuity evidence. The passing
   fixture assertions do not substitute for every planned route.
