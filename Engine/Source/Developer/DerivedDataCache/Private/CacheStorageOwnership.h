@@ -5,6 +5,10 @@
 
 namespace Durin::DerivedData::Private
 {
+	class FCacheStorageLease;
+	DERIVEDDATACACHE_API auto OpenCacheStorageLease(const std::filesystem::path& Root, bool Exclusive)
+		-> std::expected<std::shared_ptr<FCacheStorageLease>, FCacheError>;
+
 	class FCacheStorageLease
 	{
 	public:
@@ -15,8 +19,6 @@ namespace Durin::DerivedData::Private
 		intptr_t Handle = -1;
 	};
 	inline constexpr std::string_view CacheLockName = ".durin-ddc-v1.lock";
-	DERIVEDDATACACHE_API auto OpenCacheStorageLease(const std::filesystem::path& Root, bool Exclusive)
-		-> std::expected<std::shared_ptr<FCacheStorageLease>, FCacheError>;
 	// Process ownership follows the configured root. Callers retain their lease
 	// through the complete record transaction, including blob-before-manifest Put.
 	auto AcquireCacheStorageOwnership() -> std::expected<std::shared_ptr<FCacheStorageLease>, FCacheError>;
