@@ -75,6 +75,9 @@ namespace
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "PreparationVariantRoot");
 			RootHandle = Durin::FObjectKey(Root);
 		}
+		// Earlier cases may have enabled asynchronous compilation. Capture only
+		// accepted material programs, regardless of the case execution order.
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Root);
 		auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, Name);
 		Durin::FMaterialPropertyOverrides Overrides;
 		Overrides.bOverrideBlendMode = true;
@@ -86,6 +89,7 @@ namespace
 		Overrides.Values.DepthWritePolicy = DepthWrite;
 		Overrides.Values.OpacityMaskThreshold = 0.4f;
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 		return Material->GetMaterialRenderProxy();
 	}
 
@@ -1366,7 +1370,7 @@ namespace Durin::Tests
 
 namespace Durin::Tests
 {
-	// Own this target's shader lifecycle so extension mounts precede the freeze.
+	// Own shader setup and terminal compiler shutdown for the entire target.
 	class FGeometryQualificationEnvironment final : public testing::Environment
 	{
 	public:
@@ -1384,7 +1388,12 @@ namespace Durin::Tests
 			ASSERT_TRUE(RendererPrivate::RegisterMeshVertexFactory(std::make_shared<FQualificationFactory>(true)));
 			FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 		}
-		auto TearDown() -> void override { FModuleManager::Get().ShutdownModule("ShaderBuild"); }
+		auto TearDown() -> void override
+		{
+			// Per-case shutdown would make later cases attempt a forbidden restart.
+			ShutdownAssetCompilingManager();
+			FModuleManager::Get().ShutdownModule("ShaderBuild");
+		}
 	};
 	[[maybe_unused]] const auto GeometryEnvironment = testing::AddGlobalTestEnvironment(new FGeometryQualificationEnvironment());
 }
@@ -1924,7 +1933,8 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 	using namespace Durin;
 	using namespace Durin::Tests;
 	InitializeDObjectSystem();
-	ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(InitializeAssetCompilingManager());
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetManager());
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -2176,8 +2186,8 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 	using namespace Durin;
 	using namespace Durin::Tests;
 	InitializeDObjectSystem();
-	const bool bOwnsCompiler = !FAssetCompilingManager::Get().IsAcceptingRequests();
-	if (bOwnsCompiler) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(InitializeAssetCompilingManager());
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetManager());
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -2426,7 +2436,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) { Geometry->ReleaseResources(); });
 		FlushRenderingCommands();
 	}
-	Lifecycle.Shutdown(); ShutdownRenderingThread(); RHIExit(); if (bOwnsCompiler) ShutdownAssetCompilingManager();
+	Lifecycle.Shutdown(); ShutdownRenderingThread(); RHIExit();
 }
 
 TEST(FMaterialParameterCollectionVulkanTests,
@@ -2872,7 +2882,6 @@ TEST(FMaterialParameterCollectionVulkanTests,
 	RendererLifecycle.Shutdown();
 	ShutdownRenderingThread();
 	RHIExit();
-	ShutdownAssetCompilingManager();
 }
 
 TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndInitializesNewResources)
@@ -2917,6 +2926,205 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndI
 	MarkAsGarbage(Mesh);
 	CollectGarbage();
 	FlushRenderingCommands();
+	ShutdownRenderingThread();
+	RHIExit();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransformsInPixelsAndNormalMapping)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+	GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(InitializeAssetCompilingManager());
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("SplineMirrorGpuRegression");
+	Lifecycle.Start(Renderer);
+	{
+		TStrongObjectPtr<DMaterial> SingleSided(NewObject<DMaterial>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterial> TwoSided(NewObject<DMaterial>(nullptr, NAME_None));
+		FMaterialExpressionSurfaceOutputs Outputs;
+		Outputs.BaseColor.SetConstant({0.8f, 0.2f, 0.1f});
+		// A nonzero tangent-space Y makes an incorrect bitangent sign visible
+		// in the captured GBuffer, independently of the lighting direction.
+		Outputs.Normal.SetConstant({0.3f, 0.6f, 0.74f});
+		for (auto* Material : {SingleSided.Get(), TwoSided.Get()})
+		{
+			FMaterialStaticProperties Properties;
+			Properties.bTwoSided = Material == TwoSided.Get();
+			ASSERT_TRUE(Material->SetStaticProperties(Properties));
+			ASSERT_TRUE(Material->SetMaterialExpressions({}, Outputs));
+			FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+			ASSERT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
+		}
+		auto Data = MakeRenderData();
+		Data->LODResources[0].Sections.resize(1);
+		Data->RecalculateBounds();
+		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+			ASSERT_TRUE(Data->InitResources(Commands));
+		});
+		FlushRenderingCommands();
+		FSceneTestOwner Reference, Spline;
+		struct FObservation
+		{
+			FByteBuffer Pixels, Normals, Depth;
+		};
+		auto Render = [&](FScene* Scene, ERenderMode Mode, FObservation& Observation) {
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				FSceneView View;
+				View.ViewportWidth = View.ViewportHeight = 96;
+				View.Settings.Mode.RenderMode = Mode;
+				View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+				static FObservation* Capture = nullptr;
+				Capture = &Observation;
+				if (Mode == ERenderMode::Lit)
+					SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture*, FRHITexture* Normals,
+						FRHITexture*, FRHITexture*, FRHITexture* Depth) {
+						ReadGeometryTexture(C, Normals, Capture->Normals);
+						ReadGeometryTexture(C, Depth, Capture->Depth, true);
+					});
+				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("SplineMirrorRegression", 96, 96, EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				const auto Result = Renderer.RenderView(Commands, Scene, View, Target, false, {});
+				SetGBufferCaptureSink(nullptr);
+				Capture = nullptr;
+				EXPECT_EQ(Result, ERenderViewResult::Success);
+				ReadGeometryTexture(Commands, Target, Observation.Pixels);
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			});
+			FlushRenderingCommands();
+		};
+		for (const bool bTwoSided : {false, true})
+			for (const double WorldSide : {1.0, -1.0})
+				for (const FVector2 Scale : {FVector2(1.0, 1.0), FVector2(-1.0, 1.0),
+					FVector2(1.0, -1.0), FVector2(-1.0, -1.0)})
+				{
+					SCOPED_TRACE(std::format("two-sided={} world-side={} spline-scale=({}, {})", bTwoSided, WorldSide, Scale.x, Scale.y));
+					const auto Material = (bTwoSided ? TwoSided : SingleSided)->GetMaterialRenderProxy();
+					FMatrix World = Math::ScaleMatrix(FVector3(0.75, 0.75 * WorldSide, 0.75));
+					World[3][2] = 0.5;
+					const FMatrix StaticTransform = World * Math::ScaleMatrix(FVector3(1.0, Scale.x, Scale.y));
+					FSplineMeshRenderDynamicData Dynamic;
+					Dynamic.Params.StartPosition = {-1.0, 0.0, 0.0};
+					Dynamic.Params.EndPosition = {1.0, 0.0, 0.0};
+					Dynamic.Params.StartTangent = Dynamic.Params.EndTangent = {2.0, 0.0, 0.0};
+					Dynamic.Params.SourceForwardMin = -1.0;
+					Dynamic.Params.SourceForwardMax = 1.0;
+					Dynamic.Params.StartScale = Dynamic.Params.EndScale = Scale;
+					Dynamic.LocalBounds = Data->LocalBounds;
+					Dynamic.Revision = 1;
+					ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Reference, FPrimitiveComponentId(601),
+						std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector{Material}), StaticTransform));
+					ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Spline, FPrimitiveComponentId(602),
+						std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{Material}, Dynamic), World));
+					FlushRenderingCommands();
+					// Exercise the same orientation policy used by base and shadow passes.
+					EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+						for (const auto Mode : {ERenderPreparationMode::Full, ERenderPreparationMode::ShadowDepth})
+						{
+							FSceneView View;
+							const auto A = PrepareStaticMeshView_RenderThread(Commands, Reference->GetPrimitiveSceneInfos(), View, ERasterMode::Solid, Mode);
+							const auto B = PrepareStaticMeshView_RenderThread(Commands, Spline->GetPrimitiveSceneInfos(), View, ERasterMode::Solid, Mode);
+							ASSERT_EQ(A.Opaque.size(), 1u);
+							ASSERT_EQ(B.Opaque.size(), 1u);
+							EXPECT_EQ(A.Opaque[0].Command->PipelineKey.Rasterizer.FrontFace, B.Opaque[0].Command->PipelineKey.Rasterizer.FrontFace);
+							EXPECT_EQ(A.Opaque[0].Command->PipelineKey.Rasterizer.CullMode, B.Opaque[0].Command->PipelineKey.Rasterizer.CullMode);
+						}
+					});
+					FlushRenderingCommands();
+					for (const auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
+					{
+						FObservation A, B;
+						Render(Reference.Get(), Mode, A);
+						Render(Spline.Get(), Mode, B);
+						ASSERT_EQ(A.Pixels.size(), 96u * 96u * 4u);
+						EXPECT_EQ(A.Pixels, B.Pixels);
+						if (Mode != ERenderMode::Lit) continue;
+						ASSERT_EQ(A.Depth.size(), 96u * 96u * sizeof(float));
+						EXPECT_EQ(A.Depth, B.Depth);
+						ASSERT_EQ(A.Normals.size(), 96u * 96u * 4u);
+						EXPECT_EQ(A.Normals, B.Normals);
+						size_t Covered = 0;
+						for (size_t Offset = 0; Offset < A.Depth.size(); Offset += sizeof(float))
+						{
+							float Depth;
+							std::memcpy(&Depth, A.Depth.data() + Offset, sizeof(float));
+							Covered += Depth < 1.0f;
+						}
+						// Two-sided captures always contain geometry; single-sided
+						// mirrors also test the reference's intentionally culled side.
+						if (bTwoSided || Scale.y > 0.0) EXPECT_GT(Covered, 1000u);
+						else EXPECT_EQ(Covered, 0u);
+					}
+				}
+		// A segment that changes orientation needs both faces in a single draw.
+		// Compare single-sided authoring with an explicitly two-sided baseline.
+		for (const auto Interpolation : {ESplineMeshInterpolation::Linear, ESplineMeshInterpolation::SmoothStep})
+			for (const auto EndScale : {FVector2(2.0, 1.0), FVector2(-1.0, -1.0), FVector2(0.0, 1.0)})
+			{
+				FSplineMeshRenderDynamicData Dynamic;
+				Dynamic.Params.StartPosition = {-1.0, 0.0, 0.0};
+				Dynamic.Params.EndPosition = {1.0, 0.0, 0.0};
+				Dynamic.Params.StartTangent = Dynamic.Params.EndTangent = {2.0, 0.0, 0.0};
+				Dynamic.Params.SourceForwardMin = -1.0;
+				Dynamic.Params.SourceForwardMax = 1.0;
+				Dynamic.Params.StartScale = {-1.0, 1.0};
+				Dynamic.Params.EndScale = EndScale;
+				Dynamic.Params.Interpolation = Interpolation;
+				Dynamic.LocalBounds = Data->LocalBounds;
+				Dynamic.Revision = 1;
+				FMatrix World = Math::ScaleMatrix(FVector3(0.4));
+				World[3][2] = 0.5;
+				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Reference, FPrimitiveComponentId(601),
+					std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{TwoSided->GetMaterialRenderProxy()}, Dynamic), World));
+				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Spline, FPrimitiveComponentId(602),
+					std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{SingleSided->GetMaterialRenderProxy()}, Dynamic), World));
+				FlushRenderingCommands();
+				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+					for (const auto Mode : {ERenderPreparationMode::Full, ERenderPreparationMode::ShadowDepth})
+					{
+						const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Spline->GetPrimitiveSceneInfos(),
+							FSceneView{}, ERasterMode::Solid, Mode);
+						ASSERT_EQ(Prepared.Opaque.size(), 1u);
+						EXPECT_EQ(Prepared.Opaque[0].Command->PipelineKey.Rasterizer.CullMode, ERHICullMode::None);
+					}
+				});
+				FlushRenderingCommands();
+				FObservation A, B;
+				Render(Reference.Get(), ERenderMode::Lit, A);
+				Render(Spline.Get(), ERenderMode::Lit, B);
+				ASSERT_EQ(A.Pixels.size(), 96u * 96u * 4u);
+				EXPECT_EQ(A.Pixels, B.Pixels);
+				EXPECT_EQ(A.Depth, B.Depth);
+				EXPECT_EQ(A.Normals, B.Normals);
+				ASSERT_EQ(A.Depth.size(), 96u * 96u * sizeof(float));
+				size_t Covered = 0;
+				for (size_t Offset = 0; Offset < A.Depth.size(); Offset += sizeof(float))
+				{
+					float Depth;
+					std::memcpy(&Depth, A.Depth.data() + Offset, sizeof(float));
+					Covered += Depth < 1.0f;
+				}
+				EXPECT_GT(Covered, 100u);
+			}
+		Reference.Reset();
+		Spline.Reset();
+		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) { Data->ReleaseResources(); });
+		FlushRenderingCommands();
+	}
+	Lifecycle.Shutdown();
 	ShutdownRenderingThread();
 	RHIExit();
 }
@@ -3053,6 +3261,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	Properties.BlendMode = EMaterialBlendMode::Masked;
 	Properties.bTwoSided = true;
 	EXPECT_TRUE(Masked->SetStaticProperties(Properties));
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Masked);
 	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
 		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Masked->GetMaterialRenderProxy()}), FMatrix(1.0));
 	EXPECT_EQ(CaptureCenter(), 17u); // Masked-out fragments reveal the far surface.
@@ -3133,4 +3342,26 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SharedFactsRejectChangedTransforms
 	EXPECT_NE(ChangedIndex, OtherIndex);
 	EXPECT_NE(ChangedIndex, FirstIndex);
 	EXPECT_EQ(Cache.MaterialBuilds, 3u);
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, RepeatedVulkanInitializationPreservesDiagnostics)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModule("RenderCore");
+	std::optional<bool> ValidationActive;
+	for (uint32 Cycle = 0; Cycle < 8; ++Cycle)
+	{
+		SCOPED_TRACE(Cycle);
+		ASSERT_EQ(GDynamicRHI, nullptr);
+		RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+		ASSERT_NE(GDynamicRHI, nullptr);
+		bool Active = false;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+			Active = GDynamicRHI->RHIGetDiagnosticSnapshot().Availability.bValidationLayerActive;
+		});
+		if (ValidationActive) EXPECT_EQ(Active, *ValidationActive);
+		else ValidationActive = Active;
+		RHIExit();
+		EXPECT_EQ(GDynamicRHI, nullptr);
+	}
 }

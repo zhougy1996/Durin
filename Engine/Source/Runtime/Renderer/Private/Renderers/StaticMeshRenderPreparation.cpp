@@ -4,6 +4,7 @@
 #include "Renderers/MeshRendererShared.h"
 #include "SceneInfo.h"
 #include "Rendering/MeshBatch.h"
+#include "Rendering/StaticMeshBatchBinding.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Profiling/Profiling.h"
 #include "Materials/MaterialProgramCompiler.h"
@@ -303,6 +304,21 @@ namespace Durin
 				FrozenBatch.Transform = Cache.ResolveTransform(Primitive.Id, Batch.BatchId, Batch.LocalToWorld);
 				if (!FrozenBatch.Transform.bValid) continue;
 				const double Determinant = FrozenBatch.Transform.Determinant;
+				bool bReverseCulling = Determinant < 0.0;
+				bool bSplineChangesOrientation = false;
+				if (const auto* Spline = dynamic_cast<const FSplineMeshBatchBinding*>(Binding.get()))
+				{
+					const auto& Params = Spline->DynamicData.Params;
+					// Scale interpolation is monotone. A zero or sign change cannot
+					// be represented by one front-face orientation for the whole draw.
+					for (size_t Axis = 0; Axis < 2; ++Axis)
+					{
+						const double Start = Params.StartScale[Axis];
+						const double End = Params.EndScale[Axis];
+						bSplineChangesOrientation |= Start == 0.0 || End == 0.0 || (Start < 0.0) != (End < 0.0);
+						bReverseCulling ^= Start < 0.0;
+					}
+				}
 				FrozenBatch.Elements.resize(Batch.GetNumElements());
 				for (size_t ElementIndex = 0; ElementIndex < Batch.GetNumElements(); ++ElementIndex)
 				{
@@ -322,8 +338,9 @@ namespace Durin
 					const uint64 Policy = static_cast<uint64>(RasterMode)
 						| (static_cast<uint64>(View.DepthConvention) << 8)
 						| (static_cast<uint64>(Mode) << 16)
-						| (static_cast<uint64>(Determinant < 0.0) << 24)
-						| (static_cast<uint64>(bSplineMesh) << 25);
+						| (static_cast<uint64>(bReverseCulling) << 24)
+						| (static_cast<uint64>(bSplineMesh) << 25)
+						| (static_cast<uint64>(bSplineChangesOrientation) << 26);
 					const FMeshDrawDescriptionCache::FKey Key{
 						Batch.GeometryRecord ? Batch.GeometryRecord->GetRecordId() : 0,
 						ElementIndex, Material.Representation.GetRecordId(), Policy};
@@ -350,8 +367,8 @@ namespace Durin
 						Candidate->PipelineKey.Rasterizer.PolygonMode =
 							RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
 						Candidate->PipelineKey.Rasterizer.CullMode =
-							Candidate->Material.PlanningPassIdentity.bTwoSided ? ERHICullMode::None : ERHICullMode::Back;
-						Candidate->PipelineKey.Rasterizer.FrontFace = Determinant < 0.0 ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
+							Candidate->Material.PlanningPassIdentity.bTwoSided || bSplineChangesOrientation ? ERHICullMode::None : ERHICullMode::Back;
+						Candidate->PipelineKey.Rasterizer.FrontFace = bReverseCulling ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
 						Candidate->PipelineKey.Depth.bEnableTest = true;
 						Candidate->PipelineKey.Depth.CompareOp =
 							View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less;

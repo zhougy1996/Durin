@@ -100,7 +100,16 @@ public FLocalVertexFactoryIntermediates GetSplineMeshVertexFactoryIntermediates(
     float3 tangent = SourceCoordinates(input.packedTangent.xyz, axis);
     tangent = SafeNormalize(forward * tangent.x + side * tangent.y * scale.x
         + up * tangent.z * scale.y, forward);
-    tangent = SafeNormalize(tangent - result.localNormal * dot(result.localNormal, tangent), forward);
-    result.localTangent = float4(tangent, input.packedTangent.w);
+    float3 tangentFallback = SafeNormalize(
+        cross(LeastAlignedCardinal(result.localNormal), result.localNormal), float3(1.0, 0.0, 0.0));
+    tangent = SafeNormalize(tangent - result.localNormal * dot(result.localNormal, tangent), tangentFallback);
+    // Match the CPU tangent basis, including reflections and degenerate scales.
+    float sourceHandedness = input.packedTangent.w < 0.0 ? -1.0 : 1.0;
+    float3 bitangent = SourceCoordinates(cross(input.packedNormal.xyz, input.packedTangent.xyz)
+        * sourceHandedness, axis);
+    bitangent = SafeNormalize(forward * bitangent.x + side * bitangent.y * scale.x
+        + up * bitangent.z * scale.y, forward);
+    float handedness = dot(cross(result.localNormal, tangent), bitangent) < 0.0 ? -1.0 : 1.0;
+    result.localTangent = float4(tangent, handedness);
     return result;
 }
