@@ -4,7 +4,7 @@ Summary: Define UE-shaped native recording, synchronous Undo/Redo, package check
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-19
 
 ## Service Ownership
 
@@ -12,7 +12,8 @@ Last reviewed: 2026-10-18
 transient `DTransBuffer` in `Trans`. Application Undo/Redo, property editors,
 domain commands, Activity History, and notifications share this ordered history.
 `DEditorEngine::BeginTransaction`, `EndTransaction`, and `CancelTransaction`
-forward to that service. Independent hosts may pass a transactor explicitly.
+forward to that service. Scoped native recordings receive their owning host's
+transactor explicitly.
 
 CoreDObject defines the runtime-neutral `FObjectTransaction` bridge. Host operation
 scopes bind their recorder only while native/UI/tool/Python callbacks execute,
@@ -27,8 +28,7 @@ For unbound native Begin/Modify, the bridge resolves a single live recording.
 With multiple recordings it declines capture until the caller supplies an explicit
 `FScopedObjectTransactionBinding` or host callback boundary. This preserves ordinary
 single-host native use without selecting another suspended host's history. End,
-Cancel and destruction remove recording candidates; no cross-frame
-PreviousRecorder stack exists. `GUndo` remains a legacy explicit bridge injection.
+Cancel and destruction remove recording candidates.
 Without a resolved recording, Modify keeps its normal dirty behavior and returns
 false. Execution bindings retain recorder storage, whose owner is invalidated at
 transactor destruction; they do not keep a destroyed host valid.
@@ -54,9 +54,11 @@ This source version's `Cancel(StartIndex)` cancels the entire active recording,
 including cancellation by an inner scope. It does not restore applied edits.
 The index is an activity count, never a history ID or an isolated savepoint.
 
-`FScopedTransaction` provides description/full-context constructors,
-`bShouldActuallyTransact`, `Cancel()`, `IsOutstanding()`, and optional explicit
-End. Its destructor ends an outstanding action. Disabled scopes remain inert.
+`FScopedTransaction` requires an explicit `DTransactor*` and `FTransactionContext`;
+it never resolves a transactor from `GEditor` or the current execution binding.
+It provides `bShouldActuallyTransact`, `Cancel()`, `IsOutstanding()`, and optional
+explicit End. Its destructor ends an outstanding action. Null transactors and
+disabled scopes remain inert.
 Scope helpers retain a GC-visible exact transactor reference and its existing
 active transaction ID. End, Cancel, IsOutstanding and destruction first validate
 that same live recording. Cancel/End followed by a replacement Begin makes old
@@ -69,7 +71,7 @@ same-host callers join that global recording and other hosts keep distinct histo
 ### Everyday Object Editing
 
 ```cpp
-Editor::FScopedTransaction Transaction("Move Actor");
+Editor::FScopedTransaction Transaction(EditorHost->GetTransactor(), {.Description = "Move Actor"});
 Actor->Modify();
 Actor->SetActorTransform(NewTransform);
 ```
@@ -102,6 +104,10 @@ An unchanged Modify can therefore leave a dirty package without a history entry.
 No-op pruning and cancellation do not promise to clear dirtiness.
 
 ## Structural History And Barriers
+
+`DTransactor::GetHistoryCount()` reports the retained history size, including
+both Undo and Redo entries. `GetTransaction(Index)` reads an entry in that history;
+`DTransBuffer::GetUndoCount()` and `GetRedoCount()` report the two sides of the cursor.
 
 History entries before the cursor are undoable; entries after it are redoable.
 A successful new commit replaces the redo suffix. IDs remain monotonic across

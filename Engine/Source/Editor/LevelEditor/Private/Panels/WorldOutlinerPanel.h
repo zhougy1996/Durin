@@ -31,8 +31,8 @@ namespace Durin::Editor::Level
 		auto IsNodeVisible(uint32 NodeIndex) const -> bool;
 		auto IsDescendantOf(const AActor* Actor, const AActor* CandidateAncestor) const -> bool;
 		auto DuplicateSelectedActors(FLevelEditorContext& Context) -> void;
-		auto SetActorVisibility(const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void;
-		auto ShowAllActors() -> void;
+		auto SetActorVisibility(FLevelEditorContext& Context, const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void;
+		auto ShowAllActors(FLevelEditorContext& Context) -> void;
 		auto AreAllActorsHidden(const std::vector<TObjectPtr<AActor>>& Actors) const -> bool;
 		auto HasSelectedAncestor(const std::vector<TObjectPtr<AActor>>& Actors, AActor* Candidate) const -> bool;
 		auto BeginActorRename(AActor* Actor) -> void;

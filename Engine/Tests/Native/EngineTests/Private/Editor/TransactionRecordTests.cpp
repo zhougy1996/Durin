@@ -1763,17 +1763,17 @@ TEST(FTransBufferTests, HostExecutionBindingSupportsABAAndNonLifoRecordingComple
 	TStrongObjectPtr<DTransactionRecordParticipant> Right(NewObject<DTransactionRecordParticipant>(nullptr, "ExecutionRight"));
 	std::unique_ptr<FScopedTransaction> First, Second;
 	A->DispatchSubsystemCallback([&] {
-		First = std::make_unique<FScopedTransaction>("A");
+		First = std::make_unique<FScopedTransaction>(A->GetTransactor(), FTransactionContext{.Description = "A"});
 		ASSERT_TRUE(Left->Modify()); Left->Value = 1;
 	});
 	B->DispatchSubsystemCallback([&] {
 		EXPECT_FALSE(Right->Modify(false)); // An idle host never joins A's suspended recording.
-		Second = std::make_unique<FScopedTransaction>("B");
+		Second = std::make_unique<FScopedTransaction>(B->GetTransactor(), FTransactionContext{.Description = "B"});
 		ASSERT_TRUE(Right->Modify()); Right->Value = 2;
 	});
 	EXPECT_FALSE(Left->Modify(false)); // Ambiguous unbound entry cannot select a host.
 	A->DispatchSubsystemCallback([&] {
-		FScopedTransaction Inner("A inner");
+		FScopedTransaction Inner(A->GetTransactor(), {.Description = "A inner"});
 		ASSERT_TRUE(Left->Modify()); Left->Value = 3;
 		B->DispatchSubsystemCallback([&] { ASSERT_TRUE(Right->Modify()); Right->Value = 4; });
 		ASSERT_TRUE(Left->Modify()); Left->Value = 5;

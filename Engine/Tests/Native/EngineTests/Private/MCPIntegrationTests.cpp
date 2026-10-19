@@ -470,7 +470,7 @@ namespace
 		auto Response = Pump(Pending); ASSERT_TRUE(Response); EXPECT_EQ(200, Response->status);
 		EXPECT_NE(std::string::npos, Response->body.find("\"isError\":false"));
 		EXPECT_NE(std::string::npos, Response->body.find("\"data\":true"));
-		EXPECT_EQ(1, Calls); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
+		EXPECT_EQ(1, Calls); EXPECT_EQ(0u, Host->GetTransactor()->GetHistoryCount());
 	}
 
 }

@@ -504,7 +504,7 @@ with durin.ScopedEditorTransaction('Script grouped edits') as outer:
 assert outer.__exit__(None, None, None) is None
 )PY");
         auto Result = Wait(Job, false); EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
-        auto* Trans = Host->GetTransactor(); ASSERT_EQ(1u, Trans->GetQueueLength());
+        auto* Trans = Host->GetTransactor(); ASSERT_EQ(1u, Trans->GetHistoryCount());
         EXPECT_EQ("Script grouped edits", Trans->GetTransaction(0)->GetContext().Description);
         EXPECT_EQ(3.0, Object->GetRelativeLocation().x); EXPECT_FALSE(Trans->IsActive());
         ASSERT_TRUE(Trans->Undo()); EXPECT_EQ(0.0, Object->GetRelativeLocation().x);
@@ -526,7 +526,7 @@ with durin.ScopedEditorTransaction('Exception keeps edit'):
     raise ValueError('preserved')
 )PY"), false);
         EXPECT_EQ(EPythonJobState::Failed, Failed.State); EXPECT_EQ(1.0, Object->GetRelativeLocation().x);
-        auto* Trans = Host->GetTransactor(); ASSERT_EQ(1u, Trans->GetQueueLength()); ASSERT_TRUE(Trans->Undo());
+        auto* Trans = Host->GetTransactor(); ASSERT_EQ(1u, Trans->GetHistoryCount()); ASSERT_TRUE(Trans->Undo());
         EXPECT_EQ(0.0, Object->GetRelativeLocation().x); ASSERT_TRUE(Trans->Redo());
         auto Cancelled = Wait(Submit(R"PY(
 import durin
@@ -537,7 +537,7 @@ with durin.ScopedEditorTransaction('Outer'):
 assert inner.cancel() is None
 )PY"), false);
         EXPECT_EQ(EPythonJobState::Succeeded, Cancelled.State) << Cancelled.Error;
-        EXPECT_EQ(2.0, Object->GetRelativeLocation().x); EXPECT_FALSE(Trans->IsActive()); EXPECT_EQ(1u, Trans->GetQueueLength());
+        EXPECT_EQ(2.0, Object->GetRelativeLocation().x); EXPECT_FALSE(Trans->IsActive()); EXPECT_EQ(1u, Trans->GetHistoryCount());
     }
     TEST_F(FPythonToolIntegrationTests, StopRequestedInsideNativeHandlerFinalizesAfterScriptReturn)
     {
@@ -656,7 +656,7 @@ with durin.ScopedEditorTransaction('Cancelled job keeps applied edit'):
         });
         const auto Result = Wait(Job, false); Canceller.get();
         EXPECT_EQ(EPythonJobState::Cancelled, Result.State); EXPECT_FALSE(Host->GetTransactor()->IsActive());
-        EXPECT_EQ(7.0, Object->GetRelativeLocation().x); ASSERT_EQ(1u, Host->GetTransactor()->GetQueueLength());
+        EXPECT_EQ(7.0, Object->GetRelativeLocation().x); ASSERT_EQ(1u, Host->GetTransactor()->GetHistoryCount());
         ASSERT_TRUE(Host->GetTransactor()->Undo()); EXPECT_EQ(0.0, Object->GetRelativeLocation().x);
         ASSERT_TRUE(Host->GetTransactor()->Redo()); EXPECT_EQ(7.0, Object->GetRelativeLocation().x);
     }
@@ -781,14 +781,14 @@ def prepare():
         Tools->TickScripts(); EXPECT_EQ(0, PendingCalls); // A callback returning a generator is one step.
         Tools->TickScripts(); EXPECT_EQ(1, PendingCalls); EXPECT_EQ(0, Calls);
         EXPECT_FALSE(Host->GetTransactor()->IsActive());
-        EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
+        EXPECT_EQ(0u, Host->GetTransactor()->GetHistoryCount());
         EXPECT_TRUE(Source.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{{"value", 7}, {"revision", uint64{1}}, {"target", "fixture-object"}}}));
         EXPECT_EQ(0, Calls); // Completion never reenters Python inline.
         Tools->TickScripts(); EXPECT_EQ(0, Calls); // Raw provider readiness is not validated publication.
         Tools->TickTools(); Tools->TickScripts();
         auto Result = Runtime.GetJobResult(Job); ASSERT_TRUE(Result);
         EXPECT_EQ(EPythonJobState::Succeeded, Result->State) << Result->Error;
-        EXPECT_EQ(7.0, Object->GetRelativeLocation().x); EXPECT_EQ(1u, Host->GetTransactor()->GetQueueLength());
+        EXPECT_EQ(7.0, Object->GetRelativeLocation().x); EXPECT_EQ(1u, Host->GetTransactor()->GetHistoryCount());
         ASSERT_TRUE(Host->GetTransactor()->Undo()); EXPECT_EQ(0.0, Object->GetRelativeLocation().x);
         ASSERT_TRUE(Host->GetTransactor()->Redo()); EXPECT_EQ(7.0, Object->GetRelativeLocation().x);
     }
@@ -821,7 +821,7 @@ def edit():
         EXPECT_EQ(2.0, Object->GetRelativeLocation().x); EXPECT_TRUE(Host->GetTransactor()->IsActive());
         Source.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{}});
         auto Result = Wait(Job); EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
-        EXPECT_EQ(1u, Host->GetTransactor()->GetQueueLength());
+        EXPECT_EQ(1u, Host->GetTransactor()->GetHistoryCount());
         ASSERT_TRUE(Host->GetTransactor()->Undo()); EXPECT_EQ(0.0, Object->GetRelativeLocation().x); EXPECT_EQ(0.0, UiObject->GetRelativeLocation().x);
         ASSERT_TRUE(Host->GetTransactor()->Redo()); EXPECT_EQ(3.0, Object->GetRelativeLocation().x); EXPECT_EQ(9.0, UiObject->GetRelativeLocation().x);
     }
@@ -1009,7 +1009,7 @@ def edit():
             durin.tools.call('python.tests', 'echo', {'value': 9})
 )PY"));
         EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
-        EXPECT_EQ(9.0, Object->GetRelativeLocation().x); EXPECT_EQ(1u, Host->GetTransactor()->GetQueueLength());
+        EXPECT_EQ(9.0, Object->GetRelativeLocation().x); EXPECT_EQ(1u, Host->GetTransactor()->GetHistoryCount());
         ASSERT_TRUE(Host->GetTransactor()->Undo()); EXPECT_EQ(6.0, Object->GetRelativeLocation().x);
         ASSERT_TRUE(Host->GetTransactor()->Redo()); EXPECT_EQ(9.0, Object->GetRelativeLocation().x);
     }
@@ -1065,7 +1065,7 @@ def edit():
         MarkObjectHierarchyAsGarbage(Object.Get()); Object.Reset(); CollectGarbage();
         auto Result = Wait(Job);
         EXPECT_EQ(EPythonJobState::Failed, Result.State); EXPECT_FALSE(Result.Error.empty());
-        EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
+        EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(0u, Host->GetTransactor()->GetHistoryCount());
     }
 
     TEST_F(FPythonToolIntegrationTests, IntegratedFoundationRevalidatesAndPreservesCancelledGlobalRecording)
@@ -1105,7 +1105,7 @@ def prepare():
         for (int I = 0; I < 3; ++I) Host->Tick(0.0f, false);
         ASSERT_EQ(1, PendingCalls); EXPECT_FALSE(Host->GetTransactor()->IsActive());
         Host->DispatchSubsystemCallback([&] {
-            Editor::FScopedTransaction Ui("UI changes revision");
+            Editor::FScopedTransaction Ui(Host->GetTransactor(), {.Description = "UI changes revision"});
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({2, 0, 0}); ++Revision;
         });
         Preparation.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{{"value", 4}, {"revision", uint64{1}}, {"target", "fixture"}}});
@@ -1113,7 +1113,7 @@ def prepare():
         auto Rejected = Runtime.GetJobResult(Stale); ASSERT_TRUE(Rejected);
         EXPECT_EQ(EPythonJobState::Succeeded, Rejected->State) << Rejected->Error;
         EXPECT_EQ("revision conflict\n", Rejected->Output); EXPECT_EQ(0, Effects);
-        EXPECT_EQ(2.0, Object->GetRelativeLocation().x); EXPECT_EQ(1u, Host->GetTransactor()->GetQueueLength());
+        EXPECT_EQ(2.0, Object->GetRelativeLocation().x); EXPECT_EQ(1u, Host->GetTransactor()->GetHistoryCount());
 
         PendingRegistration.Reset(); PendingToolset.reset();
         auto Pending = FToolCompletionSource::CreateDetached(); RegisterPending(Tasks::Share(Pending.TakeTask()), Schema);
@@ -1137,7 +1137,7 @@ def edit():
         TStrongObjectPtr<FPythonTestEditor> Remote(NewObject<FPythonTestEditor>(nullptr, "IntegratedOtherHost")); ASSERT_TRUE(Remote->Start());
         TStrongObjectPtr<DSceneComponent> RemoteObject(NewObject<DSceneComponent>(nullptr, "IntegratedRemote", EObjectFlags::Transactional));
         Remote->DispatchSubsystemCallback([&] {
-            Editor::FScopedTransaction Scope("Other host"); EXPECT_TRUE(RemoteObject->Modify()); RemoteObject->SetRelativeLocation({4, 0, 0});
+            Editor::FScopedTransaction Scope(Remote->GetTransactor(), {.Description = "Other host"}); EXPECT_TRUE(RemoteObject->Modify()); RemoteObject->SetRelativeLocation({4, 0, 0});
         });
         ASSERT_TRUE(Remote->GetTransactor()->Undo()); EXPECT_EQ(0.0, RemoteObject->GetRelativeLocation().x);
         ASSERT_TRUE(Remote->GetTransactor()->Redo()); EXPECT_EQ(4.0, RemoteObject->GetRelativeLocation().x);
@@ -1146,7 +1146,7 @@ def edit():
         Host->Tick(0.0f, false);
         auto Result = Runtime.GetJobResult(Cancelled); ASSERT_TRUE(Result);
         EXPECT_EQ(EPythonJobState::Cancelled, Result->State); EXPECT_EQ("closed\n", Result->Output) << Result->Error;
-        EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(2u, Host->GetTransactor()->GetQueueLength());
+        EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(2u, Host->GetTransactor()->GetHistoryCount());
         EXPECT_EQ(2, Effects); EXPECT_EQ(7.0, Object->GetRelativeLocation().x); EXPECT_EQ(9.0, UiObject->GetRelativeLocation().x);
         ASSERT_TRUE(Host->GetTransactor()->Undo()); EXPECT_EQ(2.0, Object->GetRelativeLocation().x); EXPECT_EQ(0.0, UiObject->GetRelativeLocation().x);
         ASSERT_TRUE(Host->GetTransactor()->Redo()); EXPECT_EQ(7.0, Object->GetRelativeLocation().x); EXPECT_EQ(9.0, UiObject->GetRelativeLocation().x);

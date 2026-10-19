@@ -158,9 +158,10 @@ namespace Durin::Editor::Level
 		Context.SetSelectedActors(Actors);
 	}
 
-	auto FWorldOutlinerPanel::SetActorVisibility(const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void
+	auto FWorldOutlinerPanel::SetActorVisibility(FLevelEditorContext& Context, const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void
 	{
-		::Durin::Editor::FScopedTransaction Transaction(bHidden ? "Hide actors" : "Show actors");
+		::Durin::Editor::FScopedTransaction Transaction(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr,
+			{.Description = bHidden ? "Hide actors" : "Show actors"});
 		for (const TObjectPtr<AActor>& Actor : TargetActors)
 		{
 			if (!Actor || Actor->IsHidden() == bHidden) continue;
@@ -169,13 +170,13 @@ namespace Durin::Editor::Level
 		}
 	}
 
-	auto FWorldOutlinerPanel::ShowAllActors() -> void
+	auto FWorldOutlinerPanel::ShowAllActors(FLevelEditorContext& Context) -> void
 	{
 		std::vector<TObjectPtr<AActor>> AllActors;
 		AllActors.reserve(HierarchyModel.GetNodes().size());
 		for (const FWorldOutlinerHierarchyModel::FNode& Node : HierarchyModel.GetNodes())
 			AllActors.push_back(static_cast<AActor*>(Node.Key));
-		SetActorVisibility(AllActors, false);
+		SetActorVisibility(Context, AllActors, false);
 	}
 
 	auto FWorldOutlinerPanel::AreAllActorsHidden(const std::vector<TObjectPtr<AActor>>& Actors) const -> bool
@@ -220,8 +221,8 @@ namespace Durin::Editor::Level
 		{
 			ImGui::Separator();
 			const bool bAllSelectedHidden = AreAllActorsHidden(Context.GetSelectedActors());
-			if (ImGui::MenuItem(bAllSelectedHidden ? "Show Selected" : "Hide Selected", "H")) SetActorVisibility(Context.GetSelectedActors(), !bAllSelectedHidden);
-			if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors();
+			if (ImGui::MenuItem(bAllSelectedHidden ? "Show Selected" : "Hide Selected", "H")) SetActorVisibility(Context, Context.GetSelectedActors(), !bAllSelectedHidden);
+			if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors(Context);
 			ImGui::Separator();
 			if (auto* Camera = Cast<ACameraActor>(Actor))
 			{
@@ -233,7 +234,8 @@ namespace Durin::Editor::Level
 				}
 				else if (ImGui::MenuItem("Set as Primary Camera"))
 				{
-					::Durin::Editor::FScopedTransaction Transaction("Set primary camera");
+					::Durin::Editor::FScopedTransaction Transaction(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr,
+						{.Description = "Set primary camera"});
 					(void)Context.Level->Modify();
 					if (!Context.Level->SetPrimaryCameraActor(Camera))
 						Context.SetError("Failed to set the primary camera.");
@@ -397,7 +399,7 @@ namespace Durin::Editor::Level
 				}
 				ImGui::EndMenu();
 			}
-			if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors();
+			if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors(Context);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Rename", "F2")) BeginLevelRename(LevelName);
 			if (Context.bReadOnly) ImGui::EndDisabled();
@@ -432,9 +434,9 @@ namespace Durin::Editor::Level
 		if (!Context.bReadOnly && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_H, false))
 		{
 			if (IO.KeyCtrl)
-				ShowAllActors();
+				ShowAllActors(Context);
 			else if (!Context.GetSelectedActors().empty())
-				SetActorVisibility(Context.GetSelectedActors(), !AreAllActorsHidden(Context.GetSelectedActors()));
+				SetActorVisibility(Context, Context.GetSelectedActors(), !AreAllActorsHidden(Context.GetSelectedActors()));
 		}
 		if (!Context.bReadOnly && !Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
 			bRequestDelete = true;

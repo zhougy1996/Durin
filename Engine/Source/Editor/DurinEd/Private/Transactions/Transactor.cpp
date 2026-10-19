@@ -1,6 +1,5 @@
 #include "Transactions/Transactor.h"
 
-#include "Editor/EditorEngine.h"
 #include "PropertyEditor/PropertyEditing.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
@@ -490,27 +489,6 @@ namespace Durin::Editor
 		return true;
 	}
 
-	namespace
-	{
-		auto ExecutingTransactor() -> DTransactor*
-		{
-			if (HasObjectTransactionBinding())
-			{
-				const auto* Recorder = GetObjectTransactionRecorder();
-				return Recorder && Recorder->ObjectOwner ? Cast<DTransactor>(Recorder->ObjectOwner) : nullptr;
-			}
-			return GEditor ? GEditor->GetTransactor() : nullptr;
-		}
-	}
-	FScopedTransaction::FScopedTransaction(std::string_view Description, bool bShouldActuallyTransact)
-		: FScopedTransaction(ExecutingTransactor(),
-			{.Description = std::string(Description)}, bShouldActuallyTransact) {}
-
-	FScopedTransaction::FScopedTransaction(std::string_view Context, std::string_view Description,
-		DObject* PrimaryObject, bool bShouldActuallyTransact)
-		: FScopedTransaction(ExecutingTransactor(),
-			{std::string(Context), std::string(Description), FPersistentObjectRef(PrimaryObject)}, bShouldActuallyTransact) {}
-
 	FScopedTransaction::FScopedTransaction(DTransactor* InTransactor, FTransactionContext Context, bool bShouldActuallyTransact)
 	{
 		if (bShouldActuallyTransact && InTransactor)
@@ -609,12 +587,8 @@ namespace Durin
 	{ if (!Listener) return 0; const auto Id = NextListener++; Listeners.emplace(Id, std::move(Listener)); return Id; }
 	auto DTransactor::RemoveTransactionListener(uint64 Handle) -> void { Listeners.erase(Handle); }
 	auto DTransactor::DispatchEvents() -> void {}
-	auto DTransactor::GetQueueLength() const -> size_t { return 0; }
+	auto DTransactor::GetHistoryCount() const -> size_t { return 0; }
 	auto DTransactor::GetTransaction(size_t) const -> const FTransaction* { return nullptr; }
-	auto DTransactor::GetUndoContext() const -> FTransactionContext
-	{ for (size_t I = GetQueueLength(); I-- > 0;) if (auto* T = GetTransaction(I); T && T->GetId() == GetUndoId()) return T->GetContext(); return {}; }
-	auto DTransactor::GetRedoContext() const -> FTransactionContext
-	{ for (size_t I = 0; I < GetQueueLength(); ++I) if (auto* T = GetTransaction(I); T && T->GetId() == GetRedoId()) return T->GetContext(); return {}; }
 	auto DTransactor::GetMountedContentMutationRevision() const -> uint64 { return 1; }
 	auto DTransactor::NotifyMountedContentMutation() -> void {}
 	auto DTransactor::NotifyMountedContentMutation(FContentChangeBatch) -> void { NotifyMountedContentMutation(); }

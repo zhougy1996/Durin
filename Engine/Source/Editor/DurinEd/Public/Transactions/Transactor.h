@@ -266,10 +266,8 @@ namespace Durin
 		DURINED_API auto AddTransactionListener(FTransactionListener Listener) -> uint64;
 		DURINED_API auto RemoveTransactionListener(uint64 Handle) -> void;
 		DURINED_API virtual auto DispatchEvents() -> void;
-		DURINED_API virtual auto GetQueueLength() const -> size_t;
+		DURINED_API virtual auto GetHistoryCount() const -> size_t;
 		DURINED_API virtual auto GetTransaction(size_t Index) const -> const Editor::FTransaction*;
-		DURINED_API auto GetUndoContext() const -> Editor::FTransactionContext;
-		DURINED_API auto GetRedoContext() const -> Editor::FTransactionContext;
 		DURINED_API virtual auto GetMountedContentMutationRevision() const -> uint64;
 		DURINED_API virtual auto NotifyMountedContentMutation() -> void;
 		DURINED_API virtual auto NotifyMountedContentMutation(FContentChangeBatch Changes) -> void;
@@ -327,7 +325,7 @@ namespace Durin
 		DURINED_API auto CanUndo(std::string* Reason = nullptr) const -> bool override;
 		DURINED_API auto CanRedo(std::string* Reason = nullptr) const -> bool override;
 		DURINED_API auto DispatchEvents() -> void override;
-		auto GetQueueLength() const -> size_t override { return History.size(); }
+		auto GetHistoryCount() const -> size_t override { return History.size(); }
 		auto GetTransaction(size_t Index) const -> const Editor::FTransaction* override { return Index < History.size() ? &History[Index] : nullptr; }
 		DURINED_API auto GetMountedContentMutationRevision() const -> uint64 override;
 		DURINED_API auto NotifyMountedContentMutation() -> void override;
@@ -344,7 +342,6 @@ namespace Durin
 
 		auto GetState() const -> Editor::ETransactorState { return State; }
 		auto GetMemoryBudget() const -> size_t { return MemoryBudget; }
-		auto GetHistoryCount() const -> size_t { return History.size(); }
 		auto GetUndoCount() const -> size_t { return Cursor; }
 		auto GetRedoCount() const -> size_t { return History.size() - Cursor; }
 		auto GetOwnedBytes() const -> size_t { return OwnedBytes; }
@@ -420,12 +417,10 @@ namespace Durin
 
 namespace Durin::Editor
 {
-	// Delineates one level of the current editor recording transaction.
+	// Delineates one level of the explicitly supplied transactor's recording.
 	class FScopedTransaction
 	{
 	public:
-		DURINED_API explicit FScopedTransaction(std::string_view Description, bool bShouldActuallyTransact = true);
-		DURINED_API FScopedTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject, bool bShouldActuallyTransact = true);
 		DURINED_API FScopedTransaction(DTransactor* Transactor, FTransactionContext Context, bool bShouldActuallyTransact = true);
 		DURINED_API ~FScopedTransaction();
 		FScopedTransaction(const FScopedTransaction&) = delete;

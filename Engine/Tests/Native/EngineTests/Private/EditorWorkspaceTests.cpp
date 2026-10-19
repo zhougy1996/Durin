@@ -189,11 +189,16 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	Durin::FProperty* TransProperty = Editor->GetClass()->FindPropertyByName("Trans");
 	ASSERT_NE(TransProperty, nullptr);
 	EXPECT_TRUE(TransProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
+	Editor->DispatchSubsystemCallback([&] {
+		Durin::Editor::FScopedTransaction Missing(nullptr, {.Description = "No transaction owner"});
+		EXPECT_FALSE(Missing.IsOutstanding());
+		EXPECT_FALSE(Buffer->IsActive());
+	});
 	{
-		Durin::Editor::FScopedTransaction GlobalScope("Global editor transaction");
-		ASSERT_TRUE(GlobalScope.IsOutstanding());
-		GlobalScope.Cancel();
-		EXPECT_FALSE(GlobalScope.IsOutstanding());
+		Durin::Editor::FScopedTransaction Scope(Editor->GetTransactor(), {.Description = "Editor transaction"});
+		ASSERT_TRUE(Scope.IsOutstanding());
+		Scope.Cancel();
+		EXPECT_FALSE(Scope.IsOutstanding());
 	}
 
 	const auto Scope = Buffer->Begin("test", "Open during shutdown");
