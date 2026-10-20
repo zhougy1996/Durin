@@ -215,6 +215,8 @@ TEST(FStaticMeshLevelMutationTests, RedoRefusesNameCollisionWithoutChangingHisto
 	ASSERT_TRUE(Transactions->Undo());
 	auto* Collision = Fixture.Level->SpawnActor<Durin::ACameraActor>("Managed");
 	ASSERT_NE(Collision, nullptr);
+	// Normal spawning now reserves names held by history; force an external conflict.
+	Collision->Rename("Managed");
 
 	const auto Rejected = Transactions->RedoExpected(0);
 	ASSERT_FALSE(Rejected);

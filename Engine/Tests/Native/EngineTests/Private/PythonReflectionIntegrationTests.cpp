@@ -179,6 +179,34 @@ assert 'class CameraActor(Actor):' in durin.generate_stubs()
         EXPECT_DOUBLE_EQ(Camera->GetActorTransform().Translation.x, 125);
     }
 
+    TEST_F(PythonReflectionTests, ActorLabelsAreIndependentTransactionalAndExposeExplicitNameModes)
+    {
+        PrepareScene(EPythonEditPolicy::NonDocumentReadWrite, false);
+        ActorPass(R"PY(
+with durin.ScopedEditorTransaction('Label and tags'):
+    item = actors.spawn_actor(level, durin.Actor, durin.Transform(), name='Internal', label='Display')
+    builtins.label_actor = item
+    assert item.get_name() == 'Internal' and item.get_actor_label() == 'Display'
+    assert actors.get_actor_info(level, item).label == 'Display'
+    assert actors.set_actor_label(level, item, 'Renamed display')
+    item.set_editor_property('tags', [durin.Name('Example.Marker')])
+assert item.get_name() == 'Internal'
+assert actors.spawn_actor(level, durin.Actor, durin.Transform(), name='Internal', name_mode=durin.SpawnActorNameMode.REQUIRED_RETURN_NULL) is None
+assert actors.rename_actor(level, item, 'Internal', name_mode=durin.SpawnActorNameMode.REQUIRED_RETURN_NULL)
+assert actors.set_actor_label(level, item, 'Renamed display', make_unique=False)
+)PY");
+        ASSERT_TRUE(Host->GetTransactor()->Undo());
+        EXPECT_TRUE(EditLevel->GetActors().empty());
+        ASSERT_TRUE(Host->GetTransactor()->Redo());
+        ActorPass(R"PY(
+item = builtins.label_actor
+assert item.get_actor_label() == 'Renamed display'
+assert item.get_editor_property('tags') == [durin.Name('Example.Marker')]
+assert actors.get_actor_info(level, item).name == 'Internal'
+assert actors.set_actor_label(level, item, 'Renamed display')
+)PY");
+    }
+
     TEST_F(PythonReflectionTests, ActorQueriesReturnTypedDetachedSnapshotsAndRejectInvalidTargets)
     {
         ActorPass("assert level is None");

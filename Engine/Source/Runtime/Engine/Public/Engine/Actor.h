@@ -40,6 +40,12 @@ namespace Durin
 
 		ENGINE_API ~AActor() override;
 
+		// Human-readable editor label; legacy objects without a label use their object name.
+		DFUNCTION(ScriptCallable, ScriptName = "get_actor_label")
+		ENGINE_API auto GetActorLabel() const -> std::string;
+		// Mechanism only. Editor callers use the Actor subsystem for admission and history.
+		ENGINE_API auto SetActorLabel(const std::string& Label) -> bool;
+
 		// Internal ownership hooks used by component creation and destruction paths.
 		ENGINE_API auto AddOwnedComponent(DActorComponent* Component) -> void;
 		ENGINE_API auto RemoveOwnedComponent(DActorComponent* Component) -> void;
@@ -175,6 +181,14 @@ namespace Durin
 		auto UnregisterTickFunction() -> void;
 
 	protected:
+		// The editor label command owns history; whole-object Modify must not record it twice.
+		DPROPERTY(NonTransactional)
+		std::string ActorLabel;
+
+		// Persistent script/application markers, independent of mutable display labels.
+		DPROPERTY(Edit, Category = "Actor")
+		std::vector<FName> Tags;
+
 		// Called exactly once after Level accepts destruction and before EndPlay or component teardown.
 		ENGINE_API virtual auto OnActorDestroyed() -> void;
 		// Declares one complete desired generated set for a synchronous construction generation.

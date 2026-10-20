@@ -3,6 +3,7 @@
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
+#include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "Engine/Level.h"
@@ -23,6 +24,26 @@ namespace Durin
 		if (RootComponent && RootComponent->GetCreationMethod() != EComponentCreationMethod::Generated)
 			bRecorded = RootComponent->Modify(bAlwaysMarkDirty) || bRecorded;
 		return bRecorded;
+	}
+
+	auto AActor::GetActorLabel() const -> std::string
+	{
+		return ActorLabel.empty() ? GetName() : ActorLabel;
+	}
+
+	auto AActor::SetActorLabel(const std::string& Label) -> bool
+	{
+		if (IsTemplateObject() || Label.find('\0') != std::string::npos) return false;
+		const auto* Class = GetClass();
+		const std::string Resolved = Label.empty()
+			? (Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Label;
+		if (ActorLabel == Resolved) return true;
+		ActorLabel = Resolved;
+#if DURIN_WITH_EDITOR
+		if (auto* Level = Cast<DLevel>(GetOuter()); Level && Level->ContainsActor(this)) Level->NotifyEditorActorHierarchyChanged();
+#endif
+		MarkPackageDirty();
+		return true;
 	}
 
 	AActor::~AActor()
@@ -451,6 +472,7 @@ namespace Durin
 	{
 		std::string Error;
 		Super::PostLoad();
+		if (ActorLabel.empty()) ActorLabel = GetName();
 		RebuildOwnedComponentsFromAuthored();
 		if (RequestNativeReconstruction()) return;
 		Error = NativeConstructionError.empty()

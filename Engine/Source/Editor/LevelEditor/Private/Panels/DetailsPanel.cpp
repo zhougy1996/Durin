@@ -50,6 +50,13 @@ namespace Durin::Editor::Level
 			if (!Object) return;
 
 			const std::string TypeName = Helpers::ClassDisplayName(Object->GetClass());
+			if (const auto* Actor = Cast<AActor>(Object))
+			{
+				ImGui::TextUnformatted(Actor->GetActorLabel().c_str());
+				ImGui::SameLine();
+				ImGui::TextDisabled("(%s)", TypeName.c_str());
+				return;
+			}
 			const bool bUsesDefaultName = Object->GetClass()
 				&& Object->GetName() == Object->GetClass()->GetDefaultObjectName();
 			if (bUsesDefaultName) ImGui::TextUnformatted(TypeName.c_str());

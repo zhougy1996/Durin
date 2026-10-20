@@ -37,6 +37,8 @@ namespace Durin
 		DPROPERTY(ScriptReadOnly)
 		std::string Name;
 		DPROPERTY(ScriptReadOnly)
+		std::string Label;
+		DPROPERTY(ScriptReadOnly)
 		DClass* ActorClass = nullptr;
 		DPROPERTY(ScriptReadOnly)
 		TObjectPtr<AActor> Parent;
@@ -63,13 +65,17 @@ namespace Durin
 		DURINED_API auto ScriptGetActorInfo(DLevel* Level, AActor* Actor) const -> FActorScriptInfo;
 		// Script edits return native payloads; domain rejection returns None, an empty array or false.
 		DFUNCTION(ScriptCallable, ScriptName = "spawn_actor")
-		DURINED_API auto ScriptSpawnActor(DLevel* Level, DClass* ActorClass, const FTransform& Transform, const std::string& Name = "") -> AActor*;
+		DURINED_API auto ScriptSpawnActor(DLevel* Level, DClass* ActorClass, const FTransform& Transform, const std::string& Name = "",
+			const std::string& Label = "", ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> AActor*;
 		DFUNCTION(ScriptCallable, ScriptName = "destroy_actors")
 		DURINED_API auto ScriptDestroyActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors) -> bool;
 		DFUNCTION(ScriptCallable, ScriptName = "duplicate_actors")
 		DURINED_API auto ScriptDuplicateActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors) -> std::vector<TObjectPtr<AActor>>;
 		DFUNCTION(ScriptCallable, ScriptName = "rename_actor")
-		DURINED_API auto ScriptRenameActor(DLevel* Level, AActor* Actor, const std::string& Name) -> bool;
+		DURINED_API auto ScriptRenameActor(DLevel* Level, AActor* Actor, const std::string& Name,
+			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> bool;
+		DFUNCTION(ScriptCallable, ScriptName = "set_actor_label")
+		DURINED_API auto ScriptSetActorLabel(DLevel* Level, AActor* Actor, const std::string& Label, bool MakeUnique = true) -> bool;
 		DFUNCTION(ScriptCallable, ScriptName = "attach_actors")
 		DURINED_API auto ScriptAttachActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors, AActor* Parent, EAttachmentTransformRule Rule = EAttachmentTransformRule::KeepWorld) -> bool;
 		DFUNCTION(ScriptCallable, ScriptName = "detach_actors")
@@ -77,10 +83,14 @@ namespace Durin
 		// Failed creation returns null, failed duplication an empty array, and other failures false.
 		// Successful no-ops return true without new history. Detailed recovery state belongs to the transactor.
 		DURINED_API auto SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
-			const Editor::FActorEditContext& Context, std::function<void(AActor&)> Configure = {}) -> AActor*;
+			const Editor::FActorEditContext& Context, std::function<void(AActor&)> Configure = {},
+			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested, const std::string& Label = "") -> AActor*;
 		DURINED_API auto DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const Editor::FActorEditContext& Context) -> bool;
 		DURINED_API auto DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const Editor::FActorEditContext& Context) -> std::vector<TObjectPtr<AActor>>;
-		DURINED_API auto RenameActor(DLevel& Level, AActor* Actor, FName Name, const Editor::FActorEditContext& Context) -> bool;
+		DURINED_API auto RenameActor(DLevel& Level, AActor* Actor, FName Name, const Editor::FActorEditContext& Context,
+			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> bool;
+		DURINED_API auto SetActorLabel(DLevel& Level, AActor* Actor, const std::string& Label,
+			const Editor::FActorEditContext& Context, bool bMakeUnique = true) -> bool;
 		DURINED_API auto AttachActors(DLevel& Level, std::span<AActor* const> Actors, AActor* Parent,
 			EAttachmentTransformRule Rule, const Editor::FActorEditContext& Context) -> bool;
 		DURINED_API auto DetachActors(DLevel& Level, std::span<AActor* const> Actors,

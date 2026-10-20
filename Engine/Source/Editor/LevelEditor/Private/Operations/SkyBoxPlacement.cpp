@@ -39,24 +39,11 @@ namespace Durin::Editor::Level
 			return Candidates;
 		}
 
-		auto MakeUniqueActorName(DLevel& Level, FName Requested) -> FName
-		{
-			const auto Objects = GDObjectArray.GetObjectsWithOuter(&Level, EObjectQueryScope::LiveOnly);
-			auto Occupied = [&](FName Name) { return std::ranges::any_of(Objects, [Name](DObject* Object) { return Object->GetFName() == Name; }); };
-			if (!Occupied(Requested)) return Requested;
-			const std::string Base = Requested.ToString();
-			for (uint32 Suffix = 2;; ++Suffix)
-			{
-				FName Candidate(std::format("{}_{}", Base, Suffix));
-				if (!Occupied(Candidate)) return Candidate;
-			}
-		}
-
 		// Creates and removes one actor while preserving its requested level identity.
 		class FCreateSkyBoxTransaction final : public ::Durin::Editor::FActorCommandChange
 		{
 		public:
-			FCreateSkyBoxTransaction(DLevel* InLevel, DTextureCube* InTextureCube, FName InActorName)
+			FCreateSkyBoxTransaction(DLevel* InLevel, DTextureCube* InTextureCube, FName InActorName, const std::string& Label)
 				: Level(InLevel), TextureCube(InTextureCube), ActorName(InActorName)
 			{
 				AffectedPackages.front() = InLevel ? InLevel->GetPackage() : nullptr;
@@ -65,6 +52,7 @@ namespace Durin::Editor::Level
 				auto* Prepared = NewObject<ASkyBoxActor>(InLevel, ActorName);
 				if (!Prepared || !Prepared->RequestNativeReconstruction())
 				{ if (Prepared) MarkObjectHierarchyAsGarbage(Prepared); return; }
+				Prepared->SetActorLabel(InLevel->MakeUniqueActorLabel(Label));
 				Prepared->GetSkyBoxComponent()->SetTextureCube(InTextureCube);
 				AActor* Base = Prepared;
 				Presence = MakeActorPresenceChange(*InLevel, {&Base, 1}, false, "Place sky box");
@@ -220,8 +208,8 @@ namespace Durin::Editor::Level
 			return {.Actor = Actor, .bChanged = true};
 		}
 
-		const FName ActorName = MakeUniqueActorName(Level, RequestedName);
-		auto Transaction = std::make_unique<FCreateSkyBoxTransaction>(&Level, TextureCube, ActorName);
+		const FName ActorName = Level.MakeUniqueActorName(RequestedName);
+		auto Transaction = std::make_unique<FCreateSkyBoxTransaction>(&Level, TextureCube, ActorName, RequestedName.ToString());
 		if (auto Applied = Apply(std::move(Transaction)); !Applied) return Applied;
 		if (!Transactions && Level.GetPackage()) Level.GetPackage()->MarkDirty();
 		return {

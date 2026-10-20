@@ -59,6 +59,7 @@ namespace Durin
         FActorScriptInfo Info;
         Info.Actor = Actor;
         Info.Name = Actor->GetName();
+        Info.Label = Actor->GetActorLabel();
         Info.ActorClass = Actor->GetClass();
         Info.Parent = Actor->GetAttachParentActor();
         for (const auto& Child : Actors)
@@ -78,11 +79,12 @@ namespace Durin
         // after preparation callbacks. Never accept a script-supplied read-only bool.
         return FActorEditContext{Call->ResolveEditAccess(*Level) == EEditorScriptTargetAccess::ReadOnly};
     }
-    auto DEditorActorSubsystem::ScriptSpawnActor(DLevel* Level, DClass* ActorClass, const FTransform& Transform, const std::string& Name) -> AActor*
+    auto DEditorActorSubsystem::ScriptSpawnActor(DLevel* Level, DClass* ActorClass, const FTransform& Transform, const std::string& Name,
+        const std::string& Label, ESpawnActorNameMode NameMode) -> AActor*
     {
         const auto Context = ScriptEditContext(Level);
         if (!Context) return nullptr;
-        return SpawnActor(*Level, ActorClass, FName(Name), Transform, *Context);
+        return SpawnActor(*Level, ActorClass, FName(Name), Transform, *Context, {}, NameMode, Label);
     }
     auto DEditorActorSubsystem::ScriptDestroyActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors) -> bool
     {
@@ -96,11 +98,17 @@ namespace Durin
         if (!Context) return {};
         return DuplicateActors(*Level, RawActors(Actors), *Context);
     }
-    auto DEditorActorSubsystem::ScriptRenameActor(DLevel* Level, AActor* Actor, const std::string& Name) -> bool
+    auto DEditorActorSubsystem::ScriptRenameActor(DLevel* Level, AActor* Actor, const std::string& Name, ESpawnActorNameMode NameMode) -> bool
     {
         const auto Context = ScriptEditContext(Level);
         if (!Context) return false;
-        return RenameActor(*Level, Actor, FName(Name), *Context);
+        return RenameActor(*Level, Actor, FName(Name), *Context, NameMode);
+    }
+
+    auto DEditorActorSubsystem::ScriptSetActorLabel(DLevel* Level, AActor* Actor, const std::string& Label, bool MakeUnique) -> bool
+    {
+        const auto Context = ScriptEditContext(Level);
+        return Context && SetActorLabel(*Level, Actor, Label, *Context, MakeUnique);
     }
     auto DEditorActorSubsystem::ScriptAttachActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors, AActor* Parent, EAttachmentTransformRule Rule) -> bool
     {

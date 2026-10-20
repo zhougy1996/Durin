@@ -154,16 +154,42 @@ namespace
         const auto& Result = FPythonScriptPanelTestAccess::Result(*Panel); ASSERT_TRUE(Result);
         ASSERT_EQ(Result->State, EPythonJobState::Succeeded) << Result->Error;
         ASSERT_EQ(Level->GetActors().size(), 6u);
-        auto* Camera = Level->FindActorByName("Example_Camera"); ASSERT_NE(Camera, nullptr);
+        const auto FindCamera = [&]() -> AActor* {
+            for (const auto& Actor : Level->GetActors())
+                if (Actor->GetActorLabel() == "Example_Camera") return Actor.Get();
+            return nullptr;
+        };
+        auto* Camera = FindCamera(); ASSERT_NE(Camera, nullptr);
+        const FName OriginalCameraName = Camera->GetFName();
         EXPECT_DOUBLE_EQ(Camera->GetActorTransform().Translation.z, 4.0);
         EXPECT_EQ(Cast<DTransBuffer>(Host->GetTransactor())->GetQueueLength(), 1u);
         ASSERT_TRUE(Host->GetTransactor()->Undo()); EXPECT_TRUE(Level->GetActors().empty());
         ASSERT_TRUE(Host->GetTransactor()->Redo()); EXPECT_EQ(Level->GetActors().size(), 6u);
-        EXPECT_EQ(Level->FindActorByName("Example_Camera"), Camera);
+        EXPECT_EQ(FindCamera(), Camera);
         ASSERT_TRUE(Panel->RunFile(std::filesystem::u8path(DURIN_PYTHON_EXAMPLE_PATH)));
         Pump();
         EXPECT_EQ(FPythonScriptPanelTestAccess::Result(*Panel)->State, EPythonJobState::Failed);
         EXPECT_EQ(Level->GetActors().size(), 6u);
         EXPECT_EQ(Cast<DTransBuffer>(Host->GetTransactor())->GetQueueLength(), 1u);
+        // Undo + rerun reuses visible labels, while retained object names stay unique.
+        ASSERT_TRUE(Host->GetTransactor()->Undo());
+        ASSERT_TRUE(Panel->RunFile(std::filesystem::u8path(DURIN_PYTHON_EXAMPLE_PATH)));
+        Pump();
+        ASSERT_EQ(FPythonScriptPanelTestAccess::Result(*Panel)->State, EPythonJobState::Succeeded);
+        ASSERT_EQ(Level->GetActors().size(), 6u);
+        auto* Recreated = FindCamera(); ASSERT_NE(Recreated, nullptr);
+        EXPECT_NE(Recreated, Camera);
+        EXPECT_NE(Recreated->GetFName(), OriginalCameraName);
+        EXPECT_EQ(Recreated->GetActorLabel(), "Example_Camera");
+        // Renaming labels must not defeat the example's persistent membership marker.
+        ASSERT_TRUE(Recreated->SetActorLabel("User camera label"));
+        for (const auto& Actor : Level->GetActors()) ASSERT_TRUE(Actor->SetActorLabel("Changed"));
+        ASSERT_TRUE(Panel->RunFile(std::filesystem::u8path(DURIN_PYTHON_EXAMPLE_PATH)));
+        Pump();
+        EXPECT_EQ(FPythonScriptPanelTestAccess::Result(*Panel)->State, EPythonJobState::Failed);
+        EXPECT_EQ(Level->GetActors().size(), 6u);
+        ASSERT_TRUE(Host->GetTransactor()->Undo());
+        ASSERT_TRUE(Host->GetTransactor()->Redo());
+        EXPECT_EQ(Level->GetActors().size(), 6u);
     }
 }

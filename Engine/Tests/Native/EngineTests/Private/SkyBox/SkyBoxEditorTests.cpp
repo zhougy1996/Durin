@@ -56,6 +56,10 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
 	auto* Conflict = Level->SpawnActor<Durin::ASkyBoxActor>("Sky");
 	ASSERT_NE(Conflict, nullptr);
+	EXPECT_NE(Conflict->GetFName(), Actor->GetFName());
+	EXPECT_EQ(Conflict->GetActorLabel(), "Sky");
+	// Inject a name collision explicitly; normal spawning reserves undo-held names.
+	Conflict->Rename("Sky");
 	const auto Rejected = Transactions->RedoExpected(0);
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);

@@ -124,7 +124,7 @@ namespace Durin::Editor::Level
 				Inputs.push_back({
 					.Key = Actor,
 					.ParentKey = Actor->GetAttachParentActor(),
-					.Name = Actor->GetName(),
+					.Name = Actor->GetActorLabel(),
 					.TypeLabel = ClassDisplayName(Actor->GetClass())});
 			}
 		}
@@ -195,7 +195,7 @@ namespace Durin::Editor::Level
 		if (!Actor) return;
 		RenamingActor = Actor;
 		bRenamingLevel = false;
-		RenameDialog.Open(Actor->GetName());
+		RenameDialog.Open(Actor->GetActorLabel());
 	}
 
 	auto FWorldOutlinerPanel::BeginLevelRename(std::string_view LevelName) -> void
@@ -301,12 +301,12 @@ namespace Durin::Editor::Level
 		const bool bPrimaryCamera = Context.Level->GetPrimaryCameraActor() == Actor;
 		const std::string VisibilityIcon = Actor->IsHidden() ? std::format("{}  ", Icons::EyeSlash) : std::string();
 		const char* ActorIcon = IconGlyph(ClassifyWorldOutlinerActorIcon(Actor));
-		const std::string Label = bPrimaryCamera ? std::format("{}{}  {}  [Primary]", VisibilityIcon, ActorIcon, Actor->GetName()) : std::format("{}{}  {}", VisibilityIcon, ActorIcon, Actor->GetName());
+		const std::string Label = bPrimaryCamera ? std::format("{}{}  {}  [Primary]", VisibilityIcon, ActorIcon, Actor->GetActorLabel()) : std::format("{}{}  {}", VisibilityIcon, ActorIcon, Actor->GetActorLabel());
 		if (Actor->IsHidden()) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 		const bool bOpen = MonaImGui::CompactTreeNode("ActorNode", Flags, "%s", Label.c_str());
 		if (Actor->IsHidden()) ImGui::PopStyleColor();
 		if (Filter.empty()) ExpandedActors[Actor] = bOpen;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Actor->GetClass()->GetName().c_str());
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\nObject name: %s", Actor->GetClass()->GetName().c_str(), Actor->GetName().c_str());
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
 		{
 			bLevelSelected = false;
@@ -446,11 +446,11 @@ namespace Durin::Editor::Level
 	{
 		const bool bRenameActor = RenamingActor.IsValid();
 		const char* RenamePopupTitle = bRenameActor ? "Rename Actor###OutlinerRename" : "Rename Level###OutlinerRename";
-		const std::string CurrentRenameName = bRenameActor ? RenamingActor->GetName() : std::string(LevelName);
+		const std::string CurrentRenameName = bRenameActor ? RenamingActor->GetActorLabel() : std::string(LevelName);
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw(RenamePopupTitle, CurrentRenameName, [&](std::string_view NewName) -> std::string {
 			if (bRenameActor)
 			{
-				return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameActor(*Context.Level, RenamingActor.Get(), FName(NewName), {Context.bReadOnly}) : false) ? std::string{} : "Rename failed.";
+				return (Context.GetActorEditor() ? Context.GetActorEditor()->SetActorLabel(*Context.Level, RenamingActor.Get(), std::string(NewName), {Context.bReadOnly}) : false) ? std::string{} : "Rename failed.";
 			}
 			return Context.RenameLevel && Context.RenameLevel(NewName) ? std::string() : "Failed to rename level.";
 		});
@@ -467,7 +467,7 @@ namespace Durin::Editor::Level
 		{
 			ImGui::Text("Delete %zu actor(s)?", PendingDeleteActors.size());
 			for (size_t Index = 0; Index < std::min<size_t>(PendingDeleteActors.size(), 5); ++Index)
-				if (PendingDeleteActors[Index]) ImGui::BulletText("%s", PendingDeleteActors[Index]->GetName().c_str());
+				if (PendingDeleteActors[Index]) ImGui::BulletText("%s", PendingDeleteActors[Index]->GetActorLabel().c_str());
 			if (PendingDeleteActors.size() > 5) ImGui::TextDisabled("... and %zu more", PendingDeleteActors.size() - 5);
 			ImGui::TextDisabled("This action can be undone.");
 			if (ImGui::Button("Delete"))

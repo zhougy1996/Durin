@@ -14,12 +14,11 @@ def create_test_scene():
     if level is None:
         raise RuntimeError("Open a writable Level and stop Play before running this example.")
 
-    names = {
-        "Example_Origin", "Example_Camera", "Example_Sun",
-        "Example_Sky", "Example_FillLight", "Example_PlayerStart",
-    }
-    existing = {actor.get_name() for actor in actors.get_all_level_actors(level)}
-    if existing & names:
+    # Internal object names can change after Undo while history retains old objects.
+    # A persistent tag identifies this example independently of names and labels.
+    marker = durin.Name("Durin.Examples.CreateTestScene")
+    if any(marker in actor.get_editor_property("tags")
+           for actor in actors.get_all_level_actors(level)):
         raise RuntimeError("The example is already present. Undo its creation or remove its Actors before running again.")
 
     def spawn(actor_type, name, position=(0.0, 0.0, 0.0)):
@@ -27,9 +26,10 @@ def create_test_scene():
         translation = pose.translation
         translation.x, translation.y, translation.z = position
         pose.translation = translation
-        actor = actors.spawn_actor(level, actor_type, pose, name=name)
+        actor = actors.spawn_actor(level, actor_type, pose, label=name)
         if actor is None:
             raise RuntimeError(f"Could not create {name}; check Level write access and Play state.")
+        actor.set_editor_property("tags", [marker])
         return actor
 
     def root(actor):
@@ -54,7 +54,7 @@ def create_test_scene():
         pose.translation = position
         root(camera).set_editor_property("relative_transform", pose)
 
-    print("Created six Example_* Actors. Ctrl+Z undoes the scene; Ctrl+Y restores it.")
+    print("Created six Actors with Example_* labels. Ctrl+Z undoes the scene; Ctrl+Y restores it.")
 
 
 create_test_scene()

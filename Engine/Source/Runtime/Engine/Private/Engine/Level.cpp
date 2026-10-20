@@ -8,6 +8,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"
@@ -115,9 +116,9 @@ namespace Durin
 		TickRegistry.Reset();
 	}
 
-	auto DLevel::SpawnActor(DClass* ActorClass, FName InName) -> AActor*
+	auto DLevel::SpawnActor(DClass* ActorClass, FName InName, ESpawnActorNameMode NameMode) -> AActor*
 	{
-		return SpawnActorInternal(ActorClass, InName, true);
+		return SpawnActorInternal(ActorClass, InName, true, NameMode);
 	}
 
 	auto DLevel::SpawnActorDeferredPlay(DClass* ActorClass, FName InName) -> AActor*
@@ -125,17 +126,22 @@ namespace Durin
 		return SpawnActorInternal(ActorClass, InName, false);
 	}
 
-	auto DLevel::SpawnActorInternal(DClass* ActorClass, FName InName, bool bDispatchBeginPlay) -> AActor*
+	auto DLevel::SpawnActorInternal(DClass* ActorClass, FName InName, bool bDispatchBeginPlay, ESpawnActorNameMode NameMode) -> AActor*
 	{
 		if (OwningWorld && OwningWorld->IsEndingPlay()) return nullptr;
 		if (!CanConstructObjectOfClass(ActorClass, AActor::StaticClass())) return nullptr;
-		const FName RequestedName = InName.IsNone() ? FName(ActorClass->GetDefaultObjectName()) : InName;
+		DObjectForceRegistration(ActorClass);
+		const FName RequestedName = InName.IsNone()
+			? FName(ActorClass->GetDefaultObjectName().empty() ? ActorClass->GetName() : ActorClass->GetDefaultObjectName()) : InName;
+		const FName Name = ResolveActorName(RequestedName, InName.IsNone() ? ESpawnActorNameMode::Requested : NameMode);
+		if (Name.IsNone()) return nullptr;
 		EObjectFlags Flags = EObjectFlags::NoFlags;
 #if DURIN_WITH_EDITOR
 		if (!OwningWorld || OwningWorld->GetWorldType() == EWorldType::Editor) Flags |= EObjectFlags::Transactional;
 #endif
-		AActor* Actor = NewObject<AActor>(ActorClass, this, MakeUniqueActorName(RequestedName), Flags);
+		AActor* Actor = NewObject<AActor>(ActorClass, this, Name, Flags);
 		if (!Actor) return nullptr;
+		Actor->SetActorLabel(MakeUniqueActorLabel(RequestedName.ToString()));
 		Actors.emplace_back(Actor);
 		if (!Actor->RequestNativeReconstruction())
 		{
@@ -210,7 +216,7 @@ namespace Durin
 			|| ContainsActor(Actor) == bPresent) return false;
 		if (bPresent)
 		{
-			if (FindActorByName(Actor->GetFName())) return false;
+			if (!IsActorNameAvailable(Actor->GetFName(), Actor)) return false;
 			Actors.insert(Actors.begin() + std::min(ActorIndex, Actors.size()), Actor);
 			if (OwningWorld) Actor->RegisterTickFunction(this);
 			if (bRegisterComponents) OnActorAdded(Actor);
@@ -256,10 +262,15 @@ namespace Durin
 		return It == Actors.end() ? nullptr : It->Get();
 	}
 
-	auto DLevel::RenameActor(AActor* Actor, FName RequestedName) -> bool
+	auto DLevel::RenameActor(AActor* Actor, FName RequestedName, ESpawnActorNameMode NameMode) -> bool
 	{
 		if (!ContainsActor(Actor) || RequestedName.IsNone()) return false;
-		Actor->Rename(MakeUniqueActorName(RequestedName, Actor));
+		const FName Name = ResolveActorName(RequestedName, NameMode, Actor);
+		if (Name.IsNone()) return false;
+		if (Actor->GetFName() == Name) return true;
+		// Freeze the fallback label of a legacy object before changing its internal name.
+		Actor->SetActorLabel(Actor->GetActorLabel());
+		Actor->Rename(Name);
 #if DURIN_WITH_EDITOR
 		NotifyEditorActorHierarchyChanged();
 #endif
@@ -277,13 +288,48 @@ namespace Durin
 
 	auto DLevel::MakeUniqueActorName(FName RequestedName, const AActor* IgnoredActor) const -> FName
 	{
-		if (AActor* Existing = FindActorByName(RequestedName); !Existing || Existing == IgnoredActor) return RequestedName;
+		if (RequestedName.IsNone()) return {};
+		if (IsActorNameAvailable(RequestedName, IgnoredActor)) return RequestedName;
 		const std::string BaseName = RequestedName.ToString();
 		for (uint32 Suffix = 2;; ++Suffix)
 		{
 			FName Candidate(std::format("{}_{}", BaseName, Suffix));
-			if (AActor* Existing = FindActorByName(Candidate); !Existing || Existing == IgnoredActor) return Candidate;
+			if (IsActorNameAvailable(Candidate, IgnoredActor)) return Candidate;
 		}
+	}
+
+	auto DLevel::IsActorNameAvailable(FName Name, const AActor* IgnoredActor) const -> bool
+	{
+		if (Name.IsNone()) return false;
+		const auto Objects = GDObjectArray.GetObjectsWithOuter(this, EObjectQueryScope::LiveOnly);
+		return std::ranges::none_of(Objects, [&](DObject* Object) { return Object != IgnoredActor && Object->GetFName() == Name; });
+	}
+
+	auto DLevel::ResolveActorName(FName RequestedName, ESpawnActorNameMode NameMode, const AActor* IgnoredActor) const -> FName
+	{
+		switch (NameMode)
+		{
+		case ESpawnActorNameMode::Requested: return MakeUniqueActorName(RequestedName, IgnoredActor);
+		case ESpawnActorNameMode::RequiredErrorAndReturnNull:
+			if (IsActorNameAvailable(RequestedName, IgnoredActor)) return RequestedName;
+			DURIN_ERROR("Actor object name '{}' is unavailable in '{}'.", RequestedName, GetObjectPath());
+			return {};
+		case ESpawnActorNameMode::RequiredReturnNull:
+			return IsActorNameAvailable(RequestedName, IgnoredActor) ? RequestedName : FName{};
+		}
+		return {};
+	}
+
+	auto DLevel::MakeUniqueActorLabel(const std::string& RequestedLabel, const AActor* IgnoredActor,
+		std::span<const std::string> ReservedLabels) const -> std::string
+	{
+		const auto Occupied = [&](const std::string& Label) {
+			return std::ranges::find(ReservedLabels, Label) != ReservedLabels.end()
+				|| std::ranges::any_of(Actors, [&](const auto& Actor) { return Actor && Actor.Get() != IgnoredActor && Actor->GetActorLabel() == Label; });
+		};
+		std::string Label = RequestedLabel;
+		for (uint32 Suffix = 2; Occupied(Label); ++Suffix) Label = std::format("{}_{}", RequestedLabel, Suffix);
+		return Label;
 	}
 
 	auto DLevel::OnActorAdded(AActor* Actor) -> void

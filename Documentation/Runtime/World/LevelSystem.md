@@ -4,7 +4,7 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-20
 
 `DLevel` is the persistent scene asset. A packaged level is a top-level asset
 in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
@@ -12,6 +12,24 @@ Each Actor's transient reflected `OwnedComponents` array is the ordered runtime
 authority for every live component. The persistent `AuthoredComponents` field
 and `InstanceComponents` provide package and duplication authority. Their Outer
 hierarchy separately provides structural containment and object paths.
+
+Actor object `Name` and serialized `ActorLabel` have different contracts. Object
+names identify paths and are unique across live objects directly under the Level,
+including unpublished preparations and objects retained for Undo. Runtime and
+editor spawn/rename paths share `DLevel::ResolveActorName`: `Requested` permits
+suffixes, `RequiredReturnNull` rejects a collision, and
+`RequiredErrorAndReturnNull` also logs the rejection. None of these modes replaces
+an existing object. With no requested Name, spawn generates a unique class-based
+name regardless of NameMode. `FindActorByName` queries published membership only.
+
+`GetActorLabel` supplies the human-readable display value. Old assets without
+`ActorLabel` fall back to their object Name and materialize it on load; internal
+renaming preserves that label. Labels are serialized, duplicated and restored
+independently of object names. `MakeUniqueActorLabel` considers published Actors
+and optional batch reservations, so Undo-retained objects do not occupy display
+labels. Duplicate labels are allowed when explicitly requested; labels are not
+identity keys. Persistent reflected `Tags` support script/application membership
+markers independently of mutable names and labels.
 
 Actors index transient generated components by stable native-construction keys.
 Those components also participate in unified live ownership and World/editor

@@ -129,12 +129,12 @@ namespace Durin
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
-		ENGINE_API auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
+		ENGINE_API auto SpawnActor(DClass* ActorClass, FName InName = FName(), ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> AActor*;
 
 		template<typename T>
-		auto SpawnActor(FName InName = FName()) -> T*
+		auto SpawnActor(FName InName = FName(), ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> T*
 		{
-			return static_cast<T*>(SpawnActor(T::StaticClass(), InName));
+			return static_cast<T*>(SpawnActor(T::StaticClass(), InName, NameMode));
 		}
 
 		ENGINE_API auto DestroyActor(AActor* Actor) -> bool;

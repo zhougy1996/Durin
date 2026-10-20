@@ -228,7 +228,7 @@ namespace Durin::Editor::Level
 				return FQuatConstants::Identity;
 			}
 			auto GetPackage() const -> DPackage* override { return Actor ? Actor->GetPackage() : nullptr; }
-			auto GetLabel() const -> std::string override { return Actor ? Actor->GetName() : "Missing Actor"; }
+			auto GetLabel() const -> std::string override { return Actor ? Actor->GetActorLabel() : "Missing Actor"; }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
 				DObject* Object = Actor.Get();

@@ -196,7 +196,7 @@ namespace Durin::Editor::Level
 		if (!Context.GetSelectedComponent()) ActorFlags |= ImGuiTreeNodeFlags_Selected;
 		if (OwnedComponents.empty()) ActorFlags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 		ImGui::PushID(Actor);
-		const bool bActorOpen = MonaImGui::CompactTreeNode("##Actor", ActorFlags, "%s  (%s)", Actor->GetName().c_str(), ClassDisplayName(Actor->GetClass()).c_str());
+		const bool bActorOpen = MonaImGui::CompactTreeNode("##Actor", ActorFlags, "%s  (%s)", Actor->GetActorLabel().c_str(), ClassDisplayName(Actor->GetClass()).c_str());
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) Context.SelectComponent(nullptr);
 		if (ImGui::BeginPopupContextItem("ActorContext"))
 		{

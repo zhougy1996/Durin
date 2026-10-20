@@ -469,6 +469,7 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	Durin::ACameraActor* ChildActor = Level->SpawnActor<Durin::ACameraActor>("ChildCamera");
 	Durin::DActorComponent* ExtraComponent = ChildActor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "ExtraScene");
 	ASSERT_NE(ExtraComponent, nullptr);
+	ASSERT_TRUE(ParentActor->SetActorLabel("Camera display label"));
 	ASSERT_TRUE(Level->SetPrimaryCameraActor(ParentActor));
 
 	Durin::FTransform ParentTransform;
@@ -499,7 +500,9 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	auto* LoadedParent = dynamic_cast<Durin::ACameraActor*>(Loaded->FindActorByName("ParentCamera"));
 	auto* LoadedChild = dynamic_cast<Durin::ACameraActor*>(Loaded->FindActorByName("ChildCamera"));
 	ASSERT_NE(LoadedParent, nullptr);
+	EXPECT_EQ(LoadedParent->GetActorLabel(), "Camera display label");
 	ASSERT_NE(LoadedChild, nullptr);
+	EXPECT_EQ(LoadedChild->GetActorLabel(), "ChildCamera");
 	EXPECT_EQ(Loaded->GetPrimaryCameraActor(), LoadedParent);
 	EXPECT_EQ(LoadedParent->GetComponents().size(), 1u);
 	EXPECT_EQ(LoadedChild->GetComponents().size(), 2u);

@@ -4,7 +4,7 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: DurinEd, LevelEditor, MainFrame, Engine
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-20
 
 ## Host Contract
 
@@ -196,7 +196,7 @@ or null; Actor duplication returns the new Actors in input order or an empty
 array. Other edits return bool, with true also covering successful no-ops. Public
 operations carry no error strings, status enum or history result. Detailed
 execution/recovery state stays in DTransactor.
-Same-name rename and same-parent reparent produce no history entry. Empty or
+Same-name rename, same-label assignment and same-parent reparent produce no history entry. Empty or
 duplicate batch participants are rejected; valid batches submit once.
 
 World admission reads the full play state, including subsystem BeginPlay before
@@ -229,18 +229,29 @@ reflection bridge without an Actor Toolset dependency.
 | `get_editor_level()` | Current editor Level, or None when absent |
 | `get_all_level_actors(level)` | Live published Actors in Level order |
 | `get_actor_info(level, actor)` | ActorScriptInfo snapshot |
-| `spawn_actor(level, actor_class, transform, name="")` | Actor or None |
+| `spawn_actor(level, actor_class, transform, name="", label="", name_mode=SpawnActorNameMode.REQUESTED)` | Actor or None |
 | `destroy_actors(level, actors)` | bool |
 | `duplicate_actors(level, actors)` | Array[Actor], empty on failure |
-| `rename_actor(level, actor, name)` | bool |
+| `rename_actor(level, actor, name, name_mode=SpawnActorNameMode.REQUESTED)` | bool |
+| `set_actor_label(level, actor, label, make_unique=True)` | bool |
 | `attach_actors(level, actors, parent, rule=AttachmentTransformRule.KEEP_WORLD)` | bool |
 | `detach_actors(level, actors, rule=DetachmentTransformRule.KEEP_WORLD)` | bool |
 
 Queries require the active job's Host and current editor Level. They may inspect
 that editor Level during PIE, but never substitute the play World. An invalid
 query raises a script access error rather than returning an empty snapshot.
-ActorScriptInfo contains actor, name, actor_class, parent, direct children in Level
+ActorScriptInfo contains actor, internal name, display label, actor_class, parent, direct children in Level
 order, root_component and world_transform, all read-only detached fields.
+
+`rename_actor` changes the internal object Name. `set_actor_label` changes only
+its display label, with ordinary admission, dirty state and history; exact replay
+does not uniquify recorded labels. The serialized label field is excluded from
+automatic whole-object transaction snapshots because the label command owns its
+history. Outliner rename uses this label operation.
+Creation initializes a unique display label from `label`, the requested Name or
+the class default name, independently of any suffix on the internal Name.
+Duplication reserves labels across the entire prepared batch. Object naming uses
+the shared [Level rules](../../Runtime/World/LevelSystem.md).
 
 Edits derive FActorEditContext from native job/document authority. Native admission
 rechecks live script authority on entry and after preparation callbacks, keeping

@@ -93,7 +93,7 @@ namespace Durin::Editor::Level
 			auto Reject = [&](EActorChangeConstraint Constraint) -> FActorChangeResult
 			{
 				return {{.Code = EActorChangeError::ActorUnsupported,
-					.TargetPath = Actor.GetObjectPath(), .TargetLabel = Actor.GetName(), .ActorConstraint = Constraint}};
+					.TargetPath = Actor.GetObjectPath(), .TargetLabel = Actor.GetActorLabel(), .ActorConstraint = Constraint}};
 			};
 			if (Actor.GetClass() != AStaticMeshActor::StaticClass()) return Reject(EActorChangeConstraint::Class);
 			if (Actor.GetStaticMeshComponent() == nullptr
@@ -233,7 +233,7 @@ namespace Durin::Editor::Level
 				for (auto It = Renames.rbegin(); It != Renames.rend(); ++It)
 				{
 					if (!Level.ContainsActor(It->Actor)) { bRestored = false; continue; }
-					bRestored = Level.RenameActor(It->Actor, It->PreviousName) && bRestored;
+					bRestored = Level.RenameActor(It->Actor, It->PreviousName, ESpawnActorNameMode::RequiredReturnNull) && bRestored;
 					bRestored = It->Actor->GetFName() == It->PreviousName && bRestored;
 				}
 				for (size_t Index : Removed) bRestored = static_cast<bool>(Presence[Index]->Replay(Reverse)) && bRestored;
@@ -257,8 +257,12 @@ namespace Durin::Editor::Level
 				{
 					return {{.Code = ::Durin::Editor::EActorChangeError::ResourceUnavailable, .TargetLabel = Destination->Name.ToString()}};
 				}
-				if (AActor* Collision = Level.FindActorByName(Destination->Name);
-					Collision && !SourceActors.contains(Collision))
+				AActor* Retained = nullptr;
+				for (const auto& Identity : Identities)
+					if (Identity && Identity->GetFName() == Destination->Name) Retained = Identity.Get();
+				AActor* Collision = Level.FindActorByName(Destination->Name);
+				if ((!Collision || !SourceActors.contains(Collision))
+					&& !Level.IsActorNameAvailable(Destination->Name, Retained))
 				{
 					return {{.Code = ::Durin::Editor::EActorChangeError::ActorNameCollision, .TargetLabel = Destination->Name.ToString()}};
 				}
@@ -281,7 +285,7 @@ namespace Durin::Editor::Level
 				for (uint32 Suffix = 1;; ++Suffix)
 				{
 					FName Candidate(std::format("__LevelMutation_{}_{}", Index, Suffix));
-					if (ReservedNames.insert(Candidate).second)
+					if (Level.IsActorNameAvailable(Candidate) && ReservedNames.insert(Candidate).second)
 					{
 						TemporaryNames[Index] = Candidate;
 						break;
@@ -296,7 +300,7 @@ namespace Durin::Editor::Level
 				const auto& Destination = bAfter ? Deltas[Index].After : Deltas[Index].Before;
 				if (!Source || !Destination || Source->Name == Destination->Name) continue;
 				const FName Temporary = TemporaryNames[Index];
-				if (!Level.RenameActor(Sources[Index], Temporary)
+				if (!Level.RenameActor(Sources[Index], Temporary, ESpawnActorNameMode::RequiredReturnNull)
 					|| Sources[Index]->GetFName() != Temporary)
 				{
 					return {{.Code = ::Durin::Editor::EActorChangeError::ActorRename, .TargetLabel = Source->Name.ToString()}};
@@ -344,6 +348,7 @@ namespace Durin::Editor::Level
 							if (Actor) MarkObjectHierarchyAsGarbage(Actor);
 							return FailAfterMutation({.Code = ::Durin::Editor::EActorChangeError::ActorSpawn, .MemberIndex = Index});
 						}
+						Actor->SetActorLabel(Level.MakeUniqueActorLabel(Destination->Name.ToString()));
 						Actor->GetStaticMeshComponent()->SetStaticMesh(Destination->StaticMesh.Get());
 						Actor->SetActorTransform(Destination->Transform);
 						Actor->SetActorHiddenInGame(Destination->bHidden);
@@ -363,7 +368,7 @@ namespace Durin::Editor::Level
 				else if (Source->Name != Destination->Name)
 				{
 					const FName PreviousName = Actor->GetFName();
-					if (!Level.RenameActor(Actor, Destination->Name) || Actor->GetFName() != Destination->Name)
+					if (!Level.RenameActor(Actor, Destination->Name, ESpawnActorNameMode::RequiredReturnNull) || Actor->GetFName() != Destination->Name)
 						return FailAfterMutation({.Code = ::Durin::Editor::EActorChangeError::ActorRename, .TargetLabel = Destination->Name.ToString(), .MemberIndex = Index});
 					Renames.push_back({Actor, PreviousName});
 					#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
@@ -524,7 +529,7 @@ namespace Durin::Editor::Level
 			auto* StaticMeshActor = Cast<AStaticMeshActor>(Existing);
 			if (Mutation.Kind == EStaticMeshLevelMutationKind::Create)
 			{
-				if (Existing)
+				if (!Request.Level->IsActorNameAvailable(Mutation.TargetName))
 				{
 					SetFailure(Result, EStaticMeshLevelMutationError::NameConflict,
 						EStaticMeshLevelMutationReason::None, Index, Mutation.TargetName.ToString());
@@ -590,8 +595,7 @@ namespace Durin::Editor::Level
 			}
 			if (Delta.After && Delta.After->Name != Mutation.TargetName)
 			{
-				if (AActor* Collision = Request.Level->FindActorByName(Delta.After->Name);
-					Collision && Collision != Existing)
+				if (!Request.Level->IsActorNameAvailable(Delta.After->Name, Existing))
 				{
 					SetFailure(Result, EStaticMeshLevelMutationError::NameConflict,
 						EStaticMeshLevelMutationReason::None, Index, Delta.After->Name.ToString());

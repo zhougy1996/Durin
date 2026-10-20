@@ -3,7 +3,7 @@
 Summary: Run trusted GameThread scripts using the selected editor's native Toolsets and transaction scopes.
 Modules: DurinPython, MainFrame, DurinEd
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-20
 
 ## Prepare and Run
 
@@ -49,7 +49,10 @@ empty writable Level open. It creates six `Example_*` Actors: an empty origin,
 camera, directional light, procedural sky, point light and player start. It also
 edits camera position and light properties. Ctrl+Z removes the whole example;
 Ctrl+Y restores it. It loads no geometry assets and does not save the Level.
-Running it again while those names exist reports an error before editing.
+The example identifies its Actors through a persistent `Tags` marker. Running it
+again while any marked Actor exists reports an error before editing, even if its
+label changed. Undo followed by another run reuses the `Example_*` labels; internal
+object names may differ because history retains the original objects.
 
 For an explicit startup script, set `DURIN_PYTHON_SCRIPT` to its absolute path in
 the launching process before starting the editor. Unset it after the intended
@@ -168,9 +171,9 @@ if level is None:
 
 with durin.ScopedEditorTransaction('Create empty Actor and camera'):
     empty = actors.spawn_actor(level, durin.Actor, durin.Transform(),
-                               name='PythonEmptyActor')
+                               label='PythonEmptyActor')
     camera = actors.spawn_actor(level, durin.CameraActor, durin.Transform(),
-                                name='PythonCamera')
+                                label='PythonCamera')
     if empty is None or camera is None:
         raise RuntimeError('Actor creation failed')
 
@@ -190,7 +193,20 @@ component; the camera above supplies one for transform editing. After the scope
 ends, Ctrl+Z removes both actors and Ctrl+Y restores them with the edited camera
 transform as one history entry.
 
-The same service provides duplicate_actors, destroy_actors, rename_actor,
+`actor.get_name()` returns its internal object Name; `actor.get_actor_label()` and
+`actors.get_actor_info(level, actor).label` return the display label. Use
+`actors.set_actor_label(level, actor, 'Camera')` for ordinary editor renaming.
+`rename_actor` is an internal-name operation and leaves the label unchanged.
+Labels are not identity keys. For application membership, use a persistent marker
+such as `actor.set_editor_property('tags', [durin.Name('MyTool.Scene')])`.
+
+The `name` argument requests an internal name and may receive a numeric suffix.
+For an exact internal name, pass
+`name_mode=durin.SpawnActorNameMode.REQUIRED_RETURN_NULL`; a conflict returns None
+without construction or history. `REQUIRED_ERROR_AND_RETURN_NULL` also logs an
+error. `REQUESTED` is the default. These policies also apply to `rename_actor`.
+
+The same service provides duplicate_actors, destroy_actors, set_actor_label, rename_actor,
 attach_actors and detach_actors. Supply explicit Level and Actor arguments;
 selection does not determine targets. Creation returns Actor or None, duplication
 returns an Actor list (empty on failure), and other edits return bool. Successful

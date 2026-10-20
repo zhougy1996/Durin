@@ -279,6 +279,10 @@ TEST(FActorMutationTests, BatchConflictRejectsEveryWriteAndRetainsHistoryForRetr
 	std::array<AActor*, 2> Targets{F.Actor, Other};
 	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, Targets, {false}));
 	auto* Conflict = Level->SpawnActor<AActor>(Other->GetFName());
+	ASSERT_NE(Conflict, nullptr);
+	EXPECT_NE(Conflict->GetFName(), Other->GetFName());
+	// Bypass the naming service to exercise defensive replay against external corruption.
+	Conflict->Rename(Other->GetFName());
 	const auto Head = F.Transactions->GetUndoId();
 	EXPECT_FALSE(F.Transactions->Undo());
 	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
@@ -1175,4 +1179,119 @@ TEST(FActorMutationTests, WorldClosingDuringActorRemovalCannotReportSuccess)
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(RecoveryHistory->GetLastResult().Code, ETransactorResultCode::RecoveryRequired);
 	EXPECT_EQ(RecoveryHistory->GetState(), ETransactorState::RecoveryRequired);
+}
+
+TEST(FActorMutationTests, LabelsReuseVisibleNamesAfterUndoWithoutReusingObjectIdentity)
+{
+    Durin::Tests::FActorEditorFixture F;
+    auto* Level = F.GetWorld()->GetCurrentLevel();
+    auto* Service = F.GetActorEditor();
+    auto* First = Service->SpawnActor(*Level, AActor::StaticClass(), "Example", {}, {false});
+    ASSERT_NE(First, nullptr);
+    EXPECT_EQ(First->GetActorLabel(), "Example");
+    ASSERT_TRUE(F.GetTransactions()->Undo());
+    CollectGarbage();
+    EXPECT_FALSE(Level->ContainsActor(First));
+    EXPECT_FALSE(Level->IsActorNameAvailable("Example"));
+    EXPECT_EQ(Level->SpawnActor<AActor>("Example", ESpawnActorNameMode::RequiredReturnNull), nullptr);
+    EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Example", {}, {false}, {}, ESpawnActorNameMode::RequiredReturnNull), nullptr);
+    EXPECT_TRUE(F.GetTransactions()->CanRedo());
+    auto* Second = Service->SpawnActor(*Level, AActor::StaticClass(), "Example", {}, {false});
+    ASSERT_NE(Second, nullptr);
+    EXPECT_NE(Second, First);
+    EXPECT_EQ(Second->GetFName(), FName("Example_2"));
+    EXPECT_EQ(Second->GetActorLabel(), "Example");
+    ASSERT_TRUE(F.GetTransactions()->Undo());
+    ASSERT_TRUE(F.GetTransactions()->Redo());
+    EXPECT_TRUE(Level->ContainsActor(Second));
+    EXPECT_EQ(Second->GetActorLabel(), "Example");
+    auto* Runtime = Level->SpawnActor<AActor>("Example");
+    ASSERT_NE(Runtime, nullptr);
+    EXPECT_NE(Runtime->GetFName(), First->GetFName());
+    EXPECT_NE(Runtime->GetFName(), Second->GetFName());
+    EXPECT_EQ(Runtime->GetActorLabel(), "Example_2");
+}
+
+TEST(FActorMutationTests, LabelEditsAndDuplicationPreserveNamesAndReplayExactLabels)
+{
+    Durin::Tests::FActorEditorFixture F;
+    auto* Level = F.GetWorld()->GetCurrentLevel();
+    auto* Service = F.GetActorEditor();
+    auto* First = Level->SpawnActor<AActor>("Internal");
+    auto* Other = Level->SpawnActor<AActor>("Other");
+    ASSERT_NE(First, nullptr); ASSERT_NE(Other, nullptr);
+    const std::string Path = First->GetObjectPath();
+    ASSERT_TRUE(Service->SetActorLabel(*Level, First, "Visible", {false}));
+    EXPECT_EQ(First->GetObjectPath(), Path);
+    EXPECT_EQ(First->GetActorLabel(), "Visible");
+    const auto Head = F.GetTransactions()->GetUndoId();
+    ASSERT_TRUE(Service->SetActorLabel(*Level, First, "Visible", {false}));
+    EXPECT_EQ(F.GetTransactions()->GetUndoId(), Head);
+    EXPECT_FALSE(Service->SetActorLabel(*Level, First, "Denied", {true}));
+    EXPECT_FALSE(Service->SetActorLabel(*Level, First, std::string("bad\0label", 9), {false}));
+    ASSERT_TRUE(F.GetTransactions()->Undo()); EXPECT_EQ(First->GetActorLabel(), "Internal");
+    ASSERT_TRUE(F.GetTransactions()->Redo()); EXPECT_EQ(First->GetActorLabel(), "Visible");
+    ASSERT_TRUE(Service->SetActorLabel(*Level, Other, "Visible", {false}));
+    EXPECT_EQ(Other->GetActorLabel(), "Visible_2");
+    ASSERT_TRUE(Service->SetActorLabel(*Level, Other, "Visible", {false}, false));
+    EXPECT_EQ(Other->GetActorLabel(), "Visible");
+    AActor* Sources[] = {First, Other};
+    const auto Copies = Service->DuplicateActors(*Level, Sources, {false});
+    ASSERT_EQ(Copies.size(), 2u);
+    EXPECT_EQ(Copies[0]->GetActorLabel(), "Visible_2");
+    EXPECT_EQ(Copies[1]->GetActorLabel(), "Visible_3");
+    ASSERT_TRUE(F.GetTransactions()->Undo());
+    ASSERT_TRUE(F.GetTransactions()->Redo());
+    EXPECT_EQ(Copies[1]->GetActorLabel(), "Visible_3");
+    ASSERT_TRUE(Service->RenameActor(*Level, First, "RenamedInternal", {false}));
+    EXPECT_EQ(First->GetActorLabel(), "Visible");
+    EXPECT_NE(First->GetObjectPath(), Path);
+    ASSERT_TRUE(F.GetTransactions()->Undo());
+    EXPECT_EQ(First->GetObjectPath(), Path);
+    EXPECT_EQ(First->GetActorLabel(), "Visible");
+}
+
+TEST(FActorMutationTests, UnspecifiedNamesIgnoreRequiredModeAndLegacyLabelsSurviveInternalRename)
+{
+    Durin::Tests::FActorEditorFixture F;
+    auto* Level = F.GetWorld()->GetCurrentLevel();
+    auto* First = Level->SpawnActor<AActor>();
+    auto* Second = Level->SpawnActor<AActor>({}, ESpawnActorNameMode::RequiredReturnNull);
+    ASSERT_NE(First, nullptr); ASSERT_NE(Second, nullptr);
+    EXPECT_NE(First->GetFName(), Second->GetFName());
+    auto* Third = F.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), {}, {}, {false}, {}, ESpawnActorNameMode::RequiredReturnNull);
+    ASSERT_NE(Third, nullptr);
+    auto* Legacy = NewObject<AActor>(Level, "Legacy");
+    EXPECT_EQ(Legacy->GetActorLabel(), "Legacy");
+    ASSERT_TRUE(Level->SetActorPresence(Legacy, true));
+    const uint64 Revision = Level->GetEditorActorHierarchyRevision();
+    ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Legacy, "Legacy label", {false}));
+    EXPECT_GT(Level->GetEditorActorHierarchyRevision(), Revision);
+    ASSERT_TRUE(F.GetTransactions()->Undo());
+    ASSERT_TRUE(F.GetActorEditor()->RenameActor(*Level, Legacy, "NewInternal", {false}));
+    EXPECT_EQ(Legacy->GetActorLabel(), "Legacy");
+    ASSERT_TRUE(F.GetTransactions()->Undo());
+    EXPECT_EQ(Legacy->GetName(), "Legacy");
+    EXPECT_EQ(Legacy->GetActorLabel(), "Legacy");
+}
+
+TEST(FActorMutationTests, LabelCommandComposesWithWholeObjectModifyInTheSameTransaction)
+{
+    Durin::Tests::FActorEditorFixture F;
+    auto* Level = F.GetWorld()->GetCurrentLevel();
+    auto* Actor = Level->SpawnActor<AActor>("Original");
+    ASSERT_NE(Actor, nullptr);
+    {
+        Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify and label"});
+        ASSERT_TRUE(Actor->Modify());
+        Actor->SetHidden(true);
+        ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Actor, "Display", {false}));
+    }
+    ASSERT_TRUE(F.GetTransactions()->Undo());
+    EXPECT_FALSE(Actor->IsHidden());
+    EXPECT_EQ(Actor->GetActorLabel(), "Original");
+    ASSERT_TRUE(F.GetTransactions()->Redo());
+    EXPECT_TRUE(Actor->IsHidden());
+    EXPECT_EQ(Actor->GetActorLabel(), "Display");
+    EXPECT_EQ(Actor->GetName(), "Original");
 }
