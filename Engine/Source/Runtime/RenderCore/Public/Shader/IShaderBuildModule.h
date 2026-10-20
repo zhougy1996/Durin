@@ -10,6 +10,7 @@
 
 namespace Durin
 {
+	class FShaderCompilingManager;
 	// Session adapter contracts, independent of producer algorithms and package codecs.
 	struct FShaderCompileAdapterVersion
 	{
@@ -44,19 +45,17 @@ namespace Durin
 		virtual auto GetBuildVersion() const -> uint64 = 0;
 		virtual auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion = 0;
 
-		virtual auto CompileMounted(
-			std::string_view VirtualShaderPath,
-			const FShaderCompileOptions& Options) -> FShaderBuildResult = 0;
+	private:
+		friend class FShaderCompilingManager;
+		// Execution backend: public callers submit through FShaderCompilingManager.
 		virtual auto SubmitMounted(std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& CompileOptions, FShaderBuildRequestOptions Options,
 			FShaderBuildCompletion Completion)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> = 0;
-		virtual auto CompileGenerated(
-			const FGeneratedShaderCompileRequest& Request)
-			-> FShaderBuildResult = 0;
 		virtual auto SubmitGenerated(FGeneratedShaderCompileRequest Request,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> = 0;
+	public:
 		virtual auto GetCompilerEnvironmentIdentity() -> std::string = 0;
 		// Capture for exact native-library cache replay through request options.
 		virtual auto GetNativeLibraryProducerIdentity() -> std::expected<std::string, std::string>

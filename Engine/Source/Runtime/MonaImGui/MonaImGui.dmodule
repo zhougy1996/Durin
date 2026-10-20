@@ -6,6 +6,7 @@
         "Core",
         "RHI",
         "RenderCore",
+		"Engine",
         "Mona"
     ],
     "PublicDependencies": [

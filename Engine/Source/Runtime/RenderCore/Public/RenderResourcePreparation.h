@@ -75,4 +75,18 @@ namespace Durin
 		std::chrono::steady_clock::time_point Start;
 		uint32 Shaders = 0, Pipelines = 0;
 	};
+	// A thumbnail capture may consume completed outputs, never compile on demand.
+	class RENDERCORE_API FPreparedShaderMapScope
+	{
+	public:
+		FPreparedShaderMapScope();
+		~FPreparedShaderMapScope();
+		FPreparedShaderMapScope(const FPreparedShaderMapScope&) = delete;
+		static auto IsActive() -> bool;
+		static auto RecordPendingRequest() -> void;
+		// Counts unavailable CPU outputs encountered in the current outer capture.
+		// Resource attempts compare before/after counts to defer only their own work.
+		static auto GetPendingRequestCount() -> uint64;
+	};
+
 }

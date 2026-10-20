@@ -335,14 +335,10 @@ namespace Durin
 					== std::numeric_limits<uint64>::max()
 					? 1 : CompilationOwner.MaterialCompileStatus.RequestGeneration + 1;
 			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
-			CompilationOwner.MaterialCompileStatus.ResultCategory =
-				EMaterialCompileResultCategory::Dependency;
 			CompilationOwner.MaterialCompileDiagnostics = {{
-				.Category = EMaterialCompileResultCategory::Dependency,
 				.Source = {
 					.Category = EMaterialProgramDiagnosticCategory::Dependency,
 					.Error = std::move(EnvironmentError.Error)},
-				.AssetPath = GetObjectPath(),
 				.Generation = CompilationOwner.MaterialCompileStatus.RequestGeneration,
 			}};
 			RetireFailedMaterialGeneration(Context);
@@ -355,16 +351,11 @@ namespace Durin
 			Status.RequestGeneration = Status.RequestGeneration == std::numeric_limits<uint64>::max()
 				? 1 : Status.RequestGeneration + 1;
 			Status.State = EMaterialCompileState::Failed;
-			Status.ResultCategory = !Snapshot.Diagnostics.empty()
-				&& Snapshot.Diagnostics.front().Category == EMaterialProgramDiagnosticCategory::Dependency
-				? EMaterialCompileResultCategory::Dependency : EMaterialCompileResultCategory::Validation;
 			CompilationOwner.MaterialCompileDiagnostics.clear();
 			for (const auto& Diagnostic : Snapshot.Diagnostics)
 				CompilationOwner.MaterialCompileDiagnostics.push_back({
-					.Category = Diagnostic.Category == EMaterialProgramDiagnosticCategory::Dependency
-						? EMaterialCompileResultCategory::Dependency : EMaterialCompileResultCategory::Validation,
 					.Source = Diagnostic,
-					.AssetPath = GetObjectPath(), .Generation = Status.RequestGeneration});
+					.Generation = Status.RequestGeneration});
 			RetireFailedMaterialGeneration(Context);
 			return false;
 		}
@@ -620,11 +611,9 @@ namespace Durin
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
 			auto& Status = Owner->CompilationOwner.MaterialCompileStatus;
 			Status.State = EMaterialCompileState::Failed;
-			Status.ResultCategory = EMaterialCompileResultCategory::Dependency;
 			Owner->CompilationOwner.MaterialCompileDiagnostics = {{
-				.Category = EMaterialCompileResultCategory::Dependency,
 				.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency, .Error = Error.Error},
-				.AssetPath = Owner->GetObjectPath(), .Generation = Status.RequestGeneration}};
+				.Generation = Status.RequestGeneration}};
 			Owner->RetireFailedMaterialGeneration(&Context);
 			Notifications.emplace_back(Owner);
 		}

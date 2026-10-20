@@ -63,7 +63,6 @@ auto QualifyMaterialEditingSessionAsync() -> void
 		.ProgramIdentity = Pending.RequestedIdentity,
 		.Target = Pending.Target,
 		.State = EMaterialCompileState::Failed,
-		.Category = EMaterialCompileResultCategory::Compile,
 	};
 	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*Draft, std::move(Failed)));
 	Session.Tick(Error);

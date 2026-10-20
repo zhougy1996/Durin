@@ -32,6 +32,13 @@ data does not establish success. Failed builds/encoders clear emitted output;
 property resolution and cooked decoding publish only validated candidates.
 Cancellation and admission remain separate lifecycle outcomes. Semantic tests
 assert codes, context, and publication behavior, not formatted text.
+Asynchronous material results carry publication qualifiers, terminal state, cache
+outcome and the compiled program. Diagnostics retain the original
+`FMaterialProgramDiagnostic` plus the request generation used for stale editor
+navigation. There is no second result-category taxonomy, copied asset path or
+program identity on each diagnostic, or task ID forwarded through result/status
+records. Failure details come from the original diagnostic; cancellation and
+admission rejection come from request state.
 
 `GetMaterialProgramStatistics` derives a detached value snapshot from the
 currently accepted compiler result. It reports explicit absent, current, or
@@ -371,19 +378,19 @@ The default material compiler environment represents the dedicated
 `/Engine/MaterialCompilerEnvironment` dependency graph with one
 aggregate source-tree fingerprint. That root mirrors the generated source's
 reachable Material and Lighting modules and deliberately excludes BasePass
-vertex factories and pass implementation. RenderCore obtains it from the
+vertex factories and pass implementation. ShaderBuild obtains it from the
 ordinary persisted shader manifest, so a warm startup validates file metadata
 without asking Slang to parse the graph or rereading source contents. Any
 reachable source change rebuilds the aggregate fingerprint and therefore
 selects a new material-program identity; the root virtual path is an identity
-anchor, not an extra shader compilation. RenderCore memoizes that aggregate for
+anchor, not an extra shader compilation. ShaderBuild memoizes that aggregate for
 the current Shader reload generation, so every later material in the process
 reuses it without additional file-status queries. Applying an explicit Shader
 reload advances the generation and makes the next material compilation
 revalidate the manifest.
 
 The synchronous compiler lowers that IR to bounded deterministic Slang using
-stable stage-local vertex symbols and IR-index pixel symbols and exact floating-point bit expressions. RenderCore
+stable stage-local vertex symbols and IR-index pixel symbols and exact floating-point bit expressions. ShaderBuild
 accepts the generated root as owned memory, resolves only allowlisted virtual
 imports, retains cache/artifact ownership, compiles forward, GBuffer, and
 masked-shadow and integer Hit Proxy fragments, and accepts only correctly typed reflected bindings
@@ -547,42 +554,56 @@ result byte budgets conservatively charge shared backing storage in full.
 [Shader stage selection and sharing](MaterialShaderStages.md) owns geometry/Pass
 usage declarations, editor/Game stage sets and reusable stage cache identities.
 
-Engine registers `DMaterial` and `DMaterialInstance` to the built-in `Durin.Material` typed manager of its
+Engine registers `DMaterial` and `DMaterialInstance` with its
 [asset-compilation aggregate](../Assets/AssetCompilation.md) between task-system
 startup and shutdown. `DMaterialInterface` owns non-reflected compilation state.
-The manager delegates detached request orchestration to the private
-`FMaterialCompilationService`; asset capture, edit scheduling, live dependency
-checks and publication remain in the material lifecycle. The service compares
-opaque weak owner keys without resolving live objects. A process-wide
-`FMaterialProgramCompilingManager` owns admission, scheduling, priority and waits.
-`SubmitJobs` returns a shared ShaderMap reference. That same ShaderMap owns its
-compiling ID, detached asset dependencies, translation, pending Shader outputs
-and final program content; there is no separate program or asset compile record.
-`Compile` starts translation/cache work, `ProcessCompilationResults` collects
-indexed outputs, and final assembly fills the compiling map itself.
-ShaderMap also owns the translation-to-jobs transition and completion/fanout;
-the program manager dispatches tasks and Shader jobs, maintains the active
-identity index, and handles priority, cancellation, waits and retirement.
-The manager encapsulates index lookup, joining and atomic cache publication;
-ShaderMap does not access the manager's locks or containers directly.
+Engine's `FShaderCompilingManager` directly implements `IAssetCompilingManager`.
+The asset framework registers it once as `Durin.Shader`, routing material classes
+to the same manager that owns global Shader requests. There is no separate
+material asset compiler or material-program compiling manager.
+The manager owns one active ShaderMap collection, captured-request and semantic
+identity indexes, and a result mailbox. Detached asset dependencies live on each
+ShaderMap; asset capture, edit scheduling, live dependency checks and installation
+remain in the material lifecycle. There is no separate material compilation service
+or public service accessor.
+`SubmitJobs` returns a shared ShaderMap reference for material input. That map owns
+its compiling ID, material dependencies, translation, one Shader job-group handle
+and final program content. `Compile` starts translation/cache work; final assembly
+fills the compiling map itself. The shared manager owns material admission,
+translation and assembly tasks, semantic identity joining, atomic cache publication,
+priority, cancellation, end-boundary waits and cleanup. Asset admission derives
+from the manager and asset framework state, without a second admission flag.
+Completed maps release captures, task owners and byte allowances through one
+cleanup path after callbacks finish; mailbox publication remains a GameThread step.
+Material stage jobs and global Shader preparation share its indexed completion,
+two-job dispatch window and aggregate output allowance. Material ShaderMaps have
+no second stage queue, dispatch driver, output slots or reservation counters.
+ShaderBuild remains an independent source/compiler/DDC backend and depends on
+neither Engine nor the asset framework. Engine owns the authored compilation
+entry points; RenderCore owns source-independent values and GPU resources.
+Stopping admission rejects new public material and Shader requests while allowing
+already-admitted material translations to submit their stage jobs and drain.
+Asset statistics count a material dependency once; its lower-level Shader job
+group is not counted again. Standalone Shader job groups participate in the same
+remaining-work count and `FinishAllCompilation`. ShaderMap does not access manager
+locks or containers directly.
 `BindCollections` is the single configuration/default binding interface. Cache
 hits and shared compilation subscribers bind at request completion before result
-byte limits are checked; fanout does not prebind subscriber results. The asset
-service separately binds each captured asset request when it prepares publication.
+byte limits are checked; fanout does not prebind subscriber results. The manager
+binds each captured asset request when it prepares publication.
 `FindId`, `Register`, configuration rebinding and cache accounting belong to
 ShaderMap; the old program-cache service is removed. Persistent translation and
 individual Shader DDC formats remain unchanged. `FinishCompilation`, `CancelCompilation`,
 `IsCompiling` and `ProcessAsyncResults` provide waiting, cancellation, end-boundary
-queries and retirement. Assets, synchronous tools and Cook use this same
-submission interface. The asset service processes publication callbacks and
+queries and cleanup. Assets, synchronous tools and Cook use this same
+submission interface. The manager processes publication callbacks and
 updates outstanding-consumer counts internally; callers do not pair result
 processing with a separate counter operation.
 Accepted first and coalesced requests both use `Running`; editor presentation
 does not distinguish them as separate execution phases. Capacity deferral and
 scheduled edits retain their distinct retry behavior.
-The asset service coalesces canonical captured requests, indexes their ShaderMaps
-and owns mailbox delivery. The dependent asset snapshots live on each ShaderMap;
-live-object validation and publication remain in the material lifecycle.
+Canonical captured requests coalesce through the manager's request index;
+that index does not own a second active collection or cleanup path.
 ShaderMap uses the manager's semantic identity index to share compilation and
 fan out results across assets, synchronous tools and Cook; no reverse joining callback transfers asset
 consumers between separate compile records. Each subscriber retains its own cancellation
@@ -599,7 +620,7 @@ GameThread snapshots root graph/declarations, expanded functions, source mapping
 and effective owner properties into a detached request. A task-backed
 `Material.Translate` session normalizes MIR and generates Slang; successful
 translations join by final semantic program identity before asynchronous
-independent ShaderBuild stage submissions. A CPU continuation validates and assembles
+a shared Shader job-group submission. A CPU continuation validates and assembles
 the exact required set, then the GameThread mailbox applies the qualified candidate. Neither
 translation nor Shader cache I/O holds a material producer worker. Workers retain no
 `DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
@@ -645,14 +666,14 @@ revision or last-known-good display flag. Current readiness requires Ready state
 and matching requested/compiled identities; owner and revision checks remain at
 result admission.
 
-The Material compiling manager retains at most 64 asset ShaderMaps and 256
-consumers. Admission permits at most 32 active program ShaderMaps,
+The shared compiling manager retains at most 32 active material ShaderMaps and
+256 asset consumers, with one admission limit for asset and standalone program requests,
 with 16 MiB active-product and 8 MiB assembly-overlap allowance each: aggregate
 ceilings are 512 MiB and 256 MiB respectively. Captured input is limited to 2 MiB
 per request and 128 MiB in aggregate; candidates are limited to 8 MiB, generated
 source to 1 MiB, diagnostics to the M5 64-record/512-byte limits, and shared
 in-process retention to 128 identities and 256 MiB FIFO. Active admission slots
-survive result readiness until request end. Retirement releases input captures,
+survive result readiness until request end. Cleanup releases input captures,
 pending outputs and request-owner dependencies; cached programs and caller-held
 ShaderMap references do not keep active compilation slots occupied.
 A single request owner tracks translation, submission/callback barriers, CPU tasks
@@ -828,7 +849,7 @@ overrides use the compatible cooked/default payload. Opaque shadow remains
 material-resource-free and allocates no collection binding. Collection updates do
 not branch the geometry-family path or rebuild shader maps and pipelines.
 
-RenderCore represents those geometry/Pass resource sets with `FMeshMaterialShaderMap` and strongly owned
+Engine represents those geometry/Pass resource sets with `FMeshMaterialShaderMap` and strongly owned
 `TMaterialShaderRef` values. Intrinsic generated fragments derive from
 `FMaterialShader`; Local, Spline, GBuffer, and opaque-shadow
 mesh stages derive from `FMeshMaterialShader`. Mesh compatibility adds only a

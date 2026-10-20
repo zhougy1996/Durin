@@ -2,8 +2,6 @@
 #include "Hash/CanonicalHash.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
-#include "Shader/IShaderBuildModule.h"
-#include "Shader/ShaderMapPreparation.h"
 #include "RenderResourcePreparation.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderData.h"
@@ -11,40 +9,6 @@
 
 namespace Durin
 {
-	struct FPreparedShaderMapState
-	{
-		uint64 Generation = 0;
-		uint64 Epoch = 0;
-		std::vector<const FShaderType*> Types;
-		FShaderCompileOptions Options;
-		std::mutex Mutex;
-		std::optional<FShaderBuildResult> Output;
-		FShaderBuildHandle Handle;
-		EShaderBuildPriority Priority = EShaderBuildPriority::Low;
-	};
-
-	namespace
-	{
-		std::mutex PreparationMutex;
-		std::vector<std::shared_ptr<FPreparedShaderMapState>> Preparations;
-		thread_local uint32 PreparedScopeDepth = 0;
-		thread_local uint64 PendingPreparedRequests = 0;
-		std::atomic<uint64> PreparationEpoch = 1;
-		std::atomic_bool ForcePreparation = false;
-
-		auto MatchesPreparation(const FPreparedShaderMapState& State,
-			const std::vector<const FShaderType*>& Types, const FShaderCompileOptions& Options) -> bool
-		{
-			if (State.Generation != GetShaderReloadGeneration() || State.Epoch != PreparationEpoch.load() || State.Types != Types
-				|| State.Options.Target != Options.Target
-				|| (Options.bForceRecompile && !State.Options.bForceRecompile)
-				|| State.Options.Macros.size() != Options.Macros.size()) return false;
-			for (size_t Index = 0; Index < Options.Macros.size(); ++Index)
-				if (State.Options.Macros[Index].Name != Options.Macros[Index].Name
-					|| State.Options.Macros[Index].Value != Options.Macros[Index].Value) return false;
-			return true;
-		}
-	}
 	FShaderCompileOptions::FShaderCompileOptions()
 		: Target(GetActiveRHIBackend().value_or(
 			ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")).value_or(ERHIBackend::Vulkan))
@@ -57,24 +21,7 @@ namespace Durin
 	{
 		using ShaderPrivate::AreShaderBindingTypesCompatible;
 
-		auto NormalizeShaderMacros(
-			const FShaderCompileOptions& Options,
-			std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult
-		{
-			OutMacros = Options.Macros;
-			std::ranges::sort(OutMacros,
-				[](const FShaderMacroDefinition& Left,
-					const FShaderMacroDefinition& Right) {
-					return std::tie(Left.Name, Left.Value)
-						< std::tie(Right.Name, Right.Value);
-				});
-			for (size_t Index = 1; Index < OutMacros.size(); ++Index)
-			{
-				if (OutMacros[Index - 1].Name != OutMacros[Index].Name) continue;
-				return std::unexpected(FShaderError{.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name});
-			}
-			return {};
-		}
+
 
 		struct FShaderMapCacheEntry
 		{
@@ -162,105 +109,7 @@ namespace Durin
 			}
 		}
 
-		auto BuildShaderMapCompileOptions(
-			std::span<const FShaderType* const> ShaderTypes,
-			const FShaderCompileOptions* InCompileOptions,
-			FShaderCompileOptions& OutCompileOptions,
-			bool bAllowMixedSources = false) -> FShaderOperationResult
-		{
-			OutCompileOptions = {};
 
-			if (InCompileOptions)
-			{
-				OutCompileOptions.Target = InCompileOptions->Target;
-				OutCompileOptions.Macros = InCompileOptions->Macros;
-				OutCompileOptions.bForceRecompile = InCompileOptions->bForceRecompile;
-			}
-
-			if (ShaderTypes.empty())
-			{
-				if (InCompileOptions && !InCompileOptions->VirtualShaderPath.empty())
-				{
-					OutCompileOptions.VirtualShaderPath = InCompileOptions->VirtualShaderPath;
-				}
-				return {};
-			}
-
-			const FShaderType* FirstShaderType = ShaderTypes.front();
-			checkf(FirstShaderType, "Shader type must not be null");
-
-			const std::string_view ShaderPath = FirstShaderType->GetVirtualShaderPath();
-			if (ShaderPath.empty())
-			{
-				return std::unexpected(FShaderError{.Code = EShaderError::MissingVirtualPath});
-			}
-
-			if (InCompileOptions && !InCompileOptions->VirtualShaderPath.empty() && InCompileOptions->VirtualShaderPath != ShaderPath)
-			{
-				return std::unexpected(FShaderError{.Code = EShaderError::VirtualPathMismatch,
-					.ExpectedIdentity = std::string(ShaderPath),
-					.ActualIdentity = InCompileOptions->VirtualShaderPath});
-			}
-
-			OutCompileOptions.VirtualShaderPath = std::string(ShaderPath);
-			OutCompileOptions.EntryPoints.reserve(ShaderTypes.size());
-			OutCompileOptions.Frequencies.reserve(ShaderTypes.size());
-
-			for (size_t ShaderTypeIndex = 0; ShaderTypeIndex < ShaderTypes.size(); ++ShaderTypeIndex)
-			{
-				const FShaderType* ShaderType = ShaderTypes[ShaderTypeIndex];
-				checkf(ShaderType, "Shader type must not be null");
-
-				if (!bAllowMixedSources && ShaderType->GetVirtualShaderPath() != ShaderPath)
-				{
-					return std::unexpected(FShaderError{.Code = EShaderError::ShaderTypePathMismatch,
-						.ShaderType = std::string(ShaderType->GetName()),
-						.ExpectedIdentity = std::string(ShaderPath),
-						.ActualIdentity = std::string(ShaderType->GetVirtualShaderPath())});
-				}
-
-				OutCompileOptions.EntryPoints.push_back(ShaderType->GetEntryPoint().data());
-				OutCompileOptions.Frequencies.push_back(ShaderType->GetFrequency());
-
-				if (InCompileOptions && !InCompileOptions->EntryPoints.empty())
-				{
-					if (ShaderTypeIndex >= InCompileOptions->EntryPoints.size()
-						|| std::string_view(InCompileOptions->EntryPoints[ShaderTypeIndex]) != ShaderType->GetEntryPoint())
-					{
-						return std::unexpected(FShaderError{.Code = EShaderError::EntryPointMismatch,
-							.ShaderType = std::string(ShaderType->GetName()),
-							.Index = ShaderTypeIndex});
-					}
-				}
-
-				if (InCompileOptions && !InCompileOptions->Frequencies.empty())
-				{
-					if (ShaderTypeIndex >= InCompileOptions->Frequencies.size()
-						|| InCompileOptions->Frequencies[ShaderTypeIndex] != ShaderType->GetFrequency())
-					{
-						return std::unexpected(FShaderError{.Code = EShaderError::FrequencyMismatch,
-							.ShaderType = std::string(ShaderType->GetName()),
-							.Index = ShaderTypeIndex});
-					}
-				}
-			}
-
-			if (InCompileOptions && !InCompileOptions->EntryPoints.empty() && InCompileOptions->EntryPoints.size() != ShaderTypes.size())
-			{
-				return std::unexpected(FShaderError{.Code = EShaderError::EntryPointCountMismatch,
-					.Expected = ShaderTypes.size(),
-					.Actual = InCompileOptions->EntryPoints.size()});
-			}
-
-			if (InCompileOptions && !InCompileOptions->Frequencies.empty() && InCompileOptions->Frequencies.size() != ShaderTypes.size())
-			{
-				return std::unexpected(FShaderError{.Code = EShaderError::FrequencyCountMismatch,
-					.Expected = ShaderTypes.size(),
-					.Actual = InCompileOptions->Frequencies.size()});
-			}
-
-			return {};
-		}
 
 		auto BuildShaderMapCacheKey(
 			const FShaderCompileOptions& CompileOptions,
@@ -546,189 +395,6 @@ namespace Durin
 		return {};
 	}
 
-	auto FShaderMapPreparation::Request(std::string_view Owner,
-		std::initializer_list<std::string_view> Programs, EShaderBuildPriority Priority) -> FShaderMapPreparation
-	{
-		FShaderMapPreparation Result;
-		Result.Priority = Priority;
-		Result.Add(Owner, Programs);
-		return Result;
-	}
-
-	auto FShaderMapPreparation::Add(std::string_view Owner,
-		std::initializer_list<std::string_view> Names) -> void
-	{
-		for (auto Name : Names) Programs.emplace_back(Owner, Name);
-		Refresh();
-	}
-
-	auto FShaderMapPreparation::Refresh() -> void
-	{
-		States.clear();
-		Error.clear();
-		Generation = GetShaderReloadGeneration();
-		Epoch = PreparationEpoch.load();
-		if (Programs.empty()) return;
-		if (GetShaderDataDomain() == EShaderDataDomain::Cooked) return;
-		auto* Module = IShaderBuildModule::Get();
-		if (!Module) { Error = "ShaderBuild is unavailable."; return; }
-		std::vector<std::shared_ptr<FPreparedShaderMapState>> Retired;
-		{
-			std::lock_guard Lock(PreparationMutex);
-			std::erase_if(Preparations, [&](const auto& State) {
-				if (State->Generation == Generation && State->Epoch == Epoch) return false;
-				Retired.push_back(State);
-				return true;
-			});
-		}
-		for (const auto& State : Retired) State->Handle.RequestCancel();
-		for (const auto& [Owner, Program] : Programs)
-		{
-			std::vector<const FShaderType*> Types;
-			if (auto Result = GetShaderRuntimeRequestBuildTypes({.Owner = Owner, .Name = Program}, Types); !Result)
-			{ Error = FormatShaderError(Result.error()); return; }
-			std::ranges::sort(Types, {}, &FShaderType::GetName);
-			FShaderCompileOptions Options;
-			if (auto Result = BuildShaderMapCompileOptions(Types, nullptr, Options); !Result)
-			{ Error = FormatShaderError(Result.error()); return; }
-			Options.bForceRecompile = ForcePreparation.load();
-			std::shared_ptr<FPreparedShaderMapState> State;
-			{
-				std::lock_guard Lock(PreparationMutex);
-				for (const auto& Existing : Preparations)
-					if (MatchesPreparation(*Existing, Types, Options)) { State = Existing; break; }
-				if (State && Priority < State->Priority)
-				{
-					State->Priority = Priority;
-					State->Handle.SetPriority(Priority);
-				}
-				if (!State)
-				{
-					if (Preparations.size() >= 128) { Error = "Shader preparation capacity exceeded."; return; }
-					State = std::make_shared<FPreparedShaderMapState>();
-					State->Generation = Generation;
-					State->Epoch = Epoch;
-					State->Priority = Priority;
-					State->Types = std::move(Types);
-					State->Options = std::move(Options);
-					Preparations.push_back(State);
-					auto Submitted = Module->SubmitMounted(State->Options.VirtualShaderPath, State->Options, {.Priority = Priority},
-						[State](FShaderBuildResult Output) {
-							std::lock_guard ResultLock(State->Mutex);
-							State->Output = std::move(Output);
-						});
-					if (Submitted) State->Handle = std::move(*Submitted);
-					else State->Output = FShaderBuildResult::Failure("Shader preparation admission failed.");
-				}
-			}
-			States.push_back(std::move(State));
-		}
-	}
-
-	auto FShaderMapPreparation::Poll() -> std::expected<bool, std::string>
-	{
-		if (Generation != GetShaderReloadGeneration() || Epoch != PreparationEpoch.load()) Refresh();
-		if (!Error.empty()) return std::unexpected(Error);
-		bool Ready = true;
-		for (const auto& State : States)
-		{
-			std::lock_guard Lock(State->Mutex);
-			if (!State->Output) { Ready = false; continue; }
-			if (!*State->Output) return std::unexpected(State->Output->Diagnostic.empty()
-				? std::string("Shader preparation failed or was canceled.") : State->Output->Diagnostic);
-		}
-		return Ready;
-	}
-
-	FPreparedShaderMapScope::FPreparedShaderMapScope()
-	{
-		if (PreparedScopeDepth++ == 0) PendingPreparedRequests = 0;
-	}
-	FPreparedShaderMapScope::~FPreparedShaderMapScope() { --PreparedScopeDepth; }
-	auto FPreparedShaderMapScope::IsActive() -> bool { return PreparedScopeDepth != 0; }
-	auto FPreparedShaderMapScope::GetPendingRequestCount() -> uint64
-	{
-		return IsActive() ? PendingPreparedRequests : 0;
-	}
-
-	auto ClearShaderMapPreparations() -> void
-	{
-		InvalidateShaderMapPreparations(false);
-		std::vector<std::shared_ptr<FPreparedShaderMapState>> Retired;
-		{ std::lock_guard Lock(PreparationMutex); Retired.swap(Preparations); }
-		for (const auto& State : Retired) State->Handle.RequestCancel();
-		for (const auto& State : Retired) (void)State->Handle.Wait();
-	}
-
-	auto InvalidateShaderMapPreparations(bool bForceRecompile) -> void
-	{
-		ForcePreparation = bForceRecompile;
-		++PreparationEpoch;
-	}
-
-	auto FShaderMapBase::InitializeFromShaderTypes(
-		std::span<const FShaderType* const> ShaderTypes,
-		const FShaderCompileOptions& CompileOptions) -> FShaderCompletion
-	{
-		FShaderOperationResult Result;
-		FShaderCompileOptions EffectiveCompileOptions;
-		if (!(Result = BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions)))
-		{
-			Reset();
-			return Result;
-		}
-
-		std::vector<const FShaderType*> StableTypes(ShaderTypes.begin(), ShaderTypes.end());
-		std::ranges::sort(StableTypes, {}, &FShaderType::GetName);
-		std::vector<FShaderMacroDefinition> Macros;
-		if (!(Result = NormalizeShaderMacros(EffectiveCompileOptions, Macros))) return Result;
-		EffectiveCompileOptions.Macros = std::move(Macros);
-		std::shared_ptr<FPreparedShaderMapState> Prepared;
-		{
-			std::lock_guard Lock(PreparationMutex);
-			for (const auto& State : Preparations)
-				if (MatchesPreparation(*State, StableTypes, EffectiveCompileOptions)) { Prepared = State; break; }
-		}
-		if (Prepared)
-		{
-			std::lock_guard Lock(Prepared->Mutex);
-			if (Prepared->Output && *Prepared->Output)
-			{
-				FShaderCompilerOutput Output{.Error = {}};
-				for (const auto* Type : ShaderTypes)
-				{
-					auto Found = std::ranges::find_if(Prepared->Output->CompiledShaders, [Type](const auto& Code) {
-						return Code.SourceEntryPoint == Type->GetEntryPoint() && Code.Frequency == Type->GetFrequency();
-					});
-					if (Found == Prepared->Output->CompiledShaders.end())
-						return std::unexpected(FShaderError{.Code = EShaderError::MissingShaderType});
-					Output.CompiledShaders.push_back(*Found);
-				}
-				return Initialize(ShaderTypes, Output, EffectiveCompileOptions);
-			}
-			if (Prepared->Output) return {Prepared->Output->Status, Prepared->Output->Diagnostic};
-		}
-		if (PreparedScopeDepth != 0)
-		{
-			++PendingPreparedRequests;
-			return std::unexpected(FShaderError{.Code = EShaderError::CompilationNotStarted});
-		}
-		auto* Module = IShaderBuildModule::Get();
-		if (!Module)
-		{
-			Reset();
-			return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
-		}
-		FShaderBuildResult Output = Module->CompileMounted(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
-		if (!Output)
-		{
-			Reset();
-			return {Output.Status, Output.Diagnostic};
-		}
-
-		return Initialize(ShaderTypes, FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}, EffectiveCompileOptions);
-	}
-
 	auto FShaderMapBase::FindShaderIndex(const FShaderType* ShaderType) const -> const uint32*
 	{
 		const auto FoundIt = ShaderTypeToIndex.find(ShaderType);
@@ -766,5 +432,122 @@ namespace Durin
 	auto GetShaderMapResourceCacheStats() -> FShaderMapResourceCacheStats
 	{
 		return GetShaderMapResourceCache().GetStats();
+	}
+	auto NormalizeShaderMacros(
+		const FShaderCompileOptions& Options,
+		std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult
+	{
+		OutMacros = Options.Macros;
+		std::ranges::sort(OutMacros,
+			[](const FShaderMacroDefinition& Left,
+				const FShaderMacroDefinition& Right) {
+				return std::tie(Left.Name, Left.Value)
+					< std::tie(Right.Name, Right.Value);
+			});
+		for (size_t Index = 1; Index < OutMacros.size(); ++Index)
+		{
+			if (OutMacros[Index - 1].Name != OutMacros[Index].Name) continue;
+			return std::unexpected(FShaderError{.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name});
+		}
+		return {};
+	}
+	auto BuildShaderMapCompileOptions(
+		std::span<const FShaderType* const> ShaderTypes,
+		const FShaderCompileOptions* InCompileOptions,
+		FShaderCompileOptions& OutCompileOptions,
+		bool bAllowMixedSources) -> FShaderOperationResult
+	{
+		OutCompileOptions = {};
+
+		if (InCompileOptions)
+		{
+			OutCompileOptions.Target = InCompileOptions->Target;
+			OutCompileOptions.Macros = InCompileOptions->Macros;
+			OutCompileOptions.bForceRecompile = InCompileOptions->bForceRecompile;
+		}
+
+		if (ShaderTypes.empty())
+		{
+			if (InCompileOptions && !InCompileOptions->VirtualShaderPath.empty())
+			{
+				OutCompileOptions.VirtualShaderPath = InCompileOptions->VirtualShaderPath;
+			}
+			return {};
+		}
+
+		const FShaderType* FirstShaderType = ShaderTypes.front();
+		checkf(FirstShaderType, "Shader type must not be null");
+
+		const std::string_view ShaderPath = FirstShaderType->GetVirtualShaderPath();
+		if (ShaderPath.empty())
+		{
+			return std::unexpected(FShaderError{.Code = EShaderError::MissingVirtualPath});
+		}
+
+		if (InCompileOptions && !InCompileOptions->VirtualShaderPath.empty() && InCompileOptions->VirtualShaderPath != ShaderPath)
+		{
+			return std::unexpected(FShaderError{.Code = EShaderError::VirtualPathMismatch,
+				.ExpectedIdentity = std::string(ShaderPath),
+				.ActualIdentity = InCompileOptions->VirtualShaderPath});
+		}
+
+		OutCompileOptions.VirtualShaderPath = std::string(ShaderPath);
+		OutCompileOptions.EntryPoints.reserve(ShaderTypes.size());
+		OutCompileOptions.Frequencies.reserve(ShaderTypes.size());
+
+		for (size_t ShaderTypeIndex = 0; ShaderTypeIndex < ShaderTypes.size(); ++ShaderTypeIndex)
+		{
+			const FShaderType* ShaderType = ShaderTypes[ShaderTypeIndex];
+			checkf(ShaderType, "Shader type must not be null");
+
+			if (!bAllowMixedSources && ShaderType->GetVirtualShaderPath() != ShaderPath)
+			{
+				return std::unexpected(FShaderError{.Code = EShaderError::ShaderTypePathMismatch,
+					.ShaderType = std::string(ShaderType->GetName()),
+					.ExpectedIdentity = std::string(ShaderPath),
+					.ActualIdentity = std::string(ShaderType->GetVirtualShaderPath())});
+			}
+
+			OutCompileOptions.EntryPoints.push_back(ShaderType->GetEntryPoint().data());
+			OutCompileOptions.Frequencies.push_back(ShaderType->GetFrequency());
+
+			if (InCompileOptions && !InCompileOptions->EntryPoints.empty())
+			{
+				if (ShaderTypeIndex >= InCompileOptions->EntryPoints.size()
+					|| std::string_view(InCompileOptions->EntryPoints[ShaderTypeIndex]) != ShaderType->GetEntryPoint())
+				{
+					return std::unexpected(FShaderError{.Code = EShaderError::EntryPointMismatch,
+						.ShaderType = std::string(ShaderType->GetName()),
+						.Index = ShaderTypeIndex});
+				}
+			}
+
+			if (InCompileOptions && !InCompileOptions->Frequencies.empty())
+			{
+				if (ShaderTypeIndex >= InCompileOptions->Frequencies.size()
+					|| InCompileOptions->Frequencies[ShaderTypeIndex] != ShaderType->GetFrequency())
+				{
+					return std::unexpected(FShaderError{.Code = EShaderError::FrequencyMismatch,
+						.ShaderType = std::string(ShaderType->GetName()),
+						.Index = ShaderTypeIndex});
+				}
+			}
+		}
+
+		if (InCompileOptions && !InCompileOptions->EntryPoints.empty() && InCompileOptions->EntryPoints.size() != ShaderTypes.size())
+		{
+			return std::unexpected(FShaderError{.Code = EShaderError::EntryPointCountMismatch,
+				.Expected = ShaderTypes.size(),
+				.Actual = InCompileOptions->EntryPoints.size()});
+		}
+
+		if (InCompileOptions && !InCompileOptions->Frequencies.empty() && InCompileOptions->Frequencies.size() != ShaderTypes.size())
+		{
+			return std::unexpected(FShaderError{.Code = EShaderError::FrequencyCountMismatch,
+				.Expected = ShaderTypes.size(),
+				.Actual = InCompileOptions->Frequencies.size()});
+		}
+
+		return {};
 	}
 }

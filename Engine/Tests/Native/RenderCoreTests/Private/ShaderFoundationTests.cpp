@@ -5,6 +5,7 @@
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "Shader/IShaderBuildModule.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "Shader/GlobalShader.h"
 #include "Shader/MaterialShader.h"
 #include "Shader/Shader.h"
@@ -1325,18 +1326,31 @@ namespace Durin
 	class FCompletionShaderStub final : public IShaderBuildModule
 	{
 	public:
+		struct FCompletedRequest final : IShaderBuildRequest
+		{
+			auto RequestCancel() -> bool override { return false; }
+			auto SetPriority(EShaderBuildPriority) -> void override {}
+			auto Wait() -> EShaderBuildWaitResult override { return EShaderBuildWaitResult::Completed; }
+			auto IsComplete() const -> bool override { return true; }
+		};
 		uint32 Compiles = 0;
+		bool Defer = false;
+		std::vector<std::function<void()>> Pending;
 		FShaderBuildResult Completion{.Status = EShaderBuildStatus::Canceled};
 		auto GetBuildVersion() const -> uint64 override { return 1; }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override { return {}; }
-		auto CompileMounted(std::string_view, const FShaderCompileOptions&) -> FShaderBuildResult override { ++Compiles; return Completion; }
-		auto SubmitMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions, FShaderBuildCompletion)
+		auto SubmitMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
-		{ return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Closed}); }
-		auto CompileGenerated(const FGeneratedShaderCompileRequest&) -> FShaderBuildResult override { return {}; }
-		auto SubmitGenerated(FGeneratedShaderCompileRequest, FShaderBuildRequestOptions, FShaderBuildCompletion)
+		{ ++Compiles; Callback(Completion); return FShaderBuildHandle(std::make_shared<FCompletedRequest>()); }
+		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
-		{ return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Closed}); }
+		{
+			++Compiles; auto Output = Completion;
+			for (auto& Shader : Output.CompiledShaders) Shader.DebugName = Request.VirtualPath;
+			auto Deliver = [Callback = std::move(Callback), Output = std::move(Output)]() mutable { Callback(std::move(Output)); };
+			if (Defer) Pending.push_back(std::move(Deliver)); else Deliver();
+			return FShaderBuildHandle(std::make_shared<FCompletedRequest>());
+		}
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return {}; }
 		auto GetCookInputIdentity(std::string&, const std::function<bool()>&) -> FShaderCompletion override
 		{ return FShaderCompletion::Failure("Unsupported fixture operation."); }
@@ -1366,6 +1380,100 @@ namespace Durin
 		FShaderPaths::RegisterMountPoint("/Engine/", DURIN_ENGINE_SHADER_SOURCE_DIR, Cache.generic_string());
 		return Manager.LoadModule("ShaderBuild") != nullptr;
 	}
+	struct FScopedShaderCompletionStub
+	{
+		FModuleManager::FModuleInfoPtr Info = FModuleManager::Get().FindModule("ShaderBuild");
+		EModuleState State = Info->State.load();
+		std::unique_ptr<IModuleInterface> Original = std::move(Info->Module);
+		FCompletionShaderStub* Stub = nullptr;
+		FScopedShaderCompletionStub()
+		{
+			auto Module = std::make_unique<FCompletionShaderStub>(); Stub = Module.get();
+			Info->Module = std::move(Module); Info->State = EModuleState::Active;
+			Stub->Completion = {.Status = EShaderBuildStatus::Ok};
+			Stub->Completion.CompiledShaders.emplace_back();
+		}
+		~FScopedShaderCompletionStub()
+		{
+			for (size_t Index = 0; Index < Stub->Pending.size(); ++Index)
+				if (auto Callback = std::move(Stub->Pending[Index])) Callback();
+			FShaderCompilingManager::Get().FinishAllCompilation();
+			Info->Module = std::move(Original); Info->State = State;
+		}
+	};
+
+	TEST_F(FShaderFoundationTests, ShaderJobGroupsPreserveSubmissionOrderAcrossOutOfOrderCompletion)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		FScopedShaderCompletionStub Scope; Scope.Stub->Defer = true;
+		FShaderBuildResult Output; uint32 Calls = 0;
+		auto& Manager = FShaderCompilingManager::Get();
+		auto Group = Manager.SubmitJobs({{.VirtualPath = "A"}, {.VirtualPath = "B"}, {.VirtualPath = "C"}},
+			1024 * 1024, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); ++Calls; });
+		ASSERT_TRUE(Group); ASSERT_EQ(Scope.Stub->Pending.size(), 2u);
+		auto Deliver = [&](size_t Index) { auto Callback = std::move(Scope.Stub->Pending[Index]); Callback(); };
+		Deliver(1); ASSERT_EQ(Scope.Stub->Pending.size(), 3u); Deliver(2); Deliver(0);
+		EXPECT_EQ(Manager.FinishCompilation(*Group), EShaderBuildWaitResult::Completed);
+		ASSERT_TRUE(Output); ASSERT_EQ(Output.CompiledShaders.size(), 3u); EXPECT_EQ(Calls, 1u);
+		for (size_t Index = 0; Index < 3; ++Index) EXPECT_EQ(Output.CompiledShaders[Index].DebugName, std::string(1, char('A' + Index)));
+		auto Mounted = Manager.SubmitJobs("/Mounted", {}, {.bInlineExecution = true}, [&](auto Result) { EXPECT_TRUE(Result); ++Calls; });
+		ASSERT_TRUE(Mounted); EXPECT_EQ(Manager.FinishCompilation(*Mounted), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(Calls, 2u); EXPECT_EQ(Scope.Stub->Compiles, 4u);
+	}
+
+	TEST_F(FShaderFoundationTests, ShaderJobGroupBudgetRejectsOversizedResultsBeforeFurtherDispatch)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		FScopedShaderCompletionStub Scope;
+		Scope.Stub->Completion.CompiledShaders[0].Code = FSharedByteBuffer::Take(FByteBuffer(1024));
+		FShaderBuildResult Output; uint32 Calls = 0;
+		auto Group = FShaderCompilingManager::Get().SubmitJobs({{.VirtualPath = "A"}, {.VirtualPath = "B"}},
+			32, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); ++Calls; });
+		ASSERT_TRUE(Group); EXPECT_EQ(Group->Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(Output.Status, EShaderBuildStatus::OutputTooLarge); EXPECT_TRUE(Output.CompiledShaders.empty());
+		EXPECT_FALSE(FShaderCompletion(Output.Status, Output.Diagnostic).Diagnostic.empty());
+		EXPECT_EQ(Calls, 1u); EXPECT_EQ(Scope.Stub->Compiles, 1u);
+	}
+
+	TEST_F(FShaderFoundationTests, AssetCompilerInterfaceCountsAndDrainsGlobalJobGroups)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		FScopedShaderCompletionStub Scope;
+		Scope.Stub->Defer = true;
+		auto& Manager = FShaderCompilingManager::Get();
+		IAssetCompilingManager& Compiler = Manager;
+		uint32 Calls = 0;
+		auto Group = Manager.SubmitJobs({{.VirtualPath = "GlobalA"}, {.VirtualPath = "GlobalB"}},
+			1024 * 1024, {.bInlineExecution = true}, [&](auto Output) { EXPECT_TRUE(Output); ++Calls; });
+		ASSERT_TRUE(Group);
+		ASSERT_EQ(Scope.Stub->Pending.size(), 2u);
+		EXPECT_EQ(Compiler.GetNumRemainingAssets(), 1u);
+		EXPECT_EQ(Compiler.ProcessAsyncTasks({}).ProcessedCompletionCount, 0u);
+		for (auto& Pending : Scope.Stub->Pending) { auto Callback = std::move(Pending); Callback(); }
+		Compiler.FinishAllCompilation();
+		EXPECT_EQ(Calls, 1u);
+		EXPECT_TRUE(Group->IsComplete());
+		EXPECT_EQ(Compiler.GetNumRemainingAssets(), 0u);
+	}
+
+	TEST_F(FShaderFoundationTests, ShaderJobGroupCancellationDoesNotCancelAnotherGroup)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		FScopedShaderCompletionStub Scope; Scope.Stub->Defer = true;
+		std::array<FShaderBuildResult, 2> Outputs; std::array<uint32, 2> Calls{};
+		auto& Manager = FShaderCompilingManager::Get();
+		auto First = Manager.SubmitJobs({{.VirtualPath = "A"}}, 1024 * 1024, {.bInlineExecution = true},
+			[&](auto Output) { Outputs[0] = std::move(Output); ++Calls[0]; });
+		auto Second = Manager.SubmitJobs({{.VirtualPath = "B"}}, 1024 * 1024, {.bInlineExecution = true},
+			[&](auto Output) { Outputs[1] = std::move(Output); ++Calls[1]; });
+		ASSERT_TRUE(First); ASSERT_TRUE(Second); First->RequestCancel();
+		ASSERT_EQ(Scope.Stub->Pending.size(), 2u);
+		for (auto& Pending : Scope.Stub->Pending) { auto Callback = std::move(Pending); Callback(); }
+		EXPECT_EQ(First->Wait(), EShaderBuildWaitResult::Completed); EXPECT_EQ(Second->Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(Outputs[0].Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Outputs[1]);
+		EXPECT_EQ(Calls[0], 1u); EXPECT_EQ(Calls[1], 1u);
+	}
+
 	TEST_F(FShaderFoundationTests, GlobalShaderMapPublishesOrderIndependentTypedSet)
 	{
 		ASSERT_TRUE(InitializeGlobalShaderFixture());

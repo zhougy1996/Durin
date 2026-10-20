@@ -1,4 +1,7 @@
 #include "Modules/ModuleManager.h"
+#include "Shader/ShaderCompilingManager.h"
+#include "Shader/GlobalShader.h"
+#include "RHIGlobals.h"
 #include "Collision/CollisionDebugSubsystem.h"
 #include "Materials/MaterialParameterCollection.h"
 #if DURIN_WITH_EDITOR
@@ -16,6 +19,7 @@ namespace Durin
 		auto SupportsDynamicReloading() const -> bool override { return false; }
 		auto StartupModule() -> void override
 		{
+			RHIReleaseResourcesHandle = GetRHIReleaseResourcesDelegate().AddLambda([] { GetGlobalShaderMap().ReleaseDeviceResources_RenderThread(); });
 #if DURIN_WITH_EDITOR
 			MaterialBuildPrivate::OpenTranslationSessions();
 #endif
@@ -27,6 +31,9 @@ namespace Durin
 		}
 		auto ShutdownModule() -> void override
 		{
+			FShaderCompilingManager::Get().Shutdown();
+			GetRHIReleaseResourcesDelegate().Remove(RHIReleaseResourcesHandle);
+			GetGlobalShaderMap().Shutdown_RenderThread();
 #if DURIN_WITH_EDITOR
 			PhysicsPrivate::ShutdownBuildSessions();
 			MaterialBuildPrivate::CloseTranslationSessions();
@@ -36,6 +43,7 @@ namespace Durin
 			CollisionDebug.reset();
 		}
 	private:
+		FDelegateHandle RHIReleaseResourcesHandle;
 		std::unique_ptr<FWorldSubsystemRegistration> CollisionDebug;
 		std::unique_ptr<FWorldSubsystemRegistration> MaterialParameterCollections;
 	};

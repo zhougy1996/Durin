@@ -1,3 +1,4 @@
+#include "Shader/ShaderCompilingManager.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialShaderMap.h"
 #ifdef _WIN32
@@ -5,7 +6,6 @@
 #include <Psapi.h>
 #endif
 #include "Materials/MaterialTranslation.h"
-#include "Materials/MaterialProgramCompilingManager.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "ExplicitMaterialProgramTestFixture.h"
@@ -191,7 +191,7 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 					auto Translation = TranslatePreparedMaterialProgram(Prepared);
 					ASSERT_TRUE(Translation);
 					const auto GenerationUs = Translation.Timings.GenerationMicroseconds;
-					auto Output = CompileGeneratedShader(MakeMaterialShaderCompileRequest(Translation, false));
+					auto Output = FShaderCompilingManager::Get().CompileGenerated(MakeMaterialShaderCompileRequest(Translation, false));
 					ASSERT_TRUE(Output) << Output.Diagnostic;
 					auto Candidate = FMaterialShaderMap::FinalizeContent(std::move(Translation), std::move(Output));
 					ASSERT_TRUE(Candidate);
@@ -221,9 +221,9 @@ TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
 	ASSERT_NE(IShaderBuildModule::Get(), nullptr);
-	auto& Manager = FMaterialProgramCompilingManager::Get();
+	auto& Manager = FShaderCompilingManager::Get();
 	const auto Previous = FPaths::DerivedDataCacheDir();
-	struct FRestore { std::string Previous; ~FRestore() { FMaterialProgramCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); FPaths::SetDerivedDataCacheDirForTests(Previous); } } Restore{Previous};
+	struct FRestore { std::string Previous; ~FRestore() { FShaderCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); FPaths::SetDerivedDataCacheDirForTests(Previous); } } Restore{Previous};
 	const auto Root = Testing::GetTestWorkDirectory() / "ParallelProgramCompilation";
 	std::filesystem::create_directories(Root);
 	std::string Csv = "sample,workload,materials,elapsed_us,compilations,ddc_hits,memory_hits,peak_active_shaders,peak_output_reservation_bytes,process_peak_working_set_bytes\n";
@@ -252,7 +252,7 @@ TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 			for (const auto& Handle : Handles) Manager.FinishCompilation(Handle);
 			const auto Us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
 			for (const auto& Result : Results) ASSERT_TRUE(Result);
-			const auto After = GetShaderBuildStats(); const auto Stats = GetMaterialProgramCompileStatsForTests();
+			const auto After = GetShaderBuildStats(); const auto Peaks = FShaderCompilingManager::Get().GetPeakJobStats();
 			if (Workload == 0) EXPECT_EQ(After.Compilations - Before.Compilations, 7u);
 			if (Workload == 2) { EXPECT_EQ(After.Compilations - Before.Compilations, 4u); EXPECT_EQ(After.MemoryHits - Before.MemoryHits + After.DdcHits - Before.DdcHits, 3u); }
 			uint64 ProcessPeak = 0;
@@ -261,7 +261,7 @@ TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 			#endif
 			const auto Row = std::format("{},{},{},{},{},{},{},{},{},{}\n", Sample, Workload, Count, Us,
 				After.Compilations - Before.Compilations, After.DdcHits - Before.DdcHits, After.MemoryHits - Before.MemoryHits,
-				Stats.PeakActiveShaders, Stats.PeakOutputReservationBytes, ProcessPeak);
+				Peaks.first, Peaks.second, ProcessPeak);
 			Csv += Row; std::printf("[ParallelProgramCompilation] %s", Row.c_str());
 		}
 	}

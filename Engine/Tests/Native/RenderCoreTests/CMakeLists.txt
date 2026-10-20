@@ -24,7 +24,7 @@ if(DURIN_WITH_EDITOR)
 durin_add_native_test(RenderShaderContractTests
 	KIND contract
 	DOMAINS shader
-	MODULES rendercore shaderbuild
+	MODULES engine rendercore shaderbuild
 	PRIVATE_SOURCE_RATIONALE
 		"RenderCore-owned shader compiler white-box coverage avoids exporting private compiler implementation symbols."
 	SOURCES Private/ShaderFoundationTests.cpp Private/ShaderReflectionTests.cpp
@@ -33,7 +33,7 @@ durin_add_native_test(RenderShaderContractTests
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
-	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
+	LIBRARIES Core RHI RenderCore Engine DerivedDataCache ShaderBuild Slang_Imported
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
 	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 	TIMEOUT 600
@@ -115,9 +115,9 @@ durin_add_native_test(ShaderBuildQualificationTests
 durin_add_native_test(RenderShaderCookIntegrationTests
 	KIND integration
 	DOMAINS shader asset-cook
-	MODULES rendercore renderer shaderbuild
+	MODULES engine rendercore renderer shaderbuild
 	SOURCES Private/ShaderCookIntegrationTests.cpp
-	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
+	LIBRARIES Core RHI RenderCore Engine DerivedDataCache ShaderBuild Slang_Imported
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
 	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 	TIMEOUT 600
@@ -132,10 +132,10 @@ durin_add_native_test(MetalShaderCookIntegrationTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Produces native MacOS Cooked shaders using editor-only ShaderBuild and the Metal toolchain."
 	DOMAINS shader asset-cook
-	MODULES rendercore renderer shaderbuild
+	MODULES engine rendercore renderer shaderbuild
 	BACKENDS metal
 	SOURCES Private/MetalShaderCookIntegrationTests.cpp
-	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
+	LIBRARIES Core RHI RenderCore Engine DerivedDataCache ShaderBuild Slang_Imported
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
 	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 	TIMEOUT 600
@@ -164,7 +164,7 @@ endif()
 durin_add_native_test(RenderContractTests
 	KIND contract
 	DOMAINS renderer
-	MODULES rendercore rhi
+	MODULES engine rendercore rhi
 	SOURCES
 		Private/GeometrySubmissionTests.cpp
 		Private/RenderResourceCreationTests.cpp
@@ -174,7 +174,7 @@ durin_add_native_test(RenderContractTests
 		Private/RHITextureTests.cpp
 		Private/TextureReferenceTests.cpp
 		Private/TextureResourceLifetimeContractTests.cpp
-	LIBRARIES Core RHI RenderCore
+	LIBRARIES Core RHI RenderCore Engine
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
 )
 

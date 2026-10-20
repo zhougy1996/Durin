@@ -167,7 +167,4 @@ namespace Durin
 	// shader reload advances it so the next request revalidates persisted state.
 	RENDERCORE_API auto GetShaderReloadGeneration() -> uint64;
 	RENDERCORE_API auto AdvanceShaderReloadGeneration() -> uint64;
-	RENDERCORE_API auto CompileGeneratedShader(
-		const FGeneratedShaderCompileRequest& Request)
-		-> FShaderBuildResult;
 }

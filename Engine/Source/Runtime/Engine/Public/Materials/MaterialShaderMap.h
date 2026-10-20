@@ -12,12 +12,11 @@
 namespace Durin
 {
 	class FShaderBuildHandle;
-	class FMaterialCompilationService;
+	class FShaderCompilingManager;
 	struct FMaterialTranslatedProgram;
 	struct FMaterialTranslationInput;
 	namespace MaterialBuildPrivate
 	{
-		class FMaterialProgramCompilingManager;
 		struct FMaterialBuildResult;
 	}
 
@@ -65,8 +64,7 @@ namespace Durin
 			std::shared_ptr<FMaterialShaderMap> ShaderMap = {}) -> FMaterialCompilerResult;
 
 	private:
-		friend class MaterialBuildPrivate::FMaterialProgramCompilingManager;
-		friend class FMaterialCompilationService;
+		friend class FShaderCompilingManager;
 		uint64 CompilingId = 0;
 		FCancellationToken Cancellation;
 		bool Force = false;
@@ -82,30 +80,21 @@ namespace Durin
 		static auto ProcessTranslation(std::shared_ptr<FMaterialShaderMap> ShaderMap, FMaterialTranslatedProgram Translation) -> void;
 		static auto CompleteCompilation(std::shared_ptr<FMaterialShaderMap> ShaderMap, FMaterialCompilerResult Result,
 			std::shared_ptr<const FMaterialCompilerResult> Retained = {}) -> void;
-		auto ProcessCompilationResults(size_t Index, FShaderBuildResult Output) -> void;
-		auto FinalizeCompilation(std::shared_ptr<FMaterialShaderMap> Self) -> FMaterialCompilerResult;
 		mutable std::mutex Mutex;
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
 		FCancellationToken BuildCancellation;
 		std::vector<std::shared_ptr<FMaterialShaderMap>> CompileDependencies;
 		FTaskCancellationSource CpuCancellation;
-		std::vector<std::shared_ptr<FShaderBuildHandle>> Shaders;
+		std::shared_ptr<FShaderBuildHandle> ShaderJobs;
 		std::shared_ptr<const MIR::FCompilerInput> Input;
 		std::shared_ptr<const FMaterialTranslationInput> EncodedInput;
 		std::vector<MIR::FSource> Sources;
 		std::vector<uint32> SourceOrdinals;
 		std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion;
 		std::unique_ptr<FMaterialTranslatedProgram> Translation;
-		std::vector<FGeneratedShaderCompileRequest> Jobs;
-		std::vector<std::optional<FShaderBuildResult>> Outputs;
-		size_t NextJob = 0;
-		size_t ActiveJobs = 0;
-		bool Dispatching = false, AssemblyScheduled = false, SingleFlight = false, ResultTooLarge = false;
-		uint64 ReservedOutputBytes = 0;
-		uint64 RetainedStageBytes = 0;
+		bool SingleFlight = false;
 		std::chrono::steady_clock::time_point CompilationBegin;
 		bool ResultReady = false, HighPriority = false, Inline = false;
-		uint64 TaskId = 0;
 #endif
 	};
 }

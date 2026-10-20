@@ -200,7 +200,7 @@ namespace Durin
 	RENDERCORE_API auto FormatShaderError(const FShaderError& Error) -> std::string;
 
 	inline constexpr size_t ShaderBuildDiagnosticMaxBytes = 4096;
-	enum class EShaderBuildStatus : uint8 { Ok, Error, Canceled };
+	enum class EShaderBuildStatus : uint8 { Ok, Error, Canceled, OutputTooLarge };
 	// Orchestration completion. Typed validation errors are formatted only here.
 	struct FShaderCompletion
 	{
@@ -208,7 +208,8 @@ namespace Durin
 		std::string Diagnostic;
 		FShaderCompletion() = default;
 		FShaderCompletion(EShaderBuildStatus InStatus, std::string Text = {})
-			: Status(InStatus), Diagnostic(InStatus == EShaderBuildStatus::Error ? Text.substr(0, ShaderBuildDiagnosticMaxBytes) : std::string{}) {}
+			: Status(InStatus), Diagnostic(InStatus == EShaderBuildStatus::Error || InStatus == EShaderBuildStatus::OutputTooLarge
+				? Text.substr(0, ShaderBuildDiagnosticMaxBytes) : std::string{}) {}
 		FShaderCompletion(const std::unexpected<FShaderError>& Error)
 			: FShaderCompletion(EShaderBuildStatus::Error, FormatShaderError(Error.error())) {}
 		FShaderCompletion(const FShaderOperationResult& Result)

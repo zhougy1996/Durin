@@ -3,7 +3,6 @@
 #include "ShaderBuildTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Shader/IShaderBuildModule.h"
-#include "Shader/ShaderMapPreparation.h"
 #include "Shader/ShaderData.h"
 #include "RHIGlobals.h"
 #include "ShaderBuild/ShaderPaths.h"
@@ -21,30 +20,18 @@ namespace Durin
 	public:
 		auto ResetService(DerivedData::FBuildServiceOptions Options) -> void
 		{
-			ClearShaderMapPreparations();
+			AdvanceShaderReloadGeneration();
 			if (Builder) Builder->Close();
 			if (BuildService) BuildService->Close();
 			Builder.reset();
 			BuildService->ResetCacheForTests(std::move(Options));
 			Builder = std::make_unique<FShaderBuilder>(BuildService);
 		}
-		auto CompileMounted(
-			std::string_view VirtualShaderPath,
-			const FShaderCompileOptions& Options) -> FShaderBuildResult override
-		{
-			return Builder->GetOrCompile(VirtualShaderPath, Options);
-		}
-
 		auto SubmitMounted(std::string_view Path, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
 		{ return Builder->SubmitMounted(Path, CompileOptions, std::move(Options), std::move(Completion)); }
 
-		auto CompileGenerated(const FGeneratedShaderCompileRequest& Request)
-			-> FShaderBuildResult override
-		{
-			return Builder->GetOrCompileGenerated(Request);
-		}
 		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
 			FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
 		{ return Builder->SubmitGenerated(std::move(Request), std::move(Options), std::move(Completion)); }
@@ -126,7 +113,6 @@ namespace Durin
 		auto ShutdownModule() -> void override
 		{
 			ActiveModule = nullptr;
-			ClearShaderMapPreparations();
 			if (Builder) Builder->Close();
 			if (BuildService) BuildService->Close();
 			Builder.reset();

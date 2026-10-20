@@ -139,7 +139,7 @@ namespace Durin::Editor::Texture
 								| ERenderResourceGenerationDependency::Manual,
 						};
 					};
-					auto Result = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions);
+					auto Result = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions);
 					if (Result.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 					if (!Result)
 						return FResult::Failure(MakeError(

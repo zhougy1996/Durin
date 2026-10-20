@@ -1130,12 +1130,11 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 			.ProgramIdentity = Status.RequestedIdentity,
 			.Target = Status.Target,
 			.State = Durin::EMaterialCompileState::Failed,
-			.Category = Durin::EMaterialCompileResultCategory::Compile,
-			.Diagnostics = {{.Category = Durin::EMaterialCompileResultCategory::Compile}}};
+			.Diagnostics = {{.Source = {.Category = Durin::EMaterialProgramDiagnosticCategory::Compile}}}};
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Owner, std::move(Failed)));
 		EXPECT_FALSE(Owner->GetAcceptedCompiledProgram());
-		EXPECT_EQ(Owner->GetMaterialCompileDiagnostics().front().Category,
-			Durin::EMaterialCompileResultCategory::Compile);
+		EXPECT_EQ(Owner->GetMaterialCompileDiagnostics().front().Source.Category,
+			Durin::EMaterialProgramDiagnosticCategory::Compile);
 		const auto Error = CaptureMaterialProxy(Proxy);
 		EXPECT_GT(Error.LocalVersion, Before.LocalVersion);
 		ExpectRenderDataMatches(Error.RenderData, Durin::GetErrorMaterialRenderData());

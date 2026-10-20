@@ -1,3 +1,4 @@
+#include "Shader/ShaderMapPreparation.h"
 #include <gtest/gtest.h>
 
 #include "RenderResourceCreation.h"
@@ -142,7 +143,7 @@ namespace Durin
 				EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 0u);
 				EXPECT_EQ(Slot.Resolve(Generation, [&] {
 					FShaderMapBase Map;
-					const auto Completion = Map.InitializeFromShaderTypes(Types, {});
+					const auto Completion = InitializeShaderMapFromTypes(Map, Types, {});
 					EXPECT_FALSE(Completion);
 					return FResult::Failure(MakeError());
 				}, Report), nullptr);

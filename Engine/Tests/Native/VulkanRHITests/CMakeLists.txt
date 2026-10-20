@@ -2,10 +2,10 @@
 durin_add_native_test(VulkanQueueQualificationTests
     KIND qualification
     DOMAINS renderer rhi-creation
-    MODULES rhi rendercore vulkan-rhi
+    MODULES engine rhi rendercore vulkan-rhi
     BACKENDS vulkan
     SOURCES Private/VulkanQueueQualificationTests.cpp
-    LIBRARIES Core RHI RenderCore VulkanRHI Vulkan::Vulkan
+    LIBRARIES Core RHI RenderCore Engine VulkanRHI Vulkan::Vulkan
     REQUIRES editor
     REQUIREMENT_RATIONALE "Compiles the authored compute producer for native event qualification."
     ENVIRONMENTS authored-shaders

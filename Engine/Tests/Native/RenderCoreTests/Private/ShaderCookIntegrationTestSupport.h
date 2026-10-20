@@ -1,3 +1,4 @@
+#include "Shader/ShaderMapPreparation.h"
 #pragma once
 
 #include "HAL/PlatformLibrary.h"
@@ -61,7 +62,7 @@ namespace Durin
 			Options.bForceRecompile = true;
 			Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", Pass == 2 ? "1" : "0");
 			Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(0.4f)));
-			ASSERT_TRUE((ShaderResult = Compiled.InitializeFromShaderTypes(std::span(&FragmentTypes[Pass], 1), Options))) << ShaderResult.Diagnostic;
+			ASSERT_TRUE((ShaderResult = InitializeShaderMapFromTypes(Compiled, std::span(&FragmentTypes[Pass], 1), Options))) << ShaderResult.Diagnostic;
 			MaterialStages[Pass].push_back(Compiled.GetCode()->GetCompiledShader(0));
 		}
 

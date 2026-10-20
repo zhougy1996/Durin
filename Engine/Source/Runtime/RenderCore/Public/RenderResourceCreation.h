@@ -7,7 +7,6 @@
 #include "RenderPipelineCreation.h"
 #include "RenderResourcePreparation.h"
 #include "Shader/ShaderDiagnostics.h"
-#include "Shader/ShaderMapPreparation.h"
 
 namespace Durin
 {

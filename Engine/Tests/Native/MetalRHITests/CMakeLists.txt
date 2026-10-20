@@ -18,7 +18,7 @@ set(_metal_rhi_test_libraries Core RHI MetalRHI ShaderFormat
 set(_metal_rhi_test_domains rhi-creation)
 set(_metal_rhi_test_backends metal)
 if(DURIN_WITH_EDITOR)
-	list(APPEND _metal_rhi_test_libraries RenderCore ShaderBuild)
+	list(APPEND _metal_rhi_test_libraries RenderCore Engine ShaderBuild)
 	list(APPEND _metal_rhi_test_domains renderer shader)
 	list(APPEND _metal_rhi_test_backends vulkan)
 endif()

@@ -192,7 +192,7 @@ namespace Durin
 					FShaderCompileOptions Options;
 					Options.bForceRecompile =
 						ForceRecompileShaderGeneration == Generation.Shader;
-					bInitialized = (ShaderResult = Candidate->ShaderMap->InitializeFromShaderTypes(BaseTypes, Options)).Status == EShaderBuildStatus::Ok;
+					bInitialized = (ShaderResult = InitializeShaderMapFromTypes(*Candidate->ShaderMap, BaseTypes, Options)).Status == EShaderBuildStatus::Ok;
 				}
 				if (ShaderResult.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!bInitialized)

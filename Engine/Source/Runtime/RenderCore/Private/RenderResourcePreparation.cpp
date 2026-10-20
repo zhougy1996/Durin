@@ -101,4 +101,18 @@ namespace Durin
 		State.Objects = State.Resources.size();
 		State.Bytes += Bytes;
 	}
+	static thread_local uint32 PreparedScopeDepth = 0;
+	static thread_local uint64 PendingPreparedRequests = 0;
+	FPreparedShaderMapScope::FPreparedShaderMapScope()
+	{
+		if (PreparedScopeDepth++ == 0) PendingPreparedRequests = 0;
+	}
+	FPreparedShaderMapScope::~FPreparedShaderMapScope() { --PreparedScopeDepth; }
+	auto FPreparedShaderMapScope::IsActive() -> bool { return PreparedScopeDepth != 0; }
+	auto FPreparedShaderMapScope::GetPendingRequestCount() -> uint64
+	{
+		return IsActive() ? PendingPreparedRequests : 0;
+	}
+
+	auto FPreparedShaderMapScope::RecordPendingRequest() -> void { ++PendingPreparedRequests; }
 }

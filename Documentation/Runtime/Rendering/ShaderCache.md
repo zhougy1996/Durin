@@ -2,14 +2,16 @@
 
 Summary: Define authored ShaderBuild caching and compiler-free cooked Shader delivery.
 
-Modules: RenderCore, ShaderBuild, DerivedDataCache, RHI
+Modules: Engine, RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-20
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
 RenderCore owns source-independent request/value types, `DSHD` encoding, the
-`DSLB` cooked-library schema/reader, Shader maps, and RHI publication.
+`DSLB` cooked-library schema/reader, shader-map resource code and RHI publication.
+Engine owns typed Global/Material maps, their preparation, and the shared
+`FShaderCompilingManager` registered directly with the asset compilation framework.
 DerivedDataCache owns immutable build definitions, persistent sessions, and the
 shared lookup/resolve/build/validate/cache protocol. Its public cache boundary
 uses structured `FCacheRecord` values; encoding, compression, validation, and byte
@@ -207,9 +209,15 @@ publication and readers a prior or new complete object.
 
 ShaderBuild owns single-flight records, compiler contexts, memory caching, and
 shutdown. Mounted and generated requests share subscriber admission, compiler
-flights, completion/repair and the output LRU. `SubmitGenerated` exposes the
-asynchronous handle; both synchronous entry points submit and wait at their
-caller boundary. Callers own their material/asset operations. Filesystem-backed
+flights, completion/repair and the output LRU. Public live jobs enter through
+Engine's `FShaderCompilingManager::SubmitJobs`; generated batches and mounted
+global Shader requests share bounded dispatch, indexed result assembly, priority,
+cancellation and end-boundary waits. A group permits two active jobs and checks
+the caller's aggregate retained-output limit before dispatching further work.
+Synchronous compilation submits through the same manager and waits at the caller
+boundary. Backend submission methods on `IShaderBuildModule` are private to the
+manager; the old public synchronous module entry points are removed.
+Callers own their material/asset operations. Filesystem-backed
 mounted source discovery uses a per-input identity gate; it covers neither
 compilation nor DDC I/O. Other source identities prepare independently.
 Each Slang compiler/resolver call exclusively leases a global session; all derived
@@ -277,13 +285,19 @@ or failed replacements do not return a previous set. Accepted Material program
 installation remains a separate owner transaction.
 
 DurinEditor and Cook-capable tools select ShaderBuild. Its resident
-`IShaderBuildModule` is the only live-build path; module absence is an explicit
+`IShaderBuildModule` is the independent live-build backend; module absence is an explicit
 authored failure. Like MeshBuilder and TextureCompressor, it does not support runtime
 unloading. Consumers drain their work before normal module shutdown releases
 compiler and Shader-data state. The module owns a private `FShaderBuilder`;
 its instance contains compiler/cache state and is also passed to cooked-library
 production. Tests construct independent builders without replacing module state.
-RenderCore build functions adapt directly to the module interface.
+Engine compilation entry points invoke the backend through the shared manager.
+Engine selects ShaderBuild as an optional private dependency, so Engine shutdown
+closes admission and drains manager work before ShaderBuild destroys compiler/cache
+state. The backend closes and joins its own requests independently. Test service
+reset advances the existing Shader reload generation, invalidating prepared CPU
+outputs without depending on Engine. Neither RenderCore nor ShaderBuild depends
+on Engine.
 RenderCore has no Slang or
 DerivedDataCache dependency, and DurinGame selects neither ShaderBuild nor DDC.
 

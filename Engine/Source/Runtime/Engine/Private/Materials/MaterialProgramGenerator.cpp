@@ -1,6 +1,6 @@
 #include "MaterialPreparedProgram.h"
 #include "Materials/MaterialShaderMap.h"
-#include "MaterialProgramCompilingManager.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialProgramCompiler.h"
 
 #include "Materials/MaterialTypes.h"

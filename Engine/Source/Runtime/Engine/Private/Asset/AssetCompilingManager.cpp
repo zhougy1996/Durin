@@ -1,4 +1,5 @@
 #include "Asset/AssetCompilingManager.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "Asset/AssetBuildScheduler.h"
 
 #include "CoreGlobals.h"
@@ -582,22 +583,20 @@ namespace Durin
 		return GRunning && !GShutdown;
 	}
 
-	extern auto CreateMaterialCompilingManager()
-		-> std::shared_ptr<IAssetCompilingManager>;
 
 	auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult
 	{
 		auto& Aggregate = FAssetCompilingManager::Get();
 		Aggregate.Start();
-		auto MaterialRegistration = Aggregate.RegisterCompiler({
-			.Name = FName("Durin.Material"),
+		auto ShaderRegistration = Aggregate.RegisterCompiler({
+			.Name = FName("Durin.Shader"),
 			.AssetClasses = {DMaterial::StaticClass(), DMaterialInstance::StaticClass()},
-			.Manager = CreateMaterialCompilingManager()});
-		if (!MaterialRegistration)
+			.Manager = std::shared_ptr<IAssetCompilingManager>(&FShaderCompilingManager::Get(), [](IAssetCompilingManager*) {})});
+		if (!ShaderRegistration)
 		{
-			DURIN_ERROR("Material compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(MaterialRegistration.Error));
+			DURIN_ERROR("Shader compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(ShaderRegistration.Error));
 			Aggregate.Shutdown();
-			return {std::move(MaterialRegistration.Error)};
+			return {std::move(ShaderRegistration.Error)};
 		}
 #if DURIN_WITH_EDITORONLY_DATA
 		auto TextureRegistration = Aggregate.RegisterCompiler({
@@ -634,7 +633,7 @@ namespace Durin
 		}
 		PhysicsRegistration.Handle.Generation = 0;
 		StaticMeshRegistration.Handle.Generation = 0;
-		MaterialRegistration.Handle.Generation = 0;
+		ShaderRegistration.Handle.Generation = 0;
 #if DURIN_WITH_EDITORONLY_DATA
 		TextureRegistration.Handle.Generation = 0;
 #endif

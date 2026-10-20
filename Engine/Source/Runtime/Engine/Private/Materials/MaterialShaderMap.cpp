@@ -1,6 +1,6 @@
 #include "Materials/MaterialShaderMap.h"
 #include "MaterialPreparedProgram.h"
-#include "MaterialProgramCompilingManager.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #if DURIN_WITH_EDITOR
 #include "MaterialTranslation.h"
@@ -145,52 +145,19 @@ namespace Durin
 			.Error = ValidationError.HasError() ? std::move(ValidationError)
 				: FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, Admitted.error().Description)}}});
 	}
-	auto FMaterialShaderMap::ProcessCompilationResults(size_t Index, FShaderBuildResult Output) -> void
-	{
-		{
-			std::lock_guard Lock(Mutex);
-			ReservedOutputBytes -= Jobs[Index].MaximumOutputBytes;
-			if (Output) {
-				auto StageArtifact = std::make_shared<FMaterialShaderMap>();
-				StageArtifact->CompiledShaders = std::move(Output.CompiledShaders);
-				const auto Bytes = FMaterialShaderMap::GetRetainedBytes(FMaterialCompilerResult{.ShaderMap = StageArtifact});
-				if (Bytes > MaterialCompileMaxResultBytes - RetainedStageBytes) {
-					ResultTooLarge = true;
-					Output = FShaderBuildResult::Failure("Compiled material result exceeds retained result byte limit.");
-				}
-				else { RetainedStageBytes += Bytes; Output.CompiledShaders = std::move(StageArtifact->CompiledShaders); }
-			}
-			Outputs[Index] = std::move(Output); --ActiveJobs;
-		}
-	}
-	auto FMaterialShaderMap::FinalizeCompilation(std::shared_ptr<FMaterialShaderMap> Self) -> FMaterialCompilerResult
-	{
-			if (ResultTooLarge) return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds,
-				.Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}};
-			FShaderBuildResult Output{.Status = EShaderBuildStatus::Ok};
-			for (auto& Slot : Outputs) {
-				if (!Slot) continue;
-				if (!*Slot) { Output = std::move(*Slot); break; }
-				for (auto& Shader : Slot->CompiledShaders) Output.CompiledShaders.push_back(std::move(Shader));
-			}
-			return FinalizeContent(std::move(*Translation), std::move(Output), std::move(Self));
-	}
 	auto FMaterialShaderMap::ProcessTranslation(std::shared_ptr<FMaterialShaderMap> ShaderMap, FMaterialTranslatedProgram Translation) -> void
 	{
-		if (MaterialBuildPrivate::FMaterialProgramCompilingManager::IsBuildCanceled(ShaderMap)) return CompleteCompilation(ShaderMap, FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled});
+		if (FShaderCompilingManager::IsBuildCanceled(ShaderMap)) return CompleteCompilation(ShaderMap, FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled});
 		std::shared_ptr<const FMaterialCompilerResult> Retained;
 		for (const auto& Location : Translation.Sources) { ShaderMap->Sources.push_back(Location.Source); ShaderMap->SourceOrdinals.push_back(Location.Ordinal); }
 		if (!Translation) return CompleteCompilation(ShaderMap, FMaterialShaderMap::FinalizeContent(std::move(Translation), {}, ShaderMap));
 		{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->ShaderMapId = Translation.Identity; }
-		Retained = MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().FindOrAddCompilingShaderMap(ShaderMap);
+		Retained = FShaderCompilingManager::Get().FindOrAddCompilingShaderMap(ShaderMap);
 		if (Retained) return CompleteCompilation(ShaderMap, {}, std::move(Retained));
 		if (ShaderMap->SingleFlight) return;
 		ShaderMap->Translation = std::make_unique<FMaterialTranslatedProgram>(std::move(Translation));
 		ShaderMap->CompilationBegin = std::chrono::steady_clock::now();
-		ShaderMap->Jobs = MakeMaterialShaderStageRequests(*ShaderMap->Translation, ShaderMap->Force);
-		ShaderMap->Outputs.resize(ShaderMap->Jobs.size());
-		if (ShaderMap->Jobs.empty()) return CompleteCompilation(ShaderMap, FMaterialCompilerResult{.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, "Material has no compilable declared uses.")}}});
-		MaterialBuildPrivate::FMaterialProgramCompilingManager::SubmitCompileJobs(ShaderMap);
+		FShaderCompilingManager::SubmitCompileJobs(ShaderMap);
 	}
 
 	auto FMaterialShaderMap::CompleteCompilation(std::shared_ptr<FMaterialShaderMap> ShaderMap, FMaterialCompilerResult Result,
@@ -210,7 +177,7 @@ namespace Durin
 		const auto Quality = Retained ? Retained->Quality : Result.Quality;
 		const bool RetainedHit = bool(Retained) && !ShaderMap->SingleFlight;
 		auto Program = Retained ? std::move(Retained) : std::make_shared<const FMaterialCompilerResult>(std::move(Result));
-		auto Build = MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().FinalizeCompilation(
+		auto Build = FShaderCompilingManager::Get().FinalizeCompilation(
 			ShaderMap, std::move(Program), RetainedHit, Subscribers, Callback);
 		if (!Build.Program || !Callback) return;
 		std::function<void(EMaterialQualityLevel, bool)> Hook;
@@ -231,7 +198,7 @@ namespace Durin
 				Program = std::move(Qualified);
 			}
 			// A subscriber callback cannot prevent another subscriber from retiring.
-			try { MaterialBuildPrivate::FMaterialProgramCompilingManager::LaunchTask(Subscriber, [Subscriber, Program = std::move(Program)] { CompleteCompilation(Subscriber, {}, Program); }); } catch (...) {}
+			try { FShaderCompilingManager::LaunchTask(Subscriber, [Subscriber, Program = std::move(Program)] { CompleteCompilation(Subscriber, {}, Program); }); } catch (...) {}
 		}
 		if (Hook) Hook(Quality, true);
 		if (ShaderMap->Cancellation.IsCancelled()) { Build.Program = std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled}); Build.RetainedHit = false; }
@@ -271,6 +238,9 @@ namespace Durin
 		if (Translation.Status == EMaterialProgramStatus::Canceled || Output.Status == EShaderBuildStatus::Canceled)
 			return {.Status = EMaterialProgramStatus::Canceled};
 		if (!Translation) return Result;
+		if (Output.Status == EShaderBuildStatus::OutputTooLarge)
+			return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds,
+				.Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}};
 		if (!Output)
 		{
 			Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Compile,

@@ -1,3 +1,4 @@
+#include "Shader/ShaderMapPreparation.h"
 #pragma once
 
 #include "CoreMinimal.h"
@@ -57,7 +58,7 @@ float ShadowMain(float4 p : SV_Position) : SV_Target0 {
 			FShaderMapBase Map;
 			const std::array<const FShaderType*, 2> Types{&FDepthCaptureVertexShader::StaticType(), Source->GetArraySize() > 1 ? static_cast<const FShaderType*>(&FShadowCaptureFragmentShader::StaticType()) : &FDepthCaptureFragmentShader::StaticType()};
 			FShaderCompletion Error;
-			check((Error = Map.InitializeFromShaderTypes(Types, {})));
+			check((Error = InitializeShaderMapFromTypes(Map, Types, {})));
 			const auto FloatTexture = GDynamicRHI->RHICreateTexture(CommandList,
 				FRHITextureCreateDesc::Create2D("GeometryDepthReadback", Source->GetSizeX(), Source->GetSizeY(), EPixelFormat::R32_FLOAT)
 					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::CPUReadback | ETextureCreateFlags::ShaderResource));

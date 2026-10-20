@@ -596,17 +596,14 @@ namespace Durin
 			const FShaderCompilerOutput& Output,
 			const FShaderCompileOptions& CompileOptions,
 			bool bAllowMixedSources = false) -> FShaderOperationResult;
-		RENDERCORE_API auto InitializeFromShaderTypes(
-			std::span<const FShaderType* const> ShaderTypes,
-			const FShaderCompileOptions& CompileOptions) -> FShaderCompletion;
 		RENDERCORE_API auto FindShaderIndex(const FShaderType* ShaderType) const -> const uint32*;
 		RENDERCORE_API auto GetShader(const FShaderType* ShaderType) const -> FShader*;
 		RENDERCORE_API auto GetOrCreateShaderRHI(const FShaderType* ShaderType, bool bRequired = true) -> FRHIShader*;
 
-	protected:
 		RENDERCORE_API auto Reset() -> void;
 
 		std::shared_ptr<FShaderMapResource> Resource;
+	protected:
 		std::shared_ptr<FShaderMapResourceCode> Code;
 		std::unordered_map<const FShaderType*, uint32> ShaderTypeToIndex;
 		std::unordered_map<const FShaderType*, std::unique_ptr<FShader>> ShaderInstances;
@@ -707,4 +704,8 @@ namespace Durin
 			ShaderTypeContent->GetName(), ShaderTypeContent->GetFrequency(),
 			ShaderContent->GetParameterBindings(), GraphParameters, nullptr, nullptr);
 	}
-} // namespace Durin
+	RENDERCORE_API auto BuildShaderMapCompileOptions(std::span<const FShaderType* const> ShaderTypes,
+		const FShaderCompileOptions* Input, FShaderCompileOptions& Output, bool AllowMixedSources = false) -> FShaderOperationResult;
+	RENDERCORE_API auto NormalizeShaderMacros(const FShaderCompileOptions& Options,
+		std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult;
+}

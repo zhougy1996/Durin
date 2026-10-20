@@ -7,6 +7,7 @@
 #include "RHICommandList.h"
 #include "NativeTestSupport.h"
 #include "Shader/IShaderBuildModule.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "Shader/Shader.h"
 #include "Experimental/RHITransition.h"
 #include "RDG/RDG.h"
@@ -130,7 +131,7 @@ namespace Durin::VulkanRHI
 			Options.Target = VulkanShaderTarget;
 			Options.EntryPoints = {"ComputeMain"};
 			Options.Frequencies = {EShaderFrequency::Compute};
-			const auto Code = IShaderBuildModule::Get()->CompileMounted("/Engine/Qualification/QueueProducer", Options);
+			const auto Code = FShaderCompilingManager::Get().CompileMounted("/Engine/Qualification/QueueProducer", Options);
 			ASSERT_TRUE(Code) << Code.Diagnostic;
 			auto Shader = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(Code.CompiledShaders[0]));
 			ASSERT_TRUE(Shader);

@@ -261,7 +261,7 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 		return Slot.Resolve(Generation, [&] {
 			using FResult = TRenderResourceCreateResult<std::shared_ptr<FShaderMapBase>>;
 			auto Map = std::make_shared<FShaderMapBase>();
-			const auto Completion = Map->InitializeFromShaderTypes(Types, {});
+			const auto Completion = InitializeShaderMapFromTypes(*Map, Types, {});
 			if (Completion) return FResult::Success(std::move(Map));
 			return FResult::Failure({.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
 				.Cause = Completion.Diagnostic});

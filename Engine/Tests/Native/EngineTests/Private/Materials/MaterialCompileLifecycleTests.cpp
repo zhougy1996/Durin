@@ -18,7 +18,7 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCompileRetryQueue.h"
 #include "Materials/MaterialCompileTestSupport.h"
-#include "Materials/MaterialProgramCompilingManager.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialFunction.h"
 #include "Modules/ModuleManager.h"
@@ -468,7 +468,6 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
 	ASSERT_TRUE(WaitForMaterialCompile(*First))
 		<< "state=" << static_cast<uint32>(First->GetMaterialCompileStatus().State)
-		<< " category=" << static_cast<uint32>(First->GetMaterialCompileStatus().ResultCategory)
 		<< " diagnostic=" << (First->GetMaterialCompileDiagnostics().empty()
 			? std::string("<none>")
 			: Durin::FormatMaterialError(First->GetMaterialCompileDiagnostics().front().Source.Error));
@@ -514,7 +513,6 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 		.ProgramIdentity = Pending.RequestedIdentity,
 		.Target = Pending.Target,
 		.State = Durin::EMaterialCompileState::Failed,
-		.Category = Durin::EMaterialCompileResultCategory::Compile,
 	};
 	// An obsolete failure cannot retire a newer request's visible generation.
 	auto StaleFailure = Failed;
@@ -628,8 +626,7 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilF
 			.DependencyRevision = Pending.DependencyRevision,
 			.ProgramIdentity = Pending.RequestedIdentity,
 			.Target = Pending.Target,
-			.State = Durin::EMaterialCompileState::Failed,
-			.Category = Durin::EMaterialCompileResultCategory::Compile};
+			.State = Durin::EMaterialCompileState::Failed};
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Root, std::move(Failed)));
 	}
 	EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
@@ -1150,4 +1147,63 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
 		Durin::ECookTargetProfile::Game, Bytes));
 	Durin::MarkAsGarbage(Material);
+}
+
+TEST_F(FMaterialAsyncCompileTests, StoppingAdmissionDrainsAcceptedMaterialWithoutCountingItsStagesTwice)
+{
+	using namespace Durin;
+	auto& Compiler = FShaderCompilingManager::Get();
+	auto* Material = MakeObject<DMaterial>("StopAdmissionMaterial");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FThreadEvent Started, Release;
+	std::atomic_uint32_t Entered = 0;
+	std::vector<Tasks::FTask> Blockers;
+	struct FResume {
+		FThreadEvent& Release;
+		std::vector<Tasks::FTask>& Blockers;
+		~FResume() {
+			Release.Trigger();
+			for (const auto& Task : Blockers) WaitTask(Task);
+			FShaderCompilingManager::Get().Start();
+		}
+	} Resume{Release, Blockers};
+	const auto Workers = GetTaskSchedulerDiagnostics().WorkerCount;
+	for (uint32 Index = 0; Index < Workers; ++Index)
+		Blockers.push_back(Tasks::LaunchTask("HoldAcceptedMaterialTranslation", [&] {
+			if (Entered.fetch_add(1) + 1 == Workers) Started.Trigger();
+			Release.WaitFor(10);
+		}));
+	ASSERT_TRUE(Started.WaitFor(5));
+	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+	EXPECT_EQ(Compiler.GetNumRemainingAssets(), 1u);
+	Compiler.StopAdmission();
+	Release.Trigger();
+	const auto Finished = FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_GT(Finished.ProcessedCompletionCount, 0u);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
+	EXPECT_EQ(Compiler.GetNumRemainingAssets(), 0u);
+}
+
+TEST_F(FMaterialAsyncCompileTests, ShaderCompilerRegistersOnceAndStopsBothRequestEntries)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto& Aggregate = FAssetCompilingManager::Get();
+	struct FResume { ~FResume() { FShaderCompilingManager::Get().Start(); } } Resume;
+	const auto Diagnostics = Aggregate.GetDiagnostics();
+	EXPECT_EQ(std::ranges::count_if(Diagnostics.Compilers, [](const auto& Item) { return Item.CompilerName == FName("Durin.Shader"); }), 1);
+	EXPECT_EQ(std::ranges::count_if(Diagnostics.Compilers, [](const auto& Item) { return Item.CompilerName == FName("Durin.Material"); }), 0);
+	auto& Compiler = FShaderCompilingManager::Get();
+	EXPECT_TRUE(IsMaterialCompilationAcceptingRequests());
+	Compiler.StopAdmission();
+	EXPECT_FALSE(IsMaterialCompilationAcceptingRequests());
+	auto Shader = Compiler.SubmitJobs("/Closed", {}, {}, [](auto) { ADD_FAILURE() << "Rejected shader must not complete."; });
+	ASSERT_FALSE(Shader);
+	EXPECT_EQ(Shader.error().Reason, EShaderBuildAdmissionReason::Closed);
+	auto Material = Compiler.SubmitJobs(std::make_shared<const MIR::FCompilerInput>(), {},
+		[](auto) { ADD_FAILURE() << "Rejected material must not complete."; });
+	ASSERT_FALSE(Material);
+	EXPECT_EQ(Material.error(), MaterialBuildPrivate::EMaterialCompileAdmissionError::Closed);
+	EXPECT_TRUE(Compiler.Start());
+	EXPECT_TRUE(IsMaterialCompilationAcceptingRequests());
 }

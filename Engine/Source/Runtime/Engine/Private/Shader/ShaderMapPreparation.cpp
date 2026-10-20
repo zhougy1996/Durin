@@ -1,0 +1,214 @@
+#include "Shader/ShaderMapPreparation.h"
+#include "Shader/ShaderCompilingManager.h"
+#include "Shader/IShaderBuildModule.h"
+#include "Shader/Shader.h"
+#include "Shader/ShaderData.h"
+#include "RenderResourceCreation.h"
+
+namespace Durin
+{
+	struct FPreparedShaderMapState
+	{
+		uint64 Generation = 0;
+		uint64 Epoch = 0;
+		std::vector<const FShaderType*> Types;
+		FShaderCompileOptions Options;
+		std::mutex Mutex;
+		std::optional<FShaderBuildResult> Output;
+		FShaderBuildHandle Handle;
+		EShaderBuildPriority Priority = EShaderBuildPriority::Low;
+	};
+
+	namespace
+	{
+		std::mutex PreparationMutex;
+		std::vector<std::shared_ptr<FPreparedShaderMapState>> Preparations;
+		std::atomic<uint64> PreparationEpoch = 1;
+		std::atomic_bool ForcePreparation = false;
+
+		auto MatchesPreparation(const FPreparedShaderMapState& State,
+			const std::vector<const FShaderType*>& Types, const FShaderCompileOptions& Options) -> bool
+		{
+			if (State.Generation != GetShaderReloadGeneration() || State.Epoch != PreparationEpoch.load() || State.Types != Types
+				|| State.Options.Target != Options.Target
+				|| (Options.bForceRecompile && !State.Options.bForceRecompile)
+				|| State.Options.Macros.size() != Options.Macros.size()) return false;
+			for (size_t Index = 0; Index < Options.Macros.size(); ++Index)
+				if (State.Options.Macros[Index].Name != Options.Macros[Index].Name
+					|| State.Options.Macros[Index].Value != Options.Macros[Index].Value) return false;
+			return true;
+		}
+	}
+	auto FShaderMapPreparation::Request(std::string_view Owner,
+		std::initializer_list<std::string_view> Programs, EShaderBuildPriority Priority) -> FShaderMapPreparation
+	{
+		FShaderMapPreparation Result;
+		Result.Priority = Priority;
+		Result.Add(Owner, Programs);
+		return Result;
+	}
+
+	auto FShaderMapPreparation::Add(std::string_view Owner,
+		std::initializer_list<std::string_view> Names) -> void
+	{
+		for (auto Name : Names) Programs.emplace_back(Owner, Name);
+		Refresh();
+	}
+
+	auto FShaderMapPreparation::Refresh() -> void
+	{
+		States.clear();
+		Error.clear();
+		Generation = GetShaderReloadGeneration();
+		Epoch = PreparationEpoch.load();
+		if (Programs.empty()) return;
+		if (GetShaderDataDomain() == EShaderDataDomain::Cooked) return;
+		auto* Module = IShaderBuildModule::Get();
+		if (!Module) { Error = "ShaderBuild is unavailable."; return; }
+		std::vector<std::shared_ptr<FPreparedShaderMapState>> Retired;
+		{
+			std::lock_guard Lock(PreparationMutex);
+			std::erase_if(Preparations, [&](const auto& State) {
+				if (State->Generation == Generation && State->Epoch == Epoch) return false;
+				Retired.push_back(State);
+				return true;
+			});
+		}
+		for (const auto& State : Retired) State->Handle.RequestCancel();
+		for (const auto& [Owner, Program] : Programs)
+		{
+			std::vector<const FShaderType*> Types;
+			if (auto Result = GetShaderRuntimeRequestBuildTypes({.Owner = Owner, .Name = Program}, Types); !Result)
+			{ Error = FormatShaderError(Result.error()); return; }
+			std::ranges::sort(Types, {}, &FShaderType::GetName);
+			FShaderCompileOptions Options;
+			if (auto Result = BuildShaderMapCompileOptions(Types, nullptr, Options); !Result)
+			{ Error = FormatShaderError(Result.error()); return; }
+			Options.bForceRecompile = ForcePreparation.load();
+			std::shared_ptr<FPreparedShaderMapState> State;
+			{
+				std::lock_guard Lock(PreparationMutex);
+				for (const auto& Existing : Preparations)
+					if (MatchesPreparation(*Existing, Types, Options)) { State = Existing; break; }
+				if (State && Priority < State->Priority)
+				{
+					State->Priority = Priority;
+					State->Handle.SetPriority(Priority);
+				}
+				if (!State)
+				{
+					if (Preparations.size() >= 128) { Error = "Shader preparation capacity exceeded."; return; }
+					State = std::make_shared<FPreparedShaderMapState>();
+					State->Generation = Generation;
+					State->Epoch = Epoch;
+					State->Priority = Priority;
+					State->Types = std::move(Types);
+					State->Options = std::move(Options);
+					Preparations.push_back(State);
+					auto Submitted = FShaderCompilingManager::Get().SubmitJobs(State->Options.VirtualShaderPath, State->Options, {.Priority = Priority},
+						[State](FShaderBuildResult Output) {
+							std::lock_guard ResultLock(State->Mutex);
+							State->Output = std::move(Output);
+						});
+					if (Submitted) State->Handle = std::move(*Submitted);
+					else State->Output = FShaderBuildResult::Failure("Shader preparation admission failed.");
+				}
+			}
+			States.push_back(std::move(State));
+		}
+	}
+
+	auto FShaderMapPreparation::Poll() -> std::expected<bool, std::string>
+	{
+		if (Generation != GetShaderReloadGeneration() || Epoch != PreparationEpoch.load()) Refresh();
+		if (!Error.empty()) return std::unexpected(Error);
+		bool Ready = true;
+		for (const auto& State : States)
+		{
+			std::lock_guard Lock(State->Mutex);
+			if (!State->Output) { Ready = false; continue; }
+			if (!*State->Output) return std::unexpected(State->Output->Diagnostic.empty()
+				? std::string("Shader preparation failed or was canceled.") : State->Output->Diagnostic);
+		}
+		return Ready;
+	}
+
+	auto ClearShaderMapPreparations() -> void
+	{
+		InvalidateShaderMapPreparations(false);
+		std::vector<std::shared_ptr<FPreparedShaderMapState>> Retired;
+		{ std::lock_guard Lock(PreparationMutex); Retired.swap(Preparations); }
+		for (const auto& State : Retired) State->Handle.RequestCancel();
+		for (const auto& State : Retired) (void)State->Handle.Wait();
+	}
+
+	auto InvalidateShaderMapPreparations(bool bForceRecompile) -> void
+	{
+		ForcePreparation = bForceRecompile;
+		++PreparationEpoch;
+	}
+
+	auto InitializeShaderMapFromTypes(FShaderMapBase& Map,
+		std::span<const FShaderType* const> ShaderTypes,
+		const FShaderCompileOptions& CompileOptions) -> FShaderCompletion
+	{
+		FShaderOperationResult Result;
+		FShaderCompileOptions EffectiveCompileOptions;
+		if (!(Result = BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions)))
+		{
+			Map.Reset();
+			return Result;
+		}
+
+		std::vector<const FShaderType*> StableTypes(ShaderTypes.begin(), ShaderTypes.end());
+		std::ranges::sort(StableTypes, {}, &FShaderType::GetName);
+		std::vector<FShaderMacroDefinition> Macros;
+		if (!(Result = NormalizeShaderMacros(EffectiveCompileOptions, Macros))) return Result;
+		EffectiveCompileOptions.Macros = std::move(Macros);
+		std::shared_ptr<FPreparedShaderMapState> Prepared;
+		{
+			std::lock_guard Lock(PreparationMutex);
+			for (const auto& State : Preparations)
+				if (MatchesPreparation(*State, StableTypes, EffectiveCompileOptions)) { Prepared = State; break; }
+		}
+		if (Prepared)
+		{
+			std::lock_guard Lock(Prepared->Mutex);
+			if (Prepared->Output && *Prepared->Output)
+			{
+				FShaderCompilerOutput Output{.Error = {}};
+				for (const auto* Type : ShaderTypes)
+				{
+					auto Found = std::ranges::find_if(Prepared->Output->CompiledShaders, [Type](const auto& Code) {
+						return Code.SourceEntryPoint == Type->GetEntryPoint() && Code.Frequency == Type->GetFrequency();
+					});
+					if (Found == Prepared->Output->CompiledShaders.end())
+						return std::unexpected(FShaderError{.Code = EShaderError::MissingShaderType});
+					Output.CompiledShaders.push_back(*Found);
+				}
+				return Map.Initialize(ShaderTypes, Output, EffectiveCompileOptions);
+			}
+			if (Prepared->Output) return {Prepared->Output->Status, Prepared->Output->Diagnostic};
+		}
+		if (FPreparedShaderMapScope::IsActive())
+		{
+			FPreparedShaderMapScope::RecordPendingRequest();
+			return std::unexpected(FShaderError{.Code = EShaderError::CompilationNotStarted});
+		}
+		auto* Module = IShaderBuildModule::Get();
+		if (!Module)
+		{
+			Map.Reset();
+			return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
+		}
+		FShaderBuildResult Output = FShaderCompilingManager::Get().CompileMounted(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
+		if (!Output)
+		{
+			Map.Reset();
+			return {Output.Status, Output.Diagnostic};
+		}
+
+		return Map.Initialize(ShaderTypes, FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}, EffectiveCompileOptions);
+	}
+
+}

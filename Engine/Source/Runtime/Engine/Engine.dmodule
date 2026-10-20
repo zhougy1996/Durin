@@ -16,7 +16,7 @@
         "ApplicationCore",
         "Mona"
     ],
-    "OptionalPrivateDependencies": ["TargetPlatform"],
+    "OptionalPrivateDependencies": ["TargetPlatform", "ShaderBuild"],
     "OptionalPublicDependencies": [
 		"DerivedDataCache"
 	],

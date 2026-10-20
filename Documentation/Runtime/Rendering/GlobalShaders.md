@@ -2,9 +2,9 @@
 
 Summary: Define registration, atomic set ownership, typed lookup, generation recovery, and lifecycle for fixed non-Material shaders.
 
-Modules: RenderCore, Renderer, ShaderFormat
+Modules: Engine, RenderCore, Renderer, ShaderFormat
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-20
 
 ## Category and Ownership
 
@@ -16,7 +16,7 @@ and mesh-pass combinations use `FMeshMaterialShader`, whose identity adds the
 registered stable Vertex Factory type, mesh-pass key, and local permutation;
 neither category is admitted to a Global Shader set.
 
-RenderCore owns the process `FGlobalShaderMap`. Renderer does not own private
+Engine owns the process `FGlobalShaderMap` and the Global/Material Shader categories. Renderer does not own private
 `FShaderMapBase` instances for global shaders. A shader class declares its
 metadata with `DURIN_DECLARE_GLOBAL_SHADER`; exactly one translation unit
 defines registration with `DURIN_IMPLEMENT_GLOBAL_SHADER`. Static registration
@@ -31,8 +31,8 @@ The initial inventory is deliberately closed over fixed Renderer programs:
 
 | Category | Families | Ownership |
 | --- | --- | --- |
-| Global | EditorGrid, Gizmo, SimpleElement line/sprite, GBufferDebug, SkyBox, PostProcess Copy/FXAA, ContactVisibility compute/fragment, DeferredDirectionalLighting, GTAO raw/filter, VolumetricCloud compute/fragment/temporal/composite, VolumetricCloudShadow compute/fragment | 38 registered types in 19 exact sets, declared by Renderer and mapped by RenderCore |
-| Material | Generated forward, GBuffer, and masked-shadow fragments | RenderCore `FMaterialShaderMap` payloads built from Engine's accepted immutable compiler result |
+| Global | EditorGrid, Gizmo, SimpleElement line/sprite, GBufferDebug, SkyBox, PostProcess Copy/FXAA, ContactVisibility compute/fragment, DeferredDirectionalLighting, GTAO raw/filter, VolumetricCloud compute/fragment/temporal/composite, VolumetricCloudShadow compute/fragment | 38 registered types in 19 exact sets, declared by Renderer and mapped by Engine |
+| Material | Generated forward, GBuffer, and masked-shadow fragments | Engine `FMaterialShaderMap` payloads built from Engine's accepted immutable compiler result |
 | Vertex-factory/mesh | GBuffer, StaticMesh, SplineMesh, and fixed opaque-shadow combinations | The same exact typed map API using `FMeshMaterialShader` identity |
 | Finite Editor-only | TextureEditor preview and Mona ImGui backend programs | Stable feature-program contributions owned by their defining modules; excluded from Game Cook |
 
@@ -82,7 +82,7 @@ cache and serialization paths do not construct code owners or layouts.
 ## Generations and Failure Recovery
 
 `FRendererResourceCoordinator` explicitly supplies accepted shader, device,
-and manual generations to RenderCore. Demand remains lazy:
+and manual generations to Engine's typed maps. Demand remains lazy:
 
 - changed reload validates dependencies normally on the next demanded set;
 - all reload force-recompiles the first eligible candidate in that shader
@@ -111,7 +111,7 @@ a second wrapper failure or recovery transition.
 ## Lifecycle
 
 `FShaderMapPreparation` can prepare exact registered programs before a thumbnail
-submission. It uses the asynchronous mounted-source ShaderBuild boundary, sharing
+submission. Engine submits it through `FShaderCompilingManager`, sharing
 in-flight and completed CPU outputs per target, type set, macros, and accepted
 Shader generation. Reload/manual generations retire earlier preparation; forced
 reload forces replacement compilation. Failed requests remain terminal until
@@ -128,14 +128,14 @@ use material-independent requests: material permutation macros belong to the
 accepted generated program, not to the fixed opaque-shadow preparation.
 
 Normal lookup and lifecycle operations occur on the rendering thread after
-RenderCore initialization. Renderer owns command admission but passes values
+Engine initialization. Renderer owns command admission but passes values
 and callbacks explicitly; RenderCore has no dependency on Renderer and no
 pointer to `FRendererResourceCoordinator`.
 
 Shutdown closes Renderer admission, releases consumer pipelines and typed
 refs, clears the global map, resets generation state, and only then permits RHI
 and module teardown. RHI also broadcasts a pre-shutdown resource-release event;
-RenderCore registers and removes its callback with module startup/shutdown so
+Engine registers and removes its callback with module startup/shutdown so
 standalone RHI lifecycle users cannot carry shader modules across device exit.
 The supported module contract is static registration for
 the module lifetime; future plugin hot unload requires a separate retirement

@@ -1,7 +1,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialShaderMap.h"
 #include "MaterialCompileRetryQueue.h"
-#include "MaterialProgramCompilingManager.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "MaterialTranslationCodec.h"
 #include "DObject/ObjectKey.h"
 
@@ -57,7 +57,7 @@ namespace Durin
 			FCancellationToken Cancellation;
 			auto Cancel() -> void {
 				Cancellation.Cancel();
-				for (const auto& Compile : Compiles) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().CancelCompilation(Compile);
+				for (const auto& Compile : Compiles) FShaderCompilingManager::Get().CancelCompilation(Compile);
 			}
 		};
 		auto Work = std::make_shared<FMaterialCookWork>();
@@ -100,7 +100,7 @@ namespace Durin
 			Properties = CanonicalizeMaterialShaderProperties(GetStaticProperties())] {
 			for (size_t Index = 0; Index < Work->Compiles.size(); ++Index) {
 				const auto& Compile = Work->Compiles[Index];
-				auto& Manager = MaterialBuildPrivate::FMaterialProgramCompilingManager::Get();
+				auto& Manager = FShaderCompilingManager::Get();
 				while (Manager.IsCompiling(Compile)) {
 					if (Preparation->Lifecycle.CheckCancellation() || Work->Failed.load()) Work->Cancel();
 					std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -122,7 +122,7 @@ namespace Durin
 			Preparation->Primary = std::move(*Bulk);
 		};
 		for (size_t Index = 0; Index < Inputs.size(); ++Index) {
-			auto Submitted = MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().SubmitJobs(Inputs[Index],
+			auto Submitted = FShaderCompilingManager::Get().SubmitJobs(Inputs[Index],
 				{.Cancellation = Work->Cancellation},
 				[Work, Index](MaterialBuildPrivate::FMaterialBuildResult Build) {
 					const auto& Result = *Build.Program;
@@ -248,8 +248,6 @@ namespace Durin
 		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
-		CompilationOwner.MaterialCompileStatus.ResultCategory =
-			EMaterialCompileResultCategory::None;
 		CompilationOwner.MaterialCompileStatus.CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
 		CompilationOwner.MaterialCompileStatus.RequestGeneration = 1;

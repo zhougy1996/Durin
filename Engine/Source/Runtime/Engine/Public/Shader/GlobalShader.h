@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "EngineAPI.h"
 
 #include "RenderResourceCreation.h"
 #include "Shader/Shader.h"
@@ -17,7 +18,7 @@ namespace Durin
 	class FGlobalShaderSetRegistration final
 	{
 	public:
-		RENDERCORE_API FGlobalShaderSetRegistration(
+		ENGINE_API FGlobalShaderSetRegistration(
 			std::string_view Owner,
 			std::string_view Name,
 			EShaderRequestEligibility Eligibility,
@@ -41,7 +42,7 @@ namespace Durin
 	class FGlobalShaderType final : public FShaderType
 	{
 	public:
-		RENDERCORE_API FGlobalShaderType(
+		ENGINE_API FGlobalShaderType(
 			std::string_view InName,
 			std::string_view InVirtualShaderPath,
 			EShaderFrequency InFrequency,
@@ -51,7 +52,7 @@ namespace Durin
 			FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment,
 			const FShaderParametersMetadata* InParametersMetadata = nullptr);
 
-		RENDERCORE_API static auto GetTypeList()
+		ENGINE_API static auto GetTypeList()
 			-> const std::vector<const FGlobalShaderType*>&;
 	};
 
@@ -133,10 +134,10 @@ namespace Durin
 		FGlobalShaderSetRef() = default;
 
 		explicit operator bool() const { return Payload != nullptr; }
-		RENDERCORE_API auto GetGeneration() const
+		ENGINE_API auto GetGeneration() const
 			-> const FRenderResourceGeneration&;
-		RENDERCORE_API auto GetIdentity() const -> std::string_view;
-		RENDERCORE_API auto GetPipelineLayout() const
+		ENGINE_API auto GetIdentity() const -> std::string_view;
+		ENGINE_API auto GetPipelineLayout() const
 			-> const FPipelineLayoutDesc&;
 
 	private:
@@ -203,20 +204,20 @@ namespace Durin
 	class FGlobalShaderMap
 	{
 	public:
-		RENDERCORE_API auto ResolveShaderSet(
+		ENGINE_API auto ResolveShaderSet(
 			std::string_view SectionIdentity,
 			std::span<const FGlobalShaderType* const> ShaderTypes,
 			bool bCreateRHIShaders = true,
 			FGlobalShaderDiagnosticReporter ReportDiagnostic = {})
 			-> TShaderValueResult<FGlobalShaderSetRef>;
-		RENDERCORE_API auto SetGeneration_RenderThread(
+		ENGINE_API auto SetGeneration_RenderThread(
 			const FRenderResourceGeneration& InGeneration,
 			bool bForceShaderRecompile) -> void;
-		RENDERCORE_API auto ReleaseDeviceResources_RenderThread() -> void;
-		RENDERCORE_API auto Shutdown_RenderThread() -> void;
-		RENDERCORE_API auto GetGeneration_RenderThread() const
+		ENGINE_API auto ReleaseDeviceResources_RenderThread() -> void;
+		ENGINE_API auto Shutdown_RenderThread() -> void;
+		ENGINE_API auto GetGeneration_RenderThread() const
 			-> const FRenderResourceGeneration&;
-		RENDERCORE_API auto GetSectionCount() const -> size_t;
+		ENGINE_API auto GetSectionCount() const -> size_t;
 
 	private:
 		struct FSectionEntry;
@@ -225,17 +226,17 @@ namespace Durin
 		std::optional<uint64> ForceRecompileShaderGeneration;
 	};
 
-	RENDERCORE_API auto GetGlobalShaderMap() -> FGlobalShaderMap&;
+	ENGINE_API auto GetGlobalShaderMap() -> FGlobalShaderMap&;
 
 	// Template bridge definitions are emitted for every shader type by callers;
 	// these non-template helpers keep the payload representation private.
-	RENDERCORE_API auto GetShaderFromGlobalPayloadImpl(
+	ENGINE_API auto GetShaderFromGlobalPayloadImpl(
 		const std::shared_ptr<FGlobalShaderMapPayload>& Payload,
 		const FGlobalShaderType* ShaderType) -> FShader*;
-	RENDERCORE_API auto GetShaderMapFromGlobalPayloadImpl(
+	ENGINE_API auto GetShaderMapFromGlobalPayloadImpl(
 		const std::shared_ptr<FGlobalShaderMapPayload>& Payload)
 		-> FShaderMapBase*;
-	RENDERCORE_API auto GetGlobalPayloadGenerationImpl(
+	ENGINE_API auto GetGlobalPayloadGenerationImpl(
 		const std::shared_ptr<FGlobalShaderMapPayload>& Payload)
 		-> const FRenderResourceGeneration&;
 

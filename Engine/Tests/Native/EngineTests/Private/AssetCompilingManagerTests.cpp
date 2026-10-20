@@ -240,14 +240,14 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 
 	auto ConflictingState = std::make_shared<FSyntheticState>();
 	auto Conflicting = Aggregate.RegisterCompiler({
-		.Name = FName("Durin.Material"),
+		.Name = FName("Durin.Shader"),
 		.AssetClasses = {DMaterial::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>("conflicting-builtin", ConflictingState)});
 	ASSERT_TRUE(Conflicting);
 	const auto Initialized = InitializeAssetCompilingManager();
 	EXPECT_FALSE(Initialized);
 	EXPECT_EQ(Initialized.Error.Code, EAssetCompilerRegistrationError::DuplicateName);
-	EXPECT_EQ(Initialized.Error.CompilerName, "Durin.Material");
+	EXPECT_EQ(Initialized.Error.CompilerName, "Durin.Shader");
 	EXPECT_EQ(ConflictingState->ShutdownCount, 1u);
 	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 0u);
 	EXPECT_FALSE(Aggregate.IsAcceptingRequests());

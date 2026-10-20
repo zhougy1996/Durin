@@ -1,3 +1,4 @@
+#include "Shader/ShaderMapPreparation.h"
 #include "ImGuiRHIImpl.h"
 #include "ImGuiRHIDrawState.h"
 #include "ImGuiRHIBufferCapacity.h"
@@ -241,7 +242,7 @@ namespace Durin::MonaImGui
 		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
 		FShaderCompletion ErrorMessage;
-		if (!(ErrorMessage = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions)))
+		if (!(ErrorMessage = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions)))
 		{
 			if (ErrorMessage.Status == EShaderBuildStatus::Error) DURIN_ERROR("Failed to initialize ImGui shader map: {}", ErrorMessage.Diagnostic);
 			return;

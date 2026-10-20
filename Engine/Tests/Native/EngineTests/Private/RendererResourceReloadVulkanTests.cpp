@@ -1,3 +1,4 @@
+#include "Shader/ShaderMapPreparation.h"
 #include <gtest/gtest.h>
 
 #include "VulkanTestSupport.h"
@@ -405,7 +406,7 @@ float4 FragmentMain() : SV_Target
 							auto ShaderMap =
 								std::make_shared<FShaderMapBase>();
 							FShaderCompletion ErrorMessage;
-							ErrorMessage = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions);
+							ErrorMessage = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions);
 							if (ErrorMessage.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 							if (!ErrorMessage)
 							{

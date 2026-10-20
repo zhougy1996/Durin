@@ -24,12 +24,7 @@ namespace Durin
 		return nullptr;
 	}
 
-	auto CompileGeneratedShader(
-		const FGeneratedShaderCompileRequest& Request) -> FShaderBuildResult
-	{
-		if (auto* Module = IShaderBuildModule::Get()) return Module->CompileGenerated(Request);
-		return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::BuildModuleUnavailable}));
-	}
+
 
 	auto BuildShaderSourceDependencyManifest(
 		std::string_view VirtualShaderPath,

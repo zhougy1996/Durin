@@ -12,7 +12,7 @@ namespace Durin
 	class FObjectCacheContext;
 	class DMaterialInterface;
 
-	inline constexpr uint32 MaterialCompileMaxConcurrentRequests = 64;
+	inline constexpr uint32 MaterialCompileMaxConcurrentRequests = 32;
 	inline constexpr uint32 MaterialCompileMaxConsumers = 256;
 	inline constexpr uint32 MaterialCompileMaxResidentPrograms = 128;
 	inline constexpr uint64 MaterialCompileMaxRequestBytes = 2ull * 1024ull * 1024ull;
@@ -41,25 +41,6 @@ namespace Durin
 		Scheduled,
 	};
 
-	// Adds lifecycle failures that are intentionally outside the synchronous compiler taxonomy.
-	enum class EMaterialCompileResultCategory : uint8
-	{
-		None,
-		Validation,
-		Normalization,
-		Generation,
-		Dependency,
-		Compile,
-		Reflection,
-		Binding,
-		Cache,
-		Cook,
-		RendererResource,
-		Cancellation,
-		Supersession,
-		Admission,
-	};
-
 	enum class EMaterialCompileCacheOutcome : uint8
 	{
 		None,
@@ -69,14 +50,10 @@ namespace Durin
 		Forced,
 	};
 
-	// Bounded asset-qualified diagnostic retained only for the latest request.
+	// Original compiler diagnostic qualified by its request generation for editor navigation.
 	struct FMaterialCompileDiagnostic
 	{
-		EMaterialCompileResultCategory Category =
-			EMaterialCompileResultCategory::None;
 		FMaterialProgramDiagnostic Source;
-		std::string AssetPath;
-		FMaterialProgramIdentity ProgramIdentity;
 		uint64 Generation = 0;
 	};
 
@@ -91,7 +68,6 @@ namespace Durin
 		FMaterialProgramIdentity ProgramIdentity;
 		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
 		std::vector<MIR::FSource> ExpressionSources;
-		std::string AssetPath;
 		std::string Target;
 		bool bForceRecompile = false;
 		bool bSingleFlightConsumer = false;
@@ -109,11 +85,8 @@ namespace Durin
 		FMaterialStaticProperties StaticProperties;
 		std::string Target;
 		EMaterialCompileState State = EMaterialCompileState::Failed;
-		EMaterialCompileResultCategory Category =
-			EMaterialCompileResultCategory::None;
 		EMaterialCompileCacheOutcome CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
-		uint64 TaskId = 0;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
 		std::vector<MIR::FSource> ExpressionSources;
 		std::vector<FMaterialCompileDiagnostic> Diagnostics;
@@ -126,10 +99,7 @@ namespace Durin
 		uint64 RequestGeneration = 0;
 		uint64 DependencyRevision = 0;
 		uint64 ParentChainRevision = 0;
-		uint64 TaskId = 0;
 		EMaterialCompileState State = EMaterialCompileState::NeverRequested;
-		EMaterialCompileResultCategory ResultCategory =
-			EMaterialCompileResultCategory::None;
 		EMaterialCompileCacheOutcome CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
 		FMaterialProgramIdentity RequestedIdentity;
@@ -155,7 +125,6 @@ namespace Durin
 	{
 		bool bAcceptingRequests = false;
 		uint64 AcceptedRequests = 0;
-		uint64 RejectedRequests = 0;
 		uint64 CompletedRequests = 0;
 		uint64 FailedRequests = 0;
 		uint64 CanceledRequests = 0;
