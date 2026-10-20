@@ -1,4 +1,5 @@
 #include "Editor/EditorTransactionTestSupport.h"
+#include "Materials/MaterialShaderMap.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
 
@@ -246,14 +247,14 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	ASSERT_TRUE(Caller.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({.SourceNodeId = Inserted.GeneratedNodeIds[0], .SourceOutputId = Output.Id}), true, Durin::Editor::ETransactionMode::Record));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
-	const auto Identity = Material->GetAcceptedCompiledProgram()->Identity;
+	const auto Identity = Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId;
 	auto Signature = Function->GetFunctionSignature();
 	for (auto& Port : Signature.Inputs) Port.DisplayOrder = -Port.DisplayOrder - 1;
 	for (auto& Port : Signature.Outputs) Port.DisplayOrder = -Port.DisplayOrder - 1;
 	for (const auto& Port : Signature.Inputs) ASSERT_TRUE(Document.SetPort(false, Port));
 	for (const auto& Port : Signature.Outputs) ASSERT_TRUE(Document.SetPort(true, Port));
 	ASSERT_TRUE(Material->CompileEdits());
-	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, Identity);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Identity);
 	const auto CallId = Inserted.GeneratedNodeIds[0];
 	ASSERT_TRUE(Caller.RemoveNodes(std::span(&CallId, 1), Durin::Editor::ETransactionMode::Record));
 	EXPECT_TRUE(GetFunctionCalls(*Material).empty());

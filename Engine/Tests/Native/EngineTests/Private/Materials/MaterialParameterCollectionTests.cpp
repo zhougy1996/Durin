@@ -262,7 +262,10 @@ TEST_F(FMaterialParameterCollectionTests,
 	const auto First = Material->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(First);
 	ASSERT_EQ(First->ActiveCollections.size(), 1u);
-	const auto FirstIdentity = First->Identity;
+	ASSERT_EQ(First->GetShaderMap().CollectionLayouts.size(), 1u);
+	EXPECT_TRUE(First->GetShaderMap().CollectionLayouts.front().DefaultPayload.empty());
+	EXPECT_TRUE(First->GetShaderMap().CollectionLayouts.front().AssetPath.empty());
+	const auto FirstIdentity = First->GetShaderMap().ShaderMapId;
 	const auto FirstDefaults = First->ActiveCollections.front().DefaultPayload;
 
 	ASSERT_TRUE(Collection->SetDefaultValue(Value.Id,
@@ -270,9 +273,9 @@ TEST_F(FMaterialParameterCollectionTests,
 	(void)FAssetCompilingManager::Get().FinishAllCompilation();
 	const auto Refreshed = Material->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(Refreshed);
-	EXPECT_EQ(Refreshed->Identity, FirstIdentity);
+	EXPECT_EQ(Refreshed->GetShaderMap().ShaderMapId, FirstIdentity);
 	EXPECT_EQ(Refreshed->ShaderMap, First->ShaderMap);
-	EXPECT_EQ(Refreshed->DebugData, First->DebugData);
+	EXPECT_EQ(Refreshed->GetShaderMap().DebugData, First->GetShaderMap().DebugData);
 	EXPECT_EQ(First->ActiveCollections.front().DefaultPayload, FirstDefaults);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().CacheOutcome,
 		EMaterialCompileCacheOutcome::RetainedHit);
@@ -291,9 +294,9 @@ TEST_F(FMaterialParameterCollectionTests,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
 		*Refreshed, DecodedProperties, Decoded))) << FormatMaterialError(Error.Error);
 	ASSERT_TRUE(Decoded);
-	EXPECT_FALSE(Decoded->DebugData);
+	EXPECT_FALSE(Decoded->GetShaderMap().DebugData);
 	ASSERT_EQ(Decoded->ActiveCollections.size(), 1u);
-	EXPECT_EQ(Decoded->Identity, FirstIdentity);
+	EXPECT_EQ(Decoded->GetShaderMap().ShaderMapId, FirstIdentity);
 	EXPECT_EQ(Decoded->ActiveCollections.front(),
 		Refreshed->ActiveCollections.front());
 }

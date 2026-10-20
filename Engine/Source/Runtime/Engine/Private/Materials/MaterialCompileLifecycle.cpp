@@ -301,12 +301,12 @@ namespace Durin
 			Material.CompilationOwner.MaterialCompileDiagnostics.clear();
 			auto Build = MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile);
 			const auto& Compiled = *Build.Program;
-			Status.RequestedIdentity = Compiled.Identity;
+			Status.RequestedIdentity = Compiled.GetShaderMap().ShaderMapId;
 			Material.CompilationOwner.RequestedExpressionSources = Build.Sources.empty() ? Input.Sources : Build.Sources;
 			FMaterialCompileResult Result{
 				.Owner = FWeakObjectPtr(&Material), .AuthoredRevision = Status.AuthoredRevision,
 				.Generation = Status.RequestGeneration, .DependencyRevision = Status.DependencyRevision,
-				.ParentChainRevision = Status.ParentChainRevision, .ProgramIdentity = Compiled.Identity,
+				.ParentChainRevision = Status.ParentChainRevision, .ProgramIdentity = Compiled.GetShaderMap().ShaderMapId,
 				.StaticProperties = Input.StaticProperties, .Target = Status.Target,
 				.State = Compiled.Status == EMaterialProgramStatus::Canceled ? EMaterialCompileState::Canceled : Compiled ? EMaterialCompileState::Ready : EMaterialCompileState::Failed,
 				.Category = Compiled.Status == EMaterialProgramStatus::Canceled ? EMaterialCompileResultCategory::Cancellation : Compiled || Compiled.Diagnostics.empty() ? EMaterialCompileResultCategory::None : MapMaterialProgramCategory(Compiled.Diagnostics.front().Category),
@@ -375,7 +375,7 @@ namespace Durin
 				if (Result.State == EMaterialCompileState::Ready
 					&& Result.CompiledProgram
 					&& Result.ProgramIdentity == Status.RequestedIdentity
-					&& Result.CompiledProgram->Identity == Result.ProgramIdentity
+					&& Result.CompiledProgram->GetShaderMap().ShaderMapId == Result.ProgramIdentity
 					&& ValidateMaterialCompilerResult(*Result.CompiledProgram))
 				{
 					FMaterialLocalRenderLayer Candidate;

@@ -1,4 +1,5 @@
 #include "Materials/Material.h"
+#include "Materials/MaterialShaderMap.h"
 #include "MaterialCompileRetryQueue.h"
 #include "MaterialProgramCompilingManager.h"
 #include "MaterialTranslationCodec.h"
@@ -253,10 +254,10 @@ namespace Durin
 			EMaterialCompileCacheOutcome::None;
 		CompilationOwner.MaterialCompileStatus.RequestGeneration = 1;
 		CompilationOwner.MaterialCompileStatus.RequestedIdentity =
-			CompilationOwner.RenderLayer.CompiledProgram->Identity;
+			CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
 		CompilationOwner.MaterialCompileStatus.CompiledIdentity =
-			CompilationOwner.RenderLayer.CompiledProgram->Identity;
-		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.RenderLayer.CompiledProgram->Target;
+			CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
+		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().Target;
 		CompilationOwner.MaterialCompileDiagnostics.clear();
 		MaterialCookDiagnostic = {};
 		PublishMaterialRenderProxyState();

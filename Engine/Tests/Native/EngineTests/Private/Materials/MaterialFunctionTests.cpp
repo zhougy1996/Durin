@@ -1501,8 +1501,12 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	}
 	const auto Accepted = First->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(Accepted);
-	EXPECT_EQ(Second->GetAcceptedCompiledProgram(), Accepted);
-	EXPECT_EQ(Child->GetAcceptedCompiledProgram(), Accepted);
+	const auto SecondAccepted = Second->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(SecondAccepted);
+	EXPECT_EQ(SecondAccepted->ShaderMap, Accepted->ShaderMap);
+	const auto ChildAccepted = Child->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(ChildAccepted);
+	EXPECT_EQ(ChildAccepted->ShaderMap, Accepted->ShaderMap);
 	ASSERT_FALSE(First->GetAcceptedExpressionSources().empty());
 	ASSERT_FALSE(Second->GetAcceptedExpressionSources().empty());
 	EXPECT_EQ(First->GetAcceptedExpressionSources()[0].CallPath[0], FirstCall);
@@ -1517,7 +1521,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 		static_cast<DMaterialInterface*>(Child)})
 	{
 		EXPECT_EQ(Caller->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
-		EXPECT_EQ(Caller->GetAcceptedCompiledProgram(), Accepted);
+		EXPECT_EQ(Caller->GetAcceptedCompiledProgram(), Caller == Second ? SecondAccepted : Caller == Child ? ChildAccepted : Accepted);
 	}
 	FMaterialCompileResult Stale{.Owner = FWeakObjectPtr(First), .AuthoredRevision = Before.AuthoredRevision,
 		.Generation = Before.RequestGeneration, .DependencyRevision = Before.DependencyRevision,
@@ -1528,9 +1532,9 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Accepted);
 	ASSERT_TRUE(First->CompileEdits());
 	ASSERT_TRUE(Second->CompileEdits());
-	EXPECT_NE(First->GetAcceptedCompiledProgram()->Identity, Accepted->Identity);
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Child->GetAcceptedCompiledProgram());
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Second->GetAcceptedCompiledProgram());
+	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Accepted->GetShaderMap().ShaderMapId);
+	EXPECT_EQ(First->GetAcceptedCompiledProgram()->ShaderMap, Child->GetAcceptedCompiledProgram()->ShaderMap);
+	EXPECT_EQ(First->GetAcceptedCompiledProgram()->ShaderMap, Second->GetAcceptedCompiledProgram()->ShaderMap);
 	const auto OriginalWrapper = CaptureFunctionExpressions(*Wrapper);
 	auto BrokenWrapper = CaptureFunctionExpressions(*Wrapper);
 	for (const auto& Expression : BrokenWrapper.Expressions)
@@ -1567,7 +1571,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), CurrentProgram);
 	EXPECT_EQ(First->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
 	ASSERT_TRUE(First->CompileEdits());
-	EXPECT_NE(First->GetAcceptedCompiledProgram()->Identity, CurrentProgram->Identity);
+	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, CurrentProgram->GetShaderMap().ShaderMapId);
 	MarkAsGarbage(Child);
 	MarkAsGarbage(Second);
 	MarkAsGarbage(First);
@@ -1622,7 +1626,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
 	ASSERT_TRUE(Material->CompileEdits());
-	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, Accepted->Identity);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Accepted->GetShaderMap().ShaderMapId);
 	EXPECT_TRUE(std::ranges::any_of(Material->GetAcceptedExpressionSources(), [&](const auto& Source) {
 		return Source.FunctionAssetPath == Leaf->GetObjectPath();
 	}));

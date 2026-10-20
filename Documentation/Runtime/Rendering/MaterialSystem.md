@@ -528,12 +528,17 @@ not invoke template creation, and unsupported graphs require deliberate reconstr
 
 `FMaterialCompilerResult` owns request configuration, Collection defaults,
 diagnostics and timing observations. Its immutable Engine `FMaterialShaderMap`
-owns the active parameter contract, render layout, requirements, dependencies
-and complete Shader collection. Optional `FMaterialProgramDebugData` separately shares MIR
-and generated source; cooked programs omit it. Configuration/default rebinding
-copies only the result wrapper and retains both shared owners. The synchronous
-build path and asynchronous publication both retain one shared result; the
-value-returning `MIR::Compile` compatibility API copies that wrapper explicitly.
+owns program identity and target metadata, the active parameter contract, render
+layout, requirements, Collection schemas, dependencies and complete Shader collection.
+Optional `FMaterialProgramDebugData` on the ShaderMap shares MIR
+and generated source; cooked programs omit it. The result reads program metadata
+and debug data through its ShaderMap, without storing duplicate fields.
+Configuration/default rebinding copies only the result wrapper. The synchronous
+build path and asynchronous publication share the same compiled map. The cache
+retains ShaderMaps directly; it does not retain request-result wrappers or the
+first request's Collection defaults and asset paths. A retained hit creates a
+result using the current request's configuration and compatible Collection data.
+The value-returning `MIR::Compile` compatibility API copies that wrapper explicitly.
 Proxy parameter indices follow ShaderMap identity, so rebinding defaults or an
 equivalent configuration does not rebuild the parameter mapping. Existing
 assembly, publication, Cook and Renderer validation boundaries remain in force;
@@ -555,6 +560,15 @@ compiling ID, detached asset dependencies, translation, pending Shader outputs
 and final program content; there is no separate program or asset compile record.
 `Compile` starts translation/cache work, `ProcessCompilationResults` collects
 indexed outputs, and final assembly fills the compiling map itself.
+ShaderMap also owns the translation-to-jobs transition and completion/fanout;
+the program manager dispatches tasks and Shader jobs, maintains the active
+identity index, and handles priority, cancellation, waits and retirement.
+The manager encapsulates index lookup, joining and atomic cache publication;
+ShaderMap does not access the manager's locks or containers directly.
+`BindCollections` is the single configuration/default binding interface. Cache
+hits and shared compilation subscribers bind at request completion before result
+byte limits are checked; fanout does not prebind subscriber results. The asset
+service separately binds each captured asset request when it prepares publication.
 `FindId`, `Register`, configuration rebinding and cache accounting belong to
 ShaderMap; the old program-cache service is removed. Persistent translation and
 individual Shader DDC formats remain unchanged. `FinishCompilation`, `CancelCompilation`,
@@ -569,12 +583,16 @@ scheduled edits retain their distinct retry behavior.
 The asset service coalesces canonical captured requests, indexes their ShaderMaps
 and owns mailbox delivery. The dependent asset snapshots live on each ShaderMap;
 live-object validation and publication remain in the material lifecycle.
-The program manager owns semantic identity lookup and subscription fanout across
-assets, synchronous tools and Cook; no reverse joining callback transfers asset
+ShaderMap uses the manager's semantic identity index to share compilation and
+fan out results across assets, synchronous tools and Cook; no reverse joining callback transfers asset
 consumers between separate compile records. Each subscriber retains its own cancellation
 latch, normalized source mapping and configuration. Removing its last asset
 consumer cancels that subscription. The shared producer cancels only when all
 subscriptions cancel, and selected finish waits for its shared request end.
+Cancellation and priority resolve the producer through the existing in-flight
+identity index and verify that the request is still one of its dependencies.
+There is no reverse producer pointer on each subscriber; a replacement producer
+under the same identity cannot be affected by an older request.
 Cancellation observers run outside the manager lock before latched flags are
 rechecked under that lock.
 GameThread snapshots root graph/declarations, expanded functions, source mappings

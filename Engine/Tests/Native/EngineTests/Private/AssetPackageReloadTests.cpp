@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Materials/FunctionPortTestFixture.h"
 #include "Actors/SkyLightActor.h"
 #include "Components/SkyLightComponent.h"
@@ -311,13 +312,16 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
 	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : FormatMaterialError(Material->GetMaterialCompileDiagnostics()[0].Source.Error));
-	const auto SavedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
+	const auto SavedIdentity = Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId;
 	auto Signature = Function->GetFunctionSignature();
 	Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.15f;
 	ASSERT_TRUE(PublishFunctionExpressions(*Function, CaptureFunctionExpressions(*Function), Signature));
 	ASSERT_TRUE(Material->CompileEdits());
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
-	ASSERT_NE(Accepted->Identity, SavedIdentity);
+	ASSERT_NE(Accepted->GetShaderMap().ShaderMapId, SavedIdentity);
+	const auto InstanceAccepted = Instance->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(InstanceAccepted);
+	EXPECT_EQ(InstanceAccepted->ShaderMap, Accepted->ShaderMap);
 	const auto OldHandle = FObjectKey(Function);
 	auto Operation = ReloadPackages({.Packages = {Function->GetPackage()}});
 	const auto Result = Operation.Wait();
@@ -332,9 +336,9 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
 	EXPECT_EQ(Instance->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
-	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), InstanceAccepted);
 	ASSERT_TRUE(Material->CompileEdits());
-	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, SavedIdentity);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, SavedIdentity);
 	const auto BeforeCapture = SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"});
 	ASSERT_TRUE(BeforeCapture);
 	const auto& Before = BeforeCapture.Snapshot->FunctionOwners;

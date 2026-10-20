@@ -1054,8 +1054,8 @@ float4 FragmentMain(
 	auto ValidateMaterialCompilerResult(const FMaterialCompilerResult& Result)
 		-> FMaterialLayoutValidationResult
 	{
-		if (!Result || !Result.ShaderMap || !Result.Identity.IsValid()
-			|| Result.PassContractVersion != CurrentMaterialPassContractVersion)
+		if (!Result || !Result.ShaderMap || !Result.GetShaderMap().ShaderMapId.IsValid()
+			|| Result.GetShaderMap().PassContractVersion != CurrentMaterialPassContractVersion)
 			return {.Error = EMaterialLayoutError::InvalidIdentity};
 		const auto& Artifact = Result.GetShaderMap();
 		const auto Expected = CompileMaterialLayout(Artifact.ActiveParameters);
@@ -1077,7 +1077,7 @@ float4 FragmentMain(
 			PreviousCollection = Collection.CollectionId;
 		}
 		return ValidateMaterialCompiledStages(
-			Artifact.CompiledShaders, Artifact.Layout, {}, Result.ActiveCollections, Result.RequiredStages);
+			Artifact.CompiledShaders, Artifact.Layout, {}, Result.ActiveCollections, Result.GetShaderMap().RequiredStages);
 	}
 
 	auto ValidateMaterialCompiledStages(std::span<const FShaderCode> Stages,

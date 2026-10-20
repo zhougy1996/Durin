@@ -29,6 +29,8 @@ namespace Durin::MaterialBuildPrivate
 		std::shared_ptr<const FMaterialTranslationInput> EncodedInput;
 		std::shared_ptr<FMaterialShaderMap> ShaderMap;
 	};
+	struct FMaterialProgramCompileStats;
+	ENGINE_API auto GetMaterialProgramCompileStatsForTests() -> FMaterialProgramCompileStats;
 
 	// Schedules shader-map work for assets, tools and Cook.
 	class ENGINE_API FMaterialProgramCompilingManager final
@@ -50,21 +52,29 @@ namespace Durin::MaterialBuildPrivate
 		auto Shutdown() -> void;
 	private:
 		friend class Durin::FMaterialShaderMap;
+		friend ENGINE_API auto GetMaterialProgramCompileStatsForTests() -> FMaterialProgramCompileStats;
 		FMaterialProgramCompilingManager();
 		~FMaterialProgramCompilingManager();
-		struct FState;
-		std::unique_ptr<FState> State;
-		using FRecord = std::shared_ptr<FMaterialShaderMap>;
+		using FShaderMapPtr = std::shared_ptr<FMaterialShaderMap>;
+		std::atomic_uint64_t ProgramJoins = 0, PeakActiveShaders = 0, PeakOutputBytes = 0;
+#if DURIN_WITH_EDITOR
+		mutable std::mutex Mutex;
+		std::vector<FShaderMapPtr> CompilingShaderMaps;
+		std::unordered_map<FMaterialProgramIdentity, std::weak_ptr<FMaterialShaderMap>> CompilingPrograms[2];
+		bool Accepting = true;
+#endif
+		auto FindCompilingShaderMap(FShaderMapPtr Request) const -> FShaderMapPtr;
+		auto FindOrAddCompilingShaderMap(FShaderMapPtr ShaderMap) -> std::shared_ptr<const FMaterialCompilerResult>;
+		auto FinalizeCompilation(FShaderMapPtr ShaderMap, std::shared_ptr<const FMaterialCompilerResult> Program,
+			bool RetainedHit, std::vector<FShaderMapPtr>& Subscribers,
+			std::function<void(FMaterialBuildResult)>& Completion) -> FMaterialBuildResult;
 		auto Submit(std::shared_ptr<const MIR::FCompilerInput> Input, FMaterialProgramCompileOptions Options,
 			std::function<void(FMaterialBuildResult)> Completion, bool CopyInput)
 			-> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>;
-		static auto LaunchTask(FRecord Record, std::function<void()> Work) -> void;
-		static auto ProcessTranslation(FRecord Record, FMaterialTranslatedProgram Translation) -> void;
-		static auto SubmitCompileJobs(FRecord Record) -> void;
-		static auto ProcessFinishedJob(FRecord Record, size_t Index, FShaderBuildResult Output) -> void;
-		static auto IsBuildCanceled(FRecord Record) -> bool;
-		static auto CompleteCompilation(FRecord Record, FMaterialCompilerResult Result,
-			std::shared_ptr<const FMaterialCompilerResult> Retained = {}) -> void;
+		static auto LaunchTask(FShaderMapPtr ShaderMap, std::function<void()> Work) -> void;
+		static auto SubmitCompileJobs(FShaderMapPtr ShaderMap) -> void;
+		static auto ProcessFinishedJob(FShaderMapPtr ShaderMap, size_t Index, FShaderBuildResult Output) -> void;
+		static auto IsBuildCanceled(FShaderMapPtr ShaderMap) -> bool;
 	};
 
 	ENGINE_API auto SetMaterialBuildCompletionHookForTests(std::function<void(EMaterialQualityLevel, bool)> Hook) -> void;

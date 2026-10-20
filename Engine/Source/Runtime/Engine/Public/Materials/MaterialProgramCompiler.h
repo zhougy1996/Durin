@@ -315,27 +315,17 @@ namespace Durin
 	struct FMaterialCompilerResult
 	{
 		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
-		FMaterialProgramIdentity Identity;
-		std::string CompilerIdentity;
-		std::string Target;
-		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
-		uint8 RequiredStages = MaterialAllStageMask;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
 		std::shared_ptr<const FMaterialShaderMap> ShaderMap;
-		std::shared_ptr<const FMaterialProgramDebugData> DebugData;
 		FMaterialCompileTimings Timings;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
 		ENGINE_API auto GetShaderMap() const -> const FMaterialShaderMap&;
 
-		auto GetDebugData() const -> const FMaterialProgramDebugData&
-		{
-			static const FMaterialProgramDebugData Empty;
-			return DebugData ? *DebugData : Empty;
-		}
+		ENGINE_API auto GetDebugData() const -> const FMaterialProgramDebugData&;
 
 		explicit operator bool() const { return Status == EMaterialProgramStatus::Ok; }
 	};

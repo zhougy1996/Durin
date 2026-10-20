@@ -473,8 +473,8 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 			? std::string("<none>")
 			: Durin::FormatMaterialError(First->GetMaterialCompileDiagnostics().front().Source.Error));
 	ASSERT_TRUE(First->GetAcceptedCompiledProgram());
-	EXPECT_NE(First->GetAcceptedCompiledProgram()->Identity,
-		InitialProgram->Identity);
+	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId,
+		InitialProgram->GetShaderMap().ShaderMapId);
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
 }
 
@@ -536,7 +536,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration - 1,
 		.DependencyRevision = Pending.DependencyRevision,
-		.ProgramIdentity = LastKnownGood->Identity,
+		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
 		.Target = Pending.Target,
 		.State = Durin::EMaterialCompileState::Ready,
 		.CompiledProgram = LastKnownGood,
@@ -549,7 +549,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration,
 		.DependencyRevision = Pending.DependencyRevision,
-		.ProgramIdentity = LastKnownGood->Identity,
+		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
 		.Target = "wrong-target",
 		.State = Durin::EMaterialCompileState::Ready,
 		.CompiledProgram = LastKnownGood,
@@ -561,7 +561,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration,
 		.DependencyRevision = Pending.DependencyRevision + 1,
-		.ProgramIdentity = LastKnownGood->Identity,
+		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
 		.Target = Pending.Target,
 		.State = Durin::EMaterialCompileState::Ready,
 		.CompiledProgram = LastKnownGood,
@@ -640,8 +640,8 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilF
 	EXPECT_TRUE(Instance->GetAcceptedCompiledProgram());
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
-	EXPECT_EQ(Root->GetAcceptedCompiledProgram()->Identity,
-		Instance->GetAcceptedCompiledProgram()->Identity);
+	EXPECT_EQ(Root->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId,
+		Instance->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId);
 }
 
 TEST_F(FMaterialAsyncCompileTests, DetachedFanoutRetiresCanceledAndFailedConsumers)
@@ -830,7 +830,10 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	ASSERT_TRUE(First->CompileEdits());
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 	const auto Accepted = First->GetAcceptedCompiledProgram();
-	EXPECT_EQ(Accepted, Second->GetAcceptedCompiledProgram());
+	const auto SecondAccepted = Second->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(Accepted);
+	ASSERT_TRUE(SecondAccepted);
+	EXPECT_EQ(Accepted->ShaderMap, SecondAccepted->ShaderMap);
 	auto LeafSignature = Leaf->GetFunctionSignature();
 	const auto ApplyLeafSignature = [&] {
 		std::vector<DMaterialExpression*> Expressions;
@@ -852,12 +855,12 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	for (auto* Material : {First, Second})
 	{
 		EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
-		EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
+		EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Material == First ? Accepted : SecondAccepted);
 		ASSERT_TRUE(Material->CompileEdits());
 		ASSERT_TRUE(WaitForMaterialCompile(*Material));
-		EXPECT_NE(Material->GetAcceptedCompiledProgram()->Identity, Accepted->Identity);
+		EXPECT_NE(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Accepted->GetShaderMap().ShaderMapId);
 	}
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Second->GetAcceptedCompiledProgram());
+	EXPECT_EQ(First->GetAcceptedCompiledProgram()->ShaderMap, Second->GetAcceptedCompiledProgram()->ShaderMap);
 }
 
 TEST(FMaterialCompileLifecycleTests,
@@ -877,7 +880,7 @@ TEST(FMaterialCompileLifecycleTests,
 	const uint64 CompileGeneration = Root->GetMaterialCompileStatus().RequestGeneration;
 	const FMaterialProgramStatistics Current = GetMaterialProgramStatistics(*Root);
 	EXPECT_EQ(Current.State, EMaterialProgramStatisticsState::Current);
-	EXPECT_EQ(Current.ProgramIdentity, Program->Identity);
+	EXPECT_EQ(Current.ProgramIdentity, Program->GetShaderMap().ShaderMapId);
 	EXPECT_EQ(Current.NormalizedIRNodeCount, Program->GetDebugData().IR.Nodes.size());
 	EXPECT_EQ(Current.ActiveParameterCount, Program->GetShaderMap().ActiveParameters.size());
 	EXPECT_EQ(Current.UniformPayloadBytes, Program->GetShaderMap().Layout.UniformPayloadSize);
@@ -964,8 +967,8 @@ TEST(FMaterialCompileLifecycleTests,
 		*Material->GetAcceptedCompiledProgram(), DecodedProperties,
 		DecodedProgram))) << Durin::FormatMaterialError(Error.Error);
 	ASSERT_TRUE(DecodedProgram);
-	EXPECT_EQ(DecodedProgram->Identity,
-		Material->GetAcceptedCompiledProgram()->Identity);
+	EXPECT_EQ(DecodedProgram->GetShaderMap().ShaderMapId,
+		Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId);
 	EXPECT_EQ(DecodedProperties, Material->GetStaticProperties());
 	EXPECT_EQ(DecodedProgram->GetShaderMap().ActiveParameters,
 		Material->GetAcceptedCompiledProgram()->GetShaderMap().ActiveParameters);
@@ -1043,7 +1046,9 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::FMaterialCompilerResult WrongEnvironment =
 		*Material->GetAcceptedCompiledProgram();
 	Durin::FByteBuffer WrongEnvironmentBytes;
-	WrongEnvironment.Target = "wrong-target";
+	auto WrongMap = std::make_shared<Durin::FMaterialShaderMap>(WrongEnvironment.GetShaderMap());
+	WrongMap->Target = "wrong-target";
+	WrongEnvironment.ShaderMap = WrongMap;
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironment, Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
@@ -1082,7 +1087,7 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 	auto Program = *Material->GetAcceptedCompiledProgram();
 	auto Artifact = std::make_shared<Durin::FMaterialShaderMap>(Program.GetShaderMap());
 	Program.ShaderMap = Artifact;
-	Program.Target = "metal-msl-2.0";
+	Artifact->Target = "metal-msl-2.0";
 	for (auto& Shader : Artifact->CompiledShaders)
 	{
 		Shader.Target = Durin::MetalShaderTarget;
@@ -1103,7 +1108,7 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 	EXPECT_FALSE(Durin::EncodeMaterialCookedProgramFamily(Programs,
 		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
 		Durin::ECookTargetProfile::Game, Bytes));
-	Program.Target = "metal-library-1";
+	Artifact->Target = "metal-library-1";
 	for (auto& Shader : Artifact->CompiledShaders)
 	{
 		Shader.Target = Durin::MetalLibraryShaderTarget;

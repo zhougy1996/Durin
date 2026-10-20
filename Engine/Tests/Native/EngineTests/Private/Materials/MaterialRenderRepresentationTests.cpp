@@ -217,8 +217,8 @@ TEST(FMaterialProgramIdentityTests,
 	EXPECT_EQ(Accepted->GetShaderMap().ActiveParameters.size(), 7u);
 	const auto LightData = LightRust->GetRenderData();
 	const auto HeavyData = HeavyRust->GetRenderData();
-	EXPECT_EQ(LightData.CompiledProgram, Accepted);
-	EXPECT_EQ(HeavyData.CompiledProgram, Accepted);
+	EXPECT_EQ(LightData.CompiledProgram->ShaderMap, Accepted->ShaderMap);
+	EXPECT_EQ(HeavyData.CompiledProgram->ShaderMap, Accepted->ShaderMap);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(LightData, RustAmountId), 0.1f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(HeavyData, RustAmountId), 0.9f);
 	const auto MaskField = std::ranges::find(Accepted->GetShaderMap().Layout.Fields,
@@ -647,6 +647,9 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	const auto Accepted = Root->GetAcceptedCompiledProgram();
 	ASSERT_NE(Accepted, nullptr);
 	ASSERT_EQ(Accepted->GetShaderMap().Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
+	const auto ChildAccepted = Child->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(ChildAccepted);
+	EXPECT_EQ(ChildAccepted->ShaderMap, Accepted->ShaderMap);
 	auto Binding = GetMaterialBinding(Child->GetRenderData());
 	ASSERT_EQ(Binding.CompiledSamplers.size(), 1u);
 	EXPECT_EQ(Binding.CompiledSamplers[0], Definition.Value.GetTexture().SamplerState);
@@ -658,10 +661,10 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	Binding = GetMaterialBinding(Child->GetRenderData());
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
-	EXPECT_EQ(Child->GetRenderData().CompiledProgram, Accepted);
+	EXPECT_EQ(Child->GetRenderData().CompiledProgram, ChildAccepted);
 	ASSERT_TRUE(Root->SetParameterValue(Definition.Id, Value));
 	EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Accepted);
-	EXPECT_EQ(Root->GetRenderData().PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->Identity);
+	EXPECT_EQ(Root->GetRenderData().PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->GetShaderMap().ShaderMapId);
 	ASSERT_TRUE(Child->ClearParameterValue(Definition.Id));
 	Binding = GetMaterialBinding(Child->GetRenderData());
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);

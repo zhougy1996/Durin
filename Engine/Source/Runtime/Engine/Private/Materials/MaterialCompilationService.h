@@ -50,8 +50,8 @@ namespace Durin
 			uint64 TaskId) -> FMaterialCompileResult;
 		static auto MakeTerminalResult(const FMaterialCompileRequest& Consumer, EMaterialCompileState State,
 			EMaterialCompileResultCategory Category, uint64 TaskId) -> FMaterialCompileResult;
-		auto CompleteFlight(
-			const std::shared_ptr<FMaterialShaderMap>& Flight,
+		auto CompleteCompilation(
+			const std::shared_ptr<FMaterialShaderMap>& ShaderMap,
 			MaterialBuildPrivate::FMaterialBuildResult Build,
 			EMaterialCompileState CompletionState) -> void;
 		auto CancelOwnerLocked(FWeakObjectPtr Owner, bool bSuperseded) -> bool;
@@ -61,10 +61,10 @@ namespace Durin
 		uint32 OutstandingConsumers = 0;
 		std::unordered_map<FMaterialCompileKey,
 			std::shared_ptr<FMaterialShaderMap>,
-			FMaterialCompileKeyHash> Flights;
+			FMaterialCompileKeyHash> RequestedShaderMaps;
 		std::deque<FMaterialCompileResult> Mailbox;
-		std::vector<std::shared_ptr<FMaterialShaderMap>> Compiles;
-		std::vector<std::shared_ptr<FMaterialShaderMap>> CompletingFlights;
+		std::vector<std::shared_ptr<FMaterialShaderMap>> CompilingShaderMaps;
+		std::vector<std::shared_ptr<FMaterialShaderMap>> CompletingShaderMaps;
 		uint64 CapturedBytes = 0;
 		FMaterialCompilationDiagnostics Diagnostics;
 	};

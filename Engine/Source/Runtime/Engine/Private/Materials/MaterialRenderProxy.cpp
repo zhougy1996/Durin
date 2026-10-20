@@ -273,7 +273,7 @@ namespace Durin
 		{
 			CachedResolvedData.CompiledProgram = LocalLayer.CompiledProgram;
 			CachedResolvedData.PlanningPassIdentity.ShaderMap.ProgramIdentity =
-				LocalLayer.CompiledProgram->Identity;
+				LocalLayer.CompiledProgram->GetShaderMap().ShaderMapId;
 		}
 		FMaterialRenderRepresentationBuilder RepresentationBuilder = CachedResolvedData.CompiledProgram
 			&& CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity.Version == CompiledMaterialRenderLayoutVersion

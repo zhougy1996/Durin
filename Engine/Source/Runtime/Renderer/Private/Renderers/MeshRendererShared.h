@@ -74,18 +74,18 @@ namespace Durin::RendererPrivate
 				return FShaderCompletion::Failure(FormatMaterialProgramDiagnostics(MaterialProgram->Diagnostics));
 			if (!*MaterialProgram || !ValidateMaterialCompilerResult(*MaterialProgram))
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramInvalid});
-			if (MaterialProgram->Identity != Identity.ProgramIdentity)
+			if (MaterialProgram->GetShaderMap().ShaderMapId != Identity.ProgramIdentity)
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramIdentityMismatch,
 					.ExpectedIdentity = Identity.ProgramIdentity.ToString(),
-					.ActualIdentity = MaterialProgram->Identity.ToString()});
+					.ActualIdentity = MaterialProgram->GetShaderMap().ShaderMapId.ToString()});
 			if (MaterialProgram->GetShaderMap().Layout.Identity != Identity.RenderLayout)
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialLayoutMismatch,
 					.ExpectedIdentity = Identity.RenderLayout.Id.ToString(),
 					.ActualIdentity = MaterialProgram->GetShaderMap().Layout.Identity.Id.ToString(),
 					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->GetShaderMap().Layout.Identity.Version});
-			if (MaterialProgram->PassContractVersion != CurrentMaterialPassContractVersion)
+			if (MaterialProgram->GetShaderMap().PassContractVersion != CurrentMaterialPassContractVersion)
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialPassContractMismatch,
-					.Expected = CurrentMaterialPassContractVersion, .Actual = MaterialProgram->PassContractVersion});
+					.Expected = CurrentMaterialPassContractVersion, .Actual = MaterialProgram->GetShaderMap().PassContractVersion});
 		}
 		const auto Factory = FindMeshVertexFactory(VertexFactoryType.GetStableKey());
 		if (!Factory)
@@ -121,7 +121,7 @@ namespace Durin::RendererPrivate
 		return FMeshMaterialShaderMap::TryCompile({
 			.Identity = Identity,
 			.Generation = Generation,
-			.Target = MaterialProgram ? MaterialProgram->Target
+			.Target = MaterialProgram ? MaterialProgram->GetShaderMap().Target
 				: std::string("vulkan-spirv-1.5"),
 			.VertexFactoryType = &VertexFactoryType,
 			.MeshPassKey = MeshPassKey,
@@ -131,9 +131,9 @@ namespace Durin::RendererPrivate
 			.FixedFragmentRuntimeRequest = FragmentType.GetEntryPoint() == "OpaqueShadowFragmentMain" ? "Surface.OpaqueShadow" : FragmentType.GetEntryPoint() == "HitProxyFragmentMain" ? "Surface.HitProxy" : "",
 			.GeneratedStages = GeneratedStages,
 			.CompiledProgramIdentity = MaterialProgram
-				? MaterialProgram->Identity : FMaterialProgramIdentity{},
+				? MaterialProgram->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{},
 			.CompiledTarget = MaterialProgram
-				? MaterialProgram->Target : std::string{},
+				? MaterialProgram->GetShaderMap().Target : std::string{},
 			.bCreateRHIShaders = true}, OutShaderMap);
 	}
 

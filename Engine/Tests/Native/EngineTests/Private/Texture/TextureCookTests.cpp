@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Materials/MaterialShaderMap.h"
 
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
@@ -405,7 +406,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	ASSERT_TRUE(MaterialLoad) << (MaterialLoad ? std::string{} : MaterialLoad.error().Message);
 	ASSERT_NE(CookedMaterial, nullptr);
 	ASSERT_TRUE(CookedMaterial->GetAcceptedCompiledProgram());
-	EXPECT_EQ(CookedMaterial->GetAcceptedCompiledProgram()->Identity, ExpectedMaterialIdentity);
+	EXPECT_EQ(CookedMaterial->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedMaterialIdentity);
 	ASSERT_TRUE(CookedMaterial->GetMaterialCompileStatus().IsCurrent());
 	auto* SampleMaterial = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CookedTextureSampleInstance");
 	ASSERT_TRUE(SampleMaterial->SetParent(CookedMaterial));

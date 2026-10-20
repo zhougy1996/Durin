@@ -135,7 +135,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality));
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 6u);
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 	for (const auto& Shader : Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders)
 	{
 		EXPECT_EQ(Shader.Target, Metal ? Durin::MetalLibraryShaderTarget : Durin::VulkanShaderTarget);
@@ -166,7 +166,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(Durin::DecodeMaterialCookedProgramFamily(ResavedRead.Lock.GetBytes(),
 		Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, Durin::GetMaterialQualityLevel(), Durin::ERHIFeatureLevel::SM5, {}, ResavedProperties, ResavedProgram));
-	EXPECT_EQ(ResavedProgram->Identity, ExpectedIdentity);
+	EXPECT_EQ(ResavedProgram->GetShaderMap().ShaderMapId, ExpectedIdentity);
 	EXPECT_EQ(Durin::IShaderBuildModule::Get()->GetStats().Compilations, BuildsBeforeResave);
 	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
 	const auto CookedStatistics = Durin::GetMaterialProgramStatistics(*Cooked);
@@ -299,7 +299,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
 	EXPECT_EQ(
 		GetMaterialBinding(Cooked->GetRenderData()).BaseColor,
@@ -329,8 +329,8 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		ASSERT_TRUE(Variant);
 		ASSERT_GT(Variant->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
 		ASSERT_TRUE(Variant->GetAcceptedCompiledProgram());
-		EXPECT_EQ(Variant->GetAcceptedCompiledProgram()->Identity, VariantIdentities[Index]);
-		EXPECT_NE(Variant->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_EQ(Variant->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, VariantIdentities[Index]);
+		EXPECT_NE(Variant->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
 		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 		EXPECT_FALSE(Variant->GetRenderData().Representation.IsError());
@@ -494,7 +494,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->RequiredStages,
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().RequiredStages,
 			SelectMaterialShaderStages(Loaded->GetStaticProperties(), false));
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 4u);
 		EXPECT_FALSE(std::ranges::any_of(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders,

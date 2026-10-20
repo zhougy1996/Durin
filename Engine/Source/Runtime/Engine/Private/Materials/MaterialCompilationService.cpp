@@ -103,19 +103,19 @@ namespace Durin
 		{
 			std::scoped_lock Lock(Mutex);
 			bAcceptingRequests = false;
-			Pending = Compiles;
-			for (auto& Flight : Pending)
+			Pending = CompilingShaderMaps;
+			for (auto& ShaderMap : Pending)
 			{
-				Flight->Cancellation.Cancel();
+				ShaderMap->Cancellation.Cancel();
 			}
 		}
-		for (const auto& Flight : Pending) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().CancelCompilation(Flight);
-		for (const auto& Flight : Pending) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().FinishCompilation(Flight);
+		for (const auto& ShaderMap : Pending) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().CancelCompilation(ShaderMap);
+		for (const auto& ShaderMap : Pending) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().FinishCompilation(ShaderMap);
 		MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().Shutdown();
 		std::scoped_lock Lock(Mutex);
 		Diagnostics.CanceledRequests += OutstandingConsumers;
-		Flights.clear();
-		CompletingFlights.clear(); Compiles.clear(); CapturedBytes = 0;
+		RequestedShaderMaps.clear();
+		CompletingShaderMaps.clear(); CompilingShaderMaps.clear(); CapturedBytes = 0;
 		Mailbox.clear();
 		OutstandingConsumers = 0;
 		FMaterialShaderMap::ClearCache();
@@ -132,45 +132,45 @@ namespace Durin
 	{
 		MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().ProcessAsyncResults();
 		std::vector<std::shared_ptr<FMaterialShaderMap>> Retired;
-		{ std::scoped_lock Lock(Mutex); Retired = Compiles; }
-		std::erase_if(Retired, [](const auto& Flight) { return MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().IsCompiling(Flight); });
+		{ std::scoped_lock Lock(Mutex); Retired = CompilingShaderMaps; }
+		std::erase_if(Retired, [](const auto& ShaderMap) { return MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().IsCompiling(ShaderMap); });
 		std::scoped_lock Lock(Mutex);
-		for (const auto& Flight : Retired)
+		for (const auto& ShaderMap : Retired)
 		{
-			const auto It = std::ranges::find(Compiles, Flight);
-			if (It != Compiles.end()) { CapturedBytes -= Flight->CapturedBytes; Flight->DiagnosticInput.reset(); Flight->Origins.clear(); Compiles.erase(It); }
+			const auto It = std::ranges::find(CompilingShaderMaps, ShaderMap);
+			if (It != CompilingShaderMaps.end()) { CapturedBytes -= ShaderMap->CapturedBytes; ShaderMap->DiagnosticInput.reset(); ShaderMap->Origins.clear(); CompilingShaderMaps.erase(It); }
 		}
 	}
 
 	auto FMaterialCompilationService::CancelLatchedCompiles() -> void
 	{
 		std::vector<std::shared_ptr<FMaterialShaderMap>> Pending;
-		{ std::scoped_lock Lock(Mutex); Pending = Compiles; }
-		for (const auto& Flight : Pending) if (Flight->Cancellation.IsCancellationRequested()) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().CancelCompilation(Flight);
+		{ std::scoped_lock Lock(Mutex); Pending = CompilingShaderMaps; }
+		for (const auto& ShaderMap : Pending) if (ShaderMap->Cancellation.IsCancellationRequested()) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().CancelCompilation(ShaderMap);
 	}
 
 	auto FMaterialCompilationService::RaisePendingPriority(std::span<const FWeakObjectPtr> Owners) -> void
 	{
 		std::vector<std::shared_ptr<FMaterialShaderMap>> Pending;
-		{ std::scoped_lock Lock(Mutex); Pending = Compiles; }
-		for (const auto& Flight : Pending)
-			if (Owners.empty() || std::ranges::any_of(Flight->Origins, [&](auto Origin) { return std::ranges::any_of(Owners, [&](auto Owner) { return SameOwner(Origin, Owner); }); })) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().PrioritizeCompilation(Flight);
+		{ std::scoped_lock Lock(Mutex); Pending = CompilingShaderMaps; }
+		for (const auto& ShaderMap : Pending)
+			if (Owners.empty() || std::ranges::any_of(ShaderMap->Origins, [&](auto Origin) { return std::ranges::any_of(Owners, [&](auto Owner) { return SameOwner(Origin, Owner); }); })) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().PrioritizeCompilation(ShaderMap);
 	}
 
 	auto FMaterialCompilationService::FinishAllCompilation() -> void
 	{
 		std::vector<std::shared_ptr<FMaterialShaderMap>> Pending;
-		{ std::scoped_lock Lock(Mutex); Pending = Compiles; }
-		for (const auto& Flight : Pending) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().FinishCompilation(Flight);
+		{ std::scoped_lock Lock(Mutex); Pending = CompilingShaderMaps; }
+		for (const auto& ShaderMap : Pending) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().FinishCompilation(ShaderMap);
 		RetireCompiles();
 	}
 
 	auto FMaterialCompilationService::FinishCompilation(std::span<const FWeakObjectPtr> Owners) -> void
 	{
 		std::vector<std::shared_ptr<FMaterialShaderMap>> Pending;
-		{ std::scoped_lock Lock(Mutex); Pending = Compiles; }
-		for (const auto& Flight : Pending)
-			if (std::ranges::any_of(Flight->Origins, [&](const auto& Origin) { return std::ranges::any_of(Owners, [&](const auto& Owner) { return SameOwner(Origin, Owner); }); })) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().FinishCompilation(Flight);
+		{ std::scoped_lock Lock(Mutex); Pending = CompilingShaderMaps; }
+		for (const auto& ShaderMap : Pending)
+			if (std::ranges::any_of(ShaderMap->Origins, [&](const auto& Origin) { return std::ranges::any_of(Owners, [&](const auto& Owner) { return SameOwner(Origin, Owner); }); })) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().FinishCompilation(ShaderMap);
 		RetireCompiles();
 	}
 
@@ -191,7 +191,7 @@ namespace Durin
 		}
 		auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(*Request.CompilerInput);
 		if (!Encoded) return EMaterialCompileState::Rejected;
-		const auto FlightBytes = Bytes + Encoded->GetRetainedCapacityBytes();
+		const auto ShaderMapBytes = Bytes + Encoded->GetRetainedCapacityBytes();
 		auto TranslationInput = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Encoded, FXxHash128::HashBuffer(Encoded->GetBytes())});
 		FBinaryWriter Identity;
 		Identity.WriteHash128(TranslationInput->Identity);
@@ -201,10 +201,10 @@ namespace Durin
 		std::ranges::sort(Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
 		for (const auto& Dependency : Dependencies) { Identity.WriteString(Dependency.VirtualPath); Identity.WriteHash128(Dependency.ContentHash); }
 		const FMaterialCompileKey Key{.Identity = {.Digest = FXxHash128::HashBuffer(Identity.GetBytes())}, .bForceRecompile = Request.bForceRecompile};
-		std::shared_ptr<FMaterialShaderMap> NewFlight;
+		std::shared_ptr<FMaterialShaderMap> NewShaderMap;
 		{
 			std::scoped_lock Lock(Mutex);
-			if (const auto Existing = Flights.find(Key); Existing != Flights.end())
+			if (const auto Existing = RequestedShaderMaps.find(Key); Existing != RequestedShaderMaps.end())
 			{
 				if (Existing->second->Cancellation.IsCancellationRequested() || Bytes > 128ull * 1024 * 1024 - CapturedBytes) return EMaterialCompileState::Deferred;
 				Request.bSingleFlightConsumer = true;
@@ -213,34 +213,34 @@ namespace Durin
 				++Diagnostics.AcceptedRequests; ++Diagnostics.SingleFlightConsumers; ++OutstandingConsumers;
 				return EMaterialCompileState::Running;
 			}
-			if (FlightBytes > 128ull * 1024 * 1024 - CapturedBytes || Compiles.size() >= MaterialCompileMaxConcurrentRequests) return EMaterialCompileState::Deferred;
-			NewFlight = std::make_shared<FMaterialShaderMap>(); NewFlight->CanonicalIdentity = Key.Identity; NewFlight->Force = Key.bForceRecompile;
-			NewFlight->CapturedBytes = FlightBytes; CapturedBytes += FlightBytes;
-			NewFlight->Origins.push_back(Request.Owner);
-			NewFlight->InitialOwner = Request.Owner;
-			NewFlight->CompilingMaterialDependencies.push_back(std::move(Request));
-			Flights.emplace(Key, NewFlight); Compiles.push_back(NewFlight);
+			if (ShaderMapBytes > 128ull * 1024 * 1024 - CapturedBytes || CompilingShaderMaps.size() >= MaterialCompileMaxConcurrentRequests) return EMaterialCompileState::Deferred;
+			NewShaderMap = std::make_shared<FMaterialShaderMap>(); NewShaderMap->CanonicalIdentity = Key.Identity; NewShaderMap->Force = Key.bForceRecompile;
+			NewShaderMap->CapturedBytes = ShaderMapBytes; CapturedBytes += ShaderMapBytes;
+			NewShaderMap->Origins.push_back(Request.Owner);
+			NewShaderMap->InitialOwner = Request.Owner;
+			NewShaderMap->CompilingMaterialDependencies.push_back(std::move(Request));
+			RequestedShaderMaps.emplace(Key, NewShaderMap); CompilingShaderMaps.push_back(NewShaderMap);
 			++Diagnostics.AcceptedRequests; ++OutstandingConsumers;
 		}
-		const auto Input = NewFlight->CompilingMaterialDependencies.front().CompilerInput;
-		NewFlight->DiagnosticInput = Input;
+		const auto Input = NewShaderMap->CompilingMaterialDependencies.front().CompilerInput;
+		NewShaderMap->DiagnosticInput = Input;
 		auto Submitted = MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().SubmitJobs(Input,
-			{.bForceRecompile = Key.bForceRecompile, .Cancellation = NewFlight->Cancellation,
-				.EncodedInput = std::move(TranslationInput), .ShaderMap = NewFlight},
-			[this, Weak = std::weak_ptr(NewFlight)](MaterialBuildPrivate::FMaterialBuildResult Build) {
-				const auto Flight = Weak.lock(); if (!Flight) return;
-				CompleteFlight(Flight, std::move(Build), Flight->Cancellation.IsCancellationRequested() ? EMaterialCompileState::Canceled : EMaterialCompileState::Ready);
+			{.bForceRecompile = Key.bForceRecompile, .Cancellation = NewShaderMap->Cancellation,
+				.EncodedInput = std::move(TranslationInput), .ShaderMap = NewShaderMap},
+			[this, Weak = std::weak_ptr(NewShaderMap)](MaterialBuildPrivate::FMaterialBuildResult Build) {
+				const auto ShaderMap = Weak.lock(); if (!ShaderMap) return;
+				CompleteCompilation(ShaderMap, std::move(Build), ShaderMap->Cancellation.IsCancellationRequested() ? EMaterialCompileState::Canceled : EMaterialCompileState::Ready);
 			});
 		{
 			std::scoped_lock Lock(Mutex);
 			if (!Submitted) {
-				Flights.erase(Key); std::erase(Compiles, NewFlight);
-				CapturedBytes -= NewFlight->CapturedBytes;
+				RequestedShaderMaps.erase(Key); std::erase(CompilingShaderMaps, NewShaderMap);
+				CapturedBytes -= NewShaderMap->CapturedBytes;
 				--Diagnostics.AcceptedRequests; --OutstandingConsumers;
 				return Submitted.error() == MaterialBuildPrivate::EMaterialCompileAdmissionError::Capacity
 					? EMaterialCompileState::Deferred : EMaterialCompileState::Rejected;
 			}
-			require(*Submitted == NewFlight);
+			require(*Submitted == NewShaderMap);
 		}
 		return EMaterialCompileState::Running;
 	}
@@ -256,12 +256,12 @@ namespace Durin
 	auto FMaterialCompilationService::IsCompiling(FWeakObjectPtr Owner) const -> bool
 	{
 		std::scoped_lock Lock(Mutex);
-		for (const auto& [Key, Flight] : Flights)
-			if (std::ranges::any_of(Flight->CompilingMaterialDependencies,
+		for (const auto& [Key, ShaderMap] : RequestedShaderMaps)
+			if (std::ranges::any_of(ShaderMap->CompilingMaterialDependencies,
 				[Owner](const FMaterialCompileRequest& Consumer) {
 					return SameOwner(Consumer.Owner, Owner);
 				})) return true;
-		if (std::ranges::any_of(CompletingFlights, [&](const auto& Flight) { return std::ranges::any_of(Flight->CompletingOwners, [&](auto Pending) { return SameOwner(Pending, Owner); }); })) return true;
+		if (std::ranges::any_of(CompletingShaderMaps, [&](const auto& ShaderMap) { return std::ranges::any_of(ShaderMap->CompletingOwners, [&](auto Pending) { return SameOwner(Pending, Owner); }); })) return true;
 		return std::ranges::any_of(Mailbox,
 			[Owner](const FMaterialCompileResult& Result) {
 				return SameOwner(Result.Owner, Owner);
@@ -276,12 +276,12 @@ namespace Durin
 		std::vector<std::shared_ptr<FMaterialShaderMap>> TerminalFlights;
 		{
 			std::scoped_lock Lock(Mutex);
-			for (const auto& [Key, Flight] : Flights)
-				if (!MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().IsCompiling(Flight))
-					TerminalFlights.push_back(Flight);
+			for (const auto& [Key, ShaderMap] : RequestedShaderMaps)
+				if (!MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().IsCompiling(ShaderMap))
+					TerminalFlights.push_back(ShaderMap);
 		}
-		for (const auto& Flight : TerminalFlights)
-			CompleteFlight(Flight, {}, Flight->Cancellation.IsCancellationRequested()
+		for (const auto& ShaderMap : TerminalFlights)
+			CompleteCompilation(ShaderMap, {}, ShaderMap->Cancellation.IsCancellationRequested()
 				? EMaterialCompileState::Canceled : EMaterialCompileState::Failed);
 		std::vector<FMaterialCompileResult> Results;
 		{
@@ -315,7 +315,7 @@ namespace Durin
 		std::scoped_lock Lock(Mutex);
 		FMaterialCompilationDiagnostics Result = Diagnostics;
 		Result.bAcceptingRequests = bAcceptingRequests;
-		Result.InFlightCount = static_cast<uint32>(Compiles.size());
+		Result.InFlightCount = static_cast<uint32>(CompilingShaderMaps.size());
 		Result.OutstandingConsumerCount = OutstandingConsumers;
 		Result.PendingPublicationCount = static_cast<uint32>(Mailbox.size());
 		const auto Cache = FMaterialShaderMap::GetCacheStats();
@@ -335,7 +335,7 @@ namespace Durin
 		EMaterialCompileCacheOutcome CacheOutcome,
 		uint64 TaskId) -> FMaterialCompileResult
 	{
-		Program = FMaterialShaderMap::Configure(std::move(Program), *Request.CompilerInput);
+		Program = FMaterialShaderMap::BindCollections(std::move(Program), Request.CompilerInput->Collections, &Request.CompilerInput->Environment);
 		return {
 			.Owner = Request.Owner,
 			.AuthoredRevision = Request.AuthoredRevision,
@@ -363,20 +363,20 @@ namespace Durin
 			.Target = Consumer.Target, .State = State, .Category = Category, .TaskId = TaskId, .ExpressionSources = Consumer.ExpressionSources};
 	}
 
-	auto FMaterialCompilationService::CompleteFlight(
-		const std::shared_ptr<FMaterialShaderMap>& Flight,
+	auto FMaterialCompilationService::CompleteCompilation(
+		const std::shared_ptr<FMaterialShaderMap>& ShaderMap,
 		MaterialBuildPrivate::FMaterialBuildResult Build,
 		EMaterialCompileState CompletionState) -> void
 	{
 		std::vector<FMaterialCompileRequest> Consumers;
 		{
 			std::scoped_lock Lock(Mutex);
-			const auto It = Flights.find({Flight->CanonicalIdentity, Flight->Force});
-			if (It == Flights.end() || It->second != Flight) return;
-			Flights.erase(It);
+			const auto It = RequestedShaderMaps.find({ShaderMap->CanonicalIdentity, ShaderMap->Force});
+			if (It == RequestedShaderMaps.end() || It->second != ShaderMap) return;
+			RequestedShaderMaps.erase(It);
 			// Normalize attribution at delivery; asset consumers can join until this lock.
-			const auto Identity = Build.Program ? Build.Program->Identity : FMaterialProgramIdentity{};
-			for (auto& Consumer : Flight->CompilingMaterialDependencies) {
+			const auto Identity = Build.Program ? Build.Program->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{};
+			for (auto& Consumer : ShaderMap->CompilingMaterialDependencies) {
 				if (Identity.IsValid()) Consumer.ProgramIdentity = Identity;
 				Consumer.ExpressionSources.clear();
 				for (size_t Index = 0; Index < Build.Sources.size(); ++Index) {
@@ -386,9 +386,9 @@ namespace Durin
 				}
 				if (Build.SingleFlight && !Consumer.bSingleFlightConsumer) { Consumer.bSingleFlightConsumer = true; ++Diagnostics.SingleFlightConsumers; }
 			}
-			Consumers = std::move(Flight->CompilingMaterialDependencies);
-			for (const auto& Consumer : Consumers) Flight->CompletingOwners.push_back(Consumer.Owner);
-			CompletingFlights.push_back(Flight);
+			Consumers = std::move(ShaderMap->CompilingMaterialDependencies);
+			for (const auto& Consumer : Consumers) ShaderMap->CompletingOwners.push_back(Consumer.Owner);
+			CompletingShaderMaps.push_back(ShaderMap);
 		}
 		std::vector<FMaterialCompileResult> Results;
 		const uint64 TaskId = Build.TaskId;
@@ -427,7 +427,7 @@ namespace Durin
 						Consumer, Program,
 						Override != EMaterialCompileCacheOutcome::None ? Override : Consumer.bSingleFlightConsumer
 							? EMaterialCompileCacheOutcome::SingleFlight
-							: Flight->Force
+							: ShaderMap->Force
 							? EMaterialCompileCacheOutcome::Forced
 							: EMaterialCompileCacheOutcome::Compiled,
 						TaskId));
@@ -444,12 +444,12 @@ namespace Durin
 						if (Result.Diagnostics.size()
 							>= MaterialProgramMaxDiagnosticCount) break;
 						auto Qualified = Diagnostic;
-						if (Diagnostic.NodeId.IsValid() && Flight->DiagnosticInput && Consumer.CompilerInput)
+						if (Diagnostic.NodeId.IsValid() && ShaderMap->DiagnosticInput && Consumer.CompilerInput)
 						{
-							const auto Origin = std::ranges::find(Flight->DiagnosticInput->Sources, Diagnostic.NodeId, &MIR::FSource::NodeId);
-							if (Origin != Flight->DiagnosticInput->Sources.end())
+							const auto Origin = std::ranges::find(ShaderMap->DiagnosticInput->Sources, Diagnostic.NodeId, &MIR::FSource::NodeId);
+							if (Origin != ShaderMap->DiagnosticInput->Sources.end())
 							{
-								const auto Index = std::distance(Flight->DiagnosticInput->Sources.begin(), Origin);
+								const auto Index = std::distance(ShaderMap->DiagnosticInput->Sources.begin(), Origin);
 								const auto& Source = Consumer.CompilerInput->Sources[Index];
 								Qualified.NodeId = Source.NodeId; Qualified.PortId = Source.PortId; Qualified.FunctionAssetPath = Source.FunctionAssetPath; Qualified.CallPath = Source.CallPath;
 							}
@@ -488,30 +488,30 @@ namespace Durin
 				Diagnostics.CanceledRequests += Consumers.size();
 
 			for (auto& Result : Results)
-				if (std::ranges::any_of(Flight->CompletingOwners, [&](auto Owner) { return SameOwner(Owner, Result.Owner); })) Mailbox.push_back(std::move(Result));
-			Flight->CompletingOwners.clear(); std::erase(CompletingFlights, Flight);
+				if (std::ranges::any_of(ShaderMap->CompletingOwners, [&](auto Owner) { return SameOwner(Owner, Result.Owner); })) Mailbox.push_back(std::move(Result));
+			ShaderMap->CompletingOwners.clear(); std::erase(CompletingShaderMaps, ShaderMap);
 		}
 	}
 
 	auto FMaterialCompilationService::CancelOwnerLocked(FWeakObjectPtr Owner, bool bSuperseded) -> bool
 	{
 		bool bFound = false;
-		const auto AccountRemoved = [&](const auto& Flight, size_t Removed, bool Empty) {
+		const auto AccountRemoved = [&](const auto& ShaderMap, size_t Removed, bool Empty) {
 			if (Removed == 0) return;
-			if (!SameOwner(Owner, Flight->InitialOwner)) std::erase_if(Flight->Origins, [&](auto Origin) { return SameOwner(Origin, Owner); });
+			if (!SameOwner(Owner, ShaderMap->InitialOwner)) std::erase_if(ShaderMap->Origins, [&](auto Origin) { return SameOwner(Origin, Owner); });
 			bFound = true; OutstandingConsumers -= static_cast<uint32>(Removed);
 			if (bSuperseded) Diagnostics.SupersededRequests += Removed; else Diagnostics.CanceledRequests += Removed;
-			if (Empty) Flight->Cancellation.Cancel();
+			if (Empty) ShaderMap->Cancellation.Cancel();
 		};
-		for (auto& [Key, Flight] : Flights)
+		for (auto& [Key, ShaderMap] : RequestedShaderMaps)
 		{
-			const auto Removed = std::erase_if(Flight->CompilingMaterialDependencies, [Owner](const auto& Consumer) { return SameOwner(Consumer.Owner, Owner); });
-			AccountRemoved(Flight, Removed, Flight->CompilingMaterialDependencies.empty());
+			const auto Removed = std::erase_if(ShaderMap->CompilingMaterialDependencies, [Owner](const auto& Consumer) { return SameOwner(Consumer.Owner, Owner); });
+			AccountRemoved(ShaderMap, Removed, ShaderMap->CompilingMaterialDependencies.empty());
 		}
-		for (auto& Flight : CompletingFlights)
+		for (auto& ShaderMap : CompletingShaderMaps)
 		{
-			const auto Removed = std::erase_if(Flight->CompletingOwners, [Owner](auto Pending) { return SameOwner(Pending, Owner); });
-			AccountRemoved(Flight, Removed, Flight->CompletingOwners.empty());
+			const auto Removed = std::erase_if(ShaderMap->CompletingOwners, [Owner](auto Pending) { return SameOwner(Pending, Owner); });
+			AccountRemoved(ShaderMap, Removed, ShaderMap->CompletingOwners.empty());
 		}
 		for (auto It = Mailbox.begin(); It != Mailbox.end();)
 		{

@@ -238,7 +238,7 @@ namespace Durin
 		Result.State = Status.IsCurrent()
 			? EMaterialProgramStatisticsState::Current
 			: EMaterialProgramStatisticsState::LastKnownGood;
-		Result.ProgramIdentity = Program->Identity;
+		Result.ProgramIdentity = Program->GetShaderMap().ShaderMapId;
 		Result.NormalizedIRNodeCount = Program->GetDebugData().IR.Nodes.size();
 		Result.ActiveParameterCount = Program->GetShaderMap().ActiveParameters.size();
 		Result.UniformPayloadBytes = Program->GetShaderMap().Layout.UniformPayloadSize;
@@ -293,8 +293,8 @@ namespace Durin
 			const auto Program = Owner->GetAcceptedCompiledProgram();
 			if (!Program) continue;
 			++Result.AcceptedOwnerCount;
-			if (!std::ranges::contains(Programs, Program->Identity))
-				Programs.push_back(Program->Identity);
+			if (!std::ranges::contains(Programs, Program->GetShaderMap().ShaderMapId))
+				Programs.push_back(Program->GetShaderMap().ShaderMapId);
 			const FMaterialStaticProperties Properties =
 				Owner->GetRenderableStaticProperties();
 			if (!std::ranges::contains(StaticConfigurations, Properties))
@@ -511,9 +511,9 @@ namespace Durin
 		auto& Status = CompilationOwner.MaterialCompileStatus;
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		Status.State = EMaterialCompileState::Ready;
-		Status.CompiledIdentity = Program->Identity;
-		Status.RequestedIdentity = Program->Identity;
-		Status.Target = Program->Target;
+		Status.CompiledIdentity = Program->GetShaderMap().ShaderMapId;
+		Status.RequestedIdentity = Program->GetShaderMap().ShaderMapId;
+		Status.Target = Program->GetShaderMap().Target;
 		return true;
 	}
 
@@ -565,7 +565,7 @@ namespace Durin
 		Result.PlanningPassIdentity.DepthWritePolicy = StaticProperties.DepthWritePolicy;
 		if (Result.CompiledProgram)
 			Result.PlanningPassIdentity.ShaderMap.ProgramIdentity =
-				Result.CompiledProgram->Identity;
+				Result.CompiledProgram->GetShaderMap().ShaderMapId;
 
 		FMaterialRenderRepresentation CompiledRepresentation;
 		FMaterialRenderValidationDiagnostic ValidationDiagnostic;

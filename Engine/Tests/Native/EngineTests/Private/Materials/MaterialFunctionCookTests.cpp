@@ -111,7 +111,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 		ASSERT_TRUE(LoadedResult) << (LoadedResult ? std::string{} : LoadedResult.error().Message);
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
@@ -192,7 +192,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 		Loaded = LoadResult.value_or(nullptr);
 		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout.ResourceFieldCount, 1u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());
@@ -279,7 +279,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 		}
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout.ResourceFieldCount, 6u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());

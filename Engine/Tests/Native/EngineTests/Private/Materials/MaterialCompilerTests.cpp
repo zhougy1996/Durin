@@ -51,15 +51,15 @@ TEST(FMaterialProgramOwnershipTests, ConfigurationCopiesShareArtifactsAndEditorD
 	const auto Configured = MaterialBuildPrivate::CompileMaterialInput(Input, false);
 	ASSERT_TRUE(Configured.Program && *Configured.Program);
 	EXPECT_TRUE(Configured.RetainedHit);
-	EXPECT_EQ(Configured.Program->Identity, Original->Identity);
+	EXPECT_EQ(Configured.Program->GetShaderMap().ShaderMapId, Original->GetShaderMap().ShaderMapId);
 	EXPECT_EQ(Configured.Program->ShaderMap, Original->ShaderMap);
-	EXPECT_EQ(Configured.Program->DebugData, Original->DebugData);
+	EXPECT_EQ(Configured.Program->GetShaderMap().DebugData, Original->GetShaderMap().DebugData);
 	EXPECT_EQ(Configured.Program->Quality, EMaterialQualityLevel::Low);
 	EXPECT_EQ(Original->Quality, EMaterialQualityLevel::High);
 	EXPECT_TRUE(ValidateMaterialCompilerResult(*Configured.Program));
 	const auto Value = MIR::Compile(Input);
 	EXPECT_EQ(Value.ShaderMap, Original->ShaderMap);
-	EXPECT_EQ(Value.DebugData, Original->DebugData);
+	EXPECT_EQ(Value.GetShaderMap().DebugData, Original->GetShaderMap().DebugData);
 	EXPECT_EQ(Value.Quality, EMaterialQualityLevel::Low);
 }
 
@@ -217,7 +217,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	const auto Pixel = MIR::Compile(Input);
 	ASSERT_TRUE(Pixel) << FormatMaterialProgramDiagnostics(Pixel.Diagnostics);
 	const auto AfterPixel = GetShaderBuildStats();
-	EXPECT_NE(Cold.Identity, Pixel.Identity);
+	EXPECT_NE(Cold.GetShaderMap().ShaderMapId, Pixel.GetShaderMap().ShaderMapId);
 	EXPECT_GE(AfterPixel.MemoryHits - AfterCold.MemoryHits, 3u);
 	EXPECT_LE(AfterPixel.Compilations - AfterCold.Compilations, 4u);
 	uint64 TotalBytes = 0, SharedVertexBytes = 0;
@@ -266,7 +266,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	const auto Game = MIR::Compile(Input);
 	ASSERT_TRUE(Game);
 	EXPECT_EQ(Game.GetShaderMap().CompiledShaders.size(), 6u);
-	EXPECT_FALSE(Game.RequiredStages & 8);
+	EXPECT_FALSE(Game.GetShaderMap().RequiredStages & 8);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, AfterPixel.Compilations);
 	Input.StaticProperties.GeometryUsage = 1; Input.StaticProperties.PassUsage = 1;
 	const auto Selected = MIR::Compile(Input);
@@ -296,7 +296,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 		ECookTargetProfile::Game, Selected, LoadedProperties, Loaded));
 	ASSERT_TRUE(Loaded);
 	EXPECT_EQ(LoadedProperties, Input.StaticProperties);
-	EXPECT_EQ(Loaded->RequiredStages, Selected.RequiredStages);
+	EXPECT_EQ(Loaded->GetShaderMap().RequiredStages, Selected.GetShaderMap().RequiredStages);
 	EXPECT_EQ(Loaded->GetShaderMap().CompiledShaders.size(), 2u);
 	EXPECT_TRUE(Loaded->GetDebugData().GeneratedSource.empty());
 	EXPECT_TRUE(Loaded->GetDebugData().IR.Nodes.empty());
@@ -778,7 +778,15 @@ TEST(FMaterialProgramOwnershipTests, ManagerAndSynchronousCallersShareReuseAndFo
 	const auto Warm = CompileMaterialInput(*Input, false);
 	ASSERT_TRUE(Warm);
 	EXPECT_TRUE(Warm.RetainedHit);
-	EXPECT_EQ(Warm.Program, First.Program);
+	EXPECT_NE(Warm.Program, First.Program);
+	EXPECT_EQ(Warm.Program->ShaderMap, First.Program->ShaderMap);
+	EXPECT_EQ(FMaterialShaderMap::FindId(First.Program->GetShaderMap().ShaderMapId), First.Program->ShaderMap);
+	auto LowInput = *Input; LowInput.Environment.Quality = EMaterialQualityLevel::Low;
+	const auto Low = CompileMaterialInput(LowInput, false);
+	ASSERT_TRUE(Low); EXPECT_TRUE(Low.RetainedHit);
+	EXPECT_EQ(Low.Program->ShaderMap, First.Program->ShaderMap);
+	EXPECT_EQ(Low.Program->Quality, EMaterialQualityLevel::Low);
+	EXPECT_EQ(First.Program->Quality, Input->Environment.Quality);
 	const auto BeforeForce = GetTranslationStats();
 	const auto Forced = Build(true);
 	ASSERT_TRUE(Forced);
@@ -788,7 +796,8 @@ TEST(FMaterialProgramOwnershipTests, ManagerAndSynchronousCallersShareReuseAndFo
 	const auto AfterForce = CompileMaterialInput(*Input, false);
 	ASSERT_TRUE(AfterForce);
 	EXPECT_TRUE(AfterForce.RetainedHit);
-	EXPECT_EQ(AfterForce.Program, Forced.Program);
+	EXPECT_NE(AfterForce.Program, Forced.Program);
+	EXPECT_EQ(AfterForce.Program->ShaderMap, Forced.Program->ShaderMap);
 }
 
 TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependentlyAndAssembleInCanonicalOrder)
@@ -922,6 +931,28 @@ TEST(FMaterialProgramOwnershipTests, CacheHandoffAllowsLookupBeforeDeliveryRetir
 	ASSERT_TRUE(First); EXPECT_EQ(First.Program->ShaderMap, Second.Program->ShaderMap);
 }
 
+TEST(FMaterialProgramOwnershipTests, CacheRetainsShaderMapWithoutRetainingRequestResult)
+{
+	using namespace Durin; using namespace MaterialBuildPrivate;
+	InitializeDObjectSystem(); FMaterialShaderMap::ClearCache();
+	struct FRestore { ~FRestore() { FMaterialProgramCompilingManager::Get().FinishAllCompilation(); FMaterialShaderMap::ClearCache(); } } Restore;
+	auto Input = std::make_shared<MIR::FCompilerInput>(); Input->IR = MakeDefaultMaterialCompilerIR();
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment));
+	auto First = CompileMaterialInput(*Input, true); ASSERT_TRUE(First);
+	const auto Identity = First.Program->GetShaderMap().ShaderMapId;
+	const auto ShaderMap = First.Program->ShaderMap;
+	std::weak_ptr<const FMaterialCompilerResult> Result = First.Program;
+	First.Program.reset();
+	EXPECT_TRUE(Result.expired());
+	EXPECT_EQ(FMaterialShaderMap::FindId(Identity), ShaderMap);
+	EXPECT_EQ(FMaterialShaderMap::GetCacheStats().second, ShaderMap->GetRetainedBytes());
+	const auto Warm = CompileMaterialInput(*Input, false);
+	ASSERT_TRUE(Warm); EXPECT_TRUE(Warm.RetainedHit);
+	EXPECT_EQ(Warm.Program->ShaderMap, ShaderMap);
+	EXPECT_EQ(Warm.Program->GetShaderMap().Target, ShaderMap->Target);
+	EXPECT_EQ(Warm.Program->GetShaderMap().CompilerIdentity, ShaderMap->CompilerIdentity);
+}
+
 TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDoNotConsumeCompileCapacity)
 {
 	using namespace Durin;
@@ -936,7 +967,7 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 	ASSERT_TRUE(Producer); Manager.FinishCompilation(*Producer);
 	ASSERT_TRUE(First);
 	EXPECT_EQ(First.Program->ShaderMap, *Producer);
-	EXPECT_EQ((*Producer)->GetShaderMapId(), First.Program->Identity);
+	EXPECT_EQ((*Producer)->GetShaderMapId(), First.Program->GetShaderMap().ShaderMapId);
 	EXPECT_NE((*Producer)->GetCompilingId(), 0u);
 	const FMaterialShaderMap Copy(First.Program->GetShaderMap());
 	EXPECT_EQ(Copy.GetCompilingId(), 0u);
@@ -952,7 +983,7 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 		EXPECT_NE((*Compile)->GetCompilingId(), (*Producer)->GetCompilingId());
 		Kept.push_back(*Compile);
 	}
-	ASSERT_NE(FMaterialShaderMap::FindId(First.Program->Identity), nullptr);
+	ASSERT_NE(FMaterialShaderMap::FindId(First.Program->GetShaderMap().ShaderMapId), nullptr);
 	EXPECT_FALSE(Manager.IsCompiling(*Producer));
 	Manager.PrioritizeCompilation(*Producer);
 	Manager.CancelCompilation(*Producer);
@@ -1079,7 +1110,7 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 	const auto Synchronous = MIR::Compile(Input);
 	ASSERT_TRUE(Split);
 	ASSERT_TRUE(Synchronous);
-	EXPECT_EQ(Split.Identity, Synchronous.Identity);
+	EXPECT_EQ(Split.GetShaderMap().ShaderMapId, Synchronous.GetShaderMap().ShaderMapId);
 	EXPECT_EQ(Split.GetDebugData().IR, Synchronous.GetDebugData().IR);
 	EXPECT_EQ(Split.GetShaderMap().Layout, Synchronous.GetShaderMap().Layout);
 	EXPECT_EQ(Split.GetShaderMap().ActiveParameters, Synchronous.GetShaderMap().ActiveParameters);
@@ -1195,7 +1226,7 @@ TEST(FMaterialVertexEvaluationTests, VertexResourcesAndPixelInterpolationCompile
 	const auto Normalized = MIR::Normalize(NoOffset);
 	ASSERT_TRUE(Normalized);
 	EXPECT_TRUE(Normalized.ActiveParameters.empty());
-	EXPECT_NE(Normalized.Identity, Compiled.Identity);
+	EXPECT_NE(Normalized.Identity, Compiled.GetShaderMap().ShaderMapId);
 }
 
 // Match ShaderBuilder's host target policy; unsupported hosts still test rejection.
@@ -1231,7 +1262,7 @@ TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
 		Compiled.Quality, Compiled.FeatureLevel, {}, Properties, Decoded);
 	ASSERT_TRUE(Error) << FormatMaterialError(Error.Error);
 	ASSERT_TRUE(Decoded);
-	EXPECT_EQ(Decoded->Identity, Compiled.Identity);
+	EXPECT_EQ(Decoded->GetShaderMap().ShaderMapId, Compiled.GetShaderMap().ShaderMapId);
 }
 
 #else
@@ -1338,7 +1369,9 @@ TEST(FMaterialDiagnosticTests, SynchronousResultsRequireExplicitCompletedSuccess
 	Failed.Source = "retained diagnostic context";
 	EXPECT_FALSE(Failed);
 	FMaterialCompilerResult Unusable;
-	Unusable.DebugData = std::make_shared<const FMaterialProgramDebugData>(FMaterialProgramDebugData{.GeneratedSource = "retained diagnostic context"});
+	auto DiagnosticMap = std::make_shared<FMaterialShaderMap>();
+	DiagnosticMap->DebugData = std::make_shared<const FMaterialProgramDebugData>(FMaterialProgramDebugData{.GeneratedSource = "retained diagnostic context"});
+	Unusable.ShaderMap = DiagnosticMap;
 	EXPECT_FALSE(Unusable);
 	EXPECT_FALSE(ValidateMaterialCompilerResult(Unusable));
 }
@@ -2062,7 +2095,7 @@ TEST(FMaterialProgramNormalizationTests,
 		<< " ir_nodes=" << Normalized.IR.Nodes.size()
 		<< " texture_samples=0 generated_bytes=" << Source.size()
 		<< " source_hash=" << Durin::FXxHash128::HashBuffer(Source).ToString()
-		<< " identity=" << Compiled.Identity.Digest.ToString()
+		<< " identity=" << Compiled.GetShaderMap().ShaderMapId.Digest.ToString()
 		<< " compiled_stages=" << Compiled.GetShaderMap().CompiledShaders.size()
 		<< " active_bindings=" << ActiveBindings << '\n';
 }
@@ -2350,7 +2383,7 @@ TEST(FMaterialProgramCompilerTests,
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
 		? "missing diagnostic"
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
+	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
 	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
@@ -2672,7 +2705,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	std::ranges::reverse(Input.Parameters);
 	const auto Reordered = MIR::Normalize(Input);
 	ASSERT_TRUE(Reordered);
-	EXPECT_EQ(Reordered.Identity, Compiled.Identity);
+	EXPECT_EQ(Reordered.Identity, Compiled.GetShaderMap().ShaderMapId);
 	EXPECT_EQ(Reordered.Layout, Compiled.GetShaderMap().Layout);
 	auto Corrupted = Compiled.GetShaderMap().CompiledShaders;
 	ASSERT_FALSE(Corrupted.front().Reflection.ResourceBindings.empty());

@@ -2369,7 +2369,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			using namespace RendererPrivate;
 			const auto Selected = Custom->GetAcceptedCompiledProgram();
 			const FMeshMaterialShaderMapIdentity Identity{.RenderLayout = Selected->GetShaderMap().Layout.Identity,
-				.ProgramIdentity = Selected->Identity};
+				.ProgramIdentity = Selected->GetShaderMap().ShaderMapId};
 			FMeshMaterialShaderMap Rejected;
 			const auto Before = GetShaderBuildStats().Compilations;
 			const auto Factory = FindMeshVertexFactory(FXxHash64::HashBuffer("SplineVertexFactory", sizeof("SplineVertexFactory") - 1));
@@ -2390,7 +2390,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			const auto Selected = Custom->GetAcceptedCompiledProgram();
 			ASSERT_EQ(Selected->GetShaderMap().CompiledShaders.size(), 2u);
 			const FMeshMaterialShaderMapIdentity Identity{.RenderLayout = Selected->GetShaderMap().Layout.Identity,
-				.ProgramIdentity = Selected->Identity};
+				.ProgramIdentity = Selected->GetShaderMap().ShaderMapId};
 			FMeshMaterialShaderMap Rejected;
 			const auto Before = GetShaderBuildStats().Compilations;
 			const auto Factory = FindMeshVertexFactory(FXxHash64::HashBuffer("LocalVertexFactory", sizeof("LocalVertexFactory") - 1));

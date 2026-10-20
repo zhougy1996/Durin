@@ -549,7 +549,7 @@ TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParent
 	auto PipelineOnly = Base->GetRenderableStaticProperties();
 	PipelineOnly.bTwoSided = true;
 	ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, PipelineOnly}));
-	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), ParentProgram);
+	EXPECT_EQ(Instance->GetAcceptedCompiledProgram()->ShaderMap, ParentProgram->ShaderMap);
 	EXPECT_FALSE(Instance->GetRenderData().Representation.IsError());
 	EXPECT_FALSE(CaptureScene(Harness.Scene).Material.Representation.IsError());
 
@@ -557,7 +557,7 @@ TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParent
 	Incompatible.BlendMode = Durin::EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, Incompatible}));
 	ASSERT_TRUE(Instance->GetAcceptedCompiledProgram());
-	EXPECT_NE(Instance->GetAcceptedCompiledProgram()->Identity, ParentProgram->Identity);
+	EXPECT_NE(Instance->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ParentProgram->GetShaderMap().ShaderMapId);
 	EXPECT_FALSE(Instance->GetRenderData().Representation.IsError());
 	const auto Scene = CaptureScene(Harness.Scene);
 	EXPECT_FALSE(Scene.Material.Representation.IsError());
@@ -601,12 +601,12 @@ TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAc
 	RootProperties.OpacityMaskThreshold = 0.25f;
 	ASSERT_TRUE(Root->SetStaticProperties(RootProperties));
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation);
-	EXPECT_EQ(Child->GetAcceptedCompiledProgram(), Root->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Child->GetAcceptedCompiledProgram()->ShaderMap, Root->GetAcceptedCompiledProgram()->ShaderMap);
 	ChildOverrides.Values.BlendMode = Durin::EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Child->SetPropertyOverrides(ChildOverrides));
 	EXPECT_FLOAT_EQ(Child->GetStaticProperties().OpacityMaskThreshold, 0.75f);
 	ASSERT_TRUE(Child->GetAcceptedCompiledProgram());
-	EXPECT_NE(Child->GetAcceptedCompiledProgram()->Identity, Root->GetAcceptedCompiledProgram()->Identity);
+	EXPECT_NE(Child->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Root->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId);
 	ChildOverrides.bOverrideBlendMode = false;
 	ChildOverrides.bOverrideOpacityMaskThreshold = false;
 	ASSERT_TRUE(Child->SetPropertyOverrides(ChildOverrides));

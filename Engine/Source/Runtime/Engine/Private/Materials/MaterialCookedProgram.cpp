@@ -163,11 +163,11 @@ namespace Durin
 			uint32 Magic = MaterialCookedProgramMagic;
 			uint32 SchemaVersion = MaterialCookedProgramPayloadSchemaVersion;
 			Ar << Magic << SchemaVersion
-				<< Program.PassContractVersion << Program.RequiredStages << TargetPlatform << TargetProfile;
+				<< Artifact.PassContractVersion << Artifact.RequiredStages << TargetPlatform << TargetProfile;
 			if (Ar.IsLoading() && !Ar.IsError()
 				&& (Magic != MaterialCookedProgramMagic
 					|| SchemaVersion != MaterialCookedProgramPayloadSchemaVersion
-					|| Program.PassContractVersion
+					|| Artifact.PassContractVersion
 						!= CurrentMaterialPassContractVersion))
 			{
 				Ar.Fail(EArchiveFailureCode::UnsupportedVersion,
@@ -175,11 +175,11 @@ namespace Durin
 				return;
 			}
 
-			SerializeHash(Ar, Program.Identity.Digest);
+			SerializeHash(Ar, Artifact.ShaderMapId.Digest);
 			SerializeBoundedString(
-				Ar, Program.CompilerIdentity, MaterialCookedProgramMaxStringBytes);
+				Ar, Artifact.CompilerIdentity, MaterialCookedProgramMaxStringBytes);
 			SerializeBoundedString(
-				Ar, Program.Target, MaterialCookedProgramMaxStringBytes);
+				Ar, Artifact.Target, MaterialCookedProgramMaxStringBytes);
 			SerializeStaticProperties(Ar, StaticProperties);
 			SerializeProgramConfiguration(Ar, Program);
 			SerializeLayout(Ar, Artifact.Layout);
@@ -217,9 +217,9 @@ namespace Durin
 				? MetalLibraryShaderTarget : VulkanShaderTarget;
 			const std::string_view ExpectedName = bMetal
 				? "metal-library-1" : "vulkan-spirv-1.5";
-			if (!Program.Identity.IsValid() || Program.CompilerIdentity.empty()
-				|| Program.Target.empty()
-				|| Program.PassContractVersion
+			if (!Program.GetShaderMap().ShaderMapId.IsValid() || Program.GetShaderMap().CompilerIdentity.empty()
+				|| Program.GetShaderMap().Target.empty()
+				|| Program.GetShaderMap().PassContractVersion
 					!= CurrentMaterialPassContractVersion)
 				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
 			if (!IsSupportedMaterialQualityLevel(Program.Quality)
@@ -233,7 +233,7 @@ namespace Durin
 					|| (Index && Program.StaticBools[Index - 1].DeclarationId
 						== Program.StaticBools[Index].DeclarationId))
 					return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
-			if (bRequireTarget && Program.Target != ExpectedName)
+			if (bRequireTarget && Program.GetShaderMap().Target != ExpectedName)
 				return {EMaterialCookError::CookedProgramTargetIncompatible};
 			// Producer identity is provenance. Target, pass ABI, layouts and code hashes
 			// determine compatibility even when an editor compiler is available.
@@ -278,8 +278,8 @@ namespace Durin
 				if (!ShaderFormat::ValidateShaderCode(Shader))
 					return {EMaterialCookError::CookedProgramTargetIncompatible};
 			}
-			if (Program.RequiredStages != SelectMaterialShaderStages(StaticProperties, true)
-				&& Program.RequiredStages != SelectMaterialShaderStages(StaticProperties, false))
+			if (Program.GetShaderMap().RequiredStages != SelectMaterialShaderStages(StaticProperties, true)
+				&& Program.GetShaderMap().RequiredStages != SelectMaterialShaderStages(StaticProperties, false))
 				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
 			const auto Contract = ValidateMaterialCompilerResult(Program);
 			if (!Contract) return {FMaterialError(Contract)};
@@ -357,7 +357,6 @@ namespace Durin
 		ECookTargetProfile Profile = ECookTargetProfile::Invalid;
 		FCanonicalMemoryReader Ar(Payload, EArchivePurpose::CookedPayload);
 		SerializePayload(Ar, Candidate, *Artifact, CandidateProperties, Platform, Profile);
-		Artifact->ShaderMapId = Candidate.Identity;
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 		{
 			return {FMaterialError::FromArchive(*Ar.GetFailure())};
@@ -367,6 +366,7 @@ namespace Durin
 		Candidate.Status = EMaterialProgramStatus::Ok;
 		if (const auto Validation = ValidateDecodedProgram(
 				Candidate, CandidateProperties, Platform, true); !Validation) return Validation;
+		Artifact->SetCompilationOutput(Candidate);
 		OutStaticProperties = CandidateProperties;
 		OutProgram = std::make_shared<const FMaterialCompilerResult>(
 			std::move(Candidate));
@@ -440,14 +440,14 @@ namespace Durin
 					&& Existing.FeatureLevel == Configuration.FeatureLevel
 					&& Existing.StaticBools == Configuration.StaticBools;
 			})) return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
-			const auto Existing = std::ranges::find(ArtifactIdentities, Program->Identity);
+			const auto Existing = std::ranges::find(ArtifactIdentities, Program->GetShaderMap().ShaderMapId);
 			if (Existing == ArtifactIdentities.end())
 			{
 				FByteBuffer Artifact;
 				if (auto Encoded = EncodeMaterialCookedProgram(*Program, StaticProperties,
 					TargetPlatform, TargetProfile, Artifact); !Encoded) return Encoded;
 				Configuration.ArtifactIndex = static_cast<uint32>(Artifacts.size());
-				ArtifactIdentities.push_back(Program->Identity);
+				ArtifactIdentities.push_back(Program->GetShaderMap().ShaderMapId);
 				Artifacts.push_back(std::move(Artifact));
 			}
 			else Configuration.ArtifactIndex = static_cast<uint32>(Existing - ArtifactIdentities.begin());

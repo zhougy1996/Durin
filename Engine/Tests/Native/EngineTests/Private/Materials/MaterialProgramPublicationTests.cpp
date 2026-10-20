@@ -12,9 +12,9 @@ TEST(FMaterialProgramPublicationTests,
 	const auto Initial = Base->GetRenderData();
 	ASSERT_TRUE(Initial.CompiledProgram);
 	ASSERT_TRUE(Initial.PlanningPassIdentity.ShaderMap.ProgramIdentity.IsValid());
-	EXPECT_EQ(Initial.CompiledProgram, Instance->GetAcceptedCompiledProgram());
-	EXPECT_EQ(Initial.CompiledProgram,
-		Instance->GetRenderData().CompiledProgram);
+	EXPECT_EQ(Initial.CompiledProgram->ShaderMap, Instance->GetAcceptedCompiledProgram()->ShaderMap);
+	EXPECT_EQ(Initial.CompiledProgram->ShaderMap,
+		Instance->GetRenderData().CompiledProgram->ShaderMap);
 
 	ASSERT_TRUE(Base->SetScalarParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.73f));
@@ -54,8 +54,8 @@ TEST(FMaterialProgramPublicationTests,
 	ASSERT_TRUE(ProgramChanged.CompiledProgram);
 	EXPECT_NE(ProgramChanged.PlanningPassIdentity.ShaderMap.ProgramIdentity,
 		ShaderChanged.PlanningPassIdentity.ShaderMap.ProgramIdentity);
-	EXPECT_EQ(ProgramChanged.CompiledProgram,
-		Instance->GetAcceptedCompiledProgram());
+	EXPECT_EQ(ProgramChanged.CompiledProgram->ShaderMap,
+		Instance->GetAcceptedCompiledProgram()->ShaderMap);
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);

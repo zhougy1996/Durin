@@ -1,10 +1,12 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "EngineAPI.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Threading/CancellationToken.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataRequestOwner.h"
+#include "Threading/Task.h"
 #endif
 
 namespace Durin
@@ -36,20 +38,29 @@ namespace Durin
 		std::vector<FMaterialCompilerDependency> Dependencies;
 		std::vector<FShaderCode> CompiledShaders;
 		FMaterialProgramIdentity ShaderMapId;
+		std::string CompilerIdentity;
+		std::string Target;
+		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
+		uint8 RequiredStages = MaterialAllStageMask;
+		// Schemas only: defaults and asset paths belong to each requesting material.
+		std::vector<FMaterialParameterCollectionLayout> CollectionLayouts;
+		std::shared_ptr<const FMaterialProgramDebugData> DebugData;
+		FMaterialCompileTimings CompilationTimings;
 
-		auto GetShaderMapId() const -> FMaterialProgramIdentity { return ShaderMapId; }
+		ENGINE_API auto GetShaderMapId() const -> FMaterialProgramIdentity;
 		auto GetCompilingId() const -> uint64 { return CompilingId; }
-		ENGINE_API static auto FindId(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialCompilerResult>;
-		ENGINE_API static auto Register(std::shared_ptr<const FMaterialCompilerResult> Program, bool Replace = false)
-			-> std::shared_ptr<const FMaterialCompilerResult>;
+		ENGINE_API static auto FindId(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialShaderMap>;
+		ENGINE_API static auto Register(std::shared_ptr<const FMaterialShaderMap> ShaderMap, bool Replace = false)
+			-> std::shared_ptr<const FMaterialShaderMap>;
 		ENGINE_API static auto ClearCache() -> void;
 		ENGINE_API static auto GetCacheStats() -> std::pair<uint32, uint64>;
 		ENGINE_API static auto GetRetainedBytes(const FMaterialCompilerResult& Result) -> uint64;
+		ENGINE_API auto GetRetainedBytes() const -> uint64;
+		// Called on an unpublished map by assembly or cooked-data decoding.
+		ENGINE_API auto SetCompilationOutput(const FMaterialCompilerResult& Result) -> void;
 		ENGINE_API static auto BindCollections(std::shared_ptr<const FMaterialCompilerResult> Program,
 			std::span<const FMaterialParameterCollectionLayout> Collections,
 			const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialCompilerResult>;
-		ENGINE_API static auto Configure(std::shared_ptr<const FMaterialCompilerResult> Program, const MIR::FCompilerInput& Input)
-			-> std::shared_ptr<const FMaterialCompilerResult>;
 		ENGINE_API static auto FinalizeContent(FMaterialTranslatedProgram Translation, FShaderBuildResult Output,
 			std::shared_ptr<FMaterialShaderMap> ShaderMap = {}) -> FMaterialCompilerResult;
 
@@ -68,12 +79,14 @@ namespace Durin
 		uint64 CapturedBytes = 0;
 #if DURIN_WITH_EDITOR
 		static auto Compile(std::shared_ptr<FMaterialShaderMap> ShaderMap) -> void;
+		static auto ProcessTranslation(std::shared_ptr<FMaterialShaderMap> ShaderMap, FMaterialTranslatedProgram Translation) -> void;
+		static auto CompleteCompilation(std::shared_ptr<FMaterialShaderMap> ShaderMap, FMaterialCompilerResult Result,
+			std::shared_ptr<const FMaterialCompilerResult> Retained = {}) -> void;
 		auto ProcessCompilationResults(size_t Index, FShaderBuildResult Output) -> void;
 		auto FinalizeCompilation(std::shared_ptr<FMaterialShaderMap> Self) -> FMaterialCompilerResult;
 		mutable std::mutex Mutex;
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
 		FCancellationToken BuildCancellation;
-		std::weak_ptr<FMaterialShaderMap> SharedCompile;
 		std::vector<std::shared_ptr<FMaterialShaderMap>> CompileDependencies;
 		FTaskCancellationSource CpuCancellation;
 		std::vector<std::shared_ptr<FShaderBuildHandle>> Shaders;

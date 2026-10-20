@@ -295,9 +295,9 @@ TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
 			auto Copy = std::make_shared<FMaterialCompilerResult>(Program);
 			Copy->Quality = EMaterialQualityLevel::Low;
 			Samples.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count());
-			ASSERT_EQ(Copy->Identity, Program.Identity);
+			ASSERT_EQ(Copy->GetShaderMap().ShaderMapId, Program.GetShaderMap().ShaderMapId);
 			ASSERT_EQ(Copy->ShaderMap, Program.ShaderMap);
-			ASSERT_EQ(Copy->DebugData, Program.DebugData);
+			ASSERT_EQ(Copy->GetShaderMap().DebugData, Program.GetShaderMap().DebugData);
 			ASSERT_EQ(Copy->GetShaderMap().CompiledShaders.front().Code.data(), Program.GetShaderMap().CompiledShaders.front().Code.data());
 		}
 		std::ranges::sort(Samples);
@@ -577,7 +577,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
 		? "missing diagnostic"
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
+	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
 	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
@@ -626,7 +626,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		<< " generated_bytes=" << Compiled.GetDebugData().GeneratedSource.size()
 		<< " source_hash="
 		<< Durin::FXxHash128::HashBuffer(Compiled.GetDebugData().GeneratedSource).ToString()
-		<< " identity=" << Compiled.Identity.Digest.ToString()
+		<< " identity=" << Compiled.GetShaderMap().ShaderMapId.Digest.ToString()
 		<< " dependencies=" << Compiled.GetShaderMap().Dependencies.size()
 		<< " spirv_bytes=" << SpirvBytes
 		<< " cooked_bytes=" << CookedBytes.size()
@@ -757,7 +757,7 @@ TEST(FMaterialQualificationTests, BoundedStaticSelectorVariantGrowth)
 		for (const auto& Program : Programs)
 		{
 			ProgramPointers.push_back(&Program);
-			Identities.insert(Program.Identity);
+			Identities.insert(Program.GetShaderMap().ShaderMapId);
 		}
 		FByteBuffer Cooked;
 		ASSERT_TRUE(EncodeMaterialCookedProgramFamily(ProgramPointers, {},
