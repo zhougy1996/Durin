@@ -1,5 +1,6 @@
 #include "MaterialPreparedProgram.h"
-#include "MaterialBuildOperation.h"
+#include "Materials/MaterialShaderMap.h"
+#include "MaterialProgramCompilingManager.h"
 #include "Materials/MaterialProgramCompiler.h"
 
 #include "Materials/MaterialTypes.h"
@@ -1053,10 +1054,10 @@ float4 FragmentMain(
 	auto ValidateMaterialCompilerResult(const FMaterialCompilerResult& Result)
 		-> FMaterialLayoutValidationResult
 	{
-		if (!Result || !Result.Artifact || !Result.Identity.IsValid()
+		if (!Result || !Result.ShaderMap || !Result.Identity.IsValid()
 			|| Result.PassContractVersion != CurrentMaterialPassContractVersion)
 			return {.Error = EMaterialLayoutError::InvalidIdentity};
-		const auto& Artifact = Result.GetArtifact();
+		const auto& Artifact = Result.GetShaderMap();
 		const auto Expected = CompileMaterialLayout(Artifact.ActiveParameters);
 		if (!Expected) return Expected.Validation;
 		if (Expected.Layout != Artifact.Layout) return {.Error = EMaterialLayoutError::InvalidField};
@@ -1290,48 +1291,6 @@ float4 FragmentMain(
 		return Requests;
 	}
 
-	auto AssembleMaterialProgram(FMaterialTranslatedProgram Translation,
-		FShaderBuildResult Output) -> FMaterialCompilerResult
-	{
-		auto Artifact = std::make_shared<FMaterialProgramArtifact>(FMaterialProgramArtifact{
-			.ActiveParameters = std::move(Translation.ActiveParameters), .Layout = std::move(Translation.Layout),
-			.Requirements = Translation.Requirements, .Dependencies = std::move(Translation.Dependencies)});
-		FMaterialCompilerResult Result{
-			.Identity = Translation.Identity, .CompilerIdentity = std::move(Translation.CompilerIdentity), .Target = std::move(Translation.Target),
-			.PassContractVersion = Translation.PassContractVersion, .RequiredStages = Translation.RequiredStages, .Quality = Translation.Quality, .FeatureLevel = Translation.FeatureLevel,
-			.StaticBools = std::move(Translation.StaticBools), .ActiveCollections = std::move(Translation.ActiveCollections),
-			.Artifact = Artifact,
-			.DebugData = std::make_shared<const FMaterialProgramDebugData>(FMaterialProgramDebugData{
-				.IR = std::move(Translation.IR), .GeneratedSource = std::move(Translation.GeneratedSource)}),
-			.Timings = Translation.Timings, .Diagnostics = std::move(Translation.Diagnostics)};
-		if (Translation.Status == EMaterialProgramStatus::Canceled || Output.Status == EShaderBuildStatus::Canceled)
-			return {.Status = EMaterialProgramStatus::Canceled};
-		if (!Translation) return Result;
-		if (!Output)
-		{
-			Result.Diagnostics.push_back(MakeDiagnostic(
-				EMaterialProgramDiagnosticCategory::Compile,
-				FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, Output.Diagnostic)));
-			return Result;
-		}
-		const auto Target = Result.Target == "metal-library-1" ? MetalLibraryShaderTarget
-			: Result.Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;
-		const auto Reflection = std::ranges::all_of(Output.CompiledShaders,
-			[&](const auto& Shader) { return Shader.Target == Target; })
-			? ValidateMaterialCompiledStages(Output.CompiledShaders,
-				Artifact->Layout, Translation.ResourceLimits, Result.ActiveCollections, Result.RequiredStages)
-			: FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
-		if (!Reflection)
-		{
-			Result.Diagnostics.push_back(MakeDiagnostic(
-				EMaterialProgramDiagnosticCategory::Reflection,
-				FMaterialError(Reflection)));
-			return Result;
-		}
-		Artifact->CompiledShaders = std::move(Output.CompiledShaders);
-		Result.Status = EMaterialProgramStatus::Ok;
-		return Result;
-	}
 
 	auto MIR::Compile(const MIR::FCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{

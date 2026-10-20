@@ -1,6 +1,6 @@
 #include "Materials/Material.h"
 #include "MaterialCompileRetryQueue.h"
-#include "MaterialBuildOperation.h"
+#include "MaterialProgramCompilingManager.h"
 #include "MaterialTranslationCodec.h"
 #include "DObject/ObjectKey.h"
 
@@ -48,35 +48,31 @@ namespace Durin
 		BaseEnvironment.bIncludeEditorPasses = false;
 		struct FMaterialCookWork
 		{
-			std::vector<std::shared_ptr<const MIR::FCompilerInput>> Inputs;
-			std::vector<std::shared_ptr<MaterialBuildPrivate::FMaterialBuildOperation>> Operations;
+			std::vector<MaterialBuildPrivate::FMaterialProgramCompileHandle> Compiles;
 			std::vector<std::optional<FMaterialCompilerResult>> Results;
-			std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
 			std::mutex Mutex;
 			std::atomic<bool> Failed = false;
 			std::string Failure;
-			FTaskCancellationSource Cancellation;
-			size_t Started = 0;
+			FCancellationToken Cancellation;
 			auto Cancel() -> void {
-				Cancellation.RequestCancellation();
-				for (size_t Index = 0; Index < Started; ++Index) Operations[Index]->Cancel();
+				Cancellation.Cancel();
+				for (const auto& Compile : Compiles) MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().CancelCompilation(Compile);
 			}
 		};
 		auto Work = std::make_shared<FMaterialCookWork>();
+		std::vector<std::shared_ptr<const MIR::FCompilerInput>> Inputs;
+		std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
 		Work->Results.resize(Configurations->size());
 		for (const auto& Configuration : *Configurations) {
 			if (Context.CheckCancellation()) return;
-			auto Operation = std::make_shared<MaterialBuildPrivate::FMaterialBuildOperation>();
-			if (!Operation->TryReserve()) { Context.Result = {EObjectCookError::Limit, "Material Cook operation admission failed."}; return; }
 			auto Environment = BaseEnvironment; Environment.Quality = Configuration.Quality; Environment.FeatureLevel = Configuration.FeatureLevel;
 			auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment));
 			if (!Snapshot) { Context.Result = {EObjectCookError::Preparation, FormatMaterialProgramDiagnostics(Snapshot.Diagnostics, "Material Cook snapshot failed.")}; return; }
 			if (MaterialBuildPrivate::EstimateTranslationCaptureBytes(Snapshot.Snapshot->Input) > MaterialBuildPrivate::TranslationInputBytes) {
 				Context.Result = {EObjectCookError::Limit, "Material Cook snapshot exceeds its reservation."}; return;
 			}
-			Work->FunctionOwners.insert(Work->FunctionOwners.end(), Snapshot.Snapshot->FunctionOwners.begin(), Snapshot.Snapshot->FunctionOwners.end());
-			Work->Inputs.push_back(std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)));
-			Work->Operations.push_back(std::move(Operation));
+			FunctionOwners.insert(FunctionOwners.end(), Snapshot.Snapshot->FunctionOwners.begin(), Snapshot.Snapshot->FunctionOwners.end());
+			Inputs.push_back(std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)));
 		}
 		struct FOwnerStamp { FObjectKey Owner; uint64 Authored, Dependency, Parent, Program; };
 		std::vector<FOwnerStamp> Owners;
@@ -86,7 +82,7 @@ namespace Durin
 			Owners.push_back({FObjectKey(Owner), Status.AuthoredRevision, Status.DependencyRevision, Status.ParentChainRevision,
 				Material ? Material->GetMaterialProgramRevision() : 0});
 		}
-		Preparation->ValidatePreparedInputs = [Owners = std::move(Owners), Functions = Work->FunctionOwners] {
+		Preparation->ValidatePreparedInputs = [Owners = std::move(Owners), Functions = std::move(FunctionOwners)] {
 			if (!AreMaterialFunctionOwnersCurrent(Functions)) return false;
 			for (const auto& Stamp : Owners) {
 				const auto* Owner = Cast<DMaterialInterface>(ResolveObjectKey(Stamp.Owner));
@@ -101,13 +97,14 @@ namespace Durin
 		Preparation->CancelWork = [Work] { Work->Cancel(); };
 		Preparation->Lifecycle.WaitForCompletion = [Work, Preparation, Platform = Preparation->GetTargetPlatform(),
 			Properties = CanonicalizeMaterialShaderProperties(GetStaticProperties())] {
-			for (size_t Index = 0; Index < Work->Started; ++Index) {
-				const auto& Operation = Work->Operations[Index];
-				while (!Operation->IsFinished()) {
+			for (size_t Index = 0; Index < Work->Compiles.size(); ++Index) {
+				const auto& Compile = Work->Compiles[Index];
+				auto& Manager = MaterialBuildPrivate::FMaterialProgramCompilingManager::Get();
+				while (Manager.IsCompiling(Compile)) {
 					if (Preparation->Lifecycle.CheckCancellation() || Work->Failed.load()) Work->Cancel();
 					std::this_thread::sleep_for(std::chrono::milliseconds(1));
 				}
-				Operation->Wait();
+				Manager.FinishCompilation(Compile);
 			}
 			if (Preparation->Lifecycle.CheckCancellation()) return;
 			if (Work->Failed.load()) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, Work->Failure}; return; }
@@ -123,18 +120,23 @@ namespace Durin
 			if (!Bulk) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, FormatBulkDataError(Bulk.error())}; return; }
 			Preparation->Primary = std::move(*Bulk);
 		};
-		for (size_t Index = 0; Index < Work->Operations.size(); ++Index) {
-			++Work->Started;
-			Work->Operations[Index]->Start(Work->Inputs[Index], false, Work->Cancellation.GetToken(),
-				[](auto&) { return MaterialBuildPrivate::EMaterialTranslationAction::Compile; },
-				[Work, Index](FMaterialCompilerResult Result) {
+		for (size_t Index = 0; Index < Inputs.size(); ++Index) {
+			auto Submitted = MaterialBuildPrivate::FMaterialProgramCompilingManager::Get().SubmitJobs(Inputs[Index],
+				{.Cancellation = Work->Cancellation},
+				[Work, Index](MaterialBuildPrivate::FMaterialBuildResult Build) {
+					const auto& Result = *Build.Program;
 					std::lock_guard Lock(Work->Mutex);
 					if (!Result && Result.Status != EMaterialProgramStatus::Canceled && !Work->Failed.load()) {
 						Work->Failure = FormatMaterialProgramDiagnostics(Result.Diagnostics, "Material Cook compilation failed.");
 						Work->Failed.store(true);
 					}
-					Work->Results[Index] = std::move(Result);
+					Work->Results[Index] = Result;
 				});
+			if (!Submitted) {
+				{ std::lock_guard Lock(Work->Mutex); Work->Failure = "Material Cook compile admission failed."; Work->Failed.store(true); }
+				Work->Cancel(); break;
+			}
+			Work->Compiles.push_back(std::move(*Submitted));
 		}
 #else
 		Context.Result = {EObjectCookError::Preparation, "Authored material Cook preparation is unavailable in this runtime."};
@@ -207,7 +209,7 @@ namespace Durin
 			return FailCooked(
 				EMaterialCookError::StaticPropertiesMismatch);
 		}
-		for (const auto& Parameter : ProgramCandidate->GetArtifact().ActiveParameters)
+		for (const auto& Parameter : ProgramCandidate->GetShaderMap().ActiveParameters)
 		{
 			const auto* Definition = FindParameterDefinition(Parameter.Id);
 			if (!Definition || Definition->Type != Parameter.Type)

@@ -165,8 +165,7 @@ namespace Durin::Editor::Material
 			return;
 		}
 		const auto& Status = Working->GetMaterialCompileStatus();
-		if (Status.State == EMaterialCompileState::Pending
-			|| Status.State == EMaterialCompileState::Running
+		if (Status.State == EMaterialCompileState::Running
 			|| Status.State == EMaterialCompileState::Deferred) return;
 		bApplyPending = false;
 		ApplyCurrent(Error);

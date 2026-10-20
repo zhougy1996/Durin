@@ -30,7 +30,6 @@ namespace Durin
 	enum class EMaterialCompileState : uint8
 	{
 		NeverRequested,
-		Pending,
 		Deferred,
 		Running,
 		Ready,
@@ -38,7 +37,6 @@ namespace Durin
 		Canceled,
 		Superseded,
 		Rejected,
-		Shutdown,
 		NeedsCompile,
 		Scheduled,
 	};
@@ -60,7 +58,6 @@ namespace Durin
 		Cancellation,
 		Supersession,
 		Admission,
-		Shutdown,
 	};
 
 	enum class EMaterialCompileCacheOutcome : uint8

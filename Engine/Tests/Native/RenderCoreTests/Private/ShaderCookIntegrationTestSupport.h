@@ -112,8 +112,8 @@ namespace Durin
 					return Request.Name.starts_with(std::format("MeshVertex.{}.", Type->GetName()));
 				});
 				ASSERT_NE(Factory, Factories.end());
-				FMaterialShaderMap Map;
-				ASSERT_TRUE((ShaderResult = FMaterialShaderMap::TryCompile({
+				FMeshMaterialShaderMap Map;
+				ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompile({
 					.Identity = {.ProgramIdentity = {.Digest = {.HashLow = 17, .HashHigh = 23}}},
 					.Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
 					.VertexFactoryType = *Factory,
@@ -127,7 +127,7 @@ namespace Durin
 				const size_t FragmentPass = Pass == 3 ? 1 : Pass;
 				const std::array<const FShaderType*, 2> ComposedTypes{
 					RuntimeTypes.front(), FragmentTypes[FragmentPass]};
-				ASSERT_TRUE((ShaderResult = FMaterialShaderMap::TryCompile({
+				ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompile({
 					.Identity = {.ProgramIdentity = Program}, .Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
 					.VertexFactoryType = *Factory, .MeshPassKey = static_cast<uint32>(Pass),
 					.ShaderTypes = ComposedTypes, .FixedShaderRuntimeRequest = Request.Name,
@@ -136,7 +136,7 @@ namespace Durin
 				if (Pass == 2)
 				{
 					const std::array<const FShaderType*, 2> OpaqueTypes{RuntimeTypes.front(), FragmentTypes[3]};
-					ASSERT_TRUE((ShaderResult = FMaterialShaderMap::TryCompile({
+					ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompile({
 						.Identity = {.ProgramIdentity = Program}, .Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
 						.VertexFactoryType = *Factory, .MeshPassKey = 2,
 						.ShaderTypes = OpaqueTypes, .FixedShaderRuntimeRequest = Request.Name,

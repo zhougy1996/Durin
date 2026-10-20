@@ -310,7 +310,7 @@ namespace Durin
 		FShaderType& VertexType = FMaterialFixtureVertexShader::StaticType();
 		FShaderType& FragmentType = FMaterialFixtureFragmentShader::StaticType();
 		static const FVertexFactoryType VertexFactoryType("FixtureVertexFactory");
-		const FMaterialShaderMapIdentity Identity{
+		const FMeshMaterialShaderMapIdentity Identity{
 			.ProgramIdentity = {.Digest = {.HashLow = 11, .HashHigh = 12}},
 			.BlendMode = FMaterialShaderBlendModeKey(0),
 			.ShadingModel = FMaterialShaderShadingModelKey(1)};
@@ -322,9 +322,9 @@ namespace Durin
 		OutputA.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52)};
-		FMaterialShaderMap MapA;
+		FMeshMaterialShaderMap MapA;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = FMaterialShaderMap::TryCreate({
+		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Generation = Generation,
 			.Target = "vulkan-spirv-1.5",
@@ -343,8 +343,8 @@ namespace Durin
 		OutputB.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52),
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51)};
-		FMaterialShaderMap MapB;
-		ASSERT_TRUE((Error = FMaterialShaderMap::TryCreate({
+		FMeshMaterialShaderMap MapB;
+		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Generation = Generation,
 			.Target = "vulkan-spirv-1.5",
@@ -376,11 +376,11 @@ namespace Durin
 		Output.Error = {};
 		Output.CompiledShaders = {MakeCompiledShader(
 			EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 61)};
-		const FMaterialShaderMapIdentity Identity{
+		const FMeshMaterialShaderMapIdentity Identity{
 			.ProgramIdentity = {.Digest = {.HashLow = 1, .HashHigh = 1}}};
-		FMaterialShaderMap Map;
+		FMeshMaterialShaderMap Map;
 		FShaderOperationResult Error;
-		EXPECT_FALSE((Error = FMaterialShaderMap::TryCreate({
+		EXPECT_FALSE((Error = FMeshMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Target = "vulkan-spirv-1.5",
 			.ShaderTypes = Types,
@@ -392,7 +392,7 @@ namespace Durin
 		EXPECT_EQ(Error.error().Code, EShaderError::MaterialProgramIdentityMismatch);
 
 		Output.CompiledShaders[0].SourceEntryPoint = "missingMain";
-		EXPECT_FALSE((Error = FMaterialShaderMap::TryCreate({
+		EXPECT_FALSE((Error = FMeshMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Target = "vulkan-spirv-1.5",
 			.ShaderTypes = Types,

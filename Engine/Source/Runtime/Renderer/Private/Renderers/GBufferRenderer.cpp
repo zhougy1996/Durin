@@ -56,7 +56,7 @@ namespace Durin
 
 		struct FGBufferShaderMapKey
 		{
-			FMaterialShaderMapIdentity Material;
+			FMeshMaterialShaderMapIdentity Material;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
 			bool bGPUCulling = false;
@@ -95,7 +95,7 @@ namespace Durin
 
 	struct FGBufferPipeline
 	{
-		FMaterialShaderMap ShaderMap;
+		FMeshMaterialShaderMap ShaderMap;
 		std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding> Vertex;
 		TMaterialShaderRef<FGBufferFragmentShader> Fragment;
 		FShaderRHIRef FragmentRHI;
@@ -115,7 +115,7 @@ namespace Durin
 		};
 		struct FShaderMapPayload
 		{
-			FMaterialShaderMap ShaderMap;
+			FMeshMaterialShaderMap ShaderMap;
 			std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding> Vertex;
 			TMaterialShaderRef<FGBufferFragmentShader> Fragment;
 		};
@@ -193,7 +193,7 @@ namespace Durin
 				FShaderType* VertexType = Factory->GetShaderType(MeshPass);
 				FShaderType& FragmentType =
 					FGBufferFragmentShader::StaticType();
-				FMaterialShaderMap ShaderMap;
+				FMeshMaterialShaderMap ShaderMap;
 
 				auto ShaderResult = RendererPrivate::InitializeMaterialShaderMap(
 					*VertexType, FragmentType,

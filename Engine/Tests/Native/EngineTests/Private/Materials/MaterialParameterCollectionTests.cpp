@@ -1,4 +1,5 @@
 #include "NativeRHIBackendTestSupport.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialCollectionBinding.h"
 #include "Materials/Material.h"
@@ -270,7 +271,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	const auto Refreshed = Material->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(Refreshed);
 	EXPECT_EQ(Refreshed->Identity, FirstIdentity);
-	EXPECT_EQ(Refreshed->Artifact, First->Artifact);
+	EXPECT_EQ(Refreshed->ShaderMap, First->ShaderMap);
 	EXPECT_EQ(Refreshed->DebugData, First->DebugData);
 	EXPECT_EQ(First->ActiveCollections.front().DefaultPayload, FirstDefaults);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().CacheOutcome,

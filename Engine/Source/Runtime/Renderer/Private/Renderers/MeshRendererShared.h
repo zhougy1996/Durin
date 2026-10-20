@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialDiagnostic.h"
 #include "Renderers/MeshVertexFactory.h"
 
@@ -60,11 +61,11 @@ namespace Durin::RendererPrivate
 		const FShaderType& FragmentType,
 		const FVertexFactoryType& VertexFactoryType,
 		uint32 MeshPassKey,
-		const FMaterialShaderMapIdentity& Identity,
+		const FMeshMaterialShaderMapIdentity& Identity,
 		const FRenderResourceGeneration& Generation,
 		const FMaterialCompilerResult* MaterialProgram,
 		const FShaderCompileOptions& VertexCompileOptions,
-		FMaterialShaderMap& OutShaderMap) -> FShaderCompletion
+		FMeshMaterialShaderMap& OutShaderMap) -> FShaderCompletion
 	{
 		if (MaterialProgram != nullptr)
 		{
@@ -77,11 +78,11 @@ namespace Durin::RendererPrivate
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramIdentityMismatch,
 					.ExpectedIdentity = Identity.ProgramIdentity.ToString(),
 					.ActualIdentity = MaterialProgram->Identity.ToString()});
-			if (MaterialProgram->GetArtifact().Layout.Identity != Identity.RenderLayout)
+			if (MaterialProgram->GetShaderMap().Layout.Identity != Identity.RenderLayout)
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialLayoutMismatch,
 					.ExpectedIdentity = Identity.RenderLayout.Id.ToString(),
-					.ActualIdentity = MaterialProgram->GetArtifact().Layout.Identity.Id.ToString(),
-					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->GetArtifact().Layout.Identity.Version});
+					.ActualIdentity = MaterialProgram->GetShaderMap().Layout.Identity.Id.ToString(),
+					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->GetShaderMap().Layout.Identity.Version});
 			if (MaterialProgram->PassContractVersion != CurrentMaterialPassContractVersion)
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialPassContractMismatch,
 					.Expected = CurrentMaterialPassContractVersion, .Actual = MaterialProgram->PassContractVersion});
@@ -94,7 +95,7 @@ namespace Durin::RendererPrivate
 		const std::array<const FShaderType*, 2> Types{
 			&VertexType, &FragmentType};
 		std::span<const FShaderCode> GeneratedStages = MaterialProgram
-			? std::span<const FShaderCode>(MaterialProgram->GetArtifact().CompiledShaders)
+			? std::span<const FShaderCode>(MaterialProgram->GetShaderMap().CompiledShaders)
 			: std::span<const FShaderCode>{};
 		// A declared generated use must never fall through to a fixed-source
 		// compilation when its geometry or pass was excluded at material build.
@@ -117,7 +118,7 @@ namespace Durin::RendererPrivate
 					FactoryCompatibleStages.push_back(Stage);
 			GeneratedStages = FactoryCompatibleStages;
 		}
-		return FMaterialShaderMap::TryCompile({
+		return FMeshMaterialShaderMap::TryCompile({
 			.Identity = Identity,
 			.Generation = Generation,
 			.Target = MaterialProgram ? MaterialProgram->Target
@@ -269,7 +270,7 @@ namespace Durin::RendererPrivate
 	}
 
 	inline auto GetIdentityText(
-		const FMaterialShaderMapIdentity& Identity
+		const FMeshMaterialShaderMapIdentity& Identity
 	) -> std::string
 	{
 		return std::format(
@@ -335,7 +336,7 @@ namespace Durin::RendererPrivate
 	{
 		FMeshDrawSortKey Result;
 		const FMaterialPlanningPassIdentity& Material = PipelineKey.Material;
-		const FMaterialShaderMapIdentity& Shader = Material.ShaderMap;
+		const FMeshMaterialShaderMapIdentity& Shader = Material.ShaderMap;
 		const FGuid& LayoutId = Shader.RenderLayout.Id;
 		const FXxHash128& ProgramDigest = Shader.ProgramIdentity.Digest;
 		Result.Pipeline = {

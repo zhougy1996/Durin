@@ -1,10 +1,11 @@
 #include "Asset/AssetCompilingManager.h"
+#include "Materials/MaterialShaderMap.h"
 #ifdef _WIN32
 #include "Windows/WindowsPlatform.h"
 #include <Psapi.h>
 #endif
-#include "Materials/MaterialProgramCache.h"
 #include "Materials/MaterialTranslation.h"
+#include "Materials/MaterialProgramCompilingManager.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "ExplicitMaterialProgramTestFixture.h"
@@ -75,8 +76,8 @@ TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 	for (const uint32 Count : {8u, 32u, 128u})
 	{
 		auto Program = std::make_shared<FMaterialCompilerResult>();
-		auto Artifact = std::make_shared<FMaterialProgramArtifact>();
-		Program->Artifact = Artifact;
+		auto Artifact = std::make_shared<FMaterialShaderMap>();
+		Program->ShaderMap = Artifact;
 		FMaterialLocalRenderLayer Layer;
 		for (uint32 Index = 0; Index < Count; ++Index)
 		{
@@ -84,7 +85,7 @@ TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 			Artifact->ActiveParameters.push_back({Id, EMaterialParameterType::Scalar});
 			Layer.Parameters.push_back({Id, static_cast<float>(Index)});
 		}
-		const auto Layout = CompileMaterialLayout(Program->GetArtifact().ActiveParameters);
+		const auto Layout = CompileMaterialLayout(Program->GetShaderMap().ActiveParameters);
 		ASSERT_TRUE(Layout);
 		Artifact->Layout = Layout.Layout;
 		Layer.CompiledProgram = Program;
@@ -192,7 +193,7 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 					const auto GenerationUs = Translation.Timings.GenerationMicroseconds;
 					auto Output = CompileGeneratedShader(MakeMaterialShaderCompileRequest(Translation, false));
 					ASSERT_TRUE(Output) << Output.Diagnostic;
-					auto Candidate = AssembleMaterialProgram(std::move(Translation), std::move(Output));
+					auto Candidate = FMaterialShaderMap::FinalizeContent(std::move(Translation), std::move(Output));
 					ASSERT_TRUE(Candidate);
 					const auto TotalUs = Micros(Begin);
 					const auto After = GetShaderBuildStats();
@@ -213,6 +214,61 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 	std::cout << "[MaterialStagedBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
 }
 
+TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
+{
+	using namespace Durin;
+	using namespace MaterialBuildPrivate;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	ASSERT_NE(IShaderBuildModule::Get(), nullptr);
+	auto& Manager = FMaterialProgramCompilingManager::Get();
+	const auto Previous = FPaths::DerivedDataCacheDir();
+	struct FRestore { std::string Previous; ~FRestore() { FMaterialProgramCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); FPaths::SetDerivedDataCacheDirForTests(Previous); } } Restore{Previous};
+	const auto Root = Testing::GetTestWorkDirectory() / "ParallelProgramCompilation";
+	std::filesystem::create_directories(Root);
+	std::string Csv = "sample,workload,materials,elapsed_us,compilations,ddc_hits,memory_hits,peak_active_shaders,peak_output_reservation_bytes,process_peak_working_set_bytes\n";
+	for (uint32 Sample = 0; Sample < 5; ++Sample) {
+		for (uint32 Workload = 0; Workload < 3; ++Workload) {
+			if (Workload != 2) {
+				FPaths::SetDerivedDataCacheDirForTests((Root / std::format("cache-{}-{}", Sample, Workload)).generic_string());
+				ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); CloseTranslationSessions(); OpenTranslationSessions();
+			}
+			const uint32 Count = Workload == 1 ? 4 : 1;
+			std::vector<std::shared_ptr<MIR::FCompilerInput>> Inputs;
+			for (uint32 Index = 0; Index < Count; ++Index) {
+				auto Input = std::make_shared<MIR::FCompilerInput>();
+				FMaterialExpressionSurfaceOutputs Outputs;
+				Outputs.Roughness.SetConstant({.271f + Index * .071f + Sample * .011f + (Workload == 2 ? .039f : 0.f)});
+				MIR::FGraphBuilder Graph(std::span<DMaterialExpression* const>{}); Input->IR = Graph.FinishSurface(Outputs).IR;
+				ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment)); Inputs.push_back(std::move(Input));
+			}
+			const auto Before = GetShaderBuildStats(); const auto Begin = std::chrono::steady_clock::now();
+			std::vector<FMaterialProgramCompileHandle> Handles;
+			std::vector<FMaterialBuildResult> Results(Count);
+			for (uint32 Index = 0; Index < Count; ++Index) {
+				auto Compile = Manager.SubmitJobs(Inputs[Index], {}, [&, Index](auto Result) { Results[Index] = std::move(Result); });
+				ASSERT_TRUE(Compile); Handles.push_back(std::move(*Compile));
+			}
+			for (const auto& Handle : Handles) Manager.FinishCompilation(Handle);
+			const auto Us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
+			for (const auto& Result : Results) ASSERT_TRUE(Result);
+			const auto After = GetShaderBuildStats(); const auto Stats = GetMaterialProgramCompileStatsForTests();
+			if (Workload == 0) EXPECT_EQ(After.Compilations - Before.Compilations, 7u);
+			if (Workload == 2) { EXPECT_EQ(After.Compilations - Before.Compilations, 4u); EXPECT_EQ(After.MemoryHits - Before.MemoryHits + After.DdcHits - Before.DdcHits, 3u); }
+			uint64 ProcessPeak = 0;
+			#ifdef _WIN32
+			PROCESS_MEMORY_COUNTERS Memory{}; if (K32GetProcessMemoryInfo(GetCurrentProcess(), &Memory, sizeof(Memory))) ProcessPeak = Memory.PeakWorkingSetSize;
+			#endif
+			const auto Row = std::format("{},{},{},{},{},{},{},{},{},{}\n", Sample, Workload, Count, Us,
+				After.Compilations - Before.Compilations, After.DdcHits - Before.DdcHits, After.MemoryHits - Before.MemoryHits,
+				Stats.PeakActiveShaders, Stats.PeakOutputReservationBytes, ProcessPeak);
+			Csv += Row; std::printf("[ParallelProgramCompilation] %s", Row.c_str());
+		}
+	}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "samples.csv"));
+	RecordProperty("SamplesCsv", (Root / "samples.csv").generic_string());
+}
+
 TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
 {
 	using namespace Durin;
@@ -228,10 +284,10 @@ TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
 		auto Captured = SnapshotMaterialCompilerInput(*Material, Environment); ASSERT_TRUE(Captured);
 		auto Program = MIR::Compile(Captured.Snapshot->Input); ASSERT_TRUE(Program);
 		uint64 SharedArtifactBytes = Program.GetDebugData().GeneratedSource.size() + Program.GetDebugData().IR.Nodes.size() * sizeof(MIR::FNode)
-			+ Program.GetArtifact().CompiledShaders.size() * sizeof(FShaderCode);
+			+ Program.GetShaderMap().CompiledShaders.size() * sizeof(FShaderCode);
 		uint64 SharedCodeBytes = 0;
 		for (const auto& Node : Program.GetDebugData().IR.Nodes) SharedArtifactBytes += Node.Inputs.size() * sizeof(uint32);
-		for (const auto& Shader : Program.GetArtifact().CompiledShaders) SharedCodeBytes += Shader.Code.size();
+		for (const auto& Shader : Program.GetShaderMap().CompiledShaders) SharedCodeBytes += Shader.Code.size();
 		std::vector<int64> Samples;
 		for (uint32 Index = 0; Index < 500; ++Index)
 		{
@@ -240,9 +296,9 @@ TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
 			Copy->Quality = EMaterialQualityLevel::Low;
 			Samples.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count());
 			ASSERT_EQ(Copy->Identity, Program.Identity);
-			ASSERT_EQ(Copy->Artifact, Program.Artifact);
+			ASSERT_EQ(Copy->ShaderMap, Program.ShaderMap);
 			ASSERT_EQ(Copy->DebugData, Program.DebugData);
-			ASSERT_EQ(Copy->GetArtifact().CompiledShaders.front().Code.data(), Program.GetArtifact().CompiledShaders.front().Code.data());
+			ASSERT_EQ(Copy->GetShaderMap().CompiledShaders.front().Code.data(), Program.GetShaderMap().CompiledShaders.front().Code.data());
 		}
 		std::ranges::sort(Samples);
 		std::cout << "[MaterialConsumerCopy] nodes=" << Program.GetDebugData().IR.Nodes.size() << " shared_source_ir_descriptor_bytes=" << SharedArtifactBytes
@@ -280,7 +336,7 @@ TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
 					Owners.clear();
 					for (uint32 Index = 0; Index < 2; ++Index) { auto* Instance = NewObject<DMaterialInstance>(nullptr, NAME_None); ASSERT_TRUE(Instance->SetParent(Material)); Owners.push_back(Instance); }
 				}
-				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); MaterialBuildPrivate::ClearPrograms(); MaterialBuildPrivate::CloseTranslationSessions(); MaterialBuildPrivate::OpenTranslationSessions(); }
+				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); MaterialBuildPrivate::CloseTranslationSessions(); MaterialBuildPrivate::OpenTranslationSessions(); }
 				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
 				{
 					const auto TranslationBefore = MaterialBuildPrivate::GetTranslationStats();
@@ -339,7 +395,7 @@ TEST(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 					Owners.clear();
 					for (uint32 Index = 0; Index < 2; ++Index) { auto* Instance = NewObject<DMaterialInstance>(nullptr, NAME_None); ASSERT_TRUE(Instance->SetParent(Material)); Owners.push_back(Instance); }
 				}
-				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); MaterialBuildPrivate::ClearPrograms(); MaterialBuildPrivate::CloseTranslationSessions(); MaterialBuildPrivate::OpenTranslationSessions(); }
+				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); MaterialBuildPrivate::CloseTranslationSessions(); MaterialBuildPrivate::OpenTranslationSessions(); }
 				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
 				{
 					const auto TranslationBefore = MaterialBuildPrivate::GetTranslationStats();
@@ -522,34 +578,34 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		? "missing diagnostic"
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
-	ASSERT_EQ(Compiled.GetArtifact().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
-	EXPECT_EQ(Compiled.GetArtifact().CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
-	EXPECT_EQ(Compiled.GetArtifact().CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
-	EXPECT_TRUE(Compiled.GetArtifact().CompiledShaders[2].Reflection.ResourceBindings.empty());
-	std::vector CorruptedStages = Compiled.GetArtifact().CompiledShaders;
+	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
+	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
+	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
+	EXPECT_TRUE(Compiled.GetShaderMap().CompiledShaders[2].Reflection.ResourceBindings.empty());
+	std::vector CorruptedStages = Compiled.GetShaderMap().CompiledShaders;
 	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
 	std::string ReflectionError;
 	EXPECT_FALSE(Durin::ValidateMaterialCompiledStages(
-		CorruptedStages, Compiled.GetArtifact().Layout));
+		CorruptedStages, Compiled.GetShaderMap().Layout));
 	const Durin::FMaterialCompilerResult Warm =
 		Durin::MIR::Compile(Input);
 	ASSERT_TRUE(Warm) << (Warm.Diagnostics.empty()
 		? "missing diagnostic" : Durin::FormatMaterialError(Warm.Diagnostics.front().Error));
-	ASSERT_EQ(Warm.GetArtifact().CompiledShaders.size(), Compiled.GetArtifact().CompiledShaders.size());
+	ASSERT_EQ(Warm.GetShaderMap().CompiledShaders.size(), Compiled.GetShaderMap().CompiledShaders.size());
 	uint64 SpirvBytes = 0;
-	for (size_t Index = 0; Index < Compiled.GetArtifact().CompiledShaders.size(); ++Index)
+	for (size_t Index = 0; Index < Compiled.GetShaderMap().CompiledShaders.size(); ++Index)
 	{
-		EXPECT_EQ(Warm.GetArtifact().CompiledShaders[Index].CodeHash,
-			Compiled.GetArtifact().CompiledShaders[Index].CodeHash);
-		ASSERT_TRUE(!Compiled.GetArtifact().CompiledShaders[Index].Code.IsEmpty());
-		SpirvBytes += Compiled.GetArtifact().CompiledShaders[Index].Code.size();
+		EXPECT_EQ(Warm.GetShaderMap().CompiledShaders[Index].CodeHash,
+			Compiled.GetShaderMap().CompiledShaders[Index].CodeHash);
+		ASSERT_TRUE(!Compiled.GetShaderMap().CompiledShaders[Index].Code.IsEmpty());
+		SpirvBytes += Compiled.GetShaderMap().CompiledShaders[Index].Code.size();
 	}
 	Durin::FByteBuffer CookedBytes;
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled, {},
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, CookedBytes))) << Durin::FormatMaterialError(Error.Error);
 	RecordProperty("GeneratedSourceBytes", Compiled.GetDebugData().GeneratedSource.size());
-	RecordProperty("DependencyCount", Compiled.GetArtifact().Dependencies.size());
+	RecordProperty("DependencyCount", Compiled.GetShaderMap().Dependencies.size());
 	RecordProperty("SpirvBytes", SpirvBytes);
 	RecordProperty("NormalizationMicroseconds",
 		Compiled.Timings.NormalizationMicroseconds);
@@ -571,7 +627,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		<< " source_hash="
 		<< Durin::FXxHash128::HashBuffer(Compiled.GetDebugData().GeneratedSource).ToString()
 		<< " identity=" << Compiled.Identity.Digest.ToString()
-		<< " dependencies=" << Compiled.GetArtifact().Dependencies.size()
+		<< " dependencies=" << Compiled.GetShaderMap().Dependencies.size()
 		<< " spirv_bytes=" << SpirvBytes
 		<< " cooked_bytes=" << CookedBytes.size()
 		<< " normalize_us=" << Compiled.Timings.NormalizationMicroseconds
@@ -588,7 +644,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	InvalidInput.Environment.Target.clear();
 	const auto Failed = Durin::MIR::Compile(InvalidInput);
 	EXPECT_FALSE(Failed);
-	EXPECT_TRUE(Failed.GetArtifact().CompiledShaders.empty());
+	EXPECT_TRUE(Failed.GetShaderMap().CompiledShaders.empty());
 	EXPECT_FALSE(Failed.Diagnostics.empty());
 }
 
@@ -737,7 +793,7 @@ TEST(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 	ASSERT_TRUE(Base->GetAcceptedCompiledProgram());
 	AddToRoot(Base);
 	std::vector<const FMaterialParameterDefinition*> Numeric;
-	for (const auto& Active : Base->GetAcceptedCompiledProgram()->GetArtifact().ActiveParameters)
+	for (const auto& Active : Base->GetAcceptedCompiledProgram()->GetShaderMap().ActiveParameters)
 		if (const auto* Definition = Base->FindParameterDefinition(Active.Id);
 			Definition && (Definition->Type == EMaterialParameterType::Scalar
 				|| Definition->Type == EMaterialParameterType::Vector4))

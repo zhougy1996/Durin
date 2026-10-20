@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Materials/MaterialShaderMap.h"
 
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -719,16 +720,16 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		const auto PbrPixels = Capture(PbrMesh, PbrMaterial);
 		SaveImportedFunctionBaseline("imported-packed-source-independent-maps-uv1-mask", PbrPixels);
 		std::cout << "[FunctionMigrationBaseline] case=imported-packed-source-independent-maps-uv1-mask"
-			<< " resources=" << PbrProgram->GetArtifact().Layout.ResourceFieldCount
-			<< " uniform_fields=" << PbrProgram->GetArtifact().Layout.UniformFieldCount
-			<< " uniform_bytes=" << PbrProgram->GetArtifact().Layout.UniformPayloadSize
+			<< " resources=" << PbrProgram->GetShaderMap().Layout.ResourceFieldCount
+			<< " uniform_fields=" << PbrProgram->GetShaderMap().Layout.UniformFieldCount
+			<< " uniform_bytes=" << PbrProgram->GetShaderMap().Layout.UniformPayloadSize
 			<< " generated_bytes=" << PbrProgram->GetDebugData().GeneratedSource.size() << '\n';
 		const auto ImportedProgram = ReloadedMaterial->GetAcceptedCompiledProgram();
 		ASSERT_NE(ImportedProgram, nullptr);
 		std::cout << "[FunctionMigrationBaseline] case=imported-texture-and-factor"
-			<< " resources=" << ImportedProgram->GetArtifact().Layout.ResourceFieldCount
-			<< " uniform_fields=" << ImportedProgram->GetArtifact().Layout.UniformFieldCount
-			<< " uniform_bytes=" << ImportedProgram->GetArtifact().Layout.UniformPayloadSize
+			<< " resources=" << ImportedProgram->GetShaderMap().Layout.ResourceFieldCount
+			<< " uniform_fields=" << ImportedProgram->GetShaderMap().Layout.UniformFieldCount
+			<< " uniform_bytes=" << ImportedProgram->GetShaderMap().Layout.UniformPayloadSize
 			<< " generated_bytes=" << ImportedProgram->GetDebugData().GeneratedSource.size() << '\n';
 		ASSERT_TRUE(Durin::UnloadPackage(PbrMeshPath));
 		for (const auto& Output : PbrImport.Outputs)

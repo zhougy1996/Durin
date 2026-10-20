@@ -1,4 +1,5 @@
 #include "StaticMeshTestAccess.h"
+#include "Materials/MaterialShaderMap.h"
 
 #include "GeometrySubmissionTestSupport.h"
 #include "Materials/MaterialExpressions.h"
@@ -1431,7 +1432,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		for (const auto& Material : Materials)
 		{
 			ASSERT_TRUE(Material.CompiledProgram);
-			ASSERT_TRUE(std::ranges::any_of(Material.CompiledProgram->GetArtifact().CompiledShaders,
+			ASSERT_TRUE(std::ranges::any_of(Material.CompiledProgram->GetShaderMap().CompiledShaders,
 				[](const FShaderCode& Shader) {
 					return Shader.Frequency == EShaderFrequency::Vertex
 						&& Shader.SourceEntryPoint == FQualificationVertexShader::StaticType().GetEntryPoint();
@@ -2359,7 +2360,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		Properties.GeometryUsage = 1;
 		ASSERT_TRUE(Custom->SetStaticProperties(Properties));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Custom);
-		ASSERT_EQ(Custom->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders.size(), 4u);
+		ASSERT_EQ(Custom->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 4u);
 		FObservation LocalOnly; Render(Instanced.Get(), true, ERenderMode::Lit, LocalOnly);
 		EXPECT_EQ(LocalOnly.Pixels, Grouped.Pixels);
 		EXPECT_EQ(LocalOnly.Telemetry.GBuffer.GPUCullingIndirectDraws, 0u);
@@ -2367,9 +2368,9 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		{
 			using namespace RendererPrivate;
 			const auto Selected = Custom->GetAcceptedCompiledProgram();
-			const FMaterialShaderMapIdentity Identity{.RenderLayout = Selected->GetArtifact().Layout.Identity,
+			const FMeshMaterialShaderMapIdentity Identity{.RenderLayout = Selected->GetShaderMap().Layout.Identity,
 				.ProgramIdentity = Selected->Identity};
-			FMaterialShaderMap Rejected;
+			FMeshMaterialShaderMap Rejected;
 			const auto Before = GetShaderBuildStats().Compilations;
 			const auto Factory = FindMeshVertexFactory(FXxHash64::HashBuffer("SplineVertexFactory", sizeof("SplineVertexFactory") - 1));
 			const auto* Fragment = FindFragmentType("FragmentMain");
@@ -2387,10 +2388,10 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		{
 			using namespace RendererPrivate;
 			const auto Selected = Custom->GetAcceptedCompiledProgram();
-			ASSERT_EQ(Selected->GetArtifact().CompiledShaders.size(), 2u);
-			const FMaterialShaderMapIdentity Identity{.RenderLayout = Selected->GetArtifact().Layout.Identity,
+			ASSERT_EQ(Selected->GetShaderMap().CompiledShaders.size(), 2u);
+			const FMeshMaterialShaderMapIdentity Identity{.RenderLayout = Selected->GetShaderMap().Layout.Identity,
 				.ProgramIdentity = Selected->Identity};
-			FMaterialShaderMap Rejected;
+			FMeshMaterialShaderMap Rejected;
 			const auto Before = GetShaderBuildStats().Compilations;
 			const auto Factory = FindMeshVertexFactory(FXxHash64::HashBuffer("LocalVertexFactory", sizeof("LocalVertexFactory") - 1));
 			const auto* Fragment = FindFragmentType("OpaqueShadowFragmentMain");

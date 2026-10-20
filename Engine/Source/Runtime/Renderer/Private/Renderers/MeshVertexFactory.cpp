@@ -66,7 +66,7 @@ namespace Durin::RendererPrivate
 		class TMeshVertexShaderBinding final : public FMeshVertexShaderBinding
 		{
 		public:
-			explicit TMeshVertexShaderBinding(const FMaterialShaderMap& Map) : Shader(Map) {}
+			explicit TMeshVertexShaderBinding(const FMeshMaterialShaderMap& Map) : Shader(Map) {}
 			auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
 			auto GetRHIShader(bool bRequired) const -> FRHIShader* override
 			{
@@ -97,7 +97,7 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			explicit FGPUCullingVertexShaderBinding(
-				const FMaterialShaderMap& Map) : Shader(Map) {}
+				const FMeshMaterialShaderMap& Map) : Shader(Map) {}
 			auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
 			auto GetRHIShader(bool bRequired) const -> FRHIShader* override
 			{ return Shader.GetRHIShader(bRequired); }
@@ -151,7 +151,7 @@ namespace Durin::RendererPrivate
 				else
 					return Pass == MaterialMeshPassGBuffer ? &FGBufferLocalVertexShader::StaticType() : &FStaticMeshVertexShader::StaticType();
 			}
-			auto Resolve(const FMaterialShaderMap& Map, uint32 Pass) const
+			auto Resolve(const FMeshMaterialShaderMap& Map, uint32 Pass) const
 				-> std::shared_ptr<const FMeshVertexShaderBinding> override
 			{
 				if (!GetShaderType(Pass)) return {};

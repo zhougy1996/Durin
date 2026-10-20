@@ -13,7 +13,7 @@ namespace Durin
 
 	struct FResolvedMeshPipeline
 	{
-		FMaterialShaderMap ShaderMap;
+		FMeshMaterialShaderMap ShaderMap;
 		std::shared_ptr<const FMeshVertexShaderBinding> VertexShader;
 		TMaterialShaderRef<FSurfaceFragmentShader> FragmentShader;
 		TMaterialShaderRef<FSurfaceOpaqueShadowFragmentShader>
@@ -115,7 +115,7 @@ namespace Durin
 
 		struct FShaderMapPayload
 		{
-			FMaterialShaderMap ShaderMap;
+			FMeshMaterialShaderMap ShaderMap;
 			std::shared_ptr<const FMeshVertexShaderBinding> VertexShader;
 			TMaterialShaderRef<FSurfaceFragmentShader> FragmentShader;
 			TMaterialShaderRef<FSurfaceOpaqueShadowFragmentShader>
@@ -350,7 +350,7 @@ namespace Durin
 				Coordinator.GetGeneration_RenderThread(),
 				[this, &Material, Factory, MeshPass,
 				 bShadowDepth]() -> FShaderMapResult {
-					const FMaterialShaderMapIdentity& Identity =
+					const FMeshMaterialShaderMapIdentity& Identity =
 						Material.PlanningPassIdentity.ShaderMap;
 					FShaderCompileOptions CompileOptions;
 					// Material permutations are already in CompiledProgram. Fixed stages
@@ -364,7 +364,7 @@ namespace Durin
 						FSurfaceMaskedShadowFragmentShader::StaticType();
 					FShaderType& OpaqueShadowFragmentShaderType =
 						FSurfaceOpaqueShadowFragmentShader::StaticType();
-					FMaterialShaderMap ShaderMap;
+					FMeshMaterialShaderMap ShaderMap;
 
 					const bool bOpaqueShadow = bShadowDepth
 						&& Identity.BlendMode != EMaterialBlendMode::Masked;

@@ -301,6 +301,7 @@ durin_add_native_test(MaterialCompilerTests
 	TIMEOUT 300
 	SOURCES Private/Materials/MaterialCompilerTests.cpp Private/Materials/MaterialExpressionTests.cpp
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
@@ -309,6 +310,7 @@ durin_add_native_test(MaterialCompilerTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES
+		ShaderBuild
 		DerivedDataCache
 		Core
 		CoreDObject

@@ -3,7 +3,7 @@
 Summary: Material geometry and Pass usages select an atomic required stage set whose compatible binaries share independently through ShaderBuild.
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-20
 
 ## Declared usages
 
@@ -74,13 +74,20 @@ edit can rebuild a shadow request even when optimized shadow code is unchanged.
 ShaderBuild's existing bounded memory cache (128 outputs / 256 MiB) and DDC own
 stage retention. Immutable `FSharedByteBuffer` allocations share across accepted
 programs. Whole-material semantic joining and its existing retention bounds
-remain in place. A build operation submits selected stages sequentially through
-continuations, tracks each request for cancellation/priority/draining, and never
+remain in place. The program compiling manager submits at most two selected stages
+concurrently through a reentrancy-safe dispatch loop, tracks each request in a
+plain compile record for cancellation/priority/draining, and never
 blocks a material worker on ShaderBuild I/O. There are at most seven selected
 requests per material. Completed stage metadata and backing capacities charge
-the existing aggregate 8 MiB material result cap before retention; each subsequent
-request receives only the remaining output allowance. No new unbounded stage
-cache is introduced.
+the existing aggregate 8 MiB material result cap before retention. Each submitted
+request receives the remaining aggregate output allowance; retained outputs plus
+the two live reservations total at most 16 MiB. This preserves the active-output
+allowance and separate 8 MiB assembly overlap. Results occupy canonical request
+slots, so arrival order cannot reorder the program. Failure stops new submissions
+and drains accepted requests before assembly; the first failing canonical slot
+selects the Shader diagnostic. Cancellation also drains accepted requests.
+Inline callbacks update slots without recursively submitting more work.
+No new unbounded stage cache is introduced.
 
 The finer granularity trades extra cold session submissions for reuse: a full
 cold editor material now has seven independent ShaderBuild compilations, where

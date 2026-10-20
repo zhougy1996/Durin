@@ -1,4 +1,5 @@
 #include "Materials/MaterialCookedProgram.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialRenderTypes.h"
 
 #include "Serialization/Archive.h"
@@ -154,7 +155,7 @@ namespace Durin
 		auto SerializePayload(
 			FArchive& Ar,
 			FMaterialCompilerResult& Program,
-			FMaterialProgramArtifact& Artifact,
+			FMaterialShaderMap& Artifact,
 			FMaterialStaticProperties& StaticProperties,
 			ECookTargetPlatform& TargetPlatform,
 			ECookTargetProfile& TargetProfile) -> void
@@ -237,10 +238,10 @@ namespace Durin
 			// Producer identity is provenance. Target, pass ABI, layouts and code hashes
 			// determine compatibility even when an editor compiler is available.
 			if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation) return Validation;
-			if (Program.GetArtifact().ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
+			if (Program.GetShaderMap().ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
 				return {EMaterialCookError::ActiveParameterCountExceedsLimit};
 			FGuid PreviousId;
-			for (const auto& Parameter : Program.GetArtifact().ActiveParameters)
+			for (const auto& Parameter : Program.GetShaderMap().ActiveParameters)
 			{
 
 				if (!Parameter.Id.IsValid()
@@ -266,7 +267,7 @@ namespace Durin
 					return {EMaterialCookError::ActiveParameterContractInvalid};
 				PreviousCollection = Collection.CollectionId;
 			}
-			for (const FShaderCode& Shader : Program.GetArtifact().CompiledShaders)
+			for (const FShaderCode& Shader : Program.GetShaderMap().CompiledShaders)
 			{
 				if (Shader.BinaryEntryPoint.empty()
 					|| !ShaderFormat::ValidateCodeHash(Shader.Code, Shader.CodeHash))
@@ -304,7 +305,7 @@ namespace Durin
 		if (const auto Validation = ValidateDecodedProgram(
 				Program, StaticProperties, TargetPlatform, false); !Validation) return Validation;
 		FMaterialCompilerResult Copy = Program;
-		FMaterialProgramArtifact Artifact = Program.GetArtifact();
+		FMaterialShaderMap Artifact = Program.GetShaderMap();
 		FMaterialStaticProperties PropertyCopy = StaticProperties;
 		FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::CookedPayload);
 		SerializePayload(
@@ -349,13 +350,14 @@ namespace Durin
 		if (ChecksumReader.IsError() || StoredChecksum != FXxHash128::HashBuffer(Payload))
 			return {EMaterialCookError::CookedProgramChecksumInvalid};
 		FMaterialCompilerResult Candidate;
-		auto Artifact = std::make_shared<FMaterialProgramArtifact>();
-		Candidate.Artifact = Artifact;
+		auto Artifact = std::make_shared<FMaterialShaderMap>();
+		Candidate.ShaderMap = Artifact;
 		FMaterialStaticProperties CandidateProperties;
 		ECookTargetPlatform Platform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile Profile = ECookTargetProfile::Invalid;
 		FCanonicalMemoryReader Ar(Payload, EArchivePurpose::CookedPayload);
 		SerializePayload(Ar, Candidate, *Artifact, CandidateProperties, Platform, Profile);
+		Artifact->ShaderMapId = Candidate.Identity;
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 		{
 			return {FMaterialError::FromArchive(*Ar.GetFailure())};

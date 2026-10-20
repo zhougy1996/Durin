@@ -3,6 +3,7 @@
 
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialProgramCompiler.h"
+#include "Materials/MaterialShaderMap.h"
 #include "ShaderBuild/ShaderPaths.h"
 #include "slang.h"
 #include "slang-com-ptr.h"
@@ -282,12 +283,12 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialVariantsCompileAsMetalL
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 				: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-			ASSERT_EQ(Compiled.GetArtifact().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
-			EXPECT_EQ(Compiled.GetArtifact().Layout.ResourceFieldCount, bTextured ? 1u : 0u);
-			EXPECT_EQ(Compiled.GetArtifact().Layout.Fields.size(), bTextured ? 4u : 0u);
+			ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
+			EXPECT_EQ(Compiled.GetShaderMap().Layout.ResourceFieldCount, bTextured ? 1u : 0u);
+			EXPECT_EQ(Compiled.GetShaderMap().Layout.Fields.size(), bTextured ? 4u : 0u);
 			ASSERT_TRUE(Durin::ValidateMaterialCompiledStages(
-				Compiled.GetArtifact().CompiledShaders, Compiled.GetArtifact().Layout));
-			for (const auto& Shader : Compiled.GetArtifact().CompiledShaders)
+				Compiled.GetShaderMap().CompiledShaders, Compiled.GetShaderMap().Layout));
+			for (const auto& Shader : Compiled.GetShaderMap().CompiledShaders)
 			{
 				SCOPED_TRACE(Shader.SourceEntryPoint);
 				std::string CrossError;
@@ -331,7 +332,7 @@ TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceC
 			id<MTLFunction> FragmentFunction = nil;
 			for (const int Index : {bLit ? 1 : 0, 4})
 			{
-				const auto& Shader = Compiled.GetArtifact().CompiledShaders[Index];
+				const auto& Shader = Compiled.GetShaderMap().CompiledShaders[Index];
 				std::string CrossError;
 				const std::string MetalCode = TranslateMaterialStage(Shader, CrossError);
 				ASSERT_FALSE(MetalCode.empty()) << CrossError;
@@ -493,9 +494,9 @@ TEST(FMetalMaterialQualificationTests, MaskedMaterialSamplesTextureAndDiscardsBe
 		const auto Compiled = Durin::MIR::Compile(Input);
 		ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 			: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-		ASSERT_EQ(Compiled.GetArtifact().Layout.UniformPayloadSize, 64u);
-		ASSERT_EQ(Compiled.GetArtifact().Layout.ResourceFieldCount, 1u);
-		const auto& Shader = Compiled.GetArtifact().CompiledShaders[0];
+		ASSERT_EQ(Compiled.GetShaderMap().Layout.UniformPayloadSize, 64u);
+		ASSERT_EQ(Compiled.GetShaderMap().Layout.ResourceFieldCount, 1u);
+		const auto& Shader = Compiled.GetShaderMap().CompiledShaders[0];
 		ASSERT_EQ(Shader.SourceEntryPoint, "FragmentMain");
 		std::string CrossError;
 		const std::string MetalCode = TranslateMaterialStage(Shader, CrossError);
@@ -556,7 +557,7 @@ TEST(FMetalMaterialQualificationTests, MaskedMaterialSamplesTextureAndDiscardsBe
 			SCOPED_TRACE(bDiscard ? "masked fragment discarded" : "textured fragment retained");
 			std::array<float, 16> Uniform{};
 			unsigned MatchedFields = 0;
-			for (const auto& Field : Compiled.GetArtifact().Layout.Fields)
+			for (const auto& Field : Compiled.GetShaderMap().Layout.Fields)
 			{
 				if (Field.Storage != Durin::EMaterialRenderFieldStorage::Uniform) continue;
 				ASSERT_EQ(Field.Offset % sizeof(float), 0u);

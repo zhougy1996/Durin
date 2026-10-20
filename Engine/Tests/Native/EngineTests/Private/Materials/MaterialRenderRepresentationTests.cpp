@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
+#include "Materials/MaterialShaderMap.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 
 TEST(FMaterialRenderRepresentationTests, PublishedBindingsRetainOldRevisionWithoutCopying)
@@ -117,7 +118,7 @@ TEST(FMaterialProgramIdentityTests,
 	const Durin::FMaterialRenderData Initial = Base->GetRenderData();
 	EXPECT_EQ(
 		Initial.PlanningPassIdentity.ShaderMap.RenderLayout,
-		Base->GetAcceptedCompiledProgram()->GetArtifact().Layout.Identity);
+		Base->GetAcceptedCompiledProgram()->GetShaderMap().Layout.Identity);
 	EXPECT_EQ(
 		Initial.PlanningPassIdentity.ShaderMap.BlendMode,
 		Durin::EMaterialBlendMode::Opaque);
@@ -212,17 +213,17 @@ TEST(FMaterialProgramIdentityTests,
 		RustMaskId, HeavyMask));
 	const auto Accepted = Root->GetAcceptedCompiledProgram();
 	ASSERT_NE(Accepted, nullptr);
-	EXPECT_EQ(Accepted->GetArtifact().Layout.ResourceFieldCount, 5u);
-	EXPECT_EQ(Accepted->GetArtifact().ActiveParameters.size(), 7u);
+	EXPECT_EQ(Accepted->GetShaderMap().Layout.ResourceFieldCount, 5u);
+	EXPECT_EQ(Accepted->GetShaderMap().ActiveParameters.size(), 7u);
 	const auto LightData = LightRust->GetRenderData();
 	const auto HeavyData = HeavyRust->GetRenderData();
 	EXPECT_EQ(LightData.CompiledProgram, Accepted);
 	EXPECT_EQ(HeavyData.CompiledProgram, Accepted);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(LightData, RustAmountId), 0.1f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(HeavyData, RustAmountId), 0.9f);
-	const auto MaskField = std::ranges::find(Accepted->GetArtifact().Layout.Fields,
+	const auto MaskField = std::ranges::find(Accepted->GetShaderMap().Layout.Fields,
 		RustMaskId, &FMaterialRenderField::ParameterId);
-	ASSERT_NE(MaskField, Accepted->GetArtifact().Layout.Fields.end());
+	ASSERT_NE(MaskField, Accepted->GetShaderMap().Layout.Fields.end());
 	const auto LightBinding = GetMaterialBinding(LightData);
 	const auto HeavyBinding = GetMaterialBinding(HeavyData);
 	ASSERT_LT(MaskField->CompactIndex,
@@ -645,7 +646,7 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	ASSERT_TRUE(Child->SetParent(Root));
 	const auto Accepted = Root->GetAcceptedCompiledProgram();
 	ASSERT_NE(Accepted, nullptr);
-	ASSERT_EQ(Accepted->GetArtifact().Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
+	ASSERT_EQ(Accepted->GetShaderMap().Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
 	auto Binding = GetMaterialBinding(Child->GetRenderData());
 	ASSERT_EQ(Binding.CompiledSamplers.size(), 1u);
 	EXPECT_EQ(Binding.CompiledSamplers[0], Definition.Value.GetTexture().SamplerState);

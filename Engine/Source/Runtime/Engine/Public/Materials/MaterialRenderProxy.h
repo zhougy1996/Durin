@@ -9,6 +9,7 @@
 
 namespace Durin
 {
+	class FMaterialShaderMap;
 	// Owns counted RHI resources and sampling policy after leaving the object thread.
 	struct FMaterialLocalTextureValue
 	{
@@ -122,7 +123,7 @@ namespace Durin
 			bool bActive = false;
 		};
 		auto UpdateParameterBindings() -> void;
-		std::shared_ptr<const FMaterialProgramArtifact> BindingArtifact;
+		std::shared_ptr<const FMaterialShaderMap> BindingArtifact;
 		std::vector<FParameterBinding> ParameterBindings;
 		ENGINE_API auto ApplyPendingPublication_RenderThread() -> bool;
 

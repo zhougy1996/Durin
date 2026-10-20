@@ -40,7 +40,7 @@
 
 #include <gtest/gtest.h>
 #include "../../../../Source/Runtime/Engine/Private/Materials/MaterialTranslation.h"
-#include "../../../../Source/Runtime/Engine/Private/Materials/MaterialBuildOperation.h"
+#include "../../../../Source/Runtime/Engine/Private/Materials/MaterialProgramCompilingManager.h"
 
 namespace
 {

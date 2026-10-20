@@ -305,15 +305,7 @@ namespace Durin
 	};
 
 	enum class EMaterialProgramStatus : uint8 { Ok, Error, Canceled };
-	// Immutable compiled data shared independently of request configuration and defaults.
-	struct FMaterialProgramArtifact
-	{
-		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
-		FMaterialRenderLayout Layout;
-		FMaterialProgramRequirements Requirements;
-		std::vector<FMaterialCompilerDependency> Dependencies;
-		std::vector<FShaderCode> CompiledShaders;
-	};
+	class FMaterialShaderMap;
 	// Editor observations are retained separately and absent from cooked programs.
 	struct FMaterialProgramDebugData
 	{
@@ -332,16 +324,13 @@ namespace Durin
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
-		std::shared_ptr<const FMaterialProgramArtifact> Artifact;
+		std::shared_ptr<const FMaterialShaderMap> ShaderMap;
 		std::shared_ptr<const FMaterialProgramDebugData> DebugData;
 		FMaterialCompileTimings Timings;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
-		auto GetArtifact() const -> const FMaterialProgramArtifact&
-		{
-			static const FMaterialProgramArtifact Empty;
-			return Artifact ? *Artifact : Empty;
-		}
+		ENGINE_API auto GetShaderMap() const -> const FMaterialShaderMap&;
+
 		auto GetDebugData() const -> const FMaterialProgramDebugData&
 		{
 			static const FMaterialProgramDebugData Empty;

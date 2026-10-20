@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderingService.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Shader/ShaderCookedLibrary.h"
@@ -106,7 +107,7 @@ namespace Durin
 		{
 			const FPreparedStaticMeshPrimitive* Primitive = nullptr;
 			const FPreparedStaticMeshDraw* Draw = nullptr;
-			FMaterialShaderMap ShaderMap;
+			FMeshMaterialShaderMap ShaderMap;
 			std::shared_ptr<const FMeshVertexShaderBinding> Vertex;
 			TMaterialShaderRef<FHitProxyFragmentShader> Fragment;
 			FGraphicsPipelineStateRHIRef Pipeline;
@@ -158,7 +159,7 @@ namespace Durin
 				// Until time dependence is a separate material requirement, conservatively
 				// expire all live view-dependent programs once per render frame.
 				const auto Program = Draw.Command->Material.CompiledProgram;
-				bFrameDependent |= View.MaterialTimeSeconds < 0.0 && Program && Program->GetArtifact().Requirements.bMaterialView;
+				bFrameDependent |= View.MaterialTimeSeconds < 0.0 && Program && Program->GetShaderMap().Requirements.bMaterialView;
 				for (const auto& Texture : Binding.CompiledTextures)
 					if (Texture && Texture->GetReferencedTexture_RenderThread())
 						bFrameDependent |= EnumHasAnyFlags(Texture->GetReferencedTexture_RenderThread()->GetFlags(), ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::Storage);

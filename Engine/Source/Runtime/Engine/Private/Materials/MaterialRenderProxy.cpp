@@ -1,4 +1,5 @@
 #include "Materials/MaterialRenderProxy.h"
+#include "Materials/MaterialShaderMap.h"
 
 #include "RenderingThread.h"
 #include "Texture/Texture2D.h"
@@ -225,13 +226,13 @@ namespace Durin
 
 	auto FMaterialRenderProxy::UpdateParameterBindings() -> void
 	{
-		bool bCurrent = BindingArtifact == (LocalLayer.CompiledProgram ? LocalLayer.CompiledProgram->Artifact : nullptr)
+		bool bCurrent = BindingArtifact == (LocalLayer.CompiledProgram ? LocalLayer.CompiledProgram->ShaderMap : nullptr)
 			&& ParameterBindings.size() == LocalLayer.Parameters.size();
 		for (size_t Index = 0; bCurrent && Index < ParameterBindings.size(); ++Index)
 			bCurrent = ParameterBindings[Index].Id == LocalLayer.Parameters[Index].Id
 				&& ParameterBindings[Index].Type == LocalLayer.Parameters[Index].GetType();
 		if (bCurrent) return;
-		BindingArtifact = LocalLayer.CompiledProgram ? LocalLayer.CompiledProgram->Artifact : nullptr;
+		BindingArtifact = LocalLayer.CompiledProgram ? LocalLayer.CompiledProgram->ShaderMap : nullptr;
 		ParameterBindings.clear();
 		if (!BindingArtifact) return;
 		std::unordered_map<FGuid, uint32> Fields;
@@ -275,13 +276,13 @@ namespace Durin
 				LocalLayer.CompiledProgram->Identity;
 		}
 		FMaterialRenderRepresentationBuilder RepresentationBuilder = CachedResolvedData.CompiledProgram
-			&& CachedResolvedData.CompiledProgram->GetArtifact().Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
-			&& CachedResolvedData.CompiledProgram->GetArtifact().Layout.Identity != CachedResolvedData.Representation.GetLayout().Identity
-			? FMaterialRenderRepresentationBuilder(CachedResolvedData.CompiledProgram->GetArtifact().Layout)
+			&& CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
+			&& CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity != CachedResolvedData.Representation.GetLayout().Identity
+			? FMaterialRenderRepresentationBuilder(CachedResolvedData.CompiledProgram->GetShaderMap().Layout)
 			: FMaterialRenderRepresentationBuilder(CachedResolvedData.Representation);
 		bool bRepresentationValid = true;
 		if (CachedResolvedData.CompiledProgram)
-			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->GetArtifact().Layout.Identity;
+			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity;
 		UpdateParameterBindings();
 		uint64 IndexedWrites = 0;
 		for (size_t Index = 0; Index < LocalLayer.Parameters.size(); ++Index)

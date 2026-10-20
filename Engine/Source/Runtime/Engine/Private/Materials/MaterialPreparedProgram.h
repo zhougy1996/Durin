@@ -30,7 +30,7 @@ namespace Durin
 	};
 
 	// Detached CPU product. Shader binaries and publication success exist only
-	// in FMaterialCompilerResult, constructed by final assembly.
+	// in FMaterialShaderMap, constructed by final assembly.
 	struct FMaterialTranslatedProgram
 	{
 		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
@@ -65,8 +65,6 @@ namespace Durin
 	auto BuildMaterialProgramRequirements(const MIR::FModule& IR) -> FMaterialProgramRequirements;
 	ENGINE_API auto MakeMaterialShaderCompileRequest(const FMaterialTranslatedProgram& Translation,
 		bool bForceRecompile) -> FGeneratedShaderCompileRequest;
-	ENGINE_API auto AssembleMaterialProgram(FMaterialTranslatedProgram Translation,
-		FShaderBuildResult Output) -> FMaterialCompilerResult;
 
 	auto PrepareMaterialProgram(const MIR::FCompilerInput& Input) -> FMaterialPreparedProgram;
 	auto ValidateMaterialNormalizationEnvironment(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult;

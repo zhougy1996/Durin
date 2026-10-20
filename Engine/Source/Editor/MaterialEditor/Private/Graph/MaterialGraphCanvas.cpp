@@ -1181,7 +1181,6 @@ namespace Durin::Editor::Material
 				const FMaterialCompileStatus& CompileStatus = Material->GetMaterialCompileStatus();
 				if (CompileStatus.HasUnsubmittedEdits()
 					|| CompileStatus.State == EMaterialCompileState::Deferred
-					|| CompileStatus.State == EMaterialCompileState::Pending
 					|| CompileStatus.State == EMaterialCompileState::Running
 					|| CompileStatus.State == EMaterialCompileState::Failed
 					|| CompileStatus.State == EMaterialCompileState::Rejected)

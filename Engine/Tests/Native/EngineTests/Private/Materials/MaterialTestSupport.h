@@ -58,8 +58,7 @@ namespace
 		{
 			Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
 			const auto State = Material.GetMaterialCompileStatus().State;
-			if (State != Durin::EMaterialCompileState::Pending
-				&& State != Durin::EMaterialCompileState::Running)
+			if (State != Durin::EMaterialCompileState::Running)
 				return State == Durin::EMaterialCompileState::Ready;
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}

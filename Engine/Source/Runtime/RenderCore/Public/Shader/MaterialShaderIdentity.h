@@ -89,7 +89,7 @@ namespace Durin
 	static_assert(sizeof(FMaterialShaderBlendModeKey) == sizeof(uint8));
 	static_assert(sizeof(FMaterialShaderShadingModelKey) == sizeof(uint8));
 
-	struct FMaterialShaderMapIdentity
+	struct FMeshMaterialShaderMapIdentity
 	{
 		FMaterialRenderLayoutIdentity RenderLayout;
 		FMaterialProgramIdentity ProgramIdentity;
@@ -97,12 +97,12 @@ namespace Durin
 		FMaterialShaderShadingModelKey ShadingModel;
 		float OpacityMaskThreshold = 0.333f;
 
-		auto operator==(const FMaterialShaderMapIdentity&) const -> bool = default;
+		auto operator==(const FMeshMaterialShaderMapIdentity&) const -> bool = default;
 	};
 
 	struct FMaterialShaderPermutationIdentity
 	{
-		FMaterialShaderMapIdentity Material;
+		FMeshMaterialShaderMapIdentity Material;
 		std::string ShaderType;
 		std::string EntryPoint;
 		std::string Target;

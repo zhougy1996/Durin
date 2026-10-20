@@ -189,7 +189,7 @@ namespace Durin::Tests
 	class FQualificationShaderBinding final : public RendererPrivate::FMeshVertexShaderBinding
 	{
 	public:
-		explicit FQualificationShaderBinding(const FMaterialShaderMap& Map) : Shader(Map) {}
+		explicit FQualificationShaderBinding(const FMeshMaterialShaderMap& Map) : Shader(Map) {}
 		auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
 		auto GetRHIShader(bool bRequired) const -> FRHIShader* override { return Shader.GetRHIShader(bRequired); }
 		auto Prepare(FRHICommandListImmediate& CommandList, const FRHIUniformBufferRange& Transform,
@@ -226,7 +226,7 @@ namespace Durin::Tests
 		}
 		auto GetLayoutKey() const -> FXxHash64 override { FProceduralBinding Binding; Binding.bCustom = true; Binding.bForwardOnly = bForwardOnly; return Binding.GetLayoutKey(); }
 		auto GetShaderType(uint32 Pass) const -> FShaderType* override { return Pass <= RendererPrivate::MaterialMeshPassShadow && !(bForwardOnly && Pass == RendererPrivate::MaterialMeshPassGBuffer) ? &FQualificationVertexShader::StaticType() : nullptr; }
-		auto Resolve(const FMaterialShaderMap& Map, uint32 Pass) const -> std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding> override
+		auto Resolve(const FMeshMaterialShaderMap& Map, uint32 Pass) const -> std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding> override
 		{
 			return GetShaderType(Pass) ? std::make_shared<FQualificationShaderBinding>(Map) : nullptr;
 		}

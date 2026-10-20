@@ -1,4 +1,5 @@
 #include "AssetTools/Relocation.h"
+#include "Materials/MaterialShaderMap.h"
 #include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -1058,8 +1059,8 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << Durin::FormatMaterialError(Error.Error);
 	const auto Compiled = MIR::Compile(Input, true);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Compiled.Diagnostics[0].Error));
-	EXPECT_EQ(Compiled.GetArtifact().Layout.ResourceFieldCount, 1u);
-	EXPECT_FALSE(Compiled.GetArtifact().CompiledShaders.empty());
+	EXPECT_EQ(Compiled.GetShaderMap().Layout.ResourceFieldCount, 1u);
+	EXPECT_FALSE(Compiled.GetShaderMap().CompiledShaders.empty());
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
 	MarkAsGarbage(Wrapper);
 	MarkAsGarbage(Leaf);

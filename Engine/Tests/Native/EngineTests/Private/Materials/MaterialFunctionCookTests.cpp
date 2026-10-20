@@ -1,4 +1,5 @@
 #include "NativeRHIBackendTestSupport.h"
+#include "Materials/MaterialShaderMap.h"
 #include "MaterialFunctionTestSupport.h"
 #include "MaterialCookedProgramTestSupport.h"
 
@@ -192,7 +193,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetArtifact().Layout.ResourceFieldCount, 1u);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout.ResourceFieldCount, 1u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
@@ -279,7 +280,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetArtifact().Layout.ResourceFieldCount, 6u);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout.ResourceFieldCount, 6u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());

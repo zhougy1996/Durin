@@ -117,14 +117,12 @@ namespace Durin::Editor::Material
 			case EMaterialCompileState::NeedsCompile: return "Needs compile";
 			case EMaterialCompileState::Scheduled: return "Waiting for edits to finish";
 			case EMaterialCompileState::Deferred: return "Waiting for compiler capacity";
-			case EMaterialCompileState::Pending: return "Compiling";
 			case EMaterialCompileState::Running: return "Compiling";
 			case EMaterialCompileState::Ready: return "Ready";
 			case EMaterialCompileState::Failed: return "Failed";
 			case EMaterialCompileState::Canceled: return "Canceled";
 			case EMaterialCompileState::Superseded: return "Superseded";
 			case EMaterialCompileState::Rejected: return "Rejected";
-			case EMaterialCompileState::Shutdown: return "Unavailable";
 			}
 			return "Unknown";
 		}
@@ -646,9 +644,8 @@ namespace Durin::Editor::Material
 			else if (ImGui::Button("Compile")) RequestMaterialRecompile(*Material);
 			const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
 			const bool bPending = Status.State == EMaterialCompileState::Deferred
-				|| Status.State == EMaterialCompileState::Pending
-				|| Status.State == EMaterialCompileState::Scheduled
-				|| Status.State == EMaterialCompileState::Running;
+				|| Status.State == EMaterialCompileState::Running
+				|| Status.State == EMaterialCompileState::Scheduled;
 			if (bPending)
 			{
 				ImGui::SameLine();

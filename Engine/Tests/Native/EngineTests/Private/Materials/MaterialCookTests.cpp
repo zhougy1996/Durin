@@ -1,4 +1,5 @@
 #include "NativeRHIBackendTestSupport.h"
+#include "Materials/MaterialShaderMap.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
@@ -133,9 +134,9 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_EQ(StalePreparation.Poll(), Durin::EMaterialProgramPreparationState::Stale);
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality));
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders.size(), 6u);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 6u);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
-	for (const auto& Shader : Cooked->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders)
+	for (const auto& Shader : Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders)
 	{
 		EXPECT_EQ(Shader.Target, Metal ? Durin::MetalLibraryShaderTarget : Durin::VulkanShaderTarget);
 		EXPECT_TRUE(Durin::ShaderFormat::ValidateShaderCode(Shader));
@@ -307,7 +308,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		return Object.FindField("Program") != nullptr;
 	}));
 	EXPECT_TRUE(Cooked->GetExpressionCollection().Expressions.empty());
-	EXPECT_FALSE(Cooked->GetAcceptedCompiledProgram()->GetArtifact().ActiveParameters.empty());
+	EXPECT_FALSE(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ActiveParameters.empty());
 	Durin::DMaterialInstance* Instance = nullptr;
 	{
 		auto Loaded = Durin::LoadObject<Durin::DMaterialInstance>(InstancePath);
@@ -454,7 +455,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		{}, {Graph.Outputs.Emissive.Connection, Testing::MakeLink(*InstanceData)});
 	ASSERT_TRUE(Graph.Apply(*Source));
 	ASSERT_NE(Source->GetAcceptedCompiledProgram(), nullptr);
-	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->GetArtifact().Layout;
+	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->GetShaderMap().Layout;
 	auto* Instance = NewObject<DMaterialInstance>(Source->GetPackage(), "CustomCookedOverrides");
 	ASSERT_TRUE(Instance->SetParent(Source));
 	ASSERT_TRUE(Instance->SetParameterValue(Tint.Id, FMaterialParameterValue::MakeVector4(FVector4(0.8, 0.3, 0.1, 1.0))));
@@ -487,7 +488,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		}
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetArtifact().Layout, ExpectedLayout);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout, ExpectedLayout);
 		EXPECT_EQ(Loaded->GetStaticProperties().GeometryUsage, 1u);
 		EXPECT_EQ(Loaded->GetStaticProperties().PassUsage, 7u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
@@ -495,8 +496,8 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->RequiredStages,
 			SelectMaterialShaderStages(Loaded->GetStaticProperties(), false));
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders.size(), 4u);
-		EXPECT_FALSE(std::ranges::any_of(Loaded->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders,
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 4u);
+		EXPECT_FALSE(std::ranges::any_of(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders,
 			[](const auto& Stage) { return Stage.SourceEntryPoint == "HitProxyFragmentMain"; }));
 		DMaterialInstance* LoadedInstance = nullptr;
 		{

@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-20
 
 ## Ownership
 
@@ -587,8 +587,8 @@ of Shader target/compiler/source identities. Locations use input-relative ordina
 requesting snapshots restore consumer GUIDs, paths and collection defaults. Typed
 validation rejects schema, identity, MIR/layout or requirements disagreement and
 rebuilds a bad hit once without cache query. Force, cancellation and persistence
-failure retain the common session policy. Material operations retain their DDC
-owners through retirement and close family sessions after operation drain. Complete
+failure retain the common session policy. Material compile records retain their DDC
+owners through retirement and close family sessions after compilation drain. Complete
 assembled material candidates remain in the shared bounded process cache only.
 
 Cache success never means an asset is current, applied, GPU-ready, or

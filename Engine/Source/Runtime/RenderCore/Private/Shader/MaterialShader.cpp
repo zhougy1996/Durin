@@ -78,11 +78,11 @@ namespace Durin
 		}
 	}
 
-	class FMaterialShaderMapPayload
+	class FMeshMaterialShaderMapPayload
 	{
 	public:
 		std::shared_ptr<FShaderMapBase> ShaderMap;
-		FMaterialShaderMapIdentity Identity;
+		FMeshMaterialShaderMapIdentity Identity;
 		FRenderResourceGeneration Generation;
 		FXxHash128 CompatibilityHash;
 		std::string CompatibilityText;
@@ -134,9 +134,9 @@ namespace Durin
 		return GetMeshMaterialShaderTypeRegistry().GetTypes();
 	}
 
-	auto FMaterialShaderMap::TryCreate(
-		FMaterialShaderMapBuildInput Input,
-		FMaterialShaderMap& OutMap) -> FShaderOperationResult
+	auto FMeshMaterialShaderMap::TryCreate(
+		FMeshMaterialShaderMapBuildInput Input,
+		FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult
 	{
 		FShaderOperationResult Result;
 		OutMap = {};
@@ -220,7 +220,7 @@ namespace Durin
 			CompatibilityText.append(Text);
 		}
 
-		auto Candidate = std::make_shared<FMaterialShaderMapPayload>();
+		auto Candidate = std::make_shared<FMeshMaterialShaderMapPayload>();
 		Candidate->ShaderMap = std::make_shared<FShaderMapBase>();
 		if (!(Result = Candidate->ShaderMap->Initialize(Input.ShaderTypes, Input.CompilerOutput, Input.CompileOptions, true)))
 		{
@@ -244,13 +244,13 @@ namespace Durin
 		Candidate->Generation = Input.Generation;
 		Candidate->CompatibilityHash = SetHash.Finalize();
 		Candidate->CompatibilityText = std::move(CompatibilityText);
-		OutMap = FMaterialShaderMap(std::move(Candidate));
+		OutMap = FMeshMaterialShaderMap(std::move(Candidate));
 		return {};
 	}
 
-	auto FMaterialShaderMap::TryCompile(
-		FMaterialShaderMapCompileInput Input,
-		FMaterialShaderMap& OutMap) -> FShaderCompletion
+	auto FMeshMaterialShaderMap::TryCompile(
+		FMeshMaterialShaderMapCompileInput Input,
+		FMeshMaterialShaderMap& OutMap) -> FShaderCompletion
 	{
 		FShaderOperationResult Result;
 		OutMap = {};
@@ -360,32 +360,32 @@ namespace Durin
 			.bCreateRHIShaders = Input.bCreateRHIShaders}, OutMap);
 	}
 
-	auto FMaterialShaderMap::GetIdentity() const
-		-> const FMaterialShaderMapIdentity&
+	auto FMeshMaterialShaderMap::GetIdentity() const
+		-> const FMeshMaterialShaderMapIdentity&
 	{
 		check(Payload);
 		return Payload->Identity;
 	}
 
-	auto FMaterialShaderMap::GetGeneration() const
+	auto FMeshMaterialShaderMap::GetGeneration() const
 		-> const FRenderResourceGeneration&
 	{
 		check(Payload);
 		return Payload->Generation;
 	}
 
-	auto FMaterialShaderMap::GetCompatibilityHash() const -> FXxHash128
+	auto FMeshMaterialShaderMap::GetCompatibilityHash() const -> FXxHash128
 	{
 		return Payload ? Payload->CompatibilityHash : FXxHash128{};
 	}
 
-	auto FMaterialShaderMap::GetCompatibilityText() const -> std::string_view
+	auto FMeshMaterialShaderMap::GetCompatibilityText() const -> std::string_view
 	{
 		return Payload ? std::string_view(Payload->CompatibilityText)
 			: std::string_view{};
 	}
 
-	auto FMaterialShaderMap::GetPipelineLayout() const
+	auto FMeshMaterialShaderMap::GetPipelineLayout() const
 		-> const FPipelineLayoutDesc&
 	{
 		check(Payload && Payload->ShaderMap);
@@ -393,7 +393,7 @@ namespace Durin
 	}
 
 	auto GetShaderFromMaterialPayloadImpl(
-		const std::shared_ptr<FMaterialShaderMapPayload>& Payload,
+		const std::shared_ptr<FMeshMaterialShaderMapPayload>& Payload,
 		const FMaterialShaderType* Type) -> FShader*
 	{
 		return Payload && Payload->ShaderMap
@@ -401,15 +401,15 @@ namespace Durin
 	}
 
 	auto GetMaterialPayloadIdentityImpl(
-		const std::shared_ptr<FMaterialShaderMapPayload>& Payload)
-		-> const FMaterialShaderMapIdentity&
+		const std::shared_ptr<FMeshMaterialShaderMapPayload>& Payload)
+		-> const FMeshMaterialShaderMapIdentity&
 	{
 		check(Payload);
 		return Payload->Identity;
 	}
 
 	auto GetMaterialPayloadGenerationImpl(
-		const std::shared_ptr<FMaterialShaderMapPayload>& Payload)
+		const std::shared_ptr<FMeshMaterialShaderMapPayload>& Payload)
 		-> const FRenderResourceGeneration&
 	{
 		check(Payload);

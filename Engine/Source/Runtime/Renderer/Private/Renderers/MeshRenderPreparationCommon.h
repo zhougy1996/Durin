@@ -28,7 +28,7 @@ namespace Durin
 
 	struct FMeshShaderMapKey
 	{
-		FMaterialShaderMapIdentity Material;
+		FMeshMaterialShaderMapIdentity Material;
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
 		FXxHash64 FactoryKey;
 		FXxHash64 LayoutKey;

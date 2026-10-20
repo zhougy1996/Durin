@@ -1,4 +1,5 @@
 #include "MaterialExpressionGraphBuilder.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Asset/Asset.h"
 
 #include "Materials/Material.h"
@@ -291,7 +292,7 @@ namespace Durin
 				Result->Validation.Diagnostics.push_back({.Error = EMaterialExpressionError::NoAcceptedCompiledProgram});
 				return Result;
 			}
-			for (const auto& Parameter : Program->GetArtifact().ActiveParameters) Result->ParameterIds.insert(Parameter.Id);
+			for (const auto& Parameter : Program->GetShaderMap().ActiveParameters) Result->ParameterIds.insert(Parameter.Id);
 			Result->Validation.bSucceeded = true;
 			ParameterReachabilityProgramRevision = 0;
 			ParameterReachabilityFunctionOwners.clear();

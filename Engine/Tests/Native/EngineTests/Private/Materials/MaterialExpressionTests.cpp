@@ -1,4 +1,5 @@
 #include "DObject/PackagePersistence.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialObjectValidation.h"
 #include "FunctionPortTestFixture.h"
 #include "Materials/MaterialExpressionInputs.h"
@@ -871,7 +872,7 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment))) << Durin::FormatMaterialError(Error.Error);
 	const auto Compiled = MIR::Compile(CompilerInput);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-	EXPECT_EQ(Compiled.GetArtifact().CompiledShaders.size(), MaterialCompiledEntryPoints.size());
+	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), MaterialCompiledEntryPoints.size());
 	Get->AttributeMask = 2;
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 }

@@ -113,8 +113,7 @@ namespace Durin::Editor::StaticMesh
 					if (!Material) continue;
 					const auto& Status = Material->GetMaterialCompileStatus();
 					if (Status.IsCurrent() && Material->GetAcceptedCompiledProgram()) continue;
-					if (Status.State == EMaterialCompileState::Pending
-						|| Status.State == EMaterialCompileState::Running
+					if (Status.State == EMaterialCompileState::Running
 						|| Status.State == EMaterialCompileState::Deferred
 						|| Status.State == EMaterialCompileState::Scheduled)
 						return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};

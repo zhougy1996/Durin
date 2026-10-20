@@ -4,7 +4,7 @@
 #if DURIN_WITH_EDITOR
 #include "Physics/PhysicsBuildFunction.h"
 #include "Materials/MaterialTranslation.h"
-#include "Materials/MaterialProgramCache.h"
+#include "Materials/MaterialShaderMap.h"
 #endif
 
 namespace Durin
@@ -30,7 +30,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 			PhysicsPrivate::ShutdownBuildSessions();
 			MaterialBuildPrivate::CloseTranslationSessions();
-			MaterialBuildPrivate::ClearPrograms();
+			FMaterialShaderMap::ClearCache();
 #endif
 			MaterialParameterCollections.reset();
 			CollisionDebug.reset();

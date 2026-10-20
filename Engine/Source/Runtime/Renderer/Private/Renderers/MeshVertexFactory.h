@@ -50,7 +50,7 @@ namespace Durin::RendererPrivate
 			return GetShaderType(Pass) != nullptr
 				&& (Draw.Topology == EGeometryTopology::TriangleList || Draw.Topology == EGeometryTopology::LineList);
 		}
-		virtual auto Resolve(const FMaterialShaderMap& Map, uint32 Pass) const
+		virtual auto Resolve(const FMeshMaterialShaderMap& Map, uint32 Pass) const
 			-> std::shared_ptr<const FMeshVertexShaderBinding> = 0;
 	};
 

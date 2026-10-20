@@ -160,7 +160,7 @@ namespace Durin
 	) -> bool;
 	struct FMaterialPlanningPassIdentity
 	{
-		FMaterialShaderMapIdentity ShaderMap;
+		FMeshMaterialShaderMapIdentity ShaderMap;
 		bool bTwoSided = false;
 		EMaterialDepthWritePolicy DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
 

@@ -97,7 +97,6 @@ namespace Durin::Editor::Material
 				|| Material->GetAcceptedCompiledProgram() == nullptr)
 			{
 				if (CompileStatus.State == EMaterialCompileState::Deferred
-					|| CompileStatus.State == EMaterialCompileState::Pending
 					|| CompileStatus.State == EMaterialCompileState::Running)
 					return FMaterialThumbnailResource{Revision == 0 ? 1 : Revision, false};
 				const auto Diagnostics = Material->GetMaterialCompileDiagnostics();

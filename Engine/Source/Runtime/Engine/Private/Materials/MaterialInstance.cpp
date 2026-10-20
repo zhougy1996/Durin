@@ -1,4 +1,5 @@
 #include "MaterialParameterValidation.h"
+#include "Materials/MaterialShaderMap.h"
 #include "MaterialParameterMutation.h"
 #include "MaterialDependencyIndex.h"
 #include "Components/PropertyEditValidation.h"
@@ -532,9 +533,9 @@ namespace Durin
 			if (!Definition)
 				return Reject(FMaterialError(EMaterialParameterError::NotFound),
 					Index, Update.ParameterId);
-			const auto Active = std::ranges::find(Program->GetArtifact().ActiveParameters,
+			const auto Active = std::ranges::find(Program->GetShaderMap().ActiveParameters,
 				Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
-			if (Active == Program->GetArtifact().ActiveParameters.end()
+			if (Active == Program->GetShaderMap().ActiveParameters.end()
 				|| !Reachability->ParameterIds.contains(Update.ParameterId))
 				return Reject(FMaterialError(EMaterialParameterError::Unreachable),
 					Index, Update.ParameterId);
