@@ -1513,18 +1513,12 @@ namespace Durin
 		};
 
 		auto RetractTask(const std::shared_ptr<FTaskStateData>& Target, const FTaskWaitDeadline& Deadline,
-			bool bAllowExpiredAttempt, FRetractionWork& Work) -> void
+			FRetractionWork& Work) -> void
 		{
 			auto Execute = [&](const std::shared_ptr<FTaskStateData>& Task) {
 				if (Task->GetTarget() == ETaskTarget::AnyWorker) Pool.TryExecuteNode(Task);
 				else if (Task->GetTarget() == ETaskTarget::BlockingIO && GExecutingBlockingIOPool) BlockingIOPool.TryExecuteNode(Task);
 			};
-			// Zero timeout attempts only the target, never its dependencies.
-			if (Deadline.IsExpired())
-			{
-				if (bAllowExpiredAttempt) Execute(Target);
-				return;
-			}
 			Work.Stack.push_back({Target});
 			while (!Work.Stack.empty() && !Deadline.IsExpired())
 			{
@@ -2575,7 +2569,7 @@ namespace Durin
 
 	auto Tasks::Private::FTaskHandle::IsCompleted() const -> bool
 	{
-		return State && IsTerminalState(State->GetState());
+		return !State || IsTerminalState(State->GetState());
 	}
 
 	auto Tasks::Private::FTaskHandle::GetState() const -> ETaskState
@@ -3212,12 +3206,43 @@ namespace Durin
 
 	namespace
 	{
-		auto WaitTaskState(const std::shared_ptr<FTaskStateData>& TaskState, const FTaskWaitDeadline& Deadline,
-			bool bAllowExpiredAttempt) -> FTaskWaitResult
+		auto GetTaskWaitRestriction(const std::shared_ptr<FTaskStateData>& TaskState) -> std::optional<ETaskWaitStatus>
+		{
+			if (GCurrentTaskState == TaskState.get())
+			{
+				DURIN_WARN("Task wait rejected because a task cannot wait for itself. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
+				return ETaskWaitStatus::SelfWait;
+			}
+
+			if (GCurrentTaskState && TaskState->DependsOn(GCurrentTaskState))
+			{
+				DURIN_WARN("Task wait rejected because the target depends on the current task. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
+				return ETaskWaitStatus::DependencyCycle;
+			}
+
+			if (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
+				return ETaskWaitStatus::UnsupportedThread;
+			if (IsInRenderingThread() && !TaskState->IsIndependentCPU())
+			{
+				DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
+				return ETaskWaitStatus::UnsupportedThread;
+			}
+			if (GCurrentTaskState && TaskState->RequiresGameThread(true))
+				return ETaskWaitStatus::UnsupportedThread;
+			if (GIsGameThreadIdInitialized && IsInGameThread() && TaskState->RequiresGameThread())
+			{
+				DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
+				return ETaskWaitStatus::UnsupportedThread;
+			}
+
+			return std::nullopt;
+		}
+
+		auto WaitTaskState(const std::shared_ptr<FTaskStateData>& TaskState, const FTaskWaitDeadline& Deadline) -> FTaskWaitResult
 		{
 			if (!TaskState)
 			{
-				return {ETaskWaitStatus::InvalidTask, ETaskState::Invalid};
+				return {ETaskWaitStatus::Completed, ETaskState::Invalid};
 			}
 
 			ETaskState State = TaskState->GetState();
@@ -3225,33 +3250,10 @@ namespace Durin
 			{
 				return {ETaskWaitStatus::Completed, State};
 			}
+			// Polling never executes user code or requires authority to block.
+			if (Deadline.IsExpired()) return {ETaskWaitStatus::TimedOut, State};
 
-			if (GCurrentTaskState == TaskState.get())
-			{
-				DURIN_WARN("Task wait rejected because a task cannot wait for itself. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
-				return {ETaskWaitStatus::SelfWait, State};
-			}
-
-			if (GCurrentTaskState && TaskState->DependsOn(GCurrentTaskState))
-			{
-				DURIN_WARN("Task wait rejected because the target depends on the current task. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
-				return {ETaskWaitStatus::DependencyCycle, State};
-			}
-
-			if (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
-				return {ETaskWaitStatus::UnsupportedThread, State};
-			if (IsInRenderingThread() && !TaskState->IsIndependentCPU())
-			{
-				DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
-				return {ETaskWaitStatus::UnsupportedThread, State};
-			}
-			if (GCurrentTaskState && TaskState->RequiresGameThread(true))
-				return {ETaskWaitStatus::UnsupportedThread, State};
-			if (GIsGameThreadIdInitialized && IsInGameThread() && TaskState->RequiresGameThread())
-			{
-				DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
-				return {ETaskWaitStatus::UnsupportedThread, State};
-			}
+			if (auto Restriction = GetTaskWaitRestriction(TaskState)) return {*Restriction, State};
 
 			std::shared_ptr<FTaskScheduler> Scheduler = TaskState->PinScheduler();
 			const auto WaitStartTime = std::chrono::steady_clock::now();
@@ -3288,15 +3290,13 @@ namespace Durin
 			};
 			const bool bCanHelp = GCurrentTaskState && Scheduler && GCurrentTaskScheduler == Scheduler.get();
 			FTaskScheduler::FRetractionWork Retraction;
-			bool bFirst = true;
 			while (!IsTerminalState(State))
 			{
 				// Prepare before inspecting/retracting so a concurrent enqueue, binding
 				// or publication between inspection and sleep cannot be lost.
 				const uint64 Observed = Scheduler ? Scheduler->PrepareProgressWait() : 0;
-				if (bCanHelp && ((bFirst && bAllowExpiredAttempt) || !Deadline.IsExpired()))
-					Scheduler->RetractTask(TaskState, Deadline, bFirst && bAllowExpiredAttempt, Retraction);
-				bFirst = false;
+				if (bCanHelp && !Deadline.IsExpired())
+					Scheduler->RetractTask(TaskState, Deadline, Retraction);
 				State = TaskState->GetState();
 				ReportLongWait();
 				if (IsTerminalState(State)) break;
@@ -3311,8 +3311,20 @@ namespace Durin
 		}
 	}
 
+	auto Tasks::Private::FTaskHandle::TryRetractAndExecute() const -> bool
+	{
+		if (!State || IsTerminalState(State->GetState())) return true;
+		if (GetTaskWaitRestriction(State)) return false;
+		if (auto Scheduler = State->PinScheduler())
+		{
+			FTaskScheduler::FRetractionWork Work;
+			Scheduler->RetractTask(State, FTaskWaitDeadline(std::numeric_limits<double>::infinity()), Work);
+		}
+		return IsCompleted();
+	}
+
 	auto WaitTask(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult
-	{ return WaitTaskState(Task.State, FTaskWaitDeadline(TimeoutSeconds), !(TimeoutSeconds > 0)); }
+	{ return WaitTaskState(Task.State, FTaskWaitDeadline(TimeoutSeconds)); }
 
 	auto WaitAll(std::span<const Tasks::FTask> Tasks) -> std::vector<FTaskWaitResult>
 	{ return WaitAll(Tasks, std::numeric_limits<double>::infinity()); }
@@ -3323,7 +3335,7 @@ namespace Durin
 		std::vector<FTaskWaitResult> Outcomes;
 		Outcomes.reserve(Tasks.size());
 		for (const Tasks::FTask& Task : Tasks)
-			Outcomes.push_back(WaitTaskState(Task.State, Deadline, !(TimeoutSeconds > 0)));
+			Outcomes.push_back(WaitTaskState(Task.State, Deadline));
 		return Outcomes;
 	}
 

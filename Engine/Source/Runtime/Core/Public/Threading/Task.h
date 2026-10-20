@@ -409,7 +409,8 @@ namespace Durin
 
 	CORE_API auto CancelTask(const Tasks::FTask& Task) -> bool;
 	CORE_API auto WaitTask(const Tasks::FTask& Task) -> FTaskWaitResult;
-	// Seconds bound blocking and helping attempts, never an executing callable.
+	// Nonpositive seconds only poll. Positive seconds bound blocking/helping attempts,
+	// never an executing callable. Empty handles complete with Invalid task state.
 	CORE_API auto WaitTask(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult;
 	// Returns one wait result for each input handle, including invalid handles and rejected waits.
 	CORE_API auto WaitAll(std::span<const Tasks::FTask> Tasks) -> std::vector<FTaskWaitResult>;
@@ -428,16 +429,6 @@ namespace Durin
 			auto operator=(const FTaskHandle&) -> FTaskHandle& = default;
 			auto operator=(FTaskHandle&&) noexcept -> FTaskHandle& = default;
 
-			// Slicing a facade, including an rvalue, copies observation. Only moves
-			// between actual base handles may transfer their execution state.
-			template<typename T> requires (!std::same_as<std::remove_cvref_t<T>, FTaskHandle>
-				&& std::derived_from<std::remove_cvref_t<T>, FTaskHandle>)
-			FTaskHandle(T&& Other) noexcept : FTaskHandle(static_cast<const FTaskHandle&>(Other)) {}
-			template<typename T> requires (!std::same_as<std::remove_cvref_t<T>, FTaskHandle>
-				&& std::derived_from<std::remove_cvref_t<T>, FTaskHandle>)
-			auto operator=(T&& Other) noexcept -> FTaskHandle&
-			{ return *this = static_cast<const FTaskHandle&>(Other); }
-
 			CORE_API auto IsValid() const -> bool;
 			CORE_API auto IsCompleted() const -> bool;
 			auto IsComplete() const -> bool { return IsCompleted(); }
@@ -448,6 +439,9 @@ namespace Durin
 			CORE_API auto GetDiagnostics() const -> FTaskDiagnostics;
 			auto Wait() const -> FTaskWaitResult { return Durin::WaitTask(*this); }
 			auto Wait(double TimeoutSeconds) const -> FTaskWaitResult { return Durin::WaitTask(*this, TimeoutSeconds); }
+			// Attempts this task and its dependencies without waiting for other threads.
+			// An executed callable can run arbitrarily long; executor restrictions apply.
+			CORE_API auto TryRetractAndExecute() const -> bool;
 
 		protected:
 			auto SetHandle(FTaskHandle InHandle) -> void { *this = std::move(InHandle); }

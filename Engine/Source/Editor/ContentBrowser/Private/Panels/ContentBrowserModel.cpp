@@ -70,7 +70,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 		}
 		bool bPublished = false;
-		if (ItemsTask.IsCompleted())
+		if (ItemsTask.IsValid() && ItemsTask.IsCompleted())
 		{
 			if (ActiveItemsRequest && ActiveItemsRequest == ItemsRequest
 				&& ActiveItemsRequest->State == EItemsRequestState::Capturing)
@@ -102,7 +102,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Items")});
 
 		}
-		if (TreeTask.IsCompleted())
+		if (TreeTask.IsValid() && TreeTask.IsCompleted())
 		{
 			if (bActiveTreePublishable)
 			{

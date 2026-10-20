@@ -2579,16 +2579,16 @@ namespace Durin
 		Tasks::FTask InvalidHandle;
 
 		EXPECT_FALSE(InvalidHandle.IsValid());
-		EXPECT_FALSE(InvalidHandle.IsComplete());
+		EXPECT_TRUE(InvalidHandle.IsComplete());
 		EXPECT_EQ(ETaskState::Invalid, InvalidHandle.GetState());
 		EXPECT_STREQ("", InvalidHandle.GetDebugName());
 
 		const FTaskWaitResult WaitResult = WaitTask(InvalidHandle);
-		EXPECT_EQ(ETaskWaitStatus::InvalidTask, WaitResult.WaitStatus);
+		EXPECT_EQ(ETaskWaitStatus::Completed, WaitResult.WaitStatus);
 		EXPECT_EQ(ETaskState::Invalid, WaitResult.TaskState);
 		const std::vector<FTaskWaitResult> WaitResults = WaitAll(std::span<const Tasks::FTask>(&InvalidHandle, 1));
 		ASSERT_EQ(1u, WaitResults.size());
-		EXPECT_EQ(ETaskWaitStatus::InvalidTask, WaitResults[0].WaitStatus);
+		EXPECT_EQ(ETaskWaitStatus::Completed, WaitResults[0].WaitStatus);
 		EXPECT_EQ(ETaskState::Invalid, WaitResults[0].TaskState);
 	}
 
@@ -2600,7 +2600,7 @@ namespace Durin
 		Tasks::FTask Handle = SubmitKernelTask("RejectedTask", []() {});
 
 		EXPECT_FALSE(Handle.IsValid());
-		EXPECT_FALSE(Handle.IsComplete());
+		EXPECT_TRUE(Handle.IsComplete());
 	}
 	TEST(FTaskDiagnosticsTests, TerminalPublicationBarrierPublishesResultDiagnosticsAndDependentsTogether)
 	{

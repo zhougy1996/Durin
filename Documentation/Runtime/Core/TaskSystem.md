@@ -119,10 +119,11 @@ The node retains successful result storage until its final reference is released
 including generic `FTask` references and external completion sources. Releasing a
 typed handle does not discard a result still retained by another handle.
 Ordinary dependencies accept task/event objects directly. Constructing or assigning
-a generic `FTask` from a task/event copies observation even from an rvalue; moving
-between generic handles transfers observation. Moving a complete typed task
+a generic `FTask` from an lvalue task/event copies observation; an rvalue transfers
+the base handle and leaves the source invalid. Moving a complete typed task
 transfers its execution and typed result references together.
-Empty handles report incomplete and waits return `InvalidTask`.
+Empty handles report completed and waits return `Completed` with task state
+`Invalid`. They represent no pending work, not a successful typed result.
 
 `IsCompleted()` includes Succeeded, Failed and Canceled and does not imply a
 successful result. `GetFailure()` requires Failed. `GetResult()` waits for success
@@ -255,7 +256,7 @@ observation separately. `AddPrerequisites` accepts task/event facades
 or vectors, arrays, and spans of task/event or generic handles
 before `Trigger()`; the event completes only after it is triggered and every
 prerequisite finishes, regardless of prerequisite outcomes. Copies share one
-signal, triggering twice is invalid, and the last handle must be triggered before
+signal, repeated `Trigger()` calls are harmless, and the last handle must be triggered before
 release. Cancellation does not trigger an event. External producers must signal
 after their callbacks and captures have retired. Events default to unknown external
 execution requirements. Passing `false` as the constructor's second argument
@@ -286,15 +287,15 @@ progress serial and condition variable use a separate mutex; observers prepare
 before inspecting work and wait only while the serial is unchanged. Notification
 does not imply completion or permit bypassing callable/terminal-hook retirement.
 
-`WaitTask` returns wait status separately from task state. Completed means a
-terminal state and finished terminal publication were observed; InvalidTask,
+`WaitTask` returns wait status separately from task state. Completed means either
+an empty handle or a terminal state with finished terminal publication.
 SelfWait, DependencyCycle, UnsupportedThread and TimedOut do not prove completion.
 `Task.Wait(TimeoutSeconds)`, `Tasks::Wait(TaskOrCollection, TimeoutSeconds)`,
 `WaitTask` and `WaitAll` accept a timeout in seconds. Omitting it waits indefinitely.
 A collection shares one steady-clock deadline across all inputs and preserves one
 result per input, including completed or invalid entries after the deadline.
 Timeout does not request cancellation or consume results. Nonpositive timeouts
-allow one direct-target execution attempt per input without blocking; positive
+only inspect completion, without executing user code or requiring blocking authority; positive
 timeouts stop starting work after the deadline. Executed callables cannot be
 interrupted, so a helping wait may exceed its timeout. NaN is treated as zero.
 
@@ -331,8 +332,17 @@ A retraction pass visits prerequisites before attempting the node, then inspects
 dynamic/nested backlinks again to include work added by its body. The local
 postorder stack, dependency scratch vector and task-ID deduplication buckets are
 reused during one wait. Pins are released between passes; there is no graph
-revision cache or recursion-depth limit. An expired/zero deadline attempts only
-the target once and never starts its dependencies. A started body is not preempted.
+revision cache or recursion-depth limit. An expired deadline starts no work.
+A started body is not preempted.
+
+`Task.TryRetractAndExecute()` explicitly attempts the target and its execution,
+nested and dynamic dependencies on the caller, without sleeping for work owned
+by another thread. It returns whether the target is complete; an empty handle
+returns true. Unlike ordinary external waits, external callers may explicitly
+execute eligible Worker tasks. The same thread and dependency restrictions apply;
+BlockingIO execution still requires BlockingIO authority and deferred callbacks
+are never pumped. Callables may run arbitrarily long, and unrelated queued tasks
+are not executed. A false return does not cancel or fail the target.
 
 Waiting prepares the scheduler progress serial before inspection, rechecks
 terminal state and deadline after retraction, then sleeps only while that serial

@@ -87,7 +87,7 @@ namespace Durin::Tasks
 		require(State);
 		{
 			std::lock_guard Lock(State->Mutex);
-			requiref(!State->Triggered, "Task events may only be triggered once.");
+			if (State->Triggered) return;
 			State->Triggered = true;
 		}
 		Durin::Private::FTaskRuntimeAccess::CompleteExternal(*this, ETaskState::Succeeded);
