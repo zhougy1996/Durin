@@ -27,8 +27,8 @@ namespace Durin
 			const auto Found = std::ranges::lower_bound(Input.Values, Id, {}, &FBuildInputValue::Name);
 			return Found != Input.Values.end() && Found->Name == Id ? &*Found : nullptr;
 		}
-		auto Boundary(FShaderError Error) -> FBuildInputError { return {FormatShaderError(Error)}; }
-		auto Invalid() -> FBuildInputError { return Boundary({.Code = EShaderError::CaptureInputInvalid}); }
+		auto Boundary(std::string Error) -> FBuildInputError { return {std::string(Error)}; }
+		auto Invalid() -> FBuildInputError { return Boundary(std::string("Captured shader paths or bytes exceed canonical input limits.")); }
 		auto Descriptor() -> FBuildFunctionDescriptor { return GetShaderBuildDescriptor(); }
 		auto Reference(const FShaderVariantKey& Variant) -> FBuildInputReference
 			{ return {"Closure", Variant.Value, "ShaderVariant", 9, "Shader.SourceClosure", 2}; }
@@ -136,12 +136,12 @@ namespace Durin
 				{
 					if (Cancel.IsCancelled()) return {};
 					const auto& Dependency = Dependencies[Index]; const auto Found = Files.find(Dependency.VirtualPath);
-					if (Found == Files.end()) return std::unexpected(Boundary({.Code = EShaderError::DependencyNotCaptured, .ActualIdentity = Dependency.VirtualPath}));
+					if (Found == Files.end()) return std::unexpected(Boundary(std::format("Shader dependency '{}' was not captured.", (Dependency.VirtualPath))));
 					const auto& Data = *Found->second.second;
 					if (Data.size() > ShaderCaptureLimits::MaximumFileBytes || Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes
 						|| Found->second.first.size() > ShaderCaptureLimits::MaximumPathBytes) return std::unexpected(Invalid());
 					Bytes += Data.size();
-					if (FXxHash64::HashBuffer(Data) != Dependency.ContentHash) return std::unexpected(Boundary({.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath}));
+					if (FXxHash64::HashBuffer(Data) != Dependency.ContentHash) return std::unexpected(Boundary(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (Dependency.VirtualPath))));
 					Metadata.WriteString(Found->second.first);
 					Input.Values.push_back({Indexed("File/", Index), Data});
 				}
@@ -216,7 +216,7 @@ namespace Durin
 				}
 				FShaderVariantKey Variant; ShaderCompileUtilities::BuildVariantKey(Options->Value.VirtualShaderPath, Meta, Options->Value.Macros, Options->Value.CompilerEnvironment, Options->Value.Target, Variant);
 				if (Variant.Value != Input.Identity.Identity || Options->Value.CompilerEnvironment != Service->Environment)
-					return ShaderSharedOutput::SaveError(Context, {.Code = EShaderError::DependencyContentConflict});
+					return ShaderSharedOutput::SaveErrors(Context, FShaderCompilerOutput::Failure("Shader virtual dependency resolves to conflicting content.").Errors);
 				Options->Value.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Options->Roots));
 				if (Context.IsCancelled()) return;
 				const auto ProducerBegin = std::chrono::steady_clock::now();
@@ -225,10 +225,10 @@ namespace Durin
 					: Service->Compiler.Compile(Options->Value.VirtualShaderPath, Options->Value);
 				Service->ProducerMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now() - ProducerBegin).count(), std::memory_order_relaxed);
-				if (!Product) return ShaderSharedOutput::SaveError(Context, Product.Error);
+				if (!Product) return ShaderSharedOutput::SaveErrors(Context, Product.Errors);
 				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCancelled(); });
 				if (Output.Status == EShaderBuildStatus::Canceled) return;
-				if (!Output) return ShaderSharedOutput::SaveError(Context, Output.Error);
+				if (!Output) return ShaderSharedOutput::SaveErrors(Context, FShaderCompilerOutput::Failure(Output.Error).Errors);
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& MetaValue : Output->GetMetadata()) Context.AddMeta(MetaValue.Id, MetaValue.Object);
 			}
@@ -265,7 +265,7 @@ namespace Durin
 	}
 	auto PrepareShaderSessionRecipe(const FShaderCompileOptions& Options, const FShaderVariantKey& Variant,
 		uint64 BuilderVersion, std::vector<FShaderPortableDependency> Dependencies, bool Generated, FShaderArtifactResolver Resolve)
-		-> std::expected<FShaderSessionRecipe, FShaderError>
+		-> std::expected<FShaderSessionRecipe, std::string>
 	{
 		std::vector<std::string> Roots;
 		if (Options.SourceArtifacts) Roots = Options.SourceArtifacts->GetSearchRoots();
@@ -278,45 +278,45 @@ namespace Durin
 		if (!BuilderVersion || Options.VirtualShaderPath.empty() || Options.VirtualShaderPath.size() > ShaderCaptureLimits::MaximumPathBytes
 			|| Options.EntryPoints.empty() || Options.EntryPoints.size() > 32 || Options.EntryPoints.size() != Options.Frequencies.size()
 			|| Options.Macros.size() > 512 || Roots.size() > 256 || Variant.Value.IsZero() || !Resolve)
-			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+			return std::unexpected(std::string("Shader entry-point request is invalid."));
 		std::set<std::pair<std::string_view, EShaderFrequency>> UniqueEntries;
 		for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 		{
 			const std::string_view Name = Options.EntryPoints[Index] ? Options.EntryPoints[Index] : "";
 			if (Name.empty() || Name.size() > 32768 || uint32(Options.Frequencies[Index]) > uint32(EShaderFrequency::RayMiss)
 				|| !UniqueEntries.emplace(Name, Options.Frequencies[Index]).second)
-				return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+				return std::unexpected(std::string("Shader entry-point request is invalid."));
 		}
 		for (const auto& Root : Roots) if (Root.empty() || Root.size() > ShaderCaptureLimits::MaximumPathBytes)
-			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+			return std::unexpected(std::string("Shader entry-point request is invalid."));
 		for (const auto& Macro : Options.Macros)
 			if (Macro.Name.size() > 32768 || (Macro.Value && Macro.Value->size() > 32768))
-				return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+				return std::unexpected(std::string("Shader entry-point request is invalid."));
 		FOptionsSizeWriter Size; WriteSessionOptions(Size, Options, Roots, Generated);
 		if (Size.Bytes > 1024 * 1024 || Options.CompilerEnvironment.size() > 32768)
-			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+			return std::unexpected(std::string("Shader entry-point request is invalid."));
 		return FShaderSessionRecipe{Variant, BuilderVersion, std::move(Roots), std::move(Dependencies), Generated, std::move(Resolve)};
 	}
 	auto MakeShaderSessionRequest(const FShaderCompileOptions& Options, FShaderSessionRecipe Recipe,
-		std::optional<std::string> GeneratedSource) -> std::expected<FShaderSessionRequest, FShaderError>
+		std::optional<std::string> GeneratedSource) -> std::expected<FShaderSessionRequest, std::string>
 	{
 		FBinaryWriter Writer({.MaximumTotalBytes = 1024 * 1024}); Writer.Reserve(512);
 		WriteSessionOptions(Writer, Options, Recipe.Roots, Recipe.Generated);
-		if (Writer.HasError() || Recipe.Generated != GeneratedSource.has_value()) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		if (Writer.HasError() || Recipe.Generated != GeneratedSource.has_value()) return std::unexpected(std::string("Shader entry-point request is invalid."));
 		const auto Encoded = Writer.TakeBytes();
 		FBuildDefinitionBuilder DefinitionBuilder("Durin.Shader.Compile");
 		DefinitionBuilder.AddConstant("BuilderVersion", Recipe.BuilderVersion);
 		DefinitionBuilder.AddConstant("Options", std::string(reinterpret_cast<const char*>(Encoded.data()), Encoded.size()))
 			.AddInput("Closure", "CapturedShaderClosure");
 		auto Definition = std::move(DefinitionBuilder).Build();
-		if (!Definition) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		if (!Definition) return std::unexpected(std::string("Shader entry-point request is invalid."));
 		auto Resolver = std::make_shared<FResolver>(); Resolver->Identity = Reference(Recipe.Variant);
 		Resolver->Dependencies = std::move(Recipe.Dependencies); Resolver->Generated = std::move(GeneratedSource); Resolver->Capture = std::move(Recipe.Resolve);
 		return FShaderSessionRequest{std::move(*Definition), std::move(Resolver)};
 	}
 	auto MakeShaderSessionRequest(const FShaderCompileOptions& Options, const FShaderVariantKey& Variant, uint64 BuilderVersion,
 		std::vector<FShaderPortableDependency> Dependencies, std::optional<std::string> GeneratedSource, FShaderArtifactResolver Resolve)
-		-> std::expected<FShaderSessionRequest, FShaderError>
+		-> std::expected<FShaderSessionRequest, std::string>
 	{
 		auto Normalized = Options;
 		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Normalized.Macros); !Result) return std::unexpected(Result.error());

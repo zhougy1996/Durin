@@ -19,8 +19,8 @@ namespace Durin
 		auto SubmitJobs(std::string_view Path, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
-		auto CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderBuildResult;
-		auto CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderBuildResult;
+		auto CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput;
+		auto CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 		auto FinishCompilation(const FShaderBuildHandle& Handle) -> EShaderBuildWaitResult;
 		auto CancelAllCompilation() -> void;
 		auto GetPeakJobStats() const -> std::pair<uint64, uint64>;

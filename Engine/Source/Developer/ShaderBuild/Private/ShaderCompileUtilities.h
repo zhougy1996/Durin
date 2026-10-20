@@ -21,11 +21,11 @@ namespace Durin
 		struct FMetaDataReuseResult
 		{
 			EMetaDataReuseStatus Status = EMetaDataReuseStatus::Failed;
-			FShaderError Error;
+			std::string Error;
 		};
 
 		auto CaptureSourceArtifacts(const FShaderMetaData& MetaData)
-			-> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>;
+			-> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, std::string>;
 
 		auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult;
 

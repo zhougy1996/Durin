@@ -28,11 +28,11 @@ namespace Durin::ShaderCompileUtilities
 	}
 
 	// Resolve only the dependency generation used to construct the variant key.
-	auto CaptureSourceArtifacts(const FShaderMetaData& MetaData) -> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>
+	auto CaptureSourceArtifacts(const FShaderMetaData& MetaData) -> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, std::string>
 	{
 		if (MetaData.Dependencies.size() != MetaData.PortableDependencies.size()
 			|| MetaData.Dependencies.size() > ShaderCaptureLimits::MaximumFiles)
-			return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputInvalid});
+			return std::unexpected(std::string("Captured shader paths or bytes exceed canonical input limits."));
 		std::map<std::string, FByteBuffer> Files;
 		uint64 TotalBytes = 0;
 		for (size_t Index = 0; Index < MetaData.Dependencies.size(); ++Index)
@@ -41,7 +41,7 @@ namespace Durin::ShaderCompileUtilities
 			const auto& Portable = MetaData.PortableDependencies[Index];
 			if (Expected.FileSize > ShaderCaptureLimits::MaximumFileBytes
 				|| Expected.FileSize > ShaderCaptureLimits::MaximumTotalBytes - TotalBytes)
-				return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputInvalid});
+				return std::unexpected(std::string("Captured shader paths or bytes exceed canonical input limits."));
 			TotalBytes += Expected.FileSize;
 			auto Loaded = FFileHelper::LoadFileToArray(Expected.NormalizedPath,
 				{.MaximumBytes = ShaderCaptureLimits::MaximumFileBytes, .ExpectedBytes = Expected.FileSize});
@@ -49,12 +49,12 @@ namespace Durin::ShaderCompileUtilities
 			{
 				if (Loaded.error().Operation == EFileOperation::QuerySize
 					&& Loaded.error().NativeError == std::errc::message_size)
-					return std::unexpected(FShaderError{.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Portable.VirtualPath});
-				return std::unexpected(FShaderError{.Code = EShaderError::FileReadFailure, .FileError = std::move(Loaded.error())});
+					return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (Portable.VirtualPath)));
+				return std::unexpected((std::move(Loaded.error())).ToString());
 			}
 			auto& Bytes = *Loaded;
 			if (FXxHash64::HashBuffer(Bytes) != Expected.ContentHash || Expected.ContentHash != Portable.ContentHash)
-				return std::unexpected(FShaderError{.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Portable.VirtualPath});
+				return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (Portable.VirtualPath)));
 			// Portable module identities omit .slang; the captured filesystem needs the filename.
 			const auto Filename = Portable.VirtualPath + (Expected.NormalizedPath.ends_with(".slang") ? ".slang" : "");
 			Files.emplace(Filename, std::move(Bytes));
@@ -81,14 +81,14 @@ namespace Durin::ShaderCompileUtilities
 			auto Fingerprint = FileFingerprintCache.Get(DependencyPath);
 			if (!Fingerprint)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::FileReadFailure, .FileError = std::move(Fingerprint.error())});
+				return std::unexpected((std::move(Fingerprint.error())).ToString());
 			}
 
 			std::string VirtualPath;
 			if (!FShaderPaths::TryMakeVirtualSourcePath(
 				Fingerprint->NormalizedPath, VirtualPath))
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = Fingerprint->NormalizedPath});
+				return std::unexpected(std::format("Shader dependency '{}' has no registered virtual identity.", (Fingerprint->NormalizedPath)));
 			}
 			OutMetaData.Dependencies.push_back(std::move(*Fingerprint));
 			OutMetaData.PortableDependencies.push_back({
@@ -115,7 +115,7 @@ namespace Durin::ShaderCompileUtilities
 				if (Sorted.PortableDependencies.back().ContentHash
 					!= Dependency.ContentHash)
 				{
-					return std::unexpected(FShaderError{.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath});
+					return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (Dependency.VirtualPath)));
 				}
 				continue;
 			}
@@ -225,7 +225,7 @@ namespace Durin::ShaderCompileUtilities
 			if (!ReuseResult)
 			{
 				return {.Status = EMetaDataReuseStatus::Failed,
-					.Error = {.Code = EShaderError::FileReadFailure, .FileError = std::move(ReuseResult.error())}};
+					.Error = (std::move(ReuseResult.error())).ToString()};
 			}
 			if (*ReuseResult == EFileFingerprintReuseStatus::Stale)
 			{

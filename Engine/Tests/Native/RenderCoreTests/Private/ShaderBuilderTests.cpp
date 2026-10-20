@@ -111,7 +111,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			const auto Result = Builder->GetOrCompileGenerated(Request);
 			EXPECT_EQ(Result.Status, EShaderBuildStatus::Ok);
 			EXPECT_FALSE(Result.CompiledShaders.empty());
-			EXPECT_TRUE(Result.Error.IsSuccess());
+			EXPECT_TRUE(Result.Errors.empty());
 		}
 		uint32 Calls = 0;
 		auto Handle = Builder->SubmitGenerated(Request,
@@ -121,7 +121,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				EXPECT_EQ(Result.Status, EShaderBuildStatus::Canceled);
 				EXPECT_FALSE(Result);
 				EXPECT_TRUE(Result.CompiledShaders.empty());
-				EXPECT_TRUE(Result.Error.IsSuccess());
+				EXPECT_TRUE(Result.Errors.empty());
 			});
 		ASSERT_TRUE(Handle);
 		EXPECT_EQ(Handle->Wait(), EShaderBuildWaitResult::Completed);
@@ -133,7 +133,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				++Calls;
 				EXPECT_EQ(Result.Status, EShaderBuildStatus::Error);
 				EXPECT_TRUE(Result.CompiledShaders.empty());
-				EXPECT_FALSE(Result.Error.IsSuccess());
+				EXPECT_FALSE(Result.Errors.empty());
 			});
 		ASSERT_TRUE(BrokenObserver);
 		EXPECT_EQ(BrokenObserver->Wait(), EShaderBuildWaitResult::Completed);
@@ -142,10 +142,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const auto Failed = Builder->GetOrCompileGenerated(Request);
 		EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
 		EXPECT_TRUE(Failed.CompiledShaders.empty());
-		EXPECT_FALSE(Failed.Error.IsSuccess());
+		EXPECT_FALSE(Failed.Errors.empty());
 	}
 
-	TEST_F(FShaderBuilderTests, CompilerFailurePreservesStructuredCauseThroughBuildSession)
+	TEST_F(FShaderBuilderTests, CompilerFailurePreservesDiagnosticsThroughBuildSession)
 	{
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = "/Generated/Errors/Structured";
@@ -155,8 +155,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		for (uint32 Attempt = 0; Attempt < 2; ++Attempt) {
 			const auto Result = Builder->GetOrCompileGenerated(Request);
 			ASSERT_EQ(Result.Status, EShaderBuildStatus::Error); EXPECT_TRUE(Result.CompiledShaders.empty());
-			EXPECT_EQ(Result.Error.Code, EShaderError::SlangFailure);
-			EXPECT_EQ(Result.Error.CompilerPhase, ESlangShaderError::EntryPoint); EXPECT_TRUE(Result.Error.NativeStatus.has_value());
+			ASSERT_FALSE(Result.Errors.empty());
 		}
 		EXPECT_EQ(Builder->GetStats().Compilations, 2u);
 	}
@@ -201,25 +200,25 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		auto MetalOptions = MakeCompileOptions();
 		MetalOptions.Target = MetalShaderTarget;
 		const auto Metal = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MetalOptions);
-		ASSERT_TRUE(Metal) << FormatShaderError(Metal.Error);
+		ASSERT_TRUE(Metal) << FormatShaderCompilerErrors(Metal.Errors);
 		ASSERT_EQ(Metal.CompiledShaders.size(), 1u);
 		EXPECT_EQ(Metal.CompiledShaders[0].Target, MetalShaderTarget);
 		EXPECT_EQ(Metal.CompiledShaders[0].CodeFormat, EShaderCodeFormat::Msl20Source);
 		EXPECT_NE(ShaderFormat::DecodeMetalMetadata(Metal.CompiledShaders[0].Frequency, Metal.CompiledShaders[0].PlatformData.GetBytes())->Identity, FXxHash128{});
 		const auto Vulkan = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
-		ASSERT_TRUE(Vulkan) << FormatShaderError(Vulkan.Error);
+		ASSERT_TRUE(Vulkan) << FormatShaderCompilerErrors(Vulkan.Errors);
 		EXPECT_EQ(Vulkan.CompiledShaders[0].Target, VulkanShaderTarget);
 		EXPECT_NE(Metal.CompiledShaders[0].CodeHash, Vulkan.CompiledShaders[0].CodeHash);
 		EXPECT_EQ(Builder->GetStats().Compilations, 2u);
 		Builder.reset();
 		Builder = std::make_unique<FShaderBuilder>();
 		const auto WarmMetal = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MetalOptions);
-		ASSERT_TRUE(WarmMetal) << FormatShaderError(WarmMetal.Error);
+		ASSERT_TRUE(WarmMetal) << FormatShaderCompilerErrors(WarmMetal.Errors);
 		EXPECT_EQ(WarmMetal.CompiledShaders[0].CodeHash, Metal.CompiledShaders[0].CodeHash);
 		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(WarmMetal.CompiledShaders[0].Frequency, WarmMetal.CompiledShaders[0].PlatformData.GetBytes())->Identity,
 			ShaderFormat::DecodeMetalMetadata(Metal.CompiledShaders[0].Frequency, Metal.CompiledShaders[0].PlatformData.GetBytes())->Identity);
 		const auto WarmVulkan = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
-		ASSERT_TRUE(WarmVulkan) << FormatShaderError(WarmVulkan.Error);
+		ASSERT_TRUE(WarmVulkan) << FormatShaderCompilerErrors(WarmVulkan.Errors);
 		EXPECT_EQ(WarmVulkan.CompiledShaders[0].CodeHash, Vulkan.CompiledShaders[0].CodeHash);
 		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
 		EXPECT_EQ(Builder->GetStats().DdcHits, 2u);
@@ -254,9 +253,9 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		}
 
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderBuildResult Repaired = Builder->GetOrCompile(
+		const FShaderCompilerOutput Repaired = Builder->GetOrCompile(
 			"/ShaderBuilderTests/Simple", Options);
-		ASSERT_TRUE(Repaired) << FormatShaderError(Repaired.Error);
+		ASSERT_TRUE(Repaired) << FormatShaderCompilerErrors(Repaired.Errors);
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
 		EXPECT_EQ(Stats.DdcHits, 0u);
@@ -289,7 +288,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const auto Cold = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()); ASSERT_TRUE(Cold);
 		Builder.reset(); Cache->InvalidProduct = true;
 		Builder = std::make_unique<FShaderBuilder>(MakeService());
-		const auto Repaired = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()); ASSERT_TRUE(Repaired) << FormatShaderError(Repaired.Error);
+		const auto Repaired = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()); ASSERT_TRUE(Repaired) << FormatShaderCompilerErrors(Repaired.Errors);
 		EXPECT_EQ(Repaired.CompiledShaders.front().CodeHash, Cold.CompiledShaders.front().CodeHash);
 		EXPECT_EQ(Builder->GetStats().Compilations, 1u); EXPECT_EQ(Cache->Gets, 2u); EXPECT_EQ(Cache->Puts, 2u);
 		Builder.reset(); Cache->InvalidProduct = false;
@@ -299,10 +298,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder->Close();
 		const auto Closed = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
 		EXPECT_EQ(Closed.Status, EShaderBuildStatus::Error);
-		EXPECT_EQ(Closed.Error.ExternalDiagnostic, FormatShaderBuildAdmissionError({EShaderBuildAdmissionReason::Closed}));
+		EXPECT_TRUE(Closed.CompiledShaders.empty()); EXPECT_FALSE(Closed.Errors.empty());
 		const auto GeneratedClosed = Builder->GetOrCompileGenerated({});
 		EXPECT_EQ(GeneratedClosed.Status, EShaderBuildStatus::Error);
-		EXPECT_EQ(GeneratedClosed.Error.ExternalDiagnostic, Closed.Error.ExternalDiagnostic);
+		EXPECT_TRUE(GeneratedClosed.CompiledShaders.empty()); EXPECT_FALSE(GeneratedClosed.Errors.empty());
 		EXPECT_EQ(Cache->Gets, 3u); EXPECT_EQ(Cache->Puts, 2u);
 	}
 
@@ -327,7 +326,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const auto Result = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
 		EXPECT_EQ(Result.Status, EShaderBuildStatus::Error);
 		EXPECT_TRUE(Result.CompiledShaders.empty());
-		EXPECT_EQ(Result.Error.ExternalDiagnostic, "deterministic shader failure");
+		EXPECT_EQ(FormatShaderCompilerErrors(Result.Errors), "deterministic shader failure");
 		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
 		EXPECT_EQ(Builder->GetStats().DdcHits, 1u);
 	}
@@ -362,9 +361,9 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		}
 		FPaths::SetDerivedDataCacheDirForTests(BlockedRoot.generic_string());
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderBuildResult Output = Builder->GetOrCompile(
+		const FShaderCompilerOutput Output = Builder->GetOrCompile(
 			"/ShaderBuilderTests/Simple", MakeCompileOptions());
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
 		EXPECT_EQ(Stats.Compilations, 1u);
@@ -378,13 +377,13 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder = std::make_unique<FShaderBuilder>();
 		FShaderSourceDependencyFingerprint ColdFingerprint;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, ColdFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, ColdFingerprint))) << std::string(Error.error());
 		EXPECT_EQ(ColdFingerprint.VirtualPath,
 			"/ShaderBuilderTests/Simple");
 		EXPECT_FALSE(ColdFingerprint.ContentHash.IsZero());
 		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 1u);
 		FShaderSourceDependencyFingerprint SameGenerationFingerprint;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, SameGenerationFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, SameGenerationFingerprint))) << std::string(Error.error());
 		EXPECT_EQ(SameGenerationFingerprint, ColdFingerprint);
 		const auto SameGenerationStats = Builder->GetStats();
 		EXPECT_EQ(SameGenerationStats.DependencyResolutions, 1u);
@@ -394,7 +393,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder.reset();
 		Builder = std::make_unique<FShaderBuilder>();
 		FShaderSourceDependencyFingerprint WarmFingerprint;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, WarmFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, WarmFingerprint))) << std::string(Error.error());
 		EXPECT_EQ(WarmFingerprint, ColdFingerprint);
 		const auto WarmStats = Builder->GetStats();
 		EXPECT_EQ(WarmStats.DependencyResolutions, 0u);
@@ -410,7 +409,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 }
 )");
 		FShaderSourceDependencyFingerprint BeforeReloadFingerprint;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, BeforeReloadFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, BeforeReloadFingerprint))) << std::string(Error.error());
 		EXPECT_EQ(BeforeReloadFingerprint, WarmFingerprint);
 		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 0u);
 		EXPECT_EQ(
@@ -418,7 +417,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const uint64 PreviousReloadGeneration = GetShaderReloadGeneration();
 		EXPECT_GT(AdvanceShaderReloadGeneration(), PreviousReloadGeneration);
 		FShaderSourceDependencyFingerprint ChangedFingerprint;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, ChangedFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, ChangedFingerprint))) << std::string(Error.error());
 		EXPECT_NE(ChangedFingerprint.ContentHash,
 			ColdFingerprint.ContentHash);
 		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 1u);
@@ -446,10 +445,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return float4(1,0,0,1); }";
 		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
 		std::atomic_uint32_t FirstCallbacks = 0, SecondCallbacks = 0;
-		auto First = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Error.IsSuccess()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++FirstCallbacks; });
+		auto First = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Errors.empty()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++FirstCallbacks; });
 		ASSERT_TRUE(First);
 		ASSERT_TRUE(Cache->Entered.WaitFor(5.0));
-		auto Second = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_TRUE(Output) << FormatShaderError(Output.Error); ++SecondCallbacks; });
+		auto Second = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors); ++SecondCallbacks; });
 		ASSERT_TRUE(Second);
 		FThreadEvent Unrelated;
 		auto Marker = Tasks::LaunchTask("UnrelatedShaderWork", [&] { Unrelated.Trigger(); });
@@ -503,7 +502,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return float4(1,0,0,1); }";
 		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
 		std::atomic_uint32_t Calls = 0;
-		auto Handle = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Error.IsSuccess()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++Calls; }); ASSERT_TRUE(Handle);
+		auto Handle = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Errors.empty()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++Calls; }); ASSERT_TRUE(Handle);
 		Handle->RequestCancel(); EXPECT_EQ(Calls, 1u);
 		auto Closing = std::async(std::launch::async, [&] { Builder->Close(); });
 		Release.Trigger(); Closing.get(); EXPECT_EQ(Handle->Wait(), EShaderBuildWaitResult::Completed);
@@ -524,7 +523,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Request.EntryPoints = {"Main"}; Request.Frequencies = {EShaderFrequency::Vertex}; Request.AllowedImportVirtualPrefixes = {"/ShaderBuilderTests/"};
 		Request.ExpectedSourceTree = FShaderSourceTreeDescription{Tree.VirtualPath, Tree.ContentHash, {"Main"}, {EShaderFrequency::Vertex}, Options.Macros, true};
 		const auto Output = Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error); ASSERT_EQ(Output.CompiledShaders.size(), 1u);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors); ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 		EXPECT_EQ(Output.CompiledShaders.front().SourceEntryPoint, "Main");
 		Request.ExpectedSourceTree->EntryPoints.clear();
 		EXPECT_EQ(Builder->GetOrCompileGenerated(Request).Status, EShaderBuildStatus::Error);
@@ -565,24 +564,24 @@ float4 FragmentMain() : SV_Target0
 		Request.Frequencies = {EShaderFrequency::Fragment};
 		Request.AllowedImportVirtualPrefixes = {
 			"/ShaderBuilderTests/"};
-		const FShaderBuildResult First =
+		const FShaderCompilerOutput First =
 			Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(First) << FormatShaderError(First.Error);
+		ASSERT_TRUE(First) << FormatShaderCompilerErrors(First.Errors);
 		ASSERT_EQ(First.CompiledShaders.size(), 1u);
 		const auto ColdStats = Builder->GetStats();
 		EXPECT_EQ(ColdStats.Compilations, 1u);
-		const FShaderBuildResult Warm =
+		const FShaderCompilerOutput Warm =
 			Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(Warm) << FormatShaderError(Warm.Error);
+		ASSERT_TRUE(Warm) << FormatShaderCompilerErrors(Warm.Errors);
 		const auto WarmStats = Builder->GetStats();
 		EXPECT_EQ(WarmStats.Compilations, ColdStats.Compilations);
 		EXPECT_EQ(WarmStats.MemoryHits, ColdStats.MemoryHits + 1u);
 
 		Builder.reset();
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderBuildResult RestartWarm =
+		const FShaderCompilerOutput RestartWarm =
 			Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(RestartWarm) << FormatShaderError(RestartWarm.Error);
+		ASSERT_TRUE(RestartWarm) << FormatShaderCompilerErrors(RestartWarm.Errors);
 		const auto RestartWarmStats = Builder->GetStats();
 		EXPECT_EQ(RestartWarmStats.DependencyResolutions, 0u);
 		EXPECT_EQ(RestartWarmStats.ManifestHits, 1u);
@@ -591,7 +590,7 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(RestartWarmStats.ContentReads, 0u);
 
 		Request.AllowedImportVirtualPrefixes.clear();
-		const FShaderBuildResult Rejected =
+		const FShaderCompilerOutput Rejected =
 			Builder->GetOrCompileGenerated(Request);
 		EXPECT_FALSE(Rejected);
 		EXPECT_EQ(Rejected.Status, EShaderBuildStatus::Error);
@@ -621,9 +620,9 @@ float4 FragmentMain() : SV_Target0
 			"/ShaderBuilderTests/"};
 
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderBuildResult First =
+		const FShaderCompilerOutput First =
 			Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(First) << FormatShaderError(First.Error);
+		ASSERT_TRUE(First) << FormatShaderCompilerErrors(First.Errors);
 		ASSERT_EQ(First.CompiledShaders.size(), 1u);
 		const FXxHash128 FirstHash = First.CompiledShaders.front().CodeHash;
 		Builder.reset();
@@ -635,9 +634,9 @@ float4 FragmentMain() : SV_Target0
 			std::filesystem::last_write_time(ImportedPath)
 				+ std::chrono::seconds(2));
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderBuildResult Changed =
+		const FShaderCompilerOutput Changed =
 			Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(Changed) << FormatShaderError(Changed.Error);
+		ASSERT_TRUE(Changed) << FormatShaderCompilerErrors(Changed.Errors);
 		ASSERT_EQ(Changed.CompiledShaders.size(), 1u);
 		EXPECT_NE(Changed.CompiledShaders.front().CodeHash, FirstHash);
 		const auto Stats = Builder->GetStats();
@@ -664,15 +663,15 @@ float4 FragmentMain() : SV_Target0
 		Request.Frequencies = {EShaderFrequency::Fragment};
 
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderBuildResult First =
+		const FShaderCompilerOutput First =
 			Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(First) << FormatShaderError(First.Error);
+		ASSERT_TRUE(First) << FormatShaderCompilerErrors(First.Errors);
 		Builder.reset();
 
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderBuildResult Warm =
+		const FShaderCompilerOutput Warm =
 			Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(Warm) << FormatShaderError(Warm.Error);
+		ASSERT_TRUE(Warm) << FormatShaderCompilerErrors(Warm.Errors);
 		const auto Stats = Builder->GetStats();
 		EXPECT_EQ(Stats.DependencyResolutions, 0u);
 		EXPECT_EQ(Stats.ManifestHits, 1u);
@@ -771,7 +770,7 @@ float4 FragmentMain() : SV_Target0
 			if (Throw.load()) throw std::runtime_error("Injected compiler failure");
 		});
 		std::latch Start(1);
-		std::vector<std::future<FShaderBuildResult>> Requests;
+		std::vector<std::future<FShaderCompilerOutput>> Requests;
 		for (int Index = 0; Index < 8; ++Index)
 			Requests.push_back(std::async(std::launch::async, [&] {
 				Start.wait();
@@ -783,7 +782,7 @@ float4 FragmentMain() : SV_Target0
 			const auto Failed = Future.get();
 			EXPECT_FALSE(Failed);
 			EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
-			EXPECT_FALSE(Failed.Error.IsSuccess());
+			EXPECT_FALSE(Failed.Errors.empty());
 			EXPECT_TRUE(Failed.CompiledShaders.empty());
 		}
 		Throw = false;
@@ -837,8 +836,8 @@ float4 FragmentMain() : SV_Target0
 		const auto FirstOutput = First.get();
 		const auto SecondOutput = Second.get();
 		EXPECT_FALSE(Invalid.get());
-		ASSERT_TRUE(FirstOutput) << FormatShaderError(FirstOutput.Error);
-		ASSERT_TRUE(SecondOutput) << FormatShaderError(SecondOutput.Error);
+		ASSERT_TRUE(FirstOutput) << FormatShaderCompilerErrors(FirstOutput.Errors);
+		ASSERT_TRUE(SecondOutput) << FormatShaderCompilerErrors(SecondOutput.Errors);
 		ASSERT_EQ(FirstOutput.CompiledShaders.size(), 1u);
 		ASSERT_EQ(SecondOutput.CompiledShaders.size(), 1u);
 		EXPECT_NE(FirstOutput.CompiledShaders[0].CodeHash, SecondOutput.CompiledShaders[0].CodeHash);
@@ -849,7 +848,7 @@ float4 FragmentMain() : SV_Target0
 	{
 		const FShaderCompileOptions Options = MakeCompileOptions();
 		Builder = std::make_unique<FShaderBuilder>();
-		std::vector<std::future<FShaderBuildResult>> Requests;
+		std::vector<std::future<FShaderCompilerOutput>> Requests;
 		for (uint32 Index = 0; Index < 8; ++Index)
 		{
 			Requests.push_back(std::async(std::launch::async, [this, Options] {
@@ -857,7 +856,7 @@ float4 FragmentMain() : SV_Target0
 			}));
 		}
 
-		std::vector<FShaderBuildResult> Outputs;
+		std::vector<FShaderCompilerOutput> Outputs;
 		for (auto& Request : Requests)
 		{
 			Outputs.push_back(Request.get()); ASSERT_TRUE(Outputs.back());
@@ -907,7 +906,7 @@ float4 FragmentMain() : SV_Target0
 
 		Builder = std::make_unique<FShaderBuilder>();
 		std::latch StartGate(1);
-		std::vector<std::future<FShaderBuildResult>> Requests;
+		std::vector<std::future<FShaderCompilerOutput>> Requests;
 		Requests.reserve(FileRequestCount + 1);
 		for (uint32 Index = 0; Index < FileRequestCount; ++Index)
 		{
@@ -928,8 +927,8 @@ float4 FragmentMain() : SV_Target0
 
 		for (auto& Request : Requests)
 		{
-			const FShaderBuildResult Output = Request.get();
-			EXPECT_TRUE(Output) << FormatShaderError(Output.Error);
+			const FShaderCompilerOutput Output = Request.get();
+			EXPECT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		}
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
@@ -948,7 +947,7 @@ float4 FragmentMain() : SV_Target0
 		Builder = std::make_unique<FShaderBuilder>();
 
 		const FShaderCompileOptions Options = MakeCompileOptions();
-		const FShaderBuildResult Broken =
+		const FShaderCompilerOutput Broken =
 			Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
 		EXPECT_FALSE(Broken);
 		EXPECT_EQ(Broken.Status, EShaderBuildStatus::Error);
@@ -958,7 +957,7 @@ float4 FragmentMain() : SV_Target0
 			ShaderPath,
 			std::filesystem::last_write_time(ShaderPath)
 				+ std::chrono::seconds(2));
-		const FShaderBuildResult Corrected =
+		const FShaderCompilerOutput Corrected =
 			Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
 		EXPECT_TRUE(Corrected);
 		const FShaderBuildStats Stats =
@@ -1074,12 +1073,12 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 
 		Builder = std::make_unique<FShaderBuilder>();
 		const FShaderCompileOptions Options = MakeCompileOptions();
-		const FShaderBuildResult FirstA = Builder->GetOrCompile(
+		const FShaderCompilerOutput FirstA = Builder->GetOrCompile(
 			"/ShaderBuilderTests/DependentA", Options);
-		const FShaderBuildResult FirstB = Builder->GetOrCompile(
+		const FShaderCompilerOutput FirstB = Builder->GetOrCompile(
 			"/ShaderBuilderTests/DependentB", Options);
-		ASSERT_TRUE(FirstA) << FormatShaderError(FirstA.Error);
-		ASSERT_TRUE(FirstB) << FormatShaderError(FirstB.Error);
+		ASSERT_TRUE(FirstA) << FormatShaderCompilerErrors(FirstA.Errors);
+		ASSERT_TRUE(FirstB) << FormatShaderCompilerErrors(FirstB.Errors);
 		ASSERT_EQ(FirstA.CompiledShaders.size(), 1u);
 		ASSERT_EQ(FirstB.CompiledShaders.size(), 1u);
 		const FXxHash128 FirstAHash =
@@ -1092,12 +1091,12 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			ModulePath,
 			std::filesystem::last_write_time(ModulePath)
 				+ std::chrono::seconds(2));
-		const FShaderBuildResult SecondA = Builder->GetOrCompile(
+		const FShaderCompilerOutput SecondA = Builder->GetOrCompile(
 			"/ShaderBuilderTests/DependentA", Options);
-		const FShaderBuildResult SecondB = Builder->GetOrCompile(
+		const FShaderCompilerOutput SecondB = Builder->GetOrCompile(
 			"/ShaderBuilderTests/DependentB", Options);
-		ASSERT_TRUE(SecondA) << FormatShaderError(SecondA.Error);
-		ASSERT_TRUE(SecondB) << FormatShaderError(SecondB.Error);
+		ASSERT_TRUE(SecondA) << FormatShaderCompilerErrors(SecondA.Errors);
+		ASSERT_TRUE(SecondB) << FormatShaderCompilerErrors(SecondB.Errors);
 		ASSERT_EQ(SecondA.CompiledShaders.size(), 1u);
 		ASSERT_EQ(SecondB.CompiledShaders.size(), 1u);
 		EXPECT_NE(SecondA.CompiledShaders[0].CodeHash, FirstAHash);
@@ -1144,9 +1143,9 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		std::vector<FShaderSourceDependencyFingerprint> SecondManifest;
 		FShaderOperationResult ManifestError;
 		ASSERT_TRUE((ManifestError = Builder->BuildSourceDependencyManifest(VirtualPath, Options, FirstManifest)))
-			<< FormatShaderError(ManifestError.error());
+			<< std::string(ManifestError.error());
 		ASSERT_TRUE((ManifestError = Builder->BuildSourceDependencyManifest(VirtualPath, Options, SecondManifest)))
-			<< FormatShaderError(ManifestError.error());
+			<< std::string(ManifestError.error());
 		EXPECT_EQ(FirstManifest, SecondManifest);
 		const std::vector<std::string> ExpectedDependencies{
 			"/M5FixedMaterial/Lighting/DirectionalShadow",
@@ -1179,16 +1178,16 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		FShaderOperationResult DependencyDiagnostic;
 		FSlangShaderDependencyResolver Resolver;
 		ASSERT_TRUE((DependencyDiagnostic = Resolver.Resolve(
-			SourcePath.generic_string(), Options, Dependencies))) << FormatShaderError(DependencyDiagnostic.error());
+			SourcePath.generic_string(), Options, Dependencies))) << std::string(DependencyDiagnostic.error());
 		ASSERT_FALSE(Dependencies.empty());
 
 		FShaderCompileOptions ColdOptions = Options;
 		ColdOptions.bForceRecompile = true;
 		const auto ColdBegin = std::chrono::steady_clock::now();
-		const FShaderBuildResult Cold = Builder->GetOrCompile(
+		const FShaderCompilerOutput Cold = Builder->GetOrCompile(
 			VirtualPath, ColdOptions);
 		const auto ColdEnd = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Cold) << FormatShaderError(Cold.Error);
+		ASSERT_TRUE(Cold) << FormatShaderCompilerErrors(Cold.Errors);
 		ASSERT_EQ(Cold.CompiledShaders.size(), 4u);
 		const FShaderBuildStats ColdStats =
 			Builder->GetStats();
@@ -1218,10 +1217,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			Cold.CompiledShaders[3].Reflection.ResourceBindings.size(), 0u);
 
 		const auto WarmBegin = std::chrono::steady_clock::now();
-		const FShaderBuildResult Warm = Builder->GetOrCompile(
+		const FShaderCompilerOutput Warm = Builder->GetOrCompile(
 			VirtualPath, Options);
 		const auto WarmEnd = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Warm) << FormatShaderError(Warm.Error);
+		ASSERT_TRUE(Warm) << FormatShaderCompilerErrors(Warm.Errors);
 		const FShaderBuildStats WarmStats =
 			Builder->GetStats();
 		EXPECT_EQ(WarmStats.Compilations, ColdStats.Compilations);
@@ -1304,13 +1303,13 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Files.clear();
 		std::vector<FShaderSourceDependencyFingerprint> Before, After;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = Builder->BuildSourceDependencyManifest(Main, Options, Before))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceDependencyManifest(Main, Options, Before))) << std::string(Error.error());
 		ASSERT_EQ(Before.size(), 2u);
 		WriteTextFile(Root / "Owned.slang", "invalid live root");
 		WriteTextFile(Root / "OwnedInclude.slang", "invalid live include");
 		const auto Output = Builder->GetOrCompile(Main, Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
-		ASSERT_TRUE((Error = Builder->BuildSourceDependencyManifest(Main, Options, After))) << FormatShaderError(Error.error());
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
+		ASSERT_TRUE((Error = Builder->BuildSourceDependencyManifest(Main, Options, After))) << std::string(Error.error());
 		EXPECT_EQ(Before, After);
 		WriteTextFile(Root / "OwnedInclude.slang", Included);
 		auto Incomplete = Artifacts->GetFiles();
@@ -1337,7 +1336,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return CapturedPo
 			std::map<std::string, FByteBuffer>{{"/Captured/Included.slang", FByteBuffer(View.begin(), View.end())}},
 			std::vector<std::string>{"/Captured/"});
 		const auto Output = Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		Request.AllowedImportVirtualPrefixes = {"/Different/"};
 		EXPECT_FALSE(Builder->GetOrCompileGenerated(Request));
 	}
@@ -1353,8 +1352,6 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return CapturedPo
 		WriteTextFile(File, "changed after definition capture");
 		auto Rejected = ShaderCompileUtilities::CaptureSourceArtifacts(MetaData);
 		ASSERT_FALSE(Rejected);
-		EXPECT_EQ(Rejected.error().Code, EShaderError::DependencyContentConflict);
-		EXPECT_EQ(Rejected.error().ActualIdentity, "/ShaderBuilderTests/Simple");
 		// The already captured generation remains independently compilable.
 		auto Options = MakeCompileOptions();
 		Options.SourceArtifacts = *Captured;
@@ -1381,7 +1378,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 			WriteTextFile(Include, "invalid live include after source resolution");
 		});
 		const auto Output = Builder->GetOrCompileGenerated(Request);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		EXPECT_TRUE(bHookRan);
 		Builder = std::make_unique<FShaderBuilder>();
 		EXPECT_FALSE(Builder->GetOrCompileGenerated(Request));

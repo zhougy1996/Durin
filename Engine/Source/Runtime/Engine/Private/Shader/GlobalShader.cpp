@@ -73,7 +73,7 @@ namespace Durin
 		Error = RegisterShaderRuntimeRequest(
 			std::move(Request), Eligibility, Registration, BaseTypes);
 		requiref(Registration.IsValid(),
-			"Global Shader set registration failed for '{}': {}", Name, FormatShaderError(Error.error()));
+			"Global Shader set registration failed for '{}': {}", Name, std::string(Error.error()));
 	}
 
 	struct FGlobalShaderMap::FSectionEntry
@@ -168,7 +168,7 @@ namespace Durin
 							.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 							.Context = std::string(SectionIdentity),
 							.Identity = TypeIdentity,
-							.Cause = FShaderError{.Code = EShaderError::NullShaderType},
+							.Cause = std::string("Material shader map contains a null shader type."),
 							.RetryDependencies = ERenderResourceGenerationDependency::Manual});
 					}
 				}
@@ -202,7 +202,7 @@ namespace Durin
 						.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 						.Context = std::string(SectionIdentity),
 						.Identity = TypeIdentity,
-						.Cause = ShaderResult ? FRenderResourceCreateCause(std::move(Error.error())) : FRenderResourceCreateCause(std::move(ShaderResult.Error)),
+						.Cause = ShaderResult ? std::string(std::move(Error.error())) : std::string(ShaderResult.Error),
 						.RetryDependencies = ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual});
 				}
@@ -216,7 +216,7 @@ namespace Durin
 							.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 							.Context = std::string(SectionIdentity),
 							.Identity = TypeIdentity,
-							.Cause = FShaderError{.Code = EShaderError::MissingShaderType, .ShaderType = std::string(Type->GetName())},
+							.Cause = std::format("Material shader map is missing type '{}'.", (std::string(Type->GetName()))),
 							.RetryDependencies = ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual});
 					}
@@ -228,10 +228,7 @@ namespace Durin
 							.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 							.Context = std::string(SectionIdentity),
 							.Identity = TypeIdentity,
-							.Cause = FShaderError{.Code = EShaderError::RHIShaderCreationFailed,
-								.ShaderType = std::string(Type->GetName()), .Parameter = std::string(Type->GetEntryPoint()),
-								.ActualIdentity = std::string(Type->GetVirtualShaderPath()),
-								.Actual = static_cast<uint8>(Type->GetFrequency())},
+							.Cause = std::format("RHI shader creation returned null for Material type '{}'.", (std::string(Type->GetName()))),
 							.RetryDependencies = ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual});
 					}

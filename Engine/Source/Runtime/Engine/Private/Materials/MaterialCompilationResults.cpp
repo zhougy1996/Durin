@@ -41,10 +41,7 @@ namespace Durin
 		{
 			if (Source.Error.ExternalDiagnostic.size() > MaterialProgramMaxDiagnosticMessageBytes)
 				Source.Error.ExternalDiagnostic.resize(MaterialProgramMaxDiagnosticMessageBytes);
-			if (Source.Error.ShaderCause && Source.Error.ShaderCause->ExternalDiagnostic.size() > MaterialProgramMaxDiagnosticMessageBytes) {
-				auto Cause = std::make_shared<FShaderError>(*Source.Error.ShaderCause);
-				Cause->ExternalDiagnostic.resize(MaterialProgramMaxDiagnosticMessageBytes); Source.Error.ShaderCause = std::move(Cause);
-			}
+
 			return {.Source = std::move(Source), .Generation = Generation};
 		}
 
@@ -221,7 +218,8 @@ namespace Durin
 			Result.CacheOutcome = Build.RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit
 				: Build.SingleFlight || Request.bSingleFlightConsumer ? EMaterialCompileCacheOutcome::SingleFlight
 				: Request.bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled;
-		} else if (State != EMaterialCompileState::Canceled && Build.Program) {
+		}
+		if (State != EMaterialCompileState::Canceled && Build.Program) {
 			for (auto Diagnostic : Build.Program->Diagnostics) {
 				if (Result.Diagnostics.size() >= MaterialProgramMaxDiagnosticCount) break;
 				if (Diagnostic.NodeId.IsValid() && DiagnosticInput) {

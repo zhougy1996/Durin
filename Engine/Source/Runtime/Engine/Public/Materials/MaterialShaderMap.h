@@ -60,7 +60,7 @@ namespace Durin
 		ENGINE_API static auto BindCollections(std::shared_ptr<const FMaterialCompilerResult> Program,
 			std::span<const FMaterialParameterCollectionLayout> Collections,
 			const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialCompilerResult>;
-		ENGINE_API static auto FinalizeContent(FMaterialTranslatedProgram Translation, FShaderBuildResult Output,
+		ENGINE_API static auto FinalizeContent(FMaterialTranslatedProgram Translation, FShaderCompilerOutput Output,
 			std::shared_ptr<FMaterialShaderMap> ShaderMap = {}) -> FMaterialCompilerResult;
 
 	private:

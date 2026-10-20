@@ -103,10 +103,10 @@ namespace Durin
 			return true;
 		}
 
-		using FArtifactResult = std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>;
+		using FArtifactResult = std::expected<std::shared_ptr<const FShaderSourceArtifacts>, std::string>;
 
 		auto CapturedMetaData(std::vector<std::string> Paths, const FShaderSourceArtifacts& Artifacts)
-			-> std::expected<FShaderMetaData, FShaderError>
+			-> std::expected<FShaderMetaData, std::string>
 		{
 			std::ranges::sort(Paths);
 			Paths.erase(std::unique(Paths.begin(), Paths.end()), Paths.end());
@@ -115,7 +115,7 @@ namespace Durin
 			{
 				const auto Found = Artifacts.GetFiles().find(Path);
 				if (Found == Artifacts.GetFiles().end())
-					return std::unexpected(FShaderError{.Code = EShaderError::DependencyNotCaptured, .ActualIdentity = Path});
+					return std::unexpected(std::format("Shader dependency '{}' was not captured.", (Path)));
 				const auto ContentHash = FXxHash64::HashBuffer(Found->second);
 				auto Identity = Path.ends_with(".slang") ? Path.substr(0, Path.size() - 6) : Path;
 				std::string MountedIdentity;
@@ -126,8 +126,7 @@ namespace Durin
 			for (size_t Index = 1; Index < Result.PortableDependencies.size(); ++Index)
 				if (Result.PortableDependencies[Index - 1].VirtualPath == Result.PortableDependencies[Index].VirtualPath
 					&& Result.PortableDependencies[Index - 1].ContentHash != Result.PortableDependencies[Index].ContentHash)
-					return std::unexpected(FShaderError{.Code = EShaderError::DependencyContentConflict,
-						.ActualIdentity = Result.PortableDependencies[Index].VirtualPath});
+					return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (Result.PortableDependencies[Index].VirtualPath)));
 			Result.PortableDependencies.erase(std::unique(Result.PortableDependencies.begin(), Result.PortableDependencies.end()),
 				Result.PortableDependencies.end());
 			FXxHash128Builder Hash;
@@ -154,7 +153,7 @@ namespace Durin
 
 		if (VirtualShaderPath.empty())
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::MissingVirtualPath});
+			return std::unexpected(std::string("Shader type virtual shader path must not be empty"));
 		}
 		if (Options.SourceArtifacts)
 		{
@@ -168,7 +167,7 @@ namespace Durin
 				if (Found == Options.SourceArtifacts->GetFiles().end())
 				{
 					OutDependencies.clear();
-					return std::unexpected(FShaderError{.Code = EShaderError::DependencyNotCaptured, .ActualIdentity = Path});
+					return std::unexpected(std::format("Shader dependency '{}' was not captured.", (Path)));
 				}
 				OutDependencies.push_back({Path, FXxHash128::HashBuffer(Found->second)});
 			}
@@ -188,13 +187,13 @@ namespace Durin
 				PhysicalPath, VirtualPath))
 			{
 				OutDependencies.clear();
-				return std::unexpected(FShaderError{.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = PhysicalPath});
+				return std::unexpected(std::format("Shader dependency '{}' has no registered virtual identity.", (PhysicalPath)));
 			}
 			auto ContentHash = FFileHelper::HashFileXx128(PhysicalPath);
 			if (!ContentHash)
 			{
 				OutDependencies.clear();
-				return std::unexpected(FShaderError{.Code = EShaderError::FileReadFailure, .FileError = std::move(ContentHash.error())});
+				return std::unexpected((std::move(ContentHash.error())).ToString());
 			}
 			OutDependencies.push_back({
 				.VirtualPath = std::move(VirtualPath),
@@ -221,7 +220,7 @@ namespace Durin
 
 		if (VirtualShaderPath.empty())
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::MissingVirtualPath});
+			return std::unexpected(std::string("Shader type virtual shader path must not be empty"));
 		}
 		if (Options.SourceArtifacts)
 		{
@@ -289,13 +288,13 @@ namespace Durin
 		return {};
 	}
 
-	auto FShaderBuilder::GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderBuildResult
+	auto FShaderBuilder::GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
 	{
-		if (VirtualShaderPath.empty()) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::MissingVirtualPath}));
-		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::InvalidCompileRequest}));
-		FShaderBuildResult Output;
+		if (VirtualShaderPath.empty()) return FShaderCompilerOutput::Failure(std::string(std::string("Shader type virtual shader path must not be empty")));
+		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return FShaderCompilerOutput::Failure(std::string(std::string("Shader entry-point request is invalid.")));
+		FShaderCompilerOutput Output;
 		auto Handle = SubmitMounted(VirtualShaderPath, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
-		if (!Handle) return FShaderBuildResult::Failure(FormatShaderBuildAdmissionError(Handle.error()));
+		if (!Handle) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionError(Handle.error()));
 		require(Handle->Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}
@@ -314,7 +313,7 @@ namespace Durin
 	}
 
 	auto FShaderBuilder::PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
-		const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, FShaderError>
+		const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>
 	{
 		auto Prepared = std::make_shared<FPreparedShaderBuild>(); Prepared->Request = std::move(Request);
 		const auto& Input = *Prepared->Request; auto& Options = Prepared->Options;
@@ -348,7 +347,7 @@ namespace Durin
 			if (auto Result = ResolveSourceMetaData(Input.VirtualPath, FShaderPaths::SourcePath(Input.VirtualPath), Options, Macros, Meta); !Result) return std::unexpected(Result.error());
 			uint64 Bytes = 0;
 			for (const auto& Dependency : Meta.Dependencies) Bytes += 2 * Dependency.FileSize + Dependency.NormalizedPath.capacity() + sizeof(Dependency);
-			if (!ReserveSources(Bytes)) return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputLimit});
+			if (!ReserveSources(Bytes)) return std::unexpected(std::string("Shader capture input limit exceeded."));
 			Resolve = [Meta] { return ShaderCompileUtilities::CaptureSourceArtifacts(Meta); };
 		}
 		FShaderVariantKey Variant;
@@ -361,14 +360,14 @@ namespace Durin
 
 	auto FShaderBuilder::PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Owned,
 		const std::function<bool(uint64)>& ReserveSources)
-		-> std::expected<std::shared_ptr<FPreparedShaderBuild>, FShaderError>
+		-> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>
 	{
 		const auto& Request = *Owned;
-		if (!IsActiveCompilerTarget(Request.Target)) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		if (!IsActiveCompilerTarget(Request.Target)) return std::unexpected(std::string("Shader entry-point request is invalid."));
 		if (!Request.VirtualPath.starts_with("/Generated/") || Request.Source.empty()
 			|| Request.Source.size() > 1024 * 1024 || Request.EntryPoints.empty()
 			|| Request.EntryPoints.size() != Request.Frequencies.size() || Request.EntryPoints.size() > 8)
-			return std::unexpected(FShaderError{.Code = EShaderError::InvalidGeneratedRequest});
+			return std::unexpected(std::string("Generated shader request is invalid."));
 		auto Prepared = std::make_shared<FPreparedShaderBuild>();
 		Prepared->Request = std::move(Owned);
 		auto& Options = Prepared->Options;
@@ -380,7 +379,7 @@ namespace Durin
 		Options.VirtualShaderPath = Request.VirtualPath;
 		Options.CompilerEnvironment = CompilerEnvironmentIdentity;
 		for (const auto& Entry : Request.EntryPoints) Options.EntryPoints.push_back(Entry.c_str());
-		if (!HasValidUniqueEntryPoints(Options)) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		if (!HasValidUniqueEntryPoints(Options)) return std::unexpected(std::string("Shader entry-point request is invalid."));
 		std::vector<FShaderMacroDefinition> Macros;
 		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result) return std::unexpected(Result.error());
 		auto Prefixes = Request.AllowedImportVirtualPrefixes;
@@ -399,7 +398,7 @@ namespace Durin
 			EnvironmentOptions.Macros = Request.ExpectedSourceTree->Macros;
 			if (EnvironmentOptions.EntryPoints.empty() || EnvironmentOptions.EntryPoints.size() > 8
 				|| EnvironmentOptions.EntryPoints.size() != EnvironmentOptions.Frequencies.size() || !HasValidUniqueEntryPoints(EnvironmentOptions))
-				return std::unexpected(FShaderError{.Code = EShaderError::InvalidGeneratedRequest});
+				return std::unexpected(std::string("Generated shader request is invalid."));
 			FShaderMetaData EnvironmentMeta;
 			if (Options.SourceArtifacts)
 			{
@@ -414,12 +413,12 @@ namespace Durin
 			else if (auto Result = ResolveSourceMetaData(EnvironmentOptions.VirtualShaderPath, FShaderPaths::SourcePath(EnvironmentOptions.VirtualShaderPath), EnvironmentOptions, EnvironmentOptions.Macros, EnvironmentMeta); !Result)
 				return std::unexpected(Result.error());
 			if (EnvironmentMeta.SourceTreeSignature != Request.ExpectedSourceTree->ContentHash)
-				return std::unexpected(FShaderError{.Code = EShaderError::DependencyContentConflict});
+				return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (std::string{})));
 			if (!Options.SourceArtifacts)
 			{
 				uint64 Bytes = 0;
 				for (const auto& Dependency : EnvironmentMeta.Dependencies) Bytes += 2 * Dependency.FileSize + Dependency.NormalizedPath.capacity() + sizeof(Dependency);
-				if (!ReserveSources(Bytes)) return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputLimit});
+				if (!ReserveSources(Bytes)) return std::unexpected(std::string("Shader capture input limit exceeded."));
 				auto Captured = ShaderCompileUtilities::CaptureSourceArtifacts(EnvironmentMeta);
 				if (!Captured) return std::unexpected(Captured.error());
 				Options.SourceArtifacts = std::move(*Captured);
@@ -442,7 +441,7 @@ namespace Durin
 				return std::unexpected(Result.error());
 			for (const auto& Path : Paths)
 				if (!Options.SourceArtifacts->GetFiles().contains(Path) || !std::ranges::any_of(Prefixes, [&](const auto& Prefix) { return Path.starts_with(Prefix); }))
-					return std::unexpected(FShaderError{.Code = EShaderError::ImportNotDeclared, .ActualIdentity = Path});
+					return std::unexpected(std::format("Generated shader import '{}' is not declared.", (Path)));
 			auto Captured = CapturedMetaData(std::move(Paths), *Options.SourceArtifacts);
 			if (!Captured) return std::unexpected(Captured.error());
 			Meta = std::move(*Captured);
@@ -451,7 +450,7 @@ namespace Durin
 		else
 		{
 			const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
-			if (Mounts.empty()) return std::unexpected(FShaderError{.Code = EShaderError::ShaderMountRequired});
+			if (Mounts.empty()) return std::unexpected(std::string("Generated shader compilation requires a registered shader mount"));
 			const auto Mount = std::ranges::find_if(Mounts, [&](const auto& Item) {
 				return std::ranges::any_of(Prefixes, [&](const auto& Prefix) { return Prefix.starts_with(Item.VirtualRoot); }); });
 			const auto Hint = (std::filesystem::path(Mount != Mounts.end() ? Mount->SourceDir : Mounts.front().SourceDir) / "GeneratedMaterial.slang").generic_string();
@@ -479,7 +478,7 @@ namespace Durin
 			if (!Current && !ManifestStore.Save(CachePath, Key, Meta)) DURIN_WARN("Generated shader manifest write failed for {}", Request.VirtualPath);
 			uint64 Bytes = 0;
 			for (const auto& Dependency : Meta.Dependencies) Bytes += 2 * Dependency.FileSize + Dependency.NormalizedPath.capacity() + sizeof(Dependency);
-			if (!ReserveSources(Bytes)) return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputLimit});
+			if (!ReserveSources(Bytes)) return std::unexpected(std::string("Shader capture input limit exceeded."));
 			Resolve = [CapturedMeta = Meta] { return ShaderCompileUtilities::CaptureSourceArtifacts(CapturedMeta); };
 		}
 		FXxHash128Builder Tree; Tree.Update("DurinGeneratedShaderSourceTree_v1");
@@ -506,7 +505,7 @@ namespace Durin
 			if (!FShaderPaths::TryMakeVirtualSourcePath(
 				PhysicalPath, VirtualPath))
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = PhysicalPath});
+				return std::unexpected(std::format("Shader dependency '{}' has no registered virtual identity.", (PhysicalPath)));
 			}
 			if (!std::ranges::any_of(
 				AllowedImportVirtualPrefixes,
@@ -514,7 +513,7 @@ namespace Durin
 					return VirtualPath.starts_with(Prefix);
 				}))
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::ImportNotAllowed, .ActualIdentity = VirtualPath});
+				return std::unexpected(std::format("Generated shader import '{}' is not allowlisted.", (VirtualPath)));
 			}
 		}
 		return {};
@@ -545,7 +544,7 @@ namespace Durin
 			{
 				DURIN_WARN(
 					"Failed to validate shader dependency manifest for {}: {}",
-					VirtualShaderPath, FormatShaderError(ReuseResult.Error));
+					VirtualShaderPath, std::string(ReuseResult.Error));
 			}
 			if (bManifestCurrent)
 				ManifestHits.fetch_add(1, std::memory_order_relaxed);

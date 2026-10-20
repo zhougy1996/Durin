@@ -24,7 +24,7 @@ namespace Durin
 		// Requires explicit provenance; a native miss/corrupt hit fails without tools.
 		bool bNativeCacheOnly = false;
 	};
-	using FShaderBuildCompletion = std::function<void(FShaderBuildResult)>;
+	using FShaderBuildCompletion = std::function<void(FShaderCompilerOutput)>;
 	class IShaderBuildRequest
 	{
 	public:

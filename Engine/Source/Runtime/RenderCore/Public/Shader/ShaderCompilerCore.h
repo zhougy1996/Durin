@@ -84,34 +84,19 @@ namespace Durin
 	RENDERCORE_API auto ShareShaderCode(const FShaderCode& Shader)
 		-> std::shared_ptr<const FShaderCode>;
 
-	// Owns compiled stages and a structured compilation outcome.
+	// Compiler and build jobs share the same output, including warnings on success.
 	struct FShaderCompilerOutput
-	{
-		std::vector<FShaderCode> CompiledShaders;
-		FShaderError Error{.Code = EShaderError::CompilationNotStarted};
-
-		operator bool() const { return Error.IsSuccess(); }
-	};
-
-	// Build completion is independent of compiler diagnostics. Only Ok owns stages.
-	struct FShaderBuildResult
 	{
 		EShaderBuildStatus Status = EShaderBuildStatus::Error;
 		std::vector<FShaderCode> CompiledShaders;
-		FShaderError Error;
+		std::vector<FShaderCompilerError> Errors;
 
 		explicit operator bool() const { return Status == EShaderBuildStatus::Ok; }
-		static auto Failure(FShaderError Error) -> FShaderBuildResult
-		{
-			if (Error.ExternalDiagnostic.size() > ShaderBuildDiagnosticMaxBytes) Error.ExternalDiagnostic.resize(ShaderBuildDiagnosticMaxBytes);
-			return {.Error = std::move(Error)};
-		}
-		static auto Failure(std::string Text) -> FShaderBuildResult
-		{ return Failure(FShaderError{.Code = EShaderError::BuildFailed, .ExternalDiagnostic = std::move(Text)}); }
-		static auto Success(FShaderCompilerOutput Output) -> FShaderBuildResult
-		{
-			return {.Status = EShaderBuildStatus::Ok, .CompiledShaders = std::move(Output.CompiledShaders)};
-		}
+		RENDERCORE_API auto AddDiagnostics(std::string_view Messages) -> void;
+		auto AddError(std::string Message) -> void
+		{ Status = EShaderBuildStatus::Error; CompiledShaders.clear(); AddDiagnostics(Message); }
+		static auto Failure(std::string Message) -> FShaderCompilerOutput
+		{ FShaderCompilerOutput Output; Output.AddError(std::move(Message)); return Output; }
 	};
 
 	struct FShaderSourceDependencyFingerprint

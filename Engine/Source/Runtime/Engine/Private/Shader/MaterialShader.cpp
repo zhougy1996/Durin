@@ -144,25 +144,25 @@ namespace Durin
 
 		if (Input.ShaderTypes.empty())
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::EmptyShaderSet});
+			return std::unexpected(std::string("Material shader map requires at least one shader type."));
 		}
 		if (!std::isfinite(Input.Identity.OpacityMaskThreshold))
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::InvalidOpacityMaskThreshold});
+			return std::unexpected(std::string("Material shader identity has a non-finite opacity mask threshold."));
 		}
 		if (Input.bContainsGeneratedMaterialStages
 			&& Input.CompiledProgramIdentity != Input.Identity.ProgramIdentity)
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramIdentityMismatch,
-				.ExpectedIdentity = Input.Identity.ProgramIdentity.ToString(),
-				.ActualIdentity = Input.CompiledProgramIdentity.ToString()});
+			return std::unexpected(std::format(
+				"Compiled material program identity '{}' does not match requested identity '{}'.",
+				(Input.CompiledProgramIdentity.ToString()), (Input.Identity.ProgramIdentity.ToString())));
 		}
 		if (Input.bContainsGeneratedMaterialStages
 			&& (Input.Target.empty() || Input.CompiledTarget != Input.Target))
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::MaterialTargetMismatch,
-				.ExpectedIdentity = Input.Target,
-				.ActualIdentity = Input.CompiledTarget});
+			return std::unexpected(std::format(
+				"Compiled material target '{}' does not match requested target '{}'.",
+				(Input.CompiledTarget), (Input.Target)));
 		}
 
 		std::vector<std::pair<FXxHash128, std::string>> ExactTypes;
@@ -171,7 +171,7 @@ namespace Durin
 		{
 			if (Type == nullptr)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::NullShaderType});
+				return std::unexpected(std::string("Material shader map contains a null shader type."));
 			}
 			if (IsMaterialShaderType(Type))
 				++MaterialTypeCount;
@@ -186,8 +186,7 @@ namespace Durin
 			{
 				if (Input.VertexFactoryType == nullptr)
 				{
-					return std::unexpected(FShaderError{.Code = EShaderError::MissingVertexFactory,
-						.ShaderType = std::string(Type->GetName())});
+					return std::unexpected(std::format("Mesh Material shader type '{}' requires a Vertex Factory type.", (std::string(Type->GetName()))));
 				}
 				FMeshMaterialShaderPermutationIdentity MeshIdentity{
 					.Material = std::move(Permutation),
@@ -208,7 +207,7 @@ namespace Durin
 		}
 		if (MaterialTypeCount == 0)
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::MissingMaterialShaderType});
+			return std::unexpected(std::string("Material shader map contains no registered Material shader type."));
 		}
 		std::ranges::sort(ExactTypes, {}, &std::pair<FXxHash128, std::string>::second);
 		FXxHash128Builder SetHash;
@@ -232,13 +231,12 @@ namespace Durin
 			FShader* Shader = Candidate->ShaderMap->GetShader(Type);
 			if (Shader == nullptr)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::MissingShaderType, .ShaderType = std::string(Type->GetName())});
+				return std::unexpected(std::format("Material shader map is missing type '{}'.", (std::string(Type->GetName()))));
 			}
 			if (Input.bCreateRHIShaders
 				&& Shader->GetOrCreateRHIShader(false) == nullptr)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::RHIShaderCreationFailed,
-					.ShaderType = std::string(Type->GetName())});
+				return std::unexpected(std::format("RHI shader creation returned null for Material type '{}'.", (std::string(Type->GetName()))));
 			}
 		}
 		Candidate->Identity = Input.Identity;
@@ -258,7 +256,7 @@ namespace Durin
 
 		if (Input.ShaderTypes.empty())
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::EmptyShaderSet});
+			return std::unexpected(std::string("Material shader map requires at least one shader type."));
 		}
 
 		std::vector<const FShaderType*> FixedTypes;
@@ -269,7 +267,7 @@ namespace Durin
 			const FShaderType* Type = Input.ShaderTypes[Index];
 			if (Type == nullptr)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::NullShaderType});
+				return std::unexpected(std::string("Material shader map contains a null shader type."));
 			}
 			const auto Generated = std::ranges::find_if(
 				Input.GeneratedStages, [Type](const FShaderCode& Shader) {
@@ -282,9 +280,9 @@ namespace Durin
 				&& IsMaterialShaderType(Type)
 				&& !IsMeshMaterialShaderType(Type))
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::MissingGeneratedStage,
-					.ShaderType = std::string(Type->GetName()),
-					.ExpectedIdentity = std::string(Type->GetEntryPoint())});
+				return std::unexpected(std::format(
+				"Accepted material program has no {} stage for type '{}'.",
+				(std::string(Type->GetEntryPoint())), (std::string(Type->GetName()))));
 			}
 			else
 				FixedTypes.push_back(Type);
@@ -325,7 +323,7 @@ namespace Durin
 		}
 
 		FShaderCompilerOutput Combined;
-		Combined.Error = {};
+		Combined.Status = EShaderBuildStatus::Ok;
 		Combined.CompiledShaders.reserve(Input.ShaderTypes.size());
 		for (size_t Index = 0; Index < Input.ShaderTypes.size(); ++Index)
 		{
@@ -338,7 +336,7 @@ namespace Durin
 			const auto FoundMap = std::ranges::find_if(FixedMaps, [Type](const auto& Map) { return Map->FindShaderIndex(Type) != nullptr; });
 			if (FoundMap == FixedMaps.end() || !(*FoundMap)->GetCode())
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::MissingResourceCode, .ShaderType = std::string(Type->GetName())});
+				return std::unexpected(std::format("Fixed Material shader type '{}' produced no resource code.", (std::string(Type->GetName()))));
 			}
 			Combined.CompiledShaders.push_back(
 				(*FoundMap)->GetCode()->GetCompiledShader(*(*FoundMap)->FindShaderIndex(Type)));

@@ -35,7 +35,7 @@ namespace Durin
 			const FShaderCompileOptions& Options,
 			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult;
 
-		auto GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderBuildResult;
+		auto GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 		auto SubmitMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
@@ -43,7 +43,7 @@ namespace Durin
 		auto GetStats() const -> FShaderBuildStats;
 
 		auto GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request)
-			-> FShaderBuildResult;
+			-> FShaderCompilerOutput;
 		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
 			FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
 		auto Close() -> void;
@@ -59,9 +59,9 @@ namespace Durin
 		};
 		auto PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
 			const std::function<bool(uint64)>& ReserveSources)
-			-> std::expected<std::shared_ptr<FPreparedShaderBuild>, FShaderError>;
+			-> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>;
 		auto PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
-			const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, FShaderError>;
+			const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>;
 		auto SubmitRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
 			FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
 		struct FAsyncState;

@@ -39,7 +39,7 @@ namespace Durin
 		slang::IModule* Module = Session->loadModule(SourceFilePath.data(), DiagnosticsBlob.writeRef());
 		if (!Module)
 		{
-			return std::unexpected(FShaderError::FromSlang(ESlangShaderError::Dependencies,
+			return std::unexpected(FormatSlangDiagnostic("Dependencies",
 				DiagnosticsBlob ? static_cast<const char*>(DiagnosticsBlob->getBufferPointer()) : ""));
 		}
 
@@ -81,7 +81,7 @@ namespace Durin
 			Name.c_str(), Path.c_str(), Text.c_str(), Diagnostics.writeRef());
 		if (!Module)
 		{
-			return std::unexpected(FShaderError::FromSlang(ESlangShaderError::Dependencies, Diagnostics ? static_cast<const char*>(Diagnostics->getBufferPointer()) : ""));
+			return std::unexpected(FormatSlangDiagnostic("Dependencies", Diagnostics ? static_cast<const char*>(Diagnostics->getBufferPointer()) : ""));
 		}
 		OutDependencyPaths.clear();
 		const std::string NormalizedSourcePath = NormalizePath(Path, Options.SourceArtifacts != nullptr);

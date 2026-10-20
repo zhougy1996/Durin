@@ -9,6 +9,13 @@
 
 namespace Durin
 {
+	inline auto FormatSlangDiagnostic(std::string_view Phase, std::string_view Text, std::optional<int64> Status = {}) -> std::string
+	{
+		if (!Text.empty()) return std::string(Text.substr(0, ShaderBuildDiagnosticMaxBytes));
+		return std::format("Slang phase {} failed (status {}): {}", Phase,
+			Status ? std::to_string(*Status) : "unavailable", Text.substr(0, ShaderBuildDiagnosticMaxBytes));
+	}
+
 	// Defines the Slang compile environment shared by session creation and shader cache identity.
 	class FSlangSessionEnvironment
 	{

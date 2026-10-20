@@ -136,7 +136,7 @@ namespace Durin::VulkanRHI
 		Options.Frequencies = {EShaderFrequency::Compute};
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR) / "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		for (const char* Mode : {"threaded", "inline"})
 		{
 			SCOPED_TRACE(Mode);
@@ -428,7 +428,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput CompileOutput =
 			Compiler.Compile(ShaderPath.string(), CompileOptions);
-		ASSERT_TRUE(CompileOutput) << FormatShaderError(CompileOutput.Error);
+		ASSERT_TRUE(CompileOutput) << FormatShaderCompilerErrors(CompileOutput.Errors);
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 3u);
 
 		auto MakeCreateDesc = [](const FShaderCode& CompiledShader) {

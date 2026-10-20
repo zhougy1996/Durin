@@ -11,7 +11,7 @@ namespace Durin
 	inline constexpr uint32 ShaderCompileConstantsSchemaVersion = 3;
 	inline constexpr uint32 ShaderCompileOutputSchemaVersion = 7;
 	SHADERBUILD_API auto GetShaderBuildDescriptor() -> DerivedData::FBuildFunctionDescriptor;
-	using FShaderArtifactResolver = std::function<std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>()>;
+	using FShaderArtifactResolver = std::function<std::expected<std::shared_ptr<const FShaderSourceArtifacts>, std::string>()>;
 	// Request data lives in constants/request input, never in the registered function.
 	struct FShaderSessionRequest
 	{
@@ -30,13 +30,13 @@ namespace Durin
 	};
 	SHADERBUILD_API auto PrepareShaderSessionRecipe(const FShaderCompileOptions& NormalizedOptions,
 		const FShaderVariantKey& Variant, uint64 BuilderVersion, std::vector<FShaderPortableDependency> Dependencies,
-		bool Generated, FShaderArtifactResolver Resolve) -> std::expected<FShaderSessionRecipe, FShaderError>;
+		bool Generated, FShaderArtifactResolver Resolve) -> std::expected<FShaderSessionRecipe, std::string>;
 	SHADERBUILD_API auto MakeShaderSessionRequest(const FShaderCompileOptions& NormalizedOptions,
-		FShaderSessionRecipe Recipe, std::optional<std::string> GeneratedSource) -> std::expected<FShaderSessionRequest, FShaderError>;
+		FShaderSessionRecipe Recipe, std::optional<std::string> GeneratedSource) -> std::expected<FShaderSessionRequest, std::string>;
 	SHADERBUILD_API auto MakeShaderSessionRequest(const FShaderCompileOptions& Options,
 		const FShaderVariantKey& Variant, uint64 BuilderVersion, std::vector<FShaderPortableDependency> Dependencies,
 		std::optional<std::string> GeneratedSource, FShaderArtifactResolver Resolve)
-		-> std::expected<FShaderSessionRequest, FShaderError>;
+		-> std::expected<FShaderSessionRequest, std::string>;
 	// Explicitly constructed before the builder. Close drains all admitted sessions
 	// before the module releases compiler services and registration.
 	class SHADERBUILD_API FShaderBuildService

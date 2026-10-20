@@ -105,7 +105,7 @@ namespace Durin
 						ERenderResourceCreateErrorCategory::RHIResource,
 					.Context = "DeviceInvalidationTest",
 					.Identity = "payload",
-					.Cause = std::monostate{},
+					.Cause = {},
 					.RetryDependencies = EDependency::Manual,
 				});
 			},
@@ -168,7 +168,7 @@ namespace Durin
 									ShaderCompile,
 							.Context = "ShaderReloadTest",
 							.Identity = "correctable",
-							.Cause = FShaderError{.Code = EShaderError::InvalidCompileRequest},
+							.Cause = std::string("Shader entry-point request is invalid."),
 							.RetryDependencies = EDependency::Shader,
 						});
 					}

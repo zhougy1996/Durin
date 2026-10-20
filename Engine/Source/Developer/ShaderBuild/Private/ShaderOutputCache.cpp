@@ -2,22 +2,25 @@
 
 namespace Durin
 {
-	auto FShaderOutputCache::Find(const std::string& Key, uint64 MaximumOutputBytes) -> std::optional<FShaderBuildResult>
+	auto FShaderOutputCache::Find(const std::string& Key, uint64 MaximumOutputBytes) -> std::optional<FShaderCompilerOutput>
 	{
 		std::lock_guard Lock(Mutex);
 		const auto Found = Entries.find(Key);
 		if (Found == Entries.end()) return {};
 		Recency.splice(Recency.begin(), Recency, Found->second.Recency);
 		if (!Found->second.Product.CheckLimits({.MaximumTotalBytes = MaximumOutputBytes}))
-			return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::CaptureInputLimit}));
+			return FShaderCompilerOutput::Failure("Shader output exceeds its retained byte limit.");
 		return Found->second.Output;
 	}
 	auto FShaderOutputCache::Count() const -> size_t
 	{ std::lock_guard Lock(Mutex); return Entries.size(); }
 
-	auto FShaderOutputCache::Store(std::string Key, const FShaderBuildResult& Output, const DerivedData::FBuildOutput& Product) -> void
+	auto FShaderOutputCache::Store(std::string Key, const FShaderCompilerOutput& Output, const DerivedData::FBuildOutput& Product) -> void
 	{
 		uint64 Bytes = sizeof(FEntry) + 2 * Key.capacity() + Output.CompiledShaders.capacity() * sizeof(FShaderCode);
+		Bytes += Output.Errors.capacity() * sizeof(FShaderCompilerError);
+		for (const auto& Error : Output.Errors) Bytes += Error.ErrorVirtualFilePath.capacity() + Error.ErrorLineString.capacity()
+			+ Error.StrippedErrorMessage.capacity() + Error.HighlightedLine.capacity() + Error.HighlightedLineMarker.capacity();
 		for (const auto& Meta : Product.GetMetadata()) Bytes += sizeof(Meta) + Meta.Object.GetBytes().GetSize();
 		for (const auto& Value : Product.GetValues()) Bytes += sizeof(Value) + Value.Value.GetRawSize();
 		for (const auto& Observation : Product.GetObservations()) Bytes += sizeof(Observation) + Observation.Object.GetBytes().GetSize();

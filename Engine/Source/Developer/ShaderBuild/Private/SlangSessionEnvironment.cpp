@@ -129,7 +129,7 @@ namespace Durin
 		{
 			if (OutMacros[Index - 1].Name == OutMacros[Index].Name)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name});
+				return std::unexpected(std::format("Duplicate shader macro definition is not allowed: {}", (OutMacros[Index].Name)));
 			}
 		}
 
@@ -148,7 +148,7 @@ namespace Durin
 			uint64 TotalBytes = 0;
 			if (Files.size() > 65536)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::CaptureFileLimit});
+				return std::unexpected(std::string("Captured shader file count exceeds the limit."));
 			}
 			for (const auto& [Path, Bytes] : Files)
 			{
@@ -157,7 +157,7 @@ namespace Durin
 					|| Bytes.size() > 64ull * 1024 * 1024
 					|| (TotalBytes += Bytes.size()) > 512ull * 1024 * 1024)
 				{
-					return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputInvalid});
+					return std::unexpected(std::string("Captured shader paths or bytes exceed canonical input limits."));
 				}
 			}
 		}
@@ -197,11 +197,11 @@ namespace Durin
 		{
 			const auto& Roots = Options.SourceArtifacts->GetSearchRoots();
 			if (Roots.size() > 256)
-			{ return std::unexpected(FShaderError{.Code = EShaderError::CaptureSearchRootLimit}); }
+			{ return std::unexpected(std::string("Captured shader search root limit exceeded.")); }
 			for (const auto& Root : Roots)
 			{
 				if (Root.empty() || Root.size() > 4096 || Root.find('\0') != std::string::npos)
-				{ return std::unexpected(FShaderError{.Code = EShaderError::CaptureSearchRootInvalid, .ActualIdentity = Root}); }
+				{ return std::unexpected(std::string("Invalid captured shader search root.")); }
 				SearchPaths.push_back(Root);
 			}
 		}
@@ -213,7 +213,7 @@ namespace Durin
 		const auto SessionResult = GlobalSession.createSession(SessionDesc, OutSession.writeRef());
 		if (SLANG_FAILED(SessionResult))
 		{
-			return std::unexpected(FShaderError::FromSlang(ESlangShaderError::Session, {}, SessionResult));
+			return std::unexpected(FormatSlangDiagnostic("Session", {}, SessionResult));
 		}
 
 		return {};

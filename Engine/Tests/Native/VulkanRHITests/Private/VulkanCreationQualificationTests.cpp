@@ -53,7 +53,7 @@ namespace Durin::VulkanRHI
 		Options.Frequencies = {EShaderFrequency::Compute, EShaderFrequency::Vertex, EShaderFrequency::Fragment};
 		const auto Compiled = FSlangShaderCompiler().Compile(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR) / "DeferredBufferVersions.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 		ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
 		auto& Commands = FRHICommandListImmediate::Get();
@@ -252,7 +252,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 		const auto Output = Testing::CreateTestFixtureDirectory("CreationTiming");
 		for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
@@ -392,7 +392,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		const auto Output = Testing::CreateTestFixtureDirectory("ResourceCreationTiming");
 		FByteBuffer InitialData(1024);
 		for (size_t Index = 0; Index < InitialData.size(); ++Index)
@@ -485,7 +485,7 @@ namespace Durin::VulkanRHI
 		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment, EShaderFrequency::Compute};
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR) / "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		const auto Output = Testing::CreateTestFixtureDirectory("AsyncCreationTiming");
 		std::ofstream Observers(Output / "observers.csv"), Rounds(Output / "rounds.csv"), Hardware(Output / "device.txt");
 		Observers << "round,scenario,compute,index,key,entry_ns,request_returned_ns,ready_observed_ns,consumer_wait_ns\n";

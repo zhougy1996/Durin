@@ -7,13 +7,13 @@
 
 namespace Durin::ShaderSharedOutput
 {
-	SHADERBUILD_API auto SaveError(DerivedData::FBuildContext& Context, const FShaderError& Error) -> void;
-	SHADERBUILD_API auto ReadError(const DerivedData::FBuildOutput& Output) -> std::optional<FShaderError>;
+	SHADERBUILD_API auto SaveErrors(DerivedData::FBuildContext& Context, std::span<const FShaderCompilerError> Errors) -> void;
+	SHADERBUILD_API auto ReadErrors(const DerivedData::FBuildOutput& Output) -> std::vector<FShaderCompilerError>;
 	SHADERBUILD_API auto Make(const FShaderCompileOptions& Options, const FShaderCompilerOutput& Product,
 		const std::function<bool()>& ShouldCancel = {}) -> TShaderValueResult<DerivedData::FBuildOutput>;
 	SHADERBUILD_API auto Validate(const FShaderCompileOptions& Options, const DerivedData::FBuildOutput& Output,
 		const std::function<bool()>& ShouldCancel = {}) -> FShaderCompletion;
 	SHADERBUILD_API auto Assemble(const FShaderCompileOptions& Options, const DerivedData::FBuildOutput& Output,
 		const std::function<bool()>& ShouldCancel = {})
-		-> TShaderValueResult<FShaderCompilerOutput>;
+		-> FShaderCompilerOutput;
 }

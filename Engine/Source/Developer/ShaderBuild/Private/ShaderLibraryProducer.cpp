@@ -44,9 +44,9 @@ namespace Durin
 		const auto Platform = ToCookTargetPlatform(TargetPlatform);
 		const auto Profile = TargetProfile == EShaderTargetProfile::Game ? ECookTargetProfile::Game
 			: TargetProfile == EShaderTargetProfile::EditorValidation ? ECookTargetProfile::EditorValidation : ECookTargetProfile::Invalid;
-		if (!Platform) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		if (!Platform) return std::unexpected(std::string("Shader entry-point request is invalid."));
 		const auto Resolved = ResolveTargetPlatform(*Platform);
-		if (!Resolved || Profile == ECookTargetProfile::Invalid) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		if (!Resolved || Profile == ECookTargetProfile::Invalid) return std::unexpected(std::string("Shader entry-point request is invalid."));
 		std::string NativeProducer;
 		if (Resolved->GetCookedShaderTarget() == MetalLibraryShaderTarget && TargetProfile == EShaderTargetProfile::Game)
 		{
@@ -57,7 +57,7 @@ namespace Durin
 		std::vector<FShaderRuntimeRequest> Inventory;
 		if (auto Result = FreezeShaderRuntimeInventory(TargetPlatform, TargetProfile, Inventory); !Result) return Result;
 		if (Inventory.empty())
-			return std::unexpected(FShaderError{.Code = EShaderError::InventoryEmpty});
+			return std::unexpected(std::string("Cooked Shader inventory is empty."));
 		std::vector<FShaderCookedLibraryRecord> Records;
 		Records.reserve(Inventory.size());
 		for (const FShaderRuntimeRequest& Request : Inventory)
@@ -68,14 +68,14 @@ namespace Durin
 				return Result;
 			FShaderCompileOptions Options;
 			if (!MakeCompileOptions(Types, Options))
-				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name});
+				return std::unexpected(std::string("Shader request build types do not match canonical members."));
 			Options.Target = TargetProfile == EShaderTargetProfile::Game ? Resolved->GetCookedShaderTarget() : Resolved->GetShaderTarget();
 			Options.SourceArtifacts = Artifacts;
-			FShaderBuildResult Output = Builder.GetOrCompile(
+			FShaderCompilerOutput Output = Builder.GetOrCompile(
 				Options.VirtualShaderPath, Options);
 			if (!Output)
 			{
-				return {Output.Status, Output.Error};
+				return {Output.Status, FormatShaderCompilerErrors(Output.Errors)};
 			}
 			FXxHash128 RuntimeIdentity;
 			if (auto Result = BuildShaderRuntimeRequestIdentity(Request, RuntimeIdentity); !Result) return Result;
@@ -98,7 +98,7 @@ namespace Durin
 			UpdateCanonicalHash(Production, ShaderCookedLibrarySchemaVersion);
 			for (const FShaderCode& Shader : Output.CompiledShaders)
 				Production.UpdateValue(Shader.CodeHash);
-			Records.push_back({Request, Production.Finalize(), FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}});
+			Records.push_back({Request, Production.Finalize(), std::move(Output)});
 		}
 		FByteBuffer Candidate;
 		const auto Encoded = EncodeShaderCookedLibrary(TargetPlatform, TargetProfile, Records, Candidate);

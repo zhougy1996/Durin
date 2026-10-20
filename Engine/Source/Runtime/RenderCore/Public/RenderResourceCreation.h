@@ -6,7 +6,6 @@
 #include "Misc/AssertionMacros.h"
 #include "RenderPipelineCreation.h"
 #include "RenderResourcePreparation.h"
-#include "Shader/ShaderDiagnostics.h"
 
 namespace Durin
 {
@@ -124,7 +123,6 @@ namespace Durin
 				&& Earlier.Manual != Later.Manual);
 	}
 
-	using FRenderResourceCreateCause = std::variant<std::monostate, FShaderError, std::string>;
 
 	struct FRenderResourceCreateError
 	{
@@ -134,7 +132,7 @@ namespace Durin
 			ERenderResourceCreateErrorReason::Unspecified;
 		std::string Context;
 		std::string Identity;
-		FRenderResourceCreateCause Cause;
+		std::string Cause;
 		ERenderResourceGenerationDependency RetryDependencies =
 			ERenderResourceGenerationDependency::Manual;
 		FRenderResourceGeneration AttemptedGeneration;

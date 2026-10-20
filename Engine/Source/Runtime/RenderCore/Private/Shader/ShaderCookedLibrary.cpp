@@ -200,7 +200,7 @@ namespace Durin
 		std::lock_guard Lock(State.Mutex);
 		if (State.bFrozen)
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::RequestRetirementFrozen});
+			return std::unexpected(std::string("Shader request retirement is forbidden after inventory freeze."));
 		}
 		std::erase_if(State.Requests,
 			[Handle = Handle](const FRegisteredRequest& Request) {
@@ -219,7 +219,7 @@ namespace Durin
 			|| Request.Owner.empty() || Request.Owner.size() > 256
 			|| Request.Name.empty() || Request.Name.size() > 512
 			|| Request.Members.empty() || Request.Members.size() > 32)
-			return std::unexpected(FShaderError{.Code = EShaderError::RequestHeaderInvalid});
+			return std::unexpected(std::string("Shader runtime request header is invalid."));
 		std::string Previous;
 		for (const FShaderRuntimeRequestMember& Member : Request.Members)
 		{
@@ -227,7 +227,7 @@ namespace Durin
 				|| Member.EntryPoint.empty() || Member.EntryPoint.size() > 512
 				|| !IsValidFrequency(Member.Frequency)
 				|| (!Previous.empty() && !(Previous < Member.TypeName)))
-				return std::unexpected(FShaderError{.Code = EShaderError::RequestMembersInvalid, .ShaderType = Member.TypeName});
+				return std::unexpected(std::string("Shader runtime request members are invalid or non-canonical."));
 			Previous = Member.TypeName;
 		}
 		FXxHash128Builder Builder;
@@ -264,7 +264,7 @@ namespace Durin
 			if (std::ranges::any_of(CanonicalBuildTypes,
 				[](const FShaderType* Type) { return Type == nullptr; }))
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::RequestNullBuildType});
+				return std::unexpected(std::string("Shader request contains a null build type."));
 			}
 			std::ranges::sort(CanonicalBuildTypes, {},
 				[](const FShaderType* Type) { return Type->GetName(); });
@@ -291,14 +291,14 @@ namespace Durin
 		std::lock_guard Lock(State.Mutex);
 		if (State.bFrozen)
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::RequestRegistrationFrozen});
+			return std::unexpected(std::string("Shader request registration is forbidden after inventory freeze."));
 		}
 		for (const FRegisteredRequest& Existing : State.Requests)
 		{
 			if (Existing.Request.Owner == Request.Owner
 				&& Existing.Request.Name == Request.Name)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::RequestAlreadyRegistered});
+				return std::unexpected(std::string("Shader request owner/name is already registered."));
 			}
 		}
 		const uint64 Handle = State.NextHandle++;
@@ -306,7 +306,7 @@ namespace Durin
 		{
 			if (CanonicalBuildTypes.size() != Request.Members.size())
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypeCountMismatch});
+				return std::unexpected(std::string("Shader request build-type count does not match its members."));
 			}
 			for (size_t Index = 0; Index < CanonicalBuildTypes.size(); ++Index)
 			{
@@ -316,7 +316,7 @@ namespace Durin
 					|| Type->GetEntryPoint() != Member.EntryPoint
 					|| Type->GetFrequency() != Member.Frequency)
 				{
-					return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch});
+					return std::unexpected(std::string("Shader request build types do not match canonical members."));
 				}
 			}
 		}
@@ -340,7 +340,7 @@ namespace Durin
 					&& Registered.Request.Name == Request.Name;
 			});
 		if (Found == State.Requests.end() || Found->BuildTypes.empty())
-			return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesUnavailable, .ActualIdentity = Request.Name});
+			return std::unexpected(std::string("Shader request has no registered build-type contribution."));
 		OutTypes = Found->BuildTypes;
 
 		return {};
@@ -361,7 +361,7 @@ namespace Durin
 		Error = RegisterShaderRuntimeRequest(
 			std::move(Request), Eligibility, Registration, BuildTypes);
 		requiref(Registration.IsValid(),
-			"Shader program registration failed for '{}': {}", Name, FormatShaderError(Error.error()));
+			"Shader program registration failed for '{}': {}", Name, std::string(Error.error()));
 	}
 
 	auto FreezeShaderRuntimeInventory(
@@ -371,14 +371,14 @@ namespace Durin
 	{
 		OutRequests.clear();
 		if (!IsValidTarget(TargetPlatform, TargetProfile))
-			return std::unexpected(FShaderError{.Code = EShaderError::InventoryTargetInvalid});
+			return std::unexpected(std::string("Shader inventory target is invalid."));
 		FRegistry& State = Registry();
 		std::lock_guard Lock(State.Mutex);
 		if (State.bFrozen)
 		{
 			if (State.FrozenPlatform != TargetPlatform
 				|| State.FrozenProfile != TargetProfile)
-				return std::unexpected(FShaderError{.Code = EShaderError::InventoryTargetFrozen});
+				return std::unexpected(std::string("Shader inventory is already frozen for another target."));
 			OutRequests = State.FrozenRequests;
 
 			return {};
@@ -394,8 +394,7 @@ namespace Durin
 		{
 			if (!IsEligible(Registered.Eligibility, TargetProfile)) continue;
 			if (!SelectedNames.emplace(Registered.Request.Name).second)
-				return std::unexpected(FShaderError{.Code = EShaderError::InventoryNameAmbiguous,
-					.ActualIdentity = Registered.Request.Name});
+				return std::unexpected(std::string("Shader inventory contains an ambiguous request name."));
 			FShaderRuntimeRequest Request = Registered.Request;
 			Request.TargetPlatform = TargetPlatform;
 			Request.TargetProfile = TargetProfile;
@@ -410,7 +409,7 @@ namespace Durin
 		});
 		for (size_t Index = 1; Index < Selected.size(); ++Index)
 			if (Selected[Index - 1].Identity == Selected[Index].Identity)
-				return std::unexpected(FShaderError{.Code = EShaderError::InventoryIdentityDuplicate, .Index = Index});
+				return std::unexpected(std::string("Shader inventory contains a duplicate identity."));
 		State.FrozenPlatform = TargetPlatform;
 		State.FrozenProfile = TargetProfile;
 		for (auto& Item : Selected)
@@ -442,7 +441,7 @@ namespace Durin
 		OutBytes.clear();
 		if (!IsValidTarget(TargetPlatform, TargetProfile)
 			|| Records.empty() || Records.size() > MaximumLibraryRecords)
-			return std::unexpected(FShaderError{.Code = EShaderError::LibraryRecordCountInvalid, .Actual = Records.size()});
+			return std::unexpected(std::string("Shader library target or record count is invalid."));
 		struct FEncoded
 		{
 			FDirectoryRecord Directory;
@@ -455,7 +454,7 @@ namespace Durin
 			if (Record.Request.TargetPlatform != TargetPlatform
 				|| Record.Request.TargetProfile != TargetProfile
 				|| Record.ProductionIdentity.IsZero())
-				return std::unexpected(FShaderError{.Code = EShaderError::LibraryRecordInvalid, .ActualIdentity = Record.Request.Name});
+				return std::unexpected(std::string("Shader library record target or production identity is invalid."));
 			FEncoded Item;
 			if (auto Result = BuildShaderRuntimeRequestIdentity(Record.Request, Item.Directory.RuntimeIdentity); !Result) return Result;
 			std::vector<std::string> Entries;
@@ -481,23 +480,23 @@ namespace Durin
 		for (size_t Index = 1; Index < Encoded.size(); ++Index)
 			if (Encoded[Index - 1].Directory.RuntimeIdentity
 				== Encoded[Index].Directory.RuntimeIdentity)
-				return std::unexpected(FShaderError{.Code = EShaderError::LibraryIdentityDuplicate, .Index = Index});
+				return std::unexpected(std::string("Shader library contains a duplicate runtime identity."));
 
 		uint64 DirectorySize = static_cast<uint64>(Encoded.size())
 			* LibraryDirectoryRecordSize;
 		uint64 PayloadOffset = 0;
 		if (!AlignUp(LibraryHeaderSize + DirectorySize,
 			LibraryAlignment, PayloadOffset))
-			return std::unexpected(FShaderError{.Code = EShaderError::LibraryDirectoryOverflow});
+			return std::unexpected(std::string("Shader library directory extent overflowed."));
 		uint64 Cursor = PayloadOffset;
 		for (FEncoded& Item : Encoded)
 		{
 			if (!AlignUp(Cursor, LibraryAlignment, Cursor))
-				return std::unexpected(FShaderError{.Code = EShaderError::LibraryPayloadOffsetOverflow});
+				return std::unexpected(std::string("Shader library payload offset overflowed."));
 			Item.Directory.Offset = Cursor;
 			if (!AddChecked(Cursor, Item.Directory.Size, Cursor)
 				|| Cursor > MaximumLibraryBytes)
-				return std::unexpected(FShaderError{.Code = EShaderError::LibraryTooLarge});
+				return std::unexpected(std::string("Shader library exceeds its byte bound."));
 		}
 
 		FXxHash128Builder InventoryBuilder;
@@ -561,7 +560,7 @@ namespace Durin
 		OutLibrary = {};
 		return FFileHelper::LoadFileToArray(Path)
 			.transform_error([](FFileError Error) {
-				return FShaderError{.Code = EShaderError::LibraryReadFailed, .FileError = std::move(Error)};
+				return (std::move(Error)).ToString();
 			})
 			.and_then([&](FByteBuffer Bytes) {
 				return OpenBytes(std::make_shared<FByteBuffer>(std::move(Bytes)),
@@ -579,7 +578,7 @@ namespace Durin
 		OutLibrary = {};
 		if (!Bytes || Bytes->size() < LibraryHeaderSize
 			|| Bytes->size() > MaximumLibraryBytes)
-			return std::unexpected(FShaderError{.Code = EShaderError::LibraryExtentInvalid});
+			return std::unexpected(std::string("Shader library byte extent is invalid."));
 		FBinaryReader Reader(*Bytes);
 		uint32 Platform = 0;
 		uint32 Profile = 0;
@@ -620,7 +619,7 @@ namespace Durin
 			|| FileSize != Bytes->size()
 			|| PayloadOffset > FileSize || PayloadSize != FileSize - PayloadOffset
 			|| HashWithZeroedFileDigest(*Bytes) != FileDigest)
-			return std::unexpected(FShaderError{.Code = EShaderError::LibraryHeaderInvalid});
+			return std::unexpected(std::string("Shader library header is incompatible or corrupt; re-cook the shader library."));
 
 		auto Candidate = std::make_shared<FState>();
 		Candidate->Bytes = std::move(Bytes);
@@ -650,7 +649,7 @@ namespace Durin
 				|| Entry.Size == 0
 				|| Entry.Size > ShaderCompiledOutput::MaximumValueBytes
 				|| Entry.Offset > FileSize || Entry.Size > FileSize - Entry.Offset)
-				return std::unexpected(FShaderError{.Code = EShaderError::LibraryDirectoryRecordInvalid, .Index = Index});
+				return std::unexpected(std::string("Shader library directory record is invalid."));
 			if (!Candidate->Directory.empty())
 			{
 				const FDirectoryRecord& Previous = Candidate->Directory.back();
@@ -658,7 +657,7 @@ namespace Durin
 					Previous.RuntimeIdentity.HashLow)
 					< std::tie(Entry.RuntimeIdentity.HashHigh,
 						Entry.RuntimeIdentity.HashLow)))
-					return std::unexpected(FShaderError{.Code = EShaderError::LibraryDirectoryOrderInvalid, .Index = Index});
+					return std::unexpected(std::string("Shader library directory is unsorted or duplicated."));
 			}
 			InventoryBuilder.UpdateValue(Entry.RuntimeIdentity);
 			PreviousEnd = Entry.Offset + Entry.Size;
@@ -668,7 +667,7 @@ namespace Durin
 			- (LibraryHeaderSize + DirectorySize)
 			|| InventoryBuilder.Finalize() != InventoryDigest
 			|| PreviousEnd != FileSize)
-			return std::unexpected(FShaderError{.Code = EShaderError::LibraryInventoryDigestInvalid});
+			return std::unexpected(std::string("Shader library extent or inventory digest is invalid."));
 
 		for (const FShaderRuntimeRequest& Request : RequiredRequests)
 		{
@@ -685,12 +684,11 @@ namespace Durin
 			if (Found == Candidate->Directory.end()
 				|| Found->RuntimeIdentity != Identity
 				|| Found->MemberCount != Request.Members.size())
-				return std::unexpected(FShaderError{.Code = EShaderError::LibraryRequiredRequestMissing, .ActualIdentity = Request.Name});
+				return std::unexpected(std::string("Shader library is missing a required runtime request."));
 			const FByteView Payload(Candidate->Bytes->data() + static_cast<size_t>(Found->Offset),
 				static_cast<size_t>(Found->Size));
 			if (FXxHash128::HashBuffer(Payload) != Found->PayloadDigest)
-				return std::unexpected(FShaderError{.Code = EShaderError::LibraryPayloadDigestInvalid,
-					.ActualIdentity = Request.Name});
+				return std::unexpected(std::string("Shader library payload digest is invalid."));
 			std::vector<std::string> Entries;
 			FShaderCompileOptions Options;
 			MakeCompileOptions(Request, Options, Entries);
@@ -706,7 +704,7 @@ namespace Durin
 	auto FShaderCookedLibrary::Load(const FShaderRuntimeRequest& Request, FShaderCompilerOutput& OutOutput) const -> FShaderOperationResult
 	{
 		OutOutput = {};
-		if (!State) return std::unexpected(FShaderError{.Code = EShaderError::LibraryNotOpen});
+		if (!State) return std::unexpected(std::string("Shader library is not open."));
 		FXxHash128 Identity;
 		if (auto Result = BuildShaderRuntimeRequestIdentity(Request, Identity); !Result)
 			return Result;
@@ -719,12 +717,12 @@ namespace Durin
 		if (Found == State->Directory.end()
 			|| Found->RuntimeIdentity != Identity
 			|| Found->MemberCount != Request.Members.size())
-			return std::unexpected(FShaderError{.Code = EShaderError::LibraryRequestUnavailable, .ActualIdentity = Request.Name});
+			return std::unexpected(std::string("Shader library request is unavailable."));
 		const FByteView Payload(
 			State->Bytes->data() + static_cast<size_t>(Found->Offset),
 			static_cast<size_t>(Found->Size));
 		if (FXxHash128::HashBuffer(Payload) != Found->PayloadDigest)
-			return std::unexpected(FShaderError{.Code = EShaderError::LibraryPayloadDigestInvalid, .ActualIdentity = Request.Name});
+			return std::unexpected(std::string("Shader library payload digest is invalid."));
 		std::vector<std::string> Entries;
 		FShaderCompileOptions Options;
 		MakeCompileOptions(Request, Options, Entries);

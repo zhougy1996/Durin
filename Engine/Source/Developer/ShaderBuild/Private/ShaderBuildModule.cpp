@@ -107,7 +107,7 @@ namespace Durin
 			const auto Result = InitializeShaderData(
 				FShaderDataConfiguration::Authored(TargetPlatform));
 			requiref(Result,
-				"Authored Shader data initialization failed: {}", FormatShaderError(Result.error()));
+				"Authored Shader data initialization failed: {}", std::string(Result.error()));
 		}
 
 		auto ShutdownModule() -> void override

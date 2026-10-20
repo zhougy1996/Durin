@@ -1099,11 +1099,11 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 		"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", &FShaderMacroDefinition::Name);
 	ASSERT_NE(Threshold, Request.ExpectedSourceTree->Macros.end());
 	EXPECT_EQ(Threshold->Value, "1056964608");
-	FShaderBuildResult Output{.Status = EShaderBuildStatus::Ok};
+	FShaderCompilerOutput Output{.Status = EShaderBuildStatus::Ok};
 	for (const auto& StageRequest : MakeMaterialShaderStageRequests(Translation, false))
 	{
 		auto Stage = FShaderCompilingManager::Get().CompileGenerated(StageRequest);
-		ASSERT_TRUE(Stage) << FormatShaderError(Stage.Error);
+		ASSERT_TRUE(Stage) << FormatShaderCompilerErrors(Stage.Errors);
 		for (auto& Code : Stage.CompiledShaders) Output.CompiledShaders.push_back(std::move(Code));
 	}
 	const auto Split = FMaterialShaderMap::FinalizeContent(Translation, Output);
@@ -1280,11 +1280,8 @@ TEST(FMaterialCompilerTests, MetalMaterialProgramIsRejectedOnUnsupportedHosts)
 	ASSERT_EQ(Compiled.Diagnostics.size(), 1u);
 	const auto& Diagnostic = Compiled.Diagnostics.front();
 	EXPECT_EQ(Diagnostic.Category, EMaterialProgramDiagnosticCategory::Compile);
-	EXPECT_EQ(Diagnostic.Error.Code,
-		FMaterialError::FCode(EMaterialCompileError::ShaderCompilerFailed));
-	ASSERT_NE(Diagnostic.Error.ShaderCause, nullptr);
-	EXPECT_EQ(Diagnostic.Error.ShaderCause->Code, EShaderError::InvalidCompileRequest);
-	EXPECT_TRUE(Diagnostic.Error.ExternalDiagnostic.empty());
+	EXPECT_EQ(Diagnostic.Error.Code, FMaterialError::FCode{});
+	EXPECT_FALSE(Diagnostic.Error.ExternalDiagnostic.empty());
 }
 #endif
 
@@ -2958,15 +2955,15 @@ TEST(FMaterialProgramCompilerTests, NormalizedValidationRejectsAuthoredOnlyOpera
 	}
 }
 
-TEST(FMaterialProgramOwnershipTests, StructuredShaderFailureSurvivesMaterialAssembly)
+TEST(FMaterialProgramOwnershipTests, ShaderDiagnosticsAreCollectedDirectlyByMaterialAssembly)
 {
 	using namespace Durin;
 	FMaterialTranslatedProgram Translation; Translation.Status = EMaterialProgramStatus::Ok;
-	auto Cause = FShaderError::FromSlang(ESlangShaderError::Code, "provider error", -17);
-	const auto Result = FMaterialShaderMap::FinalizeContent(std::move(Translation), FShaderBuildResult::Failure(Cause));
-	ASSERT_FALSE(Result); ASSERT_EQ(Result.Diagnostics.size(), 1u);
-	const auto& Error = Result.Diagnostics[0].Error;
-	ASSERT_NE(Error.ShaderCause, nullptr); EXPECT_EQ(Error.ShaderCause->Code, EShaderError::SlangFailure);
-	EXPECT_EQ(Error.ShaderCause->CompilerPhase, ESlangShaderError::Code); EXPECT_EQ(Error.ShaderCause->NativeStatus, -17);
-	EXPECT_EQ(Error.ShaderCause->ExternalDiagnostic, "provider error"); EXPECT_TRUE(Error.ExternalDiagnostic.empty());
+	FShaderCompilerOutput Output; Output.Errors.emplace_back("first compiler error");
+	FShaderCompilerError Error{"second compiler error"}; Error.ErrorVirtualFilePath = "/Generated/Test.slang"; Error.ErrorLineString = "7";
+	Output.Errors.push_back(std::move(Error));
+	const auto Result = FMaterialShaderMap::FinalizeContent(std::move(Translation), std::move(Output));
+	ASSERT_FALSE(Result); ASSERT_EQ(Result.Diagnostics.size(), 2u);
+	EXPECT_EQ(Result.Diagnostics[0].Error.ExternalDiagnostic, "first compiler error");
+	EXPECT_EQ(Result.Diagnostics[1].Error.ExternalDiagnostic, "/Generated/Test.slang(7): second compiler error");
 }

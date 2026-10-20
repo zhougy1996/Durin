@@ -111,7 +111,7 @@ float4 FragmentMain() : SV_Target
 
 		auto MakeReloadError(
 			ERenderResourceCreateErrorCategory Category,
-			FRenderResourceCreateCause Cause) -> FRenderResourceCreateError
+			std::string Cause) -> FRenderResourceCreateError
 		{
 			return {
 				.Category = Category,
@@ -427,7 +427,7 @@ float4 FragmentMain() : SV_Target
 								return FResult::Failure(MakeReloadError(
 									ERenderResourceCreateErrorCategory::
 										ShaderBinding,
-									FShaderError{.Code = EShaderError::MissingShaderType}));
+									std::format("Material shader map is missing type '{}'.", (std::string{}))));
 							}
 
 							FReloadTestPayload Candidate;
@@ -472,7 +472,7 @@ float4 FragmentMain() : SV_Target
 								return FResult::Failure(MakeReloadError(
 									ERenderResourceCreateErrorCategory::
 										GraphicsPipeline,
-									std::monostate{}));
+									{}));
 							}
 							return FResult::Success(
 								std::move(Candidate));
@@ -708,7 +708,7 @@ float4 FragmentMain() : SV_Target
 					Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 4});
 					auto Candidate = FRenderPipelineRequestScope::Graphics("AsyncReloadPrewarm", Initializer);
 					if (Candidate) return FResult::Success(std::move(Candidate));
-					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, std::monostate{}));
+					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, {}));
 				}, [](const auto&) { ADD_FAILURE() << "Pending must not report a candidate failure"; });
 				if (Ready) PreparedPipeline = *Ready;
 			});

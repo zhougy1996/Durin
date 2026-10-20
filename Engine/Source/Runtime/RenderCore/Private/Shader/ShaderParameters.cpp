@@ -60,7 +60,7 @@ namespace Durin
 
 			if (Parameter.Name == nullptr || Parameter.Name[0] == '\0')
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::EmptyParameterName});
+				return std::unexpected(std::string("Shader parameter metadata contains an empty name"));
 			}
 
 			const auto FoundIt = std::ranges::find_if(Reflection.ResourceBindings, [&Parameter](const FShaderResourceBinding& Binding) {
@@ -73,23 +73,21 @@ namespace Durin
 				{
 					continue;
 				}
-				return std::unexpected(FShaderError{.Code = EShaderError::MissingParameter, .Parameter = Parameter.Name});
+				return std::unexpected(std::format("Shader parameter '{}' was not found in shader reflection", (Parameter.Name)));
 			}
 
 			if (!AreShaderBindingTypesCompatible(FoundIt->Type, Parameter.Type))
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::ParameterTypeMismatch,
-					.Parameter = Parameter.Name,
-					.Expected = static_cast<uint64>(Parameter.Type),
-					.Actual = static_cast<uint64>(FoundIt->Type)});
+				return std::unexpected(std::format(
+				"Shader parameter '{}' type does not match reflection (expected {}, actual {})",
+				(Parameter.Name), (static_cast<uint64>(Parameter.Type)), (static_cast<uint64>(FoundIt->Type))));
 			}
 
 			if (FoundIt->ArraySize != Parameter.ArraySize)
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::ParameterArraySizeMismatch,
-					.Parameter = Parameter.Name,
-					.Expected = Parameter.ArraySize,
-					.Actual = FoundIt->ArraySize});
+				return std::unexpected(std::format(
+				"Shader parameter '{}' array size does not match reflection (expected {}, actual {})",
+				(Parameter.Name), (Parameter.ArraySize), (FoundIt->ArraySize)));
 			}
 
 			FShaderParameterBinding Binding;

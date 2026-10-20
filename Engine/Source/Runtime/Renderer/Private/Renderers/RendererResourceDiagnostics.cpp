@@ -10,7 +10,7 @@ namespace Durin
 		std::string Identity,
 		ERenderResourceCreateErrorReason Reason,
 		ERenderResourceGenerationDependency RetryDependencies,
-		FRenderResourceCreateCause Cause)
+		std::string Cause)
 		-> FRenderResourceCreateError
 	{
 		return {

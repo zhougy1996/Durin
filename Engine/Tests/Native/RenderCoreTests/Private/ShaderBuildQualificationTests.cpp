@@ -118,7 +118,7 @@ namespace Durin
 		Request.Frequencies = {EShaderFrequency::Vertex};
 		Request.MaximumOutputBytes = 8ull * 1024 * 1024;
 		const auto Built = Builder.GetOrCompileGenerated(Request);
-		ASSERT_TRUE(Built) << FormatShaderError(Built.Error);
+		ASSERT_TRUE(Built) << FormatShaderCompilerErrors(Built.Errors);
 		ASSERT_EQ(Built.CompiledShaders.size(), 1);
 		EXPECT_EQ(Built.CompiledShaders[0].Target, MetalLibraryShaderTarget);
 		EXPECT_TRUE(ShaderFormat::ValidateShaderCode(Built.CompiledShaders[0]));
@@ -134,13 +134,13 @@ namespace Durin
 			const auto Unavailable = Builder.GetOrCompileGenerated(Request);
 			EXPECT_FALSE(Unavailable); EXPECT_TRUE(Unavailable.CompiledShaders.empty());
 			FShaderBuildRequestOptions CacheOptions{.bInlineExecution = true, .NativeProducerIdentity = *Producer, .bNativeCacheOnly = true};
-			std::optional<FShaderBuildResult> Replay;
+			std::optional<FShaderCompilerOutput> Replay;
 			auto Replayed = Builder.SubmitGenerated(Request, CacheOptions, [&](auto Result) { Replay = std::move(Result); });
 			ASSERT_TRUE(Replayed);
 			EXPECT_EQ(Replayed->Wait(), EShaderBuildWaitResult::Completed);
-			ASSERT_TRUE(Replay); EXPECT_TRUE(*Replay) << FormatShaderError(Replay->Error);
+			ASSERT_TRUE(Replay); EXPECT_TRUE(*Replay) << FormatShaderCompilerErrors(Replay->Errors);
 			CacheOptions.NativeProducerIdentity += ";not-installed";
-			std::optional<FShaderBuildResult> Miss;
+			std::optional<FShaderCompilerOutput> Miss;
 			auto Missing = Builder.SubmitGenerated(Request, CacheOptions, [&](auto Result) { Miss = std::move(Result); });
 			ASSERT_TRUE(Missing); EXPECT_EQ(Missing->Wait(), EShaderBuildWaitResult::Completed);
 			ASSERT_TRUE(Miss); EXPECT_FALSE(*Miss); EXPECT_TRUE(Miss->CompiledShaders.empty());
@@ -151,7 +151,7 @@ namespace Durin
 		EXPECT_FALSE(TooSmall);
 		EXPECT_TRUE(TooSmall.CompiledShaders.empty());
 		const auto Reused = Builder.GetOrCompileGenerated(Request);
-		EXPECT_TRUE(Reused) << FormatShaderError(Reused.Error);
+		EXPECT_TRUE(Reused) << FormatShaderCompilerErrors(Reused.Errors);
 		ASSERT_FALSE(IsTaskSchedulerRunning());
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		struct FStop { ~FStop() { ShutdownTaskScheduler(); } } Stop;
@@ -164,7 +164,7 @@ namespace Durin
 			ASSERT_TRUE(First);
 			First->RequestCancel();
 			auto Second = AsyncBuilder.SubmitGenerated(Request, {}, [&](auto Result) {
-				EXPECT_TRUE(Result) << FormatShaderError(Result.Error);
+				EXPECT_TRUE(Result) << FormatShaderCompilerErrors(Result.Errors);
 				if (Result) EXPECT_EQ(Result.CompiledShaders.front().Target, MetalLibraryShaderTarget);
 				++Completed;
 			});
@@ -202,7 +202,7 @@ namespace Durin
 			FShaderCompileOptions Options;
 			Options.EntryPoints = {"VertexMain"};
 			Options.Frequencies = {EShaderFrequency::Vertex};
-			std::array<FShaderBuildResult, BatchSize> Cold;
+			std::array<FShaderCompilerOutput, BatchSize> Cold;
 			auto Builder = std::make_unique<FShaderBuilder>();
 			for (uint32 Mode = 0; Mode < 3; ++Mode)
 			{
@@ -210,7 +210,7 @@ namespace Durin
 				// builder for the third pass so memory hits are measured separately.
 				if (Mode == 1) Builder = std::make_unique<FShaderBuilder>();
 				const auto Before = Builder->GetStats();
-				std::array<FShaderBuildResult, BatchSize> Outputs;
+				std::array<FShaderCompilerOutput, BatchSize> Outputs;
 				Testing::FQualificationAllocationSampler Allocations;
 				const auto Start = std::chrono::steady_clock::now();
 				for (uint32 Index = 0; Index < BatchSize; ++Index)
@@ -220,7 +220,7 @@ namespace Durin
 				uint64 Bytes = 0;
 				for (uint32 Index = 0; Index < BatchSize; ++Index)
 				{
-					ASSERT_TRUE(Outputs[Index]) << FormatShaderError(Outputs[Index].Error);
+					ASSERT_TRUE(Outputs[Index]) << FormatShaderCompilerErrors(Outputs[Index].Errors);
 					ASSERT_EQ(Outputs[Index].CompiledShaders.size(), 1u);
 					const auto& Shader = Outputs[Index].CompiledShaders[0];
 					ASSERT_TRUE(!Shader.Code.IsEmpty());

@@ -50,7 +50,7 @@ namespace Durin
 
 	auto FMaterialError::HasError() const -> bool
 	{
-		return std::visit([](auto Value) {
+		return !ExternalDiagnostic.empty() || std::visit([](auto Value) {
 			using T = decltype(Value);
 			if constexpr (std::is_same_v<T, std::monostate>) return false;
 			else if constexpr (std::is_same_v<T, EMaterialLayoutError>) return Value != EMaterialLayoutError::None;
@@ -342,8 +342,7 @@ namespace Durin
 		if (Error.ArchiveCode) Text += std::format(" [archive code {}]", static_cast<uint8>(*Error.ArchiveCode));
 		if (Error.BulkStatus) Text += std::format(" [bulk status {}]", static_cast<uint8>(*Error.BulkStatus));
 		if (Error.ResourceStatus) Text += std::format(" [resource status {}]", static_cast<uint8>(*Error.ResourceStatus));
-		if (Error.ShaderCause) Text += " " + FormatShaderError(*Error.ShaderCause);
-		if (!Error.ExternalDiagnostic.empty()) Text += " " + Error.ExternalDiagnostic;
+		if (!Error.ExternalDiagnostic.empty()) Text += (Text.empty() ? "" : " ") + Error.ExternalDiagnostic;
 		return Text;
 	}
 

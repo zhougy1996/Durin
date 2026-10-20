@@ -378,9 +378,9 @@ and at most 2048 bytes of external provider text.
 
 Run preflight retains complete output-root, project-settings and default-level
 path failures in `OutputRootCause`, `SettingsCause` and `DefaultLevelCause`.
-Shader library failures retain `ShaderCause` for both failure and cancellation
-outcomes. These owned causes survive formatting at the run presentation boundary and
-are reset with the rest of the result at the start of each run. Project settings
+Shader library failures retain their owned `ShaderDiagnostic`; cancellation is
+propagated independently without a failure cause. Diagnostics are reset with the
+rest of the result at the start of each run. Project settings
 still expose their existing typed-code/text result and Cook does not reconstruct or classify that text.
 
 `AddRawPackage` uses the same typed result, retaining package/segment byte counts

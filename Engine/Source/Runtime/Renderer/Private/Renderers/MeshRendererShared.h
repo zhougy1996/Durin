@@ -73,24 +73,21 @@ namespace Durin::RendererPrivate
 			if (!*MaterialProgram && !MaterialProgram->Diagnostics.empty())
 				return FShaderCompletion::Failure(FormatMaterialProgramDiagnostics(MaterialProgram->Diagnostics));
 			if (!*MaterialProgram || !ValidateMaterialCompilerResult(*MaterialProgram))
-				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramInvalid});
+				return std::unexpected(std::string("Accepted material compiler result is invalid."));
 			if (MaterialProgram->GetShaderMap().ShaderMapId != Identity.ProgramIdentity)
-				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramIdentityMismatch,
-					.ExpectedIdentity = Identity.ProgramIdentity.ToString(),
-					.ActualIdentity = MaterialProgram->GetShaderMap().ShaderMapId.ToString()});
+				return std::unexpected(std::format(
+				"Compiled material program identity '{}' does not match requested identity '{}'.",
+				(MaterialProgram->GetShaderMap().ShaderMapId.ToString()), (Identity.ProgramIdentity.ToString())));
 			if (MaterialProgram->GetShaderMap().Layout.Identity != Identity.RenderLayout)
-				return std::unexpected(FShaderError{.Code = EShaderError::MaterialLayoutMismatch,
-					.ExpectedIdentity = Identity.RenderLayout.Id.ToString(),
-					.ActualIdentity = MaterialProgram->GetShaderMap().Layout.Identity.Id.ToString(),
-					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->GetShaderMap().Layout.Identity.Version});
+				return std::unexpected(std::format("Material layout '{}' version {} does not match '{}' version {}.",
+				(MaterialProgram->GetShaderMap().Layout.Identity.Id.ToString()), (MaterialProgram->GetShaderMap().Layout.Identity.Version), (Identity.RenderLayout.Id.ToString()), (Identity.RenderLayout.Version)));
 			if (MaterialProgram->GetShaderMap().PassContractVersion != CurrentMaterialPassContractVersion)
-				return std::unexpected(FShaderError{.Code = EShaderError::MaterialPassContractMismatch,
-					.Expected = CurrentMaterialPassContractVersion, .Actual = MaterialProgram->GetShaderMap().PassContractVersion});
+				return std::unexpected(std::format("Material pass contract {} does not match {}.", (MaterialProgram->GetShaderMap().PassContractVersion), (CurrentMaterialPassContractVersion)));
 		}
 		const auto Factory = FindMeshVertexFactory(VertexFactoryType.GetStableKey());
 		if (!Factory)
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::MissingVertexFactory, .ShaderType = std::string(VertexType.GetName())});
+			return std::unexpected(std::format("Mesh Material shader type '{}' requires a Vertex Factory type.", (std::string(VertexType.GetName()))));
 		}
 		const std::array<const FShaderType*, 2> Types{
 			&VertexType, &FragmentType};
@@ -107,8 +104,9 @@ namespace Durin::RendererPrivate
 				Factory->UsesGeneratedMaterialVertexStage(MeshPassKey) ? VertexType.GetEntryPoint() : std::string_view{}})
 				if (!Entry.empty() && !std::ranges::any_of(GeneratedStages,
 					[Entry](const auto& Stage) { return Stage.SourceEntryPoint == Entry; }))
-					return std::unexpected(FShaderError{.Code = EShaderError::MissingGeneratedStage,
-						.ExpectedIdentity = std::string(Entry)});
+					return std::unexpected(std::format(
+				"Accepted material program has no {} stage for type '{}'.",
+				(std::string(Entry)), (std::string{})));
 		}
 		std::vector<FShaderCode> FactoryCompatibleStages;
 		if (!Factory->UsesGeneratedMaterialVertexStage(MeshPassKey))

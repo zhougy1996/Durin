@@ -211,7 +211,7 @@ namespace Durin
 #endif
 
 	auto FMaterialShaderMap::FinalizeContent(FMaterialTranslatedProgram Translation,
-		FShaderBuildResult Output, std::shared_ptr<FMaterialShaderMap> Artifact) -> FMaterialCompilerResult
+		FShaderCompilerOutput Output, std::shared_ptr<FMaterialShaderMap> Artifact) -> FMaterialCompilerResult
 	{
 		if (!Artifact) Artifact = std::make_shared<FMaterialShaderMap>();
 		Artifact->ActiveParameters = std::move(Translation.ActiveParameters);
@@ -238,16 +238,13 @@ namespace Durin
 		if (Translation.Status == EMaterialProgramStatus::Canceled || Output.Status == EShaderBuildStatus::Canceled)
 			return {.Status = EMaterialProgramStatus::Canceled};
 		if (!Translation) return Result;
-		if (Output.Status == EShaderBuildStatus::OutputTooLarge)
-			return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds,
-				.Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}};
-		if (!Output)
-		{
-			FMaterialError Error{EMaterialCompileError::ShaderCompilerFailed};
-			Error.ShaderCause = std::make_shared<const FShaderError>(std::move(Output.Error));
+		for (const auto& Diagnostic : Output.Errors) {
+			if (Result.Diagnostics.size() >= MaterialProgramMaxDiagnosticCount) break;
+			FMaterialError Error; Error.ExternalDiagnostic = Diagnostic.GetErrorString();
 			Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = std::move(Error)});
-			return Result;
 		}
+		if (!Output) return Result;
+
 		const auto Target = Artifact->Target == "metal-library-1" ? MetalLibraryShaderTarget
 			: Artifact->Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;
 		const auto Reflection = std::ranges::all_of(Output.CompiledShaders,

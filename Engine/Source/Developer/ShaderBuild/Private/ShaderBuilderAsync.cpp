@@ -11,10 +11,13 @@ namespace Durin
 	namespace
 	{
 		thread_local uint32 ShaderCallbackDepth = 0;
-		auto CanceledShader() -> FShaderBuildResult { return {.Status = EShaderBuildStatus::Canceled}; }
-		auto NativeResultBytes(const FShaderBuildResult& Result) -> uint64
+		auto CanceledShader() -> FShaderCompilerOutput { return {.Status = EShaderBuildStatus::Canceled}; }
+		auto NativeResultBytes(const FShaderCompilerOutput& Result) -> uint64
 		{
 			uint64 Bytes = sizeof(Result) + Result.CompiledShaders.capacity() * sizeof(FShaderCode);
+			Bytes += Result.Errors.capacity() * sizeof(FShaderCompilerError);
+			for (const auto& Error : Result.Errors) Bytes += Error.ErrorVirtualFilePath.capacity() + Error.ErrorLineString.capacity()
+				+ Error.StrippedErrorMessage.capacity() + Error.HighlightedLine.capacity() + Error.HighlightedLineMarker.capacity();
 			for (const auto& Shader : Result.CompiledShaders)
 			{
 				Bytes += Shader.Code.GetRetainedCapacityBytes() + Shader.PlatformData.GetRetainedCapacityBytes()
@@ -67,20 +70,20 @@ namespace Durin
 			uint64 NativeBytes = 0;
 			std::string NativeProducer;
 			DerivedData::FRequestOwner NativeOwner;
-			FShaderBuildResult NativeOutput;
+			FShaderCompilerOutput NativeOutput;
 			size_t NativeIndex = 0;
-			auto Finish(FShaderBuildResult Output) -> void
+			auto Finish(FShaderCompilerOutput Output) -> void
 			{
 				if (BinaryMetal && Output && !NativeStarted.exchange(true))
 				{
 					if (NativeResultBytes(Output) > Request->MaximumOutputBytes)
-						Output = FShaderBuildResult::Failure("Metal source result exceeds retained-output budget.");
+						Output = FShaderCompilerOutput::Failure("Metal source result exceeds retained-output budget.");
 					else if (auto Owner = State.lock())
 					{
 						NativeOutput = std::move(Output);
 						return Owner->SubmitNative(shared_from_this());
 					}
-					else Output = FShaderBuildResult::Failure("Shader build owner was retired.");
+					else Output = FShaderCompilerOutput::Failure("Shader build owner was retired.");
 				}
 				FShaderBuildCompletion Callback;
 				{
@@ -89,7 +92,7 @@ namespace Durin
 					Delivery = EDelivery::Delivering;
 					Callback = std::move(Completion);
 				}
-				try { if (Canceled || (Options.IsCancelled && Options.IsCancelled())) Output = CanceledShader(); } catch (...) { Output = FShaderBuildResult::Failure("Shader cancellation observer failed."); }
+				try { if (Canceled || (Options.IsCancelled && Options.IsCancelled())) Output = CanceledShader(); } catch (...) { Output = FShaderCompilerOutput::Failure("Shader cancellation observer failed."); }
 				++ShaderCallbackDepth;
 				try { if (Callback) Callback(std::move(Output)); } catch (...) { }
 				Callback = {};
@@ -138,7 +141,7 @@ namespace Durin
 			for (const auto& Subscriber : Flight->Subscribers) Priority = std::min(Priority, Subscriber->Options.Priority);
 			Flight->Owner.SetPriority(static_cast<DerivedData::ERequestPriority>(Priority));
 		}
-		auto Complete(const std::shared_ptr<FFlight>& Flight, FShaderBuildResult Output) -> void
+		auto Complete(const std::shared_ptr<FFlight>& Flight, FShaderCompilerOutput Output) -> void
 		{
 			std::vector<std::shared_ptr<FSubscriber>> Subscribers;
 			{
@@ -160,7 +163,7 @@ namespace Durin
 					const auto Owner = Weak.lock(); return !Owner || Owner->Canceled.load()
 					|| (Owner->Options.IsCancelled && Owner->Options.IsCancelled());
 				}));
-				if (!Producer) return Subscriber->Finish(FShaderBuildResult::Failure(Producer.error()));
+				if (!Producer) return Subscriber->Finish(FShaderCompilerOutput::Failure(Producer.error()));
 				Subscriber->NativeProducer = *Producer;
 			}
 			const auto Reserve = [this, Subscriber](uint64 Amount) {
@@ -169,7 +172,7 @@ namespace Durin
 				Bytes += Amount; Subscriber->Bytes += Amount; return true;
 			};
 			auto Prepared = Subscriber->SourceKind == ESourceKind::Mounted ? Builder->PrepareMounted(Subscriber->Request, Reserve) : Builder->PrepareGenerated(Subscriber->Request, Reserve);
-			if (!Prepared) return Subscriber->Finish(FShaderBuildResult::Failure(Prepared.error()));
+			if (!Prepared) return Subscriber->Finish(FShaderCompilerOutput::Failure(Prepared.error()));
 			if (Subscriber->Canceled) return Subscriber->Finish(CanceledShader());
 			if (!Subscriber->Request->bForceRecompile)
 			{
@@ -205,16 +208,16 @@ namespace Durin
 					if (Flight) { Flight->Subscribers.push_back(Subscriber); Subscriber->Flight = Flight; Priority(Flight); }
 				}
 			}
-			if (!Flight) return Subscriber->Finish(Capacity ? FShaderBuildResult::Failure({.Code = EShaderError::CaptureInputLimit}) : CanceledShader());
+			if (!Flight) return Subscriber->Finish(Capacity ? FShaderCompilerOutput::Failure(std::string("Shader capture input limit exceeded.")) : CanceledShader());
 			if (!Leader) return;
 			try
 			{
 				const bool Generated = Flight->Prepared->Recipe.Generated;
 				auto Session = MakeShaderSessionRequest(Flight->Prepared->Options, std::move(Flight->Prepared->Recipe), Generated ? std::optional(Flight->Prepared->Request->Source) : std::nullopt);
-				if (!Session) return Complete(Flight, FShaderBuildResult::Failure(Session.error()));
+				if (!Session) return Complete(Flight, FShaderCompilerOutput::Failure(Session.error()));
 				Flight->Session = std::make_unique<FShaderSessionRequest>(std::move(*Session));
 			}
-			catch (...) { return Complete(Flight, FShaderBuildResult::Failure({.Code = EShaderError::InvalidCompileRequest})); }
+			catch (...) { return Complete(Flight, FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); }
 			SubmitFlight(Flight, Subscriber->Options.bInlineExecution, true);
 		}
 		auto SubmitNative(const std::shared_ptr<FSubscriber>& Subscriber, bool Query = true) -> void
@@ -225,7 +228,7 @@ namespace Durin
 			if (Subscriber->NativeIndex == Subscriber->NativeOutput.CompiledShaders.size())
 				return Subscriber->Finish(std::move(Subscriber->NativeOutput));
 			auto Request = MakeMetalLibraryBuildRequest(Subscriber->NativeOutput.CompiledShaders[Subscriber->NativeIndex], Subscriber->NativeProducer);
-			if (!Request) return Subscriber->Finish(FShaderBuildResult::Failure(Request.error()));
+			if (!Request) return Subscriber->Finish(FShaderCompilerOutput::Failure(Request.error()));
 			FBuildRequestOptions Options;
 			Options.Policy.ForceBuild = Subscriber->Request->bForceRecompile;
 			Options.Policy.QueryCache = Query;
@@ -242,12 +245,12 @@ namespace Durin
 					{
 						if (Completion.GetStatus() == EStatus::Canceled) return Subscriber->Finish(CanceledShader());
 						if (Completion.GetStatus() != EStatus::Ok || !Completion.GetOutput())
-							return Subscriber->Finish(FShaderBuildResult::Failure(std::string(Completion.GetDiagnostic())));
+							return Subscriber->Finish(FShaderCompilerOutput::Failure(std::string(Completion.GetDiagnostic())));
 						const auto* Value = Completion.GetOutput()->FindValue(FValueId::FromName("Library"));
 						if (!Value || !ShaderFormat::ValidateMetalLibrary(Value->GetData().GetBytes()))
 						{
 							if (Query && HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)) return Self->SubmitNative(Subscriber, false);
-							return Subscriber->Finish(FShaderBuildResult::Failure("Invalid cached Metal library."));
+							return Subscriber->Finish(FShaderCompilerOutput::Failure("Invalid cached Metal library."));
 						}
 						auto& Shader = Subscriber->NativeOutput.CompiledShaders[Subscriber->NativeIndex];
 						Shader.Code = Value->GetData();
@@ -256,13 +259,13 @@ namespace Durin
 						Shader.CodeFormat = EShaderCodeFormat::MetalLibrary;
 						Shader.ShaderIdentity = ShaderFormat::ComputeShaderIdentity(Shader);
 						if (NativeResultBytes(Subscriber->NativeOutput) > Subscriber->Request->MaximumOutputBytes)
-							return Subscriber->Finish(FShaderBuildResult::Failure("Metal stage set exceeds output budget."));
+							return Subscriber->Finish(FShaderCompilerOutput::Failure("Metal stage set exceeds output budget."));
 						++Subscriber->NativeIndex;
 						Self->SubmitNative(Subscriber);
 					}
-					catch (...) { Subscriber->Finish(FShaderBuildResult::Failure("Metal library completion failed.")); }
+					catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure("Metal library completion failed.")); }
 				}, Options, Subscriber->Options.bInlineExecution);
-			if (!Admitted) Subscriber->Finish(FShaderBuildResult::Failure(Admitted.error().Description));
+			if (!Admitted) Subscriber->Finish(FShaderCompilerOutput::Failure(Admitted.error().Description));
 		}
 		auto SubmitFlight(const std::shared_ptr<FFlight>& Flight, bool Inline, bool Query) -> void
 		{
@@ -281,7 +284,7 @@ namespace Durin
 				[Self = shared_from_this(), Flight, Inline, Query](FBuildCompleteParams Completion) {
 					try
 					{
-					FShaderBuildResult Output;
+					FShaderCompilerOutput Output;
 					if (HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::BuildLocal)) Self->Builder->Compilations.fetch_add(1);
 					if (HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)) Self->Builder->DdcHits.fetch_add(1);
 					if (Completion.GetStatus() == EStatus::Canceled) Output = CanceledShader();
@@ -289,7 +292,7 @@ namespace Durin
 					{
 						auto Built = ShaderSharedOutput::Assemble(Flight->Prepared->Options, *Completion.GetOutput());
 						if (!Built && Query && HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit) && !Flight->Owner.IsCanceled()) { Self->SubmitFlight(Flight, Inline, false); return; }
-						Output = Built ? FShaderBuildResult::Success(std::move(*Built)) : FShaderBuildResult{.Status = Built.Status, .Error = Built.Error};
+						Output = std::move(Built);
 						if (Output && !Flight->Owner.IsCanceled()) Self->Builder->OutputCache.Store(Flight->Prepared->OutputKey, Output, *Completion.GetOutput());
 					}
 					else
@@ -302,17 +305,15 @@ namespace Durin
 								Diagnostic.append(Message.Text, 0, ShaderBuildDiagnosticMaxBytes - std::min(Diagnostic.size(), ShaderBuildDiagnosticMaxBytes));
 								if (Diagnostic.size() >= ShaderBuildDiagnosticMaxBytes) break;
 							}
-						if (const auto* Product = Completion.GetOutput()) {
-							if (auto Error = ShaderSharedOutput::ReadError(*Product)) Output = FShaderBuildResult::Failure(std::move(*Error));
-							else Output = FShaderBuildResult::Failure(std::move(Diagnostic));
-						} else Output = FShaderBuildResult::Failure(std::move(Diagnostic));
+						if (const auto* Product = Completion.GetOutput()) Output.Errors = ShaderSharedOutput::ReadErrors(*Product);
+						if (Output.Errors.empty()) Output.AddError(std::move(Diagnostic));
 					}
 					Self->Complete(Flight, std::move(Output));
 					}
-					catch (...) { Self->Complete(Flight, FShaderBuildResult::Failure({.Code = EShaderError::InvalidCompileRequest})); }
+					catch (...) { Self->Complete(Flight, FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); }
 				}, std::move(Options), Inline);
-			if (!Admitted) Complete(Flight, FShaderBuildResult::Failure(Admitted.error().Description));
-			} catch (...) { Complete(Flight, FShaderBuildResult::Failure({.Code = EShaderError::InvalidCompileRequest})); }
+			if (!Admitted) Complete(Flight, FShaderCompilerOutput::Failure(Admitted.error().Description));
+			} catch (...) { Complete(Flight, FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); }
 		}
 	};
 	auto FShaderBuilder::FAsyncState::FSubscriber::RequestCancel() -> bool
@@ -413,13 +414,13 @@ namespace Durin
 		}
 		if (Subscriber->Options.bInlineExecution)
 		{
-			try { Async->Prepare(Subscriber); } catch (...) { Subscriber->Finish(FShaderBuildResult::Failure({.Code = EShaderError::InvalidCompileRequest})); }
+			try { Async->Prepare(Subscriber); } catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); }
 		}
 		else
 		{
 			auto Dispatch = Private::TryLaunchCancelableTaskWithCompletion("ShaderPrepare",
-				[Self = Async, Subscriber](const FTaskCancellationToken&) { try { Self->Prepare(Subscriber); } catch (...) { Subscriber->Finish(FShaderBuildResult::Failure({.Code = EShaderError::InvalidCompileRequest})); } },
-				[Subscriber](ETaskState State) { if (State == ETaskState::Canceled) Subscriber->Finish(CanceledShader()); else if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderBuildResult::Failure("Shader preparation task failed.")); }, {.CancellationToken = Subscriber->PreparationCancellation.GetToken(), .Priority = static_cast<ETaskPriority>(Subscriber->Options.Priority)});
+				[Self = Async, Subscriber](const FTaskCancellationToken&) { try { Self->Prepare(Subscriber); } catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); } },
+				[Subscriber](ETaskState State) { if (State == ETaskState::Canceled) Subscriber->Finish(CanceledShader()); else if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderCompilerOutput::Failure("Shader preparation task failed.")); }, {.CancellationToken = Subscriber->PreparationCancellation.GetToken(), .Priority = static_cast<ETaskPriority>(Subscriber->Options.Priority)});
 			if (!Dispatch.HasValue())
 			{
 				{ std::lock_guard Lock(Async->Mutex); Async->Bytes -= Subscriber->Bytes + Subscriber->NativeBytes; std::erase(Async->Operations, Subscriber); }
@@ -436,11 +437,11 @@ namespace Durin
 	auto FShaderBuilder::SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
 		FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
 	{ return SubmitRequest(std::move(Request), std::move(Options), std::move(Completion), ESourceKind::Generated); }
-	auto FShaderBuilder::GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request) -> FShaderBuildResult
+	auto FShaderBuilder::GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
 	{
-		FShaderBuildResult Output;
+		FShaderCompilerOutput Output;
 		auto Submitted = SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
-		if (!Submitted) return FShaderBuildResult::Failure(FormatShaderBuildAdmissionError(Submitted.error()));
+		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionError(Submitted.error()));
 		require(Submitted->Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}

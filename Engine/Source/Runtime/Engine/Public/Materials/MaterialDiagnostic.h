@@ -13,7 +13,7 @@ namespace Durin
 	struct FArchiveFailure;
 	struct FObjectGraphError;
 	struct FPackageResourceReadError;
-	struct FShaderError;
+
 	enum class EMaterialLayoutError : uint8;
 	enum class EMaterialProgramValueType : uint8;
 	enum class EMaterialParameterError : uint8;
@@ -279,7 +279,6 @@ namespace Durin
 		std::optional<EPackageResourceReadStatus> ResourceStatus;
 		std::shared_ptr<const FPackageResourceReadError> ResourceCause;
 		std::shared_ptr<const FObjectGraphError> DuplicationCause;
-		std::shared_ptr<const FShaderError> ShaderCause;
 		// Only an external compiler/provider diagnostic may contain opaque text.
 		std::string ExternalDiagnostic;
 

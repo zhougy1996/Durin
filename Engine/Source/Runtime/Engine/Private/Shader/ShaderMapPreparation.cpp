@@ -14,7 +14,7 @@ namespace Durin
 		std::vector<const FShaderType*> Types;
 		FShaderCompileOptions Options;
 		std::mutex Mutex;
-		std::optional<FShaderBuildResult> Output;
+		std::optional<FShaderCompilerOutput> Output;
 		FShaderBuildHandle Handle;
 		EShaderBuildPriority Priority = EShaderBuildPriority::Low;
 	};
@@ -79,11 +79,11 @@ namespace Durin
 		{
 			std::vector<const FShaderType*> Types;
 			if (auto Result = GetShaderRuntimeRequestBuildTypes({.Owner = Owner, .Name = Program}, Types); !Result)
-			{ Error = FormatShaderError(Result.error()); return; }
+			{ Error = std::string(Result.error()); return; }
 			std::ranges::sort(Types, {}, &FShaderType::GetName);
 			FShaderCompileOptions Options;
 			if (auto Result = BuildShaderMapCompileOptions(Types, nullptr, Options); !Result)
-			{ Error = FormatShaderError(Result.error()); return; }
+			{ Error = std::string(Result.error()); return; }
 			Options.bForceRecompile = ForcePreparation.load();
 			std::shared_ptr<FPreparedShaderMapState> State;
 			{
@@ -106,12 +106,12 @@ namespace Durin
 					State->Options = std::move(Options);
 					Preparations.push_back(State);
 					auto Submitted = FShaderCompilingManager::Get().SubmitJobs(State->Options.VirtualShaderPath, State->Options, {.Priority = Priority},
-						[State](FShaderBuildResult Output) {
+						[State](FShaderCompilerOutput Output) {
 							std::lock_guard ResultLock(State->Mutex);
 							State->Output = std::move(Output);
 						});
 					if (Submitted) State->Handle = std::move(*Submitted);
-					else State->Output = FShaderBuildResult::Failure("Shader preparation admission failed.");
+					else State->Output = FShaderCompilerOutput::Failure("Shader preparation admission failed.");
 				}
 			}
 			States.push_back(std::move(State));
@@ -127,8 +127,8 @@ namespace Durin
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (!State->Output) { Ready = false; continue; }
-			if (!*State->Output) return std::unexpected(State->Output->Error.IsSuccess()
-				? std::string("Shader preparation failed or was canceled.") : FormatShaderError(State->Output->Error));
+			if (!*State->Output) return std::unexpected(State->Output->Errors.empty()
+				? std::string("Shader preparation failed or was canceled.") : FormatShaderCompilerErrors(State->Output->Errors));
 		}
 		return Ready;
 	}
@@ -176,39 +176,39 @@ namespace Durin
 			std::lock_guard Lock(Prepared->Mutex);
 			if (Prepared->Output && *Prepared->Output)
 			{
-				FShaderCompilerOutput Output{.Error = {}};
+				FShaderCompilerOutput Output{.Status = EShaderBuildStatus::Ok};
 				for (const auto* Type : ShaderTypes)
 				{
 					auto Found = std::ranges::find_if(Prepared->Output->CompiledShaders, [Type](const auto& Code) {
 						return Code.SourceEntryPoint == Type->GetEntryPoint() && Code.Frequency == Type->GetFrequency();
 					});
 					if (Found == Prepared->Output->CompiledShaders.end())
-						return std::unexpected(FShaderError{.Code = EShaderError::MissingShaderType});
+						return std::unexpected(std::format("Material shader map is missing type '{}'.", (std::string{})));
 					Output.CompiledShaders.push_back(*Found);
 				}
 				return Map.Initialize(ShaderTypes, Output, EffectiveCompileOptions);
 			}
-			if (Prepared->Output) return {Prepared->Output->Status, Prepared->Output->Error};
+			if (Prepared->Output) return {Prepared->Output->Status, FormatShaderCompilerErrors(Prepared->Output->Errors)};
 		}
 		if (FPreparedShaderMapScope::IsActive())
 		{
 			FPreparedShaderMapScope::RecordPendingRequest();
-			return std::unexpected(FShaderError{.Code = EShaderError::CompilationNotStarted});
+			return std::unexpected(std::string("Shader compilation has not completed."));
 		}
 		auto* Module = IShaderBuildModule::Get();
 		if (!Module)
 		{
 			Map.Reset();
-			return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
+			return std::unexpected(std::string("ShaderBuild module is unavailable."));
 		}
-		FShaderBuildResult Output = FShaderCompilingManager::Get().CompileMounted(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
+		FShaderCompilerOutput Output = FShaderCompilingManager::Get().CompileMounted(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
 		if (!Output)
 		{
 			Map.Reset();
-			return {Output.Status, Output.Error};
+			return {Output.Status, FormatShaderCompilerErrors(Output.Errors)};
 		}
 
-		return Map.Initialize(ShaderTypes, FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}, EffectiveCompileOptions);
+		return Map.Initialize(ShaderTypes, std::move(Output), EffectiveCompileOptions);
 	}
 
 }

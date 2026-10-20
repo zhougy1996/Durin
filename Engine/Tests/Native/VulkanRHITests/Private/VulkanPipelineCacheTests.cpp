@@ -29,7 +29,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
@@ -75,7 +75,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		for (const char* Mode : {"threaded", "inline"})
 		{
 			SCOPED_TRACE(Mode);
@@ -173,7 +173,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {

@@ -22,30 +22,30 @@ compiler scheduling, and single-flight ownership.
 
 ## Results and diagnostics
 
-`FShaderOperationResult` is `std::expected<void, FShaderError>`; nested operations
-preserve typed causes and context. `FShaderCompilerOutput` derives success from
-its error code, defaults to `CompilationNotStarted`, and never accepts partial
-stages on failure. `FormatShaderError` formats only at presentation or required
-string-adapter boundaries; bounded compiler text never determines classification.
-Filesystem failures retain their owned path and native cause.
-Synchronous ShaderBuild compilation and asynchronous completion return
-`FShaderBuildResult`: an independent `EShaderBuildStatus`, compiled stages and
-an owned `FShaderError`. `FShaderCompletion` carries the same status/error contract
-for operations without compiled stages. Cancellation retains neither stages nor
-an error. Compiler and validation codes, native status and context survive the
-build boundary; legacy provider-only text uses `BuildFailed` without classifying
-that text. Formatting occurs at UI, log or required Cook string boundaries.
-Shader compile execution failures carry the error in completion-only build
-observations; partial products and failures are never persisted. Shared-output
-assembly preserves the same structured error. Material diagnostics retain the
-Shader cause and format it only for presentation.
-Material Cook preparation returns an optional payload with independent completion.
-Cook object preparation propagates cancellation without attaching a failure cause, including
-when the caller cancellation callback has not fired.
+`FShaderCompilerOutput` is shared by direct compilation, synchronous ShaderBuild,
+asynchronous completion, shared-output assembly, and manager job groups. It owns
+compiled stages, an independent `EShaderBuildStatus`, and an ordered
+`std::vector<FShaderCompilerError> Errors`. Success can include warnings; failure
+and cancellation do not publish partial stages. Cancellation carries no diagnostics.
+Each compiler diagnostic owns its message and optional source path, line and
+highlighting fields. Compiler messages retain their wording rather than acquiring
+a second Shader-wide error-code taxonomy. Source extraction is for navigation,
+not control-flow classification. Diagnostic count and external text are bounded.
 
-Shared output construction, assembly and validation use that completion plus an
-optional product; cancellation retains neither product nor diagnostic. Pure
-compiler, codec and semantic validation helpers retain structured errors.
+`FShaderOperationResult` is `std::expected<void, std::string>` for non-compilation
+validation. Filesystem adapters format the existing `FFileError` at that boundary.
+`FShaderCompletion` and `TShaderValueResult` remain for non-compilation operations
+with cancellation and optional Cook/build products; they do not wrap shader output.
+Runtime resource creation uses its existing category, reason, identity and retry
+dependencies for control flow and failure fingerprints. Diagnostic wording does
+not determine retries or resource failure identity.
+
+Compile execution failures transport the same diagnostic array through transient
+DDC observations; partial products and failures are never persisted. Successful
+output diagnostics use build metadata and survive cache-record round trips.
+Material assembly copies each compiler message into its existing qualified
+material diagnostics without a nested Shader cause or a generic failure prefix.
+Material Cook preparation preserves cancellation independently of its payload.
 
 Cook stops discovery when Shader input capture fails and preserves its diagnostic;
 it propagates Shader cancellation directly rather than polling again to classify
@@ -56,8 +56,9 @@ slots also retain cancellation separately, report no failure and permit retry.
 Binding may retain a valid prefix on failure; layouts and MaterialShaderMaps
 publish only complete candidates, and failed ShaderMap initialization resets
 the map. Payload codecs and cooked registration clear failed output; retirement
-after inventory freeze retains the registration handle on failure. Semantic
-tests assert codes, context, and publication behavior rather than English text.
+after inventory freeze retains the registration handle on failure. Behavior tests assert completion state, publication, cancellation and structured
+source locations. Text assertions are limited to diagnostic formatting and transport
+contracts; diagnostic wording never substitutes for a control-flow reason.
 
 ## Storage layers and ownership
 

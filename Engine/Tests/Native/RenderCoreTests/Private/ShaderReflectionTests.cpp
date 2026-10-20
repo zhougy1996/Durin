@@ -263,10 +263,10 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 						FSlangShaderDependencyResolver Resolver;
 						std::vector<std::string> Dependencies;
 						const auto Resolved = Resolver.ResolveSource("SessionLifetime", "/Unit/SessionLifetime.slang", Source, Options, Dependencies);
-						if (!Resolved) return FormatShaderError(Resolved.error());
+						if (!Resolved) return std::string(Resolved.error());
 					}
 					const auto Result = Compiler.CompileSource("SessionLifetime", "/Unit/SessionLifetime.slang", Source, Options);
-					if (!Result) return FormatShaderError(Result.Error);
+					if (!Result) return FormatShaderCompilerErrors(Result.Errors);
 					if (Result.CompiledShaders.size() != 1 || Result.CompiledShaders.front().Reflection.ResourceBindings.size() != 3)
 						return std::string("Reflection lost resource bindings after resolver destruction.");
 				}
@@ -294,7 +294,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 			});
 			Worker.join();
 			if (Failure) std::rethrow_exception(Failure);
-			ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+			ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 			ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 			EXPECT_FALSE(Output.CompiledShaders.front().Reflection.ResourceBindings.empty());
 		}
@@ -309,7 +309,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 
 		const auto& Bindings = Output.CompiledShaders[0].Reflection.ResourceBindings;
@@ -332,7 +332,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
 		FSlangShaderCompiler Compiler;
 		const auto Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const auto& Fragment = Output.CompiledShaders[1];
@@ -353,7 +353,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		Options.EntryPoints = {"VertexMain", "FragmentMain"};
 		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
 		const auto Output = FSlangShaderCompiler().Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		for (const auto& Shader : Output.CompiledShaders)
 		{
@@ -396,7 +396,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		Options.Frequencies = {EShaderFrequency::Compute};
 		const auto Output = FSlangShaderCompiler().CompileSource(
 			"MetalBindingArrays", "/Unit/MetalBindingArrays.slang", Source, Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 		const auto& Shader = Output.CompiledShaders[0];
 		ASSERT_EQ(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->Bindings.size(), 3u);
@@ -422,7 +422,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 3u);
 		const FShaderCode& Vertex = Output.CompiledShaders[0];
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
@@ -461,7 +461,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		const FShaderCompilerOutput Output = Compiler.Compile(
 			ShaderPath.string(), Options
 		);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 3u);
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		const FShaderCode& Compute = Output.CompiledShaders[2];
@@ -494,7 +494,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
@@ -519,7 +519,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
@@ -539,7 +539,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 
 		const FShaderCode& Shader = Output.CompiledShaders[0];
@@ -550,7 +550,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 
 		FPipelineLayoutDesc PipelineLayout;
 		FShaderOperationResult ErrorMessage;
-		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.error());
+		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << std::string(ErrorMessage.error());
 		EXPECT_TRUE(PipelineLayout.BindingLayouts.empty());
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
@@ -571,7 +571,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FShaderCode& VertexShader =
 			Output.CompiledShaders[0];
@@ -605,7 +605,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		EXPECT_TRUE(FragmentShader.Reflection.PushConstantRanges.empty());
 		FPipelineLayoutDesc PipelineLayout;
 		FShaderOperationResult ErrorMessage;
-		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.error());
+		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << std::string(ErrorMessage.error());
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 2u);
 		const auto& ViewLayout = PipelineLayout.BindingLayouts[0].BindingLayouts;
 		ASSERT_EQ(ViewLayout.size(), 1u);
@@ -649,7 +649,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 
 			const FShaderCompilerOutput Output =
 				Compiler.Compile(ShaderPath.string(), Options);
-			ASSERT_TRUE(Output) << Name << ": " << FormatShaderError(Output.Error);
+			ASSERT_TRUE(Output) << Name << ": " << FormatShaderCompilerErrors(Output.Errors);
 			ASSERT_EQ(Output.CompiledShaders.size(), 2u) << Name;
 			const FShaderCode& Fragment = Output.CompiledShaders[1];
 			EXPECT_EQ(Fragment.SourceEntryPoint, "GeometryFragmentMain")
@@ -680,7 +680,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
@@ -707,7 +707,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
@@ -734,7 +734,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		Options.Frequencies = {EShaderFrequency::Compute};
 		const FShaderCompilerOutput Output =
 			FSlangShaderCompiler().Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 		const FShaderCode& Compute = Output.CompiledShaders[0];
 		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
@@ -764,7 +764,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));

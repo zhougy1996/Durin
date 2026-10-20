@@ -44,20 +44,20 @@ namespace Durin
 		{
 			if (Configuration.TargetPlatform != EShaderTargetPlatform::Win64
 				&& Configuration.TargetPlatform != EShaderTargetPlatform::MacOS)
-				return std::unexpected(FShaderError{.Code = EShaderError::DataConfigurationInvalid});
+				return std::unexpected(std::string("Cooked Shader data configuration is invalid."));
 			// Startup initializes the domain before the manager publishes the module as Active.
 			const auto Info = FModuleManager::Get().FindModule("ShaderBuild");
 			if (!Info || !Info->Module || (Info->State.load() != EModuleState::Loading
 				&& Info->State.load() != EModuleState::Active))
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleRequired});
+				return std::unexpected(std::string("Authored Shader data requires a ShaderBuild module."));
 			}
 			Configuration.TargetProfile = EShaderTargetProfile::EditorValidation;
 			Configuration.CookRoot.clear();
 		}
 		else if (IShaderBuildModule::Get())
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleForbidden});
+			return std::unexpected(std::string("Cooked Shader data forbids a ShaderBuild module."));
 		}
 		else if ((Configuration.TargetPlatform != EShaderTargetPlatform::Win64
 				&& Configuration.TargetPlatform != EShaderTargetPlatform::MacOS)
@@ -66,13 +66,13 @@ namespace Durin
 			|| !Configuration.CookRoot.is_absolute()
 			|| Configuration.CookRoot.lexically_normal() != Configuration.CookRoot)
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::DataConfigurationInvalid});
+			return std::unexpected(std::string("Cooked Shader data configuration is invalid."));
 		}
 		FShaderDataState& State = ShaderDataState();
 		std::lock_guard Lock(State.Mutex);
 		if (State.Configuration)
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::DataAlreadyInitialized});
+			return std::unexpected(std::string("Shader data domain is already initialized."));
 		}
 		State.Configuration = std::move(Configuration);
 		State.DefaultFormat.store(State.Configuration->TargetPlatform != EShaderTargetPlatform::MacOS
@@ -125,7 +125,7 @@ namespace Durin
 		if (!State.Configuration
 			|| State.Configuration->Domain != EShaderDataDomain::Cooked)
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::CookedDomainRequired});
+			return std::unexpected(std::string("Cooked Shader data was requested outside the Cooked domain."));
 		}
 		if (!State.Library.IsOpen())
 		{
@@ -140,19 +140,17 @@ namespace Durin
 			});
 		if (Found == State.Requests.end())
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::RequestUnregistered, .ActualIdentity = std::string(RequestName)});
+			return std::unexpected(std::format("Cooked Shader request '{}' is not registered.", (std::string(RequestName))));
 		}
 		if (Found->Members.size() != ShaderTypes.size())
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::RequestTypeCountMismatch,
-				.Expected = Found->Members.size(),
-				.Actual = ShaderTypes.size()});
+			return std::unexpected(std::string("Cooked Shader request type count does not match registration."));
 		}
 		for (size_t Index = 0; Index < ShaderTypes.size(); ++Index)
 			if (!ShaderTypes[Index]
 				|| Found->Members[Index].TypeName != ShaderTypes[Index]->GetName())
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::RequestTypesMismatch, .Index = Index});
+				return std::unexpected(std::string("Cooked Shader request types do not match registration."));
 			}
 		return State.Library.Load(*Found, OutOutput);
 	}

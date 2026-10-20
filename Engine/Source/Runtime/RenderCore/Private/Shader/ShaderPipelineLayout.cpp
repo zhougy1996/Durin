@@ -79,19 +79,15 @@ namespace Durin
 				FShaderResourceBinding& ExistingBinding = FoundIt->second;
 				if (ExistingBinding.Type != Binding.Type)
 				{
-					return std::unexpected(FShaderError{.Code = EShaderError::BindingTypeConflict,
-						.Expected = static_cast<uint64>(ExistingBinding.Type),
-						.Actual = static_cast<uint64>(Binding.Type),
-						.SetIndex = Binding.SetIndex,
-						.BindingIndex = Binding.BindingIndex});
+					return std::unexpected(std::format(
+				"Conflicting shader binding types at set {}, binding {} (expected {}, actual {})",
+				(Binding.SetIndex), (Binding.BindingIndex), (static_cast<uint64>(ExistingBinding.Type)), (static_cast<uint64>(Binding.Type))));
 				}
 				if (ExistingBinding.ArraySize != Binding.ArraySize)
 				{
-					return std::unexpected(FShaderError{.Code = EShaderError::BindingArraySizeConflict,
-						.Expected = ExistingBinding.ArraySize,
-						.Actual = Binding.ArraySize,
-						.SetIndex = Binding.SetIndex,
-						.BindingIndex = Binding.BindingIndex});
+					return std::unexpected(std::format(
+				"Conflicting shader binding array sizes at set {}, binding {} (expected {}, actual {})",
+				(Binding.SetIndex), (Binding.BindingIndex), (ExistingBinding.ArraySize), (Binding.ArraySize)));
 				}
 
 				ExistingBinding.StageFlags |= Binding.StageFlags;
@@ -120,11 +116,9 @@ namespace Durin
 
 					if (NewBegin < ExistingEnd && ExistingBegin < NewEnd)
 					{
-						return std::unexpected(FShaderError{.Code = EShaderError::PushConstantOverlap,
-							.ExistingBegin = ExistingBegin,
-							.ExistingEnd = ExistingEnd,
-							.NewBegin = NewBegin,
-							.NewEnd = NewEnd});
+						return std::unexpected(std::format(
+				"Conflicting push constant ranges: existing [{}..{}), new [{}..{})",
+				(ExistingBegin), (ExistingEnd), (NewBegin), (NewEnd)));
 					}
 				}
 

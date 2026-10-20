@@ -34,7 +34,7 @@ namespace Durin
 		if (auto* Module = IShaderBuildModule::Get())
 			return Module->BuildSourceDependencyManifest(VirtualShaderPath, Options, OutDependencies);
 		OutDependencies.clear();
-		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
+		return std::unexpected(std::string("ShaderBuild module is unavailable."));
 	}
 
 	auto BuildShaderSourceTreeFingerprint(
@@ -45,7 +45,7 @@ namespace Durin
 		if (auto* Module = IShaderBuildModule::Get())
 			return Module->BuildSourceTreeFingerprint(VirtualShaderPath, Options, OutFingerprint);
 		OutFingerprint = {};
-		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
+		return std::unexpected(std::string("ShaderBuild module is unavailable."));
 	}
 
 	auto GetShaderBuildStats() -> FShaderBuildStats
@@ -58,7 +58,7 @@ namespace Durin
 	{
 		if (auto* Module = IShaderBuildModule::Get()) return Module->GetCookInputIdentity(OutIdentity, IsCancelled);
 		OutIdentity.clear();
-		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
+		return std::unexpected(std::string("ShaderBuild module is unavailable."));
 	}
 
 	auto BuildCookedShaderLibrary(
@@ -70,6 +70,6 @@ namespace Durin
 		if (auto* Module = IShaderBuildModule::Get())
 			return Module->BuildCookedLibrary(TargetPlatform, TargetProfile, OutBytes, {}, IsCancelled);
 		OutBytes.clear();
-		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
+		return std::unexpected(std::string("ShaderBuild module is unavailable."));
 	}
 }

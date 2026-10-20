@@ -125,7 +125,7 @@ namespace Durin
 				.Reason = Reason,
 				.Context = "TestResource",
 				.Identity = "variant=1",
-				.Cause = FShaderError{.Code = EShaderError::InvalidCompileRequest},
+				.Cause = std::string("Shader entry-point request is invalid."),
 				.RetryDependencies = RetryDependencies,
 			};
 		}
@@ -181,51 +181,25 @@ namespace Durin
 			EXPECT_EQ(Diagnostics, 0u);
 		}
 
-		TEST(FRenderResourceCreationTests, FingerprintsIgnoreExternalWordingAndRetainSemanticCauses)
+		TEST(FRenderResourceCreationTests, FingerprintsUseResourceIdentityAndIgnoreDiagnosticWording)
 		{
-			auto First = MakeError();
-			First.Cause = FShaderError::FromSlang(ESlangShaderError::Module, "first wording", -7);
-			auto Second = First;
-			std::get<FShaderError>(Second.Cause).ExternalDiagnostic = "different wording";
-			Second.AttemptedGeneration.Shader = 99;
+			auto First = MakeError(); First.Cause = std::string("first wording");
+			auto Second = First; Second.Cause = std::string("different wording"); Second.AttemptedGeneration.Shader = 99;
 			EXPECT_EQ(First.GetFingerprint(), Second.GetFingerprint());
-			std::get<FShaderError>(Second.Cause).NativeStatus = -8;
-			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
-			Second = First;
-			std::get<FShaderError>(Second.Cause).ActualIdentity = "/Other/Source";
-			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
-			Second = First;
-			std::get<FShaderError>(Second.Cause).CaptureLimit =
-				FShaderCaptureLimitContext{EShaderCaptureLimit::Files, 10, 11};
-			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
-			First = Second;
-			std::get<FShaderError>(Second.Cause).CaptureLimit->Actual = 12;
-			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
-			Second.Cause = std::monostate{};
-			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
-			First = Second;
-			Second.Reason = ERenderResourceCreateErrorReason::PipelineCreationFailed;
+			Second.Identity = "/Other/Source"; EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
+			Second = First; Second.Reason = ERenderResourceCreateErrorReason::PipelineCreationFailed;
 			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
 		}
 
 		TEST(FRenderResourceCreationTests, StoredFailureOwnsCauseAfterProducerDestruction)
 		{
-			FSlot Slot;
-			std::optional<FRenderResourceCreateDiagnostic> Report;
+			FSlot Slot; std::optional<FRenderResourceCreateDiagnostic> Report;
 			Slot.Resolve({}, [] {
-				auto Error = MakeError();
-				Error.Cause = FShaderError::FromFileSystem(
-					std::filesystem::path("/Temporary/Source"), std::make_error_code(std::errc::permission_denied));
+				auto Error = MakeError(); Error.Cause = std::string("Cannot read /Temporary/Source: permission denied");
 				return FResult::Failure(std::move(Error));
 			}, [&](auto Diagnostic) { Report = std::move(Diagnostic); });
-			Slot.Reset();
-			ASSERT_TRUE(Report && Report->Error);
-			const auto& Cause = std::get<FShaderError>(Report->Error->Cause);
-			EXPECT_EQ(Cause.Code, EShaderError::FileSystemFailure);
-			ASSERT_TRUE(Cause.FileError);
-			EXPECT_EQ(Cause.FileError->Path.generic_string(), "/Temporary/Source");
-			EXPECT_EQ(Cause.FileError->NativeError, std::make_error_code(std::errc::permission_denied));
-			EXPECT_EQ(FormatRenderResourceCreateError(*Report->Error), FormatShaderError(Cause));
+			Slot.Reset(); ASSERT_TRUE(Report && Report->Error);
+			EXPECT_EQ(FormatRenderResourceCreateError(*Report->Error), "Cannot read /Temporary/Source: permission denied");
 		}
 
 		TEST(
@@ -304,7 +278,7 @@ namespace Durin
 					if (Pipeline) return FResult::Success(1);
 					auto Error = MakeError();
 					Error.Category = ERenderResourceCreateErrorCategory::GraphicsPipeline;
-					Error.Cause = std::monostate{};
+					Error.Cause.clear();
 					Error.Reason = ERenderResourceCreateErrorReason::PipelineCreationFailed;
 					return FResult::Failure(std::move(Error));
 				}, [](const auto&) {});
@@ -316,7 +290,7 @@ namespace Durin
 			}
 			EXPECT_EQ(Resolve(), nullptr);
 			ASSERT_NE(Slot.GetFailure(), nullptr);
-			EXPECT_TRUE(std::holds_alternative<std::monostate>(Slot.GetFailure()->Cause));
+			EXPECT_TRUE(Slot.GetFailure()->Cause.empty());
 			EXPECT_EQ(Slot.GetFailure()->Reason, ERenderResourceCreateErrorReason::PipelineCreationFailed);
 			Slot.Reset();
 		}

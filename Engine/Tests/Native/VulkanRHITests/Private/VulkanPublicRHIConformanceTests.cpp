@@ -32,7 +32,7 @@ namespace Durin::VulkanRHI
 		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		for (const bool FullValidation : {false, true})
 		for (const uint32 Variant : {0u, 1u, 2u})
@@ -176,7 +176,7 @@ namespace Durin::VulkanRHI
 		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment, EShaderFrequency::Fragment};
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		for (const char* Mode : {"inline", "threaded"})
 		{
@@ -356,7 +356,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput CompileOutput =
 			Compiler.Compile(ShaderPath.string(), CompileOptions);
-		ASSERT_TRUE(CompileOutput) << FormatShaderError(CompileOutput.Error);
+		ASSERT_TRUE(CompileOutput) << FormatShaderCompilerErrors(CompileOutput.Errors);
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 2u);
 
 		std::array<Durin::FByteBuffer, 2> ModePixels;

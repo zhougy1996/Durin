@@ -111,7 +111,7 @@ namespace Durin
 					ERenderResourceCreateErrorCategory::GraphicsPipeline,
 				.Context = "StaticMeshPipeline",
 				.Identity = "test-key",
-				.Cause = std::monostate{},
+				.Cause = {},
 				.RetryDependencies =
 					EDependency::Shader
 					| EDependency::Device
@@ -126,7 +126,7 @@ namespace Durin
 					ERenderResourceCreateErrorCategory::ShaderCompile,
 				.Context = "StaticMeshShaderMap",
 				.Identity = "test-shader-map",
-				.Cause = FShaderError{.Code = EShaderError::InvalidCompileRequest},
+				.Cause = std::string("Shader entry-point request is invalid."),
 				.RetryDependencies =
 					EDependency::Shader | EDependency::Manual,
 			};

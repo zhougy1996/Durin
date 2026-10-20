@@ -49,7 +49,7 @@ namespace Durin
 		auto MakeOutput() -> FShaderCompilerOutput
 		{
 			FShaderCompilerOutput Output;
-			Output.Error = {};
+			Output.Status = EShaderBuildStatus::Ok;
 			Output.CompiledShaders.push_back(MakeShader(
 				"FragmentMain", EShaderFrequency::Fragment, 1));
 			Output.CompiledShaders.push_back(MakeShader(
@@ -72,7 +72,7 @@ namespace Durin
 				Shader.Code = FSharedByteBuffer::Take(std::move(Library));
 				Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
 				auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty());
-				if (!Map) return {.Error = {.Code = EShaderError::MetalBindingRemapInvalid}};
+				if (!Map) return FShaderCompilerOutput::Failure("Metal shader binding remap exceeds or conflicts with native slots");
 				Shader.PlatformData = ShaderFormat::EncodeMetalMetadata(Shader.Frequency,
 					{std::move(Map->Bindings), Map->PushConstantBufferSlot, Map->Identity}).value();
 			}
@@ -98,7 +98,7 @@ namespace Durin
 	{
 		FXxHash128 Identity;
 		const auto Result = BuildShaderRuntimeRequestIdentity(MakeRequest(), Identity);
-		ASSERT_TRUE(Result) << FormatShaderError(Result.error());
+		ASSERT_TRUE(Result) << std::string(Result.error());
 		EXPECT_EQ(Identity.ToString(), "59028fd192e6cbbe8ec1fa7dea3f0817");
 	}
 
@@ -112,16 +112,16 @@ namespace Durin
 		Game.TargetProfile = EShaderTargetProfile::Invalid;
 		FShaderRequestRegistration GameRegistration;
 		Error = RegisterShaderRuntimeRequest(std::move(Game), EShaderRequestEligibility::GameAndEditor, GameRegistration);
-		ASSERT_TRUE(GameRegistration.IsValid()) << FormatShaderError(Error.error());
+		ASSERT_TRUE(GameRegistration.IsValid()) << std::string(Error.error());
 		FShaderRuntimeRequest Editor = MakeRequest("Tests.EditorOnly");
 		Editor.TargetPlatform = EShaderTargetPlatform::Invalid;
 		Editor.TargetProfile = EShaderTargetProfile::Invalid;
 		FShaderRequestRegistration EditorRegistration;
 		Error = RegisterShaderRuntimeRequest(std::move(Editor), EShaderRequestEligibility::EditorOnly, EditorRegistration);
-		ASSERT_TRUE(EditorRegistration.IsValid()) << FormatShaderError(Error.error());
+		ASSERT_TRUE(EditorRegistration.IsValid()) << std::string(Error.error());
 
 		std::vector<FShaderRuntimeRequest> Inventory;
-		ASSERT_TRUE((Error = FreezeShaderRuntimeInventory(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Inventory))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = FreezeShaderRuntimeInventory(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Inventory))) << std::string(Error.error());
 		ASSERT_EQ(Inventory.size(), 1u);
 		EXPECT_EQ(Inventory.front().Name, "Tests.Primary");
 		EXPECT_EQ(Inventory.front().Members.front().TypeName, "FTestFragment");
@@ -142,16 +142,16 @@ namespace Durin
 		Durin::FByteBuffer First;
 		Durin::FByteBuffer Second;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), First))) << FormatShaderError(Error.error());
-		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Second))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), First))) << std::string(Error.error());
+		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Second))) << std::string(Error.error());
 		EXPECT_EQ(First, Second);
 
 		FShaderCookedLibrary Library;
-		ASSERT_TRUE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(First), EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(First), EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library))) << std::string(Error.error());
 		EXPECT_EQ(Library.GetRecordCount(), 1u);
 		EXPECT_FALSE(Library.GetGenerationIdentity().IsZero());
 		FShaderCompilerOutput Loaded;
-		ASSERT_TRUE((Error = Library.Load(Request, Loaded))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Library.Load(Request, Loaded))) << std::string(Error.error());
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
 		EXPECT_EQ(Loaded.CompiledShaders[0].SourceEntryPoint, "FragmentMain");
 		EXPECT_EQ(Loaded.CompiledShaders[1].SourceEntryPoint, "VertexMain");
@@ -171,7 +171,7 @@ namespace Durin
 		};
 		Durin::FByteBuffer Bytes;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Bytes))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Bytes))) << std::string(Error.error());
 
 		for (const size_t Offset : {size_t{4}, size_t{8}})
 		{
@@ -182,7 +182,6 @@ namespace Durin
 				std::make_shared<const FByteBuffer>(Invalid), EShaderTargetPlatform::Win64,
 				EShaderTargetProfile::Game, std::span(&Request, 1), Rejected);
 			ASSERT_FALSE(Result);
-			EXPECT_EQ(Result.error().Code, EShaderError::LibraryHeaderInvalid);
 		}
 
 		FShaderCookedLibrary Library;
@@ -198,21 +197,21 @@ namespace Durin
 		auto Request = MakeRequest();
 		Request.TargetPlatform = EShaderTargetPlatform::MacOS;
 		auto Output = MakeMetalOutput();
-		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		const FShaderCookedLibraryRecord Record{
 			.Request = Request, .ProductionIdentity = {7, 11}, .Output = Output};
 		FByteBuffer Bytes;
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::MacOS,
 			EShaderTargetProfile::Game, std::span(&Record, 1), Bytes)))
-			<< FormatShaderError(Error.error());
+			<< std::string(Error.error());
 		FShaderCookedLibrary Library;
 		ASSERT_TRUE((Error = FShaderCookedLibrary::OpenBytes(
 			std::make_shared<const FByteBuffer>(Bytes), EShaderTargetPlatform::MacOS,
 			EShaderTargetProfile::Game, std::span(&Request, 1), Library)))
-			<< FormatShaderError(Error.error());
+			<< std::string(Error.error());
 		FShaderCompilerOutput Loaded;
-		ASSERT_TRUE((Error = Library.Load(Request, Loaded))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Library.Load(Request, Loaded))) << std::string(Error.error());
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
 		EXPECT_EQ(Loaded.CompiledShaders[0].Target, MetalLibraryShaderTarget);
 		EXPECT_EQ(Loaded.CompiledShaders[0].CodeFormat, EShaderCodeFormat::MetalLibrary);
@@ -243,17 +242,14 @@ namespace Durin
 		EXPECT_FALSE((Error = FShaderCookedLibrary::OpenBytes(
 			std::make_shared<const FByteBuffer>(Corrupt), EShaderTargetPlatform::MacOS,
 			EShaderTargetProfile::Game, std::span(&Request, 1), Library)));
-		EXPECT_EQ(Error.error().Code, EShaderError::PayloadMslInvalid);
 		EXPECT_FALSE((Error = FShaderCookedLibrary::OpenBytes(
 			std::make_shared<const FByteBuffer>(Bytes), EShaderTargetPlatform::Win64,
 			EShaderTargetProfile::Game, {}, Library)));
-		EXPECT_EQ(Error.error().Code, EShaderError::LibraryHeaderInvalid);
 		auto WrongOutput = MakeOutput();
 		const FShaderCookedLibraryRecord WrongRecord{
 			.Request = Request, .ProductionIdentity = {7, 11}, .Output = WrongOutput};
 		EXPECT_FALSE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::MacOS,
 			EShaderTargetProfile::Game, std::span(&WrongRecord, 1), Bytes)));
-		EXPECT_EQ(Error.error().Code, EShaderError::PayloadOutputInvalid);
 	}
 
 	TEST(FShaderDataDomainTests,
@@ -267,16 +263,14 @@ namespace Durin
 		Request.TargetProfile = EShaderTargetProfile::Invalid;
 		FShaderRequestRegistration Registration;
 		Error = RegisterShaderRuntimeRequest(std::move(Request), EShaderRequestEligibility::GameAndEditor, Registration);
-		ASSERT_TRUE(Registration.IsValid()) << FormatShaderError(Error.error());
+		ASSERT_TRUE(Registration.IsValid()) << std::string(Error.error());
 		EXPECT_FALSE((Error = InitializeShaderData(FShaderDataConfiguration::Authored())));
-		EXPECT_EQ(Error.error().Code, EShaderError::BuildModuleRequired);
 		const std::filesystem::path MissingRoot =
 			std::filesystem::absolute("MissingShaderCookRoot").lexically_normal();
-		ASSERT_TRUE((Error = InitializeShaderData(FShaderDataConfiguration::Cooked(MissingRoot)))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = InitializeShaderData(FShaderDataConfiguration::Cooked(MissingRoot)))) << std::string(Error.error());
 		EXPECT_EQ(GetShaderDataDomain(), EShaderDataDomain::Cooked);
 		FShaderCompilerOutput Output;
 		EXPECT_FALSE((Error = LoadCookedShaderRuntimeRequest("Tests.Primary", {}, Output)));
-		EXPECT_EQ(Error.error().Code, EShaderError::LibraryReadFailed);
 		ShutdownShaderData();
 		ResetShaderRuntimeInventoryForTesting();
 	}
@@ -290,11 +284,10 @@ namespace Durin
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = InitializeShaderData(FShaderDataConfiguration::Cooked(
 			MissingRoot, EShaderTargetPlatform::MacOS))))
-			<< FormatShaderError(Error.error());
+			<< std::string(Error.error());
 		EXPECT_EQ(GetShaderDataDomain(), EShaderDataDomain::Cooked);
 		FShaderCompilerOutput Output;
 		EXPECT_FALSE((Error = LoadCookedShaderRuntimeRequest("Absent", {}, Output)));
-		EXPECT_EQ(Error.error().Code, EShaderError::LibraryReadFailed);
 		ShutdownShaderData();
 		ResetShaderRuntimeInventoryForTesting();
 	}

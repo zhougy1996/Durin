@@ -25,7 +25,7 @@ namespace Durin
 	struct FCookPublishResult;
 	struct FCookCaptureResult;
 	struct FProjectGameSettingsResult;
-	struct FShaderError;
+
 	struct FObjectPathError;
 	enum class ECookManifestEntryKind : uint8
 	{

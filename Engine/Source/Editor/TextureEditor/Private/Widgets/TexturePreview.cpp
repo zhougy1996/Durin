@@ -126,7 +126,7 @@ namespace Durin::Editor::Texture
 					std::array<const FShaderType*, 2> ShaderTypes = {
 						&VertexShaderType, &FragmentShaderType};
 					auto ShaderMap = std::make_shared<FShaderMapBase>();
-										auto MakeError = [](auto Category, ERenderResourceCreateErrorReason Reason, FRenderResourceCreateCause Cause = {}) {
+										auto MakeError = [](auto Category, ERenderResourceCreateErrorReason Reason, std::string Cause = {}) {
 						return FRenderResourceCreateError{
 							.Category = Category,
 							.Reason = Reason,
@@ -154,7 +154,7 @@ namespace Durin::Editor::Texture
 					if (VertexShader == nullptr || FragmentShader == nullptr)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::ShaderBinding,
-							ERenderResourceCreateErrorReason::ShaderFailure, FShaderError{.Code = EShaderError::MissingShaderType}));
+							ERenderResourceCreateErrorReason::ShaderFailure, std::format("Material shader map is missing type '{}'.", (std::string{}))));
 					FTexturePreviewRendererState::FPayload Candidate;
 					Candidate.ShaderMap = std::move(ShaderMap);
 					Candidate.VertexShader =

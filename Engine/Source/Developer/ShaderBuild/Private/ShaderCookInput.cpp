@@ -15,11 +15,10 @@ namespace Durin
 		using namespace ShaderCaptureLimits;
 		constexpr size_t ReadChunkBytes = 4 * 1024 * 1024;
 
-		auto CaptureLimitFailure(EShaderError Code, EShaderCaptureLimit Kind,
+		auto CaptureLimitFailure(std::string_view Kind,
 			uint64 Maximum, uint64 Actual, std::string_view Path = {}) -> FShaderCompletion
 		{
-			return std::unexpected(FShaderError{.Code = Code, .ActualIdentity = std::string(Path),
-				.CaptureLimit = FShaderCaptureLimitContext{Kind, Maximum, Actual}});
+			return FShaderCompletion::Failure(std::format("Shader capture {} limit exceeded for '{}': maximum {}, actual {}.", Kind, Path, Maximum, Actual));
 		}
 	}
 
@@ -29,8 +28,7 @@ namespace Durin
 		if (IsCancelled && IsCancelled()) return FShaderCompletion::Canceled();
 		const auto Mounts = FShaderPaths::GetRegisteredMountPoints();
 		if (Mounts.size() > MaximumMounts)
-			return CaptureLimitFailure(EShaderError::CaptureMountLimit,
-				EShaderCaptureLimit::Mounts, MaximumMounts, Mounts.size());
+			return CaptureLimitFailure("mount count", MaximumMounts, Mounts.size());
 		uint64 Entries = 0;
 		std::map<std::string, FXxHash128> Files;
 		std::vector<std::string> SearchRoots;
@@ -42,52 +40,47 @@ namespace Durin
 			SearchRoots.push_back(Mount.VirtualRoot);
 			auto FailurePath = Root;
 			std::filesystem::recursive_directory_iterator It(Root, Error), End;
-			if (Error) { return std::unexpected(FShaderError::FromFileSystem(FailurePath, Error)); }
+			if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
 			for (; It != End; It.increment(Error))
 			{
 				if (IsCancelled && IsCancelled()) { return FShaderCompletion::Canceled(); }
 				if (++Entries > MaximumDirectoryEntries)
-					return CaptureLimitFailure(EShaderError::CaptureDirectoryLimit,
-						EShaderCaptureLimit::DirectoryEntries, MaximumDirectoryEntries, Entries, Root.generic_string());
-				if (Error) { return std::unexpected(FShaderError::FromFileSystem(FailurePath, Error)); }
+					return CaptureLimitFailure("directory entry count", MaximumDirectoryEntries, Entries, Root.generic_string());
+				if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
 				FailurePath = It->path();
 				if (It->is_symlink(Error))
-				{ return std::unexpected(FShaderError{.Code = EShaderError::CaptureSymlink, .ActualIdentity = It->path().generic_string()}); }
-				if (Error) { return std::unexpected(FShaderError::FromFileSystem(FailurePath, Error)); }
+				{ return std::unexpected(std::format("Shader capture requires regular source files, not symbolic links: '{}'.", (It->path().generic_string()))); }
+				if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
 				if (!It->is_regular_file(Error))
 				{
-					if (Error) { return std::unexpected(FShaderError::FromFileSystem(FailurePath, Error)); }
+					if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
 					continue;
 				}
 				const auto Name = (std::filesystem::path(Mount.VirtualRoot)
 					/ It->path().lexically_relative(Root)).lexically_normal().generic_string();
 				auto File = FFileHelper::OpenRead(It->path());
-				if (!File) { return std::unexpected(FShaderError{.Code = EShaderError::FileReadFailure, .FileError = File.error()}); }
+				if (!File) { return std::unexpected((File.error()).ToString()); }
 				const auto Size = (*File)->GetSize();
 				if (Files.size() >= MaximumFiles)
-					return CaptureLimitFailure(EShaderError::CaptureInputLimit,
-						EShaderCaptureLimit::Files, MaximumFiles, Files.size() + 1, Name);
+					return CaptureLimitFailure("file count", MaximumFiles, Files.size() + 1, Name);
 				if (Name.size() > MaximumPathBytes)
-					return CaptureLimitFailure(EShaderError::CaptureInputLimit,
-						EShaderCaptureLimit::PathBytes, MaximumPathBytes, Name.size(), Name);
+					return CaptureLimitFailure("path bytes", MaximumPathBytes, Name.size(), Name);
 				if (Size > MaximumFileBytes)
-					return CaptureLimitFailure(EShaderError::CaptureInputLimit,
-						EShaderCaptureLimit::FileBytes, MaximumFileBytes, Size, Name);
+					return CaptureLimitFailure("file bytes", MaximumFileBytes, Size, Name);
 				if (Size > MaximumTotalBytes - TotalBytes)
-					return CaptureLimitFailure(EShaderError::CaptureInputLimit,
-						EShaderCaptureLimit::TotalBytes, MaximumTotalBytes, TotalBytes + Size, Name);
+					return CaptureLimitFailure("total bytes", MaximumTotalBytes, TotalBytes + Size, Name);
 				FByteBuffer Bytes(static_cast<size_t>(Size));
 				for (size_t Offset = 0; Offset < Bytes.size(); Offset += ReadChunkBytes)
 				{
 					if (IsCancelled && IsCancelled()) { return FShaderCompletion::Canceled(); }
 					if (auto Read = (*File)->ReadAt(Offset, std::span(Bytes).subspan(Offset, std::min(ReadChunkBytes, Bytes.size() - Offset))); !Read)
-					{ return std::unexpected(FShaderError{.Code = EShaderError::FileReadFailure, .FileError = Read.error()}); }
+					{ return std::unexpected((Read.error()).ToString()); }
 				}
 				TotalBytes += Size;
 				if (!Files.emplace(Name, FXxHash128::HashBuffer(Bytes)).second)
-				{ return std::unexpected(FShaderError{.Code = EShaderError::CaptureDuplicateFile, .ActualIdentity = Name}); }
+				{ return std::unexpected(std::format("Shader capture contains duplicate logical file '{}'.", (Name))); }
 			}
-			if (Error) { return std::unexpected(FShaderError::FromFileSystem(FailurePath, Error)); }
+			if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
 		}
 		FBinaryWriter Identity;
 		Identity.WriteU64(Builder.GetBuildVersion());

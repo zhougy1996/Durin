@@ -31,7 +31,7 @@ namespace Durin
 			SpvExecutionModel Stage) -> FShaderOperationResult
 		{
 			auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty());
-			if (!Map) return std::unexpected(FShaderError{.Code = EShaderError::MetalBindingRemapInvalid});
+			if (!Map) return std::unexpected(std::string("Metal shader binding remap exceeds or conflicts with native slots"));
 			for (const auto& Binding : Map->Bindings)
 			{
 				spvc_msl_resource_binding_2 NativeBinding;
@@ -52,10 +52,10 @@ namespace Durin
 				case ERHIBindingType::Sampler:
 					NativeBinding.msl_sampler = Binding.Slot; break;
 				default:
-					return std::unexpected(FShaderError{.Code = EShaderError::MetalBindingRemapInvalid});
+					return std::unexpected(std::string("Metal shader binding remap exceeds or conflicts with native slots"));
 				}
 				if (spvc_compiler_msl_add_resource_binding_2(Compiler, &NativeBinding) != SPVC_SUCCESS)
-					return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+					return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 			}
 			if (Map->PushConstantBufferSlot != UINT32_MAX)
 			{
@@ -66,11 +66,11 @@ namespace Durin
 				PushBinding.binding = SPVC_MSL_PUSH_CONSTANT_BINDING;
 				PushBinding.msl_buffer = Map->PushConstantBufferSlot;
 				if (spvc_compiler_msl_add_resource_binding_2(Compiler, &PushBinding) != SPVC_SUCCESS)
-					return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+					return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 			}
 			const auto Metadata = ShaderFormat::EncodeMetalMetadata(Shader.Frequency,
 				{std::move(Map->Bindings), Map->PushConstantBufferSlot, Map->Identity});
-			if (!Metadata) return std::unexpected(FShaderError{.Code = EShaderError::MetalBindingRemapInvalid});
+			if (!Metadata) return std::unexpected(std::string("Metal shader binding remap exceeds or conflicts with native slots"));
 			Shader.PlatformData = *Metadata;
 			return {};
 		}
@@ -82,17 +82,17 @@ namespace Durin
 	{
 	#if defined(__APPLE__)
 		const auto Settings = ShaderFormat::ResolveMetalCompileSettings(MetalShaderTarget);
-		if (!Settings) return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+		if (!Settings) return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 		if (Shader.Code.IsEmpty() || Shader.CodeFormat != EShaderCodeFormat::Spirv15
 			|| Shader.Code.size() < 20 || Shader.Code.size() % sizeof(uint32) != 0)
-			return std::unexpected(FShaderError{.Code = EShaderError::SpirvConversionFailed});
+			return std::unexpected(std::string("Failed to convert Slang SPIR-V output"));
 		const auto Stage = ExecutionModel(Shader.Frequency);
-		if (!Stage) return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+		if (!Stage) return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 		std::vector<uint32> Words(Shader.Code.size() / sizeof(uint32));
 		std::memcpy(Words.data(), Shader.Code.data(), Shader.Code.size());
 		FSpirvCrossContext Context;
 		if (spvc_context_create(&Context.Handle) != SPVC_SUCCESS)
-			return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+			return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 		spvc_parsed_ir IR = nullptr;
 		spvc_compiler Compiler = nullptr;
 		spvc_compiler_options Options = nullptr;
@@ -108,38 +108,37 @@ namespace Durin
 			|| spvc_compiler_options_set_bool(Options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y,
 				Shader.Frequency == EShaderFrequency::Vertex ? SPVC_TRUE : SPVC_FALSE) != SPVC_SUCCESS
 			|| spvc_compiler_install_compiler_options(Compiler, Options) != SPVC_SUCCESS)
-			return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+			return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 		if (Shader.Frequency == EShaderFrequency::Compute)
 		{
 			const SpvExecutionMode* Modes = nullptr;
 			size_t ModeCount = 0;
 			if (spvc_compiler_get_execution_modes(Compiler, &Modes, &ModeCount)
 				!= SPVC_SUCCESS || !Modes)
-				return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+				return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 			bool bLocalSize = false;
 			for (size_t Index = 0; Index < ModeCount; ++Index)
 			{
 				if (Modes[Index] == SpvExecutionModeLocalSizeId)
-					return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+					return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 				bLocalSize |= Modes[Index] == SpvExecutionModeLocalSize;
 			}
 			if (!bLocalSize)
-				return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+				return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
 				if (spvc_compiler_get_execution_mode_argument_by_index(
 					Compiler, SpvExecutionModeLocalSize, Axis)
 					!= Shader.ComputeThreadGroupSize[Axis])
-					return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+					return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 		}
 		if (auto Result = RemapBindings(Shader, Compiler, *Stage); !Result) return Result;
 		const char* Source = nullptr;
 		if (spvc_compiler_compile(Compiler, &Source) != SPVC_SUCCESS || !Source || !*Source)
-			return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed,
-				.ActualIdentity = spvc_context_get_last_error_string(Context.Handle)});
+			return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 		const char* EntryPoint = spvc_compiler_get_cleansed_entry_point_name(
 			Compiler, Shader.BinaryEntryPoint.c_str(), *Stage);
 		if (!EntryPoint || !*EntryPoint)
-			return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+			return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 		const auto SourceBytes = std::as_bytes(std::span(Source, std::strlen(Source)));
 		Shader.Code = FSharedByteBuffer::Copy(SourceBytes);
 		Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
@@ -148,7 +147,7 @@ namespace Durin
 		Shader.CodeFormat = EShaderCodeFormat::Msl20Source;
 		return {};
 	#else
-		return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+		return std::unexpected(std::string("Failed to translate SPIR-V to Metal shading language"));
 	#endif
 	}
 }
