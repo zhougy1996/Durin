@@ -80,12 +80,19 @@ namespace Durin
 			DiskOptions.bQueueOnSaturation = true;
 			DiskOptions.Prerequisites = Prerequisites;
 			auto Disk = Private::TryLaunchCancelableTaskWithCompletion("Package.SaveIO",
-				[Save](const FTaskCancellationToken&) { Save->Write(); }, [](ETaskState) {}, DiskOptions);
+				[Save, Admission = Gate.GetTaskHandle()](const FTaskCancellationToken&) {
+					if (Admission.GetState() != ETaskState::Succeeded) {
+						Private::FTaskRuntimeAccess::CancelCurrent();
+						return;
+					}
+					Save->Write();
+				}, [](ETaskState) {}, DiskOptions);
 			if (!Disk.HasValue())
 			{ Gate.TrySetCanceled(); return Fail(EPackageSaveError::ShuttingDown, "Save I/O admission failed."); }
 			Save->Disk = std::move(Disk).TakeValue();
 			if (PublicationFault == EPublicationFault::RejectAdmission)
 			{
+				CancelTask(Save->Disk);
 				Gate.TrySetCanceled();
 				(void)WaitTask(Save->Disk);
 				Save->Write = {}; Save->Finish = {};
@@ -99,6 +106,7 @@ namespace Durin
 				CompletionOptions, ETaskDependencyKind::Completion);
 			if (!Completion.HasValue())
 			{
+				CancelTask(Save->Disk);
 				Gate.TrySetCanceled();
 				(void)WaitTask(Save->Disk);
 				Save->Write = {}; Save->Finish = {};

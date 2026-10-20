@@ -969,7 +969,7 @@ namespace Durin
 		uint32 RemainingPrerequisites = 0;
 		ETaskState State = ETaskState::Queued;
 		ETaskState StateBeforeTerminal = ETaskState::Queued;
-		ETaskDependencyKind DependencyKind = ETaskDependencyKind::Success;
+		ETaskDependencyKind DependencyKind = ETaskDependencyKind::Completion;
 		ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
 		uint64 DirectBlockingTaskId = 0;
 		uint64 BlockingPrerequisiteTaskId = 0;
@@ -1088,7 +1088,7 @@ namespace Durin
 			std::unique_ptr<Private::FMoveOnlyTaskFunction>& FunctionOwner,
 			Private::FTaskCompletionFunction&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
-			ETaskDependencyKind DependencyKind = ETaskDependencyKind::Success,
+			ETaskDependencyKind DependencyKind = ETaskDependencyKind::Completion,
 			bool bAggregatePrerequisites = false,
 			ETaskTarget Target = ETaskTarget::AnyWorker,
 			ETaskPriority Priority = ETaskPriority::Normal,
@@ -2302,7 +2302,7 @@ namespace Durin
 			return;
 		}
 
-		if (PrerequisiteState != ETaskState::Succeeded)
+		if (DependencyKind == ETaskDependencyKind::Success && PrerequisiteState != ETaskState::Succeeded)
 		{
 			RequestCancellation(
 				"Task was canceled because prerequisite " + std::to_string(PrerequisiteTaskId)
@@ -2977,7 +2977,7 @@ namespace Durin
 				FunctionOwner,
 				std::move(CompletionFunction),
 				ResolvedOptions,
-				ETaskDependencyKind::Success,
+				ETaskDependencyKind::Completion,
 				false,
 				Options.Target,
 				Options.Priority,

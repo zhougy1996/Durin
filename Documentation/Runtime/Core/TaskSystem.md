@@ -266,10 +266,19 @@ transitive prerequisite wait restrictions still apply.
 Events participate in scheduler lifetime. AddNested expresses an explicit parent
 completion dependency; events do not collect work on behalf of an owner.
 
-Prerequisites must be valid in the same scheduler lifetime. Success dependencies
-release once after every prerequisite succeeds; failure/cancellation skips the
-body and records the blocking relationship. Completion edges observe all
-terminal states. Registration racing terminal publication cannot lose or
+Prerequisites must be valid in the same scheduler lifetime. Ordinary launch
+prerequisites are completion dependencies: the body becomes runnable once every
+prerequisite finishes, including Failed and Canceled outcomes. They do not
+forward failure or cancellation. Consumers requiring successful admission or
+usable predecessor data must check that outcome explicitly or use `Then`.
+`Then` and `ThenAsync` invoke user work only after their primary input succeeds;
+failure or cancellation suppresses the callback and propagates that outcome.
+Generic `FTask` and typed inputs use the same success-continuation logic.
+Additional `Options.Prerequisites` only constrain ordering, including on `Then`,
+`ThenCompleted`, `ThenAsync` and `WhenAll`; they do not become additional success
+conditions. Fan-in still checks the outcomes of its actual input collection.
+Checked-kernel callers may explicitly request a Success dependency kind.
+Registration racing terminal publication cannot lose or
 duplicate dependent release. A task id is process-unique and nonzero; parent
 and prerequisite identities are distinct.
 

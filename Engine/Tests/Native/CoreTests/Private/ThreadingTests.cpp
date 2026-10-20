@@ -1128,7 +1128,7 @@ namespace Durin
 		EXPECT_FALSE(SubmitKernelTask("ForeignPrerequisiteTask", []() {}, ForeignOptions).IsValid());
 	}
 
-	TEST(FTaskTests, FailureAndCancellationPropagateWithoutRunningDependents)
+	TEST(FTaskTests, FailedAndCanceledPrerequisitesReleaseOrdinaryDependents)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -1144,9 +1144,8 @@ namespace Durin
 		Tasks::FTask FailedDependent = SubmitKernelTask("FailedDependent", [&]() { bFailedDependentRan.store(true, std::memory_order::release); }, FailedOptions);
 
 		EXPECT_EQ(ETaskState::Failed, WaitTask(FailedPrerequisite).TaskState);
-		EXPECT_EQ(ETaskState::Canceled, WaitTask(FailedDependent).TaskState);
-		EXPECT_FALSE(bFailedDependentRan.load(std::memory_order::acquire));
-		EXPECT_NE(std::string::npos, FailedDependent.GetDiagnostic().find(std::to_string(FailedPrerequisite.GetTaskId())));
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(FailedDependent).TaskState);
+		EXPECT_TRUE(bFailedDependentRan.load(std::memory_order::acquire));
 
 		FThreadEvent BlockerStarted;
 		FThreadEvent ReleaseBlocker;
@@ -1163,10 +1162,10 @@ namespace Durin
 		Tasks::FTask CanceledDependent = SubmitKernelTask("CanceledDependent", [&]() { bCanceledDependentRan.store(true, std::memory_order::release); }, CanceledOptions);
 
 		EXPECT_TRUE(CancelTask(CanceledPrerequisite));
-		EXPECT_EQ(ETaskState::Canceled, WaitTask(CanceledDependent).TaskState);
 		EXPECT_FALSE(bCanceledDependentRan.load(std::memory_order::acquire));
-		EXPECT_NE(std::string::npos, CanceledDependent.GetDiagnostic().find(std::to_string(CanceledPrerequisite.GetTaskId())));
 		ReleaseBlocker.Trigger();
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(CanceledDependent).TaskState);
+		EXPECT_TRUE(bCanceledDependentRan.load(std::memory_order::acquire));
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
 	}
 
@@ -1851,7 +1850,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		auto Failed = SubmitKernelTask("CompletedFailure", [] { throw std::runtime_error("original failure"); });
 		ASSERT_EQ(ETaskState::Failed, WaitTask(Failed).TaskState);
-		auto Edge = Durin::SubmitKernelContinuation(Failed, "AlreadyFailedEdge", [] {});
+		auto Edge = Durin::SubmitKernelContinuation(Failed, "AlreadyFailedEdge", [] {}, {}, ETaskDependencyKind::Success);
 		ASSERT_TRUE(Edge.IsValid());
 		ASSERT_EQ(ETaskState::Canceled, WaitTask(Edge).TaskState);
 		EXPECT_EQ(ETaskTerminalReason::DependencyFailed, Edge.GetDiagnostics().TerminalReason);

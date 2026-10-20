@@ -1485,7 +1485,7 @@ namespace Durin
 			}
 			~FSubmissionGroup()
 			{
-				for (const auto& Wake : WakeTasks) Tasks::Cancel(Wake);
+				WakeSubscriptions.clear();
 				auto Pending = ERHICommandBatchState::Pending;
 				Completion->State.compare_exchange_strong(Pending, ERHICommandBatchState::Canceled);
 			}
@@ -1501,7 +1501,7 @@ namespace Durin
 				}
 				return Canceled ? ERHICommandBatchState::Canceled : Pending ? ERHICommandBatchState::Pending : ERHICommandBatchState::Succeeded;
 			}
-			std::vector<Tasks::TTask<void>> WakeTasks;
+			std::vector<Tasks::FTaskSubscription> WakeSubscriptions;
 			std::vector<FRHIPipelineCreationRequest> Dependencies;
 			std::shared_ptr<FRHICommandBatchCompletion> Completion = std::make_shared<FRHICommandBatchCompletion>();
 
@@ -2868,15 +2868,10 @@ namespace Durin
 			for (const auto& Request : SubmissionGroup->Dependencies)
 			{
 				if (Request.GetState() != ERHIPipelineRequestState::Pending) continue;
-				struct FWakeOnTerminal
-				{
-					std::function<void()> Wake;
-					~FWakeOnTerminal() { Wake(); }
-				};
-				auto Wake = std::make_shared<FWakeOnTerminal>(State->RHIThread->GetWakeCallback());
-				// Callable destruction also wakes the queue when the edge is canceled.
-				SubmissionGroup->WakeTasks.push_back(Tasks::Then(Request.GetTaskHandle(), Tasks::ETaskExecutor::Worker,
-					{.DebugName = "RHI.PipelineDependency"}, [Wake] {}));
+				// Every terminal outcome must wake the queue, without waiting for a
+				// success continuation to acquire another Worker execution slot.
+				SubmissionGroup->WakeSubscriptions.push_back(Tasks::SubscribeTask(Request.GetTaskHandle(),
+					[Wake = State->RHIThread->GetWakeCallback()](ETaskState) { Wake(); }));
 			}
 			Work.Execute = [Replay, SubmissionGroup]() mutable {
 				auto Outcome = SubmissionGroup->GetDependencyState();

@@ -9,6 +9,8 @@
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
+#include "Threading/TaskComposition.h"
+#include "Threading/ThreadEvent.h"
 #include <gtest/gtest.h>
 
 namespace
@@ -283,6 +285,38 @@ TEST_F(FPackagePersistenceTests, MissingDeferredExecutorRejectsBeforeWriting)
 	EXPECT_FALSE(Package->SaveAsync(Admission, FSavePackageContext{Options}).IsValid());
 	EXPECT_EQ(Admission.Error, EPackageSaveError::ShuttingDown);
 	EXPECT_TRUE(std::filesystem::is_empty(Root));
+}
+
+TEST_F(FPackagePersistenceTests, RejectedPublicationDoesNotWaitForOccupiedIoWorkers)
+{
+	const auto WorkerCount = GetTaskSchedulerDiagnostics().BlockingIOWorkerCount;
+	ASSERT_GT(WorkerCount, 0u);
+	FThreadEvent Started, Release, Returned;
+	std::atomic<uint32> Entered = 0;
+	std::vector<Tasks::TTask<void>> Blockers;
+	struct FRelease {
+		FThreadEvent& Event;
+		std::vector<Tasks::TTask<void>>& Tasks;
+		~FRelease() { Event.Trigger(); for (const auto& Task : Tasks) WaitTask(Task); }
+	} Resume{Release, Blockers};
+	for (uint32 Index = 0; Index < WorkerCount; ++Index)
+		Blockers.push_back(Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [&] {
+			if (Entered.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
+			Release.Wait();
+		}));
+	ASSERT_TRUE(Started.WaitFor(5));
+	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::RejectAdmission);
+	bool ReturnedWithoutIoProgress = false;
+	std::jthread Unblock([&] { ReturnedWithoutIoProgress = Returned.WaitFor(5); Release.Trigger(); });
+	bool Wrote = false, Finished = false;
+	const auto Result = PackageSavePrivate::SubmitAsyncSave(1, [&] { Wrote = true; }, [&](bool) { Finished = true; });
+	Returned.Trigger();
+	Unblock.join();
+	EXPECT_TRUE(ReturnedWithoutIoProgress);
+	EXPECT_FALSE(Result);
+	EXPECT_FALSE(Wrote);
+	EXPECT_FALSE(Finished);
+	EXPECT_FALSE(DPackage::HasAsyncFileWrites());
 }
 
 TEST_F(FPackagePersistenceTests, RejectedPublicationCannotStartDiskWorkAndReleasesCapacity)

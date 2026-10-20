@@ -1721,6 +1721,94 @@ namespace Durin
 		EXPECT_EQ(128, Calls.load());
 	}
 
+	TEST(FTaskCompositionTests, OrdinaryPrerequisitesWaitForAllOutcomesWithoutPropagatingFailure)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		for (uint32 Case = 0; Case < 4; ++Case)
+		{
+			auto Source = Tasks::TCompletionSource<int>::Create();
+			auto Input = Source.TakeTask();
+			Tasks::FTaskEvent Gate("CompletionPrerequisiteGate", false);
+			auto Complete = [&] { if (Case & 1) Source.TrySetCanceled(); else Source.TrySetFailure({}); };
+			if (Case & 2) Complete();
+			const auto Dependencies = Tasks::Prerequisites(Input, Gate);
+			std::atomic<uint32> Calls = 0;
+			auto Task = Tasks::LaunchTask("CompletionPrerequisites", [&] { ++Calls; return 42; }, Dependencies);
+			if (!(Case & 2)) Complete();
+			EXPECT_EQ(Task.GetState(), ETaskState::Waiting);
+			EXPECT_EQ(Calls, 0u);
+			Gate.Trigger();
+			ASSERT_EQ(Task.Wait().TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(Task.GetResult(), 42);
+			EXPECT_EQ(Calls, 1u);
+		}
+	}
+
+	TEST(FTaskCompositionTests, TypedAndGenericThenSkipFailedOrCanceledPrimaryInputs)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		for (uint32 Case = 0; Case < 4; ++Case)
+		{
+			const bool Canceled = (Case & 1) != 0;
+			auto Source = Tasks::TCompletionSource<int>::Create();
+			auto Input = Source.TakeTask();
+			auto Complete = [&] { if (Canceled) Source.TrySetCanceled(); else Source.TrySetFailure({}); };
+			if (Case & 2) Complete();
+			const Tasks::FTask Generic = Input;
+			auto Typed = Tasks::Then(Input, Tasks::ETaskExecutor::Worker, {}, [](int&) { ADD_FAILURE(); return 1; });
+			auto Erased = Tasks::Then(Generic, Tasks::ETaskExecutor::Worker, {}, [] { ADD_FAILURE(); return std::make_unique<int>(1); });
+			auto Flat = Tasks::ThenAsync(Input, Tasks::ETaskExecutor::Worker, {}, [](int&) {
+				ADD_FAILURE(); return Tasks::LaunchTask("UnexpectedInner", [] { return 1; });
+			});
+			uint32 CleanupCalls = 0;
+			auto Cleanup = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, {}, [&](const auto& Finished) {
+				EXPECT_EQ(Finished.GetState(), Canceled ? ETaskState::Canceled : ETaskState::Failed); ++CleanupCalls;
+			});
+			if (!(Case & 2)) Complete();
+			const auto Expected = Canceled ? ETaskState::Canceled : ETaskState::Failed;
+			EXPECT_EQ(WaitOffGameThread(Typed).TaskState, Expected);
+			EXPECT_EQ(WaitOffGameThread(Erased).TaskState, Expected);
+			EXPECT_EQ(WaitOffGameThread(Flat).TaskState, Expected);
+			EXPECT_EQ(WaitOffGameThread(Cleanup).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(CleanupCalls, 1u);
+		}
+	}
+
+	TEST(FTaskCompositionTests, ExtraPrerequisitesOnlyOrderSuccessAndCompletionContinuations)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		for (bool Canceled : {false, true})
+		{
+			auto Source = Tasks::TCompletionSource<int>::Create();
+			auto Input = Source.TakeTask();
+			Source.TrySetValue(41);
+			auto Extra = Tasks::TCompletionSource<void>::Create();
+			const std::array Dependencies{Extra.GetTaskHandle()};
+			Tasks::FTaskExecutionOptions Options; Options.Prerequisites = Dependencies;
+			auto Typed = Tasks::Then(Input, Tasks::ETaskExecutor::Worker, Options, [](int& Value) { return Value + 1; });
+			auto Erased = Tasks::Then(Tasks::FTask(Input), Tasks::ETaskExecutor::Worker, Options, [] { return 7; });
+			auto Cleanup = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, Options, [](const auto& Task) { return Task.GetResult(); });
+			auto Flat = Tasks::ThenAsync(Input, Tasks::ETaskExecutor::Worker, Options, [](int& Value) {
+				return Tasks::LaunchTask("ExtraOrderedInner", [Value] { return Value; });
+			});
+			auto All = Tasks::WhenAll(std::vector{Input}, Tasks::ETaskExecutor::Worker, Options);
+			auto EmptyAll = Tasks::WhenAll(std::vector<Tasks::TTask<int>>{}, Tasks::ETaskExecutor::Worker, Options);
+			const std::array<Tasks::FTask, 6> Handles{Typed, Erased, Cleanup, Flat, All, EmptyAll};
+			for (const auto& Task : Handles) EXPECT_EQ(Task.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
+			if (Canceled) Extra.TrySetCanceled(); else Extra.TrySetFailure({});
+			for (const auto& Task : Handles) EXPECT_EQ(WaitOffGameThread(Task).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(Typed.GetResult(), 42);
+			EXPECT_EQ(Erased.GetResult(), 7);
+			EXPECT_EQ(Cleanup.GetResult(), 41);
+			EXPECT_EQ(Flat.GetResult(), 41);
+			EXPECT_EQ(*All.GetResult().front(), 41);
+			EXPECT_TRUE(EmptyAll.GetResult().empty());
+		}
+	}
+
 	TEST(FTaskCompositionTests, RootGenerationAndFanInExtraPrerequisitesArePreserved)
 	{
 		EnsureGameThreadForTaskTest();

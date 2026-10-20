@@ -45,6 +45,7 @@ namespace Durin::Tasks
 		ETaskPriority Priority = ETaskPriority::Normal;
 		FTaskCancellationToken Cancellation;
 		FTaskAttribution Attribution;
+		// Additional ordering dependencies, never implicit success conditions.
 		std::span<const FTask> Prerequisites;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
@@ -365,28 +366,18 @@ namespace Durin::Tasks
 			Options, std::forward<F>(Function), true);
 	}
 
-	// A completion prerequisite contributes no result ownership to this success edge.
-	template<typename F>
-	auto Then(const FTask& Input, ETaskExecutor Executor, FTaskExecutionOptions Options, F&& Function)
+	namespace Detail
 	{
-		require(Input.IsValid());
-		if (Options.Attribution == FTaskAttribution{})
-			Options.Attribution = Durin::Private::FTaskRuntimeAccess::GetAttribution(Input);
-		return Detail::WithPrerequisites(Options, Prerequisites(Input), [&](const auto& BoundOptions) {
-			return Detail::LaunchTaskImpl(Executor, BoundOptions, std::forward<F>(Function));
-		});
-	}
-
-
-	// Continuations observe shared input results and never consume their handles.
+	// Success continuations check only their primary input; extra prerequisites
+	// constrain ordering independently of their terminal outcomes.
 	template<typename T, typename F, typename U = typename Detail::TThenResult<T, std::decay_t<F>>::Type>
 	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
-	auto Then(const TTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	auto ThenImpl(const FTask& Input, std::shared_ptr<TTaskResultState<TTaskValue<T>>> Source,
+		std::shared_ptr<FTaskFailure> SourceFailure, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
 		-> TTask<U>
 	{
 		auto& Native = Input;
 		if (!Input.IsValid()) Detail::FailConstruction({ETaskAdmissionErrorCode::InvalidPrerequisite});
-		auto Source = Detail::FTaskAccess::GetResultState(Native);
 
 		FTaskContinuationOptions Edge;
 		Edge.bQueueOnSaturation = true;
@@ -402,7 +393,6 @@ namespace Durin::Tasks
 		{
 			auto Failure = std::make_shared<FTaskFailure>();
 			const auto Predecessor = FTask(Native);
-			auto SourceFailure = Detail::FTaskAccess::Failure(Input);
 			auto Output = Detail::MakeResultState<TTaskValue<U>>();
 			auto Admission = Detail::ContinueWithStorage<TTaskValue<U>>(FTask(Native), Options.DebugName,
 				[Source, SourceFailure, Failure, Predecessor, Output, Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
@@ -416,8 +406,8 @@ namespace Durin::Tasks
 						Durin::Private::FTaskRuntimeAccess::CancelCurrent();
 						return;
 					}
-					auto Value = Source->PeekPublished();
-					require(Value);
+					auto Value = Source ? Source->PeekPublished() : nullptr;
+					if constexpr (!std::is_void_v<T>) require(Value);
 					auto Invoke = [&]() -> U {
 						if constexpr (std::is_void_v<T>)
 						{
@@ -443,6 +433,25 @@ namespace Durin::Tasks
 		{
 			Detail::FailConstruction({ETaskAdmissionErrorCode::CapacityExhausted});
 		}
+	}
+
+	} // namespace Detail
+
+	// Generic handles provide success ordering without typed result access.
+	template<typename F>
+	auto Then(const FTask& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	{
+		return Detail::ThenImpl<void>(Input, {}, {}, Executor, Options, std::forward<F>(Function));
+	}
+
+	// Continuations observe shared input results and never consume their handles.
+	template<typename T, typename F, typename U = typename Detail::TThenResult<T, std::decay_t<F>>::Type>
+	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
+	auto Then(const TTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+		-> TTask<U>
+	{
+		return Detail::ThenImpl<T>(Input, Detail::FTaskAccess::GetResultState(Input),
+			Detail::FTaskAccess::Failure(Input), Executor, Options, std::forward<F>(Function));
 	}
 
 	// Observes a completed task in any terminal state; admission/cancellation can suppress this edge.

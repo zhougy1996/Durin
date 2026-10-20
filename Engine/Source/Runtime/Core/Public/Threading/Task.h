@@ -496,6 +496,7 @@ namespace Durin
 	{
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
+		// Order execution after every prerequisite completes, regardless of outcome.
 		std::span<const Tasks::FTask> Prerequisites;
 		FTaskCancellationToken CancellationToken;
 		FTaskAttribution Attribution;
