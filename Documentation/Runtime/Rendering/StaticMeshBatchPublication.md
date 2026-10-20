@@ -3,7 +3,7 @@
 Summary: Ordinary StaticMesh publishes immutable geometry and material inputs while each view captures instance and LOD state independently.
 Modules: Engine, Renderer
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-20
 
 ## Publication boundary
 
@@ -94,6 +94,44 @@ invalidation principles in [Epic's mesh drawing pipeline documentation](https://
 Durin builds selected tables lazily and retains strong resource owners; this is
 not an implementation of UE's complete AddToScene command cache or shadow pass.
 
+## Command-local Section resources
+
+`FStaticMeshSectionResourceContext` belongs to one invocation of
+`ResolveSceneRenderResources_RenderThread`. Receiver and shadow cascade resource
+preparation borrow it serially on the render thread. Each prepared-pipeline retry
+creates a fresh context; a standalone directional-shadow call creates one for its
+cascade loop. Hybrid/GBuffer feature preparation retains its existing path.
+
+Only captured ordinary, non-instanced StaticMesh inputs with the exact local
+`FStaticMeshBatchBinding` opt in. The current collected binding must match the
+description's geometry owner, with a declaration and nonempty streams. Dynamic
+providers, derived bindings and explicit instances retain direct preparation.
+
+Entries key the immutable draw description and an explicit resource policy
+(`SamplersOnly`, `Forward` or `Shadow`). Before lookup, the current primitive
+geometry owner and collected binding must match the description's immutable
+geometry record; declaration, streams, local domain and exact binding type are
+still checked. The description already owns that record, binding and declaration,
+so neither extra pointer keys nor a second binding owner are needed. Entries
+retain the description, material publication and resolved pipeline. These
+identities cover material/program, geometry/LOD Section, factory layout, winding,
+raster, depth and topology. Replacement publication selects a new entry; mutable
+edits to published records remain outside the publication contract.
+
+Renderer identity, the complete Shader/Device/Manual generation and renderer
+release epoch invalidate the context before reuse. The surface-material resource
+revision additionally covers sampler creation/replacement, failed creation,
+bounded eviction and independent release. Only successful preparation enters
+the context; pending or failed work follows the existing retry path.
+
+Hits copy only the resolved material binding and pipeline. Live texture and
+sampler currentness, collection schemas/payloads, environment and shadow pass
+refresh, instance and view Uniforms, final bindings, visibility and shadow bias
+remain in their existing paths. Each draw still records resource readiness and
+success/failure. Context owners survive underlying cache-slot replacement and
+retire when the invocation ends; they are never shared with worker jobs or kept
+across commands, frames or device teardown.
+
 ## Command-local instance validation
 
 `FStaticMeshPreparationCache` owns an `FMeshBatchValidationCache` shared by
@@ -102,11 +140,14 @@ It is used serially on the render thread and discarded with the preparation
 command. Worker snapshots copy the resolved transform; they never access the
 mutable cache. Standalone collectors can omit the cache and retain direct checks.
 
-Entries are identified by primitive and batch IDs. Every use compares the
-current matrix, bounds and custom numeric data against the cached values;
-changed values are checked again, including transitions into and out of invalid
-states. Only the custom-data float arrays use byte comparisons, without comparing
-structure padding. Bounds and matrices use component value equality. Inversion,
+Entries use a command-local hash table keyed by primitive and batch IDs; key
+equality resolves hash collisions. Entries are never consumed in table order.
+Node storage preserves references to resolved transforms when the table grows.
+Every use compares the current matrix, bounds and custom numeric data against
+the cached values; changed values are checked again, including transitions into
+and out of invalid states. Only the custom-data float arrays use byte comparisons,
+without comparing structure padding. Bounds and matrices use component value
+equality. Inversion,
 normal-matrix preparation, determinant and numeric-validity results can therefore
 be reused across views without trusting a provider-supplied validation flag.
 Admission requires a finite invertible double matrix; rendering separately

@@ -8,6 +8,8 @@
 
 namespace Durin
 {
+	class FStaticMeshSectionResourceContext;
+	enum class EStaticMeshSectionResourcePolicy : uint8;
 	class FGBufferRenderer;
 	class FScene;
 	class FRendererResourceCoordinator;
@@ -18,6 +20,7 @@ namespace Durin
 	struct FPreparedStaticMeshView;
 	struct FResolvedStaticMeshView;
 	struct FResolvedMeshPipeline;
+	struct FResolvedMeshDrawRecord;
 	struct FPreparedStaticMeshDraw;
 	struct FPreparedStaticMeshPrimitive;
 	struct FMaterialRenderBinding;
@@ -51,21 +54,17 @@ namespace Durin
 		auto operator=(const FStaticMeshRenderer&)
 			-> FStaticMeshRenderer& = delete;
 
-		auto PrepareResources_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FPreparedStaticMeshView& PreparedView,
-			FResolvedStaticMeshView& ResolvedView,
-			bool bPrepareLitOpaqueForward
-		) -> FGeometryResolutionResult;
+		auto PrepareResources_RenderThread(FRHICommandListImmediate& CommandList,
+			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
+			bool bPrepareLitOpaqueForward, FStaticMeshSectionResourceContext* ResourceContext = nullptr)
+			-> FGeometryResolutionResult;
 		auto PrepareHybridRetainedResources_RenderThread(
 			const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView
 		) -> bool;
-		auto PrepareShadowResources_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FPreparedStaticMeshView& PreparedView,
-			FResolvedStaticMeshView& ResolvedView
-		) -> FGeometryResolutionResult;
+		auto PrepareShadowResources_RenderThread(FRHICommandListImmediate& CommandList,
+			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
+			FStaticMeshSectionResourceContext* ResourceContext = nullptr) -> FGeometryResolutionResult;
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
@@ -101,6 +100,9 @@ namespace Durin
 			bool bGBuffer, bool bShadow = false) -> bool;
 
 	private:
+		auto PrepareSectionResources_RenderThread(const FPreparedStaticMeshPrimitive* Primitive,
+			const FPreparedStaticMeshDraw& Draw, FResolvedMeshDrawRecord& Record,
+			EStaticMeshSectionResourcePolicy Policy, FStaticMeshSectionResourceContext* ResourceContext) -> bool;
 		static auto RecordPreparedSection(
 			FRHICommandList& CommandList,
 			const FPreparedStaticMeshPrimitive& Primitive,

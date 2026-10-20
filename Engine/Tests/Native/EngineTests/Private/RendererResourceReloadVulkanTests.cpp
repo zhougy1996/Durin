@@ -23,6 +23,7 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "ShaderBuild/ShaderPaths.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {
@@ -139,6 +140,8 @@ float4 FragmentMain() : SV_Target
 
 	TEST(FRendererResourceReloadVulkanTests, AsyncPoolReuseWaitsForTheRecordedTerminalJoin)
 	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FTaskScope { ~FTaskScope() { ShutdownTaskScheduler(); } } TaskScope;
 		if (!GIsGameThreadIdInitialized)
 		{
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -241,6 +244,8 @@ float4 FragmentMain() : SV_Target
 	TEST(FRendererResourceReloadVulkanTests,
 		BrokenRefreshExposesNoPipelineAndChangedReloadRecoversInProcess)
 	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FTaskScope { ~FTaskScope() { ShutdownTaskScheduler(); } } TaskScope;
 		if (!GIsGameThreadIdInitialized)
 		{
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -683,9 +688,8 @@ float4 FragmentMain() : SV_Target
 			CacheAfterForcedReload.StructuralLayouts.Capacity);
 		EXPECT_EQ(CacheAfterForcedReload.StructuralLayouts.Evictions, 0u);
 
-		// Exercise the production slot helper with Core active on the actual render
-		// thread. Each preparation attempt returns; only a complete PSO is published.
-		ASSERT_TRUE(InitializeTaskScheduler(1));
+		// Exercise the production slot helper on the actual render thread. Each
+		// preparation attempt returns; only a complete PSO is published.
 		TRenderResourceCreationSlot<FGraphicsPipelineStateRHIRef> AsyncSlot;
 		FGraphicsPipelineStateRHIRef PreparedPipeline;
 		const auto PrewarmDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -734,7 +738,6 @@ float4 FragmentMain() : SV_Target
 		FRHICommandListImmediate::Get().SwitchPipeline(
 			ERHIPipeline::None);
 		RHIExit();
-		ShutdownTaskScheduler();
 		FModuleManager::Get().ShutdownModule("ShaderBuild");
 	}
 } // namespace Durin

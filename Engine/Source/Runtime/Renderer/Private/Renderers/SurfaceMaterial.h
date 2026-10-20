@@ -208,6 +208,7 @@ namespace Durin
 				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
 				FResolvedSurfaceMaterial& Material) const -> bool;
 			auto GetSamplerSlotCount_RenderThread() const -> size_t;
+			auto GetResourceRevision_RenderThread() const -> uint64;
 			auto GetResourceCounters_RenderThread() const
 				-> FSurfaceMaterialResourceCounters;
 

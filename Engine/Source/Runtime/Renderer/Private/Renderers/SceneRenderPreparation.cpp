@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderPipeline.h"
+#include "Renderers/StaticMeshSectionResources.h"
 #include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneViewPreparation.h"
 
@@ -317,19 +318,18 @@ namespace Durin
 		const bool bRequiresDeferredOpaque =
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
+		FStaticMeshSectionResourceContext SectionResources;
 		const FGeometryResolutionResult GeometryResolution =
-			Service.StaticMeshRenderer.PrepareResources_RenderThread(
-				CommandList, PreparedView.Receiver.StaticMeshes,
-				ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
+			Service.StaticMeshRenderer.PrepareResources_RenderThread(CommandList, PreparedView.Receiver.StaticMeshes,
+				ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque, &SectionResources);
 		// A partial receiver cannot satisfy the graph's declared attachment results.
 		if (!GeometryResolution) return ERenderViewResult::RendererResourcesUnavailable;
 		if (PreparedView.DirectionalShadow)
 		{
 			ResolvedSceneResources.DirectionalShadow.emplace();
-			Service.DirectionalShadowRenderer.PrepareResources_RenderThread(
-				CommandList, Context.Logical.Scene, Service.StaticMeshRenderer,
-				*PreparedView.DirectionalShadow,
-				*ResolvedSceneResources.DirectionalShadow, Telemetry.View);
+			Service.DirectionalShadowRenderer.PrepareResources_RenderThread(CommandList, Context.Logical.Scene,
+				Service.StaticMeshRenderer, *PreparedView.DirectionalShadow, *ResolvedSceneResources.DirectionalShadow,
+				Telemetry.View, &SectionResources);
 		}
 
 		const bool bShadowReady = ResolvedSceneResources.DirectionalShadow

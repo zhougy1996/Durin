@@ -1,11 +1,15 @@
 #include "Profiling/Profiling.h"
 #include "Renderers/StaticMeshRenderer.h"
+#include "Renderers/StaticMeshSectionResources.h"
+#include "Rendering/StaticMeshBatchBinding.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Renderers/MeshRendererExecution.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Materials/MaterialParameterCollection.h"
+
+#include <typeinfo>
 
 namespace Durin
 {
@@ -76,6 +80,7 @@ namespace Durin
 			uint64 LastUsed = 0;
 		};
 		uint64 CacheSerial = 0;
+		uint64 ReleaseEpoch = 0;
 		template<typename TCache>
 		static auto TrimCache(TCache& Cache) -> void
 		{
@@ -168,12 +173,9 @@ namespace Durin
 			MaterialBinding, ESurfaceMaterialPass::GBuffer);
 	}
 
-	auto FStaticMeshRenderer::PrepareResources_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FPreparedStaticMeshView& PreparedView,
-		FResolvedStaticMeshView& ResolvedView,
-		bool bPrepareLitOpaqueForward
-	) -> FGeometryResolutionResult
+	auto FStaticMeshRenderer::PrepareResources_RenderThread(FRHICommandListImmediate& CommandList,
+		const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
+		bool bPrepareLitOpaqueForward, FStaticMeshSectionResourceContext* ResourceContext) -> FGeometryResolutionResult
 	{
 		check(IsInRenderingThread());
 		checkf(!CommandList.IsInsideRenderPass(), "StaticMesh resource preparation must occur before the scene render pass.");
@@ -185,30 +187,22 @@ namespace Durin
 		ResolvedView.Observations.MaterialUniformUploads = 0;
 		ResolvedView.Observations.ResourcePreparationAttemptedDraws =
 			PreparedView.GetNumSections();
-		ForEachBasePassBucket(PreparedView, [this, &PreparedView, &ResolvedView, bPrepareLitOpaqueForward](const auto& Bucket, EMeshBasePass Pass) {
+		ForEachBasePassBucket(PreparedView, [this, &PreparedView, &ResolvedView, bPrepareLitOpaqueForward,
+												ResourceContext](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedStaticMeshDraw& Item : Bucket)
 			{
-				FMaterialRenderBinding MaterialBinding;
-				if (!ResolvePreparedMaterialBinding(Item.Command->Material, MaterialBinding,
-						"StaticMeshMaterialBinding"))
-					continue;
 				auto& Record = ResolvedView.Draws[Item.ResolvedIndex];
-				Record.MaterialBinding = std::move(MaterialBinding);
-				const FMaterialRenderBinding& StoredBinding =
-					*Record.MaterialBinding;
-				const FPreparedStaticMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Item);
+				const auto* Primitive = PreparedView.GetPrimitive(Item);
 				const bool bNeedsForwardPipeline =
 					Pass == EMeshBasePass::Translucent
 					|| bPrepareLitOpaqueForward
 					|| !Item.Command->bSupportsGBuffer
 					|| Item.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						   != EMaterialShadingModel::Lit;
-				const bool bReady = Primitive != nullptr
-					&& (bNeedsForwardPipeline
-						? EnsureSectionResources_RenderThread(*Primitive, Item,
-							StoredBinding, Record.Pipeline)
-						: EnsureMaterialSamplers_RenderThread(StoredBinding));
+				const bool bReady = PrepareSectionResources_RenderThread(
+					Primitive, Item, Record,
+					bNeedsForwardPipeline ? EStaticMeshSectionResourcePolicy::Forward : EStaticMeshSectionResourcePolicy::SamplersOnly,
+					ResourceContext);
 				Record.bReady = bReady;
 				ResolvedView.Observations.ResourcePreparationSuccessfulDraws +=
 					bReady ? 1u : 0u;
@@ -249,11 +243,9 @@ namespace Durin
 		return bReady;
 	}
 
-	auto FStaticMeshRenderer::PrepareShadowResources_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FPreparedStaticMeshView& PreparedView,
-		FResolvedStaticMeshView& ResolvedView
-	) -> FGeometryResolutionResult
+	auto FStaticMeshRenderer::PrepareShadowResources_RenderThread(FRHICommandListImmediate& CommandList,
+		const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
+		FStaticMeshSectionResourceContext* ResourceContext) -> FGeometryResolutionResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -266,28 +258,73 @@ namespace Durin
 		ResolvedView.Observations.MaterialUniformUploads = 0;
 		ResolvedView.Observations.ResourcePreparationAttemptedDraws =
 			PreparedView.GetNumSections();
-		ForEachShadowBucket(PreparedView, [this, &PreparedView, &ResolvedView](const auto& Bucket) {
+		ForEachShadowBucket(PreparedView, [this, &PreparedView, &ResolvedView, ResourceContext](const auto& Bucket) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
-				FMaterialRenderBinding MaterialBinding;
-				if (!ResolvePreparedMaterialBinding(Draw.Command->Material, MaterialBinding,
-						"StaticMeshShadowMaterialBinding"))
-					continue;
 				auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
-				Record.MaterialBinding = std::move(MaterialBinding);
-				const FMaterialRenderBinding& StoredBinding =
-					*Record.MaterialBinding;
-				const FPreparedStaticMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Draw);
-				const bool bReady = Primitive != nullptr
-					&& EnsureSectionResources_RenderThread(*Primitive, Draw,
-						StoredBinding, Record.Pipeline, true);
+				const auto* Primitive = PreparedView.GetPrimitive(Draw);
+				const bool bReady =
+					PrepareSectionResources_RenderThread(
+						Primitive, Draw, Record, EStaticMeshSectionResourcePolicy::Shadow, ResourceContext);
 				Record.bReady = bReady;
 				ResolvedView.Observations.ResourcePreparationSuccessfulDraws +=
 					bReady ? 1u : 0u;
 			}
 		});
 		return FinalizeResourcePreparation(ResolvedView);
+	}
+
+	// Only renderer-owned ordinary StaticMesh capture may reuse stable resources.
+	// Published local geometry alone does not opt dynamic providers into this path.
+	auto FStaticMeshRenderer::PrepareSectionResources_RenderThread(const FPreparedStaticMeshPrimitive* Primitive,
+		const FPreparedStaticMeshDraw& Draw, FResolvedMeshDrawRecord& Record, EStaticMeshSectionResourcePolicy Policy,
+		FStaticMeshSectionResourceContext* ResourceContext) -> bool
+	{
+		const bool bRetained =
+			ResourceContext && Primitive && Primitive->bRetainedStaticMesh &&
+			Primitive->VertexDomain == EVertexDeformationDomain::Local && Primitive->GeometryRecord &&
+			Primitive->GeometryRecord == Draw.Command->GeometryOwner && Primitive->CollectedBinding &&
+			Primitive->CollectedBinding == Primitive->GeometryRecord->GetBinding() &&
+			Primitive->CollectedBinding->Declaration && !Primitive->CollectedBinding->Streams.empty() &&
+			typeid(*Primitive->CollectedBinding) == typeid(FStaticMeshBatchBinding);
+		FStaticMeshSectionResourceContext::FKey Key{};
+		FRenderResourceGeneration Generation;
+		uint64 ReleaseEpoch = 0;
+		if (bRetained)
+		{
+			Generation = Coordinator.GetGeneration_RenderThread();
+			ReleaseEpoch = State->ReleaseEpoch;
+			ResourceContext->Synchronize(
+				this, Generation, ReleaseEpoch, SurfaceMaterials.GetResourceRevision_RenderThread());
+			Key = {Draw.Command.get(), Policy};
+			if (const auto Found = ResourceContext->Entries.find(Key); Found != ResourceContext->Entries.end())
+			{
+				Record.MaterialBinding = Found->second.Material;
+				Record.Pipeline = Found->second.Pipeline;
+				return true;
+			}
+		}
+		const bool bShadowDepth = Policy == EStaticMeshSectionResourcePolicy::Shadow;
+		FMaterialRenderBinding MaterialBinding;
+		if (!ResolvePreparedMaterialBinding(Draw.Command->Material, MaterialBinding,
+				bShadowDepth ? "StaticMeshShadowMaterialBinding" : "StaticMeshMaterialBinding"))
+			return false;
+		Record.MaterialBinding = std::move(MaterialBinding);
+		const bool bReady = Primitive && (Policy != EStaticMeshSectionResourcePolicy::SamplersOnly
+			? EnsureSectionResources_RenderThread(*Primitive, Draw, *Record.MaterialBinding, Record.Pipeline, bShadowDepth)
+			: EnsureMaterialSamplers_RenderThread(*Record.MaterialBinding));
+
+		if (bReady && bRetained && Generation == Coordinator.GetGeneration_RenderThread() &&
+			ReleaseEpoch == State->ReleaseEpoch)
+		{
+			// Ensure may have created a sampler or evicted another material's slot.
+			ResourceContext->Synchronize(
+				this, Generation, ReleaseEpoch, SurfaceMaterials.GetResourceRevision_RenderThread());
+			ResourceContext->Entries.emplace(
+				Key, FStaticMeshSectionResourceContext::FEntry{
+						 Draw.Command, *Record.MaterialBinding, Record.Pipeline});
+		}
+		return bReady;
 	}
 
 	auto FStaticMeshRenderer::RecordShadow(FRHICommandList& CommandList,
@@ -1341,6 +1378,7 @@ namespace Durin
 
 	auto FStaticMeshRenderer::ReleaseResources_RenderThread() -> void
 	{
+		++State->ReleaseEpoch;
 		State->ResetDrawCommands();
 		check(IsInRenderingThread());
 		State->ShaderMaps.Reset();
@@ -1348,4 +1386,5 @@ namespace Durin
 		State->Pipelines.Reset();
 		State->ShadowPipelines.Reset();
 	}
+
 } // namespace Durin

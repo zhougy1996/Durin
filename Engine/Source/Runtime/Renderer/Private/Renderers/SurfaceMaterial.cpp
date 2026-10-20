@@ -61,6 +61,7 @@ namespace Durin::RendererPrivate
 		TRendererResourceSlotCache<FMaterialSamplerState, FSamplerRHIRef, FSamplerKeyHash> Samplers{
 			ERenderResourceGenerationDependency::Device};
 		FSurfaceMaterialResourceCounters Counters;
+		uint64 ResourceRevision = 0;
 	};
 
 	FSurfaceMaterialResources::FSurfaceMaterialResources(
@@ -89,15 +90,18 @@ namespace Durin::RendererPrivate
 		{
 			++State->Counters.SamplerLookups;
 			const FMaterialSamplerState StateKey = RequiredSamplers[Role];
+			const auto PreviousEvictions = State->Samplers.GetEvictions();
 			auto& Entry = State->Samplers.FindOrAddBounded(StateKey, 128, 256 * 1024);
 			bool bCreationAttempted = false;
-			if (Entry.Slot.Resolve(
-					Coordinator.GetGeneration_RenderThread(),
-					[StateKey, &bCreationAttempted] {
-						bCreationAttempted = true;
-						return CreateSurfaceSampler(StateKey);
-					},
-					ReportRendererResourceCreateDiagnostic) == nullptr)
+			auto* Sampler = Entry.Slot.Resolve(
+				Coordinator.GetGeneration_RenderThread(),
+				[StateKey, &bCreationAttempted] {
+					bCreationAttempted = true;
+					return CreateSurfaceSampler(StateKey);
+				},
+				ReportRendererResourceCreateDiagnostic);
+			if (bCreationAttempted || PreviousEvictions != State->Samplers.GetEvictions()) ++State->ResourceRevision;
+			if (Sampler == nullptr)
 			{
 				++State->Counters.SamplerFailures;
 				check(State->Counters.IsConserved());
@@ -240,8 +244,17 @@ namespace Durin::RendererPrivate
 	auto FSurfaceMaterialResources::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
+		++State->ResourceRevision;
 		State->Samplers.Reset();
 		State->Counters = {};
+	}
+
+	// Revision covers payload creation/replacement, bounded eviction and reset.
+	// A successful Ensure result is reusable only while this revision is current.
+	auto FSurfaceMaterialResources::GetResourceRevision_RenderThread() const -> uint64
+	{
+		check(IsInRenderingThread());
+		return State->ResourceRevision;
 	}
 
 	auto FSurfaceMaterialResources::GetSamplerSlotCount_RenderThread() const -> size_t

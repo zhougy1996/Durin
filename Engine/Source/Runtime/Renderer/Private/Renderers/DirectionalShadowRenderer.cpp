@@ -1,4 +1,5 @@
 #include "Renderers/DirectionalShadowRenderer.h"
+#include "Renderers/StaticMeshSectionResources.h"
 
 #include "RenderResourceCreation.h"
 #include "Renderers/DirectionalShadowView.h"
@@ -62,13 +63,10 @@ namespace Durin
 
 	FDirectionalShadowRenderer::~FDirectionalShadowRenderer() = default;
 
-	auto FDirectionalShadowRenderer::PrepareResources_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		FScene* Scene,
-		FStaticMeshRenderer& StaticMeshes,
-		const FPreparedDirectionalShadow& Shadow,
-		FResolvedDirectionalShadow& ResolvedShadow,
-		FViewRenderTelemetry& Telemetry) -> bool
+	auto FDirectionalShadowRenderer::PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
+		FStaticMeshRenderer& StaticMeshes, const FPreparedDirectionalShadow& Shadow,
+		FResolvedDirectionalShadow& ResolvedShadow, FViewRenderTelemetry& Telemetry,
+		FStaticMeshSectionResourceContext* ResourceContext) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -159,6 +157,8 @@ namespace Durin
 		Telemetry.DirectionalShadow.ShadowTargetBackendBytes = static_cast<size_t>(
 			Resources->Target->GetBackendAllocationBytes());
 
+		FStaticMeshSectionResourceContext LocalResources;
+		if (!ResourceContext) ResourceContext = &LocalResources;
 		const FForwardLightingUniform FullyUnlit{};
 		State->FallbackLighting = CommandList.CreateUniformBufferRange(
 			&FullyUnlit, sizeof(FullyUnlit));
@@ -166,9 +166,10 @@ namespace Durin
 		for (uint32 Cascade = 0;
 			Cascade < Shadow.View.CascadeCount; ++Cascade)
 		{
-			bReady = !Shadow.StaticMeshes[Cascade].bResourceFailure && StaticMeshes.PrepareShadowResources_RenderThread(
-				CommandList, Shadow.StaticMeshes[Cascade],
-				ResolvedShadow.StaticMeshes[Cascade]) && bReady;
+			bReady = !Shadow.StaticMeshes[Cascade].bResourceFailure &&
+					 StaticMeshes.PrepareShadowResources_RenderThread(CommandList, Shadow.StaticMeshes[Cascade],
+						 ResolvedShadow.StaticMeshes[Cascade], ResourceContext) &&
+					 bReady;
 			if (bReady) bReady = StaticMeshes.PrepareUniforms_RenderThread(CommandList,
 				Scene, Shadow.View.Cascades[Cascade].CasterView, Shadow.StaticMeshes[Cascade],
 				ResolvedShadow.StaticMeshes[Cascade], false, false, true);

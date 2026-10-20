@@ -77,7 +77,17 @@ namespace Durin
 			bool bHasValues = false;
 			bool bValuesValid = false;
 		};
-		std::map<std::pair<uint64, uint64>, FEntry> Entries;
+		struct FKeyHash
+		{
+			auto operator()(const std::pair<uint64, uint64>& Key) const -> size_t
+			{
+				const auto Mixed = Key.first ^ (Key.second + uint64{0x9e3779b97f4a7c15}
+					+ (Key.first << 6) + (Key.first >> 2));
+				return std::hash<uint64>{}(Mixed);
+			}
+		};
+		// Rehash preserves references to resolved transforms held during preparation.
+		std::unordered_map<std::pair<uint64, uint64>, FEntry, FKeyHash> Entries;
 		size_t TransformBuilds = 0;
 	};
 }

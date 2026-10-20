@@ -133,6 +133,7 @@ namespace Durin
 		FMatrix4f NormalToWorld{1.0f};
 		FMatrix WorldToLocal{1.0};
 		FVector3 BoundsCenter{0.0};
+		bool bRetainedStaticMesh = false;
 	};
 
 	// View-independent interpretation of one published element and pass policy.
@@ -379,6 +380,7 @@ namespace Durin
 			FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 			bool bPresent = false;
 			bool bSplineMesh = false;
+			bool bRetainedStaticMesh = false;
 			bool bProjectedSizeFallback = false;
 			FBox WorldBounds;
 			decltype(FPreparedStaticMeshView::SubmissionOutcomes) Outcomes{};
