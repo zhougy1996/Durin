@@ -56,6 +56,7 @@ namespace Durin::Editor::Level
 		ViewportToolbar = std::make_unique<FViewportToolbar>();
 		ViewportWidget = std::make_shared<MViewport>();
 		SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get());
+		SceneViewport->RequestResourcePreparation();
 		ViewportWidget->SetDisplaySource(SceneViewport);
 		if (GEngine != nullptr)
 		{
@@ -65,6 +66,7 @@ namespace Durin::Editor::Level
 		CameraPreviewViewportClient = std::make_unique<FCameraPreviewViewportClient>();
 		CameraPreviewViewportWidget = std::make_shared<MViewport>();
 		CameraPreviewSceneViewport = FSceneViewport::CreateOffscreen(CameraPreviewViewportClient.get());
+		CameraPreviewSceneViewport->RequestResourcePreparation();
 		CameraPreviewViewportWidget->SetDisplaySource(CameraPreviewSceneViewport);
 		if (GEngine != nullptr) GEngine->RegisterAuxiliarySceneViewport(CameraPreviewSceneViewport);
 		RegisterViewportConsoleCommands();
@@ -190,7 +192,14 @@ namespace Durin::Editor::Level
 	auto FSceneViewportPanel::RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void
 	{
 		if (ViewportClient != nullptr) ViewportClient->InitializeForLevel(Level, State);
-		if (SceneViewport) SceneViewport->RequestHistoryReset();
+		if (SceneViewport)
+		{
+			SceneViewport->RequestHistoryReset();
+			// Admit the new level's shaders and PSOs before drawing, without
+			// joining pipeline compilation on the rendering thread.
+			SceneViewport->RequestResourcePreparation();
+		}
+		if (CameraPreviewSceneViewport) CameraPreviewSceneViewport->RequestResourcePreparation();
 	}
 
 	auto FSceneViewportPanel::FinalizeViewportFrame(FLevelEditorContext& Context) -> void

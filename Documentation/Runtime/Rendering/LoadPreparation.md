@@ -2,9 +2,9 @@
 
 Summary: Prepare cooked material programs and exact scene Shader/PSO resources before covered drawing, with bounded ownership and explicit readiness.
 
-Modules: Engine, RenderCore, Renderer
+Modules: Engine, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-20
 
 ## Object and program readiness
 
@@ -33,7 +33,7 @@ level's effective mesh-slot materials and their parent chains, and prepares at
 most eight programs concurrently. The collection is limited to 4,096 owners.
 It activates the level after admission, then requests main-viewport resource
 preparation. Materials introduced by gameplay or later streaming retain demand
-loading. Authored startup keeps its existing behavior.
+loading. Authored startup keeps its existing material-program loading behavior.
 
 ## Scene resource readiness
 
@@ -76,7 +76,11 @@ create a new request after invalidation.
 `FSceneViewport::RequestResourcePreparation` enables an explicit drawing barrier.
 The viewport pumps preparation until Ready and retains its handle through normal
 drawing. Failed preparation remains observable and does not draw a falsely ready
-scene. Cooked default-level startup enables this barrier. Device invalidation
+scene. Cooked default-level startup and the Level Editor's main and camera-preview
+viewports enable this barrier. Restoring a level in the editor requests a fresh
+preparation for both viewports. The editor continues submitting UI frames while
+the scene's Shader and PSO preparation is pending, instead of joining the first
+scene's pipeline compilation on the rendering thread. Device invalidation
 restarts a stale viewport preparation. Later scene/configuration changes and
 streamed uses use the ordinary resource-phase fallback unless their owner
 explicitly requests another preparation. Activated viewports observe newly
