@@ -1,5 +1,29 @@
 module DirectionalShadow;
 
+// Numeric values match EDirectionalShadowDiagnosticMode in SceneView.h.
+// These constants describe the existing CPU uniform encoding.
+static const uint ShadowDiagnosticLit = 0u;
+static const uint ShadowDiagnosticShadowDepthCoverage = 1u;
+static const uint ShadowDiagnosticReceiverUnbiased = 2u;
+static const uint ShadowDiagnosticReceiverBiased = 3u;
+static const uint ShadowDiagnosticReceiverNormalOffset = 4u;
+static const uint ShadowDiagnosticTexelGrid = 5u;
+static const uint ShadowDiagnosticBiasContributions = 6u;
+static const uint ShadowDiagnosticClassification = 7u;
+static const uint ShadowDiagnosticFilterFootprint = 8u;
+static const uint ShadowDiagnosticFilterTapValidity = 9u;
+static const uint ShadowDiagnosticFilterDifference = 10u;
+static const uint ShadowDiagnosticCascadeIndex = 11u;
+static const uint ShadowDiagnosticCascadeTransition = 12u;
+static const uint ShadowDiagnosticCascadeCoverage = 13u;
+static const uint ShadowDiagnosticCascadeDifference = 14u;
+
+// Numeric values match EDirectionalShadowFilterQuality in SceneView.h.
+// These constants describe the existing CPU uniform encoding.
+static const uint ShadowFilterLow = 0u;
+static const uint ShadowFilterMedium = 1u;
+static const uint ShadowFilterHigh = 2u;
+
 public struct FDirectionalShadowSample
 {
     public float attenuation;
@@ -9,9 +33,9 @@ public struct FDirectionalShadowSample
 public struct FDirectionalShadowCascadeUniform
 {
     public float4x4 WorldToShadow;
-    public float4 TexelBias;
+    public float4 TexelBias; // xy = world texel size, z = comparison bias, w = normal bias
     public float4 RasterBias;
-    public float4 Filter;
+    public float4 Filter; // xy = inverse texture extent, z = quality, w = footprint radius
     public float4 ValidRegion;
 };
 
@@ -43,10 +67,10 @@ float SampleDirectionalShadowKernel(
     validWeight = 0.0;
     if (!IsValidShadowCoordinate(coordinate))
         return 1.0;
-    uint quality = min((uint)(filter.z + 0.5), 2u);
-    int radius = quality == 0u ? 0 : (quality == 1u ? 1 : 2);
-    float normalization = quality == 0u ? 1.0
-        : (quality == 1u ? 1.0 / 16.0 : 1.0 / 81.0);
+    uint quality = min((uint)(filter.z + 0.5), ShadowFilterHigh);
+    int radius = quality == ShadowFilterLow ? 0 : (quality == ShadowFilterMedium ? 1 : 2);
+    float normalization = quality == ShadowFilterLow ? 1.0
+        : (quality == ShadowFilterMedium ? 1.0 / 16.0 : 1.0 / 81.0);
     float accumulated = 0.0;
     [unroll]
     for (int y = -2; y <= 2; ++y)
@@ -56,10 +80,10 @@ float SampleDirectionalShadowKernel(
         {
             if (abs(x) > radius || abs(y) > radius)
                 continue;
-            int axisWeightX = quality == 0u ? 1
-                : (quality == 1u ? (x == 0 ? 2 : 1) : (3 - abs(x)));
-            int axisWeightY = quality == 0u ? 1
-                : (quality == 1u ? (y == 0 ? 2 : 1) : (3 - abs(y)));
+            int axisWeightX = quality == ShadowFilterLow ? 1
+                : (quality == ShadowFilterMedium ? (x == 0 ? 2 : 1) : (3 - abs(x)));
+            int axisWeightY = quality == ShadowFilterLow ? 1
+                : (quality == ShadowFilterMedium ? (y == 0 ? 2 : 1) : (3 - abs(y)));
             float weight = float(axisWeightX * axisWeightY);
             float2 tap = coordinate.xy + float2(x, y) * filter.xy;
             float2 halfTexel = filter.xy * 0.5;
@@ -137,10 +161,12 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     // Production needs only the filtered comparison. Keep exact depth reads
     // behind the uniform diagnostic mode, including the cascade-only modes.
     uint mode = (uint)(control.y + 0.5);
-    if (mode == 0u)
+    if (mode == ShadowDiagnosticLit)
         return result;
     float storedDepth = 1.0;
-    if (mode == 1u || mode == 2u || mode == 7u)
+    if (mode == ShadowDiagnosticShadowDepthCoverage
+        || mode == ShadowDiagnosticReceiverUnbiased
+        || mode == ShadowDiagnosticClassification)
     {
         int2 texel = clamp(int2(coordinate.xy * float2(width, height)),
             int2(0), int2(int(width) - 1, int(height) - 1));
@@ -149,7 +175,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     bool covered = storedDepth < 0.999999;
 	bool unbiasedDirect = coordinate.z <= storedDepth;
 	bool receiverDirect = true;
-	if (mode == 3u && IsValidShadowCoordinate(receiverCoordinate))
+	if (mode == ShadowDiagnosticReceiverBiased && IsValidShadowCoordinate(receiverCoordinate))
 	{
 		int2 receiverTexel = clamp(
 			int2(receiverCoordinate.xy * float2(width, height)),
@@ -158,7 +184,8 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 			<= shadowTexture.Load(int4(receiverTexel, int(layer), 0));
 	}
 	bool finalDirect = true;
-	if ((mode == 4u || mode == 7u) && IsValidShadowCoordinate(finalCoordinate))
+	if ((mode == ShadowDiagnosticReceiverNormalOffset || mode == ShadowDiagnosticClassification)
+        && IsValidShadowCoordinate(finalCoordinate))
 	{
 		int2 finalTexel = clamp(
 			int2(finalCoordinate.xy * float2(width, height)),
@@ -167,23 +194,23 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 			<= shadowTexture.Load(int4(finalTexel, int(layer), 0));
 	}
 
-    if (mode == 1u)
+    if (mode == ShadowDiagnosticShadowDepthCoverage)
     {
         float depth = saturate(storedDepth);
         result.diagnosticColor = covered
             ? float3(depth * 0.25, depth, depth * 0.25)
             : float3(1.0, 0.0, 0.0);
     }
-    else if (mode == 2u)
+    else if (mode == ShadowDiagnosticReceiverUnbiased)
 		result.diagnosticColor = unbiasedDirect
 			? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
-	else if (mode == 3u)
+	else if (mode == ShadowDiagnosticReceiverBiased)
 		result.diagnosticColor = receiverDirect
 			? float3(0.0, 1.0, 0.25) : float3(1.0, 0.25, 0.0);
-	else if (mode == 4u)
+	else if (mode == ShadowDiagnosticReceiverNormalOffset)
 		result.diagnosticColor = finalDirect
 			? float3(0.0, 1.0, 0.5) : float3(1.0, 0.5, 0.0);
-    else if (mode == 5u)
+    else if (mode == ShadowDiagnosticTexelGrid)
     {
         float2 grid = abs(frac(coordinate.xy * float2(width, height)) - 0.5);
         float2 guardUv = validRegion.xy;
@@ -193,11 +220,11 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
             : (max(grid.x, grid.y) > 0.47
                 ? float3(0.0, 1.0, 1.0) : float3(0.05));
     }
-    else if (mode == 6u)
+    else if (mode == ShadowDiagnosticBiasContributions)
 		result.diagnosticColor = totalClamped ? float3(1.0)
 			: float3(saturate(rasterBias.w), saturate((texelBias.z - 0.00005) / 0.00015),
 				saturate(normalWorld / 0.08));
-	else if (mode == 7u)
+	else if (mode == ShadowDiagnosticClassification)
 	{
 		bool displaced = IsValidShadowCoordinate(finalCoordinate)
 			&& distance(finalCoordinate, coordinate) > 0.01;
@@ -208,7 +235,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 					: (finalDirect
 						? float3(1.0) : float3(0.0, 1.0, 0.0))));
 	}
-    else if (mode == 8u)
+    else if (mode == ShadowDiagnosticFilterFootprint)
     {
         // R = bounded tier identity, G = effective footprint radius,
         // B = normalized valid comparison weight at this receiver.
@@ -217,7 +244,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
             saturate(filter.w / 2.5),
             saturate(validTapWeight));
     }
-    else if (mode == 9u)
+    else if (mode == ShadowDiagnosticFilterTapValidity)
     {
         // Green is fully valid, red is invalid normalized kernel weight.
         result.diagnosticColor = float3(
@@ -225,12 +252,12 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
             saturate(validTapWeight),
             0.0);
     }
-    else if (mode == 10u)
+    else if (mode == ShadowDiagnosticFilterDifference)
     {
         float unusedLowValidWeight;
         float lowComparison = SampleDirectionalShadowKernel(
             finalCoordinate,
-            float4(filter.xy, 0.0, 0.5),
+            float4(filter.xy, float(ShadowFilterLow), 0.5),
             validRegion,
             layer,
             shadowTexture,
@@ -261,6 +288,7 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
     FDirectionalShadowSample result;
     result.attenuation = 1.0;
     result.diagnosticColor = float3(1.0);
+    // control: enabled, diagnostic mode, cascade count, cascaded-candidate flag.
     uint cascadeCount = min((uint)(control.z + 0.5), 3u);
     bool cascadedCandidate = control.w > 0.5;
     float receiverDepth = dot(viewDepthTransform, float4(worldPosition, 1.0));
@@ -298,8 +326,9 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
 
     uint mode = (uint)(control.y + 0.5);
     float4 localControl = control;
-    if (mode >= 11u)
-        localControl.y = 0.0;
+    // Cascade diagnostics compose production samples without per-cascade diagnostics.
+    if (mode >= ShadowDiagnosticCascadeIndex)
+        localControl.y = float(ShadowDiagnosticLit);
     FDirectionalShadowSample nearSample = EvaluateDirectionalShadowCascade(
         worldPosition, geometricNormal, localControl, lightTransition.xyz,
         cascades[nearCascade], nearCascade, shadowTexture, shadowSampler);
@@ -315,7 +344,7 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
     result.diagnosticColor = lerp(
         nearSample.diagnosticColor, farSample.diagnosticColor, transitionWeight);
 
-    if (mode == 11u)
+    if (mode == ShadowDiagnosticCascadeIndex)
     {
         const float3 cascadeColors[3] = {
             float3(1.0, 0.1, 0.1),
@@ -325,12 +354,12 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
             cascadeColors[nearCascade], cascadeColors[farCascade],
             transitionWeight);
     }
-    else if (mode == 12u)
+    else if (mode == ShadowDiagnosticCascadeTransition)
         result.diagnosticColor = float3(transitionWeight);
-    else if (mode == 13u)
+    else if (mode == ShadowDiagnosticCascadeCoverage)
     {
         float4 coverageControl = control;
-        coverageControl.y = 1.0;
+        coverageControl.y = float(ShadowDiagnosticShadowDepthCoverage);
         FDirectionalShadowSample nearCoverage = EvaluateDirectionalShadowCascade(
             worldPosition, geometricNormal, coverageControl, lightTransition.xyz,
             cascades[nearCascade], nearCascade, shadowTexture, shadowSampler);
@@ -345,7 +374,7 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
             nearCoverage.diagnosticColor, farCoverage.diagnosticColor,
             transitionWeight);
     }
-    else if (mode == 14u)
+    else if (mode == ShadowDiagnosticCascadeDifference)
     {
         float signedDifference = farSample.attenuation - nearSample.attenuation;
         float magnitude = saturate(abs(signedDifference) * 4.0);

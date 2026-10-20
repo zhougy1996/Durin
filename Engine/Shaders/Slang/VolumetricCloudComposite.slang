@@ -1,5 +1,13 @@
 module VolumetricCloudComposite;
 
+// Numeric values match EVolumetricCloudDebugMode in VolumetricCloudView.h.
+// These constants describe the existing CPU uniform encoding.
+static const int CloudDebugLit = 0;
+static const int CloudDebugRadiance = 1;
+static const int CloudDebugTransmittance = 2;
+static const int CloudDebugTemporalStatus = 3;
+static const int CloudDebugShadowVisibility = 4;
+
 struct VSInput { float2 pos : POSITION; float2 uv : TEXCOORD; };
 struct VSOutput { float4 pos : SV_Position; float2 uv : TEXCOORD; };
 
@@ -76,22 +84,24 @@ float4 FragmentMain(VSOutput input) : SV_Target0
 		cloud = totalWeight > 1.0e-5 ? accumulated / totalWeight : nearestCloud;
 	}
 	int debugMode = int(Params.Debug.x + 0.5);
-	if (debugMode == 1)
+	if (debugMode == CloudDebugRadiance)
 		return float4(cloud.rgb, 1.0);
-	if (debugMode == 2)
+	if (debugMode == CloudDebugTransmittance)
 		return float4(cloud.aaa, 1.0);
-	if (debugMode == 3)
+	if (debugMode == CloudDebugTemporalStatus)
 	{
+		// Temporal status: negative = unavailable, zero = rejected, positive = accepted.
 		if (Params.Debug.y < -0.5) return float4(0.35, 0.35, 0.35, 1.0);
 		return Params.Debug.y > 0.5
 			? float4(0.15, 0.85, 0.25, 1.0)
 			: float4(0.95, 0.58, 0.12, 1.0);
 	}
-	if (debugMode == 4)
+	if (debugMode == CloudDebugShadowVisibility)
 	{
 		if (Params.Debug.z < 0.5) return float4(0.35, 0.35, 0.35, 1.0);
 		float visibility = DebugTexture.Load(pixel);
 		return float4(visibility.xxx, 1.0);
 	}
+	// CloudDebugLit and unknown values retain the normal composite.
 	return float4(cloud.rgb + cloud.a * scene.rgb, scene.a);
 }

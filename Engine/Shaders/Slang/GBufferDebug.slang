@@ -2,6 +2,20 @@ module GBufferDebug;
 
 import Material.GBufferDecode;
 
+// Numeric values match EGBufferDebugMode in SceneView.h.
+// These constants describe the existing CPU uniform encoding.
+static const uint GBufferDebugDisabled = 0u;
+static const uint GBufferDebugMaterial = 1u;
+static const uint GBufferDebugShadingNormal = 2u;
+static const uint GBufferDebugGeometricNormal = 3u;
+static const uint GBufferDebugSurface = 4u;
+static const uint GBufferDebugEmissive = 5u;
+static const uint GBufferDebugFlags = 6u;
+static const uint GBufferDebugDepth = 7u;
+static const uint GBufferDebugViewPosition = 8u;
+static const uint GBufferDebugReconstructionError = 9u;
+static const uint GBufferDebugMaterialInputs = 10u;
+
 struct VSInput
 {
     float2 pos : POSITION;
@@ -54,23 +68,24 @@ float4 DebugFragmentMain(VSOutput input) : SV_Target
         return float4(0.0, 0.0, 0.0, 1.0);
 
     uint mode = (uint)round(Params.Params.x);
-    if (mode == 1u)
+    if (mode == GBufferDebugMaterial)
         return float4(record.baseColor, record.metallic);
-    if (mode == 2u)
+    if (mode == GBufferDebugShadingNormal)
         return float4(record.shadingNormal * 0.5 + 0.5, 1.0);
-    if (mode == 3u)
+    if (mode == GBufferDebugGeometricNormal)
         return float4(record.geometricNormal * 0.5 + 0.5, 1.0);
-    if (mode == 4u)
+    if (mode == GBufferDebugSurface)
         return float4(record.roughness, record.ambientOcclusion,
             record.effectiveOpacity, 1.0);
-    if (mode == 5u)
+    if (mode == GBufferDebugEmissive)
         return float4(record.emissive, 1.0);
-    if (mode == 6u)
+    // Display the lowest three raw flag bits in RGB.
+    if (mode == GBufferDebugFlags)
         return float4(
             (record.flags & 1u) != 0u ? 1.0 : 0.0,
             (record.flags & 2u) != 0u ? 1.0 : 0.0,
             (record.flags & 4u) != 0u ? 1.0 : 0.0, 1.0);
-    if (mode == 10u)
+    if (mode == GBufferDebugMaterialInputs)
         return float4(record.baseColor + record.emissive,
             record.effectiveOpacity);
 
@@ -86,11 +101,12 @@ float4 DebugFragmentMain(VSOutput input) : SV_Target
         ndc, depth, analyticPosition);
     if (!valid)
         return float4(1.0, 0.0, 1.0, 1.0);
-    if (mode == 7u)
+    if (mode == GBufferDebugDepth)
         return float4(depth, depth, depth, 1.0);
-    if (mode == 8u)
+    if (mode == GBufferDebugViewPosition)
         return float4(saturate(abs(analyticPosition) * Params.Params.w), 1.0);
 
+    // GBufferDebugReconstructionError is the fallback for remaining modes.
     float4 referenceH = mul(
         Params.InverseProjection, float4(ndc, depth, 1.0));
     float3 referencePosition = referenceH.xyz / referenceH.w;

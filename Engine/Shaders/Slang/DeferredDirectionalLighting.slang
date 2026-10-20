@@ -6,6 +6,25 @@ import Lighting.PBRLighting;
 import Lighting.SurfaceLighting;
 import Material.GBufferDecode;
 
+// Numeric values match EDeferredDirectionalDebugMode in SceneView.h.
+// These constants describe the existing CPU uniform encoding.
+static const uint DeferredDebugDisabled = 0u;
+static const uint DeferredDebugDecodedMaterial = 1u;
+static const uint DeferredDebugDirectional = 2u;
+static const uint DeferredDebugLocal = 3u;
+static const uint DeferredDebugEnvironment = 4u;
+static const uint DeferredDebugEmissive = 5u;
+static const uint DeferredDebugAlpha = 6u;
+static const uint DeferredDebugFinal = 7u;
+
+// Numeric values match EGroundTruthAmbientOcclusionDebugMode in SceneView.h.
+// These constants describe the existing CPU uniform encoding.
+static const uint AmbientOcclusionDebugDisabled = 0u;
+static const uint AmbientOcclusionDebugRaw = 1u;
+static const uint AmbientOcclusionDebugConfidence = 2u;
+static const uint AmbientOcclusionDebugFiltered = 3u;
+static const uint AmbientOcclusionDebugFinalFactor = 4u;
+
 struct VSInput
 {
     float2 pos : POSITION;
@@ -26,8 +45,14 @@ struct FDeferredDirectionalViewUniform
     float4 ProjectionRow3;
     float4x4 ViewToWorld;
     float4 ClearColor;
-    float4 Params; // xy = inverse viewport, z = diagnostic, w = preserve background
-	float4 ContactParams; // x = enabled, y = contribution diagnostic
+    // Encoding is paired with FDeferredDirectionalLightingRenderer::Render_RenderThread.
+    // xy = inverse viewport; z = deferred debug mode when GTAO is enabled,
+    // or -(mode + 1) when disabled; w = 1 to preserve background,
+    // otherwise the negated AO debug mode.
+    float4 Params;
+    // x = contact enabled, y = contact diagnostic, z = half-resolution AO,
+    // w = cloud visibility enabled.
+    float4 ContactParams;
 };
 
 struct FDeferredLightingOutput
@@ -80,13 +105,14 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         GBufferNormals.Load(int3(pixel, 0)),
         GBufferSurface.Load(int3(pixel, 0)),
         GBufferEmissive.Load(int3(pixel, 0)));
-	uint aoDiagnostic = View.Params.w < -0.5
-		? (uint)round(-View.Params.w) : 0u;
+	// Negative w selects AO diagnostics; positive w preserves the scene background.
+    uint aoDiagnostic = View.Params.w < -0.5
+        ? (uint)round(-View.Params.w) : AmbientOcclusionDebugDisabled;
 	bool gtaoEnabled = View.Params.z >= 0.0;
 	int2 aoNativePixel = View.ContactParams.z > 0.5 ? pixel / 2 : pixel;
     if ((record.flags & GBufferStandardLitFlag) == 0u)
     {
-		if (aoDiagnostic != 0u)
+		if (aoDiagnostic != AmbientOcclusionDebugDisabled)
 			return MakeDeferredLightingOutput(float4(0.0, 0.0, 0.0, 1.0), float3(0.0));
         if (View.Params.w > 0.5)
             discard;
@@ -209,17 +235,18 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         environment,
         record.emissive,
         record.effectiveOpacity);
-	uint diagnostic = gtaoEnabled
-		? (uint)round(View.Params.z)
-		: (uint)round(-View.Params.z - 1.0);
-	if (aoDiagnostic == 1u)
+	// Negative z disables GTAO while retaining the deferred mode as -(mode + 1).
+    uint diagnostic = gtaoEnabled
+        ? (uint)round(View.Params.z)
+        : (uint)round(-View.Params.z - 1.0);
+	if (aoDiagnostic == AmbientOcclusionDebugRaw)
 	{
 		float visibility = gtaoEnabled
 			? GroundTruthAmbientOcclusionRaw.Load(int3(aoNativePixel, 0)) : 1.0;
 		return MakeDeferredLightingOutput(
 			float4(visibility.xxx, 1.0), directional);
 	}
-	if (aoDiagnostic == 2u)
+	if (aoDiagnostic == AmbientOcclusionDebugConfidence)
 	{
 		if (View.ContactParams.z > 0.5)
 		{
@@ -324,38 +351,39 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 			: float3(0.0, 0.25, 1.0);
 		return MakeDeferredLightingOutput(float4(confidence, 1.0), directional);
 	}
-	if (aoDiagnostic == 3u)
+	if (aoDiagnostic == AmbientOcclusionDebugFiltered)
 	{
 		float visibility = gtaoEnabled
 			? GroundTruthAmbientOcclusionFiltered.Load(int3(aoNativePixel, 0)) : 1.0;
 		return MakeDeferredLightingOutput(
 			float4(visibility.xxx, 1.0), directional);
 	}
-	if (aoDiagnostic == 4u)
+	if (aoDiagnostic == AmbientOcclusionDebugFinalFactor)
 	{
 		float factor = record.ambientOcclusion * (gtaoEnabled
 			? GroundTruthAmbientOcclusionResolved.Load(int3(pixel, 0)) : 1.0);
 		return MakeDeferredLightingOutput(float4(factor.xxx, 1.0), directional);
 	}
-    if (diagnostic == 1u)
+    if (diagnostic == DeferredDebugDecodedMaterial)
         return MakeDeferredLightingOutput(
             float4(record.baseColor, record.metallic), directional);
-    if (diagnostic == 2u)
+    if (diagnostic == DeferredDebugDirectional)
         return MakeDeferredLightingOutput(
             float4(directional, record.effectiveOpacity), directional);
-    if (diagnostic == 3u)
+    if (diagnostic == DeferredDebugLocal)
         return MakeDeferredLightingOutput(
             float4(local, record.effectiveOpacity), directional);
-    if (diagnostic == 4u)
+    if (diagnostic == DeferredDebugEnvironment)
         return MakeDeferredLightingOutput(
             float4(environment, record.effectiveOpacity), directional);
-    if (diagnostic == 5u)
+    if (diagnostic == DeferredDebugEmissive)
         return MakeDeferredLightingOutput(
             float4(record.emissive, record.effectiveOpacity), directional);
-    if (diagnostic == 6u)
+    if (diagnostic == DeferredDebugAlpha)
         return MakeDeferredLightingOutput(
             float4(record.effectiveOpacity.xxx, record.effectiveOpacity),
             directional);
+    // DeferredDebugDisabled and DeferredDebugFinal both use the composed output.
     return MakeDeferredLightingOutput(composed, directional);
 }
 
