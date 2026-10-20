@@ -38,7 +38,7 @@ namespace Durin::Editor
 		case EActorChangeError::AttachmentWrite: return "The actor attachment rejected replay.";
 		case EActorChangeError::TransformWrite: return "The transform target rejected replay.";
 		case EActorChangeError::MemberUnavailable:
-			return Error.MemberCause ? FormatTransactionSnapshotError(*Error.MemberCause) : "The graph member is unavailable.";
+			return "The graph member is unavailable.";
 		case EActorChangeError::MembershipChanged: return "The graph participants changed outside history.";
 		case EActorChangeError::PropertyRestore:
 			return Error.PropertyCause ? ToString(*Error.PropertyCause) : "The graph property could not be restored.";

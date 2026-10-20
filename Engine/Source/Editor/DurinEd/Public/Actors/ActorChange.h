@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "DurinEdAPI.h"
 #include "Transactions/Transaction.h"
-#include "Transactions/TransactionRecord.h"
+#include "DObject/PropertyDiagnostic.h"
 
 namespace Durin::Editor
 {
@@ -20,7 +21,6 @@ namespace Durin::Editor
 		EActorMutationPhase MutationPhase = EActorMutationPhase::None;
 		EActorChangeConstraint ActorConstraint = EActorChangeConstraint::None;
 		std::shared_ptr<const FActorChangeError> CleanupCause;
-		std::shared_ptr<const FTransactionSnapshotError> MemberCause;
 		std::shared_ptr<const FPropertySnapshotError> PropertyCause;
 	};
 	struct FActorChangeResult

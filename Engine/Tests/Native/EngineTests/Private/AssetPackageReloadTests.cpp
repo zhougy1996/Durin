@@ -1,5 +1,6 @@
 #include "NativeAssetBuildTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Materials/FunctionPortTestFixture.h"
 #include "Actors/SkyLightActor.h"
 #include "Components/SkyLightComponent.h"
@@ -552,7 +553,7 @@ TEST_F(FAssetPackageReloadTests, SecondPackagePreparationFailurePreservesTheWhol
 	}
 }
 
-TEST_F(FAssetPackageReloadTests, ReloadRetiresCrossPackageHistoryAndInvalidatesTheOtherCheckpoint)
+TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSavedCheckpoint)
 {
 	using namespace Durin;
 	std::array<FPackagePath, 2> Paths;
@@ -567,6 +568,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetiresCrossPackageHistoryAndInvalidatesT
 		ASSERT_TRUE(SavePackage(Textures[Index]->GetPackage()));
 	}
 
+	const std::array SavedSRGB{Textures[0]->IsSRGB(), Textures[1]->IsSRGB()};
 	auto* Transactions = NewObject<DTransBuffer>(nullptr, "ReloadHistory");
 	TStrongObjectPtr<DTransBuffer> TransactionRoot(Transactions);
 	Transactions->EstablishSavedState(*Textures[0]->GetPackage());
@@ -602,11 +604,24 @@ TEST_F(FAssetPackageReloadTests, ReloadRetiresCrossPackageHistoryAndInvalidatesT
 	Request.ShouldFail = {};
 	auto Operation = ReloadPackages(Request);
 	ASSERT_TRUE(Operation.Wait());
-	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
-	EXPECT_FALSE(Transactions->GetPackageRevisionState(*Textures[0]->GetPackage()).has_value());
+	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+	auto Reloaded = LoadObject<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[0]));
+	ASSERT_TRUE(Reloaded); Textures[0] = *Reloaded;
+	const auto ReloadedState = Transactions->GetPackageRevisionState(*Textures[0]->GetPackage());
+	ASSERT_TRUE(ReloadedState); EXPECT_TRUE(ReloadedState->bCheckpointValid);
+	EXPECT_FALSE(Textures[0]->GetPackage()->IsDirty());
 	const auto OtherState = Transactions->GetPackageRevisionState(*Textures[1]->GetPackage());
 	ASSERT_TRUE(OtherState.has_value());
-	EXPECT_FALSE(OtherState->bCheckpointValid);
+	EXPECT_TRUE(OtherState->bCheckpointValid);
+	EXPECT_TRUE(Textures[1]->GetPackage()->IsDirty());
+
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Textures[0]->IsSRGB(), SavedSRGB[0]);
+	EXPECT_EQ(Textures[1]->IsSRGB(), SavedSRGB[1]);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Textures[0]->IsSRGB(), SavedSRGB[0]);
+	EXPECT_NE(Textures[1]->IsSRGB(), SavedSRGB[1]);
+	EXPECT_FALSE(Textures[0]->GetPackage()->IsDirty());
 	EXPECT_TRUE(Textures[1]->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(SavePackage(Textures[1]->GetPackage()));
@@ -778,4 +793,43 @@ TEST(FPackageReloadReceiptTests, RetainsOwnedFailureAndRejectsInvalidTransitions
 	ASSERT_TRUE(Ready.SetRetired());
 	EXPECT_EQ(Ready.GetState(), EPackageReloadReceiptState::Retired);
 	EXPECT_EQ(Ready.GetFailure().Reason, EPackageReloadReason::None);
+}
+
+TEST_F(FAssetPackageReloadTests, DocumentDiscardPreservesReinstancedHistoryAndTransactionalAdmission)
+{
+	using namespace Durin;
+	Tests::FTestEditorTransactorOwner EditorOwner("DiscardReinstancing");
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/AssetDiscardTests/DocumentHistory", Path));
+	DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
+	std::string Error;
+	ASSERT_TRUE(SetSource(*Texture, std::byte{31}, Error));
+	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
+	EditorOwner->EstablishSavedState(*Texture->GetPackage());
+	const auto SavedSRGB = Texture->IsSRGB();
+	{
+		Editor::FScopedTransaction Scope(EditorOwner.Get(), {"test", "Discarded texture settings", Texture});
+		ASSERT_TRUE(Texture->Modify());
+		Texture->SetBuildSettings(Texture->GetUsage(), !SavedSRGB, Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
+			Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());
+		ASSERT_TRUE(Scope.End());
+	}
+	Cloud->SetWeatherTexture(Texture);
+	Editor::FEditableAssetDocumentModel Documents;
+	ASSERT_TRUE(Documents.Activate({.Id = {1}, .ResourceId = Path.ToString()}, Texture));
+	ASSERT_TRUE(Documents.Discard(Texture, {}, {}, [&](std::string Message) { Error = std::move(Message); })) << Error;
+	Texture = Cloud->GetWeatherTexture(); ASSERT_NE(Texture, nullptr);
+	EXPECT_TRUE(Texture->HasAnyObjectFlags(EObjectFlags::Transactional));
+	ASSERT_EQ(EditorOwner->GetQueueLength(), 1u);
+	EXPECT_EQ(EditorOwner->GetUndoContext().PrimaryObject, Texture);
+	EXPECT_TRUE(Documents.Undo());
+	EXPECT_TRUE(Documents.Redo());
+	EXPECT_EQ(Texture->IsSRGB(), SavedSRGB);
+	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+	Documents.Close(Path.ToString());
+	EditorOwner->ForgetPackage(*Texture->GetPackage());
+	Cloud->SetWeatherTexture(nullptr);
+	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Texture);
+	ASSERT_TRUE(UnloadPackage(Path));
 }

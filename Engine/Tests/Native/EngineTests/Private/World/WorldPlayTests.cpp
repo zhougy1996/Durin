@@ -2,6 +2,7 @@
 #include "WorldTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Actors/SplineMeshActor.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Components/SplineComponent.h"
 #include "Components/SplineMeshComponent.h"
 #include "DObject/AssetPath.h"
@@ -64,6 +65,7 @@ TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
 TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAndMutatesDuringPlay)
 {
 	Durin::DWorld* EditorWorld = CreateWorld();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	auto* SourceActor = EditorWorld->SpawnActor<Durin::ASplineMeshActor>("SplinePath");
 	ASSERT_NE(SourceActor, nullptr);
 	auto* SharedMesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -103,7 +105,7 @@ TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAnd
 	ASSERT_EQ(MutatedSegments.size(), 2u);
 	EXPECT_EQ(PlayWorld->GetPhysicsScene().GetBodyCount(), 2u);
 	for (Durin::DActorComponent* Segment : PlaySegments)
-		EXPECT_NE(std::ranges::find(MutatedSegments, Segment), MutatedSegments.end());
+		EXPECT_EQ(std::ranges::find(MutatedSegments, Segment), MutatedSegments.end());
 	PlayWorld->EndPlay();
 	for (Durin::DActorComponent* PlaySegment : PlaySegments) EXPECT_FALSE(PlaySegment->HasBegunPlay());
 	ASSERT_TRUE(PlayWorld->SetCurrentLevel(nullptr, false));

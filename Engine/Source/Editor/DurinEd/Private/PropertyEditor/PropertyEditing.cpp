@@ -662,250 +662,6 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FTransactionPropertyPathSegment::TryGetAllocatedSize(size_t& OutBytes) const -> bool
-	{
-		size_t PayloadBytes = 0;
-		if (!MapKey.TryGetAllocatedSize(PayloadBytes)
-			|| MapKeyData.capacity() > std::numeric_limits<size_t>::max() - PayloadBytes)
-			return false;
-		OutBytes = MapKeyData.capacity() + PayloadBytes;
-		return true;
-	}
-
-	auto FormatTransactionObjectRecordError(const FTransactionObjectRecordError& Error) -> std::string
-	{
-		if (Error.MemberCause) return FormatTransactionSnapshotError(*Error.MemberCause);
-		if (Error.PathCause) return FormatPropertyEditPathError(*Error.PathCause);
-		if (Error.DraftCause) return FormatPropertyValueDraftError(*Error.DraftCause);
-		if (Error.MutationCause) return FormatPropertyMutationError(*Error.MutationCause);
-		switch (Error.Code)
-		{
-		case ETransactionObjectRecordError::None: return {};
-		case ETransactionObjectRecordError::SnapshotRoot: return "Transaction object records require an object-owned top-level snapshot member.";
-		case ETransactionObjectRecordError::Payload: return "Transaction object record payloads do not match the snapshot member.";
-		case ETransactionObjectRecordError::Path: return "Transaction property path no longer matches its reflected member.";
-		default: return "Transaction object record operation failed.";
-		}
-	}
-
-	auto FTransactionObjectRecord::Reject(ETransactionObjectRecordError Code) const -> std::expected<void, FTransactionObjectRecordError>
-	{
-		return std::unexpected(FTransactionObjectRecordError{.Code = Code, .Owner = Target.GetKey(),
-			.Member = SnapshotMember.GetMemberName().ToString(),
-			.Snapshot = SnapshotMember.GetMemberName().ToString(),
-			.Leaf = LeafProperty ? LeafProperty->NamePrivate.ToString() : std::string{},
-			.ArrayIndex = SnapshotMember.GetArrayIndex(), .PathLength = Path.size(),
-			.PathFirst = !Path.empty() && Path.front().Property ? Path.front().Property->NamePrivate.ToString() : std::string{},
-			.PathLast = !Path.empty() && Path.back().Property ? Path.back().Property->NamePrivate.ToString() : std::string{},
-			.ObjectOwnedStorage = true,
-			.BeforeValid = Before.IsValid(), .AfterValid = After.IsValid()});
-	}
-
-	auto FTransactionObjectRecord::Capture(
-		const FPropertyEditTarget& InTarget,
-		FPropertyValueSnapshotPayload InBefore,
-		FPropertyValueSnapshotPayload InAfter) -> std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>
-	{
-		FTransactionObjectRecordError Error{
-			.Owner = FObjectKey(InTarget.Object),
-			.Member = InTarget.MemberProperty ? InTarget.MemberProperty->NamePrivate.ToString() : std::string{},
-			.Snapshot = InTarget.SnapshotProperty ? InTarget.SnapshotProperty->NamePrivate.ToString() : std::string{},
-			.Leaf = InTarget.LeafProperty ? InTarget.LeafProperty->NamePrivate.ToString() : std::string{},
-			.ArrayIndex = InTarget.SnapshotArrayIndex,
-			.ObjectOwnedStorage = InTarget.SnapshotContainer == InTarget.Object,
-			.BeforeValid = InBefore.IsValid(), .AfterValid = InAfter.IsValid(),
-			.ExpectedKind = InTarget.SnapshotProperty ? InTarget.SnapshotProperty->GetKind() : DurinCodeGen::EPropertyGenFlags::None,
-			.BeforeKind = InBefore.GetProperty() ? InBefore.GetProperty()->GetKind() : DurinCodeGen::EPropertyGenFlags::None,
-			.AfterKind = InAfter.GetProperty() ? InAfter.GetProperty()->GetKind() : DurinCodeGen::EPropertyGenFlags::None};
-		if (const auto Validation = ValidateTarget(InTarget); !Validation)
-		{
-			Error.Code = ETransactionObjectRecordError::Target;
-			Error.PathCause = std::make_shared<FPropertyEditPathError>(Validation.error());
-			return std::unexpected(std::move(Error));
-		}
-		if (InTarget.SnapshotContainer != InTarget.Object
-			|| InTarget.SnapshotProperty != InTarget.MemberProperty)
-			{ Error.Code = ETransactionObjectRecordError::SnapshotRoot; return std::unexpected(std::move(Error)); }
-		if (!InBefore.IsValid() || !InAfter.IsValid()
-			|| !ArePropertySnapshotTypesCompatible(InBefore.GetProperty(), InTarget.SnapshotProperty)
-			|| !ArePropertySnapshotTypesCompatible(InAfter.GetProperty(), InTarget.SnapshotProperty))
-			{ Error.Code = ETransactionObjectRecordError::Payload; return std::unexpected(std::move(Error)); }
-
-		FTransactionObjectRecord Record;
-		Record.Target = FPersistentObjectRef(InTarget.Object);
-		const auto Member = FTransactionMemberLocator::Capture(
-			InTarget.SnapshotProperty, InTarget.SnapshotArrayIndex);
-		if (!Member)
-		{
-			Error.Code = ETransactionObjectRecordError::Member;
-			Error.MemberCause = Member.error();
-			return std::unexpected(std::move(Error));
-		}
-		Record.SnapshotMember = *Member;
-		Record.LeafProperty = InTarget.LeafProperty;
-		Record.Path.reserve(InTarget.Path.size());
-		for (const FPropertyEditPathSegment& Segment : InTarget.Path)
-		{
-			Record.Path.push_back({Segment.Property, Segment.Selector, Segment.Index,
-				Segment.MapKeyData, Segment.MapKey});
-		}
-		Record.LogicalIdentity = InTarget.LogicalIdentity;
-		Record.Kind = InTarget.Kind;
-		Record.Before = std::move(InBefore);
-		Record.After = std::move(InAfter);
-		return Record;
-	}
-
-	auto FTransactionObjectRecord::BuildTarget(
-		FPropertyEditTarget& OutTarget) const -> std::expected<void, FTransactionObjectRecordError>
-	{
-		DObject* Object = Target.Resolve();
-		const auto Resolved = SnapshotMember.Resolve(Object);
-		if (!Resolved)
-		{
-			auto Result = Reject(ETransactionObjectRecordError::Member);
-			Result.error().MemberCause = Resolved.error();
-			Result.error().MemberCause->Owner = Target.GetKey();
-			return Result;
-		}
-		FProperty* Member = *Resolved;
-		if (Path.empty() || Path.front().Property != Member
-			|| Path.back().Property != LeafProperty)
-			return Reject(ETransactionObjectRecordError::Path);
-		FPropertyEditTarget Result;
-		Result.Object = Object;
-		Result.MemberProperty = Member;
-		Result.LeafProperty = LeafProperty;
-		Result.SnapshotProperty = Member;
-		Result.SnapshotContainer = Object;
-		Result.SnapshotArrayIndex = SnapshotMember.GetArrayIndex();
-		Result.Path.reserve(Path.size());
-		for (const FTransactionPropertyPathSegment& Segment : Path)
-		{
-			Result.Path.push_back({Segment.Property, Segment.Selector, Segment.Index,
-				Segment.MapKeyData, Segment.MapKey});
-		}
-		Result.LogicalIdentity = LogicalIdentity;
-		Result.Kind = Kind;
-		if (const auto Validation = ValidateTarget(Result); !Validation)
-		{
-			auto Failure = Reject(ETransactionObjectRecordError::Target);
-			Failure.error().PathCause = std::make_shared<FPropertyEditPathError>(Validation.error());
-			return Failure;
-		}
-		OutTarget = std::move(Result);
-		return {};
-	}
-
-	auto FTransactionObjectRecord::Validate() const -> std::expected<void, FTransactionObjectRecordError>
-	{
-		FPropertyEditTarget TargetValue;
-		if (const auto Result = BuildTarget(TargetValue); !Result) return Result;
-		for (const FPropertyValueSnapshotPayload* Payload : {&Before, &After})
-		{
-			FPropertyValueDraft Draft(TargetValue);
-			if (const auto Result = Draft.Restore(*Payload); !Result)
-			{
-				auto Failure = Reject(ETransactionObjectRecordError::Draft);
-				Failure.error().Before = Payload == &Before;
-				Failure.error().DraftCause = std::make_shared<FPropertyValueDraftError>(Result.error());
-				return Failure;
-			}
-			const FProperty* ResolvedProperty = nullptr;
-			void* ResolvedContainer = nullptr;
-			uint32 ResolvedArrayIndex = 0;
-			if (const auto Result = Draft.Resolve(TargetValue, ResolvedProperty, ResolvedContainer,
-				ResolvedArrayIndex); !Result)
-			{
-				auto Failure = Reject(ETransactionObjectRecordError::Draft);
-				Failure.error().Before = Payload == &Before;
-				Failure.error().DraftCause = std::make_shared<FPropertyValueDraftError>(Result.error());
-				return Failure;
-			}
-		}
-		return {};
-	}
-
-	auto FTransactionObjectRecord::CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>
-	{
-		FPropertyEditTarget Resolved;
-		if (auto Result = BuildTarget(Resolved); !Result) return Result;
-		FPropertyValueSnapshotPayload Value;
-		if (auto Result = CapturePropertyValuePayload(Resolved.SnapshotProperty,
-			Resolved.SnapshotContainer, Resolved.SnapshotArrayIndex, Value, Before.IsTransacting()); !Result)
-		{
-			auto Failure = Reject(ETransactionObjectRecordError::Payload);
-			Failure.error().Before = false;
-			return Failure;
-		}
-		After = std::move(Value);
-		return {};
-	}
-
-	auto FTransactionObjectRecord::Apply(
-		bool bBefore,
-		EPropertyChangeOrigin Origin) const -> std::expected<void, FTransactionObjectRecordError>
-	{
-		FPropertyEditTarget TargetValue;
-		if (auto Result = BuildTarget(TargetValue); !Result)
-		{
-			Result.error().Before = bBefore;
-			return Result;
-		}
-		const FPropertyValueSnapshotPayload& Value = bBefore ? Before : After;
-		if (const auto Restored = RestoreTargetValue(TargetValue, Value); !Restored)
-		{
-			auto Failure = Reject(ETransactionObjectRecordError::Mutation);
-			Failure.error().Before = bBefore;
-			auto Mutation = RejectMutation(TargetValue, EPropertyChangePhase::Committed, Origin, EPropertyMutationError::Publication).error();
-			Mutation.SnapshotCause = Restored.error();
-			Failure.error().MutationCause = std::make_shared<FPropertyMutationError>(std::move(Mutation));
-			return Failure;
-		}
-		NotifyMutation(TargetValue, EPropertyChangePhase::Committed, Origin);
-		TargetValue.Object->MarkPackageDirty();
-		return {};
-	}
-
-	auto FTransactionObjectRecord::AddReferencedObjects(FReferenceCollector& Collector) const -> void
-	{
-		Target.AddReferencedObjects(Collector);
-		auto AddPayload = [&](const FPropertyValueSnapshotPayload& Payload) {
-			for (const FObjectKey Handle : Payload.GetReferencedObjectKeys())
-				FPersistentObjectRef::FromKey(Handle).AddReferencedObjects(Collector);
-		};
-		AddPayload(Before);
-		AddPayload(After);
-		for (const FTransactionPropertyPathSegment& Segment : Path)
-			AddPayload(Segment.MapKey);
-	}
-
-	auto FTransactionObjectRecord::TryGetAllocatedSize(size_t& OutBytes) const -> bool
-	{
-		size_t Total = 0;
-		auto Add = [&](size_t Value) {
-			if (Total > std::numeric_limits<size_t>::max() - Value) return false;
-			Total += Value;
-			return true;
-		};
-		if (Path.capacity() > std::numeric_limits<size_t>::max()
-			/ sizeof(FTransactionPropertyPathSegment)
-			|| !Add(Path.capacity() * sizeof(FTransactionPropertyPathSegment))
-			|| !Add(LogicalIdentity.capacity())) return false;
-		for (const FTransactionPropertyPathSegment& Segment : Path)
-		{
-			size_t SegmentBytes = 0;
-			if (!Segment.TryGetAllocatedSize(SegmentBytes) || !Add(SegmentBytes)) return false;
-		}
-		for (const FPropertyValueSnapshotPayload* Payload : {&Before, &After})
-		{
-			size_t PayloadBytes = 0;
-			if (!Payload->TryGetAllocatedSize(PayloadBytes) || !Add(PayloadBytes)) return false;
-		}
-		OutBytes = Total;
-		return true;
-	}
-
 	auto FPropertyEditSession::Reject(std::string Message) -> FPropertyEditOperationResult
 	{
 		return {.Status = EPropertyEditResult::Failed, .Message = std::move(Message)};
@@ -979,7 +735,7 @@ namespace Durin::Editor
 			TransactionScope.emplace(Transactor, FTransactionContext{
 				.Name = "ReflectedProperty",
 				.Description = Description,
-				.PrimaryObject = FPersistentObjectRef(Target.Object),
+				.PrimaryObject = Target.Object,
 			});
 			if (!TransactionScope->IsOutstanding())
 			{
@@ -988,12 +744,10 @@ namespace Durin::Editor
 				return Result;
 			}
 			// Capture other reflected fields that edit reactions may author, too.
-			// An uncaptured probe must leave the package checkpoint intact for
-			// the focused record below to observe before the edit marks it dirty.
+			// The fallback also captures the whole object before the first edit.
 			if (!Target.Object->Modify(false))
 			{
-				auto Capture = FTransactionObjectRecord::Capture(
-					Target, OriginalValue, CurrentValue);
+				auto Capture = FTransactionObjectRecord::CaptureWhole(*Target.Object);
 				if (!Capture)
 				{
 					auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
@@ -1019,7 +773,6 @@ namespace Durin::Editor
 					Reset();
 					return Result;
 				}
-				TransactionRecordId = *RecordResult;
 			}
 		}
 		bActive = true;
@@ -1080,19 +833,7 @@ namespace Durin::Editor
 				CancelDeferredEdit = std::move(Cancel);
 			return {.Status = EPropertyEditResult::Pending};
 		}
-		const FPropertyValueSnapshotPayload PreviousValue = CurrentValue;
 		CurrentValue = std::move(Result.AppliedValue);
-		if (auto Update = UpdateTransactorRecord(); !Update)
-		{
-			FMutationExecutionResult Rollback = ExecuteMutation(
-				Target, &PreviousValue, nullptr, EMutationOperation::Apply,
-				EPropertyChangePhase::Interactive, EPropertyChangeOrigin::Edit);
-			if (Rollback && !Rollback.IsDeferred())
-				CurrentValue = std::move(Rollback.AppliedValue);
-			if (!Rollback) Update.Message += " Rollback also failed: " + FormatPropertyMutationError(Rollback.Error);
-			if (Rollback.IsDeferred()) Update.Message += " Rollback requires deferred validation.";
-			return Update;
-		}
 		return {.Status = Result.bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
 	}
 
@@ -1127,12 +868,6 @@ namespace Durin::Editor
 			return;
 		}
 		CurrentValue = std::move(Result.AppliedValue);
-		if (const auto Update = UpdateTransactorRecord(); !Update)
-		{
-			DURIN_ERROR("Deferred reflected-property record update failed: {}", Update.Message);
-			Reset();
-			return;
-		}
 		if (const auto CommitResult = Commit(); !CommitResult)
 			DURIN_ERROR("Deferred reflected-property transaction failed: {}", CommitResult.Message);
 	}
@@ -1140,23 +875,6 @@ namespace Durin::Editor
 	auto FPropertyEditSession::MatchesTarget(const FPropertyEditTarget& Other) const -> bool
 	{
 		return bActive && Target.MatchesContinuousEdit(Other);
-	}
-
-	auto FPropertyEditSession::UpdateTransactorRecord() -> FPropertyEditOperationResult
-	{
-		if (!Transactor || !TransactionScope || !TransactionScope->IsOutstanding() || TransactionRecordId == 0) return {};
-		auto Capture = FTransactionObjectRecord::Capture(
-			Target, OriginalValue, CurrentValue);
-		if (!Capture)
-		{
-			auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
-			return Result;
-		}
-		const FTransactorResult Result =
-			Transactor->UpdateRecord(TransactionRecordId, std::move(*Capture));
-		if (Result) return {};
-		auto Failure = Reject(FormatTransactorResult(Result));
-		return Failure;
 	}
 
 	auto FPropertyEditSession::Commit() -> FPropertyEditOperationResult
@@ -1178,7 +896,6 @@ namespace Durin::Editor
 				.Code = ETransactorResultCode::NoOp};
 			if (TransactionScope && TransactionScope->IsOutstanding())
 			{
-				if (const auto Update = UpdateTransactorRecord(); !Update) return Update;
 				(void)TransactionScope->End();
 				TransactorResult = Transactor->GetLastResult();
 				if (TransactorResult.Code == ETransactorResultCode::Rejected
@@ -1271,7 +988,6 @@ namespace Durin::Editor
 		if (TransactionScope && TransactionScope->IsOutstanding())
 			(void)TransactionScope->Cancel();
 		TransactionScope.reset();
-		TransactionRecordId = 0;
 		bActive = false;
 		Target = {};
 		TargetObject.Reset();

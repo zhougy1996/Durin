@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "DurinEdAPI.h"
+#include "Misc/Transaction.h"
 
 namespace Durin
 {
@@ -15,7 +15,7 @@ namespace Durin::Editor
 	// Explicit editor admission policy; unrecorded edits cannot join a live recording.
 	enum class ETransactionMode : uint8 { Record, NotTransactable };
 
-	using FTransactionId = uint64;
+	using ::Durin::FTransactionId;
 	using FRevisionId = uint64;
 
 	// Identifies the history transition reported by a transaction event.
@@ -29,14 +29,7 @@ namespace Durin::Editor
 		Evicted,
 	};
 
-	// Identifies the transaction operation that produced an event or failure.
-	enum class ETransactionOperation : uint8
-	{
-		Execute,
-		Undo,
-		Redo,
-	};
-
+	using ::Durin::ETransactionOperation;
 	// Carries one user-visible transaction history event.
 	struct FTransactionEvent
 	{
@@ -45,30 +38,13 @@ namespace Durin::Editor
 		FTransactionId Id = 0;
 		std::string Description;
 		std::string Details;
+		auto operator==(const FTransactionEvent&) const -> bool = default;
 	};
 
-	struct FCommandChangeError
-	{
-		std::string Message;
-		bool bRecoveryRequired = false;
-	};
-	using FCommandChangeResult = std::expected<void, FCommandChangeError>;
-
-	// Owns synchronous domain Undo/Redo data; initial execution belongs to the domain.
-	class FCommandChange
-	{
-	public:
-		virtual ~FCommandChange() = default;
-		virtual auto Apply() -> FCommandChangeResult = 0;
-		virtual auto Revert() -> FCommandChangeResult = 0;
-		virtual auto GetDescription() const -> std::string_view = 0;
-		virtual auto GetDetails(ETransactionOperation) const -> std::string { return {}; }
-		virtual auto GetAffectedPackages() const -> std::span<DPackage* const> { return {}; }
-		virtual auto MutatesMountedContent() const -> bool { return false; }
-		virtual auto AddReferencedObjects(FReferenceCollector&) const -> void {}
-		virtual auto GetAllocatedSize() const -> size_t { return 0; }
-		virtual auto GetOwningModule() const -> std::string_view { return {}; }
-	};
+	using ::Durin::FCommandChange;
+	using ::Durin::FCommandChangeError;
+	using ::Durin::FCommandChangeResult;
+	using ::Durin::FTransactionContext;
 
 	// Describes one package's editor-session revision state.
 	struct FPackageRevisionState

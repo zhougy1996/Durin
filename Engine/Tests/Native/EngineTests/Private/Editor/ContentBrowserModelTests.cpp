@@ -170,6 +170,9 @@ namespace
 	class FNoOpEditorTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
+		{ return {}; }
+
 		auto GetDescription() const -> std::string_view override { return "No-op"; }
 		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{

@@ -4,7 +4,7 @@ Summary: Define UE-shaped native recording, synchronous Undo/Redo, package check
 
 Modules: Core, CoreDObject, Engine, DurinEd
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-20
 
 ## Service Ownership
 
@@ -20,7 +20,8 @@ no-op or unsupported behavior. The base retains listener registration, result
 storage and convenience forwarding. ApplyEditorChange is declared only in
 Transactions/Transactor.h; consumers include that header directly.
 
-Core defines the runtime-neutral `ITransaction` capture interface and ordinary
+Core defines the [runtime transaction contracts](../../Runtime/Core/Transactions.md),
+including custom changes, context, `ITransaction`, and ordinary
 GameThread pointer `GUndo`. Outermost Begin publishes the pending `FTransaction`;
 End, Cancel, owner retirement and destruction clear it before releasing storage.
 A competing buffer cannot begin while another recording is published. There is
@@ -53,14 +54,17 @@ Only outermost End captures final object values and commits one history entry.
 Nested contexts do not replace the outer context. `SetPrimaryUndoObject` sets the
 first primary object for presentation and retention; it is not an affected package.
 
-The reference is UE 5.3.2 at mirror revision
-`c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf`:
-[EditorTransaction.cpp](https://github.com/chenyong2github/UnrealEngine/blob/c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf/Engine/Source/Editor/UnrealEd/Private/EditorTransaction.cpp),
-[ScopedTransaction.cpp](https://github.com/chenyong2github/UnrealEngine/blob/c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf/Engine/Source/Editor/UnrealEd/Private/ScopedTransaction.cpp),
-[Obj.cpp](https://github.com/chenyong2github/UnrealEngine/blob/c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf/Engine/Source/Runtime/CoreUObject/Private/UObject/Obj.cpp),
-[Actor.cpp](https://github.com/chenyong2github/UnrealEngine/blob/c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf/Engine/Source/Runtime/Engine/Private/Actor.cpp), and
-[Property.cpp](https://github.com/chenyong2github/UnrealEngine/blob/c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf/Engine/Source/Runtime/CoreUObject/Private/UObject/Property.cpp).
-This source version's `Cancel(StartIndex)` cancels the entire active recording,
+The scope, capture ownership and filtering reference is the installed Epic
+UE 5.8.0 source, CL 53629095, branch `++UE5+Release-5.8`. Relevant UE files are
+`Engine/Source/Editor/UnrealEd/Private/EditorTransaction.cpp` (`SaveObject`,
+`StoreUndo`, `UTransBuffer::End/Cancel`), its `Classes/Editor/TransBuffer.h`
+(`BeginInternal`), `Private/ScopedTransaction.cpp`,
+`Engine/Source/Runtime/CoreUObject/Private/UObject/Obj.cpp` (`Modify`) and
+`Property.cpp` (`ShouldSerializeValue`), and
+`Engine/Source/Runtime/Engine/Private/Actor.cpp` (`Modify`). The
+[reference identity and behavior matrix](../../Plans/UE58TransactionArchitecture.md#reference-identity-and-reproduction)
+records source fingerprints and explicitly separates implemented rules from
+future architecture work. This source version's `Cancel(StartIndex)` cancels the entire active recording,
 including cancellation by an inner scope. It does not restore applied edits.
 The index is an activity count, never a history ID or an isolated savepoint.
 
@@ -100,9 +104,8 @@ set or clear it. Templates are excluded from Durin's ordinary object editing.
 
 `FTransaction` owns first-before capture and deduplicates objects across every
 nested action. Final-after capture happens at outermost End, so 0, outer write 1,
-inner write 2, outer write 3 replays as Undo 0 / Redo 3. Focused property records
-for the same object/member/index share first-before and latest-after state with
-whole-object recording. AActor overrides Modify to include its native root
+inner write 2, outer write 3 replays as Undo 0 / Redo 3. Property editing and
+explicit whole-object recording use that same first-before baseline. AActor overrides Modify to include its native root
 component, matching the pinned Actor.cpp behavior; generated roots are rebuilt
 by construction. Direct references to Generated objects are excluded from
 automatic capture. Derived component membership, reverse attachment lists, and
@@ -112,6 +115,13 @@ Final capture includes reflected Transient fields;
 fields inside struct payloads. Transaction archives carry their own filtering
 mode through capture and restore. Transaction participation
 and persistence exclusion are independent policies.
+
+General capture calls virtual Serialize once for the initial state and once at
+finalization; repeated Modify does not duplicate the object record. Replay also
+uses save traversals for schema checks and inverse capture, so serializers must
+keep saving free of domain mutations. Each object has one canonical whole-object
+replay owner; there is no focused undo or promotion path. [Transaction records](TransactionRecords.md) defines flip and recovery
+behavior.
 
 Successful capture marks the package dirty. With `bAlwaysMarkDirty`, an
 uncaptured call also marks it dirty, including calls outside a recording.
@@ -142,10 +152,42 @@ recording. GetRedoContext() is empty when Redo is unavailable. Workspace label
 adapters derive owned strings from these contexts, so labels survive history
 replacement/reset. The transactor has no separate description-query interface.
 
-Idle and Recording accept ordinary composition through `CanTransact()`.
+Idle and Recording accept ordinary composition through `CanTransact()` outside
+object capture and synchronous transaction callbacks.
 Undoing, Redoing, RecoveryRequired, and Destroying reject it. Undo/Redo cannot
 reenter recording. Ordinary scopes provide neither caller isolation nor an
 all-or-nothing execution contract.
+
+### Synchronous Object Events
+
+`PostTransacted` receives Finalized before the recording operation closes and
+`GUndo` clears. UndoRedo follows all object loads and native PostEditUndo
+completion. Components complete before their owning Actor. Events carry the
+transaction ID, live operation ID, actual changed fields, original identity and
+current annotation. Record events precede their annotation's additional events;
+`CreatedBy` distinguishes these sources, matching the pinned UE implementation.
+An object can receive both sources; additional events carry no primary annotation.
+Finalized annotation deltas compare both the initial annotation and the last
+snapshot annotation so returning to the initial state still closes an observed edit.
+
+`SnapshotObject` observes an existing serialized record during active recording.
+Selected top-level properties accumulate; an unfiltered request stays unfiltered.
+Uncaptured, custom-only and finalized records are skipped, as in UE.
+Each call compares with its previous observation, initially the undo before-state.
+The observation baseline never changes undo storage or creates another history
+entry. Whole records retain a full observation and filter reported property names;
+native and identity changes remain visible. Observation storage is released
+after finalization.
+
+No-op records without annotations, canceled recordings and custom-only commands
+produce no serialized object event. Failed replay and its compensation produce
+no successful UndoRedo event. A thrown observer or failure after native completion
+requires recovery, retains the history graph and leaves the history cursor in
+place; already delivered synchronous observations cannot be retracted.
+During capture and callbacks, Begin, End, Cancel, capture, snapshot, record changes
+and operation closure cannot invalidate the in-flight records. Modify still reports
+existing membership and may mark a package dirty; it is not an edit veto.
+Queued history listeners retain their separate idle delivery contract.
 
 `FCommandChange` owns synchronous `Apply()`/`Revert()` behavior, descriptive data,
 package effects, module ownership, byte accounting, and GC references. Domains
@@ -153,8 +195,11 @@ execute changes and call `StoreUndo(Object, Change)` to retain already-applied
 undo data. A prior custom record for that object suppresses a later Modify
 snapshot, matching the pinned UE per-object rule. A custom record added after
 a snapshot remains ordered after it; callers must choose the representation
-that describes their operation. Unbound composite changes may use the
-`StoreUndo(Change)` convenience and must enumerate all participants themselves.
+that describes their operation. Composite changes may use the `StoreUndo(Change)`
+convenience and must declare modified objects through `GetModifiedObjects()`.
+One declared object automatically binds a single-object command; multiple
+participants remain a composite record. Participant references are frozen
+separately from collector-only dependencies.
 Durin additionally opens a standalone scope for StoreUndo without active recording.
 StoreUndo never invokes Apply and accepts nested recording without an opt-in flag.
 
@@ -180,7 +225,7 @@ exception retains the participant graph and requires recovery. Reset does not
 repair data or unlock catastrophic recovery. Diagnostic results retain actionable
 failure and rollback messages without requiring ordinary clients to inspect causes.
 
-Transaction events are queued during transitions and delivered by DispatchEvents
+History events are queued during transitions and delivered by DispatchEvents
 to independent listeners after the transactor reaches Idle or RecoveryRequired.
 UI notifications register as a listener; observers receive the same immutable
 transition data without stealing events. The queue is not a persistent journal.

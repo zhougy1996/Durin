@@ -404,7 +404,7 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	Durin::CollectGarbage();
 }
 
-TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdentityChurn)
+TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithStableSourceKeys)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SplineMeshActorEditing";
@@ -448,7 +448,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 
 	ASSERT_TRUE(SubmitPosition({120.0, 25.0, 0.0}, true));
 	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
-	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
+	EXPECT_EQ(std::ranges::find(Segments, StableFirst), Segments.end());
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, true));
 	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
 	EXPECT_TRUE(Level->GetPackage()->IsDirty());
@@ -459,11 +459,11 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	ASSERT_TRUE(Transactions->Undo());
 	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
 	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
-	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
+	EXPECT_EQ(std::ranges::find(Segments, StableFirst), Segments.end());
 	ASSERT_TRUE(Transactions->Redo());
 	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {130.0, 30.0, 0.0});
 	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
-	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
+	EXPECT_EQ(std::ranges::find(Segments, StableFirst), Segments.end());
 	EXPECT_TRUE(Error.empty());
 	Transactions->Reset();
 	EXPECT_TRUE(Durin::UnloadPackage(Level->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));

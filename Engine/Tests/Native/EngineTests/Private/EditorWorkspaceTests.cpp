@@ -56,6 +56,9 @@ namespace
 	class FAppliedPackageEdit final : public Durin::Editor::FActorCommandChange
 	{
 	public:
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
+		{ return {}; }
+
 		explicit FAppliedPackageEdit(Durin::DPackage& InPackage)
 			: Package{&InPackage}
 		{
@@ -214,7 +217,7 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	Durin::FPropertyValueSnapshotPayload Snapshot;
 	std::string Error;
 	ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(TransProperty, Editor, 0, Snapshot))) << Durin::ToString(SnapshotResult.error());
-	auto Capture = Durin::Editor::FTransactionObjectRecord::Capture(Target, Snapshot, Snapshot);
+	auto Capture = Durin::Editor::FTransactionObjectRecord::CaptureWhole(*Editor);
 	ASSERT_TRUE(Capture) << Durin::Editor::FormatTransactionObjectRecordError(Capture.error());
 	ASSERT_TRUE(Durin::FTransBufferTestAccess::Record(*Buffer, std::move(*Capture)));
 	Editor->BeginDestroy();

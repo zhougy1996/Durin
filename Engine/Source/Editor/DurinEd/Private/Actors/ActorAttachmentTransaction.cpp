@@ -9,6 +9,18 @@
 
 namespace Durin::Editor
 {
+	auto FActorAttachmentTransaction::GetModifiedObjects() const -> std::vector<DObject*>
+	{
+		std::vector<DObject*> Objects;
+		for (const auto& Entry : Entries)
+		{
+			Objects.push_back(Entry.Actor.Get());
+			for (auto* Actor : {Entry.Actor.Get(), Entry.BeforeParent.Get(), Entry.AfterParent.Get()})
+				if (Actor && Actor->GetRootComponent()) Objects.push_back(Actor->GetRootComponent());
+		}
+		return Objects;
+	}
+
 	namespace
 	{
 		auto CanApplyEntry(const FActorAttachmentTransaction::FEntry& Entry, bool bAfter) -> FActorChangeResult

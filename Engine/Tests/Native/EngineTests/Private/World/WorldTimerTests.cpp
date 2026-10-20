@@ -213,7 +213,7 @@ TEST_F(FWorldTimerTests, ObjectDestructionCancelsBoundWorkAndReleasesCaptures)
 	EXPECT_TRUE(Weak.expired());
 }
 
-TEST_F(FWorldTimerTests, UnregisterAndActorEndPlayCancelWithoutPhysicalDestruction)
+TEST_F(FWorldTimerTests, UnregisterPreservesTimersAndActorEndPlayCancelsWithoutPhysicalDestruction)
 {
 	auto& Timers = World->GetTimerManager();
 	auto* Actor = World->SpawnActor<Durin::AActor>();
@@ -222,9 +222,10 @@ TEST_F(FWorldTimerTests, UnregisterAndActorEndPlayCancelWithoutPhysicalDestructi
 	const auto C = Timers.SetTimerForObjectNextTick(Component, [&](Durin::DObject&) { ++Calls; });
 	Component->UnregisterComponent();
 	Component->RegisterComponent();
-	EXPECT_FALSE(Timers.IsTimerActive(C));
+	EXPECT_TRUE(Timers.IsTimerActive(C));
 	const auto A = Timers.SetTimerForObjectNextTick(Actor, [&](Durin::DObject&) { ++Calls; });
 	Actor->RouteEndPlay();
+	EXPECT_FALSE(Timers.IsTimerActive(C));
 	Actor->DispatchBeginPlay();
 	Tick();
 	EXPECT_FALSE(Timers.IsTimerActive(A));

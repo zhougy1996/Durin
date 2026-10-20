@@ -1,162 +1,149 @@
-#include "Engine/ActorConstruction.h"
+#include "Engine/Actor.h"
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
+#include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Engine/Actor.h"
+#include "Engine/ComponentInstanceDataCache.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 
 namespace Durin
 {
-	FActorConstructionContext::FActorConstructionContext(AActor& InActor, uint64 InGeneration)
-		: Actor(InActor), Generation(InGeneration)
+	auto AActor::OnConstruction(const FTransform&) -> void {}
+
+	auto AActor::DestroyConstructedComponents() -> void
 	{
-		ExistingByKey.reserve(Actor.GeneratedComponents.size());
-		DesiredKeys.reserve(Actor.GeneratedComponents.size());
-		for (const AActor::FGeneratedComponentRecord& Existing : Actor.GeneratedComponents)
-			ExistingByKey.emplace(Existing.Key, Existing.Component.Get());
-		Desired.reserve(Actor.GeneratedComponents.size());
+		FGarbageCollectionDeferralScope DeferCollection;
+		// A frozen list permits destruction callbacks to mutate live ownership.
+		const auto Components = GetComponentsSnapshot();
+		for (auto It = Components.rbegin(); It != Components.rend(); ++It)
+			if (auto* Component = It->Get(); IsValid(Component)
+				&& Component->GetCreationMethod() == EComponentCreationMethod::Generated)
+			{
+				Component->DestroyComponent();
+				// Release its authored construction name while the retired object awaits GC.
+				Component->Rename(FName(std::format("TRASH_{}_{}", Component->GetName(), FGuid::NewGuid().ToString())));
+			}
 	}
 
-	FActorConstructionContext::~FActorConstructionContext()
+	auto AActor::AddComponentByClass(DClass* ComponentClass, bool bManualAttachment,
+		const FTransform& RelativeTransform, bool bDeferredFinish,
+		const FActorGeneratedComponentKey& Key, FName RequestedName) -> DActorComponent*
 	{
-		if (!bCommitted) RollbackCandidates();
-	}
-
-	auto FActorConstructionContext::Fail(std::string Message) -> DActorComponent*
-	{
-		if (Error.empty()) Error = std::move(Message);
-		return nullptr;
-	}
-
-	auto FActorConstructionContext::AcquireGeneratedComponent(
-		const FActorGeneratedComponentKey& Key, DClass* ExactClass, FName RequestedName) -> DActorComponent*
-	{
-		if (HasFailed()) return nullptr;
-		if (!Key.IsValid()) return Fail("Generated component key must contain a namespace and valid GUID.");
-		if (!CanConstructObjectOfClass(ExactClass, DActorComponent::StaticClass()))
-			return Fail("Generated component class is not a constructible ActorComponent class.");
-		if (!DesiredKeys.insert(Key).second)
-			return Fail("Generated component key was acquired more than once in one construction generation.");
-
-		if (const auto Existing = ExistingByKey.find(Key); Existing != ExistingByKey.end())
+		FGarbageCollectionDeferralScope DeferCollection;
+		if (IsBeingDestroyed() || IsPendingKill()) throw std::runtime_error("Cannot construct a component on a retired Actor.");
+		if (!CanConstructObjectOfClass(ComponentClass, DActorComponent::StaticClass()))
+			throw std::runtime_error("Component class is not constructible.");
+		FActorGeneratedComponentKey SourceKey = Key;
+		if (!SourceKey.IsValid())
 		{
-			DActorComponent* Component = Existing->second;
-			if (!Component || Component->IsPendingKill())
-				return Fail("Generated component key refers to a retired component.");
-			if (Component->GetClass() != ExactClass)
-				return Fail("Generated component key was reacquired with a different exact class.");
-			Desired.push_back({Key, Component, false});
-			return Component;
+			if (!Key.Namespace.IsNone() || Key.Id.IsValid()) throw std::runtime_error("Incomplete generated component source key.");
+			// Like UCS matching, untemplated components use exact class and creation order.
+			uint32 SerializedIndex = 0;
+			for (const auto& Existing : GeneratedComponents)
+				if (Existing.Component && Existing.Component->GetClass() == ComponentClass) ++SerializedIndex;
+			SourceKey = {FName(std::format("Construction-{}", ComponentClass->GetQualifiedName().ToString())),
+				FGuid(0, 0, 0, SerializedIndex + 1)};
 		}
-
-		const FName BaseName = RequestedName.IsNone()
-			? FName(ExactClass->GetDefaultObjectName()) : RequestedName;
-		FName UniqueName = Actor.MakeUniqueComponentName(BaseName);
-		const std::string BaseText = BaseName.ToString();
-		for (uint32 Suffix = 2; std::ranges::any_of(Desired, [&](const FDesiredEntry& Entry) {
-			return Entry.Component && Entry.Component->GetFName() == UniqueName;
-		}); ++Suffix) UniqueName = FName(std::format("{}_{}", BaseText, Suffix));
+		if (FindGeneratedComponent(SourceKey)) throw std::runtime_error("Duplicate generated component source key.");
 		FStaticConstructObjectParameters Params;
-		Params.Class = ExactClass;
-		Params.Outer = &Actor;
-		Params.Name = UniqueName;
-		Params.Size = ExactClass->GetStructureSize();
+		Params.Class = ComponentClass;
+		Params.Outer = this;
+		Params.Name = MakeUniqueComponentName(RequestedName.IsNone() ? FName(ComponentClass->GetDefaultObjectName()) : RequestedName);
+		Params.Size = ComponentClass->GetStructureSize();
 		Params.Purpose = EObjectConstructionPurpose::Generated;
-		auto* Candidate = static_cast<DActorComponent*>(StaticConstructObject(Params));
-		if (Candidate) DObjectForceRegistration(Candidate);
-		if (!Candidate) return Fail("Generated component allocation failed.");
-		Candidate->SetCreationMethod(EComponentCreationMethod::Generated);
-		Desired.push_back({Key, Candidate, true});
-		return Candidate;
+		auto* Component = static_cast<DActorComponent*>(StaticConstructObject(Params));
+		if (!Component) throw std::runtime_error("Component allocation failed.");
+		try
+		{
+			DObjectForceRegistration(Component);
+			Component->SetCreationMethod(EComponentCreationMethod::Generated);
+			if (ConstructionInstanceData)
+				if (auto Result = ConstructionInstanceData->ValidateComponent(*Component, &SourceKey); !Result)
+					throw std::runtime_error(Result.error());
+			// Publish ownership immediately, before any creation/registration callback.
+			GeneratedComponents.push_back({SourceKey, Component});
+			AddOwnedComponent(Component);
+			if (!bDeferredFinish) FinishAddComponent(Component, bManualAttachment, RelativeTransform);
+		}
+		catch (...)
+		{
+			if (IsValid(Component) && !Component->IsBeingDestroyed()) Component->DestroyComponent();
+			throw;
+		}
+		return Component;
 	}
 
-	auto FActorConstructionContext::Commit(std::string& OutError) -> bool
+	auto AActor::FinishAddComponent(DActorComponent* Component, bool bManualAttachment,
+		const FTransform& RelativeTransform) -> void
 	{
-		if (HasFailed())
+		FGarbageCollectionDeferralScope DeferCollection;
+		if (!IsValid(Component) || Component->IsBeingDestroyed() || Component->GetOwner() != this || !OwnsComponent(Component))
+			throw std::runtime_error("Cannot finish an unavailable or foreign component.");
+		if (auto* Scene = Cast<DSceneComponent>(Component))
 		{
-			OutError = Error;
-			return false;
-		}
-		std::vector<AActor::FGeneratedComponentRecord> Previous = Actor.GeneratedComponents;
-		std::vector<AActor::FGeneratedComponentRecord> Next;
-		Next.reserve(Desired.size());
-		for (const FDesiredEntry& Entry : Desired)
-		{
-			if (!Entry.Component || Entry.Component->GetOwner() != &Actor)
+			// Automatic attachment is initialization, not a construction-authored field.
+			const bool bWasRunning = bRunningConstructionScript;
+			bRunningConstructionScript = false;
+			struct FRestoreFlag { bool& Flag; bool Previous; ~FRestoreFlag() { Flag = Previous; } } Restore{bRunningConstructionScript, bWasRunning};
+			if (!bManualAttachment)
 			{
-				OutError = "Generated component candidate does not belong to the constructed actor.";
-				return false;
+				if (!GetRootComponent()) SetRootComponent(Scene);
+				else if (Scene != GetRootComponent() && !Scene->GetAttachParent()
+					&& !Scene->AttachToComponent(GetRootComponent(), EAttachmentTransformRule::KeepRelative))
+					throw std::runtime_error("Constructed component could not attach to Actor root.");
 			}
-			if (Entry.bCandidate)
-			{
-				if (auto* SceneComponent = Cast<DSceneComponent>(Entry.Component);
-					SceneComponent && Actor.GetRootComponent() && SceneComponent != Actor.GetRootComponent())
-				{
-					if (!SceneComponent->AttachToComponent(Actor.GetRootComponent(),
-						EAttachmentTransformRule::SnapToTarget))
-					{
-						OutError = "Generated scene component could not attach to the actor root.";
-						return false;
-					}
-				}
-				Entry.Component->OnComponentCreated();
-			}
-			Next.push_back({Entry.Key, Entry.Component});
+			// A deferred caller can configure its pose before finishing the component.
+			if (!Scene->IsTransformModifiedByConstructionScript()) Scene->SetRelativeTransform(RelativeTransform);
 		}
-
-		std::unordered_set<DActorComponent*> DesiredComponents;
-		DesiredComponents.reserve(Desired.size());
-		for (const FDesiredEntry& Entry : Desired) DesiredComponents.insert(Entry.Component);
-
-		Actor.GeneratedComponents = Next;
-		// Authored components can finish PostLoad before their Actor. A duplicated
-		// instance component then needs its native ownership flag rebuilt as well.
-		Actor.OwnedComponents.clear();
-		for (const auto& Component : Actor.AuthoredComponents) Actor.AddOwnedComponent(Component.Get());
-		for (const FDesiredEntry& Entry : Desired)
-		{
-			Actor.AddOwnedComponent(Entry.Component);
-		}
-		for (const AActor::FGeneratedComponentRecord& Entry : Previous)
-		{
-			if (Entry.Component && !DesiredComponents.contains(Entry.Component.Get()))
-				Entry.Component->SetOwnedByActor(false);
-		}
-		Actor.ValidateComponentOwnership();
-		auto* Level = Cast<DLevel>(Actor.GetOuter());
-		DWorld* World = Level ? Level->GetWorld() : nullptr;
-		const bool bActorIsInActiveWorld = World
-			&& World->GetCurrentLevel() == Level
-			&& Level->ContainsActor(&Actor);
-		for (const FDesiredEntry& Entry : Desired)
-		{
-			if (!Entry.bCandidate) continue;
-			if (bActorIsInActiveWorld) Entry.Component->RegisterComponent();
-			if (Actor.PlayState == EActorPlayState::BeginningPlay
-				|| Actor.PlayState == EActorPlayState::Playing) Entry.Component->DispatchBeginPlay();
-		}
-		for (auto It = Previous.rbegin(); It != Previous.rend(); ++It)
-		{
-			DActorComponent* Component = It->Component.Get();
-			if (!Component || DesiredComponents.contains(Component)) continue;
-			if (Component->HasBegunPlay()) Component->RouteEndPlay();
-			if (Component->IsRegistered()) Component->UnregisterComponent();
-			Component->DestroyComponent();
-		}
-		bCommitted = true;
-		OutError.clear();
-		return true;
+		if (!Component->bHasBeenCreated) Component->OnComponentCreated();
+		if (!IsValid(Component) || Component->IsBeingDestroyed() || !OwnsComponent(Component) || IsBeingDestroyed())
+			throw std::runtime_error("Component or Actor retired during creation.");
+		auto* Level = Cast<DLevel>(GetOuter());
+		auto* World = Level ? Level->GetWorld() : nullptr;
+		if (World && World->GetCurrentLevel() == Level && Level->ContainsActor(this)) Component->RegisterComponent();
+		if (!IsValid(Component) || Component->IsBeingDestroyed() || !OwnsComponent(Component) || IsBeingDestroyed())
+			throw std::runtime_error("Component or Actor retired during registration.");
+		if (PlayState == EActorPlayState::BeginningPlay || PlayState == EActorPlayState::Playing) Component->DispatchBeginPlay();
 	}
 
-	auto FActorConstructionContext::RollbackCandidates() -> void
+	auto AActor::ExecuteConstruction(const FTransform& Transform, const FComponentInstanceDataCache* InstanceData) -> bool
 	{
-		for (auto It = Desired.rbegin(); It != Desired.rend(); ++It)
+		if (IsBeingDestroyed() || IsPendingKill()) return false;
+		if (bExecutingConstruction) throw std::runtime_error("ExecuteConstruction cannot be nested on the same Actor.");
+		FGarbageCollectionDeferralScope DeferCollection;
+		FScopedPackageDirtySuppression SuppressDirty;
+		bExecutingConstruction = true;
+		const auto* PreviousData = ConstructionInstanceData;
+		ConstructionInstanceData = InstanceData;
+		struct FExecutionScope
 		{
-			if (!It->bCandidate || !It->Component || It->Component->IsPendingKill()) continue;
-			if (It->Component->IsRegistered()) It->Component->UnregisterComponent();
-			It->Component->DestroyComponent();
+			AActor& Actor; const FComponentInstanceDataCache* PreviousData;
+			~FExecutionScope() { Actor.bExecutingConstruction = false; Actor.bRunningConstructionScript = false; Actor.ConstructionInstanceData = PreviousData; }
+		} Scope{*this, PreviousData};
+		try
+		{
+			if (InstanceData)
+				if (auto Result = InstanceData->Validate(this); !Result) throw std::runtime_error(Result.error());
+			for (const auto& Component : GetComponentsSnapshot())
+				if (auto* Scene = Cast<DSceneComponent>(Component.Get())) Scene->ClearConstructionModifiedProperties();
+			if (GetRootComponent()) GetRootComponent()->SetWorldTransform(Transform);
+			bRunningConstructionScript = true;
+			OnConstruction(Transform);
+			bRunningConstructionScript = false;
+			if (IsBeingDestroyed() || IsPendingKill()) throw std::runtime_error("Actor retired during construction.");
+			// No SCS implementation exists yet. Native construction currently creates
+			// all generated components; apply its post-construction cache once here.
+			if (InstanceData)
+				if (auto Result = InstanceData->ApplyToActor(*this, ECacheApplyPhase::PostUserConstructionScript); !Result)
+					throw std::runtime_error(Result.error().Message);
+			ValidateComponentOwnership();
+			NativeConstructionError.clear();
+			return true;
 		}
+		catch (const std::exception& Error) { NativeConstructionError = Error.what(); }
+		catch (...) { NativeConstructionError = "Construction callback threw."; }
+		return false;
 	}
 } // namespace Durin

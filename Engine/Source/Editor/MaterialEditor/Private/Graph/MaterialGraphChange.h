@@ -2,7 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "Transactions/Transaction.h"
-#include "Transactions/TransactionRecord.h"
+#include "DObject/TransactionObjectReference.h"
+#include "DObject/PropertyDiagnostic.h"
 #include "Materials/MaterialDiagnostic.h"
 
 namespace Durin::Editor
@@ -18,7 +19,6 @@ namespace Durin::Editor
 		size_t NodeCount = 0;
 		size_t MemberIndex = 0;
 		std::shared_ptr<const FMaterialChangeError> CleanupCause;
-		std::shared_ptr<const FTransactionSnapshotError> MemberCause;
 		std::shared_ptr<const FPropertySnapshotError> PropertyCause;
 		std::shared_ptr<const FMaterialError> MaterialCause;
 	};

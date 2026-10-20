@@ -229,7 +229,7 @@ namespace Durin::Editor
 				: FormatPackageReloadDiagnostic(Result.Diagnostics.front()));
 			return false;
 		}
-		if (GEditor) GEditor->GetTransactor()->EstablishSavedState(*ReplacementPackage);
+		// The reload participant publishes history and the replacement save baseline together.
 		return true;
 	}
 

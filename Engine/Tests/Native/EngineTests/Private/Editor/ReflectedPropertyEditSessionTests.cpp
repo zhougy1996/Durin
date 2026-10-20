@@ -1,4 +1,5 @@
 #include "ReflectedPropertyEditingTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 
 TEST(FReflectedPropertyEditSessionTests, CommitsAndUndoRedoesGuidValues)
 {
@@ -118,6 +119,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsNestedEditOfSameTarge
 
 TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValidTargets)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	Durin::Editor::FPropertyEditSession Session;
 	std::string Error;
 	const auto EditResult3 = Session.Begin({}, {}, Durin::Editor::ETransactionMode::NotTransactable);

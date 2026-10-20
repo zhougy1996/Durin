@@ -215,7 +215,6 @@ namespace Durin::Editor
 		auto CompleteDeferredEdit(
 			std::expected<void, FObjectValidationError> Validation,
 			FPropertyValueSnapshotPayload ProposedValue) -> void;
-		auto UpdateTransactorRecord() -> FPropertyEditOperationResult;
 		static auto Reject(std::string Message) -> FPropertyEditOperationResult;
 		auto Reset() -> void;
 
@@ -226,7 +225,6 @@ namespace Durin::Editor
 		std::string Description;
 		DTransactor* Transactor = nullptr;
 		std::optional<FScopedTransaction> TransactionScope;
-		uint64 TransactionRecordId = 0;
 		bool bActive = false;
 		bool bDeferredPending = false;
 		std::shared_ptr<FDeferredOwnerState> DeferredOwnerState;

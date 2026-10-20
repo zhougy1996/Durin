@@ -6,7 +6,6 @@ namespace Durin::Editor
 	{
 		std::string Message;
 		if (Error.MaterialCause) Message = FormatMaterialError(*Error.MaterialCause);
-		else if (Error.MemberCause) Message = FormatTransactionSnapshotError(*Error.MemberCause);
 		else if (Error.PropertyCause) Message = ToString(*Error.PropertyCause);
 		else switch (Error.Code)
 		{

@@ -11,7 +11,7 @@
 namespace Durin
 {
 	class AActor;
-	class FActorConstructionContext;
+	struct FActorComponentInstanceData;
 
 	// Records whether component state is native-authored, instance-authored, or transient derived output.
 	DENUM()
@@ -37,6 +37,13 @@ namespace Durin
 		Destroying
 	};
 
+	struct FActorComponentLifecycleState
+	{
+		FTickFunctionState Tick;
+		bool bCreated = false, bRegistered = false, bInitialized = false, bPlaying = false;
+		auto operator==(const FActorComponentLifecycleState&) const -> bool = default;
+	};
+
 	// Defines actor-owned lifecycle, registration, play, and optional tick behavior.
 	DCLASS(ScriptType)
 	class DActorComponent : public DObject
@@ -54,6 +61,14 @@ namespace Durin
 			return Cast<T>(GetOuter());
 		}
 
+		ENGINE_API auto CaptureLifecycleState() const -> FActorComponentLifecycleState;
+		ENGINE_API auto ValidateLifecycleState(const FActorComponentLifecycleState& State) const -> std::expected<void, std::string>;
+		ENGINE_API auto ApplyLifecycleState(const FActorComponentLifecycleState& State) -> std::expected<void, std::string>;
+		ENGINE_API static auto SerializeLifecycleState(FArchive& Archive, FActorComponentLifecycleState& State) -> void;
+		ENGINE_API auto ReregisterComponent() -> void;
+		auto HasBeenCreated() const -> bool { return bHasBeenCreated; }
+		auto HasBeenInitialized() const -> bool { return bHasBeenInitialized; }
+
 		ENGINE_API auto RegisterComponent() -> void;
 
 		ENGINE_API auto UnregisterComponent() -> void;
@@ -61,6 +76,10 @@ namespace Durin
 		ENGINE_API auto DestroyComponent() -> void;
 
 		ENGINE_API auto BeginDestroy() -> void override;
+		using DObject::PostEditUndo;
+		ENGINE_API virtual auto GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData>;
+		ENGINE_API auto FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> override;
+		ENGINE_API auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
 		auto GetCreationMethod() const -> EComponentCreationMethod { return CreationMethod; }
@@ -100,6 +119,8 @@ namespace Durin
 		ENGINE_API virtual auto OnOwnerVisibilityChanged() -> void;
 
 	private:
+		auto RegisterComponentInternal(bool bInitialize) -> void;
+
 		// Call OnRegister()
 		auto ExecuteRegisterEvents() -> void;
 
@@ -128,7 +149,7 @@ namespace Durin
 		FActorComponentTickFunction PrimaryComponentTick;
 
 		friend class AActor;
-		friend class FActorConstructionContext;
+		friend class FComponentReregisterContext;
 		friend class DLevel;
 	};
 }

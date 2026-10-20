@@ -80,7 +80,7 @@ namespace Durin::Editor
 		} Guard;
 		FScopedTransaction Transaction(Transactor.Get(), {
 			.Name = Request.RootOwner.ToString() + "::" + Request.FunctionName.ToString(),
-			.Description = Function->GetDisplayName(), .PrimaryObject = FPersistentObjectRef(Target.Get())});
+			.Description = Function->GetDisplayName(), .PrimaryObject = Target.Get()});
 		(void)Target->Modify();
 		const auto Invoked = Target->ProcessEvent(Function, {});
 		if (Invoked != EFunctionInvokeError::None)

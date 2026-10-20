@@ -39,7 +39,7 @@ namespace Durin::RoadNet
 		auto GetAlignments() const -> const std::vector<std::shared_ptr<const FRoadAlignment>>& { return Alignments; }
 
 	protected:
-		ROADWEAVER_API auto OnNativeConstruct(FActorConstructionContext& Context, std::string& OutError) -> bool override;
+		ROADWEAVER_API auto OnConstruction(const FTransform& Transform) -> void override;
 
 	private:
 		auto BindAsset() -> void;

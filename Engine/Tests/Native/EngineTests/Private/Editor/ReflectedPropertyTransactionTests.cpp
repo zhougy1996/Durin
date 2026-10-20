@@ -289,7 +289,7 @@ TEST(FReflectedPropertyEditSessionTests, FocusedFallbackPreservesInitialPackageD
 
 		Durin::Editor::FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Object, Property),
-			"Edit Focused Value", Transactions.Get()));
+			"Edit Focused Value", *Transactions.Get()));
 		EXPECT_EQ(Package->IsDirty(), bInitiallyDirty);
 		EXPECT_FALSE(Object->HasAnyObjectFlags(Durin::EObjectFlags::Transactional));
 		ASSERT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);

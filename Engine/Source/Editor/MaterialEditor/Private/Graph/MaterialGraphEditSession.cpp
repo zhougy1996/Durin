@@ -13,40 +13,40 @@ namespace Durin::Editor::Material::GraphEditInternals
 	{
 		struct FMemberChange
 		{
-			FFocusedTransactionObjectSnapshot Before, After;
-			auto Object() const -> DObject* { return Before.GetTarget().Resolve(); }
-			auto Property() const -> FProperty* { return Before.GetMember().Resolve(Object()).value_or(nullptr); }
-			auto Index() const -> uint32 { return Before.GetMember().GetArrayIndex(); }
-			auto Capture(DObject& Object, FProperty* Property, uint32 Index) -> std::expected<void, FTransactionSnapshotError>
+			FPersistentObjectRef Target;
+			FProperty* Member = nullptr;
+			FName MemberName;
+			uint32 ElementIndex = 0;
+			FPropertyValueSnapshotPayload Before, After;
+			auto Object() const -> DObject* { return Target.Resolve(); }
+			auto Property() const -> FProperty*
 			{
-				return FFocusedTransactionObjectSnapshot::Capture(&Object, Property, Index)
-					.transform([&](auto Snapshot) { Before = std::move(Snapshot); });
+				auto* Owner = Object();
+				return Owner && Owner->GetClass()->FindPropertyByName(MemberName) == Member ? Member : nullptr;
 			}
-			auto CaptureAfter() -> std::expected<void, FTransactionSnapshotError>
+			auto Index() const -> uint32 { return ElementIndex; }
+			auto Capture(DObject& Object, FProperty* Property, uint32 Index) -> std::expected<void, FPropertySnapshotError>
 			{
-				auto Resolved = Before.GetMember().Resolve(Object());
-				if (!Resolved)
-				{
-					Resolved.error().Owner = Before.GetTarget().GetKey();
-					return std::unexpected(std::move(Resolved.error()));
-				}
-				return FFocusedTransactionObjectSnapshot::Capture(Object(), *Resolved, Index())
-					.transform([&](auto Snapshot) { After = std::move(Snapshot); });
+				Target = FPersistentObjectRef(&Object); Member = Property; ElementIndex = Index;
+				MemberName = Property ? Property->NamePrivate : FName();
+				return CapturePropertyValuePayload(this->Property(), &Object, Index, Before);
 			}
-			auto IsNoOp() const -> bool { return Before.GetPayload() == After.GetPayload(); }
+			auto CaptureAfter() -> std::expected<void, FPropertySnapshotError>
+			{ return CapturePropertyValuePayload(Property(), Object(), Index(), After); }
+			auto IsNoOp() const -> bool { return Before == After; }
 			auto Restore(bool bBefore) const -> FMaterialChangeResult
 			{
-				auto Resolved = Before.GetMember().Resolve(Object());
-				if (!Resolved)
-				{
-					Resolved.error().Owner = Before.GetTarget().GetKey();
-					return {{.Code = EMaterialChangeError::MemberUnavailable,
-						.MemberCause = std::make_shared<FTransactionSnapshotError>(std::move(Resolved.error()))}};
-				}
-				const auto Restored = RestorePropertyValuePayload(*Resolved, Object(), Index(), (bBefore ? Before : After).GetPayload());
+				if (!Property()) return {{.Code = EMaterialChangeError::MemberUnavailable}};
+				const auto Restored = RestorePropertyValuePayload(Property(), Object(), Index(), bBefore ? Before : After);
 				if (!Restored) return {{.Code = EMaterialChangeError::PropertyRestore,
 					.PropertyCause = std::make_shared<FPropertySnapshotError>(Restored.error())}};
 				return {};
+			}
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void
+			{
+				Target.AddReferencedObjects(Collector);
+				for (const auto* Payload : {&Before, &After})
+					for (auto Key : Payload->GetReferencedObjectKeys()) FPersistentObjectRef::FromKey(Key).AddReferencedObjects(Collector);
 			}
 		};
 		using FNodes = std::vector<TStrongObjectPtr<DMaterialExpression>>;
@@ -74,6 +74,20 @@ namespace Durin::Editor::Material::GraphEditInternals
 		class FGraphObjectChange final : public FMaterialCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{
+				std::vector<DObject*> Objects{Owner.Get()};
+				for (const auto& Member : Members) Objects.push_back(Member.Object());
+				if (bStructural)
+				{
+					for (const auto& Node : BeforeNodes)
+						if (!std::ranges::contains(AfterNodes, Node)) Objects.push_back(Node.Get());
+					for (const auto& Node : AfterNodes)
+						if (!std::ranges::contains(BeforeNodes, Node)) Objects.push_back(Node.Get());
+				}
+				return Objects;
+			}
+
 			TWeakObjectPtr<DObject> Owner;
 			std::vector<FMemberChange> Members;
 			FNodeReferences BeforeNodes, AfterNodes; // Collector-owned structural membership.
@@ -131,8 +145,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 			{
 				for (const auto& M : Members)
 				{
-					M.Before.AddReferencedObjects(Collector);
-					M.After.AddReferencedObjects(Collector);
+					M.AddReferencedObjects(Collector);
 				}
 				for (const auto* Nodes : {&BeforeNodes, &AfterNodes})
 					for (auto& E : *Nodes) { DObject* Object = E.Get(); Collector.AddReferencedObject(Object); }
@@ -162,7 +175,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 		std::vector<FMemberChange> Members;
 		std::unordered_set<DMaterialExpression*> Modified;
 		bool bFinished = false;
-		std::shared_ptr<const FTransactionSnapshotError> CaptureError;
+		std::shared_ptr<const FPropertySnapshotError> CaptureError;
 	};
 	FGraphEditSession::FGraphEditSession(DObject& Owner)
 		: bFunction(Cast<DMaterialFunction>(&Owner) != nullptr),
@@ -191,7 +204,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 				FMemberChange M;
 				const auto Captured = M.Capture(Expression, P, Index);
 				if (Captured) Impl->Members.push_back(std::move(M));
-				else if (!Impl->CaptureError) Impl->CaptureError = std::make_shared<FTransactionSnapshotError>(Captured.error());
+				else if (!Impl->CaptureError) Impl->CaptureError = std::make_shared<FPropertySnapshotError>(Captured.error());
 			}
 		});
 	}
@@ -250,7 +263,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 			for (auto& M : Impl->Members)
 			{
 				if (const auto Captured = M.CaptureAfter(); !Captured)
-					return RejectCommand("Unable to inspect the edited expression. " + FormatTransactionSnapshotError(Captured.error()));
+					return RejectCommand("Unable to inspect the edited expression. " + ToString(Captured.error()));
 				if (M.IsNoOp()) continue;
 				auto* E = Cast<DMaterialExpression>(M.Object());
 				// Constant values never change their class-defined output width.
@@ -269,7 +282,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 				const std::vector<FGuid> Outputs(ChangedOutputs.begin(), ChangedOutputs.end());
 				AdaptNumericTypes(*this, Seeds, Outputs);
 			}
-			if (Impl->CaptureError) return RejectCommand("Unable to record the edited expression. " + FormatTransactionSnapshotError(*Impl->CaptureError));
+			if (Impl->CaptureError) return RejectCommand("Unable to record the edited expression. " + ToString(*Impl->CaptureError));
 			if (!bFunction) std::stable_partition(Expressions.begin(), Expressions.end(), [](auto& E) { return !Cast<DMaterialExpressionMaterialOutput>(E.Get()); });
 		}
 		std::vector<FGuid> PresentationIds;
@@ -280,7 +293,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 		for (auto& M : Impl->Members)
 		{
 			if (const auto Captured = M.CaptureAfter(); !Captured)
-				return RejectCommand("Unable to record the edited expression. " + FormatTransactionSnapshotError(Captured.error()));
+				return RejectCommand("Unable to record the edited expression. " + ToString(Captured.error()));
 			if (!M.IsNoOp()) Change->Members.push_back(M);
 		}
 		Change->bStructural = !std::ranges::equal(Expressions, Impl->Original, {}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
@@ -304,7 +317,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 							FMemberChange M;
 							if (const auto Captured = M.Capture(*E, P, Index); !Captured)
 							{
-								if (!Impl->CaptureError) Impl->CaptureError = std::make_shared<FTransactionSnapshotError>(Captured.error());
+								if (!Impl->CaptureError) Impl->CaptureError = std::make_shared<FPropertySnapshotError>(Captured.error());
 								continue;
 							}
 							M.After = M.Before;
@@ -314,7 +327,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 				}
 			}
 		}
-		if (Impl->CaptureError) return RejectCommand("Unable to record the structural edit. " + FormatTransactionSnapshotError(*Impl->CaptureError));
+		if (Impl->CaptureError) return RejectCommand("Unable to record the structural edit. " + ToString(*Impl->CaptureError));
 		if (!Change->bStructural && Change->Members.empty() && Presentation == Impl->OriginalPresentation)
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
 		Change->bPresentation = Presentation != Impl->OriginalPresentation;

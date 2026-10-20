@@ -34,6 +34,7 @@ namespace
 	public:
 		auto IsValid() const -> bool override { return bValid; }
 		auto GetIdentity() const -> const void* override { return this; }
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return {}; }
 		auto GetTransform() const -> Durin::FTransform override { return Transform; }
 		auto SetTransform(const Durin::FTransform& Value) -> bool override { Transform = Value; return bValid; }
 		auto GetLabel() const -> std::string override { return "Probe"; }

@@ -9,6 +9,14 @@ add_custom_command(
 		"${CMAKE_CURRENT_SOURCE_DIR}/Private/FunctionReflectionTestTypes.h" ${_function_fixture_dht_sources}
 	VERBATIM
 )
+durin_add_native_test(CoreTransactionContractTests
+	KIND contract
+	DOMAINS reflection
+	MODULES core core-dobject
+	SOURCES Private/TransactionContractTests.cpp Private/TransactionSerializationTests.cpp
+	LIBRARIES Core CoreDObject
+)
+
 durin_add_native_test(CoreObjectTests
 	KIND contract
 	DOMAINS reflection

@@ -29,7 +29,7 @@ namespace Durin::RoadNet
 	{
 		Super::OnUpdateTransform();
 		if (auto* Actor = Cast<ARoadNetActor>(GetOwner()); Actor && !Actor->IsBeingDestroyed())
-			Actor->RequestNativeReconstruction();
+			Actor->RerunConstructionScripts();
 	}
 
 	ARoadNetActor::ARoadNetActor(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
@@ -43,7 +43,7 @@ namespace Durin::RoadNet
 		if (BoundAsset.Get()) BoundAsset.Get()->RemoveMutationListener(ListenerId);
 		BoundAsset = RoadNet.Get();
 		ListenerId = RoadNet ? RoadNet->AddMutationListener([Weak = TWeakObjectPtr<ARoadNetActor>(this)] {
-			if (auto* Actor = Weak.Get(); Actor && !Actor->IsBeingDestroyed()) Actor->RequestNativeReconstruction();
+			if (auto* Actor = Weak.Get(); Actor && !Actor->IsBeingDestroyed()) Actor->RerunConstructionScripts();
 		}) : 0;
 	}
 
@@ -52,14 +52,14 @@ namespace Durin::RoadNet
 		RoadNet = Asset;
 		BindAsset();
 		MarkPackageDirty();
-		RequestNativeReconstruction();
+		RerunConstructionScripts();
 	}
 
 	auto ARoadNetActor::SetPreviewMesh(DStaticMesh* Mesh) -> void
 	{
 		PreviewMesh = Mesh;
 		MarkPackageDirty();
-		RequestNativeReconstruction();
+		RerunConstructionScripts();
 	}
 
 	auto ARoadNetActor::BeginDestroy() -> void
@@ -75,31 +75,26 @@ namespace Durin::RoadNet
 	{
 		Super::PostEditChangeProperty(Event);
 		BindAsset();
-		RequestNativeReconstruction();
+		RerunConstructionScripts();
 	}
 
-	auto ARoadNetActor::OnNativeConstruct(FActorConstructionContext& Context, std::string& OutError) -> bool
+	auto ARoadNetActor::OnConstruction(const FTransform& Transform) -> void
 	{
 		BindAsset();
-		auto Fail = [&](std::string Message) {
-			// Construction rollback only retires new candidates; explicitly discard reused output too.
-			for (auto* Component : FindComponentsByClass<DSplineMeshComponent>())
-				if (Component->GetCreationMethod() == EComponentCreationMethod::Generated)
-					Component->DestroyComponent();
+		std::string OutError;
+		auto Fail = [&](std::string Message) -> void {
 			Alignments.clear();
 			Diagnostic = std::move(Message);
 			GenerationState = "Error";
-			OutError = Diagnostic;
-			return false;
+			throw std::runtime_error(Diagnostic);
 		};
-		if (!Super::OnNativeConstruct(Context, OutError)) return Fail(OutError);
+		Super::OnConstruction(Transform);
 		if (!RoadNet)
 		{
 			Alignments.clear();
 			GenerationState = "Empty";
 			Diagnostic.clear();
-			OutError.clear();
-			return true;
+			return;
 		}
 		if (RoadNet->GetSchemaVersion() != RoadNetSchemaVersion) return Fail("Road asset has an unsupported schema.");
 		const auto PlacementValidation = ValidateRoadPlacement(GetActorTransform());
@@ -154,9 +149,9 @@ namespace Durin::RoadNet
 		std::vector<DSplineMeshComponent*> Components;
 		for (const auto& Spec : Specs)
 		{
-			auto* Component = Cast<DSplineMeshComponent>(Context.AcquireGeneratedComponent(Spec.Key,
-				DSplineMeshComponent::StaticClass(), FName("RoadInterval")));
-			if (!Component) return Fail(Context.GetError());
+			auto* Component = Cast<DSplineMeshComponent>(AddComponentByClass(DSplineMeshComponent::StaticClass(), false, FTransform(), true,
+				Spec.Key, FName("RoadInterval")));
+			if (!Component) return Fail("Road component creation failed.");
 			Components.push_back(Component);
 		}
 		for (size_t Index = 0; Index < Specs.size(); ++Index)
@@ -170,11 +165,11 @@ namespace Durin::RoadNet
 				return Fail("Road preview generation failed: a spline mesh is unavailable.");
 			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Component->SetVisible(true);
+			FinishAddComponent(Component, false, FTransform());
 		}
 		Alignments = std::move(Candidates);
 		GenerationState = "Ready";
 		Diagnostic.clear();
-		OutError.clear();
-		return true;
+		return;
 	}
 }

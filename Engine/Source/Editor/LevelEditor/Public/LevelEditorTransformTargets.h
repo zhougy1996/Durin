@@ -8,6 +8,7 @@
 namespace Durin
 {
 	class DPackage;
+	class DObject;
 	class FReferenceCollector;
 }
 
@@ -39,6 +40,8 @@ namespace Durin::Editor::Level
 		virtual ~ITransformGizmoTarget() = default;
 		virtual auto IsValid() const -> bool = 0;
 		virtual auto GetIdentity() const -> const void* = 0;
+		// Explicit edited objects; native-only targets may declare an empty list.
+		virtual auto GetModifiedObjects() const -> std::vector<DObject*> = 0;
 		virtual auto GetTransform() const -> FTransform = 0;
 		virtual auto SetTransform(const FTransform& Transform) -> bool = 0;
 		virtual auto GetParentRotation() const -> FQuat { return FQuatConstants::Identity; }

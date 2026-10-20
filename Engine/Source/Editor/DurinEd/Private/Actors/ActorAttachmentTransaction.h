@@ -32,6 +32,7 @@ namespace Durin::Editor
 		FActorAttachmentTransaction(std::vector<FEntry> InEntries, bool bInAttaching);
 
 		auto GetDescription() const -> std::string_view override;
+		auto GetModifiedObjects() const -> std::vector<DObject*> override;
 		auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override;
 		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }

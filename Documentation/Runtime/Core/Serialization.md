@@ -200,8 +200,9 @@ semantic value operations. Missing or duplicate base calls, duplicate field
 identities, nested object entry, and unbalanced scopes are deterministic
 Archive failures.
 
-The shared save-selection predicate always omits `Transient` fields and
-deprecated fields outside their migration window. It additionally omits a
+The persistence save-selection predicate omits `Transient` fields and deprecated
+fields outside their migration window. Transaction-purpose archives instead
+include Transient and exclude NonTransactional/Deprecated fields. It additionally omits a
 reflected `DPROPERTY(EditorOnly)` when `Ar.IsFilterEditorOnly()` is true.
 `EditorOnly` is persistence policy, not layout or behavior compilation: ordinary
 authored packages, duplication, editable copy, snapshots, and transactions keep
@@ -511,6 +512,36 @@ transaction fields include Transient and exclude NonTransactional/Deprecated;
 ordinary snapshots retain their existing policy. Struct restore seeds omitted
 transaction fields from their current values. Hard-reference tables include the
 serialized transaction fields, so excluded fields do not acquire history retention.
+
+`FTransactionObjectState` uses a nonpersistent object Archive and invokes virtual
+`DObject::Serialize`, including named native fields, rather than expanding Modify
+into independent reflected records. It owns canonical bytes, field ranges and
+schema/version evidence plus exact hard references. Weak references retain their
+original generation keys; soft references remain paths. Collector traversal is
+explicit and creates no per-snapshot roots. Direct construction-owned generated
+members are excluded under a stable capture policy.
+
+State captures Name, exact Outer and owning package, class identity and supported
+object flags. Replay rejects stale identities, incompatible schemas, Outer cycles,
+name reservations and construction-flag changes before loading. Garbage is
+irreversible. Metadata restoration maintains the object's Outer index and direct
+package export registration; dirty/checkpoint state remains the history owner's
+authority. A failed native load attempts restoration from a fresh inverse;
+unknown native exceptions or unsuccessful compensation require recovery.
+
+Focused-to-object promotion supplies earlier member values as detached save
+overrides; it never edits the live object to manufacture a before snapshot.
+`RestorePropertyValuePayload(..., true)` explicitly overlays a saved projection
+onto initialized parent storage when omitted fields must survive promotion.
+Ordinary snapshot callers keep the default complete baseline. Transaction parent
+baselines preserve matching Array elements and Map values before loading selected
+Struct fields, so excluded fields are not accidentally reset by detached storage.
+Transaction object capture rejects arrays without reversible load operations or
+CopyAssign and maps without reversible load operations or Lookup. This prevents
+capturing a state whose detached restore would silently reset omitted fields.
+Container overlay uses the non-consuming `PreservesContainerParentValues` query;
+`GetStructBaseline` is called only at a Struct boundary because package readers
+consume a baseline marker there.
 
 Property snapshot capture/restore APIs return `std::expected<void, FPropertySnapshotError>`, with
 owned validation context, operation and array indices, exact reference-table

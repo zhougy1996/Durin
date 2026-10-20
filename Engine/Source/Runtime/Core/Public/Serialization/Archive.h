@@ -206,6 +206,9 @@ namespace Durin
 		// Loading adapters select constructor storage, the initialized parent, or a registered type default.
 		// Complete adapters never query registered defaults.
 		virtual auto GetStructBaseline() -> EArchiveStructBaseline { return EArchiveStructBaseline::Complete; }
+		// Container overlay policy is a non-consuming query. GetStructBaseline may
+		// decode a per-struct wire marker and must only be called at a struct boundary.
+		virtual auto PreservesContainerParentValues() const -> bool { return IsTransacting(); }
 
 		virtual auto GetLoadedDeprecatedProperties(FName) const -> std::span<const FName>
 		{

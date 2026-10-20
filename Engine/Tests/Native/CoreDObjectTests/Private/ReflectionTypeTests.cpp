@@ -4873,6 +4873,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ObjectPtrUsesObjectSerialNumberHandleInAllBuilds)
 	{
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EXPECT_EQ(sizeof(Durin::FObjectKey), sizeof(Durin::DObject*));
 		EXPECT_EQ(sizeof(Durin::FObjectPtr), sizeof(Durin::DObject*));
 		EXPECT_EQ(sizeof(Durin::TObjectPtr<Durin::DObject>), sizeof(Durin::DObject*));
@@ -6561,6 +6562,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, StructDefaultsPublishAtomicallyAndRejectUnstableOrReentrantConstruction)
 	{
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto MakeOps = [](Durin::FDStructOps::FDefaultConstruct Construct) {
 			Durin::FDStructOps Ops;
 			Ops.Flags = Durin::EDStructOpsFlags::DefaultConstruct
@@ -7121,6 +7123,15 @@ TEST(FObjectModifyTests, RuntimeNeutralBridgeRequiresTransactionalParticipation)
 		explicit FRecorder(int& InCaptures) : Captures(InCaptures) {}
 		auto SaveObject(DObject* Target) -> void override { ++Captures; Saved = Target; }
 		auto ContainsObject(const DObject* Target) const -> bool override { return Saved == Target; }
+		auto GetContext() const -> FTransactionContext override { return {}; }
+		auto SetPrimaryObject(DObject*) -> void override {}
+		auto BeginOperation() -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
+		auto EndOperation() -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
+		auto Finalize() -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
+		auto StoreUndo(DObject*, std::unique_ptr<FCommandChange>) -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
+		auto SnapshotObject(DObject*, std::span<const FProperty* const>) -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
+		auto SaveArray(const FTransactionArrayCapture&) -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
+		auto ContainsPieObjects() const -> std::expected<bool, std::string> override { return std::unexpected("Capture-only test recorder."); }
 		int& Captures;
 		DObject* Saved = nullptr;
 	} Recorder(Captures);

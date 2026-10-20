@@ -305,6 +305,10 @@ namespace Durin
 			for (DObject* Object : All)
 			{
 				if (Object->GetPackage() != Pair.Prepared && (!Pair.Current || Object->GetPackage() != Pair.Current)) continue;
+				// Construction can leave retired TRASH components awaiting physical
+				// GC. They are not members of the live source graph and cannot be
+				// resurrected by replacement. Candidate graphs must still be valid.
+				if (Object->GetPackage() == Pair.Current && !IsValid(Object)) continue;
 				if (!IsValid(Object) || Object->IsTemplateObject()) return Failure(E::InvalidGraph, R::InvalidObject, Object);
 				auto& Graph = Object->GetPackage() == Pair.Current ? Old : New;
 				auto Names = RelativeNames(Object, Object->GetPackage());
@@ -415,6 +419,28 @@ namespace Durin
 		case EObjectReplacementReason::PersistenceRejected: return "Replacement persistence failed.";
 		}
 		return {};
+	}
+
+	auto FObjectReplacementMap::RemapObjectKey(FObjectKey Key, bool bWeak) const -> std::expected<FObjectKey, FObjectReplacementError>
+	{
+		if (Key.IsNull()) return Key;
+		auto* Object = ResolveObjectKey(Key);
+		if (!IsValid(Object))
+		{
+			if (bWeak) return Key;
+			return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ObjectIdentityChanged,
+				.Message = "An exact hard reference expired before replacement."});
+		}
+		const auto* Entry = Find(Object);
+		if (!Entry) return Key;
+		if (!Entry->Replacement)
+		{
+			if (bWeak) return FObjectKey{};
+			return std::unexpected(FObjectReplacementError{.Code = E::UnmappedReference, .Reason = R::ExternalUnmappedReference,
+				.ObjectPath = Object->GetObjectPath(), .Message = "A retained hard reference has no replacement."});
+		}
+		if (!IsValid(Entry->Replacement)) return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ObjectIdentityChanged});
+		return FObjectKey(Entry->Replacement);
 	}
 
 	struct FObjectReferenceReplacementPlan::FImpl

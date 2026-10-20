@@ -95,7 +95,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	if (auto* Body = Mesh->GetBodySetup()) Body->FinishPhysicsMeshes();
 }
 
-TEST(RoadSceneIntegration, ReuseFailureCleanupRecoveryAndDetach)
+TEST(RoadSceneIntegration, RecreationFailureCleanupRecoveryAndDetach)
 {
 	Testing::InitializeDObjectSystemForTests();
 	auto* Asset = NewObject<DRoadNet>(nullptr, "SceneRoad");
@@ -108,15 +108,16 @@ TEST(RoadSceneIntegration, ReuseFailureCleanupRecoveryAndDetach)
 	ASSERT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 	auto Components = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	ASSERT_EQ(Components.size(), 1);
-	ASSERT_TRUE(Actor->RequestNativeReconstruction());
-	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
+	EXPECT_NE(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
+	EXPECT_TRUE(Components[0]->IsPendingKill());
 	Actor->SetPreviewMesh(nullptr);
 	EXPECT_EQ(Actor->GetGenerationState(), "Error");
 	EXPECT_FALSE(Actor->GetDiagnostic().empty());
 	EXPECT_TRUE(Actor->FindComponentsByClass<DSplineMeshComponent>().empty());
 	EXPECT_TRUE(Actor->GetAlignments().empty());
 	EXPECT_TRUE(Components[0]->IsPendingKill());
-	EXPECT_FALSE(Actor->RequestNativeReconstruction());
+	EXPECT_FALSE(Actor->RerunConstructionScripts());
 	Actor->SetPreviewMesh(Mesh);
 	ASSERT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 	EXPECT_TRUE(Actor->GetDiagnostic().empty());

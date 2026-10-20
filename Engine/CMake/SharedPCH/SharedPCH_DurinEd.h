@@ -8,7 +8,6 @@
 #include "Notifications/Notification.h"
 #include "Settings/EditorSettings.h"
 #include "Transactions/Transaction.h"
-#include "Transactions/TransactionRecord.h"
 #include "Transactions/TransactionObjectRecord.h"
 #include "Workspace/WorkspaceTypes.h"
 

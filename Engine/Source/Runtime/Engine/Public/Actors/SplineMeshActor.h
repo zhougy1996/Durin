@@ -29,8 +29,7 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	protected:
-		ENGINE_API auto OnNativeConstruct(FActorConstructionContext& Context,
-			std::string& OutError) -> bool override;
+		ENGINE_API auto OnConstruction(const FTransform& Transform) -> void override;
 
 	private:
 		DPROPERTY()

@@ -171,7 +171,22 @@ namespace Durin
 			&& !Package->CanUseTopLevelAssetName(InName, this)) return;
 		NamePrivate = InName;
 		InvalidateSoftObjectCaches();
-		if (DPackage* Package = GetPackage(); Package && Package->IsAssetPackage()) Package->MarkDirty();
+		if (DPackage* Package = GetPackage(); Package && Package->IsAssetPackage()) MarkPackageDirty();
+	}
+
+	auto DObject::RestoreTransactionMetadata(FName Name, DObject* Outer, EObjectFlags Flags) -> void
+	{
+		CheckGameThread();
+		if (NamePrivate == Name && OuterPrivate == Outer && ObjectFlags == Flags) return;
+		if (auto* OldPackage = Cast<DPackage>(OuterPrivate); OldPackage && OldPackage->IsAssetPackage())
+			OldPackage->UnregisterTopLevelAsset(this);
+		NamePrivate = Name;
+		ObjectFlags = Flags;
+		if (OuterPrivate != Outer) GDObjectArray.ReparentObject(this, Outer);
+		if (auto* NewPackage = Cast<DPackage>(OuterPrivate); NewPackage && NewPackage->IsAssetPackage()
+			&& !HasAnyObjectFlags(EObjectFlags::Transient))
+			require(NewPackage->RegisterTopLevelAsset(this));
+		InvalidateSoftObjectCaches();
 	}
 
 
@@ -404,6 +419,17 @@ namespace Durin
 	auto DObject::PostEditUndo() -> void
 	{
 		PostEditChange();
+	}
+	auto DObject::PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation>) -> void
+	{
+		PostEditUndo();
+	}
+	auto DObject::FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
+	{
+		return {};
+	}
+	auto DObject::PostTransacted(const FTransactionObjectEvent&) -> void
+	{
 	}
 
 	auto DObject::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

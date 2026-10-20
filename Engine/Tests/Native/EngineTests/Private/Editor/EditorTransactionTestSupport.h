@@ -13,6 +13,7 @@ namespace Durin
 	{
 		static auto Record(DTransBuffer& Buffer, Editor::FTransactionObjectRecord Record) -> std::expected<uint64, Editor::FTransactorResult>
 		{ return static_cast<DTransactor&>(Buffer).Record(std::move(Record)); }
+
 		static auto InitializeMemoryBudget(DTransBuffer& Buffer, size_t Bytes) -> void
 		{
 			check(Bytes != 0 && Buffer.NextTransactionId == 1 && !Buffer.Pending && Buffer.History.empty());

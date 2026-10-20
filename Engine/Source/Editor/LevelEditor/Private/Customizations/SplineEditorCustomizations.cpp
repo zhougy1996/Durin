@@ -115,6 +115,7 @@ namespace Durin::Editor::Level
 				: Spline(InSpline), Element(InElement) {}
 			auto IsValid() const -> bool override { return ResolvePoint() != nullptr; }
 			auto GetIdentity() const -> const void* override { return ResolvePoint(); }
+			auto GetModifiedObjects() const -> std::vector<DObject*> override { return {Spline.Get()}; }
 			auto GetTransform() const -> FTransform override
 			{
 				FTransform Result;
@@ -585,9 +586,9 @@ namespace Durin::Editor::Level
 						MonaImGui::PropertyEdit::BeginRow("Path Output", ViewContext.bReadOnly);
 						ImGui::Text("%zu generated segment(s)",
 							Resolved->FindComponentsByClass<DSplineMeshComponent>().size());
-						if (!Resolved->GetNativeConstructionError().empty())
+						if (!Resolved->GetConstructionError().empty())
 							ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error),
-								"%s", Resolved->GetNativeConstructionError().c_str());
+								"%s", Resolved->GetConstructionError().c_str());
 						if (ImGui::Button("Edit Spline") && !ViewContext.bReadOnly)
 						{
 							Context.SelectComponent(Resolved->GetSplineComponent());

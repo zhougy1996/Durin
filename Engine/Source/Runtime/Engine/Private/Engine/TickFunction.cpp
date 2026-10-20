@@ -2,6 +2,8 @@
 
 #include "Components/ActorComponent.h"
 #include "CoreGlobals.h"
+#include "DObject/Archive.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -23,6 +25,27 @@ namespace Durin
 	{
 		UnregisterTickFunction();
 	}
+
+	auto FTickFunction::CaptureState() const -> FTickFunctionState
+	{ return {GetTickGroup(), IsTickFunctionEnabled(), IsTickFunctionRegistered()}; }
+
+	auto FTickFunction::ValidateState(const FTickFunctionState& State, DLevel* Level) -> std::expected<void, std::string>
+	{
+		if (State.Group >= ETickingGroup::Count) return std::unexpected("Tick group is invalid.");
+		if (State.bRegistered && (!IsValid(Level) || !Level->GetWorld())) return std::unexpected("Tick registration requires a live World Level.");
+		return {};
+	}
+	auto FTickFunction::RestoreState(const FTickFunctionState& State, DLevel* Level) -> std::expected<void, std::string>
+	{
+		if (auto Valid = ValidateState(State, Level); !Valid) return Valid;
+		if (!SetTickGroup(State.Group)) return std::unexpected("Tick group cannot change during an active frame.");
+		SetTickFunctionEnable(State.bEnabled);
+		if (State.bRegistered) RegisterTickFunction(Level); else UnregisterTickFunction();
+		if (IsTickFunctionRegistered() != State.bRegistered) return std::unexpected("Tick registration did not settle.");
+		return {};
+	}
+	auto FTickFunction::SerializeState(FArchive& Archive, FTickFunctionState& State) -> void
+	{ Archive << State.Group << State.bEnabled << State.bRegistered; }
 
 	auto FTickFunction::RegisterTickFunction(DLevel* Level) -> void
 	{

@@ -21,6 +21,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 #include "NativeTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "NativeAssetTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -491,6 +492,7 @@ TEST(FReflectedPropertyViewTests, CollisionResponsesCollapseAndRenderNamedChanne
 
 TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestoration)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	(void)Reflection;
 	auto* FirstObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, Durin::FName("First"));
@@ -524,6 +526,7 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 
 TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestoration)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	(void)Reflection;
 	auto* ObjectPtr = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, Durin::FName("ReadOnly"));
@@ -655,6 +658,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 
 TEST(FReflectedPropertyViewTests, WeakObjectInspectionDistinguishesNullLiveAndExpired)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	Durin::FWeakObjectProperty Property(
 		Durin::FFieldVariant(), Durin::FName("Weak"), Durin::EObjectFlags::Transient,
 		Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::Transient, 1, 0,
@@ -743,6 +747,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 
 TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWithoutErrors)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	using namespace Durin;
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	const FPropertyMetadata Original = Reflection.Property->GetTypedMetadata();
@@ -847,6 +852,7 @@ TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWitho
 
 TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransaction)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	auto* ManagedObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, "BoundedEdit");
 	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(ManagedObject);
@@ -871,6 +877,7 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 
 TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAllowsRetry)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	using namespace Durin;
 	using namespace Durin::Editor;
 	auto& Reflection = GetPropertyViewHostTestReflection();
@@ -931,6 +938,7 @@ TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAl
 
 TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePublication)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	using namespace Durin;
 	using namespace Durin::Editor;
 	auto& Reflection = GetPropertyViewHostTestReflection();
@@ -1082,28 +1090,19 @@ TEST(FReflectedPropertyViewTests, DraftRetainsInitializationAndRestoreCausesAcro
 
 TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidation)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	using namespace Durin;
 	using namespace Durin::Editor;
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedObjectRecord");
 	TStrongObjectPtr<DObject> Root(Object);
-	const auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
-	FPropertyValueSnapshotPayload Before, After;
-	ASSERT_TRUE(CapturePropertyValuePayload(Reflection.Property, Object, 0, Before));
-	Object->Value = 6;
-	ASSERT_TRUE(CapturePropertyValuePayload(Reflection.Property, Object, 0, After));
-	Object->Value = 5;
-	auto Captured = FTransactionObjectRecord::Capture(Target, Before, After);
+	auto Captured = FTransactionObjectRecord::CaptureWhole(*Object);
 	ASSERT_TRUE(Captured);
 	auto Record = std::move(*Captured);
+	Object->Value = 6;
+	ASSERT_TRUE(Record.CaptureAfter());
+	Object->Value = 5;
 	ASSERT_TRUE(Record.Validate());
-	const auto Invalid = FTransactionObjectRecord::Capture(Target, {}, After);
-	ASSERT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.error().Code, ETransactionObjectRecordError::Payload);
-	EXPECT_EQ(Invalid.error().Owner, FObjectKey(Object));
-	EXPECT_FALSE(Invalid.error().BeforeValid);
-	EXPECT_TRUE(Invalid.error().AfterValid);
-	EXPECT_EQ(Record.GetBefore(), Before);
 	bool Reject = true;
 	struct FExtensionScope
 	{
@@ -1126,11 +1125,11 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 	Reject = false;
 	ASSERT_TRUE(Record.Apply(true, EPropertyChangeOrigin::Undo));
 	EXPECT_EQ(Object->Value, 5);
-	EXPECT_EQ(Invalid.error().Code, ETransactionObjectRecordError::Payload);
 }
 
 TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 {
+	Durin::Testing::InitializeDObjectSystemForTests();
 	using namespace Durin;
 	using namespace Durin::Editor;
 	FPropertyEditSession Session;

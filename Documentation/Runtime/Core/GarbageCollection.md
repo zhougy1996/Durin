@@ -4,7 +4,7 @@ Summary: Define managed-object reachability, collection, rooting, and destructio
 
 Modules: CoreDObject
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-10-20
 
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
@@ -74,13 +74,21 @@ fallible resource work. Unenumerated native pointers cannot be discovered by
 reflection and remain the owner's admission responsibility. Explicitly rooted
 old objects, unhandled native ownership, unsupported container capabilities,
 incompatible types, and referenced objects without a replacement are rejected.
+Already retired members of the current package are excluded from its live source
+graph, including construction components awaiting physical GC. Invalid members
+of a candidate graph still reject preparation. This does not make expired exact
+references remappable.
 
 After commit, the operation keeps the old graph private and alive until `Retire`
 accepts all participant receipts and verifies no external hard references remain.
 Only then does it mark old objects as garbage and release its pins; physical
 destruction follows normal deferred GC readiness. Keep the operation alive until
 retirement succeeds. Before commit, `Abort` marks the accepted candidates instead.
-Weak handles are never rebound; they become invalid with their old generation.
+Ordinary live weak handles are never rebound; they become invalid with their old
+generation. Explicitly admitted serialized snapshots can prepare stored weak
+keys through the same map and publication protocol, as described in
+[runtime transaction contracts](Transactions.md#coredobject-boundary). This does
+not redirect an already expired key or change ordinary weak-handle resolution.
 The current primitive bounds package/object/reference counts; saved-file and
 resource-memory budgets belong to the Engine preparation layer.
 

@@ -109,7 +109,7 @@ namespace Durin
 			if (!Property) return false;
 			if (Ar.GetPurpose() == EArchivePurpose::Transaction)
 			{
-				if (Property->HasAnyPropertyFlags(EPropertyFlags::NonTransactional)) return false;
+				if (Property->HasAnyPropertyFlags(EPropertyFlags::NonTransactional | EPropertyFlags::Deprecated)) return false;
 			}
 			else if (Property->HasAnyPropertyFlags(EPropertyFlags::Transient)
 				&& !ShouldSerializeTransientWeakProperty(Ar, Property)) return false;
@@ -644,6 +644,8 @@ namespace Durin
 				}
 
 				const FArrayOps& Ops = ArrayProperty->GetOps();
+				if (Ar.PreservesContainerParentValues() && !Ops.CopyAssign)
+				{ Ar.SetError("Array parent baseline requires CopyAssign."); break; }
 				if (!ArrayProperty->HasCapability(EArrayOpsFlags::DetachedStorage | EArrayOpsFlags::TransactionalCommit
 					| EArrayOpsFlags::RandomAccess) || (Num > 0 && !ArrayProperty->HasCapability(EArrayOpsFlags::DefaultGrow)))
 				{
@@ -653,6 +655,11 @@ namespace Durin
 				}
 				FDetachedContainerStorage Detached;
 				EContainerOpResult Result = Detached.Create(Ops);
+				if (Result == EContainerOpResult::Success && Ar.PreservesContainerParentValues() && Ops.CopyAssign)
+				{
+					try { Ops.CopyAssign(Detached.Get(), ArrayProperty->GetValuePtr(Container, ArrayIndex)); }
+					catch (...) { Ar.SetError("Transaction array parent baseline copy failed."); return; }
+				}
 				if (Result == EContainerOpResult::Success) Result = Ops.Resize(Detached.Get(), Num);
 				if (Result != EContainerOpResult::Success)
 				{
@@ -744,6 +751,8 @@ namespace Durin
 						break;
 					}
 					const FMapOps& Ops = MapProperty->GetOps();
+					if (Ar.PreservesContainerParentValues() && !Ops.Lookup)
+					{ Ar.SetError("Map parent baseline requires Lookup."); break; }
 					FDetachedContainerStorage Detached;
 					EContainerOpResult OpResult = Detached.Create(Ops);
 					if (OpResult != EContainerOpResult::Success)
@@ -783,6 +792,15 @@ namespace Durin
 						}
 						{
 							auto ValueScope = EnterArchiveMapValue(Ar, Index);
+							if (Ar.PreservesContainerParentValues() && Ops.Lookup)
+							{
+								const void* ParentValue = nullptr;
+								const auto Lookup = Ops.Lookup(MapProperty->GetValuePtr(Container, ArrayIndex), KeyStorage.GetValue(), &ParentValue);
+								if (Lookup == EContainerOpResult::Success && ParentValue)
+									if (!CheckPropertyValueResult(Ar, MapProperty->GetValueProp()->CopyAssignValue(ValueStorage.GetValue(), ParentValue))) return;
+								if (Lookup != EContainerOpResult::Success && Lookup != EContainerOpResult::NotFound)
+								{ Ar.SetError("Transaction map parent baseline lookup failed."); return; }
+							}
 							SerializePropertyValue(Ar, MapProperty->GetValueProp(), ValueStorage.GetContainer(), 0, bIncludeRawObjectReferences);
 						}
 						if (Ar.IsError()) return;
@@ -1720,7 +1738,8 @@ namespace Durin
 		const FProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
-		const FPropertyValueSnapshotPayload& Payload
+		const FPropertyValueSnapshotPayload& Payload,
+		bool bPreserveOmittedFields
 	) -> std::expected<void, FPropertySnapshotError>
 	{
 		constexpr auto Operation = EPropertySnapshotOperation::Restore;
@@ -1751,13 +1770,14 @@ namespace Durin
 		class FSnapshotReader final : public FObjectMemoryReader
 		{
 		public:
-			FSnapshotReader(const FByteBuffer& InBytes, const std::vector<FObjectKey>& InReferences, bool bTransacting)
-				: FObjectMemoryReader(InBytes, bTransacting ? EArchivePurpose::Transaction : EArchivePurpose::PropertySnapshot), References(InReferences)
+			FSnapshotReader(const FByteBuffer& InBytes, const std::vector<FObjectKey>& InReferences, bool bTransacting, bool bInPreserveOmitted)
+				: FObjectMemoryReader(InBytes, bTransacting ? EArchivePurpose::Transaction : EArchivePurpose::PropertySnapshot), References(InReferences), bPreserveOmitted(bInPreserveOmitted)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
 			}
 			auto GetStructBaseline() -> EArchiveStructBaseline override
-			{ return IsTransacting() ? EArchiveStructBaseline::Parent : EArchiveStructBaseline::Complete; }
+			{ return IsTransacting() || bPreserveOmitted ? EArchiveStructBaseline::Parent : EArchiveStructBaseline::Complete; }
+			auto PreservesContainerParentValues() const -> bool override { return IsTransacting() || bPreserveOmitted; }
 
 			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
@@ -1791,9 +1811,10 @@ namespace Durin
 			uint64 ReferenceIndex = 0;
 		private:
 			const std::vector<FObjectKey>& References;
+			bool bPreserveOmitted;
 		};
 
-		FSnapshotReader Reader(Payload.Bytes, Payload.ReferencedObjectKeys, Payload.bTransacting);
+		FSnapshotReader Reader(Payload.Bytes, Payload.ReferencedObjectKeys, Payload.bTransacting, bPreserveOmittedFields);
 		SerializeReflectedPropertyValue(
 			Reader, *const_cast<FProperty*>(Property), Container, ArrayIndex, true);
 		if (!Reader.IsError() && Reader.GetRemainingPayloadBytes() != 0)
@@ -1926,7 +1947,7 @@ namespace Durin
 					auto FixedScope = Property->GetArrayDim() > 1
 						? EnterArchiveFixedArrayElement(Ar, Index) : FArchivePathScope();
 					SerializePropertyValue(Ar, Property,
-						const_cast<void*>(EffectiveValue.Container), EffectiveValue.ArrayIndex, false);
+						const_cast<void*>(EffectiveValue.Container), EffectiveValue.ArrayIndex, Ar.IsTransacting());
 				}
 			},
 			true

@@ -59,6 +59,9 @@ namespace
 	class FCountingTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
+		{ return {}; }
+
 		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
 		auto GetDescription() const -> std::string_view override { return "Counting"; }
 		auto GetDetails(Durin::Editor::ETransactionOperation Operation) const -> std::string override
@@ -88,6 +91,9 @@ namespace
 	class FControlledTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
+		{ return {}; }
+
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
 		auto GetDescription() const -> std::string_view override { return "Controlled"; }
 		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
@@ -113,6 +119,9 @@ namespace
 	class FPackageCountingTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
+		{ return {}; }
+
 		FPackageCountingTransaction(
 			int& InValue,
 			std::initializer_list<Durin::DPackage*> InPackages,

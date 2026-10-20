@@ -132,6 +132,17 @@ namespace Durin::Editor::Level
 					Description = std::format("{} {} {}", Action, Entries.size(), CollectionLabel);
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{
+				std::vector<DObject*> Objects;
+				for (const auto& Entry : Entries)
+					if (Entry.Target)
+					{
+						auto Participants = Entry.Target->GetModifiedObjects();
+						Objects.insert(Objects.end(), Participants.begin(), Participants.end());
+					}
+				return Objects;
+			}
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ::Durin::Editor::ETransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
@@ -219,6 +230,8 @@ namespace Durin::Editor::Level
 			explicit FActorTransformGizmoTarget(AActor* InActor) : Actor(InActor) {}
 			auto IsValid() const -> bool override { return Actor && !Actor->IsHidden() && Actor->GetRootComponent(); }
 			auto GetIdentity() const -> const void* override { return Actor.Get(); }
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return {Actor.Get(), Actor ? Actor->GetRootComponent() : nullptr}; }
 			auto GetTransform() const -> FTransform override { return Actor ? Actor->GetActorTransform() : FTransform{}; }
 			auto SetTransform(const FTransform& Transform) -> bool override { return Actor && Actor->SetActorTransform(Transform); }
 			auto GetParentRotation() const -> FQuat override

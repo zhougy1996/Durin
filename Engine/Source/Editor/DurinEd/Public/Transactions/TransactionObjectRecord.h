@@ -3,90 +3,86 @@
 #include "CoreMinimal.h"
 
 #include "DObject/PropertyChange.h"
-#include "Transactions/TransactionRecord.h"
+#include "DObject/TransactionDiff.h"
+#include "DurinEdAPI.h"
 
 namespace Durin::Editor
 {
-	struct FPropertyEditTarget;
-
-	struct FPropertyEditPathError;
-	struct FPropertyValueDraftError;
-	struct FPropertyMutationError;
-	enum class ETransactionObjectRecordError : uint8
-	{
-		None, Target, SnapshotRoot, Payload, Member, Path, Draft, Mutation
-	};
 	struct FTransactionObjectRecordError
 	{
-		ETransactionObjectRecordError Code = ETransactionObjectRecordError::None;
 		FObjectKey Owner;
-		std::string Member;
-		std::string Snapshot;
-		std::string Leaf;
-		uint32 ArrayIndex = 0;
-		uint64 PathLength = 0;
-		std::string PathFirst;
-		std::string PathLast;
-		bool ObjectOwnedStorage = false;
-		bool Before = false;
-		bool BeforeValid = false;
-		bool AfterValid = false;
-		DurinCodeGen::EPropertyGenFlags ExpectedKind = DurinCodeGen::EPropertyGenFlags::None;
-		DurinCodeGen::EPropertyGenFlags BeforeKind = DurinCodeGen::EPropertyGenFlags::None;
-		DurinCodeGen::EPropertyGenFlags AfterKind = DurinCodeGen::EPropertyGenFlags::None;
-		std::optional<FTransactionSnapshotError> MemberCause;
-		std::shared_ptr<const FPropertyEditPathError> PathCause;
-		std::shared_ptr<const FPropertyValueDraftError> DraftCause;
-		std::shared_ptr<const FPropertyMutationError> MutationCause;
+		std::string SerializationCause;
+		bool bRecoveryRequired = false;
 	};
 	DURINED_API auto FormatTransactionObjectRecordError(const FTransactionObjectRecordError& Error) -> std::string;
 
-	// Owns one stable member-to-leaf traversal step without retaining live storage.
-	struct FTransactionPropertyPathSegment
-	{
-		const FProperty* Property = nullptr;
-		EPropertyPathSelector Selector = EPropertyPathSelector::None;
-		uint64 Index = 0;
-		FByteBuffer MapKeyData;
-		FPropertyValueSnapshotPayload MapKey;
-
-		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
-	};
-
-	// Stores stable before/after member data for historical restore.
+	// One canonical whole-object serialized owner, captured before mutation.
 	class FTransactionObjectRecord
 	{
 	public:
-		DURINED_API static auto Capture(
-			const FPropertyEditTarget& Target,
-			FPropertyValueSnapshotPayload Before,
-			FPropertyValueSnapshotPayload After) -> std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>;
-
-		auto IsNoOp() const -> bool { return Before == After; }
+		DURINED_API static auto CaptureWhole(DObject& Object)
+			-> std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>;
+		DURINED_API auto IsNoOp() const -> bool;
 		DURINED_API auto Validate() const -> std::expected<void, FTransactionObjectRecordError>;
 		DURINED_API auto CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>;
-		DURINED_API auto Apply(
-			bool bBefore,
-			EPropertyChangeOrigin Origin) const -> std::expected<void, FTransactionObjectRecordError>;
+		DURINED_API auto Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bFlipState = true) -> std::expected<void, FTransactionObjectRecordError>;
+		DURINED_API auto PrepareReplay() -> std::expected<void, FTransactionObjectRecordError>;
+		// Build after native completion; replay's opposite side owns the live inverse.
+		DURINED_API auto BuildObjectEvents(const FTransactionContext& Context,
+			ETransactionObjectEventType Type, ETransactionOperation Operation) const
+			-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>;
+		DURINED_API auto Snapshot(const FTransactionContext& Context, std::span<const FProperty* const> Selected)
+			-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>;
+		auto ClearSnapshot() -> void { SnapshotState.reset(); std::vector<FName>().swap(SelectedSnapshotProperties); bHasSnapshot = false; }
+		auto ClearPreparedReplay(bool bClearAnnotation = true) -> void
+		{
+			ReplayState.reset();
+			if (bClearAnnotation) CompletionAnnotation.reset();
+		}
+		auto GetReplayAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> { return CompletionAnnotation; }
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
-
+		DURINED_API auto GetAffectedPackages() const -> std::vector<DPackage*>;
 		auto GetTarget() const -> const FPersistentObjectRef& { return Target; }
-		auto GetBefore() const -> const FPropertyValueSnapshotPayload& { return Before; }
-		auto GetAfter() const -> const FPropertyValueSnapshotPayload& { return After; }
+		DURINED_API auto CreateReplacement(const FObjectReplacementMap& Map) const
+			-> std::expected<FTransactionObjectRecord, std::string>;
+		DURINED_API auto HasSameState(const FTransactionObjectRecord& Other) const -> bool;
+		DURINED_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
 
 	private:
-		friend class FTransaction;
-		auto BuildTarget(FPropertyEditTarget& OutTarget) const -> std::expected<void, FTransactionObjectRecordError>;
-		auto Reject(ETransactionObjectRecordError Code) const -> std::expected<void, FTransactionObjectRecordError>;
-
+		// UE's editor FSerializedObject is distinct from the runtime byte payload.
+		struct FSerializedObject
+		{
+			FSerializedObjectCapture Serialized;
+			FDiffableObject Observation;
+			std::shared_ptr<ITransactionObjectAnnotation> Annotation;
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
+			auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
+			auto Validate(DObject& Object) const -> FTransactionCaptureResult;
+			auto GetAnnotation() const -> const std::shared_ptr<ITransactionObjectAnnotation>& { return Annotation; }
+			auto GetSerializedCapture() const -> const FSerializedObjectCapture& { return Serialized; }
+			auto GetPackage() const -> const FPersistentObjectRef& { return Serialized.Info.Package; }
+			auto HasSameSchema(const FSerializedObject& Other) const -> bool { return Serialized.HasSameSchema(Other.Serialized); }
+		};
+		static auto Capture(DObject& Object, const FSerializedObject* Policy = nullptr,
+			const std::shared_ptr<ITransactionObjectAnnotation>* AnnotationPolicy = nullptr)
+			-> std::expected<FSerializedObject, std::string>;
+		auto Reject(std::string Message, bool bRecovery = false) const -> std::unexpected<FTransactionObjectRecordError>;
 		FPersistentObjectRef Target;
-		FTransactionMemberLocator SnapshotMember;
-		const FProperty* LeafProperty = nullptr;
-		std::vector<FTransactionPropertyPathSegment> Path;
-		FByteBuffer LogicalIdentity;
-		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
-		FPropertyValueSnapshotPayload Before;
-		FPropertyValueSnapshotPayload After;
+		std::optional<FSerializedObject> BeforeState;
+		std::optional<FSerializedObject> AfterState;
+		std::optional<FSerializedObject> ReplayState;
+		std::shared_ptr<ITransactionObjectAnnotation> CompletionAnnotation;
+		struct FObjectSnapshot
+		{
+			FDiffableObject Observation;
+			std::shared_ptr<ITransactionObjectAnnotation> Annotation;
+			auto GetAnnotation() const -> const std::shared_ptr<ITransactionObjectAnnotation>& { return Annotation; }
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
+			auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
+		};
+		std::optional<FObjectSnapshot> SnapshotState;
+		std::vector<FName> SelectedSnapshotProperties;
+		bool bHasSnapshot = false;
 	};
 }

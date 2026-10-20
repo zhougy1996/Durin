@@ -143,7 +143,7 @@ namespace Durin
 		if (!Actor) return nullptr;
 		Actor->SetActorLabel(MakeUniqueActorLabel(RequestedName.ToString()));
 		Actors.emplace_back(Actor);
-		if (!Actor->RequestNativeReconstruction())
+		if (!Actor->RerunConstructionScripts())
 		{
 			Actors.pop_back();
 			MarkObjectHierarchyAsGarbage(Actor);
@@ -188,7 +188,6 @@ namespace Durin
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
 			if (!Component) continue;
-			if (Component->IsRegistered()) Component->UnregisterComponent();
 			Component->DestroyComponent();
 		}
 		const auto RemovalIt = std::find_if(Actors.begin(), Actors.end(), [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
@@ -424,9 +423,9 @@ namespace Durin
 		}
 		for (const TObjectPtr<AActor>& Actor : Actors)
 		{
-			if (Actor && !Actor->RequestNativeReconstruction())
+			if (Actor && !Actor->RerunConstructionScripts())
 			{
-				DURIN_ERROR("PostLoad '{}': {}", Actor->GetObjectPath(), Actor->GetNativeConstructionError());
+				DURIN_ERROR("PostLoad '{}': {}", Actor->GetObjectPath(), Actor->GetConstructionError());
 			}
 		}
 		for (DSceneComponent* Component : SceneComponents)

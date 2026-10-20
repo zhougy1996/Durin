@@ -17,6 +17,8 @@ namespace Durin
 	class FArchive;
 	class FReferenceCollector;
 	class DPackage;
+	class ITransactionObjectAnnotation;
+	struct FTransactionObjectEvent;
 
 	// Loaders validate owned graphs after all selected objects have values.
 	struct FObjectGraphLoadContext
@@ -199,6 +201,11 @@ namespace Durin
 		// Called once after this object's transaction replay (Undo or Redo), including
 		// compensation on failure. The default dispatches a full-object PostEditChange.
 		COREDOBJECT_API virtual auto PostEditUndo() -> void;
+		// Annotation-aware replay defaults to the existing completion hook.
+		COREDOBJECT_API virtual auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void;
+		COREDOBJECT_API virtual auto FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>;
+		// Synchronous object-level notification; default objects need no observer.
+		COREDOBJECT_API virtual auto PostTransacted(const FTransactionObjectEvent& Event) -> void;
 
 		// Editor mutation state stays outside DObject; this synchronous hook only
 		// lets the object refresh state derived from a successfully changed value.
@@ -271,6 +278,9 @@ namespace Durin
 		COREDOBJECT_API auto SetOuterPrivate(DObject* NewOuter) -> void;
 
 	private:
+		friend class FSerializedObjectDataReader;
+		// Called only after transaction metadata/reference preflight; preserves package indexes.
+		COREDOBJECT_API auto RestoreTransactionMetadata(FName Name, DObject* Outer, EObjectFlags Flags) -> void;
 		friend COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;
 
 		friend COREDOBJECT_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;

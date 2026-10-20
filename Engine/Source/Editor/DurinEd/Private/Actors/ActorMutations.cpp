@@ -39,6 +39,22 @@ namespace Durin
 		class FActorPresenceChange final : public FActorCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{
+				std::vector<DObject*> Objects{Level.Get()};
+				for (const auto& State : States)
+				{
+					Objects.push_back(State.Actor.Get());
+					for (const auto& Component : State.Registered) Objects.push_back(Component.Get());
+				}
+				for (const auto& Link : Attachments)
+				{
+					Objects.push_back(Link.Child.Get());
+					Objects.push_back(Link.Parent.Get());
+				}
+				return Objects;
+			}
+
 			FActorPresenceChange(DLevel& InLevel, std::span<AActor* const> InActors, bool bInRemove, std::string InDescription,
 				std::span<const FAttachmentState> PreparedAttachments = {})
 				: Level(&InLevel), Description(std::move(InDescription)), bRemove(bInRemove), BeforeCamera(InLevel.GetPrimaryCameraActor())
@@ -210,6 +226,9 @@ namespace Durin
 		class FActorRenameChange final : public FActorCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return {Actor.Get()}; }
+
 			FActorRenameChange(DLevel& InLevel, AActor& InActor, FName InAfter) : Level(&InLevel), Actor(&InActor), Before(InActor.GetFName()), After(InAfter), Packages{InLevel.GetPackage()} {}
 			auto GetDescription() const -> std::string_view override { return "Rename actor"; }
 			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
@@ -236,6 +255,9 @@ namespace Durin
 		class FActorLabelChange final : public FActorCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return {Actor.Get()}; }
+
 			FActorLabelChange(DLevel& InLevel, AActor& InActor, std::string InAfter)
 				: Level(&InLevel), Actor(&InActor), Before(InActor.GetActorLabel()), After(std::move(InAfter)), Packages{InLevel.GetPackage()} {}
 			auto GetDescription() const -> std::string_view override { return "Set actor label"; }
@@ -304,7 +326,7 @@ namespace Durin
 				FScopedPackageDirtySuppression SuppressPreparation;
 				Actor = NewObject<AActor>(Class, &Level, Name, EObjectFlags::Transactional);
 				if (Actor) Actor->SetActorLabel(Level.MakeUniqueActorLabel(Label.empty() ? Requested.ToString() : Label));
-				if (Actor && Actor->RequestNativeReconstruction())
+				if (Actor && Actor->RerunConstructionScripts())
 				{
 					Actor->SetActorTransform(Transform);
 					if (Configure)

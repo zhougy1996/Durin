@@ -343,7 +343,7 @@ namespace Durin::Editor::Level
 					{
 						FScopedPackageDirtySuppression SuppressPreparation;
 						Actor = NewObject<AStaticMeshActor>(&Level, Destination->Name);
-						if (!Actor || !Actor->RequestNativeReconstruction())
+						if (!Actor || !Actor->RerunConstructionScripts())
 						{
 							if (Actor) MarkObjectHierarchyAsGarbage(Actor);
 							return FailAfterMutation({.Code = ::Durin::Editor::EActorChangeError::ActorSpawn, .MemberIndex = Index});
@@ -394,6 +394,24 @@ namespace Durin::Editor::Level
 		class FStaticMeshLevelMutationTransaction final : public ::Durin::Editor::FActorCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{
+				std::vector<DObject*> Objects{Level.Get()};
+				for (const auto& Actor : Identities)
+					if (Actor)
+					{
+						Objects.push_back(Actor.Get());
+						if (Actor->GetRootComponent()) Objects.push_back(Actor->GetRootComponent());
+					}
+				for (const auto& Change : Presence)
+					if (Change)
+					{
+						auto Participants = Change->GetModifiedObjects();
+						Objects.insert(Objects.end(), Participants.begin(), Participants.end());
+					}
+				return Objects;
+			}
+
 			FStaticMeshLevelMutationTransaction(const FStaticMeshLevelMutationPlan& Plan)
 				: Level(Plan.Level), Description(Plan.Description), Deltas(Plan.Deltas)
 			{

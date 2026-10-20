@@ -8,6 +8,8 @@
 #include "DObject/Property.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/TransactionAnnotations.h"
+#include "ScopedSuspendRerunConstructionScripts.h"
 
 namespace Durin
 {
@@ -24,6 +26,69 @@ namespace Durin
 		if (RootComponent && RootComponent->GetCreationMethod() != EComponentCreationMethod::Generated)
 			bRecorded = RootComponent->Modify(bAlwaysMarkDirty) || bRecorded;
 		return bRecorded;
+	}
+	auto AActor::FindGeneratedComponent(const FActorGeneratedComponentKey& Key) const -> DActorComponent*
+	{
+		const auto Entry = std::ranges::find(GeneratedComponents, Key, &FGeneratedComponentRecord::Key);
+		return Entry == GeneratedComponents.end() ? nullptr : Entry->Component.Get();
+	}
+	auto AActor::GetGeneratedComponentKey(const DActorComponent* Component, FActorGeneratedComponentKey& Key) const -> bool
+	{
+		const auto Entry = std::ranges::find_if(GeneratedComponents, [Component](const auto& Value) { return Value.Component.Get() == Component; });
+		if (Entry == GeneratedComponents.end()) return false;
+		Key = Entry->Key; return true;
+	}
+	auto AActor::FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
+	{
+		return FActorTransactionAnnotation::CreateIfRequired(*this);
+	}
+	auto AActor::PreEditUndo() -> void
+	{
+		Super::PreEditUndo();
+		if (!EditConstructionSuspension) EditConstructionSuspension = std::make_unique<FScopedSuspendRerunConstructionScripts>(*this, false);
+	}
+	auto AActor::PostEditUndo() -> void { CompleteTransactionRestore(nullptr); }
+	auto AActor::PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void
+	{
+		auto State = std::dynamic_pointer_cast<FActorTransactionAnnotation>(Annotation);
+		if (Annotation && !State)
+		{
+			EditConstructionSuspension.reset();
+			throw std::runtime_error("Actor transaction annotation is incompatible.");
+		}
+		CompleteTransactionRestore(State.get());
+	}
+	auto AActor::CompleteTransactionRestore(const FActorTransactionAnnotation* Annotation) -> void
+	{
+		FGarbageCollectionDeferralScope DeferCollection;
+		FScopedPackageDirtySuppression SuppressDirty;
+		struct FCompletionScope
+		{
+			AActor& Actor;
+			~FCompletionScope() { Actor.EditConstructionSuspension.reset(); }
+		} Scope{*this};
+		FScopedSuspendRerunConstructionScripts CompletionSuspension(*this, false);
+		for (const auto& Component : AuthoredComponents)
+			if (!IsValid(Component.Get()) || Component->GetOwner() != this || Component->GetCreationMethod() == EComponentCreationMethod::Generated)
+				throw std::runtime_error("Actor authored component membership cannot be restored.");
+		for (const auto& Component : GetComponentsSnapshot())
+		{
+			if (!Component || Component->GetCreationMethod() == EComponentCreationMethod::Generated
+				|| std::ranges::contains(AuthoredComponents, Component)) continue;
+			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
+			Component->SetOwnedByActor(false);
+		}
+		RebuildOwnedComponentsFromAuthored();
+		if (!RerunConstructionScriptsImpl(Annotation ? &Annotation->GetComponentInstanceDataCache() : nullptr,
+			Annotation ? &Annotation->GetRootReconstructionData() : nullptr)) throw std::runtime_error(NativeConstructionError.empty()
+			? "Actor transaction reconstruction failed." : NativeConstructionError);
+		const auto Restored = Annotation ? Annotation->Restore(*this, false) : FActorTransactionAnnotation::RestoreDefault(*this);
+		if (!Restored) throw std::runtime_error(Restored.error().Message);
+		if (RootComponent) RootComponent->UpdateComponentToWorld();
+		NotifyComponentsVisibilityChanged();
+		// Keep reconstruction suppressed while the default completion publishes its
+		// full-object notification. Derived components have already settled.
+		Super::PostEditUndo();
 	}
 
 	auto AActor::GetActorLabel() const -> std::string
@@ -224,12 +289,7 @@ namespace Durin
 				if (SceneComponent->GetAttachParent()) SceneComponent->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
 				if (RootComponent == SceneComponent) SetRootComponent(nullptr);
 			}
-			Component->UnregisterComponent();
-			if (Component->bHasBeenCreated)
-			{
-				Component->OnComponentDestroyed();
-				check(!Component->bHasBeenCreated);
-			}
+			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
 			RemoveOwnedComponent(Component);
 		}
 		ValidateComponentOwnership();
@@ -347,6 +407,8 @@ namespace Durin
 		{
 			if (DLevel* Level = Cast<DLevel>(GetOuter())) Level->DestroyActor(this);
 		}
+		if (bNativeConstructionRequested && !bNativeConstructionRunning && !bExecutingConstruction && !IsBeingDestroyed())
+			RerunConstructionScripts();
 	}
 
 	auto AActor::RouteEndPlay() -> void
@@ -374,6 +436,8 @@ namespace Durin
 		{
 			if (DLevel* Level = Cast<DLevel>(GetOuter())) Level->DestroyActor(this);
 		}
+		if (bNativeConstructionRequested && !bNativeConstructionRunning && !bExecutingConstruction && !IsBeingDestroyed())
+			RerunConstructionScripts();
 	}
 
 	auto AActor::BeginPlay() -> void
@@ -420,37 +484,64 @@ namespace Durin
 	{
 	}
 
-	auto AActor::OnNativeConstruct(FActorConstructionContext& Context, std::string& OutError) -> bool
+	auto AActor::RerunConstructionScripts(const FComponentInstanceDataCache* InstanceData,
+		const FActorRootComponentReconstructionData* RootData) -> bool
 	{
-		(void)Context;
-		OutError.clear();
-		return true;
+		if (ConstructionSuspensionDepth > 0) { bNativeConstructionRequested = true; return true; }
+		return RerunConstructionScriptsImpl(InstanceData, RootData);
 	}
 
-	auto AActor::RequestNativeReconstruction() -> bool
+	auto AActor::RerunConstructionScriptsImpl(const FComponentInstanceDataCache* InstanceData,
+		const FActorRootComponentReconstructionData* RootData) -> bool
 	{
 		if (IsBeingDestroyed() || IsPendingKill()) return false;
-		if (bNativeConstructionRunning)
+		FGarbageCollectionDeferralScope DeferCollection;
+		if (bNativeConstructionRunning || bExecutingConstruction
+			|| PlayState == EActorPlayState::BeginningPlay || PlayState == EActorPlayState::EndingPlay)
 		{
 			bNativeConstructionRequested = true;
 			return true;
 		}
 		bNativeConstructionRunning = true;
+		struct FConstructionScope
+		{
+			AActor& Actor;
+			~FConstructionScope() { Actor.bNativeConstructionRunning = false; Actor.bNativeConstructionRequested = false; }
+		} ConstructionScope{*this};
 		FScopedPackageDirtySuppression SuppressConstructionDirtying;
 		bool bSucceeded = true;
-		for (uint32 Pass = 0; Pass < 2; ++Pass)
+		bool bStartedReconstruction = false;
+		try
 		{
-			bNativeConstructionRequested = false;
-			FActorConstructionContext Context(*this, ++NativeConstructionGeneration);
-			std::string Error;
-			if (!OnNativeConstruct(Context, Error) || Context.HasFailed() || !Context.Commit(Error))
+			for (uint32 Pass = 0; Pass < 2; ++Pass)
 			{
-				NativeConstructionError = Context.HasFailed() ? Context.GetError() : Error;
-				bSucceeded = false;
-				break;
+				bNativeConstructionRequested = false;
+				FComponentInstanceDataCache CapturedData;
+				FActorRootComponentReconstructionData CapturedRoot;
+				if (!InstanceData) CapturedData = FComponentInstanceDataCache(*this);
+				if (!RootData) CapturedRoot = FActorRootComponentReconstructionData(*this);
+				const auto& ApplyData = InstanceData ? *InstanceData : CapturedData;
+				const auto& ApplyRoot = RootData ? *RootData : CapturedRoot;
+				if (auto Valid = ApplyData.Validate(this); !Valid) { NativeConstructionError = Valid.error(); bSucceeded = false; break; }
+				if (auto Valid = ApplyRoot.Validate(this); !Valid) { NativeConstructionError = Valid.error(); bSucceeded = false; break; }
+				const FTransform Transform = GetActorTransform();
+				bStartedReconstruction = true;
+				DestroyConstructedComponents();
+				++NativeConstructionGeneration;
+				if (!ExecuteConstruction(Transform, &ApplyData))
+				{ bSucceeded = false; break; }
+				if (auto Applied = ApplyRoot.ApplyToActor(*this, RootData != nullptr); !Applied)
+				{ NativeConstructionError = Applied.error().Message; bSucceeded = false; break; }
+				NativeConstructionError.clear();
+				if (!bNativeConstructionRequested) break;
 			}
-			NativeConstructionError.clear();
-			if (!bNativeConstructionRequested) break;
+		}
+		catch (const std::exception& Failure) { NativeConstructionError = Failure.what(); bSucceeded = false; }
+		catch (...) { NativeConstructionError = "Native component instance capture or construction threw."; bSucceeded = false; }
+		if (!bSucceeded && bStartedReconstruction)
+		{
+			try { DestroyConstructedComponents(); }
+			catch (...) { NativeConstructionError += " Component cleanup also failed; recovery is required."; }
 		}
 		bNativeConstructionRequested = false;
 		bNativeConstructionRunning = false;
@@ -460,7 +551,7 @@ namespace Durin
 	auto AActor::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		RequestNativeReconstruction();
+		RerunConstructionScripts();
 		// PostEditUndo dispatches a full-object edit after all transaction fields settle.
 		// Direct property edits also bypass SetActorHiddenInGame and need synchronization.
 		if (!Event.MemberProperty || (Event.MemberProperty->NamePrivate == FName("bHidden")
@@ -474,7 +565,7 @@ namespace Durin
 		Super::PostLoad();
 		if (ActorLabel.empty()) ActorLabel = GetName();
 		RebuildOwnedComponentsFromAuthored();
-		if (RequestNativeReconstruction()) return;
+		if (RerunConstructionScripts()) return;
 		Error = NativeConstructionError.empty()
 			? "Actor native reconstruction failed after load or duplication."
 			: NativeConstructionError;

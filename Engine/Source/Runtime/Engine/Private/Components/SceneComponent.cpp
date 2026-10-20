@@ -1,13 +1,30 @@
 #include "Components/SceneComponent.h"
 
+#include "DObject/Class.h"
+#include "DObject/DefaultObjectGraph.h"
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
+#include "Engine/ComponentInstanceDataCache.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
 
 namespace Durin
 {
+	auto DSceneComponent::GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData>
+	{
+		// Authored transform fields are already owned by object serialization.
+		if (GetCreationMethod() != EComponentCreationMethod::Generated || IsTransformModifiedByConstructionScript()) return {};
+		if (const auto* Default = GetClass()->GetDefaultObject())
+		{
+			FDefaultObjectGraphMap Graph;
+			const auto* Property = GetClass()->FindPropertyByName("RelativeTransform");
+			if (Property && Graph.Build(Default, this)
+				&& CompareObjectPropertyToClassDefault(Property, this, 0, Graph) == EPropertyIdentityResult::Identical) return {};
+		}
+		return std::make_shared<FSceneComponentInstanceData>(*this);
+	}
+
 	DSceneComponent::DSceneComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -70,13 +87,9 @@ namespace Durin
 		bAttachmentUndoPending = true;
 	}
 
-	auto DSceneComponent::PostEditUndo() -> void
+	auto DSceneComponent::ReconcileAttachmentAfterUndo() -> void
 	{
-		if (!bAttachmentUndoPending)
-		{
-			Super::PostEditUndo();
-			return;
-		}
+		if (!bAttachmentUndoPending) return;
 		DSceneComponent* PreviousParent = PreUndoAttachParent.Get();
 		DSceneComponent* Parent = AttachParent.Get();
 		if (PreviousParent && PreviousParent != Parent) PreviousParent->RemoveAttachChild(this);
@@ -96,9 +109,18 @@ namespace Durin
 				if (auto* Level = Cast<DLevel>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
 		}
 #endif
-		Super::PostEditUndo();
-		// All authored fields are restored, and the parent can propagate future moves again.
 		UpdateComponentToWorld();
+	}
+
+	auto DSceneComponent::PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void
+	{
+		ReconcileAttachmentAfterUndo();
+		Super::PostEditUndo(std::move(Annotation));
+	}
+	auto DSceneComponent::PostEditUndo() -> void
+	{
+		if (bAttachmentUndoPending) ReconcileAttachmentAfterUndo();
+		Super::PostEditUndo();
 	}
 
 	auto DSceneComponent::BeginDestroy() -> void
@@ -131,6 +153,7 @@ namespace Durin
 
 	auto DSceneComponent::SetRelativeTransform(const FTransform& InTransform) -> void
 	{
+		if (IsOwnedByActor() && GetOwner() && GetOwner()->IsRunningConstructionScript()) bConstructionTransformModified = true;
 		FTransform NewRelativeTransform = InTransform;
 		NewRelativeTransform.Rotation = Math::Normalize(NewRelativeTransform.Rotation);
 		if (AreTransformsEqual(RelativeTransform, NewRelativeTransform)) return;
@@ -146,6 +169,7 @@ namespace Durin
 
 	auto DSceneComponent::SetWorldTransform(const FTransform& InTransform) -> void
 	{
+		if (IsOwnedByActor() && GetOwner() && GetOwner()->IsRunningConstructionScript()) bConstructionTransformModified = true;
 		FTransform NewWorldTransform = InTransform;
 		NewWorldTransform.Rotation = Math::Normalize(NewWorldTransform.Rotation);
 		if (AreTransformsEqual(ComponentToWorld, NewWorldTransform)) return;

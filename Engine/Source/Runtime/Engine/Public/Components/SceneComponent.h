@@ -36,7 +36,11 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
+		auto IsTransformModifiedByConstructionScript() const -> bool { return bConstructionTransformModified; }
+		auto ClearConstructionModifiedProperties() -> void { bConstructionTransformModified = false; }
+
 		ENGINE_API explicit DSceneComponent(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API auto GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData> override;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto OnComponentPendingKill() -> void override;
 		ENGINE_API auto OnRegister() -> void override;
@@ -45,6 +49,7 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto PreEditUndo() -> void override;
 		ENGINE_API auto PostEditUndo() -> void override;
+		ENGINE_API auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void override;
 
 		ENGINE_API auto GetRelativeTransform() const -> const FTransform&;
 		ENGINE_API auto SetRelativeTransform(const FTransform& InTransform) -> void;
@@ -94,6 +99,7 @@ private:
 		DPROPERTY(ReadOnly, Transient, NonTransactional)
 		FTransform ComponentToWorld;
 
+		auto ReconcileAttachmentAfterUndo() -> void;
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;
 		auto RemoveAttachChild(DSceneComponent* Child) -> void;
 
@@ -111,5 +117,7 @@ private:
 
 		friend class DLevel;
 		friend class FScene;
+		bool bConstructionTransformModified = false;
+
 	};
 }

@@ -1,9 +1,12 @@
 #include "Components/ActorComponent.h"
 
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Archive.h"
+#include "ComponentReregisterContext.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/TransactionAnnotations.h"
 #include "Components/SceneComponent.h"
 
 namespace Durin
@@ -14,8 +17,83 @@ namespace Durin
 		OwnerActorPrivate = Cast<AActor>(ObjectInitializer.Outer);
 		PrimaryComponentTick.SetTarget(this);
 	}
-	auto DActorComponent::RegisterComponent() -> void
+	auto DActorComponent::GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData> { return {}; }
+
+	auto DActorComponent::FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
 	{
+		auto State = std::make_shared<FComponentTransactionAnnotation>(*this);
+		return State->IsDefault() ? nullptr : State;
+	}
+	auto DActorComponent::PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void
+	{
+		if (Annotation)
+		{
+			auto State = std::dynamic_pointer_cast<FComponentTransactionAnnotation>(Annotation);
+			if (!State || State->GetComponent() != this) throw std::runtime_error("Component transaction annotation is incompatible.");
+			if (auto Result = State->Restore(); !Result) throw std::runtime_error(Result.error().Message);
+		}
+		else if (auto Result = FComponentTransactionAnnotation::DefaultFor(*this).Restore(); !Result)
+			throw std::runtime_error(Result.error().Message);
+		static_cast<DObject*>(this)->PostEditUndo();
+	}
+	auto DActorComponent::CaptureLifecycleState() const -> FActorComponentLifecycleState
+	{
+		if (IsBeingDestroyed() || IsBeginningPlay() || IsEndingPlay()) throw std::runtime_error("Component lifecycle capture requires settled state.");
+		return {PrimaryComponentTick.CaptureState(), bool(bHasBeenCreated), bool(bRegistered), bool(bHasBeenInitialized), HasBegunPlay()};
+	}
+	auto DActorComponent::ValidateLifecycleState(const FActorComponentLifecycleState& State) const -> std::expected<void, std::string>
+	{
+		if (!IsValid(this) || IsBeingDestroyed() || IsBeginningPlay() || IsEndingPlay()) return std::unexpected("Component lifecycle is unavailable or unsettled.");
+		if ((State.bRegistered || State.bInitialized || State.bPlaying) && !State.bCreated) return std::unexpected("Component lifecycle requires creation before activation.");
+		if (State.bRegistered && GetOwner() && !GetOwner()->OwnsComponent(this)) return std::unexpected("Registered component must belong to its owner's live set.");
+		if (State.bPlaying && (!GetOwner() || !GetOwner()->HasBegunPlay())) return std::unexpected("Component cannot begin play without its playing owner.");
+		return FTickFunction::ValidateState(State.Tick, GetOwner() ? Cast<DLevel>(GetOwner()->GetOuter()) : nullptr);
+	}
+	auto DActorComponent::ApplyLifecycleState(const FActorComponentLifecycleState& State) -> std::expected<void, std::string>
+	{
+		if (auto Valid = ValidateLifecycleState(State); !Valid) return Valid;
+		FGarbageCollectionDeferralScope DeferCollection;
+		FScopedPackageDirtySuppression SuppressDirty;
+		try
+		{
+			auto CheckLive = [&] {
+				if (!IsValid(this) || IsBeingDestroyed() || (State.bRegistered && GetOwner() && !GetOwner()->OwnsComponent(this)))
+					throw std::runtime_error("Component was retired or detached by a lifecycle callback.");
+			};
+			if (!State.bPlaying && HasBegunPlay()) { RouteEndPlay(); CheckLive(); }
+			if (!State.bInitialized && bHasBeenInitialized) { UninitializeComponent(); CheckLive(); }
+			if (!State.bRegistered && IsRegistered()) { UnregisterComponent(); CheckLive(); }
+			if (!State.bCreated && bHasBeenCreated) { OnComponentDestroyed(); CheckLive(); }
+			if (State.bCreated && !bHasBeenCreated) { OnComponentCreated(); CheckLive(); }
+			const bool bNeedsRegistration = State.bRegistered || (State.bInitialized && !bHasBeenInitialized)
+				|| (State.bPlaying && !HasBegunPlay());
+			if (bNeedsRegistration && !IsRegistered()) { RegisterComponentInternal(State.bInitialized); CheckLive(); }
+			if (State.bInitialized && !bHasBeenInitialized) { InitializeComponent(); CheckLive(); }
+			if (State.bPlaying && !HasBegunPlay()) { DispatchBeginPlay(); CheckLive(); }
+			if (!State.bRegistered && IsRegistered()) { UnregisterComponent(); CheckLive(); }
+			if (auto Result = PrimaryComponentTick.RestoreState(State.Tick, GetOwner() ? Cast<DLevel>(GetOwner()->GetOuter()) : nullptr); !Result) return Result;
+			if (CaptureLifecycleState() != State) return std::unexpected("Component lifecycle restoration did not settle.");
+			return {};
+		}
+		catch (const std::exception& Error) { return std::unexpected(Error.what()); }
+		catch (...) { return std::unexpected("Component lifecycle callback threw."); }
+	}
+	auto DActorComponent::SerializeLifecycleState(FArchive& Archive, FActorComponentLifecycleState& State) -> void
+	{
+		FTickFunction::SerializeState(Archive, State.Tick);
+		Archive << State.bCreated << State.bRegistered << State.bInitialized << State.bPlaying;
+	}
+	auto DActorComponent::ReregisterComponent() -> void
+	{
+		FComponentReregisterContext Context(this);
+		if (auto Result = Context.ReRegister(); !Result) throw std::runtime_error(Result.error());
+	}
+
+	auto DActorComponent::RegisterComponent() -> void { RegisterComponentInternal(true); }
+
+	auto DActorComponent::RegisterComponentInternal(bool bInitialize) -> void
+	{
+		FGarbageCollectionDeferralScope DeferCollection;
 		if (IsPendingKill())
 		{
 			DURIN_WARN(
@@ -24,8 +102,10 @@ namespace Durin
 			return;
 		}
 		if (!bHasBeenCreated) OnComponentCreated();
+		if (!IsValid(this) || IsBeingDestroyed()) return;
 		ExecuteRegisterEvents();
-		if (!bHasBeenInitialized) InitializeComponent();
+		if (!IsValid(this) || IsBeingDestroyed()) return;
+		if (bInitialize && !bHasBeenInitialized) InitializeComponent();
 		if (bRegistered && !IsBeingDestroyed())
 		{
 			if (DLevel* Level = OwnerActorPrivate ? Cast<DLevel>(OwnerActorPrivate->GetOuter()) : nullptr;
@@ -38,9 +118,8 @@ namespace Durin
 
 	auto DActorComponent::UnregisterComponent() -> void
 	{
+		FGarbageCollectionDeferralScope DeferCollection;
 		PrimaryComponentTick.UnregisterTickFunction();
-		RouteEndPlay();
-		if (bHasBeenInitialized) UninitializeComponent();
 		ExecuteUnregisterEvents();
 	}
 
@@ -196,6 +275,7 @@ namespace Durin
 		if (!bRegistered)
 		{
 			OnRegister();
+			if (!IsValid(this) || IsBeingDestroyed()) return;
 			check(bRegistered && "Failed to route OnRegister()");
 			++RegistrationGeneration;
 		}

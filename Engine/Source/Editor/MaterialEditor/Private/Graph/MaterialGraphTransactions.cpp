@@ -31,6 +31,9 @@ namespace Durin::Editor::Material
 			: public FMaterialCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return {Material.Get()}; }
+
 			FMaterialGraphPresentationTransaction(
 				DObject& InMaterial,
 				const FMaterialGraphPresentation& BeforePresentation,
@@ -145,6 +148,9 @@ namespace Durin::Editor::Material
 		class FMaterialGraphParameterTransaction final : public FMaterialCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return {Material.Get()}; }
+
 			FMaterialGraphParameterTransaction(
 				DMaterial& InMaterial,
 				FGuid InParameterId,

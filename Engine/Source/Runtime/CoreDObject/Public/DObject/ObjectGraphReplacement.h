@@ -4,6 +4,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 #include "DObject/PropertyDiagnostic.h"
 #include "DObject/ContainerOps.h"
 
@@ -141,6 +142,10 @@ namespace Durin
 		COREDOBJECT_API auto Build(std::span<const FObjectReplacementPackagePair> Packages,
 			const FObjectReplacementBudget& Budget = {}) -> std::expected<void, FObjectReplacementMapError>;
 		COREDOBJECT_API auto Find(DObject* Previous) const -> const FEntry*;
+		// Exact-generation mapping only. Expired weak handles stay expired; removed
+		// weak targets clear, while expired/removed hard targets reject preparation.
+		COREDOBJECT_API auto RemapObjectKey(FObjectKey Key, bool bWeak = false) const
+			-> std::expected<FObjectKey, FObjectReplacementError>;
 		auto GetEntries() const -> std::span<const FEntry> { return Entries; }
 		auto GetPreparedObjects() const -> std::span<DObject* const> { return PreparedObjects; }
 

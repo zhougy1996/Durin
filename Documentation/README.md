@@ -15,6 +15,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Changing build/run workflows, output layout, setup, or recovery behavior | [Build and run](Development/Build/BuildAndRun.md) |
 | AI-assisted local toolchain configuration or setup checks | [DevTool setup configuration](Development/Tooling/DevToolSetup.md) |
 | Reflected type identity, registration, class defaults, or enum metadata | [Reflection system](Runtime/Core/ReflectionSystem.md) |
+| Runtime transaction capture, custom-change participants, or transaction object contracts | [Runtime transactions](Runtime/Core/Transactions.md) |
 | DPROPERTY types, typed metadata, containers, or serialized field compatibility | [Property reflection](Runtime/Core/PropertyReflection.md) |
 | DSTRUCT value capabilities, detached storage, logical comparison, or type defaults | [Reflected struct operations](Runtime/Core/StructOperations.md) |
 | DHT parsing, reflected symbol exports, or generated C++ | [Reflection generation](Development/Tooling/ReflectionGeneration.md) |
@@ -100,7 +101,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Reflected edit targets, detached validation, object notifications, or edit sessions | [Reflected property editing](Editor/Architecture/ReflectedPropertyEditing.md) |
 | Details layouts, categories/search, custom property widgets, or host view lifetime | [Property Details views](Editor/Architecture/PropertyDetailsViews.md) |
 | Level Editor Actor/Component Details, aggregation, or material-slot controls | [Level Editor Details](Editor/Architecture/LevelEditorDetails.md) |
-| Editor transaction identity, focused records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/TransactionRecords.md) |
+| Editor transaction identity, whole-object records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/TransactionRecords.md) |
 | Editor transactor, scoped recording, bounded history, structural Undo/Redo, or transaction buffer ownership | [Editor transactor core](Editor/Architecture/Transactors.md) |
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |
 | Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |

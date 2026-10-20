@@ -605,7 +605,7 @@ assert a.get_editor_property('numbers') == before
     }
     TEST_F(PythonReflectionTests, DocumentPolicyIsRecheckedAfterNativeValidation)
     {
-        PrepareScene(); bool Writable = true;
+        PrepareScene(); ASSERT_FALSE(Host->GetTransactor()->CanUndo()) << "Fixture already has history"; bool Writable = true;
         FEditorScriptTargetPolicyRegistration Policy(*Host, *EditLevel, [&] {
             return Writable ? EEditorScriptTargetAccess::Writable : EEditorScriptTargetAccess::ReadOnly;
         });
@@ -721,7 +721,7 @@ else:
     }
     TEST_F(PythonReflectionTests, ScriptPropertiesRejectDeferredValidationBeforeStartingWork)
     {
-        PrepareScene(); bool Started = false;
+        PrepareScene(); ASSERT_FALSE(Host->GetTransactor()->CanUndo()) << "Fixture already has history"; bool Started = false;
         const auto Extension = Editor::RegisterPropertyEditExtension({.PreEdit = [&](DObject& Object, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
             if (&Object == EditActor) Proposal.Defer([&](FPropertyEditDeferredCompletion) { Started = true; return [] {}; });
             return {};

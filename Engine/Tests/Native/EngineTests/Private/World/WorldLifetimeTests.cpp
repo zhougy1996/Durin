@@ -683,3 +683,23 @@ TEST(FWorldTests, ActorModifyRecordsTheNativeRootTransform)
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Actor->GetActorTransform().Translation, FVector3(7.0, 8.0, 9.0));
 	ASSERT_TRUE(Transactions->Reset()); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
 }
+
+TEST(FWorldTests, SceneReplacementPreservesPlayingComponentLifecycleAndBoundTimers)
+{
+	auto* World = CreateWorld(); FWorldSceneLifecycleTestScene First, Second;
+	World->SetRenderScene(&First);
+	auto* Actor = World->SpawnActor<Durin::ADirectionalLightActor>("ReregisterLight");
+	auto* Component = Actor->GetLightComponent();
+	ASSERT_TRUE(World->BeginPlay({}));
+	const auto Before = Component->CaptureLifecycleState();
+	int Calls = 0;
+	const auto Timer = World->GetTimerManager().SetTimerForObjectNextTick(Component, [&](Durin::DObject&) { ++Calls; });
+	World->SetRenderScene(&Second);
+	EXPECT_EQ(Component->CaptureLifecycleState(), Before);
+	EXPECT_EQ(First.RemoveLightCount, 1u); EXPECT_EQ(Second.AddLightCount, 1u);
+	EXPECT_TRUE(First.Lights.empty()); EXPECT_EQ(Second.Lights.size(), 1u);
+	EXPECT_TRUE(World->GetTimerManager().IsTimerActive(Timer));
+	World->Tick({.DeltaSeconds = 0.1f}); EXPECT_EQ(Calls, 1);
+	World->SetRenderScene(nullptr); EXPECT_TRUE(Second.Lights.empty());
+	World->EndPlay(); Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+}

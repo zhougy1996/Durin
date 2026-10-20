@@ -14,6 +14,9 @@ namespace
 	class FRefreshTestTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
+		{ return {}; }
+
 		explicit FRefreshTestTransaction(bool bInMutatesMountedContent)
 			: bMutatesMountedContent(bInMutatesMountedContent)
 		{

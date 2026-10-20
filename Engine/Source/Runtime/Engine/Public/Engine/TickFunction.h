@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	class FArchive;
 	class AActor;
 	class DActorComponent;
 	class DLevel;
@@ -17,6 +18,14 @@ namespace Durin
 		Physics,
 		PostPhysics,
 		Count
+	};
+
+	// Native scheduling checkpoint shared by reregistration and historical recovery.
+	struct FTickFunctionState
+	{
+		ETickingGroup Group = ETickingGroup::PrePhysics;
+		bool bEnabled = false, bRegistered = false;
+		auto operator==(const FTickFunctionState&) const -> bool = default;
 	};
 
 	class FTickRegistry;
@@ -32,6 +41,11 @@ namespace Durin
 		auto operator=(const FTickFunction&) -> FTickFunction& = delete;
 		FTickFunction(FTickFunction&&) = delete;
 		auto operator=(FTickFunction&&) -> FTickFunction& = delete;
+
+		ENGINE_API auto CaptureState() const -> FTickFunctionState;
+		ENGINE_API static auto ValidateState(const FTickFunctionState& State, DLevel* Level) -> std::expected<void, std::string>;
+		ENGINE_API auto RestoreState(const FTickFunctionState& State, DLevel* Level) -> std::expected<void, std::string>;
+		ENGINE_API static auto SerializeState(FArchive& Archive, FTickFunctionState& State) -> void;
 
 		// Registers this stable node with one Level. Calls must remain on the game thread.
 		ENGINE_API auto RegisterTickFunction(DLevel* Level) -> void;

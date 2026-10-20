@@ -541,7 +541,7 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 	EXPECT_EQ(Child->GetWorldLocation(), Before);
 	ASSERT_TRUE(F.Scene.Lights.contains(Light));
 	EXPECT_EQ(F.Scene.Lights.at(Light), Light->GetWorldLocation());
-	ASSERT_TRUE(F.Transactions->Undo());
+	ASSERT_TRUE(F.Transactions->Undo()) << Editor::FormatTransactorResult(F.Transactions->GetLastResult());
 	EXPECT_EQ(Light->GetRelativeLocation(), FVector3(4.0, 0.0, 0.0));
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Light->GetRelativeLocation(), FVector3(9.0, 0.0, 0.0));
@@ -681,7 +681,7 @@ TEST(FComponentMutationTests, RenamePreservesIdentityAndEarlierPropertyHistory)
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Light->GetFName(), Before);
 	EXPECT_EQ(Light->GetObjectPath(), Path);
-	ASSERT_TRUE(F.Transactions->Undo());
+	ASSERT_TRUE(F.Transactions->Undo()) << Editor::FormatTransactorResult(F.Transactions->GetLastResult());
 	EXPECT_EQ(Light->GetRelativeLocation(), FVector3(3.0, 0.0, 0.0));
 	ASSERT_TRUE(F.Transactions->Redo());
 	ASSERT_TRUE(F.Transactions->Redo());
@@ -1014,6 +1014,9 @@ TEST(FActorMutationTests, UnavailableServiceAndRecoveringHistoryRejectBeforePrep
 	class FIncompleteChange final : public FActorCommandChange
 	{
 	public:
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
+		{ return {}; }
+
 		auto GetDescription() const -> std::string_view override { return "Incomplete compensation fixture"; }
 		auto Replay(ETransactionOperation) -> FActorChangeResult override
 		{ return {{.Code = EActorChangeError::RollbackIncomplete}}; }
@@ -1101,11 +1104,14 @@ TEST(FActorMutationTests, UnrecordableStructuralEditRemainsAppliedAndInvalidates
 	TStrongObjectPtr<DPackage> PackageRoot(Package);
 	auto* Level = NewObject<DLevel>(Package, "RejectedLevel");
 	auto* Actor = NewObject<AStaticMeshActor>(Level, "PreparedActor");
-	ASSERT_TRUE(Actor->RequestNativeReconstruction());
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	AActor* Raw = Actor;
 	class FOverflowingPresence final : public FActorCommandChange
 	{
 	public:
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
+		{ return Change->GetModifiedObjects(); }
+
 		explicit FOverflowingPresence(std::unique_ptr<FActorCommandChange> InChange) : Change(std::move(InChange)) {}
 		auto GetDescription() const -> std::string_view override { return "Overflowing presence fixture"; }
 		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Change->GetAffectedPackages(); }

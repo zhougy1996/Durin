@@ -99,8 +99,8 @@ namespace Durin::PythonFixtures
         auto PostLoad() -> void override
         { Super::PostLoad(); if (const auto Callback = LoadCallback) Callback(*this); }
     protected:
-        auto OnNativeConstruct(FActorConstructionContext& Context, std::string& Error) -> bool override
-        { if (const auto Callback = ConstructCallback) Callback(*this); return Super::OnNativeConstruct(Context, Error); }
+        auto OnConstruction(const FTransform& Transform) -> void override
+        { if (const auto Callback = ConstructCallback) Callback(*this); Super::OnConstruction(Transform); }
     };
     DENUM(ScriptType)
     enum class EReflectionMode : uint8 { Idle, Ready };

@@ -31,6 +31,13 @@ namespace Durin
 		class FComponentMembershipChange final : public FActorCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{
+				std::vector<DObject*> Objects{Owner.Get(), Component.Get(), Parent.Get()};
+				for (const auto& Entry : Children) Objects.push_back(Entry.Child.Get());
+				return Objects;
+			}
+
 			FComponentMembershipChange(AActor& InOwner, DActorComponent& InComponent, bool bInRemove)
 				: Owner(&InOwner), Component(&InComponent), bRemove(bInRemove)
 			{
@@ -178,6 +185,9 @@ namespace Durin
 		class FComponentEditChange : public FActorCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return {Component.Get()}; }
+
 			FComponentEditChange(AActor& InOwner, DActorComponent& InComponent)
 				: Owner(&InOwner), Component(&InComponent), Packages{InOwner.GetPackage()} {}
 			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
@@ -228,6 +238,9 @@ namespace Durin
 		class FComponentReparentChange final : public FComponentEditChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return {Component.Get(), BeforeParent.Get(), AfterParent.Get()}; }
+
 			FComponentReparentChange(AActor& Owner, DSceneComponent& Component, DSceneComponent* Parent)
 				: FComponentEditChange(Owner, Component), BeforeParent(Component.GetAttachParent()), AfterParent(Parent),
 				BeforeRelative(Component.GetRelativeTransform()), AfterRelative(Parent

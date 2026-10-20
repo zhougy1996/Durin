@@ -279,7 +279,7 @@ namespace Durin
 		friend COREDOBJECT_API auto CapturePropertyValuePayload(
 			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&, bool) -> std::expected<void, FPropertySnapshotError>;
 		friend COREDOBJECT_API auto RestorePropertyValuePayload(
-			const FProperty*, void*, uint32, const FPropertyValueSnapshotPayload&) -> std::expected<void, FPropertySnapshotError>;
+			const FProperty*, void*, uint32, const FPropertyValueSnapshotPayload&, bool) -> std::expected<void, FPropertySnapshotError>;
 	};
 
 	// Legacy retaining adapter over the shared retention-neutral property snapshot payload.
@@ -309,7 +309,8 @@ namespace Durin
 	};
 
 	COREDOBJECT_API auto CapturePropertyValuePayload(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshotPayload& OutPayload, bool bTransacting = false) -> std::expected<void, FPropertySnapshotError>;
-	COREDOBJECT_API auto RestorePropertyValuePayload(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshotPayload& Payload) -> std::expected<void, FPropertySnapshotError>;
+	// Explicit parent projection preserves omitted fields in already initialized storage.
+	COREDOBJECT_API auto RestorePropertyValuePayload(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshotPayload& Payload, bool bPreserveOmittedFields = false) -> std::expected<void, FPropertySnapshotError>;
 	COREDOBJECT_API auto ArePropertySnapshotTypesCompatible(
 		const FProperty* CapturedProperty, const FProperty* CandidateProperty) -> bool;
 	COREDOBJECT_API auto CapturePropertyValue(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshot& OutSnapshot) -> std::expected<void, FPropertySnapshotError>;

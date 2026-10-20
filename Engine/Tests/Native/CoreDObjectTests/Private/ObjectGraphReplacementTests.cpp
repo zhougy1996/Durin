@@ -7,7 +7,9 @@
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/StructOps.h"
 #include "DObject/WeakObjectPtr.h"
+#include "DObject/TransactionDiff.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
@@ -40,7 +42,7 @@ namespace
 				return Raw;
 			};
 			static const FStructParams Params{NoRegister, "FNestedReplacementReference", "FNestedReplacementReference",
-				sizeof(FNestedReference), alignof(FNestedReference), Properties, std::size(Properties)};
+				sizeof(FNestedReference), alignof(FNestedReference), Properties, std::size(Properties), &GetDStructOps<FNestedReference>()};
 			return ConstructDStruct(Params);
 		}();
 		return Type;
@@ -90,6 +92,22 @@ namespace
 		{
 			DObject::AddReferencedObjects(Collector);
 			Collector.AddReferencedObject(NativeReference);
+			if (Capture) Capture->AddReferencedObjects(Collector);
+			if (Observation) Observation->AddReferencedObjects(Collector);
+		}
+		auto Serialize(FArchive& Ar) -> void override
+		{
+			DObject::Serialize(Ar);
+			{
+				auto Field = EnterArchiveField(Ar, {StaticClass()->GetQualifiedName(), "Weak", FArchiveLogicalTypeDescriptor::WeakObject()});
+				SerializeArchiveWeakObjectReference(Ar, Weak.GetBase());
+			}
+			{
+				auto Type = FArchiveLogicalTypeDescriptor::Scalar(true, 32);
+				Type.NativeFieldVersion = NativeVersion;
+				auto Field = EnterArchiveField(Ar, {StaticClass()->GetQualifiedName(), "Value", Type});
+				Ar << Value;
+			}
 		}
 		Ptr Reference;
 		Ptr FixedReferences[2];
@@ -97,6 +115,11 @@ namespace
 		Map MapReferences;
 		FNestedReference StructReference;
 		DObject* NativeReference = nullptr;
+		TWeakObjectPtr<DObject> Weak;
+		int32 Value = 0;
+		uint32 NativeVersion = 1;
+		std::optional<FSerializedObjectCapture> Capture;
+		std::optional<FDiffableObject> Observation;
 	};
 
 	// Owns a native cache and its optional strong handle through the retirement receipt.
@@ -162,6 +185,20 @@ namespace
 			CollectGarbage();
 		}
 		auto Prepare() -> std::expected<void, FObjectReplacementError> { return Operation->Prepare(std::span(&Pair, 1)); }
+		auto CaptureSource(DObject& Object) -> testing::AssertionResult
+		{
+			Owner->Observation.emplace();
+			auto Capture = CaptureSerializedObject(Object, nullptr, &*Owner->Observation);
+			if (!Capture) return testing::AssertionFailure() << Capture.error();
+			Owner->Capture = std::move(*Capture);
+			return testing::AssertionSuccess();
+		}
+		auto SerializedParticipant() -> std::shared_ptr<IObjectReplacementParticipant>
+		{
+			const FSerializedObjectReplacementBinding Binding{Owner->Capture ? &*Owner->Capture : nullptr,
+				Owner->Observation ? &*Owner->Observation : nullptr};
+			return CreateSerializedObjectReplacementParticipant(*Owner, std::span(&Binding, 1));
+		}
 		Testing::FScopedMountRegistryFixture Mounts;
 		FPackagePath Path;
 		DPackage* Current = nullptr;
@@ -172,6 +209,235 @@ namespace
 		FObjectReplacementPackagePair Pair;
 		std::unique_ptr<FObjectGraphReplacement> Operation;
 	};
+}
+
+TEST_F(FObjectGraphReplacementTests, SerializedCaptureAndObservationPublishTogetherAndReleaseOldGraph)
+{
+	Old->Reference = Old;
+	Old->FixedReferences[0] = Old;
+	Old->NestedReferences = {{Old, Old}};
+	Old->StructReference.Reference = Old;
+	Old->Weak = Old;
+	Old->Value = 42;
+	ASSERT_TRUE(CaptureSource(*Old));
+	const auto Before = Owner->Capture->Data;
+	const auto Identity = Owner->Capture->Info.Identity;
+	const FObjectKey OldKey(Old);
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	auto Ready = Operation->Prepare(std::span(&Pair, 1), Participants);
+	ASSERT_TRUE(Ready) << ToString(Ready.error());
+	EXPECT_EQ(Owner->Capture->Data, Before);
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+	EXPECT_EQ(New->Value, 0);
+	ASSERT_TRUE(Operation->TryCommit());
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), New);
+	EXPECT_EQ(Owner->Capture->Info.Package.Resolve(), Prepared);
+	EXPECT_EQ(Owner->Capture->Info.Identity, Identity);
+	EXPECT_NE(Owner->Capture->Data, Before);
+	EXPECT_EQ(Owner->Capture->Data, Owner->Observation->SerializedObject);
+	EXPECT_EQ(Owner->Capture->Context, Owner->Observation->SerializationContext);
+	ASSERT_EQ(Owner->Capture->Data->HardReferences.size(), 1u);
+	EXPECT_EQ(Owner->Capture->Data->HardReferences[0], FObjectKey(New));
+	auto Loaded = LoadSerializedObject(*New, *Owner->Capture);
+	ASSERT_TRUE(Loaded) << Loaded.error().Message;
+	EXPECT_EQ(New->Value, 42);
+	EXPECT_EQ(New->Reference.Get(), New);
+	EXPECT_EQ(New->FixedReferences[0].Get(), New);
+	EXPECT_EQ(New->NestedReferences[0][0].Get(), New);
+	EXPECT_EQ(New->StructReference.Reference.Get(), New);
+	EXPECT_EQ(New->Weak.Get(), New);
+	auto Live = DiffUtil::GetDiffableObject(*New);
+	ASSERT_TRUE(Live);
+	auto Diff = DiffUtil::GenerateObjectDiff(*Owner->Observation, *Live);
+	ASSERT_TRUE(Diff);
+	EXPECT_FALSE(Diff->HasChanges());
+	ASSERT_TRUE(Operation->Retire());
+	CollectGarbage();
+	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
+}
+
+TEST_F(FObjectGraphReplacementTests, SerializedPublicationWaitsForPersistenceAndCanRetry)
+{
+	ASSERT_TRUE(CaptureSource(*Old));
+	const auto Before = Owner->Capture->Data;
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	EXPECT_FALSE(Operation->TryCommit([]() -> std::expected<void, FObjectReplacementError> {
+		return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::ParticipantRejected,
+			.Reason = EObjectReplacementReason::PersistenceRejected});
+	}));
+	EXPECT_EQ(Owner->Capture->Data, Before);
+	EXPECT_EQ(Owner->Observation->ObjectInfo.Target.Resolve(), Old);
+	ASSERT_TRUE(Operation->TryCommit());
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), New);
+	EXPECT_EQ(Owner->Capture->Data, Before); // No reference-byte changes require no payload copy.
+	ASSERT_TRUE(Operation->Retire());
+}
+
+TEST_F(FObjectGraphReplacementTests, AbortingSerializedReplacementPreservesBothOriginalAllocations)
+{
+	Old->Reference = Old;
+	ASSERT_TRUE(CaptureSource(*Old));
+	const auto Data = Owner->Capture->Data;
+	const auto Context = Owner->Capture->Context;
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	Operation->Abort();
+	EXPECT_EQ(Owner->Capture->Data, Data);
+	EXPECT_EQ(Owner->Observation->SerializedObject, Data);
+	EXPECT_EQ(Owner->Capture->Context, Context);
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+	EXPECT_EQ(Owner->Reference.Get(), Old);
+}
+
+TEST_F(FObjectGraphReplacementTests, ChangedSerializedCaptureRejectsBeforeAnyPublication)
+{
+	ASSERT_TRUE(CaptureSource(*Old));
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	Owner->Capture->Info.Identity.OriginalOuterPath += "Changed";
+	auto Committed = Operation->TryCommit();
+	ASSERT_FALSE(Committed);
+	EXPECT_EQ(Committed.error().Reason, EObjectReplacementReason::ParticipantChanged);
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+	EXPECT_EQ(Owner->Observation->ObjectInfo.Target.Resolve(), Old);
+	EXPECT_EQ(FindPackage(Path.GetView()), Current);
+	EXPECT_EQ(Owner->Reference.Get(), Old);
+}
+
+TEST_F(FObjectGraphReplacementTests, ChangedReplacementNativeSchemaRejectsBeforePublication)
+{
+	ASSERT_TRUE(CaptureSource(*Old));
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	++New->NativeVersion;
+	EXPECT_FALSE(Operation->TryCommit());
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+	EXPECT_EQ(Owner->Reference.Get(), Old);
+}
+
+TEST_F(FObjectGraphReplacementTests, SerializedParticipantRejectsUncoveredNativeReferenceEvenToSameTarget)
+{
+	ASSERT_TRUE(CaptureSource(*Old));
+	Owner->NativeReference = Old;
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	EXPECT_FALSE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+	EXPECT_EQ(Owner->NativeReference, Old);
+	EXPECT_EQ(FindPackage(Path.GetView()), Current);
+}
+
+TEST_F(FObjectGraphReplacementTests, RemovedSerializedHardReferenceRejectsPreparation)
+{
+	auto* Removed = NewObject<DObject>(Old, "Removed");
+	Old->Reference = Removed;
+	ASSERT_TRUE(CaptureSource(*Old));
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	EXPECT_FALSE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+	EXPECT_EQ(Owner->Reference.Get(), Old);
+}
+
+TEST_F(FObjectGraphReplacementTests, RemovedSerializedWeakReferenceClearsWithoutBecomingHard)
+{
+	Old->Weak = NewObject<DObject>(Old, "RemovedWeak");
+	ASSERT_TRUE(CaptureSource(*Old));
+	EXPECT_TRUE(Owner->Capture->Data->HardReferences.empty());
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	ASSERT_TRUE(Operation->TryCommit());
+	auto Loaded = LoadSerializedObject(*New, *Owner->Capture);
+	ASSERT_TRUE(Loaded) << Loaded.error().Message;
+	EXPECT_TRUE(New->Weak.GetBase().GetKey().IsNull());
+	EXPECT_TRUE(Owner->Capture->Data->HardReferences.empty());
+	ASSERT_TRUE(Operation->Retire());
+}
+
+TEST_F(FObjectGraphReplacementTests, DetachedSerializedPreparationRejectsCorruptOrIncompleteReferenceLayout)
+{
+	Old->Reference = Old;
+	ASSERT_TRUE(CaptureSource(*Old));
+	FObjectReplacementMap Mapping;
+	ASSERT_TRUE(Mapping.Build(std::span(&Pair, 1)));
+	auto Context = std::make_shared<FTransactionSerializationContext>(*Owner->Capture->Context);
+	auto Corrupt = *Owner->Capture;
+	Corrupt.Context = Context;
+	Context->ReferenceSlots[0].Offset = Corrupt.Data->Bytes.size();
+	EXPECT_FALSE(PrepareSerializedObjectReplacement(Corrupt, Mapping));
+	Context->ReferenceSlots.clear();
+	EXPECT_FALSE(PrepareSerializedObjectReplacement(Corrupt, Mapping));
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+}
+
+TEST_F(FObjectGraphReplacementTests, ObservationOnlyUsesSameCheckedReplacementProtocol)
+{
+	Old->Reference = Old;
+	ASSERT_TRUE(CaptureSource(*Old));
+	Owner->Capture.reset();
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	ASSERT_TRUE(Operation->TryCommit());
+	EXPECT_EQ(Owner->Observation->ObjectInfo.Target.Resolve(), New);
+	EXPECT_EQ(Owner->Observation->SerializedObject->HardReferences[0], FObjectKey(New));
+	ASSERT_TRUE(Operation->Retire());
+}
+
+TEST_F(FObjectGraphReplacementTests, ExpiredSerializedWeakIdentityCannotBindSameNamedObject)
+{
+	auto* Expired = NewObject<DObject>(nullptr, "ExpiredSerializedWeak");
+	Old->Weak = Expired;
+	const FObjectKey ExpiredKey(Expired);
+	ASSERT_TRUE(CaptureSource(*Old));
+	MarkAsGarbage(Expired);
+	auto* Impostor = NewObject<DObject>(nullptr, "ExpiredSerializedWeak");
+	ASSERT_NE(FObjectKey(Impostor), ExpiredKey);
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	EXPECT_FALSE(Operation->GetMap().RemapObjectKey(ExpiredKey));
+	ASSERT_TRUE(Operation->TryCommit());
+	ASSERT_TRUE(LoadSerializedObject(*New, *Owner->Capture));
+	EXPECT_EQ(New->Weak.GetBase().GetKey(), ExpiredKey);
+	EXPECT_FALSE(New->Weak.IsValid());
+	ASSERT_TRUE(Operation->Retire());
+}
+
+TEST_F(FObjectGraphReplacementTests, IncompatibleSerializedSchemaRejectsPreparationWithoutLoading)
+{
+	Old->Value = 91;
+	ASSERT_TRUE(CaptureSource(*Old));
+	New->Value = 17;
+	++New->NativeVersion;
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	EXPECT_FALSE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	EXPECT_EQ(New->Value, 17);
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+	EXPECT_EQ(Owner->Observation->ObjectInfo.Target.Resolve(), Old);
+}
+
+TEST_F(FObjectGraphReplacementTests, MismatchedPairedObservationRejectsBeforePublication)
+{
+	ASSERT_TRUE(CaptureSource(*Old));
+	Owner->Observation->ObjectInfo.Identity.OriginalClassPath += "Changed";
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	EXPECT_FALSE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
+	EXPECT_EQ(Owner->Reference.Get(), Old);
+}
+
+TEST_F(FObjectGraphReplacementTests, RetainedOrdinaryObjectCaptureRebindsPayloadWithoutChangingItsTarget)
+{
+	ASSERT_TRUE(CaptureSource(*Owner));
+	Owner->Observation.reset();
+	const auto Data = Owner->Capture->Data;
+	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
+	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
+	ASSERT_TRUE(Operation->TryCommit());
+	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Owner.Get());
+	EXPECT_NE(Owner->Capture->Data, Data);
+	Owner->Reference = nullptr;
+	ASSERT_TRUE(LoadSerializedObject(*Owner, *Owner->Capture));
+	EXPECT_EQ(Owner->Reference.Get(), New);
+	ASSERT_TRUE(Operation->Retire());
 }
 
 TEST_F(FObjectGraphReplacementTests, PersistenceFailureKeepsNewAndReplacementGraphsPrivateUntilRetry)
@@ -594,4 +860,20 @@ TEST_F(FObjectGraphReplacementTests, NestedUnmappedReferenceRetainsOwnedRoute)
 	Owner->NestedReferences.clear();
 	EXPECT_NE(std::ranges::find(Result.error().Route, "1"), Result.error().Route.end());
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
+}
+
+TEST_F(FObjectGraphReplacementTests, RetiredSourceChildrenAreExcludedWhileInvalidCandidatesStillReject)
+{
+	auto* Retired = NewObject<DObject>(Old, "TRASH_Retired");
+	const FObjectKey RetiredKey(Retired);
+	MarkAsGarbage(Retired);
+	FObjectReplacementMap Map;
+	ASSERT_TRUE(Map.Build(std::span(&Pair, 1)));
+	EXPECT_EQ(Map.Find(Retired), nullptr);
+	EXPECT_FALSE(Map.RemapObjectKey(RetiredKey));
+	auto* Invalid = NewObject<DObject>(New, "InvalidCandidate");
+	MarkAsGarbage(Invalid);
+	auto Result = Map.Build(std::span(&Pair, 1));
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.error().Reason, EObjectReplacementMapReason::InvalidObject);
 }

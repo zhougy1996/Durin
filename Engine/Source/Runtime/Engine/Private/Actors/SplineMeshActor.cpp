@@ -33,7 +33,7 @@ namespace Durin
 		SetRootComponent(SplineComponent);
 		SplineMutationListenerId = SplineComponent->AddSplineMutationListener(
 			[this](uint64, ESplineChangeFlags, std::shared_ptr<const FSplineEvaluationData>) {
-				if (!IsBeingDestroyed()) RequestNativeReconstruction();
+				if (!IsBeingDestroyed()) RerunConstructionScripts();
 			});
 	}
 
@@ -42,7 +42,7 @@ namespace Durin
 		if (PathMesh == Mesh) return;
 		PathMesh = Mesh;
 		MarkPackageDirty();
-		RequestNativeReconstruction();
+		RerunConstructionScripts();
 	}
 
 	auto ASplineMeshActor::SetPathMaterial(DMaterialInterface* Material) -> void
@@ -50,7 +50,7 @@ namespace Durin
 		if (PathMaterial == Material) return;
 		PathMaterial = Material;
 		MarkPackageDirty();
-		RequestNativeReconstruction();
+		RerunConstructionScripts();
 	}
 
 	auto ASplineMeshActor::SetPathCollisionEnabled(bool bEnabled) -> void
@@ -58,7 +58,7 @@ namespace Durin
 		if (bEnablePathCollision == bEnabled) return;
 		bEnablePathCollision = bEnabled;
 		MarkPackageDirty();
-		RequestNativeReconstruction();
+		RerunConstructionScripts();
 	}
 
 	auto ASplineMeshActor::SetPathVisible(bool bVisible) -> void
@@ -66,7 +66,7 @@ namespace Durin
 		if (bPathVisible == bVisible) return;
 		bPathVisible = bVisible;
 		MarkPackageDirty();
-		RequestNativeReconstruction();
+		RerunConstructionScripts();
 	}
 
 	auto ASplineMeshActor::BeginDestroy() -> void
@@ -81,24 +81,21 @@ namespace Durin
 	{
 		Super::PostEditChangeProperty(Event);
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate != FName("SplineComponent"))
-			RequestNativeReconstruction();
+			RerunConstructionScripts();
 	}
 
-	auto ASplineMeshActor::OnNativeConstruct(FActorConstructionContext& Context,
-		std::string& OutError) -> bool
+	auto ASplineMeshActor::OnConstruction(const FTransform& Transform) -> void
 	{
-		if (!Super::OnNativeConstruct(Context, OutError)) return false;
+		Super::OnConstruction(Transform);
 		if (!SplineComponent || !PathMesh)
 		{
-			OutError.clear();
-			return true;
+			return;
 		}
 		const auto Evaluation = SplineComponent->GetEvaluationData();
 		const auto& Points = SplineComponent->GetSplinePoints();
 		if (!Evaluation || Evaluation->GetNumSegments() == 0 || Points.empty())
 		{
-			OutError.clear();
-			return true;
+			return;
 		}
 
 		const FSplinePathFrameData PathFrames = FSplinePathFrameData::Build(*Evaluation, FrameUpDirection);
@@ -161,13 +158,12 @@ namespace Durin
 
 		for (uint32 SegmentIndex = 0; SegmentIndex < Specs.size(); ++SegmentIndex)
 		{
-			auto* Component = Cast<DSplineMeshComponent>(Context.AcquireGeneratedComponent(
-				Specs[SegmentIndex].Key, DSplineMeshComponent::StaticClass(),
+			auto* Component = Cast<DSplineMeshComponent>(AddComponentByClass(DSplineMeshComponent::StaticClass(), false, FTransform(), true,
+				Specs[SegmentIndex].Key,
 				FName(std::format("SplineMeshSegment{}", SegmentIndex))));
 			if (!Component)
 			{
-				OutError = Context.GetError();
-				return false;
+				throw std::runtime_error("SplineMesh component creation failed.");
 			}
 			Component->SetSplineMeshCollisionMode(bEnablePathCollision
 				? ESplineMeshCollisionMode::DeformedTriangleMesh : ESplineMeshCollisionMode::Disabled, false);
@@ -177,8 +173,7 @@ namespace Durin
 			Component->ClearMaterialOverrides();
 			if (PathMaterial && !Component->SetMaterial(PathMaterial.Get()))
 			{
-				OutError = "SplineMesh path material could not bind to source slot 0.";
-				return false;
+				throw std::runtime_error("SplineMesh path material could not bind to source slot 0.");
 			}
 			Component->SetCollisionEnabled(bEnablePathCollision
 				? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
@@ -186,11 +181,10 @@ namespace Durin
 			if (Component->GetAttachParent() != SplineComponent.Get()
 				&& !Component->AttachToComponent(SplineComponent.Get(), EAttachmentTransformRule::SnapToTarget))
 			{
-				OutError = "Generated SplineMesh segment could not attach to the Spline root.";
-				return false;
+				throw std::runtime_error("Generated SplineMesh segment could not attach to the Spline root.");
 			}
+			FinishAddComponent(Component, false, FTransform());
 		}
-		OutError.clear();
-		return true;
+		return;
 	}
 }

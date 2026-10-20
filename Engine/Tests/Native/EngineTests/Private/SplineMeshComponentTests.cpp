@@ -400,6 +400,7 @@ TEST(FSplineMeshComponentTests, DefaultObjectPublishesDiagnosticStateAndReflects
 
 TEST(FSplineMeshComponentTests, PlanarStaticMeshPublishesZeroThicknessLocalBounds)
 {
+	InitializeDObjectSystem();
 	DStaticMesh* Mesh = DStaticMesh::CreateDebugTriangle();
 	ASSERT_NE(Mesh, nullptr);
 	const std::optional<FBox> Bounds = Mesh->GetLOD0LocalBounds();
@@ -1077,16 +1078,16 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	ASSERT_TRUE(Actor->GetSplineComponent()->UpdateSplinePoint(1, B));
 	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	ASSERT_EQ(Segments.size(), 2u);
-	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
-	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
-	EXPECT_EQ(First->GetSplineMeshParams().EndPosition, B.Position);
+	EXPECT_EQ(std::ranges::find(Segments, First), Segments.end());
+	EXPECT_EQ(std::ranges::find(Segments, Second), Segments.end());
+	EXPECT_EQ(Cast<DSplineMeshComponent>(Segments.front())->GetSplineMeshParams().EndPosition, B.Position);
 
 	FSplinePoint Inserted({50.0, 10.0, 0.0});
 	ASSERT_TRUE(Actor->GetSplineComponent()->InsertSplinePoint(1, Inserted));
 	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	ASSERT_EQ(Segments.size(), 3u);
-	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
-	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+	EXPECT_EQ(std::ranges::find(Segments, First), Segments.end());
+	EXPECT_EQ(std::ranges::find(Segments, Second), Segments.end());
 	ASSERT_TRUE(Actor->GetSplineComponent()->RemoveSplinePoint(1));
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
 	Actor->SetPathCollisionEnabled(true);
@@ -1108,8 +1109,8 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	MarkAsGarbage(InitialMesh);
 	CollectGarbage();
 	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
-	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
-	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+	EXPECT_EQ(std::ranges::find(Segments, First), Segments.end());
+	EXPECT_EQ(std::ranges::find(Segments, Second), Segments.end());
 	for (DActorComponent* Owned : Segments)
 		EXPECT_EQ(Cast<DSplineMeshComponent>(Owned)->GetStaticMesh(), ReplacementMesh);
 	FTransform ActorTransform;
@@ -1118,7 +1119,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>(), Segments);
 
 	Level->GetPackage()->ClearDirty();
-	ASSERT_TRUE(Actor->RequestNativeReconstruction());
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
 	std::unordered_map<DObject*, DObject*> Duplicates;
@@ -1186,7 +1187,11 @@ TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership
 		auto* Segment = Cast<DSplineMeshComponent>(SegmentObject);
 		const FVector3 Start = Segment->GetSplineMeshParams().StartPosition;
 		const FSplinePoint* Point = Start == A.Position ? &A : Start == B.Position ? &B : &C;
-		EXPECT_EQ(IdentityByStartGuid.at(Point->Id), Segment);
+		EXPECT_NE(IdentityByStartGuid.at(Point->Id), Segment);
+		FActorGeneratedComponentKey SourceKey;
+		ASSERT_TRUE(Actor->GetGeneratedComponentKey(Segment, SourceKey));
+		EXPECT_EQ(SourceKey.Id, Point->Id);
+		EXPECT_TRUE(IdentityByStartGuid.at(Point->Id)->IsPendingKill());
 	}
 	Actor->GetSplineComponent()->SetClosedLoop(false);
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);

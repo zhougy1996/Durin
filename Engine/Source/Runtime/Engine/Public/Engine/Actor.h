@@ -14,6 +14,7 @@ namespace Durin
 {
 	class DActorComponent;
 	class DLevel;
+	class FScopedSuspendRerunConstructionScripts;
 
 	enum class EActorPlayState : uint8
 	{
@@ -87,6 +88,10 @@ namespace Durin
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto Modify(bool bAlwaysMarkDirty = true) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		ENGINE_API auto PreEditUndo() -> void override;
+		ENGINE_API auto PostEditUndo() -> void override;
+		ENGINE_API auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void override;
+		ENGINE_API auto FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> override;
 		auto HasBegunPlay() const -> bool { return PlayState != EActorPlayState::NotBegun; }
 		auto IsBeginningPlay() const -> bool { return PlayState == EActorPlayState::BeginningPlay; }
 		auto IsEndingPlay() const -> bool { return PlayState == EActorPlayState::EndingPlay; }
@@ -102,9 +107,22 @@ namespace Durin
 		// Returns persistent native and instance-authored components only.
 		auto GetAuthoredComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return AuthoredComponents; }
 		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
-		ENGINE_API auto RequestNativeReconstruction() -> bool;
-		auto GetNativeConstructionGeneration() const -> uint64 { return NativeConstructionGeneration; }
-		auto GetNativeConstructionError() const -> const std::string& { return NativeConstructionError; }
+		ENGINE_API auto RerunConstructionScripts(const class FComponentInstanceDataCache* InstanceData = nullptr,
+			const struct FActorRootComponentReconstructionData* RootData = nullptr) -> bool;
+		ENGINE_API auto ExecuteConstruction(const FTransform& Transform,
+			const class FComponentInstanceDataCache* InstanceData = nullptr) -> bool;
+		ENGINE_API auto DestroyConstructedComponents() -> void;
+		// Stable keys supplement UE's API until template/archetype identity is available.
+		ENGINE_API auto AddComponentByClass(DClass* ComponentClass, bool bManualAttachment,
+			const FTransform& RelativeTransform, bool bDeferredFinish = false,
+			const FActorGeneratedComponentKey& Key = {}, FName RequestedName = {}) -> DActorComponent*;
+		ENGINE_API auto FinishAddComponent(DActorComponent* Component, bool bManualAttachment,
+			const FTransform& RelativeTransform) -> void;
+		auto IsRunningConstructionScript() const -> bool { return bRunningConstructionScript; }
+		ENGINE_API auto FindGeneratedComponent(const FActorGeneratedComponentKey& Key) const -> DActorComponent*;
+		ENGINE_API auto GetGeneratedComponentKey(const DActorComponent* Component, FActorGeneratedComponentKey& Key) const -> bool;
+		auto GetConstructionGeneration() const -> uint64 { return NativeConstructionGeneration; }
+		auto GetConstructionError() const -> const std::string& { return NativeConstructionError; }
 
 		template<typename T>
 		auto FindComponentByExactClass() const -> T*
@@ -175,6 +193,9 @@ namespace Durin
 		auto NotifyComponentsVisibilityChanged() -> void;
 		ENGINE_API auto AddAuthoredComponent(DActorComponent* Component) -> void;
 		auto RebuildOwnedComponentsFromAuthored() -> void;
+		auto RerunConstructionScriptsImpl(const class FComponentInstanceDataCache* InstanceData,
+			const struct FActorRootComponentReconstructionData* RootData) -> bool;
+		auto CompleteTransactionRestore(const class FActorTransactionAnnotation* Annotation) -> void;
 		auto ValidateComponentOwnership() const -> void;
 		auto MakeUniqueComponentName(FName RequestedName, const DActorComponent* IgnoredComponent = nullptr) const -> FName;
 		auto RegisterTickFunction(DLevel* Level) -> void;
@@ -191,9 +212,8 @@ namespace Durin
 
 		// Called exactly once after Level accepts destruction and before EndPlay or component teardown.
 		ENGINE_API virtual auto OnActorDestroyed() -> void;
-		// Declares one complete desired generated set for a synchronous construction generation.
-		ENGINE_API virtual auto OnNativeConstruct(FActorConstructionContext& Context,
-			std::string& OutError) -> bool;
+		// Native construction notification. Recreated components are immediately actor-owned.
+		ENGINE_API virtual auto OnConstruction(const FTransform& Transform) -> void;
 
 		template<typename T>
 		auto CreateDefaultComponent(const FName& InComponentName = FName()) -> T*
@@ -236,10 +256,15 @@ namespace Durin
 		FActorTickFunction PrimaryActorTick;
 		uint64 NativeConstructionGeneration = 0;
 		bool bNativeConstructionRunning = false;
+		bool bRunningConstructionScript = false;
+		bool bExecutingConstruction = false;
+		const class FComponentInstanceDataCache* ConstructionInstanceData = nullptr;
 		bool bNativeConstructionRequested = false;
+		uint32 ConstructionSuspensionDepth = 0;
+		std::unique_ptr<FScopedSuspendRerunConstructionScripts> EditConstructionSuspension;
 		std::string NativeConstructionError;
 
 		friend class DLevel;
-		friend class FActorConstructionContext;
+		friend class FScopedSuspendRerunConstructionScripts;
 	};
 } // namespace Durin

@@ -7,6 +7,8 @@
 #include "Actors/Pawn.h"
 #include "Actors/PlayerController.h"
 #include "Components/ActorComponent.h"
+#include "ComponentReregisterContext.h"
+#include "ScopedSuspendRerunConstructionScripts.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Engine/Actor.h"
@@ -216,6 +218,8 @@ namespace Durin
 	{
 		if (RenderScene == InRenderScene) return;
 		if (Operation != EOperation::Idle || bShutdownRequested) return;
+		// Resume native/script callbacks only after the World operation gate settles.
+		std::vector<std::unique_ptr<FScopedSuspendRerunConstructionScripts>> Suspensions;
 		FOperationScope OperationScope(*this, EOperation::ChangingScene);
 		std::vector<TObjectPtr<DActorComponent>> RegisteredComponents;
 		if (CurrentLevel)
@@ -223,17 +227,19 @@ namespace Durin
 			for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
 			{
 				if (!Actor) continue;
-				for (const TObjectPtr<DActorComponent>& Component : Actor->GetComponents())
+				Suspensions.push_back(std::make_unique<FScopedSuspendRerunConstructionScripts>(*Actor));
+				for (const auto& Component : Actor->GetComponentsSnapshot())
 					if (Component && Component->IsRegistered()) RegisteredComponents.push_back(Component);
 			}
 		}
-		for (const TObjectPtr<DActorComponent>& Component : RegisteredComponents)
-			if (Component && Component->IsRegistered()) Component->UnregisterComponent();
+		std::vector<std::unique_ptr<FComponentReregisterContext>> ReregisterContexts;
+		for (const auto& Component : RegisteredComponents)
+			ReregisterContexts.push_back(std::make_unique<FComponentReregisterContext>(Component.Get()));
 		FSceneInterface* PreviousScene = RenderScene;
 		RenderScene = InRenderScene;
 		Subsystems.RenderSceneChanged(PreviousScene, RenderScene);
-		for (const TObjectPtr<DActorComponent>& Component : RegisteredComponents)
-			if (Component && !Component->IsPendingKill()) Component->RegisterComponent();
+		for (const auto& Context : ReregisterContexts)
+			if (auto Result = Context->ReRegister(); !Result) throw std::runtime_error(Result.error());
 	}
 
 	auto DWorld::OnActorDestroyed(AActor* Actor) -> void

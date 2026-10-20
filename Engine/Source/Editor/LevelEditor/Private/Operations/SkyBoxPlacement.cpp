@@ -43,6 +43,9 @@ namespace Durin::Editor::Level
 		class FCreateSkyBoxTransaction final : public ::Durin::Editor::FActorCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return Presence ? Presence->GetModifiedObjects() : std::vector<DObject*>{}; }
+
 			FCreateSkyBoxTransaction(DLevel* InLevel, DTextureCube* InTextureCube, FName InActorName, const std::string& Label)
 				: Level(InLevel), TextureCube(InTextureCube), ActorName(InActorName)
 			{
@@ -50,7 +53,7 @@ namespace Durin::Editor::Level
 				if (!InLevel || !IsValid(InTextureCube)) return;
 				FScopedPackageDirtySuppression SuppressPreparation;
 				auto* Prepared = NewObject<ASkyBoxActor>(InLevel, ActorName);
-				if (!Prepared || !Prepared->RequestNativeReconstruction())
+				if (!Prepared || !Prepared->RerunConstructionScripts())
 				{ if (Prepared) MarkObjectHierarchyAsGarbage(Prepared); return; }
 				Prepared->SetActorLabel(InLevel->MakeUniqueActorLabel(Label));
 				Prepared->GetSkyBoxComponent()->SetTextureCube(InTextureCube);
@@ -109,6 +112,9 @@ namespace Durin::Editor::Level
 		class FSetSkyBoxTextureTransaction final : public ::Durin::Editor::FActorCommandChange
 		{
 		public:
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{ return {Component.Get()}; }
+
 			FSetSkyBoxTextureTransaction(DSkyBoxComponent* InComponent, DTextureCube* InBefore, DTextureCube* InAfter)
 				: Component(InComponent), Before(InBefore), After(InAfter)
 			{
