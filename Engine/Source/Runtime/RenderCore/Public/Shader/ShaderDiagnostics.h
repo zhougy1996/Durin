@@ -150,6 +150,7 @@ namespace Durin
 		RHIShaderCreationFailed,
 		MissingGeneratedStage,
 		MissingResourceCode,
+		BuildFailed,
 
 	};
 
@@ -201,22 +202,24 @@ namespace Durin
 
 	inline constexpr size_t ShaderBuildDiagnosticMaxBytes = 4096;
 	enum class EShaderBuildStatus : uint8 { Ok, Error, Canceled, OutputTooLarge };
-	// Orchestration completion. Typed validation errors are formatted only here.
+	// Build status is independent of the structured compiler or validation error.
 	struct FShaderCompletion
 	{
 		EShaderBuildStatus Status = EShaderBuildStatus::Ok;
-		std::string Diagnostic;
+		FShaderError Error;
 		FShaderCompletion() = default;
-		FShaderCompletion(EShaderBuildStatus InStatus, std::string Text = {})
-			: Status(InStatus), Diagnostic(InStatus == EShaderBuildStatus::Error || InStatus == EShaderBuildStatus::OutputTooLarge
-				? Text.substr(0, ShaderBuildDiagnosticMaxBytes) : std::string{}) {}
-		FShaderCompletion(const std::unexpected<FShaderError>& Error)
-			: FShaderCompletion(EShaderBuildStatus::Error, FormatShaderError(Error.error())) {}
+		FShaderCompletion(EShaderBuildStatus InStatus, FShaderError InError = {})
+			: Status(InStatus), Error(InStatus == EShaderBuildStatus::Error || InStatus == EShaderBuildStatus::OutputTooLarge ? std::move(InError) : FShaderError{})
+		{ if (Error.ExternalDiagnostic.size() > ShaderBuildDiagnosticMaxBytes) Error.ExternalDiagnostic.resize(ShaderBuildDiagnosticMaxBytes); }
+		FShaderCompletion(const std::unexpected<FShaderError>& Failure)
+			: FShaderCompletion(EShaderBuildStatus::Error, Failure.error()) {}
 		FShaderCompletion(const FShaderOperationResult& Result)
 			: FShaderCompletion(Result ? FShaderCompletion{} : FShaderCompletion(std::unexpected(Result.error()))) {}
 		explicit operator bool() const { return Status == EShaderBuildStatus::Ok; }
 		static auto Canceled() -> FShaderCompletion { return {EShaderBuildStatus::Canceled}; }
-		static auto Failure(std::string Text) -> FShaderCompletion { return {EShaderBuildStatus::Error, std::move(Text)}; }
+		static auto Failure(FShaderError Error) -> FShaderCompletion { return {EShaderBuildStatus::Error, std::move(Error)}; }
+		static auto Failure(std::string Text) -> FShaderCompletion
+		{ return Failure(FShaderError{.Code = EShaderError::BuildFailed, .ExternalDiagnostic = std::move(Text)}); }
 	};
 
 	template<class T>

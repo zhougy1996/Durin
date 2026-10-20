@@ -202,7 +202,7 @@ namespace Durin
 						.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 						.Context = std::string(SectionIdentity),
 						.Identity = TypeIdentity,
-						.Cause = ShaderResult ? FRenderResourceCreateCause(std::move(Error.error())) : FRenderResourceCreateCause(ShaderResult.Diagnostic),
+						.Cause = ShaderResult ? FRenderResourceCreateCause(std::move(Error.error())) : FRenderResourceCreateCause(std::move(ShaderResult.Error)),
 						.RetryDependencies = ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual});
 				}

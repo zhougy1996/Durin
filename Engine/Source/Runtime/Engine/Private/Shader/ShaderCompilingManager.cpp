@@ -86,7 +86,7 @@ namespace Durin
 				if (Output) {
 					const auto Bytes = RetainedBytes(Output);
 					if (Bytes > MaximumBytes - Retained) Output = {.Status = EShaderBuildStatus::OutputTooLarge,
-						.Diagnostic = "Shader job group exceeds retained-output byte limit."};
+						.Error = {.Code = EShaderError::PayloadTooLarge, .Expected = MaximumBytes, .Actual = Retained + Bytes}};
 					else Retained += Bytes;
 				}
 				Outputs[Index] = std::move(Output); --Active;

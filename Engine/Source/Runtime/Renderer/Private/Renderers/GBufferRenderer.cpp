@@ -209,7 +209,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"GBufferShaderMap",
 							std::to_string(ShaderKey.FactoryKey.HashValue),
-							ShaderResult.Diagnostic,
+							ShaderResult.Error,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}

@@ -144,7 +144,7 @@ namespace Durin::Editor::Texture
 					if (!Result)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
-							ERenderResourceCreateErrorReason::ShaderFailure, Result.Diagnostic));
+							ERenderResourceCreateErrorReason::ShaderFailure, Result.Error));
 					auto* VertexShader =
 						static_cast<FTexturePreviewVertexShader*>(
 							ShaderMap->GetShader(&VertexShaderType));

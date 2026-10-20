@@ -39,6 +39,13 @@ navigation. There is no second result-category taxonomy, copied asset path or
 program identity on each diagnostic, or task ID forwarded through result/status
 records. Failure details come from the original diagnostic; cancellation and
 admission rejection come from request state.
+Synchronous and asynchronous asset compilation use one result assembly function,
+including source attribution, bounded diagnostics and retained/shared/forced cache
+outcomes. Asset requests derive the target from their captured input and retain no
+intermediate program identity or expression-source copies. The asset submission
+entry is private to the manager and material lifecycle. GameThread publication
+checks both completion count and deadline between results; unprocessed results
+remain in the mailbox, and expired budgets do not start deferred retries.
 
 `GetMaterialProgramStatistics` derives a detached value snapshot from the
 currently accepted compiler result. It reports explicit absent, current, or

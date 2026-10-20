@@ -1,4 +1,5 @@
 #include "DerivedDataBuildSession.h"
+#include "Serialization/CompactBinary.h"
 #include <gtest/gtest.h>
 
 namespace
@@ -16,11 +17,11 @@ namespace
 	};
 	struct FFunction final : IBuildFunction
 	{
-		mutable uint32 Builds = 0; bool Fail = false, Throw = false, Log = false, ExecutionFail = false;
+		mutable uint32 Builds = 0; bool Fail = false, Throw = false, Log = false, ExecutionFail = false, ObserveFailure = false;
 		auto GetName() const -> std::string_view override { return "Execution.Fixture"; }
 		auto GetVersion() const -> uint32 override { return 1; }
 		auto Configure(FBuildConfigContext& C) const -> void override { C.SetConstantsSchema(1); C.SetOutput("Fixture.Output", 1); C.SetCacheBucket(FCacheBucket::FromString("Execution")); }
-		auto Build(FBuildContext& C) const -> void override { ++Builds; if (ExecutionFail) return C.FailExecution("temporary resource failure"); if (Throw) throw std::runtime_error("fixture exception"); if (Fail) return C.AddError("deterministic failure"), void(); const auto* I = C.FindInput("Source"); if (!I) return C.AddError("missing input"), void(); C.AddValue(FValueId::FromName("Data"), I->Values[0].Data); if (Log) C.AddLog("Fixture", EBuildLogSeverity::Warning, "transient warning"); }
+		auto Build(FBuildContext& C) const -> void override { ++Builds; if (ExecutionFail) { if (ObserveFailure) { FCbWriter W; W.AddUInt64(17, "Code"); C.AddObservation(FValueId::FromName("Failure"), W.SaveObject().value()); C.AddValue(FValueId::FromName("Partial"), FSharedByteBuffer::Take(FByteBuffer(8))); } return C.FailExecution("temporary resource failure"); } if (Throw) throw std::runtime_error("fixture exception"); if (Fail) return C.AddError("deterministic failure"), void(); const auto* I = C.FindInput("Source"); if (!I) return C.AddError("missing input"), void(); C.AddValue(FValueId::FromName("Data"), I->Values[0].Data); if (Log) C.AddLog("Fixture", EBuildLogSeverity::Warning, "transient warning"); }
 	};
 	struct FMemoryCache final : ICache
 	{
@@ -256,4 +257,19 @@ TEST(FBuildExecutionTests, EarlyInlineResultsAndWarmNegativeHitsRemainEquivalent
 		EXPECT_EQ(Cold.GetOutput()->GetValues().size(), Warm.GetOutput()->GetValues().size());
 		if (!Negative) EXPECT_EQ(Cold.GetOutput()->GetValues()[0].Value.GetRawHash(), Warm.GetOutput()->GetValues()[0].Value.GetRawHash());
 	}
+}
+
+TEST(FBuildExecutionTests, ExecutionFailureReturnsOnlyTransientObservationsAndNeverCachesThem)
+{
+	FHarness H; H.Function->ExecutionFail = true; H.Function->ObserveFailure = true;
+	for (uint32 Attempt = 0; Attempt < 2; ++Attempt) {
+		auto Failed = H.Run();
+		ASSERT_EQ(Failed.GetStatus(), EStatus::Error); ASSERT_NE(Failed.GetOutput(), nullptr);
+		EXPECT_TRUE(Failed.GetOutput()->GetValues().empty()); EXPECT_TRUE(Failed.GetOutput()->GetMetadata().empty());
+		ASSERT_EQ(Failed.GetOutput()->GetObservations().size(), 1u);
+		EXPECT_EQ(Failed.GetOutput()->GetObservations()[0].Object.GetView().Find("Code").AsUInt64(), 17u);
+		EXPECT_EQ(H.Cache->Puts, 0u);
+	}
+	H.Function->ExecutionFail = false;
+	EXPECT_EQ(H.Run().GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 3u); EXPECT_EQ(H.Cache->Puts, 1u);
 }

@@ -1,4 +1,5 @@
 #include "Materials/MaterialDiagnostic.h"
+#include "Shader/ShaderDiagnostics.h"
 #include "Materials/MaterialCompiledLayout.h"
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialProgramTypes.h"
@@ -341,6 +342,7 @@ namespace Durin
 		if (Error.ArchiveCode) Text += std::format(" [archive code {}]", static_cast<uint8>(*Error.ArchiveCode));
 		if (Error.BulkStatus) Text += std::format(" [bulk status {}]", static_cast<uint8>(*Error.BulkStatus));
 		if (Error.ResourceStatus) Text += std::format(" [resource status {}]", static_cast<uint8>(*Error.ResourceStatus));
+		if (Error.ShaderCause) Text += " " + FormatShaderError(*Error.ShaderCause);
 		if (!Error.ExternalDiagnostic.empty()) Text += " " + Error.ExternalDiagnostic;
 		return Text;
 	}

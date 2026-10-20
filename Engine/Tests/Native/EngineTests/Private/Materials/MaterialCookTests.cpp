@@ -158,7 +158,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), ProgramBeforeCanceledResave);
 	const auto BuildsBeforeResave = Durin::IShaderBuildModule::Get()->GetStats().Compilations;
 	auto Resaved = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {});
-	ASSERT_TRUE(Resaved) << Resaved.Diagnostic;
+	ASSERT_TRUE(Resaved) << Durin::FormatShaderError(Resaved.Error);
 	auto ResavedRead = Resaved->AcquireRead();
 	ASSERT_TRUE(ResavedRead);
 	Durin::FMaterialStaticProperties ResavedProperties;

@@ -31,10 +31,8 @@ namespace Durin
 		auto EstimateRequestBytes(const FMaterialCompileRequest& Request) -> uint64
 		{
 			if (!Request.CompilerInput) return 0;
-			uint64 Bytes = sizeof(Request) + Request.Target.capacity()
-				+ MaterialBuildPrivate::EstimateTranslationCaptureBytes(*Request.CompilerInput)
-				+ Request.ExpressionSources.capacity() * sizeof(MIR::FSource);
-			for (const auto& Source : Request.ExpressionSources) Bytes += Source.FunctionAssetPath.capacity() + Source.CallPath.capacity() * sizeof(FGuid);
+			uint64 Bytes = sizeof(Request)
+				+ MaterialBuildPrivate::EstimateTranslationCaptureBytes(*Request.CompilerInput);
 			return Bytes;
 		}
 
@@ -43,6 +41,10 @@ namespace Durin
 		{
 			if (Source.Error.ExternalDiagnostic.size() > MaterialProgramMaxDiagnosticMessageBytes)
 				Source.Error.ExternalDiagnostic.resize(MaterialProgramMaxDiagnosticMessageBytes);
+			if (Source.Error.ShaderCause && Source.Error.ShaderCause->ExternalDiagnostic.size() > MaterialProgramMaxDiagnosticMessageBytes) {
+				auto Cause = std::make_shared<FShaderError>(*Source.Error.ShaderCause);
+				Cause->ExternalDiagnostic.resize(MaterialProgramMaxDiagnosticMessageBytes); Source.Error.ShaderCause = std::move(Cause);
+			}
 			return {.Source = std::move(Source), .Generation = Generation};
 		}
 
@@ -162,34 +164,27 @@ namespace Durin
 			});
 	}
 
-	auto FShaderCompilingManager::ProcessMaterialResults(uint32 MaximumCount, const std::function<void(FMaterialCompileResult)>& Process) -> uint32
+	auto FShaderCompilingManager::ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process) -> uint32
 	{
 		CheckMaterialCompileGameThread();
-		std::vector<FMaterialCompileResult> Results;
-		{
-			std::scoped_lock Lock(MaterialMutex);
-			Results.reserve(std::min<size_t>(MaterialResults.size(), MaximumCount));
-			while (!MaterialResults.empty() && Results.size() < MaximumCount)
-			{
-				Results.push_back(std::move(MaterialResults.front()));
-				MaterialResults.pop_front();
-			}
-		}
 		uint32 Consumed = 0;
-		try {
-			for (auto& Result : Results) {
-				Process(std::move(Result));
+		while (Consumed < Params.MaximumCompletions && (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline)) {
+			FMaterialCompileResult Result;
+			{
 				std::scoped_lock Lock(MaterialMutex);
-				check(OutstandingMaterialConsumers > 0); --OutstandingMaterialConsumers; ++Consumed;
+				if (MaterialResults.empty()) break;
+				Result = std::move(MaterialResults.front()); MaterialResults.pop_front();
 			}
-		} catch (...) {
-			// Gathered results no longer belong to the mailbox, even on publication failure.
+			try { Process(std::move(Result)); }
+			catch (...) {
+				std::scoped_lock Lock(MaterialMutex);
+				check(OutstandingMaterialConsumers > 0); --OutstandingMaterialConsumers;
+				throw;
+			}
 			std::scoped_lock Lock(MaterialMutex);
-			const auto Remaining = static_cast<uint32>(Results.size()) - Consumed;
-			check(OutstandingMaterialConsumers >= Remaining); OutstandingMaterialConsumers -= Remaining;
-			throw;
+			check(OutstandingMaterialConsumers > 0); --OutstandingMaterialConsumers; ++Consumed;
 		}
-		return static_cast<uint32>(Results.size());
+		return Consumed;
 	}
 
 	auto FShaderCompilingManager::GetMaterialDiagnostics() const -> FMaterialCompilationDiagnostics
@@ -205,34 +200,42 @@ namespace Durin
 		return Result;
 	}
 
-	auto FShaderCompilingManager::MakeReadyResult(
-		const FMaterialCompileRequest& Request,
-		std::shared_ptr<const FMaterialCompilerResult> Program,
-		EMaterialCompileCacheOutcome CacheOutcome) -> FMaterialCompileResult
+	auto FShaderCompilingManager::MakeMaterialResult(const FMaterialCompileRequest& Request,
+		const MaterialBuildPrivate::FMaterialBuildResult& Build, const MIR::FCompilerInput* DiagnosticInput, bool Canceled) -> FMaterialCompileResult
 	{
-		Program = FMaterialShaderMap::BindCollections(std::move(Program), Request.CompilerInput->Collections, &Request.CompilerInput->Environment);
-		return {
-			.Owner = Request.Owner,
-			.AuthoredRevision = Request.AuthoredRevision,
-			.Generation = Request.Generation,
-			.DependencyRevision = Request.DependencyRevision,
-			.ParentChainRevision = Request.ParentChainRevision,
-			.ProgramIdentity = Request.ProgramIdentity,
-			.StaticProperties = Request.CompilerInput->StaticProperties,
-			.Target = Request.Target,
-			.State = EMaterialCompileState::Ready,
-			.CacheOutcome = CacheOutcome,
-			.CompiledProgram = std::move(Program),
-			.ExpressionSources = Request.ExpressionSources,
-		};
-	}
-
-	auto FShaderCompilingManager::MakeTerminalResult(const FMaterialCompileRequest& Consumer, EMaterialCompileState State) -> FMaterialCompileResult
-	{
-		return {.Owner = Consumer.Owner, .AuthoredRevision = Consumer.AuthoredRevision, .Generation = Consumer.Generation,
-			.DependencyRevision = Consumer.DependencyRevision, .ParentChainRevision = Consumer.ParentChainRevision,
-			.ProgramIdentity = Consumer.ProgramIdentity, .StaticProperties = Consumer.CompilerInput->StaticProperties,
-			.Target = Consumer.Target, .State = State, .ExpressionSources = Consumer.ExpressionSources};
+		const auto State = Canceled || (Build.Program && Build.Program->Status == EMaterialProgramStatus::Canceled)
+			? EMaterialCompileState::Canceled : Build ? EMaterialCompileState::Ready : EMaterialCompileState::Failed;
+		FMaterialCompileResult Result{
+			.Owner = Request.Owner, .AuthoredRevision = Request.AuthoredRevision, .Generation = Request.Generation,
+			.DependencyRevision = Request.DependencyRevision, .ParentChainRevision = Request.ParentChainRevision,
+			.ProgramIdentity = Build.Program ? Build.Program->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{},
+			.StaticProperties = Request.CompilerInput->StaticProperties, .Target = Request.CompilerInput->Environment.Target,
+			.State = State};
+		for (size_t Index = 0; Index < Build.Sources.size(); ++Index) {
+			auto Source = Request.CompilerInput->Sources[Build.SourceOrdinals[Index]];
+			Source.ExpressionIndex = Build.Sources[Index].ExpressionIndex;
+			Result.ExpressionSources.push_back(std::move(Source));
+		}
+		if (State == EMaterialCompileState::Ready) {
+			Result.CompiledProgram = FMaterialShaderMap::BindCollections(Build.Program, Request.CompilerInput->Collections, &Request.CompilerInput->Environment);
+			Result.CacheOutcome = Build.RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit
+				: Build.SingleFlight || Request.bSingleFlightConsumer ? EMaterialCompileCacheOutcome::SingleFlight
+				: Request.bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled;
+		} else if (State != EMaterialCompileState::Canceled && Build.Program) {
+			for (auto Diagnostic : Build.Program->Diagnostics) {
+				if (Result.Diagnostics.size() >= MaterialProgramMaxDiagnosticCount) break;
+				if (Diagnostic.NodeId.IsValid() && DiagnosticInput) {
+					const auto Origin = std::ranges::find(DiagnosticInput->Sources, Diagnostic.NodeId, &MIR::FSource::NodeId);
+					if (Origin != DiagnosticInput->Sources.end()) {
+						const auto& Source = Request.CompilerInput->Sources[std::distance(DiagnosticInput->Sources.begin(), Origin)];
+						Diagnostic.NodeId = Source.NodeId; Diagnostic.PortId = Source.PortId;
+						Diagnostic.FunctionAssetPath = Source.FunctionAssetPath; Diagnostic.CallPath = Source.CallPath;
+					}
+				}
+				Result.Diagnostics.push_back(MakeDiagnostic(std::move(Diagnostic), Request.Generation));
+			}
+		}
+		return Result;
 	}
 
 	auto FShaderCompilingManager::CompleteMaterialRequests(
@@ -246,67 +249,19 @@ namespace Durin
 			if (It == RequestedShaderMaps.end() || It->second != ShaderMap) return;
 			RequestedShaderMaps.erase(It);
 			// Normalize attribution at delivery; asset consumers can join until this lock.
-			const auto Identity = Build.Program ? Build.Program->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{};
-			for (auto& Consumer : ShaderMap->CompilingMaterialDependencies) {
-				if (Identity.IsValid()) Consumer.ProgramIdentity = Identity;
-				Consumer.ExpressionSources.clear();
-				for (size_t Index = 0; Index < Build.Sources.size(); ++Index) {
-					const auto Ordinal = Build.SourceOrdinals[Index];
-					auto Qualified = Consumer.CompilerInput->Sources[Ordinal]; Qualified.ExpressionIndex = Build.Sources[Index].ExpressionIndex;
-					Consumer.ExpressionSources.push_back(std::move(Qualified));
-				}
+			for (auto& Consumer : ShaderMap->CompilingMaterialDependencies)
 				if (Build.SingleFlight && !Consumer.bSingleFlightConsumer) { Consumer.bSingleFlightConsumer = true; ++MaterialDiagnostics.SingleFlightConsumers; }
-			}
 			Consumers = std::move(ShaderMap->CompilingMaterialDependencies);
 			for (const auto& Consumer : Consumers) ShaderMap->CompletingOwners.push_back(Consumer.Owner);
 		}
 		std::vector<FMaterialCompileResult> Results;
-		const FMaterialCompilerResult Failed;
-		const auto& Compiled = Build.Program ? *Build.Program : Failed;
-		const auto Override = Build.RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit : EMaterialCompileCacheOutcome::None;
-		EMaterialCompileState State = ShaderMap->Cancellation.IsCancellationRequested() || Compiled.Status == EMaterialProgramStatus::Canceled
-			? EMaterialCompileState::Canceled : Compiled ? EMaterialCompileState::Ready : EMaterialCompileState::Failed;
-		try
-		{
+		const bool Canceled = ShaderMap->Cancellation.IsCancellationRequested();
+		EMaterialCompileState State = EMaterialCompileState::Failed;
+		try {
 			if (const auto Hook = MaterialBuildPrivate::ResultFanoutHook.Load()) (*Hook)();
-			for (const FMaterialCompileRequest& Consumer : Consumers)
-			{
-				if (State == EMaterialCompileState::Ready)
-				{
-					Results.push_back(MakeReadyResult(
-						Consumer, Build.Program,
-						Override != EMaterialCompileCacheOutcome::None ? Override : Consumer.bSingleFlightConsumer
-							? EMaterialCompileCacheOutcome::SingleFlight
-							: ShaderMap->Force
-							? EMaterialCompileCacheOutcome::Forced
-							: EMaterialCompileCacheOutcome::Compiled));
-					continue;
-				}
-
-				auto Result = MakeTerminalResult(Consumer, State);
-				if (State != EMaterialCompileState::Canceled)
-				{
-					for (const FMaterialProgramDiagnostic& Diagnostic
-						: Compiled.Diagnostics)
-					{
-						if (Result.Diagnostics.size()
-							>= MaterialProgramMaxDiagnosticCount) break;
-						auto Qualified = Diagnostic;
-						if (Diagnostic.NodeId.IsValid() && ShaderMap->DiagnosticInput && Consumer.CompilerInput)
-						{
-							const auto Origin = std::ranges::find(ShaderMap->DiagnosticInput->Sources, Diagnostic.NodeId, &MIR::FSource::NodeId);
-							if (Origin != ShaderMap->DiagnosticInput->Sources.end())
-							{
-								const auto Index = std::distance(ShaderMap->DiagnosticInput->Sources.begin(), Origin);
-								const auto& Source = Consumer.CompilerInput->Sources[Index];
-								Qualified.NodeId = Source.NodeId; Qualified.PortId = Source.PortId; Qualified.FunctionAssetPath = Source.FunctionAssetPath; Qualified.CallPath = Source.CallPath;
-							}
-						}
-						Result.Diagnostics.push_back(MakeDiagnostic(
-							std::move(Qualified), Consumer.Generation));
-					}
-				}
-				Results.push_back(std::move(Result));
+			for (const auto& Consumer : Consumers) {
+				auto Result = MakeMaterialResult(Consumer, Build, ShaderMap->DiagnosticInput.get(), Canceled);
+				State = Result.State; Results.push_back(std::move(Result));
 			}
 		}
 		catch (...)
@@ -314,7 +269,7 @@ namespace Durin
 			State = EMaterialCompileState::Failed; Results.clear();
 			for (const auto& Consumer : Consumers)
 			{
-				auto Result = MakeTerminalResult(Consumer, State);
+				auto Result = MakeMaterialResult(Consumer, {});
 				Result.Diagnostics.push_back(MakeDiagnostic(
 					{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::AdmissionRejected}, Consumer.Generation));
 				Results.push_back(std::move(Result));
@@ -327,7 +282,7 @@ namespace Durin
 			if (State == EMaterialCompileState::Ready)
 			{
 				MaterialDiagnostics.CompletedRequests += Consumers.size();
-				if (Override == EMaterialCompileCacheOutcome::RetainedHit) MaterialDiagnostics.RetainedHits += Consumers.size();
+				if (Build.RetainedHit) MaterialDiagnostics.RetainedHits += Consumers.size();
 			}
 			else if (State == EMaterialCompileState::Failed)
 				MaterialDiagnostics.FailedRequests += Consumers.size();

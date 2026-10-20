@@ -561,7 +561,7 @@ namespace Durin
 					const auto ShaderPlatform = ToShaderTargetPlatform(Request.TargetPlatform).value();
 					if (const auto ShaderResult = BuildCookedShaderLibrary(ShaderPlatform, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
 					{
-						OutResult.ShaderDiagnostic = ShaderResult.Diagnostic;
+						OutResult.ShaderDiagnostic = FormatShaderError(ShaderResult.Error);
 						return ShaderResult.Status == EShaderBuildStatus::Canceled
 							? Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled)
 							: Finish(ECookRunStatus::Failed, ECookRunError::ShaderLibraryFailed);

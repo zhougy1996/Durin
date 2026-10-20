@@ -196,7 +196,8 @@ namespace Durin::DerivedData
 			try
 			{
 				const auto* Output = Completion.GetOutput();
-				if (!Output || !Work->Options.Policy.StoreOnBuild || Output->HasLogs()) { Work.reset(); Finish(std::move(Completion)); return; }
+				if (!Output || !Work->Options.Policy.StoreOnBuild || Output->HasLogs()
+					|| (Completion.GetStatus() == EStatus::Error && !Completion.GetDiagnostic().empty())) { Work.reset(); Finish(std::move(Completion)); return; }
 				const auto Policy = Work->Options.Policy;
 				Work->LocalCompletion = std::move(Completion);
 				auto Record = FCacheRecord::FromOutput(*Work->LocalCompletion->GetCacheKey(), *Work->LocalCompletion->GetOutput(), Policy.PersistenceLimits);

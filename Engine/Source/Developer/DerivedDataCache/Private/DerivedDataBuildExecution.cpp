@@ -12,8 +12,8 @@ namespace Durin::DerivedData
 			return Key ? ExecutionFlags : EBuildExecutionFlags::None;
 		}
 	}
-	auto FBuildCompleteParams::Error(std::optional<FCacheKey> Key, EBuildExecutionFlags ExecutionFlags, std::string Diagnostic) -> FBuildCompleteParams
-	{ FBuildCompleteParams Result; Result.Status = EStatus::Error; Result.CacheKey = std::move(Key); Result.ExecutionFlags = NormalizeExecutionFlags(Result.CacheKey, ExecutionFlags); Diagnostic.resize(std::min<size_t>(Diagnostic.size(), 4096)); Result.Diagnostic = std::move(Diagnostic); return Result; }
+	auto FBuildCompleteParams::Error(std::optional<FCacheKey> Key, EBuildExecutionFlags ExecutionFlags, std::string Diagnostic, std::optional<FBuildOutput> DiagnosticOutput) -> FBuildCompleteParams
+	{ FBuildCompleteParams Result; Result.Status = EStatus::Error; Result.CacheKey = std::move(Key); Result.ExecutionFlags = NormalizeExecutionFlags(Result.CacheKey, ExecutionFlags); Diagnostic.resize(std::min<size_t>(Diagnostic.size(), 4096)); Result.Diagnostic = std::move(Diagnostic); Result.Output = std::move(DiagnosticOutput); return Result; }
 	auto FBuildCompleteParams::Canceled(std::optional<FCacheKey> Key, EBuildExecutionFlags ExecutionFlags) -> FBuildCompleteParams
 	{ FBuildCompleteParams Result; Result.Status = EStatus::Canceled; Result.CacheKey = std::move(Key); Result.ExecutionFlags = NormalizeExecutionFlags(Result.CacheKey, ExecutionFlags); return Result; }
 }
@@ -76,11 +76,11 @@ namespace Durin::DerivedData::Private
 		const auto CacheKey = Action.GetKey();
 		EBuildExecutionFlags ExecutionFlags = EBuildExecutionFlags::None;
 		auto Canceled = [&] { return FBuildCompleteParams::Canceled(CacheKey, ExecutionFlags); };
-		auto Failed = [&](std::string_view Message)
+		auto Failed = [&](std::string_view Message, std::optional<FBuildOutput> DiagnosticOutput = {})
 		{
 			DURIN_ERROR_CATEGORY("DerivedData", "{} build failed [{}]: {}", Action.GetFunction().Name,
 				CacheKey.ToString(), Message);
-			return FBuildCompleteParams::Error(CacheKey, ExecutionFlags, std::string(Message));
+			return FBuildCompleteParams::Error(CacheKey, ExecutionFlags, std::string(Message), std::move(DiagnosticOutput));
 		};
 		try
 		{
@@ -102,7 +102,18 @@ namespace Durin::DerivedData::Private
 				for (const auto& Value : Input.Values) { if (!Private::IsBuildValueIdentifier(Value.Name) || (!Previous.empty() && Previous >= Value.Name)) return Failed("Resolved input has invalid or duplicate value names."); Previous = Value.Name; if (Value.Data.GetSize() > Policy.InputLimits.MaximumTotalBytes - Total) return Failed("Resolved input byte budget exceeded."); Total += Value.Data.GetSize(); }
 			}
 			ExecutionFlags |= EBuildExecutionFlags::BuildLocal;
-			FBuildOutputBuilder Builder = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Policy.OutputLimits); auto Context = FBuildExecutionAccess::MakeContext(Action, *Inputs, Builder, Cancel); Entry->Function->Build(Context); if (Cancel.IsCancelled()) return Canceled(); if (const auto& Failure = FBuildExecutionAccess::GetExecutionFailure(Context); Failure) return Failed(*Failure); Inputs->clear(); auto Output = std::move(Builder).Build(); if (!Output) return Failed(Output.error());
+			FBuildOutputBuilder Builder = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Policy.OutputLimits); auto Context = FBuildExecutionAccess::MakeContext(Action, *Inputs, Builder, Cancel); Entry->Function->Build(Context);
+			if (Cancel.IsCancelled()) return Canceled();
+			if (const auto& Failure = FBuildExecutionAccess::GetExecutionFailure(Context); Failure) {
+				auto Partial = std::move(Builder).Build();
+				if (!Partial || Partial->GetObservations().empty()) return Failed(*Failure);
+				// Only transient observations survive execution failure, never partial products.
+				auto Diagnostics = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Policy.OutputLimits);
+				for (const auto& Observation : Partial->GetObservations()) Diagnostics.AddObservation(Observation.Id, Observation.Object);
+				auto Output = std::move(Diagnostics).Build();
+				return Output ? Failed(*Failure, std::move(*Output)) : Failed(*Failure);
+			}
+			Inputs->clear(); auto Output = std::move(Builder).Build(); if (!Output) return Failed(Output.error());
 			if (Cancel.IsCancelled()) return Canceled();
 			return FBuildCompletionAccess::Ok(std::move(*Output), CacheKey, ExecutionFlags);
 		}

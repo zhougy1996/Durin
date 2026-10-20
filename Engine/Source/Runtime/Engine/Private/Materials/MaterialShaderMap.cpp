@@ -243,8 +243,9 @@ namespace Durin
 				.Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}};
 		if (!Output)
 		{
-			Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Compile,
-				.Error = FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, Output.Diagnostic)});
+			FMaterialError Error{EMaterialCompileError::ShaderCompilerFailed};
+			Error.ShaderCause = std::make_shared<const FShaderError>(std::move(Output.Error));
+			Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = std::move(Error)});
 			return Result;
 		}
 		const auto Target = Artifact->Target == "metal-library-1" ? MetalLibraryShaderTarget

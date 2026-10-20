@@ -98,14 +98,16 @@ namespace Durin
 	{
 		EShaderBuildStatus Status = EShaderBuildStatus::Error;
 		std::vector<FShaderCode> CompiledShaders;
-		std::string Diagnostic;
+		FShaderError Error;
 
 		explicit operator bool() const { return Status == EShaderBuildStatus::Ok; }
-		static auto Failure(std::string Text) -> FShaderBuildResult
+		static auto Failure(FShaderError Error) -> FShaderBuildResult
 		{
-			if (Text.size() > ShaderBuildDiagnosticMaxBytes) Text.resize(ShaderBuildDiagnosticMaxBytes);
-			return {.Diagnostic = std::move(Text)};
+			if (Error.ExternalDiagnostic.size() > ShaderBuildDiagnosticMaxBytes) Error.ExternalDiagnostic.resize(ShaderBuildDiagnosticMaxBytes);
+			return {.Error = std::move(Error)};
 		}
+		static auto Failure(std::string Text) -> FShaderBuildResult
+		{ return Failure(FShaderError{.Code = EShaderError::BuildFailed, .ExternalDiagnostic = std::move(Text)}); }
 		static auto Success(FShaderCompilerOutput Output) -> FShaderBuildResult
 		{
 			return {.Status = EShaderBuildStatus::Ok, .CompiledShaders = std::move(Output.CompiledShaders)};

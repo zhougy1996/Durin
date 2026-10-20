@@ -32,7 +32,7 @@ namespace Durin
 			const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken(Context.IsCancelled)};
 			auto Built = PrepareCookedProgram(Preparation->GetTargetPlatform(), Preparation->Options.MaterialConfigurations, Control);
 			if (Built.Status == EShaderBuildStatus::Canceled) Context.Result = {EObjectCookError::Cancelled, {}};
-			else if (!Built) Context.Result = {EObjectCookError::Preparation, std::move(Built.Diagnostic)};
+			else if (!Built) Context.Result = {EObjectCookError::Preparation, FormatShaderError(Built.Error)};
 			else Preparation->Primary = std::move(*Built);
 			return;
 		}

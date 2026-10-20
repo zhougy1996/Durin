@@ -75,7 +75,7 @@ namespace Durin
 				Options.VirtualShaderPath, Options);
 			if (!Output)
 			{
-				return {Output.Status, Output.Diagnostic};
+				return {Output.Status, Output.Error};
 			}
 			FXxHash128 RuntimeIdentity;
 			if (auto Result = BuildShaderRuntimeRequestIdentity(Request, RuntimeIdentity); !Result) return Result;

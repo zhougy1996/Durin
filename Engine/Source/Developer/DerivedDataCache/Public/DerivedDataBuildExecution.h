@@ -25,7 +25,7 @@ namespace Durin::DerivedData
 	{
 	public:
 		DERIVEDDATACACHE_API static auto Error(std::optional<FCacheKey> Key,
-			EBuildExecutionFlags ExecutionFlags, std::string Diagnostic = {}) -> FBuildCompleteParams;
+			EBuildExecutionFlags ExecutionFlags, std::string Diagnostic = {}, std::optional<FBuildOutput> DiagnosticOutput = {}) -> FBuildCompleteParams;
 		DERIVEDDATACACHE_API static auto Canceled(std::optional<FCacheKey> Key,
 			EBuildExecutionFlags ExecutionFlags) -> FBuildCompleteParams;
 		auto GetStatus() const -> EStatus { return Status; }

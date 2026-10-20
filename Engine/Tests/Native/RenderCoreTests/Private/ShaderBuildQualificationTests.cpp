@@ -118,7 +118,7 @@ namespace Durin
 		Request.Frequencies = {EShaderFrequency::Vertex};
 		Request.MaximumOutputBytes = 8ull * 1024 * 1024;
 		const auto Built = Builder.GetOrCompileGenerated(Request);
-		ASSERT_TRUE(Built) << Built.Diagnostic;
+		ASSERT_TRUE(Built) << FormatShaderError(Built.Error);
 		ASSERT_EQ(Built.CompiledShaders.size(), 1);
 		EXPECT_EQ(Built.CompiledShaders[0].Target, MetalLibraryShaderTarget);
 		EXPECT_TRUE(ShaderFormat::ValidateShaderCode(Built.CompiledShaders[0]));
@@ -138,7 +138,7 @@ namespace Durin
 			auto Replayed = Builder.SubmitGenerated(Request, CacheOptions, [&](auto Result) { Replay = std::move(Result); });
 			ASSERT_TRUE(Replayed);
 			EXPECT_EQ(Replayed->Wait(), EShaderBuildWaitResult::Completed);
-			ASSERT_TRUE(Replay); EXPECT_TRUE(*Replay) << Replay->Diagnostic;
+			ASSERT_TRUE(Replay); EXPECT_TRUE(*Replay) << FormatShaderError(Replay->Error);
 			CacheOptions.NativeProducerIdentity += ";not-installed";
 			std::optional<FShaderBuildResult> Miss;
 			auto Missing = Builder.SubmitGenerated(Request, CacheOptions, [&](auto Result) { Miss = std::move(Result); });
@@ -151,7 +151,7 @@ namespace Durin
 		EXPECT_FALSE(TooSmall);
 		EXPECT_TRUE(TooSmall.CompiledShaders.empty());
 		const auto Reused = Builder.GetOrCompileGenerated(Request);
-		EXPECT_TRUE(Reused) << Reused.Diagnostic;
+		EXPECT_TRUE(Reused) << FormatShaderError(Reused.Error);
 		ASSERT_FALSE(IsTaskSchedulerRunning());
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		struct FStop { ~FStop() { ShutdownTaskScheduler(); } } Stop;
@@ -164,7 +164,7 @@ namespace Durin
 			ASSERT_TRUE(First);
 			First->RequestCancel();
 			auto Second = AsyncBuilder.SubmitGenerated(Request, {}, [&](auto Result) {
-				EXPECT_TRUE(Result) << Result.Diagnostic;
+				EXPECT_TRUE(Result) << FormatShaderError(Result.Error);
 				if (Result) EXPECT_EQ(Result.CompiledShaders.front().Target, MetalLibraryShaderTarget);
 				++Completed;
 			});
@@ -220,7 +220,7 @@ namespace Durin
 				uint64 Bytes = 0;
 				for (uint32 Index = 0; Index < BatchSize; ++Index)
 				{
-					ASSERT_TRUE(Outputs[Index]) << Outputs[Index].Diagnostic;
+					ASSERT_TRUE(Outputs[Index]) << FormatShaderError(Outputs[Index].Error);
 					ASSERT_EQ(Outputs[Index].CompiledShaders.size(), 1u);
 					const auto& Shader = Outputs[Index].CompiledShaders[0];
 					ASSERT_TRUE(!Shader.Code.IsEmpty());

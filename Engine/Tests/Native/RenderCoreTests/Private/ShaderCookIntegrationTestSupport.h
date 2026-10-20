@@ -62,7 +62,7 @@ namespace Durin
 			Options.bForceRecompile = true;
 			Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", Pass == 2 ? "1" : "0");
 			Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(0.4f)));
-			ASSERT_TRUE((ShaderResult = InitializeShaderMapFromTypes(Compiled, std::span(&FragmentTypes[Pass], 1), Options))) << ShaderResult.Diagnostic;
+			ASSERT_TRUE((ShaderResult = InitializeShaderMapFromTypes(Compiled, std::span(&FragmentTypes[Pass], 1), Options))) << FormatShaderError(ShaderResult.Error);
 			MaterialStages[Pass].push_back(Compiled.GetCode()->GetCompiledShader(0));
 		}
 
@@ -72,7 +72,7 @@ namespace Durin
 		ASSERT_TRUE(([&] {
 			return (CookCompletion = BuildCookedShaderLibrary((Metal ? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64), EShaderTargetProfile::Game, First))
 				&& (CookCompletion = BuildCookedShaderLibrary((Metal ? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64), EShaderTargetProfile::Game, Second));
-		})()) << CookCompletion.Diagnostic;
+		})()) << FormatShaderError(CookCompletion.Error);
 		EXPECT_EQ(First, Second);
 
 		std::vector<FShaderRuntimeRequest> Requests;
@@ -120,7 +120,7 @@ namespace Durin
 					.VertexFactoryType = *Factory,
 					.ShaderTypes = RuntimeTypes,
 					.FixedShaderRuntimeRequest = Request.Name,
-					.bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Diagnostic;
+					.bCreateRHIShaders = false}, Map))) << Request.Name << ": " << FormatShaderError(ShaderResult.Error);
 				EXPECT_TRUE(Map);
 				const size_t Pass = static_cast<size_t>(Request.Name.back() - '0');
 				ASSERT_LT(Pass, 4u);
@@ -133,7 +133,7 @@ namespace Durin
 					.VertexFactoryType = *Factory, .MeshPassKey = static_cast<uint32>(Pass),
 					.ShaderTypes = ComposedTypes, .FixedShaderRuntimeRequest = Request.Name,
 					.GeneratedStages = MaterialStages[FragmentPass], .CompiledProgramIdentity = Program,
-					.CompiledTarget = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"), .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Diagnostic;
+					.CompiledTarget = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"), .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << FormatShaderError(ShaderResult.Error);
 				if (Pass == 2)
 				{
 					const std::array<const FShaderType*, 2> OpaqueTypes{RuntimeTypes.front(), FragmentTypes[3]};
@@ -142,7 +142,7 @@ namespace Durin
 						.VertexFactoryType = *Factory, .MeshPassKey = 2,
 						.ShaderTypes = OpaqueTypes, .FixedShaderRuntimeRequest = Request.Name,
 						.FixedFragmentRuntimeRequest = "Surface.OpaqueShadow",
-						.bCreateRHIShaders = false}, Map))) << ShaderResult.Diagnostic;
+						.bCreateRHIShaders = false}, Map))) << FormatShaderError(ShaderResult.Error);
 				}
 			}
 		}

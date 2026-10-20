@@ -14,7 +14,6 @@ namespace Durin
 
 	inline constexpr uint32 MaterialCompileMaxConcurrentRequests = 32;
 	inline constexpr uint32 MaterialCompileMaxConsumers = 256;
-	inline constexpr uint32 MaterialCompileMaxResidentPrograms = 128;
 	inline constexpr uint64 MaterialCompileMaxRequestBytes = 2ull * 1024ull * 1024ull;
 	inline constexpr uint64 MaterialCompileMaxResultBytes = 8ull * 1024ull * 1024ull;
 
@@ -65,10 +64,7 @@ namespace Durin
 		uint64 Generation = 0;
 		uint64 DependencyRevision = 0;
 		uint64 ParentChainRevision = 0;
-		FMaterialProgramIdentity ProgramIdentity;
 		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
-		std::vector<MIR::FSource> ExpressionSources;
-		std::string Target;
 		bool bForceRecompile = false;
 		bool bSingleFlightConsumer = false;
 	};

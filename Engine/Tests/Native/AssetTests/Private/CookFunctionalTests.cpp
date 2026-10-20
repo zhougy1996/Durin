@@ -792,7 +792,7 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	const auto Revision = Material->GetPackage()->GetEditRevision();
 	const std::array Configurations{FMaterialCookConfiguration{EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
 	auto Prepared = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations);
-	ASSERT_TRUE(Prepared) << Prepared.Diagnostic;
+	ASSERT_TRUE(Prepared) << FormatShaderError(Prepared.Error);
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
 	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
 	const auto BeforeSerialization = GetShaderBuildStats().Compilations;
@@ -817,13 +817,13 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	const auto Canceled = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Cancelled);
 	EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
 	EXPECT_FALSE(Canceled.Value);
-	EXPECT_TRUE(Canceled.Diagnostic.empty());
+	EXPECT_TRUE(Canceled.Error.IsSuccess());
 	MaterialBuildPrivate::CloseTranslationSessions();
 	struct FReopen { ~FReopen() { MaterialBuildPrivate::OpenTranslationSessions(); } } Reopen;
 	const auto Failed = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations);
 	EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
 	EXPECT_FALSE(Failed.Value);
-	EXPECT_NE(Failed.Diagnostic.find("closed"), std::string::npos);
+	EXPECT_NE(FormatShaderError(Failed.Error).find("closed"), std::string::npos);
 }
 
 TEST_F(FCookFunctionalTests, PreparationOmitsTransientAssetSubtrees)
@@ -1489,7 +1489,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Invalid));
 	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::MacOS, std::span(&Low, 1)));
 	auto Subset = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, std::span(&Low, 1));
-	ASSERT_TRUE(Subset) << Subset.Diagnostic;
+	ASSERT_TRUE(Subset) << FormatShaderError(Subset.Error);
 	auto Read = Subset->AcquireRead();
 	ASSERT_TRUE(Read);
 	FMaterialStaticProperties Properties;
@@ -1499,7 +1499,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, High.Quality, High.FeatureLevel, {}, Properties, Program));
 	auto Same = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Request.MaterialConfigurations);
-	ASSERT_TRUE(Same) << Same.Diagnostic;
+	ASSERT_TRUE(Same) << FormatShaderError(Same.Error);
 	auto SameRead = Same->AcquireRead();
 	auto Original = Material->GetCookedProgramData();
 	auto OriginalRead = Original.AcquireRead();

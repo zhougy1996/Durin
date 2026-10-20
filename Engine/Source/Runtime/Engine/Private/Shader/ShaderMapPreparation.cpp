@@ -127,8 +127,8 @@ namespace Durin
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (!State->Output) { Ready = false; continue; }
-			if (!*State->Output) return std::unexpected(State->Output->Diagnostic.empty()
-				? std::string("Shader preparation failed or was canceled.") : State->Output->Diagnostic);
+			if (!*State->Output) return std::unexpected(State->Output->Error.IsSuccess()
+				? std::string("Shader preparation failed or was canceled.") : FormatShaderError(State->Output->Error));
 		}
 		return Ready;
 	}
@@ -188,7 +188,7 @@ namespace Durin
 				}
 				return Map.Initialize(ShaderTypes, Output, EffectiveCompileOptions);
 			}
-			if (Prepared->Output) return {Prepared->Output->Status, Prepared->Output->Diagnostic};
+			if (Prepared->Output) return {Prepared->Output->Status, Prepared->Output->Error};
 		}
 		if (FPreparedShaderMapScope::IsActive())
 		{
@@ -205,7 +205,7 @@ namespace Durin
 		if (!Output)
 		{
 			Map.Reset();
-			return {Output.Status, Output.Diagnostic};
+			return {Output.Status, Output.Error};
 		}
 
 		return Map.Initialize(ShaderTypes, FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}, EffectiveCompileOptions);

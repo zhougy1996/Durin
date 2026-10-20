@@ -244,7 +244,7 @@ namespace Durin
 			if (It != RequestedShaderMaps.end() && It->second == ShaderMap) {
 				const bool Canceled = ShaderMap->Cancellation.IsCancellationRequested();
 				for (const auto& Consumer : ShaderMap->CompilingMaterialDependencies)
-					MaterialResults.push_back(MakeTerminalResult(Consumer, Canceled ? EMaterialCompileState::Canceled : EMaterialCompileState::Failed));
+					MaterialResults.push_back(MakeMaterialResult(Consumer, {}, nullptr, Canceled));
 				(Canceled ? MaterialDiagnostics.CanceledRequests : MaterialDiagnostics.FailedRequests) += ShaderMap->CompilingMaterialDependencies.size();
 				ShaderMap->CompilingMaterialDependencies.clear();
 				RequestedShaderMaps.erase(It);

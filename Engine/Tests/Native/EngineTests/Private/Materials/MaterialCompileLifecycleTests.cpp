@@ -15,6 +15,7 @@
 #include "MaterialTestSupport.h"
 
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/OfflinePreparation.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCompileRetryQueue.h"
 #include "Materials/MaterialCompileTestSupport.h"
@@ -364,6 +365,61 @@ namespace
 			return Object;
 		}
 	};
+}
+
+TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnSharedCompilation)
+{
+	using namespace Durin;
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	auto* A = MakeObject<DMaterial>("SharedAsync"); auto* B = MakeObject<DMaterial>("SharedSync");
+	A->SetEditCompileMode(EMaterialEditCompileMode::Manual); B->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	struct FGate final : DerivedData::ICache {
+		mutable FThreadEvent Entered, Release;
+		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCache().Get(Request); }
+		auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override { Entered.Trigger(); Release.WaitFor(10); return DerivedData::GetCache().Put(Request); }
+	};
+	auto Cache = std::make_shared<FGate>();
+	ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});
+	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); } } Restore{Cache};
+	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
+	auto Snapshot = SnapshotMaterialCompilerInput(*A, Environment); ASSERT_TRUE(Snapshot);
+	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true));
+	ASSERT_TRUE(Cache->Entered.WaitFor(5));
+	const auto Joins = MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins;
+	std::jthread Releaser([&] {
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins == Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+		Cache->Release.Trigger();
+	});
+	{
+		FScopedOfflinePreparation Offline;
+		EXPECT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Snapshot.Snapshot->Input, true));
+	}
+	Releaser.join();
+	EXPECT_GT(MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins, Joins);
+	EXPECT_EQ(B->GetMaterialCompileStatus().CacheOutcome, EMaterialCompileCacheOutcome::SingleFlight);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_EQ(A->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, B->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId);
+}
+
+TEST_F(FMaterialAsyncCompileTests, PublicationDeadlineLeavesQueuedResultsForTheNextPump)
+{
+	using namespace Durin;
+	auto* A = MakeObject<DMaterial>("BudgetA"); auto* B = MakeObject<DMaterial>("BudgetB");
+	A->SetEditCompileMode(EMaterialEditCompileMode::Manual); B->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	ASSERT_TRUE(RequestMaterialRecompile(*A, true)); ASSERT_TRUE(RequestMaterialRecompile(*B, true));
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (GetMaterialCompilationDiagnostics().PendingPublicationCount < 2 && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	ASSERT_EQ(GetMaterialCompilationDiagnostics().PendingPublicationCount, 2u);
+	auto& Manager = FShaderCompilingManager::Get();
+	EXPECT_EQ(Manager.ProcessAsyncResults({.Deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1)}).ProcessedCompletionCount, 0u);
+	EXPECT_EQ(GetMaterialCompilationDiagnostics().PendingPublicationCount, 2u);
+	EXPECT_EQ(Manager.ProcessAsyncResults({.MaximumCompletions = 1}).ProcessedCompletionCount, 1u);
+	EXPECT_EQ(GetMaterialCompilationDiagnostics().PendingPublicationCount, 1u);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_TRUE(A->GetMaterialCompileStatus().IsCurrent()); EXPECT_TRUE(B->GetMaterialCompileStatus().IsCurrent());
 }
 
 TEST_F(FMaterialAsyncCompileTests, DistinctTranslationsShareOneProgram)

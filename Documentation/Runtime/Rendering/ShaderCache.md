@@ -29,14 +29,16 @@ stages on failure. `FormatShaderError` formats only at presentation or required
 string-adapter boundaries; bounded compiler text never determines classification.
 Filesystem failures retain their owned path and native cause.
 Synchronous ShaderBuild compilation and asynchronous completion return
-`FShaderBuildResult`: an independent `EShaderBuildStatus` (`Ok`, `Error`, or
-`Canceled`), compiled stages, and a bounded display-only diagnostic. Only `Ok`
-retains stages; `Canceled` has neither stages nor diagnostics. Cache hits and local
-builds use the same completion contract. Compiler and validation failures are
-formatted at this boundary; deterministic output messages and infrastructure
-completion diagnostics are preserved without reconstructing typed causes or
-classifying text. Cook input capture, cooked-library production and ShaderMap
-compilation use `FShaderCompletion` with the same status and diagnostic contract.
+`FShaderBuildResult`: an independent `EShaderBuildStatus`, compiled stages and
+an owned `FShaderError`. `FShaderCompletion` carries the same status/error contract
+for operations without compiled stages. Cancellation retains neither stages nor
+an error. Compiler and validation codes, native status and context survive the
+build boundary; legacy provider-only text uses `BuildFailed` without classifying
+that text. Formatting occurs at UI, log or required Cook string boundaries.
+Shader compile execution failures carry the error in completion-only build
+observations; partial products and failures are never persisted. Shared-output
+assembly preserves the same structured error. Material diagnostics retain the
+Shader cause and format it only for presentation.
 Material Cook preparation returns an optional payload with independent completion.
 Cook object preparation propagates cancellation without attaching a failure cause, including
 when the caller cancellation callback has not fired.

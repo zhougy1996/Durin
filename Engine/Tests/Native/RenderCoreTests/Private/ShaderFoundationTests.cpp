@@ -1431,7 +1431,8 @@ namespace Durin
 			32, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); ++Calls; });
 		ASSERT_TRUE(Group); EXPECT_EQ(Group->Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Output.Status, EShaderBuildStatus::OutputTooLarge); EXPECT_TRUE(Output.CompiledShaders.empty());
-		EXPECT_FALSE(FShaderCompletion(Output.Status, Output.Diagnostic).Diagnostic.empty());
+		EXPECT_EQ(Output.Error.Code, EShaderError::PayloadTooLarge); EXPECT_GT(Output.Error.Actual, Output.Error.Expected);
+		EXPECT_FALSE(FShaderCompletion(Output.Status, Output.Error).Error.IsSuccess());
 		EXPECT_EQ(Calls, 1u); EXPECT_EQ(Scope.Stub->Compiles, 1u);
 	}
 
@@ -1491,7 +1492,7 @@ namespace Durin
 			&FGlobalFixtureVertexShader::StaticType()};
 		const auto Completion = Map.ResolveShaderSet(
 			"Tests.GlobalFixture", Types, false);
-		ASSERT_TRUE(Completion) << Completion.Diagnostic;
+		ASSERT_TRUE(Completion) << FormatShaderError(Completion.Error);
 		const auto& Set = *Completion;
 		EXPECT_EQ(Set.GetGeneration(), Generation);
 		EXPECT_EQ(Set.GetIdentity(),
@@ -1526,14 +1527,14 @@ namespace Durin
 			&FGlobalFixtureVertexShader::StaticType(), &FGlobalFixtureFragmentShader::StaticType()};
 		const auto Canceled = Map.ResolveShaderSet("Tests.Completion", Types, false);
 		EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
-		EXPECT_FALSE(Canceled.Value); EXPECT_TRUE(Canceled.Diagnostic.empty());
+		EXPECT_FALSE(Canceled.Value); EXPECT_TRUE(Canceled.Error.IsSuccess());
 		Stub->Completion = FShaderBuildResult::Failure("global shader diagnostic");
 		const auto Failed = Map.ResolveShaderSet("Tests.Completion", Types, false);
 		EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
-		EXPECT_EQ(Failed.Diagnostic, "global shader diagnostic"); EXPECT_FALSE(Failed.Value);
+		EXPECT_EQ(Failed.Error.ExternalDiagnostic, "global shader diagnostic"); EXPECT_FALSE(Failed.Value);
 		EXPECT_EQ(Stub->Compiles, 2u);
 		const auto Cached = Map.ResolveShaderSet("Tests.Completion", Types, false);
-		EXPECT_EQ(Cached.Diagnostic, Failed.Diagnostic); EXPECT_EQ(Stub->Compiles, 2u);
+		EXPECT_EQ(Cached.Error.ExternalDiagnostic, Failed.Error.ExternalDiagnostic); EXPECT_EQ(Stub->Compiles, 2u);
 	}
 
 	TEST_F(FShaderFoundationTests, StorageShaderParameterMacrosCreateTypedMetadata)
@@ -1764,10 +1765,10 @@ namespace Durin
 	{
 		const auto Canceled = FShaderCompletion::Canceled();
 		EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
-		EXPECT_TRUE(Canceled.Diagnostic.empty());
+		EXPECT_TRUE(Canceled.Error.IsSuccess());
 		const auto Failed = FShaderCompletion::Failure(std::string(8192, 'x'));
 		EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
-		EXPECT_EQ(Failed.Diagnostic.size(), 4096u);
+		EXPECT_EQ(Failed.Error.ExternalDiagnostic.size(), 4096u);
 	}
 
 	TEST_F(FShaderFoundationTests, DefaultCompileTargetFollowsSelectedRHIBackend)

@@ -127,7 +127,7 @@ namespace Durin::AssetPrivate
 			{
 				const auto Read = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled);
 				if (!Read) return std::unexpected(FObjectCookResult{
-					Read.Status == EShaderBuildStatus::Canceled ? EObjectCookError::Cancelled : EObjectCookError::InvalidInput, Read.Diagnostic});
+					Read.Status == EShaderBuildStatus::Canceled ? EObjectCookError::Cancelled : EObjectCookError::InvalidInput, FormatShaderError(Read.Error)});
 				if (Request.TargetPlatform == ECookTargetPlatform::MacOS)
 				{
 					auto* Module = IShaderBuildModule::Get();

@@ -283,6 +283,8 @@ namespace Durin
 			return std::format(
 				"Compiled shader entry point '{}' does not match shader type '{}' entry point '{}'",
 				Error.ActualIdentity, Error.ShaderType, Error.ExpectedIdentity);
+		case EShaderError::BuildFailed:
+			return Error.ExternalDiagnostic.empty() ? "Shader build failed." : Error.ExternalDiagnostic;
 		case EShaderError::ShaderInstanceCreationFailed:
 			return std::format("Shader type '{}' failed to create a shader instance", Error.ShaderType);
 		}

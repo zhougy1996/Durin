@@ -3,9 +3,80 @@
 #include "ShaderBuildSession.h"
 #include "Shader/ShaderCompiledOutput.h"
 #include "Serialization/BinaryFormat.h"
+#include "Serialization/CompactBinary.h"
 
 namespace Durin::ShaderSharedOutput
 {
+	auto SaveError(DerivedData::FBuildContext& Context, const FShaderError& Error) -> void
+	{
+		FCbWriter Writer;
+		Writer.AddUInt64(uint64(Error.Code), "Code"); Writer.AddUInt64(uint64(Error.CompilerPhase), "CompilerPhase");
+		Writer.AddString(Error.ShaderType.substr(0, ShaderBuildDiagnosticMaxBytes), "ShaderType");
+		Writer.AddString(Error.Parameter.substr(0, ShaderBuildDiagnosticMaxBytes), "Parameter");
+		Writer.AddString(Error.ExpectedIdentity.substr(0, ShaderBuildDiagnosticMaxBytes), "ExpectedIdentity");
+		Writer.AddString(Error.ActualIdentity.substr(0, ShaderBuildDiagnosticMaxBytes), "ActualIdentity");
+		Writer.AddString(Error.ExternalDiagnostic.substr(0, ShaderBuildDiagnosticMaxBytes), "ExternalDiagnostic");
+		Writer.AddUInt64(Error.Index, "Index");
+		Writer.AddUInt64(Error.Expected, "Expected");
+		Writer.AddUInt64(Error.Actual, "Actual");
+		Writer.AddUInt64(Error.SetIndex, "SetIndex");
+		Writer.AddUInt64(Error.BindingIndex, "BindingIndex");
+		Writer.AddUInt64(Error.ExistingBegin, "ExistingBegin");
+		Writer.AddUInt64(Error.ExistingEnd, "ExistingEnd");
+		Writer.AddUInt64(Error.NewBegin, "NewBegin");
+		Writer.AddUInt64(Error.NewEnd, "NewEnd");
+		if (Error.ElementIndex) Writer.AddUInt64(*Error.ElementIndex, "ElementIndex");
+		if (Error.NativeStatus) Writer.AddInt64(*Error.NativeStatus, "NativeStatus");
+		if (Error.CaptureLimit) {
+			Writer.AddUInt64(uint64(Error.CaptureLimit->Kind), "CaptureKind");
+			Writer.AddUInt64(Error.CaptureLimit->Maximum, "CaptureMaximum"); Writer.AddUInt64(Error.CaptureLimit->Actual, "CaptureActual");
+		}
+		if (Error.FileError) {
+			const auto& File = *Error.FileError;
+			Writer.AddUInt64(uint64(File.Operation), "FileOperation"); Writer.AddInt64(File.NativeError.value(), "FileNativeCode");
+			Writer.AddBool(File.NativeError.category() == std::system_category(), "FileSystemCategory");
+			Writer.AddString(File.Path.generic_string(), "FilePath"); Writer.AddString(File.RelatedPath.generic_string(), "FileRelatedPath");
+			if (File.Range) { Writer.AddUInt64(File.Range->Offset, "FileOffset"); Writer.AddUInt64(File.Range->Size, "FileSize"); }
+		}
+		if (auto Object = Writer.SaveObject()) Context.AddObservation(DerivedData::FValueId::FromName("ShaderError"), std::move(*Object));
+		Context.FailExecution("Shader build failed.");
+	}
+	auto ReadError(const DerivedData::FBuildOutput& Output) -> std::optional<FShaderError>
+	{
+		const auto Found = std::ranges::find(Output.GetObservations(), DerivedData::FValueId::FromName("ShaderError"), &DerivedData::FBuildOutputMeta::Id);
+		if (Found == Output.GetObservations().end()) return {};
+		const auto Object = Found->Object.GetView();
+		const auto Code = Object.Find("Code").AsUInt64();
+		if (!Code || *Code == 0 || *Code > uint64(EShaderError::BuildFailed)) return {};
+		FShaderError Error{.Code = EShaderError(*Code)};
+		Error.CompilerPhase = ESlangShaderError(Object.Find("CompilerPhase").AsUInt64().value_or(0));
+		Error.ShaderType = Object.Find("ShaderType").AsString().value_or("");
+		Error.Parameter = Object.Find("Parameter").AsString().value_or("");
+		Error.ExpectedIdentity = Object.Find("ExpectedIdentity").AsString().value_or("");
+		Error.ActualIdentity = Object.Find("ActualIdentity").AsString().value_or("");
+		Error.ExternalDiagnostic = Object.Find("ExternalDiagnostic").AsString().value_or("");
+		Error.Index = decltype(Error.Index)(Object.Find("Index").AsUInt64().value_or(0));
+		Error.Expected = decltype(Error.Expected)(Object.Find("Expected").AsUInt64().value_or(0));
+		Error.Actual = decltype(Error.Actual)(Object.Find("Actual").AsUInt64().value_or(0));
+		Error.SetIndex = decltype(Error.SetIndex)(Object.Find("SetIndex").AsUInt64().value_or(0));
+		Error.BindingIndex = decltype(Error.BindingIndex)(Object.Find("BindingIndex").AsUInt64().value_or(0));
+		Error.ExistingBegin = decltype(Error.ExistingBegin)(Object.Find("ExistingBegin").AsUInt64().value_or(0));
+		Error.ExistingEnd = decltype(Error.ExistingEnd)(Object.Find("ExistingEnd").AsUInt64().value_or(0));
+		Error.NewBegin = decltype(Error.NewBegin)(Object.Find("NewBegin").AsUInt64().value_or(0));
+		Error.NewEnd = decltype(Error.NewEnd)(Object.Find("NewEnd").AsUInt64().value_or(0));
+		Error.ElementIndex = Object.Find("ElementIndex").AsUInt64();
+		Error.NativeStatus = Object.Find("NativeStatus").AsInt64();
+		if (auto Kind = Object.Find("CaptureKind").AsUInt64()) Error.CaptureLimit = FShaderCaptureLimitContext{
+			EShaderCaptureLimit(*Kind), Object.Find("CaptureMaximum").AsUInt64().value_or(0), Object.Find("CaptureActual").AsUInt64().value_or(0)};
+		if (auto Operation = Object.Find("FileOperation").AsUInt64()) {
+			Error.FileError = FFileError{EFileOperation(*Operation), std::error_code(int(Object.Find("FileNativeCode").AsInt64().value_or(0)),
+				Object.Find("FileSystemCategory").AsBool().value_or(false) ? std::system_category() : std::generic_category()),
+				std::filesystem::path(Object.Find("FilePath").AsString().value_or("")), std::filesystem::path(Object.Find("FileRelatedPath").AsString().value_or(""))};
+			if (auto Offset = Object.Find("FileOffset").AsUInt64()) Error.FileError->Range = FFileError::FRange{*Offset, Object.Find("FileSize").AsUInt64().value_or(0)};
+		}
+		return Error;
+	}
+
 	using namespace DerivedData;
 	namespace
 	{

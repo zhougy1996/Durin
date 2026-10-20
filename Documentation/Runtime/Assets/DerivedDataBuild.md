@@ -196,21 +196,22 @@ An output containing an error message is a deterministic negative result: its
 values are discarded, it completes with `EStatus::Error`, and it is persisted
 and reused under the same action key. A warm negative hit does not resolve
 inputs or invoke the producer. There is no time expiry; key or version changes
-invalidate it. Infrastructure failures and cancellation have no output and are
-never cached.
+invalidate it. Infrastructure failures and cancellation are never cached. Execution failures
+may return an observation-only diagnostic output; partial values and metadata
+are discarded. Cancellation has no output.
 
 ## Completion and failure
 
 Accepted work completes exactly once with `FBuildCompleteParams`:
 
 - `EStatus::Ok` owns one validated output without error messages.
-- `EStatus::Error` owns either a deterministic error output, or no output for an
-  infrastructure failure.
+- `EStatus::Error` owns a deterministic error output, an observation-only
+  execution diagnostic output, or no output for an infrastructure failure.
 - `EStatus::Canceled` owns no output.
 
-There is no public typed producer failure and no validation receipt. Families
-decide only from status, output presence, and bounded deterministic output
-messages. Message and log text is display data, never control-flow identity. Typed
+There is no family-specific producer failure type or validation receipt in DDC.
+Families interpret status, deterministic messages and their own structured
+completion observations. Message and log text is display data, never control-flow identity. Typed
 assemblers reparse and revalidate immutable output at their trust boundary.
 
 The completion independently exposes its cache key and two `EBuildExecutionFlags` facts
@@ -222,7 +223,8 @@ Optional observations live only in the returned cold output.
 Deterministic producer errors are bounded output messages. Non-deterministic
 producer logs have their own category, severity, and text and make the output
 non-cacheable. `FailExecution` reports resource, environment or unclassified
-recipe failures without an output or persistence; `GetDiagnostic` retains bounded
+recipe failures without a product or persistence. Existing observations may
+accompany the failure; `GetDiagnostic` retains bounded
 completion-only error text for callers. Only input-determined failures
 use `AddError`; budget and module availability never become negative cache entries.
 Adapter versions are advanced to invalidate previously misclassified failures. Cache and input infrastructure failures are logged by their owning

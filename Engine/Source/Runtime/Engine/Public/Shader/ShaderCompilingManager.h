@@ -47,9 +47,9 @@ namespace Durin
 		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override;
 		auto FinishAllCompilation() -> FAssetCompileProcessResult override;
 		auto Shutdown() -> void override;
-		auto SubmitJobs(FMaterialCompileRequest Request) -> EMaterialCompileState;
 		auto CancelCompilation(FWeakObjectPtr Owner) -> bool;
 	private:
+		auto SubmitJobs(FMaterialCompileRequest Request) -> EMaterialCompileState;
 		friend class FMaterialShaderMap;
 		friend auto MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests() -> MaterialBuildPrivate::FMaterialProgramCompileStats;
 		friend struct Private::FMaterialCompilationLifecycle;
@@ -100,12 +100,12 @@ namespace Durin
 		auto GetMaterialDiagnostics() const -> FMaterialCompilationDiagnostics;
 		auto RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners = {}) -> void;
 		auto CancelLatchedMaterialCompiles() -> void;
-		auto ProcessMaterialResults(uint32 MaximumCount, const std::function<void(FMaterialCompileResult)>& Process) -> uint32;
+		auto ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process) -> uint32;
 		auto CompleteMaterialRequests(const FShaderMapPtr& ShaderMap, MaterialBuildPrivate::FMaterialBuildResult Build) -> void;
 		auto CancelMaterialOwnerLocked(FWeakObjectPtr Owner, bool Superseded) -> bool;
-		static auto MakeReadyResult(const FMaterialCompileRequest& Request,
-			std::shared_ptr<const FMaterialCompilerResult> Program, EMaterialCompileCacheOutcome Outcome) -> FMaterialCompileResult;
-		static auto MakeTerminalResult(const FMaterialCompileRequest& Request, EMaterialCompileState State) -> FMaterialCompileResult;
+		static auto MakeMaterialResult(const FMaterialCompileRequest& Request,
+			const MaterialBuildPrivate::FMaterialBuildResult& Build,
+			const MIR::FCompilerInput* DiagnosticInput = nullptr, bool Canceled = false) -> FMaterialCompileResult;
 		auto FindCompilingShaderMap(FShaderMapPtr Request) const -> FShaderMapPtr;
 		auto FindOrAddCompilingShaderMap(FShaderMapPtr ShaderMap) -> std::shared_ptr<const FMaterialCompilerResult>;
 		auto FinalizeCompilation(FShaderMapPtr ShaderMap, std::shared_ptr<const FMaterialCompilerResult> Program,

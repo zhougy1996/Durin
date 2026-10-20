@@ -425,7 +425,7 @@ namespace Durin
 								ERenderResourceCreateErrorCategory::ShaderCompile,
 								"StaticMeshShaderMap",
 								GetIdentityText(Identity),
-								ShaderResult.Diagnostic,
+								ShaderResult.Error,
 								ERenderResourceGenerationDependency::Shader
 									| ERenderResourceGenerationDependency::Manual
 							)

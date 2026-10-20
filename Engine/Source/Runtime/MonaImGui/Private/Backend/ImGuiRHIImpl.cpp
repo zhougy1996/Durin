@@ -244,7 +244,7 @@ namespace Durin::MonaImGui
 		FShaderCompletion ErrorMessage;
 		if (!(ErrorMessage = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions)))
 		{
-			if (ErrorMessage.Status == EShaderBuildStatus::Error) DURIN_ERROR("Failed to initialize ImGui shader map: {}", ErrorMessage.Diagnostic);
+			if (ErrorMessage.Status == EShaderBuildStatus::Error) DURIN_ERROR("Failed to initialize ImGui shader map: {}", FormatShaderError(ErrorMessage.Error));
 			return;
 		}
 
