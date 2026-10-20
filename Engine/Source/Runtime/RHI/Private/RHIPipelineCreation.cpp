@@ -110,7 +110,7 @@ namespace Durin
 		explicit FState(std::shared_ptr<FRequestLifetime> InLifetime)
 			: Lifetime(std::move(InLifetime)),
 			Source(Tasks::TCompletionSource<void>::Create({.DebugName = "RHI.PipelineObserver"})),
-			Task(Tasks::Share(Source.TakeTask())) { ++Lifetime->Observers; }
+			Task(Source.TakeTask()) { ++Lifetime->Observers; }
 		~FState() { --Lifetime->Observers; }
 		auto Publish(const FPublished& Publication) -> void
 		{
@@ -137,7 +137,7 @@ namespace Durin
 		}
 		std::shared_ptr<FRequestLifetime> Lifetime;
 		Tasks::TCompletionSource<void> Source;
-		Tasks::TSharedTask<void> Task;
+		Tasks::TTask<void> Task;
 		TAtomicSharedPtr<FPipelinePublication> Published;
 		// Accessed only under the compile queue mutex, and cleared at publication.
 		std::shared_ptr<const FKey> PendingKey;
@@ -336,7 +336,7 @@ namespace Durin
 					// Serialize retirement as well as execution. Waiting the last drain
 					// then covers every earlier callable that captured this device owner.
 					const std::span Dependencies(&LastDrain, LastDrain.IsValid() ? 1 : 0);
-					LastDrain = Tasks::Share(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker,
+					LastDrain = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker,
 						{.DebugName = "RHI.PipelineCreation"}, [this, Ticket] {
 							try { Drain(); }
 							catch (...)
@@ -349,7 +349,7 @@ namespace Durin
 								throw;
 							}
 							Ticket->Finished = true;
-						}, Dependencies));
+						}, Dependencies);
 				}
 				return Result;
 			}
@@ -411,7 +411,7 @@ namespace Durin
 		FBackend Backend;
 		std::shared_ptr<FRequestLifetime> Lifetime = std::make_shared<FRequestLifetime>();
 		std::weak_ptr<const void> SchedulerLifetime = Private::GetTaskSchedulerLifetime();
-		Tasks::TSharedTask<void> LastDrain;
+		Tasks::TTask<void> LastDrain;
 		mutable std::mutex Mutex;
 		std::array<std::weak_ptr<FObserver>, MaxObservers> Observers;
 		uint32 NextObserver = 0;

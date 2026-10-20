@@ -148,7 +148,7 @@ namespace Durin
 		EXPECT_EQ(0u, Final.NonterminalTaskCount);
 	}
 
-	TEST(FTaskOwnershipQualificationTests, MeasuresCopyableMoveOnlyAndSharedUniqueTransfer)
+	TEST(FTaskOwnershipQualificationTests, MeasuresCopyableMoveOnlyCallablesAndSharedResultFanout)
 	{
 		ShutdownTaskScheduler(false);
 		FTaskSchedulerQualificationGuard Guard;
@@ -184,28 +184,18 @@ namespace Durin
 		});
 
 		std::atomic<uint64> ResultBytesObserved = 0;
-		const uint64 SharedTransferNanoseconds = MeasureNanoseconds([&]() {
+		const uint64 SharedFanoutNanoseconds = MeasureNanoseconds([&]() {
 			std::vector<Tasks::FTask> Sinks;
 			for (uint32 Index = 0; Index < ResultCount; ++Index)
 			{
-				auto Producer = Tasks::Share(Tasks::LaunchTask("SharedTransferQualification", []() {
+				auto Producer = Tasks::LaunchTask("SharedTransferQualification", []() {
 					return Durin::FByteBuffer(ResultBytes, std::byte{1});
-				}));
+				});
 				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "SharedTransferSink"}, [&ResultBytesObserved](const Durin::FByteBuffer& Value) {
 					ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 				})));
-			}
-			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](const FTaskWaitResult& Result) { return Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded; }));
-		});
-		const uint64 UniqueTransferNanoseconds = MeasureNanoseconds([&]() {
-			std::vector<Tasks::FTask> Sinks;
-			for (uint32 Index = 0; Index < ResultCount; ++Index)
-			{
-				auto Producer = Tasks::LaunchTask("UniqueTransferQualification", []() {
-					return Durin::FByteBuffer(ResultBytes, std::byte{1});
-				});
-				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::Then(std::move(Producer), Tasks::ETaskExecutor::Worker, {.DebugName = "UniqueTransferSink"},
-					[&ResultBytesObserved](Durin::FByteBuffer&& Value) {
+				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "SharedFanoutSink"},
+					[&ResultBytesObserved](const Durin::FByteBuffer& Value) {
 						ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 					})));
 			}
@@ -217,18 +207,17 @@ namespace Durin
 			ResultBytesObserved.load(std::memory_order::acquire));
 		const auto ResultReleaseDeadline =
 			std::chrono::steady_clock::now() + std::chrono::seconds(1);
-		while (GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes != 0
+		while (GetTaskSchedulerDiagnostics().RetainedResultBytes != 0
 			&& std::chrono::steady_clock::now() < ResultReleaseDeadline)
 		{
 			std::this_thread::yield();
 		}
-		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedResultBytes);
 		std::cout << "TaskOwnershipQualification,callables=" << CallableCount
 			<< ",results=" << ResultCount << ",result_bytes=" << ResultBytes
 			<< ",copyable_callable_ns=" << CopyableCallableNanoseconds
 			<< ",move_only_callable_ns=" << MoveOnlyCallableNanoseconds
-			<< ",shared_transfer_ns=" << SharedTransferNanoseconds
-			<< ",unique_transfer_ns=" << UniqueTransferNanoseconds << '\n';
+			<< ",shared_fanout_ns=" << SharedFanoutNanoseconds << '\n';
 	}
 	TEST(FTaskPolicyQualificationTests, ReleaseParallelCrossoverSkewAndNestedWork)
 	{

@@ -504,7 +504,7 @@ namespace Durin
 					ReadyRecordings.clear();
 					return false;
 				}
-				ReadyRecordings.push_back(std::move(Task).TakeResult());
+				ReadyRecordings.push_back(std::move(Task.GetResult()));
 			}
 			return true;
 		};

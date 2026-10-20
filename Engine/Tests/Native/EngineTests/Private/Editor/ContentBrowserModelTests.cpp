@@ -113,10 +113,19 @@ namespace
 			Changed.notify_all();
 			Changed.wait(Lock, [&] { return bReleased; });
 		}
-		auto WaitUntilStarted() -> bool
+		auto WaitUntilStarted(std::function<void()> Pump = {}) -> bool
 		{
 			std::unique_lock Lock(Mutex);
-			return Changed.wait_for(Lock, std::chrono::seconds(5), [&] { return bStarted; });
+			if (!Pump) return Changed.wait_for(Lock, std::chrono::seconds(5), [&] { return bStarted; });
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+			while (!bStarted && std::chrono::steady_clock::now() < Deadline)
+			{
+				Lock.unlock();
+				Pump();
+				Lock.lock();
+				Changed.wait_until(Lock, std::min(Deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(1)), [&] { return bStarted; });
+			}
+			return bStarted;
 		}
 		auto Release() -> void
 		{
@@ -1002,7 +1011,9 @@ TEST_F(FContentBrowserModelTests, AsyncRevealReturnsIdentityBeforeDirectoryCaptu
 		return Entry.symlink_status(Error);
 	});
 	EXPECT_EQ(Model.RevealPhysicalItem(Folder.generic_string()), Folder.generic_string());
-	ASSERT_TRUE(Gate->WaitUntilStarted());
+	// Reveal can replace a capture whose cancellation has not yet retired.
+	// Keep the normal owner pump progressing so the replacement can be submitted.
+	ASSERT_TRUE(Gate->WaitUntilStarted([&] { (void)Model.PumpPendingSnapshots(); }));
 	EXPECT_TRUE(Model.IsLoading());
 	Gate->Release();
 	Model.WaitForPendingSnapshotsForTesting();

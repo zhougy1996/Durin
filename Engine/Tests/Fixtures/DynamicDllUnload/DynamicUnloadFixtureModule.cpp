@@ -141,19 +141,19 @@ namespace Durin
 			if (Worker.IsValid() || Publisher.IsValid()) return false;
 			auto Capture = std::make_shared<FAsyncCaptureProbe>(InstanceSerial, WorkerCallbacks.Record);
 			Tasks::FTaskExecutionOptions WorkerOptions;
-			Worker = Tasks::Share(Tasks::LaunchTask(
+			Worker = Tasks::LaunchTask(
 				"DynamicUnloadFixture.Worker",
 				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
 					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::AsyncWorkerCompleted, Serial});
 					return Serial;
 				},
-				WorkerOptions));
+				WorkerOptions);
 			if (!Worker.IsValid()) return false;
 
 			Tasks::FTaskExecutionOptions PublisherOptions;
 			PublisherOptions.DebugName = "DynamicUnloadFixture.Publish";
 			Publisher = Durin::Tasks::FTask(Tasks::ThenCompleted(Worker, Tasks::ETaskExecutor::Worker, PublisherOptions,
-				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial](const Tasks::TSharedTask<uint64>& Outcome) {
+				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial](const Tasks::TTask<uint64>& Outcome) {
 					if (Outcome.GetState() == ETaskState::Succeeded
 						&& Outcome.GetResult() == Serial)
 					{
@@ -167,13 +167,13 @@ namespace Durin
 		{
 			if (RetainedResult.IsValid()) return false;
 			Tasks::FTaskExecutionOptions Options;
-			RetainedResult = Tasks::Share(Tasks::LaunchTask(
+			RetainedResult = Tasks::LaunchTask(
 				"DynamicUnloadFixture.RetainedResult",
 				[Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
 					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::RetainedResultReady, Serial});
 					return Serial;
 				},
-				Options));
+				Options);
 			bRetainResult = RetainedResult.IsValid();
 			return bRetainResult;
 		}
@@ -210,9 +210,9 @@ namespace Durin
 		FName ModuleName;
 		FModularFeatureRegistration FeatureRegistration;
 
-		Tasks::TSharedTask<uint64> Worker;
+		Tasks::TTask<uint64> Worker;
 		Tasks::FTask Publisher;
-		Tasks::TSharedTask<uint64> RetainedResult;
+		Tasks::TTask<uint64> RetainedResult;
 		Tasks::FTask BlockingWorker;
 		bool bRetainResult = false;
 		bool bThrowOnShutdown = false;

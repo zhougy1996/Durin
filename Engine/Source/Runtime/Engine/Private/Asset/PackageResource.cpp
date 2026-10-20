@@ -13,7 +13,7 @@ namespace Durin
 	{
 		struct FPackageResourceRequestState
 		{
-			using FSharedResult = Tasks::TSharedTask<FPackageResourceReadResult>;
+			using FSharedResult = Tasks::TTask<FPackageResourceReadResult>;
 			explicit FPackageResourceRequestState(bool bInBinding = false) : bBinding(bInBinding) {}
 			// Synchronizes registration with resource retirement until the immutable
 			// task is bound. Result publication and all later waits belong to Core.
@@ -31,7 +31,7 @@ namespace Durin
 			}
 			auto Bind(Tasks::TTask<FPackageResourceReadResult> Task) -> void
 			{
-				std::variant<FPackageResourceReadResult, FSharedResult> Published = Tasks::Share(std::move(Task));
+				std::variant<FPackageResourceReadResult, FSharedResult> Published = std::move(Task);
 				Durin::Tasks::FTask CompletionToCancel;
 				{
 					std::lock_guard Lock(Mutex);
@@ -538,7 +538,7 @@ namespace Durin
 
 	namespace
 	{
-		auto ReadCompletedPackageTask(const Tasks::TSharedTask<FPackageResourceReadResult>& Task)
+		auto ReadCompletedPackageTask(const Tasks::TTask<FPackageResourceReadResult>& Task)
 			-> FPackageResourceReadResult
 		{
 			if (Task.GetState() == ETaskState::Succeeded) return Task.GetResult();
@@ -595,7 +595,7 @@ namespace Durin
 		{
 			State->Bind(Tasks::ThenCompleted(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result),
 				Tasks::ETaskExecutor::Worker, Options,
-				[Function = std::move(Function)](const Tasks::TSharedTask<FPackageResourceReadResult>& Task) mutable {
+				[Function = std::move(Function)](const Tasks::TTask<FPackageResourceReadResult>& Task) mutable {
 					return Function(ReadCompletedPackageTask(Task));
 				}));
 		}

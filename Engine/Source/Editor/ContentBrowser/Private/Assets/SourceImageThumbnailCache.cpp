@@ -158,7 +158,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (!Flight->Task.IsCompleted()) { ++Flight; continue; }
 				FDecodeResult Result;
 				if (Flight->Task.GetState() == ETaskState::Succeeded)
-					Result = std::move(Flight->Task).TakeResult();
+					Result = std::move(Flight->Task.GetResult());
 				else
 				{
 					Result.PhysicalPath = Flight->PhysicalPath;

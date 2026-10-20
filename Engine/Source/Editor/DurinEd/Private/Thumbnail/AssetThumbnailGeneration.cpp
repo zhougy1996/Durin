@@ -87,7 +87,7 @@ namespace Durin::Editor
 				if (!EncodeTask.IsCompleted()) return;
 				FCacheWrite Encoded;
 				if (EncodeTask.GetState() == ETaskState::Succeeded)
-					Encoded = std::move(EncodeTask).TakeResult();
+					Encoded = std::move(EncodeTask.GetResult());
 				EncodeTask = {};
 				RetainedBytes -= EncodingBytes;
 				if (Encoded.Cancellation.IsCancelled()) ++Stats.CacheWritesSkipped;
@@ -125,7 +125,7 @@ namespace Durin::Editor
 				if (!CacheTask.IsCompleted()) return;
 				FCacheResult Result;
 				if (CacheTask.GetState() == ETaskState::Succeeded)
-					Result = std::move(CacheTask).TakeResult();
+					Result = std::move(CacheTask.GetResult());
 				CacheTask = {};
 				Stats.Evictions = std::max(Stats.Evictions, Result.Evictions);
 				if (ActiveRead)

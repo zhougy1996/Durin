@@ -436,7 +436,7 @@ namespace
 	}
 	TEST_F(FMCPIntegrationTests, PendingNativeCompletionKeepsExistingWireResultUntilValidatedTick)
 	{
-		auto Source = FToolCompletionSource::CreateDetached(); auto Future = Tasks::Share(Source.TakeTask());
+		auto Source = FToolCompletionSource::CreateDetached(); auto Future = Source.TakeTask();
 		FToolDescriptor Descriptor{.Name = "echo", .Output = FToolSchema(EToolValueType::Boolean), .bExposeExternally = true, .bMayPend = true};
 		FToolBinding Binding{Descriptor};
 		Binding.AsyncHandler = [this, Future](const auto&, const auto& Context) {

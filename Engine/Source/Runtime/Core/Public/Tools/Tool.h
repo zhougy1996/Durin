@@ -180,7 +180,7 @@ namespace Durin
 		FToolValue Data;
 		std::vector<FToolDiagnostic> Diagnostics;
 	};
-	using FToolFuture = Tasks::TSharedTask<FToolResult>;
+	using FToolFuture = Tasks::TTask<FToolResult>;
 	using FToolCompletionSource = Tasks::TCompletionSource<FToolResult>;
 	inline auto ReadyToolResult(FToolResult Result) -> FToolFuture { return Tasks::MakeReadyTask(std::move(Result)); }
 

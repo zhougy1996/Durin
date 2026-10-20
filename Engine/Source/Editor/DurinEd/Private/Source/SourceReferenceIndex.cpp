@@ -38,7 +38,7 @@ namespace Durin::Editor
 
 			std::mutex Mutex;
 			std::shared_ptr<const Private::FSourceReferenceSnapshot> Published;
-			Tasks::TSharedTask<Private::FSourceReferenceSnapshot> BuildTask;
+			Tasks::TTask<Private::FSourceReferenceSnapshot> BuildTask;
 			uint64 Generation = 1;
 			uint64 BuildingGeneration = 0;
 			size_t BuildingMaximumPackageInspections = 0;
@@ -146,11 +146,11 @@ namespace Durin::Editor
 		{
 			Service.BuildingGeneration = Service.Generation;
 			Service.BuildingMaximumPackageInspections = MaximumPackageInspections;
-			Service.BuildTask = Tasks::Share(Tasks::LaunchTask(
+			Service.BuildTask = Tasks::LaunchTask(
 				"BuildSourceReferenceIndex",
 				[Generation = Service.Generation, MaximumPackageInspections] {
 					return BuildSnapshot(Generation, MaximumPackageInspections);
-				}));
+				});
 
 		}
 		Snapshot = Service.Published;

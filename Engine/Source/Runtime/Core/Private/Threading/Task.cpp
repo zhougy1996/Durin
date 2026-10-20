@@ -255,7 +255,7 @@ namespace Durin
 			Nonterminal,
 			PayloadBytes,
 			ResultBytes,
-			RetainedUniqueResultBytes,
+			RetainedResultBytes,
 			Count,
 		};
 
@@ -335,8 +335,8 @@ namespace Durin
 				Out.PeakPayloadBytes = GaugePeak(ETaskAggregateGauge::PayloadBytes);
 				Out.CurrentResultBytes = Gauge(ETaskAggregateGauge::ResultBytes);
 				Out.PeakResultBytes = GaugePeak(ETaskAggregateGauge::ResultBytes);
-				Out.CurrentRetainedUniqueResultBytes = Gauge(ETaskAggregateGauge::RetainedUniqueResultBytes);
-				Out.PeakRetainedUniqueResultBytes = GaugePeak(ETaskAggregateGauge::RetainedUniqueResultBytes);
+				Out.CurrentRetainedResultBytes = Gauge(ETaskAggregateGauge::RetainedResultBytes);
+				Out.PeakRetainedResultBytes = GaugePeak(ETaskAggregateGauge::RetainedResultBytes);
 				for (size_t Bucket = 0; Bucket < 32; ++Bucket)
 				{
 					Out.QueueResidencyHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::QueueResidency)][Bucket].load(std::memory_order::acquire);
@@ -539,6 +539,9 @@ namespace Durin
 
 		~FTaskStateData()
 		{
+			SetRetainedResultBytes(0);
+			ResultStorage.reset();
+			ResultLifetimes.clear();
 			if (!bTerminalLifetimeCharged)
 			{
 				return;
@@ -550,6 +553,18 @@ namespace Durin
 				const uint64 PreviousResultCount = LifetimeAccounting->RetainedTerminalResultCount.fetch_sub(1, std::memory_order::acq_rel);
 				require(PreviousResultCount > 0);
 			}
+		}
+
+		auto RetainResult(std::shared_ptr<void> Result) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			require(!ResultStorage);
+			ResultStorage = std::move(Result);
+		}
+		auto RetainLifetime(std::shared_ptr<void> Lifetime) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			ResultLifetimes.push_back(std::move(Lifetime));
 		}
 
 		auto InitializeOwnership(std::unique_ptr<Private::FMoveOnlyTaskFunction>& Function,
@@ -615,11 +630,12 @@ namespace Durin
 			}
 			Hook->Function(Terminal);
 		}
-		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner) -> bool
+		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner, bool bForwardCancellation) -> bool
 		{
 			std::lock_guard Lock(Mutex);
 			if (bDynamicDependencyBound) return false;
 			DynamicPrerequisite = std::move(Inner);
+			bForwardDynamicCancellation = bForwardCancellation;
 			bDynamicDependencyBound = true;
 			bUnknownExecutionRequirement = false;
 			return true;
@@ -943,6 +959,8 @@ namespace Durin
 		std::condition_variable CV;
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		Private::FTaskCompletionFunction CompletionFunction;
+		std::shared_ptr<void> ResultStorage;
+		std::vector<std::shared_ptr<void>> ResultLifetimes;
 		bool bHasResultStorage = false;
 		bool bAdmissionPending = true;
 		size_t ReservedDependents = 0;
@@ -955,6 +973,7 @@ namespace Durin
 		bool bUnknownExecutionRequirement = false;
 		std::shared_ptr<Private::FTaskTerminalHook> TerminalHooks;
 		std::shared_ptr<FTaskStateData> DynamicPrerequisite;
+		bool bForwardDynamicCancellation = true;
 		bool bDynamicDependencyBound = false;
 		std::vector<std::weak_ptr<FTaskStateData>> Prerequisites;
 		std::vector<uint64> PrerequisiteTaskIds;
@@ -1080,11 +1099,11 @@ namespace Durin
 			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Attribution);
 			if (CurrentBytes > PreviousBytes)
 			{
-				Aggregate.Add(ETaskAggregateGauge::RetainedUniqueResultBytes, CurrentBytes - PreviousBytes);
+				Aggregate.Add(ETaskAggregateGauge::RetainedResultBytes, CurrentBytes - PreviousBytes);
 			}
 			else
 			{
-				Aggregate.Subtract(ETaskAggregateGauge::RetainedUniqueResultBytes, PreviousBytes - CurrentBytes);
+				Aggregate.Subtract(ETaskAggregateGauge::RetainedResultBytes, PreviousBytes - CurrentBytes);
 			}
 		}
 
@@ -1644,7 +1663,7 @@ namespace Durin
 					Entry.RejectedCount,
 					Entry.CurrentPayloadBytes,
 					Entry.CurrentResultBytes,
-					Entry.CurrentRetainedUniqueResultBytes);
+					Entry.CurrentRetainedResultBytes);
 			}
 		}
 
@@ -1673,7 +1692,7 @@ namespace Durin
 			for (FTaskOwnerCategoryDiagnostics& Entry : Snapshot.OwnerCategoryDiagnostics)
 			{
 				OwnerCategoryAggregates[Entry.CategoryId].Snapshot(Entry);
-				Snapshot.RetainedUniqueResultBytes += Entry.CurrentRetainedUniqueResultBytes;
+				Snapshot.RetainedResultBytes += Entry.CurrentRetainedResultBytes;
 			}
 			Snapshot.bRunning = bInRunning;
 
@@ -2394,7 +2413,7 @@ namespace Durin
 			}
 
 			bCancellationRequested = true;
-			InnerToCancel = DynamicPrerequisite;
+			if (bForwardDynamicCancellation) InnerToCancel = DynamicPrerequisite;
 			if (CancellationDiagnostic.empty())
 			{
 				CancellationDiagnostic = std::move(InDiagnostic);
@@ -2587,6 +2606,9 @@ namespace Durin
 	{
 		return GroupToken.IsCancellationRequested() || ExternalToken.IsCancellationRequested();
 	}
+
+	auto Private::MakeVoidTaskResultState(uint64 ResultBytes) -> std::shared_ptr<TTaskResultState<std::monostate>>
+	{ return std::make_shared<TTaskResultState<std::monostate>>(ResultBytes); }
 
 	Tasks::Private::FTaskHandle::FTaskHandle() = default;
 
@@ -3113,6 +3135,13 @@ namespace Durin
 		}
 
 
+		auto FTaskRuntimeAccess::RetainResult(const Tasks::FTask& Task, std::shared_ptr<void> Result) -> void
+		{ require(Task.State && Result); Task.State->RetainResult(std::move(Result)); }
+		auto FTaskRuntimeAccess::PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>
+		{ require(Task.State); return Task.State; }
+		auto FTaskRuntimeAccess::RetainLifetime(const Tasks::FTask& Task, std::shared_ptr<void> Lifetime) -> void
+		{ require(Task.State); Task.State->RetainLifetime(std::move(Lifetime)); }
+
 		auto FTaskRuntimeAccess::GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution { return Task.State ? Task.State->GetAttribution() : FTaskAttribution{}; }
 
 		auto FTaskRuntimeAccess::IsExecutingIndependentCPU() -> bool { return GCurrentTaskState && GCurrentTaskState->IsIndependentCPU(); }
@@ -3147,7 +3176,7 @@ namespace Durin
 			}
 		}
 
-		auto FTaskRuntimeAccess::BindDynamicDependency(const Tasks::FTask& Task, const Tasks::FTask& Inner)
+		auto FTaskRuntimeAccess::BindDynamicDependency(const Tasks::FTask& Task, const Tasks::FTask& Inner, bool bForwardCancellation)
 			-> std::optional<Tasks::FTaskAdmissionError>
 		{
 			// Serializes dynamic edge insertion and cycle checks across concurrent sources.
@@ -3159,12 +3188,12 @@ namespace Durin
 					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
 				if (Task.State == Inner.State || Inner.State->DependsOn(Task.State.get()))
 					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::DependencyCycle, Inner.GetTaskId()};
-				if (!Task.State->SetDynamicDependency(Inner.State))
+				if (!Task.State->SetDynamicDependency(Inner.State, bForwardCancellation))
 					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
 			}
 			// Cancellation can invoke terminal hooks, so it must happen outside dependency synchronization.
 			Task.State->NotifyProgress();
-			if (Task.State->IsCancellationRequested())
+			if (bForwardCancellation && Task.State->IsCancellationRequested())
 				Inner.State->RequestCancellation("Outer task cancellation preceded inner binding.");
 			return {};
 		}

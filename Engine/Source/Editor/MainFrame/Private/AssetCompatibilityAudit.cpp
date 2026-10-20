@@ -282,8 +282,8 @@ namespace Durin::Editor
 		TerminalOptions.GenerationToken = Generation.Capture();
 		const std::weak_ptr<FPublicationLifetime> WeakLifetime = PublicationLifetime;
 		TerminalTask = Durin::Tasks::FTask(Tasks::ThenCompleted(
-			Tasks::Share(std::move(WorkerTask)), Tasks::ETaskExecutor::GameThreadDeferred, TerminalOptions,
-			[WeakLifetime, Serial](const Tasks::TSharedTask<FTerminalSummary>& Outcome) {
+			WorkerTask, Tasks::ETaskExecutor::GameThreadDeferred, TerminalOptions,
+			[WeakLifetime, Serial](const Tasks::TTask<FTerminalSummary>& Outcome) {
 				const std::shared_ptr<FPublicationLifetime> Lifetime = WeakLifetime.lock();
 				if (!Lifetime || !Lifetime->Model) return;
 				FAssetCompatibilityAuditModel& Model = *Lifetime->Model;

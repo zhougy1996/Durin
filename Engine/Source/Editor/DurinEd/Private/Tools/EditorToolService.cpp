@@ -112,7 +112,7 @@ namespace Durin
 			bool Dispatching = false;
 			FToolFuture Raw;
 			FToolCompletionSource Completion = FToolCompletionSource::CreateDetached();
-			FToolFuture Future = Tasks::Share(Completion.TakeTask());
+			FToolFuture Future = Completion.TakeTask();
 			std::shared_ptr<FCharge> Charge;
 			Tasks::FTaskSubscription Observation;
 			Tasks::FTaskReadiness Ready;

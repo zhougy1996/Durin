@@ -75,7 +75,7 @@ namespace Durin
 			// inline. Scope exit drains outstanding work before publishing the result.
 			if (Wait.TaskState != ETaskState::Succeeded)
 				return {ClassifyRange(0, Owner->size()), Result.TaskCount};
-			auto Classes = std::move(Task).TakeResult();
+			auto Classes = std::move(Task.GetResult());
 			Result.Primitives.insert(Result.Primitives.end(), Classes.begin(), Classes.end());
 			if (Next < Owner->size()) Launch();
 		}

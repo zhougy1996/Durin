@@ -4,7 +4,7 @@ Summary: Define owned tool values, bounded schema validation, provider interface
 
 Modules: Core
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-20
 
 ## Ownership and Scope
 
@@ -94,7 +94,7 @@ must revalidate live targets and state. Host dispatch validates successful
 output against the descriptor. Provider exceptions are contained by the
 modular-feature invocation boundary, not reported as successful domain results.
 
-`IToolset::Call` returns `FToolFuture` (`Tasks::TSharedTask<FToolResult>`).
+`IToolset::Call` returns `FToolFuture` (`Tasks::TTask<FToolResult>`).
 `ReadyToolResult` adapts synchronous handlers through scheduler-independent shared
 task storage; `FToolCompletionSource::CreateDetached()` supplies pending outcomes.
 The feature interface version is 2. Read results nonblockingly through

@@ -12,8 +12,8 @@ Last reviewed: 2026-10-20
 `LaunchTask(Executor, Options, Callable)` returns `TTask<T>` directly,
 including `TTask<void>` for a void callable. `Tasks::FTask` is the public generic
 completion handle, an alias of `Tasks::Private::FTaskHandle`, and can observe any
-task or event without a typed result claim. Callables accept no arguments or
-`const FTaskCancellationToken&`. Unique value continuations may accept the token
+task or event without a typed result accessor. Callables accept no arguments or
+`const FTaskCancellationToken&`. Value continuations may accept the token
 before their input value; void continuations may accept the token alone.
 `LaunchTask(Name, Callable, Options)`
 is the Worker convenience form. Tasks participate in the process scheduler
@@ -48,13 +48,13 @@ not declare scheduler capture/result byte budgets. Actual domain payload limits
 and producer throttling belong to resource owners; see
 [Asset Compilation](../Assets/AssetCompilation.md).
 
-Invalid dependencies/executors, consumed unique inputs, and submission after
+Invalid dependencies/executors and submission after
 closure are programming/lifetime violations. Ordinary construction uses the
 always-enabled `requiref` failure path, including Shipping. Allocation failure
 in scheduler construction/registration/dispatch/result storage is fatal; it is
 not ordinary task failure. Exceptions from user work produce Failed tasks.
 
-`Threading/Task.h` defines the common task handle, unique storage, cancellation,
+`Threading/Task.h` defines the common task handle, shared result storage, cancellation,
 wait operations, lifecycle and kernel primitives. Checked admission is limited
 to `Private::TryLaunchCancelableTaskWithCompletion` and
 `Private::TryLaunchContinuationTask`, Core kernel tests, deliberate lifecycle
@@ -106,41 +106,36 @@ scheduler lifetime.
 Register consumers before starting external work so producer acknowledgement
 does not require another submission during shutdown.
 
-## Unique And Shared Results
+## Shared Task Results
 
-`TTask<T>`, `TSharedTask<T>`, and `FTaskEvent` derive from the internal
-`Tasks::Private::FTaskHandle` base, exposed publicly as `Tasks::FTask`.
-This copyable, movable handle directly retains
-the execution state and provides validity, completion, waiting, and diagnostics;
-it owns no result claim. The kernel and composition APIs use this same handle,
-without a separate erased observation wrapper. Ordinary dependencies accept
-task/event objects directly, without `GetTaskHandle()`. Constructing or assigning
+`TTask<T>` and `FTaskEvent` derive from `Tasks::Private::FTaskHandle`, exposed
+publicly as `Tasks::FTask`. All task handles are copyable and movable. Copies
+share one execution node and result; the result type itself may be move-only.
+The node retains successful result storage until its final reference is released,
+including generic `FTask` references and external completion sources. Releasing a
+typed handle does not discard a result still retained by another handle.
+Ordinary dependencies accept task/event objects directly. Constructing or assigning
 a generic `FTask` from a task/event copies observation even from an rvalue; moving
-between generic handles transfers observation. Moving a complete unique task still
-transfers its execution state and result ownership together.
+between generic handles transfers observation. Moving a complete typed task
+transfers its execution and typed result references together.
 Empty handles report incomplete and waits return `InvalidTask`.
-`TTask<T>` is move-only and directly owns its result storage and failure metadata;
-there is no intermediate `TUniqueTaskHandle` or claim tombstone. `IsCompleted()`
-includes Succeeded, Failed and Canceled and does not
-imply a value exists. `GetFailure()` requires Failed. `GetResult()` waits for
-success and returns an immutable reference valid until consumption/destruction.
-`std::move(Task).TakeResult()` waits for success, transfers the value exactly
-once and invalidates the task. Rejected waits, failure and cancellation must be
-handled before accessing successful results. Void tasks compose without a
-value argument and do not retain a module result reservation merely because
-they have a terminal hook.
 
-`Share(std::move(Task))` directly returns `TSharedTask<T>` and relinquishes the
-unique claim. `GetResultShared()` is a nonblocking nullable immutable owner and
-returns empty before success or after failure/cancellation. The alias retains
-producer lifetime while the result outlives the task facade. `GetResult()` on a
-shared task waits for success and references the same immutable storage.
-Copyable versus move-only value types do not select ownership implicitly.
+`IsCompleted()` includes Succeeded, Failed and Canceled and does not imply a
+successful result. `GetFailure()` requires Failed. `GetResult()` waits for success
+and returns a mutable reference to the node's result without invalidating a handle.
+Callers synchronize mutation. Explicit `std::move(Task.GetResult())` moves the
+stored value and leaves a moved-from value visible to every alias. There is no
+separate shared task type, sharing conversion, or framework consuming accessor.
+Rejected waits, failure and cancellation must be handled before result access.
+`GetResultShared()` is a nonblocking nullable immutable view retaining the entire
+node; it returns empty before publication or after failure/cancellation.
+Void tasks compose without a value argument. Core allocates their trivial result
+storage so retained void handles do not require a submitting module's destructor
+code or a module result reservation.
 
 Publication/discard precedes externally visible terminal state and dependent
-release. Unique claims are reserved and committed transactionally; storage is
-discarded exactly once for cancellation, callback failure, dropped ownership,
-and shutdown. Captures and results are destroyed outside task, scheduler and
+release. Failed or canceled pending results are destroyed exactly once. Successful
+results remain until the node is released. Captures and results are destroyed outside task, scheduler and
 executor queue locks. Before a task exposes terminal state or completes a wait,
 its scheduler-owned callable and completion callback have been released. This
 does not release results or shared captures still owned by callers.
@@ -158,20 +153,18 @@ All ordinary composition returns task handles directly:
 
 | Operation | Behavior |
 | --- | --- |
-| `Then(TTask<T>&&, Executor, Options, F)` | Consume success into another unique task; void inputs omit the value; callbacks may take context first |
-| `Then(const TSharedTask<T>&, Executor, Options, F)` | Observe immutable success and produce a unique result |
+| `Then(const TTask<T>&, Executor, Options, F)` | Observe a shared successful result by reference; void inputs omit the value; callbacks may take a cancellation token first |
 | `Then(FTask or FTaskEvent, Executor, Options, F)` | Success edge with a completion handle and no input value |
-| `ThenCompleted(const TSharedTask<T>&, Executor, Options, F)` | Receive the shared task in any terminal state; inspect before accessing a result |
-| `ThenAsync(TTask<T>&&, Executor, Options, F)` | Flatten a returned unique task or shared immutable result owner |
-| `WhenAll(vector<TTask<T>>&&)` | Unique values in input order |
-| `WhenAll(tuple<TTask<Ts>...>&&)` | Heterogeneous unique results; void positions use monostate |
-| `WhenAll(const vector<TSharedTask<T>>&)` | Immutable owning result views, including duplicate positions |
+| `ThenCompleted(const TTask<T>&, Executor, Options, F)` | Receive the task in any terminal state; inspect before accessing a result |
+| `ThenAsync(const TTask<T>&, Executor, Options, F)` | Flatten a returned task by retaining its node and result without moving the value |
+| `WhenAll(const vector<TTask<T>>&)` | Immutable owning result views in input order, including duplicate positions |
+| `WhenAll(const tuple<TTask<Ts>...>&)` | Heterogeneous immutable owning result views; void positions view monostate |
 
 `LaunchTask(Executor, Options, Callable, Dependency)` accepts a task, event,
 or generic `FTask` directly, or a vector, array, or span of these types. The named
 Worker overload accepts `LaunchTask(Name, Callable, Dependency, Options)`.
 `Prerequisites(A, B, ...)` creates an owning array of `FTask` handles for mixed
-unique tasks, shared tasks, and events; it never consumes a result. These
+typed tasks, generic handles, and events; it never consumes a result. These
 overloads append their dependencies to `Options.Prerequisites`, and bind them
 before the supplied collection can go out of scope. `Wait(Task)` and `Cancel(Task)`
 accept task/event facades directly. `Wait(Collection)` accepts the same collections
@@ -198,17 +191,18 @@ independently cancelable. A canceled observing edge may never invoke its
 callback, so mandatory cleanup belongs to the owner lifecycle boundary.
 
 ThenAsync binds and cycle-checks its dynamic dependency before clearing unknown
-execution requirements. Unique inner cancellation is forwarded; shared inner
-cancellation remains local to its observer. The shared-inner adapter binds caller
-prerequisites on the runner before returning and does not retain their borrowed
-span in the later observer. An inner user exception remains
+execution requirements. Canceling the outer observer does not implicitly cancel
+the shared inner task. Callers can explicitly share a cancellation token when
+that behavior is required. Caller prerequisites bind on the runner before returning
+and their borrowed span is not retained in the later observer. An inner user exception remains
 execution failure, not a scheduler admission result.
-Sharing and flattening preserve the original failure reason, code, dependency
+Copying and flattening preserve the original failure reason, code, dependency
 error and input identity. A flattening callback exception remains a callback
 failure; it is not relabeled as a failed prerequisite.
 
 `TCompletionSource<T>::Create` returns a counted external producer directly.
-It does not occupy a worker. `TakeTask()` transfers its one unique task;
+It does not occupy a worker. `TakeTask()` obtains its typed handle once; that
+handle can subsequently be copied freely.
 `TrySetValue`, `TrySetFailure` and `TrySetCanceled` settle once and report late
 publication attempts. Last unresolved source release fails with abandonment.
 Cancellation remains requested until the external producer acknowledges it.
@@ -226,7 +220,7 @@ result. Detached nodes are not scheduler prerequisites or nested execution work.
 Erased-handle Cancel returns false for these observation-only nodes; only their
 producer can acknowledge cancellation. Domain cancellation uses its own token.
 
-`TSharedTask::Subscribe(Callback)` returns a move-only `FTaskSubscription`.
+`TTask::Subscribe(Callback)` returns a move-only `FTaskSubscription`.
 Notification runs once, possibly inline, on the completing/subscribing thread.
 It runs after result storage publication, before task terminal publication may
 become visible: only mark work runnable, then read readiness at the owner boundary.
@@ -235,8 +229,8 @@ host observers that must safely detach from late producers. Generic callback own
 still synchronize in-flight callbacks before unloading their own code.
 Dropping/Resetting observation releases its captures and does not cancel domain
 work; an already in-flight notification may finish. Notification exceptions are
-contained. `WithLifetime(SharedOwner)` attaches ownership to the copied shared task
-and its result aliases; this supports accounting that outlives receipt eviction.
+contained. `WithLifetime(SharedOwner)` attaches ownership to the shared node and
+all its handles and result aliases; this supports accounting that outlives receipt eviction.
 
 ## Dependencies, Waiting And CPU Policy
 

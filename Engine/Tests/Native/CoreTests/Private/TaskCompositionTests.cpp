@@ -54,10 +54,10 @@ namespace Durin
 	static_assert(std::derived_from<Tasks::TTask<void>, Tasks::FTask>);
 	static_assert(std::is_move_constructible_v<Tasks::FTask>);
 	static_assert(std::is_copy_constructible_v<Tasks::FTask>);
-	static_assert(!std::is_copy_constructible_v<Tasks::TTask<void>>);
+	static_assert(std::is_copy_constructible_v<Tasks::TTask<void>>);
 	static_assert(std::is_copy_constructible_v<Tasks::FTaskEvent>);
 	static_assert(std::derived_from<Tasks::TTask<int>, Tasks::FTask>);
-	static_assert(std::derived_from<Tasks::TSharedTask<int>, Tasks::FTask>);
+	static_assert(std::derived_from<Tasks::TTask<int>, Tasks::FTask>);
 	static_assert(std::derived_from<Tasks::FTaskEvent, Tasks::FTask>);
 	static_assert(std::is_copy_constructible_v<Tasks::FTask>);
 	static_assert(std::is_copy_assignable_v<Tasks::FTask>);
@@ -72,7 +72,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		Tasks::FTaskEvent Gate("PublicHandleGate", false);
 		auto Unique = Tasks::LaunchTask("PublicHandleUnique", [] { return 42; }, Gate);
-		auto Shared = Tasks::Share(Tasks::LaunchTask("PublicHandleShared", [] { return 7; }, Gate));
+		auto Shared = Tasks::LaunchTask("PublicHandleShared", [] { return 7; }, Gate);
 		std::atomic<uint32> Runs = 0;
 		auto Void = Tasks::LaunchTask("PublicHandleVoid", [&] { ++Runs; }, Gate);
 		const std::array<Tasks::FTask, 4> Handles{Unique, Shared, Void, Gate};
@@ -87,10 +87,10 @@ namespace Durin
 			EXPECT_EQ(Outcome.TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(Runs.load(), 1u);
 		EXPECT_EQ(Shared.GetResult(), 7);
-		EXPECT_EQ(std::move(Unique).TakeResult(), 42);
-		EXPECT_FALSE(Unique.IsValid());
+		EXPECT_EQ(std::move(Unique.GetResult()), 42);
+		EXPECT_TRUE(Unique.IsValid());
 		EXPECT_EQ(Handles.front().Wait().TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(std::move(Continuation).TakeResult(), 9);
+		EXPECT_EQ(std::move(Continuation.GetResult()), 9);
 	}
 
 	TEST(FTaskCompositionTests, CancellationTokensReachRootsAndUniqueContinuations)
@@ -114,28 +114,28 @@ namespace Durin
 		EXPECT_TRUE(ObservedCancellation);
 
 		auto Value = Tasks::Then(Tasks::LaunchTask("TokenValue", [] { return std::make_unique<int>(13); }),
-			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, std::unique_ptr<int>&& Input) {
+			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, std::unique_ptr<int>& Input) {
 				EXPECT_FALSE(Token.IsCancellationRequested());
 				return *Input + 2;
 			});
-		EXPECT_EQ(std::move(Value).TakeResult(), 15);
+		EXPECT_EQ(std::move(Value.GetResult()), 15);
 		auto Void = Tasks::Then(Tasks::LaunchTask("TokenVoid", [] {}), Tasks::ETaskExecutor::Worker, {},
 			[](const FTaskCancellationToken& Token) { EXPECT_FALSE(Token.IsCancellationRequested()); return 17; });
-		EXPECT_EQ(std::move(Void).TakeResult(), 17);
+		EXPECT_EQ(std::move(Void.GetResult()), 17);
 		auto Async = Tasks::ThenAsync(Tasks::LaunchTask("TokenAsync", [] { return 19; }),
-			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, int&& Input) {
+			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, int& Input) {
 				EXPECT_FALSE(Token.IsCancellationRequested());
 				return Tasks::LaunchTask("TokenAsyncInner", [Input] { return Input + 2; }, {.Cancellation = Token});
 			});
 		ASSERT_EQ(WaitOffGameThread(Async).TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(std::move(Async).TakeResult(), 21);
+		EXPECT_EQ(std::move(Async.GetResult()), 21);
 		auto AsyncVoid = Tasks::ThenAsync(Tasks::LaunchTask("TokenAsyncVoid", [] {}),
 			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token) {
 				EXPECT_FALSE(Token.IsCancellationRequested());
 				return Tasks::LaunchTask("TokenAsyncVoidInner", [] { return 23; }, {.Cancellation = Token});
 			});
 		ASSERT_EQ(WaitOffGameThread(AsyncVoid).TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(std::move(AsyncVoid).TakeResult(), 23);
+		EXPECT_EQ(std::move(AsyncVoid.GetResult()), 23);
 	}
 
 	TEST(FTaskCompositionTests, DirectLaunchAndAddNestedKeepParentPendingWithoutBlockingWorker)
@@ -161,7 +161,7 @@ namespace Durin
 		}
 		ReleaseChild.Trigger();
 		ASSERT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(std::move(Parent).TakeResult(), 42);
+		EXPECT_EQ(std::move(Parent.GetResult()), 42);
 	}
 
 	TEST(FTaskCompositionTests, CommonHandleObservationTracksMovesAndResultOwnership)
@@ -204,22 +204,70 @@ namespace Durin
 		EXPECT_TRUE(Base.IsCompleted());
 		EXPECT_EQ(Destroyed, 0u);
 		Moved = Tasks::LaunchTask("OverwriteResult", [&] { return std::make_unique<FValue>(Destroyed); });
-		EXPECT_EQ(Destroyed, 1u);
+		EXPECT_EQ(Destroyed, 0u); // Generic observers still retain the first result.
 		ASSERT_EQ(Moved.Wait().TaskState, ETaskState::Succeeded);
-		auto Shared = Tasks::Share(std::move(Moved));
-		EXPECT_FALSE(Moved.IsValid());
+		auto Shared = Moved;
+		EXPECT_TRUE(Moved.IsValid());
 		const Tasks::FTask& SharedBase = Shared;
 		EXPECT_TRUE(SharedBase.IsCompleted());
 		auto Alias = Shared.GetResultShared();
 		ASSERT_TRUE(Alias);
 		Shared = {};
-		EXPECT_EQ(Destroyed, 1u);
+		EXPECT_EQ(Destroyed, 0u);
+		Moved = {};
 		Alias.reset();
-		EXPECT_EQ(Destroyed, 2u);
+		ShutdownTaskScheduler(true); // Retire the executor's final node reference.
+		EXPECT_EQ(Destroyed, 1u);
 		EXPECT_TRUE(Observer.IsComplete());
 	}
 
-	TEST(FTaskCompositionTests, DirectMixedPrerequisitesPreserveUniqueAndSharedResults)
+	TEST(FTaskCompositionTests, SharedResultLivesUntilLastGenericHandleReleased)
+	{
+		std::atomic<uint32> Destroyed = 0;
+		struct FValue { std::atomic<uint32>& Count; ~FValue() { ++Count; } };
+		Tasks::FTask Generic, Copy;
+		{
+			auto Source = Tasks::TCompletionSource<std::unique_ptr<FValue>>::CreateDetached();
+			auto Typed = Source.TakeTask();
+			auto TypedCopy = Typed;
+			Source.TrySetValue(std::make_unique<FValue>(Destroyed));
+			EXPECT_EQ(&Typed.GetResult(), &TypedCopy.GetResult());
+			Generic = Typed;
+			Copy = Generic;
+		}
+		EXPECT_EQ(Destroyed, 0u);
+		EXPECT_EQ(Generic.Wait().TaskState, ETaskState::Succeeded);
+		Generic = {};
+		EXPECT_EQ(Destroyed, 0u);
+		Copy = {};
+		EXPECT_EQ(Destroyed, 1u);
+	}
+
+	TEST(FTaskCompositionTests, FlattenSharesMoveOnlyResultAndPreservesGenericLifetime)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		std::atomic<uint32> Destroyed = 0;
+		struct FValue { std::atomic<uint32>& Count; ~FValue() { ++Count; } };
+		Tasks::FTask Generic;
+		{
+			auto Source = Tasks::TCompletionSource<std::unique_ptr<FValue>>::Create();
+			auto Inner = Source.TakeTask();
+			Source.TrySetValue(std::make_unique<FValue>(Destroyed));
+			auto Outer = Tasks::ThenAsync(Tasks::LaunchTask("SharedInnerRoot", [] {}),
+				Tasks::ETaskExecutor::Worker, {}, [Inner] { return Inner; });
+			ASSERT_EQ(WaitOffGameThread(Outer).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(&Outer.GetResult(), &Inner.GetResult());
+			Generic = Outer;
+		}
+		ShutdownTaskScheduler(true);
+		EXPECT_EQ(Destroyed, 0u);
+		Generic = {};
+		EXPECT_EQ(Destroyed, 1u);
+	}
+
+	TEST(FTaskCompositionTests, DirectMixedPrerequisitesPreserveTypedResults)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -227,15 +275,15 @@ namespace Durin
 		Tasks::FTaskEvent Gate("MixedPrerequisites", false);
 		auto Unique = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {},
 			[] { return std::make_unique<int>(17); }, Gate);
-		auto Shared = Tasks::Share(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {},
-			[] { return 23; }, Gate));
+		auto Shared = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {},
+			[] { return 23; }, Gate);
 		const auto Inputs = Tasks::Prerequisites(Unique, Shared, Gate);
 		auto Dependent = Tasks::LaunchTask("MixedDependent", [] { return 31; }, Inputs);
 		EXPECT_FALSE(Dependent.IsCompleted());
 		Gate.Trigger();
 		ASSERT_EQ(Tasks::Wait(Dependent).TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(Dependent.GetResult(), 31);
-		EXPECT_EQ(*std::move(Unique).TakeResult(), 17);
+		EXPECT_EQ(*std::move(Unique.GetResult()), 17);
 		EXPECT_EQ(Shared.GetResult(), 23);
 	}
 
@@ -269,7 +317,7 @@ namespace Durin
 		EXPECT_EQ(Pending.GetState(), ETaskState::Waiting);
 		Gate.Trigger();
 		ASSERT_EQ(Pending.Wait(1).WaitStatus, ETaskWaitStatus::Completed);
-		EXPECT_EQ(std::move(Pending).TakeResult(), 42);
+		EXPECT_EQ(std::move(Pending.GetResult()), 42);
 		EXPECT_EQ(Tasks::Wait(std::array<Tasks::TTask<void>, 0>{}, 0).size(), 0u);
 		EXPECT_EQ(Tasks::Wait(Tasks::TTask<void>{}, 0).WaitStatus, ETaskWaitStatus::InvalidTask);
 
@@ -302,8 +350,8 @@ namespace Durin
 			auto Target = Tasks::LaunchTask("DirectedTarget", [] { return 7; }, Inputs);
 			ASSERT_EQ(Target.Wait(1).TaskState, ETaskState::Succeeded);
 			EXPECT_EQ(UnrelatedRuns.load(), 0u);
-			EXPECT_EQ(std::move(Inputs.front()).TakeResult(), 3);
-			EXPECT_EQ(std::move(Target).TakeResult(), 7);
+			EXPECT_EQ(std::move(Inputs.front().GetResult()), 3);
+			EXPECT_EQ(std::move(Target.GetResult()), 7);
 			auto Nested = Tasks::LaunchTask("DirectedNestedParent", [] {
 				auto Child = Tasks::LaunchTask("DirectedNestedChild", [] {});
 				Tasks::AddNested(Child);
@@ -314,11 +362,11 @@ namespace Durin
 			auto Inner = Tasks::LaunchTask("DirectedDynamicInner", [&] { Source.TrySetValue(11); });
 			ASSERT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Source.GetTaskHandle(), Inner).has_value());
 			ASSERT_EQ(Flat.Wait(1).TaskState, ETaskState::Succeeded);
-			EXPECT_EQ(std::move(Flat).TakeResult(), 11);
+			EXPECT_EQ(std::move(Flat.GetResult()), 11);
 			EXPECT_EQ(UnrelatedRuns.load(), 0u);
 			auto Immediate = Tasks::LaunchTask("ZeroTimeoutRetraction", [] { return 5; });
 			EXPECT_EQ(Immediate.Wait(0).WaitStatus, ETaskWaitStatus::Completed);
-			EXPECT_EQ(std::move(Immediate).TakeResult(), 5);
+			EXPECT_EQ(std::move(Immediate.GetResult()), 5);
 			Tasks::AddNested(Unrelated);
 		});
 		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
@@ -426,7 +474,7 @@ namespace Durin
 			EXPECT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Source.GetTaskHandle(), Inner));
 			EXPECT_EQ(Parent.Wait(3).TaskState, ETaskState::Succeeded);
 			ASSERT_TRUE(Result.IsCompleted());
-			EXPECT_EQ(std::move(Result).TakeResult(), 17);
+			EXPECT_EQ(std::move(Result.GetResult()), 17);
 		}
 	}
 
@@ -492,7 +540,7 @@ namespace Durin
 		ReleaseHook.Trigger();
 		Producer.join();
 		EXPECT_EQ(Result.Wait(0).WaitStatus, ETaskWaitStatus::Completed);
-		EXPECT_EQ(std::move(Result).TakeResult(), 23);
+		EXPECT_EQ(std::move(Result.GetResult()), 23);
 		Tasks::FTaskEvent Unknown("UnknownTimedWait");
 		EXPECT_EQ(Unknown.Wait(0).WaitStatus, ETaskWaitStatus::UnsupportedThread);
 		Unknown.Trigger();
@@ -536,10 +584,10 @@ namespace Durin
 		Extra.Trigger();
 		ASSERT_EQ(Tasks::Wait(std::as_const(Unique)).front().TaskState, ETaskState::Succeeded);
 		ASSERT_EQ(Join.Wait().TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(std::move(Dependent).TakeResult(), 7);
-		EXPECT_EQ(std::move(Unique.front()).TakeResult(), 42);
+		EXPECT_EQ(std::move(Dependent.GetResult()), 7);
+		EXPECT_EQ(std::move(Unique.front().GetResult()), 42);
 
-		const std::array Shared{Tasks::Share(Tasks::LaunchTask("SharedCollectionValue", [] { return 13; }))};
+		const std::array Shared{Tasks::LaunchTask("SharedCollectionValue", [] { return 13; })};
 		Tasks::FTaskEvent SharedJoin("SharedCollectionJoin", false);
 		SharedJoin.AddPrerequisites(Shared);
 		SharedJoin.Trigger();
@@ -601,7 +649,7 @@ namespace Durin
 		EXPECT_FALSE(Parent.IsCompleted());
 		EXPECT_EQ(GetTaskSchedulerDiagnostics().ExecutorStorage[0].CurrentRunningBodies, 0u);
 		Gate.Trigger();
-		EXPECT_EQ(std::move(Parent).TakeResult(), 42);
+		EXPECT_EQ(std::move(Parent.GetResult()), 42);
 	}
 
 	TEST(FTaskCompositionTests, TaskEventJoinsCompletionWithoutPropagatingFailureOrCancellation)
@@ -723,7 +771,7 @@ namespace Durin
 			const bool Registered = Bound.WaitFor(2.0);
 			EXPECT_TRUE(Registered);
 			Signal.Trigger();
-			EXPECT_EQ(std::move(Parent).TakeResult(), 42);
+			EXPECT_EQ(std::move(Parent.GetResult()), 42);
 		}
 	}
 
@@ -760,7 +808,7 @@ namespace Durin
 		});
 		ParentHandle = Durin::Tasks::FTask(Parent);
 		Published.Trigger();
-		EXPECT_EQ(std::move(Parent).TakeResult(), 42);
+		EXPECT_EQ(std::move(Parent.GetResult()), 42);
 	}
 
 	TEST(FTaskCompositionTests, SchedulerCompletionSourceSignalsDuringDrainAndCancel)
@@ -826,7 +874,7 @@ namespace Durin
 		EXPECT_EQ(GetTaskSchedulerDiagnostics().RejectedTaskCount, 0u);
 	}
 
-	TEST(FTaskCompositionTests, ResultAccessWaitsAndPreservesUniqueOwnershipUntilTaken)
+	TEST(FTaskCompositionTests, ResultAccessWaitsAndExplicitMovesPreserveHandles)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -843,17 +891,18 @@ namespace Durin
 		EXPECT_TRUE(Task.IsCompleted());
 		EXPECT_EQ(ETaskState::Succeeded, Task.GetState());
 		EXPECT_EQ(Task.GetResult().get(), Task.GetResult().get());
-		auto Value = std::move(Task).TakeResult();
+		auto Value = std::move(Task.GetResult());
 		EXPECT_EQ(42, *Value);
-		EXPECT_FALSE(Task.IsValid());
+		EXPECT_TRUE(Task.IsValid());
+		EXPECT_FALSE(Task.GetResult()); // Explicit movement leaves a shared moved-from value.
 		auto VoidAdmission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] {});
 		Tasks::TTask<void> VoidTask = std::move(VoidAdmission);
 		VoidTask.GetResult();
 		EXPECT_TRUE(VoidTask.IsValid());
-		std::move(VoidTask).TakeResult();
-		EXPECT_FALSE(VoidTask.IsValid());
+		VoidTask.GetResult();
+		EXPECT_TRUE(VoidTask.IsValid());
 		auto EmptyValue = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] { return std::monostate{}; });
-		EXPECT_EQ(std::monostate{}, std::move(EmptyValue).TakeResult());
+		EXPECT_EQ(std::monostate{}, std::move(EmptyValue.GetResult()));
 	}
 
 	TEST(FTaskCompositionTests, CompletedObserversPreserveMoveOnlyCapturesAndFailures)
@@ -867,10 +916,10 @@ namespace Durin
 		{
 			auto Admission = Tasks::TCompletionSource<std::unique_ptr<int>>::Create(Options);
 			auto Source = std::move(Admission);
-			auto SharedAdmission = Tasks::Share(Source.TakeTask());
+			auto SharedAdmission = Source.TakeTask();
 			auto Input = std::move(SharedAdmission);
 			auto EdgeAdmission = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, Options,
-				[Capture = std::make_unique<int>(5), Kind](const Tasks::TSharedTask<std::unique_ptr<int>>& Task) {
+				[Capture = std::make_unique<int>(5), Kind](const Tasks::TTask<std::unique_ptr<int>>& Task) {
 					EXPECT_EQ(Kind == 0 ? ETaskState::Succeeded : Kind == 1 ? ETaskState::Failed : ETaskState::Canceled, Task.GetState());
 					if (Kind == 0) return *Task.GetResult() + *Capture;
 					if (Kind == 1)
@@ -887,7 +936,7 @@ namespace Durin
 			else if (Kind == 1) EXPECT_TRUE(Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, {}, Tasks::ETaskFailureCode::DependencyBindingFailed, 123}));
 			else EXPECT_TRUE(Source.TrySetCanceled());
 			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Edge).TaskState);
-			EXPECT_EQ(Kind == 0 ? 12 : 5, std::move(Edge).TakeResult());
+			EXPECT_EQ(Kind == 0 ? 12 : 5, std::move(Edge.GetResult()));
 		}
 	}
 
@@ -902,9 +951,9 @@ namespace Durin
 		{
 			auto Admission = Tasks::TCompletionSource<std::unique_ptr<int>>::Create(Options);
 			auto Source = std::move(Admission);
-			auto SharedAdmission = Tasks::Share(Source.TakeTask());
+			auto SharedAdmission = Source.TakeTask();
 			auto Shared = std::move(SharedAdmission);
-			auto Callback = [Kind](const Tasks::TSharedTask<std::unique_ptr<int>>& Task) {
+			auto Callback = [Kind](const Tasks::TTask<std::unique_ptr<int>>& Task) {
 				EXPECT_EQ(Kind == 0 ? ETaskState::Succeeded : Kind == 1 ? ETaskState::Failed : ETaskState::Canceled, Task.GetState());
 				if (Kind == 0) return *Task.GetResult();
 				if (Kind == 1) EXPECT_EQ(321u, Task.GetFailure().RelatedTaskId);
@@ -920,8 +969,8 @@ namespace Durin
 			auto B = std::move(Second);
 			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(A).TaskState);
 			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(B).TaskState);
-			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::move(A).TakeResult());
-			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::move(B).TakeResult());
+			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::move(A.GetResult()));
+			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::move(B.GetResult()));
 			EXPECT_EQ(Kind == 0 ? ETaskState::Succeeded : Kind == 1 ? ETaskState::Failed : ETaskState::Canceled, Shared.GetState());
 		}
 	}
@@ -934,11 +983,11 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		auto Admission = Tasks::TCompletionSource<int>::Create({});
 		auto Source = std::move(Admission);
-		auto SharedAdmission = Tasks::Share(Source.TakeTask());
+		auto SharedAdmission = Source.TakeTask();
 		auto Input = std::move(SharedAdmission);
 		std::atomic<int> Calls = 0;
 		auto EdgeAdmission = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, {},
-			[&](const Tasks::TSharedTask<int>&) { ++Calls; return 1; });
+			[&](const Tasks::TTask<int>&) { ++Calls; return 1; });
 		auto Edge = std::move(EdgeAdmission);
 		Tasks::Cancel(Edge);
 		EXPECT_TRUE(Source.TrySetFailure({}));
@@ -946,7 +995,7 @@ namespace Durin
 		EXPECT_EQ(0, Calls.load());
 	}
 
-	TEST(FTaskCompositionTests, UniqueTransformsVoidAndShare)
+	TEST(FTaskCompositionTests, SharedTransformsPreserveInputHandles)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -959,16 +1008,16 @@ namespace Durin
 			});
 		auto Root = std::move(RootAdmission);
 		auto EdgeAdmission = Tasks::Then(std::move(Root), Tasks::ETaskExecutor::Worker, Options,
-			[](std::unique_ptr<int>&& Value) { return *Value + 2; });
-		EXPECT_FALSE(Root.IsValid());
+			[](std::unique_ptr<int>& Value) { return *Value + 2; });
+		EXPECT_TRUE(Root.IsValid());
 		auto Edge = std::move(EdgeAdmission);
 		auto VoidAdmission = Tasks::Then(std::move(Edge), Tasks::ETaskExecutor::Worker, Options,
 			[](int Value) { EXPECT_EQ(15, Value); });
 		auto Gate = std::move(VoidAdmission);
 		auto TailAdmission = Tasks::Then(std::move(Gate), Tasks::ETaskExecutor::Worker, Options, [] { return 19; });
 		auto Tail = std::move(TailAdmission);
-		auto SharedAdmission = Tasks::Share(std::move(Tail));
-		EXPECT_FALSE(Tail.IsValid());
+		auto SharedAdmission = Tail;
+		EXPECT_TRUE(Tail.IsValid());
 		auto Shared = std::move(SharedAdmission);
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Shared).TaskState);
 		auto Value = Shared.GetResultShared();
@@ -1018,7 +1067,7 @@ namespace Durin
 		Second.join();
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Result).TaskState);
 		EXPECT_EQ(1, Winners.load());
-		const int Value = std::move(Result).TakeResult();
+		const int Value = std::move(Result.GetResult());
 		EXPECT_TRUE(Value == 7 || Value == 11);
 	}
 
@@ -1057,19 +1106,23 @@ namespace Durin
 		auto AllAdmission = Tasks::WhenAll(std::move(Inputs));
 		auto All = std::move(AllAdmission);
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(All).TaskState);
-		EXPECT_EQ((std::vector<int>{4, 2, 8}), std::move(All).TakeResult());
+		const auto& Results = All.GetResult();
+		ASSERT_EQ(Results.size(), 3u);
+		EXPECT_EQ(*Results[0], 4);
+		EXPECT_EQ(*Results[1], 2);
+		EXPECT_EQ(*Results[2], 8);
 		auto EmptyAdmission = Tasks::WhenAll(std::vector<Tasks::TTask<int>>{});
 		auto Empty = std::move(EmptyAdmission);
 		EXPECT_TRUE(Empty.IsCompleted());
-		EXPECT_TRUE(std::move(Empty).TakeResult().empty());
+		EXPECT_TRUE(std::move(Empty.GetResult()).empty());
 
 		auto A = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] { return std::make_unique<int>(17); });
 		auto B = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] {});
 		auto TupleAdmission = Tasks::WhenAll(std::make_tuple(std::move(A), std::move(B)));
 		auto Tuple = std::move(TupleAdmission);
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Tuple).TaskState);
-		auto Values = std::move(Tuple).TakeResult();
-		EXPECT_EQ(17, *std::get<0>(Values));
+		auto Values = std::move(Tuple.GetResult());
+		EXPECT_EQ(17, **std::get<0>(Values));
 	}
 
 	TEST(FTaskCompositionTests, FanInFailurePrecedesCancellationAndUsesInputOrder)
@@ -1107,7 +1160,7 @@ namespace Durin
 		ASSERT_EQ(Failed.Wait().TaskState, ETaskState::Failed);
 		const auto NativeFailure = Failed.GetFailure();
 		ASSERT_EQ(NativeFailure.Reason, ETaskTerminalReason::CallbackFailure);
-		auto Shared = Tasks::Share(std::move(Failed));
+		auto Shared = Failed;
 		ExpectFailureIdentity(Shared.GetFailure(), NativeFailure);
 
 		const Tasks::FTaskFailure ExplicitFailure{ETaskTerminalReason::CallbackFailure,
@@ -1116,7 +1169,7 @@ namespace Durin
 		auto Source = Tasks::TCompletionSource<int>::Create();
 		auto Result = Source.TakeTask();
 		ASSERT_TRUE(Source.TrySetFailure(ExplicitFailure));
-		auto ExplicitShared = Tasks::Share(std::move(Result));
+		auto ExplicitShared = Result;
 		ExpectFailureIdentity(ExplicitShared.GetFailure(), ExplicitFailure);
 	}
 
@@ -1128,7 +1181,7 @@ namespace Durin
 		const Tasks::FTaskFailure ExplicitFailure{ETaskTerminalReason::CallbackFailure,
 			Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::DependencyCycle, 53},
 			Tasks::ETaskFailureCode::DependencyBindingFailed, 59, 5};
-		for (uint32 Iteration = 0; Iteration < 16; ++Iteration)
+		for (uint32 Iteration = 0; Iteration < 128; ++Iteration)
 		{
 			auto Predecessor = Tasks::TCompletionSource<void>::Create();
 			if (Iteration % 2 == 0) ASSERT_TRUE(Predecessor.TrySetFailure(ExplicitFailure));
@@ -1164,7 +1217,7 @@ namespace Durin
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
-		auto Check = []<typename T>(const Tasks::TSharedTask<T>& Shared) {
+		auto Check = []<typename T>(const Tasks::TTask<T>& Shared) {
 			for (const bool bDestroyCollection : {false, true})
 			{
 				auto RootSource = Tasks::TCompletionSource<void>::Create({.DebugName = "BorrowedPrerequisiteRoot"});
@@ -1187,15 +1240,14 @@ namespace Durin
 				EXPECT_FALSE(bRanBeforePrerequisite);
 				ASSERT_EQ(WaitOffGameThread(Output).TaskState, ETaskState::Succeeded);
 				EXPECT_TRUE(bFactoryRan.load());
-				const auto Value = std::move(Output).TakeResult();
-				ASSERT_TRUE(Value);
-				if constexpr (!std::is_void_v<T>) EXPECT_EQ(*Value, 42);
+				if constexpr (std::is_void_v<T>) Output.GetResult();
+				else EXPECT_EQ(Output.GetResult(), 42);
 			}
 		};
-		auto Value = Tasks::Share(Tasks::LaunchTask("SharedBorrowedValue", [] { return 42; }));
+		auto Value = Tasks::LaunchTask("SharedBorrowedValue", [] { return 42; });
 		ASSERT_EQ(Value.Wait().TaskState, ETaskState::Succeeded);
 		Check(Value);
-		auto Void = Tasks::Share(Tasks::LaunchTask("SharedBorrowedVoid", [] {}));
+		auto Void = Tasks::LaunchTask("SharedBorrowedVoid", [] {});
 		ASSERT_EQ(Void.Wait().TaskState, ETaskState::Succeeded);
 		Check(Void);
 	}
@@ -1208,27 +1260,27 @@ namespace Durin
 		auto SourceAdmission = Tasks::TCompletionSource<int>::Create({});
 		auto Source = std::move(SourceAdmission);
 		auto SourceTask = Source.TakeTask();
-		auto SharedAdmission = Tasks::Share(std::move(SourceTask));
+		auto SharedAdmission = SourceTask;
 		auto Shared = std::move(SharedAdmission);
 		auto RootAdmission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] {});
 		auto Root = std::move(RootAdmission);
 		auto ObserverAdmission = Tasks::ThenAsync(std::move(Root), Tasks::ETaskExecutor::Worker, {}, [Shared] { return Shared; });
 		auto Observer = std::move(ObserverAdmission);
 		EXPECT_TRUE(Tasks::Cancel(Observer));
-		std::vector<Tasks::TSharedTask<int>> Inputs{Shared, Shared};
+		std::vector<Tasks::TTask<int>> Inputs{Shared, Shared};
 		auto AllAdmission = Tasks::WhenAll(Inputs);
 		auto All = std::move(AllAdmission);
 		EXPECT_TRUE(Source.TrySetValue(27));
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(All).TaskState);
 		EXPECT_EQ(ETaskState::Succeeded, Shared.GetState());
-		const auto Values = std::move(All).TakeResult();
+		const auto Values = std::move(All.GetResult());
 		ASSERT_EQ(2u, Values.size());
 		EXPECT_EQ(Values[0].get(), Values[1].get());
 		EXPECT_EQ(27, *Values[1]);
 		EXPECT_EQ(ETaskState::Canceled, WaitOffGameThread(Observer).TaskState);
 	}
 
-	TEST(FTaskCompositionTests, ThenAsyncCancelsUniqueDeferredInnerWithoutPumping)
+	TEST(FTaskCompositionTests, ThenAsyncCancellationDoesNotCancelSharedDeferredInner)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -1239,8 +1291,9 @@ namespace Durin
 		auto Root = std::move(RootAdmission);
 		std::atomic<int> Called = 0;
 		FThreadEvent Spawned;
+		Tasks::TTask<int> Inner;
 		auto Admission = Tasks::ThenAsync(std::move(Root), Tasks::ETaskExecutor::Worker, {}, [&] {
-			auto Inner = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] { ++Called; return 12; });
+			Inner = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] { ++Called; return 12; });
 			Spawned.Trigger();
 			return Inner;
 		});
@@ -1248,8 +1301,12 @@ namespace Durin
 		ASSERT_TRUE(Spawned.WaitFor(1.0));
 		EXPECT_EQ(ETaskWaitStatus::UnsupportedThread, Tasks::Wait(Outer).WaitStatus);
 		EXPECT_TRUE(Tasks::Cancel(Outer));
-		EXPECT_EQ(ETaskState::Canceled, Outer.GetState());
 		EXPECT_EQ(0, Called.load());
+		EXPECT_NE(ETaskState::Canceled, Inner.GetState());
+		PumpGameThreadDeferredWork();
+		EXPECT_EQ(ETaskState::Canceled, WaitOffGameThread(Outer).TaskState);
+		EXPECT_EQ(12, Inner.GetResult());
+		EXPECT_EQ(1, Called.load());
 	}
 
 	TEST(FTaskExecutorTests, CpuRootsAndContinuationsHonorPriorityWithBoundedOldestService)
@@ -1414,7 +1471,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 1,
 			.NumBlockingIOThreads = 1, .MaxBlockingIOTasks = 1}));
 		auto Source = Tasks::TCompletionSource<int>::Create({});
-		auto Shared = Tasks::Share(Source.TakeTask());
+		auto Shared = Source.TakeTask();
 		std::vector<Tasks::TTask<int>> Inputs;
 		for (int Index = 0; Index < 32; ++Index)
 			Inputs.push_back(Tasks::Then(Shared, Tasks::ETaskExecutor::Worker, {}, [Index](int Value) { return Value + Index; }));
@@ -1422,13 +1479,13 @@ namespace Durin
 		auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] {
 			auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 9; });
 			Tasks::AddNested(Child);
-			return std::move(Child).TakeResult();
+			return std::move(Child.GetResult());
 		});
 		Source.TrySetValue(10);
-		EXPECT_EQ(9, std::move(Io).TakeResult());
-		auto Values = std::move(All).TakeResult();
+		EXPECT_EQ(9, std::move(Io.GetResult()));
+		auto Values = std::move(All.GetResult());
 		ASSERT_EQ(32u, Values.size());
-		EXPECT_EQ(41, Values.back());
+		EXPECT_EQ(41, *Values.back());
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CapacityRejectedTaskCount);
 	}
 
@@ -1489,10 +1546,10 @@ namespace Durin
 			EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
 		}
 		auto Output = Tasks::Then(std::move(Input), Tasks::ETaskExecutor::Worker, {}, [](int Value) { return Value + 1; });
-		EXPECT_EQ(14, std::move(Output).TakeResult());
+		EXPECT_EQ(14, std::move(Output.GetResult()));
 	}
 
-	TEST(FTaskCompositionTests, DroppedCanceledAndThrowingUniqueResultsReleaseExactlyOnce)
+	TEST(FTaskCompositionTests, DroppedCanceledAndThrowingSharedResultsReleaseExactlyOnce)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -1505,16 +1562,21 @@ namespace Durin
 			});
 			ASSERT_EQ(ETaskState::Succeeded, Dropped.Wait().TaskState);
 		}
+		ShutdownTaskScheduler(true);
 		EXPECT_EQ(1, Destroyed.load());
+		ASSERT_TRUE(InitializeTaskScheduler(1));
 		{
 			auto Input = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [&] {
 				return std::unique_ptr<FValue>(new FValue{Destroyed});
 			});
 			auto Sink = Tasks::Then(std::move(Input), Tasks::ETaskExecutor::Worker, {},
-				[](std::unique_ptr<FValue>) { throw std::runtime_error("unique sink failed"); });
+				[](const std::unique_ptr<FValue>&) { throw std::runtime_error("shared sink failed"); });
 			ASSERT_EQ(ETaskState::Failed, Sink.Wait().TaskState);
-			EXPECT_EQ(2, Destroyed.load());
+			EXPECT_EQ(1, Destroyed.load()); // A failing observer does not discard its input.
 		}
+		ShutdownTaskScheduler(true);
+		EXPECT_EQ(2, Destroyed.load());
+		ASSERT_TRUE(InitializeTaskScheduler(1));
 		{
 			FThreadEvent Started, Release;
 			auto Running = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [&] {
@@ -1536,9 +1598,9 @@ namespace Durin
 		std::atomic<int> Calls = 0;
 		for (int Index = 0; Index < 128; ++Index)
 		{
-			auto Input = Tasks::Share(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] { return 42; }));
+			auto Input = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] { return 42; });
 			auto Edge = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, {},
-				[&](const Tasks::TSharedTask<int>& Completed) { EXPECT_EQ(42, Completed.GetResult()); ++Calls; });
+				[&](const Tasks::TTask<int>& Completed) { EXPECT_EQ(42, Completed.GetResult()); ++Calls; });
 			ASSERT_EQ(ETaskState::Succeeded, Edge.Wait().TaskState);
 		}
 		EXPECT_EQ(128, Calls.load());
@@ -1567,7 +1629,7 @@ namespace Durin
 		EXPECT_FALSE(All.IsCompleted());
 		Source.TrySetValue();
 		ASSERT_EQ(ETaskState::Succeeded, All.Wait().TaskState);
-		EXPECT_EQ(7, std::move(All).TakeResult()[0]);
+		EXPECT_EQ(7, *All.GetResult()[0]);
 	}
 
 	TEST(FTaskAcceptanceTests, CheckedParallelForPartialSubmissionDrainsAcceptedCaptures)
@@ -1598,7 +1660,7 @@ namespace Durin
 	TEST(FTaskCompositionTests, DetachedCompletionRetainsValueAndLifetimeWithoutScheduler)
 	{
 		auto Source = Tasks::TCompletionSource<std::string>::CreateDetached();
-		auto Task = Tasks::Share(Source.TakeTask());
+		auto Task = Source.TakeTask();
 		EXPECT_FALSE(Task.IsCompleted());
 		EXPECT_FALSE(Tasks::Cancel(Task)); // Observation cannot replace a domain outcome.
 		EXPECT_FALSE(Task.GetResultShared());
@@ -1619,6 +1681,8 @@ namespace Durin
 		EXPECT_FALSE(Weak.expired());
 		EXPECT_EQ("owned", *Retained);
 		Retained.reset();
+		EXPECT_FALSE(Weak.expired()); // The completion source still retains the node.
+		Source = Tasks::TCompletionSource<std::string>::CreateDetached();
 		EXPECT_TRUE(Weak.expired());
 		auto Ready = Tasks::MakeReadyTask(42);
 		auto Late = Ready.Subscribe([&](ETaskState) { ++Calls; });
@@ -1628,15 +1692,15 @@ namespace Durin
 
 	TEST(FTaskCompositionTests, DetachedCompletionAbandonmentAndUnsubscribeDoNotCancelDomainWork)
 	{
-		Tasks::TSharedTask<int> Abandoned;
+		Tasks::TTask<int> Abandoned;
 		{
 			auto Source = Tasks::TCompletionSource<int>::CreateDetached();
-			Abandoned = Tasks::Share(Source.TakeTask());
+			Abandoned = Source.TakeTask();
 		}
 		EXPECT_EQ(ETaskState::Failed, Abandoned.GetState());
 		EXPECT_EQ(Tasks::ETaskFailureCode::AbandonedSource, Abandoned.GetFailure().Code);
 		auto Source = Tasks::TCompletionSource<int>::CreateDetached();
-		auto Task = Tasks::Share(Source.TakeTask());
+		auto Task = Source.TakeTask();
 		int Calls = 0;
 		auto Subscription = Task.Subscribe([&](ETaskState) { ++Calls; });
 		Subscription.Reset();
@@ -1650,7 +1714,7 @@ namespace Durin
 		for (int Iteration = 0; Iteration < 128; ++Iteration)
 		{
 			auto Source = Tasks::TCompletionSource<int>::CreateDetached();
-			auto Task = Tasks::Share(Source.TakeTask());
+			auto Task = Source.TakeTask();
 			std::atomic<int> Calls{0};
 			std::thread Producer([Source] { EXPECT_TRUE(Source.TrySetValue(1)); });
 			auto Subscription = Task.Subscribe([&](ETaskState) { ++Calls; });

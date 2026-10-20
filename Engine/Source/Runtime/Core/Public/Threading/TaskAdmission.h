@@ -16,7 +16,6 @@ namespace Durin::Tasks
 		InvalidPrerequisite,
 		UnsupportedExecutor,
 		InvalidPayloadDeclaration,
-		UniqueConsumerClaimed,
 		DependencyCycle,
 		InvalidCallable,
 		InvalidExecutionContract,

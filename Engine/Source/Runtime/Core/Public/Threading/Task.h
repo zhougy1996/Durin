@@ -55,7 +55,7 @@ namespace Durin
 	class FTaskScheduler;
 	class FTaskStateData;
 	template<typename T>
-	class TUniqueTaskResultState;
+	class TTaskResultState;
 	struct FTaskLaunchOptions;
 	struct FTaskContinuationOptions;
 	struct FTaskWaitResult;
@@ -132,6 +132,8 @@ namespace Durin
 
 	namespace Private
 	{
+		// Void payload destruction must remain valid after a submitting module unloads.
+		CORE_API auto MakeVoidTaskResultState(uint64 ResultBytes) -> std::shared_ptr<TTaskResultState<std::monostate>>;
 		// Allocation-free weak accounting binding keeps post-admission ownership transfer infallible.
 		struct FTaskResultAccounting
 		{
@@ -224,8 +226,8 @@ namespace Durin
 		uint64 PeakPayloadBytes = 0;
 		uint64 CurrentResultBytes = 0;
 		uint64 PeakResultBytes = 0;
-		uint64 CurrentRetainedUniqueResultBytes = 0;
-		uint64 PeakRetainedUniqueResultBytes = 0;
+		uint64 CurrentRetainedResultBytes = 0;
+		uint64 PeakRetainedResultBytes = 0;
 		std::array<uint64, 32> QueueResidencyHistogram{};
 		std::array<uint64, 32> ExecutionHistogram{};
 		std::array<uint64, 32> PayloadBytesHistogram{};
@@ -271,7 +273,7 @@ namespace Durin
 		uint64 NonterminalTaskCount = 0;
 		uint64 RetainedTerminalHandleCount = 0;
 		uint64 RetainedTerminalResultCount = 0;
-		uint64 RetainedUniqueResultBytes = 0;
+		uint64 RetainedResultBytes = 0;
 		uint64 LastLongWaitTargetTaskId = 0;
 		uint64 LastLongWaitElapsedNanoseconds = 0;
 		std::string LastLongWaiterName;
@@ -431,7 +433,7 @@ namespace Durin
 	namespace Tasks::Detail { struct FTaskAccess; }
 	namespace Tasks::Private
 	{
-		// Shared execution observation for tasks and events; never owns a result claim.
+		// Shares the execution node and its result lifetime without typed result access.
 		class FTaskHandle
 		{
 		public:
@@ -495,6 +497,9 @@ namespace Durin
 		{
 			// Detached completion reuses task storage without admitting a scheduled body.
 			CORE_API static auto CreateDetachedCompletion(FTaskCompletionFunction&& Completion, uint64 ResultBytes) -> Tasks::FTask;
+			CORE_API static auto RetainResult(const Tasks::FTask& Task, std::shared_ptr<void> Result) -> void;
+			CORE_API static auto PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>;
+			CORE_API static auto RetainLifetime(const Tasks::FTask& Task, std::shared_ptr<void> Lifetime) -> void;
 			CORE_API static auto GetCurrentTaskId() -> uint64;
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
 			CORE_API static auto IsCancellationRequested(const Tasks::FTask& Task) -> bool;
@@ -504,7 +509,7 @@ namespace Durin
 			CORE_API static auto CompleteExternal(const Tasks::FTask& Task, ETaskState State) -> void;
 			CORE_API static auto AddCompletionDependency(const Tasks::FTask& Parent, const Tasks::FTask& Child) -> std::optional<Tasks::FTaskAdmissionError>;
 			CORE_API static auto AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskAdmissionError>;
-			CORE_API static auto BindDynamicDependency(const Tasks::FTask& Task, const Tasks::FTask& Inner) -> std::optional<Tasks::FTaskAdmissionError>;
+			CORE_API static auto BindDynamicDependency(const Tasks::FTask& Task, const Tasks::FTask& Inner, bool bForwardCancellation = true) -> std::optional<Tasks::FTaskAdmissionError>;
 		};
 	}
 
@@ -588,21 +593,22 @@ namespace Durin
 	CORE_API auto ParallelForCancelable(const char* Name, uint64 Num, FCancelableParallelForFunction&& Function, const FParallelForOptions& Options = {}) -> FParallelForResult;
 
 	template<typename T>
-	class TUniqueTaskResultState
+	class TTaskResultState : public std::enable_shared_from_this<TTaskResultState<T>>
 	{
 	public:
-		explicit TUniqueTaskResultState(uint64 InEstimatedResultBytes)
+		explicit TTaskResultState(uint64 InEstimatedResultBytes)
 			: EstimatedResultBytes(InEstimatedResultBytes)
 		{
 		}
 
-		~TUniqueTaskResultState()
+		~TTaskResultState()
 		{
 			Discard();
 		}
 
 		auto BindProducer(const Tasks::FTask& InProducer) -> void
 		{
+			Private::FTaskRuntimeAccess::RetainResult(InProducer, this->shared_from_this());
 			auto Setter = Private::MakeTaskResultAccounting(InProducer);
 			std::lock_guard Lock(Mutex);
 			if (!RetainedBytesSetter) RetainedBytesSetter = Setter;
@@ -625,100 +631,61 @@ namespace Durin
 			{
 				std::lock_guard Lock(Mutex);
 				bCompleted = true;
-				if (State == ETaskState::Succeeded && Value)
+				if (State == ETaskState::Succeeded && (Value || Forwarded))
 				{
 					bPublished = true;
-					if (RetainedBytesSetter) RetainedBytesSetter(EstimatedResultBytes);
+					if (Value && RetainedBytesSetter) RetainedBytesSetter(EstimatedResultBytes);
 				}
 				else
 				{
-					bDiscarded = true;
 					DetachedValue = std::move(Value);
 				}
 			}
 		}
 
-		auto ReserveClaim() -> uint64
+		// Shared access never consumes or invalidates another task handle.
+		auto PeekPublished() const -> T*
 		{
 			std::lock_guard Lock(Mutex);
-			if (ClaimState != EClaimState::Unclaimed) return 0;
-			ClaimState = EClaimState::Reserved;
-			ReservationToken = NextReservationToken++;
-			return ReservationToken;
+			if (!bPublished) return nullptr;
+			return Forwarded ? Forwarded->PeekPublished() : Value.get();
 		}
 
-		auto RollbackClaim(uint64 Token) -> bool
+		auto ForwardResult(std::shared_ptr<TTaskResultState> Other, Tasks::FTask Lifetime) -> void
 		{
 			std::lock_guard Lock(Mutex);
-			if (ClaimState != EClaimState::Reserved || ReservationToken != Token) return false;
-			ClaimState = EClaimState::Unclaimed;
-			ReservationToken = 0;
-			return true;
-		}
-
-		// Claim commitment is serialized with result ownership.
-		auto CommitClaim(uint64 Token) -> bool
-		{
-			std::lock_guard Lock(Mutex);
-			if (ClaimState != EClaimState::Reserved || ReservationToken != Token) return false;
-			ClaimState = EClaimState::Claimed;
-			ReservationToken = 0;
-			return true;
-		}
-
-		// Observers retain storage; unique owners must not consume or discard while a reference is in use.
-		auto PeekPublished() const -> const T*
-		{
-			std::lock_guard Lock(Mutex);
-			return bPublished && !bConsumed && !bDiscarded ? Value.get() : nullptr;
-		}
-
-		auto TakePublished() -> std::unique_ptr<T>
-		{
-			std::unique_ptr<T> Result;
-			{
-				std::lock_guard Lock(Mutex);
-				if (!bPublished || !Value || bConsumed || bDiscarded) return {};
-				bConsumed = true;
-				if (RetainedBytesSetter) RetainedBytesSetter(0);
-				Result = std::move(Value);
-			}
-			return Result;
+			require(!bCompleted && !Value && !Forwarded);
+			Forwarded = std::move(Other);
+			ForwardedTask = std::move(Lifetime);
 		}
 
 		auto Discard() -> void
 		{
 			std::unique_ptr<T> DetachedValue;
+			std::shared_ptr<TTaskResultState> DetachedForward;
+			Tasks::FTask DetachedTask;
 			{
 				std::lock_guard Lock(Mutex);
-				if (!Value) return;
-				bDiscarded = true;
+				bPublished = false;
 				if (RetainedBytesSetter) RetainedBytesSetter(0);
 				DetachedValue = std::move(Value);
+				DetachedForward = std::move(Forwarded);
+				DetachedTask = std::move(ForwardedTask);
 			}
 		}
 
 		auto GetEstimatedResultBytes() const -> uint64 { return EstimatedResultBytes; }
 
 	private:
-		enum class EClaimState : uint8
-		{
-			Unclaimed,
-			Reserved,
-			Claimed,
-		};
 
 		mutable std::mutex Mutex;
 		std::unique_ptr<T> Value;
 		Private::FTaskResultAccounting RetainedBytesSetter;
 		uint64 EstimatedResultBytes = 0;
-		uint64 ReservationToken = 0;
-		uint64 NextReservationToken = 1;
-		EClaimState ClaimState = EClaimState::Unclaimed;
 		bool bCompleted = false;
 		bool bPublished = false;
-		bool bConsumed = false;
-		bool bDiscarded = false;
+		std::shared_ptr<TTaskResultState> Forwarded;
+		Tasks::FTask ForwardedTask;
 	};
 
 } // namespace Durin

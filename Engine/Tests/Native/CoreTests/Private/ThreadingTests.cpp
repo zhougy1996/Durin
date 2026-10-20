@@ -2621,11 +2621,11 @@ namespace Durin
 			ReleasePublication.Wait();
 		});
 
-		auto Producer = Tasks::Share(Tasks::LaunchTask("PublicationBarrierProducer", [&]() {
+		auto Producer = Tasks::LaunchTask("PublicationBarrierProducer", [&]() {
 			TaskStarted.Trigger();
 			AllowTaskReturn.Wait();
 			return 42;
-		}));
+		});
 		ASSERT_TRUE(TaskStarted.WaitFor(1.0));
 		Tasks::FTask Dependent = Durin::Tasks::FTask(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "PublicationBarrierDependent"}, [&](const int& Value) {
 			EXPECT_EQ(42, Value);
@@ -2697,8 +2697,8 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
-		auto PreviousLifetime = Tasks::Share(Tasks::LaunchTask("PreviousLifetime", []() { return 7; }));
-		auto ReleasedWhileStopped = Tasks::Share(Tasks::LaunchTask("ReleasedWhileStopped", []() { return 8; }));
+		auto PreviousLifetime = Tasks::LaunchTask("PreviousLifetime", []() { return 7; });
+		auto ReleasedWhileStopped = Tasks::LaunchTask("ReleasedWhileStopped", []() { return 8; });
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Durin::Tasks::FTask(PreviousLifetime)).TaskState);
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Durin::Tasks::FTask(ReleasedWhileStopped)).TaskState);
 		while (GetTaskSchedulerDiagnostics().CompletedTaskCount < 2)

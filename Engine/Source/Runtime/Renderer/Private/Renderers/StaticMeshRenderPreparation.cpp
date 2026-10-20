@@ -76,7 +76,7 @@ namespace Durin
 				const auto Wait = Task.Wait();
 				require(Wait.WaitStatus == ETaskWaitStatus::Completed);
 				if (Wait.TaskState != ETaskState::Succeeded) return {BuildRange(0, Owner->size()), Result.TaskCount};
-				auto Facts = std::move(Task).TakeResult();
+				auto Facts = std::move(Task.GetResult());
 				Result.Primitives.insert(Result.Primitives.end(), std::make_move_iterator(Facts.begin()), std::make_move_iterator(Facts.end()));
 			}
 		}
@@ -1121,7 +1121,7 @@ namespace Durin
 			}
 			if (!Failure)
 			{
-				Chunks.push_back(std::move(Slot.Task).TakeResult());
+				Chunks.push_back(std::move(Slot.Task.GetResult()));
 				if (Work.NextPrimitive < Work.Inputs->Collected->Primitives.size()) LaunchNextMeshPreparationChunk(Work);
 			}
 		}

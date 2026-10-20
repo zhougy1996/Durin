@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureCompressor, MeshBuilder
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-20
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -185,7 +185,7 @@ texture DDC session seam returns `FBuildCompleteParams` directly, translating an
 admission failure into `EStatus::Error` rather than wrapping completion in another
 expected result.
 
-Texture2D and TextureCube dispatch run in a unique `Tasks::TTask<void>` on the CPU executor and submit
+Texture2D and TextureCube dispatch run in a `Tasks::TTask<void>` on the CPU executor and submit
 to a persistent task-scheduled build session. Interactive/background priority is
 forwarded to both Core dispatch and the build request owner. LaunchTask accepts
 valid work directly; manager request and memory limits remain separate from

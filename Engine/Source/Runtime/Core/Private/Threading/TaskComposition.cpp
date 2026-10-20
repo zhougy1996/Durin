@@ -18,7 +18,7 @@ namespace Durin::Tasks
 
 		auto ReadFailure(const Tasks::FTask& Handle, const FTaskFailure* Failure) -> FTaskFailure
 		{
-			require(Handle.GetState() == ETaskState::Failed);
+			requiref(Handle.GetState() == ETaskState::Failed, "Failure access requires Failed (task {} {}, state {}).", Handle.GetTaskId(), Handle.GetDebugName(), static_cast<uint32>(Handle.GetState()));
 			if (Failure) return *Failure;
 			return FTaskFailure{Handle.GetDiagnostics().TerminalReason};
 		}

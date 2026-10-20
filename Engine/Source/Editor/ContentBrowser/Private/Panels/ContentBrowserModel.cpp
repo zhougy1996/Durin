@@ -78,7 +78,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				ActiveItemsRequest->State = EItemsRequestState::Completed;
 				if (ItemsTask.GetState() == ETaskState::Succeeded)
 				{
-					auto Snapshot = std::move(ItemsTask).TakeResult();
+					auto Snapshot = std::move(ItemsTask.GetResult());
 					PublishItems(std::move(*Snapshot));
 				}
 				else
@@ -108,7 +108,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			{
 				if (TreeTask.GetState() == ETaskState::Succeeded)
 				{
-					auto Snapshot = std::move(TreeTask).TakeResult();
+					auto Snapshot = std::move(TreeTask.GetResult());
 					PublishDirectory(ActiveTreeDirectory, std::move(*Snapshot));
 				}
 				else

@@ -571,7 +571,7 @@ TEST_F(FEditorToolTests, PendingCompletionPublishesOnlyOnTickAndSynchronousAdmis
 	FTestToolset Toolset;
 	Toolset.Descriptors.front().bMayPend = true;
 	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Tasks::Share(Source.TakeTask());
+	auto Raw = Source.TakeTask();
 	FToolContext Copied;
 	int AvailabilityCalls = 0;
 	Toolset.Availability = [&](const auto&, const auto&) { ++AvailabilityCalls; return FToolAvailability{}; };
@@ -607,7 +607,7 @@ TEST_F(FEditorToolTests, SynchronousPendingViolationFailsOnceAfterEffectsWithout
 {
 	FTestToolset Toolset;
 	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Tasks::Share(Source.TakeTask());
+	auto Raw = Source.TakeTask();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -627,7 +627,7 @@ TEST_F(FEditorToolTests, PendingCapacityDefersDispatchAndCompletionRecoversCapac
 {
 	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
 	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Tasks::Share(Source.TakeTask());
+	auto Raw = Source.TakeTask();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -680,7 +680,7 @@ TEST_F(FEditorToolTests, ClosedHostDetachesPendingCompletionAndLateProducerCanno
 {
 	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
 	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Tasks::Share(Source.TakeTask());
+	auto Raw = Source.TakeTask();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Host = MakeHost(); auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -699,7 +699,7 @@ TEST_F(FEditorToolTests, DelayedOutputValidationAndAbandonmentUseOneFinalBoundar
 {
 	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
 	std::optional<FToolCompletionSource> Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Tasks::Share(Source->TakeTask());
+	auto Raw = Source->TakeTask();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -707,7 +707,7 @@ TEST_F(FEditorToolTests, DelayedOutputValidationAndAbandonmentUseOneFinalBoundar
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id); Tools->TickTools();
 	Source->TrySetValue({EToolStatus::Succeeded, "invalid schema"}); Tools->TickTools();
 	EXPECT_EQ(EToolError::InvalidOutput, Endpoint->GetInvocation(*Id)->Result->Diagnostics.front().Code);
-	Source = FToolCompletionSource::CreateDetached(); Raw = Tasks::Share(Source->TakeTask());
+	Source = FToolCompletionSource::CreateDetached(); Raw = Source->TakeTask();
 	auto Abandoned = Endpoint->Submit(Request()); ASSERT_TRUE(Abandoned); Tools->TickTools();
 	Source.reset(); Tools->TickTools();
 	EXPECT_EQ(EToolError::InternalError, Endpoint->GetInvocation(*Abandoned)->Result->Diagnostics.front().Code);
@@ -717,7 +717,7 @@ TEST_F(FEditorToolTests, PendingRemovalCancellationAndByteLimitsRemainDetachedAn
 {
 	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
 	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Tasks::Share(Source.TakeTask());
+	auto Raw = Source.TakeTask();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -734,7 +734,7 @@ TEST_F(FEditorToolTests, PendingRemovalCancellationAndByteLimitsRemainDetachedAn
 	EXPECT_EQ(EToolError::Cancelled, Endpoint->GetInvocation(*Id)->Result->Diagnostics.front().Code);
 	Toolset.Descriptors.front().Output = FToolSchema(EToolValueType::String);
 	Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
-	Source = FToolCompletionSource::CreateDetached(); Raw = Tasks::Share(Source.TakeTask());
+	Source = FToolCompletionSource::CreateDetached(); Raw = Source.TakeTask();
 	Limits.MaxCompletedBytes = 2048;
 	ASSERT_TRUE(Endpoint->Configure(Limits)); (void)Tools->ListToolsets();
 	auto Oversized = Endpoint->Submit(Request()); ASSERT_TRUE(Oversized); Tools->TickTools();

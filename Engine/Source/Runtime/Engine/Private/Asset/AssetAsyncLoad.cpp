@@ -253,7 +253,7 @@ namespace Durin
 				if (Finished->Read.GetState() != ETaskState::Succeeded)
 					Result = {Finished->Read.GetState() == ETaskState::Canceled
 						? EAssetReadError::Cancelled : EAssetReadError::IoError, "Async package read did not succeed."};
-				else Inputs = std::move(Finished->Read).TakeResult();
+				else Inputs = std::move(Finished->Read.GetResult());
 				if (Result && Finished->Revision != GetAssetCatalogRevision())
 					Result = {EAssetReadError::StaleData, "Asset catalog changed during async loading; retry the request."};
 				for (auto& Handle : Finished->Handles)
