@@ -174,9 +174,9 @@ namespace Durin
 			return {.State = ERHIPipelineRequestState::Failed};
 		return {};
 	}
-	auto FRHIPipelineCreationRequest::GetTaskHandle() const -> Durin::FTaskHandle
+	auto FRHIPipelineCreationRequest::GetTaskHandle() const -> Durin::Tasks::FTask
 	{
-		return State ? Durin::FTaskHandle(State->Task) : Durin::FTaskHandle{};
+		return State ? Durin::Tasks::FTask(State->Task) : Durin::Tasks::FTask{};
 	}
 	auto FRHIPipelineCreationRequest::IsCompute() const -> bool
 	{

@@ -38,7 +38,7 @@ namespace Durin
 		RENDERCORE_API auto Wait() -> void;
 		RENDERCORE_API auto IsFenceComplete() const -> bool;
 	private:
-		FTaskHandle CompletionTask;
+		Tasks::FTask CompletionTask;
 		// Published before CompletionTask completes; retained independently by the render command.
 		std::shared_ptr<FRHICommandListFence> RHIFence;
 	};

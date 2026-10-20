@@ -118,15 +118,15 @@ auto QualifyCanceledFlightResubmission() -> void
 			const auto WorkerCount = GetTaskSchedulerDiagnostics().WorkerCount;
 			FThreadEvent Started, Release;
 			std::atomic<uint32> StartedCount = 0;
-			std::vector<FTaskHandle> Blockers;
+			std::vector<Tasks::FTask> Blockers;
 			struct FReleaseWorkers
 			{
 				FThreadEvent& Release;
-				std::vector<FTaskHandle>& Blockers;
+				std::vector<Tasks::FTask>& Blockers;
 				~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) WaitTask(Task); }
 			} ReleaseWorkers{Release, Blockers};
 			for (uint32 Index = 0; Index < WorkerCount; ++Index)
-				Blockers.push_back(Durin::FTaskHandle(Tasks::LaunchTask("HoldCanceledMaterialFlight", [&] {
+				Blockers.push_back(Durin::Tasks::FTask(Tasks::LaunchTask("HoldCanceledMaterialFlight", [&] {
 					if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 					Release.WaitFor(10.0);
 				})));
@@ -400,15 +400,15 @@ TEST_F(FMaterialAsyncCompileTests, SingleFlightRetainedHitsAndDemandedReload)
 		const uint32 WorkerCount = Durin::GetTaskSchedulerDiagnostics().WorkerCount;
 		Durin::FThreadEvent Started, Release;
 		std::atomic<uint32> StartedCount = 0;
-		std::vector<Durin::FTaskHandle> Blockers;
+		std::vector<Durin::Tasks::FTask> Blockers;
 		struct FReleaseWorkers
 		{
 			Durin::FThreadEvent& Event;
-			std::vector<Durin::FTaskHandle>& Tasks;
+			std::vector<Durin::Tasks::FTask>& Tasks;
 			~FReleaseWorkers() { Event.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
 		} ReleaseWorkers{Release, Blockers};
 		for (uint32 Index = 0; Index < WorkerCount; ++Index)
-			Blockers.push_back(Durin::FTaskHandle(Durin::Tasks::LaunchTask("HoldMaterialSingleFlight", [&] {
+			Blockers.push_back(Durin::Tasks::FTask(Durin::Tasks::LaunchTask("HoldMaterialSingleFlight", [&] {
 				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 				Release.WaitFor(2.0);
 			})));
@@ -600,18 +600,18 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilF
 	Graph.Outputs.Roughness = {Node.Id};
 	Durin::FThreadEvent Started, Release;
 	std::atomic<uint32> StartedCount = 0;
-	std::vector<Durin::FTaskHandle> Blockers;
+	std::vector<Durin::Tasks::FTask> Blockers;
 	const auto WorkerCount = Durin::GetTaskSchedulerDiagnostics().WorkerCount;
 	struct FReleaseWorkers
 	{
 		Durin::FThreadEvent& Release;
-		std::vector<Durin::FTaskHandle>& Tasks;
+		std::vector<Durin::Tasks::FTask>& Tasks;
 		~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
 	};
 	{
 		FReleaseWorkers ReleaseWorkers{Release, Blockers};
 		for (uint32 Index = 0; Index < WorkerCount; ++Index)
-			Blockers.push_back(Durin::FTaskHandle(Durin::Tasks::LaunchTask("HoldRetainedSchemaCompile", [&] {
+			Blockers.push_back(Durin::Tasks::FTask(Durin::Tasks::LaunchTask("HoldRetainedSchemaCompile", [&] {
 				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 				Release.WaitFor(10.0);
 			})));
@@ -771,12 +771,12 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	{
 		FThreadEvent Started, Release;
 		std::atomic<uint32> StartedCount = 0;
-		std::vector<FTaskHandle> Tasks;
+		std::vector<Tasks::FTask> Tasks;
 		auto Hold() -> bool
 		{
 			const auto Count = GetTaskSchedulerDiagnostics().WorkerCount;
 			for (uint32 Index = 0; Index < Count; ++Index)
-				Tasks.push_back(Durin::FTaskHandle(Durin::Tasks::LaunchTask("HoldFunctionCompile", [this, Count] {
+				Tasks.push_back(Durin::Tasks::FTask(Durin::Tasks::LaunchTask("HoldFunctionCompile", [this, Count] {
 					if (StartedCount.fetch_add(1) + 1 == Count) Started.Trigger();
 					Release.WaitFor(10.0);
 				})));

@@ -24,7 +24,7 @@ namespace Durin
 			std::atomic_bool bCancelled = false;
 			std::function<void()> OnCancel;
 
-			auto Completion() const -> Durin::FTaskHandle
+			auto Completion() const -> Durin::Tasks::FTask
 			{
 				if (const auto* Task = std::get_if<FSharedResult>(&Result)) return *Task;
 				return {};
@@ -32,7 +32,7 @@ namespace Durin
 			auto Bind(Tasks::TTask<FPackageResourceReadResult> Task) -> void
 			{
 				std::variant<FPackageResourceReadResult, FSharedResult> Published = Tasks::Share(std::move(Task));
-				Durin::FTaskHandle CompletionToCancel;
+				Durin::Tasks::FTask CompletionToCancel;
 				{
 					std::lock_guard Lock(Mutex);
 					Result = std::move(Published);
@@ -527,7 +527,7 @@ namespace Durin
 	{
 		if (!State) return;
 		State->bCancelled.store(true, std::memory_order_release);
-		Durin::FTaskHandle Completion;
+		Durin::Tasks::FTask Completion;
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (!State->bBinding) Completion = State->Completion();
@@ -551,7 +551,7 @@ namespace Durin
 	auto FPackageResourceRequest::Wait() const -> FPackageResourceReadResult
 	{
 		if (!State) return Result(EPackageResourceReadStatus::Retired, {.Reason = EPackageResourceReadReason::InvalidRequest});
-		Durin::FTaskHandle Completion;
+		Durin::Tasks::FTask Completion;
 		{
 			std::unique_lock Lock(State->Mutex);
 			State->Bound.wait(Lock, [&] { return !State->bBinding; });

@@ -45,7 +45,7 @@ namespace Durin
 			: State(std::make_shared<FAssetBuildExecutionState>()), MaximumConcurrency(InMaximumConcurrency), MemoryBudget(InMemoryBudget)
 		{ require(MaximumConcurrency > 0); }
 		auto FAssetBuildScheduler::Enqueue(bool Interactive, uint64 RequiredMemory,
-			std::function<bool(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch, FTaskHandle Prerequisite, std::function<bool()> IsReady) -> void
+			std::function<bool(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch, Tasks::FTask Prerequisite, std::function<bool()> IsReady) -> void
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 			Queue.push_back({Interactive, RequiredMemory, std::move(Launch), std::move(Prerequisite), std::move(IsReady)});

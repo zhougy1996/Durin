@@ -428,7 +428,7 @@ does not change GPU submission scope routing or enable production async compute.
 does not wait for RHI completion. A `Threads` sync, including
 `FlushRenderingCommands`, submits pending immediate work and waits the exact RHI
 serial. Render commands trigger a shared `Tasks::FTaskEvent`; the GameThread-owned
-fence stores its `FTaskHandle` and, for RHI-inclusive fences, an independently
+fence stores its `Tasks::FTask` and, for RHI-inclusive fences, an independently
 retained RHI receipt published before the event completes. Completion remains
 visible whether it precedes or races a wait. Destroying or restarting the fence
 does not invalidate queued event/receipt captures. RHI submission or execution

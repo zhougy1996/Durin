@@ -32,7 +32,7 @@ namespace Durin::DerivedData
 		virtual auto Wait() const -> ERequestWaitResult = 0;
 		virtual auto RequestCancel() const -> void {}
 		// Native dispatch completion includes destruction of the scheduled thunk's captures.
-		virtual auto GetTaskHandle() const -> FTaskHandle { return {}; }
+		virtual auto GetTaskHandle() const -> Tasks::FTask { return {}; }
 	};
 	class IBuildScheduler
 	{

@@ -345,7 +345,7 @@ namespace Durin
 				for (auto& Handle : Job->Handles) Handle->Cancel();
 				Job->Cancellation.RequestCancellation();
 				Tasks::Cancel(Job->Read);
-				(void)WaitTask(Durin::FTaskHandle(Job->Read));
+				(void)WaitTask(Durin::Tasks::FTask(Job->Read));
 			}
 			Jobs.clear();
 		}

@@ -274,14 +274,14 @@ namespace Durin::Editor
 						.Failure = "Asset compatibility audit failed with an unknown exception."};
 				}
 			}, Options);
-		Task = Durin::FTaskHandle(WorkerTask);
+		Task = Durin::Tasks::FTask(WorkerTask);
 
 		Tasks::FTaskExecutionOptions TerminalOptions;
 		TerminalOptions.DebugName = "AssetCompatibility.PublishTerminal";
 		TerminalOptions.Priority = ETaskPriority::Normal;
 		TerminalOptions.GenerationToken = Generation.Capture();
 		const std::weak_ptr<FPublicationLifetime> WeakLifetime = PublicationLifetime;
-		TerminalTask = Durin::FTaskHandle(Tasks::ThenCompleted(
+		TerminalTask = Durin::Tasks::FTask(Tasks::ThenCompleted(
 			Tasks::Share(std::move(WorkerTask)), Tasks::ETaskExecutor::GameThreadDeferred, TerminalOptions,
 			[WeakLifetime, Serial](const Tasks::TSharedTask<FTerminalSummary>& Outcome) {
 				const std::shared_ptr<FPublicationLifetime> Lifetime = WeakLifetime.lock();

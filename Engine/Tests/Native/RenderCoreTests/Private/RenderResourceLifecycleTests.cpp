@@ -221,7 +221,7 @@ namespace Durin
 		FThreadEvent ReleaseProbe;
 		std::atomic<bool> bRenderCommandAccepted = false;
 		std::atomic<bool> bRenderCommandExecuted = false;
-		FTaskHandle Probe = Durin::FTaskHandle(Tasks::LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
+		Tasks::FTask Probe = Durin::Tasks::FTask(Tasks::LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
 			ProbeStarted.Trigger();
 			ReleaseProbe.Wait();
 			FRenderThreadCommandPipe::Enqueue<

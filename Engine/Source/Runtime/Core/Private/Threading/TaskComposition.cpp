@@ -10,13 +10,13 @@ namespace Durin::Tasks
 			std::terminate();
 		}
 
-		auto WaitForSuccess(const FTaskHandle& Handle) -> void
+		auto WaitForSuccess(const Tasks::FTask& Handle) -> void
 		{
 			const auto WaitResult = WaitTask(Handle);
 			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && Handle.GetState() == ETaskState::Succeeded);
 		}
 
-		auto ReadFailure(const FTaskHandle& Handle, const FTaskFailure* Failure) -> FTaskFailure
+		auto ReadFailure(const Tasks::FTask& Handle, const FTaskFailure* Failure) -> FTaskFailure
 		{
 			require(Handle.GetState() == ETaskState::Failed);
 			if (Failure) return *Failure;
@@ -24,7 +24,7 @@ namespace Durin::Tasks
 		}
 	}
 
-	auto SubscribeTask(const FTaskHandle& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription
+	auto SubscribeTask(const Tasks::FTask& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription
 	{
 		require(Task.IsValid() && Callback);
 		FTaskSubscription Subscription;
@@ -37,12 +37,12 @@ namespace Durin::Tasks
 		return Subscription;
 	}
 	FTaskReadiness::FTaskReadiness() : State(std::make_shared<std::atomic<bool>>(false)) {}
-	auto ObserveTaskReady(const FTaskHandle& Task, const FTaskReadiness& Readiness) -> FTaskSubscription
+	auto ObserveTaskReady(const Tasks::FTask& Task, const FTaskReadiness& Readiness) -> FTaskSubscription
 	{
 		return SubscribeTask(Task, [State = Readiness.State](ETaskState) { State->store(true, std::memory_order_release); });
 	}
 
-	auto AddNested(const FTaskHandle& Completion) -> void
+	auto AddNested(const Tasks::FTask& Completion) -> void
 	{
 		if (auto Error = Durin::Private::FTaskRuntimeAccess::AddNested(Completion))
 			Detail::FailConstruction(*Error);
@@ -72,7 +72,7 @@ namespace Durin::Tasks
 		SetHandle(std::move(Admission).TakeValue());
 	}
 
-	auto FTaskEvent::AddPrerequisites(std::span<const Durin::FTaskHandle> Prerequisites) -> void
+	auto FTaskEvent::AddPrerequisites(std::span<const Durin::Tasks::FTask> Prerequisites) -> void
 	{
 		require(State);
 		std::lock_guard Lock(State->Mutex);
@@ -114,7 +114,7 @@ namespace Durin::Tasks
 		return Durin::ParallelFor(Name, Num, std::move(Function), Native);
 	}
 
-	auto Wait(const FTaskHandle& Task) -> FTaskWaitResult { return WaitTask(Task); }
-	auto Wait(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult { return WaitTask(Task, TimeoutSeconds); }
-	auto Cancel(const FTaskHandle& Task) -> bool { return CancelTask(Task); }
+	auto Wait(const Tasks::FTask& Task) -> FTaskWaitResult { return WaitTask(Task); }
+	auto Wait(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult { return WaitTask(Task, TimeoutSeconds); }
+	auto Cancel(const Tasks::FTask& Task) -> bool { return CancelTask(Task); }
 }

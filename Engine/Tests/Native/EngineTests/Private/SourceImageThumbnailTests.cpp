@@ -239,7 +239,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		const auto BlockingState = std::make_shared<FBlockingTaskState>();
-		const FTaskHandle Blocker = Durin::FTaskHandle(Tasks::LaunchTask("BlockThumbnailWorker", [BlockingState] {
+		const Tasks::FTask Blocker = Durin::Tasks::FTask(Tasks::LaunchTask("BlockThumbnailWorker", [BlockingState] {
 			std::unique_lock Lock(BlockingState->Mutex);
 			BlockingState->bEntered = true;
 			BlockingState->Condition.notify_all();

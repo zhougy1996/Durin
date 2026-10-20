@@ -4,14 +4,15 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-20
 
 ## Construction And Acceptance
 
 `Threading/TaskComposition.h` defines the ordinary API in `Durin::Tasks`.
 `LaunchTask(Executor, Options, Callable)` returns `TTask<T>` directly,
-including `TTask<void>` (also named `FTask`) for a void callable. The alias keeps
-the same move-only ownership contract. Callables accept no arguments or
+including `TTask<void>` for a void callable. `Tasks::FTask` is the public generic
+completion handle, an alias of `Tasks::Private::FTaskHandle`, and can observe any
+task or event without a typed result claim. Callables accept no arguments or
 `const FTaskCancellationToken&`. Unique value continuations may accept the token
 before their input value; void continuations may accept the token alone.
 `LaunchTask(Name, Callable, Options)`
@@ -53,7 +54,7 @@ always-enabled `requiref` failure path, including Shipping. Allocation failure
 in scheduler construction/registration/dispatch/result storage is fatal; it is
 not ordinary task failure. Exceptions from user work produce Failed tasks.
 
-`Threading/Task.h` retains erased handles, unique storage, cancellation,
+`Threading/Task.h` defines the common task handle, unique storage, cancellation,
 wait operations, lifecycle and kernel primitives. Checked admission is limited
 to `Private::TryLaunchCancelableTaskWithCompletion` and
 `Private::TryLaunchContinuationTask`, Core kernel tests, deliberate lifecycle
@@ -108,11 +109,16 @@ does not require another submission during shutdown.
 ## Unique And Shared Results
 
 `TTask<T>`, `TSharedTask<T>`, and `FTaskEvent` derive from the internal
-`Tasks::Private::FTaskHandle` observation base. It owns one erased execution
-handle and provides validity, completion, waiting, and diagnostics; it owns no
-result claim. Ordinary dependencies accept task/event objects directly, without
-`GetTaskHandle()`. Erasure to the kernel's `Durin::FTaskHandle` copies observation
-even from an rvalue and never moves only the base out of a unique result owner.
+`Tasks::Private::FTaskHandle` base, exposed publicly as `Tasks::FTask`.
+This copyable, movable handle directly retains
+the execution state and provides validity, completion, waiting, and diagnostics;
+it owns no result claim. The kernel and composition APIs use this same handle,
+without a separate erased observation wrapper. Ordinary dependencies accept
+task/event objects directly, without `GetTaskHandle()`. Constructing or assigning
+a generic `FTask` from a task/event copies observation even from an rvalue; moving
+between generic handles transfers observation. Moving a complete unique task still
+transfers its execution state and result ownership together.
+Empty handles report incomplete and waits return `InvalidTask`.
 `TTask<T>` is move-only and directly owns its result storage and failure metadata;
 there is no intermediate `TUniqueTaskHandle` or claim tombstone. `IsCompleted()`
 includes Succeeded, Failed and Canceled and does not
@@ -154,7 +160,7 @@ All ordinary composition returns task handles directly:
 | --- | --- |
 | `Then(TTask<T>&&, Executor, Options, F)` | Consume success into another unique task; void inputs omit the value; callbacks may take context first |
 | `Then(const TSharedTask<T>&, Executor, Options, F)` | Observe immutable success and produce a unique result |
-| `Then(FTaskHandle or FTaskEvent, Executor, Options, F)` | Success edge with an erased prerequisite and no input value |
+| `Then(FTask or FTaskEvent, Executor, Options, F)` | Success edge with a completion handle and no input value |
 | `ThenCompleted(const TSharedTask<T>&, Executor, Options, F)` | Receive the shared task in any terminal state; inspect before accessing a result |
 | `ThenAsync(TTask<T>&&, Executor, Options, F)` | Flatten a returned unique task or shared immutable result owner |
 | `WhenAll(vector<TTask<T>>&&)` | Unique values in input order |
@@ -162,9 +168,9 @@ All ordinary composition returns task handles directly:
 | `WhenAll(const vector<TSharedTask<T>>&)` | Immutable owning result views, including duplicate positions |
 
 `LaunchTask(Executor, Options, Callable, Dependency)` accepts a task, event,
-or erased handle directly, or a vector, array, or span of these types. The named
+or generic `FTask` directly, or a vector, array, or span of these types. The named
 Worker overload accepts `LaunchTask(Name, Callable, Dependency, Options)`.
-`Prerequisites(A, B, ...)` creates an owning array of erased handles for mixed
+`Prerequisites(A, B, ...)` creates an owning array of `FTask` handles for mixed
 unique tasks, shared tasks, and events; it never consumes a result. These
 overloads append their dependencies to `Options.Prerequisites`, and bind them
 before the supplied collection can go out of scope. `Wait(Task)` and `Cancel(Task)`
@@ -236,7 +242,7 @@ and its result aliases; this supports accounting that outlives receipt eviction.
 
 `Tasks::AddNested(Task)` adds a completion dependency to the currently executing
 task. It must be called from a running, non-independent task body, accepts typed
-tasks, events, or an erased `FTaskHandle`, and rejects cycles and foreign
+tasks, events, or a generic `Tasks::FTask`, and rejects cycles and foreign
 schedulers. The parent publishes its result and terminal state only after its
 body and all registered children finish. Its worker is available after the body
 returns. Failure in the parent still waits for child retirement; cancellation
@@ -246,9 +252,9 @@ cancellation. Owners request cancellation explicitly.
 
 `Tasks::FTaskEvent(DebugName)` is a shared, explicit one-shot signal with no worker
 body or result storage. Events can be supplied directly as execution prerequisites
-or nested completion dependencies. An erased `Durin::FTaskHandle` can retain
+or nested completion dependencies. A generic `Tasks::FTask` can retain
 observation separately. `AddPrerequisites` accepts task/event facades
-or vectors, arrays, and spans of task/event or erased handles
+or vectors, arrays, and spans of task/event or generic handles
 before `Trigger()`; the event completes only after it is triggered and every
 prerequisite finishes, regardless of prerequisite outcomes. Copies share one
 signal, triggering twice is invalid, and the last handle must be triggered before

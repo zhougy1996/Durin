@@ -29,7 +29,7 @@ namespace Durin::AssetPrivate
 		explicit FAssetBuildScheduler(uint32 MaximumConcurrency = 2, uint64 MemoryBudget = 1024ull * 1024 * 1024);
 		// Optional readiness only observes external retirement; it must not mutate this queue.
 		auto Enqueue(bool Interactive, uint64 RequiredMemory, std::function<bool(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch,
-			FTaskHandle Prerequisite = {}, std::function<bool()> IsReady = {}) -> void;
+			Tasks::FTask Prerequisite = {}, std::function<bool()> IsReady = {}) -> void;
 		auto Pump() -> void;
 		auto WaitForProgress() -> void;
 		auto GetScheduledMemory() const -> uint64;
@@ -39,7 +39,7 @@ namespace Durin::AssetPrivate
 			bool Interactive;
 			uint64 RequiredMemory;
 			std::function<bool(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch;
-			FTaskHandle Prerequisite;
+			Tasks::FTask Prerequisite;
 			std::function<bool()> IsReady;
 		};
 		std::shared_ptr<FAssetBuildExecutionState> State;

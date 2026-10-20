@@ -2275,7 +2275,7 @@ TEST(FTexture2DTests, SharedSourceSlicesStayImmutableDuringWorkerBuild)
 			Supplied = std::move(*SuppliedResult);
 		}
 	});
-	ASSERT_EQ(WaitTask(Durin::FTaskHandle(Task)).TaskState, ETaskState::Succeeded);
+	ASSERT_EQ(WaitTask(Durin::Tasks::FTask(Task)).TaskState, ETaskState::Succeeded);
 	ASSERT_TRUE(Succeeded);
 	EXPECT_EQ(Generated.Mips.size(), 4u);
 	EXPECT_EQ(Supplied.Mips.size(), 2u);

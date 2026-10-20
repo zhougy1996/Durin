@@ -71,7 +71,7 @@ namespace Durin
 		class FWaitTaskRunnable final : public FRunnable
 		{
 		public:
-			FWaitTaskRunnable(FTaskHandle InTarget, FThreadEvent& InReturnedEvent)
+			FWaitTaskRunnable(Tasks::FTask InTarget, FThreadEvent& InReturnedEvent)
 				: Target(std::move(InTarget))
 				, ReturnedEvent(InReturnedEvent)
 			{
@@ -84,7 +84,7 @@ namespace Durin
 				return 0;
 			}
 
-			FTaskHandle Target;
+			Tasks::FTask Target;
 			FThreadEvent& ReturnedEvent;
 			FTaskWaitResult ObservedResult;
 		};
@@ -633,7 +633,7 @@ namespace Durin
 
 		FThreadEvent TaskFinished;
 		std::atomic<bool> bObservedWorkerThread = false;
-		FTaskHandle Handle = SubmitKernelTask("EnginePoolTask", [&]() {
+		Tasks::FTask Handle = SubmitKernelTask("EnginePoolTask", [&]() {
 			bObservedWorkerThread.store(IsInWorkerThread(), std::memory_order::release);
 			TaskFinished.Trigger();
 		});
@@ -655,7 +655,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		EXPECT_TRUE(InitializeTaskScheduler(4));
 
-		FTaskHandle Handle = SubmitKernelTask("IdempotentInitialization", []() {});
+		Tasks::FTask Handle = SubmitKernelTask("IdempotentInitialization", []() {});
 		ASSERT_TRUE(Handle.IsValid());
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Handle).TaskState);
 	}
@@ -668,7 +668,7 @@ namespace Durin
 
 		constexpr uint32 ProducerCount = 8;
 		std::barrier StartBarrier(ProducerCount + 1);
-		std::array<FTaskHandle, ProducerCount> Handles;
+		std::array<Tasks::FTask, ProducerCount> Handles;
 		std::vector<std::thread> Producers;
 		Producers.reserve(ProducerCount);
 		for (uint32 ProducerIndex = 0; ProducerIndex < ProducerCount; ++ProducerIndex)
@@ -686,7 +686,7 @@ namespace Durin
 			Producer.join();
 		}
 
-		for (const FTaskHandle& Handle : Handles)
+		for (const Tasks::FTask& Handle : Handles)
 		{
 			if (Handle.IsValid())
 			{
@@ -726,7 +726,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 
 		std::atomic<bool> bTaskRan = false;
-		FTaskHandle Handle = SubmitKernelTask("HandleCompletion", [&]() {
+		Tasks::FTask Handle = SubmitKernelTask("HandleCompletion", [&]() {
 			bTaskRan.store(true, std::memory_order::release);
 		});
 
@@ -747,7 +747,7 @@ namespace Durin
 
 		constexpr uint32 TaskCount = 32;
 		std::atomic<uint32> CompletedTaskCount = 0;
-		std::vector<FTaskHandle> Handles;
+		std::vector<Tasks::FTask> Handles;
 		Handles.reserve(TaskCount);
 
 		for (uint32 TaskIndex = 0; TaskIndex < TaskCount; ++TaskIndex)
@@ -758,7 +758,7 @@ namespace Durin
 			ASSERT_TRUE(Handles.back().IsValid());
 		}
 
-		const std::vector<FTaskWaitResult> Outcomes = WaitAll(std::span<const FTaskHandle>(Handles.data(), Handles.size()));
+		const std::vector<FTaskWaitResult> Outcomes = WaitAll(std::span<const Tasks::FTask>(Handles.data(), Handles.size()));
 
 		EXPECT_EQ(TaskCount, CompletedTaskCount.load(std::memory_order::acquire));
 		ASSERT_EQ(TaskCount, Outcomes.size());
@@ -767,7 +767,7 @@ namespace Durin
 			EXPECT_EQ(ETaskWaitStatus::Completed, Outcome.WaitStatus);
 			EXPECT_EQ(ETaskState::Succeeded, Outcome.TaskState);
 		}
-		for (const FTaskHandle& Handle : Handles)
+		for (const Tasks::FTask& Handle : Handles)
 		{
 			EXPECT_TRUE(Handle.IsComplete());
 		}
@@ -783,12 +783,12 @@ namespace Durin
 		FThreadEvent BlockedTaskStarted;
 		std::atomic<bool> bTargetTaskRan = false;
 
-		FTaskHandle TargetHandle = SubmitKernelTask("TargetTask", [&]() {
+		Tasks::FTask TargetHandle = SubmitKernelTask("TargetTask", [&]() {
 			bTargetTaskRan.store(true, std::memory_order::release);
 		});
 		ASSERT_TRUE(TargetHandle.IsValid());
 
-		FTaskHandle BlockedHandle = SubmitKernelTask("BlockedTask", [&]() {
+		Tasks::FTask BlockedHandle = SubmitKernelTask("BlockedTask", [&]() {
 			BlockedTaskStarted.Trigger();
 			ReleaseBlockedTask.Wait();
 		});
@@ -815,8 +815,8 @@ namespace Durin
 		std::atomic<bool> bChildHandleWasValid = false;
 		std::atomic<bool> bParentTaskFinished = false;
 
-		FTaskHandle ParentHandle = SubmitKernelTask("ParentTask", [&]() {
-			FTaskHandle ChildHandle = SubmitKernelTask("ChildTask", [&]() {
+		Tasks::FTask ParentHandle = SubmitKernelTask("ParentTask", [&]() {
+			Tasks::FTask ChildHandle = SubmitKernelTask("ChildTask", [&]() {
 				bChildTaskRan.store(true, std::memory_order::release);
 			});
 
@@ -842,18 +842,18 @@ namespace Durin
 
 		FThreadEvent BlockerStarted;
 		FThreadEvent ReleaseBlocker;
-		FTaskHandle Blocker = SubmitKernelTask("IneligibleWaitBlocker", [&]() {
+		Tasks::FTask Blocker = SubmitKernelTask("IneligibleWaitBlocker", [&]() {
 			BlockerStarted.Trigger();
 			ReleaseBlocker.Wait();
 		});
 		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
 
-		FTaskHandle Parent;
-		FTaskHandle DependentChild;
+		Tasks::FTask Parent;
+		Tasks::FTask DependentChild;
 		std::atomic<ETaskWaitStatus> ObservedWaitStatus = ETaskWaitStatus::InvalidTask;
 		std::atomic<ETaskState> ObservedWaitState = ETaskState::Invalid;
 		Parent = SubmitKernelTask("IneligibleWaitParent", [&]() {
-			std::array<FTaskHandle, 1> Prerequisites{Parent};
+			std::array<Tasks::FTask, 1> Prerequisites{Parent};
 			FTaskLaunchOptions Options;
 			Options.Prerequisites = Prerequisites;
 			DependentChild = SubmitKernelTask("IneligibleWaitChild", []() {}, Options);
@@ -877,10 +877,10 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 
-		FTaskHandle StandardFailure = SubmitKernelTask("StandardFailure", []() {
+		Tasks::FTask StandardFailure = SubmitKernelTask("StandardFailure", []() {
 			throw std::runtime_error("expected task failure");
 		});
-		FTaskHandle UnknownFailure = SubmitKernelTask("UnknownFailure", []() {
+		Tasks::FTask UnknownFailure = SubmitKernelTask("UnknownFailure", []() {
 			throw 7;
 		});
 
@@ -898,12 +898,12 @@ namespace Durin
 
 		FThreadEvent BlockingTaskStarted;
 		FThreadEvent ReleaseBlockingTask;
-		FTaskHandle RunningTask = SubmitKernelTask("RunningDuringDiscard", [&]() {
+		Tasks::FTask RunningTask = SubmitKernelTask("RunningDuringDiscard", [&]() {
 			BlockingTaskStarted.Trigger();
 			ReleaseBlockingTask.Wait();
 		});
 		ASSERT_TRUE(BlockingTaskStarted.WaitFor(1.0));
-		FTaskHandle QueuedTask = SubmitKernelTask("QueuedDuringDiscard", []() {});
+		Tasks::FTask QueuedTask = SubmitKernelTask("QueuedDuringDiscard", []() {});
 		ASSERT_TRUE(QueuedTask.IsValid());
 
 		std::thread ShutdownThread([]() {
@@ -930,12 +930,12 @@ namespace Durin
 
 		FThreadEvent BlockingTaskStarted;
 		FThreadEvent ReleaseBlockingTask;
-		FTaskHandle RunningTask = SubmitKernelTask("RunningDuringDrain", [&]() {
+		Tasks::FTask RunningTask = SubmitKernelTask("RunningDuringDrain", [&]() {
 			BlockingTaskStarted.Trigger();
 			ReleaseBlockingTask.Wait();
 		});
 		ASSERT_TRUE(BlockingTaskStarted.WaitFor(1.0));
-		FTaskHandle QueuedTask = SubmitKernelTask("QueuedDuringDrain", []() {});
+		Tasks::FTask QueuedTask = SubmitKernelTask("QueuedDuringDrain", []() {});
 
 		std::thread ShutdownThread([]() {
 			ShutdownTaskScheduler(true);
@@ -961,13 +961,13 @@ namespace Durin
 
 		FThreadEvent BlockingTaskStarted;
 		FThreadEvent ReleaseBlockingTask;
-		FTaskHandle BlockingTask = SubmitKernelTask("DiscardRaceBlocker", [&]() {
+		Tasks::FTask BlockingTask = SubmitKernelTask("DiscardRaceBlocker", [&]() {
 			BlockingTaskStarted.Trigger();
 			ReleaseBlockingTask.Wait();
 		});
 		ASSERT_TRUE(BlockingTaskStarted.WaitFor(1.0));
 		std::atomic<uint32> ExecutionCount = 0;
-		FTaskHandle RacingTask = SubmitKernelTask("DiscardRaceTarget", [&]() {
+		Tasks::FTask RacingTask = SubmitKernelTask("DiscardRaceTarget", [&]() {
 			ExecutionCount.fetch_add(1, std::memory_order::acq_rel);
 		});
 
@@ -996,41 +996,41 @@ namespace Durin
 		FThreadEvent ReleaseRoot;
 		std::atomic<uint32> ExecutionMask = 0;
 		std::atomic<bool> bOrderValid = true;
-		FTaskHandle Root = SubmitKernelTask("DependencyRoot", [&]() {
+		Tasks::FTask Root = SubmitKernelTask("DependencyRoot", [&]() {
 			ReleaseRoot.Wait();
 			ExecutionMask.fetch_or(1u, std::memory_order::acq_rel);
 		});
 
-		std::array<FTaskHandle, 1> RootPrerequisite{Root};
+		std::array<Tasks::FTask, 1> RootPrerequisite{Root};
 		FTaskLaunchOptions RootOptions;
 		RootOptions.Prerequisites = RootPrerequisite;
-		FTaskHandle Left = SubmitKernelTask("DependencyLeft", [&]() {
+		Tasks::FTask Left = SubmitKernelTask("DependencyLeft", [&]() {
 			if ((ExecutionMask.load(std::memory_order::acquire) & 1u) == 0)
 			{
 				bOrderValid.store(false, std::memory_order::release);
 			}
 			ExecutionMask.fetch_or(2u, std::memory_order::acq_rel); }, RootOptions);
-		FTaskHandle Right = SubmitKernelTask("DependencyRight", [&]() {
+		Tasks::FTask Right = SubmitKernelTask("DependencyRight", [&]() {
 			if ((ExecutionMask.load(std::memory_order::acquire) & 1u) == 0)
 			{
 				bOrderValid.store(false, std::memory_order::release);
 			}
 			ExecutionMask.fetch_or(4u, std::memory_order::acq_rel); }, RootOptions);
 
-		std::array<FTaskHandle, 2> JoinPrerequisites{Left, Right};
+		std::array<Tasks::FTask, 2> JoinPrerequisites{Left, Right};
 		FTaskLaunchOptions JoinOptions;
 		JoinOptions.Prerequisites = JoinPrerequisites;
-		FTaskHandle Join = SubmitKernelTask("DependencyJoin", [&]() {
+		Tasks::FTask Join = SubmitKernelTask("DependencyJoin", [&]() {
 			if ((ExecutionMask.load(std::memory_order::acquire) & 7u) != 7u)
 			{
 				bOrderValid.store(false, std::memory_order::release);
 			}
 			ExecutionMask.fetch_or(8u, std::memory_order::acq_rel); }, JoinOptions);
 
-		std::array<FTaskHandle, 1> JoinPrerequisite{Join};
+		std::array<Tasks::FTask, 1> JoinPrerequisite{Join};
 		FTaskLaunchOptions TailOptions;
 		TailOptions.Prerequisites = JoinPrerequisite;
-		FTaskHandle Tail = SubmitKernelTask("DependencyTail", [&]() {
+		Tasks::FTask Tail = SubmitKernelTask("DependencyTail", [&]() {
 			if ((ExecutionMask.load(std::memory_order::acquire) & 15u) != 15u)
 			{
 				bOrderValid.store(false, std::memory_order::release);
@@ -1059,13 +1059,13 @@ namespace Durin
 		{
 			std::barrier RaceBarrier(3);
 			std::atomic<uint32> DependentExecutionCount = 0;
-			FTaskHandle Prerequisite = SubmitKernelTask("RegistrationRacePrerequisite", [&]() {
+			Tasks::FTask Prerequisite = SubmitKernelTask("RegistrationRacePrerequisite", [&]() {
 				RaceBarrier.arrive_and_wait();
 			});
-			FTaskHandle Dependent;
+			Tasks::FTask Dependent;
 			std::thread Submitter([&]() {
 				RaceBarrier.arrive_and_wait();
-				std::array<FTaskHandle, 1> Prerequisites{Prerequisite};
+				std::array<Tasks::FTask, 1> Prerequisites{Prerequisite};
 				FTaskLaunchOptions Options;
 				Options.Prerequisites = Prerequisites;
 				Dependent = SubmitKernelTask("RegistrationRaceDependent", [&]() { DependentExecutionCount.fetch_add(1, std::memory_order::acq_rel); }, Options);
@@ -1086,17 +1086,17 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 
 		std::barrier CompletionBarrier(3);
-		FTaskHandle First = SubmitKernelTask("SimultaneousFirst", [&]() {
+		Tasks::FTask First = SubmitKernelTask("SimultaneousFirst", [&]() {
 			CompletionBarrier.arrive_and_wait();
 		});
-		FTaskHandle Second = SubmitKernelTask("SimultaneousSecond", [&]() {
+		Tasks::FTask Second = SubmitKernelTask("SimultaneousSecond", [&]() {
 			CompletionBarrier.arrive_and_wait();
 		});
-		std::array<FTaskHandle, 2> Prerequisites{First, Second};
+		std::array<Tasks::FTask, 2> Prerequisites{First, Second};
 		FTaskLaunchOptions Options;
 		Options.Prerequisites = Prerequisites;
 		std::atomic<uint32> ExecutionCount = 0;
-		FTaskHandle Dependent = SubmitKernelTask("SimultaneousFanIn", [&]() { ExecutionCount.fetch_add(1, std::memory_order::acq_rel); }, Options);
+		Tasks::FTask Dependent = SubmitKernelTask("SimultaneousFanIn", [&]() { ExecutionCount.fetch_add(1, std::memory_order::acq_rel); }, Options);
 		ASSERT_TRUE(Dependent.IsValid());
 		EXPECT_EQ(ETaskState::Waiting, Dependent.GetState());
 
@@ -1111,18 +1111,18 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
-		FTaskHandle InvalidPrerequisite;
-		std::array<FTaskHandle, 1> InvalidPrerequisites{InvalidPrerequisite};
+		Tasks::FTask InvalidPrerequisite;
+		std::array<Tasks::FTask, 1> InvalidPrerequisites{InvalidPrerequisite};
 		FTaskLaunchOptions InvalidOptions;
 		InvalidOptions.Prerequisites = InvalidPrerequisites;
 		EXPECT_FALSE(SubmitKernelTask("InvalidPrerequisiteTask", []() {}, InvalidOptions).IsValid());
 
-		FTaskHandle EarlierLifetimeTask = SubmitKernelTask("EarlierLifetimeTask", []() {});
+		Tasks::FTask EarlierLifetimeTask = SubmitKernelTask("EarlierLifetimeTask", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(EarlierLifetimeTask).TaskState);
 		ShutdownTaskScheduler(true);
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
-		std::array<FTaskHandle, 1> ForeignPrerequisites{EarlierLifetimeTask};
+		std::array<Tasks::FTask, 1> ForeignPrerequisites{EarlierLifetimeTask};
 		FTaskLaunchOptions ForeignOptions;
 		ForeignOptions.Prerequisites = ForeignPrerequisites;
 		EXPECT_FALSE(SubmitKernelTask("ForeignPrerequisiteTask", []() {}, ForeignOptions).IsValid());
@@ -1135,13 +1135,13 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		std::atomic<bool> bFailedDependentRan = false;
-		FTaskHandle FailedPrerequisite = SubmitKernelTask("FailedPrerequisite", []() {
+		Tasks::FTask FailedPrerequisite = SubmitKernelTask("FailedPrerequisite", []() {
 			throw std::runtime_error("dependency failure");
 		});
-		std::array<FTaskHandle, 1> FailedPrerequisites{FailedPrerequisite};
+		std::array<Tasks::FTask, 1> FailedPrerequisites{FailedPrerequisite};
 		FTaskLaunchOptions FailedOptions;
 		FailedOptions.Prerequisites = FailedPrerequisites;
-		FTaskHandle FailedDependent = SubmitKernelTask("FailedDependent", [&]() { bFailedDependentRan.store(true, std::memory_order::release); }, FailedOptions);
+		Tasks::FTask FailedDependent = SubmitKernelTask("FailedDependent", [&]() { bFailedDependentRan.store(true, std::memory_order::release); }, FailedOptions);
 
 		EXPECT_EQ(ETaskState::Failed, WaitTask(FailedPrerequisite).TaskState);
 		EXPECT_EQ(ETaskState::Canceled, WaitTask(FailedDependent).TaskState);
@@ -1150,17 +1150,17 @@ namespace Durin
 
 		FThreadEvent BlockerStarted;
 		FThreadEvent ReleaseBlocker;
-		FTaskHandle Blocker = SubmitKernelTask("CancellationPropagationBlocker", [&]() {
+		Tasks::FTask Blocker = SubmitKernelTask("CancellationPropagationBlocker", [&]() {
 			BlockerStarted.Trigger();
 			ReleaseBlocker.Wait();
 		});
 		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
-		FTaskHandle CanceledPrerequisite = SubmitKernelTask("CanceledPrerequisite", []() {});
-		std::array<FTaskHandle, 1> CanceledPrerequisites{CanceledPrerequisite};
+		Tasks::FTask CanceledPrerequisite = SubmitKernelTask("CanceledPrerequisite", []() {});
+		std::array<Tasks::FTask, 1> CanceledPrerequisites{CanceledPrerequisite};
 		FTaskLaunchOptions CanceledOptions;
 		CanceledOptions.Prerequisites = CanceledPrerequisites;
 		std::atomic<bool> bCanceledDependentRan = false;
-		FTaskHandle CanceledDependent = SubmitKernelTask("CanceledDependent", [&]() { bCanceledDependentRan.store(true, std::memory_order::release); }, CanceledOptions);
+		Tasks::FTask CanceledDependent = SubmitKernelTask("CanceledDependent", [&]() { bCanceledDependentRan.store(true, std::memory_order::release); }, CanceledOptions);
 
 		EXPECT_TRUE(CancelTask(CanceledPrerequisite));
 		EXPECT_EQ(ETaskState::Canceled, WaitTask(CanceledDependent).TaskState);
@@ -1182,19 +1182,19 @@ namespace Durin
 		FThreadEvent RunningStarted;
 		FThreadEvent ReleaseRunning;
 		std::atomic<bool> bRunningObservedCancellation = false;
-		FTaskHandle Running = SubmitCancelableKernelTask("SharedCancellationRunning", [&](const FTaskCancellationToken& Token) {
+		Tasks::FTask Running = SubmitCancelableKernelTask("SharedCancellationRunning", [&](const FTaskCancellationToken& Token) {
 			RunningStarted.Trigger();
 			ReleaseRunning.Wait();
 			bRunningObservedCancellation.store(Token.IsCancellationRequested(), std::memory_order::release); }, SharedOptions);
 		ASSERT_TRUE(RunningStarted.WaitFor(1.0));
 
 		std::atomic<bool> bQueuedRan = false;
-		FTaskHandle Queued = SubmitKernelTask("SharedCancellationQueued", [&]() { bQueuedRan.store(true, std::memory_order::release); }, SharedOptions);
-		std::array<FTaskHandle, 1> QueuedPrerequisite{Queued};
+		Tasks::FTask Queued = SubmitKernelTask("SharedCancellationQueued", [&]() { bQueuedRan.store(true, std::memory_order::release); }, SharedOptions);
+		std::array<Tasks::FTask, 1> QueuedPrerequisite{Queued};
 		FTaskLaunchOptions WaitingOptions = SharedOptions;
 		WaitingOptions.Prerequisites = QueuedPrerequisite;
 		std::atomic<bool> bWaitingRan = false;
-		FTaskHandle Waiting = SubmitKernelTask("SharedCancellationWaiting", [&]() { bWaitingRan.store(true, std::memory_order::release); }, WaitingOptions);
+		Tasks::FTask Waiting = SubmitKernelTask("SharedCancellationWaiting", [&]() { bWaitingRan.store(true, std::memory_order::release); }, WaitingOptions);
 
 		Source.RequestCancellation();
 		Source.RequestCancellation();
@@ -1212,7 +1212,7 @@ namespace Durin
 		FTaskLaunchOptions PreCanceledOptions;
 		PreCanceledOptions.CancellationToken = PreCanceledSource.GetToken();
 		std::atomic<bool> bPreCanceledTaskRan = false;
-		FTaskHandle PreCanceledTask = SubmitKernelTask("PreCanceledSourceTask", [&]() { bPreCanceledTaskRan.store(true, std::memory_order::release); }, PreCanceledOptions);
+		Tasks::FTask PreCanceledTask = SubmitKernelTask("PreCanceledSourceTask", [&]() { bPreCanceledTaskRan.store(true, std::memory_order::release); }, PreCanceledOptions);
 		ASSERT_TRUE(PreCanceledTask.IsValid());
 		EXPECT_EQ(ETaskState::Canceled, WaitTask(PreCanceledTask).TaskState);
 		EXPECT_FALSE(bPreCanceledTaskRan.load(std::memory_order::acquire));
@@ -1227,7 +1227,7 @@ namespace Durin
 		FThreadEvent Started;
 		FThreadEvent Release;
 		std::atomic<bool> bTokenObservedCancellation = false;
-		FTaskHandle Task = SubmitCancelableKernelTask("ExceptionAfterCancellation", [&](const FTaskCancellationToken& Token) {
+		Tasks::FTask Task = SubmitCancelableKernelTask("ExceptionAfterCancellation", [&](const FTaskCancellationToken& Token) {
 			Started.Trigger();
 			Release.Wait();
 			bTokenObservedCancellation.store(Token.IsCancellationRequested(), std::memory_order::release);
@@ -1242,7 +1242,7 @@ namespace Durin
 		EXPECT_FALSE(CancelTask(Task));
 		EXPECT_EQ(ETaskState::Failed, Task.GetState());
 
-		FTaskHandle CompletedTask = SubmitKernelTask("CompletedBeforeCancellation", []() {});
+		Tasks::FTask CompletedTask = SubmitKernelTask("CompletedBeforeCancellation", []() {});
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(CompletedTask).TaskState);
 		EXPECT_FALSE(CancelTask(CompletedTask));
 		EXPECT_EQ(ETaskState::Succeeded, CompletedTask.GetState());
@@ -1256,7 +1256,7 @@ namespace Durin
 
 		FThreadEvent Started;
 		FThreadEvent Release;
-		FTaskHandle Task = SubmitKernelTask("MultipleWaiters", [&]() {
+		Tasks::FTask Task = SubmitKernelTask("MultipleWaiters", [&]() {
 			Started.Trigger();
 			Release.Wait();
 		});
@@ -1288,15 +1288,15 @@ namespace Durin
 
 		FThreadEvent DrainRootStarted;
 		FThreadEvent ReleaseDrainRoot;
-		FTaskHandle DrainRoot = SubmitKernelTask("DrainGraphRoot", [&]() {
+		Tasks::FTask DrainRoot = SubmitKernelTask("DrainGraphRoot", [&]() {
 			DrainRootStarted.Trigger();
 			ReleaseDrainRoot.Wait();
 		});
 		ASSERT_TRUE(DrainRootStarted.WaitFor(1.0));
-		std::array<FTaskHandle, 1> DrainPrerequisite{DrainRoot};
+		std::array<Tasks::FTask, 1> DrainPrerequisite{DrainRoot};
 		FTaskLaunchOptions DrainOptions;
 		DrainOptions.Prerequisites = DrainPrerequisite;
-		FTaskHandle DrainDependent = SubmitKernelTask("DrainGraphDependent", []() {}, DrainOptions);
+		Tasks::FTask DrainDependent = SubmitKernelTask("DrainGraphDependent", []() {}, DrainOptions);
 		std::thread DrainThread([]() {
 			ShutdownTaskScheduler(true);
 		});
@@ -1313,15 +1313,15 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		FThreadEvent DiscardRootStarted;
 		FThreadEvent ReleaseDiscardRoot;
-		FTaskHandle DiscardRoot = SubmitKernelTask("DiscardGraphRoot", [&]() {
+		Tasks::FTask DiscardRoot = SubmitKernelTask("DiscardGraphRoot", [&]() {
 			DiscardRootStarted.Trigger();
 			ReleaseDiscardRoot.Wait();
 		});
 		ASSERT_TRUE(DiscardRootStarted.WaitFor(1.0));
-		std::array<FTaskHandle, 1> DiscardPrerequisite{DiscardRoot};
+		std::array<Tasks::FTask, 1> DiscardPrerequisite{DiscardRoot};
 		FTaskLaunchOptions DiscardOptions;
 		DiscardOptions.Prerequisites = DiscardPrerequisite;
-		FTaskHandle DiscardDependent = SubmitKernelTask("DiscardGraphDependent", []() {}, DiscardOptions);
+		Tasks::FTask DiscardDependent = SubmitKernelTask("DiscardGraphDependent", []() {}, DiscardOptions);
 		std::thread DiscardThread([]() {
 			ShutdownTaskScheduler(false);
 		});
@@ -1343,13 +1343,13 @@ namespace Durin
 
 		FThreadEvent BlockingTaskStarted;
 		FThreadEvent ReleaseBlockingTask;
-		FTaskHandle BlockingTask = SubmitKernelTask("SelfWaitBlocker", [&]() {
+		Tasks::FTask BlockingTask = SubmitKernelTask("SelfWaitBlocker", [&]() {
 			BlockingTaskStarted.Trigger();
 			ReleaseBlockingTask.Wait();
 		});
 		ASSERT_TRUE(BlockingTaskStarted.WaitFor(1.0));
 
-		FTaskHandle SelfTask;
+		Tasks::FTask SelfTask;
 		std::atomic<ETaskWaitStatus> ObservedWaitStatus = ETaskWaitStatus::InvalidTask;
 		std::atomic<ETaskState> ObservedWaitState = ETaskState::Invalid;
 		SelfTask = SubmitKernelTask("SelfWait", [&]() {
@@ -1381,7 +1381,7 @@ namespace Durin
 				if (Fail) throw std::runtime_error("independent task failure");
 				return 42;
 			});
-			FWaitTaskRunnable Runnable(Durin::FTaskHandle(Task), Returned);
+			FWaitTaskRunnable Runnable(Durin::Tasks::FTask(Task), Returned);
 			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Runnable,
 				"IndependentRenderingJoin", 0, EThreadPriority::Normal, EThreadRole::RenderingThread));
 			EXPECT_NE(Thread, nullptr);
@@ -1410,12 +1410,12 @@ namespace Durin
 		Tasks::FTaskExecutionOptions SourceOptions;
 		auto Source = Tasks::TCompletionSource<void>::Create(SourceOptions);
 		auto Pending = Source.TakeTask();
-		const FTaskHandle PendingHandle = Durin::FTaskHandle(Pending);
+		const Tasks::FTask PendingHandle = Durin::Tasks::FTask(Pending);
 		for (int InvalidKind = 0; InvalidKind < 3; ++InvalidKind)
 		{
 			FTaskLaunchOptions Options;
 			Options.bIndependentCPU = true;
-			if (InvalidKind == 0) Options.Prerequisites = std::span<const FTaskHandle>(&PendingHandle, 1);
+			if (InvalidKind == 0) Options.Prerequisites = std::span<const Tasks::FTask>(&PendingHandle, 1);
 			if (InvalidKind == 1) Options.bExternalCompletion = true;
 			if (InvalidKind == 2) Options.Target = ETaskTarget::BlockingIO;
 			auto Admission = Private::TryLaunchCancelableTaskWithCompletion("InvalidIndependent",
@@ -1431,7 +1431,7 @@ namespace Durin
 			EXPECT_EQ(WaitTask(PendingHandle).WaitStatus, ETaskWaitStatus::UnsupportedThread);
 			return true;
 		});
-		const auto LeafHandle = Durin::FTaskHandle(Leaf);
+		const auto LeafHandle = Durin::Tasks::FTask(Leaf);
 		EXPECT_TRUE(Leaf.GetResult());
 		const auto Dynamic = Private::FTaskRuntimeAccess::BindDynamicDependency(LeafHandle, PendingHandle);
 		ASSERT_TRUE(Dynamic);
@@ -1448,12 +1448,12 @@ namespace Durin
 
 		FThreadEvent BlockingTaskStarted;
 		FThreadEvent ReleaseBlockingTask;
-		FTaskHandle BlockingTask = SubmitKernelTask("RenderingWaitBlocker", [&]() {
+		Tasks::FTask BlockingTask = SubmitKernelTask("RenderingWaitBlocker", [&]() {
 			BlockingTaskStarted.Trigger();
 			ReleaseBlockingTask.Wait();
 		});
 		ASSERT_TRUE(BlockingTaskStarted.WaitFor(1.0));
-		FTaskHandle QueuedTask = SubmitKernelTask("RenderingWaitTarget", []() {});
+		Tasks::FTask QueuedTask = SubmitKernelTask("RenderingWaitTarget", []() {});
 
 		FThreadEvent WaitReturned;
 		FWaitTaskRunnable Runnable(QueuedTask, WaitReturned);
@@ -1477,12 +1477,12 @@ namespace Durin
 
 		FThreadEvent BlockingTaskStarted;
 		FThreadEvent ReleaseBlockingTask;
-		FTaskHandle BlockingTask = SubmitKernelTask("ShutdownBlocker", [&]() {
+		Tasks::FTask BlockingTask = SubmitKernelTask("ShutdownBlocker", [&]() {
 			BlockingTaskStarted.Trigger();
 			ReleaseBlockingTask.Wait();
 		});
 		ASSERT_TRUE(BlockingTaskStarted.WaitFor(1.0));
-		FTaskHandle RetainedTask = SubmitKernelTask("RetainedAcrossRestart", []() {});
+		Tasks::FTask RetainedTask = SubmitKernelTask("RetainedAcrossRestart", []() {});
 		ASSERT_TRUE(RetainedTask.IsValid());
 
 		std::thread ShutdownThread([]() {
@@ -1502,7 +1502,7 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Succeeded, RetainedTask.GetState());
 
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		FTaskHandle NewTask = SubmitKernelTask("SequentialFixtureRestart", []() {});
+		Tasks::FTask NewTask = SubmitKernelTask("SequentialFixtureRestart", []() {});
 		ASSERT_TRUE(NewTask.IsValid());
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(NewTask).TaskState);
 		EXPECT_EQ(ETaskState::Succeeded, RetainedTask.GetState());
@@ -1685,15 +1685,15 @@ namespace Durin
 
 		FThreadEvent BlockerStarted;
 		FThreadEvent ReleaseBlocker;
-		FTaskHandle Blocker = SubmitKernelTask("DiagnosticBlocker", [&]() {
+		Tasks::FTask Blocker = SubmitKernelTask("DiagnosticBlocker", [&]() {
 			BlockerStarted.Trigger();
 			ReleaseBlocker.Wait();
 		});
 		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
-		FTaskHandle Queued = SubmitKernelTask("DiagnosticQueued", []() {});
+		Tasks::FTask Queued = SubmitKernelTask("DiagnosticQueued", []() {});
 
-		FTaskHandle InvalidPrerequisite;
-		std::array<FTaskHandle, 1> InvalidPrerequisites{InvalidPrerequisite};
+		Tasks::FTask InvalidPrerequisite;
+		std::array<Tasks::FTask, 1> InvalidPrerequisites{InvalidPrerequisite};
 		FTaskLaunchOptions InvalidOptions;
 		InvalidOptions.Prerequisites = InvalidPrerequisites;
 		EXPECT_FALSE(SubmitKernelTask("DiagnosticRejected", []() {}, InvalidOptions).IsValid());
@@ -1732,8 +1732,8 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Canceled, WaitTask(Queued).TaskState);
 
 		FThreadEvent AllowParentWork;
-		FTaskHandle Child;
-		FTaskHandle Parent = SubmitKernelTask("DiagnosticParent", [&]() {
+		Tasks::FTask Child;
+		Tasks::FTask Parent = SubmitKernelTask("DiagnosticParent", [&]() {
 			AllowParentWork.Wait();
 			Child = SubmitKernelTask("DiagnosticChild", []() {});
 			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Child).TaskState);
@@ -1751,17 +1751,17 @@ namespace Durin
 		EXPECT_FALSE(ChildDiagnostics.ExecutingThreadName.empty());
 		EXPECT_EQ(0u, ParentDiagnostics.ParentTaskId);
 
-		FTaskHandle Prerequisite = SubmitKernelTask("DiagnosticPrerequisite", []() {});
+		Tasks::FTask Prerequisite = SubmitKernelTask("DiagnosticPrerequisite", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Prerequisite).TaskState);
-		std::array<FTaskHandle, 1> Prerequisites{Prerequisite};
+		std::array<Tasks::FTask, 1> Prerequisites{Prerequisite};
 		FTaskLaunchOptions DependentOptions;
 		DependentOptions.Prerequisites = Prerequisites;
-		FTaskHandle Dependent = SubmitKernelTask("DiagnosticDependent", []() {}, DependentOptions);
+		Tasks::FTask Dependent = SubmitKernelTask("DiagnosticDependent", []() {}, DependentOptions);
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Dependent).TaskState);
 		ASSERT_EQ(1u, Dependent.GetDiagnostics().PrerequisiteTaskIds.size());
 		EXPECT_EQ(Prerequisite.GetTaskId(), Dependent.GetDiagnostics().PrerequisiteTaskIds[0]);
 
-		FTaskHandle Failed = SubmitKernelTask("DiagnosticFailure", []() {
+		Tasks::FTask Failed = SubmitKernelTask("DiagnosticFailure", []() {
 			throw std::runtime_error("diagnostic failure");
 		});
 		EXPECT_EQ(ETaskState::Failed, WaitTask(Failed).TaskState);
@@ -1797,12 +1797,12 @@ namespace Durin
 		FThreadEvent ShutdownFinished;
 		FTaskSchedulerDiagnostics Snapshot;
 
-		FTaskHandle Running = SubmitKernelTask("SnapshotContentionRunning", [&]() {
+		Tasks::FTask Running = SubmitKernelTask("SnapshotContentionRunning", [&]() {
 			TaskStarted.Trigger();
 			AllowTaskReturn.Wait();
 		});
 		ASSERT_TRUE(TaskStarted.WaitFor(1.0));
-		FTaskHandle Waiting = SubmitKernelContinuation(Running, "SnapshotContentionWaiting", []() {});
+		Tasks::FTask Waiting = SubmitKernelContinuation(Running, "SnapshotContentionWaiting", []() {});
 		ASSERT_TRUE(Waiting.IsValid());
 
 		FTaskSchedulerSnapshotTestHookGuard SnapshotHook([&]() {
@@ -1819,8 +1819,8 @@ namespace Durin
 
 		std::thread SnapshotThread([&]() { Snapshot = GetTaskSchedulerDiagnostics(); });
 		EXPECT_TRUE(SnapshotPinned.WaitFor(1.0));
-		FTaskHandle Root = SubmitKernelTask("SnapshotContentionRoot", []() {});
-		FTaskHandle LateContinuation = SubmitKernelContinuation(Running, "SnapshotContentionLateContinuation", []() {});
+		Tasks::FTask Root = SubmitKernelTask("SnapshotContentionRoot", []() {});
+		Tasks::FTask LateContinuation = SubmitKernelContinuation(Running, "SnapshotContentionLateContinuation", []() {});
 		EXPECT_TRUE(Root.IsValid());
 		EXPECT_TRUE(LateContinuation.IsValid());
 
@@ -1870,7 +1870,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		auto Root = SubmitKernelTask("AdmissionPredecessor", [] {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
-		auto Continue = [&](const FTaskHandle& Predecessor, const FTaskContinuationOptions& Options) {
+		auto Continue = [&](const Tasks::FTask& Predecessor, const FTaskContinuationOptions& Options) {
 			return Private::TryLaunchContinuationTask(Predecessor, "AdmissionContinuation",
 				[](const FTaskCancellationToken&) {}, {}, Options, ETaskDependencyKind::Success);
 		};
@@ -1966,19 +1966,19 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 8}));
 		FThreadEvent BlockerStarted;
 		FThreadEvent ReleaseBlocker;
-		FTaskHandle Blocker = SubmitKernelTask("CapacityConcurrentBlocker", [&]() {
+		Tasks::FTask Blocker = SubmitKernelTask("CapacityConcurrentBlocker", [&]() {
 			BlockerStarted.Trigger();
 			ReleaseBlocker.Wait();
 		});
 		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
 
 		std::mutex AcceptedMutex;
-		std::vector<FTaskHandle> Accepted;
+		std::vector<Tasks::FTask> Accepted;
 		std::vector<std::thread> Producers;
 		for (uint32 Index = 0; Index < 32; ++Index)
 		{
 			Producers.emplace_back([&]() {
-				FTaskHandle Task = SubmitKernelTask("CapacityConcurrentProducer", []() {});
+				Tasks::FTask Task = SubmitKernelTask("CapacityConcurrentProducer", []() {});
 				if (Task.IsValid())
 				{
 					std::lock_guard Lock(AcceptedMutex);
@@ -1995,7 +1995,7 @@ namespace Durin
 
 		ReleaseBlocker.Trigger();
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
-		for (const FTaskHandle& Task : Accepted) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+		for (const Tasks::FTask& Task : Accepted) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
 		const auto ReservationReleaseDeadline =
 			std::chrono::steady_clock::now() + std::chrono::seconds(1);
 		while (GetTaskSchedulerDiagnostics().CurrentTaskReservationCount != 0
@@ -2012,14 +2012,14 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 8}));
 		FThreadEvent DrainStarted;
 		FThreadEvent ReleaseDrain;
-		FTaskHandle DrainRoot = SubmitKernelTask("CapacityDrainRoot", [&]() {
+		Tasks::FTask DrainRoot = SubmitKernelTask("CapacityDrainRoot", [&]() {
 			DrainStarted.Trigger();
 			ReleaseDrain.Wait();
 		});
 		ASSERT_TRUE(DrainStarted.WaitFor(1.0));
 		FTaskLaunchOptions DrainWaitingOptions;
-		DrainWaitingOptions.Prerequisites = std::span<const FTaskHandle>(&DrainRoot, 1);
-		std::vector<FTaskHandle> DrainTasks;
+		DrainWaitingOptions.Prerequisites = std::span<const Tasks::FTask>(&DrainRoot, 1);
+		std::vector<Tasks::FTask> DrainTasks;
 		for (uint32 Index = 0; Index < 7; ++Index)
 		{
 			DrainTasks.emplace_back(SubmitKernelTask("CapacityDrainWaiting", []() {}, DrainWaitingOptions));
@@ -2032,21 +2032,21 @@ namespace Durin
 
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 8}));
 		FThreadEvent Started;
-		FTaskHandle Running = SubmitCancelableKernelTask("CapacityCancelRunning", [&](const FTaskCancellationToken& Token) {
+		Tasks::FTask Running = SubmitCancelableKernelTask("CapacityCancelRunning", [&](const FTaskCancellationToken& Token) {
 			Started.Trigger();
 			while (!Token.IsCancellationRequested()) std::this_thread::yield();
 		});
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		FTaskLaunchOptions WaitingOptions;
-		WaitingOptions.Prerequisites = std::span<const FTaskHandle>(&Running, 1);
-		std::vector<FTaskHandle> Waiting;
+		WaitingOptions.Prerequisites = std::span<const Tasks::FTask>(&Running, 1);
+		std::vector<Tasks::FTask> Waiting;
 		for (uint32 Index = 0; Index < 7; ++Index) Waiting.emplace_back(SubmitKernelTask("CapacityCancelWaiting", []() {}, WaitingOptions));
 		EXPECT_EQ(8u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
 		ShutdownTaskScheduler(false);
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
 		EXPECT_EQ(8u, GetTaskSchedulerDiagnostics().PeakTaskReservationCount);
 		EXPECT_EQ(ETaskState::Canceled, Running.GetState());
-		for (const FTaskHandle& Task : Waiting) EXPECT_EQ(ETaskState::Canceled, Task.GetState());
+		for (const Tasks::FTask& Task : Waiting) EXPECT_EQ(ETaskState::Canceled, Task.GetState());
 	}
 
 
@@ -2169,7 +2169,7 @@ namespace Durin
 			FTaskLaunchOptions Options;
 			Options.Target = Target;
 			Options.EstimatedPayloadBytes = 64;
-			FTaskHandle Blocker;
+			Tasks::FTask Blocker;
 			if (Target != ETaskTarget::GameThreadDeferred)
 			{
 				Blocker = SubmitKernelTask("CaptureReleaseBlocker", [&] {
@@ -2178,7 +2178,7 @@ namespace Durin
 				EXPECT_TRUE(Started.WaitFor(1.0));
 			}
 			std::atomic<int> Destroyed = 0, Calls = 0;
-			FTaskHandle Task;
+			Tasks::FTask Task;
 			auto Capture = std::shared_ptr<int>(new int(1), [&](int* Value) {
 				// Reenter both task and scheduler queries while destruction owns no locks.
 				EXPECT_EQ(ETaskState::Queued, Task.GetState());
@@ -2233,21 +2233,21 @@ namespace Durin
 
 		FThreadEvent BlockerStarted;
 		FThreadEvent ReleaseBlocker;
-		FTaskHandle Blocker = SubmitKernelTask("MoveOnlyDestructionBlocker", [&]() {
+		Tasks::FTask Blocker = SubmitKernelTask("MoveOnlyDestructionBlocker", [&]() {
 			BlockerStarted.Trigger();
 			ReleaseBlocker.Wait();
 		});
 		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
 
-		auto CanceledHandle = std::make_shared<FTaskHandle>();
+		auto CanceledHandle = std::make_shared<Tasks::FTask>();
 		auto DestructionCount = std::make_shared<std::atomic<uint32>>(0);
 		struct FReentrantDestruction
 		{
-			std::shared_ptr<FTaskHandle> Handle;
+			std::shared_ptr<Tasks::FTask> Handle;
 			std::shared_ptr<std::atomic<uint32>> Count;
 			std::unique_ptr<int> Ownership = std::make_unique<int>(1);
 
-			FReentrantDestruction(std::shared_ptr<FTaskHandle> InHandle, std::shared_ptr<std::atomic<uint32>> InCount)
+			FReentrantDestruction(std::shared_ptr<Tasks::FTask> InHandle, std::shared_ptr<std::atomic<uint32>> InCount)
 				: Handle(std::move(InHandle)), Count(std::move(InCount))
 			{
 			}
@@ -2264,7 +2264,7 @@ namespace Durin
 		};
 
 		FTaskLaunchOptions WaitingOptions;
-		WaitingOptions.Prerequisites = std::span<const FTaskHandle>(&Blocker, 1);
+		WaitingOptions.Prerequisites = std::span<const Tasks::FTask>(&Blocker, 1);
 		*CanceledHandle = SubmitKernelTask("MoveOnlyReentrantDestruction",
 			FReentrantDestruction(CanceledHandle, DestructionCount), WaitingOptions);
 		ASSERT_TRUE(CanceledHandle->IsValid());
@@ -2307,7 +2307,7 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-		FTaskHandle Root = SubmitKernelTask("DeferredPriorityRoot", []() {});
+		Tasks::FTask Root = SubmitKernelTask("DeferredPriorityRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		std::vector<int> Order;
@@ -2318,10 +2318,10 @@ namespace Durin
 			Options.EstimatedPayloadBytes = 1;
 			return SubmitKernelContinuation(Root, "DeferredPriorityEntry", [&, Value]() { Order.push_back(Value); }, Options);
 		};
-		FTaskHandle Low = Enqueue(1, ETaskPriority::Low);
-		FTaskHandle HighFirst = Enqueue(2, ETaskPriority::High);
-		FTaskHandle Normal = Enqueue(3, ETaskPriority::Normal);
-		FTaskHandle HighSecond = Enqueue(4, ETaskPriority::High);
+		Tasks::FTask Low = Enqueue(1, ETaskPriority::Low);
+		Tasks::FTask HighFirst = Enqueue(2, ETaskPriority::High);
+		Tasks::FTask Normal = Enqueue(3, ETaskPriority::Normal);
+		Tasks::FTask HighSecond = Enqueue(4, ETaskPriority::High);
 
 		FGameThreadDeferredPumpBudget TwoItems;
 		TwoItems.MaxCallbacks = 2;
@@ -2349,7 +2349,7 @@ namespace Durin
 		Config.MaxQueuedPayloadBytes = 10;
 		Config.MaxPayloadBytesPerEntry = 8;
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
-		FTaskHandle Root = SubmitKernelTask("DeferredLimitRoot", []() {});
+		Tasks::FTask Root = SubmitKernelTask("DeferredLimitRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		auto Enqueue = [&](uint64 Bytes) {
@@ -2358,11 +2358,11 @@ namespace Durin
 			Options.EstimatedPayloadBytes = Bytes;
 			return SubmitKernelContinuation(Root, "DeferredLimitEntry", []() {}, Options);
 		};
-		FTaskHandle First = Enqueue(5);
-		FTaskHandle Second = Enqueue(5);
-		FTaskHandle CountRejected = Enqueue(1);
-		FTaskHandle EntryRejected = Enqueue(9);
-		FTaskHandle ZeroRejected = Enqueue(0);
+		Tasks::FTask First = Enqueue(5);
+		Tasks::FTask Second = Enqueue(5);
+		Tasks::FTask CountRejected = Enqueue(1);
+		Tasks::FTask EntryRejected = Enqueue(9);
+		Tasks::FTask ZeroRejected = Enqueue(0);
 
 		EXPECT_EQ(ETaskState::Queued, First.GetState());
 		EXPECT_EQ(ETaskState::Queued, Second.GetState());
@@ -2370,7 +2370,7 @@ namespace Durin
 		EXPECT_FALSE(EntryRejected.IsValid());
 		EXPECT_FALSE(ZeroRejected.IsValid());
 		EXPECT_TRUE(CancelTask(First));
-		FTaskHandle Replacement = Enqueue(5);
+		Tasks::FTask Replacement = Enqueue(5);
 		EXPECT_EQ(ETaskState::Queued, Replacement.GetState());
 		const auto Diagnostics = GetGameThreadDeferredWorkQueueDiagnostics();
 		EXPECT_EQ(2u, Diagnostics.QueueDepth);
@@ -2387,16 +2387,16 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-		FTaskHandle Root = SubmitKernelTask("DeferredTimeBudgetRoot", []() {});
+		Tasks::FTask Root = SubmitKernelTask("DeferredTimeBudgetRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		FTaskContinuationOptions Options;
 		Options.Target = ETaskTarget::GameThreadDeferred;
 		Options.EstimatedPayloadBytes = 1;
-		FTaskHandle Slow = SubmitKernelContinuation(Root, "DeferredSlowCallback", []() {
+		Tasks::FTask Slow = SubmitKernelContinuation(Root, "DeferredSlowCallback", []() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(2));
 		}, Options);
-		FTaskHandle Later = SubmitKernelContinuation(Root, "DeferredLaterCallback", []() {}, Options);
+		Tasks::FTask Later = SubmitKernelContinuation(Root, "DeferredLaterCallback", []() {}, Options);
 		FGameThreadDeferredPumpBudget Budget;
 		Budget.MaxCallbacks = 64;
 		Budget.MaxSeconds = 0.0001;
@@ -2414,16 +2414,16 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-		FTaskHandle Root = SubmitKernelTask("DeferredPolicyRoot", []() {});
+		Tasks::FTask Root = SubmitKernelTask("DeferredPolicyRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		FTaskContinuationOptions CoalescedOptions;
 		CoalescedOptions.Target = ETaskTarget::GameThreadDeferred;
 		CoalescedOptions.EstimatedPayloadBytes = 4;
 		CoalescedOptions.CoalescingKey = FTaskCoalescingKey{11, 22, 33};
-		FTaskHandle Superseded = SubmitKernelContinuation(Root, "DeferredSuperseded", []() {}, CoalescedOptions);
+		Tasks::FTask Superseded = SubmitKernelContinuation(Root, "DeferredSuperseded", []() {}, CoalescedOptions);
 		std::atomic<bool> bReplacementRan = false;
-		FTaskHandle Replacement = SubmitKernelContinuation(Root, "DeferredReplacement", [&]() { bReplacementRan = true; }, CoalescedOptions);
+		Tasks::FTask Replacement = SubmitKernelContinuation(Root, "DeferredReplacement", [&]() { bReplacementRan = true; }, CoalescedOptions);
 		EXPECT_EQ(ETaskState::Canceled, Superseded.GetState());
 		EXPECT_EQ(ETaskTerminalReason::Superseded, Superseded.GetDiagnostics().TerminalReason);
 		const FTaskDiagnostics ReplacementDiagnostics = Replacement.GetDiagnostics();
@@ -2438,7 +2438,7 @@ namespace Durin
 		StaleOptions.Target = ETaskTarget::GameThreadDeferred;
 		StaleOptions.EstimatedPayloadBytes = 1;
 		StaleOptions.GenerationToken = Generation.Capture();
-		FTaskHandle Stale = SubmitKernelContinuation(Root, "DeferredStale", []() {}, StaleOptions);
+		Tasks::FTask Stale = SubmitKernelContinuation(Root, "DeferredStale", []() {}, StaleOptions);
 		Generation.Advance();
 
 		PumpGameThreadDeferredWork({.bUnlimited = true});
@@ -2458,13 +2458,13 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-		FTaskHandle Root = SubmitKernelTask("DeferredFailureRoot", []() {});
+		Tasks::FTask Root = SubmitKernelTask("DeferredFailureRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		FTaskContinuationOptions Options;
 		Options.Target = ETaskTarget::GameThreadDeferred;
 		Options.EstimatedPayloadBytes = 1;
-		FTaskHandle Failed = SubmitKernelContinuation(Root, "DeferredFailure", []() {
+		Tasks::FTask Failed = SubmitKernelContinuation(Root, "DeferredFailure", []() {
 			EXPECT_EQ(0u, PumpGameThreadDeferredWork().ExecutedCallbacks);
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			EXPECT_TRUE(IsTaskSchedulerRunning());
@@ -2489,7 +2489,7 @@ namespace Durin
 
 		FThreadEvent DrainRootStarted;
 		FThreadEvent ReleaseDrainRoot;
-		FTaskHandle DrainRoot = SubmitKernelTask("CrossDrainRoot", [&]() {
+		Tasks::FTask DrainRoot = SubmitKernelTask("CrossDrainRoot", [&]() {
 			DrainRootStarted.Trigger();
 			ReleaseDrainRoot.Wait();
 		});
@@ -2497,7 +2497,7 @@ namespace Durin
 		Options.Target = ETaskTarget::GameThreadDeferred;
 		Options.EstimatedPayloadBytes = 1;
 		std::atomic<bool> bDrainRan = false;
-		FTaskHandle DrainTail = SubmitKernelContinuation(DrainRoot, "CrossDrainTail", [&]() {
+		Tasks::FTask DrainTail = SubmitKernelContinuation(DrainRoot, "CrossDrainTail", [&]() {
 			bDrainRan = true;
 			EXPECT_FALSE(SubmitKernelTask("RejectedShutdownRoot", []() {}).IsValid());
 		}, Options);
@@ -2513,9 +2513,9 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		EXPECT_GT(GetGameThreadDeferredWorkQueueDiagnostics().AdapterGeneration, DrainAdapterGeneration);
-		FTaskHandle CancelRoot = SubmitKernelTask("CrossCancelRoot", []() {});
+		Tasks::FTask CancelRoot = SubmitKernelTask("CrossCancelRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(CancelRoot).TaskState);
-		FTaskHandle CancelTail = SubmitKernelContinuation(CancelRoot, "CrossCancelTail", []() {}, Options);
+		Tasks::FTask CancelTail = SubmitKernelContinuation(CancelRoot, "CrossCancelTail", []() {}, Options);
 		ASSERT_EQ(ETaskState::Queued, CancelTail.GetState());
 		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 		EXPECT_EQ(ETaskState::Canceled, CancelTail.GetState());
@@ -2532,7 +2532,7 @@ namespace Durin
 		Config.MaxQueuedEntries = 256;
 		Config.MaxQueuedPayloadBytes = 256 * 64;
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
-		FTaskHandle Root = SubmitKernelTask("DeferredAccountingRoot", []() {});
+		Tasks::FTask Root = SubmitKernelTask("DeferredAccountingRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		constexpr uint32 CallbackCount = 16;
@@ -2541,7 +2541,7 @@ namespace Durin
 		FTaskGenerationSource StaleGeneration;
 		const FTaskGenerationToken StaleToken = StaleGeneration.Capture();
 		std::atomic<uint32> ExecutedCount = 0;
-		std::vector<FTaskHandle> Handles;
+		std::vector<Tasks::FTask> Handles;
 		Handles.reserve(CallbackCount);
 		for (uint32 Index = 0; Index < CallbackCount; ++Index)
 		{
@@ -2564,7 +2564,7 @@ namespace Durin
 
 		uint32 SucceededCount = 0;
 		uint32 StaleCount = 0;
-		for (const FTaskHandle& Handle : Handles)
+		for (const Tasks::FTask& Handle : Handles)
 		{
 			const FTaskDiagnostics Diagnostics = Handle.GetDiagnostics();
 			SucceededCount += Diagnostics.State == ETaskState::Succeeded;
@@ -2576,7 +2576,7 @@ namespace Durin
 
 	TEST(FTaskTests, InvalidHandlesAreNoOp)
 	{
-		FTaskHandle InvalidHandle;
+		Tasks::FTask InvalidHandle;
 
 		EXPECT_FALSE(InvalidHandle.IsValid());
 		EXPECT_FALSE(InvalidHandle.IsComplete());
@@ -2586,7 +2586,7 @@ namespace Durin
 		const FTaskWaitResult WaitResult = WaitTask(InvalidHandle);
 		EXPECT_EQ(ETaskWaitStatus::InvalidTask, WaitResult.WaitStatus);
 		EXPECT_EQ(ETaskState::Invalid, WaitResult.TaskState);
-		const std::vector<FTaskWaitResult> WaitResults = WaitAll(std::span<const FTaskHandle>(&InvalidHandle, 1));
+		const std::vector<FTaskWaitResult> WaitResults = WaitAll(std::span<const Tasks::FTask>(&InvalidHandle, 1));
 		ASSERT_EQ(1u, WaitResults.size());
 		EXPECT_EQ(ETaskWaitStatus::InvalidTask, WaitResults[0].WaitStatus);
 		EXPECT_EQ(ETaskState::Invalid, WaitResults[0].TaskState);
@@ -2597,7 +2597,7 @@ namespace Durin
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
 
-		FTaskHandle Handle = SubmitKernelTask("RejectedTask", []() {});
+		Tasks::FTask Handle = SubmitKernelTask("RejectedTask", []() {});
 
 		EXPECT_FALSE(Handle.IsValid());
 		EXPECT_FALSE(Handle.IsComplete());
@@ -2627,7 +2627,7 @@ namespace Durin
 			return 42;
 		}));
 		ASSERT_TRUE(TaskStarted.WaitFor(1.0));
-		FTaskHandle Dependent = Durin::FTaskHandle(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "PublicationBarrierDependent"}, [&](const int& Value) {
+		Tasks::FTask Dependent = Durin::Tasks::FTask(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "PublicationBarrierDependent"}, [&](const int& Value) {
 			EXPECT_EQ(42, Value);
 			bDependentRan.store(true, std::memory_order::release);
 		}));
@@ -2699,8 +2699,8 @@ namespace Durin
 
 		auto PreviousLifetime = Tasks::Share(Tasks::LaunchTask("PreviousLifetime", []() { return 7; }));
 		auto ReleasedWhileStopped = Tasks::Share(Tasks::LaunchTask("ReleasedWhileStopped", []() { return 8; }));
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Durin::FTaskHandle(PreviousLifetime)).TaskState);
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Durin::FTaskHandle(ReleasedWhileStopped)).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Durin::Tasks::FTask(PreviousLifetime)).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Durin::Tasks::FTask(ReleasedWhileStopped)).TaskState);
 		while (GetTaskSchedulerDiagnostics().CompletedTaskCount < 2)
 		{
 			std::this_thread::yield();

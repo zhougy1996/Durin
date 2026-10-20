@@ -345,7 +345,7 @@ namespace Durin
 				if (auto* Texture = Owner.Get(); Texture && Texture->PendingUpdate == Update.lock())
 					Texture->ConsumeResourceUpdate();
 			});
-		PendingUpdate->SetCompletionTask(Durin::FTaskHandle(Handoff));
+		PendingUpdate->SetCompletionTask(Durin::Tasks::FTask(Handoff));
 		const bool bInitializeReference = !bTextureReferenceInitializationQueued;
 		// One command owns both initialization steps.
 		EnqueueRenderCommand("TextureResourceUpdate",

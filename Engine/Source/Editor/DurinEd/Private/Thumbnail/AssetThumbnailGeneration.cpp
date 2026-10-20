@@ -238,8 +238,8 @@ namespace Durin::Editor
 			PumpCache();
 			while (CacheTask.IsValid() || EncodeTask.IsValid())
 			{
-				if (EncodeTask.IsValid()) (void)WaitTask(Durin::FTaskHandle(EncodeTask));
-				if (CacheTask.IsValid()) (void)WaitTask(Durin::FTaskHandle(CacheTask));
+				if (EncodeTask.IsValid()) (void)WaitTask(Durin::Tasks::FTask(EncodeTask));
+				if (CacheTask.IsValid()) (void)WaitTask(Durin::Tasks::FTask(CacheTask));
 				PumpCache();
 			}
 		}

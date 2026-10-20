@@ -112,8 +112,8 @@ namespace Durin::Editor
 		FAssetCompatibilityProbe Probe;
 		std::shared_ptr<FMailbox> Mailbox;
 		FTaskCancellationSource Cancellation;
-		FTaskHandle Task;
-		FTaskHandle TerminalTask;
+		Tasks::FTask Task;
+		Tasks::FTask TerminalTask;
 		FTaskGenerationSource Generation;
 		std::shared_ptr<FPublicationLifetime> PublicationLifetime;
 		std::unordered_map<FPackagePath, FAssetPackageCompatibilityRecord> Records;

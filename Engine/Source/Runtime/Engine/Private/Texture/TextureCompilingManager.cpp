@@ -505,7 +505,7 @@ namespace Durin
 		{
 			std::vector<std::shared_ptr<FRequestState>> Queued;
 			std::vector<std::shared_ptr<DerivedData::FRequestOwner>> BuildOperations;
-			std::vector<FTaskHandle> TasksToCancel;
+			std::vector<Tasks::FTask> TasksToCancel;
 			{
 				std::lock_guard Lock(Mutex);
 				if (bShutdown) return;
@@ -515,7 +515,7 @@ namespace Durin
 				{
 					RequestState->bCancellationRequested.store(true, std::memory_order_release);
 					if (RequestState->BuildOperation) BuildOperations.push_back(RequestState->BuildOperation);
-					if (RequestState->Task.IsValid()) TasksToCancel.push_back(Durin::FTaskHandle(RequestState->Task));
+					if (RequestState->Task.IsValid()) TasksToCancel.push_back(Durin::Tasks::FTask(RequestState->Task));
 				}
 				while (!InteractiveQueue.empty()) { Queued.push_back(std::move(InteractiveQueue.front())); InteractiveQueue.pop_front(); }
 				while (!BackgroundQueue.empty()) { Queued.push_back(std::move(BackgroundQueue.front())); BackgroundQueue.pop_front(); }

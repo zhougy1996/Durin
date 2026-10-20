@@ -87,7 +87,7 @@ namespace Durin
 			uint64 Generation = 0, EstimatedWorkingSetBytes = 0;
 			EBodySetupCollisionSourceMode Mode;
 			std::shared_ptr<FPhysicsWork> Work;
-			FTaskHandle Task;
+			Tasks::FTask Task;
 			FOnAsyncPhysicsCookFinished Completion;
 		};
 	} // namespace
@@ -210,7 +210,7 @@ namespace Durin
 				Record.Work->ReleaseInput();
 			}
 		}
-		auto Enqueue(const std::shared_ptr<FPhysicsRecord>& Record, bool bDispatch = true, FTaskHandle Prerequisite = {}) -> void
+		auto Enqueue(const std::shared_ptr<FPhysicsRecord>& Record, bool bDispatch = true, Tasks::FTask Prerequisite = {}) -> void
 		{
 			std::function<bool()> IsReady;
 #if DURIN_WITH_EDITOR
@@ -253,7 +253,7 @@ namespace Durin
 			return true;
 		}
 #endif
-		auto Launch(const std::shared_ptr<FPhysicsRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle
+		auto Launch(const std::shared_ptr<FPhysicsRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> Tasks::FTask
 		{
 			Tasks::FTaskExecutionOptions Options;
 			Record->Task = Tasks::LaunchTask("PhysicsMesh.Cook", [Slot = std::move(Slot), Work = Record->Work, Bytes = Record->EstimatedWorkingSetBytes, Before = BeforeBuild, After = AfterBuild, bDispatch](const FTaskCancellationToken& NativeToken) {

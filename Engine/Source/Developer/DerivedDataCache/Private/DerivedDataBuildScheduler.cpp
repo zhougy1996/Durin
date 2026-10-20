@@ -16,8 +16,8 @@ namespace Durin::DerivedData
 		class FTaskWork final : public IBuildScheduledWork
 		{
 		public:
-			FTaskHandle Task;
-			auto GetTaskHandle() const -> FTaskHandle override { return Task; }
+			Tasks::FTask Task;
+			auto GetTaskHandle() const -> Tasks::FTask override { return Task; }
 			auto RequestCancel() const -> void override { CancelTask(Task); }
 			auto Wait() const -> ERequestWaitResult override
 			{

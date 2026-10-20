@@ -46,7 +46,12 @@ namespace Durin
 
 	class FTaskCancellationState;
 	class FTaskGenerationState;
-	class FTaskHandle;
+	namespace Tasks
+	{
+		namespace Private { class FTaskHandle; }
+		// Public generic completion handle for any task or event.
+		using FTask = Private::FTaskHandle;
+	}
 	class FTaskScheduler;
 	class FTaskStateData;
 	template<typename T>
@@ -134,14 +139,14 @@ namespace Durin
 			CORE_API auto operator()(uint64 Bytes) const -> void;
 			explicit operator bool() const { return !State.expired(); }
 		};
-		CORE_API auto MakeTaskResultAccounting(const FTaskHandle& Task) -> FTaskResultAccounting;
+		CORE_API auto MakeTaskResultAccounting(const Tasks::FTask& Task) -> FTaskResultAccounting;
 		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void(const FTaskCancellationToken&)>;
 
 		using FTaskCompletionFunction = TMoveOnlyFunction<void(ETaskState)>;
 
 		// Reports rejection before acceptance; accepted work can still fail during execution.
-		CORE_API auto TryLaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<FTaskHandle>;
-		CORE_API auto TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<FTaskHandle>;
+		CORE_API auto TryLaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<Tasks::FTask>;
+		CORE_API auto TryLaunchContinuationTask(const Tasks::FTask& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<Tasks::FTask>;
 		CORE_API auto ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority, uint64 PayloadBytes, bool bQueueOnSaturation = false) -> std::optional<Tasks::FTaskAdmissionError>;
 		// Native-test seam for pausing after the raw terminal transition and before completion publication.
 		// Injects bad_alloc at checkpoints 1-5 before acceptance or 6 during dispatch; zero disables it.
@@ -415,35 +420,68 @@ namespace Durin
 		FTaskCancellationToken ExternalToken;
 	};
 
-	// Shares the completion state of an asynchronously launched task.
-	class FTaskHandle
+	CORE_API auto CancelTask(const Tasks::FTask& Task) -> bool;
+	CORE_API auto WaitTask(const Tasks::FTask& Task) -> FTaskWaitResult;
+	// Seconds bound blocking and helping attempts, never an executing callable.
+	CORE_API auto WaitTask(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult;
+	// Returns one wait result for each input handle, including invalid handles and rejected waits.
+	CORE_API auto WaitAll(std::span<const Tasks::FTask> Tasks) -> std::vector<FTaskWaitResult>;
+	CORE_API auto WaitAll(std::span<const Tasks::FTask> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
+
+	namespace Tasks::Detail { struct FTaskAccess; }
+	namespace Tasks::Private
 	{
-	public:
-		CORE_API FTaskHandle();
+		// Shared execution observation for tasks and events; never owns a result claim.
+		class FTaskHandle
+		{
+		public:
+			CORE_API FTaskHandle();
+			FTaskHandle(const FTaskHandle&) = default;
+			FTaskHandle(FTaskHandle&&) noexcept = default;
+			auto operator=(const FTaskHandle&) -> FTaskHandle& = default;
+			auto operator=(FTaskHandle&&) noexcept -> FTaskHandle& = default;
 
-		CORE_API auto IsValid() const -> bool;
-		CORE_API auto IsComplete() const -> bool;
-		CORE_API auto GetState() const -> ETaskState;
-		CORE_API auto GetDebugName() const -> const char*;
-		CORE_API auto GetTaskId() const -> uint64;
-		CORE_API auto GetDiagnostic() const -> std::string;
-		CORE_API auto GetDiagnostics() const -> FTaskDiagnostics;
+			// Slicing a facade, including an rvalue, copies observation. Only moves
+			// between actual base handles may transfer their execution state.
+			template<typename T> requires (!std::same_as<std::remove_cvref_t<T>, FTaskHandle>
+				&& std::derived_from<std::remove_cvref_t<T>, FTaskHandle>)
+			FTaskHandle(T&& Other) noexcept : FTaskHandle(static_cast<const FTaskHandle&>(Other)) {}
+			template<typename T> requires (!std::same_as<std::remove_cvref_t<T>, FTaskHandle>
+				&& std::derived_from<std::remove_cvref_t<T>, FTaskHandle>)
+			auto operator=(T&& Other) noexcept -> FTaskHandle&
+			{ return *this = static_cast<const FTaskHandle&>(Other); }
 
-	private:
-		explicit FTaskHandle(std::shared_ptr<FTaskStateData> InState);
+			CORE_API auto IsValid() const -> bool;
+			CORE_API auto IsCompleted() const -> bool;
+			auto IsComplete() const -> bool { return IsCompleted(); }
+			CORE_API auto GetState() const -> ETaskState;
+			CORE_API auto GetDebugName() const -> const char*;
+			CORE_API auto GetTaskId() const -> uint64;
+			CORE_API auto GetDiagnostic() const -> std::string;
+			CORE_API auto GetDiagnostics() const -> FTaskDiagnostics;
+			auto Wait() const -> FTaskWaitResult { return Durin::WaitTask(*this); }
+			auto Wait(double TimeoutSeconds) const -> FTaskWaitResult { return Durin::WaitTask(*this, TimeoutSeconds); }
 
-		friend class FTaskScheduler;
-		friend struct Private::FTaskRuntimeAccess;
-		friend CORE_API auto Private::TryLaunchCancelableTaskWithCompletion(const char* Name, Private::FMoveOnlyTaskFunction&& Function, Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>;
-		friend CORE_API auto Private::TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Private::FMoveOnlyTaskFunction&& Function, Private::FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>;
-		friend CORE_API auto Private::MakeTaskResultAccounting(const FTaskHandle& Task) -> Private::FTaskResultAccounting;
-		friend CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
-		friend CORE_API auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
-		friend CORE_API auto WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
-		friend CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
+		protected:
+			auto SetHandle(FTaskHandle InHandle) -> void { *this = std::move(InHandle); }
+			auto TakeHandle() -> FTaskHandle { return std::move(*this); }
 
-		std::shared_ptr<FTaskStateData> State;
-	};
+		private:
+			explicit FTaskHandle(std::shared_ptr<FTaskStateData> InState);
+			friend class Durin::FTaskScheduler;
+			friend struct Durin::Private::FTaskRuntimeAccess;
+			friend struct Durin::Tasks::Detail::FTaskAccess;
+			friend CORE_API auto Durin::Private::TryLaunchCancelableTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> Durin::Tasks::TTaskAdmission<FTaskHandle>;
+			friend CORE_API auto Durin::Private::TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes) -> Durin::Tasks::TTaskAdmission<FTaskHandle>;
+			friend CORE_API auto Durin::Private::MakeTaskResultAccounting(const FTaskHandle& Task) -> Durin::Private::FTaskResultAccounting;
+			friend CORE_API auto Durin::CancelTask(const FTaskHandle& Task) -> bool;
+			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
+			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
+			friend CORE_API auto Durin::WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
+
+			std::shared_ptr<FTaskStateData> State;
+		};
+	}
 
 	namespace Private
 	{
@@ -456,17 +494,17 @@ namespace Durin
 		struct FTaskRuntimeAccess
 		{
 			// Detached completion reuses task storage without admitting a scheduled body.
-			CORE_API static auto CreateDetachedCompletion(FTaskCompletionFunction&& Completion, uint64 ResultBytes) -> FTaskHandle;
+			CORE_API static auto CreateDetachedCompletion(FTaskCompletionFunction&& Completion, uint64 ResultBytes) -> Tasks::FTask;
 			CORE_API static auto GetCurrentTaskId() -> uint64;
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
-			CORE_API static auto IsCancellationRequested(const FTaskHandle& Task) -> bool;
+			CORE_API static auto IsCancellationRequested(const Tasks::FTask& Task) -> bool;
 			CORE_API static auto CancelCurrent() -> void;
-			CORE_API static auto GetAttribution(const FTaskHandle& Task) -> FTaskAttribution;
-			CORE_API static auto BindTerminal(const FTaskHandle& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
-			CORE_API static auto CompleteExternal(const FTaskHandle& Task, ETaskState State) -> void;
-			CORE_API static auto AddCompletionDependency(const FTaskHandle& Parent, const FTaskHandle& Child) -> std::optional<Tasks::FTaskAdmissionError>;
-			CORE_API static auto AddNested(const FTaskHandle& Child) -> std::optional<Tasks::FTaskAdmissionError>;
-			CORE_API static auto BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner) -> std::optional<Tasks::FTaskAdmissionError>;
+			CORE_API static auto GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution;
+			CORE_API static auto BindTerminal(const Tasks::FTask& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
+			CORE_API static auto CompleteExternal(const Tasks::FTask& Task, ETaskState State) -> void;
+			CORE_API static auto AddCompletionDependency(const Tasks::FTask& Parent, const Tasks::FTask& Child) -> std::optional<Tasks::FTaskAdmissionError>;
+			CORE_API static auto AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskAdmissionError>;
+			CORE_API static auto BindDynamicDependency(const Tasks::FTask& Task, const Tasks::FTask& Inner) -> std::optional<Tasks::FTaskAdmissionError>;
 		};
 	}
 
@@ -475,7 +513,7 @@ namespace Durin
 	{
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
-		std::span<const FTaskHandle> Prerequisites;
+		std::span<const Tasks::FTask> Prerequisites;
 		FTaskCancellationToken CancellationToken;
 		FTaskAttribution Attribution;
 		ETaskTarget Target = ETaskTarget::AnyWorker;
@@ -494,7 +532,7 @@ namespace Durin
 	struct FTaskContinuationOptions
 	{
 		bool bQueueOnSaturation = false;
-		std::span<const FTaskHandle> Prerequisites;
+		std::span<const Tasks::FTask> Prerequisites;
 		FTaskCancellationToken CancellationToken;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
@@ -543,13 +581,6 @@ namespace Durin
 	// Publishes fixed task aggregates at the engine profiling/frame boundary.
 	CORE_API auto PublishTaskSchedulerProfilerPlots() -> void;
 
-	CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
-	CORE_API auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
-	// Seconds bound blocking and helping attempts, never an executing callable.
-	CORE_API auto WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
-	// Returns one wait result for each input handle, including invalid handles and rejected waits.
-	CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks) -> std::vector<FTaskWaitResult>;
-	CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
 
 	// Executes [0, Num) in bounded contiguous chunks and includes the calling thread.
 	// Chunks invoke the same owned callable concurrently; captures must support concurrent access.
@@ -570,7 +601,7 @@ namespace Durin
 			Discard();
 		}
 
-		auto BindProducer(const FTaskHandle& InProducer) -> void
+		auto BindProducer(const Tasks::FTask& InProducer) -> void
 		{
 			auto Setter = Private::MakeTaskResultAccounting(InProducer);
 			std::lock_guard Lock(Mutex);
@@ -690,37 +721,4 @@ namespace Durin
 		bool bDiscarded = false;
 	};
 
-	namespace Tasks::Detail { struct FTaskAccess; }
-	namespace Tasks::Private
-	{
-		// Shared observation base with one execution handle and no result claim.
-		class FTaskHandle
-		{
-		public:
-			auto IsValid() const -> bool { return Handle.IsValid(); }
-			auto IsCompleted() const -> bool { return Handle.IsComplete(); }
-			auto IsComplete() const -> bool { return IsCompleted(); }
-			auto GetState() const -> ETaskState { return Handle.GetState(); }
-			auto GetDebugName() const -> const char* { return Handle.GetDebugName(); }
-			auto GetTaskId() const -> uint64 { return Handle.GetTaskId(); }
-			auto GetDiagnostic() const -> std::string { return Handle.GetDiagnostic(); }
-			auto GetDiagnostics() const -> FTaskDiagnostics { return Handle.GetDiagnostics(); }
-			auto Wait() const -> FTaskWaitResult { return WaitTask(Handle); }
-			auto Wait(double TimeoutSeconds) const -> FTaskWaitResult { return WaitTask(Handle, TimeoutSeconds); }
-			// Erasure is observation even for rvalues; it never moves only the base
-			// out of a unique task and leaves its result owner stranded.
-			operator Durin::FTaskHandle() const noexcept { return Handle; }
-		protected:
-			FTaskHandle() = default;
-			FTaskHandle(const FTaskHandle&) = default;
-			FTaskHandle(FTaskHandle&&) noexcept = default;
-			auto operator=(const FTaskHandle&) -> FTaskHandle& = default;
-			auto operator=(FTaskHandle&&) noexcept -> FTaskHandle& = default;
-			auto SetHandle(Durin::FTaskHandle InHandle) -> void { Handle = std::move(InHandle); }
-			auto TakeHandle() -> Durin::FTaskHandle { return std::move(Handle); }
-			friend struct Tasks::Detail::FTaskAccess;
-		private:
-			Durin::FTaskHandle Handle;
-		};
-	}
 } // namespace Durin

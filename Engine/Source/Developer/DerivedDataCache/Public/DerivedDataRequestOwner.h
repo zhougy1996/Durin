@@ -68,7 +68,7 @@ namespace Durin::DerivedData
 		// Register before leaving the submission barrier. Poll/Wait include these
 		// handles. Dependency queries run outside owner locks and must not wait
 		// on this owner. Native task cancellation remains with its source.
-		DERIVEDDATACACHE_API auto TrackTask(FTaskHandle Task) -> void;
+		DERIVEDDATACACHE_API auto TrackTask(Tasks::FTask Task) -> void;
 		DERIVEDDATACACHE_API auto TrackDependency(FRequestDependency Dependency) -> void;
 	private:
 		std::shared_ptr<Private::FOwnerState> State;

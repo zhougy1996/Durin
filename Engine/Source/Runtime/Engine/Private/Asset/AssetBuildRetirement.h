@@ -9,14 +9,14 @@
 
 namespace Durin::AssetPrivate
 {
-	inline auto ObserveAssetBuildTaskCancellation(const FTaskHandle& Task, FCancellationToken& Cancellation) -> void
+	inline auto ObserveAssetBuildTaskCancellation(const Tasks::FTask& Task, FCancellationToken& Cancellation) -> void
 	{
 		if (Task.GetState() == ETaskState::Canceled) Cancellation.Cancel();
 	}
 
 #if DURIN_WITH_EDITOR
 	// Called only after the producer task finishes, so no further submissions can race this join.
-	inline auto WaitForAssetBuildOwner(const FTaskHandle& Task, DerivedData::FRequestOwner& Owner) -> bool
+	inline auto WaitForAssetBuildOwner(const Tasks::FTask& Task, DerivedData::FRequestOwner& Owner) -> bool
 	{
 		if (!Task.IsValid() || !Task.IsComplete() || Owner.Poll()) return false;
 		require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);

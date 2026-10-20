@@ -361,9 +361,9 @@ namespace
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.MaxQueuedEntries = 1, .MaxQueuedPayloadBytes = 64, .MaxPayloadBytesPerEntry = 64}));
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
-		auto Root = Durin::FTaskHandle(Tasks::LaunchTask("TextureSaturationRoot", [] {}));
+		auto Root = Durin::Tasks::FTask(Tasks::LaunchTask("TextureSaturationRoot", [] {}));
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
-		auto Deferred = Durin::FTaskHandle(Tasks::Then(Durin::FTaskHandle(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}));
+		auto Deferred = Durin::Tasks::FTask(Tasks::Then(Durin::Tasks::FTask(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}));
 		ASSERT_TRUE(Deferred.IsValid());
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "LargeContent").generic_string() + "/");
 		ExerciseStaticMeshOwnerBridge();
@@ -489,7 +489,7 @@ namespace
 		std::array<uint64, 3> MeshShutdownRequests{};
 		const auto MeshManager = AssetPrivate::CreateStaticMeshCompilingManager();
 		FThreadEvent StartedA, StartedB, Release;
-		std::array<FTaskHandle, 8> Blockers;
+		std::array<Tasks::FTask, 8> Blockers;
 		uint32 SaturatedCompleted = 0;
 		std::array<uint32, 4> Completed{};
 		std::array<DObject*, 4> PendingTextures{};
@@ -546,8 +546,8 @@ namespace
 		ASSERT_EQ(1u, ShutdownMeshCache->Reads.load());
 		EXPECT_EQ(3u, GetMeshBuildDiagnosticsForTests().OutstandingRecords);
 
-		Blockers[0] = Durin::FTaskHandle(Tasks::LaunchTask("HoldTextureWorkerA", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedA, Token); }));
-		Blockers[1] = Durin::FTaskHandle(Tasks::LaunchTask("HoldTextureWorkerB", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedB, Token); }));
+		Blockers[0] = Durin::Tasks::FTask(Tasks::LaunchTask("HoldTextureWorkerA", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedA, Token); }));
+		Blockers[1] = Durin::Tasks::FTask(Tasks::LaunchTask("HoldTextureWorkerB", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedB, Token); }));
 		ASSERT_TRUE(StartedA.WaitFor(1.0));
 		ASSERT_TRUE(StartedB.WaitFor(1.0));
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "ShutdownContent").generic_string() + "/");
@@ -555,7 +555,7 @@ namespace
 		// Requests accepted below must still receive failure/cancellation delivery.
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{
-			Blockers[Index] = Durin::FTaskHandle(Tasks::LaunchTask("FillTextureScheduler", [] {}));
+			Blockers[Index] = Durin::Tasks::FTask(Tasks::LaunchTask("FillTextureScheduler", [] {}));
 			ASSERT_TRUE(Blockers[Index].IsValid());
 		}
 		auto ImageResult2 = Image::FImage::TryCreate({.Width = 1, .Height = 1,
@@ -601,10 +601,10 @@ namespace
 		// Scheduler thresholds do not reject queued owner work.
 		for (uint32 Index = 2; Index < 6; ++Index)
 		{
-			Blockers[Index] = Durin::FTaskHandle(Tasks::LaunchTask("FillTextureShutdown", [] {}));
+			Blockers[Index] = Durin::Tasks::FTask(Tasks::LaunchTask("FillTextureShutdown", [] {}));
 			ASSERT_TRUE(Blockers[Index].IsValid());
 		}
-		EXPECT_TRUE(Durin::FTaskHandle(Tasks::LaunchTask("SaturatedTextureShutdown", [] {})).IsValid());
+		EXPECT_TRUE(Durin::Tasks::FTask(Tasks::LaunchTask("SaturatedTextureShutdown", [] {})).IsValid());
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(PendingTextures);
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*HeldTexture);
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*HeldCube);

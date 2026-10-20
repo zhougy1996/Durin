@@ -152,7 +152,7 @@ namespace Durin
 
 			Tasks::FTaskExecutionOptions PublisherOptions;
 			PublisherOptions.DebugName = "DynamicUnloadFixture.Publish";
-			Publisher = Durin::FTaskHandle(Tasks::ThenCompleted(Worker, Tasks::ETaskExecutor::Worker, PublisherOptions,
+			Publisher = Durin::Tasks::FTask(Tasks::ThenCompleted(Worker, Tasks::ETaskExecutor::Worker, PublisherOptions,
 				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial](const Tasks::TSharedTask<uint64>& Outcome) {
 					if (Outcome.GetState() == ETaskState::Succeeded
 						&& Outcome.GetResult() == Serial)
@@ -182,7 +182,7 @@ namespace Durin
 		{
 			if (BlockingWorker.IsValid()) return false;
 			Tasks::FTaskExecutionOptions Options;
-			BlockingWorker = Durin::FTaskHandle(Tasks::LaunchTask(
+			BlockingWorker = Durin::Tasks::FTask(Tasks::LaunchTask(
 				"DynamicUnloadFixture.BlockingWorker",
 				[Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
 					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::BlockingWorkerEntered, Serial});
@@ -211,9 +211,9 @@ namespace Durin
 		FModularFeatureRegistration FeatureRegistration;
 
 		Tasks::TSharedTask<uint64> Worker;
-		FTaskHandle Publisher;
+		Tasks::FTask Publisher;
 		Tasks::TSharedTask<uint64> RetainedResult;
-		FTaskHandle BlockingWorker;
+		Tasks::FTask BlockingWorker;
 		bool bRetainResult = false;
 		bool bThrowOnShutdown = false;
 	};

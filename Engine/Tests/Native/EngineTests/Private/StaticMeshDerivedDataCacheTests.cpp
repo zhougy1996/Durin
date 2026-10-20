@@ -4012,11 +4012,11 @@ TEST(FAssetBuildSchedulerTests, NestedDependencyRetainsRetirementButReleasesExec
 	FAssetBuildScheduler Scheduler(2, 100);
 	Tasks::FTaskEvent Dependency("AssetBudget.DdcRetirement", false);
 	FThreadEvent BodyExited;
-	FTaskHandle Task;
+	Tasks::FTask Task;
 	struct FRelease
 	{
 		Tasks::FTaskEvent& Event;
-		FTaskHandle& Task;
+		Tasks::FTask& Task;
 		bool Triggered = false;
 		auto Trigger() -> void { if (!std::exchange(Triggered, true)) Event.Trigger(); }
 		~FRelease() { Trigger(); if (Task.IsValid()) (void)WaitTask(Task); }
@@ -4056,7 +4056,7 @@ TEST(FAssetBuildSchedulerTests, NativeCancellationBeforeEntryReleasesMemoryWitho
 	FAssetBuildScheduler Scheduler(2, 100);
 	Tasks::FTaskEvent Prerequisite("AssetBudget.BlockedEntry", false);
 	struct FRelease { Tasks::FTaskEvent& Event; ~FRelease() { Event.Trigger(); } } Release{Prerequisite};
-	FTaskHandle Task;
+	Tasks::FTask Task;
 	bool Entered = false;
 	Scheduler.Enqueue(false, 100, [&](auto Slot) {
 		Task = Tasks::LaunchTask("AssetBudget.Canceled", [Slot = std::move(Slot), &Entered] { Entered = true; }, Prerequisite);

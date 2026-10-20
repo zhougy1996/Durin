@@ -25,7 +25,7 @@ namespace Durin
 			FCookedMeshPublisher Publish;
 			FCookedMeshTerminalCallback OnTerminal;
 			FTaskCancellationSource Cancellation;
-			FTaskHandle Task;
+			Tasks::FTask Task;
 			std::chrono::steady_clock::time_point ReadStartedAt;
 			std::atomic<EFlightPhase> Phase{EFlightPhase::Reading};
 		};
@@ -435,7 +435,7 @@ namespace Durin
 				}
 				Flight->Phase.store(EFlightPhase::Working, std::memory_order_release);
 				auto SharedState = State;
-				Flight->Task = Durin::FTaskHandle(Tasks::LaunchTask(
+				Flight->Task = Durin::Tasks::FTask(Tasks::LaunchTask(
 					"CookedMeshDecode",
 					[SharedState, Flight, Buffers = std::move(Buffers)](
 						const FTaskCancellationToken& Token) mutable {

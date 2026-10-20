@@ -205,7 +205,7 @@ namespace Durin
 		struct FWorkState
 		{
 			FCancellationToken Cancellation;
-			FTaskHandle Task;
+			Tasks::FTask Task;
 			std::mutex Mutex;
 			std::expected<FCookPreparationProducts, std::string> Result = std::unexpected("Cook task did not produce a result.");
 		};

@@ -28,11 +28,11 @@ TEST(FMaterialCompileShutdownTests, ShutdownDrainsFunctionOwnersAndDetachedFanou
 	}
 	FThreadEvent Started, Release;
 	std::atomic<uint32> StartedCount = 0;
-	std::vector<FTaskHandle> Blockers;
+	std::vector<Tasks::FTask> Blockers;
 	struct FReleaseWorkers
 	{
 		FThreadEvent& Release;
-		std::vector<FTaskHandle>& Blockers;
+		std::vector<Tasks::FTask>& Blockers;
 		~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) WaitTask(Task); }
 	} ReleaseWorkers{Release, Blockers};
 	const auto WorkerCount = GetTaskSchedulerDiagnostics().WorkerCount;

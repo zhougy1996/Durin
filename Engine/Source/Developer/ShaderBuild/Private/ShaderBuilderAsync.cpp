@@ -54,7 +54,7 @@ namespace Durin
 			FShaderBuildCompletion Completion;
 			mutable std::mutex Mutex;
 			std::condition_variable Condition;
-			FTaskHandle Preparation;
+			Tasks::FTask Preparation;
 			FTaskCancellationSource PreparationCancellation;
 			std::shared_ptr<FFlight> Flight;
 			std::atomic_bool Canceled = false;
@@ -355,7 +355,7 @@ namespace Durin
 	auto FShaderBuilder::FAsyncState::FSubscriber::Wait() -> EShaderBuildWaitResult
 	{
 		if (ShaderCallbackDepth) return EShaderBuildWaitResult::WouldBlock;
-		FTaskHandle Task;
+		Tasks::FTask Task;
 		{ std::unique_lock Lock(Mutex); Condition.wait(Lock, [&] { return Published; }); Task = Preparation; }
 		if (Task.IsValid() && WaitTask(Task).WaitStatus != ETaskWaitStatus::Completed) return EShaderBuildWaitResult::WouldBlock;
 		std::shared_ptr<FFlight> Pending;

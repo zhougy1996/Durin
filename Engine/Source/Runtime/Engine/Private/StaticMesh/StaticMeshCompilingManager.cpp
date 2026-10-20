@@ -86,7 +86,7 @@ namespace Durin
 			bool bRequeue = false;
 			std::optional<FXxHash128> ImportState;
 			std::shared_ptr<FWork> Work;
-			FTaskHandle Task;
+			Tasks::FTask Task;
 			EStaticMeshCompilationPriority Priority;
 			std::optional<EStaticMeshCompilationStatus> Terminal;
 			bool bMarkPackageDirty = true;
@@ -350,11 +350,11 @@ namespace Durin
 				Record.Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 			}
 		}
-		auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle
+		auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> Tasks::FTask
 		{
 			Tasks::FTaskExecutionOptions Options;
 			Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive ? ETaskPriority::High : ETaskPriority::Low;
-			auto Task = Durin::FTaskHandle(Tasks::LaunchTask("StaticMesh.Build", [Slot = std::move(Slot), Work = Record->Work, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
+			auto Task = Durin::Tasks::FTask(Tasks::LaunchTask("StaticMesh.Build", [Slot = std::move(Slot), Work = Record->Work, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
 						const auto Cancellation = Work->Cancellation.WithObserver([Token] { return Token.IsCancellationRequested(); });
 						try
 						{
@@ -398,7 +398,7 @@ namespace Durin
 #endif
 			return Task;
 		}
-		auto Enqueue(const std::shared_ptr<FRecord>& Record, bool bDispatch = true, FTaskHandle Prerequisite = {}) -> void
+		auto Enqueue(const std::shared_ptr<FRecord>& Record, bool bDispatch = true, Tasks::FTask Prerequisite = {}) -> void
 		{
 			std::function<bool()> IsReady;
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA

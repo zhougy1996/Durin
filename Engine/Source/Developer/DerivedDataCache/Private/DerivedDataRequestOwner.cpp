@@ -55,10 +55,10 @@ namespace Durin::DerivedData
 			ERequestPriority Priority;
 			struct FEntry { std::shared_ptr<IRequest> Request; std::shared_ptr<FOwnerTask> Dispatch; };
 			std::unordered_map<IRequest*, FEntry> Requests;
-			std::vector<FTaskHandle> NativeTasks;
+			std::vector<Tasks::FTask> NativeTasks;
 			std::vector<std::shared_ptr<const FRequestDependency>> Dependencies;
 			uint64 DependencyRevision = 0;
-			auto TrackTask(FTaskHandle Task) -> void
+			auto TrackTask(Tasks::FTask Task) -> void
 			{
 				if (!Task.IsValid()) return;
 				std::lock_guard Lock(Mutex); PruneNativeTasks(); NativeTasks.push_back(std::move(Task)); ++DependencyRevision;
@@ -85,7 +85,7 @@ namespace Durin::DerivedData
 					if (auto Node = Requests.extract(Request); !Node.empty()) Retired = std::move(Node.mapped());
 					if (Retired.Dispatch)
 					{
-						FTaskHandle Native;
+						Tasks::FTask Native;
 						{ std::lock_guard DispatchLock(Retired.Dispatch->Mutex); if (Retired.Dispatch->Scheduled) Native = Retired.Dispatch->Scheduled->GetTaskHandle(); }
 						if (Native.IsValid())
 						{
@@ -176,7 +176,7 @@ namespace Durin::DerivedData
 				for (;;)
 				{
 					std::shared_ptr<IRequest> Request;
-					std::vector<FTaskHandle> Native;
+					std::vector<Tasks::FTask> Native;
 					std::vector<std::shared_ptr<const FRequestDependency>> External;
 					{
 						std::lock_guard Lock(Mutex);
@@ -230,7 +230,7 @@ namespace Durin::DerivedData
 	auto FRequestOwner::SetPriority(ERequestPriority Priority) -> void { State->SetPriority(Priority); }
 	auto FRequestOwner::Poll() const -> bool { return State->Poll(); }
 	auto FRequestOwner::Wait() const -> ERequestWaitResult { return State->Wait(); }
-	auto FRequestOwner::TrackTask(FTaskHandle Task) -> void { State->TrackTask(std::move(Task)); }
+	auto FRequestOwner::TrackTask(Tasks::FTask Task) -> void { State->TrackTask(std::move(Task)); }
 	auto FRequestOwner::TrackDependency(FRequestDependency Dependency) -> void { State->TrackDependency(std::move(Dependency)); }
 	auto Private::CreateRequestOwnerState() -> std::shared_ptr<IRequestOwner> { return std::make_shared<FOwnerState>(ERequestPriority::Normal); }
 	auto FRequestOwner::LaunchTask(IRequest* Request, IBuildScheduler& Scheduler, std::string_view Name, std::function<void()> Work, std::function<void()> OnCanceled)

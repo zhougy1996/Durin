@@ -204,8 +204,8 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
 		class FWork final : public IBuildScheduledWork
 		{
 		public:
-			FTaskHandle Handle;
-			auto GetTaskHandle() const -> FTaskHandle override { return Handle; }
+			Tasks::FTask Handle;
+			auto GetTaskHandle() const -> Tasks::FTask override { return Handle; }
 			auto RequestCancel() const -> void override { CancelTask(Handle); }
 			auto Wait() const -> ERequestWaitResult override
 			{ return WaitTask(Handle).WaitStatus == ETaskWaitStatus::Completed ? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock; }
@@ -367,8 +367,8 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeHandlePublishedAfterSynchronous
 		class FWork final : public IBuildScheduledWork
 		{
 		public:
-			FTaskHandle Handle;
-			auto GetTaskHandle() const -> FTaskHandle override { return Handle; }
+			Tasks::FTask Handle;
+			auto GetTaskHandle() const -> Tasks::FTask override { return Handle; }
 			auto Wait() const -> ERequestWaitResult override
 			{ return WaitTask(Handle).WaitStatus == ETaskWaitStatus::Completed ? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock; }
 		};

@@ -27,7 +27,7 @@ namespace Durin
 			FEngineThreadPoolTestGuard() { EnsureGameThreadForTaskTest(); }
 			~FEngineThreadPoolTestGuard() { ShutdownTaskScheduler(false); }
 		};
-		auto WaitOffGameThread(const Tasks::Private::FTaskHandle& Task) -> FTaskWaitResult
+		auto WaitOffGameThread(const Tasks::FTask& Task) -> FTaskWaitResult
 		{
 			FTaskWaitResult Result;
 			std::thread Caller([&] { Result = Task.Wait(); });
@@ -48,17 +48,50 @@ namespace Durin
 			}
 		}
 	}
-	static_assert(!std::is_default_constructible_v<Tasks::TTaskAdmission<FTaskHandle>>);
+	static_assert(!std::is_default_constructible_v<Tasks::TTaskAdmission<Tasks::FTask>>);
 	static_assert(!std::is_copy_constructible_v<Tasks::TTaskAdmission<std::unique_ptr<int>>>);
-	static_assert(std::is_same_v<Tasks::FTask, Tasks::TTask<void>>);
+	static_assert(!std::is_same_v<Tasks::FTask, Tasks::TTask<void>>);
+	static_assert(std::derived_from<Tasks::TTask<void>, Tasks::FTask>);
 	static_assert(std::is_move_constructible_v<Tasks::FTask>);
-	static_assert(!std::is_copy_constructible_v<Tasks::FTask>);
+	static_assert(std::is_copy_constructible_v<Tasks::FTask>);
+	static_assert(!std::is_copy_constructible_v<Tasks::TTask<void>>);
 	static_assert(std::is_copy_constructible_v<Tasks::FTaskEvent>);
-	static_assert(std::derived_from<Tasks::TTask<int>, Tasks::Private::FTaskHandle>);
-	static_assert(std::derived_from<Tasks::TSharedTask<int>, Tasks::Private::FTaskHandle>);
-	static_assert(std::derived_from<Tasks::FTaskEvent, Tasks::Private::FTaskHandle>);
-	static_assert(sizeof(Tasks::Private::FTaskHandle) == sizeof(Durin::FTaskHandle));
+	static_assert(std::derived_from<Tasks::TTask<int>, Tasks::FTask>);
+	static_assert(std::derived_from<Tasks::TSharedTask<int>, Tasks::FTask>);
+	static_assert(std::derived_from<Tasks::FTaskEvent, Tasks::FTask>);
+	static_assert(std::is_copy_constructible_v<Tasks::FTask>);
+	static_assert(std::is_copy_assignable_v<Tasks::FTask>);
+	static_assert(std::is_nothrow_move_constructible_v<Tasks::FTask>);
+	static_assert(sizeof(Tasks::FTask) == sizeof(std::shared_ptr<FTaskStateData>));
 	static_assert(!Tasks::Detail::CTaskDependency<Tasks::TCompletionSource<int>>);
+
+	TEST(FTaskCompositionTests, PublicGenericHandlesObserveTypedTasksAndEventsTogether)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Gate("PublicHandleGate", false);
+		auto Unique = Tasks::LaunchTask("PublicHandleUnique", [] { return 42; }, Gate);
+		auto Shared = Tasks::Share(Tasks::LaunchTask("PublicHandleShared", [] { return 7; }, Gate));
+		std::atomic<uint32> Runs = 0;
+		auto Void = Tasks::LaunchTask("PublicHandleVoid", [&] { ++Runs; }, Gate);
+		const std::array<Tasks::FTask, 4> Handles{Unique, Shared, Void, Gate};
+		auto Copies = Handles;
+		Tasks::FTask Signal = std::move(Gate);
+		EXPECT_TRUE(Gate.IsValid());
+		EXPECT_EQ(Signal.GetTaskId(), Copies.back().GetTaskId());
+		EXPECT_FALSE(Signal.IsCompleted());
+		auto Continuation = Tasks::Then(Copies.front(), Tasks::ETaskExecutor::Worker, {}, [] { return 9; });
+		Gate.Trigger();
+		for (const auto& Outcome : Tasks::Wait(Copies))
+			EXPECT_EQ(Outcome.TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Runs.load(), 1u);
+		EXPECT_EQ(Shared.GetResult(), 7);
+		EXPECT_EQ(std::move(Unique).TakeResult(), 42);
+		EXPECT_FALSE(Unique.IsValid());
+		EXPECT_EQ(Handles.front().Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(std::move(Continuation).TakeResult(), 9);
+	}
 
 	TEST(FTaskCompositionTests, CancellationTokensReachRootsAndUniqueContinuations)
 	{
@@ -111,7 +144,7 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
 		FThreadEvent WorkerFreed, ReleaseChild;
-		FTaskHandle ChildObservation;
+		Tasks::FTask ChildObservation;
 		auto Parent = Tasks::LaunchTask("DirectNestedParent", [&](const FTaskCancellationToken& Token) {
 			auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {.Cancellation = Token}, [&] { ReleaseChild.Wait(); });
 			ChildObservation = Child;
@@ -144,16 +177,28 @@ namespace Durin
 			std::atomic<uint32>& Counter;
 		};
 		auto Original = Tasks::LaunchTask("BaseObservation", [&] { return std::make_unique<FValue>(Destroyed); });
-		const Durin::FTaskHandle Observer = Original;
-		const Durin::FTaskHandle RvalueObserver(std::move(Original));
+		const Durin::Tasks::FTask Observer = Original;
+		const Durin::Tasks::FTask RvalueObserver(std::move(Original));
 		EXPECT_TRUE(Original.IsValid());
 		EXPECT_EQ(RvalueObserver.GetTaskId(), Observer.GetTaskId());
-		const Durin::FTaskHandle& TemporaryObserver = Tasks::LaunchTask("TemporaryObservation", [] {});
+		Tasks::FTask AssignedObserver;
+		AssignedObserver = std::move(Original);
+		std::vector<Tasks::FTask> Observations;
+		Observations.emplace_back(std::move(Original));
+		EXPECT_TRUE(Original.IsValid());
+		EXPECT_EQ(AssignedObserver.GetTaskId(), Observer.GetTaskId());
+		EXPECT_EQ(Observations.front().GetTaskId(), Observer.GetTaskId());
+		auto MovedObserver = std::move(AssignedObserver);
+		EXPECT_FALSE(AssignedObserver.IsValid());
+		AssignedObserver = std::move(MovedObserver);
+		EXPECT_FALSE(MovedObserver.IsValid());
+		EXPECT_EQ(AssignedObserver.GetTaskId(), Observer.GetTaskId());
+		const Durin::Tasks::FTask& TemporaryObserver = Tasks::LaunchTask("TemporaryObservation", [] {});
 		ASSERT_TRUE(TemporaryObserver.IsValid());
 		EXPECT_EQ(WaitTask(TemporaryObserver).TaskState, ETaskState::Succeeded);
 		auto Moved = std::move(Original);
 		EXPECT_FALSE(Original.IsValid());
-		const Tasks::Private::FTaskHandle& Base = Moved;
+		const Tasks::FTask& Base = Moved;
 		ASSERT_EQ(Base.Wait().TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(Base.GetTaskId(), Observer.GetTaskId());
 		EXPECT_TRUE(Base.IsCompleted());
@@ -163,7 +208,7 @@ namespace Durin
 		ASSERT_EQ(Moved.Wait().TaskState, ETaskState::Succeeded);
 		auto Shared = Tasks::Share(std::move(Moved));
 		EXPECT_FALSE(Moved.IsValid());
-		const Tasks::Private::FTaskHandle& SharedBase = Shared;
+		const Tasks::FTask& SharedBase = Shared;
 		EXPECT_TRUE(SharedBase.IsCompleted());
 		auto Alias = Shared.GetResultShared();
 		ASSERT_TRUE(Alias);
@@ -291,13 +336,13 @@ namespace Durin
 			Chain.push_back(Tasks::LaunchTask("DeepRoot", [&] { ++Runs; }));
 			for (uint32 Index = 1; Index < 512; ++Index)
 			{
-				std::array<FTaskHandle, 1> Previous{Chain.back()};
+				std::array<Tasks::FTask, 1> Previous{Chain.back()};
 				Chain.push_back(Tasks::LaunchTask("DeepStep", [&] { ++Runs; }, Previous));
 			}
 			std::vector<Tasks::FTask> Branches;
 			for (uint32 Index = 0; Index < 64; ++Index)
 			{
-				std::array<FTaskHandle, 1> SharedLeaf{Chain.back()};
+				std::array<Tasks::FTask, 1> SharedLeaf{Chain.back()};
 				Branches.push_back(Tasks::LaunchTask("SharedDagBranch", [&] { ++Runs; }, SharedLeaf));
 			}
 			auto Target = Tasks::LaunchTask("DagNestedTarget", [&] {
@@ -321,7 +366,7 @@ namespace Durin
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(2));
 		FThreadEvent FirstStarted, SecondStarted, Release;
-		FTaskHandle Target;
+		Tasks::FTask Target;
 		std::atomic<uint32> Runs = 0;
 		auto First = Tasks::LaunchTask("FirstRetractionWaiter", [&] {
 			FirstStarted.Trigger(); Release.WaitFor(2);
@@ -597,7 +642,7 @@ namespace Durin
 		EXPECT_FALSE(Weak.expired());
 		EXPECT_TRUE(Tasks::Cancel(Parent));
 		EXPECT_FALSE(Parent.IsCompleted());
-		EXPECT_FALSE(Private::FTaskRuntimeAccess::IsCancellationRequested(Durin::FTaskHandle(Signal)));
+		EXPECT_FALSE(Private::FTaskRuntimeAccess::IsCancellationRequested(Durin::Tasks::FTask(Signal)));
 		Signal.Trigger();
 		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Canceled);
 		EXPECT_TRUE(Weak.expired());
@@ -704,7 +749,7 @@ namespace Durin
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
 		FThreadEvent Published;
-		FTaskHandle ParentHandle;
+		Tasks::FTask ParentHandle;
 		auto Parent = Tasks::LaunchTask("CompletedBackEdgeParent", [&] {
 			Published.Wait();
 			auto Child = Tasks::LaunchTask("CanceledBackEdgeChild", [] { ADD_FAILURE(); }, ParentHandle);
@@ -713,7 +758,7 @@ namespace Durin
 			Tasks::AddNested(Child);
 			return 42;
 		});
-		ParentHandle = Durin::FTaskHandle(Parent);
+		ParentHandle = Durin::Tasks::FTask(Parent);
 		Published.Trigger();
 		EXPECT_EQ(std::move(Parent).TakeResult(), 42);
 	}
@@ -802,7 +847,7 @@ namespace Durin
 		EXPECT_EQ(42, *Value);
 		EXPECT_FALSE(Task.IsValid());
 		auto VoidAdmission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] {});
-		Tasks::FTask VoidTask = std::move(VoidAdmission);
+		Tasks::TTask<void> VoidTask = std::move(VoidAdmission);
 		VoidTask.GetResult();
 		EXPECT_TRUE(VoidTask.IsValid());
 		std::move(VoidTask).TakeResult();
@@ -1124,7 +1169,7 @@ namespace Durin
 			{
 				auto RootSource = Tasks::TCompletionSource<void>::Create({.DebugName = "BorrowedPrerequisiteRoot"});
 				Tasks::FTaskEvent Gate("BorrowedPrerequisiteGate", false);
-				std::vector<FTaskHandle> Borrowed{Gate};
+				std::vector<Tasks::FTask> Borrowed{Gate};
 				std::atomic<bool> bFactoryRan = false;
 				auto Output = Tasks::ThenAsync(RootSource.TakeTask(), Tasks::ETaskExecutor::Worker,
 					{.DebugName = "BorrowedPrerequisiteFlatten", .Prerequisites = Borrowed}, [&] {
@@ -1132,7 +1177,7 @@ namespace Durin
 					});
 				// Mutation catches a second binding deterministically; destruction also
 				// exercises the lifetime of the borrowed storage without changing the API.
-				if (bDestroyCollection) std::vector<FTaskHandle>().swap(Borrowed);
+				if (bDestroyCollection) std::vector<Tasks::FTask>().swap(Borrowed);
 				else Borrowed.front() = {};
 				EXPECT_TRUE(RootSource.TrySetValue());
 				auto Probe = Tasks::LaunchTask("BorrowedPrerequisiteProbe", [] {});
@@ -1213,7 +1258,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		FThreadEvent Started;
 		FThreadEvent Release;
-		auto Blocker = Durin::FTaskHandle(Tasks::LaunchTask("PriorityBlocker", [&] { Started.Trigger(); Release.Wait(); }));
+		auto Blocker = Durin::Tasks::FTask(Tasks::LaunchTask("PriorityBlocker", [&] { Started.Trigger(); Release.Wait(); }));
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		std::vector<int> Order;
 		std::vector<Tasks::TTask<void>> Completions;
@@ -1294,7 +1339,7 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
 		FThreadEvent CpuBlocked, ReleaseCpu, Finished;
-		auto Blocker = Durin::FTaskHandle(Tasks::LaunchTask("HoldCpu", [&] { CpuBlocked.Trigger(); ReleaseCpu.Wait(); }));
+		auto Blocker = Durin::Tasks::FTask(Tasks::LaunchTask("HoldCpu", [&] { CpuBlocked.Trigger(); ReleaseCpu.Wait(); }));
 		ASSERT_TRUE(CpuBlocked.WaitFor(1.0));
 		auto Parent = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [&] {
 			auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] {
@@ -1437,7 +1482,7 @@ namespace Durin
 		for (int32 Checkpoint = 1; Checkpoint <= 5; ++Checkpoint)
 		{
 			Private::SetTaskAdmissionAllocationFailureForTests(Checkpoint);
-			auto Rejected = Private::TryLaunchContinuationTask(Durin::FTaskHandle(Input),
+			auto Rejected = Private::TryLaunchContinuationTask(Durin::Tasks::FTask(Input),
 				"AllocationRollback", [](const FTaskCancellationToken&) {}, {}, {}, ETaskDependencyKind::Success);
 			ASSERT_FALSE(Rejected.HasValue());
 			EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::CapacityExhausted, Rejected.GetError().Code);
@@ -1514,7 +1559,7 @@ namespace Durin
 		PumpGameThreadDeferredWork();
 		EXPECT_EQ(ETaskState::Canceled, Stale.GetState());
 		auto Source = Tasks::TCompletionSource<void>::Create({});
-		const std::array Dependencies{Durin::FTaskHandle(Source.TakeTask())};
+		const std::array Dependencies{Durin::Tasks::FTask(Source.TakeTask())};
 		Options = {}; Options.Prerequisites = Dependencies;
 		std::vector<Tasks::TTask<int>> Inputs;
 		Inputs.push_back(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] { return 7; }));

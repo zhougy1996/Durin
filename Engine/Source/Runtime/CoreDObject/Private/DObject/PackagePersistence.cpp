@@ -17,7 +17,7 @@ namespace Durin
 		struct FOwnedAsyncSave
 		{
 			uint64 Bytes = 0;
-			FTaskHandle Disk, Publication;
+			Tasks::FTask Disk, Publication;
 			std::function<void()> Write;
 			std::function<void(bool)> Finish;
 			bool bFinishing = false;

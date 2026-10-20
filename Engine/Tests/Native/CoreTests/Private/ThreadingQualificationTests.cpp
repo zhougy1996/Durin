@@ -26,11 +26,11 @@ namespace Durin
 		auto RunCohort = [](uint32 TaskCount) -> uint64 {
 			ShutdownTaskScheduler(false);
 			EXPECT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 4, .MaxNonterminalTasks = 100'000}));
-			std::vector<FTaskHandle> Handles;
+			std::vector<Tasks::FTask> Handles;
 			Handles.reserve(TaskCount);
 			for (uint32 Index = 0; Index < TaskCount; ++Index)
 			{
-				Handles.emplace_back(Durin::FTaskHandle(Tasks::LaunchTask("LifetimeCounterSoak", []() {})));
+				Handles.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("LifetimeCounterSoak", []() {})));
 			}
 			WaitAll(Handles);
 
@@ -81,48 +81,48 @@ namespace Durin
 		{
 			FThreadEvent BlockerStarted;
 			FThreadEvent ReleaseBlocker;
-			FTaskHandle Blocker = Durin::FTaskHandle(Tasks::LaunchTask("CapacitySoakBlocker", [&]() {
+			Tasks::FTask Blocker = Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakBlocker", [&]() {
 				BlockerStarted.Trigger();
 				ReleaseBlocker.Wait();
 			}, RootOptions));
 			ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
 
 			Tasks::FTaskExecutionOptions WaitingOptions = RootOptions;
-			WaitingOptions.Prerequisites = std::span<const FTaskHandle>(&Blocker, 1);
-			std::vector<FTaskHandle> Succeeded;
-			std::vector<FTaskHandle> Failed;
-			std::vector<FTaskHandle> Canceled;
+			WaitingOptions.Prerequisites = std::span<const Tasks::FTask>(&Blocker, 1);
+			std::vector<Tasks::FTask> Succeeded;
+			std::vector<Tasks::FTask> Failed;
+			std::vector<Tasks::FTask> Canceled;
 			Succeeded.reserve(SucceededPerRound - 1);
 			Failed.reserve(FailedPerRound);
 			Canceled.reserve(CanceledPerRound);
 			for (uint32 Index = 1; Index < SucceededPerRound; ++Index)
 			{
-				Succeeded.emplace_back(Durin::FTaskHandle(Tasks::LaunchTask("CapacitySoakSucceeded", []() {}, WaitingOptions)));
+				Succeeded.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakSucceeded", []() {}, WaitingOptions)));
 				ASSERT_TRUE(Succeeded.back().IsValid());
 			}
 			for (uint32 Index = 0; Index < FailedPerRound; ++Index)
 			{
-				Failed.emplace_back(Durin::FTaskHandle(Tasks::LaunchTask("CapacitySoakFailed", []() {
+				Failed.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakFailed", []() {
 					throw std::runtime_error("capacity soak failure");
 				}, WaitingOptions)));
 				ASSERT_TRUE(Failed.back().IsValid());
 			}
 			for (uint32 Index = 0; Index < CanceledPerRound; ++Index)
 			{
-				Canceled.emplace_back(Durin::FTaskHandle(Tasks::LaunchTask("CapacitySoakCanceled", []() {}, WaitingOptions)));
+				Canceled.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakCanceled", []() {}, WaitingOptions)));
 				ASSERT_TRUE(Canceled.back().IsValid());
 			}
 			for (uint32 Index = 0; Index < OverloadedPerRound; ++Index)
 			{
-				Succeeded.emplace_back(Durin::FTaskHandle(Tasks::LaunchTask("CapacitySoakOverload", []() {}, RootOptions)));
+				Succeeded.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakOverload", []() {}, RootOptions)));
 			}
 
-			for (const FTaskHandle& Task : Canceled) EXPECT_TRUE(CancelTask(Task));
+			for (const Tasks::FTask& Task : Canceled) EXPECT_TRUE(CancelTask(Task));
 			ReleaseBlocker.Trigger();
 			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
-			for (const FTaskHandle& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
-			for (const FTaskHandle& Task : Failed) EXPECT_EQ(ETaskState::Failed, WaitTask(Task).TaskState);
-			for (const FTaskHandle& Task : Canceled) EXPECT_EQ(ETaskState::Canceled, WaitTask(Task).TaskState);
+			for (const Tasks::FTask& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+			for (const Tasks::FTask& Task : Failed) EXPECT_EQ(ETaskState::Failed, WaitTask(Task).TaskState);
+			for (const Tasks::FTask& Task : Canceled) EXPECT_EQ(ETaskState::Canceled, WaitTask(Task).TaskState);
 		}
 
 		const FTaskSchedulerDiagnostics Final = GetTaskSchedulerDiagnostics();
@@ -166,17 +166,17 @@ namespace Durin
 
 		std::atomic<uint32> CallableRuns = 0;
 		const uint64 CopyableCallableNanoseconds = MeasureNanoseconds([&]() {
-			std::vector<FTaskHandle> Handles;
+			std::vector<Tasks::FTask> Handles;
 			for (uint32 Index = 0; Index < CallableCount; ++Index)
-				Handles.emplace_back(Durin::FTaskHandle(Tasks::LaunchTask("CopyableQualification", [&CallableRuns]() {
+				Handles.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CopyableQualification", [&CallableRuns]() {
 					CallableRuns.fetch_add(1, std::memory_order::acq_rel);
 				})));
 			EXPECT_TRUE(std::ranges::all_of(WaitAll(Handles), [](const FTaskWaitResult& Result) { return Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded; }));
 		});
 		const uint64 MoveOnlyCallableNanoseconds = MeasureNanoseconds([&]() {
-			std::vector<FTaskHandle> Handles;
+			std::vector<Tasks::FTask> Handles;
 			for (uint32 Index = 0; Index < CallableCount; ++Index)
-				Handles.emplace_back(Durin::FTaskHandle(Tasks::LaunchTask("MoveOnlyQualification",
+				Handles.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("MoveOnlyQualification",
 					[Value = std::make_unique<uint32>(1), &CallableRuns]() {
 						CallableRuns.fetch_add(*Value, std::memory_order::acq_rel);
 					})));
@@ -185,26 +185,26 @@ namespace Durin
 
 		std::atomic<uint64> ResultBytesObserved = 0;
 		const uint64 SharedTransferNanoseconds = MeasureNanoseconds([&]() {
-			std::vector<FTaskHandle> Sinks;
+			std::vector<Tasks::FTask> Sinks;
 			for (uint32 Index = 0; Index < ResultCount; ++Index)
 			{
 				auto Producer = Tasks::Share(Tasks::LaunchTask("SharedTransferQualification", []() {
 					return Durin::FByteBuffer(ResultBytes, std::byte{1});
 				}));
-				Sinks.emplace_back(Durin::FTaskHandle(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "SharedTransferSink"}, [&ResultBytesObserved](const Durin::FByteBuffer& Value) {
+				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "SharedTransferSink"}, [&ResultBytesObserved](const Durin::FByteBuffer& Value) {
 					ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 				})));
 			}
 			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](const FTaskWaitResult& Result) { return Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded; }));
 		});
 		const uint64 UniqueTransferNanoseconds = MeasureNanoseconds([&]() {
-			std::vector<FTaskHandle> Sinks;
+			std::vector<Tasks::FTask> Sinks;
 			for (uint32 Index = 0; Index < ResultCount; ++Index)
 			{
 				auto Producer = Tasks::LaunchTask("UniqueTransferQualification", []() {
 					return Durin::FByteBuffer(ResultBytes, std::byte{1});
 				});
-				Sinks.emplace_back(Durin::FTaskHandle(Tasks::Then(std::move(Producer), Tasks::ETaskExecutor::Worker, {.DebugName = "UniqueTransferSink"},
+				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::Then(std::move(Producer), Tasks::ETaskExecutor::Worker, {.DebugName = "UniqueTransferSink"},
 					[&ResultBytesObserved](Durin::FByteBuffer&& Value) {
 						ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 					})));
@@ -284,13 +284,13 @@ namespace Durin
 			{
 				FThreadEvent StartedA, StartedB, Release, CpuDone;
 				const auto Executor = Target == ETaskTarget::BlockingIO ? Tasks::ETaskExecutor::BlockingIO : Tasks::ETaskExecutor::Worker;
-				auto A = Durin::FTaskHandle(Tasks::LaunchTask(Executor, {.DebugName = "MixedBlockA"}, [&] { StartedA.Trigger(); Release.Wait(); }));
-				auto B = Durin::FTaskHandle(Tasks::LaunchTask(Executor, {.DebugName = "MixedBlockB"}, [&] { StartedB.Trigger(); Release.Wait(); }));
+				auto A = Durin::Tasks::FTask(Tasks::LaunchTask(Executor, {.DebugName = "MixedBlockA"}, [&] { StartedA.Trigger(); Release.Wait(); }));
+				auto B = Durin::Tasks::FTask(Tasks::LaunchTask(Executor, {.DebugName = "MixedBlockB"}, [&] { StartedB.Trigger(); Release.Wait(); }));
 				ASSERT_TRUE(StartedA.WaitFor(1.0));
 				ASSERT_TRUE(StartedB.WaitFor(1.0));
 				double Latency = 0;
 				const auto Start = std::chrono::steady_clock::now();
-				auto CPU = Durin::FTaskHandle(Tasks::LaunchTask("MixedCpu", [&] {
+				auto CPU = Durin::Tasks::FTask(Tasks::LaunchTask("MixedCpu", [&] {
 					Latency = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - Start).count();
 					CpuDone.Trigger();
 				}));
@@ -321,7 +321,7 @@ namespace Durin
 		Config.MaxQueuedEntries = 256;
 		Config.MaxQueuedPayloadBytes = 256 * 64;
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
-		FTaskHandle Root = SubmitKernelTask("DeferredMeasurementRoot", []() {});
+		Tasks::FTask Root = SubmitKernelTask("DeferredMeasurementRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		constexpr uint32 CallbackCount = 256;
@@ -330,7 +330,7 @@ namespace Durin
 		FTaskGenerationSource StaleGeneration;
 		const FTaskGenerationToken StaleToken = StaleGeneration.Capture();
 		std::atomic<uint32> ExecutedCount = 0;
-		std::vector<FTaskHandle> Handles;
+		std::vector<Tasks::FTask> Handles;
 		Handles.reserve(CallbackCount);
 		const auto AdmissionStart = std::chrono::steady_clock::now();
 		for (uint32 Index = 0; Index < CallbackCount; ++Index)
@@ -358,7 +358,7 @@ namespace Durin
 		uint64 MaxResidencyNanoseconds = 0;
 		uint32 SucceededCount = 0;
 		uint32 StaleCount = 0;
-		for (const FTaskHandle& Handle : Handles)
+		for (const Tasks::FTask& Handle : Handles)
 		{
 			const FTaskDiagnostics Diagnostics = Handle.GetDiagnostics();
 			TotalResidencyNanoseconds += Diagnostics.QueueResidencyNanoseconds;
