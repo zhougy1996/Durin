@@ -20,7 +20,7 @@ namespace Durin
 	static_assert(noexcept(Profiling::TaskEnqueued(1, 2, 2, 0)));
 	static_assert(noexcept(Profiling::TaskExecution(1, 2, 2, 0)));
 	static_assert(noexcept(Profiling::TaskTerminal(1, 2, 2, 0, 0)));
-	static_assert(noexcept(Profiling::TaskAggregatePlots(2, 2, 0, 0, 0, 0, 0, 0)));
+	static_assert(noexcept(Profiling::TaskAggregatePlots(2, 2, 0, 0, 0, 0)));
 
 	namespace
 	{
@@ -2642,7 +2642,6 @@ namespace Durin
 		EXPECT_EQ(ETaskTerminalReason::None, DuringPublication.TerminalReason);
 		EXPECT_TRUE(DuringPublication.Diagnostic.empty());
 		EXPECT_FALSE(DuringPublication.bHasResultStorage);
-		EXPECT_EQ(0u, DuringPublication.RetainedResultBytes);
 		EXPECT_EQ(nullptr, Producer.GetResultShared());
 		EXPECT_EQ(ETaskState::Waiting, Dependent.GetState());
 		EXPECT_FALSE(bDependentRan.load(std::memory_order::acquire));
@@ -2689,6 +2688,25 @@ namespace Durin
 		while (std::chrono::steady_clock::now() < RetentionDeadline);
 		EXPECT_EQ(0u, Retained.RetainedTerminalHandleCount);
 		EXPECT_EQ(0u, Retained.RetainedTerminalResultCount);
+	}
+
+	TEST(FTaskDiagnosticsTests, ResultBindingAfterTerminalPublicationPreservesLifetimeCounters)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Task = SubmitKernelTask("LateResultBinding", [] {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalResultCount);
+		auto Storage = std::make_shared<TTaskResultState<int>>();
+		Storage->SetPending(42);
+		Storage->Complete(ETaskState::Succeeded);
+		Storage->BindProducer(Task);
+		EXPECT_TRUE(Task.GetDiagnostics().bHasResultStorage);
+		EXPECT_EQ(1u, GetTaskSchedulerDiagnostics().RetainedTerminalResultCount);
+		ShutdownTaskScheduler(true);
+		Task = {};
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalResultCount);
 	}
 
 	TEST(FTaskDiagnosticsTests, LifetimeCountersRemainIsolatedAcrossStoppedAndRestartedSchedulers)

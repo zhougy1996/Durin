@@ -100,8 +100,6 @@ namespace Durin::Profiling
 				Running,
 				Rejected,
 				PayloadBytes,
-				ResultBytes,
-				RetainedResultBytes,
 				Count,
 			};
 
@@ -180,7 +178,7 @@ namespace Durin::Profiling
 			Private::CopyTaskProfilerLabel(Slot.Owner, Owner);
 			Private::CopyTaskProfilerLabel(Slot.Category, Category);
 			constexpr std::array<const char*, static_cast<size_t>(Private::ETaskProfilerPlot::Count)> Suffixes{
-				"QueueDepth", "Running", "Rejected", "PayloadBytes", "ResultBytes", "RetainedResultBytes"
+				"QueueDepth", "Running", "Rejected", "PayloadBytes"
 			};
 			for (size_t Index = 0; Index < Suffixes.size(); ++Index)
 			{
@@ -214,14 +212,12 @@ namespace Durin::Profiling
 			uint64 QueueDepth,
 			uint64 Running,
 			uint64 Rejected,
-			uint64 PayloadBytes,
-			uint64 ResultBytes,
-			uint64 RetainedResultBytes) noexcept -> void
+			uint64 PayloadBytes) noexcept -> void
 		{
 			if (!TracyIsStarted || !TracyIsConnected) return;
 			const Private::FTaskProfilerSlot& Slot = Private::GetTaskProfilerSlot(OwnerId, CategoryId);
 			const std::array<uint64, static_cast<size_t>(Private::ETaskProfilerPlot::Count)> Values{
-				QueueDepth, Running, Rejected, PayloadBytes, ResultBytes, RetainedResultBytes
+				QueueDepth, Running, Rejected, PayloadBytes
 			};
 			for (size_t Index = 0; Index < Values.size(); ++Index)
 			{
@@ -257,7 +253,7 @@ namespace Durin::Profiling
 		inline auto TaskEnqueued(uint64, uint16, uint16, uint8) noexcept -> void {}
 		inline auto TaskExecution(uint64, uint16, uint16, uint8) noexcept -> void {}
 		inline auto TaskTerminal(uint64, uint16, uint16, uint8, uint8) noexcept -> void {}
-		inline auto TaskAggregatePlots(uint16, uint16, uint64, uint64, uint64, uint64, uint64, uint64) noexcept -> void {}
+		inline auto TaskAggregatePlots(uint16, uint16, uint64, uint64, uint64, uint64) noexcept -> void {}
 	}
 
 	#define DURIN_PROFILE_CPU_ZONE() ((void)0)

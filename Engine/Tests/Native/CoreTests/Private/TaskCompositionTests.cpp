@@ -1415,6 +1415,61 @@ namespace Durin
 		EXPECT_TRUE(CompletedWhileCpuBlocked);
 		WaitTask(Blocker);
 	}
+	TEST(FTaskExecutorTests, StorageEstimateIncludesConcreteCapturesAndResultStorage)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		using FLargeValue = std::array<std::byte, 8192>;
+		auto SmallSource = Tasks::TCompletionSource<int>::Create();
+		auto LargeSource = Tasks::TCompletionSource<FLargeValue>::Create();
+		auto Small = SmallSource.TakeTask();
+		auto Large = LargeSource.TakeTask();
+		EXPECT_GT(Large.GetDiagnostics().EstimatedStorageBytes, Small.GetDiagnostics().EstimatedStorageBytes);
+
+		Tasks::FTaskEvent Gate("StorageGate", false);
+		const auto Prerequisites = Tasks::Prerequisites(Gate);
+		auto SmallCapture = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.Prerequisites = Prerequisites},
+			[Value = std::array<std::byte, 16>{}] { EXPECT_EQ(std::byte{}, Value.front()); });
+		auto LargeCapture = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.Prerequisites = Prerequisites},
+			[Value = FLargeValue{}] { EXPECT_EQ(std::byte{}, Value.front()); });
+		EXPECT_GT(LargeCapture.GetDiagnostics().EstimatedStorageBytes, SmallCapture.GetDiagnostics().EstimatedStorageBytes);
+		Gate.Trigger();
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(LargeCapture).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(SmallCapture).TaskState);
+		EXPECT_TRUE(SmallSource.TrySetValue(1));
+		EXPECT_TRUE(LargeSource.TrySetValue(FLargeValue{}));
+	}
+
+	TEST(FTaskExecutorTests, DeferredObserversDoNotChargeSharedInputStorageAgain)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		using FLargeValue = std::array<std::byte, 8192>;
+		auto Source = Tasks::TCompletionSource<FLargeValue>::Create();
+		auto Input = Source.TakeTask();
+		auto Observe = [](const FLargeValue& Value) { EXPECT_EQ(std::byte{}, Value.front()); };
+		auto Inspect = [](const Tasks::TTask<FLargeValue>& Task) { EXPECT_EQ(std::byte{}, Task.GetResult().front()); };
+		auto Then = Tasks::Then(Input, Tasks::ETaskExecutor::GameThreadDeferred, {}, Observe);
+		auto Completed = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::GameThreadDeferred, {}, Inspect);
+		auto VectorAll = Tasks::WhenAll(std::vector{Input, Input}, Tasks::ETaskExecutor::GameThreadDeferred);
+		auto TupleAll = Tasks::WhenAll(std::tuple{Input, Input}, Tasks::ETaskExecutor::GameThreadDeferred);
+		EXPECT_EQ(sizeof(Observe), Then.GetDiagnostics().EstimatedPayloadBytes);
+		EXPECT_EQ(sizeof(Inspect), Completed.GetDiagnostics().EstimatedPayloadBytes);
+		EXPECT_LT(VectorAll.GetDiagnostics().EstimatedPayloadBytes, sizeof(FLargeValue));
+		EXPECT_LT(TupleAll.GetDiagnostics().EstimatedPayloadBytes, sizeof(FLargeValue));
+		EXPECT_TRUE(Source.TrySetValue(FLargeValue{}));
+		PumpGameThreadDeferredWork({.bUnlimited = true});
+		EXPECT_TRUE(Then.IsCompleted());
+		EXPECT_TRUE(Completed.IsCompleted());
+		ASSERT_TRUE(VectorAll.IsCompleted());
+		ASSERT_TRUE(TupleAll.IsCompleted());
+		EXPECT_EQ(&Input.GetResult(), VectorAll.GetResult()[0].get());
+		EXPECT_EQ(&Input.GetResult(), VectorAll.GetResult()[1].get());
+		EXPECT_EQ(&Input.GetResult(), std::get<0>(TupleAll.GetResult()).get());
+		EXPECT_EQ(&Input.GetResult(), std::get<1>(TupleAll.GetResult()).get());
+	}
+
 	TEST(FTaskAcceptanceTests, QueuesAboveFormerDefaultsAndDrainsWithExecutorAffinity)
 	{
 		EnsureGameThreadForTaskTest();

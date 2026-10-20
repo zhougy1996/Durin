@@ -133,22 +133,14 @@ namespace Durin
 	namespace Private
 	{
 		// Void payload destruction must remain valid after a submitting module unloads.
-		CORE_API auto MakeVoidTaskResultState(uint64 ResultBytes) -> std::shared_ptr<TTaskResultState<std::monostate>>;
-		// Allocation-free weak accounting binding keeps post-admission ownership transfer infallible.
-		struct FTaskResultAccounting
-		{
-			std::weak_ptr<FTaskStateData> State;
-			CORE_API auto operator()(uint64 Bytes) const -> void;
-			explicit operator bool() const { return !State.expired(); }
-		};
-		CORE_API auto MakeTaskResultAccounting(const Tasks::FTask& Task) -> FTaskResultAccounting;
+		CORE_API auto MakeVoidTaskResultState() -> std::shared_ptr<TTaskResultState<std::monostate>>;
 		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void(const FTaskCancellationToken&)>;
 
 		using FTaskCompletionFunction = TMoveOnlyFunction<void(ETaskState)>;
 
 		// Reports rejection before acceptance; accepted work can still fail during execution.
-		CORE_API auto TryLaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<Tasks::FTask>;
-		CORE_API auto TryLaunchContinuationTask(const Tasks::FTask& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<Tasks::FTask>;
+		CORE_API auto TryLaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes = 0) -> Tasks::TTaskAdmission<Tasks::FTask>;
+		CORE_API auto TryLaunchContinuationTask(const Tasks::FTask& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 AdditionalStorageBytes = 0) -> Tasks::TTaskAdmission<Tasks::FTask>;
 		CORE_API auto ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority, uint64 PayloadBytes, bool bQueueOnSaturation = false) -> std::optional<Tasks::FTaskAdmissionError>;
 		// Native-test seam for pausing after the raw terminal transition and before completion publication.
 		// Injects bad_alloc at checkpoints 1-5 before acceptance or 6 during dispatch; zero disables it.
@@ -182,8 +174,7 @@ namespace Durin
 		ETaskPriority Priority = ETaskPriority::Normal;
 		ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
 		uint64 EstimatedPayloadBytes = 0;
-		uint64 EstimatedResultBytes = 0;
-		uint64 RetainedResultBytes = 0;
+		uint64 EstimatedStorageBytes = 0;
 		uint64 CoalescingOwnerDomain = 0;
 		uint64 CoalescingWorkId = 0;
 		uint64 CoalescingGeneration = 0;
@@ -224,14 +215,9 @@ namespace Durin
 		uint64 ParallelForOperationCount = 0;
 		uint64 CurrentPayloadBytes = 0;
 		uint64 PeakPayloadBytes = 0;
-		uint64 CurrentResultBytes = 0;
-		uint64 PeakResultBytes = 0;
-		uint64 CurrentRetainedResultBytes = 0;
-		uint64 PeakRetainedResultBytes = 0;
 		std::array<uint64, 32> QueueResidencyHistogram{};
 		std::array<uint64, 32> ExecutionHistogram{};
 		std::array<uint64, 32> PayloadBytesHistogram{};
-		std::array<uint64, 32> ResultBytesHistogram{};
 	};
 
 	// Scheduler-owned logical storage, excluding domain allocations behind captures/results.
@@ -273,7 +259,6 @@ namespace Durin
 		uint64 NonterminalTaskCount = 0;
 		uint64 RetainedTerminalHandleCount = 0;
 		uint64 RetainedTerminalResultCount = 0;
-		uint64 RetainedResultBytes = 0;
 		uint64 LastLongWaitTargetTaskId = 0;
 		uint64 LastLongWaitElapsedNanoseconds = 0;
 		std::string LastLongWaiterName;
@@ -473,9 +458,8 @@ namespace Durin
 			friend class Durin::FTaskScheduler;
 			friend struct Durin::Private::FTaskRuntimeAccess;
 			friend struct Durin::Tasks::Detail::FTaskAccess;
-			friend CORE_API auto Durin::Private::TryLaunchCancelableTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> Durin::Tasks::TTaskAdmission<FTaskHandle>;
-			friend CORE_API auto Durin::Private::TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes) -> Durin::Tasks::TTaskAdmission<FTaskHandle>;
-			friend CORE_API auto Durin::Private::MakeTaskResultAccounting(const FTaskHandle& Task) -> Durin::Private::FTaskResultAccounting;
+			friend CORE_API auto Durin::Private::TryLaunchCancelableTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes) -> Durin::Tasks::TTaskAdmission<FTaskHandle>;
+			friend CORE_API auto Durin::Private::TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 AdditionalStorageBytes) -> Durin::Tasks::TTaskAdmission<FTaskHandle>;
 			friend CORE_API auto Durin::CancelTask(const FTaskHandle& Task) -> bool;
 			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
 			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
@@ -496,8 +480,8 @@ namespace Durin
 		struct FTaskRuntimeAccess
 		{
 			// Detached completion reuses task storage without admitting a scheduled body.
-			CORE_API static auto CreateDetachedCompletion(FTaskCompletionFunction&& Completion, uint64 ResultBytes) -> Tasks::FTask;
-			CORE_API static auto RetainResult(const Tasks::FTask& Task, std::shared_ptr<void> Result) -> void;
+			CORE_API static auto CreateDetachedCompletion(FTaskCompletionFunction&& Completion) -> Tasks::FTask;
+			CORE_API static auto RetainResult(const Tasks::FTask& Task, std::shared_ptr<void> Result, bool bHasValue) -> void;
 			CORE_API static auto PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>;
 			CORE_API static auto RetainLifetime(const Tasks::FTask& Task, std::shared_ptr<void> Lifetime) -> void;
 			CORE_API static auto GetCurrentTaskId() -> uint64;
@@ -596,11 +580,6 @@ namespace Durin
 	class TTaskResultState : public std::enable_shared_from_this<TTaskResultState<T>>
 	{
 	public:
-		explicit TTaskResultState(uint64 InEstimatedResultBytes)
-			: EstimatedResultBytes(InEstimatedResultBytes)
-		{
-		}
-
 		~TTaskResultState()
 		{
 			Discard();
@@ -608,11 +587,7 @@ namespace Durin
 
 		auto BindProducer(const Tasks::FTask& InProducer) -> void
 		{
-			Private::FTaskRuntimeAccess::RetainResult(InProducer, this->shared_from_this());
-			auto Setter = Private::MakeTaskResultAccounting(InProducer);
-			std::lock_guard Lock(Mutex);
-			if (!RetainedBytesSetter) RetainedBytesSetter = Setter;
-			if (bPublished && Value) RetainedBytesSetter(EstimatedResultBytes);
+			Private::FTaskRuntimeAccess::RetainResult(InProducer, this->shared_from_this(), !std::same_as<T, std::monostate>);
 		}
 
 		auto SetPending(T&& InValue) -> void
@@ -634,7 +609,6 @@ namespace Durin
 				if (State == ETaskState::Succeeded && (Value || Forwarded))
 				{
 					bPublished = true;
-					if (Value && RetainedBytesSetter) RetainedBytesSetter(EstimatedResultBytes);
 				}
 				else
 				{
@@ -667,21 +641,16 @@ namespace Durin
 			{
 				std::lock_guard Lock(Mutex);
 				bPublished = false;
-				if (RetainedBytesSetter) RetainedBytesSetter(0);
 				DetachedValue = std::move(Value);
 				DetachedForward = std::move(Forwarded);
 				DetachedTask = std::move(ForwardedTask);
 			}
 		}
 
-		auto GetEstimatedResultBytes() const -> uint64 { return EstimatedResultBytes; }
-
 	private:
 
 		mutable std::mutex Mutex;
 		std::unique_ptr<T> Value;
-		Private::FTaskResultAccounting RetainedBytesSetter;
-		uint64 EstimatedResultBytes = 0;
 		bool bCompleted = false;
 		bool bPublished = false;
 		std::shared_ptr<TTaskResultState> Forwarded;

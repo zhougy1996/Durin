@@ -86,16 +86,20 @@ records or mailboxes with independent payload budgets. Deferred shutdown and
 selected module drain see the entire accepted queue.
 
 `FTaskSchedulerDiagnostics::ExecutorStorage` is indexed by native `ETaskTarget`.
-It reports current/peak node count, logical scheduler-owned node, callable-wrapper,
-prerequisite and result storage bytes, current/peak pending nodes and bytes,
+It reports current/peak node count, a unified estimate of scheduler-owned task
+storage, current/peak pending nodes and bytes,
 current/peak running bodies, and node-threshold crossings. Pending includes
 external sources awaiting acknowledgement; running bodies exclude them and
 include suspended parents while helping a child. Threshold transitions emit
 power-of-two rate-limited warnings outside internal locks. This accounting
-excludes callable target heap allocations, allocator overhead and separately
-allocated domain payloads and is not process RSS. No separate callable-byte
-gauges or histograms are maintained. Existing attribution gauges distinguish waiting, queued,
-running and nonterminal nodes and report payload/result storage peaks.
+includes node and callable-wrapper storage, prerequisite references, and the
+concrete callable, completion callback, result-state and value sizes known before
+type erasure. It excludes allocator overhead and dynamic allocations behind
+captures and results, and is not process RSS. `FTaskDiagnostics::EstimatedStorageBytes`
+reports the same per-task estimate. No separate callable or result byte gauges,
+histograms or lifetime byte callbacks are maintained. Shared prerequisite results
+are not charged again as continuation payloads. Existing attribution gauges
+distinguish waiting, queued, running and nonterminal nodes and report payload peaks.
 Deferred diagnostics include current/peak retained queue storage, queue depth
 and crossings of configured count/byte thresholds.
 Terminal publication releases scheduler reservations exactly once; retained

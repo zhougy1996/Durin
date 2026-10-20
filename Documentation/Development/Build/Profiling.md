@@ -294,9 +294,8 @@ aggregate accounting. The pinned Tracy API has no native cross-thread flow
 primitive, so task ids are correlation values; Durin does not retain
 task history to draw synthetic arrows.
 
-The engine frame boundary publishes six fixed plots per registered pair:
-`QueueDepth`, `Running`, `Rejected`, `PayloadBytes`,
-`ResultBytes`, and `RetainedResultBytes`, under
+The engine frame boundary publishes four fixed plots per registered pair:
+`QueueDepth`, `Running`, `Rejected`, and `PayloadBytes`, under
 `Tasks.<Owner>.<Category>.<Measurement>`. Plot names are built once from the
 bounded attribution registry. Dynamic task names, asset paths, ids, and request
 values never create plots or source locations. Scope ids likewise never create

@@ -205,14 +205,6 @@ namespace Durin
 		EXPECT_EQ(CallableCount * 2, CallableRuns.load(std::memory_order::acquire));
 		EXPECT_EQ(static_cast<uint64>(ResultCount) * ResultBytes * 2,
 			ResultBytesObserved.load(std::memory_order::acquire));
-		const auto ResultReleaseDeadline =
-			std::chrono::steady_clock::now() + std::chrono::seconds(1);
-		while (GetTaskSchedulerDiagnostics().RetainedResultBytes != 0
-			&& std::chrono::steady_clock::now() < ResultReleaseDeadline)
-		{
-			std::this_thread::yield();
-		}
-		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedResultBytes);
 		std::cout << "TaskOwnershipQualification,callables=" << CallableCount
 			<< ",results=" << ResultCount << ",result_bytes=" << ResultBytes
 			<< ",copyable_callable_ns=" << CopyableCallableNanoseconds

@@ -254,8 +254,6 @@ namespace Durin
 			Running,
 			Nonterminal,
 			PayloadBytes,
-			ResultBytes,
-			RetainedResultBytes,
 			Count,
 		};
 
@@ -264,7 +262,6 @@ namespace Durin
 			QueueResidency,
 			Execution,
 			PayloadBytes,
-			ResultBytes,
 			Count,
 		};
 
@@ -333,16 +330,11 @@ namespace Durin
 				Out.CurrentNonterminalCount = Gauge(ETaskAggregateGauge::Nonterminal);
 				Out.CurrentPayloadBytes = Gauge(ETaskAggregateGauge::PayloadBytes);
 				Out.PeakPayloadBytes = GaugePeak(ETaskAggregateGauge::PayloadBytes);
-				Out.CurrentResultBytes = Gauge(ETaskAggregateGauge::ResultBytes);
-				Out.PeakResultBytes = GaugePeak(ETaskAggregateGauge::ResultBytes);
-				Out.CurrentRetainedResultBytes = Gauge(ETaskAggregateGauge::RetainedResultBytes);
-				Out.PeakRetainedResultBytes = GaugePeak(ETaskAggregateGauge::RetainedResultBytes);
 				for (size_t Bucket = 0; Bucket < 32; ++Bucket)
 				{
 					Out.QueueResidencyHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::QueueResidency)][Bucket].load(std::memory_order::acquire);
 					Out.ExecutionHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::Execution)][Bucket].load(std::memory_order::acquire);
 					Out.PayloadBytesHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::PayloadBytes)][Bucket].load(std::memory_order::acquire);
-					Out.ResultBytesHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::ResultBytes)][Bucket].load(std::memory_order::acquire);
 				}
 			}
 
@@ -359,8 +351,6 @@ namespace Durin
 			ETaskState StateBeforeTerminal = ETaskState::Invalid;
 			ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
 			uint64 PayloadBytes = 0;
-			uint64 ResultBytes = 0;
-			uint64 RetainedResultBytes = 0;
 			uint64 QueueResidencyNanoseconds = 0;
 			uint64 ExecutionNanoseconds = 0;
 		};
@@ -498,7 +488,6 @@ namespace Durin
 			uint64 InEstimatedPayloadBytes,
 			bool bInQueueOnSaturation,
 			bool bInIndependentCPU,
-			uint64 InEstimatedResultBytes,
 			FTaskAttribution InAttribution,
 			FTaskGenerationToken InGenerationToken,
 			std::optional<FTaskCoalescingKey> InCoalescingKey
@@ -511,7 +500,6 @@ namespace Durin
 			, SharedCancellationState(InCancellationToken.SharedState)
 			, PendingFunction(std::move(InFunction))
 			, CompletionFunction(std::move(InCompletionFunction))
-			, bHasResultStorage(static_cast<bool>(CompletionFunction) && InEstimatedResultBytes != 0)
 			, RemainingPrerequisites(static_cast<uint32>(InPrerequisites.size()))
 			, State(InPrerequisites.empty() ? ETaskState::Queued : ETaskState::Waiting)
 			, DependencyKind(InDependencyKind)
@@ -521,7 +509,6 @@ namespace Durin
 			, EstimatedPayloadBytes(InEstimatedPayloadBytes)
 			, bQueueOnSaturation(bInQueueOnSaturation)
 			, bIndependentCPU(bInIndependentCPU)
-			, EstimatedResultBytes(InEstimatedResultBytes)
 			, Attribution(InAttribution)
 			, GenerationToken(std::move(InGenerationToken))
 			, CoalescingKey(std::move(InCoalescingKey))
@@ -539,7 +526,6 @@ namespace Durin
 
 		~FTaskStateData()
 		{
-			SetRetainedResultBytes(0);
 			ResultStorage.reset();
 			ResultLifetimes.clear();
 			if (!bTerminalLifetimeCharged)
@@ -555,11 +541,18 @@ namespace Durin
 			}
 		}
 
-		auto RetainResult(std::shared_ptr<void> Result) -> void
+		auto RetainResult(std::shared_ptr<void> Result, bool bHasValue) -> void
 		{
 			std::lock_guard Lock(Mutex);
 			require(!ResultStorage);
 			ResultStorage = std::move(Result);
+			bHasResultStorage = bHasValue;
+			// Fast tasks can publish before the typed handle binds its result storage.
+			if (bHasResultStorage && bTerminalPublicationFinished)
+			{
+				LifetimeAccounting->RetainedTerminalResultCount.fetch_add(1, std::memory_order::acq_rel);
+				bTerminalResultLifetimeCharged = true;
+			}
 		}
 		auto RetainLifetime(std::shared_ptr<void> Lifetime) -> void
 		{
@@ -573,7 +566,6 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			PendingFunction = std::move(Function);
 			CompletionFunction = std::move(Completion);
-			bHasResultStorage = static_cast<bool>(CompletionFunction) && EstimatedResultBytes != 0;
 		}
 		auto ActivateAdmission() -> void
 		{
@@ -887,8 +879,7 @@ namespace Durin
 				Snapshot.Priority = Priority;
 				Snapshot.TerminalReason = bTerminalVisible ? TerminalReason : ETaskTerminalReason::None;
 				Snapshot.EstimatedPayloadBytes = EstimatedPayloadBytes;
-				Snapshot.EstimatedResultBytes = EstimatedResultBytes;
-				Snapshot.RetainedResultBytes = bTerminalVisible ? RetainedResultBytes : 0;
+				Snapshot.EstimatedStorageBytes = SchedulerStorageBytes;
 				Snapshot.AttributionOwnerId = Private::FTaskAttributionAccess::GetOwnerId(Attribution);
 				Snapshot.AttributionCategoryId = Private::FTaskAttributionAccess::GetCategoryId(Attribution);
 				if (CoalescingKey)
@@ -903,8 +894,6 @@ namespace Durin
 			return Snapshot;
 		}
 
-		auto SetRetainedResultBytes(uint64 InRetainedResultBytes) -> void;
-
 		auto GetAccountingSnapshot() const -> FTaskAccountingSnapshot
 		{
 			std::lock_guard Lock(Mutex);
@@ -914,8 +903,6 @@ namespace Durin
 				.StateBeforeTerminal = StateBeforeTerminal,
 				.TerminalReason = TerminalReason,
 				.PayloadBytes = EstimatedPayloadBytes,
-				.ResultBytes = EstimatedResultBytes,
-				.RetainedResultBytes = RetainedResultBytes,
 				.QueueResidencyNanoseconds = DispatchTimeNanoseconds == 0 || StartTimeNanoseconds == 0 ? 0 : StartTimeNanoseconds - DispatchTimeNanoseconds,
 				.ExecutionNanoseconds = StartTimeNanoseconds == 0 || FinishTimeNanoseconds == 0 ? 0 : FinishTimeNanoseconds - StartTimeNanoseconds,
 			};
@@ -994,8 +981,6 @@ namespace Durin
 		bool bQueueOnSaturation = false;
 		const bool bIndependentCPU;
 		uint64 SchedulerStorageBytes = 0;
-		uint64 EstimatedResultBytes = 0;
-		uint64 RetainedResultBytes = 0;
 		FTaskAttribution Attribution;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
@@ -1074,9 +1059,7 @@ namespace Durin
 			Aggregate.Add(ETaskAggregateGauge::Nonterminal, 1);
 			Aggregate.Add(Task.State == ETaskState::Waiting ? ETaskAggregateGauge::Waiting : ETaskAggregateGauge::Queued, 1);
 			Aggregate.Add(ETaskAggregateGauge::PayloadBytes, Task.PayloadBytes);
-			Aggregate.Add(ETaskAggregateGauge::ResultBytes, Task.ResultBytes);
 			Aggregate.Record(ETaskAggregateHistogram::PayloadBytes, Task.PayloadBytes);
-			Aggregate.Record(ETaskAggregateHistogram::ResultBytes, Task.ResultBytes);
 		}
 
 		auto OnTaskQueued(FTaskAttribution Attribution) -> void
@@ -1092,19 +1075,6 @@ namespace Durin
 			Aggregate.Subtract(ETaskAggregateGauge::Queued, 1);
 			Aggregate.Add(ETaskAggregateGauge::Running, 1);
 			Aggregate.Record(ETaskAggregateHistogram::QueueResidency, Task.QueueResidencyNanoseconds);
-		}
-
-		auto OnRetainedResultBytesChanged(FTaskAttribution Attribution, uint64 PreviousBytes, uint64 CurrentBytes) -> void
-		{
-			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Attribution);
-			if (CurrentBytes > PreviousBytes)
-			{
-				Aggregate.Add(ETaskAggregateGauge::RetainedResultBytes, CurrentBytes - PreviousBytes);
-			}
-			else
-			{
-				Aggregate.Subtract(ETaskAggregateGauge::RetainedResultBytes, PreviousBytes - CurrentBytes);
-			}
 		}
 
 		auto RecordParallelForOperation(FTaskAttribution Attribution) -> void
@@ -1123,7 +1093,7 @@ namespace Durin
 			ETaskTarget Target = ETaskTarget::AnyWorker,
 			ETaskPriority Priority = ETaskPriority::Normal,
 			uint64 EstimatedPayloadBytes = 0,
-			uint64 EstimatedResultBytes = 0,
+			uint64 AdditionalStorageBytes = 0,
 			FTaskGenerationToken GenerationToken = {},
 			std::optional<FTaskCoalescingKey> CoalescingKey = {},
 			Tasks::FTaskAdmissionError* AdmissionError = nullptr) -> std::shared_ptr<FTaskStateData>
@@ -1190,7 +1160,6 @@ namespace Durin
 						EstimatedPayloadBytes,
 						Options.bQueueOnSaturation,
 						Options.bIndependentCPU,
-						EstimatedResultBytes,
 						Options.Attribution,
 						std::move(GenerationToken),
 						std::move(CoalescingKey)
@@ -1208,7 +1177,7 @@ namespace Durin
 					ActiveTasks.emplace(State->GetTaskId(), State);
 					CheckTaskAdmissionAllocation(5);
 					State->SetSchedulerStorageBytes(sizeof(FTaskStateData) + sizeof(Private::FMoveOnlyTaskFunction)
-						+ PrerequisiteStates.capacity() * sizeof(std::shared_ptr<FTaskStateData>) + EstimatedResultBytes);
+						+ PrerequisiteStates.capacity() * sizeof(std::shared_ptr<FTaskStateData>) + AdditionalStorageBytes);
 					State->InitializeOwnership(FunctionOwner, CompletionFunction);
 					if (Options.bExternalCompletion) State->ConfigureExternal(Options.bUnknownExecutionRequirement);
 					if (Target == ETaskTarget::BlockingIO) ++BlockingIOReservations;
@@ -1481,7 +1450,6 @@ namespace Durin
 			else if (Task.StateBeforeTerminal == ETaskState::Queued) Aggregate.Subtract(ETaskAggregateGauge::Queued, 1);
 			else if (Task.StateBeforeTerminal == ETaskState::Running) Aggregate.Subtract(ETaskAggregateGauge::Running, 1);
 			Aggregate.Subtract(ETaskAggregateGauge::PayloadBytes, Task.PayloadBytes);
-			Aggregate.Subtract(ETaskAggregateGauge::ResultBytes, Task.ResultBytes);
 			if (Task.State == ETaskState::Succeeded) Aggregate.Increment(ETaskAggregateCounter::Succeeded);
 			else if (Task.State == ETaskState::Failed) Aggregate.Increment(ETaskAggregateCounter::Failed);
 			else Aggregate.Increment(ETaskAggregateCounter::Canceled);
@@ -1661,9 +1629,7 @@ namespace Durin
 					Entry.CurrentWaitingCount + Entry.CurrentQueuedCount,
 					Entry.CurrentRunningCount,
 					Entry.RejectedCount,
-					Entry.CurrentPayloadBytes,
-					Entry.CurrentResultBytes,
-					Entry.CurrentRetainedResultBytes);
+					Entry.CurrentPayloadBytes);
 			}
 		}
 
@@ -1692,7 +1658,6 @@ namespace Durin
 			for (FTaskOwnerCategoryDiagnostics& Entry : Snapshot.OwnerCategoryDiagnostics)
 			{
 				OwnerCategoryAggregates[Entry.CategoryId].Snapshot(Entry);
-				Snapshot.RetainedResultBytes += Entry.CurrentRetainedResultBytes;
 			}
 			Snapshot.bRunning = bInRunning;
 
@@ -1776,20 +1741,6 @@ namespace Durin
 	{
 		if (auto Owner = PinScheduler()) Owner->ExecuteTask(shared_from_this(), GetTarget() == ETaskTarget::AnyWorker);
 		else Discard();
-	}
-
-	auto FTaskStateData::SetRetainedResultBytes(uint64 InRetainedResultBytes) -> void
-	{
-		uint64 PreviousRetainedResultBytes = 0;
-		{
-			std::lock_guard Lock(Mutex);
-			PreviousRetainedResultBytes = RetainedResultBytes;
-			RetainedResultBytes = InRetainedResultBytes;
-		}
-		if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
-		{
-			PinnedScheduler->OnRetainedResultBytesChanged(Attribution, PreviousRetainedResultBytes, InRetainedResultBytes);
-		}
 	}
 
 	class FGameThreadDeferredWorkQueue final : public std::enable_shared_from_this<FGameThreadDeferredWorkQueue>
@@ -2607,8 +2558,8 @@ namespace Durin
 		return GroupToken.IsCancellationRequested() || ExternalToken.IsCancellationRequested();
 	}
 
-	auto Private::MakeVoidTaskResultState(uint64 ResultBytes) -> std::shared_ptr<TTaskResultState<std::monostate>>
-	{ return std::make_shared<TTaskResultState<std::monostate>>(ResultBytes); }
+	auto Private::MakeVoidTaskResultState() -> std::shared_ptr<TTaskResultState<std::monostate>>
+	{ return std::make_shared<TTaskResultState<std::monostate>>(); }
 
 	Tasks::Private::FTaskHandle::FTaskHandle() = default;
 
@@ -2985,7 +2936,7 @@ namespace Durin
 			FMoveOnlyTaskFunction&& Function,
 			Private::FTaskCompletionFunction&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
-			uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<Tasks::FTask>
+			uint64 AdditionalStorageBytes) -> Tasks::TTaskAdmission<Tasks::FTask>
 		try
 		{
 			using FAdmission = Tasks::TTaskAdmission<Tasks::FTask>;
@@ -3037,7 +2988,7 @@ namespace Durin
 				Options.Target,
 				Options.Priority,
 				Options.EstimatedPayloadBytes,
-				EstimatedResultBytes, Options.GenerationToken, Options.CoalescingKey, &AdmissionError
+				AdditionalStorageBytes, Options.GenerationToken, Options.CoalescingKey, &AdmissionError
 			);
 			if (!State)
 			{
@@ -3059,7 +3010,7 @@ namespace Durin
 			Private::FTaskCompletionFunction&& CompletionFunction,
 			const FTaskContinuationOptions& Options,
 			ETaskDependencyKind DependencyKind,
-			uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<Tasks::FTask>
+			uint64 AdditionalStorageBytes) -> Tasks::TTaskAdmission<Tasks::FTask>
 		try
 		{
 			using FAdmission = Tasks::TTaskAdmission<Tasks::FTask>;
@@ -3122,7 +3073,7 @@ namespace Durin
 				Options.Target,
 				Options.Priority,
 				Options.EstimatedPayloadBytes,
-				EstimatedResultBytes,
+				AdditionalStorageBytes,
 				Options.GenerationToken,
 				Options.CoalescingKey,
 				&AdmissionError
@@ -3135,8 +3086,8 @@ namespace Durin
 		}
 
 
-		auto FTaskRuntimeAccess::RetainResult(const Tasks::FTask& Task, std::shared_ptr<void> Result) -> void
-		{ require(Task.State && Result); Task.State->RetainResult(std::move(Result)); }
+		auto FTaskRuntimeAccess::RetainResult(const Tasks::FTask& Task, std::shared_ptr<void> Result, bool bHasValue) -> void
+		{ require(Task.State && Result); Task.State->RetainResult(std::move(Result), bHasValue); }
 		auto FTaskRuntimeAccess::PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>
 		{ require(Task.State); return Task.State; }
 		auto FTaskRuntimeAccess::RetainLifetime(const Tasks::FTask& Task, std::shared_ptr<void> Lifetime) -> void
@@ -3149,13 +3100,13 @@ namespace Durin
 
 
 
-		auto FTaskRuntimeAccess::CreateDetachedCompletion(FTaskCompletionFunction&& Completion, uint64 ResultBytes) -> Tasks::FTask
+		auto FTaskRuntimeAccess::CreateDetachedCompletion(FTaskCompletionFunction&& Completion) -> Tasks::FTask
 		{
 			auto State = std::make_shared<FTaskStateData>("DetachedCompletion", std::weak_ptr<FTaskScheduler>{},
 				std::make_shared<FTaskSchedulerLifetimeAccounting>(), nullptr, std::move(Completion),
 				FTaskCancellationToken{}, std::vector<std::shared_ptr<FTaskStateData>>{}, 0,
 				ETaskDependencyKind::Completion, false, ETaskTarget::AnyWorker, ETaskPriority::Normal,
-				0, false, false, ResultBytes, FTaskAttribution{}, FTaskGenerationToken{}, std::nullopt);
+				0, false, false, FTaskAttribution{}, FTaskGenerationToken{}, std::nullopt);
 			State->ActivateDetachedCompletion();
 			return Tasks::FTask(std::move(State));
 		}
@@ -3246,16 +3197,6 @@ namespace Durin
 		{
 			require(GCurrentTaskState);
 			GCurrentTaskState->RequestCancellation("Task propagated prerequisite cancellation.");
-		}
-
-		auto MakeTaskResultAccounting(const Tasks::FTask& Task) -> FTaskResultAccounting
-		{
-			return {Task.State};
-		}
-
-		auto FTaskResultAccounting::operator()(uint64 Bytes) const -> void
-		{
-			if (auto Pinned = State.lock()) Pinned->SetRetainedResultBytes(Bytes);
 		}
 
 
