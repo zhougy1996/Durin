@@ -27,14 +27,14 @@ namespace Durin
 			BuildService->ResetCacheForTests(std::move(Options));
 			Builder = std::make_unique<FShaderBuilder>(BuildService);
 		}
-		auto PrepareMounted(std::string_view Path, const FShaderCompileOptions& CompileOptions,
+		auto CompileMounted(std::string_view Path, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
 			-> FShaderBuildHandle override
-		{ return Builder->PrepareMounted(Path, CompileOptions, std::move(Options), std::move(Completion)); }
+		{ return Builder->CompileMounted(Path, CompileOptions, std::move(Options), std::move(Completion)); }
 
-		auto PrepareGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+		auto CompileGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
 			FShaderBuildCompletion Completion) -> FShaderBuildHandle override
-		{ return Builder->PrepareGenerated(std::move(Request), std::move(Options), std::move(Completion)); }
+		{ return Builder->CompileGenerated(std::move(Request), std::move(Options), std::move(Completion)); }
 
 		auto GetBuildVersion() const -> uint64 override { return Builder->GetBuildVersion(); }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override

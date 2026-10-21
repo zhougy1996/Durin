@@ -293,13 +293,12 @@ namespace Durin
 		if (VirtualShaderPath.empty()) return FShaderCompilerOutput::Failure(std::string(std::string("Shader type virtual shader path must not be empty")));
 		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return FShaderCompilerOutput::Failure(std::string(std::string("Shader entry-point request is invalid.")));
 		FShaderCompilerOutput Output;
-		auto Handle = PrepareMounted(VirtualShaderPath, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
-		Handle.Submit();
+		auto Handle = CompileMounted(VirtualShaderPath, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
 		require(Handle.Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}
 
-	auto FShaderBuilder::PrepareMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options,
+	auto FShaderBuilder::CompileMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options,
 		FShaderBuildRequestOptions RequestOptions, FShaderBuildCompletion Completion)
 		-> FShaderBuildHandle
 	{
@@ -307,7 +306,7 @@ namespace Durin
 		Request.VirtualPath = VirtualShaderPath; Request.Target = Options.Target; Request.Frequencies = Options.Frequencies;
 		Request.Macros = Options.Macros; Request.SourceArtifacts = Options.SourceArtifacts; Request.bForceRecompile = Options.bForceRecompile;
 		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry ? Entry : "");
-		return PrepareRequest(std::move(Request), std::move(RequestOptions), std::move(Completion), ESourceKind::Mounted);
+		return CompileRequest(std::move(Request), std::move(RequestOptions), std::move(Completion), ESourceKind::Mounted);
 	}
 
 	auto FShaderBuilder::PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>

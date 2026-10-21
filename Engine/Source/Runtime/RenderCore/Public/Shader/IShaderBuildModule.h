@@ -47,12 +47,13 @@ namespace Durin
 
 	private:
 		friend class FShaderCompilingManager;
-		// Execution backend: public callers submit through FShaderCompilingManager.
-		virtual auto PrepareMounted(std::string_view VirtualShaderPath,
+		// Starts work immediately; completion may run before the handle is returned.
+		// Public callers submit through FShaderCompilingManager.
+		virtual auto CompileMounted(std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& CompileOptions, FShaderBuildRequestOptions Options,
 			FShaderBuildCompletion Completion)
 			-> FShaderBuildHandle = 0;
-		virtual auto PrepareGenerated(FGeneratedShaderCompileRequest Request,
+		virtual auto CompileGenerated(FGeneratedShaderCompileRequest Request,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
 			-> FShaderBuildHandle = 0;
 	public:

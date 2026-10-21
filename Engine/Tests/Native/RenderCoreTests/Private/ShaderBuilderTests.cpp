@@ -114,7 +114,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			EXPECT_TRUE(Result.Errors.empty());
 		}
 		uint32 Calls = 0;
-		auto Handle = Builder->PrepareGenerated(Request,
+		auto Handle = Builder->CompileGenerated(Request,
 			{.IsCancelled = [] { return true; }, .bInlineExecution = true},
 			[&](auto Result) {
 				++Calls;
@@ -123,11 +123,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				EXPECT_TRUE(Result.CompiledShaders.empty());
 				EXPECT_TRUE(Result.Errors.empty());
 			});
-		Handle.Submit();
 		EXPECT_EQ(Handle.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Calls, 1u);
 		EXPECT_TRUE(Builder->GetOrCompileGenerated(Request));
-		auto BrokenObserver = Builder->PrepareGenerated(Request,
+		auto BrokenObserver = Builder->CompileGenerated(Request,
 			{.IsCancelled = []() -> bool { throw std::runtime_error("observer failure"); }, .bInlineExecution = true},
 			[&](auto Result) {
 				++Calls;
@@ -135,7 +134,6 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				EXPECT_TRUE(Result.CompiledShaders.empty());
 				EXPECT_FALSE(Result.Errors.empty());
 			});
-		BrokenObserver.Submit();
 		EXPECT_EQ(BrokenObserver.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Calls, 2u);
 		Request.EntryPoints.clear();
@@ -445,11 +443,9 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return float4(1,0,0,1); }";
 		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
 		std::atomic_uint32_t FirstCallbacks = 0, SecondCallbacks = 0;
-		auto First = Builder->PrepareGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Errors.empty()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++FirstCallbacks; });
-		First.Submit();
+		auto First = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Errors.empty()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++FirstCallbacks; });
 		ASSERT_TRUE(Cache->Entered.WaitFor(5.0));
-		auto Second = Builder->PrepareGenerated(Request, {}, [&](auto Output) { EXPECT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors); ++SecondCallbacks; });
-		Second.Submit();
+		auto Second = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors); ++SecondCallbacks; });
 		FThreadEvent Unrelated;
 		auto Marker = Tasks::LaunchTask("UnrelatedShaderWork", [&] { Unrelated.Trigger(); });
 		ASSERT_TRUE(Unrelated.WaitFor(5.0));
@@ -464,41 +460,34 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder->Close();
 	}
 
-	TEST_F(FShaderBuilderTests, PreparationReentryAndDispatchFailureCompleteThroughOutputs)
+	TEST_F(FShaderBuilderTests, InlineReentryAndDispatchFailureCompleteThroughOutputs)
 	{
 		Builder = std::make_unique<FShaderBuilder>();
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = "/Generated/Materials/InlineInvalid";
 		uint32 Callbacks = 0;
-		auto Deferred = Builder->PrepareGenerated(Request, {}, [&](auto Output) { EXPECT_FALSE(Output); ++Callbacks; });
-		EXPECT_EQ(Callbacks, 0u);
-		Deferred.Submit(); Deferred.Submit();
+		auto Deferred = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_FALSE(Output); ++Callbacks; });
 		EXPECT_EQ(Deferred.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Callbacks, 1u);
 		bool Returned = false;
-		auto Inline = Builder->PrepareGenerated(Request, {.bInlineExecution = true}, [&](auto Output) {
+		auto Inline = Builder->CompileGenerated(Request, {.bInlineExecution = true}, [&](auto Output) {
 			EXPECT_FALSE(Returned); EXPECT_FALSE(Output); ++Callbacks;
-			auto Nested = Builder->PrepareGenerated(Request, {.bInlineExecution = true}, [&](auto) { ++Callbacks; });
-			Nested.Submit();
+			auto Nested = Builder->CompileGenerated(Request, {.bInlineExecution = true}, [&](auto) { ++Callbacks; });
 			EXPECT_EQ(Nested.Wait(), EShaderBuildWaitResult::WouldBlock);
 		});
-		EXPECT_EQ(Callbacks, 1u);
-		Inline.Submit(); Returned = true;
+		Returned = true;
 		EXPECT_EQ(Inline.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Callbacks, 3u);
-		auto Canceled = Builder->PrepareGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++Callbacks; });
-		Canceled.RequestCancel(); Canceled.Submit();
+		auto Canceled = Builder->CompileGenerated(Request, {.IsCancelled = [] { return true; }, .bInlineExecution = true}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++Callbacks; });
+		Canceled.RequestCancel();
 		EXPECT_EQ(Canceled.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Callbacks, 4u);
 		Builder->Close();
-		auto Closed = Builder->PrepareGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++Callbacks; });
-		EXPECT_EQ(Callbacks, 4u);
-		Closed.Submit();
+		auto Closed = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++Callbacks; });
 		EXPECT_EQ(Closed.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Callbacks, 5u);
-		auto Retired = Builder->PrepareGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++Callbacks; });
+		auto Retired = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++Callbacks; });
 		Builder.reset();
-		Retired.Submit();
 		EXPECT_EQ(Retired.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Callbacks, 6u);
 	}
@@ -515,8 +504,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return float4(1,0,0,1); }";
 		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
 		std::atomic_uint32_t Calls = 0;
-		auto Handle = Builder->PrepareGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Errors.empty()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++Calls; });
-		Handle.Submit(); Handle.RequestCancel(); EXPECT_EQ(Calls, 1u);
+		auto Handle = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Errors.empty()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++Calls; });
+		Handle.RequestCancel(); EXPECT_EQ(Calls, 1u);
 		auto Closing = std::async(std::launch::async, [&] { Builder->Close(); });
 		Release.Trigger(); Closing.get(); EXPECT_EQ(Handle.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Calls, 1u); EXPECT_EQ(Builder->GetStats().Compilations, 0u);

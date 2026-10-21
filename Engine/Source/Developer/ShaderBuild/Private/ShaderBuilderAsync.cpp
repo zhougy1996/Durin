@@ -45,7 +45,7 @@ namespace Durin
 			Tasks::FTask Preparation;
 			FTaskCancellationSource PreparationCancellation;
 			std::shared_ptr<FFlight> Flight;
-			std::atomic_bool Canceled = false, Submitted = false;
+			std::atomic_bool Canceled = false;
 			enum class EDelivery { Pending, Delivering, Completed };
 			EDelivery Delivery = EDelivery::Pending;
 			bool Published = false;
@@ -89,7 +89,7 @@ namespace Durin
 				std::function<bool()> RetiredObserver;
 				{ std::lock_guard Lock(Mutex); RetiredRequest = std::move(Request); RetiredObserver = std::move(Options.IsCancelled); NativeOutput = {}; }
 			}
-			auto Submit() -> void override;
+			auto Start() -> void;
 			auto RequestCancel() -> bool override;
 			auto SetPriority(EShaderBuildPriority Priority) -> void override;
 			auto Wait() -> EShaderBuildWaitResult override;
@@ -316,13 +316,7 @@ namespace Durin
 		if (CancelFlight) CancelFlight->Owner.RequestCancel();
 		bool PublishedNow;
 		{ std::lock_guard Lock(Mutex); PublishedNow = Published; }
-		bool Unsubmitted = false;
-		if (Submitted.compare_exchange_strong(Unsubmitted, true)) {
-			Finish(CanceledShader());
-			{ std::lock_guard Lock(Mutex); Published = true; }
-			Condition.notify_all();
-		}
-		else if (PublishedNow) Finish(CanceledShader());
+		if (PublishedNow) Finish(CanceledShader());
 		return true;
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::SetPriority(EShaderBuildPriority Priority) -> void
@@ -352,7 +346,7 @@ namespace Durin
 		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); Owner->PruneCompilerOperations(); }
 		return EShaderBuildWaitResult::Completed;
 	}
-	auto FShaderBuilder::PrepareRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+	auto FShaderBuilder::CompileRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
 		FShaderBuildCompletion Completion, ESourceKind SourceKind) -> FShaderBuildHandle
 	{
 		require(Completion);
@@ -362,11 +356,11 @@ namespace Durin
 		Subscriber->SourceKind = SourceKind; Subscriber->State = Async;
 		Subscriber->Request = std::make_shared<const FGeneratedShaderCompileRequest>(std::move(Request));
 		Subscriber->Options = std::move(Options); Subscriber->Completion = std::move(Completion);
+		Subscriber->Start();
 		return FShaderBuildHandle(std::move(Subscriber));
 	}
-	auto FShaderBuilder::FAsyncState::FSubscriber::Submit() -> void
+	auto FShaderBuilder::FAsyncState::FSubscriber::Start() -> void
 	{
-		if (Submitted.exchange(true)) return;
 		const auto Subscriber = shared_from_this();
 		const auto Owner = State.lock();
 		const auto Publish = [this] {
@@ -423,14 +417,13 @@ namespace Durin
 		}
 		Publish();
 	}
-	auto FShaderBuilder::PrepareGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+	auto FShaderBuilder::CompileGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
 		FShaderBuildCompletion Completion) -> FShaderBuildHandle
-	{ return PrepareRequest(std::move(Request), std::move(Options), std::move(Completion), ESourceKind::Generated); }
+	{ return CompileRequest(std::move(Request), std::move(Options), std::move(Completion), ESourceKind::Generated); }
 	auto FShaderBuilder::GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
 	{
 		FShaderCompilerOutput Output;
-		auto Job = PrepareGenerated(Request, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
-		Job.Submit();
+		auto Job = CompileGenerated(Request, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
 		require(Job.Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}

@@ -19,6 +19,7 @@ namespace Durin
 		auto PrepareJobs(std::string_view Path, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
 			-> FShaderBuildHandle;
+		// Accepts a job group prepared by this manager; repeated submission is inert.
 		auto SubmitJobs(const FShaderBuildHandle& Jobs) -> void;
 		auto CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput;
 		auto CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
@@ -51,7 +52,6 @@ namespace Durin
 		friend auto GetMaterialCompilationDiagnostics() -> FMaterialCompilationDiagnostics;
 		FShaderCompilingManager();
 		struct FJobGroup;
-		auto Submit(std::shared_ptr<FJobGroup> Group) -> void;
 		auto FinishShaderJobs() -> void;
 		auto GetNumRemainingShaderJobs() const -> uint64;
 		mutable std::mutex JobMutex;

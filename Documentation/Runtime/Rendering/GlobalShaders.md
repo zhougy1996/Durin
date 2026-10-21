@@ -112,10 +112,12 @@ a second wrapper failure or recovery transition.
 
 `FShaderCompilingManager::PrepareJobs` creates an existing job-group control without
 starting compilation or invoking its completion. `SubmitJobs` returns `void` and
-starts the prepared group. ShaderBuild likewise prepares its existing subscriber
-controls; handles submit or cancel them without a separate admission-error result.
-Submitted controls remain waitable through completion, and cancellation also
-completes an unsubmitted control. Repeated submission does not start duplicate work.
+is the sole entry that starts the prepared group. ShaderBuild starts its existing
+subscriber immediately through the private backend compile entry points; it has no
+separate prepared/submitted phase. Handles only cancel, prioritize, query and wait.
+Submitted controls remain waitable through completion. Canceling an unsubmitted
+group completes it locally without registering it or consulting ShaderBuild.
+Repeated submission, including after cancellation, does not start duplicate work.
 
 Fixed aggregate Shader admission thresholds no longer reject requests. Existing
 execution windows and Task scheduling control execution; single-request source and output limits remain

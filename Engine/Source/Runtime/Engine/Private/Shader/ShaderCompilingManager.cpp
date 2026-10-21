@@ -48,15 +48,17 @@ namespace Durin
 		size_t Next = 0, Active = 0;
 		bool Dispatching = false, Delivering = false, Completed = false, Published = false;
 		std::atomic_bool Canceled = false, Submitted = false;
-		auto Submit() -> void override
-		{ if (!Submitted.exchange(true)) Manager->Submit(shared_from_this()); }
 		auto RequestCancel() -> bool override
 		{
 			const bool Changed = !Canceled.exchange(true);
 			std::vector<std::shared_ptr<FShaderBuildHandle>> Pending;
 			{ std::lock_guard Lock(Mutex); Pending = Handles; }
 			for (const auto& Handle : Pending) Handle->RequestCancel();
-			if (!Submitted.load()) Submit();
+			if (!Submitted.exchange(true)) {
+				Drive();
+				{ std::lock_guard Lock(Mutex); Published = true; }
+				Condition.notify_all();
+			}
 			return Changed;
 		}
 		auto SetPriority(EShaderBuildPriority Priority) -> void override
@@ -148,26 +150,27 @@ namespace Durin
 				};
 				auto Complete = [Self = shared_from_this(), Index, Allowance](FShaderCompilerOutput Output) { Self->FinishJob(Index, Allowance, std::move(Output)); };
 				auto Submitted = [&] {
-					if (!MountedPath.empty()) return Backend->PrepareMounted(MountedPath, MountedOptions, std::move(RequestOptions), std::move(Complete));
+					if (!MountedPath.empty()) return Backend->CompileMounted(MountedPath, MountedOptions, std::move(RequestOptions), std::move(Complete));
 					Jobs[Index].MaximumOutputBytes = Allowance;
-					return Backend->PrepareGenerated(std::move(Jobs[Index]), std::move(RequestOptions), std::move(Complete));
+					return Backend->CompileGenerated(std::move(Jobs[Index]), std::move(RequestOptions), std::move(Complete));
 				}();
 				auto Handle = std::make_shared<FShaderBuildHandle>(std::move(Submitted));
 				EShaderBuildPriority Priority;
 				{ std::lock_guard Lock(Mutex); Handles.push_back(Handle); Priority = Options.Priority; }
 				Handle->SetPriority(Priority);
 				if (Canceled) Handle->RequestCancel();
-				Handle->Submit();
 				Condition.notify_all();
 			}
 		}
 	};
 	auto FShaderCompilingManager::Get() -> FShaderCompilingManager& { static FShaderCompilingManager Manager; return Manager; }
-	auto FShaderCompilingManager::Submit(std::shared_ptr<FJobGroup> Group) -> void
+	auto FShaderCompilingManager::SubmitJobs(const FShaderBuildHandle& Jobs) -> void
 	{
+		const auto Group = std::dynamic_pointer_cast<FJobGroup>(Jobs.Request);
+		require(Group && Group->Manager == this);
+		if (Group->Submitted.exchange(true)) return;
 		require(Group->Completion);
 		Group->Backend = IShaderBuildModule::Get();
-		Group->Manager = this;
 		std::vector<std::shared_ptr<FJobGroup>> Retired;
 		{ std::lock_guard Lock(JobMutex); for (const auto& Item : Groups) if (auto Existing = Item.lock()) Retired.push_back(std::move(Existing)); }
 		std::erase_if(Retired, [](const auto& Item) { return !Item->IsComplete(); });
@@ -205,7 +208,6 @@ namespace Durin
 		require(Group->Completion);
 		return FShaderBuildHandle(std::move(Group));
 	}
-	auto FShaderCompilingManager::SubmitJobs(const FShaderBuildHandle& Jobs) -> void { Jobs.Submit(); }
 	auto FShaderCompilingManager::CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput
 	{
 		FShaderCompilerOutput Output;

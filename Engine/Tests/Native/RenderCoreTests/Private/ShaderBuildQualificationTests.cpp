@@ -135,14 +135,14 @@ namespace Durin
 			EXPECT_FALSE(Unavailable); EXPECT_TRUE(Unavailable.CompiledShaders.empty());
 			FShaderBuildRequestOptions CacheOptions{.bInlineExecution = true, .NativeProducerIdentity = *Producer, .bNativeCacheOnly = true};
 			std::optional<FShaderCompilerOutput> Replay;
-			auto Replayed = Builder.PrepareGenerated(Request, CacheOptions, [&](auto Result) { Replay = std::move(Result); });
-			Replayed.Submit();
+			auto Replayed = Builder.CompileGenerated(Request, CacheOptions, [&](auto Result) { Replay = std::move(Result); });
+
 			EXPECT_EQ(Replayed.Wait(), EShaderBuildWaitResult::Completed);
 			ASSERT_TRUE(Replay); EXPECT_TRUE(*Replay) << FormatShaderCompilerErrors(Replay->Errors);
 			CacheOptions.NativeProducerIdentity += ";not-installed";
 			std::optional<FShaderCompilerOutput> Miss;
-			auto Missing = Builder.PrepareGenerated(Request, CacheOptions, [&](auto Result) { Miss = std::move(Result); });
-			Missing.Submit();
+			auto Missing = Builder.CompileGenerated(Request, CacheOptions, [&](auto Result) { Miss = std::move(Result); });
+
 			EXPECT_EQ(Missing.Wait(), EShaderBuildWaitResult::Completed);
 			ASSERT_TRUE(Miss); EXPECT_FALSE(*Miss); EXPECT_TRUE(Miss->CompiledShaders.empty());
 		}
@@ -159,17 +159,17 @@ namespace Durin
 		{
 			FShaderBuilder AsyncBuilder;
 			std::atomic<uint32> Canceled = 0, Completed = 0;
-			auto First = AsyncBuilder.PrepareGenerated(Request, {}, [&](auto Result) {
+			auto First = AsyncBuilder.CompileGenerated(Request, {}, [&](auto Result) {
 				EXPECT_EQ(Result.Status, EShaderBuildStatus::Canceled); ++Canceled;
 			});
-			First.Submit();
+
 			First.RequestCancel();
-			auto Second = AsyncBuilder.PrepareGenerated(Request, {}, [&](auto Result) {
+			auto Second = AsyncBuilder.CompileGenerated(Request, {}, [&](auto Result) {
 				EXPECT_TRUE(Result) << FormatShaderCompilerErrors(Result.Errors);
 				if (Result) EXPECT_EQ(Result.CompiledShaders.front().Target, MetalLibraryShaderTarget);
 				++Completed;
 			});
-			Second.Submit();
+
 			EXPECT_EQ(First.Wait(), EShaderBuildWaitResult::Completed);
 			EXPECT_EQ(Second.Wait(), EShaderBuildWaitResult::Completed);
 			EXPECT_EQ(Canceled, 1u); EXPECT_EQ(Completed, 1u);

@@ -1320,8 +1320,6 @@ namespace Durin
 	public:
 		struct FCompletedRequest final : IShaderBuildRequest
 		{
-			std::function<void()> Work;
-			auto Submit() -> void override { auto Pending = std::move(Work); if (Pending) Pending(); }
 			auto RequestCancel() -> bool override { return false; }
 			auto SetPriority(EShaderBuildPriority) -> void override {}
 			auto Wait() -> EShaderBuildWaitResult override { return EShaderBuildWaitResult::Completed; }
@@ -1333,23 +1331,21 @@ namespace Durin
 		FShaderCompilerOutput Completion{.Status = EShaderBuildStatus::Canceled};
 		auto GetBuildVersion() const -> uint64 override { return 1; }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override { return {}; }
-		auto PrepareMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
+		auto CompileMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
 			-> FShaderBuildHandle override
 		{
 			auto Job = std::make_shared<FCompletedRequest>();
-			Job->Work = [this, Callback = std::move(Callback)] { ++Compiles; Callback(Completion); };
+			++Compiles; Callback(Completion);
 			return FShaderBuildHandle(std::move(Job));
 		}
-		auto PrepareGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
+		auto CompileGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
 			-> FShaderBuildHandle override
 		{
 			auto Job = std::make_shared<FCompletedRequest>();
-			Job->Work = [this, Request = std::move(Request), Callback = std::move(Callback)]() mutable {
-				++Compiles; auto Output = Completion;
-				for (auto& Shader : Output.CompiledShaders) Shader.DebugName = Request.VirtualPath;
-				auto Deliver = [Callback = std::move(Callback), Output = std::move(Output)]() mutable { Callback(std::move(Output)); };
-				if (Defer) Pending.push_back(std::move(Deliver)); else Deliver();
-			};
+			++Compiles; auto Output = Completion;
+			for (auto& Shader : Output.CompiledShaders) Shader.DebugName = Request.VirtualPath;
+			auto Deliver = [Callback = std::move(Callback), Output = std::move(Output)]() mutable { Callback(std::move(Output)); };
+			if (Defer) Pending.push_back(std::move(Deliver)); else Deliver();
 			return FShaderBuildHandle(std::move(Job));
 		}
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return {}; }
@@ -1412,7 +1408,7 @@ namespace Durin
 		auto Group = Manager.PrepareJobs({{.VirtualPath = "A"}, {.VirtualPath = "B"}, {.VirtualPath = "C"}},
 			1024 * 1024, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); ++Calls; });
 		EXPECT_TRUE(Scope.Stub->Pending.empty());
-		Group.Submit();
+		FShaderCompilingManager::Get().SubmitJobs(Group);
 		ASSERT_EQ(Scope.Stub->Pending.size(), 2u);
 		auto Deliver = [&](size_t Index) { auto Callback = std::move(Scope.Stub->Pending[Index]); Callback(); };
 		Deliver(1); ASSERT_EQ(Scope.Stub->Pending.size(), 3u); Deliver(2); Deliver(0);
@@ -1420,7 +1416,8 @@ namespace Durin
 		ASSERT_TRUE(Output); ASSERT_EQ(Output.CompiledShaders.size(), 3u); EXPECT_EQ(Calls, 1u);
 		for (size_t Index = 0; Index < 3; ++Index) EXPECT_EQ(Output.CompiledShaders[Index].DebugName, std::string(1, char('A' + Index)));
 		auto Mounted = Manager.PrepareJobs("/Mounted", {}, {.bInlineExecution = true}, [&](auto Result) { EXPECT_TRUE(Result); ++Calls; });
-		Mounted.Submit();
+		FShaderCompilingManager::Get().SubmitJobs(Mounted);
+		Manager.SubmitJobs(Mounted);
 		EXPECT_EQ(Manager.FinishCompilation(Mounted), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Calls, 2u); EXPECT_EQ(Scope.Stub->Compiles, 4u);
 	}
@@ -1432,7 +1429,7 @@ namespace Durin
 		FShaderCompilerOutput Output;
 		auto Group = FShaderCompilingManager::Get().PrepareJobs({{.VirtualPath = "A"}, {.VirtualPath = "B"}, {.VirtualPath = "C"}},
 			1024 * 1024, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
-		Group.Submit();
+		FShaderCompilingManager::Get().SubmitJobs(Group);
 		ASSERT_EQ(Scope.Stub->Pending.size(), 2u);
 		auto Second = std::move(Scope.Stub->Pending[1]); auto First = std::move(Scope.Stub->Pending[0]);
 		Second(); First();
@@ -1449,7 +1446,7 @@ namespace Durin
 		FShaderCompilerOutput Output; uint32 Calls = 0;
 		auto Group = FShaderCompilingManager::Get().PrepareJobs({{.VirtualPath = "A"}, {.VirtualPath = "B"}},
 			32, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); ++Calls; });
-		Group.Submit();
+		FShaderCompilingManager::Get().SubmitJobs(Group);
 		EXPECT_EQ(Group.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Output.Status, EShaderBuildStatus::Error); EXPECT_TRUE(Output.CompiledShaders.empty());
 		EXPECT_FALSE(Output.Errors.empty());
@@ -1466,7 +1463,7 @@ namespace Durin
 		uint32 Calls = 0;
 		auto Group = Manager.PrepareJobs({{.VirtualPath = "GlobalA"}, {.VirtualPath = "GlobalB"}},
 			1024 * 1024, {.bInlineExecution = true}, [&](auto Output) { EXPECT_TRUE(Output); ++Calls; });
-		Group.Submit();
+		FShaderCompilingManager::Get().SubmitJobs(Group);
 		ASSERT_EQ(Scope.Stub->Pending.size(), 2u);
 		EXPECT_EQ(Compiler.GetNumRemainingAssets(), 1u);
 		EXPECT_EQ(Compiler.ProcessAsyncTasks({}).ProcessedCompletionCount, 0u);
@@ -1487,16 +1484,21 @@ namespace Durin
 		auto Prepared = Manager.PrepareJobs({{.VirtualPath = "Prepared"}}, 1024 * 1024, {},
 			[&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++PreparedCanceled; });
 		EXPECT_TRUE(Scope.Stub->Pending.empty());
-		Prepared.RequestCancel(); Prepared.Submit();
+		Prepared.RequestCancel();
+		EXPECT_TRUE(Prepared.IsComplete());
+		EXPECT_EQ(PreparedCanceled, 1u);
+		EXPECT_EQ(Scope.Stub->Compiles, 0u);
+		FShaderCompilingManager::Get().SubmitJobs(Prepared);
+		FShaderCompilingManager::Get().SubmitJobs(Prepared);
 		EXPECT_EQ(Prepared.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(PreparedCanceled, 1u);
 		EXPECT_TRUE(Scope.Stub->Pending.empty());
 		auto First = Manager.PrepareJobs({{.VirtualPath = "A"}}, 1024 * 1024, {.bInlineExecution = true},
 			[&](auto Output) { Outputs[0] = std::move(Output); ++Calls[0]; });
-		First.Submit();
+		FShaderCompilingManager::Get().SubmitJobs(First);
 		auto Second = Manager.PrepareJobs({{.VirtualPath = "B"}}, 1024 * 1024, {.bInlineExecution = true},
 			[&](auto Output) { Outputs[1] = std::move(Output); ++Calls[1]; });
-		Second.Submit();
+		FShaderCompilingManager::Get().SubmitJobs(Second);
 		First.RequestCancel();
 		ASSERT_EQ(Scope.Stub->Pending.size(), 2u);
 		for (auto& Pending : Scope.Stub->Pending) { auto Callback = std::move(Pending); Callback(); }

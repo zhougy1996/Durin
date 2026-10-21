@@ -23,13 +23,13 @@ namespace Durin
 	{
 	public:
 		virtual ~IShaderBuildRequest() = default;
-		virtual auto Submit() -> void = 0;
 		virtual auto RequestCancel() -> bool = 0;
 		virtual auto SetPriority(EShaderBuildPriority Priority) -> void = 0;
 		virtual auto Wait() -> EShaderBuildWaitResult = 0;
 		virtual auto IsComplete() const -> bool = 0;
 	};
-	// Prepare first, then submit once. Moving transfers cancellation authority.
+	// Engine jobs are submitted only through FShaderCompilingManager.
+	// Moving transfers cancellation authority; backend handles already represent started work.
 	// Cancellation also completes an unsubmitted request; Wait joins request end.
 	class FShaderBuildHandle
 	{
@@ -42,12 +42,12 @@ namespace Durin
 		{ if (this != &Other) { RequestCancel(); Request = std::move(Other.Request); } return *this; }
 		FShaderBuildHandle(const FShaderBuildHandle&) = delete;
 		auto operator=(const FShaderBuildHandle&) -> FShaderBuildHandle& = delete;
-		auto Submit() const -> void { require(Request); Request->Submit(); }
 		auto RequestCancel() const -> bool { return Request && Request->RequestCancel(); }
 		auto SetPriority(EShaderBuildPriority Priority) const -> void { if (Request) Request->SetPriority(Priority); }
 		auto Wait() const -> EShaderBuildWaitResult { return Request ? Request->Wait() : EShaderBuildWaitResult::InvalidRequest; }
 		auto IsComplete() const -> bool { return !Request || Request->IsComplete(); }
 	private:
+		friend class FShaderCompilingManager;
 		std::shared_ptr<IShaderBuildRequest> Request;
 	};
 }
