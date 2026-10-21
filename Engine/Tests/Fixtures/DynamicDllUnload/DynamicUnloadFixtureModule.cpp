@@ -111,7 +111,7 @@ namespace Durin
 				"Injected dynamic unload fixture shutdown failure.");
 			FConsoleCommandRegistry::Get().UnregisterCommand(ConsoleCommand);
 			ConsoleCommand = 0;
-			if (bRetainResult || (BlockingWorker.IsValid() && !BlockingWorker.IsComplete()))
+			if (bRetainResult || (BlockingWorker.IsValid() && !BlockingWorker.IsCompleted()))
 				throw std::runtime_error("Fixture asynchronous cleanup failed");
 			if (Worker.IsValid()) require(Worker.Wait().WaitStatus == ETaskWaitStatus::Completed);
 			if (Publisher.IsValid()) require(WaitTask(Publisher).WaitStatus == ETaskWaitStatus::Completed);

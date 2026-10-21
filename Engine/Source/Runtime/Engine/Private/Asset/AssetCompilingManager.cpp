@@ -65,7 +65,7 @@ namespace Durin
 			while (!Queue.empty())
 			{
 				const auto Ready = [](const auto& Item) {
-					return (!Item.Prerequisite.IsValid() || Item.Prerequisite.IsComplete())
+					return (!Item.Prerequisite.IsValid() || Item.Prerequisite.IsCompleted())
 						&& (!Item.IsReady || Item.IsReady());
 				};
 				auto Background = std::ranges::find_if(Queue, [&](const auto& Item) { return !Item.Interactive && Ready(Item); });

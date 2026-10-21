@@ -338,7 +338,7 @@ TEST_F(FPackagePersistenceTests, RejectedPublicationCannotStartDiskWorkAndReleas
 	EXPECT_TRUE(FinishSave(Task));
 }
 
-TEST_F(FPackagePersistenceTests, CanceledPublicationIsReapedOnGameThreadBeforeTaskShutdown)
+TEST_F(FPackagePersistenceTests, CanceledPublicationStillExecutesOnGameThreadBeforeTaskShutdown)
 {
 	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::CancelContinuation);
 	FPackageSaveResult Admission;
@@ -348,6 +348,8 @@ TEST_F(FPackagePersistenceTests, CanceledPublicationIsReapedOnGameThreadBeforeTa
 	EXPECT_FALSE(Task.IsCompleted());
 	PackageSavePrivate::SetAsyncSaveAdmission(false);
 	PackageSavePrivate::PollAsyncSaves();
+	EXPECT_FALSE(Task.IsCompleted());
+	PumpGameThreadDeferredWork({.bUnlimited = true});
 	ASSERT_TRUE(Task.IsCompleted());
 	ASSERT_EQ(Task.GetState(), ETaskState::Succeeded);
 	EXPECT_TRUE(Task.GetResult());
@@ -384,7 +386,8 @@ TEST_F(FPackagePersistenceTests, StaleEditsAndCancellationRejectButDroppedHandle
 	ASSERT_TRUE(Operation.IsValid());
 	EXPECT_TRUE(Tasks::Cancel(Operation));
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
-	EXPECT_EQ(Operation.GetState(), ETaskState::Canceled);
+	EXPECT_EQ(Operation.GetState(), ETaskState::Succeeded);
+	EXPECT_EQ(Operation.GetResult().Error, EPackageSaveError::Cancelled);
 	Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
 	ASSERT_TRUE(Operation.IsValid());
 	Operation = {};

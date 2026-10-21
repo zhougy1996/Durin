@@ -132,7 +132,8 @@ namespace Durin
 	auto FRenderCommandFence::BeginFence(ERenderCommandFenceMode Mode) -> void
 	{
 		check(IsInGameThread());
-		// This signal is produced by the render queue, never by GameThread work.
+		// The render queue owns this scheduler-independent signal through execution.
+		// Signaling never needs GameThread work.
 		Tasks::FTaskEvent Event("RenderCommandFence", false);
 		auto Receipt = Mode == ERenderCommandFenceMode::RHIThread
 			? std::make_shared<FRHICommandListFence>() : nullptr;
@@ -165,7 +166,7 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		if (!CompletionTask.IsValid()) return true;
-		if (!CompletionTask.IsComplete()) return false;
+		if (!CompletionTask.IsCompleted()) return false;
 		requiref(CompletionTask.GetState() == ETaskState::Succeeded,
 			"Render fence completion failed: {}", CompletionTask.GetDiagnostic());
 		if (!RHIFence) return true;

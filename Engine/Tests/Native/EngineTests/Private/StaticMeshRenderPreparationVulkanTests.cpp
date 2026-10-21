@@ -1611,7 +1611,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		ASSERT_EQ(AbandonedCompletions.size(), 8u);
 		for (const auto& Completion : AbandonedCompletions)
 		{
-			EXPECT_TRUE(Completion.IsComplete());
+			EXPECT_TRUE(Completion.IsCompleted());
 			EXPECT_TRUE(Completion.GetState() == ETaskState::Succeeded || Completion.GetState() == ETaskState::Canceled);
 		}
 		ASSERT_EQ(PublishedView.GetNumSections(), 2u);

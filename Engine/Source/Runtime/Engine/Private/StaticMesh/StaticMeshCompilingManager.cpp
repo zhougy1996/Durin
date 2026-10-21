@@ -509,7 +509,7 @@ namespace Durin
 		{
 			auto& Work = *Record.Work;
 			if (!Work.BuildOperation->Poll()) return false;
-			if (!IsTaskSchedulerRunning() || Record.Task.GetState() == ETaskState::Canceled) Work.Cancellation.Cancel();
+			if (!IsTaskSchedulerRunning() || Record.Task.IsCancellationRequested()) Work.Cancellation.Cancel();
 			if (!Record.Terminal && !Work.Cancellation.IsCancelled() && Work.Completion) return false;
 			Work.Completion.reset();
 			if (Work.Cancellation.IsCancelled()) Work.ReleaseOutput();
@@ -523,12 +523,12 @@ namespace Durin
 			Scheduler->Pump();
 			for (const auto& Record : Records)
 			{
-				if (!Record->Task.IsValid() || !Record->Task.IsComplete()) continue;
+				if (!Record->Task.IsValid() || !Record->Task.IsCompleted()) continue;
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
 				if (!Record->Work->BuildOperation->Poll()) continue;
 #endif
 				const auto Phase = Record->Work->Phase.load(std::memory_order_acquire);
-				// Native tasks skipped before entry still retire through the owner mailbox.
+				// Retire cooperative cancellation through the owner mailbox.
 				AssetPrivate::ObserveAssetBuildTaskCancellation(Record->Task, Record->Work->Cancellation);
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
 				if (Phase == EWorkPhase::AwaitingDerivedData)
@@ -561,7 +561,7 @@ namespace Durin
 				if (Result.ProcessedCompletionCount >= Maximum || FClock::now() >= Deadline) break;
 				if (!Selected(*Record, Owners) || !std::ranges::contains(Records, Record)) continue;
 				if (Record->Work->Phase.load(std::memory_order_acquire) != EWorkPhase::Complete
-					|| (Record->Task.IsValid() && !Record->Task.IsComplete())) continue;
+					|| (Record->Task.IsValid() && !Record->Task.IsCompleted())) continue;
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
 				if (Record->Work->BuildOperation && !Record->Work->BuildOperation->Poll()) continue;
 #endif

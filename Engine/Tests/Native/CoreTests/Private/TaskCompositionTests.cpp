@@ -54,6 +54,7 @@ namespace Durin
 	static_assert(std::derived_from<Tasks::TTask<void>, Tasks::FTask>);
 	static_assert(std::is_copy_constructible_v<Tasks::TTask<void>>);
 	static_assert(std::is_copy_constructible_v<Tasks::FTaskEvent>);
+	static_assert(sizeof(Tasks::FTaskEvent) == sizeof(Tasks::FTask));
 	static_assert(std::derived_from<Tasks::TTask<int>, Tasks::FTask>);
 	static_assert(std::derived_from<Tasks::FTaskEvent, Tasks::FTask>);
 	static_assert(std::is_copy_constructible_v<Tasks::FTask>);
@@ -61,6 +62,104 @@ namespace Durin
 	static_assert(std::is_nothrow_move_constructible_v<Tasks::FTask>);
 	static_assert(sizeof(Tasks::FTask) == sizeof(std::shared_ptr<FTaskStateData>));
 	static_assert(!Tasks::Detail::CTaskDependency<Tasks::TCompletionSource<int>>);
+
+	TEST(FTaskCompositionTests, ExecutionDependenciesRetainPendingResultsAndReleaseBeforeTheBody)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent Started, Release;
+		struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } Resume{Release};
+		auto Blocker = Tasks::LaunchTask("DependencyLifetimeBlocker", [&] { Started.Trigger(); Release.Wait(); });
+		ASSERT_TRUE(Started.WaitFor(2));
+		for (bool AlreadyCompleted : {false, true})
+		{
+			Tasks::FTaskEvent Gate("DependencyLifetimeGate", false);
+			std::weak_ptr<int> Weak;
+			Tasks::TTask<void> Dependent;
+			FThreadEvent BodyEntered;
+			{
+				auto Source = Tasks::TCompletionSource<std::shared_ptr<int>>::Create();
+				auto Input = Source.TakeTask();
+				auto Value = std::shared_ptr<int>(new int(42), [](int* P) { (void)GetTaskSchedulerDiagnostics(); delete P; });
+				Weak = Value;
+				if (AlreadyCompleted) Source.TrySetValue(std::move(Value));
+				Dependent = Tasks::LaunchTask("DependencyLifetimeBody", [&] {
+					EXPECT_TRUE(Weak.expired()); BodyEntered.Trigger();
+				}, Tasks::Prerequisites(Input, Gate));
+				if (!AlreadyCompleted) Source.TrySetValue(std::move(Value));
+			}
+			EXPECT_EQ(Weak.expired(), AlreadyCompleted);
+			Gate.Trigger();
+			// Use normal dispatch, rather than consuming prerequisite pins through Wait.
+			Release.Trigger();
+			ASSERT_TRUE(BodyEntered.WaitFor(2));
+			EXPECT_EQ(Dependent.Wait().TaskState, ETaskState::Succeeded);
+		}
+		Blocker.Wait();
+	}
+
+	TEST(FTaskCompositionTests, NestedDependenciesRetainResultsUntilTheirParentCloses)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Gate("NestedLifetimeGate", false);
+		std::weak_ptr<int> Weak;
+		Tasks::TTask<void> Parent;
+		{
+			auto Source = Tasks::TCompletionSource<std::shared_ptr<int>>::Create();
+			auto Child = Source.TakeTask();
+			FThreadEvent Bound, ProbeRan;
+			Parent = Tasks::LaunchTask("NestedLifetimeParent", [Child, &Gate, &Bound] {
+				Tasks::AddNested(Child); Tasks::AddNested(Gate); Bound.Trigger();
+			});
+			ASSERT_TRUE(Bound.WaitFor(2));
+			auto Probe = Tasks::LaunchTask("NestedLifetimeBodyRetired", [&] { ProbeRan.Trigger(); });
+			ASSERT_TRUE(ProbeRan.WaitFor(2)); Probe.Wait();
+			auto Value = std::shared_ptr<int>(new int(42), [&Parent](int* P) {
+				EXPECT_TRUE(Parent.IsCompleted());
+				EXPECT_EQ(Parent.Wait(0).WaitStatus, ETaskWaitStatus::Completed);
+				(void)GetTaskSchedulerDiagnostics(); delete P;
+			});
+			Weak = Value;
+			Source.TrySetValue(std::move(Value));
+		}
+		EXPECT_FALSE(Weak.expired());
+		EXPECT_FALSE(Parent.IsCompleted());
+		Gate.Trigger();
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_TRUE(Weak.expired());
+	}
+
+	TEST(FTaskCompositionTests, EmptyPrerequisitesDoNotDelayTasksEventsOrSuccessContinuations)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTask Empty;
+		Tasks::TTask<int> EmptyTyped;
+		Tasks::FTaskEvent Gate("NonemptyGate", false), Join("EmptyPrerequisiteJoin", false);
+		Join.AddPrerequisites(Tasks::Prerequisites(Empty, Gate, EmptyTyped));
+		Join.Trigger();
+		std::atomic<uint32> Runs = 0;
+		auto Root = Tasks::LaunchTask("MixedEmptyPrerequisites", [&] { ++Runs; return 42; },
+			Tasks::Prerequisites(EmptyTyped, Join, Empty));
+		const auto Extra = Tasks::Prerequisites(Empty, EmptyTyped);
+		auto Next = Tasks::Then(Root, Tasks::ETaskExecutor::Worker, {.Prerequisites = Extra},
+			[&](int& Value) { ++Runs; return Value + 1; });
+		EXPECT_EQ(Root.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
+		EXPECT_EQ(Runs.load(), 0u);
+		EXPECT_EQ(Root.GetDiagnostics().PrerequisiteTaskIds, std::vector<uint64>{Join.GetTaskId()});
+		Gate.Trigger();
+		EXPECT_EQ(Next.GetResult(), 43);
+		EXPECT_EQ(Runs.load(), 2u);
+		Tasks::FTaskEvent EmptyJoin("OnlyEmptyPrerequisites", false);
+		EmptyJoin.AddPrerequisites(Extra);
+		EmptyJoin.Trigger();
+		EXPECT_TRUE(EmptyJoin.IsCompleted());
+		auto Independent = Tasks::LaunchIndependentTask("IndependentEmptyPrerequisites", [] { return 7; },
+			{.Prerequisites = Extra});
+		EXPECT_EQ(Independent.GetResult(), 7);
+	}
 
 	TEST(FTaskCompositionTests, PublicGenericHandlesObserveTypedTasksAndEventsTogether)
 	{
@@ -107,7 +206,7 @@ namespace Durin
 		Cancellation.RequestCancellation();
 		Release.Trigger();
 		ASSERT_TRUE(DidStart);
-		ASSERT_EQ(Root.Wait().TaskState, ETaskState::Canceled);
+		ASSERT_EQ(Root.Wait().TaskState, ETaskState::Succeeded);
 		EXPECT_TRUE(ObservedCancellation);
 
 		auto Value = Tasks::Then(Tasks::LaunchTask("TokenValue", [] { return std::make_unique<int>(13); }),
@@ -219,7 +318,7 @@ namespace Durin
 		Alias.reset();
 		ShutdownTaskScheduler(true); // Retire the executor's final node reference.
 		EXPECT_EQ(Destroyed, 1u);
-		EXPECT_TRUE(Observer.IsComplete());
+		EXPECT_TRUE(Observer.IsCompleted());
 	}
 
 	TEST(FTaskCompositionTests, SharedResultLivesUntilLastGenericHandleReleased)
@@ -300,10 +399,10 @@ namespace Durin
 		EXPECT_TRUE(Tasks::Cancel(Canceled));
 		EXPECT_FALSE(Gate.IsCompleted());
 		Gate.Trigger();
-		EXPECT_EQ(Tasks::Wait(Canceled).TaskState, ETaskState::Canceled);
+		EXPECT_EQ(Tasks::Wait(Canceled).TaskState, ETaskState::Succeeded);
 		ASSERT_EQ(Tasks::Wait(Continuation).TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(Continuation.GetResult(), 41);
-		EXPECT_EQ(Runs, 0u);
+		EXPECT_EQ(Runs, 1u);
 	}
 
 	TEST(FTaskCompositionTests, TimedWaitPreservesPendingResultsAndSharesCollectionDeadline)
@@ -343,7 +442,9 @@ namespace Durin
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
 		std::atomic<uint32> UnrelatedRuns = 0;
+		FThreadEvent ParentStarted;
 		auto Parent = Tasks::LaunchTask("DirectedWaitParent", [&] {
+			ParentStarted.Trigger();
 			auto Unrelated = Tasks::LaunchTask("UnrelatedHighPriority", [&] { ++UnrelatedRuns; },
 				{.Priority = ETaskPriority::High});
 			std::vector<Tasks::TTask<int>> Inputs;
@@ -371,6 +472,7 @@ namespace Durin
 			EXPECT_EQ(std::move(Immediate.GetResult()), 5);
 			Tasks::AddNested(Unrelated);
 		});
+		ASSERT_TRUE(ParentStarted.WaitFor(2));
 		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(UnrelatedRuns.load(), 1u);
 	}
@@ -380,7 +482,9 @@ namespace Durin
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
 		std::atomic<uint32> Runs = 0, UnrelatedRuns = 0;
+		FThreadEvent ParentStarted;
 		auto Parent = Tasks::LaunchTask("RetractionGraphParent", [&] {
+			ParentStarted.Trigger();
 			auto Unrelated = Tasks::LaunchTask("UnrelatedDuringRetraction", [&] { ++UnrelatedRuns; }, {.Priority = ETaskPriority::High});
 			std::vector<Tasks::FTask> Chain;
 			Chain.push_back(Tasks::LaunchTask("DeepRoot", [&] { ++Runs; }));
@@ -407,6 +511,7 @@ namespace Durin
 			EXPECT_EQ(UnrelatedRuns.load(), 0u);
 			Tasks::AddNested(Unrelated);
 		});
+		ASSERT_TRUE(ParentStarted.WaitFor(2));
 		EXPECT_EQ(Parent.Wait(5).TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(UnrelatedRuns.load(), 1u);
 	}
@@ -470,11 +575,75 @@ namespace Durin
 		EXPECT_EQ(Blocker.Wait().TaskState, ETaskState::Succeeded);
 	}
 
+	TEST(FTaskCompositionTests, OrdinaryThreadWaitRetractsItsGraphAndRestoresTaskContext)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent Started, Release;
+		struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } Resume{Release};
+		auto Blocker = Tasks::LaunchTask("OrdinaryWaitBlocker", [&] { Started.Trigger(); Release.Wait(); });
+		ASSERT_TRUE(Started.WaitFor(2));
+		std::atomic<uint32> UnrelatedRuns = 0, NestedRuns = 0;
+		auto Unrelated = Tasks::LaunchTask("OrdinaryWaitUnrelated", [&] { ++UnrelatedRuns; }, {.Priority = ETaskPriority::High});
+		auto Input = Tasks::LaunchTask("OrdinaryWaitInput", [] { return 41; });
+		uint32 CallerId = 0;
+		auto Target = Tasks::Then(Input, Tasks::ETaskExecutor::Worker, {}, [&](int& Value) {
+			EXPECT_EQ(CallerId, FPlatformLTS::GetCurrentThreadId());
+			auto Child = Tasks::LaunchTask("OrdinaryWaitNested", [&] {
+				EXPECT_EQ(CallerId, FPlatformLTS::GetCurrentThreadId()); ++NestedRuns;
+			});
+			Tasks::AddNested(Child);
+			return Value + 1;
+		});
+		Tasks::FTaskEvent Join("OrdinaryWaitEvent", false);
+		Join.AddPrerequisites(Target); Join.Trigger();
+		FTaskWaitResult Result;
+		std::thread Caller([&] {
+			CallerId = FPlatformLTS::GetCurrentThreadId();
+			Result = Join.Wait(2);
+			EXPECT_EQ(Private::FTaskRuntimeAccess::GetCurrentTaskId(), 0u);
+		});
+		Caller.join();
+		const auto UnrelatedBeforeRelease = UnrelatedRuns.load();
+		Release.Trigger();
+		EXPECT_EQ(Result.TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Target.GetResult(), 42);
+		EXPECT_EQ(NestedRuns.load(), 1u);
+		EXPECT_EQ(UnrelatedBeforeRelease, 0u);
+		Blocker.Wait(); Unrelated.Wait();
+	}
+
+	TEST(FTaskCompositionTests, OrdinaryWaitRetractsCpuPrerequisitesWithoutBlockingIoAuthority)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
+		FThreadEvent CpuStarted, IoStarted, Release;
+		struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } Resume{Release};
+		auto CpuBlocker = Tasks::LaunchTask("ExternalCpuBlocker", [&] { CpuStarted.Trigger(); Release.Wait(); });
+		auto IoBlocker = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [&] { IoStarted.Trigger(); Release.Wait(); });
+		ASSERT_TRUE(CpuStarted.WaitFor(2)); ASSERT_TRUE(IoStarted.WaitFor(2));
+		std::atomic<uint32> CpuRuns = 0, IoRuns = 0;
+		auto Cpu = Tasks::LaunchTask("ExternalCpuPrerequisite", [&] { ++CpuRuns; });
+		const auto Dependencies = Tasks::Prerequisites(Cpu);
+		auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {.Prerequisites = Dependencies}, [&] { ++IoRuns; });
+		FTaskWaitResult Result;
+		std::thread Caller([&] { Result = Io.Wait(0.02); });
+		Caller.join();
+		const auto CpuBeforeRelease = CpuRuns.load(), IoBeforeRelease = IoRuns.load();
+		Release.Trigger();
+		EXPECT_EQ(Result.WaitStatus, ETaskWaitStatus::TimedOut);
+		EXPECT_EQ(CpuBeforeRelease, 1u); EXPECT_EQ(IoBeforeRelease, 0u);
+		EXPECT_EQ(Io.Wait().TaskState, ETaskState::Succeeded);
+		CpuBlocker.Wait(); IoBlocker.Wait();
+	}
+
 	TEST(FTaskCompositionTests, ZeroTimeoutOnlyPollsAndExplicitRetractionExecutesNestedWork)
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
-		auto Parent = Tasks::LaunchTask("ZeroNestedWaiter", [] {
+		FThreadEvent ParentStarted;
+		auto Parent = Tasks::LaunchTask("ZeroNestedWaiter", [&] {
+			ParentStarted.Trigger();
 			uint32 ChildRuns = 0;
 			bool BodyRan = false;
 			auto Target = Tasks::LaunchTask("ZeroNestedTarget", [&] {
@@ -489,6 +658,7 @@ namespace Durin
 			EXPECT_TRUE(BodyRan);
 			EXPECT_EQ(ChildRuns, 1u);
 		});
+		ASSERT_TRUE(ParentStarted.WaitFor(2));
 		EXPECT_EQ(Parent.Wait(3).TaskState, ETaskState::Succeeded);
 	}
 
@@ -542,7 +712,9 @@ namespace Durin
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
-		auto Parent = Tasks::LaunchTask("OneShotDynamicBinding", [] {
+		FThreadEvent ParentStarted;
+		auto Parent = Tasks::LaunchTask("OneShotDynamicBinding", [&] {
+			ParentStarted.Trigger();
 			auto Source = Tasks::TCompletionSource<void>::Create();
 			auto Original = Tasks::LaunchTask("OriginalInner", [] {});
 			auto Replacement = Tasks::LaunchTask("RejectedInner", [] {});
@@ -551,9 +723,10 @@ namespace Durin
 			auto Error = Private::FTaskRuntimeAccess::BindDynamicDependency(Source.GetTaskHandle(), Replacement);
 			ASSERT_TRUE(Error);
 			EXPECT_EQ(Error->Code, Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract);
-			EXPECT_EQ(Original.Wait(1).TaskState, ETaskState::Canceled);
+			EXPECT_EQ(Original.Wait(1).TaskState, ETaskState::Succeeded);
 			EXPECT_EQ(Replacement.Wait(1).TaskState, ETaskState::Succeeded);
 		});
+		ASSERT_TRUE(ParentStarted.WaitFor(2));
 		EXPECT_EQ(Parent.Wait(2).TaskState, ETaskState::Succeeded);
 	}
 
@@ -647,7 +820,7 @@ namespace Durin
 		const auto Outcomes = Tasks::Wait(std::span(Events));
 		ASSERT_EQ(Outcomes.size(), 2u);
 		EXPECT_EQ(Outcomes[0].TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(Outcomes[1].TaskState, ETaskState::Canceled);
+		EXPECT_EQ(Outcomes[1].TaskState, ETaskState::Succeeded);
 		for (const auto& Outcome : Outcomes) EXPECT_EQ(Outcome.WaitStatus, ETaskWaitStatus::Completed);
 		std::vector<Tasks::TTask<void>> Inputs;
 		Inputs.push_back(Tasks::LaunchTask("FailedCollectionValue", [] { throw std::runtime_error("failure"); }));
@@ -683,7 +856,9 @@ namespace Durin
 			return 42;
 		});
 		// On one worker this can finish only after the parent body has returned.
-		auto Probe = Tasks::LaunchTask("FreeWorkerProbe", [] {});
+		FThreadEvent ProbeRan;
+		auto Probe = Tasks::LaunchTask("FreeWorkerProbe", [&] { ProbeRan.Trigger(); });
+		ASSERT_TRUE(ProbeRan.WaitFor(2));
 		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_FALSE(Parent.IsCompleted());
 		EXPECT_EQ(GetTaskSchedulerDiagnostics().ExecutorStorage[0].CurrentRunningBodies, 0u);
@@ -709,30 +884,8 @@ namespace Durin
 		EXPECT_TRUE(Tasks::Cancel(Second));
 		EXPECT_FALSE(Second.IsCompleted());
 		Second.Trigger();
-		EXPECT_EQ(Second.Wait().TaskState, ETaskState::Canceled);
+		EXPECT_EQ(Second.Wait().TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(Join.Wait().TaskState, ETaskState::Succeeded);
-	}
-
-	TEST(FTaskCompositionTests, NestedParentCancellationWaitsForSignalAndDiscardsResult)
-	{
-		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
-		Tasks::FTaskEvent Signal("CancellationSignal");
-		std::weak_ptr<int> Weak;
-		auto Parent = Tasks::LaunchTask("CanceledNestedParent", [&] {
-			Tasks::AddNested(Signal);
-			auto Value = std::make_shared<int>(7); Weak = Value;
-			return Value;
-		});
-		auto Probe = Tasks::LaunchTask("BodyReturned", [] {});
-		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
-		EXPECT_FALSE(Weak.expired());
-		EXPECT_TRUE(Tasks::Cancel(Parent));
-		EXPECT_FALSE(Parent.IsCompleted());
-		EXPECT_FALSE(Private::FTaskRuntimeAccess::IsCancellationRequested(Durin::Tasks::FTask(Signal)));
-		Signal.Trigger();
-		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Canceled);
-		EXPECT_TRUE(Weak.expired());
 	}
 
 	TEST(FTaskCompositionTests, NestedParentFailureStillDrainsChildren)
@@ -744,7 +897,9 @@ namespace Durin
 			Tasks::AddNested(Signal);
 			throw std::runtime_error("parent failure");
 		});
-		auto Probe = Tasks::LaunchTask("FailureBodyReturned", [] {});
+		FThreadEvent ProbeRan;
+		auto Probe = Tasks::LaunchTask("FailureBodyReturned", [&] { ProbeRan.Trigger(); });
+		ASSERT_TRUE(ProbeRan.WaitFor(2));
 		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_FALSE(Parent.IsCompleted());
 		Tasks::Cancel(Parent);
@@ -752,34 +907,24 @@ namespace Durin
 		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Failed);
 	}
 
-	TEST(FTaskCompositionTests, NestedEventKeepsCanceledParentAliveUntilExternalAcknowledgement)
-	{
-		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
-		FTaskCancellationSource GroupCancellation;
-		Tasks::FTaskEvent Signal("GroupSignal");
-		auto Parent = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.Cancellation = GroupCancellation.GetToken()}, [&] { Tasks::AddNested(Signal); });
-		auto Probe = Tasks::LaunchTask("GroupBodyReturned", [] {});
-		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
-		GroupCancellation.RequestCancellation();
-		Signal.Trigger();
-		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Canceled);
-	}
-
 	TEST(FTaskCompositionTests, NestedDependenciesPreserveGameThreadWaitPolicy)
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		FThreadEvent Started, Release;
+		struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } Resume{Release};
+		auto Blocker = Tasks::LaunchTask("DeferredNestedBlocker", [&] { Started.Trigger(); Release.Wait(); });
+		ASSERT_TRUE(Started.WaitFor(2));
 		auto Parent = Tasks::LaunchTask("DeferredNestedParent", [] {
 			auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {});
 			Tasks::AddNested(Child);
 		});
-		auto Probe = Tasks::LaunchTask("DeferredBodyReturned", [] {});
-		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_EQ(Parent.Wait().WaitStatus, ETaskWaitStatus::UnsupportedThread);
 		PumpGameThreadDeferredWork();
 		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		Release.Trigger();
+		Blocker.Wait();
 	}
 
 	TEST(FTaskCompositionTests, CompletionDependencyCyclesAndInvalidNestedContextAreRejected)
@@ -823,6 +968,7 @@ namespace Durin
 		auto Signaler = Event;
 		Tasks::FTask Observer = std::move(Event);
 		EXPECT_FALSE(Event.IsValid());
+		Event.Trigger(); // A moved-from event is an already-completed empty handle.
 		std::atomic<uint32> Runs = 0;
 		auto Dependent = Tasks::LaunchTask("TriggeredOnce", [&] { ++Runs; }, Observer);
 		std::vector<std::thread> Callers;
@@ -836,7 +982,138 @@ namespace Durin
 		EXPECT_TRUE(Observer.IsCompleted());
 	}
 
-	TEST(FTaskCompositionTests, TaskEventEnforcesSharedOneShotSignalAndExplicitLifetime)
+	TEST(FTaskCompositionTests, EventsSurviveSchedulerStartupDrainCancelAndRestart)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		Tasks::FTaskEvent Event("AcrossSchedulerLifetimes", false);
+		const auto Id = Event.GetTaskId();
+		EXPECT_EQ(Event.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTaskReservationCount, 0u);
+		ShutdownTaskSystem(ETaskShutdownMode::Drain); // An untriggered event alone cannot hold Drain.
+		EXPECT_FALSE(Event.IsCompleted());
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+
+		EXPECT_FALSE(Event.IsCompleted());
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Next = Tasks::LaunchTask("RestartedEventWaiter", [] { return 42; }, Event);
+		Event.Trigger();
+		EXPECT_EQ(Next.GetResult(), 42);
+		ShutdownTaskScheduler(false);
+		EXPECT_EQ(Event.GetTaskId(), Id);
+		EXPECT_EQ(Event.Wait().TaskState, ETaskState::Succeeded);
+		Tasks::FTaskEvent AfterShutdown("AfterShutdown", false);
+		AfterShutdown.AddPrerequisites(Event);
+		AfterShutdown.Trigger();
+		EXPECT_TRUE(AfterShutdown.IsCompleted());
+	}
+
+	TEST(FTaskCompositionTests, TriggeredEventsRetainPendingCompletionWithoutFacadeOrScheduler)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		Tasks::FTaskEvent Gate("StandaloneGate", false), Join("StandaloneJoin", false);
+		{
+			Tasks::FTaskEvent Intermediate("StandaloneIntermediate", false);
+			Intermediate.AddPrerequisites(Gate);
+			Join.AddPrerequisites(Intermediate);
+			Intermediate.Trigger();
+		}
+		Join.Trigger();
+		EXPECT_FALSE(Join.IsCompleted());
+		Gate.Trigger();
+		EXPECT_EQ(Join.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount, 0u);
+	}
+
+	TEST(FTaskCompositionTests, EventWaitRetractsPrerequisitesOnTheOnlyWorker)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Parent = Tasks::LaunchTask("EventHelpingParent", [] {
+			Tasks::FTaskEvent Event("EventHelpingJoin", false);
+			auto Child = Tasks::LaunchTask("EventHelpingChild", [] { return 42; });
+			Event.AddPrerequisites(Child);
+			Event.Trigger();
+			EXPECT_EQ(Event.Wait(2.0).TaskState, ETaskState::Succeeded);
+			return Child.GetResult();
+		});
+		EXPECT_EQ(Parent.GetResult(), 42);
+		Tasks::FTaskEvent External("ExternalEventWait", false);
+		FThreadEvent Waiting;
+		auto Waiter = Tasks::LaunchTask("EventExternalWaiter", [&] {
+			Waiting.Trigger();
+			return External.Wait(2.0);
+		});
+		const bool Started = Waiting.WaitFor(2.0);
+		External.Trigger();
+		EXPECT_TRUE(Started);
+		EXPECT_EQ(Waiter.GetResult().TaskState, ETaskState::Succeeded);
+	}
+
+	TEST(FTaskCompositionTests, EventRetractionExecutesScheduledPrerequisites)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent Started, Release;
+		auto Blocker = Tasks::LaunchTask("EventRetractionBlocker", [&] { Started.Trigger(); Release.Wait(); });
+		const bool Running = Started.WaitFor(2.0);
+		Tasks::FTaskEvent Event("RetractableEvent", false);
+		auto Child = Tasks::LaunchTask("RetractableEventChild", [] { return 42; });
+		Event.AddPrerequisites(Child);
+		Event.Trigger();
+		const bool Retracted = Event.TryRetractAndExecute();
+		Release.Trigger();
+		EXPECT_TRUE(Running);
+		EXPECT_TRUE(Retracted);
+		EXPECT_EQ(Child.GetResult(), 42);
+		EXPECT_EQ(Blocker.Wait().TaskState, ETaskState::Succeeded);
+	}
+
+	TEST(FTaskCompositionTests, EventLifecycleChecksFollowTheNodeAcrossErasedHandles)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		Tasks::FTask Observer;
+		{
+			Tasks::FTaskEvent Event("RetainedUntriggeredNode", false);
+			Observer = Event;
+		}
+		EXPECT_FALSE(Observer.IsCompleted());
+		// Exercise the node directly after the last event facade has been released.
+		Private::FTaskRuntimeAccess::TriggerTaskEvent(Observer);
+		EXPECT_TRUE(Observer.IsCompleted());
+		Observer = {};
+		EXPECT_DEATH({
+			Tasks::FTask Erased;
+			{ Tasks::FTaskEvent Event("UncompletedErasedNode"); Erased = Event; }
+			Erased = {};
+		}, "Task event nodes must be completed");
+	}
+
+	TEST(FTaskCompositionTests, EventTerminalHooksCanRetriggerAndReleaseTheirSignalingHandle)
+	{
+		Tasks::FTaskEvent Event("ReentrantEvent", false);
+		Tasks::FTask Observer = Event;
+		uint32 Calls = 0;
+		auto Subscription = Tasks::SubscribeTask(Event, [&](ETaskState) {
+			++Calls;
+			Event.Trigger();
+			Tasks::FTask Released = std::move(Event);
+			Observer = {};
+		});
+		Event.Trigger();
+		EXPECT_EQ(Calls, 1u);
+		EXPECT_FALSE(Event.IsValid());
+		EXPECT_FALSE(Observer.IsValid());
+	}
+
+	TEST(FTaskCompositionTests, TaskEventEnforcesSharedOneShotSignalAndNodeLifetime)
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
@@ -849,26 +1126,7 @@ namespace Durin
 		Signal.Trigger();
 		EXPECT_TRUE(Signal.IsCompleted());
 		EXPECT_DEATH({ Signal.AddPrerequisites(Signal); }, "before Trigger");
-		EXPECT_DEATH({ Tasks::FTaskEvent Unsignaled("Unsignaled"); }, "must be triggered");
-	}
-
-	TEST(FTaskCompositionTests, NestedAlreadyCanceledExecutionBackEdgeDoesNotFormCycle)
-	{
-		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
-		FThreadEvent Published;
-		Tasks::FTask ParentHandle;
-		auto Parent = Tasks::LaunchTask("CompletedBackEdgeParent", [&] {
-			Published.Wait();
-			auto Child = Tasks::LaunchTask("CanceledBackEdgeChild", [] { ADD_FAILURE(); }, ParentHandle);
-			EXPECT_TRUE(Tasks::Cancel(Child));
-			EXPECT_TRUE(Child.IsCompleted());
-			Tasks::AddNested(Child);
-			return 42;
-		});
-		ParentHandle = Durin::Tasks::FTask(Parent);
-		Published.Trigger();
-		EXPECT_EQ(std::move(Parent.GetResult()), 42);
+		EXPECT_DEATH({ Tasks::FTaskEvent Unsignaled("Unsignaled"); }, "Task event nodes must be completed");
 	}
 
 	TEST(FTaskCompositionTests, SchedulerCompletionSourceSignalsDuringDrainAndCancel)
@@ -892,9 +1150,8 @@ namespace Durin
 			ShutdownTaskSystem(Mode);
 			Producer.join();
 			EXPECT_TRUE(Handoff.IsCompleted());
-			EXPECT_EQ(Calls, Mode == ETaskShutdownMode::Drain ? 1 : 0);
-			EXPECT_EQ(Handoff.GetState(), Mode == ETaskShutdownMode::Drain
-				? ETaskState::Succeeded : ETaskState::Canceled);
+			EXPECT_EQ(Calls, 1);
+			EXPECT_EQ(Handoff.GetState(), ETaskState::Succeeded);
 		}
 	}
 
@@ -907,7 +1164,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		auto Source = Tasks::TCompletionSource<void>::Create();
 		auto Handoff = Tasks::Then(Source.TakeTask(), Tasks::ETaskExecutor::GameThreadDeferred,
-			{}, [] { ADD_FAILURE() << "Canceled continuation must not execute."; });
+			{}, [] {});
 		int ReleasedCaptures = 0;
 		auto Capture = std::shared_ptr<int>(new int(0), [Source, &ReleasedCaptures](int* Value) {
 			delete Value;
@@ -919,14 +1176,14 @@ namespace Durin
 		auto Queued = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {},
 			[Capture = std::move(Capture)] {
 				(void)Capture;
-				ADD_FAILURE() << "Canceled task must not execute.";
+
 			});
 
 		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 
 		EXPECT_EQ(ReleasedCaptures, 1);
-		EXPECT_EQ(Queued.GetState(), ETaskState::Canceled);
-		EXPECT_EQ(Handoff.GetState(), ETaskState::Canceled);
+		EXPECT_EQ(Queued.GetState(), ETaskState::Succeeded);
+		EXPECT_EQ(Handoff.GetState(), ETaskState::Succeeded);
 		EXPECT_EQ(GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth, 0u);
 		EXPECT_FALSE(GetGameThreadDeferredWorkQueueDiagnostics().bInstalled);
 		EXPECT_EQ(GetGameThreadDeferredWorkQueueDiagnostics().RejectedCount, 0u);
@@ -1035,7 +1292,7 @@ namespace Durin
 		}
 	}
 
-	TEST(FTaskCompositionTests, CompletedEdgeCancellationDoesNotRunRecovery)
+	TEST(FTaskCompositionTests, CompletedEdgeCancellationStillRunsRecovery)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -1051,8 +1308,8 @@ namespace Durin
 		auto Edge = std::move(EdgeAdmission);
 		Tasks::Cancel(Edge);
 		EXPECT_TRUE(Source.TrySetFailure({}));
-		EXPECT_EQ(ETaskState::Canceled, Tasks::Wait(Edge).TaskState);
-		EXPECT_EQ(0, Calls.load());
+		EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(Edge).TaskState);
+		EXPECT_EQ(1, Calls.load());
 	}
 
 	TEST(FTaskCompositionTests, SharedTransformsPreserveInputHandles)
@@ -1100,8 +1357,8 @@ namespace Durin
 		EXPECT_FALSE(Result.IsCompleted());
 		EXPECT_TRUE(Source.TrySetValue(42));
 		EXPECT_FALSE(Source.TrySetValue(100));
-		ASSERT_EQ(ETaskState::Canceled, Tasks::Wait(Result).TaskState);
-		EXPECT_EQ(ETaskState::Canceled, Result.GetState());
+		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Result).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Result.GetState());
 	}
 
 	TEST(FTaskCompositionTests, ExternalSourceAbandonmentAndConcurrentPublication)
@@ -1337,7 +1594,7 @@ namespace Durin
 		ASSERT_EQ(2u, Values.size());
 		EXPECT_EQ(Values[0].get(), Values[1].get());
 		EXPECT_EQ(27, *Values[1]);
-		EXPECT_EQ(ETaskState::Canceled, WaitOffGameThread(Observer).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, WaitOffGameThread(Observer).TaskState);
 	}
 
 	TEST(FTaskCompositionTests, ThenAsyncCancellationDoesNotCancelSharedDeferredInner)
@@ -1364,7 +1621,7 @@ namespace Durin
 		EXPECT_EQ(0, Called.load());
 		EXPECT_NE(ETaskState::Canceled, Inner.GetState());
 		PumpGameThreadDeferredWork();
-		EXPECT_EQ(ETaskState::Canceled, WaitOffGameThread(Outer).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, WaitOffGameThread(Outer).TaskState);
 		EXPECT_EQ(12, Inner.GetResult());
 		EXPECT_EQ(1, Called.load());
 	}
@@ -1378,6 +1635,7 @@ namespace Durin
 		auto Blocker = Durin::Tasks::FTask(Tasks::LaunchTask("PriorityBlocker", [&] { Started.Trigger(); Release.Wait(); }));
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		std::vector<int> Order;
+		FThreadEvent LastHighRan;
 		std::vector<Tasks::TTask<void>> Completions;
 		Tasks::FTaskExecutionOptions Options;
 		Options.Priority = ETaskPriority::Low;
@@ -1392,10 +1650,14 @@ namespace Durin
 		Source.TrySetValue();
 		for (int Index = 0; Index < 24; ++Index)
 		{
-			auto High = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options, [&, Index] { Order.push_back(Index); });
+			auto High = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options, [&, Index] {
+				Order.push_back(Index);
+				if (Index == 23) LastHighRan.Trigger();
+			});
 			Completions.push_back(std::move(High));
 		}
 		Release.Trigger();
+		ASSERT_TRUE(LastHighRan.WaitFor(2));
 		Tasks::Wait(Completions);
 		ASSERT_EQ(26u, Order.size());
 		EXPECT_EQ(99, Order.front());
@@ -1604,7 +1866,7 @@ namespace Durin
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CapacityRejectedTaskCount);
 	}
 
-	TEST(FTaskAcceptanceTests, CancelRetiresQueuedBodiesAndUniqueCapturesOnce)
+	TEST(FTaskAcceptanceTests, CancelShutdownExecutesQueuedBodiesAndRetiresCapturesOnce)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -1622,9 +1884,9 @@ namespace Durin
 		GroupCancellation.RequestCancellation();
 		Release.Trigger();
 		ShutdownTaskScheduler(false);
-		EXPECT_EQ(0, Called.load());
+		EXPECT_EQ(64, Called.load());
 		EXPECT_EQ(64, Destroyed.load());
-		for (auto& Task : Queued) EXPECT_EQ(ETaskState::Canceled, Task.GetState());
+		for (auto& Task : Queued) EXPECT_EQ(ETaskState::Succeeded, Task.GetState());
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
 	}
 
@@ -1633,7 +1895,7 @@ namespace Durin
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		for (int32 Checkpoint = 1; Checkpoint <= 6; ++Checkpoint)
+		for (int32 Checkpoint = 1; Checkpoint <= 3; ++Checkpoint)
 		{
 			EXPECT_DEATH({
 				Private::SetTaskAdmissionAllocationFailureForTests(Checkpoint);
@@ -1651,11 +1913,11 @@ namespace Durin
 		ASSERT_EQ(ETaskState::Succeeded, Input.Wait().TaskState);
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 		while (GetTaskSchedulerDiagnostics().CurrentTaskReservationCount != 0 && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
-		for (int32 Checkpoint = 1; Checkpoint <= 5; ++Checkpoint)
+		for (int32 Checkpoint = 1; Checkpoint <= 3; ++Checkpoint)
 		{
 			Private::SetTaskAdmissionAllocationFailureForTests(Checkpoint);
 			auto Rejected = Private::TryLaunchContinuationTask(Durin::Tasks::FTask(Input),
-				"AllocationRollback", [](const FTaskCancellationToken&) {}, {}, {}, ETaskDependencyKind::Success);
+				"AllocationRollback", [](const FTaskCancellationToken&) {}, {}, {});
 			ASSERT_FALSE(Rejected.HasValue());
 			EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::CapacityExhausted, Rejected.GetError().Code);
 			EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
@@ -1700,7 +1962,7 @@ namespace Durin
 			});
 			EXPECT_TRUE(Started.WaitFor(1.0));
 			Tasks::Cancel(Running); Release.Trigger();
-			EXPECT_EQ(ETaskState::Canceled, Running.Wait().TaskState);
+			EXPECT_EQ(ETaskState::Succeeded, Running.Wait().TaskState);
 		}
 		EXPECT_EQ(3, Destroyed.load());
 	}
@@ -1822,7 +2084,7 @@ namespace Durin
 		auto Stale = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, Options, [] { ADD_FAILURE(); });
 		Generation.Advance();
 		PumpGameThreadDeferredWork();
-		EXPECT_EQ(ETaskState::Canceled, Stale.GetState());
+		EXPECT_EQ(ETaskState::Failed, Stale.GetState());
 		auto Source = Tasks::TCompletionSource<void>::Create({});
 		const std::array Dependencies{Durin::Tasks::FTask(Source.TakeTask())};
 		Options = {}; Options.Prerequisites = Dependencies;

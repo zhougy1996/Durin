@@ -520,7 +520,7 @@ namespace Durin
 		std::lock_guard Lock(State->Mutex);
 		if (State->bBinding) return false;
 		const auto Completion = State->Completion();
-		return !Completion.IsValid() || Completion.IsComplete();
+		return !Completion.IsValid() || Completion.IsCompleted();
 	}
 
 	auto FPackageResourceRequest::Cancel() -> void

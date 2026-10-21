@@ -250,7 +250,9 @@ namespace Durin
 				Jobs.erase(Jobs.begin() + Index);
 				FAssetReadResult Result;
 				FAsyncPackageInputs Inputs;
-				if (Finished->Read.GetState() != ETaskState::Succeeded)
+				if (Finished->Read.IsCancellationRequested())
+					Result = {EAssetReadError::Cancelled, "Async package read cancellation was requested."};
+				else if (Finished->Read.GetState() != ETaskState::Succeeded)
 					Result = {Finished->Read.GetState() == ETaskState::Canceled
 						? EAssetReadError::Cancelled : EAssetReadError::IoError, "Async package read did not succeed."};
 				else Inputs = std::move(Finished->Read.GetResult());

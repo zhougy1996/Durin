@@ -413,8 +413,7 @@ namespace Durin
 					if (!Ready->Mailbox)
 					{
 						// A skipped/failed dispatch body cannot post. Reap it into the same mailbox after retirement.
-						const auto TaskState = Ready->Task.GetState();
-						const bool bCanceled = TaskState == ETaskState::Canceled || Ready->bCancellationRequested.load();
+						const bool bCanceled = Ready->Task.IsCancellationRequested() || Ready->bCancellationRequested.load();
 						Ready->Mailbox.emplace(MakeIssueResult(*Ready,
 							bCanceled ? DerivedData::EStatus::Canceled : DerivedData::EStatus::Error,
 							bCanceled ? std::string{} : "Texture build task failed."));

@@ -122,7 +122,7 @@ namespace Durin
 			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
 			for (const Tasks::FTask& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
 			for (const Tasks::FTask& Task : Failed) EXPECT_EQ(ETaskState::Failed, WaitTask(Task).TaskState);
-			for (const Tasks::FTask& Task : Canceled) EXPECT_EQ(ETaskState::Canceled, WaitTask(Task).TaskState);
+			for (const Tasks::FTask& Task : Canceled) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
 		}
 
 		const FTaskSchedulerDiagnostics Final = GetTaskSchedulerDiagnostics();
@@ -134,9 +134,9 @@ namespace Durin
 			* (SucceededPerRound + OverloadedPerRound + FailedPerRound + CanceledPerRound);
 		const uint64 ExpectedRejected = 0;
 		EXPECT_EQ(ExpectedAccepted, Category->AcceptedCount);
-		EXPECT_EQ(static_cast<uint64>(RoundCount) * (SucceededPerRound + OverloadedPerRound), Category->SucceededCount);
+		EXPECT_EQ(static_cast<uint64>(RoundCount) * (SucceededPerRound + OverloadedPerRound + CanceledPerRound), Category->SucceededCount);
 		EXPECT_EQ(static_cast<uint64>(RoundCount) * FailedPerRound, Category->FailedCount);
-		EXPECT_EQ(static_cast<uint64>(RoundCount) * CanceledPerRound, Category->CanceledCount);
+		EXPECT_EQ(0u, Category->CanceledCount);
 		EXPECT_EQ(ExpectedRejected, Category->RejectedCount);
 		EXPECT_EQ(0u, Category->CurrentNonterminalCount);
 		EXPECT_EQ(ExpectedAccepted, Final.CompletedTaskCount);

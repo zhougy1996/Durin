@@ -149,6 +149,7 @@ durin_add_native_test(CoreConcurrencyTests
 		Private/ProcessCrashContextTests.cpp
 		Private/ThreadingTests.cpp
 		Private/TaskCompositionTests.cpp
+		Private/TaskCloseTests.cpp
 	LIBRARIES Core
 	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 	DATA_FILES "${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"

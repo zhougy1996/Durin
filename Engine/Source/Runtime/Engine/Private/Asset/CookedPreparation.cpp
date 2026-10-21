@@ -227,7 +227,7 @@ namespace Durin
 		CancelWork = [State] { State->Cancellation.Cancel(); };
 		Lifecycle.WaitForCompletion = [this, State] {
 			if (State->Task.IsValid()) {
-				while (!State->Task.IsComplete()) {
+				while (!State->Task.IsCompleted()) {
 					if (Lifecycle.CheckCancellation()) State->Cancellation.Cancel();
 					(void)WaitTask(State->Task, 0.01);
 				}

@@ -114,7 +114,7 @@ namespace Durin::DerivedData
 			auto IsCanceled() const -> bool override { std::lock_guard Lock(Mutex); return Canceled; }
 			auto PruneNativeTasks() -> void
 			{
-				std::erase_if(NativeTasks, [](const auto& Task) { return Task.IsComplete(); });
+				std::erase_if(NativeTasks, [](const auto& Task) { return Task.IsCompleted(); });
 			}
 			auto IsInCallback() const -> bool
 			{
@@ -163,12 +163,12 @@ namespace Durin::DerivedData
 				uint64 Revision;
 				{
 					std::lock_guard Lock(Mutex);
-					if (!Requests.empty() || !std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsComplete(); })) return false;
+					if (!Requests.empty() || !std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsCompleted(); })) return false;
 					External = Dependencies; Revision = DependencyRevision;
 				}
 				if (!std::ranges::all_of(External, [](const auto& Dependency) { return Dependency->IsFinished(); })) return false;
 				std::lock_guard Lock(Mutex);
-				return Requests.empty() && Revision == DependencyRevision && std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsComplete(); });
+				return Requests.empty() && Revision == DependencyRevision && std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsCompleted(); });
 			}
 			auto Wait() const -> ERequestWaitResult override
 			{

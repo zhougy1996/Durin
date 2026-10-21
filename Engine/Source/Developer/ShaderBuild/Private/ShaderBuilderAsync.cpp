@@ -351,7 +351,7 @@ namespace Durin
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::IsComplete() const -> bool
 	{
-		{ std::lock_guard Lock(Mutex); if (Delivery != EDelivery::Completed || !Published || (Preparation.IsValid() && !Preparation.IsComplete())) return false; }
+		{ std::lock_guard Lock(Mutex); if (Delivery != EDelivery::Completed || !Published || (Preparation.IsValid() && !Preparation.IsCompleted())) return false; }
 		if (!NativeOwner.Poll()) return false;
 		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); return !Flight || Flight->Owner.Poll(); }
 		return true;
@@ -419,8 +419,8 @@ namespace Durin
 		else
 		{
 			auto Dispatch = Private::TryLaunchCancelableTaskWithCompletion("ShaderPrepare",
-				[Self = Async, Subscriber](const FTaskCancellationToken&) { try { Self->Prepare(Subscriber); } catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); } },
-				[Subscriber](ETaskState State) { if (State == ETaskState::Canceled) Subscriber->Finish(CanceledShader()); else if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderCompilerOutput::Failure("Shader preparation task failed.")); }, {.CancellationToken = Subscriber->PreparationCancellation.GetToken(), .Priority = static_cast<ETaskPriority>(Subscriber->Options.Priority)});
+				[Self = Async, Subscriber](const FTaskCancellationToken& Token) { try { if (Token.IsCancellationRequested()) Subscriber->Finish(CanceledShader()); else Self->Prepare(Subscriber); } catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); } },
+				[Subscriber](ETaskState State) { if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderCompilerOutput::Failure("Shader preparation task failed.")); }, {.CancellationToken = Subscriber->PreparationCancellation.GetToken(), .Priority = static_cast<ETaskPriority>(Subscriber->Options.Priority)});
 			if (!Dispatch.HasValue())
 			{
 				{ std::lock_guard Lock(Async->Mutex); Async->Bytes -= Subscriber->Bytes + Subscriber->NativeBytes; std::erase(Async->Operations, Subscriber); }

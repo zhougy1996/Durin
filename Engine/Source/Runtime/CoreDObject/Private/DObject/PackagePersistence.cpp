@@ -34,7 +34,7 @@ namespace Durin
 		auto FinishAsyncSave(const std::shared_ptr<FOwnedAsyncSave>& Save) -> void
 		{
 			check(IsInGameThread());
-			if (Save->bFinishing || !Save->Finish || !Save->Disk.IsComplete()) return;
+			if (Save->bFinishing || !Save->Finish || !Save->Disk.IsCompleted()) return;
 			Save->bFinishing = true;
 			bDeliveringSave = true;
 			Save->Write = {};
@@ -82,7 +82,7 @@ namespace Durin
 			auto Disk = Private::TryLaunchCancelableTaskWithCompletion("Package.SaveIO",
 				[Save, Admission = Gate.GetTaskHandle()](const FTaskCancellationToken&) {
 					if (Admission.GetState() != ETaskState::Succeeded) {
-						Private::FTaskRuntimeAccess::CancelCurrent();
+						Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
 						return;
 					}
 					Save->Write();
@@ -92,9 +92,9 @@ namespace Durin
 			Save->Disk = std::move(Disk).TakeValue();
 			if (PublicationFault == EPublicationFault::RejectAdmission)
 			{
-				CancelTask(Save->Disk);
 				Gate.TrySetCanceled();
-				(void)WaitTask(Save->Disk);
+				// The closed admission gate prevents Write from being invoked. Retire
+				// caller captures here; accepted I/O work may still await its executor.
 				Save->Write = {}; Save->Finish = {};
 				return Fail(EPackageSaveError::ShuttingDown, "Injected save publication admission failure.");
 			}
@@ -103,12 +103,10 @@ namespace Durin
 			CompletionOptions.bQueueOnSaturation = true;
 			auto Completion = Private::TryLaunchContinuationTask(Save->Disk, "Package.SavePublication",
 				[Save](const FTaskCancellationToken&) { FinishAsyncSave(Save); }, [](ETaskState) {},
-				CompletionOptions, ETaskDependencyKind::Completion);
+				CompletionOptions);
 			if (!Completion.HasValue())
 			{
-				CancelTask(Save->Disk);
 				Gate.TrySetCanceled();
-				(void)WaitTask(Save->Disk);
 				Save->Write = {}; Save->Finish = {};
 				return Fail(EPackageSaveError::ShuttingDown, "Save publication admission failed.");
 			}
@@ -123,7 +121,7 @@ namespace Durin
 			check(IsInGameThread());
 			if (bDeliveringSave) return;
 			for (const auto& Save : SnapshotSaves())
-				if (Save->Disk.IsComplete() && Save->Publication.IsComplete()) FinishAsyncSave(Save);
+				if (Save->Disk.IsCompleted() && Save->Publication.IsCompleted()) FinishAsyncSave(Save);
 		}
 		auto SetAsyncSaveAdmission(bool bAccepting) -> void
 		{ if (GIsGameThreadIdInitialized) check(IsInGameThread()); bAcceptAsyncSaves = bAccepting; }
@@ -139,7 +137,7 @@ namespace Durin
 	}
 	auto DPackage::HasAsyncFileWrites() -> bool
 	{
-		for (const auto& Save : SnapshotSaves()) if (!Save->Disk.IsComplete()) return true;
+		for (const auto& Save : SnapshotSaves()) if (!Save->Disk.IsCompleted()) return true;
 		return false;
 	}
 	auto DPackage::WaitForAsyncFileWrites() -> FTaskWaitResult

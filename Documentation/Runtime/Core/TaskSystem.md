@@ -67,7 +67,8 @@ must use the ordinary API rather than selecting the checked policy.
 
 Accepted waiting/ready nodes remain in scheduler lifetime tracking.
 Worker ready queues and the deferred queue own their callable storage until
-execution or explicit cancellation. There is no untracked overflow queue.
+execution or an explicit producer outcome. Cancellation requests do not release
+waiting or ready nodes. There is no untracked overflow queue.
 Pending storage can grow with accepted work; this is not an unlimited-memory
 guarantee. The scheduler does not inspect allocations behind containers or
 pointers captured by a callable.
@@ -118,6 +119,9 @@ share one execution node and result; the result type itself may be move-only.
 The node retains successful result storage until its final reference is released,
 including generic `FTask` references and external completion sources. Releasing a
 typed handle does not discard a result still retained by another handle.
+Result storage, the task body, the completion callback and the node kind are
+bound during construction, including external and detached completion sources
+and events. The node's result-storage binding and kind cannot change afterward.
 Ordinary dependencies accept task/event objects directly. Constructing or assigning
 a generic `FTask` from an lvalue task/event copies observation; an rvalue transfers
 the base handle and leaves the source invalid. Moving a complete typed task
@@ -144,11 +148,14 @@ results remain until the node is released. Captures and results are destroyed ou
 executor queue locks. Before a task exposes terminal state or completes a wait,
 its scheduler-owned callable and completion callback have been released. This
 does not release results or shared captures still owned by callers.
-Executor entries retain task state rather than user callables. Execution and
-cancellation claim a queued callable under the task lock; cancellation destroys
-it outside the lock before publication, without waiting for executor progress.
-If execution wins, cancellation remains cooperative and publication follows
-body exit and callable destruction. Destructors may query task state, but must
+Executor entries retain task state rather than user callables. Cancellation is
+cooperative: requesting it sets a flag without skipping a body, releasing a
+dependency or changing an outcome. Tasks still wait for prerequisites and execute;
+bodies may inspect their token and return an appropriate result. Ignoring a
+request permits normal successful completion and result retention. Shared tokens
+read one atomic flag without registering nodes. `FTask::IsCancellationRequested()`
+queries the task's own request or its shared token independently of completion.
+Publication follows body exit and callable destruction. Destructors may query task state, but must
 not wait for their own task's completion. A terminal handle does not retain a
 runnable callback.
 
@@ -192,8 +199,9 @@ the current scheduler lifetime. Additional
 prerequisites retain their dependency and executor requirements.
 Fan-in waits for all inputs; failure precedes cancellation and the lowest
 failing input index determines the framework failure. Shared observers are
-independently cancelable. A canceled observing edge may never invoke its
-callback, so mandatory cleanup belongs to the owner lifecycle boundary.
+independently observable. Requesting cancellation of an observing edge does not
+suppress its callback or cancel its inputs. The callback may honor its token;
+mandatory cleanup still belongs to the owner lifecycle boundary.
 
 ThenAsync binds and cycle-checks its dynamic dependency before clearing unknown
 execution requirements. Canceling the outer observer does not implicitly cancel
@@ -210,7 +218,11 @@ It does not occupy a worker. `TakeTask()` obtains its typed handle once; that
 handle can subsequently be copied freely.
 `TrySetValue`, `TrySetFailure` and `TrySetCanceled` settle once and report late
 publication attempts. Last unresolved source release fails with abandonment.
-Cancellation remains requested until the external producer acknowledges it.
+Cancellation requests do not decide the producer outcome: a later value still
+succeeds. `TrySetCanceled` explicitly reports an operation with no result, rather
+than requesting cancellation. This producer outcome, propagated by success-only
+composition, and the operation-level `ParallelFor` result retain `Canceled`;
+ordinary cooperative task completion does not become `Canceled`.
 Preallocated terminal hooks run outside internal locks without scheduling a
 new task. Source known-requirement construction also supports internal
 composition such as empty fan-in and dynamically bound inner tasks.
@@ -256,48 +268,101 @@ observation separately. `AddPrerequisites` accepts task/event facades
 or vectors, arrays, and spans of task/event or generic handles
 before `Trigger()`; the event completes only after it is triggered and every
 prerequisite finishes, regardless of prerequisite outcomes. Copies share one
-signal, repeated `Trigger()` calls are harmless, and the last handle must be triggered before
-release. Cancellation does not trigger an event. External producers must signal
+signal and repeated `Trigger()` calls are harmless, including on a moved-from empty
+event. Trigger state, synchronization and pending-completion ownership belong to
+the node; the event facade has only the common handle. The node must be completed
+before its final reference is released. Generic handles retain this lifetime check
+after the last event facade is released. Cancellation does not trigger an event. External producers must signal
 after their callbacks and captures have retired. Events default to unknown external
 execution requirements. Passing `false` as the constructor's second argument
 declares that signaling never requires GameThread or unknown external progress;
 transitive prerequisite wait restrictions still apply.
 
-Events participate in scheduler lifetime. AddNested expresses an explicit parent
-completion dependency; events do not collect work on behalf of an owner.
+Events have no scheduler owner or admission reservation. They can be created before
+startup, triggered after shutdown, and used across scheduler restarts. Drain and
+Cancel do not settle an event; an accepted task waiting on one still belongs to
+the scheduler and Drain waits for its signal. A triggered event retains its pending
+completion until all prerequisites finish, even after its event facades are released.
+Event waits and explicit retraction can execute eligible scheduled prerequisites.
+AddNested expresses an explicit parent completion dependency; events do not
+collect work on behalf of an owner.
 
-Prerequisites must be valid in the same scheduler lifetime. Ordinary launch
+Empty prerequisite handles are ignored, as already-completed dependencies.
+Nonempty scheduled task prerequisites must belong to the same scheduler lifetime;
+scheduler-independent events can connect tasks and events without that restriction.
+Detached data completion sources remain ineligible as execution prerequisites or
+nested work. Ordinary launch
 prerequisites are completion dependencies: the body becomes runnable once every
 prerequisite finishes, including Failed and Canceled outcomes. They do not
 forward failure or cancellation. Consumers requiring successful admission or
 usable predecessor data must check that outcome explicitly or use `Then`.
 `Then` and `ThenAsync` invoke user work only after their primary input succeeds;
-failure or cancellation suppresses the callback and propagates that outcome.
+failure or an explicitly canceled producer outcome suppresses the callback and
+propagates that outcome. A cancellation request alone does neither.
 Generic `FTask` and typed inputs use the same success-continuation logic.
 Additional `Options.Prerequisites` only constrain ordering, including on `Then`,
 `ThenCompleted`, `ThenAsync` and `WhenAll`; they do not become additional success
 conditions. Fan-in still checks the outcomes of its actual input collection.
-Checked-kernel callers may explicitly request a Success dependency kind.
-Registration racing terminal publication cannot lose or
+The kernel supports completion dependencies only; success checks belong to composition.
+Registration racing node closure either joins the open dependent list or observes
+the closed outcome; it never waits for terminal callbacks and cannot lose or
 duplicate dependent release. A task id is process-unique and nonzero; parent
 and prerequisite identities are distinct.
 
+Nodes move through Open, BodyFinished, Closing and Closed phases independently
+of their execution outcome. BodyFinished records success, failure or acknowledged
+producer cancellation after callable retirement; nested work can still keep the
+node open. Ordinary tasks, events and external producers all use
+the same Close path once the body has finished and no nested work remains.
+Close publishes result storage and retires terminal callbacks before atomically
+closing callback/dependent registration and exposing the terminal outcome.
+Public task state remains Waiting, Queued or Running until that point; bound
+result-storage metadata is independent of completion. There is no hidden raw
+terminal state or separate publication-finished flag.
+Synchronous close propagation is limited to 128 levels. Deeper closures retain
+their nodes in a thread-local worklist, drained iteratively by the outermost close
+on that same thread. This covers nested parent notifications and terminal-hook
+cascades without requiring scheduler work or unbounded native recursion.
+
 Execution prerequisites and nested completion have separate phase counters.
+Execution, nested and dynamic dependencies share one phase-aware edge collection.
+Each edge stores its stable task identity, weak backlink and optional owning pin;
+there are no parallel graph and lifetime arrays. Execution edges occupy a fixed
+prefix, while nested and dynamic edges share the completion suffix. Graph walks,
+retraction and executor checks use the same backlink view. Closing trims completion
+edges while preserving execution identities for diagnostics.
+One subsequent list carries both execution-ready and nested-complete notifications.
+Nested registration reserves both sides before publishing an edge and honors
+slots already reserved by ordinary task admission.
+Unfinished prerequisites hold their nodes and results alive after outside handles
+are released. Already-completed inputs do not acquire persistent dependency pins.
+Execution pins are released before the dependent body starts. Nested pins are
+released when the parent closes; cancellation requests retain dependency pins.
+Closing makes completion visible before retiring those pins, allowing child-result
+destructors to observe their parent's completed state.
+A retraction attempt consumes the corresponding execution/nested pins as its
+local traversal takes ownership, even if the target cannot finish in that pass.
+Dynamic inner pins last until the outer node settles; forwarded result ownership
+can independently retain the inner node for as long as the shared result needs it.
+Pins are detached under the node lock and destroyed outside it, so result
+destructors may reenter scheduler diagnostics without taking a held node lock.
 Retraction visits execution backlinks only while prerequisites remain and
 nested backlinks only while children remain. Persistent weak graph metadata
 continues to support cycle, authority and diagnostic checks. An unsuccessful
 attempt leaves unfinished links available to other waiters and later progress.
 Dynamic inner binding is one-shot; a second binding returns
-`InvalidExecutionContract` before mutation or cancellation forwarding.
+`InvalidExecutionContract` before mutation. Dynamic edges never forward cancellation.
 
-The scheduler publishes progress after ready-node insertion, dynamic binding,
-nested registration, callable retirement and full terminal publication. Its
-progress serial and condition variable use a separate mutex; observers prepare
-before inspecting work and wait only while the serial is unchanged. Notification
-does not imply completion or permit bypassing callable/terminal-hook retirement.
+Nodes notify their waiters after ready-node insertion, dynamic binding, nested
+registration and full terminal publication. Each blocking wait owns a signal;
+the target and dependencies inspected during retraction register weak observers
+of that signal. This lets later nested or dynamic readiness repeat retraction
+without broadcasting unrelated scheduler activity. Observers expire when the
+wait returns and retain neither task nodes nor schedulers. Notification does not
+imply completion or bypass callable/terminal-hook retirement.
 
 `WaitTask` returns wait status separately from task state. Completed means either
-an empty handle or a terminal state with finished terminal publication.
+an empty handle or a closed node with a terminal outcome.
 SelfWait, DependencyCycle, UnsupportedThread and TimedOut do not prove completion.
 `Task.Wait(TimeoutSeconds)`, `Tasks::Wait(TaskOrCollection, TimeoutSeconds)`,
 `WaitTask` and `WaitAll` accept a timeout in seconds. Omitting it waits indefinitely.
@@ -323,7 +388,7 @@ these ordinary C++ effects remain a caller contract. This explicit declaration
 permits render preparation/recording joins without relaxing general wait policy.
 Cancellation and exceptions still publish the normal terminal state, and result
 access still requires success. Waits do not pump GameThread callbacks.
-Executing tasks help only the waited task and its transitive execution, nested,
+Waiting callers, including ordinary threads, help only the waited task and its transitive execution, nested,
 and dynamic dependencies. The task state is the queue execution node; scheduler
 dispatch adds no callback wrapper or separate queue-node allocation. Ordinary
 pool callbacks use an adapter. Retraction pins the task node and detaches it in
@@ -334,8 +399,13 @@ retraction share the same removal path; stale and wrong-pool handles fail. Gener
 do not retain callable captures, and callable/discard storage is released outside
 the queue lock. Retraction never runs unrelated queue entries. Graph traversal is iterative rather than recursive. Kernel Worker
 helping runs CPU work; I/O helping stays within the blocking-I/O authority,
-including a single-thread I/O parent waiting for its child. External callers
-retain blocking-only behavior and executor-affinity restrictions remain in force.
+including a single-thread I/O parent waiting for its child. Ordinary callers can
+execute eligible Worker bodies on their own thread; they do not gain BlockingIO
+authority or bypass RenderingThread and GameThread wait restrictions. Consumers
+must release locks needed by the target graph before waiting and must not assume
+that Worker bodies always run on a pool thread.
+Wait rechecks authority after retraction, before sleeping, because executed bodies
+can introduce new deferred or external dependencies.
 
 A retraction pass visits prerequisites before attempting the node, then inspects
 dynamic/nested backlinks again to include work added by its body. The local
@@ -347,24 +417,31 @@ A started body is not preempted.
 `Task.TryRetractAndExecute()` explicitly attempts the target and its execution,
 nested and dynamic dependencies on the caller, without sleeping for work owned
 by another thread. It returns whether the target is complete; an empty handle
-returns true. Unlike ordinary external waits, external callers may explicitly
-execute eligible Worker tasks. The same thread and dependency restrictions apply;
+returns true. It uses the same eligible Worker execution path as ordinary waits,
+without waiting for progress. The same thread and dependency restrictions apply;
 BlockingIO execution still requires BlockingIO authority and deferred callbacks
 are never pumped. Callables may run arbitrarily long, and unrelated queued tasks
 are not executed. A false return does not cancel or fail the target.
 
-Waiting prepares the scheduler progress serial before inspection, rechecks
+Waiting prepares its signal serial before inspection, rechecks
 terminal state and deadline after retraction, then sleeps only while that serial
 is unchanged. Ready insertion and newly registered dependencies wake the waiter
-as well as terminal publication. The former worker 1 ms polling slice is removed;
-the long-wait diagnostic has one deadline of its own. The scheduler notification
-is shared, so unrelated progress can wake a waiter, but cannot authorize execution
-of unrelated work. This is a correctness refactor, not a timing qualification.
+as well as terminal publication. Dependency observers register before inspecting
+each node, preventing a readiness change between inspection and sleep from being
+lost. Events use the same node notifications and keep no waiting-scheduler list.
+Waiting uses no worker polling slice; the long-wait diagnostic has one deadline
+of its own. Scheduler quiescence notification remains separate for shutdown.
 
-Callable ownership transfers only after admission succeeds, and the body is
-retired before terminal publication. Typed result storage remains separately
-owned so unique reservations and shared views can outlive execution without
-changing their claims or retaining callback captures. Queue-node membership is
+Node construction completes before acceptance commits its registry entries and
+accounting under the scheduler lock. Preparation failures roll back registry and
+dependency reservations; rejected payloads retire outside scheduler locks without
+running body or completion callbacks. Dependency registration follows the commit,
+then one activation enables dispatch. Failures after commit settle
+the accepted node rather than return a rejected admission. Standalone completions
+and events are constructed active without scheduler admission. The body is retired
+before terminal publication. Task handles and shared result views retain the
+node's result storage beyond execution without retaining retired callback
+captures. Queue-node membership is
 one-shot; an executed or discarded node cannot be admitted again.
 
 The process scheduler owns a distinct blocking-I/O pool, defaulting to two
@@ -411,16 +488,21 @@ Pending requests not yet launched remain in the owner queue.
 Engine startup/exit placement is defined by [Runtime Lifecycle](RuntimeLifecycle.md).
 Normal operation has one process scheduler lifetime. Fully stopped schedulers
 may restart for isolated tests/tools; old terminal handles remain observable
-but cannot become prerequisites in the new lifetime. Starting during shutdown
+but cannot become direct task prerequisites in the new lifetime. Events remain
+usable across lifetimes. Starting during shutdown
 is rejected and scheduler instances never overlap.
 
 `ShutdownTaskSystem(Drain)` closes submission, retains internal dispatch, pumps
 deferred work without the frame budget and drains the entire graph before
-uninstalling the adapter and joining pools. Cancel terminalizes queued/waiting
-work and requests cooperative cancellation of running bodies, then joins them.
+uninstalling the adapter and joining pools. Cancel first requests cooperative
+cancellation of all accepted nodes, then performs the same drain. Pending external
+signals must still arrive, queued bodies still execute, and deferred work must
+still be pumped on GameThread. Generation expiry, coalescing supersession and
+executor rejection are execution failures with explicit reasons, not cancellation
+requests.
 The deferred adapter retains internal dispatch until the accepted graph is
 terminal, including completion publications from external producers and capture
-destructors during cancellation. Only then is its queue closed and uninstalled.
+destructors during shutdown. Only then is its queue closed and uninstalled.
 Worker-only owners may use ShutdownTaskScheduler. Recursive deferred pump or
 shutdown from a deferred callback is rejected. Queue depth, running bodies and
 nonterminal reservations are zero at successful shutdown.

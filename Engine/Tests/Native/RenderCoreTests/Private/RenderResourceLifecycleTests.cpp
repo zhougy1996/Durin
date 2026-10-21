@@ -410,7 +410,7 @@ namespace Durin
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
-		PendingFenceRetiresBeforeSchedulerShutdownAndRemainsObservable)
+		PendingFenceSurvivesSchedulerShutdownAndCanBeCreatedAfterward)
 	{
 		FThreadEvent CommandStarted, ReleaseCommand;
 		ENQUEUE_RENDER_COMMAND(BlockFenceUntilRenderShutdown)([&](FRHICommandListImmediate&) {
@@ -421,14 +421,18 @@ namespace Durin
 		FRenderCommandFence Fence;
 		Fence.BeginFence();
 		EXPECT_FALSE(Fence.IsFenceComplete());
-		EXPECT_GT(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
+		ShutdownTaskScheduler(true);
+		EXPECT_FALSE(Fence.IsFenceComplete());
+		FRenderCommandFence AfterShutdown;
+		AfterShutdown.BeginFence();
 		ReleaseCommand.Trigger();
 		ShutdownRenderingThread();
-		EXPECT_TRUE(IsTaskSchedulerRunning());
-		ShutdownTaskScheduler(true);
+		EXPECT_FALSE(IsTaskSchedulerRunning());
 		EXPECT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
 		EXPECT_TRUE(Fence.IsFenceComplete());
 		Fence.Wait();
+		AfterShutdown.Wait();
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		InitRenderingThread();
 	}

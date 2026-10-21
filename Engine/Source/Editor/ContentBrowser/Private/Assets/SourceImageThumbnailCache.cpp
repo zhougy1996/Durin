@@ -163,7 +163,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				{
 					Result.PhysicalPath = Flight->PhysicalPath;
 					Result.Serial = Flight->Serial;
-					Result.Error = Flight->Task.GetState() == ETaskState::Canceled
+					Result.Error = Flight->Task.IsCancellationRequested()
 						? "Thumbnail decoding was canceled." : Flight->Task.GetDiagnostic();
 				}
 				Flight = Tasks.erase(Flight);
@@ -240,10 +240,11 @@ namespace Durin::Editor::ContentBrowser::Private
 				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = State->DiskCache;
 				::Durin::Tasks::FTaskExecutionOptions DecodeOptions;
 				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
-				auto Task = ::Durin::Tasks::LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)] {
+				auto Task = ::Durin::Tasks::LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)](const FTaskCancellationToken& Token) {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
 					Result.Serial = Serial;
+					if (Token.IsCancellationRequested()) { Result.Error = "Source image thumbnail request canceled."; return Result; }
 					auto Decoded = BypassDisk
 						? DecodeSourceImageThumbnail(PhysicalPath, 256)
 						: DiskCache->LoadOrGenerate(PhysicalPath, FileSize, LastWriteTime);

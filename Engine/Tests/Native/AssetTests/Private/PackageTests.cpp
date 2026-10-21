@@ -10227,9 +10227,9 @@ namespace
 			return {};
 		}
 		auto BuildSourceDependencyManifest(std::string_view, const Durin::FShaderCompileOptions&,
-			std::vector<Durin::FShaderSourceDependencyFingerprint>&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::std::string{.Code = Durin::std::string("ShaderBuild module is unavailable.")}); }
+			std::vector<Durin::FShaderSourceDependencyFingerprint>&) -> Durin::FShaderOperationResult override { return std::unexpected(std::string("ShaderBuild module is unavailable.")); }
 		auto BuildSourceTreeFingerprint(std::string_view, const Durin::FShaderCompileOptions&,
-			Durin::FShaderSourceDependencyFingerprint&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::std::string{.Code = Durin::std::string("ShaderBuild module is unavailable.")}); }
+			Durin::FShaderSourceDependencyFingerprint&) -> Durin::FShaderOperationResult override { return std::unexpected(std::string("ShaderBuild module is unavailable.")); }
 		auto GetStats() const -> Durin::FShaderBuildStats override { return {}; }
 		auto BuildCookedLibrary(Durin::EShaderTargetPlatform, Durin::EShaderTargetProfile, Durin::FByteBuffer& Out, std::shared_ptr<const Durin::FShaderSourceArtifacts> Sources, const std::function<bool()>&) -> Durin::FShaderCompletion override
 		{

@@ -118,7 +118,7 @@ TEST(FBuildContinuationTests, OwnerWaitIncludesTrackedNativeTaskEnd)
 	auto Task = Tasks::LaunchTask("OwnerTrackedTask", [&] { Entered.Trigger(); Release.Wait(); });
 	Owner.TrackTask(Task); Entered.Wait(); EXPECT_FALSE(Owner.Poll());
 	Release.Trigger(); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
-	EXPECT_TRUE(Task.IsComplete()); EXPECT_TRUE(Owner.Poll());
+	EXPECT_TRUE(Task.IsCompleted()); EXPECT_TRUE(Owner.Poll());
 }
 
 TEST(FBuildContinuationTests, OwnerWaitIncludesDependencyAddedByEarlierWait)

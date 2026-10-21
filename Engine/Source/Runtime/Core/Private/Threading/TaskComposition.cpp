@@ -48,49 +48,20 @@ namespace Durin::Tasks
 			Detail::FailConstruction(*Error);
 	}
 
-	struct FTaskEvent::FState
-	{
-		std::mutex Mutex;
-		bool Triggered = false;
-		~FState() { requiref(Triggered, "Task events must be triggered before their last handle is released."); }
-	};
-
 	FTaskEvent::FTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement)
 	{
-		FTaskLaunchOptions Options;
-		Options.bExternalCompletion = true;
-		Options.bUnknownExecutionRequirement = bUnknownExecutionRequirement;
-		Options.bQueueOnSaturation = true;
-		auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion(DebugName, [](const FTaskCancellationToken&) {}, {}, Options);
-		if (!Admission.HasValue()) Detail::FailConstruction(Admission.GetError());
-		try { State = std::make_shared<FState>(); }
-		catch (...)
-		{
-			Durin::Private::FTaskRuntimeAccess::CompleteExternal(std::move(Admission).TakeValue(), ETaskState::Failed);
-			throw;
-		}
-		SetHandle(std::move(Admission).TakeValue());
+		SetHandle(Durin::Private::FTaskRuntimeAccess::CreateTaskEvent(DebugName, bUnknownExecutionRequirement));
 	}
 
 	auto FTaskEvent::AddPrerequisites(std::span<const Durin::Tasks::FTask> Prerequisites) -> void
 	{
-		require(State);
-		std::lock_guard Lock(State->Mutex);
-		requiref(!State->Triggered, "Task event prerequisites must be added before Trigger.");
-		for (const auto& Prerequisite : Prerequisites)
-			if (auto Error = Durin::Private::FTaskRuntimeAccess::AddCompletionDependency(*this, Prerequisite))
-				Detail::FailConstruction(*Error);
+		if (auto Error = Durin::Private::FTaskRuntimeAccess::AddTaskEventPrerequisites(*this, Prerequisites))
+			Detail::FailConstruction(*Error);
 	}
 
 	auto FTaskEvent::Trigger() -> void
 	{
-		require(State);
-		{
-			std::lock_guard Lock(State->Mutex);
-			if (State->Triggered) return;
-			State->Triggered = true;
-		}
-		Durin::Private::FTaskRuntimeAccess::CompleteExternal(*this, ETaskState::Succeeded);
+		Durin::Private::FTaskRuntimeAccess::TriggerTaskEvent(*this);
 	}
 
 	auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,

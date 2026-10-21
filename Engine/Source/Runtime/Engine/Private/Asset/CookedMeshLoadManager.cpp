@@ -467,7 +467,7 @@ namespace Durin
 						.Attribution = State->Attribution}));
 
 			}
-			else if (Phase == EFlightPhase::Working && Flight->Task.IsComplete())
+			else if (Phase == EFlightPhase::Working && Flight->Task.IsCompleted())
 			{
 				State->QueueCompletion({Flight,
 					{.Error = {.Code = ECookedMeshLoadError::Task, .TaskState = Flight->Task.GetState()}},
@@ -488,7 +488,7 @@ namespace Durin
 				// Publication can race callable retirement. Keep the flight and its
 				// task tracked until Shutdown can safely release the resource owner.
 				const auto& Worker = State->Mailbox.front().Flight->Task;
-				if (Worker.IsValid() && !Worker.IsComplete()) break;
+				if (Worker.IsValid() && !Worker.IsCompleted()) break;
 				Completion = std::move(State->Mailbox.front());
 				State->Mailbox.pop_front();
 				check(State->PendingCompletionBytes >= Completion.Result.RetainedBytes);

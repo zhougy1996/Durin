@@ -277,7 +277,8 @@ namespace Durin::Editor::ContentBrowser::Private
 				GetTaskSchedulerDiagnostics();
 			EXPECT_EQ(Cache.GetTrackedTaskCountForTesting(), 0u);
 			EXPECT_EQ(ClosedDiagnostics.NonterminalTaskCount, 1u);
-			EXPECT_EQ(ClosedDiagnostics.CanceledTaskCount, ActiveDiagnostics.CanceledTaskCount + 1);
+			EXPECT_EQ(ClosedDiagnostics.CanceledTaskCount, ActiveDiagnostics.CanceledTaskCount);
+			EXPECT_EQ(ClosedDiagnostics.CompletedTaskCount, ActiveDiagnostics.CompletedTaskCount + 1);
 		}
 
 		{

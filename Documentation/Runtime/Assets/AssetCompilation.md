@@ -484,8 +484,9 @@ producer task completion and DDC owner `Poll()` confirm callback/native-task ret
 retirement but no execution capacity. Physics finish advances only the generic
 asset scheduler, with no render-manager progress callback and no application of
 unrelated render results. Execution slots are owned only by callable captures.
-Core destroys the callable after body exit or queued cancellation, before terminal
-publication; the slot destructor releases both resources exactly once. The asset
+Core destroys the callable after body exit, before terminal publication; a queued
+cancellation request retains its slot until the body executes and retires. The
+slot destructor releases both resources exactly once. The asset
 scheduler retains no running-task table or explicit release flag. Owners retain
 task handles for DDC prerequisites and terminal retirement. Records retain detached
 input and products independently of scheduling estimates. Finalization removes the

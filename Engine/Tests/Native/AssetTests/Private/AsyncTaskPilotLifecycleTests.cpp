@@ -474,9 +474,10 @@ namespace
 		ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 		EXPECT_EQ(1u, LargeCompleted);
 		EXPECT_GT(AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Metrics.ResultBytes, 64u);
-		EXPECT_FALSE(Deferred.IsComplete());
+		EXPECT_FALSE(Deferred.IsCompleted());
 		EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 		CancelTask(Deferred);
+		PumpGameThreadDeferredWork({.bUnlimited = true});
 		WaitTask(Deferred);
 
 		// Keep an accepted asynchronous build suspended when the owner and Core shut down.
@@ -577,7 +578,7 @@ namespace
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{
 			CancelTask(Blockers[Index]);
-			EXPECT_EQ(ETaskState::Canceled, WaitTask(Blockers[Index]).TaskState);
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blockers[Index]).TaskState);
 		}
 		for (uint32 Index = 0; Index < 4; ++Index)
 		{

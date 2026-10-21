@@ -83,12 +83,11 @@ namespace Durin
 		ETaskPriority Priority;
 		{ std::lock_guard Lock(ShaderMap->Mutex); Priority = ShaderMap->HighPriority ? ETaskPriority::High : ETaskPriority::Normal; }
 		auto Dispatch = Private::TryLaunchCancelableTaskWithCompletion("MaterialCompileStage",
-			[ShaderMap, Work = std::move(Work)](const FTaskCancellationToken&) {
-				try { if (IsBuildCanceled(ShaderMap)) FMaterialShaderMap::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
+			[ShaderMap, Work = std::move(Work)](const FTaskCancellationToken& Token) {
+				try { if (Token.IsCancellationRequested() || IsBuildCanceled(ShaderMap)) FMaterialShaderMap::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
 				catch (...) { FMaterialShaderMap::CompleteCompilation(ShaderMap, FailedMaterial()); }
 			}, [ShaderMap](ETaskState Terminal) {
-				if (Terminal == ETaskState::Canceled) FMaterialShaderMap::CompleteCompilation(ShaderMap, CanceledMaterial());
-				else if (Terminal != ETaskState::Succeeded) FMaterialShaderMap::CompleteCompilation(ShaderMap, FailedMaterial());
+				if (Terminal != ETaskState::Succeeded) FMaterialShaderMap::CompleteCompilation(ShaderMap, FailedMaterial());
 			}, {.CancellationToken = ShaderMap->CpuCancellation.GetToken(), .Priority = Priority});
 		if (!Dispatch.HasValue()) FMaterialShaderMap::CompleteCompilation(ShaderMap, FailedMaterial());
 		else {

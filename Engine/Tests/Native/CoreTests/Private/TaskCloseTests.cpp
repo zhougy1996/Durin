@@ -1,0 +1,263 @@
+#include <gtest/gtest.h>
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
+#include "Threading/ThreadEvent.h"
+#include "Threading/TaskComposition.h"
+
+namespace Durin
+{
+	class FTaskCloseTests : public testing::Test
+	{
+	protected:
+		auto SetUp() -> void override
+		{
+			if (!GIsGameThreadIdInitialized)
+			{
+				GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+				GIsGameThreadIdInitialized = true;
+			}
+			ShutdownTaskScheduler(false);
+		}
+		auto TearDown() -> void override { ShutdownTaskScheduler(false); }
+	};
+
+	TEST_F(FTaskCloseTests, CancellationRequestsPreserveDependenciesBodiesAndResults)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		for (bool Shared : {false, true})
+		{
+			FTaskCancellationSource Cancellation;
+			if (Shared) Cancellation.RequestCancellation();
+			Tasks::FTaskEvent Gate("CanceledPrerequisiteGate", false);
+			uint32 Runs = 0;
+			auto Task = Tasks::LaunchTask("CooperativeRoot", [&](const FTaskCancellationToken& Token) {
+				EXPECT_TRUE(Token.IsCancellationRequested());
+				++Runs;
+				return std::make_unique<int>(42);
+			}, {.Cancellation = Cancellation.GetToken(), .Prerequisites = Tasks::Prerequisites(Gate)});
+			if (!Shared) EXPECT_TRUE(Tasks::Cancel(Task));
+			EXPECT_TRUE(Task.IsCancellationRequested());
+			EXPECT_FALSE(Task.IsCompleted());
+			EXPECT_EQ(Task.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
+			EXPECT_EQ(Runs, 0u);
+			auto Next = Tasks::Then(Task, Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, auto& Value) {
+				EXPECT_FALSE(Token.IsCancellationRequested());
+				return *Value + 1;
+			});
+			Gate.Trigger();
+			EXPECT_EQ(Next.GetResult(), 43);
+			EXPECT_EQ(Runs, 1u);
+			EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
+			EXPECT_EQ(*Task.GetResult(), 42);
+		}
+	}
+
+	TEST_F(FTaskCloseTests, CancelingNestedParentRetainsItsValueAndDoesNotCancelChild)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Gate("CooperativeNestedGate", false);
+		FThreadEvent BodyFinished;
+		auto Parent = Tasks::LaunchTask("CooperativeNestedParent", [&] {
+			Tasks::AddNested(Gate);
+			BodyFinished.Trigger();
+			return std::make_unique<int>(17);
+		});
+		ASSERT_TRUE(BodyFinished.WaitFor(1));
+		EXPECT_TRUE(Tasks::Cancel(Parent));
+		EXPECT_FALSE(Parent.IsCompleted());
+		EXPECT_FALSE(Gate.IsCancellationRequested());
+		Gate.Trigger();
+		EXPECT_EQ(*Parent.GetResult(), 17);
+		EXPECT_EQ(Parent.GetState(), ETaskState::Succeeded);
+	}
+
+	TEST_F(FTaskCloseTests, CancelShutdownDrainsAcceptedWorkerAndDeferredBodies)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		FThreadEvent Started;
+		auto Running = Tasks::LaunchTask("CooperativeShutdownRunning", [&](const FTaskCancellationToken& Token) {
+			Started.Trigger();
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+			while (!Token.IsCancellationRequested() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+			EXPECT_TRUE(Token.IsCancellationRequested());
+		});
+		ASSERT_TRUE(Started.WaitFor(1));
+		uint32 Runs = 0;
+		auto Deferred = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&](const FTaskCancellationToken& Token) {
+			EXPECT_TRUE(Token.IsCancellationRequested()); ++Runs;
+		});
+		auto Dependent = Tasks::LaunchTask("CooperativeShutdownDependent", [&](const FTaskCancellationToken& Token) {
+			EXPECT_TRUE(Token.IsCancellationRequested()); ++Runs;
+		}, Tasks::Prerequisites(Deferred));
+		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+		EXPECT_EQ(Runs, 2u);
+		for (Tasks::FTask Task : {Tasks::FTask(Running), Tasks::FTask(Deferred), Tasks::FTask(Dependent)})
+			EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTaskReservationCount, 0u);
+	}
+
+	TEST_F(FTaskCloseTests, ClosingHooksCanRegisterDependenciesAndMoreHooks)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Event("ClosingRegistration", false);
+		Tasks::TTask<int> Dependent;
+		Tasks::FTaskSubscription Late;
+		uint32 Calls = 0;
+		auto Subscription = Tasks::SubscribeTask(Event, [&](ETaskState) {
+			EXPECT_FALSE(Event.IsCompleted());
+			Dependent = Tasks::LaunchTask("RegisteredDuringClose", [] { return 42; }, Tasks::Prerequisites(Event));
+			Late = Tasks::SubscribeTask(Event, [&](ETaskState) { ++Calls; });
+		});
+		Event.Trigger();
+		EXPECT_TRUE(Event.IsCompleted());
+		EXPECT_EQ(Calls, 1u);
+		EXPECT_EQ(Dependent.GetResult(), 42);
+	}
+
+	TEST_F(FTaskCloseTests, MixedDependenciesRetainDynamicResultsAndNotifyExecutionWaiters)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCase { bool bNested; bool bDynamicFirst; };
+		for (const auto [Nested, DynamicFirst] : {FCase{false, false}, FCase{true, false}, FCase{true, true}})
+		{
+			auto Source = Tasks::TCompletionSource<void>::Create();
+			Tasks::FTask Outer = Source.GetTaskHandle();
+			Tasks::FTaskEvent Gate("MixedDependencyGate", false);
+			std::weak_ptr<int> Weak;
+			{
+				auto InnerSource = Tasks::TCompletionSource<std::shared_ptr<int>>::Create();
+				auto Inner = InnerSource.TakeTask();
+				if (Nested && !DynamicFirst) ASSERT_FALSE(Private::FTaskRuntimeAccess::AddCompletionDependency(Outer, Gate));
+				ASSERT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Outer, Inner));
+				if (Nested && DynamicFirst) ASSERT_FALSE(Private::FTaskRuntimeAccess::AddCompletionDependency(Outer, Gate));
+				auto Value = std::make_shared<int>(42);
+				Weak = Value;
+				ASSERT_TRUE(InnerSource.TrySetValue(std::move(Value)));
+			}
+			auto Waiter = Tasks::LaunchTask("MixedDependencyWaiter", [&] {
+				EXPECT_TRUE(Weak.expired());
+				return 42;
+			}, Tasks::Prerequisites(Outer, Gate));
+			EXPECT_FALSE(Outer.TryRetractAndExecute());
+			EXPECT_FALSE(Outer.TryRetractAndExecute());
+			EXPECT_FALSE(Weak.expired());
+			ASSERT_TRUE(Source.TrySetValue());
+			EXPECT_EQ(Outer.IsCompleted(), !Nested);
+			EXPECT_EQ(Weak.expired(), !Nested);
+			Gate.Trigger();
+			EXPECT_EQ(Waiter.GetResult(), 42);
+			EXPECT_TRUE(Outer.IsCompleted());
+			EXPECT_TRUE(Weak.expired());
+		}
+	}
+
+	TEST_F(FTaskCloseTests, RejectedConstructedNodesRetirePayloadOutsideSchedulerLocks)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		for (int32 Checkpoint = 1; Checkpoint <= 3; ++Checkpoint)
+		{
+			uint32 Destroyed = 0, Calls = 0;
+			struct FCapture
+			{
+				uint32& Destroyed;
+				~FCapture()
+				{
+					// Reentering scheduler diagnostics must be safe even when a fully
+					// constructed node is rolled back after registry insertion.
+					EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTaskReservationCount, 0u);
+					++Destroyed;
+				}
+			};
+			auto Capture = std::shared_ptr<FCapture>(new FCapture{Destroyed});
+			Private::FMoveOnlyTaskFunction Body = [Capture, &Calls](const FTaskCancellationToken&) { ++Calls; };
+			Private::FTaskCompletionFunction Completion = [Capture, &Calls](ETaskState) { ++Calls; };
+			Private::FTaskResultStorage Result{Capture, true};
+			Capture.reset();
+			FTaskCancellationSource Cancellation;
+			FTaskLaunchOptions Options;
+			Options.CancellationToken = Cancellation.GetToken();
+			Private::SetTaskAdmissionAllocationFailureForTests(Checkpoint);
+			auto Rejected = Private::TryLaunchCancelableTaskWithCompletion("RejectedNodePayload",
+				std::move(Body), std::move(Completion), Options, 0, std::move(Result));
+			ASSERT_FALSE(Rejected.HasValue());
+			EXPECT_EQ(Rejected.GetError().Code, Tasks::ETaskAdmissionErrorCode::CapacityExhausted);
+			Cancellation.RequestCancellation();
+			EXPECT_EQ(Calls, 0u);
+			EXPECT_EQ(Destroyed, 1u);
+			EXPECT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
+		}
+	}
+
+	TEST_F(FTaskCloseTests, NodeNotificationsRevisitBlockedNestedAndDynamicGraphs)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		for (bool Dynamic : {false, true})
+		{
+			Tasks::FTaskEvent Gate("ReadinessGate", false);
+			Tasks::FTaskEvent Event("NestedWaitTarget", false);
+			auto Source = Tasks::Detail::FCompletionSourceAccess::Create<void>({}, false);
+			auto Child = Tasks::LaunchTask("LateReadyChild", [&] { Source.TrySetValue(); }, Tasks::Prerequisites(Gate));
+			Tasks::FTask Target;
+			if (Dynamic)
+			{
+				Target = Source.GetTaskHandle();
+				ASSERT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Target, Child));
+			}
+			else
+			{
+				Event.AddPrerequisites(Child);
+				Target = Event;
+			}
+			Event.Trigger();
+			FThreadEvent Waiting;
+			auto Waiter = Tasks::LaunchTask("OnlyWorkerNodeWaiter", [&] {
+				// This first wait expires with dependencies still blocked. Its signal
+				// must not keep the next wait alive or hide the later ready transition.
+				EXPECT_EQ(Target.Wait(0.005).WaitStatus, ETaskWaitStatus::TimedOut);
+				Waiting.Trigger();
+				EXPECT_EQ(Target.Wait(2).TaskState, ETaskState::Succeeded);
+			});
+			EXPECT_TRUE(Waiting.WaitFor(1));
+			std::atomic<bool> UnrelatedRan = false;
+			auto Unrelated = Tasks::LaunchTask("UnrelatedReadyNode", [&] { UnrelatedRan = true; });
+			EXPECT_FALSE(UnrelatedRan.load());
+			Gate.Trigger();
+			EXPECT_EQ(Waiter.Wait(3).TaskState, ETaskState::Succeeded);
+			EXPECT_TRUE(Child.IsCompleted());
+			EXPECT_EQ(Unrelated.Wait(1).TaskState, ETaskState::Succeeded);
+		}
+	}
+
+	TEST_F(FTaskCloseTests, DeepNestedAndHookClosePropagationUsesBoundedStack)
+	{
+		// Nested parent completion and inline terminal hooks are separate sources
+		// of synchronous propagation. Both must tolerate chains beyond a native stack.
+		constexpr uint32 Count = 8192;
+		for (bool Nested : {false, true})
+		{
+			std::vector<Tasks::FTaskEvent> Events;
+			Events.reserve(Count);
+			for (uint32 Index = 0; Index < Count; ++Index) Events.emplace_back("DeepClose", false);
+			for (uint32 Index = 0; Index + 1 < Count; ++Index)
+			{
+				if (Nested) Events[Index].AddPrerequisites(Events[Index + 1]);
+				else
+				{
+					auto Hook = std::make_shared<Private::FTaskTerminalHook>();
+					Hook->Function = [Next = Events[Index + 1]](ETaskState) mutable { Next.Trigger(); };
+					Private::FTaskRuntimeAccess::BindTerminal(Events[Index], std::move(Hook));
+				}
+			}
+			if (Nested)
+			{
+				for (uint32 Index = 0; Index + 1 < Count; ++Index) Events[Index].Trigger();
+				EXPECT_FALSE(Events.front().IsCompleted());
+				Events.back().Trigger();
+			}
+			else Events.front().Trigger();
+			for (const auto& Event : Events) ASSERT_TRUE(Event.IsCompleted());
+		}
+	}
+
+}

@@ -244,7 +244,7 @@ namespace Durin
 		{
 			auto& Work = *Record.Work;
 			if (!Work.BuildOperation->Poll()) return false;
-			if (!IsTaskSchedulerRunning() || Record.Task.GetState() == ETaskState::Canceled) Work.Cancellation.Cancel();
+			if (!IsTaskSchedulerRunning() || Record.Task.IsCancellationRequested()) Work.Cancellation.Cancel();
 			if (!Work.Cancellation.IsCancelled() && Work.Completion) return false;
 			Work.Completion.reset();
 			if (Work.Cancellation.IsCancelled()) Work.Outcome = FPhysicsCookResult{};
@@ -288,7 +288,7 @@ namespace Durin
 			Scheduler->Pump();
 			for (const auto& Record : Records)
 			{
-				if (!Record->Task.IsValid() || !Record->Task.IsComplete()) continue;
+				if (!Record->Task.IsValid() || !Record->Task.IsCompleted()) continue;
 #if DURIN_WITH_EDITOR
 				if (!Record->Work->BuildOperation->Poll()) continue;
 #endif
@@ -298,7 +298,7 @@ namespace Durin
 #endif
 				if (Phase != EWorkPhase::Running && Phase != EWorkPhase::Queued) continue;
 				AssetPrivate::ObserveAssetBuildTaskCancellation(Record->Task, Record->Work->Cancellation);
-				if (Record->Task.GetState() != ETaskState::Canceled) Record->Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh task retired before worker completion.", "Cook"));
+				if (!Record->Task.IsCancellationRequested()) Record->Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh task retired before worker completion.", "Cook"));
 				Record->Work->ReleaseInput();
 				Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 			}
@@ -310,7 +310,7 @@ namespace Durin
 				if (Result.ProcessedCompletionCount >= Maximum || FClock::now() >= Deadline) break;
 				if (!Selected(*Record, Owners) || !std::ranges::contains(Records, Record)
 					|| Record->Work->Phase.load(std::memory_order_acquire) != EWorkPhase::Complete
-					|| (Record->Task.IsValid() && !Record->Task.IsComplete())) continue;
+					|| (Record->Task.IsValid() && !Record->Task.IsCompleted())) continue;
 #if DURIN_WITH_EDITOR
 				if (!Record->Work->BuildOperation->Poll()) continue;
 #endif

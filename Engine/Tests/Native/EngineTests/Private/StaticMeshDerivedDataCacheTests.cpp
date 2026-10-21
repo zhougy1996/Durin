@@ -4032,7 +4032,7 @@ TEST(FAssetBuildSchedulerTests, NestedDependencyRetainsRetirementButReleasesExec
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 	while (Scheduler.GetScheduledMemory() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
-	EXPECT_FALSE(Task.IsComplete());
+	EXPECT_FALSE(Task.IsCompleted());
 	std::shared_ptr<FAssetBuildExecutionSlot> BlockingCpu;
 	Scheduler.Enqueue(false, 100, [&](auto Slot) { BlockingCpu = std::move(Slot); return true; });
 	uint32 Resumed = 0;
@@ -4049,7 +4049,7 @@ TEST(FAssetBuildSchedulerTests, NestedDependencyRetainsRetirementButReleasesExec
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
 }
 
-TEST(FAssetBuildSchedulerTests, NativeCancellationBeforeEntryReleasesMemoryWithoutExecutorProgress)
+TEST(FAssetBuildSchedulerTests, NativeCancellationKeepsMemoryUntilCooperativeEntry)
 {
 	using namespace Durin;
 	using namespace Durin::AssetPrivate;
@@ -4064,8 +4064,12 @@ TEST(FAssetBuildSchedulerTests, NativeCancellationBeforeEntryReleasesMemoryWitho
 	});
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 100u);
 	ASSERT_TRUE(CancelTask(Task));
-	EXPECT_EQ(WaitTask(Task).TaskState, ETaskState::Canceled);
+	EXPECT_EQ(WaitTask(Task, 0).WaitStatus, ETaskWaitStatus::TimedOut);
 	EXPECT_FALSE(Entered);
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 100u);
+	Prerequisite.Trigger();
+	EXPECT_EQ(WaitTask(Task).TaskState, ETaskState::Succeeded);
+	EXPECT_TRUE(Entered);
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
 	uint32 Launched = 0;
 	Scheduler.Enqueue(false, 100, [&](auto) { ++Launched; return false; });

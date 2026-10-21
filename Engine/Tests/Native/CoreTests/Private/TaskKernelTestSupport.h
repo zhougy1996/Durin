@@ -26,11 +26,11 @@ namespace Durin
 		}
 		template<typename F>
 		auto SubmitKernelContinuation(const Tasks::FTask& Input, const char* Name, F&& Function,
-			const FTaskContinuationOptions& Options = {}, ETaskDependencyKind Kind = ETaskDependencyKind::Completion) -> Tasks::FTask
+			const FTaskContinuationOptions& Options = {}) -> Tasks::FTask
 		{
 			auto Admission = Private::TryLaunchContinuationTask(Input, Name,
 				[Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable { std::invoke(Function); },
-				{}, Options, Kind);
+				{}, Options);
 			return Admission.HasValue() ? std::move(Admission).TakeValue() : Tasks::FTask{};
 		}
 

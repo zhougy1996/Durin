@@ -462,7 +462,7 @@ namespace Durin
 		EXPECT_THROW(Request.GetResult(), std::logic_error);
 		EXPECT_EQ(Owner.RequestCompute(Initializer, "late").GetRejection(), ERHIPipelineRequestRejection::Closed);
 		Owner.ReleaseResources();
-		EXPECT_TRUE(Request.GetTaskHandle().IsComplete());
+		EXPECT_TRUE(Request.GetTaskHandle().IsCompleted());
 	}
 
 	TEST_F(FRHIPipelineCreationTests, CloseCancelsObserversAndJoinsInFlightCreation)
@@ -500,6 +500,6 @@ namespace Durin
 			EXPECT_EQ(Owner.RequestCompute(Initializer, "closed").GetRejection(), ERHIPipelineRequestRejection::Closed);
 		}
 		EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Canceled);
-		EXPECT_TRUE(Request.GetTaskHandle().IsComplete());
+		EXPECT_TRUE(Request.GetTaskHandle().IsCompleted());
 	}
 }

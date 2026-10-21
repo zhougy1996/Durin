@@ -49,7 +49,7 @@ namespace Durin
 		{
 			return CurrentThread->GetThreadName();
 		}
-		if (IsInGameThread())
+		if (GIsGameThreadIdInitialized && IsInGameThread())
 		{
 			return "GameThread";
 		}

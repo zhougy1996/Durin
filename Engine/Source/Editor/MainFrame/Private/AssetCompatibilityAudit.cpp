@@ -289,16 +289,16 @@ namespace Durin::Editor
 				FAssetCompatibilityAuditModel& Model = *Lifetime->Model;
 				if (Model.RequestSerial != Serial || !Model.bAdmissionOpen) return;
 				Model.DrainMailbox();
-				if (Outcome.GetState() == ETaskState::Succeeded)
+				if (Model.Cancellation.IsCancellationRequested())
+				{
+					Model.State = EAssetCompatibilityAuditState::Cancelled;
+					Model.Failure.clear();
+				}
+				else if (Outcome.GetState() == ETaskState::Succeeded)
 				{
 					if (Outcome.GetResult().Serial != Serial) return;
 					Model.State = Outcome.GetResult().State;
 					Model.Failure = Outcome.GetResult().Failure;
-				}
-				else if (Outcome.GetState() == ETaskState::Canceled)
-				{
-					Model.State = EAssetCompatibilityAuditState::Cancelled;
-					Model.Failure.clear();
 				}
 				else
 				{
@@ -396,7 +396,7 @@ namespace Durin::Editor
 		}
 		if (bPresentationChanged) InvalidatePresentation();
 		const EAssetCompatibilityAuditState PriorState = State;
-		if (State == EAssetCompatibilityAuditState::Running && TerminalTask.IsValid() && TerminalTask.IsComplete())
+		if (State == EAssetCompatibilityAuditState::Running && TerminalTask.IsValid() && TerminalTask.IsCompleted())
 		{
 			const FTaskDiagnostics Diagnostics = TerminalTask.GetDiagnostics();
 			if (Diagnostics.State == ETaskState::Failed)
@@ -404,19 +404,7 @@ namespace Durin::Editor
 				State = EAssetCompatibilityAuditState::Failed;
 				Failure = Diagnostics.Diagnostic;
 			}
-			else if (Diagnostics.State == ETaskState::Canceled)
-			{
-				if (Diagnostics.TerminalReason == ETaskTerminalReason::DispatchRejected)
-				{
-					State = EAssetCompatibilityAuditState::Failed;
-					Failure = Diagnostics.Diagnostic;
-				}
-				else
-				{
-					State = EAssetCompatibilityAuditState::Cancelled;
-					Failure.clear();
-				}
-			}
+
 		}
 		if (State != PriorState) InvalidatePresentation();
 	}
