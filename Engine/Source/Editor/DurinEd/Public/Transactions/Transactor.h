@@ -9,6 +9,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/TransactionObjectRecord.h"
+#include "Transactions/TransactionArrayRecord.h"
 #include "Asset/PackageReload.h"
 
 #include "Transactor.gen.h"
@@ -20,6 +21,9 @@ namespace Durin::Editor
 
 	class FPropertyEditSession;
 	class FScopedTransaction;
+	// Business edits may follow a domain command for the same participant. This
+	// admits ordinary fields through the canonical recorder, within the owning scope.
+	DURINED_API auto RecordObjectForEdit(DTransactor& Transactor, DObject& Object) -> FTransactionCaptureResult;
 
 	// Identifies the current non-reentrant operation performed by a transactor.
 	enum class ETransactorState : uint8
@@ -137,6 +141,7 @@ namespace Durin::Editor
 	public:
 		explicit FTransactionRecord(FTransactionObjectRecord Record)
 			: Data(std::move(Record)) {}
+		explicit FTransactionRecord(FTransactionArrayRecord Record) : Data(std::move(Record)) {}
 		DURINED_API explicit FTransactionRecord(std::unique_ptr<FCommandChange> Change, DObject* Object = nullptr);
 
 		DURINED_API auto Validate() const -> FTransactionRecordResult;
@@ -145,7 +150,7 @@ namespace Durin::Editor
 		auto IsNoOp() const -> bool;
 		DURINED_API auto Apply(
 			bool bBefore,
-			EPropertyChangeOrigin Origin, bool* OutRecoveryRequired = nullptr, bool bFlipState = true) -> FTransactionRecordResult;
+			EPropertyChangeOrigin Origin, bool* OutRecoveryRequired = nullptr, bool bUseHistoricalState = true) -> FTransactionRecordResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 		DURINED_API auto GetDetails(ETransactionOperation Operation) const -> std::string;
@@ -154,14 +159,16 @@ namespace Durin::Editor
 		DURINED_API auto IsOwnedByModule(std::string_view ModuleName) const -> bool;
 		DURINED_API auto GetModifiedObjects() const -> std::vector<DObject*>;
 		DURINED_API auto PrepareReplay() -> FTransactionRecordResult;
+		DURINED_API auto CommitReplay(bool bBefore) -> void;
 		DURINED_API auto ClearPreparedReplay() -> void;
 		DURINED_API auto CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FTransactionRecord, std::string>;
 		DURINED_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
 
 	private:
 		friend class FTransaction;
+		friend DURINED_API auto RecordObjectForEdit(DTransactor&, DObject&) -> FTransactionCaptureResult;
 		friend class ::Durin::FTransactorReloadParticipant;
-		std::variant<FTransactionObjectRecord,
+		std::variant<FTransactionObjectRecord, FTransactionArrayRecord,
 			std::unique_ptr<FCommandChange>> Data;
 		FPersistentObjectRef CustomObject;
 		FTransactionObjectReferenceSet ModifiedObjects;
@@ -220,6 +227,7 @@ namespace Durin::Editor
 		DURINED_API auto ReferencesPackage(const DPackage& Package) const -> bool;
 
 	private:
+		friend DURINED_API auto RecordObjectForEdit(DTransactor&, DObject&) -> FTransactionCaptureResult;
 		auto DispatchObjectEvents(ETransactionObjectEventType Type, ETransactionOperation Operation,
 			FTransactionObjectRecord* SnapshotRecord = nullptr, std::span<const FProperty* const> Selected = {}) -> FTransactionCaptureResult;
 		bool bBusy = false;
@@ -303,7 +311,7 @@ namespace Durin
 		virtual auto GetRecordingId() const -> Editor::FTransactionId = 0;
 		friend auto Editor::ApplyEditorChange(DTransactor&, std::unique_ptr<Editor::FCommandChange>) -> Editor::FTransactorResult;
 		DURINED_API virtual auto ReportChangeFailure(std::unique_ptr<Editor::FCommandChange> Change, Editor::FCommandChangeError Error) -> Editor::FTransactorResult = 0;
-		friend class Editor::FPropertyEditSession;
+		friend DURINED_API auto Editor::RecordObjectForEdit(DTransactor&, DObject&) -> FTransactionCaptureResult;
 		friend struct FTransBufferTestAccess;
 		DURINED_API virtual auto Record(Editor::FTransactionObjectRecord Record) -> std::expected<uint64, Editor::FTransactorResult> = 0;
 	};
@@ -351,6 +359,9 @@ namespace Durin
 		DURINED_API auto ForgetPackage(DPackage& Package) -> void override;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
+		// Native reinstancing hook; graph publication and external owners remain
+		// with the caller. Uses the same checked history participant as package reload.
+		DURINED_API auto OnObjectsReinstanced(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
 
 		auto GetState() const -> Editor::ETransactorState { return State; }
 		auto GetMemoryBudget() const -> size_t { return MemoryBudget; }

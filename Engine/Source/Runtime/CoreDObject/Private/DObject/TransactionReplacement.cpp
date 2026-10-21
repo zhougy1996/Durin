@@ -27,7 +27,7 @@ namespace Durin
 		for (const auto* Reference : {&Info.Target, &Info.Class, &Info.Outer, &Info.Package})
 			if (Map.Find(Reference->Resolve())) return true;
 		if (Data)
-			for (auto Key : Data->HardReferences) if (Map.Find(ResolveObjectKey(Key))) return true;
+			for (const auto& Reference : Data->HardReferences) if (Map.Find(Reference.Resolve())) return true;
 		if (Context)
 			for (const auto& Slot : Context->ReferenceSlots) if (Slot.bWeak)
 			{
@@ -45,14 +45,15 @@ namespace Durin
 		FSerializedObjectCapture Result = Source;
 		for (auto* Reference : {&Result.Info.Target, &Result.Info.Class, &Result.Info.Outer, &Result.Info.Package})
 		{
-			auto Key = Map.RemapObjectKey(Reference->GetKey());
-			if (!Key) return std::unexpected(ToString(Key.error()));
-			*Reference = FPersistentObjectRef::FromKey(*Key);
+			auto Replacement = Reference->CreateReplacement(Map);
+			if (!Replacement) return std::unexpected(Replacement.error());
+			*Reference = std::move(*Replacement);
 		}
 		// The archive records positions as it writes references. Opaque native bytes
 		// and capture-time identity are never searched for pointer/key patterns.
 		constexpr uint64 KeyBytes = SnapshotKeyBytes;
-		std::vector<FObjectKey> BeforeHard, AfterHard;
+		std::vector<FObjectKey> BeforeHard;
+		std::vector<FPersistentObjectRef> AfterHard;
 		std::shared_ptr<FSerializedObject> Data;
 		uint64 End = 0;
 		for (const auto& Slot : Source.Context->ReferenceSlots)
@@ -64,12 +65,21 @@ namespace Durin
 			auto Decoded = ReadSnapshotReference(Source, Slot);
 			if (!Decoded) return std::unexpected(Decoded.error());
 			const auto Before = *Decoded;
-			auto After = Map.RemapObjectKey(Before, Slot.bWeak);
+			auto After = Slot.bWeak || Before.IsNull() ? Map.RemapObjectKey(Before, Slot.bWeak)
+				: std::expected<FObjectKey, FObjectReplacementError>{Before};
 			if (!After) return std::unexpected(ToString(After.error()));
 			if (!Slot.bWeak)
 			{
 				if (!Before.IsNull() && !std::ranges::contains(BeforeHard, Before)) BeforeHard.push_back(Before);
-				if (!After->IsNull() && !std::ranges::contains(AfterHard, *After)) AfterHard.push_back(*After);
+				if (!Before.IsNull())
+				{
+					const auto Reference = std::ranges::find(Source.Data->HardReferences, Before, &FPersistentObjectRef::GetKey);
+					if (Reference == Source.Data->HardReferences.end()) return std::unexpected("Replacement hard reference is not declared.");
+					auto Replacement = Reference->CreateReplacement(Map);
+					if (!Replacement) return std::unexpected(Replacement.error());
+					After = Replacement->GetKey();
+					if (!std::ranges::contains(AfterHard, *Replacement)) AfterHard.push_back(std::move(*Replacement));
+				}
 			}
 			if (*After != Before)
 			{
@@ -82,7 +92,7 @@ namespace Durin
 				std::copy(Encoded.begin(), Encoded.end(), Data->Bytes.begin() + Slot.Offset);
 			}
 		}
-		if (BeforeHard != Source.Data->HardReferences)
+		if (!std::ranges::equal(BeforeHard, Source.Data->HardReferences, {}, std::identity{}, &FPersistentObjectRef::GetKey))
 			return std::unexpected("Replacement reference layout does not cover the capture's hard references.");
 		if (Data) { Data->HardReferences = std::move(AfterHard); Result.Data = std::move(Data); }
 		auto* Target = Result.Info.Target.Resolve();

@@ -1,14 +1,14 @@
 # Transaction Record Foundation
 
-Summary: Define canonical whole-object transaction records, collector ownership, and replay failure handling.
+Summary: Define whole-object and array operation records, collector ownership, and replay failure handling.
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 ## Scope
 
-CoreDObject supplies exact `FPersistentObjectRef` identity and transaction
+CoreDObject supplies `FPersistentObjectRef` identity categories and transaction
 serialization. DurinEd's `FTransactionObjectRecord` coordinates whole-object
 before/after payloads, observations and annotations in the same Undo/Redo order
 as executable custom changes. Capture precedes the first mutation; later captures
@@ -46,18 +46,20 @@ ownership and the runtime boundary.
 
 ## Exact Participant Identity
 
-`FPersistentObjectRef` stores only an `FObjectKey`: one object-array slot and
-its generation. A null reference has the invalid slot. A non-null reference
-resolves only while that exact generation remains registered and is not
-garbage or begin-destroyed.
+`FPersistentObjectRef::EReferenceType` follows UE's RootObject/SubObject split.
+Ordinary root references and `FromKey` preserve exact slot/generation identity.
+They resolve only while that generation remains registered and is not garbage
+or begin-destroyed. Published CDO/default-subobject chains instead retain an exact
+root and checked Outer/name steps, as defined by the
+[runtime reference contract](../../Runtime/Core/Transactions.md#coredobject-boundary).
 
-The reference never falls back to object path, name, Outer path, class lookup,
+An ordinary root reference never falls back to object path, name, Outer path, class lookup,
 or a newly allocated object in a reused slot. Rename and reparent therefore
 preserve identity, while physical removal invalidates it. An object already
 marked as garbage resolves as absent even before physical removal.
 
 Merely storing a persistent reference has no retention effect.
-`AddReferencedObjects(FReferenceCollector&)` reports the live object only when
+`AddReferencedObjects(FReferenceCollector&)` reports retained root/cached identities only when
 a reachable managed owner explicitly enumerates the reference. Collector
 traversal cannot rescue an object already marked as garbage.
 
@@ -70,12 +72,18 @@ soft references remain asset paths. The payload never calls `AddToRoot`.
 
 `FPropertyValueSnapshot` remains a general detached-value adapter for callers
 outside transaction history. Domain commands use the root-free property payload
-with collector traversal; generic records use whole-object serialized payloads.
+with collector traversal; whole-object records use serialized object payloads and array records retain only
+transaction-filtered element payloads.
 
 Payload restore validates the requested reflected property shape and resolves
 every hard handle. A stale, physically removed, or garbage hard reference makes
 restore fail rather than substituting another object. Weak references decode
 their original handle and naturally remain invalid when the target is gone.
+Weak-reference byte offsets accompany the payload for explicit replacement; they
+never become hard edges. `CreateReplacement` prepares independent hard tables and
+weak slots through the checked map, without scanning arbitrary bytes. Array
+records support owner/reference reinstancing with the same class descriptor; a
+class-descriptor change safely retires the complete affected history entry.
 
 ## Transaction Snapshot Filtering
 
@@ -96,12 +104,16 @@ capture an ordinary object. Interactive drafts remain property-editor values;
 there is no separate focused history, field locator, promotion or record-update
 API. Selected `SnapshotObject` calls affect observation only.
 
-The record's private editor `FSerializedObject` composes runtime transfer data,
-annotations and `FDiffableObject` observations. It is distinct from CoreDObject's
-byte payload of the same name, following UE's editor/runtime ownership split.
-Snapshot storage contains only an observation and annotation, never a competing
-undo baseline. Immutable payload and compatibility allocations are shared between
-transfer and observation from one Serialize call; tags belong to observation.
+The record's private editor `FSerializedObject` owns an `FDiffableObject` and
+annotation. This is distinct from CoreDObject's byte payload of the same name,
+following UE's editor/runtime ownership split. Before, final, inverse and snapshot
+states use the same storage type: each retains one identity, immutable payload,
+compatibility context and set of tags from one Serialize call. Load/validate uses
+a temporary transfer view of that storage. Snapshot presence comes from its
+optional state; no separate presence flag or competing undo baseline is retained.
+CoreDObject accounts transfer allocations and observation tags at their owner;
+the record adds annotation allocations once. Collector traversal follows the same
+observation and annotation ownership.
 
 Selected Snapshot properties accumulate, and an unfiltered snapshot makes later
 snapshots unfiltered. Metadata and native changes remain observable independently
@@ -113,6 +125,10 @@ transaction and operation IDs come from the live operation. Annotation additiona
 changes also close against the last snapshot and preserve their `CreatedBy`.
 Replay events capture live state after native completion; component completion
 precedes Actor reconciliation and dispatch, as owned by the transactor.
+Actor annotations now supply generated-component additional changes through this
+same path; their property-only observations, construction filtering and reference
+path matching are owned by
+[native construction](../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
 
 Historical load bypasses new-edit proposal validation and normalization.
 Reflected member notifications follow the complete load and precede object
@@ -122,13 +138,24 @@ validation and application return the corresponding expected void. Errors own
 exact target identity, serialization diagnostics and recovery disposition.
 `FTransactionRecord` formats diagnostics at the generic history boundary.
 
-Replay prepares live inverses before mutation. The canonical editor record
-validates the desired transfer, loads through CoreDObject's single serializer,
-and compensates a failed load from its prepared inverse. Successful replay flips
-the opposite history side to the live pre-operation state. A native exception or
+Replay prepares all live inverses before ordered loading, matching UE's separate
+Save and Load passes. The canonical editor record validates the desired transfer,
+loads through CoreDObject's single serializer, and compensates a failed load from
+its prepared inverse. Durin's checked coordinator publishes historical flips only
+after every record and native completion succeed. Clean compensation loads the
+prepared live inverse without replacing either historical side; temporary external
+references cannot become new history dependencies after a rejected replay.
+A native exception or
 failed compensation requires recovery and retains the prepared reference graph;
 failed replay does not advance the history cursor or emit a successful UndoRedo
 event. Compensation does not flip history from an intermediate state.
+
+No-op detection applies to the complete transaction, as in UE's `IsTransient`.
+If any record or annotation retains an edit, unchanged SaveObject baselines stay
+in that ordered transaction too. They can be needed to restore serialized fields
+around an opaque native command even when initial and final bytes compare equal.
+Only a wholly unchanged transaction is discarded; unrecorded dirtiness is not
+implicitly cleared.
 
 Initial, final and inverse captures acquire immutable annotations before virtual
 Serialize; schema checks do not acquire another annotation. Replay delivers the
@@ -149,6 +176,59 @@ records removes those hard edges without manual per-record roots. Material graph
 commands own property payloads for their structural/domain operations and use
 CoreDObject property capture/restore directly; they do not use a parallel generic
 transaction snapshot abstraction.
+
+## Array Operation Records
+
+`FTransactionArrayRecord` is an ordered native record beside whole-object and
+custom records. `ITransaction::SaveArray` identifies the owner, reflected member,
+optional struct ancestors, static member index, range and UE operation sign:
+Insert (+1) removes on load, Remove (-1) inserts on load, and Replace (0) restores
+values. No record retains a vector address or element pointer. Owner/class/path
+validation precedes each load, including after allocation relocation.
+
+`EditTransactionArray` explicitly adapts supported `std::vector<T>` mutations.
+It copies the incoming range and reserves capacity before capture; typed
+`FArrayOps::Splice` requires nonthrowing element moves. Replay decodes only the
+retained range into detached typed storage, then splices it into the live vector.
+Replacement seeds that range from current elements to preserve omitted fields.
+Insert/remove historical payloads scale with changed elements; a zero-payload
+insert record captures its inserted values when first undone. Weak slots remain
+non-owning and support checked replacement alongside the hard-reference table.
+Each element's strong references use `FPersistentObjectRef`: ordinary objects
+keep exact identities, while published default graphs resolve through their
+checked class/name chains. Replay materializes a temporary exact reference table
+for the shared property decoder; general property snapshots keep exact semantics.
+
+Multiple range records retain operation order. Each inverse is captured at its
+ordered replay step, because later edits may relocate earlier ranges. Flips are
+published only after complete successful replay; compensation uses the prepared
+inverse without changing history. This checked sequencing is a Durin adaptation.
+Native callback failure after a splice requires recovery. Zero-count operations
+and equal-value edits through the mutation adapter record nothing; raw SaveArray
+requires callers to perform the declared operation and does not infer net no-ops.
+
+A preceding whole-object record owns subsequent array edits on that owner. A
+later whole-object capture owns its intermediate baseline and follows preceding
+range records in normal replay order. Its inverse is prepared at that ordered
+load step too, so repeated Redo cannot replace an intermediate baseline with the
+entry's initial state. Other whole-object inverses retain the pre-load pass.
+Unsupported element/container capabilities,
+bulk changes and edits that may affect siblings must explicitly capture the whole
+object before mutation. Ordinary vector operations do not record themselves.
+Maps retain existing snapshot/domain semantics; SaveArray supplies no map policy.
+
+Spline point insertion, removal, duplication, movement and value edits use the
+range adapter, including nested reflected `SplineCurve.Points` storage. Bulk curve
+replacement and loop changes select whole-object capture. Road spline editing
+uses validated RoadNet property proposals with network-wide preview/invariant
+updates, so it retains that full-object fallback. Generic property proposals retain full-object history
+and detached proposal snapshots because normalization and callbacks can edit other
+fields; material graph commands retain semantic rollback and sparse presentation
+changes. These paths make no bounded-capture claim. Vector movement, spline
+evaluation/rebuild, annotations and full-object fallbacks may still cost O(N),
+even when retained range storage and range serialization are bounded by K edits.
+Point reordering stores the affected interval; moving across an entire curve can
+therefore retain O(N) values.
 
 ## Controlled Reinstancing
 
@@ -184,9 +264,13 @@ boundaries and save checkpoints rebind together. Candidate objects acquire edito
 transactional admission during preparation. Document Discard does not call
 `EstablishSavedState` again after publication, which would erase the retained history.
 
-This supports ordinary exact records and Engine's admitted construction-source
-matching. It does not admit arbitrary templates or CDO editing. The existing
-default-graph rules continue to own those categories.
+`DTransBuffer::OnObjectsReinstanced` accepts an explicit checked map and reuses
+this same participant for synchronous native history replacement. The caller
+coordinates actual graph publication and all external owners. Busy/stale
+preparation publishes nothing; incompatible records retire their complete entry
+under the same package/checkpoint rules. CDO/default-subobject transactions use
+the native admission and logical reference categories above; arbitrary archetypes
+and script template mutation remain unsupported.
 
 ## Hierarchy Boundary
 

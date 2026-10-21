@@ -138,10 +138,16 @@ namespace Durin
 		{
 			DObject* Previous = nullptr;
 			DObject* Replacement = nullptr;
+			FObjectKey PreviousIdentity, ReplacementIdentity;
 		};
 		COREDOBJECT_API auto Build(std::span<const FObjectReplacementPackagePair> Packages,
 			const FObjectReplacementBudget& Budget = {}) -> std::expected<void, FObjectReplacementMapError>;
+		// Explicit native reinstancing, without package discovery or publication.
+		// Callers keep both graphs alive and coordinate all other reference owners.
+		COREDOBJECT_API auto BuildFromObjects(std::span<const FEntry> Objects,
+			const FObjectReplacementBudget& Budget = {}) -> std::expected<void, FObjectReplacementMapError>;
 		COREDOBJECT_API auto Find(DObject* Previous) const -> const FEntry*;
+		COREDOBJECT_API auto ValidateIdentities() const -> bool;
 		// Exact-generation mapping only. Expired weak handles stay expired; removed
 		// weak targets clear, while expired/removed hard targets reject preparation.
 		COREDOBJECT_API auto RemapObjectKey(FObjectKey Key, bool bWeak = false) const

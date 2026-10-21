@@ -80,6 +80,10 @@ namespace Durin
 		ENGINE_API auto DetachFromComponent(EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
 
 		auto GetAttachParent() const -> DSceneComponent* { return AttachParent.Get(); }
+		// Native replay adapters may reuse an edge loaded earlier in this replay,
+		// but must still reject an edge changed before PreEditUndo.
+		auto IsAttachmentChangedDuringUndo() const -> bool
+		{ return bAttachmentUndoPending && PreUndoAttachParent.Get() != AttachParent.Get(); }
 		auto GetAttachChildren() const -> const std::vector<TObjectPtr<DSceneComponent>>& { return AttachChildren; }
 		ENGINE_API auto IsAttachedTo(const DSceneComponent* Component) const -> bool;
 

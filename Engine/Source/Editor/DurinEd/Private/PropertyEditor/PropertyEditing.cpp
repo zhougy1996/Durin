@@ -743,37 +743,20 @@ namespace Durin::Editor
 				Reset();
 				return Result;
 			}
-			// Capture other reflected fields that edit reactions may author, too.
-			// The fallback also captures the whole object before the first edit.
-			if (!Target.Object->Modify(false))
+			// Admit ordinary fields even after a domain command declared this object.
+			if (const auto Recorded = RecordObjectForEdit(*Transactor, *Target.Object); !Recorded)
 			{
-				auto Capture = FTransactionObjectRecord::CaptureWhole(*Target.Object);
-				if (!Capture)
-				{
-					auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
-					TransactionScope->Cancel();
-					const auto Cleanup = Transactor->GetLastResult();
-					if (Cleanup.Code == ETransactorResultCode::Rejected
-						|| Cleanup.Code == ETransactorResultCode::Failed
-						|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
-						Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
-					Reset();
-					return Result;
-				}
-				const auto RecordResult = Transactor->Record(std::move(*Capture));
-				if (!RecordResult)
-				{
-					auto Result = Reject(FormatTransactorResult(RecordResult.error()));
-					TransactionScope->Cancel();
-					const auto Cleanup = Transactor->GetLastResult();
-					if (Cleanup.Code == ETransactorResultCode::Rejected
-						|| Cleanup.Code == ETransactorResultCode::Failed
-						|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
-						Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
-					Reset();
-					return Result;
-				}
+				auto Result = Reject(Recorded.error());
+				TransactionScope->Cancel();
+				const auto Cleanup = Transactor->GetLastResult();
+				if (Cleanup.Code == ETransactorResultCode::Rejected
+					|| Cleanup.Code == ETransactorResultCode::Failed
+					|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
+					Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
+				Reset();
+				return Result;
 			}
+			(void)Target.Object->Modify(false);
 		}
 		bActive = true;
 		return {};

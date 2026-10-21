@@ -4,7 +4,7 @@ Summary: Define UE-shaped native recording, synchronous Undo/Redo, package check
 
 Modules: Core, CoreDObject, Engine, DurinEd
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 ## Service Ownership
 
@@ -100,7 +100,9 @@ transaction captured the object. False does not veto an edit. Capture requires
 an eligible live object with `EObjectFlags::Transactional`. Editor actor/component
 creation establishes the flag, children inherit it from their Outer, and known
 saved package activation flags its loaded graph. Explicit low-level callers may
-set or clear it. Templates are excluded from Durin's ordinary object editing.
+set or clear it. Templates are excluded from ordinary editor property/script
+editing; native default-graph transactions have explicit
+[runtime admission](../../Runtime/Core/Transactions.md#coredobject-boundary).
 
 `FTransaction` owns first-before capture and deduplicates objects across every
 nested action. Final-after capture happens at outermost End, so 0, outer write 1,
@@ -203,6 +205,48 @@ separately from collector-only dependencies.
 Durin additionally opens a standalone scope for StoreUndo without active recording.
 StoreUndo never invokes Apply and accepts nested recording without an opt-in flag.
 
+Editor business entrypoints use `RecordObjectForEdit` when an ordinary serialized
+edit follows a domain command for the same participant. This Durin admission
+helper requires the owning live scope, game thread and an idle capture boundary;
+it rejects foreign services and transaction callback reentry. It reuses an
+existing canonical object record without another Serialize, or records one
+whole-object capture before mutation. Raw record insertion remains private.
+Core `Modify` retains UE's custom-object ownership rule; the explicit business
+gate must only accompany domain adapters that compose with serialized fields.
+Property sessions and transactional CallInEditor targets share this gate, then
+call `Modify` for native Actor/root behavior. NonTransactional CallInEditor
+targets still execute without gaining history, as with UE Modify. Actor Label,
+Actor/Component Name and existing-skybox texture
+assignment have no custom history class or executable editor-module dependency.
+
+The remaining custom commands have domain responsibilities beyond a field load:
+
+| Command family | Modified participants and retained responsibility |
+| --- | --- |
+| Actor presence | Level, affected Actors/components and attachment endpoints; exact identity/Name reservation, native Level publication, reversible absence and activation. The Level's shared object record owns serialized Actor order and primary camera; camera snapshots inside the adapter serve initial-execution compensation only. |
+| Component presence | Owner, component, parent and detached children; native live membership, root role, registration, ordered publication and retention of the complete absent Outer subtree. Serialized instance membership may precede this adapter; Actor completion reconciles and validates the final set. |
+| Actor attachment / component reparent | Moved roots/components and old/new endpoints; graph admission, transform rules, native attachment publication and compensation. An already-restored destination edge is not published twice. |
+| Transform gizmo | Declared target objects; arbitrary `ITransformGizmoTarget` also permits native-only targets and fallible transform setters, so the adapter retains gesture replay. |
+| StaticMesh placement / new SkyBox | Level and declared Actor/component participants; prepared asset bindings, creation/identity, native publication and coordinated rollback. Existing SkyBox texture edits use an ordinary component record. |
+| Material semantic graph | Owner, changed expressions and added/removed nodes; connection/type adaptation, synchronized parameter references, membership and one validated publication/rollback boundary. Local member snapshots are domain compensation, not the property UI's history backend. |
+| Material presentation | Material owner; GUID-keyed sparse position/label changes preserve unrelated presentation entries. |
+| Material parameter gesture | Material owner; a stable parameter ID updates synchronized expression-backed values through the owner's `SetParameterValue` publication boundary, rather than one reflected owner scalar. Texture values are collector dependencies. |
+
+Each custom change separately enumerates collector dependencies and owned bytes.
+Ordinary material Details edits use the shared property session. Outliner
+visibility and primary-camera edits already use scoped `Modify`; Python scopes
+use the same application recording and job cleanup, and script label setters
+route through the Actor subsystem. No alternate history is introduced for these
+consumers.
+
+Actor presence captures its Level through `GUndo->SaveObject` before initial
+publication. Level's balanced native completion hooks remember pre-replay
+membership temporarily, so an array loaded earlier in the same operation can
+be activated without duplicate insertion. A membership change made before
+PreEditUndo remains a conflict. Scene components use their existing pre-undo
+parent to make the same distinction for attachment edges. These checks supplement
+UE's serialized-state flip with Durin's reversible native absence boundaries.
+
 `ApplyEditorChange` is the synchronous domain execution helper. It opens or joins
 a scope, defers collection through initial Apply, and stores the change on
 success. Invalid initial accounting rejects before mutation. Final capture or
@@ -220,7 +264,9 @@ domains retain their derived-state synchronization. See
 [reflected property editing](ReflectedPropertyEditing.md#object-notification-contract).
 
 When a replay record fails, completed records are compensated in reverse order.
-Only successful replay advances the cursor. Incomplete compensation or a custom
+Historical flips are published only after all records and native completion
+succeed; clean compensation uses the prepared live inverses and leaves history
+unchanged for retry. Only successful replay advances the cursor. Incomplete compensation or a custom
 exception retains the participant graph and requires recovery. Reset does not
 repair data or unlock catastrophic recovery. Diagnostic results retain actionable
 failure and rollback messages without requiring ordinary clients to inspect causes.

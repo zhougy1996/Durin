@@ -20,6 +20,9 @@ namespace Durin
 		size_t Index = 0;
 		size_t Count = 0;
 		ETransactionArrayOperation Operation = ETransactionArrayOperation::Replace;
+		// Optional reflected struct ancestors, from the object's member to the
+		// array's parent. No container address is retained by the recorder.
+		std::span<const FProperty* const> StructPath;
 	};
 
 	// Runtime object capture boundary. Editor owns the current recording's lifetime.

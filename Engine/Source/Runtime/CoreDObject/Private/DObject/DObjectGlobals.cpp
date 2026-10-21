@@ -873,6 +873,19 @@ namespace Durin
 
 		Obj->SetOuterPrivate(Params.Outer);
 		Obj->AddObject(Params.Name);
+		try
+		{
+			FGarbageCollectionDeferralScope DeferCollection;
+			Obj->PostInitProperties();
+		}
+		catch (...)
+		{
+			// Construction succeeded: preserve the object's lifetime for normal
+			// virtual destruction, unlike a throwing native constructor above.
+			if (Obj->IsTemplateObject()) Private::MarkTemplateObjectHierarchyAsGarbage(Obj);
+			else MarkObjectHierarchyAsGarbage(Obj);
+			throw;
+		}
 
 		return Obj;
 	}

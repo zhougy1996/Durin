@@ -53,13 +53,32 @@ TEST(FRuntimeTransactionContractTests, OperationIdentitiesRemainDistinctAcrossDo
 	EXPECT_GT(Second, First);
 }
 
-TEST(FRuntimeTransactionContractTests, ExactReferenceDoesNotResolveGarbage)
+TEST(FRuntimeTransactionContractTests, ExactReferencePreservesIdentityAndRejectsGarbageAndSlotReuse)
 {
-	Testing::InitializeDObjectSystemForTests();
-	TStrongObjectPtr<DObject> Object(NewObject<DObject>(nullptr, "RuntimeExactIdentity"));
-	const FPersistentObjectRef Reference(Object.Get());
-	EXPECT_EQ(Reference.Resolve(), Object.Get());
-	MarkAsGarbage(Object.Get());
+	Durin::Testing::InitializeDObjectSystemForTests();
+	auto* FirstOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("PersistentFirstOuter"));
+	auto* SecondOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("PersistentSecondOuter"));
+	auto* Object = Durin::NewObject<Durin::DObject>(FirstOuter, Durin::FName("PersistentObject"));
+	const Durin::FPersistentObjectRef Reference(Object);
+	EXPECT_EQ(Durin::FPersistentObjectRef(), Durin::FPersistentObjectRef(nullptr));
+	EXPECT_FALSE(Reference.IsNull());
+	EXPECT_FALSE(Reference.IsStale());
+	EXPECT_EQ(Reference.Resolve(), Object);
+
+	Object->Rename(Durin::FName("PersistentObjectRenamed"));
+	Object->SetOuterPrivate(SecondOuter);
+	EXPECT_EQ(Reference.Resolve(), Object);
+	Durin::MarkAsGarbage(Object);
+	EXPECT_TRUE(Durin::FPersistentObjectRef(Object).IsStale());
 	EXPECT_EQ(Reference.Resolve(), nullptr);
 	EXPECT_TRUE(Reference.IsStale());
+	Durin::CollectGarbage();
+	EXPECT_EQ(Reference.Resolve(), nullptr);
+	EXPECT_TRUE(Durin::FPersistentObjectRef(Object).IsNull());
+
+	auto* Reused = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("PersistentReusedSlot"));
+	EXPECT_NE(Durin::FObjectKey(Reused), Reference.GetKey());
+	EXPECT_EQ(Reference.Resolve(), nullptr);
+	Durin::MarkAsGarbage(Reused);
+	Durin::CollectGarbage();
 }

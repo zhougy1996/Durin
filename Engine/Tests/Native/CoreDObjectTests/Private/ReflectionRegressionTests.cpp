@@ -1,5 +1,6 @@
 #include "CoreMinimal.h"
 #include "DObject/Class.h"
+#include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/FunctionParameters.h"
 #include "DObject/ObjectKey.h"
@@ -14,6 +15,69 @@ namespace
 {
 	using namespace Durin;
 	using namespace Durin::FunctionFixtures;
+
+	class DPostInitProbe final : public DObject
+	{
+	public:
+		explicit DPostInitProbe(const FObjectInitializer& Initializer) : DObject(Initializer) { bConstructed = true; }
+		~DPostInitProbe() override { ++Destroyed; }
+		static void __DefaultConstructor(const FObjectInitializer& Initializer) { new (Initializer.GetObj()) DPostInitProbe(Initializer); }
+		static auto StaticClass() -> DClass*
+		{
+			static auto* Class = [] {
+				auto* Value = new DClass(EC_StaticConstructor, "Tests::PostInitProbe", sizeof(DPostInitProbe), alignof(DPostInitProbe),
+					EObjectFlags::NoFlags, EClassFlags::NoClassDefaultObject, EClassCastFlags::DClass,
+					(DClass::ClassConstructorType)InternalConstructor<DPostInitProbe>);
+				Value->SetSuperStructBase(DObject::StaticClass()); Value->SetTypeNames("PostInitProbe", "", "");
+				Value->Register(DClass::StaticClass, "", "PostInitProbe"); DObjectForceRegistration(Value); return Value;
+			}();
+			return Class;
+		}
+		auto PostInitProperties() -> void override
+		{
+			DObject::PostInitProperties();
+			++Calls; ObservedValue = Value; ObservedName = GetFName(); ObservedOuter = GetOuter();
+			LastKey = FObjectKey(this);
+			EXPECT_TRUE(bConstructed); EXPECT_TRUE(IsValid(this));
+			CollectGarbage(); EXPECT_TRUE(IsValid(this));
+			if (bThrow) throw std::runtime_error("Injected post-initialization failure.");
+		}
+		inline static bool bThrow = false;
+		inline static uint32 Destroyed = 0;
+		inline static FObjectKey LastKey;
+		bool bConstructed = false;
+		uint32 Calls = 0;
+		int32 Value = 37, ObservedValue = 0;
+		FName ObservedName;
+		DObject* ObservedOuter = nullptr;
+	};
+}
+
+TEST(FCoreDObjectReflectionRegressionTests, PostInitPropertiesRunsOnceAfterConstructionAndIdentityRegistration)
+{
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<DObject> Outer(NewObject<DObject>(nullptr, "PostInitOuter"));
+	TStrongObjectPtr<DPostInitProbe> Object(NewObject<DPostInitProbe>(Outer.Get(), "PostInitObject"));
+	ASSERT_TRUE(Object); EXPECT_EQ(Object->Calls, 1u); EXPECT_EQ(Object->ObservedValue, 37);
+	EXPECT_EQ(Object->ObservedName, FName("PostInitObject")); EXPECT_EQ(Object->ObservedOuter, Outer.Get());
+	EXPECT_EQ(ResolveObjectKey(DPostInitProbe::LastKey), Object.Get());
+	CollectGarbage(); EXPECT_TRUE(Object);
+}
+
+TEST(FCoreDObjectReflectionRegressionTests, ThrowingPostInitPropertiesRetiresRegisteredGraphAndUsesVirtualDestruction)
+{
+	Testing::InitializeDObjectSystemForTests();
+	CollectGarbage();
+	const auto Destroyed = DPostInitProbe::Destroyed;
+	struct FReset { ~FReset() { DPostInitProbe::bThrow = false; } } Reset;
+	DPostInitProbe::bThrow = true;
+	EXPECT_THROW(NewObject<DPostInitProbe>(nullptr, "FailedPostInit"), std::runtime_error);
+	const auto FailedKey = DPostInitProbe::LastKey;
+	EXPECT_EQ(ResolveObjectKey(FailedKey), nullptr);
+	CollectGarbage(); EXPECT_EQ(DPostInitProbe::Destroyed, Destroyed + 1);
+	DPostInitProbe::bThrow = false;
+	TStrongObjectPtr<DPostInitProbe> Retry(NewObject<DPostInitProbe>(nullptr, "FailedPostInit"));
+	ASSERT_TRUE(Retry); EXPECT_EQ(Retry->Calls, 1u); EXPECT_NE(FObjectKey(Retry.Get()), FailedKey);
 }
 
 TEST(FCoreDObjectReflectionRegressionTests, FieldClassInheritanceIncludesEveryAncestor)

@@ -53,6 +53,7 @@ namespace Durin
 		ENGINE_API DActorComponent(const FObjectInitializer& ObjectInitializer);
 
 		ENGINE_API virtual ~DActorComponent() override = default;
+		ENGINE_API auto PostInitProperties() -> void override;
 
 		auto GetOwner() const -> AActor* { return OwnerActorPrivate; }
 

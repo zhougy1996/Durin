@@ -5,6 +5,7 @@
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Collision/CollisionDebugSubsystem.h"
+#include "Components/SceneComponent.h"
 
 namespace Durin
 {
@@ -878,7 +879,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 		Worlds.emplace_back(World);
 		World->SetWorldType(EWorldType::Editor);
 		ASSERT_TRUE(World->InitializeSubsystems());
-		ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, {})));
+		ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "EditorDocumentLevel")));
 		Host->SetEditorWorld(World);
 	}
 	auto* Level = First->GetEditorWorld()->GetCurrentLevel();
@@ -899,7 +900,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	EXPECT_EQ(First->GetTransactor()->GetUndoId(), 0u);
 	ASSERT_TRUE(First->GetTransactor()->End());
 	EXPECT_EQ(First->GetTransactor()->GetUndoContext(false).Description, "Grouped host history");
-	ASSERT_TRUE(First->GetTransactor()->Undo());
+	ASSERT_TRUE(First->GetTransactor()->Undo()) << FormatTransactorResult(First->GetTransactor()->GetLastResult());
 	EXPECT_FALSE(Level->ContainsActor(Grouped));
 	ASSERT_TRUE(First->GetTransactor()->Redo());
 	EXPECT_TRUE(Level->ContainsActor(Grouped));
@@ -924,7 +925,7 @@ TEST_F(FWorldSubsystemTests, ActorPreparationCannotPublishAfterItsHostClosesAdmi
 	Worlds.emplace_back(World);
 	World->SetWorldType(EWorldType::Editor);
 	ASSERT_TRUE(World->InitializeSubsystems());
-	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, {})));
+	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "EditorDocumentLevel")));
 	Host->SetEditorWorld(World);
 	TStrongObjectPtr<DLevel> Level(World->GetCurrentLevel());
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
@@ -940,7 +941,7 @@ TEST_F(FWorldSubsystemTests, ActorPreparationCannotPublishAfterItsHostClosesAdmi
 	EXPECT_FALSE(Level->FindActorByName("RetiringPreparation"));
 }
 
-TEST_F(FWorldSubsystemTests, ActorEditingRejectsSubsystemBeginPlayBeforeActorPlayDispatch)
+TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsSubsystemBeginPlayBeforeActorPlayDispatch)
 {
 	FWorldSubsystemRegistration Registration({.Type = FSubsystemProbeA::StaticClass()});
 	TStrongObjectPtr<FSubsystemEditorHost> Host(NewObject<FSubsystemEditorHost>(nullptr, {}));
@@ -949,13 +950,13 @@ TEST_F(FWorldSubsystemTests, ActorEditingRejectsSubsystemBeginPlayBeforeActorPla
 	Worlds.emplace_back(World);
 	World->SetWorldType(EWorldType::Editor);
 	ASSERT_TRUE(World->InitializeSubsystems());
-	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, {})));
+	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "EditorDocumentLevel")));
 	Host->SetEditorWorld(World);
 	auto* Level = World->GetCurrentLevel();
 	auto* Actor = Level->SpawnActor<ACameraActor>("LifecycleOwner");
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
-	ASSERT_TRUE(Service->RenameComponent(*Actor, Actor->GetRootComponent(), "RecordedRoot", {false}));
+	ASSERT_NE(Service->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {false}), nullptr);
 	const auto UndoId = Host->GetTransactor()->GetUndoId();
 	int Calls = 0;
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
@@ -974,7 +975,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingRejectsSubsystemBeginPlayBeforeActorPla
 	Host->PrepareForShutdown();
 }
 
-TEST_F(FWorldSubsystemTests, ActorEditingRejectsWorldShutdownRequestBeforeTeardown)
+TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsWorldShutdownRequestBeforeTeardown)
 {
 	TStrongObjectPtr<FSubsystemEditorHost> Host(NewObject<FSubsystemEditorHost>(nullptr, {}));
 	ASSERT_TRUE(Host->StartEngine()); ASSERT_TRUE(Host->StartEditor());
@@ -982,13 +983,13 @@ TEST_F(FWorldSubsystemTests, ActorEditingRejectsWorldShutdownRequestBeforeTeardo
 	Worlds.emplace_back(World);
 	World->SetWorldType(EWorldType::Editor);
 	ASSERT_TRUE(World->InitializeSubsystems());
-	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, {})));
+	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "EditorDocumentLevel")));
 	Host->SetEditorWorld(World);
 	auto* Level = World->GetCurrentLevel();
 	auto* Actor = Level->SpawnActor<ACameraActor>("ClosingOwner");
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
-	ASSERT_TRUE(Service->RenameComponent(*Actor, Actor->GetRootComponent(), "RecordedRoot", {false}));
+	ASSERT_NE(Service->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {false}), nullptr);
 	const auto UndoId = Host->GetTransactor()->GetUndoId();
 	World->RequestShutdown();
 	EXPECT_EQ(World->GetCurrentLevel(), Level);

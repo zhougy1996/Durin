@@ -180,8 +180,8 @@ namespace Durin
 	class FSerializedObjectDataWriter final : public FTransactionArchive
 	{
 	public:
-		FSerializedObjectDataWriter(DObject& Object, FSerializedObject& InData, FTransactionSerializationContext& Context, bool FrozenPolicy)
-			: FTransactionArchive(Object, false, Context.ExcludedMembers), Data(InData), References(Context.ReferenceSlots), bFrozenPolicy(FrozenPolicy) {}
+		FSerializedObjectDataWriter(DObject& Object, FSerializedObject& InData, FTransactionSerializationContext& Context, bool FrozenPolicy, bool PropertiesOnly)
+			: FTransactionArchive(Object, false, Context.ExcludedMembers), Data(InData), References(Context.ReferenceSlots), bFrozenPolicy(FrozenPolicy), bPropertiesOnly(PropertiesOnly) {}
 
 		auto Tell() const -> uint64 override { return Data.Bytes.size(); }
 		auto SerializeRawBytes(FMutableByteView Bytes) -> void override
@@ -199,7 +199,8 @@ namespace Durin
 			if (!IsCurrentFieldAvailable()) return;
 			References.push_back({Tell(), false});
 			FObjectKey Key(Value); Key.SerializeForSnapshot(*this);
-			if (!Key.IsNull() && !std::ranges::contains(Data.HardReferences, Key)) Data.HardReferences.push_back(Key);
+			const FPersistentObjectRef Reference(Value);
+			if (!Reference.IsNull() && !std::ranges::contains(Data.HardReferences, Reference)) Data.HardReferences.push_back(Reference);
 		}
 	protected:
 		auto OnResolvePropertySaveValue(FProperty& Property, const void* Container, uint32 Index,
@@ -207,7 +208,7 @@ namespace Durin
 		{
 			const auto Policy = FTransactionArchive::OnResolvePropertySaveValue(Property, Container, Index, Out);
 			if (Policy == EArchivePropertySaveDisposition::Omit || Container != &Object) return Policy;
-			if (Property.GetKind() == DurinCodeGen::EPropertyGenFlags::Object)
+			if (!bPropertiesOnly && Property.GetKind() == DurinCodeGen::EPropertyGenFlags::Object)
 				for (uint32 Element = 0; Element < Property.GetArrayDim(); ++Element)
 					if (auto* Reference = static_cast<const FObjectProperty&>(Property).GetObjectPropertyValue(Container, Element);
 						Reference && Reference->GetConstructionPurpose() == EObjectConstructionPurpose::Generated)
@@ -223,6 +224,7 @@ namespace Durin
 		FSerializedObject& Data;
 		std::vector<FSerializedObjectReferenceSlot>& References;
 		bool bFrozenPolicy;
+		bool bPropertiesOnly;
 	};
 
 	class FSerializedObjectDataReader final : public FTransactionArchive
@@ -246,7 +248,8 @@ namespace Durin
 			if (!IsCurrentFieldAvailable()) return;
 			FObjectKey Key; Key.SerializeForSnapshot(*this);
 			if (IsError()) return;
-			Value = Key.IsNull() ? nullptr : FPersistentObjectRef::FromKey(Key).Resolve();
+			const auto Reference = std::ranges::find(State.Data->HardReferences, Key, &FPersistentObjectRef::GetKey);
+			Value = Key.IsNull() || Reference == State.Data->HardReferences.end() ? nullptr : Reference->Resolve();
 			if (!Key.IsNull() && !Value) SetError("A transaction hard reference no longer resolves.");
 		}
 	private:
@@ -254,11 +257,12 @@ namespace Durin
 		uint64 Offset = 0;
 	};
 
-	auto CaptureSerializedObject(DObject& Object, const FSerializedObjectCapture* CapturePolicy, FDiffableObject* Observation) -> std::expected<FSerializedObjectCapture, std::string>
+	static auto CaptureSerializedObjectImpl(DObject& Object, const FSerializedObjectCapture* CapturePolicy, FDiffableObject* Observation,
+		bool bPropertiesOnly) -> std::expected<FSerializedObjectCapture, std::string>
 	{
 		FGarbageCollectionDeferralScope DeferCollection;
-		if (!IsValid(&Object) || !Object.GetClass() || Object.IsTemplateObject())
-			return std::unexpected("Transaction object capture requires a live ordinary object.");
+		if (!CanTransactObject(Object))
+			return std::unexpected("Transaction capture requires a live object or a transactional published default graph.");
 		if (CapturePolicy && (!CapturePolicy->Data || !CapturePolicy->Context || CapturePolicy->Info.Target.Resolve() != &Object))
 			return std::unexpected("Transaction capture policy belongs to a different object.");
 		// Lazily declared intrinsic classes can be pending after object construction.
@@ -276,8 +280,15 @@ namespace Durin
 		if (CapturePolicy) Context->ExcludedMembers = CapturePolicy->Context->ExcludedMembers;
 		try
 		{
-			FSerializedObjectDataWriter Writer(Object, *Data, *Context, CapturePolicy != nullptr);
-			{ auto Scope = Writer.EnterObject(Object); if (!Writer.IsError()) Object.Serialize(Writer); }
+			FSerializedObjectDataWriter Writer(Object, *Data, *Context, CapturePolicy != nullptr, bPropertiesOnly);
+			{
+				auto Scope = Writer.EnterObject(Object);
+				if (!Writer.IsError())
+				{
+					if (bPropertiesOnly) SerializeDObjectProperties(Writer, Object);
+					else Object.Serialize(Writer);
+				}
+			}
 			if (Writer.IsError()) return std::unexpected(std::string(Writer.GetError()));
 			Context->Schema = std::move(Writer.Schema);
 			Context->Versions = Writer.GetVersionContext();
@@ -289,15 +300,32 @@ namespace Durin
 		return State;
 	}
 
+	auto CaptureSerializedObject(DObject& Object, const FSerializedObjectCapture* CapturePolicy, FDiffableObject* Observation)
+		-> std::expected<FSerializedObjectCapture, std::string>
+	{ return CaptureSerializedObjectImpl(Object, CapturePolicy, Observation, false); }
+
+	auto DiffUtil::GetDiffableObject(DObject& Object, FGetDiffableObjectOptions Options) -> std::expected<FDiffableObject, std::string>
+	{
+		FDiffableObject Observation;
+		auto Captured = CaptureSerializedObjectImpl(Object, nullptr, &Observation, Options.ObjectSerializationMode == EGetDiffableObjectMode::SerializeProperties);
+		if (!Captured) return std::unexpected(Captured.error());
+		return Observation;
+	}
+
 	static auto ValidateSerializedObjectIdentity(DObject& Object, const FSerializedObjectCapture& Capture) -> FTransactionCaptureResult
 	{
 		if (!Capture.Data || !Capture.Context) return std::unexpected("Transaction capture is incomplete.");
 		if (!IsValid(&Object) || Capture.Info.Target.Resolve() != &Object)
 			return std::unexpected("Transaction object identity is no longer available.");
 		if (Capture.Info.Class.Resolve() != Object.GetClass()) return std::unexpected("Transaction object class is no longer compatible.");
-		if (Object.IsTemplateObject()) return std::unexpected("Transaction object became a template.");
-		if (Capture.Info.Identity.OriginalName.IsNone() || Capture.Info.Outer.IsStale() || Capture.Info.Package.IsStale())
-			return std::unexpected("Transaction object metadata no longer resolves.");
+		if (!CanTransactObject(Object)) return std::unexpected("Transaction object is no longer admitted.");
+		if (Object.IsTemplateObject() && (Capture.Info.Identity.OriginalName != Object.GetFName()
+			|| Capture.Info.Outer.Resolve() != Object.GetOuter() || Capture.Info.Flags != Object.GetObjectFlags()))
+			return std::unexpected("Template transactions cannot change construction identity or flags.");
+		if (Capture.Info.Identity.OriginalName.IsNone())
+			return std::unexpected(std::format("Transaction object '{}' has no captured Name.", Object.GetObjectPath()));
+		if (Capture.Info.Outer.IsStale() || Capture.Info.Package.IsStale())
+			return std::unexpected(std::format("Transaction object '{}' Outer or package no longer resolves.", Object.GetObjectPath()));
 		if ((Capture.Info.Flags & ~MutableFlags) != (Object.GetObjectFlags() & ~MutableFlags))
 			return std::unexpected("Transaction replay cannot restore object construction flags.");
 		for (auto* Parent = Capture.Info.Outer.Resolve(); Parent; Parent = Parent->GetOuter())
@@ -312,8 +340,8 @@ namespace Durin
 				return Asset != &Object && !Asset->IsGarbage() && Asset->GetFName() == Capture.Info.Identity.OriginalName;
 			}))
 			return std::unexpected("Transaction object metadata conflicts with a top-level asset name.");
-		for (auto Key : Capture.Data->HardReferences)
-			if (FPersistentObjectRef::FromKey(Key).IsStale()) return std::unexpected("A transaction object hard reference expired.");
+		for (const auto& Reference : Capture.Data->HardReferences)
+			if (Reference.IsStale()) return std::unexpected("A transaction object hard reference expired.");
 		return {};
 	}
 
@@ -348,7 +376,7 @@ namespace Durin
 
 	auto FSerializedObject::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
-		for (auto Key : HardReferences) FPersistentObjectRef::FromKey(Key).AddReferencedObjects(Collector);
+		for (const auto& Reference : HardReferences) Reference.AddReferencedObjects(Collector);
 	}
 
 	auto FSerializedObjectInfo::AddReferencedObjects(FReferenceCollector& Collector) const -> void
@@ -368,25 +396,45 @@ namespace Durin
 	auto FSerializedObjectCapture::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{ Info.AddReferencedObjects(Collector); if (Data) Data->AddReferencedObjects(Collector); }
 
-	auto FSerializedObjectCapture::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	namespace
 	{
-		if (!Data || !Context) return false;
+		auto TryGetSerializedAllocationSize(const FSerializedObject* Data, const FSerializedObjectInfo& Info,
+			const FTransactionSerializationContext* Context, size_t& OutBytes) -> bool
+		{
+			if (!Data || !Context) return false;
+			size_t Total = 0;
+			auto Add = [&](size_t Count, size_t Size) {
+				if (Count > std::numeric_limits<size_t>::max() / Size) return false;
+				const auto Bytes = Count * Size;
+				if (Total > std::numeric_limits<size_t>::max() - Bytes) return false;
+				Total += Bytes; return true;
+			};
+			if (!Add(Info.Identity.OriginalOuterPath.capacity(), 1)
+				|| !Add(Info.Identity.OriginalClassPath.capacity(), 1)
+				|| !Add(Info.Identity.OriginalPackagePath.capacity(), 1)) return false;
+			if (!Add(Data->Bytes.capacity(), 1) || !Add(Context->Schema.capacity(), 1)
+				|| !Add(Data->HardReferences.capacity(), sizeof(FPersistentObjectRef))
+				|| !Add(Context->ExcludedMembers.capacity(), sizeof(FName))
+				|| !Add(Context->ReferenceSlots.capacity(), sizeof(FSerializedObjectReferenceSlot))
+				|| !Add(Context->Versions.Formats.capacity(), sizeof(FArchiveFormatVersion))
+				|| !Add(Context->Versions.CustomVersions.capacity(), sizeof(FArchiveCustomVersion))) return false;
+			for (const auto* Reference : {&Info.Target, &Info.Class, &Info.Outer, &Info.Package})
+				if (!Add(Reference->GetAllocatedSize(), 1)) return false;
+			for (const auto& Reference : Data->HardReferences)
+				if (!Add(Reference.GetAllocatedSize(), 1)) return false;
+			OutBytes = Total; return true;
+		}
+	}
+
+	auto FSerializedObjectCapture::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	{ return TryGetSerializedAllocationSize(Data.get(), Info, Context.get(), OutBytes); }
+
+	auto FDiffableObject::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	{
 		size_t Total = 0;
-		auto Add = [&](size_t Count, size_t Size) {
-			if (Count > std::numeric_limits<size_t>::max() / Size) return false;
-			const auto Bytes = Count * Size;
-			if (Total > std::numeric_limits<size_t>::max() - Bytes) return false;
-			Total += Bytes; return true;
-		};
-		if (!Add(Info.Identity.OriginalOuterPath.capacity(), 1)
-			|| !Add(Info.Identity.OriginalClassPath.capacity(), 1)
-			|| !Add(Info.Identity.OriginalPackagePath.capacity(), 1)) return false;
-		if (!Add(Data->Bytes.capacity(), 1) || !Add(Context->Schema.capacity(), 1)
-			|| !Add(Data->HardReferences.capacity(), sizeof(FObjectKey))
-			|| !Add(Context->ExcludedMembers.capacity(), sizeof(FName))
-			|| !Add(Context->ReferenceSlots.capacity(), sizeof(FSerializedObjectReferenceSlot))
-			|| !Add(Context->Versions.Formats.capacity(), sizeof(FArchiveFormatVersion))
-			|| !Add(Context->Versions.CustomVersions.capacity(), sizeof(FArchiveCustomVersion))) return false;
-		OutBytes = Total; return true;
+		if (!TryGetSerializedAllocationSize(SerializedObject.get(), ObjectInfo, SerializationContext.get(), Total)
+			|| SerializedTaggedData.capacity() > (std::numeric_limits<size_t>::max() - Total) / sizeof(FSerializedTaggedData)) return false;
+		OutBytes = Total + SerializedTaggedData.capacity() * sizeof(FSerializedTaggedData);
+		return true;
 	}
 }

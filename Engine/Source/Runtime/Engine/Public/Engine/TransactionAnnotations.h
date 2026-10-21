@@ -4,6 +4,7 @@
 #include "EngineAPI.h"
 #include "DObject/TransactionObjectAnnotation.h"
 #include "DObject/TransactionObjectReference.h"
+#include "DObject/TransactionDiff.h"
 #include "Engine/ComponentInstanceDataCache.h"
 #include "Engine/TickFunction.h"
 #include "Math/Transform.h"
@@ -15,15 +16,35 @@ namespace Durin
 	class DActorComponent;
 	class DLevel;
 
+	// Contains native component lifecycle state, never another copy of authored fields.
+	class FComponentInstanceLifecycleState
+	{
+	public:
+		FComponentInstanceLifecycleState() = default;
+		ENGINE_API explicit FComponentInstanceLifecycleState(const DActorComponent& Component);
+		ENGINE_API static auto DefaultFor(const DActorComponent& Component) -> FComponentInstanceLifecycleState;
+		ENGINE_API auto IsDefault() const -> bool;
+		ENGINE_API auto Validate() const -> FTransactionCaptureResult;
+		ENGINE_API auto ValidateReferences() const -> FTransactionCaptureResult;
+		ENGINE_API auto Restore() const -> FCommandChangeResult;
+		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
+		ENGINE_API auto Serialize(FArchive& Archive) -> void;
+		ENGINE_API auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
+		auto GetAllocatedSize() const -> size_t { return sizeof(*this); }
+		auto GetComponent() const -> DActorComponent* { return Target.Resolve(); }
+	private:
+		FActorComponentInstanceSourceInfo Target;
+		FActorComponentLifecycleState State;
+	};
+
 	class FComponentTransactionAnnotation final : public ITransactionObjectAnnotation
 	{
 	public:
 		FComponentTransactionAnnotation() = default;
 		explicit FComponentTransactionAnnotation(const DActorComponent& Component) : Data(Component) {}
-		static auto DefaultFor(const DActorComponent& Component) -> FComponentTransactionAnnotation
-		{ FComponentTransactionAnnotation Result; Result.Data = FComponentInstanceLifecycleState::DefaultFor(Component); return Result; }
 		auto IsDefault() const -> bool { return Data.IsDefault(); }
-		auto Validate() const -> FTransactionCaptureResult override { return Data.Validate(); }
+		// Membership is settled by structural records before native completion.
+		auto Validate() const -> FTransactionCaptureResult override { return Data.ValidateReferences(); }
 		auto Restore() const -> FCommandChangeResult { return Data.Restore(); }
 		auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override { Data.AddReferencedObjects(Collector); }
 		auto Serialize(FArchive& Archive) -> void override { Data.Serialize(Archive); }
@@ -40,6 +61,7 @@ namespace Durin
 		FPersistentObjectRef Target;
 		FTickFunctionState Tick;
 		FComponentInstanceDataCache ComponentInstanceData;
+		std::vector<FComponentInstanceLifecycleState> ComponentLifecycle;
 		FActorRootComponentReconstructionData RootData;
 	};
 
@@ -63,7 +85,16 @@ namespace Durin
 		ENGINE_API auto GetAllocatedSize() const -> size_t override;
 		ENGINE_API auto CreateReplacement(const FObjectReplacementMap& Map) const
 			-> std::expected<std::shared_ptr<ITransactionObjectAnnotation>, std::string> override;
+		ENGINE_API auto ComputeAdditionalObjectChanges(const ITransactionObjectAnnotation* Original) const
+			-> std::vector<std::pair<DObject*, FTransactionObjectChange>> override;
 	private:
 		FActorTransactionAnnotationData Data;
+		// Observation only: not serialized reconstruction state or an obsolete instance root.
+		struct FDiffableComponentInfo
+		{
+			FActorComponentInstanceSourceInfo ComponentSourceInfo;
+			FDiffableObject DiffableComponent;
+		};
+		std::vector<FDiffableComponentInfo> DiffableComponentInfos;
 	};
 }

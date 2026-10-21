@@ -1,6 +1,8 @@
 #include "Components/SplineComponent.h"
 
 #include "DObject/Property.h"
+#include "DObject/Class.h"
+#include "DObject/TransactionArray.h"
 #include "Math/Operations.h"
 
 namespace Durin
@@ -23,6 +25,8 @@ namespace Durin
 	auto DSplineComponent::SetSplinePoints(std::vector<FSplinePoint> InPoints) -> void
 	{
 		if (SplineCurve.GetPoints() == InPoints) return;
+		// Bulk replacement may also repair IDs across the complete curve.
+		(void)Modify(false);
 		SplineCurve.SetPoints(std::move(InPoints));
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
@@ -30,67 +34,82 @@ namespace Durin
 
 	auto DSplineComponent::AddSplinePoint(FSplinePoint Point) -> uint32
 	{
-		const uint32 PointIndex = SplineCurve.AddPoint(std::move(Point));
+		const uint32 PointIndex = GetNumSplinePoints();
+		Point.Id = FGuid::NewGuid();
+		if (auto Edited = EditPointRange(PointIndex, 0, {&Point, 1}); !Edited) throw std::runtime_error(Edited.error());
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
-		MarkPackageDirty();
 		return PointIndex;
 	}
 
 	auto DSplineComponent::InsertSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool
 	{
-		if (!SplineCurve.InsertPoint(PointIndex, std::move(Point))) return false;
+		if (PointIndex > GetNumSplinePoints()) return false;
+		Point.Id = FGuid::NewGuid();
+		if (!EditPointRange(PointIndex, 0, {&Point, 1})) return false;
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
-		MarkPackageDirty();
 		return true;
 	}
 
 	auto DSplineComponent::DuplicateSplinePoint(uint32 PointIndex) -> std::optional<uint32>
 	{
-		const std::optional<uint32> DuplicateIndex = SplineCurve.DuplicatePoint(PointIndex);
-		if (!DuplicateIndex) return std::nullopt;
-		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
-		MarkPackageDirty();
+		const auto* Source = GetSplinePoint(PointIndex);
+		if (!Source) return std::nullopt;
+		const uint32 DuplicateIndex = PointIndex + 1;
+		if (!InsertSplinePoint(DuplicateIndex, *Source)) return std::nullopt;
 		return DuplicateIndex;
 	}
 
 	auto DSplineComponent::UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool
 	{
-		if (!SplineCurve.UpdatePoint(PointIndex, std::move(Point))) return false;
+		const auto* Previous = GetSplinePoint(PointIndex);
+		if (!Previous) return false;
+		Point.Id = Previous->Id;
+		if (*Previous == Point || !EditPointRange(PointIndex, 1, {&Point, 1})) return false;
 		UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
-		MarkPackageDirty();
 		return true;
 	}
 
 	auto DSplineComponent::RemoveSplinePoint(uint32 PointIndex) -> bool
 	{
-		if (!SplineCurve.RemovePoint(PointIndex)) return false;
+		if (PointIndex >= GetNumSplinePoints() || !EditPointRange(PointIndex, 1, {})) return false;
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
-		MarkPackageDirty();
 		return true;
 	}
 
 	auto DSplineComponent::MoveSplinePoint(uint32 FromIndex, uint32 ToIndex) -> bool
 	{
-		if (!SplineCurve.MovePoint(FromIndex, ToIndex)) return false;
+		if (FromIndex >= GetNumSplinePoints() || ToIndex >= GetNumSplinePoints() || FromIndex == ToIndex) return false;
+		const size_t First = std::min(FromIndex, ToIndex), Last = std::max(FromIndex, ToIndex);
+		std::vector<FSplinePoint> Moved(SplineCurve.Points.begin() + First, SplineCurve.Points.begin() + Last + 1);
+		if (FromIndex < ToIndex) std::rotate(Moved.begin(), Moved.begin() + 1, Moved.end());
+		else std::rotate(Moved.begin(), Moved.end() - 1, Moved.end());
+		if (!EditPointRange(First, Moved.size(), Moved)) return false;
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
-		MarkPackageDirty();
 		return true;
 	}
 
 	auto DSplineComponent::ClearSplinePoints() -> void
 	{
 		if (SplineCurve.GetNumPoints() == 0) return;
-		SplineCurve.ClearPoints();
+		if (!EditPointRange(0, GetNumSplinePoints(), {})) return;
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
-		MarkPackageDirty();
 	}
 
 	auto DSplineComponent::SetClosedLoop(bool bClosedLoop) -> void
 	{
 		if (SplineCurve.IsClosedLoop() == bClosedLoop) return;
+		(void)Modify(false);
 		SplineCurve.SetClosedLoop(bClosedLoop);
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
+	}
+
+	auto DSplineComponent::EditPointRange(size_t Index, size_t RemoveCount, std::span<const FSplinePoint> Replacement) -> FTransactionCaptureResult
+	{
+		const auto* Root = GetClass()->FindPropertyByName("SplineCurve");
+		const auto* Points = FSplineCurve::StaticStruct()->FindPropertyByName("Points");
+		const std::array<const FProperty*, 1> Path{Root};
+		return EditTransactionArray(*this, Points, SplineCurve.Points, Index, RemoveCount, Replacement, Path);
 	}
 
 	auto DSplineComponent::GetEvaluationData() const -> std::shared_ptr<const FSplineEvaluationData>

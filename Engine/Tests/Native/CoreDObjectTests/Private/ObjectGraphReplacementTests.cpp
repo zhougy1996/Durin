@@ -16,6 +16,31 @@
 
 #include <gtest/gtest.h>
 
+TEST(FExplicitObjectReplacementMapTests, FailedBuildPreservesMapAndCollectedDestinationsCannotRebindSlots)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<DObject> Old(NewObject<DObject>(nullptr, "ExplicitOld"));
+	auto* Replacement = NewObject<DObject>(nullptr, "ExplicitReplacement");
+	const FObjectKey ReplacementKey(Replacement);
+	FObjectReplacementMap Map;
+	const FObjectReplacementMap::FEntry Entry{Old.Get(), Replacement};
+	ASSERT_TRUE(Map.BuildFromObjects(std::span(&Entry, 1)));
+	EXPECT_TRUE(Map.ValidateIdentities());
+	const FObjectReplacementMap::FEntry Invalid{Old.Get(), Old.Get()};
+	EXPECT_FALSE(Map.BuildFromObjects(std::span(&Invalid, 1)));
+	ASSERT_EQ(Map.GetEntries().size(), 1u);
+	EXPECT_EQ(Map.Find(Old.Get())->Replacement, Replacement);
+	MarkAsGarbage(Replacement);
+	CollectGarbage();
+	EXPECT_FALSE(Map.ValidateIdentities());
+	auto* Impostor = NewObject<DObject>(nullptr, "ExplicitReplacement");
+	EXPECT_NE(FObjectKey(Impostor), ReplacementKey);
+	EXPECT_FALSE(Map.RemapObjectKey(FObjectKey(Old.Get())));
+	MarkAsGarbage(Impostor);
+	CollectGarbage();
+}
+
 namespace
 {
 	using namespace Durin;
@@ -237,7 +262,7 @@ TEST_F(FObjectGraphReplacementTests, SerializedCaptureAndObservationPublishToget
 	EXPECT_EQ(Owner->Capture->Data, Owner->Observation->SerializedObject);
 	EXPECT_EQ(Owner->Capture->Context, Owner->Observation->SerializationContext);
 	ASSERT_EQ(Owner->Capture->Data->HardReferences.size(), 1u);
-	EXPECT_EQ(Owner->Capture->Data->HardReferences[0], FObjectKey(New));
+	EXPECT_EQ(Owner->Capture->Data->HardReferences[0].GetKey(), FObjectKey(New));
 	auto Loaded = LoadSerializedObject(*New, *Owner->Capture);
 	ASSERT_TRUE(Loaded) << Loaded.error().Message;
 	EXPECT_EQ(New->Value, 42);
@@ -378,7 +403,7 @@ TEST_F(FObjectGraphReplacementTests, ObservationOnlyUsesSameCheckedReplacementPr
 	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
 	ASSERT_TRUE(Operation->TryCommit());
 	EXPECT_EQ(Owner->Observation->ObjectInfo.Target.Resolve(), New);
-	EXPECT_EQ(Owner->Observation->SerializedObject->HardReferences[0], FObjectKey(New));
+	EXPECT_EQ(Owner->Observation->SerializedObject->HardReferences[0].GetKey(), FObjectKey(New));
 	ASSERT_TRUE(Operation->Retire());
 }
 

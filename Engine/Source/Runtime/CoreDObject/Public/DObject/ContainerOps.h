@@ -7,7 +7,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 ContainerOpsVersion = 2;
+	inline constexpr uint32 ContainerOpsVersion = 3;
 
 	enum class EContainerOpResult : uint8
 	{
@@ -89,6 +89,9 @@ namespace Durin
 		EContainerOpResult (*CreateDetached)(void** OutContainer) = nullptr;
 		void (*DestroyDetached)(void* Container) = nullptr;
 		EContainerOpResult (*Commit)(void* Destination, void* Detached) = nullptr;
+		// Moves a detached range into live storage. Failure leaves both unchanged;
+		// successful relocation never invokes a throwing element operation.
+		EContainerOpResult (*Splice)(void* Destination, uint64 Index, uint64 RemoveCount, void* Elements) = nullptr;
 	};
 
 	struct FMapOps
@@ -285,6 +288,29 @@ namespace Durin
 		{
 			using Container = std::vector<T, Allocator>;
 
+			static auto Splice(void* Destination, uint64 Index, uint64 RemoveCount, void* Elements) -> EContainerOpResult
+				requires std::is_nothrow_move_constructible_v<T> && std::is_nothrow_move_assignable_v<T>
+			{
+				if (!Destination || !Elements || Destination == Elements) return EContainerOpResult::InvalidInput;
+				auto& Vector = *static_cast<Container*>(Destination);
+				auto& Range = *static_cast<Container*>(Elements);
+				if (Index > Vector.size() || RemoveCount > Vector.size() - Index) return EContainerOpResult::OutOfRange;
+				if (Range.size() > Vector.max_size() - (Vector.size() - RemoveCount)) return EContainerOpResult::OutOfRange;
+				if (RemoveCount == Range.size())
+				{
+					for (size_t Offset = 0; Offset < Range.size(); ++Offset) Vector[static_cast<size_t>(Index) + Offset] = std::move(Range[Offset]);
+					return EContainerOpResult::Success;
+				}
+				try { Vector.reserve(Vector.size() - static_cast<size_t>(RemoveCount) + Range.size()); }
+				catch (const std::bad_alloc&) { return EContainerOpResult::AllocationFailure; }
+				catch (...) { return EContainerOpResult::BackendRejected; }
+				const auto Position = Vector.begin() + static_cast<typename Container::difference_type>(Index);
+				Vector.erase(Position, Position + static_cast<typename Container::difference_type>(RemoveCount));
+				Vector.insert(Vector.begin() + static_cast<typename Container::difference_type>(Index),
+					std::make_move_iterator(Range.begin()), std::make_move_iterator(Range.end()));
+				return EContainerOpResult::Success;
+			}
+
 			static auto VisitConst(const void* Value, FArrayConstVisitor Visitor, void* Context) -> EContainerOpResult
 			{
 				if (!Value || !Visitor) return EContainerOpResult::InvalidInput;
@@ -474,6 +500,8 @@ namespace Durin
 				Result.Resize = &Adapter::Resize;
 				Result.CreateDetached = &Private::CreateDetachedContainer<Container>;
 				Result.DestroyDetached = &Private::DestroyDetachedContainer<Container>;
+				if constexpr (std::is_nothrow_move_constructible_v<T> && std::is_nothrow_move_assignable_v<T>)
+					Result.Splice = &Adapter::Splice;
 				if constexpr (noexcept(std::declval<Container&>().swap(std::declval<Container&>()))) Result.Commit = &Adapter::Commit;
 				return Result;
 			}();

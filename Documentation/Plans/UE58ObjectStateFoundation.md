@@ -2,12 +2,167 @@
 
 Summary: Replace transaction-specific object-state and component-recovery paths with UE-aligned serialization, diffing, instance-cache, lifecycle, and replacement foundations.
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-21
 
 ## Current Status
+
+Post-acceptance cleanup Stages 8-11 are complete on final native inputs based
+on `e76f5a18a`. The unused cache ApplyToComponent entry point and duplicate
+matching loop are deleted. Lifecycle history belongs to transaction annotations;
+the reconstruction cache has no lifecycle capture mode or restore branch, and
+lifecycle source identity no longer carries another Owner reference. Independently
+recorded component history still uses its component annotation; both annotation
+scopes delegate transitions to the component's existing lifecycle implementation.
+
+AuthoredComponents and its public query/mutation/rebuild paths are removed.
+Following UE ResetOwnedComponents, live ownership is derived from native object
+ownership and the persistent InstanceComponents subset. A real two-instance
+save/load regression reproduced graph-order versus serialized membership-order
+mismatch; reconstruction now restores relative instance order from that sole
+persistent list while retaining native/generated slots. Native and instance
+persistence, duplication, absence, GC and structural history remain covered.
+
+The built-in type-kind switch and per-derived replacement clones are replaced by
+native type descriptors. Existing FDStructOps own construction, copying and
+destruction inside coallocated typed storage. The small name registry resolves
+native cache factories; it supplies no competing property reflection, field
+serialization or struct operation table. Derived archive/copy independence,
+unknown/unregistered type rejection and derived destruction are covered. The
+lasting contracts are in [native construction](../Runtime/World/NativeConstruction.md).
+
+Final Win64 Debug DurinEditor acceptance passed 1125 isolated cases in 20 targets:
+EditorOperation (200), World (189), LevelMutation (55), CoreTransactionContract
+(18), CoreObjectReplacement (40), AssetPackageReload (15), AssetCook (37),
+EditorProperty (70), PhysicsScene (62), RendererSceneContract (63), Spline (69),
+PythonReflectionIntegration (45), PythonToolIntegration (48), PythonScriptPanel
+(4), MaterialGraphEditing (105), MaterialEditorInteraction (66),
+MaterialEditingPersistence (13), SandboxGameplay (13), RoadSceneIntegration (5)
+and RoadEditorIntegration (8). The first six targets used serial isolation;
+remaining targets used four slots. EditorOperation (200), World (189) and
+AssetCook (37) also passed shared-process execution. An isolated Cook case needed
+the existing test-system initialization before AssetManager startup; its original
+behavior assertions remain intact. Failed reproduction reports are diagnostic,
+not accepted evidence. The complete matrix was refreshed after the final order
+repair and FDStructOps refinement; no earlier ABI report substitutes for it.
+
+The editor all build and bounded Debug DurinGame Sandbox/RoadWeaver closures
+passed with MSVC 14.44.35207. Import inspection of Core, CoreDObject, Engine,
+Sandbox and RoadWeaver runtime DLLs found no editor dependency. Rendered package
+Discard passed its Vulkan qualification with Khronos validation enabled on NVIDIA
+GeForce GTX 1060 6GB, API 1.4.312, driver `0x91908000`. Unchanged low-level GPU
+resource replacement is compiled by all; it does not need another qualification
+for this cleanup. No graphics performance or application-smoke claim is made.
+
+Final source/report hashes, settings, UE provenance, FDStructOps dependency,
+runtime imports, diagnostics and retained build/backend logs are recorded in
+ignored `Build/UE58ObjectStateFoundation/cleanup-final-inputs.json` and
+`cleanup-final-acceptance-transcript.txt`. Changed-document, all-plan lifecycle
+and diff validation pass. Documentation-only completion edits preserve the
+validated native inputs. This foundation plan is Completed; the parent transaction
+plan remains Active and resumes Stage 4 Actor annotation component events, with
+business migration, templates/CDO, arrays, barrier/PIE/budget and application-smoke
+gates still open.
+
+### Original Stage 7 acceptance
+
+Stage 7 is complete on final native inputs based on `7c23031e1`. The original Stages 0-7 are accepted. The parent [transaction architecture
+plan](UE58TransactionArchitecture.md) remains Active and resumes its Stage 4
+Actor annotation component-event work; its business migration, template/CDO,
+array scaling, barrier/PIE/budget and application-smoke gates remain open.
+
+Final consumer validation found that Spline PostLoad could request reconstruction
+before copied components had Actor ownership. Following UE 5.8.0 CL 53629095's
+`UActorComponent::PostInitProperties` and `FObjectInitializer::PostConstructInit`,
+DObject now dispatches a shared post-construction hook after native construction
+and identity/Outer registration, before load/duplication graph callbacks. The
+component override establishes native ownership; editor instance-presence
+commands explicitly prepare absence before Apply. Hook failure retires the fully
+constructed registered graph for normal virtual GC destruction. Registration,
+initialization and Play remain separate lifecycle transitions. The lasting rules
+are documented in [object initialization](../Runtime/Core/GarbageCollection.md#object-initialization)
+and [native construction](../Runtime/World/NativeConstruction.md).
+
+The new virtual interface invalidated the initial Stage 6 ABI evidence. Fresh
+Win64 Debug DurinEditor acceptance passed 1292 isolated cases across 22 targets:
+CoreObject (176), CoreTransactionContract (18), CoreObjectReplacement (40),
+CorePropertyChange (2), CorePropertyValueSnapshot (29), EditorOperation (198),
+World (188), AssetPackageReload (15), EditorProperty (70), PhysicsScene (62),
+RendererSceneContract (63), Spline (69), PythonReflectionIntegration (45),
+PythonToolIntegration (48), PythonScriptPanel (4), MaterialGraphEditing (105),
+MaterialEditorInteraction (66), MaterialEditingPersistence (13), SandboxGameplay
+(13), RoadSceneIntegration (5), RoadEditorIntegration (8) and LevelMutation (55).
+CoreTransactionContract, EditorOperation, World, CoreObjectReplacement,
+AssetPackageReload and LevelMutation used serial isolation; other targets used
+four slots. EditorOperation (198) and World (188) also passed shared-process
+execution. All source/test roots declared in `Durin.dworkspace` were audited.
+
+The editor `all` build passed after the ABI change. Bounded Win64 Debug DurinGame
+Sandbox and RoadWeaver builds passed, covering Core/CoreDObject/Engine; import
+inspection of all five runtime DLLs found no editor dependency. The toolchain
+was MSVC 14.44.35207. Actual Vulkan resource replacement and rendered package
+Discard each passed on NVIDIA GeForce GTX 1060 6GB, API 1.4.312, driver
+`0x91908000`, with Khronos validation enabled. The latter ran its registered
+qualification mode. These are correctness gates, not graphics performance claims,
+and do not close the parent's application-smoke gate.
+
+Bounded allocation checks passed with 32 observations of a 1 MiB text field:
+the 1048616-byte serialized payload and transfer context share their allocations
+with the observation, old storage expires after replacement, and retained
+observation accounting stays at 1573980 bytes. A 1024-element array with 32
+snapshots retains one pending record: ordinary/final history is 18032 bytes,
+snapshot peak is 26233 bytes, eight Undo/Redo cycles do not grow retention, and
+Reset releases history. Full array-range scaling stays in transaction Stage 7.
+The interrupted oversized diagnostic sample is recorded as discarded, not passed.
+
+Final native hashes, exact report hashes/counts, memory properties, selection,
+UE source provenance, runtime imports and build logs are retained in ignored
+`Build/UE58ObjectStateFoundation/stage7-final-inputs.json` and
+`stage7-runtime-imports.json`. Initial failing reports are retained as diagnostics;
+final reports supersede them. Documentation-only acceptance edits do not change
+the tested native inputs. Changed-document and all-plan lifecycle validation
+pass. Obsolete mixed-state, focused-record, construction-context and transaction
+endpoint/Tick APIs have no remaining source/test consumers.
+
+### Earlier checkpoints
+
+The following receipts describe their respective stages, including gates that
+were still open at each historical checkpoint; Stage 7 above is final acceptance.
+
+Stage 6 is complete on final native inputs based on `98f892ba3`, including Stage 5's `05ffb77b9` and subsequent
+workspace changes. The deletion-map audit confirms that the
+mixed state coordinator, focused records, construction target-set mechanism and
+transaction-only endpoint/Tick wrappers have already been removed. The remaining
+cleanup unifies the canonical record's duplicated capture/observation metadata
+and snapshot storage, removes its redundant snapshot-presence flag and routes
+default component lifecycle restoration directly through Engine's shared state.
+Tests are grouped by record, event, lifecycle and replacement responsibility;
+overlapping exact-reference and repeated-capture cases will be merged without
+removing their behavioral assertions. The annotation snapshot-scope hook stays:
+it is the deliberate Stage 0 capture-scope policy, not a temporary serializer.
+Production code is reduced by 46 lines; three redundant cases are merged and
+seven ordinary construction/lifecycle cases now belong to `WorldTests`. The
+remaining editor cases preserve their behavior under shared fixture types rather
+than duplicating reflected test classes across translation units.
+
+Validation passed 792 isolated cases in Win64 Debug DurinEditor: CoreTransactionContract
+(17), EditorOperation (197), World (188), CoreObjectReplacement (40), AssetPackageReload
+(15), Spline (69), PhysicsScene (62), RendererSceneContract (63), EditorProperty (70),
+PythonReflectionIntegration (45), SandboxGameplay (13), RoadSceneIntegration (5)
+and RoadEditorIntegration (8). Replacement/package cases used serial isolation;
+the other targets used four slots. EditorOperation (197) and World (188) also
+passed in shared-process mode after regrouping. The editor `all` and Win64 Debug
+DurinGame `Engine` builds passed, as did changed-document validation. The affected
+selection expands to unrelated GPU/application targets; named CPU owners and
+cross-project consumers cover this cleanup. Final native input hashes, report
+hashes, UE 5.8.0 CL 53629095 source provenance, test moves/merges and build logs are
+retained in ignored `Build/UE58ObjectStateFoundation/stage6-final-inputs.json` and
+`stage6-test-ownership.json`. Final declaration-header cleanup was followed by
+both consuming test targets and the editor `all` build; other relevant inputs
+were unchanged. Stage 7 and the parent transaction plan's remaining business,
+component-event, template and final acceptance gates stay open.
 
 Stage 5 is complete on the final native inputs based on `de97cd787`. The integration uses UE's
 `FindAndReplaceInstances` responsibility for typed component instance data and
@@ -538,6 +693,18 @@ No obsolete production route is admitted after its replacement stage. All shared
 API searches and migration validation cover Engine, Sandbox and RoadWeaver from
 `Durin.dworkspace`; the ignored raw inventory includes all three projects.
 
+Stage 6 source audit closes the deletion map: the mixed coordinator and focused
+record/promotion paths are absent, as are transaction endpoint/Tick wrappers,
+construction target-set submission and transaction-only Actor/component flags.
+The canonical record's duplicate transfer metadata, separate snapshot wrapper and
+presence flag are removed. Archive/property operations, checked graph publication,
+annotation preflight/snapshot-scope policy and operation/GC guards remain at the
+owners selected above. `stage6-deletion-audit.txt` and `stage6-consumers.txt` under
+ignored `Build/UE58ObjectStateFoundation/` record the cross-project searches.
+The parent plan still owns business field/admission migration and UE Actor
+annotation component event reporting; retained domain commands are not substitutes
+for a removed foundation API.
+
 ## Implementation Stages
 
 ### Stage 0: Pin responsibilities and remove architectural ambiguity
@@ -680,17 +847,17 @@ template admission and its full behavior gates remain owned by that stage.
 
 Dependency: Stages 1-5. Outcome: consumers use the new foundations exclusively.
 
-- [ ] Migrate all shared-API consumers across Engine, Sandbox and RoadWeaver and
+- [x] Migrate all shared-API consumers across Engine, Sandbox and RoadWeaver and
   remove the temporary adapters listed in Stage 0. Keep actual domain commands
   only where generic serialized restoration cannot represent their operation.
-- [ ] Remove duplicate native state snapshots, specialized serializers, field
+- [x] Remove duplicate native state snapshots, specialized serializers, field
   locators and generated-reference wrappers superseded by the shared foundations.
   Audit annotation additional-change reporting and package/GC ownership together.
-- [ ] Group tests by serialization, diffing, instance preservation, lifecycle,
+- [x] Group tests by serialization, diffing, instance preservation, lifecycle,
   replacement and transaction integration. Merge overlapping scenarios and remove
   obsolete interface/layout assertions; keep each important behavioral regression
   covered and retain meaningful failure/recovery and cross-layer tests.
-- [ ] Update the transaction plan's remaining tasks and UE behavior matrix to the
+- [x] Update the transaction plan's remaining tasks and UE behavior matrix to the
   final APIs. Publish implemented contracts in their Runtime/Editor owners; keep
   planning and unresolved decisions here.
 
@@ -701,22 +868,67 @@ owner, and tests no longer require an obsolete implementation to remain present.
 
 Dependency: Stage 6. Outcome: verified foundations are ready for remaining features.
 
-- [ ] Run owner contracts and affected consumer targets selected through the
+- [x] Run owner contracts and affected consumer targets selected through the
   [test workflow](../Agents/Testing.md), with serial isolation for state-sensitive
   reconstruction, replacement and event cases. Record final relevant inputs.
-- [ ] Run the default editor `all` build for the shared CoreDObject/Engine ABI and
+- [x] Run the default editor `all` build for the shared CoreDObject/Engine ABI and
   foundational-header changes. Validate bounded Debug DurinGame Core/CoreDObject/
   Engine/Sandbox/RoadWeaver consumers to prove no editor dependency was introduced.
-- [ ] Validate affected registration/render/physics behavior with the actual owning
+- [x] Validate affected registration/render/physics behavior with the actual owning
   test targets and execution prerequisites. Preserve the transaction plan's
   application/GPU acceptance requirements; CPU evidence cannot replace those gates.
-- [ ] Check observation allocations and retained bytes for ordinary edits and
+- [x] Check observation allocations and retained bytes for ordinary edits and
   repeated snapshots; exclude unconditional duplicate full payload retention and
   unexpected history growth. Full array range scaling remains transaction Stage 7.
-- [ ] Validate changed documents and plan lifecycle, attach concise receipts and
+- [x] Validate changed documents and plan lifecycle, attach concise receipts and
   record remaining transaction stages. Apply the repository
   [build workflow](../Agents/BuildAndRun.md) and evidence reuse rules throughout.
 
 Completion: foundations have final-input evidence, obsolete implementations are
 removed, and the original transaction plan can complete its remaining acceptance
 without adding an alternative serialization, reconstruction or replacement path.
+
+
+### Stage 8: Remove the unused cache application entry point
+
+Dependency: Stage 7. Outcome: one cache-level application path, following UE.
+
+- [x] Delete the unconsumed cache ApplyToComponent API and duplicate matching loop;
+  retain the typed instance-data virtual hook and early compatibility validation.
+
+### Stage 9: Separate lifecycle history from reconstruction caches
+
+Dependency: Stage 8. Outcome: the cache contains reconstruction data only.
+
+- [x] Move settled component lifecycle history into Actor transaction annotation
+  data; remove the cache capture-mode switch and lifecycle restore phase handling.
+- [x] Preserve independently captured component history and sole component-owned
+  transition implementation; avoid introducing transaction lookups into caches.
+
+### Stage 10: Derive component ownership from the object graph
+
+Dependency: Stage 9. Outcome: no separately maintained authored aggregate.
+
+- [x] Remove AuthoredComponents and its mutation/rebuild helpers. Reconstruct live
+  ownership from native object ownership and the persistent InstanceComponents
+  subset, following UE ResetOwnedComponents. Migrate all workspace consumers.
+- [x] Preserve native and instance save/load, duplicate, membership order, GC and
+  Undo/Redo behavior; generated components remain transient reconstruction output.
+
+### Stage 11: Unify typed instance data storage and accept cleanup
+
+Dependency: Stage 10. Outcome: extensible typed copying and archive construction.
+
+- [x] Replace built-in kind switches and per-derived replacement cloning with
+  registered native type descriptors for construction and copying, adapting UE's
+  typed struct storage. Reuse existing FDStructOps for storage lifetime and copy;
+  the name registry only resolves native cache factories and does not duplicate
+  property reflection, field serialization or struct operation tables.
+- [x] Validate derived data archive/replacement and fail closed for unsupported or
+  mismatched types. Keep independent preparation and checked map publication.
+- [x] Run owner contracts and affected workspace consumers using the
+  [test workflow](../Agents/Testing.md). The Actor/header ABI change requires the
+  editor all build and bounded Game Sandbox/RoadWeaver closures. Exercise actual
+  render/physics/reload owners; select GPU correctness only for affected behavior.
+- [x] Update lasting contracts, validate changed documents and all-plan lifecycle,
+  record final-input receipts and preserve the parent plan's unimplemented gates.

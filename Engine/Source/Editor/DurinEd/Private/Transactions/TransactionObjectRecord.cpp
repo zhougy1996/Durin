@@ -21,13 +21,8 @@ namespace Durin::Editor
 		} Check(Map);
 		AddReferencedObjects(Check);
 		if (Check.bMapped) return true;
-		for (const auto* State : {&BeforeState, &AfterState, &ReplayState})
-			if (*State && (*State)->Serialized.HasReplacementReferences(Map)) return true;
-		if (SnapshotState)
-		{
-			const auto& Observation = SnapshotState->Observation;
-			return FSerializedObjectCapture{Observation.SerializedObject, Observation.ObjectInfo, Observation.SerializationContext}.HasReplacementReferences(Map);
-		}
+		for (const auto* State : {&BeforeState, &AfterState, &ReplayState, &SnapshotState})
+			if (*State && (*State)->GetSerializedCapture().HasReplacementReferences(Map)) return true;
 		return false;
 	}
 
@@ -42,47 +37,31 @@ namespace Durin::Editor
 		};
 		auto SameState = [&](const auto& A, const auto& B) {
 			if (A.has_value() != B.has_value()) return false;
-			return !A || (SameInfo(A->Serialized.Info, B->Serialized.Info) && A->Serialized.Data == B->Serialized.Data
-				&& A->Serialized.Context == B->Serialized.Context && SameObservation(A->Observation, B->Observation)
-				&& A->Annotation == B->Annotation);
+			return !A || (SameObservation(A->Observation, B->Observation) && A->Annotation == B->Annotation);
 		};
 		return Target == Other.Target && SameState(BeforeState, Other.BeforeState) && SameState(AfterState, Other.AfterState)
 			&& SameState(ReplayState, Other.ReplayState) && CompletionAnnotation == Other.CompletionAnnotation
-			&& SnapshotState.has_value() == Other.SnapshotState.has_value()
-			&& (!SnapshotState || (SameObservation(SnapshotState->Observation, Other.SnapshotState->Observation)
-				&& SnapshotState->Annotation == Other.SnapshotState->Annotation))
-			&& SelectedSnapshotProperties == Other.SelectedSnapshotProperties && bHasSnapshot == Other.bHasSnapshot;
+			&& SameState(SnapshotState, Other.SnapshotState)
+			&& SelectedSnapshotProperties == Other.SelectedSnapshotProperties;
 	}
 
 	auto FTransactionObjectRecord::CreateReplacement(const FObjectReplacementMap& Map) const
 		-> std::expected<FTransactionObjectRecord, std::string>
 	{
 		auto Result = *this;
-		auto Key = Map.RemapObjectKey(Target.GetKey());
-		if (!Key) return std::unexpected(ToString(Key.error()));
-		Result.Target = FPersistentObjectRef::FromKey(*Key);
-		for (auto* State : {&Result.BeforeState, &Result.AfterState, &Result.ReplayState})
+		auto Reference = Target.CreateReplacement(Map);
+		if (!Reference) return std::unexpected(Reference.error());
+		Result.Target = std::move(*Reference);
+		for (auto* State : {&Result.BeforeState, &Result.AfterState, &Result.ReplayState, &Result.SnapshotState})
 			if (*State)
 			{
-				auto Capture = PrepareSerializedObjectReplacement((*State)->Serialized, Map);
-				if (!Capture) return std::unexpected(Capture.error());
-				(*State)->Serialized = std::move(*Capture);
-				(*State)->Observation.ObjectInfo = (*State)->Serialized.Info;
-				(*State)->Observation.SerializedObject = (*State)->Serialized.Data;
-				(*State)->Observation.SerializationContext = (*State)->Serialized.Context;
+				auto Observation = DiffUtil::PrepareObjectReplacement((*State)->Observation, Map);
+				if (!Observation) return std::unexpected(Observation.error());
+				(*State)->Observation = std::move(*Observation);
 				auto Annotation = PrepareTransactionAnnotationReplacement((*State)->Annotation, Map);
 				if (!Annotation) return std::unexpected(Annotation.error());
 				(*State)->Annotation = std::move(*Annotation);
 			}
-		if (Result.SnapshotState)
-		{
-			auto Observation = DiffUtil::PrepareObjectReplacement(Result.SnapshotState->Observation, Map);
-			if (!Observation) return std::unexpected(Observation.error());
-			Result.SnapshotState->Observation = std::move(*Observation);
-			auto Annotation = PrepareTransactionAnnotationReplacement(Result.SnapshotState->Annotation, Map);
-			if (!Annotation) return std::unexpected(Annotation.error());
-			Result.SnapshotState->Annotation = std::move(*Annotation);
-		}
 		auto Completion = PrepareTransactionAnnotationReplacement(Result.CompletionAnnotation, Map);
 		if (!Completion) return std::unexpected(Completion.error());
 		Result.CompletionAnnotation = std::move(*Completion);
@@ -94,9 +73,9 @@ namespace Durin::Editor
 		const std::shared_ptr<ITransactionObjectAnnotation>* AnnotationPolicy) -> std::expected<FTransactionObjectRecord::FSerializedObject, std::string>
 	{
 		FGarbageCollectionDeferralScope DeferCollection;
-		if (!IsValid(&Object) || !Object.GetClass() || Object.IsTemplateObject())
-			return std::unexpected("Transaction object capture requires a live ordinary object.");
-		if (CapturePolicy && CapturePolicy->Serialized.Info.Target.Resolve() != &Object)
+		if (!CanTransactObject(Object))
+			return std::unexpected("Transaction capture requires a live object or a transactional published default graph.");
+		if (CapturePolicy && CapturePolicy->Observation.ObjectInfo.Target.Resolve() != &Object)
 			return std::unexpected("Transaction capture policy belongs to a different object.");
 		DObjectForceRegistration(Object.GetClass());
 		if (!IsValid(Object.GetClass())) return std::unexpected("Transaction class metadata is unavailable.");
@@ -108,10 +87,10 @@ namespace Durin::Editor
 			// UE 5.8 FSerializedObject::SetObject captures supplemental state before Serialize.
 			const auto Previous = AnnotationPolicy ? *AnnotationPolicy : (CapturePolicy ? CapturePolicy->Annotation : nullptr);
 			State.Annotation = Previous ? Previous->CreateSnapshot(Object) : Object.FindOrCreateTransactionAnnotation();
-			auto Captured = CaptureSerializedObject(Object, CapturePolicy ? &CapturePolicy->Serialized : nullptr, &State.Observation);
+			const auto Policy = CapturePolicy ? CapturePolicy->GetSerializedCapture() : FSerializedObjectCapture{};
+			auto Captured = CaptureSerializedObject(Object, CapturePolicy ? &Policy : nullptr, &State.Observation);
 			if (!Captured) return std::unexpected(Captured.error());
-			State.Serialized = std::move(*Captured);
-			State.Serialized.Info = Info; State.Observation.ObjectInfo = Info;
+			State.Observation.ObjectInfo = Info;
 		}
 		catch (const std::exception& Error) { return std::unexpected(std::format("Transaction serialization capture threw: {}", Error.what())); }
 		catch (...) { return std::unexpected("Transaction serialization capture threw an unknown exception."); }
@@ -120,7 +99,7 @@ namespace Durin::Editor
 
 	auto FTransactionObjectRecord::FSerializedObject::Validate(DObject& Object) const -> FTransactionCaptureResult
 	{
-		if (auto Result = ValidateSerializedObject(Object, Serialized); !Result) return Result;
+		if (auto Result = ValidateSerializedObject(Object, GetSerializedCapture()); !Result) return Result;
 		if (Annotation)
 			try { if (auto Result = Annotation->Validate(); !Result) return Result; }
 			catch (const std::exception& Error) { return std::unexpected(std::format("Transaction annotation validation threw: {}", Error.what())); }
@@ -130,48 +109,15 @@ namespace Durin::Editor
 
 	auto FTransactionObjectRecord::FSerializedObject::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
-		Serialized.AddReferencedObjects(Collector);
+		Observation.AddReferencedObjects(Collector);
 		if (Annotation) Annotation->AddReferencedObjects(Collector);
 	}
 
 	auto FTransactionObjectRecord::FSerializedObject::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
+		// Account the retained identity once, together with its transfer allocations.
 		size_t Total = 0;
-		if (!Serialized.TryGetAllocatedSize(Total)) return false;
-		auto Add = [&](size_t Count, size_t Size) {
-			if (Count > std::numeric_limits<size_t>::max() / Size) return false;
-			const auto Bytes = Count * Size;
-			if (Total > std::numeric_limits<size_t>::max() - Bytes) return false;
-			Total += Bytes; return true;
-		};
-		if (!Add(Observation.SerializedTaggedData.capacity(), sizeof(FSerializedTaggedData))
-			|| !Add(Observation.ObjectInfo.Identity.OriginalOuterPath.capacity(), 1)
-			|| !Add(Observation.ObjectInfo.Identity.OriginalClassPath.capacity(), 1)
-			|| !Add(Observation.ObjectInfo.Identity.OriginalPackagePath.capacity(), 1)) return false;
-		// Observation shares payload and compatibility allocations with Serialized.
-		if (Annotation)
-		{
-			size_t Size = 0;
-			try { Size = Annotation->GetAllocatedSize(); } catch (...) { return false; }
-			if (!Add(Size, 1)) return false;
-		}
-		OutBytes = Total; return true;
-	}
-
-	auto FTransactionObjectRecord::FObjectSnapshot::AddReferencedObjects(FReferenceCollector& Collector) const -> void
-	{
-		Observation.AddReferencedObjects(Collector);
-		if (Annotation) Annotation->AddReferencedObjects(Collector);
-	}
-
-	auto FTransactionObjectRecord::FObjectSnapshot::TryGetAllocatedSize(size_t& OutBytes) const -> bool
-	{
-		// Reuse transfer allocation accounting; no extra transfer payload is retained.
-		FSerializedObjectCapture Shared{Observation.SerializedObject, Observation.ObjectInfo, Observation.SerializationContext};
-		size_t Total = 0;
-		if (!Shared.TryGetAllocatedSize(Total)) return false;
-		if (Observation.SerializedTaggedData.capacity() > (std::numeric_limits<size_t>::max() - Total) / sizeof(FSerializedTaggedData)) return false;
-		Total += Observation.SerializedTaggedData.capacity() * sizeof(FSerializedTaggedData);
+		if (!Observation.TryGetAllocatedSize(Total)) return false;
 		if (Annotation)
 		{
 			size_t Size = 0;
@@ -206,8 +152,8 @@ namespace Durin::Editor
 	auto FTransactionObjectRecord::IsNoOp() const -> bool
 	{
 		return BeforeState && AfterState && !BeforeState->GetAnnotation() && !AfterState->GetAnnotation()
-			&& BeforeState->Serialized.Info == AfterState->Serialized.Info
-			&& *BeforeState->Serialized.Data == *AfterState->Serialized.Data && BeforeState->HasSameSchema(*AfterState);
+			&& BeforeState->Observation.ObjectInfo == AfterState->Observation.ObjectInfo
+			&& *BeforeState->Observation.SerializedObject == *AfterState->Observation.SerializedObject && BeforeState->HasSameSchema(*AfterState);
 	}
 
 	auto FTransactionObjectRecord::Validate() const -> std::expected<void, FTransactionObjectRecordError>
@@ -247,7 +193,7 @@ namespace Durin::Editor
 		return {};
 	}
 
-	auto FTransactionObjectRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bFlipState)
+	auto FTransactionObjectRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bUseHistoricalState)
 		-> std::expected<void, FTransactionObjectRecordError>
 	{
 		FGarbageCollectionDeferralScope DeferCollection;
@@ -255,7 +201,7 @@ namespace Durin::Editor
 		if (!Object) return Reject("Transaction restore target is unavailable.");
 		if (!ReplayState)
 			if (auto Captured = PrepareReplay(); !Captured) return Captured;
-		auto& Desired = bBefore ? BeforeState : AfterState;
+		auto& Desired = bUseHistoricalState ? (bBefore ? BeforeState : AfterState) : ReplayState;
 		if (!Desired) return Reject("Transaction restore state is unavailable.");
 		CompletionAnnotation = Desired->GetAnnotation();
 		if (auto Validated = Desired->Validate(*Object); !Validated) return Reject(Validated.error());
@@ -280,10 +226,14 @@ namespace Durin::Editor
 				Object->PostEditChangeProperty({.MemberProperty = Member, .LeafProperty = Member,
 					.Path = {&Path, 1}, .Phase = EPropertyChangePhase::Committed, .Origin = Origin});
 			}
-		if (bFlipState) (bBefore ? AfterState : BeforeState) = std::move(*ReplayState);
-		ClearPreparedReplay(false);
 		Object->MarkPackageDirty();
 		return {};
+	}
+
+	auto FTransactionObjectRecord::CommitReplay(bool bBefore) -> void
+	{
+		if (ReplayState) (bBefore ? AfterState : BeforeState) = std::move(*ReplayState);
+		ReplayState.reset();
 	}
 
 	auto FTransactionObjectRecord::BuildObjectEvents(const FTransactionContext& Context,
@@ -370,12 +320,11 @@ namespace Durin::Editor
 				return std::unexpected("Transaction snapshots require top-level properties of the captured object.");
 		auto Selection = SelectedSnapshotProperties;
 		if (Selected.empty()) Selection.clear();
-		else if (!bHasSnapshot || !Selection.empty())
+		else if (!SnapshotState || !Selection.empty())
 			for (const auto* Property : Selected)
 				if (!std::ranges::contains(Selection, Property->NamePrivate)) Selection.push_back(Property->NamePrivate);
 		// Observation owns separate baselines. Never promote or replace undo storage.
 		FTransactionObjectChange Change;
-		std::optional<FObjectSnapshot> CurrentState;
 		std::shared_ptr<ITransactionObjectAnnotation> OriginalAnnotation, CurrentAnnotation;
 		const auto& Baseline = BeforeState;
 		if (!Baseline) return std::unexpected("Transaction snapshot baseline is unavailable.");
@@ -385,7 +334,6 @@ namespace Durin::Editor
 			{.ShouldSkipProperty = [&](FName Name) { return !Selection.empty() && !std::ranges::contains(Selection, Name); }});
 		if (!Diff) return std::unexpected(Diff.error());
 		Change = std::move(*Diff); CurrentAnnotation = Captured->GetAnnotation(); OriginalAnnotation = SnapshotState ? SnapshotState->Annotation : Baseline->Annotation;
-		CurrentState = FObjectSnapshot{std::move(Captured->Observation), CurrentAnnotation};
 		std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>> Events;
 		if (Change.HasChanges() || CurrentAnnotation)
 		{
@@ -400,7 +348,7 @@ namespace Durin::Editor
 						std::move(AdditionalChange), {}, ETransactionObjectChangeCreatedBy::TransactionAnnotation});
 				}
 		}
-		SnapshotState = std::move(CurrentState); SelectedSnapshotProperties = std::move(Selection); bHasSnapshot = true;
+		SnapshotState = std::move(*Captured); SelectedSnapshotProperties = std::move(Selection);
 		return Events;
 	}
 
@@ -416,7 +364,7 @@ namespace Durin::Editor
 
 	auto FTransactionObjectRecord::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
-		size_t Total = 0;
+		size_t Total = Target.GetAllocatedSize();
 		auto Add = [&](size_t Value) {
 			if (Total > std::numeric_limits<size_t>::max() - Value) return false;
 			Total += Value; return true;
@@ -434,7 +382,7 @@ namespace Durin::Editor
 		std::vector<DPackage*> Result;
 		for (const auto* State : {&BeforeState, &AfterState})
 			if (*State)
-				if (auto* Package = Cast<DPackage>((**State).GetPackage().Resolve()); Package && !std::ranges::contains(Result, Package))
+				if (auto* Package = Cast<DPackage>((**State).Observation.ObjectInfo.Package.Resolve()); Package && !std::ranges::contains(Result, Package))
 					Result.push_back(Package);
 		return Result;
 	}

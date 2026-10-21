@@ -5,6 +5,7 @@
 #include "Actors/SplineMeshActor.h"
 #include "Actors/VolumetricCloudActor.h"
 #include "Components/SplineMeshComponent.h"
+#include "Engine/ComponentInstanceDataCache.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "StaticMesh/StaticMesh.h"
 #include "VolumetricCloudDetails.h"
@@ -291,7 +292,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	Durin::CollectGarbage();
 }
 
-TEST(FSplineMeshActorViewportTests, PointTargetUpdatesGeneratedIdentityAndCancelRestoresOutput)
+TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCancelRestoresOutput)
 {
 	InitializeDObjectSystem();
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SplineMeshViewportWorld");
@@ -310,6 +311,8 @@ TEST(FSplineMeshActorViewportTests, PointTargetUpdatesGeneratedIdentityAndCancel
 	ASSERT_EQ(Segments.size(), 2u);
 	Durin::DActorComponent* First = Segments[0];
 	Durin::DActorComponent* Second = Segments[1];
+	const Durin::FActorComponentInstanceSourceInfo FirstSource(First);
+	const Durin::FActorComponentInstanceSourceInfo SecondSource(Second);
 	Durin::DSplineComponent* Spline = Actor->GetSplineComponent();
 	const Durin::FGuid MiddleId = Spline->GetSplinePoint(1)->Id;
 
@@ -330,16 +333,30 @@ TEST(FSplineMeshActorViewportTests, PointTargetUpdatesGeneratedIdentityAndCancel
 	Dragged.Translation.y += 40.0;
 	ASSERT_TRUE(Targets.Targets[0]->SetTransform(Dragged));
 	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
-	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
-	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+	auto* DraggedFirst = Durin::Cast<Durin::DSplineMeshComponent>(FirstSource.Resolve());
+	auto* DraggedSecond = Durin::Cast<Durin::DSplineMeshComponent>(SecondSource.Resolve());
+	ASSERT_NE(DraggedFirst, nullptr);
+	ASSERT_NE(DraggedSecond, nullptr);
+	EXPECT_NE(DraggedFirst, First);
+	EXPECT_NE(DraggedSecond, Second);
+	EXPECT_NE(std::ranges::find(Segments, DraggedFirst), Segments.end());
+	EXPECT_NE(std::ranges::find(Segments, DraggedSecond), Segments.end());
 	EXPECT_NEAR(Spline->GetSplinePoint(1)->Position.y, 40.0, 1.e-8);
-	EXPECT_EQ(Durin::Cast<Durin::DSplineMeshComponent>(First)->GetSplineMeshParams().EndPosition,
+	EXPECT_EQ(DraggedFirst->GetSplineMeshParams().EndPosition,
 		Spline->GetSplinePoint(1)->Position);
 	ASSERT_TRUE(Targets.Targets[0]->SetTransform(Before));
 	EXPECT_NEAR(Spline->GetSplinePoint(1)->Position.y, 0.0, 1.e-8);
 	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
-	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
-	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+	auto* RestoredFirst = Durin::Cast<Durin::DSplineMeshComponent>(FirstSource.Resolve());
+	auto* RestoredSecond = Durin::Cast<Durin::DSplineMeshComponent>(SecondSource.Resolve());
+	ASSERT_NE(RestoredFirst, nullptr);
+	ASSERT_NE(RestoredSecond, nullptr);
+	EXPECT_NE(RestoredFirst, DraggedFirst);
+	EXPECT_NE(RestoredSecond, DraggedSecond);
+	ASSERT_EQ(Segments.size(), 2u);
+	EXPECT_NE(std::ranges::find(Segments, RestoredFirst), Segments.end());
+	EXPECT_NE(std::ranges::find(Segments, RestoredSecond), Segments.end());
+	EXPECT_EQ(RestoredFirst->GetSplineMeshParams().EndPosition, Spline->GetSplinePoint(1)->Position);
 
 	Manager.Shutdown(&Context);
 	EXPECT_TRUE(Durin::Editor::Level::FLevelViewportEditModeRegistry::Get().Unregister(Handle));

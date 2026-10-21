@@ -4,7 +4,7 @@ Summary: Define managed-object reachability, collection, rooting, and destructio
 
 Modules: CoreDObject
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
@@ -92,6 +92,21 @@ not redirect an already expired key or change ordinary weak-handle resolution.
 The current primitive bounds package/object/reference counts; saved-file and
 resource-memory budgets belong to the Engine preparation layer.
 
+## Object Initialization
+
+`StaticConstructObject` calls virtual `DObject::PostInitProperties` once after the
+complete native constructor and identity/Outer registration, before returning the
+object to its creator or loading graph values. Loaded and duplicated objects also
+receive this hook at allocation; `PostLoad` remains the later graph-completion
+notification. The default hook does nothing. GC requests inside the hook are
+deferred until the initialization scope ends; the scope does not trigger collection.
+
+If a native constructor throws, no most-derived object lifetime remains and the
+allocator releases its raw storage. If `PostInitProperties` throws, construction
+has succeeded: mark the registered object hierarchy as garbage and rethrow, then
+let normal GC perform virtual destruction. These failure paths must not share raw
+allocation cleanup. This hook does not register render/physics state or begin play.
+
 ## Lifecycle API
 
 The public lifecycle operations are:
@@ -174,10 +189,12 @@ wins over both strong pointers and manual roots.
 
 DurinEd's [transaction record foundation](../../Editor/Architecture/TransactionRecords.md)
 uses the same native-reference boundary without adding a new GC root source.
-`Editor::FPersistentObjectRef` stores an exact object-array handle and reports a
-reference only when its reachable owner explicitly traverses the non-reflected
-record. It rejects null, stale, physically removed, garbage, and begin-destroyed
-objects and never path-resolves or resurrects them.
+CoreDObject's `FPersistentObjectRef` reports references only when its reachable
+owner explicitly traverses the non-reflected record. Ordinary references preserve
+exact generations and never resurrect removed objects. CDO/default-subobject
+references enumerate their stable root and cached leaf without name lookup in
+the collector. Logical resolution outside collection follows the checked
+[runtime transaction categories](Transactions.md#coredobject-boundary).
 
 Focused transaction payloads store hard references as deduplicated exact
 handles. A record enumerates its target and distinct hard values; weak handles

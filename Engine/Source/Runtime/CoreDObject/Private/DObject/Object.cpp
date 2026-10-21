@@ -10,6 +10,7 @@
 #include "DObject/PropertyChange.h"
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/TransactionObjectReference.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "DeferredRegistry.h"
@@ -324,6 +325,8 @@ namespace Durin
 		Serialize(Ar);
 	}
 
+	auto DObject::PostInitProperties() -> void {}
+
 	auto DObject::PostLoad() -> void
 	{
 	}
@@ -441,7 +444,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		bool bRecorded = false;
-		if (IsValid(this) && !IsTemplateObject() && HasAnyObjectFlags(EObjectFlags::Transactional) && GUndo)
+		if (CanTransactObject(*this) && HasAnyObjectFlags(EObjectFlags::Transactional) && GUndo)
 		{
 			GUndo->SaveObject(this);
 			bRecorded = GUndo->ContainsObject(this);
