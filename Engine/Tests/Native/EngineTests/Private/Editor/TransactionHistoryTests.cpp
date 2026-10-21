@@ -76,7 +76,7 @@ TEST(FTransBufferTests, CompositeParticipantPackagesAndExpiryAreExplicit)
 	EXPECT_EQ(First->UndoCompletions, 0);
 }
 
-TEST(FTransBufferTests, RuntimeBoundaryPreservesOperationContextAndRejectsDeferredFeatures)
+TEST(FTransBufferTests, RuntimeBoundaryPreservesOperationContextAndRejectsInvalidRequests)
 {
 	using namespace Durin;
 	using namespace Durin::Editor;

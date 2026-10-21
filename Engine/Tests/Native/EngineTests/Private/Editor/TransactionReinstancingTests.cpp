@@ -1,6 +1,101 @@
 #include "Editor/TransactionRecordTestSupport.h"
+#include "Actors/StaticMeshActor.h"
+#include "Components/StaticMeshComponent.h"
 
 using namespace Durin::Tests::ObjectState;
+
+TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecreationAndGC)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Class = DTransactionRecordParticipant::StaticClass();
+	const std::array Classes{Class};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	auto* Default = const_cast<DTransactionRecordParticipant*>(static_cast<const DTransactionRecordParticipant*>(Class->GetDefaultObject()));
+	ASSERT_NE(Default, nullptr);
+	Default->ClearFlags(EObjectFlags::Transactional);
+	EXPECT_FALSE(CanTransactObject(*Default));
+	EXPECT_FALSE(CaptureSerializedObject(*Default));
+	Default->SetFlags(EObjectFlags::Transactional);
+	const FPersistentObjectRef Logical(Default);
+	const auto Exact = FPersistentObjectRef::FromKey(FObjectKey(Default));
+	EXPECT_EQ(Logical.GetReferenceType(), FPersistentObjectRef::EReferenceType::SubObject);
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "TemplateHistory"));
+	TStrongObjectPtr<DTransactionRecordParticipant> Owner(NewObject<DTransactionRecordParticipant>(nullptr, "TemplateReferenceOwner"));
+	Owner->Hard = Default;
+	const auto Original = Default->Value;
+	{
+		Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Edit class default", Default});
+		ASSERT_TRUE(Default->Modify(false));
+		ASSERT_TRUE(Owner->Modify(false));
+		Default->Value = 37;
+		Owner->Value = 5;
+		ASSERT_TRUE(Scope.End());
+	}
+	Default->Rename("RejectedTemplateRename");
+	EXPECT_EQ(Logical.Resolve(), Default);
+	Private::ReleaseClassDefaultObjectForTests(Class);
+	CollectGarbage();
+	EXPECT_EQ(Logical.Resolve(), nullptr);
+	EXPECT_EQ(Exact.Resolve(), nullptr);
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	auto* Replacement = const_cast<DTransactionRecordParticipant*>(static_cast<const DTransactionRecordParticipant*>(Class->GetDefaultObject()));
+	ASSERT_NE(Replacement, nullptr);
+	EXPECT_EQ(Logical.Resolve(), Replacement);
+	EXPECT_EQ(Logical, FPersistentObjectRef(Replacement));
+	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Replacement);
+	Replacement->Value = 81;
+	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	EXPECT_EQ(Replacement->Value, Original);
+	EXPECT_EQ(Owner->Hard.Get(), Replacement);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Replacement->Value, 81);
+	EXPECT_EQ(Owner->Value, 5);
+	ASSERT_TRUE(Buffer->Reset());
+	Replacement->Value = Original;
+}
+
+TEST(FTransactionTemplateTests, DefaultSubobjectHistoryResolvesRecreatedGraphWithoutActivation)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Class = AStaticMeshActor::StaticClass();
+	const std::array Classes{Class};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	auto* Default = const_cast<AStaticMeshActor*>(static_cast<const AStaticMeshActor*>(Class->GetDefaultObject()));
+	ASSERT_NE(Default, nullptr);
+	auto* Component = Default->GetStaticMeshComponent();
+	ASSERT_NE(Component, nullptr);
+	EXPECT_TRUE(Component->HasAnyObjectFlags(EObjectFlags::DefaultSubobject));
+	EXPECT_FALSE(CanTransactObject(*Component));
+	Component->SetFlags(EObjectFlags::Transactional);
+	const FPersistentObjectRef Logical(Component);
+	const auto Before = Component->GetRelativeTransform();
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "SubobjectHistory"));
+	{
+		Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Edit default subobject", Component});
+		ASSERT_TRUE(Component->Modify(false));
+		Component->SetRelativeLocation({12.0, 0.0, 0.0});
+		ASSERT_TRUE(Scope.End());
+	}
+	Private::ReleaseClassDefaultObjectForTests(Class);
+	CollectGarbage();
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	Default = const_cast<AStaticMeshActor*>(static_cast<const AStaticMeshActor*>(Class->GetDefaultObject()));
+	Component = Default->GetStaticMeshComponent();
+	Component->SetFlags(EObjectFlags::Transactional);
+	EXPECT_EQ(Logical.Resolve(), Component);
+	Component->SetRelativeLocation({29.0, 0.0, 0.0});
+	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	EXPECT_EQ(Component->GetRelativeLocation(), Before.Translation);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Component->GetRelativeLocation().x, 29.0);
+	EXPECT_FALSE(Component->IsRegistered());
+	EXPECT_FALSE(Component->HasBegunPlay());
+	ASSERT_TRUE(Buffer->Reset());
+	Component->SetRelativeTransform(Before);
+	Component->ClearFlags(EObjectFlags::Transactional);
+}
 
 namespace
 {
@@ -84,6 +179,32 @@ namespace
 	};
 }
 
+TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDefaultsCanBeMutated)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Class = DTransactionRecordParticipant::StaticClass();
+	const std::array Classes{Class};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	auto* Default = const_cast<DTransactionRecordParticipant*>(static_cast<const DTransactionRecordParticipant*>(Class->GetDefaultObject()));
+	const auto Original = Default->Value;
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "OpaqueTemplateHistory"));
+	{
+		Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Native default command", Default});
+		ASSERT_TRUE(Editor::ApplyEditorChange(*Buffer, std::make_unique<FReinstancedValueCommand>(Default, Original, 8, false)));
+		ASSERT_TRUE(Scope.End());
+	}
+	Private::ReleaseClassDefaultObjectForTests(Class);
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	Default = const_cast<DTransactionRecordParticipant*>(static_cast<const DTransactionRecordParticipant*>(Class->GetDefaultObject()));
+	Default->Value = 93;
+	EXPECT_FALSE(Buffer->Undo());
+	EXPECT_EQ(Default->Value, 93);
+	ASSERT_TRUE(Buffer->Reset());
+	Default->Value = Original;
+	CollectGarbage();
+}
+
 TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackageCheckpoint)
 {
 	using namespace Durin;
@@ -107,6 +228,50 @@ TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackag
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(New->Value, 77);
 	EXPECT_FALSE(Candidate->IsDirty());
 	EXPECT_TRUE(Buffer->GetPackageRevisionState(*Candidate)->bCheckpointValid);
+}
+
+TEST_F(FTransactionReinstancingTests, ExplicitReinstancingHookUsesTheSharedCheckedHistoryPublication)
+{
+	using namespace Durin;
+	Record(42);
+	TStrongObjectPtr<DPackage> KeepCandidate(Candidate);
+	auto* Reinstanced = NewObject<DTransactionRecordParticipant>(Current, "Replacement", EObjectFlags::Public);
+	Old->Rename("TRASH_Target");
+	Reinstanced->Rename("Target");
+	const FObjectKey OldKey(Old);
+	const FObjectReplacementMap::FEntry Entries[]{{Old, Reinstanced}};
+	FObjectReplacementMap Map;
+	ASSERT_TRUE(Map.BuildFromObjects(Entries));
+	Reinstanced->Value = 77;
+	ASSERT_TRUE(Buffer->OnObjectsReinstanced(Map));
+	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Reinstanced);
+	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Reinstanced->Value, 0);
+	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Reinstanced->Value, 77);
+	Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Busy reinstancing", Reinstanced});
+	EXPECT_FALSE(Buffer->OnObjectsReinstanced(Map));
+	Scope.Cancel();
+	MarkAsGarbage(Old);
+	CollectGarbage();
+	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
+	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Reinstanced->Value, 0);
+	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Reinstanced->Value, 77);
+}
+
+TEST_F(FTransactionReinstancingTests, ExplicitMapRejectsOwnerMismatchAndPartialMapRetiresTheWholeEntry)
+{
+	using namespace Durin;
+	Record(42);
+	FObjectReplacementMap Map;
+	const FObjectReplacementMap::FEntry MissingOwner{Old, New};
+	EXPECT_FALSE(Map.BuildFromObjects(std::span(&MissingOwner, 1)));
+	EXPECT_TRUE(Map.GetEntries().empty());
+	const FObjectReplacementMap::FEntry PackageOnly{Current, Candidate};
+	ASSERT_TRUE(Map.BuildFromObjects(std::span(&PackageOnly, 1)));
+	ASSERT_TRUE(Buffer->OnObjectsReinstanced(Map));
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+	EXPECT_FALSE(Buffer->CanUndo());
+	EXPECT_EQ(Old->Value, 42);
+	EXPECT_EQ(New->Value, 0);
 }
 
 TEST_F(FTransactionReinstancingTests, RedoBranchSurvivesReinstancingAtUndonePosition)
@@ -179,8 +344,39 @@ TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheWitho
 	ASSERT_NE(Annotation, nullptr);
 	ASSERT_TRUE(Annotation->GetComponentInstanceDataCache().ApplyToActor(*AfterActor, ECacheApplyPhase::PostUserConstructionScript));
 	EXPECT_EQ(AfterRoot->GetRelativeLocation().x, 17.0);
+	AfterRoot->SetRelativeLocation({19.0, 0.0, 0.0});
+	FActorTransactionAnnotation CurrentAnnotation(*AfterActor);
+	const auto Changes = CurrentAnnotation.ComputeAdditionalObjectChanges(Annotation);
+	ASSERT_EQ(Changes.size(), 1u); EXPECT_EQ(Changes[0].first, AfterRoot);
+	EXPECT_EQ(Changes[0].second.ChangedProperties, std::vector<FName>{"RelativeTransform"});
+	FActorTransactionAnnotation UnchangedOriginal(*BeforeActor);
+	EXPECT_TRUE(UnchangedOriginal.ComputeAdditionalObjectChanges(Source.get()).empty());
 	EXPECT_TRUE(Source->Validate());
 	EXPECT_FALSE(Annotation->Restore(*BeforeActor));
+}
+
+TEST_F(FTransactionReinstancingTests, ComponentObservationsRebindAbsentGenerationsAndTheirHistoricalReferencePaths)
+{
+	using namespace Durin;
+	auto* BeforeActor = NewObject<DTransactionConstructionActor>(Current, "Actor");
+	auto* AfterActor = NewObject<DTransactionConstructionActor>(Candidate, "Actor");
+	TStrongObjectPtr<DTransactionConstructionActor> BeforeRoot(BeforeActor), AfterRoot(AfterActor);
+	BeforeActor->GeneratedCount = 2; ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
+	auto Scene = [](auto* Actor, uint32 Index) { return static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(Index))); };
+	ASSERT_TRUE(Scene(BeforeActor, 1)->AttachToComponent(Scene(BeforeActor, 0), EAttachmentTransformRule::KeepRelative));
+	std::shared_ptr<ITransactionObjectAnnotation> Source = std::make_shared<FActorTransactionAnnotation>(*BeforeActor);
+	BeforeActor->GeneratedCount = 0; ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
+	AfterActor->GeneratedCount = 0; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
+	CollectGarbage();
+	FObjectReplacementMap Map; auto Built = Map.Build(std::span(&Pair, 1)); ASSERT_TRUE(Built) << ToString(Built.error());
+	auto Replaced = PrepareTransactionAnnotationReplacement(Source, Map); ASSERT_TRUE(Replaced) << Replaced.error();
+	AfterActor->GeneratedCount = 2; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
+	ASSERT_TRUE(Scene(AfterActor, 1)->AttachToComponent(Scene(AfterActor, 0), EAttachmentTransformRule::KeepRelative));
+	// Prepared packages suppress admission until publication; compare equivalent
+	// published component flags so this test isolates historical reference paths.
+	Scene(AfterActor, 0)->SetFlags(EObjectFlags::Transactional); Scene(AfterActor, 1)->SetFlags(EObjectFlags::Transactional);
+	FActorTransactionAnnotation CurrentAnnotation(*AfterActor);
+	EXPECT_TRUE(CurrentAnnotation.ComputeAdditionalObjectChanges(Replaced->get()).empty());
 }
 
 TEST_F(FTransactionReinstancingTests, CustomCommandOptInRebindsFrozenParticipantsAndPackages)

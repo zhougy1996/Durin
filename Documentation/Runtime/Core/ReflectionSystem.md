@@ -4,7 +4,7 @@ Summary: Define runtime type identity, registration, class defaults, enum metada
 
 Modules: CoreDObject
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-21
 
 ## Overview
 
@@ -88,12 +88,18 @@ runtime dependency. Signature-default and dispatch semantics remain defined by
 
 ## Class Default Objects
 
-Every eligible reflected class owns one immutable class default object after its
+Every eligible reflected class owns one class default object after its
 registration batch completes. Eligibility requires a valid constructor and
 layout and excludes `DCLASS(Abstract)`, intrinsic reflection metadata, and the
 explicit `DCLASS(NoClassDefaultObject)` service/infrastructure opt-out.
 `DClass::GetDefaultObject()` is const-only and reports a stable state/reason when
 no default is available.
+Native transaction code can explicitly admit published default-graph nodes with
+the Transactional flag and use Modify, as described in
+[runtime transactions](Transactions.md#coredobject-boundary). This does not grant
+script/reflected mutation access or permit template identity changes.
+These transactions edit the current default graph; automatic archetype-instance
+propagation is not implemented.
 
 Registration batches expand superclass chains and construct base-before-derived,
 then qualified-name order. Defaults are not published until the whole batch

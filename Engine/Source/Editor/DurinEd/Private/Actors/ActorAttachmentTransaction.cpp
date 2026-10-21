@@ -3,6 +3,7 @@
 #include "Actors/ActorEditingValidation.h"
 
 #include "Engine/Actor.h"
+#include "Components/SceneComponent.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "DObject/ObjectLifecycle.h"
@@ -31,7 +32,8 @@ namespace Durin::Editor
 			auto* Level = IsValid(Actor) ? Cast<DLevel>(Actor->GetOuter()) : nullptr;
 			if (!CanEditActorOwner(Actor) || !Actor->GetRootComponent())
 				return {{.Code = EActorChangeError::TargetUnavailable}};
-			if (Actor->GetAttachParentActor() != ExpectedParent)
+			if (Actor->GetAttachParentActor() != ExpectedParent
+				&& (Actor->GetAttachParentActor() != DesiredParent || !Actor->GetRootComponent()->IsAttachmentChangedDuringUndo()))
 				return {{.Code = EActorChangeError::ParentMismatch, .TargetPath = Actor->GetObjectPath(),
 					.ExpectedParentPath = ExpectedParent ? ExpectedParent->GetObjectPath() : std::string{},
 					.ActualParentPath = Actor->GetAttachParentActor() ? Actor->GetAttachParentActor()->GetObjectPath() : std::string{}}};
@@ -49,9 +51,9 @@ namespace Durin::Editor
 
 		auto SetParentAndTransform(AActor& Actor, AActor* Parent, const FTransform& Transform) -> bool
 		{
-			const bool bParentChanged = Parent
+			const bool bParentChanged = Actor.GetAttachParentActor() == Parent || (Parent
 				? Actor.AttachToActor(Parent, EAttachmentTransformRule::KeepWorld)
-				: (!Actor.GetAttachParentActor() || Actor.DetachFromActor(EDetachmentTransformRule::KeepWorld));
+				: Actor.DetachFromActor(EDetachmentTransformRule::KeepWorld));
 			return bParentChanged && Actor.SetActorTransform(Transform);
 		}
 	}

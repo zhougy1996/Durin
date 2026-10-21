@@ -25,8 +25,9 @@ namespace Durin::Editor
 		DURINED_API auto IsNoOp() const -> bool;
 		DURINED_API auto Validate() const -> std::expected<void, FTransactionObjectRecordError>;
 		DURINED_API auto CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>;
-		DURINED_API auto Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bFlipState = true) -> std::expected<void, FTransactionObjectRecordError>;
+		DURINED_API auto Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bUseHistoricalState = true) -> std::expected<void, FTransactionObjectRecordError>;
 		DURINED_API auto PrepareReplay() -> std::expected<void, FTransactionObjectRecordError>;
+		DURINED_API auto CommitReplay(bool bBefore) -> void;
 		// Build after native completion; replay's opposite side owns the live inverse.
 		DURINED_API auto BuildObjectEvents(const FTransactionContext& Context,
 			ETransactionObjectEventType Type, ETransactionOperation Operation) const

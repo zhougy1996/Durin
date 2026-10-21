@@ -99,6 +99,7 @@ durin_add_native_test(EditorOperationTests
 		Private/Editor/FactoryTests.cpp
 		Private/Editor/TransactionRecordTests.cpp
 		Private/Editor/TransactionHistoryTests.cpp
+		Private/Editor/TransactionArrayTests.cpp
 		Private/Editor/TransactionObjectEventTests.cpp
 		Private/Editor/TransactionAnnotationTests.cpp
 		Private/Editor/TransactionReinstancingTests.cpp

@@ -49,9 +49,9 @@ namespace Durin::Editor
 		-> std::expected<FTransactionObjectRecord, std::string>
 	{
 		auto Result = *this;
-		auto Key = Map.RemapObjectKey(Target.GetKey());
-		if (!Key) return std::unexpected(ToString(Key.error()));
-		Result.Target = FPersistentObjectRef::FromKey(*Key);
+		auto Reference = Target.CreateReplacement(Map);
+		if (!Reference) return std::unexpected(Reference.error());
+		Result.Target = std::move(*Reference);
 		for (auto* State : {&Result.BeforeState, &Result.AfterState, &Result.ReplayState, &Result.SnapshotState})
 			if (*State)
 			{
@@ -73,8 +73,8 @@ namespace Durin::Editor
 		const std::shared_ptr<ITransactionObjectAnnotation>* AnnotationPolicy) -> std::expected<FTransactionObjectRecord::FSerializedObject, std::string>
 	{
 		FGarbageCollectionDeferralScope DeferCollection;
-		if (!IsValid(&Object) || !Object.GetClass() || Object.IsTemplateObject())
-			return std::unexpected("Transaction object capture requires a live ordinary object.");
+		if (!CanTransactObject(Object))
+			return std::unexpected("Transaction capture requires a live object or a transactional published default graph.");
 		if (CapturePolicy && CapturePolicy->Observation.ObjectInfo.Target.Resolve() != &Object)
 			return std::unexpected("Transaction capture policy belongs to a different object.");
 		DObjectForceRegistration(Object.GetClass());
@@ -193,7 +193,7 @@ namespace Durin::Editor
 		return {};
 	}
 
-	auto FTransactionObjectRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bFlipState)
+	auto FTransactionObjectRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bUseHistoricalState)
 		-> std::expected<void, FTransactionObjectRecordError>
 	{
 		FGarbageCollectionDeferralScope DeferCollection;
@@ -201,7 +201,7 @@ namespace Durin::Editor
 		if (!Object) return Reject("Transaction restore target is unavailable.");
 		if (!ReplayState)
 			if (auto Captured = PrepareReplay(); !Captured) return Captured;
-		auto& Desired = bBefore ? BeforeState : AfterState;
+		auto& Desired = bUseHistoricalState ? (bBefore ? BeforeState : AfterState) : ReplayState;
 		if (!Desired) return Reject("Transaction restore state is unavailable.");
 		CompletionAnnotation = Desired->GetAnnotation();
 		if (auto Validated = Desired->Validate(*Object); !Validated) return Reject(Validated.error());
@@ -226,10 +226,14 @@ namespace Durin::Editor
 				Object->PostEditChangeProperty({.MemberProperty = Member, .LeafProperty = Member,
 					.Path = {&Path, 1}, .Phase = EPropertyChangePhase::Committed, .Origin = Origin});
 			}
-		if (bFlipState) (bBefore ? AfterState : BeforeState) = std::move(*ReplayState);
-		ClearPreparedReplay(false);
 		Object->MarkPackageDirty();
 		return {};
+	}
+
+	auto FTransactionObjectRecord::CommitReplay(bool bBefore) -> void
+	{
+		if (ReplayState) (bBefore ? AfterState : BeforeState) = std::move(*ReplayState);
+		ReplayState.reset();
 	}
 
 	auto FTransactionObjectRecord::BuildObjectEvents(const FTransactionContext& Context,
@@ -360,7 +364,7 @@ namespace Durin::Editor
 
 	auto FTransactionObjectRecord::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
-		size_t Total = 0;
+		size_t Total = Target.GetAllocatedSize();
 		auto Add = [&](size_t Value) {
 			if (Total > std::numeric_limits<size_t>::max() - Value) return false;
 			Total += Value; return true;

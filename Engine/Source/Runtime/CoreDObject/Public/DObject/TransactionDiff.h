@@ -29,6 +29,11 @@ namespace Durin
 
 	namespace DiffUtil
 	{
+		enum class EGetDiffableObjectMode : uint8 { SerializeObject, SerializeProperties };
+		struct FGetDiffableObjectOptions
+		{
+			EGetDiffableObjectMode ObjectSerializationMode = EGetDiffableObjectMode::SerializeObject;
+		};
 		struct FGenerateObjectDiffOptions
 		{
 			bool bFullDiff = true;
@@ -41,6 +46,10 @@ namespace Durin
 		// not inferred by the transaction observation path.
 		COREDOBJECT_API auto GetDiffableObject(DObject& Object,
 			const FSerializedObjectCapture* CapturePolicy = nullptr) -> std::expected<FDiffableObject, std::string>;
+		// Properties-only observation includes generated references that ordinary
+		// replay excludes. It is never an object transfer/replay payload.
+		COREDOBJECT_API auto GetDiffableObject(DObject& Object, FGetDiffableObjectOptions Options)
+			-> std::expected<FDiffableObject, std::string>;
 		COREDOBJECT_API auto GenerateObjectDiff(const FDiffableObject& OldObject, const FDiffableObject& NewObject,
 			const FGenerateObjectDiffOptions& Options = {}) -> std::expected<FTransactionObjectChange, std::string>;
 	}

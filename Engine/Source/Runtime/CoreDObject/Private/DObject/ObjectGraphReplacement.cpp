@@ -330,13 +330,60 @@ namespace Durin
 					return Result;
 				}
 				Candidate.Indices.emplace(Object, Candidate.Entries.size());
-				Candidate.Entries.push_back({Object, Replacement});
+				Candidate.Entries.push_back({Object, Replacement, FObjectKey(Object), FObjectKey(Replacement)});
 			}
 			for (const auto& Item : New) Candidate.PreparedObjects.push_back(Item.second);
 			++PackageIndex;
 		}
 		*this = std::move(Candidate);
 		return {};
+	}
+
+	auto FObjectReplacementMap::BuildFromObjects(std::span<const FEntry> Objects,
+		const FObjectReplacementBudget& Budget) -> std::expected<void, FObjectReplacementMapError>
+	{
+		CheckThread();
+		using Reason = EObjectReplacementMapReason;
+		auto Reject = [](E Code, Reason Why) -> std::expected<void, FObjectReplacementMapError> {
+			return std::unexpected(FObjectReplacementMapError{.Code = Code, .Reason = Why});
+		};
+		if (Objects.empty() || Objects.size() > Budget.MaximumObjects) return Reject(E::BudgetExceeded, Reason::ObjectBudget);
+		FObjectReplacementMap Candidate;
+		std::unordered_set<DObject*> Destinations;
+		for (const auto& Entry : Objects)
+		{
+			if (!IsValid(Entry.Previous) || (Entry.Replacement && !IsValid(Entry.Replacement)) || Entry.Previous == Entry.Replacement)
+				return Reject(E::InvalidGraph, Reason::InvalidObject);
+			if (!Candidate.Indices.emplace(Entry.Previous, Candidate.Entries.size()).second
+				|| (Entry.Replacement && !Destinations.insert(Entry.Replacement).second)) return Reject(E::MapCollision, Reason::DuplicateIdentity);
+			Candidate.Entries.push_back({Entry.Previous, Entry.Replacement, FObjectKey(Entry.Previous), FObjectKey(Entry.Replacement)});
+			if (Entry.Replacement) Candidate.PreparedObjects.push_back(Entry.Replacement);
+		}
+		for (const auto& Entry : Objects)
+		{
+			if (Destinations.contains(Entry.Previous)) return Reject(E::MapCollision, Reason::DuplicateIdentity);
+			if (!Entry.Replacement) continue;
+			auto Remap = [&](DObject* Object) { const auto* Found = Candidate.Find(Object); return Found ? Found->Replacement : Object; };
+			if (Entry.Replacement->GetClass() != Remap(Entry.Previous->GetClass())
+				|| Entry.Replacement->GetOuter() != Remap(Entry.Previous->GetOuter())
+				|| Entry.Previous->IsTemplateObject() != Entry.Replacement->IsTemplateObject()
+				|| (Entry.Previous->IsTemplateObject() && (Entry.Previous->GetFName() != Entry.Replacement->GetFName()
+					|| Entry.Previous->IsClassDefaultObject() != Entry.Replacement->IsClassDefaultObject()
+					|| Entry.Previous->HasAnyObjectFlags(EObjectFlags::DefaultSubobject) != Entry.Replacement->HasAnyObjectFlags(EObjectFlags::DefaultSubobject))))
+				return Reject(E::IncompatibleType, Reason::IncompatibleType);
+		}
+		*this = std::move(Candidate);
+		return {};
+	}
+
+	auto FObjectReplacementMap::ValidateIdentities() const -> bool
+	{
+		for (const auto& Entry : Entries)
+			if (!IsValid(ResolveObjectKey(Entry.PreviousIdentity))
+				|| ResolveObjectKey(Entry.PreviousIdentity) != Entry.Previous
+				|| (Entry.Replacement && (!IsValid(ResolveObjectKey(Entry.ReplacementIdentity))
+					|| ResolveObjectKey(Entry.ReplacementIdentity) != Entry.Replacement))) return false;
+		return true;
 	}
 
 	auto ToString(const FObjectReplacementMapError& Error) -> std::string
@@ -433,13 +480,15 @@ namespace Durin
 		}
 		const auto* Entry = Find(Object);
 		if (!Entry) return Key;
+		if (Key != Entry->PreviousIdentity) return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ObjectIdentityChanged});
 		if (!Entry->Replacement)
 		{
 			if (bWeak) return FObjectKey{};
 			return std::unexpected(FObjectReplacementError{.Code = E::UnmappedReference, .Reason = R::ExternalUnmappedReference,
 				.ObjectPath = Object->GetObjectPath(), .Message = "A retained hard reference has no replacement."});
 		}
-		if (!IsValid(Entry->Replacement)) return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ObjectIdentityChanged});
+		if (ResolveObjectKey(Entry->ReplacementIdentity) != Entry->Replacement
+			|| !IsValid(Entry->Replacement)) return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ObjectIdentityChanged});
 		return FObjectKey(Entry->Replacement);
 	}
 

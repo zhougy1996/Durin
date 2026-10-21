@@ -14,6 +14,8 @@
 namespace Durin
 {
 	class FProperty;
+	class FObjectReplacementMap;
+	class FPersistentObjectRef;
 	class FPropertyValueSnapshotPayload;
 	class FPropertyValueSnapshot;
 
@@ -270,12 +272,20 @@ namespace Durin
 		COREDOBJECT_API auto operator==(const FPropertyValueSnapshotPayload& Other) const -> bool;
 		// Reports only capacity owned by the payload, excluding referenced managed objects.
 		COREDOBJECT_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
+		COREDOBJECT_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
+		COREDOBJECT_API auto CreateReplacement(const FObjectReplacementMap& Map) const
+			-> std::expected<FPropertyValueSnapshotPayload, std::string>;
+		// Materialize caller-owned transaction references as a temporary exact
+		// table for the shared decoder. No roots or additional ownership are acquired.
+		COREDOBJECT_API auto WithResolvedReferences(std::span<const FPersistentObjectRef> References) const
+			-> std::expected<FPropertyValueSnapshotPayload, std::string>;
 
 	private:
 		const FProperty* Property = nullptr;
 		bool bTransacting = false;
 		FByteBuffer Bytes;
 		std::vector<FObjectKey> ReferencedObjectKeys;
+		std::vector<size_t> WeakReferenceOffsets;
 		friend COREDOBJECT_API auto CapturePropertyValuePayload(
 			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&, bool) -> std::expected<void, FPropertySnapshotError>;
 		friend COREDOBJECT_API auto RestorePropertyValuePayload(
@@ -309,6 +319,10 @@ namespace Durin
 	};
 
 	COREDOBJECT_API auto CapturePropertyValuePayload(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshotPayload& OutPayload, bool bTransacting = false) -> std::expected<void, FPropertySnapshotError>;
+	// Schema-only preflight also admits an insertion into an empty array without
+	// constructing or capturing a representative element.
+	COREDOBJECT_API auto ValidatePropertyValueSnapshotType(const FProperty* Property, bool bTransacting = false)
+		-> std::expected<void, FPropertySnapshotError>;
 	// Explicit parent projection preserves omitted fields in already initialized storage.
 	COREDOBJECT_API auto RestorePropertyValuePayload(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshotPayload& Payload, bool bPreserveOmittedFields = false) -> std::expected<void, FPropertySnapshotError>;
 	COREDOBJECT_API auto ArePropertySnapshotTypesCompatible(

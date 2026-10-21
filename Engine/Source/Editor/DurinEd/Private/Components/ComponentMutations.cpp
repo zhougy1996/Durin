@@ -103,12 +103,14 @@ namespace Durin
 					|| Component->GetOwner() != Owner.Get()
 					|| Component->HasAnyObjectFlags(EObjectFlags::ClassDefaultObject | EObjectFlags::DefaultSubobject)
 					|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return Reject(EActorChangeError::TargetUnavailable);
-				if (Owner->IsInstanceComponent(Component.Get()) == bPresent) return Reject(EActorChangeError::MembershipChanged);
+				// Serialized membership can already be restored by an earlier object
+				// record. This adapter owns publication into the native live set.
+				if (Owner->OwnsComponent(Component.Get()) == bPresent) return Reject(EActorChangeError::MembershipChanged);
 				auto* Scene = Cast<DSceneComponent>(Component.Get());
 				if (bPresent)
 				{
 					if (Owner->OwnsComponent(Component.Get())) return Reject(EActorChangeError::MembershipChanged);
-					if (bRoot && Owner->GetRootComponent()) return Reject(EActorChangeError::MembershipChanged);
+					if (bRoot && Owner->GetRootComponent() && Owner->GetRootComponent() != Component.Get()) return Reject(EActorChangeError::MembershipChanged);
 					if (Parent && (!IsValid(Parent.Get()) || !Parent->GetOwner()
 						|| Parent->GetOwner()->GetOuter() != Owner->GetOuter()
 						|| !Parent->GetOwner()->OwnsComponent(Parent.Get()) || Parent.Get() == Scene
@@ -213,28 +215,6 @@ namespace Durin
 			std::array<DPackage*, 1> Packages;
 		};
 
-		class FComponentRenameChange final : public FComponentEditChange
-		{
-		public:
-			FComponentRenameChange(AActor& Owner, DActorComponent& Component, FName InAfter)
-				: FComponentEditChange(Owner, Component), Before(Component.GetFName()), After(InAfter) {}
-			auto GetDescription() const -> std::string_view override { return "Rename component"; }
-			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
-			{
-				FScopedPackageDirtySuppression SuppressReplay;
-				if (!CanReplay() || Component->IsTemplateObject()) return Reject(EActorChangeError::TargetUnavailable);
-				const bool bAfter = Operation != ETransactionOperation::Undo;
-				const FName Desired = bAfter ? After : Before;
-				if (Component->GetFName() != (bAfter ? Before : After)) return Reject(EActorChangeError::MembershipChanged);
-				for (DObject* Object : GDObjectArray.GetObjectsWithOuter(Owner.Get(), EObjectQueryScope::LiveOnly))
-					if (Object != Component.Get() && Object->GetFName() == Desired) return Reject(EActorChangeError::MembershipChanged);
-				Component->Rename(Desired);
-				return {};
-			}
-		private:
-			FName Before, After;
-		};
-
 		class FComponentReparentChange final : public FComponentEditChange
 		{
 		public:
@@ -259,14 +239,18 @@ namespace Durin
 				auto* Scene = static_cast<DSceneComponent*>(Component.Get());
 				const bool bAfter = Operation != ETransactionOperation::Undo;
 				auto* Parent = (bAfter ? AfterParent : BeforeParent).Get();
-				if (Scene->GetAttachParent() != (bAfter ? BeforeParent : AfterParent).Get()) return Reject(EActorChangeError::ParentMismatch);
+				// Whole-object replay may already have restored this authored edge.
+				// Keep validation, but do not publish the same native attachment twice.
+				if (Scene->GetAttachParent() != (bAfter ? BeforeParent : AfterParent).Get()
+					&& (Scene->GetAttachParent() != Parent || !Scene->IsAttachmentChangedDuringUndo())) return Reject(EActorChangeError::ParentMismatch);
 				if (Parent)
 				{
 					if (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay() || !Parent->GetOwner()
 						|| !Parent->GetOwner()->OwnsComponent(Parent) || Parent->GetOwner()->GetOuter() != Owner->GetOuter()
 						|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated) return Reject(EActorChangeError::ParentInvalid);
 					if (Parent == Scene || Parent->IsAttachedTo(Scene)) return Reject(EActorChangeError::ParentCycle);
-					if (!Scene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative)) return Reject(EActorChangeError::AttachmentWrite);
+					if (Scene->GetAttachParent() != Parent
+						&& !Scene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative)) return Reject(EActorChangeError::AttachmentWrite);
 				}
 				else if (Scene->GetAttachParent() && !Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative))
 					return Reject(EActorChangeError::AttachmentWrite);
@@ -309,10 +293,12 @@ namespace Durin
 			if (!CanConstructObjectOfClass(Class, DActorComponent::StaticClass())
 				|| (Parent && (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay()
 					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)))) return nullptr;
+			DObjectForceRegistration(Class);
 			DActorComponent* Component = nullptr;
 			{
 				FScopedPackageDirtySuppression SuppressPreparation;
-				Component = NewObject<DActorComponent>(Class, &Owner, UniqueName(Owner, FName(Class->GetDefaultObjectName())), EObjectFlags::Transactional);
+				const auto Name = Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName();
+				Component = NewObject<DActorComponent>(Class, &Owner, UniqueName(Owner, FName(Name)), EObjectFlags::Transactional);
 			}
 			if (!Component) return nullptr;
 			// PostInitProperties establishes native ownership. This domain command
@@ -391,7 +377,12 @@ namespace Durin
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return false;
 			const FName Name = UniqueName(Owner, RequestedName, Component);
 			if (Name == Component->GetFName()) return true;
-			return Execute(std::make_unique<FComponentRenameChange>(Owner, *Component, Name), Component, Transactions);
+			FScopedTransaction Recording(Transactions, {"ComponentRename", "Rename component", Component});
+			if (!Recording.IsOutstanding() || !RecordObjectForEdit(*Transactions, *Component)) return false;
+			Component->Rename(Name);
+			(void)Recording.End();
+			return Transactions->GetLastResult().Code != ETransactorResultCode::Failed
+				&& Transactions->GetLastResult().Code != ETransactorResultCode::RecoveryRequired;
 
 		});
 	}

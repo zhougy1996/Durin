@@ -49,6 +49,8 @@ namespace Durin::Tests::ObjectState
 		int32 Session = 0;
 		int32 Ignored = 0;
 		Durin::TObjectPtr<Durin::DObject> IgnoredReference;
+		Durin::TObjectPtr<Durin::DObject> HardReference;
+		Durin::TWeakObjectPtr<Durin::DObject> WeakReference;
 	};
 
 	using FRecordMap = std::unordered_map<std::string, int32>;
@@ -204,6 +206,18 @@ namespace Durin::Tests::ObjectState
 				[](void* Value, Durin::DObject* Object) { *static_cast<Durin::TObjectPtr<Durin::DObject>*>(Value) = Object; });
 			SetValueLifecycle<Durin::TObjectPtr<Durin::DObject>>(*NestedReference);
 			NestedCount->SetNext(NestedSession); NestedSession->SetNext(NestedIgnored); NestedIgnored->SetNext(NestedReference);
+			auto* NestedHard = new Durin::FObjectProperty(Durin::FFieldVariant(NestedStruct), "HardReference", Durin::EObjectFlags::NoFlags,
+				Durin::EPropertyFlags::None, 1, offsetof(FRecordNestedValue, HardReference), sizeof(Durin::TObjectPtr<Durin::DObject>),
+				Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(), true,
+				[](const void* Value) -> Durin::DObject* { return static_cast<const Durin::TObjectPtr<Durin::DObject>*>(Value)->Get(); },
+				[](void* Value, Durin::DObject* Object) { *static_cast<Durin::TObjectPtr<Durin::DObject>*>(Value) = Object; });
+			SetValueLifecycle<Durin::TObjectPtr<Durin::DObject>>(*NestedHard);
+			auto* NestedWeak = new Durin::FWeakObjectProperty(Durin::FFieldVariant(NestedStruct), "WeakReference", Durin::EObjectFlags::NoFlags,
+				Durin::EPropertyFlags::None, 1, offsetof(FRecordNestedValue, WeakReference), sizeof(Durin::TWeakObjectPtr<Durin::DObject>), Durin::DObject::StaticClass(),
+				[](void* Value) -> Durin::FWeakObjectPtr* { return &static_cast<Durin::TWeakObjectPtr<Durin::DObject>*>(Value)->GetBase(); },
+				[](const void* Value) -> const Durin::FWeakObjectPtr* { return &static_cast<const Durin::TWeakObjectPtr<Durin::DObject>*>(Value)->GetBase(); });
+			SetValueLifecycle<Durin::TWeakObjectPtr<Durin::DObject>>(*NestedWeak);
+			NestedReference->SetNext(NestedHard); NestedHard->SetNext(NestedWeak);
 			NestedStruct->SetChildProperties(NestedCount);
 			auto* NestedProperty = new Durin::FStructProperty(
 				Durin::FFieldVariant(Class), Durin::FName("Nested"), Durin::EObjectFlags::NoFlags,

@@ -5,6 +5,7 @@
 #include "Components/SceneComponent.h"
 #include "Misc/EnumClassFlags.h"
 #include "Spline/SplineCurve.h"
+#include "Misc/Transaction.h"
 
 #include "SplineComponent.gen.h"
 
@@ -76,6 +77,7 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
+		auto EditPointRange(size_t Index, size_t RemoveCount, std::span<const FSplinePoint> Replacement) -> FTransactionCaptureResult;
 		auto TransformSampleToWorld(const FSplineSample& LocalSample) const -> FSplineSample;
 
 		DPROPERTY(Category = "Spline", Edit)

@@ -4,7 +4,7 @@ Summary: Define Actor/Component inspection targets, component aggregation, gener
 
 Modules: LevelEditor, DurinEd, Engine
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-21
 
 ## Host Ownership
 
@@ -50,7 +50,7 @@ restored before its owner changes.
 
 The component tree routes component addition, deletion, duplication, renaming,
 and reparenting through the host's `DEditorActorSubsystem` and application transactor.
-Each operation is one structural record, with package revision tracking and
+Each operation joins one application scope, with package revision tracking and
 preflight rejection before writes. Generated components, read-only targets,
 and actors participating in play are rejected. Deletion and duplication require
 instance membership; duplication also rejects the root component.
@@ -79,21 +79,36 @@ An unattached source stays unattached with its authored world transform. These
 operations share the lifecycle-preserving `AActor::SetInstanceComponentPresence`
 primitive; ordinary runtime destruction retains its terminal garbage semantics.
 
-Rename records retain exact object identity and before/after names. Initial name
+Rename uses the shared whole-object record and metadata replay. Initial name
 allocation avoids all live siblings, including inactive components retained by
-history. Replay requires the expected current name and rejects a destination-name
+history. Replay retains exact identity and rejects a destination-name
 collision before writing; it never substitutes another name during undo or redo.
 Live native components, including the root, can be renamed; template objects
 cannot. Name changes preserve root/ownership roles and render registration.
+Ordinary historical fields may restore on a retained absent owner, without
+reactivating it or rerunning new-edit admission. Structural membership and
+attachment commands still require a live admitted owner.
 
 Reparenting records retain both parents and both authored relative transforms.
 Initial execution preserves the component's world transform; undo and redo restore
 the captured relative transform through the normal attach/detach APIs, rebuilding
 both child lists, descendant world transforms, and render updates. Root moves,
 foreign destinations, generated components, and cycles are rejected. Replay also
-rejects an unexpected current parent or an unavailable destination before writing.
+rejects an unrelated current parent or an unavailable destination before writing.
+When an earlier whole-object load already restored the desired edge, the adapter
+does not publish that attachment again. The pre-undo parent distinguishes that
+case from an external edit made before replay. Component presence similarly reconciles
+serialized instance membership with native ownership; the Actor completion hook
+validates the settled set after the complete ordered replay.
 No-op renames and reparenting create no history entry. Both commands participate
 in package saved revisions without manual saved-state invalidation.
+
+Actor Label uses transactional string storage and the ordinary
+Modify/set/property-notification flow. Label-only edits refresh the Outliner
+without reconstruction. Creation and duplication use `SetInitialActorLabel`
+before publication; internal Name and display Label remain independent. See
+[Level naming](../../Runtime/World/LevelSystem.md) and the
+[business-consumer history audit](Transactors.md#structural-history-and-barriers).
 
 ## Generated Components
 

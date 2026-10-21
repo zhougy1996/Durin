@@ -40,24 +40,46 @@ an object and reflected member/index/range, never a borrowed live vector address
 Interface availability alone does not assert a particular recorder supports
 every operation; callers must check its result.
 
+`DObject/TransactionArray.h` supplies the explicit typed `EditTransactionArray`
+adapter. It supports insert, remove and equal-length range replacement with
+nonthrowing element relocation. Allocation preparation precedes capture; no live
+vector address enters history. A borrowed reflected struct path can locate a
+nested array. Unsupported or callback-driven mutations must select a whole-object
+baseline before editing. See [array operation records](../../Editor/Architecture/TransactionRecords.md#array-operation-records)
+for replay, fallback and cost boundaries. `FArrayOps` version 3 adds the typed
+Splice callback; it does not add operation semantics to maps.
+
 ## CoreDObject Boundary
 
 `DObject/TransactionObjectReference.h` owns `FPersistentObjectRef` and its
 deduplicating reference set. Ordinary references preserve exact slot/generation
-identity. Resolve rejects garbage, destroyed or replaced generations; it never
-searches for an unrelated object with the same Name. Stored references retain
-nothing by themselves; a managed owner must enumerate their live hard edges.
+identity. Resolve rejects garbage, destroyed or replaced ordinary generations;
+`FromKey` always selects this exact category. Like UE, a published CDO or a
+default-subobject ancestor instead selects a stable root and an Outer/name chain.
+Each step checks exact Class and CDO/default-subobject category; CDOs must be the
+class's current published default. Ordinary same-name objects and slot reuse
+cannot substitute for those categories. Stored references retain nothing by
+themselves; a managed owner must enumerate their live hard edges. Collector
+traversal visits the root and cached exact leaf without doing name lookup.
 Editor object records and domain commands use this same runtime identity.
 
 `DObject/TransactionSerialization.h` owns the shared transaction-purpose virtual
-`Serialize` transfer. `FSerializedObject` holds bytes and exact hard edges;
-`FSerializedObjectInfo` composes capture-time `FTransactionObjectId`, exact
+`Serialize` transfer. `FSerializedObject` holds bytes and persistent hard edges;
+`FSerializedObjectInfo` composes capture-time `FTransactionObjectId`, persistent
 target/class/Outer/package references and supported flags. The ID owns original
 Name and path text without mixing identity with change flags.
 `FTransactionSerializationContext` owns schema, versions, frozen field
 exclusions and archive-recorded hard/weak reference positions. Capture uses `FObjectArchive`, includes reflected and native
 serialized fields, and preserves weak keys and soft paths without
 retaining their targets. These helpers never acquire annotations.
+
+`CanTransactObject` admits ordinary objects and Transactional nodes of a current
+published class-default graph. Native callers explicitly opt template nodes in
+with that flag and use the ordinary Modify/SaveObject path. The const-only default
+getter, script/reflected mutation rejection, package persistence exclusions and
+template Name/Outer/construction guards remain intact. Template replay also
+rejects changes to identity or flags. Actor/component template completion does
+not capture instance lifecycle annotations or activate runtime registration.
 
 `ValidateSerializedObject` checks identity, field schema and native field versions
 without loading historical fields. `LoadSerializedObject` is a transfer operation:
@@ -95,6 +117,17 @@ operation or annotation. Capture output and observations retain their exact hard
 edges through an enclosing collector owner. There is no mixed runtime object-state
 coordinator.
 
+`FGetDiffableObjectOptions::ObjectSerializationMode` selects UE-shaped
+`SerializeObject` or `SerializeProperties` observation. The default keeps the
+ordinary virtual Serialize path and shared undo allocations. Properties-only
+observation uses the same archive/property machinery but bypasses native
+Serialize overrides and includes references to generated components. It is not
+a historical transfer payload. Engine Actor annotations project these reference
+slots to path identities for generation-independent comparison; ordinary undo
+continues to exclude construction-owned references. See
+[Actor transaction reconstruction](../World/NativeConstruction.md#transaction-reconstruction)
+for observation lifetime, filtering and checked path replacement.
+
 `FDiffableObject::TryGetAllocatedSize` accounts its actual retained identity,
 shared transfer allocations and tagged-range capacity. It shares the transfer
 accounting implementation with `FSerializedObjectCapture`; callers must not count
@@ -110,6 +143,11 @@ rebind explicitly. Expired or removed hard references reject preparation. Remove
 weak references clear; expired weak keys remain expired and never resolve by Name.
 Soft paths retain their canonical path representation. Preparation validates the
 replacement target's schema without loading historical fields.
+`FObjectReplacementMap::BuildFromObjects` accepts an explicit native old-to-new
+map without discovering or publishing packages. It validates unique source and
+destination identities, mapped Class and Outer, and template categories before
+replacing the previous map. Callers own graph lifetimes and other reference owners;
+package graph replacement continues to use its existing package-pair builder.
 
 `CreateSerializedObjectReplacementParticipant` binds captures and/or observations
 to a retained collector owner. Paired values must share their original transfer
@@ -144,12 +182,14 @@ context. Partial diff excludes metadata and compares shared tagged properties.
 `ShouldSkipProperty` filters reflected results, never native data. Opaque annotation
 changes and editor presence remain distinct from serialized field changes.
 
-This observation API admits live ordinary objects. It does not resurrect expired
+This observation API admits live ordinary objects and admitted defaults. It does not resurrect expired ordinary
 identities or infer arbitrary archetypes. Class-default override comparison uses
 the existing default graph and default-delta facilities, with their graph-aware
 reference equivalence, rather than comparing different objects' exact-reference
 bytes. These existing default-comparison facilities do not imply arbitrary
-archetype or Blueprint/SCS/UCS matching in transaction observations.
+archetype or Blueprint/SCS/UCS matching in generic transaction observations.
+Engine annotations separately establish generated-component logical identity
+with the shared instance-source matcher before comparing properties-only data.
 
 Annotations may implement a pure `Validate` preflight for retained participants;
 the default succeeds. Validation failures and exceptions reject replay before
@@ -167,6 +207,9 @@ object summaries, replay hooks and affected-package enumeration use those
 participants. Additional collector dependencies remain lifetime dependencies;
 they receive no completion hooks merely because the command retains them.
 Expired participants fail validation before replay mutates any other participant.
+Logical default-graph resolution does not grant an opaque native command access
+to a recreated participant. Such commands require explicit checked replacement;
+otherwise their frozen participant expires before native replay.
 
 A bound single-object custom record claims that object's general capture, so a
 later Modify does not create a redundant serialized record. A prior serialized
