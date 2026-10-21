@@ -27,14 +27,14 @@ namespace Durin
 			BuildService->ResetCacheForTests(std::move(Options));
 			Builder = std::make_unique<FShaderBuilder>(BuildService);
 		}
-		auto SubmitMounted(std::string_view Path, const FShaderCompileOptions& CompileOptions,
+		auto PrepareMounted(std::string_view Path, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason> override
-		{ return Builder->SubmitMounted(Path, CompileOptions, std::move(Options), std::move(Completion)); }
+			-> FShaderBuildHandle override
+		{ return Builder->PrepareMounted(Path, CompileOptions, std::move(Options), std::move(Completion)); }
 
-		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-			FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason> override
-		{ return Builder->SubmitGenerated(std::move(Request), std::move(Options), std::move(Completion)); }
+		auto PrepareGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+			FShaderBuildCompletion Completion) -> FShaderBuildHandle override
+		{ return Builder->PrepareGenerated(std::move(Request), std::move(Options), std::move(Completion)); }
 
 		auto GetBuildVersion() const -> uint64 override { return Builder->GetBuildVersion(); }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override

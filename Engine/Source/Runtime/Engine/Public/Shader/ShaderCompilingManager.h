@@ -13,12 +13,13 @@ namespace Durin
 	public:
 		static auto Get() -> FShaderCompilingManager&;
 		~FShaderCompilingManager();
-		auto SubmitJobs(std::vector<FGeneratedShaderCompileRequest> Jobs, uint64 MaximumOutputBytes,
+		auto PrepareJobs(std::vector<FGeneratedShaderCompileRequest> Jobs, uint64 MaximumOutputBytes,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
-		auto SubmitJobs(std::string_view Path, const FShaderCompileOptions& CompileOptions,
+			-> FShaderBuildHandle;
+		auto PrepareJobs(std::string_view Path, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
+			-> FShaderBuildHandle;
+		auto SubmitJobs(const FShaderBuildHandle& Jobs) -> void;
 		auto CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput;
 		auto CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 		auto FinishCompilation(const FShaderBuildHandle& Handle) -> EShaderBuildWaitResult;
@@ -50,7 +51,7 @@ namespace Durin
 		friend auto GetMaterialCompilationDiagnostics() -> FMaterialCompilationDiagnostics;
 		FShaderCompilingManager();
 		struct FJobGroup;
-		auto Admit(std::shared_ptr<FJobGroup> Group) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
+		auto Submit(std::shared_ptr<FJobGroup> Group) -> void;
 		auto FinishShaderJobs() -> void;
 		auto GetNumRemainingShaderJobs() const -> uint64;
 		mutable std::mutex JobMutex;

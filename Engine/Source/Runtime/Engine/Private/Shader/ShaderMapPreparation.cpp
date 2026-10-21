@@ -97,7 +97,6 @@ namespace Durin
 				}
 				if (!State)
 				{
-					if (Preparations.size() >= 128) { Error = "Shader preparation capacity exceeded."; return; }
 					State = std::make_shared<FPreparedShaderMapState>();
 					State->Generation = Generation;
 					State->Epoch = Epoch;
@@ -105,13 +104,13 @@ namespace Durin
 					State->Types = std::move(Types);
 					State->Options = std::move(Options);
 					Preparations.push_back(State);
-					auto Submitted = FShaderCompilingManager::Get().SubmitJobs(State->Options.VirtualShaderPath, State->Options, {.Priority = Priority},
+					auto Submitted = FShaderCompilingManager::Get().PrepareJobs(State->Options.VirtualShaderPath, State->Options, {.Priority = Priority},
 						[State](FShaderCompilerOutput Output) {
 							std::lock_guard ResultLock(State->Mutex);
 							State->Output = std::move(Output);
 						});
-					if (Submitted) State->Handle = std::move(*Submitted);
-					else State->Output = FShaderCompilerOutput::Failure("Shader preparation admission failed.");
+					State->Handle = std::move(Submitted);
+					FShaderCompilingManager::Get().SubmitJobs(State->Handle);
 				}
 			}
 			States.push_back(std::move(State));

@@ -293,33 +293,33 @@ namespace Durin
 		if (VirtualShaderPath.empty()) return FShaderCompilerOutput::Failure(std::string(std::string("Shader type virtual shader path must not be empty")));
 		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return FShaderCompilerOutput::Failure(std::string(std::string("Shader entry-point request is invalid.")));
 		FShaderCompilerOutput Output;
-		auto Handle = SubmitMounted(VirtualShaderPath, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
-		if (!Handle) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Handle.error()));
-		require(Handle->Wait() == EShaderBuildWaitResult::Completed);
+		auto Handle = PrepareMounted(VirtualShaderPath, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
+		Handle.Submit();
+		require(Handle.Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}
 
-	auto FShaderBuilder::SubmitMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options,
+	auto FShaderBuilder::PrepareMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options,
 		FShaderBuildRequestOptions RequestOptions, FShaderBuildCompletion Completion)
-		-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
+		-> FShaderBuildHandle
 	{
-		if (VirtualShaderPath.empty() || !IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options))
-			return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = VirtualShaderPath; Request.Target = Options.Target; Request.Frequencies = Options.Frequencies;
 		Request.Macros = Options.Macros; Request.SourceArtifacts = Options.SourceArtifacts; Request.bForceRecompile = Options.bForceRecompile;
-		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry);
-		return SubmitRequest(std::move(Request), std::move(RequestOptions), std::move(Completion), ESourceKind::Mounted);
+		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry ? Entry : "");
+		return PrepareRequest(std::move(Request), std::move(RequestOptions), std::move(Completion), ESourceKind::Mounted);
 	}
 
-	auto FShaderBuilder::PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
-		const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>
+	auto FShaderBuilder::PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>
 	{
+		if (Request->VirtualPath.empty() || !IsActiveCompilerTarget(Request->Target))
+			return std::unexpected("Shader entry-point request is invalid.");
 		auto Prepared = std::make_shared<FPreparedShaderBuild>(); Prepared->Request = std::move(Request);
 		const auto& Input = *Prepared->Request; auto& Options = Prepared->Options;
 		Options.Target = Input.Target; Options.VirtualShaderPath = Input.VirtualPath; Options.CompilerEnvironment = CompilerEnvironmentIdentity;
 		Options.Frequencies = Input.Frequencies; Options.Macros = Input.Macros; Options.SourceArtifacts = Input.SourceArtifacts; Options.bForceRecompile = Input.bForceRecompile;
 		for (const auto& Entry : Input.EntryPoints) Options.EntryPoints.push_back(Entry.c_str());
+		if (!HasValidUniqueEntryPoints(Options)) return std::unexpected("Shader entry-point request is invalid.");
 		std::vector<FShaderMacroDefinition> Macros;
 		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result) return std::unexpected(Result.error());
 		FShaderMetaData Meta; FShaderArtifactResolver Resolve;
@@ -345,9 +345,6 @@ namespace Durin
 			}
 			std::lock_guard Lock(*Gate);
 			if (auto Result = ResolveSourceMetaData(Input.VirtualPath, FShaderPaths::SourcePath(Input.VirtualPath), Options, Macros, Meta); !Result) return std::unexpected(Result.error());
-			uint64 Bytes = 0;
-			for (const auto& Dependency : Meta.Dependencies) Bytes += 2 * Dependency.FileSize + Dependency.NormalizedPath.capacity() + sizeof(Dependency);
-			if (!ReserveSources(Bytes)) return std::unexpected(std::string("Shader capture input limit exceeded."));
 			Resolve = [Meta] { return ShaderCompileUtilities::CaptureSourceArtifacts(Meta); };
 		}
 		FShaderVariantKey Variant;
@@ -358,8 +355,7 @@ namespace Durin
 		if (!Recipe) return std::unexpected(Recipe.error()); Prepared->Recipe = std::move(*Recipe); return Prepared;
 	}
 
-	auto FShaderBuilder::PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Owned,
-		const std::function<bool(uint64)>& ReserveSources)
+	auto FShaderBuilder::PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Owned)
 		-> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>
 	{
 		const auto& Request = *Owned;
@@ -416,9 +412,6 @@ namespace Durin
 				return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (std::string{})));
 			if (!Options.SourceArtifacts)
 			{
-				uint64 Bytes = 0;
-				for (const auto& Dependency : EnvironmentMeta.Dependencies) Bytes += 2 * Dependency.FileSize + Dependency.NormalizedPath.capacity() + sizeof(Dependency);
-				if (!ReserveSources(Bytes)) return std::unexpected(std::string("Shader capture input limit exceeded."));
 				auto Captured = ShaderCompileUtilities::CaptureSourceArtifacts(EnvironmentMeta);
 				if (!Captured) return std::unexpected(Captured.error());
 				Options.SourceArtifacts = std::move(*Captured);
@@ -476,9 +469,6 @@ namespace Durin
 			}
 			if (auto Result = ValidateGeneratedImports(Paths, Prefixes); !Result) return std::unexpected(Result.error());
 			if (!Current && !ManifestStore.Save(CachePath, Key, Meta)) DURIN_WARN("Generated shader manifest write failed for {}", Request.VirtualPath);
-			uint64 Bytes = 0;
-			for (const auto& Dependency : Meta.Dependencies) Bytes += 2 * Dependency.FileSize + Dependency.NormalizedPath.capacity() + sizeof(Dependency);
-			if (!ReserveSources(Bytes)) return std::unexpected(std::string("Shader capture input limit exceeded."));
 			Resolve = [CapturedMeta = Meta] { return ShaderCompileUtilities::CaptureSourceArtifacts(CapturedMeta); };
 		}
 		FXxHash128Builder Tree; Tree.Update("DurinGeneratedShaderSourceTree_v1");

@@ -1266,9 +1266,12 @@ TEST_F(FMaterialAsyncCompileTests, ShaderCompilerRegistersOnceAndStopsBothReques
 	EXPECT_TRUE(IsMaterialCompilationAcceptingRequests());
 	Compiler.StopAdmission();
 	EXPECT_FALSE(IsMaterialCompilationAcceptingRequests());
-	auto Shader = Compiler.SubmitJobs("/Closed", {}, {}, [](auto) { ADD_FAILURE() << "Rejected shader must not complete."; });
-	ASSERT_FALSE(Shader);
-	EXPECT_EQ(Shader.error(), EShaderBuildAdmissionReason::Closed);
+	uint32 ShaderCalls = 0;
+	auto Shader = Compiler.PrepareJobs("/Closed", {}, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++ShaderCalls; });
+	EXPECT_EQ(ShaderCalls, 0u);
+	Compiler.SubmitJobs(Shader);
+	EXPECT_EQ(Shader.Wait(), EShaderBuildWaitResult::Completed);
+	EXPECT_EQ(ShaderCalls, 1u);
 	auto Material = FMaterialShaderMap::Compile(std::make_shared<const MIR::FCompilerInput>(), {},
 		[](auto) { ADD_FAILURE() << "Rejected material must not complete."; });
 	ASSERT_FALSE(Material);

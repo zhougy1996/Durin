@@ -10209,12 +10209,12 @@ namespace
 		Durin::FShaderCompletion LibraryCompletion;
 		auto GetBuildVersion() const -> uint64 override { return 0x123456789abcdef0ull; }
 		auto GetCompileAdapterVersion() const -> Durin::FShaderCompileAdapterVersion override { return {3, 2, 6}; }
-		auto SubmitMounted(std::string_view, const Durin::FShaderCompileOptions&, Durin::FShaderBuildRequestOptions, Durin::FShaderBuildCompletion)
-			-> std::expected<Durin::FShaderBuildHandle, Durin::EShaderBuildAdmissionReason> override
-		{ return std::unexpected(Durin::EShaderBuildAdmissionReason::Closed); }
-		auto SubmitGenerated(Durin::FGeneratedShaderCompileRequest, Durin::FShaderBuildRequestOptions, Durin::FShaderBuildCompletion)
-			-> std::expected<Durin::FShaderBuildHandle, Durin::EShaderBuildAdmissionReason> override
-		{ return std::unexpected(Durin::EShaderBuildAdmissionReason::Closed); }
+		auto PrepareMounted(std::string_view, const Durin::FShaderCompileOptions&, Durin::FShaderBuildRequestOptions, Durin::FShaderBuildCompletion)
+			-> Durin::FShaderBuildHandle override
+		{ ADD_FAILURE() << "Unexpected Shader job preparation in Cook fixture."; return {}; }
+		auto PrepareGenerated(Durin::FGeneratedShaderCompileRequest, Durin::FShaderBuildRequestOptions, Durin::FShaderBuildCompletion)
+			-> Durin::FShaderBuildHandle override
+		{ ADD_FAILURE() << "Unexpected Shader job preparation in Cook fixture."; return {}; }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }
 		auto GetCookInputIdentity(std::string& OutIdentity,
 			const std::function<bool()>& IsCancelled) -> Durin::FShaderCompletion override

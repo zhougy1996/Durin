@@ -28,22 +28,7 @@ namespace Durin
 			}
 			return Bytes;
 		}
-		auto RequestBytes(const FGeneratedShaderCompileRequest& Request) -> uint64
-		{
-			uint64 Bytes = sizeof(Request) + 3 * Request.Source.capacity() + Request.VirtualPath.capacity() + (Request.ExpectedSourceTree ? Request.ExpectedSourceTree->VirtualPath.capacity() : 0);
-			if (Request.ExpectedSourceTree)
-			{
-				const auto& Tree = *Request.ExpectedSourceTree;
-				for (const auto& Entry : Tree.EntryPoints) Bytes += sizeof(Entry) + Entry.capacity();
-				Bytes += Tree.Frequencies.capacity() * sizeof(EShaderFrequency);
-				for (const auto& Macro : Tree.Macros) Bytes += sizeof(Macro) + Macro.Name.capacity() + (Macro.Value ? Macro.Value->capacity() : 0);
-			}
-			for (const auto& Entry : Request.EntryPoints) Bytes += sizeof(Entry) + Entry.capacity();
-			for (const auto& Macro : Request.Macros) Bytes += sizeof(Macro) + Macro.Name.capacity() + (Macro.Value ? Macro.Value->capacity() : 0);
-			for (const auto& Prefix : Request.AllowedImportVirtualPrefixes) Bytes += sizeof(Prefix) + Prefix.capacity();
-			if (Request.SourceArtifacts) for (const auto& [Path, Data] : Request.SourceArtifacts->GetFiles()) Bytes += Path.capacity() + 2 * Data.size();
-			return Bytes;
-		}
+
 	}
 	struct FShaderBuilder::FAsyncState : std::enable_shared_from_this<FAsyncState>
 	{
@@ -60,14 +45,12 @@ namespace Durin
 			Tasks::FTask Preparation;
 			FTaskCancellationSource PreparationCancellation;
 			std::shared_ptr<FFlight> Flight;
-			std::atomic_bool Canceled = false;
+			std::atomic_bool Canceled = false, Submitted = false;
 			enum class EDelivery { Pending, Delivering, Completed };
 			EDelivery Delivery = EDelivery::Pending;
 			bool Published = false;
-			uint64 Bytes = 0;
 			bool BinaryMetal = false;
 			std::atomic_bool NativeStarted = false;
-			uint64 NativeBytes = 0;
 			std::string NativeProducer;
 			DerivedData::FRequestOwner NativeOwner;
 			FShaderCompilerOutput NativeOutput;
@@ -106,6 +89,7 @@ namespace Durin
 				std::function<bool()> RetiredObserver;
 				{ std::lock_guard Lock(Mutex); RetiredRequest = std::move(Request); RetiredObserver = std::move(Options.IsCancelled); NativeOutput = {}; }
 			}
+			auto Submit() -> void override;
 			auto RequestCancel() -> bool override;
 			auto SetPriority(EShaderBuildPriority Priority) -> void override;
 			auto Wait() -> EShaderBuildWaitResult override;
@@ -118,12 +102,10 @@ namespace Durin
 			std::unique_ptr<FShaderSessionRequest> Session;
 			std::vector<std::shared_ptr<FSubscriber>> Subscribers;
 			DerivedData::FRequestOwner Owner;
-			uint64 Bytes = 0;
 		};
 		FShaderBuilder* Builder;
 		mutable std::mutex Mutex;
 		bool Closed = false;
-		uint64 Bytes = 0;
 		std::vector<std::shared_ptr<FSubscriber>> Operations;
 		std::unordered_map<std::string, std::shared_ptr<FFlight>> Flights;
 		std::vector<std::shared_ptr<FFlight>> CompilerOperations;
@@ -132,7 +114,7 @@ namespace Durin
 		{
 			std::erase_if(CompilerOperations, [&](const auto& Flight) {
 				if (!Flight->Owner.Poll()) return false;
-				Flight->Prepared.reset(); Flight->Session.reset(); Bytes -= Flight->Bytes; return true;
+				Flight->Prepared.reset(); Flight->Session.reset(); return true;
 			});
 		}
 		auto Priority(const std::shared_ptr<FFlight>& Flight) -> void
@@ -166,12 +148,7 @@ namespace Durin
 				if (!Producer) return Subscriber->Finish(FShaderCompilerOutput::Failure(Producer.error()));
 				Subscriber->NativeProducer = *Producer;
 			}
-			const auto Reserve = [this, Subscriber](uint64 Amount) {
-				std::lock_guard Lock(Mutex);
-				if (Amount > 1024ull * 1024 * 1024 - Bytes) return false;
-				Bytes += Amount; Subscriber->Bytes += Amount; return true;
-			};
-			auto Prepared = Subscriber->SourceKind == ESourceKind::Mounted ? Builder->PrepareMounted(Subscriber->Request, Reserve) : Builder->PrepareGenerated(Subscriber->Request, Reserve);
+			auto Prepared = Subscriber->SourceKind == ESourceKind::Mounted ? Builder->PrepareMounted(Subscriber->Request) : Builder->PrepareGenerated(Subscriber->Request);
 			if (!Prepared) return Subscriber->Finish(FShaderCompilerOutput::Failure(Prepared.error()));
 			if (Subscriber->Canceled) return Subscriber->Finish(CanceledShader());
 			if (!Subscriber->Request->bForceRecompile)
@@ -186,7 +163,6 @@ namespace Durin
 			std::shared_ptr<FFlight> Flight;
 			std::unique_ptr<DerivedData::FRequestBarrier> AdmissionBarrier;
 			bool Leader = false;
-			bool Capacity = false;
 			{
 				std::lock_guard Lock(Mutex);
 				PruneCompilerOperations();
@@ -196,19 +172,18 @@ namespace Durin
 					const auto Key = (*Prepared)->OutputKey + (Subscriber->Request->bForceRecompile ? "/Forced" : "/Cached") + std::format("/Budget{}", Subscriber->Request->MaximumOutputBytes);
 					const auto Existing = Flights.find(Key);
 					if (Existing != Flights.end()) Flight = Existing->second;
-					else if (CompilerOperations.size() < 128)
+					else
 					{
 						Flight = std::make_shared<FFlight>();
 						AdmissionBarrier = std::make_unique<DerivedData::FRequestBarrier>(Flight->Owner);
 						Flight->Key = Key; Flight->Prepared = std::move(*Prepared);
-						Flight->Bytes = std::exchange(Subscriber->Bytes, 0);
+
 						Flights.emplace(Key, Flight); CompilerOperations.push_back(Flight); Leader = true;
 					}
-					else Capacity = true;
 					if (Flight) { Flight->Subscribers.push_back(Subscriber); Subscriber->Flight = Flight; Priority(Flight); }
 				}
 			}
-			if (!Flight) return Subscriber->Finish(Capacity ? FShaderCompilerOutput::Failure(std::string("Shader capture input limit exceeded.")) : CanceledShader());
+			if (!Flight) return Subscriber->Finish(CanceledShader());
 			if (!Leader) return;
 			try
 			{
@@ -341,7 +316,13 @@ namespace Durin
 		if (CancelFlight) CancelFlight->Owner.RequestCancel();
 		bool PublishedNow;
 		{ std::lock_guard Lock(Mutex); PublishedNow = Published; }
-		if (PublishedNow) Finish(CanceledShader());
+		bool Unsubmitted = false;
+		if (Submitted.compare_exchange_strong(Unsubmitted, true)) {
+			Finish(CanceledShader());
+			{ std::lock_guard Lock(Mutex); Published = true; }
+			Condition.notify_all();
+		}
+		else if (PublishedNow) Finish(CanceledShader());
 		return true;
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::SetPriority(EShaderBuildPriority Priority) -> void
@@ -371,78 +352,86 @@ namespace Durin
 		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); Owner->PruneCompilerOperations(); }
 		return EShaderBuildWaitResult::Completed;
 	}
-	auto FShaderBuilder::SubmitRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-		FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
+	auto FShaderBuilder::PrepareRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+		FShaderBuildCompletion Completion, ESourceKind SourceKind) -> FShaderBuildHandle
 	{
-		if (!Completion) return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
-		if (!Options.bInlineExecution && !IsTaskSchedulerRunning()) return std::unexpected(EShaderBuildAdmissionReason::DispatchRejected);
+		require(Completion);
 		auto Subscriber = std::make_shared<FAsyncState::FSubscriber>();
 		Subscriber->BinaryMetal = Request.Target == MetalLibraryShaderTarget;
-		if ((!Subscriber->BinaryMetal && (!Options.NativeProducerIdentity.empty() || Options.bNativeCacheOnly))
-			|| Options.NativeProducerIdentity.size() > 512
-			|| std::ranges::any_of(Options.NativeProducerIdentity, [](unsigned char Value) { return Value < 32 || Value > 126; })
-			|| (Options.bNativeCacheOnly && (Options.NativeProducerIdentity.empty() || Request.bForceRecompile)))
-			return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
-		if (Subscriber->BinaryMetal)
-		{
-			if (Request.MaximumOutputBytes > ShaderCompiledOutput::MaximumValueBytes)
-				return std::unexpected(EShaderBuildAdmissionReason::Capacity);
-			Subscriber->NativeBytes = 2 * Request.MaximumOutputBytes;
-			Request.Target = MetalShaderTarget;
-		}
-		Subscriber->SourceKind = SourceKind; Subscriber->State = Async; Subscriber->Bytes = RequestBytes(Request) + Options.NativeProducerIdentity.capacity();
+		if (Subscriber->BinaryMetal) Request.Target = MetalShaderTarget;
+		Subscriber->SourceKind = SourceKind; Subscriber->State = Async;
 		Subscriber->Request = std::make_shared<const FGeneratedShaderCompileRequest>(std::move(Request));
 		Subscriber->Options = std::move(Options); Subscriber->Completion = std::move(Completion);
-		// Snapshot retired controls outside the state lock: retirement queries also
-		// acquire that lock and must never call back while admission holds it.
-		std::vector<std::shared_ptr<FAsyncState::FSubscriber>> Retired;
-		{ std::lock_guard Lock(Async->Mutex); Retired = Async->Operations; }
+		return FShaderBuildHandle(std::move(Subscriber));
+	}
+	auto FShaderBuilder::FAsyncState::FSubscriber::Submit() -> void
+	{
+		if (Submitted.exchange(true)) return;
+		const auto Subscriber = shared_from_this();
+		const auto Owner = State.lock();
+		const auto Publish = [this] {
+			{ std::lock_guard Lock(Mutex); Published = true; }
+			Condition.notify_all();
+		};
+		const auto Complete = [this, &Publish](FShaderCompilerOutput Output) { Finish(std::move(Output)); Publish(); };
+		if (!Owner) { Canceled = true; return Complete(CanceledShader()); }
+		{
+			std::lock_guard Lock(Owner->Mutex);
+			if (Owner->Closed) Canceled = true;
+		}
+		if (Canceled) return Complete(CanceledShader());
+		if ((!BinaryMetal && (!Options.NativeProducerIdentity.empty() || Options.bNativeCacheOnly))
+			|| Options.NativeProducerIdentity.size() > 512
+			|| std::ranges::any_of(Options.NativeProducerIdentity, [](unsigned char Value) { return Value < 32 || Value > 126; })
+			|| (Options.bNativeCacheOnly && (Options.NativeProducerIdentity.empty() || Request->bForceRecompile)))
+			return Complete(FShaderCompilerOutput::Failure("Shader native producer options are invalid."));
+		if (BinaryMetal && Request->MaximumOutputBytes > ShaderCompiledOutput::MaximumValueBytes)
+			return Complete(FShaderCompilerOutput::Failure("Shader output exceeds the supported byte limit."));
+		if (!Options.bInlineExecution && !IsTaskSchedulerRunning())
+			return Complete(FShaderCompilerOutput::Failure("Shader preparation task scheduler is unavailable."));
+		std::vector<std::shared_ptr<FSubscriber>> Retired;
+		{ std::lock_guard Lock(Owner->Mutex); Retired = Owner->Operations; }
 		std::erase_if(Retired, [](const auto& Item) { return !Item->IsComplete(); });
 		for (const auto& Item : Retired) Item->ReleaseCaptures();
 		{
-			std::lock_guard Lock(Async->Mutex);
-			for (const auto& Item : Retired)
-			{
-				const auto It = std::ranges::find(Async->Operations, Item);
-				if (It != Async->Operations.end()) { Async->Bytes -= Item->Bytes + Item->NativeBytes; Async->Operations.erase(It); }
+			std::lock_guard Lock(Owner->Mutex);
+			for (const auto& Item : Retired) {
+				const auto It = std::ranges::find(Owner->Operations, Item);
+				if (It != Owner->Operations.end()) { Owner->Operations.erase(It); }
 			}
-			Async->PruneCompilerOperations();
-			if (Async->Closed) return std::unexpected(EShaderBuildAdmissionReason::Closed);
-			if (Async->Operations.size() >= 512 || Subscriber->Bytes + Subscriber->NativeBytes > 1024ull * 1024 * 1024 - Async->Bytes)
-				return std::unexpected(EShaderBuildAdmissionReason::Capacity);
-			Async->Bytes += Subscriber->Bytes + Subscriber->NativeBytes; Async->Operations.push_back(Subscriber);
+			Owner->PruneCompilerOperations();
+			if (Owner->Closed) Canceled = true;
+			else { Owner->Operations.push_back(Subscriber); }
 		}
-		if (Subscriber->Options.bInlineExecution)
-		{
-			try { Async->Prepare(Subscriber); } catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); }
+		if (Canceled) return Complete(CanceledShader());
+		if (Options.bInlineExecution) {
+			try { Owner->Prepare(Subscriber); }
+			catch (...) { Finish(FShaderCompilerOutput::Failure("Shader entry-point request is invalid.")); }
 		}
-		else
-		{
+		else {
+			EShaderBuildPriority Priority;
+			{ std::lock_guard Lock(Owner->Mutex); Priority = Options.Priority; }
 			auto Dispatch = Private::TryLaunchCancelableTaskWithCompletion("ShaderPrepare",
-				[Self = Async, Subscriber](const FTaskCancellationToken& Token) { try { if (Token.IsCancellationRequested()) Subscriber->Finish(CanceledShader()); else Self->Prepare(Subscriber); } catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure(std::string("Shader entry-point request is invalid."))); } },
-				[Subscriber](ETaskState State) { if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderCompilerOutput::Failure("Shader preparation task failed.")); }, {.CancellationToken = Subscriber->PreparationCancellation.GetToken(), .Priority = static_cast<ETaskPriority>(Subscriber->Options.Priority)});
-			if (!Dispatch.HasValue())
-			{
-				{ std::lock_guard Lock(Async->Mutex); Async->Bytes -= Subscriber->Bytes + Subscriber->NativeBytes; std::erase(Async->Operations, Subscriber); }
-				{ std::lock_guard Lock(Subscriber->Mutex); Subscriber->Completion = {}; Subscriber->Delivery = FAsyncState::FSubscriber::EDelivery::Completed; Subscriber->Published = true; }
-				Subscriber->Condition.notify_all();
-				return std::unexpected(EShaderBuildAdmissionReason::DispatchRejected);
-			}
-			Subscriber->Preparation = std::move(Dispatch).TakeValue();
+				[Owner, Subscriber](const FTaskCancellationToken& Token) {
+					try { if (Token.IsCancellationRequested()) Subscriber->Finish(CanceledShader()); else Owner->Prepare(Subscriber); }
+					catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure("Shader entry-point request is invalid.")); }
+				}, [Subscriber](ETaskState State) {
+					if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderCompilerOutput::Failure("Shader preparation task failed."));
+				}, {.CancellationToken = PreparationCancellation.GetToken(), .Priority = static_cast<ETaskPriority>(Priority)});
+			if (!Dispatch.HasValue()) Finish(FShaderCompilerOutput::Failure("Shader preparation task dispatch failed."));
+			else { std::lock_guard Lock(Mutex); Preparation = std::move(Dispatch).TakeValue(); }
 		}
-		{ std::lock_guard Lock(Subscriber->Mutex); Subscriber->Published = true; }
-		Subscriber->Condition.notify_all();
-		return FShaderBuildHandle(Subscriber);
+		Publish();
 	}
-	auto FShaderBuilder::SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-		FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
-	{ return SubmitRequest(std::move(Request), std::move(Options), std::move(Completion), ESourceKind::Generated); }
+	auto FShaderBuilder::PrepareGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+		FShaderBuildCompletion Completion) -> FShaderBuildHandle
+	{ return PrepareRequest(std::move(Request), std::move(Options), std::move(Completion), ESourceKind::Generated); }
 	auto FShaderBuilder::GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
 	{
 		FShaderCompilerOutput Output;
-		auto Submitted = SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
-		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Submitted.error()));
-		require(Submitted->Wait() == EShaderBuildWaitResult::Completed);
+		auto Job = PrepareGenerated(Request, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
+		Job.Submit();
+		require(Job.Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}
 	auto FShaderBuilder::Close() -> void
@@ -452,7 +441,7 @@ namespace Durin
 		{ std::lock_guard Lock(Async->Mutex); Async->Closed = true; Pending = Async->Operations; }
 		for (const auto& Subscriber : Pending) Subscriber->RequestCancel();
 		for (const auto& Subscriber : Pending) require(Subscriber->Wait() == EShaderBuildWaitResult::Completed);
-		{ std::lock_guard Lock(Async->Mutex); Async->Operations.clear(); Async->Flights.clear(); Async->CompilerOperations.clear(); Async->Bytes = 0; }
+		{ std::lock_guard Lock(Async->Mutex); Async->Operations.clear(); Async->Flights.clear(); Async->CompilerOperations.clear(); }
 	}
 	auto FShaderBuilder::InitializeAsync() -> void { Async = std::make_shared<FAsyncState>(this); }
 }

@@ -47,13 +47,16 @@ namespace Durin
 		uint64 MaterialCompilingId = 0;
 		size_t Next = 0, Active = 0;
 		bool Dispatching = false, Delivering = false, Completed = false, Published = false;
-		std::atomic_bool Canceled = false;
+		std::atomic_bool Canceled = false, Submitted = false;
+		auto Submit() -> void override
+		{ if (!Submitted.exchange(true)) Manager->Submit(shared_from_this()); }
 		auto RequestCancel() -> bool override
 		{
 			const bool Changed = !Canceled.exchange(true);
 			std::vector<std::shared_ptr<FShaderBuildHandle>> Pending;
 			{ std::lock_guard Lock(Mutex); Pending = Handles; }
 			for (const auto& Handle : Pending) Handle->RequestCancel();
+			if (!Submitted.load()) Submit();
 			return Changed;
 		}
 		auto SetPriority(EShaderBuildPriority Priority) -> void override
@@ -145,72 +148,77 @@ namespace Durin
 				};
 				auto Complete = [Self = shared_from_this(), Index, Allowance](FShaderCompilerOutput Output) { Self->FinishJob(Index, Allowance, std::move(Output)); };
 				auto Submitted = [&] {
-					if (!MountedPath.empty()) return Backend->SubmitMounted(MountedPath, MountedOptions, std::move(RequestOptions), std::move(Complete));
+					if (!MountedPath.empty()) return Backend->PrepareMounted(MountedPath, MountedOptions, std::move(RequestOptions), std::move(Complete));
 					Jobs[Index].MaximumOutputBytes = Allowance;
-					return Backend->SubmitGenerated(std::move(Jobs[Index]), std::move(RequestOptions), std::move(Complete));
+					return Backend->PrepareGenerated(std::move(Jobs[Index]), std::move(RequestOptions), std::move(Complete));
 				}();
-				if (!Submitted) { FinishJob(Index, Allowance, FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Submitted.error()))); continue; }
-				auto Handle = std::make_shared<FShaderBuildHandle>(std::move(*Submitted));
+				auto Handle = std::make_shared<FShaderBuildHandle>(std::move(Submitted));
 				EShaderBuildPriority Priority;
 				{ std::lock_guard Lock(Mutex); Handles.push_back(Handle); Priority = Options.Priority; }
 				Handle->SetPriority(Priority);
 				if (Canceled) Handle->RequestCancel();
+				Handle->Submit();
 				Condition.notify_all();
 			}
 		}
 	};
 	auto FShaderCompilingManager::Get() -> FShaderCompilingManager& { static FShaderCompilingManager Manager; return Manager; }
-	auto FShaderCompilingManager::Admit(std::shared_ptr<FJobGroup> Group) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
+	auto FShaderCompilingManager::Submit(std::shared_ptr<FJobGroup> Group) -> void
 	{
-		if (!Group->Completion || !Group->MaximumBytes || !Group->Backend) return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
+		require(Group->Completion);
+		Group->Backend = IShaderBuildModule::Get();
 		Group->Manager = this;
 		std::vector<std::shared_ptr<FJobGroup>> Retired;
 		{ std::lock_guard Lock(JobMutex); for (const auto& Item : Groups) if (auto Existing = Item.lock()) Retired.push_back(std::move(Existing)); }
 		std::erase_if(Retired, [](const auto& Item) { return !Item->IsComplete(); });
 		{
 			std::lock_guard Lock(JobMutex);
-			if (!Accepting && Group->MaterialCompilingId == 0) return std::unexpected(EShaderBuildAdmissionReason::Closed);
+			if (!Accepting && Group->MaterialCompilingId == 0) Group->Canceled = true;
 			std::erase_if(Groups, [&](const auto& Item) { const auto Existing = Item.lock(); return !Existing || std::ranges::contains(Retired, Existing); });
 			Groups.push_back(Group);
+		}
+		if (!Group->Backend || !Group->MaximumBytes || Group->Outputs.empty() || Group->Outputs.size() > 128
+			|| (Group->MountedPath.empty() && Group->Jobs.empty())) {
+			Group->Jobs.clear(); Group->Outputs.clear();
+			Group->Outputs.emplace_back(FShaderCompilerOutput::Failure("Shader job input or compiler backend is unavailable."));
+			Group->Next = 1;
 		}
 		Group->Drive();
 		{ std::lock_guard Lock(Group->Mutex); Group->Published = true; }
 		Group->Condition.notify_all();
-		return FShaderBuildHandle(std::move(Group));
 	}
-	auto FShaderCompilingManager::SubmitJobs(std::vector<FGeneratedShaderCompileRequest> Jobs, uint64 MaximumOutputBytes,
-		FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
+	auto FShaderCompilingManager::PrepareJobs(std::vector<FGeneratedShaderCompileRequest> Jobs, uint64 MaximumOutputBytes,
+		FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion) -> FShaderBuildHandle
 	{
-		if (!Accepting) return std::unexpected(EShaderBuildAdmissionReason::Closed);
-		if (Jobs.empty() || Jobs.size() > 128) return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
-		auto Group = std::make_shared<FJobGroup>(); Group->Backend = IShaderBuildModule::Get(); Group->Outputs.resize(Jobs.size());
+		auto Group = std::make_shared<FJobGroup>(); Group->Manager = this; Group->Outputs.resize(Jobs.size() <= 128 ? Jobs.size() : 0);
 		Group->Jobs = std::move(Jobs); Group->MaximumBytes = MaximumOutputBytes;
 		Group->Options = std::move(Options); Group->Completion = std::move(Completion);
-		return Admit(std::move(Group));
+		require(Group->Completion);
+		return FShaderBuildHandle(std::move(Group));
 	}
-	auto FShaderCompilingManager::SubmitJobs(std::string_view Path, const FShaderCompileOptions& CompileOptions,
-		FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
+	auto FShaderCompilingManager::PrepareJobs(std::string_view Path, const FShaderCompileOptions& CompileOptions,
+		FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion) -> FShaderBuildHandle
 	{
-		if (!Accepting) return std::unexpected(EShaderBuildAdmissionReason::Closed);
-		if (Path.empty()) return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
-		auto Group = std::make_shared<FJobGroup>(); Group->Backend = IShaderBuildModule::Get(); Group->Outputs.resize(1);
+		auto Group = std::make_shared<FJobGroup>(); Group->Manager = this; Group->Outputs.resize(1);
 		Group->MountedPath = Path; Group->MountedOptions = CompileOptions; Group->MaximumBytes = 256ull * 1024 * 1024;
 		Group->Options = std::move(Options); Group->Completion = std::move(Completion);
-		return Admit(std::move(Group));
+		require(Group->Completion);
+		return FShaderBuildHandle(std::move(Group));
 	}
+	auto FShaderCompilingManager::SubmitJobs(const FShaderBuildHandle& Jobs) -> void { Jobs.Submit(); }
 	auto FShaderCompilingManager::CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput
 	{
 		FShaderCompilerOutput Output;
-		auto Submitted = SubmitJobs(std::vector{Job}, Job.MaximumOutputBytes, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
-		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Submitted.error()));
-		require(FinishCompilation(*Submitted) == EShaderBuildWaitResult::Completed); return Output;
+		auto Submitted = PrepareJobs(std::vector{Job}, Job.MaximumOutputBytes, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
+		SubmitJobs(Submitted);
+		require(FinishCompilation(Submitted) == EShaderBuildWaitResult::Completed); return Output;
 	}
 	auto FShaderCompilingManager::CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
 	{
 		FShaderCompilerOutput Output;
-		auto Submitted = SubmitJobs(Path, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
-		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Submitted.error()));
-		require(FinishCompilation(*Submitted) == EShaderBuildWaitResult::Completed); return Output;
+		auto Submitted = PrepareJobs(Path, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
+		SubmitJobs(Submitted);
+		require(FinishCompilation(Submitted) == EShaderBuildWaitResult::Completed); return Output;
 	}
 	auto FShaderCompilingManager::FinishCompilation(const FShaderBuildHandle& Handle) -> EShaderBuildWaitResult
 	{ Handle.SetPriority(EShaderBuildPriority::High); return Handle.Wait(); }
@@ -250,7 +258,7 @@ namespace Durin
 		EShaderBuildPriority Priority;
 		{ std::lock_guard Lock(ShaderMap->Mutex); Priority = ShaderMap->HighPriority ? EShaderBuildPriority::High : EShaderBuildPriority::Normal; }
 		auto Group = std::make_shared<FJobGroup>();
-		Group->Backend = IShaderBuildModule::Get(); Group->MaterialCompilingId = ShaderMap->CompilingId;
+		Group->Manager = &Get(); Group->MaterialCompilingId = ShaderMap->CompilingId;
 		Group->Jobs = MakeMaterialShaderStageRequests(*ShaderMap->Translation, ShaderMap->Force);
 		Group->Outputs.resize(Group->Jobs.size()); Group->MaximumBytes = MaterialCompileMaxResultBytes;
 		Group->Options = {.Priority = Priority, .IsCancelled = [Weak = std::weak_ptr(ShaderMap)] { const auto Value = Weak.lock(); return !Value || IsBuildCanceled(Value); }, .bInlineExecution = ShaderMap->Inline};
@@ -263,9 +271,7 @@ namespace Durin
 						FMaterialShaderMap::FinalizeContent(std::move(*ShaderMap->Translation), std::move(Output), ShaderMap));
 				});
 			};
-		auto Submitted = Get().Admit(std::move(Group));
-		if (!Submitted) return FMaterialShaderMap::CompleteCompilation(ShaderMap, FMaterialCompilerResult{.Diagnostics = {{.Message = FormatShaderBuildAdmissionReason(Submitted.error())}}});
-		auto Jobs = std::make_shared<FShaderBuildHandle>(std::move(*Submitted));
+		auto Jobs = std::make_shared<FShaderBuildHandle>(std::move(Group));
 		ShaderMap->Owner->TrackDependency({
 			.IsFinished = [Jobs] { return Jobs->IsComplete(); },
 			.Wait = [Jobs] { return Jobs->Wait() == EShaderBuildWaitResult::Completed ? DerivedData::ERequestWaitResult::Completed : DerivedData::ERequestWaitResult::WouldBlock; },
@@ -274,6 +280,7 @@ namespace Durin
 		{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->ShaderJobs = Jobs; HighPriority = ShaderMap->HighPriority; }
 		if (HighPriority) Jobs->SetPriority(EShaderBuildPriority::High);
 		if (IsBuildCanceled(ShaderMap)) Jobs->RequestCancel();
+		Get().SubmitJobs(*Jobs);
 	}
 #endif
 }

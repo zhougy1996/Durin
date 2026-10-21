@@ -36,16 +36,16 @@ namespace Durin
 			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult;
 
 		auto GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
-		auto SubmitMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& CompileOptions,
+		auto PrepareMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
+			-> FShaderBuildHandle;
 
 		auto GetStats() const -> FShaderBuildStats;
 
 		auto GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request)
 			-> FShaderCompilerOutput;
-		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-			FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
+		auto PrepareGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+			FShaderBuildCompletion Completion) -> FShaderBuildHandle;
 		auto Close() -> void;
 
 	private:
@@ -57,13 +57,11 @@ namespace Durin
 			FShaderSessionRecipe Recipe;
 			std::string OutputKey;
 		};
-		auto PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
-			const std::function<bool(uint64)>& ReserveSources)
+		auto PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Request)
 			-> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>;
-		auto PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
-			const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>;
-		auto SubmitRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-			FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
+		auto PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>;
+		auto PrepareRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+			FShaderBuildCompletion Completion, ESourceKind SourceKind) -> FShaderBuildHandle;
 		struct FAsyncState;
 		std::shared_ptr<FAsyncState> Async;
 		auto InitializeAsync() -> void;

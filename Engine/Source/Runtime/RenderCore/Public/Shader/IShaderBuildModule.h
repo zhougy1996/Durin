@@ -48,13 +48,13 @@ namespace Durin
 	private:
 		friend class FShaderCompilingManager;
 		// Execution backend: public callers submit through FShaderCompilingManager.
-		virtual auto SubmitMounted(std::string_view VirtualShaderPath,
+		virtual auto PrepareMounted(std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& CompileOptions, FShaderBuildRequestOptions Options,
 			FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason> = 0;
-		virtual auto SubmitGenerated(FGeneratedShaderCompileRequest Request,
+			-> FShaderBuildHandle = 0;
+		virtual auto PrepareGenerated(FGeneratedShaderCompileRequest Request,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason> = 0;
+			-> FShaderBuildHandle = 0;
 	public:
 		virtual auto GetCompilerEnvironmentIdentity() -> std::string = 0;
 		// Capture for exact native-library cache replay through request options.

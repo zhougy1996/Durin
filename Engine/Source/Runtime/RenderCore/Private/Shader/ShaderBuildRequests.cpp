@@ -2,18 +2,6 @@
 
 namespace Durin
 {
-	auto FormatShaderBuildAdmissionReason(EShaderBuildAdmissionReason Reason) -> std::string
-	{
-		switch (Reason)
-		{
-		case EShaderBuildAdmissionReason::Closed: return "Shader build admission is closed.";
-		case EShaderBuildAdmissionReason::Capacity: return "Shader build admission capacity was exceeded.";
-		case EShaderBuildAdmissionReason::DispatchRejected: return "Shader build task dispatch was rejected.";
-		case EShaderBuildAdmissionReason::InvalidRequest: return "Shader build request is invalid.";
-		}
-		return "Shader build admission failed.";
-	}
-
 	auto IShaderBuildModule::Get() -> IShaderBuildModule*
 	{
 #if DURIN_WITH_EDITOR

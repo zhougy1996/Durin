@@ -135,14 +135,15 @@ namespace Durin
 			EXPECT_FALSE(Unavailable); EXPECT_TRUE(Unavailable.CompiledShaders.empty());
 			FShaderBuildRequestOptions CacheOptions{.bInlineExecution = true, .NativeProducerIdentity = *Producer, .bNativeCacheOnly = true};
 			std::optional<FShaderCompilerOutput> Replay;
-			auto Replayed = Builder.SubmitGenerated(Request, CacheOptions, [&](auto Result) { Replay = std::move(Result); });
-			ASSERT_TRUE(Replayed);
-			EXPECT_EQ(Replayed->Wait(), EShaderBuildWaitResult::Completed);
+			auto Replayed = Builder.PrepareGenerated(Request, CacheOptions, [&](auto Result) { Replay = std::move(Result); });
+			Replayed.Submit();
+			EXPECT_EQ(Replayed.Wait(), EShaderBuildWaitResult::Completed);
 			ASSERT_TRUE(Replay); EXPECT_TRUE(*Replay) << FormatShaderCompilerErrors(Replay->Errors);
 			CacheOptions.NativeProducerIdentity += ";not-installed";
 			std::optional<FShaderCompilerOutput> Miss;
-			auto Missing = Builder.SubmitGenerated(Request, CacheOptions, [&](auto Result) { Miss = std::move(Result); });
-			ASSERT_TRUE(Missing); EXPECT_EQ(Missing->Wait(), EShaderBuildWaitResult::Completed);
+			auto Missing = Builder.PrepareGenerated(Request, CacheOptions, [&](auto Result) { Miss = std::move(Result); });
+			Missing.Submit();
+			EXPECT_EQ(Missing.Wait(), EShaderBuildWaitResult::Completed);
 			ASSERT_TRUE(Miss); EXPECT_FALSE(*Miss); EXPECT_TRUE(Miss->CompiledShaders.empty());
 		}
 		auto SmallRequest = Request;
@@ -158,19 +159,19 @@ namespace Durin
 		{
 			FShaderBuilder AsyncBuilder;
 			std::atomic<uint32> Canceled = 0, Completed = 0;
-			auto First = AsyncBuilder.SubmitGenerated(Request, {}, [&](auto Result) {
+			auto First = AsyncBuilder.PrepareGenerated(Request, {}, [&](auto Result) {
 				EXPECT_EQ(Result.Status, EShaderBuildStatus::Canceled); ++Canceled;
 			});
-			ASSERT_TRUE(First);
-			First->RequestCancel();
-			auto Second = AsyncBuilder.SubmitGenerated(Request, {}, [&](auto Result) {
+			First.Submit();
+			First.RequestCancel();
+			auto Second = AsyncBuilder.PrepareGenerated(Request, {}, [&](auto Result) {
 				EXPECT_TRUE(Result) << FormatShaderCompilerErrors(Result.Errors);
 				if (Result) EXPECT_EQ(Result.CompiledShaders.front().Target, MetalLibraryShaderTarget);
 				++Completed;
 			});
-			ASSERT_TRUE(Second);
-			EXPECT_EQ(First->Wait(), EShaderBuildWaitResult::Completed);
-			EXPECT_EQ(Second->Wait(), EShaderBuildWaitResult::Completed);
+			Second.Submit();
+			EXPECT_EQ(First.Wait(), EShaderBuildWaitResult::Completed);
+			EXPECT_EQ(Second.Wait(), EShaderBuildWaitResult::Completed);
 			EXPECT_EQ(Canceled, 1u); EXPECT_EQ(Completed, 1u);
 		}
 	}

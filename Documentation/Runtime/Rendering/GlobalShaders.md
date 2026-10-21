@@ -4,7 +4,7 @@ Summary: Define registration, atomic set ownership, typed lookup, generation rec
 
 Modules: Engine, RenderCore, Renderer, ShaderFormat
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 ## Category and Ownership
 
@@ -109,6 +109,21 @@ feature slot mirrors the unavailable state for retry purposes without emitting
 a second wrapper failure or recovery transition.
 
 ## Lifecycle
+
+`FShaderCompilingManager::PrepareJobs` creates an existing job-group control without
+starting compilation or invoking its completion. `SubmitJobs` returns `void` and
+starts the prepared group. ShaderBuild likewise prepares its existing subscriber
+controls; handles submit or cancel them without a separate admission-error result.
+Submitted controls remain waitable through completion, and cancellation also
+completes an unsubmitted control. Repeated submission does not start duplicate work.
+
+Fixed aggregate Shader admission thresholds no longer reject requests. Existing
+execution windows and Task scheduling control execution; single-request source and output limits remain
+validated. Failed dispatch and invalid inputs arrive through `FShaderCompilerOutput`;
+submission after shutdown or owner retirement completes as canceled. Callbacks run
+outside state locks, may run synchronously during submission or cancellation, and
+finish once. Waits from callbacks return `WouldBlock`. ShaderBuild retains source,
+cache and compiler ownership without depending on Engine.
 
 `FShaderMapPreparation` can prepare exact registered programs before a thumbnail
 submission. Engine submits it through `FShaderCompilingManager`, sharing
