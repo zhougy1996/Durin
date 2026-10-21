@@ -1185,12 +1185,12 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask}) EXPECT_TRUE(Link.Connection.ExpressionId.IsValid());
 	FMaterialCompilerEnvironment Environment;
 	const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
-	ASSERT_TRUE(EnvironmentResult) << FormatMaterialError(EnvironmentResult.Error);
+	ASSERT_TRUE(EnvironmentResult) << EnvironmentResult.error();
 	auto InputCapture = SnapshotMaterialCompilerInput(*Material, Environment);
 	ASSERT_TRUE(InputCapture);
 	auto& Input = InputCapture.Snapshot->Input;
 	const auto Normalized = MIR::Normalize(Input);
-	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Durin::FormatMaterialError(Normalized.Diagnostics.front().Error));
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Normalized.Diagnostics.front().Message);
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 6);
 	const auto NormalizedSource = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);

@@ -1897,7 +1897,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		if (auto* LoadedMaterial = Cast<DMaterialInterface>(Asset))
 		{
 			const auto Program = LoadedMaterial->GetAcceptedCompiledProgram();
-			ASSERT_TRUE(Program) << Durin::FormatMaterialError(LoadedMaterial->GetMaterialCookDiagnostic());
+			ASSERT_TRUE(Program) << LoadedMaterial->GetMaterialCookDiagnostic();
 			EXPECT_TRUE(LoadedMaterial->GetMaterialCompileStatus().IsCurrent());
 			EXPECT_TRUE(Program->GetDebugData().IR.Nodes.empty());
 			EXPECT_TRUE(Program->GetDebugData().GeneratedSource.empty());

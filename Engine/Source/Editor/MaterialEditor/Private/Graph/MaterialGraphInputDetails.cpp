@@ -160,7 +160,7 @@ namespace Durin::Editor::Material
 				{
 					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
 					if (!Copy) { ReportError("Unable to copy the parameter expression."); return; }
-					if (const auto Applied = Copy->SetParameterDefinition(Parameter); !Applied) { ReportError(FormatMaterialError(Applied.Error)); return; }
+					if (const auto Applied = Copy->SetParameterDefinition(Parameter); !Applied) { ReportError(Applied.error()); return; }
 					Submit(Document.ReplaceExpression(*Copy.Get()));
 				}
 				else Submit(Document.ReplaceExpression(*Replacement.Get()));

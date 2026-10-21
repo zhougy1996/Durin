@@ -108,29 +108,28 @@ namespace Durin
 			return LiteralExpression(Node);
 		}
 
-		auto MakeDiagnostic(EMaterialProgramDiagnosticCategory Category,
-			FMaterialError Error) -> FMaterialProgramDiagnostic
+		auto MakeDiagnostic(std::string Message) -> FMaterialProgramDiagnostic
 		{
-			return {.Category = Category, .Error = std::move(Error)};
+			return {.Message = std::move(Message)};
 		}
 	}
 
 	static auto GenerateMaterialProgramSlangImpl(const MIR::FModule& IR,
 		const FMaterialRenderLayout& Layout,
 		std::span<const FMaterialParameterCollectionLayout> Collections,
-		std::string& OutSource, std::optional<EMaterialEvaluationStage> StageFilter = {}) -> FMaterialOperationResult
+		std::string& OutSource, std::optional<EMaterialEvaluationStage> StageFilter = {}) -> std::expected<void, std::string>
 	{
 		OutSource.clear();
 		if (IR.Version != MIR::CurrentVersion
 			|| IR.Nodes.size() > MaterialFunctionMaxExpandedNodes)
 		{
-			return {EMaterialIRError::InvalidMaterialIRSlangGeneration};
+			return std::unexpected("Invalid material IR for Slang generation.");
 		}
 		std::vector<uint32> Interpolators;
 		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 			if (IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) Interpolators.push_back(Index);
 		if (Interpolators.size() > MaterialProgramMaxVertexInterpolators)
-			return {EMaterialIRError::InvalidMaterialIRSlangGeneration};
+			return std::unexpected("Invalid material IR for Slang generation.");
 		OutSource = R"(module DurinGeneratedMaterial;
 import Material.SurfaceMaterial;
 import Material.MeshUniforms;
@@ -508,7 +507,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				if (Expression.empty())
 				{
 					OutSource.clear();
-					return {FMaterialError(EMaterialIRError::UnsupportedGenerationNode, Index)};
+					return std::unexpected(std::format("Material IR node cannot be generated. [index {}]", Index));
 				}
 				const auto SymbolIndex = bVertex ? LocalIndex++ : Index;
 				Expressions[Index] = std::format("n{}", SymbolIndex);
@@ -532,7 +531,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				if (IR.SurfaceRoot.AggregateExpressionIndex >= Expressions.size())
 				{
 					OutSource.clear();
-					return {EMaterialIRError::AggregateSurfaceRootExpressionOutBounds};
+					return std::unexpected("Aggregate Surface Root expression is out of bounds.");
 				}
 				OutSource += std::format("    return EvaluateMaterialSurface({});\n}}\n", Expressions[IR.SurfaceRoot.AggregateExpressionIndex]);
 			}
@@ -547,7 +546,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 						if (Input.ExpressionIndex >= Expressions.size())
 						{
 							OutSource.clear();
-							return {EMaterialIRError::PerPropertySurfaceRootExpressionOutBounds};
+							return std::unexpected("Per-property Surface Root expression is out of bounds.");
 						}
 						Outputs[Index] = Expressions[Input.ExpressionIndex];
 					}
@@ -749,7 +748,7 @@ float4 FragmentMain(
 		if (OutSource.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutSource.clear();
-			return {EMaterialIRError::GeneratedMaterialSlangExceedsSupportedByteBound};
+			return std::unexpected("Generated material Slang exceeds the supported byte bound.");
 		}
 		return {};
 	}
@@ -774,8 +773,7 @@ float4 FragmentMain(
 			if (!std::ranges::contains(Parameters, Parameter)) Parameters.push_back(Parameter);
 		}
 		const auto Layout = CompileMaterialLayout(Parameters);
-		if (!Layout) return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Generation,
-			.Error = FMaterialError(Layout.Validation)}}};
+		if (!Layout) return {.Diagnostics = {{.Message = std::format("{}{} [index {}]", GetMaterialLayoutErrorText(Layout.Validation.Error), Layout.Validation.ParameterId.IsValid() ? std::format(" [parameter {}]", Layout.Validation.ParameterId.ToString()) : "", Layout.Validation.FieldIndex)}}};
 		return GenerateMaterialProgramSlang(IR, Layout.Layout);
 	}
 
@@ -785,8 +783,7 @@ float4 FragmentMain(
 		if (!Valid)
 		{
 			FMaterialProgramValidationResult Result;
-			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation,
-				FMaterialError(Valid)));
+			Result.Diagnostics.push_back(MakeDiagnostic(std::format("{}{} [index {}]", GetMaterialLayoutErrorText(Valid.Error), Valid.ParameterId.IsValid() ? std::format(" [parameter {}]", Valid.ParameterId.ToString()) : "", Valid.FieldIndex)));
 			return Result;
 		}
 		std::vector<FMaterialCompilerParameterDeclaration> Parameters;
@@ -813,7 +810,7 @@ float4 FragmentMain(
 		std::set<FGuid> ParameterIds;
 		if (Parameters.size() > MaterialMaxParameterDefinitionCount)
 		{
-			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, EMaterialIRError::ParameterDeclarationCountExceedsBound));
+			Result.Diagnostics.push_back(MakeDiagnostic("IR parameter declaration count exceeds its bound."));
 			return Result;
 		}
 		for (const auto& Parameter : Parameters)
@@ -822,19 +819,19 @@ float4 FragmentMain(
 					&& Parameter.Type != EMaterialParameterType::Vector && Parameter.Type != EMaterialParameterType::Vector4
 					&& Parameter.Type != EMaterialParameterType::Texture))
 			{
-				Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, EMaterialIRError::ParameterDeclarationInvalidDuplicated));
+				Result.Diagnostics.push_back(MakeDiagnostic("IR parameter declaration is invalid or duplicated."));
 				return Result;
 			}
 		FByteBuffer Canonical;
 		const auto Error = MIR::EncodeCanonical(IR, Canonical);
 		if (!Error)
 		{
-			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error.Error)));
+			Result.Diagnostics.push_back(MakeDiagnostic(Error.error()));
 			return Result;
 		}
 		// Validate the detached IR directly before indexed source generation.
-		const auto Fail = [&](FMaterialError Error) {
-			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error)));
+		const auto Fail = [&](std::string Message) {
+			Result.Diagnostics.push_back(MakeDiagnostic(std::move(Message)));
 		};
 		std::vector<uint32> Depth(IR.Nodes.size(), 1);
 		uint32 LinkCount = IR.SurfaceRoot.bAggregate ? 1u : static_cast<uint32>(
@@ -846,13 +843,13 @@ float4 FragmentMain(
 			const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
 			if ((Node.Opcode >= EMaterialProgramOpcode::FunctionInput && Node.Opcode <= EMaterialProgramOpcode::AppendVector) || !Signature || Node.Inputs.size() != Signature->InputCount)
 			{
-				Fail(EMaterialIRError::OpcodeResultTypeInputCountInvalid);
+				Fail("Material IR opcode, result type, or input count is invalid.");
 				return Result;
 			}
 			LinkCount += static_cast<uint32>(Node.Inputs.size());
 			if (LinkCount > MaterialFunctionMaxExpandedLinks)
 			{
-				Fail(EMaterialIRError::InputCountExceedsExpandedGraphBound);
+				Fail("Material IR input count exceeds the expanded graph bound.");
 				return Result;
 			}
 			for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
@@ -860,13 +857,13 @@ float4 FragmentMain(
 				const auto Input = Node.Inputs[Slot];
 				if (Input >= Index)
 				{
-					Fail(EMaterialIRError::InvalidInputOrder);
+					Fail("Material IR inputs must refer to an earlier expression.");
 					return Result;
 				}
 				const auto Accepted = Signature->Inputs[Slot];
 				if (!std::ranges::contains(Accepted, IR.Nodes[Input].ResultType))
 				{
-					Fail(EMaterialIRError::InputTypeMismatch);
+					Fail("Material IR input type does not match its opcode signature.");
 					return Result;
 				}
 				Depth[Index] = std::max(Depth[Index], Depth[Input] + 1);
@@ -877,7 +874,7 @@ float4 FragmentMain(
 				InputSemantics.push_back(IR.Nodes[Input].GetSemantics());
 			if (Node.ScalarBroadcastMask >> Node.Inputs.size())
 			{
-				Fail(EMaterialIRError::InputSemanticMismatch);
+				Fail("Material IR input stage, spatial kind, or coordinate space is incompatible with its opcode.");
 				return Result;
 			}
 			for (size_t Slot = 0; Slot < InputSemantics.size(); ++Slot)
@@ -889,7 +886,7 @@ float4 FragmentMain(
 						|| Broadcast.Inputs.size() != 1
 						|| IR.Nodes[Broadcast.Inputs[0]].ResultType != EMaterialProgramValueType::Float)
 					{
-						Fail(EMaterialIRError::InputSemanticMismatch);
+						Fail("Material IR input stage, spatial kind, or coordinate space is incompatible with its opcode.");
 						return Result;
 					}
 					InputSemantics[Slot].Type = EMaterialProgramValueType::Float;
@@ -939,12 +936,12 @@ float4 FragmentMain(
 			}
 			if (!ExpectedSemantics || *ExpectedSemantics != Node.GetSemantics())
 			{
-				Fail(EMaterialIRError::InputSemanticMismatch);
+				Fail("Material IR input stage, spatial kind, or coordinate space is incompatible with its opcode.");
 				return Result;
 			}
 			if (Depth[Index] > MaterialProgramMaxDepth)
 			{
-				Fail(EMaterialIRError::ExpressionDepthExceedsSupportedBound);
+				Fail("Material IR expression depth exceeds the supported bound.");
 				return Result;
 			}
 			if (Node.Opcode == EMaterialProgramOpcode::Constant)
@@ -953,7 +950,7 @@ float4 FragmentMain(
 				for (uint32 Component = 0; Component <= static_cast<uint32>(Node.ResultType); ++Component)
 					if (!std::isfinite(Values[Component]))
 					{
-						Fail(EMaterialIRError::NonFiniteConstant);
+						Fail("Material IR constant components must be finite.");
 						return Result;
 					}
 			}
@@ -973,7 +970,7 @@ float4 FragmentMain(
 				if (!Node.GetParameterId().IsValid() || Field == Parameters.end()
 					|| Field->Type != Expected)
 				{
-					Fail(EMaterialIRError::ParameterMissingIncompatibleBindingType);
+					Fail("Material IR parameter is missing or has an incompatible binding type.");
 					return Result;
 				}
 			}
@@ -983,13 +980,13 @@ float4 FragmentMain(
 				if (Node.GetSwizzle().Length == 0 || Node.GetSwizzle().Length > 4
 					|| Node.GetSwizzle().Length != static_cast<uint32>(Node.ResultType) + 1)
 				{
-					Fail(EMaterialIRError::SwizzleWidthMismatch);
+					Fail("Material IR swizzle length does not match its result width.");
 					return Result;
 				}
 				for (uint8 Component = 0; Component < Node.GetSwizzle().Length; ++Component)
 					if (Mask[Component] > static_cast<uint32>(IR.Nodes[Node.Inputs[0]].ResultType))
 					{
-						Fail(EMaterialIRError::SwizzleComponentExceedsInputWidth);
+						Fail("Material IR swizzle component exceeds its input width.");
 						return Result;
 					}
 			}
@@ -999,7 +996,7 @@ float4 FragmentMain(
 			if (Input.GetSemantics() != GetMaterialSurfaceOutputSemantics(
 				static_cast<EMaterialSurfaceOutput>(&Input - IR.SurfaceRoot.Inputs.data())))
 			{
-				Fail(EMaterialIRError::SurfaceRootSemanticMismatch);
+				Fail("Material IR surface root requires a Pixel value with the exact attribute semantics.");
 				return Result;
 			}
 			if (!IR.SurfaceRoot.bAggregate && Input.bExpression)
@@ -1010,7 +1007,7 @@ float4 FragmentMain(
 					|| !MaterialStagesContain(Actual.Stages,
 						EMaterialEvaluationStage::Pixel))
 				{
-					Fail(EMaterialIRError::SurfaceRootSemanticMismatch);
+					Fail("Material IR surface root requires a Pixel value with the exact attribute semantics.");
 					return Result;
 				}
 			}
@@ -1020,7 +1017,7 @@ float4 FragmentMain(
 				if (!std::ranges::all_of(Values | std::views::take(static_cast<uint32>(Input.Type) + 1),
 					[](float Value) { return std::isfinite(Value); }))
 				{
-					Fail(EMaterialIRError::NonFiniteSurfaceDefault);
+					Fail("Material IR surface defaults must be finite.");
 					return Result;
 				}
 			}
@@ -1047,7 +1044,7 @@ float4 FragmentMain(
 			IR, Layout, Collections, Result.Source);
 		Result.bSucceeded = static_cast<bool>(Error);
 		if (!Error)
-			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error.Error)));
+			Result.Diagnostics.push_back(MakeDiagnostic(Error.error()));
 		return Result;
 	}
 
@@ -1161,11 +1158,8 @@ float4 FragmentMain(
 
 	auto PrepareMaterialProgram(const MIR::FCompilerInput& Input) -> FMaterialPreparedProgram
 	{
-		const auto Begin = std::chrono::steady_clock::now();
 		FMaterialPreparedProgram Prepared;
 		Prepared.Normalized = MIR::Normalize(Input);
-		Prepared.NormalizationMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(
-			std::chrono::steady_clock::now() - Begin).count();
 		Prepared.StaticProperties = Input.StaticProperties;
 		Prepared.Environment = Input.Environment;
 		return Prepared;
@@ -1188,16 +1182,12 @@ float4 FragmentMain(
 		Result.Quality = Input.Environment.Quality;
 		Result.FeatureLevel = Input.Environment.FeatureLevel;
 		Result.StaticBools = Input.Environment.StaticBools;
-		Result.Timings.NormalizationMicroseconds = Input.NormalizationMicroseconds;
 		if (Input.Environment.BuilderVersion != GetMaterialBuildVersion()
 			|| Input.Environment.AdapterVersion != GetMaterialCompileAdapterVersion())
 		{
-			Result.Diagnostics.push_back(MakeDiagnostic(
-				EMaterialProgramDiagnosticCategory::Compile,
-				EMaterialIRError::InvalidCompilerEnvironment));
+			Result.Diagnostics.push_back(MakeDiagnostic("Material compiler environment identity, target, pass contract, or dependency bounds are invalid."));
 			return Translation;
 		}
-		const auto GenerateBegin = std::chrono::steady_clock::now();
 		const auto& Normalized = Input.Normalized;
 		if (!Normalized)
 		{
@@ -1220,9 +1210,6 @@ float4 FragmentMain(
 			return Translation;
 		}
 		Result.GeneratedSource = std::move(Generated.Source);
-		Result.Timings.GenerationMicroseconds =
-			std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::steady_clock::now() - GenerateBegin).count();
 		Translation.Status = EMaterialProgramStatus::Ok;
 		return Translation;
 	}

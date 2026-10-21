@@ -9,16 +9,13 @@ namespace Durin
 	class FMaterialObjectValidationCause final : public IObjectValidationCause
 	{
 	public:
-		FMaterialError Error;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
-		auto Format() const -> std::string override { return FormatMaterialError(Error); }
+		auto Format() const -> std::string override { return FormatMaterialProgramDiagnostics(Diagnostics, "Invalid material expression graph."); }
 	};
 
-	inline auto RejectMaterialObjectGraph(std::string ObjectPath, FMaterialError Error,
-		std::vector<FMaterialProgramDiagnostic> Diagnostics = {}) -> std::expected<void, FObjectValidationError>
+	inline auto RejectMaterialObjectGraph(std::string ObjectPath, std::vector<FMaterialProgramDiagnostic> Diagnostics) -> std::expected<void, FObjectValidationError>
 	{
 		auto Cause = std::make_shared<FMaterialObjectValidationCause>();
-		Cause->Error = std::move(Error);
 		Cause->Diagnostics = std::move(Diagnostics);
 		return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::ModuleRejected,
 			.ObjectPath = std::move(ObjectPath), .Cause = std::move(Cause)});

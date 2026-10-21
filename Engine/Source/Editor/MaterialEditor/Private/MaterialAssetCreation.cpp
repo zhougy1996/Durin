@@ -16,7 +16,7 @@ namespace Durin
 		{
 			OutError = Reset.Diagnostics.empty()
 				? std::string("Invalid empty material graph.")
-				: Durin::FormatMaterialError(Reset.Diagnostics.front().Error);
+				: Reset.Diagnostics.front().Message;
 			return false;
 		}
 		FMaterialGraphPresentation Presentation;
@@ -40,7 +40,7 @@ namespace Durin
 		OutError = Diagnostics.empty()
 			? "The new material did not produce a renderable program."
 			: std::format("The new material did not compile: {}",
-				Durin::FormatMaterialError(Diagnostics.front().Source.Error));
+				Diagnostics.front().Message);
 		return false;
 	}
 }

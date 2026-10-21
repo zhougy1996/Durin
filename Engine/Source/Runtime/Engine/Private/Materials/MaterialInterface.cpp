@@ -163,7 +163,7 @@ namespace Durin
 	}
 
 	auto ResolveMaterialProperties(const DMaterialInterface& Material,
-		FResolvedMaterialProperties& OutProperties) -> FMaterialOperationResult
+		FResolvedMaterialProperties& OutProperties) -> std::expected<void, std::string>
 	{
 		CheckMaterialQueryThread();
 		std::array<const DMaterialInterface*, MaterialMaximumParentDepth> Chain{};
@@ -174,7 +174,7 @@ namespace Durin
 			if (Count == Chain.size()
 				|| std::ranges::contains(Chain.begin(), Chain.begin() + Count, Current))
 			{
-				return {EMaterialPropertyError::ParentCycleOrDepthExceeded};
+				return std::unexpected("Material parent chain exceeds 64 owners or contains a cycle.");
 			}
 			if (!IsValid(Current)) break;
 			Chain[Count++] = Current;
@@ -182,7 +182,7 @@ namespace Durin
 		}
 		if (!Root)
 		{
-			return {EMaterialPropertyError::ParentChainNoValidRootMaterial};
+			return std::unexpected("Material parent chain has no valid root material.");
 		}
 		FResolvedMaterialProperties Result;
 		Result.Root = FObjectKey(const_cast<DMaterial*>(Root));
@@ -194,7 +194,7 @@ namespace Durin
 			const auto* Instance = Cast<DMaterialInstance>(Chain[--Count - 1]);
 			if (!Instance)
 			{
-				return {EMaterialPropertyError::ParentChainContainsUnsupportedMaterialOwner};
+				return std::unexpected("Material parent chain contains an unsupported material owner.");
 			}
 			const auto& Overrides = Instance->GetPropertyOverrides();
 			if (const auto Validation = ValidateMaterialStaticProperties(Overrides.Values); !Validation) return Validation;
@@ -232,7 +232,6 @@ namespace Durin
 			StatusOwner = Material.GetParent();
 		const auto& Status = StatusOwner->GetMaterialCompileStatus();
 		Result.CacheOutcome = Status.CacheOutcome;
-		Result.RequestDurationMicroseconds = Status.DurationMicroseconds;
 		const auto Program = Material.GetAcceptedCompiledProgram();
 		if (!Program) return Result;
 		Result.State = Status.IsCurrent()
@@ -251,7 +250,7 @@ namespace Durin
 		Result.GeneratedSourceBytes = Program->GetDebugData().GeneratedSource.size();
 		Result.CompiledShaderCount = Program->GetShaderMap().CompiledShaders.size();
 		Result.DependencyCount = Program->GetShaderMap().Dependencies.size();
-		Result.PhaseTimings = Program->Timings;
+		Result.CompileTime = Program->GetShaderMap().CompileTime;
 		for (const FShaderCode& Shader : Program->GetShaderMap().CompiledShaders)
 		{
 			const uint64 Bytes = Shader.Code.size();
@@ -325,7 +324,7 @@ namespace Durin
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
 		const auto EnvironmentError = RequestedEnvironment
-			? FMaterialOperationResult{}
+			? std::expected<void, std::string>{}
 			: BuildDefaultMaterialCompilerEnvironment(Environment);
 		if (RequestedEnvironment) Environment = std::move(*RequestedEnvironment);
 		if (!EnvironmentError)
@@ -335,12 +334,7 @@ namespace Durin
 					== std::numeric_limits<uint64>::max()
 					? 1 : CompilationOwner.MaterialCompileStatus.RequestGeneration + 1;
 			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
-			CompilationOwner.MaterialCompileDiagnostics = {{
-				.Source = {
-					.Category = EMaterialProgramDiagnosticCategory::Dependency,
-					.Error = std::move(EnvironmentError.Error)},
-				.Generation = CompilationOwner.MaterialCompileStatus.RequestGeneration,
-			}};
+			CompilationOwner.MaterialCompileDiagnostics = {{.Message = EnvironmentError.error()}};
 			RetireFailedMaterialGeneration(Context);
 			return false;
 		}
@@ -351,11 +345,7 @@ namespace Durin
 			Status.RequestGeneration = Status.RequestGeneration == std::numeric_limits<uint64>::max()
 				? 1 : Status.RequestGeneration + 1;
 			Status.State = EMaterialCompileState::Failed;
-			CompilationOwner.MaterialCompileDiagnostics.clear();
-			for (const auto& Diagnostic : Snapshot.Diagnostics)
-				CompilationOwner.MaterialCompileDiagnostics.push_back({
-					.Source = Diagnostic,
-					.Generation = Status.RequestGeneration});
+			CompilationOwner.MaterialCompileDiagnostics = std::move(Snapshot.Diagnostics);
 			RetireFailedMaterialGeneration(Context);
 			return false;
 		}
@@ -611,9 +601,7 @@ namespace Durin
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
 			auto& Status = Owner->CompilationOwner.MaterialCompileStatus;
 			Status.State = EMaterialCompileState::Failed;
-			Owner->CompilationOwner.MaterialCompileDiagnostics = {{
-				.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency, .Error = Error.Error},
-				.Generation = Status.RequestGeneration}};
+			Owner->CompilationOwner.MaterialCompileDiagnostics = {{.Message = Error.error()}};
 			Owner->RetireFailedMaterialGeneration(&Context);
 			Notifications.emplace_back(Owner);
 		}

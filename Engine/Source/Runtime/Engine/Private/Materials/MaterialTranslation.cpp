@@ -2,7 +2,6 @@
 #if DURIN_WITH_EDITOR
 #include "MaterialTranslationCodec.h"
 #include "Asset/ResourceBuildSessions.h"
-#include "Serialization/BinaryFormat.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
 
@@ -14,8 +13,8 @@ namespace Durin::MaterialBuildPrivate
 		AssetPrivate::FResourceBuildSessions Sessions;
 		std::atomic_uint64_t Producers = 0, Resolutions = 0, Hits = 0, ProducerMicroseconds = 0, GameThreadProducers = 0;
 		auto InputReference(FXxHash128 Identity) -> FBuildInputReference { return {"Input", Identity, "Material.TranslationInput", 1, "Material.MIR", 1}; }
-		auto Failure(FMaterialError Error) -> FMaterialTranslatedProgram
-		{ FMaterialTranslatedProgram Product; Product.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(Error)}); return Product; }
+		auto Failure(std::string Message) -> FMaterialTranslatedProgram
+		{ FMaterialTranslatedProgram Product; Product.Diagnostics.push_back({.Message = std::move(Message)}); return Product; }
 		class FResolver final : public IBuildInputResolver
 		{
 		public:
@@ -77,8 +76,6 @@ namespace Durin::MaterialBuildPrivate
 				if (!DecodeTranslationProduct(Encoded->GetBytes(), *Identity, *Decoded)) return Context.FailExecution("Material translation output failed typed validation.");
 				ProducerMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count());
 				Context.AddValue(FValueId::FromName("Product"), std::move(*Encoded));
-				FBinaryWriter Timing; Timing.WriteU64(Product.Timings.NormalizationMicroseconds); Timing.WriteU64(Product.Timings.GenerationMicroseconds);
-				if (auto Observation = MakeBuildMetadata(FSharedByteBuffer::Take(Timing.TakeBytes()))) Context.AddObservation(FValueId::FromName("Timings"), std::move(*Observation));
 			}
 		};
 		struct FRequest
@@ -101,20 +98,20 @@ namespace Durin::MaterialBuildPrivate
 			auto Definition = std::move(Builder).Build(); if (!Definition) return {};
 			return FRequest{std::move(*Definition), std::move(Resolver)};
 		}
-		auto ConsumerError(const MIR::FCompilerInput& Input) -> FMaterialError
+		auto ConsumerError(const MIR::FCompilerInput& Input) -> std::string
 		{
-			if (auto Validation = ValidateMaterialNormalizationEnvironment(Input); !Validation) return Validation.Diagnostics.front().Error;
+			if (auto Validation = ValidateMaterialNormalizationEnvironment(Input); !Validation) return FormatMaterialProgramDiagnostics(Validation.Diagnostics);
 			if (Input.Environment.CompilerIdentity.empty() || Input.Environment.BuilderVersion != GetMaterialBuildVersion() || Input.Environment.AdapterVersion != GetMaterialCompileAdapterVersion()
 				|| Input.Environment.Target.empty() || Input.Environment.Dependencies.size() > 64 || Input.Environment.CompilerIdentity.size() > MaterialProgramMaxStringBytes
-				|| Input.Environment.Target.size() > MaterialProgramMaxStringBytes) return EMaterialIRError::InvalidCompilerEnvironment;
-			if (Input.Sources.size() > MaterialFunctionMaxExpandedNodes) return EMaterialIRError::SourceMetadataCountExceedsBound;
+				|| Input.Environment.Target.size() > MaterialProgramMaxStringBytes) return "Material compiler environment identity, target, pass contract, or dependency bounds are invalid.";
+			if (Input.Sources.size() > MaterialFunctionMaxExpandedNodes) return "IR source metadata count exceeds its bound.";
 			uint64 Bytes = 0;
 			for (const auto& Source : Input.Sources)
 			{
 				Bytes += sizeof(Source) + Source.FunctionAssetPath.capacity() + Source.CallPath.capacity() * sizeof(FGuid);
 				if (Source.ExpressionIndex >= Input.IR.Nodes.size() || Source.CallPath.size() > MaterialFunctionMaxCallDepth || Source.FunctionAssetPath.size() > MaterialProgramMaxStringBytes
 					|| Bytes > MaterialFunctionMaxClosureBytes || (Source.InputIndex && *Source.InputIndex >= MaterialProgramMaxNodeInputCount) || (Source.UVFieldIndex && *Source.UVFieldIndex >= 4))
-					return EMaterialIRError::SourceMetadataInvalidExceedsBound;
+					return "IR source metadata is invalid or exceeds its bound.";
 			}
 			return {};
 		}
@@ -134,10 +131,6 @@ namespace Durin::MaterialBuildPrivate
 			if (Product)
 			{
 				if (HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)) ++Hits;
-				for (const auto& Observation : Output->GetObservations()) if (Observation.Id == FValueId::FromName("Timings"))
-				{
-					auto Bytes = Observation.Object.GetView().Find("Payload").AsBinary(); if (Bytes) { FBinaryReader Reader(Bytes->GetBytes()); Reader.ReadU64(Product->Timings.NormalizationMicroseconds); Reader.ReadU64(Product->Timings.GenerationMicroseconds); }
-				}
 			}
 			return Product;
 		}
@@ -156,13 +149,13 @@ namespace Durin::MaterialBuildPrivate
 		-> std::expected<FBuildRequest, FBuildAdmissionError>;
 	auto TranslateMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialTranslatedProgram
 	{
-		if (auto Error = ConsumerError(Input); Error.HasError()) return Failure(Error);
-		auto Bytes = EncodeTranslationInput(Input); if (!Bytes) return Failure(EMaterialIRError::CanonicalBytesExceedSupportedBound);
+		if (auto Error = ConsumerError(Input); !Error.empty()) return {.Diagnostics = {{.Message = std::move(Error)}}};
+		auto Bytes = EncodeTranslationInput(Input); if (!Bytes) return Failure("Material IR canonical bytes exceed the supported byte bound.");
 		auto Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Bytes, FXxHash128::HashBuffer(Bytes->GetBytes())});
 		FMaterialTranslatedProgram Product; FRequestOwner Owner;
 		auto Admitted = SubmitValidatedTranslation(std::make_shared<const MIR::FCompilerInput>(Input), Force, Owner,
 			[&](auto Value) { Product = std::move(Value); }, {}, true, std::move(Encoded), EBuildCacheExecution::Inline);
-		if (!Admitted) return Failure(FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, Admitted.error().Description));
+		if (!Admitted) return Failure(Admitted.error().Description);
 		require(Owner.Wait() == ERequestWaitResult::Completed);
 		return Product;
 	}
@@ -182,7 +175,7 @@ namespace Durin::MaterialBuildPrivate
 						// Retry ownership joins the same owner; only the final typed callback is delivered.
 						auto Retried = SubmitValidatedTranslation(Input, Force, Owner, Completion, Cancellation, false, Encoded, Execution);
 						if (Retried) return;
-						return Completion(Failure(FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, Retried.error().Description)));
+						return Completion(Failure(Retried.error().Description));
 					}
 				}
 				if (Result.GetStatus() == EStatus::Canceled) return Completion({.Status = EMaterialProgramStatus::Canceled});
@@ -195,18 +188,17 @@ namespace Durin::MaterialBuildPrivate
 						if (!Diagnostic.empty()) Diagnostic += '\n';
 						Diagnostic.append(Message.Text, 0, MaterialProgramMaxDiagnosticMessageBytes - Diagnostic.size());
 					}
-				Completion(Failure(Diagnostic.empty() ? FMaterialError(EMaterialIRError::InvalidStructure)
-					: FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, std::move(Diagnostic))));
+				Completion(Failure(Diagnostic.empty() ? "Material IR version, node count, or surface output count is invalid."
+					: std::move(Diagnostic)));
 			}, {}, Options(Request->Resolver, Force, Cancellation, Query));
 	}
 	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
 		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query,
-		std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution, FMaterialError* ConsumerValidationError)
+		std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
 		-> std::expected<FBuildRequest, FBuildAdmissionError>
 	{
 		const auto Error = ConsumerError(*Input);
-		if (ConsumerValidationError) *ConsumerValidationError = Error;
-		if (Error.HasError()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, FormatMaterialError(Error)});
+		if (!Error.empty()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, Error});
 		return SubmitValidatedTranslation(std::move(Input), Force, Owner, std::move(Completion), std::move(Cancellation), Query, std::move(EncodedInput), Execution);
 	}
 

@@ -99,20 +99,20 @@ namespace Durin
 		ENGINE_API auto SetParameterValue(
 			const FGuid& Id,
 			const FMaterialParameterValue& Value
-			) -> FMaterialOperationResult;
+			) -> std::expected<void, std::string>;
 		// Dynamic instances only. Validates the complete borrowed batch against one
 		// accepted parent contract for Set. Clear only needs a valid local GUID,
 		// including orphaned values. Commits and publishes at most once.
 		ENGINE_API auto ApplyDynamicParameterUpdates(
 			std::span<const FMaterialDynamicParameterUpdate> Updates)
-			-> FMaterialOperationResult;
+			-> std::expected<void, std::string>;
 		ENGINE_API auto ClearParameterValue(const FGuid& Id) -> bool;
 		ENGINE_API auto HasLocalParameterValue(const FGuid& Id) const -> bool;
 		ENGINE_API auto IsParameterValueOrphan(const FGuid& Id) const -> bool;
-		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> FMaterialOperationResult;
-		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> FMaterialOperationResult;
-		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> FMaterialOperationResult;
-		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> FMaterialOperationResult;
+		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> std::expected<void, std::string>;
+		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> std::expected<void, std::string>;
+		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> std::expected<void, std::string>;
+		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> std::expected<void, std::string>;
 		ENGINE_API auto ClearScalarParameterValue(FName Name) -> bool;
 		ENGINE_API auto ClearVector2ParameterValue(FName Name) -> bool;
 		ENGINE_API auto ClearVectorParameterValue(FName Name) -> bool;
@@ -148,7 +148,7 @@ namespace Durin
 		DPROPERTY(Edit)
 		std::vector<FMaterialTextureParameterValue> TextureParameterValues;
 
-		auto ValidateParameterStorage(const FPropertyEditProposal* Proposal = nullptr) const -> FMaterialOperationResult;
+		auto ValidateParameterStorage(const FPropertyEditProposal* Proposal = nullptr) const -> std::expected<void, std::string>;
 		template<typename TVisitor> auto VisitParameterValueArrays(TVisitor&& Visitor) -> void
 		{
 			Visitor(ScalarParameterValues);

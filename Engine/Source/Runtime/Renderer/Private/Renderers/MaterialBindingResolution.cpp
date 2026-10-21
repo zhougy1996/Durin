@@ -16,7 +16,7 @@ namespace Durin::RendererPrivate
 			return true;
 
 		DURIN_ERROR("Renderer material binding failed: context={}, identity=prepared-material, message={}",
-			DiagnosticResource, FormatMaterialError(Diagnostic.Error));
+			DiagnosticResource, Diagnostic.Message);
 		return false;
 	}
 
@@ -38,7 +38,7 @@ namespace Durin::RendererPrivate
 			Material.Representation.GetLayout().Identity;
 		DURIN_ERROR("Renderer material binding failed: context={}, layout-version={}, layout-id={}, message={}. ErrorMaterial was selected.",
 			DiagnosticResource, RejectedIdentity.Version, RejectedIdentity.Id.ToString(),
-			FormatMaterialError(Diagnostic.Error));
+			Diagnostic.Message);
 
 		Material = GetErrorMaterialRenderData();
 		FMaterialRenderValidationDiagnostic ErrorDiagnostic;
@@ -51,7 +51,7 @@ namespace Durin::RendererPrivate
 		checkf(
 			false,
 			"ErrorMaterial must satisfy the compiled layout binding contract: %s",
-			Durin::FormatMaterialError(ErrorDiagnostic.Error).c_str());
+			ErrorDiagnostic.Message.c_str());
 		return false;
 	}
 }

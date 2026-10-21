@@ -10210,11 +10210,11 @@ namespace
 		auto GetBuildVersion() const -> uint64 override { return 0x123456789abcdef0ull; }
 		auto GetCompileAdapterVersion() const -> Durin::FShaderCompileAdapterVersion override { return {3, 2, 6}; }
 		auto SubmitMounted(std::string_view, const Durin::FShaderCompileOptions&, Durin::FShaderBuildRequestOptions, Durin::FShaderBuildCompletion)
-			-> std::expected<Durin::FShaderBuildHandle, Durin::FShaderBuildAdmissionError> override
-		{ return std::unexpected(Durin::FShaderBuildAdmissionError{Durin::EShaderBuildAdmissionReason::Closed}); }
+			-> std::expected<Durin::FShaderBuildHandle, Durin::EShaderBuildAdmissionReason> override
+		{ return std::unexpected(Durin::EShaderBuildAdmissionReason::Closed); }
 		auto SubmitGenerated(Durin::FGeneratedShaderCompileRequest, Durin::FShaderBuildRequestOptions, Durin::FShaderBuildCompletion)
-			-> std::expected<Durin::FShaderBuildHandle, Durin::FShaderBuildAdmissionError> override
-		{ return std::unexpected(Durin::FShaderBuildAdmissionError{Durin::EShaderBuildAdmissionReason::Closed}); }
+			-> std::expected<Durin::FShaderBuildHandle, Durin::EShaderBuildAdmissionReason> override
+		{ return std::unexpected(Durin::EShaderBuildAdmissionReason::Closed); }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }
 		auto GetCookInputIdentity(std::string& OutIdentity,
 			const std::function<bool()>& IsCancelled) -> Durin::FShaderCompletion override

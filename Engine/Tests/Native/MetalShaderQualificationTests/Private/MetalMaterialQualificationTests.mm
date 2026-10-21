@@ -240,7 +240,7 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialDirectMslCompiles)
 			auto Input = MakeMaterialInput(bTextured);
 			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(
 			Input.Environment, Durin::VulkanShaderTarget);
-			ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
+			ASSERT_TRUE(Environment) << Environment.error();
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled);
 			for (size_t Index = 0; Index < Durin::MaterialCompiledEntryPoints.size(); ++Index)
@@ -279,10 +279,10 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialVariantsCompileAsMetalL
 			auto Input = MakeMaterialInput(bTextured);
 			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(
 			Input.Environment, Durin::VulkanShaderTarget);
-			ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
+			ASSERT_TRUE(Environment) << Environment.error();
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
-				: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
+				: Compiled.Diagnostics.front().Message);
 			ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
 			EXPECT_EQ(Compiled.GetShaderMap().Layout.ResourceFieldCount, bTextured ? 1u : 0u);
 			EXPECT_EQ(Compiled.GetShaderMap().Layout.Fields.size(), bTextured ? 4u : 0u);
@@ -322,10 +322,10 @@ TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceC
 			if (bLit) Input.StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Lit;
 			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(
 			Input.Environment, Durin::VulkanShaderTarget);
-			ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
+			ASSERT_TRUE(Environment) << Environment.error();
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
-				: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
+				: Compiled.Diagnostics.front().Message);
 			id<MTLDevice> Device = MTLCreateSystemDefaultDevice();
 			ASSERT_NE(Device, nil);
 			id<MTLFunction> VertexFunction = nil;
@@ -490,10 +490,10 @@ TEST(FMetalMaterialQualificationTests, MaskedMaterialSamplesTextureAndDiscardsBe
 		Input.StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
 		const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(
 			Input.Environment, Durin::VulkanShaderTarget);
-		ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
+		ASSERT_TRUE(Environment) << Environment.error();
 		const auto Compiled = Durin::MIR::Compile(Input);
 		ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
-			: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
+			: Compiled.Diagnostics.front().Message);
 		ASSERT_EQ(Compiled.GetShaderMap().Layout.UniformPayloadSize, 64u);
 		ASSERT_EQ(Compiled.GetShaderMap().Layout.ResourceFieldCount, 1u);
 		const auto& Shader = Compiled.GetShaderMap().CompiledShaders[0];

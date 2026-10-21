@@ -83,7 +83,7 @@ namespace Durin
 				const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(),
 					Backend == ERHIBackend::Metal ? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
 					ECookTargetProfile::Game, Quality, Level, {}, Result->Properties, Result->Program);
-				if (!Decoded) Result->Diagnostic = FormatMaterialError(Decoded.Error);
+				if (!Decoded) Result->Diagnostic = Decoded.error();
 				return Read;
 			});
 		return Preparation;
@@ -113,14 +113,17 @@ namespace Durin
 		if (!Read || !State->Result->Program || !State->Result->Diagnostic.empty())
 		{
 			if (!Read && State->Result->Diagnostic.empty()) State->Result->Diagnostic = FormatPackageResourceReadError(Read);
+			Owner->MaterialCookDiagnostic = State->Result->Diagnostic;
 			return State->Status = EMaterialProgramPreparationState::Failed;
 		}
 		const auto Admitted = Owner->AdmitCookedProgram(State->Result->Properties, State->Result->Program);
 		if (!Admitted)
 		{
-			State->Result->Diagnostic = FormatMaterialError(Admitted.Error);
+			State->Result->Diagnostic = Admitted.error();
+			Owner->MaterialCookDiagnostic = State->Result->Diagnostic;
 			return State->Status = EMaterialProgramPreparationState::Failed;
 		}
+		Owner->MaterialCookDiagnostic.clear();
 		State->Result->Program = Owner->GetAcceptedCompiledProgram();
 		return State->Status = EMaterialProgramPreparationState::Ready;
 	}

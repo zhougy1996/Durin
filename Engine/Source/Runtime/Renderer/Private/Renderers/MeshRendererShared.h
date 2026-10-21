@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "Materials/MaterialShaderMap.h"
-#include "Materials/MaterialDiagnostic.h"
 #include "Renderers/MeshVertexFactory.h"
 
 #include "Renderers/MeshRenderingCommon.h"

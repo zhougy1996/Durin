@@ -172,7 +172,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> FMaterialOperationResult
+	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> std::expected<void, std::string>
 	{
 		const auto Error = ValidateMaterialStaticProperties(InProperties);
 		if (!Error) return Error;
@@ -199,50 +199,50 @@ namespace Durin
 		return {};
 	}
 
-	auto DMaterial::SetScalarParameterValue(FName Name, float Value) -> FMaterialOperationResult
+	auto DMaterial::SetScalarParameterValue(FName Name, float Value) -> std::expected<void, std::string>
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Scalar);
+		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Scalar);
 		if (!Validated) return Validated;
-		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeScalar(Value)), Name);
+		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeScalar(Value));
 	}
 
-	auto DMaterial::SetVector2ParameterValue(FName Name, const FVector2& Value) -> FMaterialOperationResult
+	auto DMaterial::SetVector2ParameterValue(FName Name, const FVector2& Value) -> std::expected<void, std::string>
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Vector4);
+		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Vector4);
 		if (!Validated) return Validated;
-		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0))), Name);
+		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
 	}
 
-	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> FMaterialOperationResult
+	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> std::expected<void, std::string>
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Vector4);
+		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Vector4);
 		if (!Validated) return Validated;
-		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0))), Name);
+		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
 	}
 
-	auto DMaterial::SetTextureParameterValue(FName Name, DTexture2D* Value) -> FMaterialOperationResult
+	auto DMaterial::SetTextureParameterValue(FName Name, DTexture2D* Value) -> std::expected<void, std::string>
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Texture);
+		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Texture);
 		if (!Validated) return Validated;
 		auto Candidate = Definition->Value;
 		Candidate.GetTexture().Texture = Value;
-		return WithMaterialParameterName(SetParameterValue(Definition->Id, Candidate), Name);
+		return SetParameterValue(Definition->Id, Candidate);
 	}
 
-	auto DMaterial::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> FMaterialOperationResult
+	auto DMaterial::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> std::expected<void, std::string>
 	{
-		if (!Id.IsValid()) return {FMaterialError(EMaterialParameterError::InvalidId, Id)};
+		if (!Id.IsValid()) return std::unexpected(std::format("{} [parameter {}]", "Material declaration GUID is invalid.", Id.ToString()));
 		auto Entry = std::ranges::find(ParameterSchema, Id, &FMaterialParameterDefinition::Id);
-		if (Entry == ParameterSchema.end()) return {FMaterialError(EMaterialParameterError::NotFound, Id)};
+		if (Entry == ParameterSchema.end()) return std::unexpected(std::format("{} [parameter {}]", "Material declaration does not exist.", Id.ToString()));
 		const bool bCooked = GetAssetRuntimeConfiguration().RequiresCookedPayload();
 		auto Definition = *Entry;
 		Definition.Value = Value;
 		const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1));
-		if (!Validation) return {FMaterialError(Validation)};
+		if (!Validation) return std::unexpected(std::format("{} [parameter {}]", GetMaterialParameterErrorText(Validation.Error), Validation.ParameterId.ToString()));
 		if (*Entry == Definition) return {};
 		if (!bCooked)
 		{
@@ -251,17 +251,17 @@ namespace Durin
 			for (const auto& Expression : ExpressionCollection.Expressions)
 				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id)
 				{
-					if (Parameter->GetParameterDefinition() != *Entry) return {FMaterialError(EMaterialParameterError::OwnerMismatch, Id)};
+					if (Parameter->GetParameterDefinition() != *Entry) return std::unexpected(std::format("{} [parameter {}]", "The parameter expression disagrees with its declaration.", Id.ToString()));
 					Owners.push_back(Parameter);
 				}
-			if (Owners.empty()) return {FMaterialError(EMaterialParameterError::OwnerMissing, Id)};
+			if (Owners.empty()) return std::unexpected(std::format("{} [parameter {}]", "The parameter has no authored expression owner.", Id.ToString()));
 			for (auto* Parameter : Owners)
 			{
 				const auto Applied = Parameter->SetParameterDefinition(Definition);
 				require(Applied);
 			}
 #else
-			return {FMaterialError(EMaterialParameterError::OwnerMissing, Id)};
+			return std::unexpected(std::format("{} [parameter {}]", "The parameter has no authored expression owner.", Id.ToString()));
 #endif
 		}
 
@@ -462,15 +462,15 @@ namespace Durin
 		Super::PostLoad();
 		if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation)
 		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatMaterialError(Validation.Error));
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Validation.error());
 			return;
 		}
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
-				MaterialCookDiagnostic = EMaterialCookError::ProgramUnavailable;
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatMaterialError(MaterialCookDiagnostic));
+				MaterialCookDiagnostic = "Material cooked program is unavailable.";
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), MaterialCookDiagnostic);
 				return;
 			}
 			CompilationOwner.RenderLayer.CompiledProgram.reset();
@@ -491,7 +491,7 @@ namespace Durin
 		{
 			const auto Message = ProgramValidation.Diagnostics.empty()
 				? "Material program validation failed."
-				: Durin::FormatMaterialError(ProgramValidation.Diagnostics.front().Error);
+				: ProgramValidation.Diagnostics.front().Message;
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Message);
 			return;
 		}

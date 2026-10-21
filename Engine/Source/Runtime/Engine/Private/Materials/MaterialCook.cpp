@@ -44,7 +44,7 @@ namespace Durin
 		if (!Preparation->ReserveWorkingSet(Configurations->size() * 64ull * 1024 * 1024)) return;
 		FMaterialCompilerEnvironment BaseEnvironment;
 		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetCookedShaderTarget()); !Environment) {
-			Context.Result = {EObjectCookError::Preparation, FormatMaterialError(Environment.Error)}; return;
+			Context.Result = {EObjectCookError::Preparation, Environment.error()}; return;
 		}
 		BaseEnvironment.bIncludeEditorPasses = false;
 		struct FMaterialCookWork
@@ -116,13 +116,13 @@ namespace Durin
 			}
 			FByteBuffer Bytes;
 			const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties, Platform, ECookTargetProfile::Game, Bytes);
-			if (!Encoded) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, FormatMaterialError(Encoded.Error)}; return; }
+			if (!Encoded) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, Encoded.error()}; return; }
 			auto Bulk = FBulkData::TryCreateDetached(Bytes);
 			if (!Bulk) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, FormatBulkDataError(Bulk.error())}; return; }
 			Preparation->Primary = std::move(*Bulk);
 		};
 		for (size_t Index = 0; Index < Inputs.size(); ++Index) {
-			auto Submitted = FShaderCompilingManager::Get().SubmitJobs(Inputs[Index],
+			auto Submitted = FMaterialShaderMap::Compile(Inputs[Index],
 				{.Cancellation = Work->Cancellation},
 				[Work, Index](MaterialBuildPrivate::FMaterialBuildResult Build) {
 					const auto& Result = *Build.Program;
@@ -161,16 +161,14 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterialInterface::LoadCookedProgram() -> FMaterialOperationResult
+	auto DMaterialInterface::LoadCookedProgram() -> void
 	{
-		auto FailCooked = [&](FMaterialError Error) -> FMaterialOperationResult {
-			MaterialCookDiagnostic = Error;
-			return {std::move(Error)};
-		};
 		auto Read = CookedProgramData.AcquireRead();
 		if (!Read)
 		{
-			return FailCooked(FMaterialError::FromBulkRead(Read.Status, Read.Error));
+			MaterialCookDiagnostic = std::format("Material cooked payload read failed [bulk status {}].{}",
+				static_cast<uint8>(Read.Status), !Read.Error ? " " + FormatPackageResourceReadError(Read.Error) : "");
+			return;
 		}
 		const FByteView Bytes = Read.Lock.GetBytes();
 
@@ -190,32 +188,29 @@ namespace Durin
 			PayloadProperties, ProgramCandidate);
 		if (!Decoded)
 		{
-			return FailCooked(Decoded.Error);
+			MaterialCookDiagnostic = Decoded.error();
+			return;
 		}
 		Read.Lock.Reset();
-		return AdmitCookedProgram(PayloadProperties, std::move(ProgramCandidate));
+		const auto Admitted = AdmitCookedProgram(PayloadProperties, std::move(ProgramCandidate));
+		MaterialCookDiagnostic = Admitted ? std::string{} : Admitted.error();
 	}
 
 	auto DMaterialInterface::AdmitCookedProgram(const FMaterialStaticProperties& PayloadProperties,
-		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> FMaterialOperationResult
+		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> std::expected<void, std::string>
 	{
-		auto FailCooked = [&](FMaterialError Error) -> FMaterialOperationResult {
-			MaterialCookDiagnostic = Error;
-			return {std::move(Error)};
-		};
 		auto ExpectedProperties = GetStaticProperties();
 		ExpectedProperties.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(ExpectedProperties).OpacityMaskThreshold;
 		if (PayloadProperties != ExpectedProperties)
 		{
-			return FailCooked(
-				EMaterialCookError::StaticPropertiesMismatch);
+			return std::unexpected("payload static properties do not match package metadata.");
 		}
 		for (const auto& Parameter : ProgramCandidate->GetShaderMap().ActiveParameters)
 		{
 			const auto* Definition = FindParameterDefinition(Parameter.Id);
 			if (!Definition || Definition->Type != Parameter.Type)
 			{
-				return FailCooked(EMaterialCookError::ParameterContractMismatch);
+				return std::unexpected("payload parameter contract does not match package metadata.");
 			}
 		}
 		if (!ProgramCandidate->ActiveCollections.empty())
@@ -229,16 +224,13 @@ namespace Durin
 				if (Required.AssetPath.empty()) continue;
 				FObjectPath Path;
 				if (!FObjectPath::TryCreate(Required.AssetPath, Path))
-					return FailCooked(
-						EMaterialCookError::CollectionContractMismatch);
+					return std::unexpected("payload collection asset is missing or its schema does not match the cooked material.");
 				auto Collection = LoadObject<DMaterialParameterCollection>(Path);
 				if (!Collection)
-					return FailCooked(
-						EMaterialCookError::CollectionContractMismatch);
+					return std::unexpected("payload collection asset is missing or its schema does not match the cooked material.");
 				auto Current = (*Collection)->BuildLayout();
 				if (!Current || !Required.HasCompatibleSchema(*Current))
-					return FailCooked(
-						EMaterialCookError::CollectionContractMismatch);
+					return std::unexpected("payload collection asset is missing or its schema does not match the cooked material.");
 				Required.DefaultPayload = std::move(Current->DefaultPayload);
 			}
 			ProgramCandidate = std::move(ResolvedProgram);
@@ -257,7 +249,6 @@ namespace Durin
 			CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
 		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().Target;
 		CompilationOwner.MaterialCompileDiagnostics.clear();
-		MaterialCookDiagnostic = {};
 		PublishMaterialRenderProxyState();
 		return {};
 	}
@@ -284,7 +275,7 @@ namespace Durin
 				std::shared_ptr<const FMaterialCompilerResult> Program;
 				const auto Decoded = DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), TargetPlatform,
 					ECookTargetProfile::Game, Configuration.Quality, Configuration.FeatureLevel, {}, Properties, Program);
-				if (!Decoded) return FShaderCompletion::Failure(FormatMaterialError(Decoded.Error));
+				if (!Decoded) return FShaderCompletion::Failure(Decoded.error());
 				Variants.push_back(std::move(Program));
 			}
 			std::vector<const FMaterialCompilerResult*> Programs;
@@ -292,7 +283,7 @@ namespace Durin
 			FByteBuffer Bytes;
 			const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties,
 				TargetPlatform, ECookTargetProfile::Game, Bytes);
-			if (!Encoded) return FShaderCompletion::Failure(FormatMaterialError(Encoded.Error));
+			if (!Encoded) return FShaderCompletion::Failure(Encoded.error());
 			auto Bulk = FBulkData::TryCreateDetached(Bytes);
 			if (!Bulk) return FShaderCompletion::Failure(FormatBulkDataError(Bulk.error()));
 			if (Control.IsCancelled()) return FShaderCompletion::Canceled();
@@ -304,7 +295,7 @@ namespace Durin
 			return FShaderCompletion::Failure("Material Cook target or configuration is unsupported.");
 		FMaterialCompilerEnvironment BaseEnvironment;
 		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetCookedShaderTarget()); !Environment)
-			return FShaderCompletion::Failure(FormatMaterialError(Environment.Error));
+			return FShaderCompletion::Failure(Environment.error());
 		BaseEnvironment.bIncludeEditorPasses = false;
 		std::vector<FMaterialCompilerResult> Variants;
 		Variants.reserve(Configurations->size());
@@ -327,7 +318,7 @@ namespace Durin
 		FByteBuffer Bytes;
 		const auto Encoded = EncodeMaterialCookedProgramFamily(Programs,
 			CanonicalizeMaterialShaderProperties(GetStaticProperties()), TargetPlatform, ECookTargetProfile::Game, Bytes);
-		if (!Encoded) return FShaderCompletion::Failure(FormatMaterialError(Encoded.Error));
+		if (!Encoded) return FShaderCompletion::Failure(Encoded.error());
 		auto Bulk = FBulkData::TryCreateDetached(Bytes);
 		if (!Bulk) return FShaderCompletion::Failure(FormatBulkDataError(Bulk.error()));
 		if (Control.IsCancelled()) return FShaderCompletion::Canceled();

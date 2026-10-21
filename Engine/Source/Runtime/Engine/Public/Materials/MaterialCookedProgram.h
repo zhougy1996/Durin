@@ -23,7 +23,7 @@ namespace Durin
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteBuffer& OutBytes) -> FMaterialOperationResult;
+		FByteBuffer& OutBytes) -> std::expected<void, std::string>;
 
 	[[nodiscard]] ENGINE_API auto DecodeMaterialCookedProgramFamily(
 		FByteView Bytes,
@@ -33,5 +33,5 @@ namespace Durin
 		ERHIFeatureLevel FeatureLevel,
 		std::span<const FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools,
 		FMaterialStaticProperties& OutStaticProperties,
-		std::shared_ptr<const FMaterialCompilerResult>& OutProgram) -> FMaterialOperationResult;
+		std::shared_ptr<const FMaterialCompilerResult>& OutProgram) -> std::expected<void, std::string>;
 }

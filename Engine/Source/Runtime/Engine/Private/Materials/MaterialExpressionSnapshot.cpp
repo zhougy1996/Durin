@@ -20,11 +20,10 @@ namespace Durin
 			const auto Values = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Index));
 			Defaults[Index] = {Values.empty() ? 0.f : Values[0], Values.size() > 1 ? Values[1] : 0.f, Values.size() > 2 ? Values[2] : 0.f};
 		}
-		auto OutputError = [&](uint32 Index, FMaterialError Error) {
+		auto OutputError = [&](uint32 Index, std::string Message) {
 			if (Result.Diagnostics.empty())
-				Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Type,
-					.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
-					.LocationIndex = Index, .Error = std::move(Error)});
+				Result.Diagnostics.push_back({.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+					.LocationIndex = Index, .Message = std::move(Message)});
 		};
 		auto ValidSelector = [](const FMaterialExpressionInput& Input) {
 			return Input.ExpressionId.IsValid() || (Input.OutputIndex == 0 && !Input.OutputId.IsValid());
@@ -38,8 +37,8 @@ namespace Durin
 		const auto OutputLinks = std::ranges::count_if(Inputs, [](const auto& Input) { return Input.Connection.ExpressionId.IsValid(); })
 			+ (Outputs.Surface.ExpressionId.IsValid() ? 1 : 0)
 			+ (Outputs.WorldPositionOffset.Connection.ExpressionId.IsValid() ? 1 : 0);
-		if (AuthoredLinks + OutputLinks > MaterialProgramMaxLinkCount) OutputError(0, EMaterialExpressionError::OutputConnectionsExceedAuthoredLinkBound);
-		if (!ValidSelector(Outputs.Surface)) OutputError(0, EMaterialExpressionError::DisconnectedSurfaceOutputOutputSelector);
+		if (AuthoredLinks + OutputLinks > MaterialProgramMaxLinkCount) OutputError(0, "Material output connections exceed the authored link bound.");
+		if (!ValidSelector(Outputs.Surface)) OutputError(0, "Disconnected Surface output has an output selector.");
 		for (uint32 Index = 0; Index < Inputs.size() && Result.Diagnostics.empty(); ++Index)
 		{
 			const auto& Input = Inputs[Index].Connection;
@@ -51,7 +50,7 @@ namespace Durin
 			if (Retained.size() != static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))) + 1
 				|| !std::ranges::all_of(Retained, [](float V) { return std::isfinite(V); }) || !ValidSelector(Input) || !std::isfinite(Default.X) || !std::isfinite(Default.Y) || !std::isfinite(Default.Z))
 			{
-				OutputError(Index, EMaterialExpressionError::OutputInvalidSelectorRetainedDefault);
+				OutputError(Index, "Material output has an invalid selector or retained default.");
 				break;
 			}
 			auto& Root = Result.IR.SurfaceRoot.Inputs[Index];
@@ -61,12 +60,10 @@ namespace Durin
 			const auto ExpressionIndex = *BroadcastScalar(ResolveIndex(Input), Root.Type).GetIndex();
 			if (!bAggregate) { Root.ExpressionIndex = ExpressionIndex; Root.bExpression = true; }
 			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != Root.Type)
-				{
-				FMaterialError Error(EMaterialExpressionError::OutputSourceIncompatibleType);
-				Error.ExpectedType = Root.Type;
-				Error.ActualType = Result.IR.Nodes[ExpressionIndex].ResultType;
-					OutputError(Index, std::move(Error));
-				}
+			{
+				OutputError(Index, std::format("Material output source has an incompatible type. [expected type {}] [actual type {}]",
+					static_cast<uint8>(Root.Type), static_cast<uint8>(Result.IR.Nodes[ExpressionIndex].ResultType)));
+			}
 			if (Result.Diagnostics.empty())
 			{
 				const auto Actual = Result.IR.Nodes[ExpressionIndex].GetSemantics();
@@ -76,7 +73,7 @@ namespace Durin
 					|| !MaterialStagesContain(Actual.Stages,
 						EMaterialEvaluationStage::Pixel))
 					OutputError(Index,
-						EMaterialExpressionError::OutputSourceIncompatibleSemantics);
+						"Material output source has an incompatible evaluation stage, spatial kind, or coordinate space.");
 			}
 		}
 		if (Outputs.Surface.ExpressionId.IsValid() && Result.Diagnostics.empty())
@@ -85,7 +82,7 @@ namespace Durin
 			const auto ExpressionIndex = ResolveIndex(Outputs.Surface);
 			if (bAggregate) { Root.bAggregate = true; Root.AggregateExpressionIndex = ExpressionIndex; }
 			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != EMaterialProgramValueType::Surface)
-				OutputError(0, EMaterialExpressionError::AggregateMaterialOutputRequiresSurfaceExpression);
+				OutputError(0, "Aggregate material output requires a Surface expression.");
 		}
 		if (Result.Diagnostics.empty())
 		{
@@ -97,7 +94,7 @@ namespace Durin
 			for (float Value : Stored.Constant) AuthoringCodeHash.UpdateValue(Value);
 			if (!ValidSelector(Input) || Stored.Constant.size() != 3
 				|| !std::ranges::all_of(Stored.Constant, [](float V) { return std::isfinite(V); }))
-				OutputError(Pin, EMaterialExpressionError::OutputInvalidSelectorRetainedDefault);
+				OutputError(Pin, "Material output has an invalid selector or retained default.");
 			else
 			{
 				auto& Root = Result.IR.WorldPositionOffset;
@@ -108,7 +105,7 @@ namespace Durin
 					if (Result.Diagnostics.empty())
 					{
 						if (!IsMaterialWorldPositionOffsetSemantics(Result.IR.Nodes[Index].GetSemantics()))
-							OutputError(Pin, EMaterialExpressionError::OutputSourceIncompatibleSemantics);
+							OutputError(Pin, "Material output source has an incompatible evaluation stage, spatial kind, or coordinate space.");
 						else { Root.bExpression = true; Root.ExpressionIndex = Index; }
 					}
 				}
@@ -184,7 +181,7 @@ namespace Durin
 		check(IsInGameThread());
 		FMaterialCompilerSnapshotResult Result;
 #if !DURIN_WITH_EDITORONLY_DATA
-		Result.Diagnostics.push_back({.Error = EMaterialExpressionError::NoTypedExpressionOwner});
+		Result.Diagnostics.push_back({.Message = "Material has no typed expression owner."});
 		return Result;
 #else
 		const DMaterialInterface* Root = &Material;
@@ -192,7 +189,7 @@ namespace Durin
 		const auto* Owner = Cast<DMaterial>(Root);
 		if (!Owner)
 		{
-			Result.Diagnostics.push_back({.Error = EMaterialExpressionError::NoTypedExpressionOwner});
+			Result.Diagnostics.push_back({.Message = "Material has no typed expression owner."});
 			return Result;
 		}
 		std::vector<DMaterialExpression*> Expressions;
@@ -213,7 +210,7 @@ namespace Durin
 					|| (ExistingName != StaticNames.end()
 						&& ExistingName->second != Declaration->DeclarationId))
 				{
-					Result.Diagnostics.push_back({.Error = EMaterialExpressionError::StaticBoolDeclarationInvalidDuplicateExceedsBound});
+					Result.Diagnostics.push_back({.Message = "Static bool declarations require unique valid GUIDs and names and are bounded to 32 per root."});
 					return Result;
 				}
 				if (Existing == StaticDeclarations.end())
@@ -234,7 +231,7 @@ namespace Durin
 					&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
 				if (Found == StaticBools.end())
 				{
-					Result.Diagnostics.push_back({.Error = EMaterialExpressionError::StaticBoolOverrideOrphan});
+					Result.Diagnostics.push_back({.Message = "A static bool override does not match a root declaration."});
 					return Result;
 				}
 				Found->Value = Override.Value;
@@ -289,7 +286,7 @@ namespace Durin
 			auto Result = std::make_shared<FMaterialParameterReachability>();
 			if (!Program)
 			{
-				Result->Validation.Diagnostics.push_back({.Error = EMaterialExpressionError::NoAcceptedCompiledProgram});
+				Result->Validation.Diagnostics.push_back({.Message = "Material has no accepted compiled program."});
 				return Result;
 			}
 			for (const auto& Parameter : Program->GetShaderMap().ActiveParameters) Result->ParameterIds.insert(Parameter.Id);
@@ -306,7 +303,7 @@ namespace Durin
 		if (!Error)
 		{
 			auto Result = std::make_shared<FMaterialParameterReachability>();
-			Result->Validation.Diagnostics.push_back({.Error = std::move(Error.Error)});
+			Result->Validation.Diagnostics.push_back({.Message = std::move(Error.error())});
 			return Result;
 		}
 		const auto* Root = Cast<DMaterial>(ResolveObjectKey(Properties.Root));

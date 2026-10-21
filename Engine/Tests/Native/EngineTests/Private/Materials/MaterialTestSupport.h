@@ -236,7 +236,7 @@ namespace
 		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 		EXPECT_TRUE(Durin::TryGetMaterialRenderBinding(
 			RenderData.Representation, Binding, Diagnostic))
-			<< Durin::FormatMaterialError(Diagnostic.Error);
+			<< Diagnostic.Message;
 		if (Binding.LayoutIdentity.Version
 			== Durin::CompiledMaterialRenderLayoutVersion)
 		{

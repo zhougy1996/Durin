@@ -15,8 +15,7 @@ namespace Durin::MaterialBuildPrivate
 	struct FMaterialBuildResult
 	{
 		std::shared_ptr<const FMaterialCompilerResult> Program;
-		std::vector<MIR::FSource> Sources;
-		std::vector<uint32> SourceOrdinals;
+		std::vector<FMaterialTranslationSource> Sources;
 		bool RetainedHit = false;
 		bool SingleFlight = false;
 		explicit operator bool() const { return Program && bool(*Program); }

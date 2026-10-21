@@ -49,15 +49,13 @@ namespace Durin
 		if (Context.bCooked) return {};
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
-		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), OwnershipError.Error);
+		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), {{.Message = OwnershipError.error()}});
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
 		auto Validation = MIR::FGraphBuilder::ValidateFunction(Expressions);
 		if (!Validation)
 		{
-			const auto Error = Validation.Diagnostics.empty()
-				? FMaterialError(EMaterialExpressionError::InvalidMaterialExpressionGraph) : Validation.Diagnostics.front().Error;
-			return RejectMaterialObjectGraph(GetObjectPath(), Error, std::move(Validation.Diagnostics));
+			return RejectMaterialObjectGraph(GetObjectPath(), std::move(Validation.Diagnostics));
 		}
 		return {};
 #else

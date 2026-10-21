@@ -28,8 +28,8 @@ namespace Durin::Testing
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Root);
 		ASSERT_TRUE(Root->GetMaterialCompileStatus().IsCurrent());
 		Durin::FMaterialCompilerEnvironment Environment;
-		Durin::FMaterialOperationResult Error;
-		ASSERT_TRUE((Error = Durin::BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
+		const auto CompilerEnvironmentResult = Durin::BuildDefaultMaterialCompilerEnvironment(Environment);
+		ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
 		auto InputCapture = Durin::SnapshotMaterialCompilerInput(*Root, Environment);
 		ASSERT_TRUE(InputCapture);
 		auto& Input = InputCapture.Snapshot->Input;
@@ -83,19 +83,20 @@ namespace Durin::Testing
 		EXPECT_EQ(After.OutstandingConsumerCount, 0u);
 		EXPECT_EQ(After.PendingPublicationCount, 0u);
 		if (!bMeasurePayloads) return;
+		std::expected<void, std::string> Error;
 		uint64 InstancePayloadBytes = 0;
 		for (auto* Instance : Instances)
 		{
 			Durin::FByteBuffer Payload;
 			ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(*Instance->GetAcceptedCompiledProgram(),
 				Instance->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
-				Durin::ECookTargetProfile::Game, Payload))) << Durin::FormatMaterialError(Error.Error);
+				Durin::ECookTargetProfile::Game, Payload))) << Error.error();
 			InstancePayloadBytes += Payload.size();
 		}
 		Durin::FByteBuffer Bytes;
 		ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(*Root->GetAcceptedCompiledProgram(),
 			Root->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
-			Durin::ECookTargetProfile::Game, Bytes))) << Durin::FormatMaterialError(Error.Error);
+			Durin::ECookTargetProfile::Game, Bytes))) << Error.error();
 		std::cout << "Variant baseline: owners=" << Instances.size()
 			<< " effective_identities=" << Identities.size()
 			<< " compatible_instances=" << CompatibleOwners

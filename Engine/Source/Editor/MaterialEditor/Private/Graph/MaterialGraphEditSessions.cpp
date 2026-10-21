@@ -172,7 +172,7 @@ namespace Durin::Editor::Material
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
 		FScopedPackageDirtySuppression SuppressPackageRevision;
 		if (const auto Applied = Material->SetParameterValue(Impl->ParameterId, Value); !Applied)
-			return RejectCommand("The material rejected the parameter value. " + FormatMaterialError(Applied.Error));
+			return RejectCommand("The material rejected the parameter value. " + Applied.error());
 		Impl->CurrentValue = std::move(Value);
 		Impl->CurrentTexture = Impl->CurrentValue.GetType() == EMaterialParameterType::Texture
 			? Impl->CurrentValue.GetTexture().Texture.Get() : nullptr;
@@ -239,7 +239,7 @@ namespace Durin::Editor::Material
 			FScopedPackageDirtySuppression SuppressPackageRevision;
 			if (const auto Restored = Material->SetParameterValue(
 				Impl->ParameterId, Impl->BeforeValue); !Restored)
-				return RejectCommand("The material rejected the original parameter value. " + FormatMaterialError(Restored.Error));
+				return RejectCommand("The material rejected the original parameter value. " + Restored.error());
 		}
 		Impl->BeforeTexture.Reset();
 		Impl->CurrentTexture.Reset();

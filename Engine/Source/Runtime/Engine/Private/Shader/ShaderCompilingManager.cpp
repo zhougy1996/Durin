@@ -149,7 +149,7 @@ namespace Durin
 					Jobs[Index].MaximumOutputBytes = Allowance;
 					return Backend->SubmitGenerated(std::move(Jobs[Index]), std::move(RequestOptions), std::move(Complete));
 				}();
-				if (!Submitted) { FinishJob(Index, Allowance, FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionError(Submitted.error()))); continue; }
+				if (!Submitted) { FinishJob(Index, Allowance, FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Submitted.error()))); continue; }
 				auto Handle = std::make_shared<FShaderBuildHandle>(std::move(*Submitted));
 				EShaderBuildPriority Priority;
 				{ std::lock_guard Lock(Mutex); Handles.push_back(Handle); Priority = Options.Priority; }
@@ -160,16 +160,16 @@ namespace Durin
 		}
 	};
 	auto FShaderCompilingManager::Get() -> FShaderCompilingManager& { static FShaderCompilingManager Manager; return Manager; }
-	auto FShaderCompilingManager::Admit(std::shared_ptr<FJobGroup> Group) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
+	auto FShaderCompilingManager::Admit(std::shared_ptr<FJobGroup> Group) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
 	{
-		if (!Group->Completion || !Group->MaximumBytes || !Group->Backend) return std::unexpected(FShaderBuildAdmissionError{});
+		if (!Group->Completion || !Group->MaximumBytes || !Group->Backend) return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
 		Group->Manager = this;
 		std::vector<std::shared_ptr<FJobGroup>> Retired;
 		{ std::lock_guard Lock(JobMutex); for (const auto& Item : Groups) if (auto Existing = Item.lock()) Retired.push_back(std::move(Existing)); }
 		std::erase_if(Retired, [](const auto& Item) { return !Item->IsComplete(); });
 		{
 			std::lock_guard Lock(JobMutex);
-			if (!Accepting && Group->MaterialCompilingId == 0) return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Closed});
+			if (!Accepting && Group->MaterialCompilingId == 0) return std::unexpected(EShaderBuildAdmissionReason::Closed);
 			std::erase_if(Groups, [&](const auto& Item) { const auto Existing = Item.lock(); return !Existing || std::ranges::contains(Retired, Existing); });
 			Groups.push_back(Group);
 		}
@@ -179,20 +179,20 @@ namespace Durin
 		return FShaderBuildHandle(std::move(Group));
 	}
 	auto FShaderCompilingManager::SubmitJobs(std::vector<FGeneratedShaderCompileRequest> Jobs, uint64 MaximumOutputBytes,
-		FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
+		FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
 	{
-		if (!Accepting) return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Closed});
-		if (Jobs.empty() || Jobs.size() > 128) return std::unexpected(FShaderBuildAdmissionError{});
+		if (!Accepting) return std::unexpected(EShaderBuildAdmissionReason::Closed);
+		if (Jobs.empty() || Jobs.size() > 128) return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
 		auto Group = std::make_shared<FJobGroup>(); Group->Backend = IShaderBuildModule::Get(); Group->Outputs.resize(Jobs.size());
 		Group->Jobs = std::move(Jobs); Group->MaximumBytes = MaximumOutputBytes;
 		Group->Options = std::move(Options); Group->Completion = std::move(Completion);
 		return Admit(std::move(Group));
 	}
 	auto FShaderCompilingManager::SubmitJobs(std::string_view Path, const FShaderCompileOptions& CompileOptions,
-		FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
+		FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
 	{
-		if (!Accepting) return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Closed});
-		if (Path.empty()) return std::unexpected(FShaderBuildAdmissionError{});
+		if (!Accepting) return std::unexpected(EShaderBuildAdmissionReason::Closed);
+		if (Path.empty()) return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
 		auto Group = std::make_shared<FJobGroup>(); Group->Backend = IShaderBuildModule::Get(); Group->Outputs.resize(1);
 		Group->MountedPath = Path; Group->MountedOptions = CompileOptions; Group->MaximumBytes = 256ull * 1024 * 1024;
 		Group->Options = std::move(Options); Group->Completion = std::move(Completion);
@@ -202,14 +202,14 @@ namespace Durin
 	{
 		FShaderCompilerOutput Output;
 		auto Submitted = SubmitJobs(std::vector{Job}, Job.MaximumOutputBytes, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
-		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionError(Submitted.error()));
+		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Submitted.error()));
 		require(FinishCompilation(*Submitted) == EShaderBuildWaitResult::Completed); return Output;
 	}
 	auto FShaderCompilingManager::CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
 	{
 		FShaderCompilerOutput Output;
 		auto Submitted = SubmitJobs(Path, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
-		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionError(Submitted.error()));
+		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Submitted.error()));
 		require(FinishCompilation(*Submitted) == EShaderBuildWaitResult::Completed); return Output;
 	}
 	auto FShaderCompilingManager::FinishCompilation(const FShaderBuildHandle& Handle) -> EShaderBuildWaitResult
@@ -256,7 +256,7 @@ namespace Durin
 		Group->Options = {.Priority = Priority, .IsCancelled = [Weak = std::weak_ptr(ShaderMap)] { const auto Value = Weak.lock(); return !Value || IsBuildCanceled(Value); }, .bInlineExecution = ShaderMap->Inline};
 		Group->Completion =
 			[ShaderMap](FShaderCompilerOutput Output) {
-				ShaderMap->Translation->Timings.CompilationMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(
+				ShaderMap->Translation->CompileTime = std::chrono::duration<float>(
 					std::chrono::steady_clock::now() - ShaderMap->CompilationBegin).count();
 				LaunchTask(ShaderMap, [ShaderMap, Output = std::move(Output)]() mutable {
 					FMaterialShaderMap::CompleteCompilation(ShaderMap,
@@ -264,7 +264,7 @@ namespace Durin
 				});
 			};
 		auto Submitted = Get().Admit(std::move(Group));
-		if (!Submitted) return FMaterialShaderMap::CompleteCompilation(ShaderMap, FMaterialCompilerResult{.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, FormatShaderBuildAdmissionError(Submitted.error()))}}});
+		if (!Submitted) return FMaterialShaderMap::CompleteCompilation(ShaderMap, FMaterialCompilerResult{.Diagnostics = {{.Message = FormatShaderBuildAdmissionReason(Submitted.error())}}});
 		auto Jobs = std::make_shared<FShaderBuildHandle>(std::move(*Submitted));
 		ShaderMap->Owner->TrackDependency({
 			.IsFinished = [Jobs] { return Jobs->IsComplete(); },

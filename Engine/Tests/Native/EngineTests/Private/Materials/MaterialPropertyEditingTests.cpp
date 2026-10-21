@@ -189,17 +189,17 @@ TEST(FMaterialPropertyEditingTests, StaticPropertiesHaveStableDefaultsAndInstanc
 	Invalid.OpacityMaskThreshold = 1.1f;
 	const uint64 InitialVersion = Base->GetRenderStateVersion();
 	const auto RejectedProperties = Base->SetStaticProperties(Invalid);
-	EXPECT_FALSE(RejectedProperties);
-	EXPECT_EQ(RejectedProperties.Error.Code, Durin::ValidateMaterialStaticProperties(Invalid).Error.Code);
+	ASSERT_FALSE(RejectedProperties);
+	EXPECT_EQ(RejectedProperties.error(), Durin::ValidateMaterialStaticProperties(Invalid).error());
 	EXPECT_EQ(Base->GetStaticProperties(), Properties);
 	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
 	ASSERT_TRUE(Base->SetStaticProperties(Properties));
 	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
-	EXPECT_TRUE(RejectedProperties.Error.HasError());
+	EXPECT_FALSE(RejectedProperties.error().empty());
 
-	Durin::FMaterialOperationResult Error;
-	EXPECT_FALSE((Error = Durin::ValidateMaterialStaticProperties(Invalid)));
-	EXPECT_TRUE(Error.Error.HasError());
+	std::expected<void, std::string> Error;
+	ASSERT_FALSE((Error = Durin::ValidateMaterialStaticProperties(Invalid)));
+	EXPECT_FALSE(Error.error().empty());
 
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Parent);

@@ -14,15 +14,13 @@ namespace Durin
 		OutDiagnostic = {};
 		if (Layout.Identity.Version != CompiledMaterialRenderLayoutVersion)
 		{
-			OutDiagnostic.Failure = EMaterialRenderValidationFailure::UnsupportedVersion;
-			OutDiagnostic.Error = EMaterialRenderError::UnsupportedLayoutVersion;
+			OutDiagnostic.Message = "Material render layouts require compiled version 4; migrate and recompile older assets.";
 			return false;
 		}
 		const auto Result = ValidateCompiledMaterialLayout(Layout);
 		if (Result) return true;
-		OutDiagnostic.Failure = EMaterialRenderValidationFailure::InvalidField;
-		OutDiagnostic.FieldIndex = Result.FieldIndex;
-		OutDiagnostic.Error = FMaterialError(Result);
+		OutDiagnostic.Message = std::format("{}{} [index {}]", GetMaterialLayoutErrorText(Result.Error),
+			Result.ParameterId.IsValid() ? std::format(" [parameter {}]", Result.ParameterId.ToString()) : "", Result.FieldIndex);
 		return false;
 	}
 }

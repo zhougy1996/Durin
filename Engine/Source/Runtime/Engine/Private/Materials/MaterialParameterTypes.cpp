@@ -139,12 +139,12 @@ namespace Durin
 	}
 
 	auto ValidateMaterialStaticProperties(
-		const FMaterialStaticProperties& Properties) -> FMaterialOperationResult
+		const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>
 	{
 		if (!Properties.GeometryUsage || (Properties.GeometryUsage & ~7)
 			|| !Properties.PassUsage || (Properties.PassUsage & ~15)
 			|| ((Properties.GeometryUsage & 4) && !(Properties.GeometryUsage & 1)))
-			return {EMaterialPropertyError::InvalidShaderUsage};
+			return std::unexpected("Material geometry/pass usage masks are invalid.");
 		switch (Properties.BlendMode)
 		{
 		case EMaterialBlendMode::Opaque:
@@ -152,7 +152,7 @@ namespace Durin
 		case EMaterialBlendMode::Translucent:
 			break;
 		default:
-			return {EMaterialPropertyError::BlendModeInvalid};
+			return std::unexpected("Material blend mode is invalid.");
 		}
 		switch (Properties.ShadingModel)
 		{
@@ -160,7 +160,7 @@ namespace Durin
 		case EMaterialShadingModel::Unlit:
 			break;
 		default:
-			return {EMaterialPropertyError::ShadingModelInvalid};
+			return std::unexpected("Material shading model is invalid.");
 		}
 		switch (Properties.DepthWritePolicy)
 		{
@@ -169,13 +169,13 @@ namespace Durin
 		case EMaterialDepthWritePolicy::Disabled:
 			break;
 		default:
-			return {EMaterialPropertyError::DepthWritePolicyInvalid};
+			return std::unexpected("Material depth-write policy is invalid.");
 		}
 		if (!std::isfinite(Properties.OpacityMaskThreshold)
 			|| Properties.OpacityMaskThreshold < 0.0f
 			|| Properties.OpacityMaskThreshold > 1.0f)
 		{
-			return {EMaterialPropertyError::InvalidOpacityMaskThreshold};
+			return std::unexpected("Material opacity-mask threshold must be finite and in the inclusive range [0, 1].");
 		}
 		return {};
 	}

@@ -105,7 +105,7 @@ namespace Durin::Editor::Material
 		}
 		if (const auto Properties = Working->SetStaticProperties(Applied.Properties); !Properties)
 		{
-			Error = FormatMaterialError(Properties.Error);
+			Error = Properties.error();
 			return false;
 		}
 		Working->SetMaterialGraphPresentation(Applied.Presentation);
@@ -201,7 +201,7 @@ namespace Durin::Editor::Material
 		}
 		if (const auto Validation = ValidateMaterialStaticProperties(Candidate.Properties); !Validation)
 		{
-			Error = FormatMaterialError(Validation.Error);
+			Error = Validation.error();
 			return false;
 		}
 		const auto PreviousMode = Source->GetEditCompileMode();

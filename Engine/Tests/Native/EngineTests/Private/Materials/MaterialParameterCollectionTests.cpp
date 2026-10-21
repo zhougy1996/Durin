@@ -216,7 +216,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	Input.IR.SurfaceRoot.Inputs[0].Type = EMaterialProgramValueType::Float3;
 	auto First = MIR::Normalize(Input);
 	ASSERT_TRUE(First) << (First.Diagnostics.empty() ? "no diagnostic"
-		: FormatMaterialError(First.Diagnostics.front().Error));
+		: First.Diagnostics.front().Message);
 	ASSERT_EQ(First.ActiveCollections.size(), 1u);
 	const auto Generated = GenerateMaterialProgramSlang(
 		First.IR, First.Layout, First.ActiveCollections);
@@ -284,15 +284,15 @@ TEST_F(FMaterialParameterCollectionTests,
 		FirstDefaults);
 
 	FByteBuffer Bytes;
-	FMaterialOperationResult Error;
+	std::expected<void, std::string> Error;
 	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(*Refreshed,
 		Material->GetStaticProperties(), ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, Bytes))) << FormatMaterialError(Error.Error);
+		ECookTargetProfile::Game, Bytes))) << Error.error();
 	FMaterialStaticProperties DecodedProperties;
 	std::shared_ptr<const FMaterialCompilerResult> Decoded;
 	ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
-		*Refreshed, DecodedProperties, Decoded))) << FormatMaterialError(Error.Error);
+		*Refreshed, DecodedProperties, Decoded))) << Error.error();
 	ASSERT_TRUE(Decoded);
 	EXPECT_FALSE(Decoded->GetShaderMap().DebugData);
 	ASSERT_EQ(Decoded->ActiveCollections.size(), 1u);
@@ -323,8 +323,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	const auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_FALSE(Built);
 	ASSERT_FALSE(Built.Diagnostics.empty());
-	EXPECT_EQ(Built.Diagnostics.front().Error.Code,
-		FMaterialError::FCode(EMaterialExpressionError::CollectionCountExceedsBound));
+	EXPECT_EQ(Built.Diagnostics.front().Message, "A material closure may reference at most four parameter collections.");
 }
 
 TEST_F(FMaterialParameterCollectionTests,
@@ -369,7 +368,7 @@ TEST_F(FMaterialParameterCollectionTests,
 		.OutputId = Signature.Outputs.front().Id};
 	const auto Built = Builder.FinishSurface(Outputs);
 	ASSERT_TRUE(Built) << (Built.Diagnostics.empty() ? "no diagnostic"
-		: FormatMaterialError(Built.Diagnostics.front().Error));
+		: Built.Diagnostics.front().Message);
 	ASSERT_EQ(Built.Collections.size(), 1u);
 	EXPECT_EQ(Built.Collections.front().CollectionId,
 		Collection->GetCollectionId());

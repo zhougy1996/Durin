@@ -881,7 +881,7 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 				const auto Validation = MIR::FGraphBuilder::ValidateSurface(Expressions, {});
 				EXPECT_EQ(static_cast<bool>(Validation), bAccepted)
 					<< (Validation.Diagnostics.empty() ? std::string{}
-						: FormatMaterialError(Validation.Diagnostics.front().Error));
+						: Validation.Diagnostics.front().Message);
 				// Fixed concrete pins cannot disappear; a dangling source is rejected instead.
 				VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
 					if (Index == Pin) Input.ExpressionId = FGuid::NewGuid();
@@ -1195,7 +1195,7 @@ TEST(FMaterialGraphOperationsTests, TypedReplacementRejectsRecursiveFunctionTarg
 	Replacement->Function = Caller.Get();
 	for (const auto& Port : Caller->GetFunctionSignature().Outputs) Replacement->Outputs.push_back({Port.Id, Port.Type});
 	const auto Rejected = Document.ReplaceExpression(*Replacement.Get());
-	EXPECT_FALSE(Rejected);
+	ASSERT_FALSE(Rejected);
 	EXPECT_NE(FormatMaterialGraphCommandResult(Rejected).find("recursive"), std::string::npos);
 	EXPECT_EQ(Caller->GetFunctionRevision(), Revision);
 	EXPECT_EQ(Cast<DMaterialExpressionFunctionCall>(Caller->GetExpressionCollection().Expressions.back().Get())->Function.Get(), Callee.Get());
@@ -2513,7 +2513,7 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	Conflict.Value = FMaterialParameterValue::MakeVector({1, 1, 1});
 	const auto TargetBefore = CaptureExpressions(*Target);
 	const auto Rejected = FMaterialGraphOperations::CreateParameter(*Target, Conflict, Durin::Editor::ETransactionMode::NotTransactable);
-	EXPECT_FALSE(Rejected);
+	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.Message.find("A parameter with this name already exists with a different type."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Target), TargetBefore);
 	Conflict.Name = "IndependentAmount";
@@ -3421,7 +3421,7 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto Rejected = Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f));
-	EXPECT_FALSE(Rejected);
+	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	EXPECT_NE(Rejected.Message.find("The active editor transaction service is unavailable or busy."), std::string::npos);
 	EXPECT_FALSE(Rejected.Message.empty());
@@ -3453,7 +3453,7 @@ TEST(FMaterialGraphOperationsTests, GraphAssignmentReportsClassMismatchAndAllows
 	{
 		GraphEditInternals::FGraphEditSession Edit(*Material);
 		Rejected = Edit.Assign(*Scalar, *Vector);
-		EXPECT_FALSE(Rejected);
+		ASSERT_FALSE(Rejected);
 		EXPECT_EQ(Rejected.Message, "Expression assignment requires matching classes.");
 		EXPECT_FLOAT_EQ(Scalar->Value, .25f);
 		auto Draft = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
@@ -3486,7 +3486,7 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.75f)));
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto Failed = Edit.Commit();
-	EXPECT_FALSE(Failed);
+	ASSERT_FALSE(Failed);
 	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	EXPECT_NE(Failed.Message.find("The editor transactor is busy."), std::string::npos);
 	EXPECT_TRUE(Edit.IsActive());
@@ -3540,7 +3540,7 @@ TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAn
 	Tests::FTestEditorTransactorOwner Transactions;
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto Failed = FMaterialGraphOperations::SetParameterValue(*Material, ParameterId, FMaterialParameterValue::MakeScalar(.75f));
-	EXPECT_FALSE(Failed);
+	ASSERT_FALSE(Failed);
 	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	EXPECT_NE(Failed.Message.find("The active editor transaction service is unavailable or busy."), std::string::npos);
 	EXPECT_TRUE(Failed.CleanupMessage.empty());
@@ -3596,12 +3596,10 @@ TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePu
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const auto Invalid = Material->SetParameterValue({}, FMaterialParameterValue::MakeScalar(.5f));
 	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Invalid.Error.Code), EMaterialParameterError::InvalidId);
 	const auto MissingId = FGuid::NewGuid();
 	const auto Missing = Material->SetParameterValue(MissingId, FMaterialParameterValue::MakeScalar(.5f));
-	EXPECT_FALSE(Missing);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Missing.Error.Code), EMaterialParameterError::NotFound);
-	EXPECT_EQ(Missing.Error.ParameterId, MissingId);
+	ASSERT_FALSE(Missing);
+	EXPECT_NE(Missing.error().find(MissingId.ToString()), std::string::npos);
 	FMaterialParameterDefinition Definition;
 	Definition.Name = "MutationCause";
 	Definition.Type = EMaterialParameterType::Scalar;
@@ -3613,16 +3611,13 @@ TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePu
 	ASSERT_NE(Owner, nullptr);
 	Owner->DefaultValue = .1f;
 	const auto Mismatch = Material->SetScalarParameterValue("MutationCause", .75f);
-	EXPECT_FALSE(Mismatch);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Mismatch.Error.Code), EMaterialParameterError::OwnerMismatch);
-	EXPECT_EQ(Mismatch.Error.ParameterId, Id);
-	EXPECT_EQ(Mismatch.Error.ParameterName, "MutationCause");
+	ASSERT_FALSE(Mismatch);
+	EXPECT_NE(Mismatch.error().find(Id.ToString()), std::string::npos);
 	EXPECT_FLOAT_EQ(Owner->DefaultValue, .1f);
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .25f);
 	Owner->DefaultValue = .25f;
 	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.75f)));
 	EXPECT_FLOAT_EQ(Owner->DefaultValue, .75f);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Mismatch.Error.Code), EMaterialParameterError::OwnerMismatch);
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterDefinitionFailurePreservesExpressionAndAllowsRetry)
@@ -3635,14 +3630,12 @@ TEST(FMaterialGraphOperationsTests, ParameterDefinitionFailurePreservesExpressio
 	auto Invalid = Before;
 	Invalid.Value = FMaterialParameterValue::MakeScalar(std::numeric_limits<float>::infinity());
 	const auto Rejected = Parameter->SetParameterDefinition(Invalid);
-	EXPECT_FALSE(Rejected);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Rejected.Error.Code), EMaterialParameterError::InvalidDefault);
-	EXPECT_EQ(Rejected.Error.ParameterId, Before.Id);
+	ASSERT_FALSE(Rejected);
+	EXPECT_NE(Rejected.error().find(Before.Id.ToString()), std::string::npos);
 	EXPECT_EQ(Parameter->GetParameterDefinition(), Before);
 	Invalid.Value = FMaterialParameterValue::MakeScalar(.75f);
 	ASSERT_TRUE(Parameter->SetParameterDefinition(Invalid));
 	EXPECT_FLOAT_EQ(Parameter->DefaultValue, .75f);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Rejected.Error.Code), EMaterialParameterError::InvalidDefault);
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterFactoryReportsValidationAndNormalizesValidRetry)
@@ -3653,7 +3646,7 @@ TEST(FMaterialGraphOperationsTests, ParameterFactoryReportsValidationAndNormaliz
 	Definition.Type = EMaterialParameterType::Vector;
 	Definition.Value = FMaterialParameterValue::MakeVector({.2f, .3f, .4f});
 	const auto Rejected = GraphEditInternals::MakeParameterExpression(Definition);
-	EXPECT_FALSE(Rejected);
+	ASSERT_FALSE(Rejected);
 	EXPECT_FALSE(Rejected.Expression);
 	EXPECT_EQ(Rejected.Message.find("The parameter definition is invalid."), 0u);
 
@@ -3682,7 +3675,7 @@ TEST(FMaterialGraphOperationsTests, LayoutRejectionsLeaveAuthoredPositionsUnchan
 	EXPECT_EQ(Candidate, Before);
 	const auto MissingId = FGuid::NewGuid();
 	const auto Missing = Document.CalculateLayout(std::array{MissingId}, Candidate);
-	EXPECT_FALSE(Missing);
+	ASSERT_FALSE(Missing);
 	EXPECT_EQ(Missing.Message.find("A material graph layout node does not exist."), 0u);
 	const std::vector<FGuid> Oversized(MaterialProgramMaxNodeCount + 1u, Id);
 	const auto Bounds = Document.CalculateLayout(Oversized, Candidate);
@@ -3747,7 +3740,7 @@ TEST(FMaterialGraphOperationsTests, InputDefaultRejectionsDoNotPublish)
 	Tests::FTestEditorTransactorOwner Transactions;
 	const auto MissingId = FGuid::NewGuid();
 	const auto Missing = Document.SetInputDefault(MissingId, 3, {}, {});
-	EXPECT_FALSE(Missing);
+	ASSERT_FALSE(Missing);
 	EXPECT_EQ(Missing.Message.find("The input owner is unavailable."), 0u);
 	const auto NonNumeric = Document.SetInputDefault(OutputId, Pin, {.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Texture2D}, {});
 	EXPECT_FALSE(NonNumeric);
@@ -3777,7 +3770,7 @@ TEST(FMaterialGraphOperationsTests, DocumentValueRejectionsReportFailureAndAllow
 	ASSERT_FALSE(BadValue);
 	EXPECT_EQ(BadValue.Message.find("Constant values must be finite."), 0u);
 	ASSERT_EQ(BadValue.Diagnostics.size(), 1u);
-	EXPECT_EQ(BadValue.Diagnostics.front().Error, EMaterialExpressionError::NonFiniteConstant);
+	EXPECT_EQ(BadValue.Diagnostics.front().Message, "Expression constant must be finite.");
 	const auto BadComponents = Document.SetSwizzleComponents(Id, std::array<uint8, 2>{0, 7});
 	ASSERT_FALSE(BadComponents);
 	EXPECT_EQ(BadComponents.Message.find("Swizzles require one to four valid components."), 0u);
@@ -3945,10 +3938,10 @@ TEST(FMaterialGraphOperationsTests, CommandStatusAndFailurePresentationAreIndepe
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphDocument Document(*Material);
 	auto Rejected = Document.SetSwizzleComponents(FGuid::NewGuid(), {}, Durin::Editor::ETransactionMode::NotTransactable);
-	EXPECT_FALSE(Rejected);
+	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	Rejected.Message.clear();
-	EXPECT_FALSE(Rejected);
+	ASSERT_FALSE(Rejected);
 	EXPECT_FALSE(FormatMaterialGraphCommandResult(Rejected).empty());
 	const auto NoChange = Document.RemoveNodes({}, Durin::Editor::ETransactionMode::NotTransactable);
 	EXPECT_TRUE(NoChange);

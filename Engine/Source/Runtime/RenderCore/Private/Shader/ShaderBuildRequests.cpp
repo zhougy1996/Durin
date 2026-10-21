@@ -2,9 +2,9 @@
 
 namespace Durin
 {
-	auto FormatShaderBuildAdmissionError(const FShaderBuildAdmissionError& Error) -> std::string
+	auto FormatShaderBuildAdmissionReason(EShaderBuildAdmissionReason Reason) -> std::string
 	{
-		switch (Error.Reason)
+		switch (Reason)
 		{
 		case EShaderBuildAdmissionReason::Closed: return "Shader build admission is closed.";
 		case EShaderBuildAdmissionReason::Capacity: return "Shader build admission capacity was exceeded.";

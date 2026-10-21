@@ -47,7 +47,7 @@ namespace Durin
 	};
 
 	[[nodiscard]] ENGINE_API auto ResolveMaterialProperties(const DMaterialInterface& Material,
-		FResolvedMaterialProperties& OutProperties) -> FMaterialOperationResult;
+		FResolvedMaterialProperties& OutProperties) -> std::expected<void, std::string>;
 
 	enum class EMaterialLoadedQueryOperation : uint8
 	{
@@ -100,7 +100,7 @@ namespace Durin
 		std::vector<MIR::FSource> RequestedExpressionSources;
 		std::vector<MIR::FSource> AcceptedExpressionSources;
 		FMaterialCompileStatus MaterialCompileStatus;
-		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
+		std::vector<FMaterialProgramDiagnostic> MaterialCompileDiagnostics;
 		bool bDeferredForceRecompile = false;
 		std::chrono::steady_clock::time_point EditCompileDeadline;
 	};
@@ -151,7 +151,7 @@ namespace Durin
 		}
 
 		auto GetMaterialCompileDiagnostics() const
-			-> std::span<const FMaterialCompileDiagnostic>
+			-> std::span<const FMaterialProgramDiagnostic>
 		{
 			return CompilationOwner.MaterialCompileDiagnostics;
 		}
@@ -164,7 +164,7 @@ namespace Durin
 		{
 			return CookedProgramData;
 		}
-		auto GetMaterialCookDiagnostic() const -> const FMaterialError&
+		auto GetMaterialCookDiagnostic() const -> const std::string&
 		{
 			return MaterialCookDiagnostic;
 		}
@@ -193,12 +193,12 @@ namespace Durin
 	protected:
 		ENGINE_API auto PostEditChangePropertyWithContext(const FPropertyChangedEvent& Event, FObjectCacheContext& Context) -> void;
 		ENGINE_API auto AdmitCookedProgram(const FMaterialStaticProperties& Properties,
-			std::shared_ptr<const FMaterialCompilerResult> Program) -> FMaterialOperationResult;
-		ENGINE_API auto LoadCookedProgram() -> FMaterialOperationResult;
+			std::shared_ptr<const FMaterialCompilerResult> Program) -> std::expected<void, std::string>;
+		ENGINE_API auto LoadCookedProgram() -> void;
 		// A transient runtime owner can select only an already compiled compatible variant.
 		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
 		FBulkData CookedProgramData;
-		FMaterialError MaterialCookDiagnostic;
+		std::string MaterialCookDiagnostic;
 		ENGINE_API auto RequestProgramCompile(
 			const FMaterialStaticProperties& CandidateProperties,
 			bool bForceRecompile = false, FObjectCacheContext* Context = nullptr,

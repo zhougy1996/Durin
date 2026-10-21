@@ -586,7 +586,7 @@ namespace Durin::Editor::Material
 			|| Cast<DMaterialExpressionVector4Constant>(Existing->Get()))) return RejectCommand("The selected expression is not a constant.");
 		const auto Literal = ReadParameterLiteral(GetProgramType(Value.GetType()), Value);
 		if (!std::isfinite(Literal.X) || !std::isfinite(Literal.Y) || !std::isfinite(Literal.Z) || !std::isfinite(Literal.W))
-			return RejectCommand("Constant values must be finite.", {{.NodeId = NodeId, .Error = EMaterialExpressionError::NonFiniteConstant}});
+			return RejectCommand("Constant values must be finite.", {{.NodeId = NodeId, .Message = "Expression constant must be finite."}});
 		const auto EditValue = [&](auto* Constant, const auto& NewValue) {
 			FGraphEditSession State(*Owner.Get());
 			State.Modify(*Constant);

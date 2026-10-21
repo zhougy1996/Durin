@@ -49,13 +49,6 @@ namespace Durin
 		Forced,
 	};
 
-	// Original compiler diagnostic qualified by its request generation for editor navigation.
-	struct FMaterialCompileDiagnostic
-	{
-		FMaterialProgramDiagnostic Source;
-		uint64 Generation = 0;
-	};
-
 	// Immutable snapshot captured on GameThread before Worker admission.
 	struct FMaterialCompileRequest
 	{
@@ -85,7 +78,7 @@ namespace Durin
 			EMaterialCompileCacheOutcome::None;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
 		std::vector<MIR::FSource> ExpressionSources;
-		std::vector<FMaterialCompileDiagnostic> Diagnostics;
+		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 	};
 
 	// Asset-visible snapshot; none of its process-local ordering state is serialized.
@@ -101,8 +94,6 @@ namespace Durin
 		FMaterialProgramIdentity RequestedIdentity;
 		FMaterialProgramIdentity CompiledIdentity;
 		std::string Target;
-		uint64 DurationMicroseconds = 0;
-		uint8 SourceRetryCount = 0;
 
 		auto IsCurrent() const -> bool
 		{
@@ -148,7 +139,6 @@ namespace Durin
 		EMaterialProgramStatisticsState State = EMaterialProgramStatisticsState::Absent;
 		FMaterialProgramIdentity ProgramIdentity;
 		EMaterialCompileCacheOutcome CacheOutcome = EMaterialCompileCacheOutcome::None;
-		uint64 RequestDurationMicroseconds = 0;
 		uint64 NormalizedIRNodeCount = 0;
 		uint64 ActiveParameterCount = 0;
 		uint64 UniformPayloadBytes = 0;
@@ -158,7 +148,7 @@ namespace Durin
 		uint64 CompiledShaderCount = 0;
 		uint64 CompiledCodeBytes = 0;
 		uint64 DependencyCount = 0;
-		FMaterialCompileTimings PhaseTimings;
+		float CompileTime = 0;
 		bool bSizeOverflow = false;
 	};
 

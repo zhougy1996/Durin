@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "DObject/ObjectValidation.h"
-#include "Materials/MaterialDiagnostic.h"
 #include "Spline/SplineMeshDeformer.h"
 #include "StaticMesh/StaticMeshMaterialBinding.h"
 
@@ -11,12 +10,12 @@ namespace Durin
 	class FEnginePropertyEditCause final : public IObjectValidationCause
 	{
 	public:
-		std::variant<FMaterialError, FSplineMeshValidationError, FStaticMeshMaterialOverrideError> Error;
+		std::variant<std::string, FSplineMeshValidationError, FStaticMeshMaterialOverrideError> Error;
 		auto Format() const -> std::string override
 		{
 			return std::visit([](const auto& Value) -> std::string {
 				using T = std::decay_t<decltype(Value)>;
-				if constexpr (std::is_same_v<T, FMaterialError>) return FormatMaterialError(Value);
+				if constexpr (std::is_same_v<T, std::string>) return Value;
 				else if constexpr (std::is_same_v<T, FSplineMeshValidationError>) return FormatSplineMeshValidationError(Value);
 				else return FormatStaticMeshMaterialOverrideError(Value, "mesh component");
 			}, Error);

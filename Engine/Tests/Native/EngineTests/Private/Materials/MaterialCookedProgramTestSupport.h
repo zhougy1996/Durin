@@ -23,7 +23,7 @@ namespace Durin::Testing
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteBuffer& OutBytes) -> FMaterialOperationResult
+		FByteBuffer& OutBytes) -> std::expected<void, std::string>
 	{
 		const std::array<const FMaterialCompilerResult*, 1> Programs{&Program};
 		return EncodeMaterialCookedProgramFamily(Programs, StaticProperties,
@@ -37,7 +37,7 @@ namespace Durin::Testing
 		const FMaterialCompilerResult& ExpectedConfiguration,
 		FMaterialStaticProperties& OutStaticProperties,
 		std::shared_ptr<const FMaterialCompilerResult>& OutProgram)
-		-> FMaterialOperationResult
+		-> std::expected<void, std::string>
 	{
 		return DecodeMaterialCookedProgramFamily(Bytes, ExpectedPlatform,
 			ExpectedProfile, ExpectedConfiguration.Quality,

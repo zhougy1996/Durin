@@ -178,7 +178,7 @@ namespace Durin
 							Stage::PrepareRuntimeProducts, {},
 							Reason::MaterialPreparation, {.ObjectPath = Object->GetObjectPath(),
 							.MaterialCompileStatus = Material->GetMaterialCompileStatus(),
-							.MaterialCompileCauses = std::vector<FMaterialCompileDiagnostic>(Material->GetMaterialCompileDiagnostics().begin(), Material->GetMaterialCompileDiagnostics().end())});
+							.MaterialCompileCauses = std::vector<FMaterialProgramDiagnostic>(Material->GetMaterialCompileDiagnostics().begin(), Material->GetMaterialCompileDiagnostics().end())});
 						return false;
 					}
 					if (auto* Texture2D = Cast<DTexture2D>(Object))
@@ -239,8 +239,8 @@ namespace Durin
 	auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string
 	{
 		if (!Diagnostic.Message.empty()) return Diagnostic.Message;
-		if (!Diagnostic.MaterialCauses.empty()) return FormatMaterialError(Diagnostic.MaterialCauses.front().Error);
-		if (!Diagnostic.MaterialCompileCauses.empty()) return FormatMaterialError(Diagnostic.MaterialCompileCauses.front().Source.Error);
+		if (!Diagnostic.MaterialCauses.empty()) return Diagnostic.MaterialCauses.front().Message;
+		if (!Diagnostic.MaterialCompileCauses.empty()) return Diagnostic.MaterialCompileCauses.front().Message;
 		using Reason = EPackageReloadReason;
 		switch (Diagnostic.Reason)
 		{

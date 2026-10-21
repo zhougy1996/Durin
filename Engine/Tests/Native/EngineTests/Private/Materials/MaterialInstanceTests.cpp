@@ -136,10 +136,10 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	EXPECT_EQ(Edit.error().PropertyName, "VectorParameterValues");
 	const auto EditCause = std::dynamic_pointer_cast<const FEnginePropertyEditCause>(Edit.error().Cause);
 	ASSERT_TRUE(EditCause);
-	const auto* MaterialError = std::get_if<FMaterialError>(&EditCause->Error);
-	ASSERT_NE(MaterialError, nullptr);
-	EXPECT_EQ(MaterialError->Code, FMaterialError::FCode(EMaterialInstanceError::DuplicateParameterId));
-	EXPECT_EQ(MaterialError->ParameterId, Before.front().first);
+	const auto* Message = std::get_if<std::string>(&EditCause->Error);
+	ASSERT_NE(Message, nullptr);
+	EXPECT_NE(Message->find(Before.front().first.ToString()), std::string::npos);
+	EXPECT_TRUE(Message->ends_with("[index 0]"));
 	ObjectPackage::FLinkerTables Linker;
 	const auto Captured = FSavePackageContext{}.Capture(Instance->GetPackage(), Linker);
 	ASSERT_FALSE(Captured);
@@ -189,7 +189,7 @@ TEST(FMaterialInstanceTests, ParameterWritesRejectNonFiniteValuesWithoutMutation
 		{
 			const auto Result = Instance->SetParameterValue(ScalarId, FMaterialParameterValue::MakeScalar(Value));
 			ASSERT_FALSE(Result);
-			EXPECT_EQ(Result.Error.Code, FMaterialError::FCode(EMaterialParameterError::InvalidDefault));
+
 			EXPECT_FALSE(Instance->SetParameterValue(VectorId, FMaterialParameterValue::MakeVector4({0, Value, 0, 1})));
 		}
 		EXPECT_FALSE(Instance->SetParameterValue(VectorId,
@@ -421,7 +421,7 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	const uint64 BeforeNoOpVersion = Dynamic->GetRenderStateVersion();
 	const auto NoOp = Dynamic->ApplyDynamicParameterUpdates(NoOpUpdates);
 	ASSERT_FALSE(NoOp);
-	EXPECT_EQ(NoOp.Error.Index, 1u);
+	EXPECT_TRUE(NoOp.error().ends_with("[index 1]"));
 	EXPECT_EQ(Dynamic->GetRenderStateVersion(), BeforeNoOpVersion);
 	EXPECT_EQ(Notifications, 1u);
 
@@ -432,7 +432,7 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	};
 	const auto Duplicate = Dynamic->ApplyDynamicParameterUpdates(DuplicateUpdates);
 	ASSERT_FALSE(Duplicate);
-	EXPECT_EQ(Duplicate.Error.Index, 1u);
+	EXPECT_TRUE(Duplicate.error().ends_with("[index 1]"));
 	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::MetallicName(), Scalar));
 	EXPECT_FLOAT_EQ(Scalar, 0.31f);
 	EXPECT_EQ(Dynamic->GetRenderStateVersion(), BeforeNoOpVersion);
@@ -588,8 +588,8 @@ TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAc
 	ChildOverrides.bOverrideBlendMode = true;
 	ASSERT_TRUE(Child->SetPropertyOverrides(ChildOverrides));
 	Durin::FResolvedMaterialProperties Resolved;
-	Durin::FMaterialOperationResult Error;
-	ASSERT_TRUE((Error = Durin::ResolveMaterialProperties(*Child, Resolved))) << Durin::FormatMaterialError(Error.Error);
+	std::expected<void, std::string> Error;
+	ASSERT_TRUE((Error = Durin::ResolveMaterialProperties(*Child, Resolved))) << Error.error();
 	EXPECT_TRUE(Resolved.Properties.bTwoSided);
 	EXPECT_FLOAT_EQ(Resolved.Properties.OpacityMaskThreshold, 0.75f);
 	EXPECT_FLOAT_EQ(Resolved.ShaderProperties.OpacityMaskThreshold, 0.333f);
@@ -643,15 +643,20 @@ TEST(FMaterialInstanceTests, PropertyResolutionRejectsDepthOverflowAndCorruptCyc
 		Previous = Child;
 	}
 	FResolvedMaterialProperties Resolved;
-	Durin::FMaterialOperationResult Error;
-	ASSERT_TRUE((Error = ResolveMaterialProperties(*Previous, Resolved))) << Durin::FormatMaterialError(Error.Error);
+	std::expected<void, std::string> Error;
+	ASSERT_TRUE((Error = ResolveMaterialProperties(*Previous, Resolved))) << Error.error();
 	auto* Overflow = NewObject<DMaterialInstance>(nullptr, "PropertyOverflow");
 	EXPECT_FALSE(Overflow->SetParent(Previous));
 	auto* ParentProperty = Chain.front()->GetClass()->FindPropertyByName("Parent");
 	ASSERT_NE(ParentProperty, nullptr);
 	*ParentProperty->ContainerPtrToValuePtr<TObjectPtr<DMaterialInterface>>(Chain.front()) = Chain.back();
-	EXPECT_FALSE((Error = ResolveMaterialProperties(*Previous, Resolved)));
-	EXPECT_EQ(Error.Error.Code, FMaterialError::FCode(EMaterialPropertyError::ParentCycleOrDepthExceeded));
+	const auto BeforeFailure = Resolved;
+	ASSERT_FALSE((Error = ResolveMaterialProperties(*Previous, Resolved)));
+	EXPECT_FALSE(Error.error().empty());
+	EXPECT_EQ(Resolved.Properties, BeforeFailure.Properties);
+	EXPECT_EQ(Resolved.Root, BeforeFailure.Root);
+	EXPECT_EQ(Resolved.Sources, BeforeFailure.Sources);
+	EXPECT_EQ(Resolved.ShaderProperties, BeforeFailure.ShaderProperties);
 	*ParentProperty->ContainerPtrToValuePtr<TObjectPtr<DMaterialInterface>>(Chain.front()) = Root;
 	for (auto* Child : Chain) MarkAsGarbage(Child);
 	MarkAsGarbage(Overflow);
@@ -957,25 +962,16 @@ TEST(FMaterialInstanceTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp
 	const uint64 InitialVersion = Instance->GetRenderStateVersion();
 	const auto MissingName = Instance->SetScalarParameterValue("UnknownParameter", .5f);
 	EXPECT_FALSE(MissingName);
-	EXPECT_EQ(std::get<Durin::EMaterialParameterError>(MissingName.Error.Code), Durin::EMaterialParameterError::NotFound);
-	EXPECT_EQ(MissingName.Error.ParameterName, "UnknownParameter");
 	const auto WrongNameType = Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), .5f);
 	EXPECT_FALSE(WrongNameType);
-	EXPECT_EQ(std::get<Durin::EMaterialParameterError>(WrongNameType.Error.Code), Durin::EMaterialParameterError::InvalidType);
-	EXPECT_EQ(WrongNameType.Error.ExpectedParameterType, Durin::EMaterialParameterType::Vector4);
-	EXPECT_EQ(WrongNameType.Error.ActualParameterType, Durin::EMaterialParameterType::Scalar);
 
 	const auto Missing = Instance->SetParameterValue(Unknown, Durin::FMaterialParameterValue::MakeScalar(0.5f));
-	EXPECT_FALSE(Missing);
-	EXPECT_EQ(std::get<Durin::EMaterialParameterError>(Missing.Error.Code), Durin::EMaterialParameterError::NotFound);
-	EXPECT_EQ(Missing.Error.ParameterId, Unknown);
+	ASSERT_FALSE(Missing);
+	EXPECT_NE(Missing.error().find(Unknown.ToString()), std::string::npos);
 	const auto WrongType = Instance->SetParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
 		Durin::FMaterialParameterValue::MakeScalar(0.5f));
 	EXPECT_FALSE(WrongType);
-	EXPECT_EQ(std::get<Durin::EMaterialParameterError>(WrongType.Error.Code), Durin::EMaterialParameterError::InvalidType);
-	EXPECT_EQ(WrongType.Error.ExpectedParameterType, Durin::EMaterialParameterType::Vector4);
-	EXPECT_EQ(WrongType.Error.ActualParameterType, Durin::EMaterialParameterType::Scalar);
 	EXPECT_EQ(Instance->GetRenderStateVersion(), InitialVersion);
 	EXPECT_TRUE(Instance->GetLocalParameterValueCount() == 0);
 
@@ -990,8 +986,7 @@ TEST(FMaterialInstanceTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp
 		SameActiveValue));
 	EXPECT_EQ(Instance->GetRenderStateVersion(), OverriddenVersion);
 	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 1u);
-	EXPECT_EQ(WrongType.Error.ExpectedParameterType, Durin::EMaterialParameterType::Vector4);
-	EXPECT_EQ(Missing.Error.ParameterId, Unknown);
+	EXPECT_NE(Missing.error().find(Unknown.ToString()), std::string::npos);
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);

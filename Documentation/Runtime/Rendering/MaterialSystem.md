@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -19,19 +19,23 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
 
 ## Results and diagnostics
 
-`FMaterialOperationResult` carries `FMaterialError`; mutations preserve typed
-identity/type context and reject invalid changes before publication. Engine
-validators and nested adapters preserve causes; `FormatMaterialError` formats
-only at UI, log, command, or required string boundaries. Opaque provider text
-is bounded and never determines error classification.
+Parameter mutations, stored override validation, expression ownership checks,
+static-property validation, parent-chain resolution, and canonical IR encoding
+return `std::expected<void, std::string>`. Failures carry a message with parameter
+identity and batch or storage index where relevant. Editor property rejection and
+transaction boundaries retain that text directly. Declaration-schema validation
+keeps its narrow `FMaterialParameterValidationResult`; consumers use its existing
+parameter error text without constructing a generic material error.
 
-Synchronous build, validation, normalization, source-generation, and compiler
-results use `bSucceeded` as their sole outcome and default to failure. Check it
-before consuming payloads: empty output may succeed, while retained intermediate
-data does not establish success. Failed builds/encoders clear emitted output;
-property resolution and cooked decoding publish only validated candidates.
+Build, normalization, source-generation, and compiler results use `bSucceeded`
+as their outcome and default to failure. Check the outcome before consuming
+payloads: empty output may succeed, while retained intermediate data does not
+establish success. Failed builds/encoders clear emitted output; property resolution
+and cooked decoding publish only validated candidates. Parameter batches validate
+all candidates before committing, and unchanged values do not notify consumers.
 Cancellation and admission remain separate lifecycle outcomes. Semantic tests
-assert codes, context, and publication behavior, not formatted text.
+verify rejection, failure location, retained data, and notification behavior
+without depending on complete diagnostic wording.
 Asynchronous material results carry publication qualifiers, terminal state, cache
 outcome and the compiled program. Diagnostics retain the original
 `FMaterialProgramDiagnostic` plus the request generation used for stale editor

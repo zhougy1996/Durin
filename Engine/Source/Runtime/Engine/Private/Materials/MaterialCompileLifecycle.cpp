@@ -197,15 +197,6 @@ namespace Durin
 				// Detached translation supplies the identity for this qualified generation.
 				if (!Status.RequestedIdentity.IsValid()) Status.RequestedIdentity = Result.ProgramIdentity;
 				if (!Result.ExpressionSources.empty()) Material.CompilationOwner.RequestedExpressionSources = std::move(Result.ExpressionSources);
-				const bool SourceChanged = std::ranges::any_of(Result.Diagnostics, [](const auto& Diagnostic) {
-					const auto* Error = std::get_if<EMaterialCompileError>(&Diagnostic.Source.Error.Code);
-					return Error && *Error == EMaterialCompileError::SourceDependencyChanged;
-				});
-				if (SourceChanged && Status.SourceRetryCount == 0)
-				{
-					++Status.SourceRetryCount; AdvanceShaderReloadGeneration();
-					RequestCurrent(Material, false, Context); return false;
-				}
 
 				Status.State = Result.State;
 				Status.CacheOutcome = Result.CacheOutcome;
@@ -218,7 +209,6 @@ namespace Durin
 				{
 					FMaterialLocalRenderLayer Candidate;
 					Candidate.CompiledProgram = Result.CompiledProgram;
-					Status.SourceRetryCount = 0;
 					if (!Candidate.CompiledProgram->ActiveCollections.empty())
 					{
 						auto Current = MaterialBuildPrivate::ResolvePublicationCollections(Candidate.CompiledProgram->ActiveCollections);
@@ -249,10 +239,6 @@ namespace Durin
 					Material.CompilationOwner.RenderLayer = std::move(Candidate);
 					Material.CompilationOwner.AcceptedExpressionSources = Material.CompilationOwner.RequestedExpressionSources;
 					Status.CompiledIdentity = Result.ProgramIdentity;
-					Status.DurationMicroseconds =
-						Material.CompilationOwner.RenderLayer.CompiledProgram->Timings.NormalizationMicroseconds
-						+ Material.CompilationOwner.RenderLayer.CompiledProgram->Timings.GenerationMicroseconds
-						+ Material.CompilationOwner.RenderLayer.CompiledProgram->Timings.CompilationMicroseconds;
 					Material.MarkRenderDataDirty(
 						EMaterialRenderDirtyFlags::ShaderMap
 							| EMaterialRenderDirtyFlags::PipelineState, false, Context);
@@ -297,9 +283,7 @@ namespace Durin
 					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
 				Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
 				Material.CompilationOwner.MaterialCompileDiagnostics = {{
-					.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency,
-						.Error = Error.Error.HasError() ? Error.Error : FMaterialError(EMaterialCompileError::NoAuthoredProgram)},
-					.Generation = Material.CompilationOwner.MaterialCompileStatus.RequestGeneration}};
+					.Message = Error.error()}};
 				Material.RetireFailedMaterialGeneration(Context);
 				return false;
 			}

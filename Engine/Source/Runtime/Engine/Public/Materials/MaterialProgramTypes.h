@@ -6,7 +6,6 @@
 #include "DObject/ObjectMacros.h"
 #include "Misc/Guid.h"
 #include "EngineAPI.h"
-#include "Materials/MaterialDiagnostic.h"
 #include "Materials/MaterialTypes.h"
 
 #include "MaterialProgramTypes.gen.h"
@@ -455,20 +454,6 @@ namespace Durin
 		auto operator==(const FMaterialGraphPresentation&) const -> bool = default;
 	};
 
-	enum class EMaterialProgramDiagnosticCategory : uint8
-	{
-		Schema,
-		Bounds,
-		Graph,
-		Type,
-		Normalization,
-		Generation,
-		Dependency,
-		Compile,
-		Reflection,
-		Binding,
-	};
-
 	enum class EMaterialProgramDiagnosticLocationKind : uint8
 	{
 		Program,
@@ -479,13 +464,11 @@ namespace Durin
 
 	struct FMaterialProgramDiagnostic
 	{
-		EMaterialProgramDiagnosticCategory Category =
-			EMaterialProgramDiagnosticCategory::Schema;
 		EMaterialProgramDiagnosticLocationKind LocationKind =
 			EMaterialProgramDiagnosticLocationKind::Program;
 		FGuid NodeId;
 		uint32 LocationIndex = 0;
-		FMaterialError Error;
+		std::string Message;
 		FGuid PortId;
 		std::string FunctionAssetPath;
 		std::vector<FGuid> CallPath;
@@ -495,7 +478,7 @@ namespace Durin
 		auto operator==(const FMaterialProgramDiagnostic&) const -> bool = default;
 	};
 
-	// Bounded presentation text; the source diagnostics retain their structured errors.
+	// Bounded presentation text assembled from compiler messages.
 	ENGINE_API auto FormatMaterialProgramDiagnostics(
 		std::span<const FMaterialProgramDiagnostic> Diagnostics, std::string_view Fallback = {}) -> std::string;
 

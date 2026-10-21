@@ -7,11 +7,7 @@ namespace Durin
 	enum class EShaderBuildPriority : uint8 { High, Normal, Low };
 	enum class EShaderBuildWaitResult : uint8 { Completed, WouldBlock, InvalidRequest };
 	enum class EShaderBuildAdmissionReason : uint8 { Closed, Capacity, DispatchRejected, InvalidRequest };
-	struct FShaderBuildAdmissionError
-	{
-		EShaderBuildAdmissionReason Reason = EShaderBuildAdmissionReason::InvalidRequest;
-	};
-	RENDERCORE_API auto FormatShaderBuildAdmissionError(const FShaderBuildAdmissionError& Error) -> std::string;
+	RENDERCORE_API auto FormatShaderBuildAdmissionReason(EShaderBuildAdmissionReason Reason) -> std::string;
 	struct FShaderBuildRequestOptions
 	{
 		EShaderBuildPriority Priority = EShaderBuildPriority::Normal;

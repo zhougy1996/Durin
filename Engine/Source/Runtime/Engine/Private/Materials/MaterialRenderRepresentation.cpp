@@ -18,11 +18,9 @@ namespace Durin
 	namespace
 	{
 		auto SetValidationFailure(FMaterialRenderValidationDiagnostic& OutDiagnostic,
-			EMaterialRenderValidationFailure Failure, uint32 FieldIndex, FMaterialError Error) -> bool
+			std::string Message) -> bool
 		{
-			OutDiagnostic.Failure = Failure;
-			OutDiagnostic.FieldIndex = FieldIndex;
-			OutDiagnostic.Error = std::move(Error);
+			OutDiagnostic.Message = std::move(Message);
 			return false;
 		}
 
@@ -80,20 +78,12 @@ namespace Durin
 		if (!ValidateMaterialRenderLayout(Input.Layout, OutDiagnostic)) return false;
 		if (Input.UniformPayload.size() != Input.Layout.UniformPayloadSize)
 		{
-			SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::InvalidPayloadSize,
-				0,
-				EMaterialRenderError::PayloadSizeMismatch);
+			SetValidationFailure(OutDiagnostic, "Material render uniform payload size does not match its layout.");
 			return false;
 		}
 		if (Input.Resources.size() != Input.Layout.ResourceFieldCount)
 		{
-			SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::InvalidResource,
-				0,
-				EMaterialRenderError::ResourceCountMismatch);
+			SetValidationFailure(OutDiagnostic, "Material render resource count does not match its layout.");
 			return false;
 		}
 
@@ -101,12 +91,10 @@ namespace Durin
 		{
 			if (Input.Samplers.size() != Input.Resources.size()
 				|| Input.TextureFallbacks.size() != Input.Resources.size())
-				return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidCounts, 0,
-					EMaterialRenderError::SamplerCountMismatch);
+				return SetValidationFailure(OutDiagnostic, "Material sampler and fallback counts must match texture resources.");
 			for (uint32 Index = 0; Index < Input.Resources.size(); ++Index)
 				if (!IsValidMaterialSampling(Input.Samplers[Index], Input.TextureFallbacks[Index]))
-					return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidResource, Index,
-						EMaterialRenderError::SamplingStateFallbackInvalid);
+					return SetValidationFailure(OutDiagnostic, std::format("Material sampling state or fallback is invalid. [index {}]", Index));
 		}
 		std::vector<bool> Covered(Input.UniformPayload.size(), false);
 		for (uint32 FieldIndex = 0; FieldIndex < Input.Layout.Fields.size(); ++FieldIndex)
@@ -131,11 +119,7 @@ namespace Durin
 					sizeof(Value));
 				if (!std::isfinite(Value))
 				{
-					SetValidationFailure(
-						OutDiagnostic,
-						EMaterialRenderValidationFailure::NonFiniteValue,
-						FieldIndex,
-						EMaterialRenderError::UniformPayloadContainsNonFiniteValue);
+					SetValidationFailure(OutDiagnostic, std::format("Material render uniform payload contains a non-finite value. [index {}]", FieldIndex));
 					return false;
 				}
 			}
@@ -144,11 +128,7 @@ namespace Durin
 		{
 			if (!Covered[ByteIndex] && Input.UniformPayload[ByteIndex] != std::byte{0})
 			{
-				SetValidationFailure(
-					OutDiagnostic,
-					EMaterialRenderValidationFailure::NonZeroPadding,
-					0,
-					EMaterialRenderError::NonZeroPadding);
+				SetValidationFailure(OutDiagnostic, "Material render uniform padding must be zero.");
 				return false;
 			}
 		}
@@ -216,9 +196,7 @@ namespace Durin
 			OutBinding.CompiledTextureFallbacks = Representation.GetTextureFallbacks();
 			return true;
 		}
-		return SetValidationFailure(OutDiagnostic,
-			EMaterialRenderValidationFailure::UnsupportedVersion, 0,
-			EMaterialRenderError::UnsupportedBindingLayout);
+		return SetValidationFailure(OutDiagnostic, "Only compiled material layout v4 can bind.");
 	}
 
 	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(
@@ -408,9 +386,7 @@ namespace Durin
 		{
 			OutRepresentation = FMaterialRenderRepresentation();
 			OutDiagnostic = {
-				.Failure = EMaterialRenderValidationFailure::InvalidField,
-				.FieldIndex = 0,
-				.Error = FMaterialError(EMaterialLayoutError::InvalidField, InvalidParameterId),
+				.Message = std::format("{} [parameter {}]", GetMaterialLayoutErrorText(EMaterialLayoutError::InvalidField), InvalidParameterId.ToString()),
 			};
 			return false;
 		}

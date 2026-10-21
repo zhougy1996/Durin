@@ -18,6 +18,8 @@ namespace Durin
 	namespace MaterialBuildPrivate
 	{
 		struct FMaterialBuildResult;
+		struct FMaterialProgramCompileOptions;
+		enum class EMaterialCompileAdmissionError;
 	}
 
 	// Owns a complete material program. Published content is shared as const;
@@ -25,6 +27,14 @@ namespace Durin
 	class FMaterialShaderMap final
 	{
 	public:
+		ENGINE_API static auto Compile(std::shared_ptr<const MIR::FCompilerInput> Input,
+			MaterialBuildPrivate::FMaterialProgramCompileOptions Options,
+			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion)
+			-> std::expected<std::shared_ptr<FMaterialShaderMap>, MaterialBuildPrivate::EMaterialCompileAdmissionError>;
+		ENGINE_API static auto Compile(const MIR::FCompilerInput& Input,
+			MaterialBuildPrivate::FMaterialProgramCompileOptions Options,
+			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion)
+			-> std::expected<std::shared_ptr<FMaterialShaderMap>, MaterialBuildPrivate::EMaterialCompileAdmissionError>;
 		ENGINE_API FMaterialShaderMap();
 		ENGINE_API ~FMaterialShaderMap();
 		// Copies finalized content only; a copy never inherits in-flight work.
@@ -44,7 +54,8 @@ namespace Durin
 		// Schemas only: defaults and asset paths belong to each requesting material.
 		std::vector<FMaterialParameterCollectionLayout> CollectionLayouts;
 		std::shared_ptr<const FMaterialProgramDebugData> DebugData;
-		FMaterialCompileTimings CompilationTimings;
+		// Elapsed seconds for this map's shader-job stage; retained hits reuse this value.
+		float CompileTime = 0;
 
 		ENGINE_API auto GetShaderMapId() const -> FMaterialProgramIdentity;
 		auto GetCompilingId() const -> uint64 { return CompilingId; }
@@ -56,7 +67,7 @@ namespace Durin
 		ENGINE_API static auto GetRetainedBytes(const FMaterialCompilerResult& Result) -> uint64;
 		ENGINE_API auto GetRetainedBytes() const -> uint64;
 		// Called on an unpublished map by assembly or cooked-data decoding.
-		ENGINE_API auto SetCompilationOutput(const FMaterialCompilerResult& Result) -> void;
+		ENGINE_API auto SetCollectionLayouts(std::span<const FMaterialParameterCollectionLayout> Collections) -> void;
 		ENGINE_API static auto BindCollections(std::shared_ptr<const FMaterialCompilerResult> Program,
 			std::span<const FMaterialParameterCollectionLayout> Collections,
 			const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialCompilerResult>;
@@ -88,8 +99,7 @@ namespace Durin
 		std::shared_ptr<FShaderBuildHandle> ShaderJobs;
 		std::shared_ptr<const MIR::FCompilerInput> Input;
 		std::shared_ptr<const FMaterialTranslationInput> EncodedInput;
-		std::vector<MIR::FSource> Sources;
-		std::vector<uint32> SourceOrdinals;
+		std::vector<FMaterialTranslationSource> Sources;
 		std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion;
 		std::unique_ptr<FMaterialTranslatedProgram> Translation;
 		bool SingleFlight = false;

@@ -51,7 +51,7 @@ namespace Durin
 	auto DMaterialExpressionCollectionParameter::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		if (!Collection)
-			return Emitter.Fail(EMaterialExpressionError::CollectionParameterMissingCollection);
+			return Emitter.Fail("Collection parameter expression has no collection asset.");
 		Emitter.Output(0, Emitter.CollectionParameter(*Collection, ParameterId));
 	}
 
@@ -272,16 +272,16 @@ namespace Durin
 			const auto& Input = Inputs[Slot]->Connection;
 			const auto& Default = Inputs[Slot]->Constant;
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
-				return Emitter.Fail(EMaterialExpressionError::DisconnectedAppendInputOutputSelector);
+				return Emitter.Fail("Disconnected append input has an output selector.");
 			if (Default.empty() || Default.size() > 3
 				|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); }))
-				return Emitter.Fail(EMaterialExpressionError::AppendVectorDefaultContainOneThreeFiniteComponents);
+				return Emitter.Fail("Append Vector default must contain one to three finite components.");
 			const auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input) : Emitter.Literal(Inputs[Slot]->UseConstant ? Default : std::vector<float>{0.f});
 			if (Index == MIR::InvalidIndex) return;
 			const auto Type = Emitter.GetNode(Index).ResultType;
-			if (Type > EMaterialProgramValueType::Float3) return Emitter.Fail(EMaterialExpressionError::AppendVectorRequiresNumericInputsTotalingAtMostFourComponents);
+			if (Type > EMaterialProgramValueType::Float3) return Emitter.Fail("Append Vector requires numeric inputs totaling at most four components.");
 			const auto Width = static_cast<uint8>(Type) + 1;
-			if (Scalars.size() + Width > 4) return Emitter.Fail(EMaterialExpressionError::AppendVectorExceedsFourComponents);
+			if (Scalars.size() + Width > 4) return Emitter.Fail("Append Vector exceeds four components.");
 			for (uint8 Channel = 0; Channel < Width; ++Channel)
 				Scalars.push_back(Width == 1 ? Index : Emitter.Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
 					.ResultType = EMaterialProgramValueType::Float, .Inputs = {Index},
@@ -294,7 +294,7 @@ namespace Durin
 
 	auto DMaterialExpressionSwizzle::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		if (Components.empty() || Components.size() > 4) return Emitter.Fail(EMaterialExpressionError::SwizzleSelectOneFourComponents);
+		if (Components.empty() || Components.size() > 4) return Emitter.Fail("Swizzle must select one to four components.");
 		const std::array Inputs{&Input};
 		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Swizzle,
 			static_cast<EMaterialProgramValueType>(Components.size() - 1), Inputs, Components,
@@ -397,13 +397,13 @@ namespace Durin
 			const auto& Input = UV.Connection;
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
 			{
-				Emitter.Fail(EMaterialExpressionError::DisconnectedUVInputOutputSelector);
+				Emitter.Fail("Disconnected UV input has an output selector.");
 				return MIR::InvalidIndex;
 			}
 			if (UV.Constant.empty() || UV.Constant.size() > 2
 				|| !std::ranges::all_of(UV.Constant, [](float V) { return std::isfinite(V); }))
 			{
-				Emitter.Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+				Emitter.Fail("Retained numeric default has an invalid width or non-finite component.");
 				return MIR::InvalidIndex;
 			}
 			auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input)
@@ -465,12 +465,12 @@ namespace Durin
 
 	auto DMaterialExpressionGetSurfaceAttributes::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		if (AttributeMask == 0) return Emitter.Fail(EMaterialExpressionError::SurfaceAttributeOutputSelected);
+		if (AttributeMask == 0) return Emitter.Fail("Surface attribute output is not selected.");
 		const auto Index = Emitter.ResolveIndex(Surface);
 		if (Index == MIR::InvalidIndex) return;
 		const auto& Base = Emitter.GetNode(Index);
 		if (Base.Opcode != EMaterialProgramOpcode::MakeSurface || Base.Inputs.size() != 8)
-			return Emitter.Fail(EMaterialExpressionError::SurfaceAttributeInputResolveConstructedSurface);
+			return Emitter.Fail("Surface attribute input must resolve to a constructed Surface.");
 		for (uint8 Index = 0; Index < 8; ++Index)
 			if (AttributeMask & (1u << Index)) Emitter.Output(Index, Base.Inputs[Index]);
 	}
@@ -481,23 +481,23 @@ namespace Durin
 		if (Index == MIR::InvalidIndex) return;
 		const auto& Base = Emitter.GetNode(Index);
 		if (Base.Opcode != EMaterialProgramOpcode::MakeSurface || Base.Inputs.size() != 8)
-			return Emitter.Fail(EMaterialExpressionError::SurfaceOverrideInputResolveConstructedSurface);
+			return Emitter.Fail("Surface override input must resolve to a constructed Surface.");
 		MIR::FNode Node{.Opcode = EMaterialProgramOpcode::MakeSurface,
 			.ResultType = EMaterialProgramValueType::Surface, .Inputs = Base.Inputs};
 		uint8 Seen = 0;
 		for (const auto& Attribute : Attributes)
 		{
 			const auto Slot = static_cast<uint8>(Attribute.Attribute);
-			if (Slot >= 8 || (Seen & (1u << Slot))) return Emitter.Fail(EMaterialExpressionError::SurfaceOverrideContainsInvalidDuplicateAttribute);
+			if (Slot >= 8 || (Seen & (1u << Slot))) return Emitter.Fail("Surface override contains an invalid or duplicate attribute.");
 			Seen |= static_cast<uint8>(1u << Slot);
 			const auto& Input = Attribute.Source;
 			const auto Width = static_cast<uint32>(GetMaterialSurfaceOutputType(Attribute.Attribute)) + 1;
 			if (Input.Constant.empty() || (Input.Constant.size() != 1 && Input.Constant.size() != Width)
 				|| !std::ranges::all_of(Input.Constant, [](float V) { return std::isfinite(V); }))
-				return Emitter.Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+				return Emitter.Fail("Retained numeric default has an invalid width or non-finite component.");
 			if (Input.Connection.ExpressionId.IsValid()) Node.Inputs[Slot] = Emitter.ResolveIndex(Input.Connection);
 			else if (Input.Connection.OutputIndex != 0 || Input.Connection.OutputId.IsValid())
-				return Emitter.Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+				return Emitter.Fail("Disconnected numeric input has an output selector.");
 			else if (Input.UseConstant) Node.Inputs[Slot] = Emitter.Literal(Input.Constant,
 				Attribute.Attribute == EMaterialSurfaceOutput::Normal && Input.Constant.size() == 3
 					? EMaterialSpatialKind::Normal : EMaterialSpatialKind::None,

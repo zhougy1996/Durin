@@ -37,8 +37,7 @@ namespace Durin
 		if (Count != 1)
 		{
 			FMaterialProgramValidationResult Invalid;
-			Invalid.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Graph,
-				.Error = EMaterialExpressionError::InvalidMaterialOutputCount});
+			Invalid.Diagnostics.push_back({.Message = "A material graph requires exactly one material output node."});
 			return Invalid;
 		}
 		std::vector<DMaterialExpression*> Expressions;
@@ -49,35 +48,34 @@ namespace Durin
 	auto DMaterial::DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
 		std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult
 	{
-		const auto Fail = [](FGuid Id, FMaterialError Error) {
+		const auto Fail = [](FGuid Id, std::string Message) {
 			FMaterialProgramValidationResult Result;
-			Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Schema,
-				.LocationKind = EMaterialProgramDiagnosticLocationKind::Node, .NodeId = Id,
-				.Error = std::move(Error)});
+			Result.Diagnostics.push_back({.LocationKind = EMaterialProgramDiagnosticLocationKind::Node, .NodeId = Id,
+				.Message = std::move(Message)});
 			return Result;
 		};
 		if (Collection.Expressions.size() > MaterialProgramMaxNodeCount)
-			return Fail({}, EMaterialExpressionError::GraphExceedsNodeLimit);
+			return Fail({}, "Material graph exceeds the node limit.");
 		std::unordered_set<FGuid> NodeIds;
 		for (const auto& Expression : Collection.Expressions)
 			if (!IsValid(Expression.Get()) || !Expression->Id.IsValid() || !NodeIds.insert(Expression->Id).second)
-				return Fail({}, EMaterialExpressionError::IdentityMissingDuplicated);
+				return Fail({}, "Material expression identity is missing or duplicated.");
 		std::vector<FMaterialParameterDefinition> Definitions;
 		for (const auto& Expression : Collection.Expressions)
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 			{
 				auto Definition = Parameter->GetParameterDefinition();
 				if (!Definition.Id.IsValid() || NodeIds.contains(Definition.Id))
-					return Fail(Expression->Id, EMaterialExpressionError::ParameterIdentityValidDistinctNodeIdentity);
+					return Fail(Expression->Id, "Parameter identity must be valid and distinct from node identity.");
 				const auto Existing = std::ranges::find(Definitions, Definition.Id, &FMaterialParameterDefinition::Id);
 				if (Existing != Definitions.end())
 				{
-					if (*Existing != Definition) return Fail(Expression->Id, EMaterialExpressionError::SharedParameterDefinitionsDisagree);
+					if (*Existing != Definition) return Fail(Expression->Id, "Shared parameter definitions disagree.");
 				}
 				else Definitions.push_back(std::move(Definition));
 			}
 		const auto Validation = ValidateMaterialParameterDefinitions(Definitions);
-		if (!Validation) return Fail({}, FMaterialError(Validation));
+		if (!Validation) return Fail({}, std::format("{} [parameter {}]", GetMaterialParameterErrorText(Validation.Error), Validation.ParameterId.ToString()));
 		std::ranges::sort(Definitions, {}, &FMaterialParameterDefinition::Id);
 		OutDefinitions = std::move(Definitions);
 		return {.bSucceeded = true};
@@ -88,24 +86,22 @@ namespace Durin
 	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation)
-			return RejectMaterialObjectGraph(GetObjectPath(), Validation.Error);
+			return RejectMaterialObjectGraph(GetObjectPath(), {{.Message = Validation.error()}});
 		if (Context.bCooked)
 			return CookedProgramData.GetMetadata().LogicalSize != 0 ? std::expected<void, FObjectValidationError>{}
-				: RejectMaterialObjectGraph(GetObjectPath(), EMaterialCookError::ProgramUnavailable);
+				: RejectMaterialObjectGraph(GetObjectPath(), {{.Message = "Material cooked program is unavailable."}});
 #if DURIN_WITH_EDITORONLY_DATA
 		std::vector<FMaterialParameterDefinition> Schema;
 		if (const auto Validation = DeriveExpressionParameterSchema(ExpressionCollection, Schema); !Validation)
 			return RejectLoadedObjectGraph(GetObjectPath(), "Material graph has an invalid parameter schema.");
 		if (GetMaterialDomainOutputPins(Domain).empty())
-			return RejectMaterialObjectGraph(GetObjectPath(), EMaterialExpressionError::UnsupportedMaterialDomain);
+			return RejectMaterialObjectGraph(GetObjectPath(), {{.Message = "Unsupported material domain."}});
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
-		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), OwnershipError.Error);
+		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), {{.Message = OwnershipError.error()}});
 		auto Validation = ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs());
 		if (!Validation)
 		{
-			const auto Error = Validation.Diagnostics.empty()
-				? FMaterialError(EMaterialExpressionError::InvalidMaterialExpressionGraph) : Validation.Diagnostics.front().Error;
-			return RejectMaterialObjectGraph(GetObjectPath(), Error, std::move(Validation.Diagnostics));
+			return RejectMaterialObjectGraph(GetObjectPath(), std::move(Validation.Diagnostics));
 		}
 		return {};
 #else
@@ -129,7 +125,7 @@ namespace Durin
 		{
 			if (const auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
 			{
-				if (bHasOutput) return {.Diagnostics = {{.Error = EMaterialExpressionError::MultipleOutputNodes}}};
+				if (bHasOutput) return {.Diagnostics = {{.Message = "A material graph cannot contain multiple output nodes."}}};
 				bHasOutput = true; Terminal->Id = Output->Id; continue;
 			}
 			Nodes.push_back(Expression);
@@ -152,11 +148,11 @@ namespace Durin
 		for (auto* Expression : Expressions)
 			if (const auto* Terminal = Cast<DMaterialExpressionMaterialOutput>(Expression))
 			{
-				if (Output) return {.Diagnostics = {{.Error = EMaterialExpressionError::InvalidOutputCount}}};
+				if (Output) return {.Diagnostics = {{.Message = "A material graph requires exactly one output node."}}};
 				Output = Terminal;
 			}
-		if (!Output) return {.Diagnostics = {{.Error = EMaterialExpressionError::MaterialGraphNoOutputNode}}};
-		if (GetMaterialDomainOutputPins(Domain).empty()) return {.Diagnostics = {{.Error = EMaterialExpressionError::UnsupportedMaterialDomain}}};
+		if (!Output) return {.Diagnostics = {{.Message = "The material graph has no output node."}}};
+		if (GetMaterialDomainOutputPins(Domain).empty()) return {.Diagnostics = {{.Message = "Unsupported material domain."}}};
 		Result = ValidateExpressionGraph(Candidate, Output->Outputs, &Code);
 		if (!Result) return Result;
 		std::vector<DMaterialExpression*> Ordered;

@@ -17,7 +17,7 @@ namespace Durin::MaterialBuildPrivate
 	ENGINE_API auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force,
 		DerivedData::IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion,
 		DerivedData::FBuildCancellation Cancellation = {}, bool QueryCache = true, std::shared_ptr<const FMaterialTranslationInput> EncodedInput = {},
-		DerivedData::EBuildCacheExecution Execution = DerivedData::EBuildCacheExecution::Task, FMaterialError* ConsumerValidationError = nullptr)
+		DerivedData::EBuildCacheExecution Execution = DerivedData::EBuildCacheExecution::Task)
 		-> std::expected<DerivedData::FBuildRequest, DerivedData::FBuildAdmissionError>;
 }
 #endif

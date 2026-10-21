@@ -37,13 +37,7 @@ namespace Durin
 		}
 
 
-		auto MakeDiagnostic(FMaterialProgramDiagnostic Source, uint64 Generation) -> FMaterialCompileDiagnostic
-		{
-			if (Source.Error.ExternalDiagnostic.size() > MaterialProgramMaxDiagnosticMessageBytes)
-				Source.Error.ExternalDiagnostic.resize(MaterialProgramMaxDiagnosticMessageBytes);
 
-			return {.Source = std::move(Source), .Generation = Generation};
-		}
 
 	}
 
@@ -117,7 +111,7 @@ namespace Durin
 		}
 		const auto Input = NewShaderMap->CompilingMaterialDependencies.front().CompilerInput;
 		NewShaderMap->DiagnosticInput = Input;
-		auto Submitted = SubmitJobs(Input,
+		auto Submitted = FMaterialShaderMap::Compile(Input,
 			{.bForceRecompile = Key.bForceRecompile, .Cancellation = NewShaderMap->Cancellation,
 				.EncodedInput = std::move(TranslationInput), .ShaderMap = NewShaderMap},
 			[this, Weak = std::weak_ptr(NewShaderMap)](MaterialBuildPrivate::FMaterialBuildResult Build) {
@@ -208,9 +202,9 @@ namespace Durin
 			.ProgramIdentity = Build.Program ? Build.Program->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{},
 			.StaticProperties = Request.CompilerInput->StaticProperties, .Target = Request.CompilerInput->Environment.Target,
 			.State = State};
-		for (size_t Index = 0; Index < Build.Sources.size(); ++Index) {
-			auto Source = Request.CompilerInput->Sources[Build.SourceOrdinals[Index]];
-			Source.ExpressionIndex = Build.Sources[Index].ExpressionIndex;
+		for (const auto& Location : Build.Sources) {
+			auto Source = Request.CompilerInput->Sources[Location.Ordinal];
+			Source.ExpressionIndex = Location.Source.ExpressionIndex;
 			Result.ExpressionSources.push_back(std::move(Source));
 		}
 		if (State == EMaterialCompileState::Ready) {
@@ -230,7 +224,9 @@ namespace Durin
 						Diagnostic.FunctionAssetPath = Source.FunctionAssetPath; Diagnostic.CallPath = Source.CallPath;
 					}
 				}
-				Result.Diagnostics.push_back(MakeDiagnostic(std::move(Diagnostic), Request.Generation));
+				if (Diagnostic.Message.size() > MaterialProgramMaxDiagnosticMessageBytes)
+					Diagnostic.Message.resize(MaterialProgramMaxDiagnosticMessageBytes);
+				Result.Diagnostics.push_back(std::move(Diagnostic));
 			}
 		}
 		return Result;
@@ -268,8 +264,7 @@ namespace Durin
 			for (const auto& Consumer : Consumers)
 			{
 				auto Result = MakeMaterialResult(Consumer, {});
-				Result.Diagnostics.push_back(MakeDiagnostic(
-					{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::AdmissionRejected}, Consumer.Generation));
+				Result.Diagnostics.push_back({.Message = "Material compile admission was rejected."});
 				Results.push_back(std::move(Result));
 			}
 		}

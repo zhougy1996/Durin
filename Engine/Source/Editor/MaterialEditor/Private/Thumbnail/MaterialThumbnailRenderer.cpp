@@ -100,8 +100,8 @@ namespace Durin::Editor::Material
 					|| CompileStatus.State == EMaterialCompileState::Running)
 					return FMaterialThumbnailResource{Revision == 0 ? 1 : Revision, false};
 				const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
-				return std::unexpected(!Diagnostics.empty() && !Durin::FormatMaterialError(Diagnostics.front().Source.Error).empty()
-					? Durin::FormatMaterialError(Diagnostics.front().Source.Error)
+				return std::unexpected(!Diagnostics.empty() && !Diagnostics.front().Message.empty()
+					? Diagnostics.front().Message
 					: "The material has no current compiled program.");
 			}
 			for (DTexture2D* Texture : GetTextureDependencies(*Material))

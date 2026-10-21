@@ -20,13 +20,6 @@ namespace Durin
 		MIR::FNormalizationResult Normalized;
 		FMaterialStaticProperties StaticProperties;
 		FMaterialCompilerEnvironment Environment;
-		uint64 NormalizationMicroseconds = 0;
-	};
-
-	struct FMaterialTranslationSource
-	{
-		MIR::FSource Source;
-		uint32 Ordinal = 0;
 	};
 
 	// Detached CPU product. Shader binaries and publication success exist only
@@ -49,7 +42,7 @@ namespace Durin
 		FMaterialProgramRequirements Requirements;
 		std::string GeneratedSource;
 		std::vector<FMaterialCompilerDependency> Dependencies;
-		FMaterialCompileTimings Timings;
+		float CompileTime = 0;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 		FMaterialStaticProperties StaticProperties;
 		FMaterialCompilerResourceLimits ResourceLimits;

@@ -10,28 +10,9 @@
 
 namespace Durin
 {
-	enum class EMaterialRenderValidationFailure : uint8
-	{
-		None,
-		UnsupportedVersion,
-		UnsupportedIdentity,
-		InvalidCounts,
-		InvalidPayloadSize,
-		InvalidField,
-		DuplicateField,
-		InvalidOffset,
-		InvalidAlignment,
-		OverlappingFields,
-		NonFiniteValue,
-		NonZeroPadding,
-		InvalidResource,
-	};
-
 	struct FMaterialRenderValidationDiagnostic
 	{
-		EMaterialRenderValidationFailure Failure = EMaterialRenderValidationFailure::None;
-		uint32 FieldIndex = 0;
-		FMaterialError Error;
+		std::string Message;
 	};
 
 	struct FMaterialRenderRepresentationInput

@@ -294,17 +294,17 @@ namespace Durin
 		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return FShaderCompilerOutput::Failure(std::string(std::string("Shader entry-point request is invalid.")));
 		FShaderCompilerOutput Output;
 		auto Handle = SubmitMounted(VirtualShaderPath, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
-		if (!Handle) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionError(Handle.error()));
+		if (!Handle) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Handle.error()));
 		require(Handle->Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}
 
 	auto FShaderBuilder::SubmitMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options,
 		FShaderBuildRequestOptions RequestOptions, FShaderBuildCompletion Completion)
-		-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
+		-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
 	{
 		if (VirtualShaderPath.empty() || !IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options))
-			return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::InvalidRequest});
+			return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = VirtualShaderPath; Request.Target = Options.Target; Request.Frequencies = Options.Frequencies;
 		Request.Macros = Options.Macros; Request.SourceArtifacts = Options.SourceArtifacts; Request.bForceRecompile = Options.bForceRecompile;

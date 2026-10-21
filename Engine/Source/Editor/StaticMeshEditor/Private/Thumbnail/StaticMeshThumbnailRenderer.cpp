@@ -11,7 +11,6 @@
 #include "Engine/Engine.h"
 #include "IRendererModule.h"
 #include "Math/Operations.h"
-#include "Materials/MaterialDiagnostic.h"
 #include "Materials/MaterialInterface.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
@@ -120,7 +119,7 @@ namespace Durin::Editor::StaticMesh
 					const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
 					return {.Diagnostic = QualifyDiagnostic(Input.AssetPath, std::format(
 						"Material '{}' has no current compiled program. {}", Material->GetObjectPath(),
-						Diagnostics.empty() ? std::string{} : FormatMaterialError(Diagnostics.front().Source.Error)))};
+						Diagnostics.empty() ? std::string{} : Diagnostics.front().Message))};
 				}
 				return {.State = ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender};
 			}

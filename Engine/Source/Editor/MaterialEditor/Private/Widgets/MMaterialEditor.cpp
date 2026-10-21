@@ -815,9 +815,6 @@ namespace Durin::Editor::Material
 		ImGui::Text("Cache: %s", FormatCacheOutcome(Status.CacheOutcome));
 		ImGui::Text("Target: %s", Status.Target.empty() ? "n/a" : Status.Target.c_str());
 		ImGui::Text("Generation: %llu", static_cast<unsigned long long>(Status.RequestGeneration));
-		if (Status.DurationMicroseconds != 0)
-			ImGui::Text("Duration: %.2f ms",
-				static_cast<double>(Status.DurationMicroseconds) / 1000.0);
 		if (Material->GetAcceptedCompiledProgram() && !Status.IsCurrent())
 			ImGui::TextDisabled("Preview uses the last known good program.");
 		if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))
@@ -847,11 +844,9 @@ namespace Durin::Editor::Material
 					static_cast<unsigned long long>(Statistics.CompiledShaderCount),
 					static_cast<unsigned long long>(Statistics.CompiledCodeBytes),
 					Statistics.bSizeOverflow ? " (overflow)" : "");
-				ImGui::Text("Dependencies: %llu; phases: %llu / %llu / %llu us",
+				ImGui::Text("Dependencies: %llu; compile: %.3f ms",
 					static_cast<unsigned long long>(Statistics.DependencyCount),
-					static_cast<unsigned long long>(Statistics.PhaseTimings.NormalizationMicroseconds),
-					static_cast<unsigned long long>(Statistics.PhaseTimings.GenerationMicroseconds),
-					static_cast<unsigned long long>(Statistics.PhaseTimings.CompilationMicroseconds));
+					static_cast<double>(Statistics.CompileTime) * 1000.0);
 			}
 			ImGui::Text("Loaded authored family: %llu owners, %llu programs, %llu static configurations",
 				static_cast<unsigned long long>(Family.LoadedOwnerCount),
@@ -878,55 +873,54 @@ namespace Durin::Editor::Material
 			const auto* Source = Session->GetSourceMaterial();
 			ImGui::Text("Scene material: %s", FormatCompileState(Source->GetMaterialCompileStatus().State));
 			for (const auto& Diagnostic : Source->GetMaterialCompileDiagnostics())
-				ImGui::TextWrapped("Scene: %s", FormatMaterialError(Diagnostic.Source.Error).c_str());
+				ImGui::TextWrapped("Scene: %s", Diagnostic.Message.c_str());
 		}
 		uint32 DiagnosticIndex = 0;
-		for (const FMaterialCompileDiagnostic& Diagnostic
+		for (const FMaterialProgramDiagnostic& Diagnostic
 			: Material->GetMaterialCompileDiagnostics())
 		{
 			ImGui::PushID(static_cast<int>(DiagnosticIndex++));
 			bool bLocated = false;
-			switch (Diagnostic.Source.LocationKind)
+			switch (Diagnostic.LocationKind)
 			{
 			case EMaterialProgramDiagnosticLocationKind::Node:
 			case EMaterialProgramDiagnosticLocationKind::Input:
 				bLocated = Base && std::ranges::any_of(Base->GetExpressionCollection().Expressions,
-					[&](const auto& Expression) { return Expression->Id == Diagnostic.Source.NodeId; });
+					[&](const auto& Expression) { return Expression->Id == Diagnostic.NodeId; });
 				break;
 			case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
-				bLocated = Diagnostic.Source.LocationIndex < 8
-					|| Diagnostic.Source.LocationIndex == static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset);
+				bLocated = Diagnostic.LocationIndex < 8
+					|| Diagnostic.LocationIndex == static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset);
 				break;
 			case EMaterialProgramDiagnosticLocationKind::Program:
 				break;
 			}
-			const bool bStale = Diagnostic.Generation != Status.RequestGeneration;
-			if (!bStale && !Diagnostic.Source.FunctionAssetPath.empty())
+			if (!Diagnostic.FunctionAssetPath.empty())
 			{
 				if (ImGui::SmallButton("Open Function"))
 					if (const auto Editor = std::dynamic_pointer_cast<MMaterialFunctionEditor>(WorkspaceManager.FindWorkspace(MaterialFunctionWorkspaceType)))
-						Editor->NavigateToNode(Diagnostic.Source.FunctionAssetPath, Diagnostic.Source.NodeId);
+						Editor->NavigateToNode(Diagnostic.FunctionAssetPath, Diagnostic.NodeId);
 				ImGui::SameLine();
 			}
-			if (bCanNavigateGraph && bLocated && !bStale)
+			if (bCanNavigateGraph && bLocated)
 			{
 				if (ImGui::SmallButton("Go"))
 				{
 					GetOrCreateCanvas(Document).SelectAndFrameDiagnostic(
-						Diagnostic.Source);
+						Diagnostic);
 					const auto GraphName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName(
 						"Material Graph", Workspace::MakeDocumentDockType(Document), "Graph");
 					ImGui::SetWindowFocus(GraphName.c_str());
 				}
 				ImGui::SameLine();
 			}
-			ImGui::TextWrapped("%s%s", FormatMaterialError(Diagnostic.Source.Error).c_str(),
-				bStale || (Diagnostic.Source.LocationKind
+			ImGui::TextWrapped("%s%s", Diagnostic.Message.c_str(),
+				(Diagnostic.LocationKind
 					!= EMaterialProgramDiagnosticLocationKind::Program && !bLocated)
 					? " (stale location)" : "");
 			ImGui::PopID();
 		}
-		const std::string CookDiagnostic = Durin::FormatMaterialError(Material->GetMaterialCookDiagnostic());
+		const auto& CookDiagnostic = Material->GetMaterialCookDiagnostic();
 		if (!CookDiagnostic.empty())
 			ImGui::TextWrapped("Cook: %.*s",
 				static_cast<int>(CookDiagnostic.size()), CookDiagnostic.data());
@@ -1015,7 +1009,7 @@ namespace Durin::Editor::Material
 					}
 					if (const auto Applied = Candidate->SetParameterDefinition(Parameter); !Applied)
 					{
-						SetError(FormatMaterialError(Applied.Error));
+						SetError(Applied.error());
 						bSubmitted = true;
 						return;
 					}
@@ -1175,7 +1169,7 @@ namespace Durin::Editor::Material
 		const std::array<bool*, 5> Flags{&Overrides.bOverrideBlendMode, &Overrides.bOverrideShadingModel,
 			&Overrides.bOverrideOpacityMaskThreshold, &Overrides.bOverrideTwoSided, &Overrides.bOverrideDepthWritePolicy};
 		FResolvedMaterialProperties Resolved;
-		Durin::FMaterialOperationResult ResolveError;
+		std::expected<void, std::string> ResolveError;
 		const bool bResolved = static_cast<bool>(ResolveError = ResolveMaterialProperties(*Instance, Resolved));
 		bool bChanged = false;
 		if (MonaImGui::PropertyEdit::BeginTable("RenderingOverrides", MakeMaterialPropertyTableConfig()))
@@ -1223,7 +1217,7 @@ namespace Durin::Editor::Material
 			MonaImGui::PropertyEdit::EndTable();
 		}
 		ImGui::TextWrapped("Enable an override to edit; clear it to inherit.");
-		if (!bResolved) ImGui::TextWrapped("%s", FormatMaterialError(ResolveError.Error).c_str());
+		if (!bResolved) ImGui::TextWrapped("%s", ResolveError.error().c_str());
 		if (bChanged)
 		{
 			if (auto* Property = Instance->GetClass()->FindPropertyByName(FName("PropertyOverrides")))

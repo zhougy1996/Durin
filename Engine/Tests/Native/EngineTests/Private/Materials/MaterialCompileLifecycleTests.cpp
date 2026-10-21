@@ -526,7 +526,7 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 		<< "state=" << static_cast<uint32>(First->GetMaterialCompileStatus().State)
 		<< " diagnostic=" << (First->GetMaterialCompileDiagnostics().empty()
 			? std::string("<none>")
-			: Durin::FormatMaterialError(First->GetMaterialCompileDiagnostics().front().Source.Error));
+			: First->GetMaterialCompileDiagnostics().front().Message);
 	ASSERT_TRUE(First->GetAcceptedCompiledProgram());
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId,
 		InitialProgram->GetShaderMap().ShaderMapId);
@@ -561,6 +561,11 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	const Durin::FMaterialCompileStatus Pending =
 		First->GetMaterialCompileStatus();
 	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*First);
+	const std::vector<Durin::FMaterialProgramDiagnostic> BeforeDiagnostics(
+		First->GetMaterialCompileDiagnostics().begin(), First->GetMaterialCompileDiagnostics().end());
+	const Durin::FMaterialProgramDiagnostic FailureDiagnostic{
+		.LocationKind = Durin::EMaterialProgramDiagnosticLocationKind::Node,
+		.NodeId = Durin::FGuid::NewGuid(), .Message = "Material compile admission was rejected."};
 	Durin::FMaterialCompileResult Failed{
 		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
@@ -569,6 +574,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 		.ProgramIdentity = Pending.RequestedIdentity,
 		.Target = Pending.Target,
 		.State = Durin::EMaterialCompileState::Failed,
+		.Diagnostics = {FailureDiagnostic},
 	};
 	// An obsolete failure cannot retire a newer request's visible generation.
 	auto StaleFailure = Failed;
@@ -576,12 +582,15 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(StaleFailure)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
+	EXPECT_TRUE(std::ranges::equal(First->GetMaterialCompileDiagnostics(), BeforeDiagnostics));
 	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(Failed)));
 	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	EXPECT_EQ(First->GetMaterialCompileStatus().State,
 		Durin::EMaterialCompileState::Failed);
 	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
+	ASSERT_EQ(First->GetMaterialCompileDiagnostics().size(), 1u);
+	EXPECT_EQ(First->GetMaterialCompileDiagnostics().front(), FailureDiagnostic);
 	ExpectColorNear(GetMaterialBinding(First->GetRenderData()).BaseColor,
 		GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
 
@@ -624,8 +633,12 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 		*First, std::move(WrongDependency)));
 	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 
+	ASSERT_EQ(First->GetMaterialCompileDiagnostics().size(), 1u);
+	EXPECT_EQ(First->GetMaterialCompileDiagnostics().front(), FailureDiagnostic);
+
 	// Recovery replaces the error terminal, including after stale results were rejected.
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
+	EXPECT_TRUE(First->GetMaterialCompileDiagnostics().empty());
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 	EXPECT_TRUE(First->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
@@ -1000,15 +1013,15 @@ TEST(FMaterialCompileLifecycleTests,
 
 	Durin::FByteBuffer FirstBytes;
 	Durin::FByteBuffer SecondBytes;
-	Durin::FMaterialOperationResult Error;
+	std::expected<void, std::string> Error;
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		*Material->GetAcceptedCompiledProgram(), Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, FirstBytes))) << Durin::FormatMaterialError(Error.Error);
+		Durin::ECookTargetProfile::Game, FirstBytes))) << Error.error();
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		*Material->GetAcceptedCompiledProgram(), Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, SecondBytes))) << Durin::FormatMaterialError(Error.Error);
+		Durin::ECookTargetProfile::Game, SecondBytes))) << Error.error();
 	EXPECT_EQ(FirstBytes, SecondBytes);
 	EXPECT_LE(FirstBytes.size(), Durin::MaterialCookedProgramMaxPayloadBytes);
 
@@ -1018,7 +1031,7 @@ TEST(FMaterialCompileLifecycleTests,
 		FirstBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
 		*Material->GetAcceptedCompiledProgram(), DecodedProperties,
-		DecodedProgram))) << Durin::FormatMaterialError(Error.Error);
+		DecodedProgram))) << Error.error();
 	ASSERT_TRUE(DecodedProgram);
 	EXPECT_EQ(DecodedProgram->GetShaderMap().ShaderMapId,
 		Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId);
@@ -1043,12 +1056,12 @@ TEST(FMaterialCompileLifecycleTests,
 	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgramFamily(FamilyPointers,
 		Material->GetStaticProperties(), Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, FamilyBytes)))
-		<< Durin::FormatMaterialError(Error.Error);
+		<< Error.error();
 	EXPECT_LT(FamilyBytes.size(), FirstBytes.size() * 2);
 	ASSERT_TRUE((Error = Durin::DecodeMaterialCookedProgramFamily(FamilyBytes,
 		Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
 		Durin::EMaterialQualityLevel::Low, Durin::ERHIFeatureLevel::SM6, {},
-		DecodedProperties, DecodedProgram))) << Durin::FormatMaterialError(Error.Error);
+		DecodedProperties, DecodedProgram))) << Error.error();
 	EXPECT_EQ(DecodedProgram->Quality, Durin::EMaterialQualityLevel::Low);
 	EXPECT_EQ(DecodedProgram->FeatureLevel, Durin::ERHIFeatureLevel::SM6);
 	const std::array MissingStatic{
@@ -1106,7 +1119,7 @@ TEST(FMaterialCompileLifecycleTests,
 		WrongEnvironment, Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
-		WrongEnvironmentBytes))) << Durin::FormatMaterialError(Error.Error);
+		WrongEnvironmentBytes))) << Error.error();
 	EXPECT_FALSE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironmentBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
@@ -1177,13 +1190,13 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 	auto Result = Durin::EncodeMaterialCookedProgramFamily(Programs,
 		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
 		Durin::ECookTargetProfile::Game, Bytes);
-	ASSERT_TRUE(Result) << Durin::FormatMaterialError(Result.Error);
+	ASSERT_TRUE(Result) << Result.error();
 	Durin::FMaterialStaticProperties Properties;
 	std::shared_ptr<const Durin::FMaterialCompilerResult> Decoded;
 	Result = Durin::DecodeMaterialCookedProgramFamily(Bytes,
 		Durin::ECookTargetPlatform::MacOS, Durin::ECookTargetProfile::Game,
 		Program.Quality, Program.FeatureLevel, {}, Properties, Decoded);
-	ASSERT_TRUE(Result) << Durin::FormatMaterialError(Result.Error);
+	ASSERT_TRUE(Result) << Result.error();
 	ASSERT_TRUE(Decoded);
 	for (size_t Index = 0; Index < Artifact->CompiledShaders.size(); ++Index)
 	{
@@ -1255,8 +1268,8 @@ TEST_F(FMaterialAsyncCompileTests, ShaderCompilerRegistersOnceAndStopsBothReques
 	EXPECT_FALSE(IsMaterialCompilationAcceptingRequests());
 	auto Shader = Compiler.SubmitJobs("/Closed", {}, {}, [](auto) { ADD_FAILURE() << "Rejected shader must not complete."; });
 	ASSERT_FALSE(Shader);
-	EXPECT_EQ(Shader.error().Reason, EShaderBuildAdmissionReason::Closed);
-	auto Material = Compiler.SubmitJobs(std::make_shared<const MIR::FCompilerInput>(), {},
+	EXPECT_EQ(Shader.error(), EShaderBuildAdmissionReason::Closed);
+	auto Material = FMaterialShaderMap::Compile(std::make_shared<const MIR::FCompilerInput>(), {},
 		[](auto) { ADD_FAILURE() << "Rejected material must not complete."; });
 	ASSERT_FALSE(Material);
 	EXPECT_EQ(Material.error(), MaterialBuildPrivate::EMaterialCompileAdmissionError::Closed);

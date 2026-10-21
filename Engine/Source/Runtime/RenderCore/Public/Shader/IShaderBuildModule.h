@@ -51,10 +51,10 @@ namespace Durin
 		virtual auto SubmitMounted(std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& CompileOptions, FShaderBuildRequestOptions Options,
 			FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> = 0;
+			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason> = 0;
 		virtual auto SubmitGenerated(FGeneratedShaderCompileRequest Request,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> = 0;
+			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason> = 0;
 	public:
 		virtual auto GetCompilerEnvironmentIdentity() -> std::string = 0;
 		// Capture for exact native-library cache replay through request options.

@@ -283,11 +283,11 @@ namespace Durin
 		};
 	}
 
-	struct FMaterialCompileTimings
+	// Keeps each normalized source paired with its requesting-input ordinal.
+	struct FMaterialTranslationSource
 	{
-		uint64 NormalizationMicroseconds = 0;
-		uint64 GenerationMicroseconds = 0;
-		uint64 CompilationMicroseconds = 0;
+		MIR::FSource Source;
+		uint32 Ordinal = 0;
 	};
 
 	struct FMaterialProgramRequirements
@@ -320,7 +320,6 @@ namespace Durin
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
 		std::shared_ptr<const FMaterialShaderMap> ShaderMap;
-		FMaterialCompileTimings Timings;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
 		ENGINE_API auto GetShaderMap() const -> const FMaterialShaderMap&;
@@ -352,7 +351,7 @@ namespace Durin
 	[[nodiscard]] ENGINE_API auto BuildDefaultMaterialCompilerEnvironment(
 		FMaterialCompilerEnvironment& OutEnvironment,
 		std::optional<FShaderTargetIdentity> Target = std::nullopt)
-		-> FMaterialOperationResult;
+		-> std::expected<void, std::string>;
 
 	namespace MIR
 	{
@@ -364,7 +363,7 @@ namespace Durin
 
 		[[nodiscard]] ENGINE_API auto EncodeCanonical(
 			const FModule& IR,
-			FByteBuffer& OutBytes) -> FMaterialOperationResult;
+			FByteBuffer& OutBytes) -> std::expected<void, std::string>;
 	}
 
 	ENGINE_API auto BuildMaterialProgramIdentity(const FMaterialStaticProperties& StaticProperties,

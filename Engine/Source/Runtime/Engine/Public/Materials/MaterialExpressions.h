@@ -83,7 +83,7 @@ namespace Durin
 		virtual auto GetParameterDefinition() const -> FMaterialParameterDefinition = 0;
 
 		// Applies compatible shared fields without changing node identity or local sampling inputs.
-		ENGINE_API auto SetParameterDefinition(const FMaterialParameterDefinition& Definition) -> FMaterialOperationResult;
+		ENGINE_API auto SetParameterDefinition(const FMaterialParameterDefinition& Definition) -> std::expected<void, std::string>;
 
 	protected:
 		ENGINE_API auto MakeDefinition(EMaterialParameterType Type, FMaterialParameterValue Value) const

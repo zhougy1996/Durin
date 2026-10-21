@@ -470,8 +470,12 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = "/Generated/Materials/InlineInvalid";
 		uint32 Callbacks = 0;
+		const auto Invalid = Builder->SubmitGenerated(Request, {.bInlineExecution = true}, {});
+		ASSERT_FALSE(Invalid);
+		EXPECT_EQ(Invalid.error(), EShaderBuildAdmissionReason::InvalidRequest);
 		auto Rejected = Builder->SubmitGenerated(Request, {}, [&](auto) { ++Callbacks; });
-		EXPECT_FALSE(Rejected);
+		ASSERT_FALSE(Rejected);
+		EXPECT_EQ(Rejected.error(), EShaderBuildAdmissionReason::DispatchRejected);
 		EXPECT_EQ(Callbacks, 0u);
 		bool Returned = false;
 		auto Inline = Builder->SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto Output) {
@@ -486,7 +490,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Callbacks, 2u);
 		Builder->Close();
 		auto Closed = Builder->SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto) { ++Callbacks; });
-		EXPECT_FALSE(Closed);
+		ASSERT_FALSE(Closed);
+		EXPECT_EQ(Closed.error(), EShaderBuildAdmissionReason::Closed);
 		EXPECT_EQ(Callbacks, 2u);
 	}
 

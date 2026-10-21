@@ -68,7 +68,7 @@ namespace Durin::MIR
 		check(IsInGameThread());
 		if (InExpressions.size() > MaterialProgramMaxNodeCount)
 		{
-			Fail(EMaterialExpressionError::CollectionExceedsAuthoredNodeBound);
+			Fail("Expression collection exceeds the authored node bound.");
 			return;
 		}
 		std::map<FGuid, FMaterialParameterDefinition> ParameterOwners;
@@ -80,7 +80,7 @@ namespace Durin::MIR
 			if (!IsValid(Expression) || !Expression->Id.IsValid()
 				|| !Expressions.emplace(Expression->Id, Expression).second)
 			{
-				Fail(EMaterialExpressionError::CollectionContainsNullOwnerInvalidGUIDDuplicateGUID);
+				Fail("Expression collection contains a null owner, invalid GUID, or duplicate GUID.");
 				return;
 			}
 			const auto HashInput = [&](const FMaterialNumericInput& Input) {
@@ -110,7 +110,7 @@ namespace Durin::MIR
 					|| (ExistingName != StaticBoolNames.end()
 						&& ExistingName->second != StaticBool->DeclarationId))
 				{
-					Fail(EMaterialExpressionError::StaticBoolDeclarationInvalidDuplicateExceedsBound);
+					Fail("Static bool declarations require unique valid GUIDs and names and are bounded to 32 per root.");
 					return;
 				}
 				StaticBoolDeclarations.emplace(StaticBool->DeclarationId,
@@ -121,18 +121,18 @@ namespace Durin::MIR
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression);
 				Parameter && (Signature || !Parameter->Metadata.Id.IsValid()))
 			{
-				Fail(EMaterialExpressionError::ParameterExpressionsRequireValidParameterGUIDsMaterialOwner);
+				Fail("Parameter expressions require valid parameter GUIDs and a material owner.");
 				return;
 			}
 			if (Signature && Cast<DMaterialExpressionMaterialOutput>(Expression))
 			{
-				Fail(EMaterialFunctionError::UnsupportedMaterialExpression);
+				Fail("Functions cannot declare material parameters or material outputs.");
 				return;
 			}
 			if (!Cast<DMaterialExpressionMaterialOutput>(Expression)) AuthoredLinks += Expression->GetAuthoredInputCount();
 			if (AuthoredLinks > MaterialProgramMaxLinkCount)
 			{
-				Fail(EMaterialExpressionError::CollectionExceedsAuthoredInputLinkBound);
+				Fail("Expression collection exceeds the authored input/link bound.");
 				return;
 			}
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression))
@@ -145,14 +145,14 @@ namespace Durin::MIR
 					|| (bInserted && !ParameterNames.insert(Definition.Name).second)
 					|| !ValidateMaterialParameterDefinitions(std::span(&Definition, 1)))
 				{
-					Fail(EMaterialExpressionError::ParameterExpressionMetadataDefaultInvalid);
+					Fail("Parameter expression metadata or default is invalid.");
 					return;
 				}
 			}
 		}
 		if (ParameterOwners.size() > MaterialMaxParameterDefinitionCount)
 		{
-			Fail(EMaterialExpressionError::CollectionExceedsParameterDeclarationBound);
+			Fail("Expression collection exceeds the parameter declaration bound.");
 			return;
 		}
 		for (const auto& [Id, Definition] : ParameterOwners)
@@ -165,20 +165,18 @@ namespace Durin::MIR
 			}
 			if (Expressions.contains(Id))
 			{
-				Fail(EMaterialExpressionError::ParameterIdentityDistinctExpressionIdentity);
+				Fail("Parameter identity must be distinct from expression identity.");
 				return;
 			}
 		}
 	}
 
-	auto FGraphBuilderImpl::Fail(FMaterialError Error, FGuid PortId,
-		EMaterialProgramDiagnosticCategory Category) -> uint32
+	auto FGraphBuilderImpl::Fail(std::string Message, FGuid PortId) -> uint32
 	{
 		if (Result.Diagnostics.empty())
 		{
-			Result.Diagnostics.push_back({.Category = Category,
-				.LocationKind = EMaterialProgramDiagnosticLocationKind::Node,
-				.NodeId = SourceStack.empty() ? FGuid{} : SourceStack.back(), .Error = std::move(Error),
+			Result.Diagnostics.push_back({.LocationKind = EMaterialProgramDiagnosticLocationKind::Node,
+				.NodeId = SourceStack.empty() ? FGuid{} : SourceStack.back(), .Message = std::move(Message),
 				.PortId = PortId.IsValid() ? PortId : PortStack.empty() ? FGuid{} : PortStack.back(), .FunctionAssetPath = FunctionPath, .CallPath = CallPath});
 		}
 		return InvalidIndex;
@@ -188,35 +186,35 @@ namespace Durin::MIR
 		const FMaterialExpressionInput& Input) -> void
 	{
 		if (Cast<DMaterialExpressionMaterialOutput>(&Expression))
-			Fail(EMaterialExpressionError::MaterialOutputSinkUsedAsExpressionSource);
+			Fail("A material output is a sink and cannot be used as an expression source.");
 		else if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression))
 		{
 			if (Input.OutputIndex != 0 || !Input.OutputId.IsValid())
-				Fail(EMaterialFunctionError::CallConnectionsRequireOutputGUIDZeroOutputIndex);
+				Fail("Function call connections require an output GUID and zero output index.");
 			else if (!std::ranges::contains(Call->Outputs, Input.OutputId, &FMaterialFunctionOutputBinding::OutputId))
-				Fail(EMaterialFunctionError::CallOutputGUIDBound, Input.OutputId);
+				Fail("Function call output GUID is not bound.", Input.OutputId);
 		}
 		else if (Cast<DMaterialExpressionTextureSample2D>(&Expression) || Cast<DMaterialExpressionTextureSampleParameter2D>(&Expression))
 		{
 			const auto Opcode = Cast<DMaterialExpressionTextureSampleParameter2D>(&Expression)
 				? EMaterialProgramOpcode::TextureSampleParameter2D : EMaterialProgramOpcode::TextureSample2D;
-			if (Input.OutputId.IsValid()) Fail(EMaterialExpressionError::SampleOutputRequiresIndexOutputGUID);
-			else if (!FindMaterialSampleOutput(Opcode, Input.OutputIndex)) Fail(EMaterialExpressionError::SampleExpressionOutputSelectorInvalid);
+			if (Input.OutputId.IsValid()) Fail("Sample output requires an index, not an output GUID.");
+			else if (!FindMaterialSampleOutput(Opcode, Input.OutputIndex)) Fail("Sample expression output selector is invalid.");
 		}
 		else if (const auto* Attributes = Cast<DMaterialExpressionGetSurfaceAttributes>(&Expression))
 		{
 			if (Input.OutputId.IsValid() || Input.OutputIndex >= 8 || !(Attributes->AttributeMask & (1u << Input.OutputIndex)))
-				Fail(EMaterialExpressionError::SurfaceAttributeOutputSelected);
+				Fail("Surface attribute output is not selected.");
 		}
 		else if (Input.OutputIndex != 0 || Input.OutputId.IsValid())
 		{
-			if (Cast<DMaterialExpressionFunctionInput>(&Expression)) Fail(EMaterialFunctionError::InputTerminalPrimaryOutput);
-			else if (Cast<DMaterialExpressionFunctionOutput>(&Expression)) Fail(EMaterialFunctionError::OutputTerminalPrimaryOutput);
-			else Fail(EMaterialExpressionError::PrimaryOutput);
+			if (Cast<DMaterialExpressionFunctionInput>(&Expression)) Fail("Function input terminal has only its primary output.");
+			else if (Cast<DMaterialExpressionFunctionOutput>(&Expression)) Fail("Function output terminal has only its primary output.");
+			else Fail("Expression has only its primary output.");
 		}
 		// Keep existing selector diagnostics for known nodes. Registered outputs, including
 		// those of new expression classes, are accepted without a central node-type schema.
-		if (Result.Diagnostics.empty()) Fail(EMaterialExpressionError::BuildOutputNotRegistered, Input.OutputId);
+		if (Result.Diagnostics.empty()) Fail("Expression Build did not register the requested output.", Input.OutputId);
 	}
 
 	auto FGraphBuilderImpl::BuildExpression(const DMaterialExpression& Expression) -> void
@@ -224,7 +222,7 @@ namespace Durin::MIR
 		if (!Result.Diagnostics.empty() || Built.contains(Expression.Id)) return;
 		if (Active.size() >= MaterialProgramMaxDepth || !Active.insert(Expression.Id).second)
 		{
-			Fail(EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound);
+			Fail("Expression inputs contain a cycle or exceed the traversal depth bound.");
 			return;
 		}
 		SourceStack.push_back(Expression.Id);
@@ -247,7 +245,7 @@ namespace Durin::MIR
 			AuthoringCodeHash.UpdateValue(Input.OutputId);
 		}
 		const auto Found = Expressions.find(Input.ExpressionId);
-		if (Found == Expressions.end()) return Fail(EMaterialExpressionError::InputDisconnectedRefersMissingExpression);
+		if (Found == Expressions.end()) return Fail("Expression input is disconnected or refers to a missing expression.");
 		// Do not expose a partially registered output while its expression is still building.
 		BuildExpression(*Found->second);
 		if (!Result.Diagnostics.empty()) return InvalidIndex;
@@ -262,7 +260,7 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::ResolveIndex(const FMaterialExpressionInput& Input) -> uint32
 	{
 		const auto Value = Resolve(Input);
-		return Value.GetIndex() ? *Value.GetIndex() : Fail(EMaterialExpressionError::InvalidTextureDefaultConsumer);
+		return Value.GetIndex() ? *Value.GetIndex() : Fail("A texture default may only be consumed by sampling or a function texture port.");
 	}
 
 	auto FGraphBuilderImpl::MatchesType(const FValue& Value, EMaterialProgramValueType Type) const -> bool
@@ -288,7 +286,7 @@ namespace Durin::MIR
 		if (!Result.Diagnostics.empty()) return InvalidIndex;
 		const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
 		if (!Node.HasValidPayload() || !Signature || Node.Inputs.size() != Signature->InputCount)
-			return Fail(EMaterialExpressionError::OpcodeResultWidthInputCountInvalid);
+			return Fail("Expression opcode, result width, or input count is invalid.");
 		// Adapt authored fixed-width inputs before admitting strictly typed IR.
 		// Normalize keeps its requirement for a vector source.
 		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
@@ -307,7 +305,7 @@ namespace Durin::MIR
 		if (!Result.Diagnostics.empty()) return InvalidIndex;
 		if (Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
 			|| LinkCount + Node.Inputs.size() > MaterialFunctionMaxExpandedLinks)
-			return Fail(EMaterialExpressionError::BuildExceedsExpandedIRNodeLinkBound, {}, EMaterialProgramDiagnosticCategory::Bounds);
+			return Fail("Expression Build exceeds the expanded IR node or link bound.", {});
 		uint32 Depth = 1;
 		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
 		{
@@ -315,24 +313,24 @@ namespace Durin::MIR
 			const auto Accepted = Signature->Inputs[Slot];
 			if (Input >= Result.IR.Nodes.size()
 				|| !std::ranges::contains(Accepted, Result.IR.Nodes[Input].ResultType))
-				return Fail(EMaterialExpressionError::InputIncompatibleType);
+				return Fail("Expression input has an incompatible type.");
 			Depth = std::max(Depth, Depths[Input] + 1);
 		}
-		if (Depth > MaterialProgramMaxDepth) return Fail(EMaterialExpressionError::BuildExceedsIRDepthBound);
+		if (Depth > MaterialProgramMaxDepth) return Fail("Expression Build exceeds the IR depth bound.");
 		if (Node.Opcode == EMaterialProgramOpcode::Constant)
 		{
 			const std::array Values{Node.GetLiteral().X, Node.GetLiteral().Y, Node.GetLiteral().Z, Node.GetLiteral().W};
 			for (uint32 Index = 0; Index <= static_cast<uint32>(Node.ResultType); ++Index)
-				if (!std::isfinite(Values[Index])) return Fail(EMaterialExpressionError::NonFiniteConstant);
+				if (!std::isfinite(Values[Index])) return Fail("Expression constant must be finite.");
 		}
 		if (Node.Opcode == EMaterialProgramOpcode::Swizzle)
 		{
 			if (Node.GetSwizzle().Length != static_cast<uint32>(Node.ResultType) + 1)
-				return Fail(EMaterialExpressionError::SwizzleWidthMismatch);
+				return Fail("Swizzle selection does not match its result width.");
 			const std::array Mask{Node.GetSwizzle().Components[0], Node.GetSwizzle().Components[1], Node.GetSwizzle().Components[2], Node.GetSwizzle().Components[3]};
 			for (uint8 Index = 0; Index < Node.GetSwizzle().Length; ++Index)
 				if (Mask[Index] > static_cast<uint32>(Result.IR.Nodes[Node.Inputs[0]].ResultType))
-					return Fail(EMaterialExpressionError::SwizzleSelectionExceedsSourceWidth);
+					return Fail("Swizzle selection exceeds the source width.");
 		}
 		std::vector<FMaterialValueSemantics> InputSemantics;
 		InputSemantics.reserve(Node.Inputs.size());
@@ -380,13 +378,13 @@ namespace Durin::MIR
 				const bool bIdentityWidth = (bSelectXYZ && RequestedKind != EMaterialSpatialKind::ScreenCoordinate)
 					|| (bSelectXY && RequestedKind == EMaterialSpatialKind::ScreenCoordinate);
 				if (Input.Kind != EMaterialSpatialKind::None || !bIdentityWidth)
-					return Fail(EMaterialExpressionError::InputIncompatibleSemantics);
+					return Fail("Expression input has an incompatible evaluation stage, spatial kind, or coordinate space.");
 				Semantics = FMaterialValueSemantics{Node.ResultType, Input.Stages,
 					RequestedKind, RequestedSpace};
 			}
 		}
 		if (!Semantics || !IsValidMaterialValueSemantics(*Semantics))
-			return Fail(EMaterialExpressionError::InputIncompatibleSemantics);
+			return Fail("Expression input has an incompatible evaluation stage, spatial kind, or coordinate space.");
 		Node.LegalStages = Semantics->Stages;
 		Node.SpatialKind = Semantics->Kind;
 		Node.CoordinateSpace = Semantics->Space;
@@ -482,7 +480,7 @@ namespace Durin::MIR
 				const std::array FoldedComponents{Folded.X, Folded.Y, Folded.Z, Folded.W};
 				for (uint32 Component = 0; Component < Width; ++Component)
 					if (!std::isfinite(FoldedComponents[Component]))
-						return Fail(EMaterialExpressionError::ConstantFoldInvalidDomainNonFinite);
+						return Fail("Expression constant folding encountered an invalid domain or non-finite result.");
 				Node.Opcode = EMaterialProgramOpcode::Constant;
 				Node.Inputs.clear();
 				Node.ScalarBroadcastMask = 0;
@@ -502,7 +500,7 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::Literal(std::span<const float> Components,
 		EMaterialSpatialKind Kind, EMaterialCoordinateSpace Space) -> uint32
 	{
-		if (Components.empty() || Components.size() > 4) return Fail(EMaterialExpressionError::NumericInputRequiresDefaultOneFourComponents);
+		if (Components.empty() || Components.size() > 4) return Fail("Numeric input requires a default of one to four components.");
 		FNode Node{.Opcode = EMaterialProgramOpcode::Constant,
 			.ResultType = static_cast<EMaterialProgramValueType>(Components.size() - 1),
 			.SpatialKind = Kind, .CoordinateSpace = Space};
@@ -515,7 +513,7 @@ namespace Durin::MIR
 
 	auto FGraphBuilderImpl::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
 	{
-		if (!Id.IsValid()) return Fail(EMaterialExpressionError::ParameterExpressionRequiresValidParameterGUID);
+		if (!Id.IsValid()) return Fail("Parameter expression requires a valid parameter GUID.");
 		EMaterialProgramValueType ValueType;
 		switch (Type)
 		{
@@ -524,12 +522,12 @@ namespace Durin::MIR
 		case EMaterialParameterType::Vector: ValueType = EMaterialProgramValueType::Float3; break;
 		case EMaterialParameterType::Vector4: ValueType = EMaterialProgramValueType::Float4; break;
 		case EMaterialParameterType::Texture: ValueType = EMaterialProgramValueType::Texture2D; break;
-		default: return Fail(EMaterialExpressionError::ParameterExpressionUnsupportedType);
+		default: return Fail("Parameter expression has an unsupported type.");
 		}
 		const auto Existing = std::ranges::find(Result.Parameters, Id, &FMaterialCompilerParameterDeclaration::Id);
-		if (Existing != Result.Parameters.end() && Existing->Type != Type) return Fail(EMaterialExpressionError::ParameterGUIDConflictingTypes);
+		if (Existing != Result.Parameters.end() && Existing->Type != Type) return Fail("Parameter GUID has conflicting types.");
 		if (Existing == Result.Parameters.end()) Result.Parameters.push_back({Id, Type});
-		if (Result.Parameters.size() > MaterialProgramMaxReferencedParameterCount) return Fail(EMaterialExpressionError::ParameterCountExceedsBound);
+		if (Result.Parameters.size() > MaterialProgramMaxReferencedParameterCount) return Fail("Expression parameter count exceeds the bound.");
 		return Emit({.Opcode = Type == EMaterialParameterType::Texture ? EMaterialProgramOpcode::TextureParameter : EMaterialProgramOpcode::Parameter,
 			.ResultType = ValueType, .Payload = Id});
 	}
@@ -538,21 +536,21 @@ namespace Durin::MIR
 		const DMaterialParameterCollection& Collection, FGuid ParameterId) -> uint32
 	{
 		if (!ParameterId.IsValid())
-			return Fail(EMaterialExpressionError::CollectionParameterMissingDeclaration);
+			return Fail("Collection parameter expression refers to a missing declaration.");
 		const auto* Declaration = Collection.FindDeclaration(ParameterId);
 		if (!Declaration)
-			return Fail(EMaterialExpressionError::CollectionParameterMissingDeclaration);
+			return Fail("Collection parameter expression refers to a missing declaration.");
 		auto Layout = Collection.BuildLayout();
 		if (!Layout)
-			return Fail(EMaterialExpressionError::CollectionParameterInvalidSchema);
+			return Fail("Collection parameter expression refers to an invalid collection schema.");
 		const auto Existing = std::ranges::find(Result.Collections,
 			Layout->CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
 		if (Existing != Result.Collections.end() && !Existing->HasCompatibleSchema(*Layout))
-			return Fail(EMaterialExpressionError::CollectionParameterInvalidSchema);
+			return Fail("Collection parameter expression refers to an invalid collection schema.");
 		if (Existing == Result.Collections.end())
 		{
 			if (Result.Collections.size() >= MaterialParameterCollectionMaxPerMaterial)
-				return Fail(EMaterialExpressionError::CollectionCountExceedsBound);
+				return Fail("A material closure may reference at most four parameter collections.");
 			Result.Collections.push_back(std::move(*Layout));
 		}
 		EMaterialProgramValueType ValueType;
@@ -562,7 +560,7 @@ namespace Durin::MIR
 		case EMaterialParameterType::Vector2: ValueType = EMaterialProgramValueType::Float2; break;
 		case EMaterialParameterType::Vector: ValueType = EMaterialProgramValueType::Float3; break;
 		case EMaterialParameterType::Vector4: ValueType = EMaterialProgramValueType::Float4; break;
-		default: return Fail(EMaterialExpressionError::CollectionParameterInvalidSchema);
+		default: return Fail("Collection parameter expression refers to an invalid collection schema.");
 		}
 		return Emit({.Opcode = EMaterialProgramOpcode::CollectionParameter,
 			.ResultType = ValueType,
@@ -576,11 +574,11 @@ namespace Durin::MIR
 	{
 		const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 		if (!Signature || Inputs.size() != Signature->InputCount)
-			return Fail(EMaterialExpressionError::NumericSignatureMismatch);
+			return Fail("Numeric expression signature does not match its inputs.");
 		FNode Node{.Opcode = Opcode, .ResultType = Type};
 		if (Opcode == EMaterialProgramOpcode::Swizzle)
 		{
-			if (Swizzle.empty() || Swizzle.size() > 4) return Fail(EMaterialExpressionError::SwizzleSelectOneFourComponents);
+			if (Swizzle.empty() || Swizzle.size() > 4) return Fail("Swizzle must select one to four components.");
 			FSwizzle Payload{.Length = static_cast<uint8>(Swizzle.size())};
 			std::ranges::copy(Swizzle, Payload.Components.begin());
 			Node.Payload = Payload;
@@ -598,17 +596,17 @@ namespace Durin::MIR
 						Opcode, static_cast<uint32>(Slot))));
 			const auto& Stored = *Inputs[Slot];
 			const auto& Default = Stored.Constant;
-			if (Default.empty()) return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+			if (Default.empty()) return Fail("Retained numeric default has an invalid width or non-finite component.");
 			{
 				const auto Accepted = Signature->Inputs[Slot];
 				if (Default.size() > 4 || (!std::ranges::contains(Accepted,
 					static_cast<EMaterialProgramValueType>(Default.size() - 1)) && !(bScalarDefault && Default.size() == 1))
 					|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); }))
-					return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+					return Fail("Retained numeric default has an invalid width or non-finite component.");
 			}
 			const auto& Input = Stored.Connection;
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
-				return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+				return Fail("Disconnected numeric input has an output selector.");
 			const bool bSurfaceNormalDefault = Opcode == EMaterialProgramOpcode::MakeSurface
 				&& Slot == static_cast<size_t>(EMaterialSurfaceOutput::Normal)
 				&& !Input.ExpressionId.IsValid();
@@ -639,14 +637,14 @@ namespace Durin::MIR
 		if (Opcode != EMaterialProgramOpcode::TransformPosition
 			&& Opcode != EMaterialProgramOpcode::TransformDirection
 			&& Opcode != EMaterialProgramOpcode::TransformNormal)
-			return Fail(EMaterialExpressionError::NumericSignatureMismatch);
+			return Fail("Numeric expression signature does not match its inputs.");
 		if (Stored.Constant.size() != 3
 			|| !std::ranges::all_of(Stored.Constant,
 				[](float Value) { return std::isfinite(Value); }))
-			return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+			return Fail("Retained numeric default has an invalid width or non-finite component.");
 		const auto& Input = Stored.Connection;
 		if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
-			return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+			return Fail("Disconnected numeric input has an output selector.");
 		const auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input)
 			: Literal(Stored.UseConstant ? Stored.Constant
 				: GetMaterialNumericInputFallback(Opcode, EMaterialProgramValueType::Float3, 0));
@@ -662,19 +660,19 @@ namespace Durin::MIR
 			|| Stored.Constant.size() > 4
 			|| !std::ranges::all_of(Stored.Constant,
 				[](float Value) { return std::isfinite(Value); }))
-			return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+			return Fail("Retained numeric default has an invalid width or non-finite component.");
 		const auto StoredType = static_cast<EMaterialProgramValueType>(Stored.Constant.size() - 1);
 		if (StoredType != Type && StoredType != EMaterialProgramValueType::Float)
-			return Fail(EMaterialExpressionError::InputIncompatibleType);
+			return Fail("Expression input has an incompatible type.");
 		if (!Stored.Connection.ExpressionId.IsValid()
 			&& (Stored.Connection.OutputIndex != 0 || Stored.Connection.OutputId.IsValid()))
-			return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+			return Fail("Disconnected numeric input has an output selector.");
 		FValue Value = Stored.Connection.ExpressionId.IsValid()
 			? Resolve(Stored.Connection)
 			: FValue(Literal(Stored.UseConstant ? Stored.Constant
 				: std::vector<float>(static_cast<uint32>(Type) + 1, 0.f)));
 		if (!MatchesType(Value, Type)) Value = BroadcastScalar(Value, Type);
-		if (!MatchesType(Value, Type)) return Fail(EMaterialExpressionError::InputIncompatibleType);
+		if (!MatchesType(Value, Type)) return Fail("Expression input has an incompatible type.");
 		return Value;
 	}
 
@@ -684,18 +682,18 @@ namespace Durin::MIR
 		if (!Input.ExpressionId.IsValid())
 		{
 			if (Input.OutputIndex != 0 || Input.OutputId.IsValid())
-				return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+				return Fail("Disconnected numeric input has an output selector.");
 			return ResolveNumericChoice(DefaultValue, Type);
 		}
 		auto Value = Resolve(Input);
 		if (!MatchesType(Value, Type)) Value = BroadcastScalar(Value, Type);
-		if (!MatchesType(Value, Type)) return Fail(EMaterialExpressionError::InputIncompatibleType);
+		if (!MatchesType(Value, Type)) return Fail("Expression input has an incompatible type.");
 		return Value;
 	}
 
 	auto FGraphBuilderImpl::StaticBool(FGuid DeclarationId, bool DefaultValue) -> FValue
 	{
-		if (!DeclarationId.IsValid()) return Fail(EMaterialExpressionError::ParameterExpressionRequiresValidParameterGUID);
+		if (!DeclarationId.IsValid()) return Fail("Parameter expression requires a valid parameter GUID.");
 		return FStaticBoolReference{DeclarationId, DefaultValue};
 	}
 
@@ -705,7 +703,7 @@ namespace Durin::MIR
 	{
 		const auto Selector = Resolve(Condition);
 		const auto* StaticBool = Selector.GetStaticBool();
-		if (!StaticBool) return Fail(EMaterialExpressionError::InputIncompatibleType);
+		if (!StaticBool) return Fail("Expression input has an incompatible type.");
 		bool bSelected = StaticBool->DefaultValue;
 		if (const auto Found = std::ranges::find(Environment.StaticBools,
 			StaticBool->DeclarationId, &FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
@@ -770,7 +768,7 @@ namespace Durin::MIR
 
 	auto FGraphBuilderImpl::Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult
 	{
-		if (Roots.size() > MaterialFunctionMaxOutputs) Fail(EMaterialExpressionError::RootCountExceedsBound);
+		if (Roots.size() > MaterialFunctionMaxOutputs) Fail("Expression root count exceeds the bound.");
 		if (bValidateAuthoring) BuildAllExpressions();
 		if (Result.Diagnostics.empty()) for (const auto& Root : Roots) Result.Roots.push_back(ResolveIndex(Root));
 		if (!Result.Diagnostics.empty())

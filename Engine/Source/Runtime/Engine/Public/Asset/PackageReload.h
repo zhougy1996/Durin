@@ -98,7 +98,7 @@ namespace Durin
 		std::string Message;
 		std::vector<FMaterialProgramDiagnostic> MaterialCauses;
 		std::optional<FMaterialCompileStatus> MaterialCompileStatus;
-		std::vector<FMaterialCompileDiagnostic> MaterialCompileCauses;
+		std::vector<FMaterialProgramDiagnostic> MaterialCompileCauses;
 	};
 
 	ENGINE_API auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string;

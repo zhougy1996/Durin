@@ -114,7 +114,7 @@ namespace Durin
 
 	auto DMaterialExpressionMaterialOutput::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		return Emitter.Fail(EMaterialExpressionError::MaterialOutputSinkUsedAsExpressionSource);
+		return Emitter.Fail("A material output is a sink and cannot be used as an expression source.");
 	}
 
 	auto DMaterialExpression::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
@@ -129,19 +129,15 @@ namespace Durin
 		}
 	}
 
-	auto DMaterialExpressionParameter::SetParameterDefinition(const FMaterialParameterDefinition& Definition) -> FMaterialOperationResult
+	auto DMaterialExpressionParameter::SetParameterDefinition(const FMaterialParameterDefinition& Definition) -> std::expected<void, std::string>
 	{
 		const auto ExpectedType = GetParameterDefinition().Type;
 		if (ExpectedType != Definition.Type)
 		{
-			FMaterialError Error(EMaterialParameterError::InvalidType, Definition.Id);
-			Error.ParameterName = Definition.Name.ToString();
-			Error.ExpectedParameterType = ExpectedType;
-			Error.ActualParameterType = Definition.Type;
-			return {std::move(Error)};
+			return std::unexpected(std::format("{} [parameter {}]", "Material declaration type is invalid.", Definition.Id.ToString()));
 		}
 		const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1));
-		if (!Validation) return {FMaterialError(Validation)};
+		if (!Validation) return std::unexpected(std::format("{} [parameter {}]", GetMaterialParameterErrorText(Validation.Error), Validation.ParameterId.ToString()));
 		if (auto* Parameter = Cast<DMaterialExpressionScalarParameter>(this))
 		{
 			Parameter->DefaultValue = Definition.Value.GetScalar();
@@ -156,7 +152,7 @@ namespace Durin
 			Parameter->DefaultValue = {Texture.Texture, Texture.SamplerState, Texture.TextureFallback};
 			Parameter->TextureUsage = Definition.TextureUsage;
 		}
-		else return {FMaterialError(EMaterialExpressionError::ParameterExpressionUnsupportedType, Definition.Id)};
+		else return std::unexpected(std::format("{} [parameter {}]", "Parameter expression has an unsupported type.", Definition.Id.ToString()));
 		Metadata = {Definition.Id, Definition.Name, Definition.DisplayName, Definition.GroupName,
 			Definition.SortOrder, Definition.Presentation};
 		return {};

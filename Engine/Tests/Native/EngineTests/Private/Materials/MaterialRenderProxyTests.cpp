@@ -1130,11 +1130,11 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 			.ProgramIdentity = Status.RequestedIdentity,
 			.Target = Status.Target,
 			.State = Durin::EMaterialCompileState::Failed,
-			.Diagnostics = {{.Source = {.Category = Durin::EMaterialProgramDiagnosticCategory::Compile}}}};
+			.Diagnostics = {{.Message = "Material compile admission was rejected."}}};
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Owner, std::move(Failed)));
 		EXPECT_FALSE(Owner->GetAcceptedCompiledProgram());
-		EXPECT_EQ(Owner->GetMaterialCompileDiagnostics().front().Source.Category,
-			Durin::EMaterialProgramDiagnosticCategory::Compile);
+		EXPECT_EQ(Owner->GetMaterialCompileDiagnostics().front().Message, "Material compile admission was rejected.");
+
 		const auto Error = CaptureMaterialProxy(Proxy);
 		EXPECT_GT(Error.LocalVersion, Before.LocalVersion);
 		ExpectRenderDataMatches(Error.RenderData, Durin::GetErrorMaterialRenderData());
@@ -1149,8 +1149,9 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		Durin::MIR::FCompilerInput InvalidInput;
 		InvalidInput.IR.Version = 0;
 		InvalidInput.StaticProperties = Owner->GetStaticProperties();
-		Durin::FMaterialOperationResult EnvironmentError;
-		ASSERT_TRUE((EnvironmentError = Durin::BuildDefaultMaterialCompilerEnvironment(InvalidInput.Environment)));
+
+		const auto CompilerEnvironmentResult = Durin::BuildDefaultMaterialCompilerEnvironment(InvalidInput.Environment);
+		ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Submit(*Owner, std::move(InvalidInput), false));
 		EXPECT_EQ(Owner->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
 		ExpectRenderDataMatches(CaptureMaterialProxy(Proxy).RenderData, Durin::GetErrorMaterialRenderData());

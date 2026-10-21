@@ -312,7 +312,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 		Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
-	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : FormatMaterialError(Material->GetMaterialCompileDiagnostics()[0].Source.Error));
+	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : Material->GetMaterialCompileDiagnostics()[0].Message);
 	const auto SavedIdentity = Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId;
 	auto Signature = Function->GetFunctionSignature();
 	Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.15f;
@@ -387,7 +387,7 @@ TEST_F(FAssetPackageReloadTests, InvalidSavedFunctionClosureCannotReplaceValidLi
 	EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::PrepareRuntimeProducts);
 	EXPECT_EQ(Result.Diagnostics[0].ObjectPath, Function->GetObjectPath());
 	ASSERT_FALSE(Result.Diagnostics[0].MaterialCauses.empty());
-	EXPECT_TRUE(Result.Diagnostics[0].MaterialCauses[0].Error.HasError());
+	EXPECT_TRUE(!Result.Diagnostics[0].MaterialCauses[0].Message.empty());
 	EXPECT_EQ(ResolveObjectKey(Handle), Function);
 	EXPECT_EQ(Function->GetFunctionSignature(), Signature);
 	const auto& Actual = Function->GetExpressionCollection().Expressions;

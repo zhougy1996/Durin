@@ -18,7 +18,7 @@ namespace Durin::Editor::Material
 		if (!Result.Diagnostics.empty())
 		{
 			if (!Message.empty()) Message += " ";
-			Message += FormatMaterialError(Result.Diagnostics.front().Error);
+			Message += Result.Diagnostics.front().Message;
 		}
 		if (!Result.CleanupMessage.empty())
 		{
@@ -51,7 +51,7 @@ namespace Durin::Editor::Material
 			auto Definition = Parameter.GetParameterDefinition();
 			if (State.bFunction) return RejectCommand("Functions cannot own root parameters.");
 			const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1));
-			if (!Validation) return RejectCommand("The parameter definition is invalid. " + FormatMaterialError(FMaterialError(Validation)));
+			if (!Validation) return RejectCommand("The parameter definition is invalid. " + std::format("{} [parameter {}]", GetMaterialParameterErrorText(Validation.Error), Validation.ParameterId.ToString()));
 			const bool bEditingShared = Previous && Previous->Metadata.Name == Definition.Name
 				&& Previous->Metadata.Id == Definition.Id;
 			if (bEditingShared)
@@ -64,7 +64,7 @@ namespace Durin::Editor::Material
 						if (const auto Applied = Peer->SetParameterDefinition(Definition); !Applied)
 						{
 							auto Result = RejectCommand("Shared parameter types must match; use a new parameter name to change type.");
-							Result.Message += " " + FormatMaterialError(Applied.Error);
+							Result.Message += " " + Applied.error();
 							return Result;
 						}
 					}
@@ -77,7 +77,7 @@ namespace Durin::Editor::Material
 					if (const auto Applied = Parameter.SetParameterDefinition(Peer->GetParameterDefinition()); !Applied)
 					{
 						auto Result = RejectCommand("A parameter with this name already exists with a different type.");
-						Result.Message += " " + FormatMaterialError(Applied.Error);
+						Result.Message += " " + Applied.error();
 						return Result;
 					}
 					return {};
@@ -95,14 +95,14 @@ namespace Durin::Editor::Material
 		{
 			auto Definition = InputDefinition;
 			if (const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1)); !Validation)
-				return {.Message = "The parameter definition is invalid. " + FormatMaterialError(FMaterialError(Validation))};
+				return {.Message = "The parameter definition is invalid. " + std::format("{} [parameter {}]", GetMaterialParameterErrorText(Validation.Error), Validation.ParameterId.ToString())};
 			if (Definition.Type == EMaterialParameterType::Vector2 || Definition.Type == EMaterialParameterType::Vector)
 			{
 				Definition.Value = MakeParameterValue(EMaterialProgramValueType::Float4, ReadParameterLiteral(GetProgramType(Definition.Type), Definition.Value));
 				Definition.Type = EMaterialParameterType::Vector4;
 			}
 			if (const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1)); !Validation)
-				return {.Message = "The normalized parameter definition is invalid. " + FormatMaterialError(FMaterialError(Validation))};
+				return {.Message = "The normalized parameter definition is invalid. " + std::format("{} [parameter {}]", GetMaterialParameterErrorText(Validation.Error), Validation.ParameterId.ToString())};
 			TStrongObjectPtr<DMaterialExpressionParameter> Result;
 			switch (Definition.Type)
 			{

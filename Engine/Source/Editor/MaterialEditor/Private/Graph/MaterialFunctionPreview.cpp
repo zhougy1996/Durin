@@ -150,7 +150,7 @@ namespace Durin::Editor::Material
 		auto Result = State.Commit("Build Function Preview", nullptr);
 		if (Result)
 			if (const auto Applied = Preview.SetStaticProperties(Properties); !Applied)
-				return RejectCommand("The preview properties are invalid. " + FormatMaterialError(Applied.Error));
+				return RejectCommand("The preview properties are invalid. " + Applied.error());
 		return Result;
 	}
 }

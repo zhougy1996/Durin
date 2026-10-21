@@ -19,24 +19,23 @@ namespace Durin
 		auto CanceledMaterial() -> FMaterialCompilerResult
 		{ return {.Status = EMaterialProgramStatus::Canceled}; }
 		auto FailedMaterial(std::string Diagnostic = {}) -> FMaterialCompilerResult
-		{ return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile,
-			.Error = FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, std::move(Diagnostic))}}}; }
+		{ return {.Diagnostics = {{.Message = Diagnostic.empty() ? "Material compile admission rejected." : std::move(Diagnostic)}}}; }
 	}
 
 
 #if DURIN_WITH_EDITOR
 
 
-	auto FShaderCompilingManager::SubmitJobs(std::shared_ptr<const MIR::FCompilerInput> Input,
+	auto FMaterialShaderMap::Compile(std::shared_ptr<const MIR::FCompilerInput> Input,
 		FMaterialProgramCompileOptions Options, std::function<void(FMaterialBuildResult)> Completion)
 		-> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
-	{ return Submit(std::move(Input), std::move(Options), std::move(Completion), false); }
-	auto FShaderCompilingManager::SubmitJobs(const MIR::FCompilerInput& Input,
+	{ return FShaderCompilingManager::Get().Submit(std::move(Input), std::move(Options), std::move(Completion), false); }
+	auto FMaterialShaderMap::Compile(const MIR::FCompilerInput& Input,
 		FMaterialProgramCompileOptions Options, std::function<void(FMaterialBuildResult)> Completion)
 		-> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
 	{
 		auto Borrowed = std::shared_ptr<const MIR::FCompilerInput>(&Input, [](const auto*) {});
-		return Submit(std::move(Borrowed), std::move(Options), std::move(Completion), true);
+		return FShaderCompilingManager::Get().Submit(std::move(Borrowed), std::move(Options), std::move(Completion), true);
 	}
 	auto FShaderCompilingManager::Submit(std::shared_ptr<const MIR::FCompilerInput> Input,
 		FMaterialProgramCompileOptions Options, std::function<void(FMaterialBuildResult)> Completion, bool CopyInput)
@@ -131,7 +130,7 @@ namespace Durin
 				if (auto Cached = FMaterialShaderMap::FindId(ShaderMap->ShaderMapId))
 					return std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{
 						.Status = EMaterialProgramStatus::Ok, .ActiveCollections = Cached->CollectionLayouts,
-						.ShaderMap = Cached, .Timings = Cached->CompilationTimings});
+						.ShaderMap = Cached});
 			auto& Programs = CompilingPrograms[ShaderMap->Force];
 			const auto Entry = Programs.find(ShaderMap->ShaderMapId);
 			auto Existing = Entry == Programs.end() ? FShaderMapPtr{} : Entry->second.lock();
@@ -289,17 +288,17 @@ namespace Durin
 	{
 		FMaterialBuildResult Result;
 		auto& Manager = FShaderCompilingManager::Get();
-		auto Submitted = Manager.SubmitJobs(Input, {.bForceRecompile = Force},
+		auto Submitted = FMaterialShaderMap::Compile(Input, {.bForceRecompile = Force},
 			[&](FMaterialBuildResult Value) { Result = std::move(Value); });
 		if (!Submitted) return {.Program = std::make_shared<const FMaterialCompilerResult>(FailedMaterial())};
 		Manager.FinishCompilation(*Submitted);
 		return Result;
 	}
 #else
-	auto FShaderCompilingManager::SubmitJobs(std::shared_ptr<const MIR::FCompilerInput>, FMaterialProgramCompileOptions,
+	auto FMaterialShaderMap::Compile(std::shared_ptr<const MIR::FCompilerInput>, FMaterialProgramCompileOptions,
 		std::function<void(FMaterialBuildResult)>) -> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
 	{ return std::unexpected(EMaterialCompileAdmissionError::Unavailable); }
-	auto FShaderCompilingManager::SubmitJobs(const MIR::FCompilerInput&, FMaterialProgramCompileOptions,
+	auto FMaterialShaderMap::Compile(const MIR::FCompilerInput&, FMaterialProgramCompileOptions,
 		std::function<void(FMaterialBuildResult)>) -> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
 	{ return std::unexpected(EMaterialCompileAdmissionError::Unavailable); }
 	auto FShaderCompilingManager::FinishCompilation(const FMaterialProgramCompileHandle&) -> void {}
@@ -311,7 +310,7 @@ namespace Durin
 	auto FShaderCompilingManager::CancelMaterialCompilation() -> void {}
 	auto MaterialBuildPrivate::CompileMaterialInput(const MIR::FCompilerInput&, bool) -> FMaterialBuildResult
 	{ return {.Program = std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{
-		.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::NoAuthoredProgram}}})}; }
+		.Diagnostics = {{.Message = "Material has no authored program."}}})}; }
 #endif
 
 	auto FShaderCompilingManager::GetNumRemainingMaterialShaderMaps() const -> uint64

@@ -1332,10 +1332,10 @@ namespace Durin
 		auto GetBuildVersion() const -> uint64 override { return 1; }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override { return {}; }
 		auto SubmitMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
-			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
+			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason> override
 		{ ++Compiles; Callback(Completion); return FShaderBuildHandle(std::make_shared<FCompletedRequest>()); }
 		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
-			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
+			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason> override
 		{
 			++Compiles; auto Output = Completion;
 			for (auto& Shader : Output.CompiledShaders) Shader.DebugName = Request.VirtualPath;

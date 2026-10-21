@@ -191,7 +191,7 @@ namespace Durin::Editor::Material
 				if (!Target) return {{.Code = EMaterialChangeError::TargetUnavailable, .ParameterId = ParameterId}};
 				const auto Applied = Target->SetParameterValue(ParameterId, Value);
 				if (!Applied) return {{.Code = EMaterialChangeError::MaterialWrite, .ParameterId = ParameterId,
-					.MaterialCause = std::make_shared<FMaterialError>(Applied.Error)}};
+					.Message = Applied.error()}};
 				return {};
 			}
 

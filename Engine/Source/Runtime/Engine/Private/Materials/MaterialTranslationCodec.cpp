@@ -103,20 +103,9 @@ namespace Durin::MaterialBuildPrivate
 			}
 			template<class T> auto Diagnostic(T& D) -> void
 			{
-				Value(D.Category); Value(D.LocationKind); Value(D.NodeId); Value(D.LocationIndex); Optional(D.InputIndex); Optional(D.UVFieldIndex);
-				uint32 Kind = uint32(D.Error.Code.index()); Value(Kind);
-				Variant(D.Error.Code, Kind, [&](auto& Code) {
-					using CodeType = std::decay_t<decltype(Code)>;
-					if constexpr (!std::same_as<CodeType, std::monostate>) Value(Code);
-					if constexpr (std::same_as<CodeType, EMaterialIRError>) Good &= uint32(Code) <= uint32(EMaterialIRError::UnsupportedGenerationNode);
-					else if constexpr (std::same_as<CodeType, EMaterialPropertyError>) Good &= uint32(Code) <= uint32(EMaterialPropertyError::InvalidShaderUsage);
-					else if constexpr (std::same_as<CodeType, EMaterialLayoutError>) Good &= uint32(Code) > uint32(EMaterialLayoutError::None) && uint32(Code) <= uint32(EMaterialLayoutError::InvalidReflection);
-					else Good = false; // Only errors produced by detached translation may persist.
-				});
-				Optional(D.Error.Index); Value(D.Error.ParameterId); String(D.Error.ParameterName);
-				Optional(D.Error.ExpectedParameterType); Optional(D.Error.ActualParameterType); Optional(D.Error.ExpectedType); Optional(D.Error.ActualType);
-				Good &= D.Error.ExternalDiagnostic.empty() && !D.Error.ResourceCause && !D.Error.DuplicationCause && !D.Error.ArchiveCode && !D.Error.BulkStatus && !D.Error.ResourceStatus;
-				Good &= uint32(D.Category) <= uint32(EMaterialProgramDiagnosticCategory::Binding) && uint32(D.LocationKind) <= uint32(EMaterialProgramDiagnosticLocationKind::SurfaceOutput);
+				Value(D.LocationKind); Value(D.NodeId); Value(D.LocationIndex); Optional(D.InputIndex); Optional(D.UVFieldIndex);
+				String(D.Message, MaterialProgramMaxDiagnosticMessageBytes);
+				Good &= uint32(D.LocationKind) <= uint32(EMaterialProgramDiagnosticLocationKind::SurfaceOutput);
 			}
 			template<class T> auto Product(T& Product, FXxHash128& InputIdentity, std::optional<FXxHash128> Semantic = {}) -> void
 			{

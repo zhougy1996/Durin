@@ -26,24 +26,24 @@ namespace Durin
 	auto FMaterialExpressionEditing::ValidateStorage(DObject& Owner) -> FMaterialProgramValidationResult
 	{
 		const auto& Expressions = GetExpressions(Owner);
-		const auto Fail = [](FMaterialError Error) -> FMaterialProgramValidationResult {
-			return {.Diagnostics = {{.Error = std::move(Error)}}};
+		const auto Fail = [](std::string Message) -> FMaterialProgramValidationResult {
+			return {.Diagnostics = {{.Message = std::move(Message)}}};
 		};
-		if (Expressions.size() > MaterialProgramMaxNodeCount) return Fail(EMaterialExpressionError::GraphExceedsNodeLimit);
+		if (Expressions.size() > MaterialProgramMaxNodeCount) return Fail("Material graph exceeds the node limit.");
 		std::unordered_set<FGuid> Ids;
 		for (const auto& E : Expressions)
 		{
 			if (!IsValid(E.Get()) || !E->Id.IsValid() || !Ids.insert(E->Id).second)
-				return Fail(EMaterialExpressionError::IdentitiesValidUnique);
+				return Fail("Expression identities must be valid and unique.");
 			if (E->GetOuter() && E->GetOuter() != &Owner
 				&& (Cast<DMaterial>(E->GetOuter()) || Cast<DMaterialFunction>(E->GetOuter())))
-				return Fail(EMaterialExpressionError::ChildrenSharedBetweenGraphOwners);
+				return Fail("Expression children cannot be shared between graph owners.");
 		}
 		if (auto* Material = Cast<DMaterial>(&Owner))
 		{
 			if (std::ranges::count_if(Expressions, [](const auto& E) { return Cast<DMaterialExpressionMaterialOutput>(E.Get()) != nullptr; }) != 1)
-				return Fail(EMaterialExpressionError::InvalidOutputCount);
-			if (GetMaterialDomainOutputPins(Material->Domain).empty()) return Fail(EMaterialExpressionError::UnsupportedMaterialDomain);
+				return Fail("A material graph requires exactly one output node.");
+			if (GetMaterialDomainOutputPins(Material->Domain).empty()) return Fail("Unsupported material domain.");
 			std::vector<FMaterialParameterDefinition> Schema;
 			return DMaterial::DeriveExpressionParameterSchema(Material->ExpressionCollection, Schema);
 		}
@@ -51,7 +51,7 @@ namespace Durin
 		for (const auto& E : Expressions)
 		{
 			if (Cast<DMaterialExpressionParameter>(E.Get()) || Cast<DMaterialExpressionMaterialOutput>(E.Get()))
-				return Fail(EMaterialExpressionError::FunctionsOwnRootParametersMaterialOutputs);
+				return Fail("Functions cannot own root parameters or material outputs.");
 			Nodes.push_back(E.Get());
 		}
 		return ValidateMaterialFunctionSignature(DeriveMaterialFunctionSignature(Nodes));
@@ -87,18 +87,18 @@ namespace Durin
 namespace Durin::Private
 {
 	auto ValidateExpressionOwnership(const DObject& Owner,
-		const FMaterialExpressionCollection& Collection) -> FMaterialOperationResult
+		const FMaterialExpressionCollection& Collection) -> std::expected<void, std::string>
 	{
 		std::unordered_set<const DObject*> Owned;
 		for (const auto& Expression : Collection.Expressions)
 			if (!IsValid(Expression.Get()) || Expression->GetOuter() != &Owner || !Owned.insert(Expression.Get()).second)
 			{
-				return {EMaterialExpressionError::CollectionContainsMissingSharedWronglyOwnedChild};
+				return std::unexpected("Expression collection contains a missing, shared, or wrongly owned child.");
 			}
 		for (const DObject* Child : GDObjectArray.GetObjectsWithOuter(&Owner, EObjectQueryScope::LiveOnly))
 			if (Child->IsA(DMaterialExpression::StaticClass()) && !Owned.contains(Child))
 			{
-				return {EMaterialExpressionError::OwnerContainsAbandonedExpressionChildOutsideCollection};
+				return std::unexpected("Owner contains an abandoned expression child outside its collection.");
 			}
 		return {};
 	}
@@ -117,9 +117,7 @@ namespace Durin::Private
 			if (!Copy)
 			{
 				FMaterialProgramValidationResult Result;
-				FMaterialError Error(EMaterialExpressionError::UnableDuplicateExpressionCandidate);
-				Error.DuplicationCause = std::make_shared<FObjectGraphError>(Duplicated.error());
-				Result.Diagnostics.push_back({.Error = std::move(Error)});
+				Result.Diagnostics.push_back({.Message = ToString(Duplicated.error())});
 				return Result;
 			}
 			Copies.Expressions.emplace_back(Copy);

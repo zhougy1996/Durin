@@ -6,9 +6,9 @@ namespace Durin::MIR
 	{
 		if (!Builder.Result.Diagnostics.empty()) return;
 		if (const auto* Node = Value.GetIndex(); Node && *Node >= Builder.Result.IR.Nodes.size())
-			return Fail(EMaterialExpressionError::BuildReturnedInvalidIRIndex, Id);
+			return Fail("Expression Build registered an invalid IR index.", Id);
 		if (!Builder.Values.emplace(FGraphBuilderImpl::FOutputKey{ExpressionId, Index, Id}, Value).second)
-			Fail(EMaterialExpressionError::BuildOutputAlreadyRegistered, Id);
+			Fail("Expression Build registered an output more than once.", Id);
 	}
 
 	auto FEmitter::Output(uint8 Index, FValue Value) -> void
@@ -18,7 +18,7 @@ namespace Durin::MIR
 
 	auto FEmitter::Output(FGuid Id, FValue Value) -> void
 	{
-		if (!Id.IsValid()) return Fail(EMaterialFunctionError::CallOutputRequiresUniqueValidTypedPort);
+		if (!Id.IsValid()) return Fail("Function call output requires a unique valid typed port.");
 		RegisterOutput(0, Id, Value);
 	}
 
@@ -126,9 +126,9 @@ namespace Durin::MIR
 		return Usage != Builder.Shared->TextureUsages.end() && Usage->second == ETextureUsage::Normal;
 	}
 
-	auto FEmitter::Fail(FMaterialError Error, FGuid PortId, EMaterialProgramDiagnosticCategory Category) -> void
+	auto FEmitter::Fail(std::string Message, FGuid PortId) -> void
 	{
-		Builder.Fail(std::move(Error), PortId, Category);
+		Builder.Fail(std::move(Message), PortId);
 	}
 
 	auto FEmitter::GetNode(uint32 Index) const -> const FNode&

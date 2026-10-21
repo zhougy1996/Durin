@@ -38,14 +38,14 @@ namespace Durin
 		auto GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 		auto SubmitMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
+			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
 
 		auto GetStats() const -> FShaderBuildStats;
 
 		auto GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request)
 			-> FShaderCompilerOutput;
 		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-			FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
+			FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
 		auto Close() -> void;
 
 	private:
@@ -63,7 +63,7 @@ namespace Durin
 		auto PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
 			const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, std::string>;
 		auto SubmitRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-			FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
+			FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
 		struct FAsyncState;
 		std::shared_ptr<FAsyncState> Async;
 		auto InitializeAsync() -> void;

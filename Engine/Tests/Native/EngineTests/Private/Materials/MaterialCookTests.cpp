@@ -7,30 +7,6 @@
 #include "Shader/IShaderBuildModule.h"
 #include "MaterialCookedProgramTestSupport.h"
 
-TEST(FDefaultMaterialCookTests, ReadFailureRetainsOwnedResourceContext)
-{
-	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
-	using namespace Durin;
-	FPackageResourceReadResult Read = std::unexpected(FPackageResourceReadError{
-		.Status = EPackageResourceReadStatus::IoError, .Reason = EPackageResourceReadReason::ShortRead,
-		.Path = "MaterialProgram.dbulk", .Offset = 128, .Size = 1024, .Actual = 16,
-		.SystemError = std::make_error_code(std::errc::io_error)});
-	const auto Error = FMaterialError::FromBulkRead(EBulkReadStatus::ReadFailed, Read);
-	Read = {};
-	EXPECT_TRUE(Error.HasError());
-	ASSERT_TRUE(std::holds_alternative<EMaterialCookError>(Error.Code));
-	EXPECT_EQ(std::get<EMaterialCookError>(Error.Code), EMaterialCookError::PayloadReadFailed);
-	EXPECT_EQ(Error.BulkStatus, EBulkReadStatus::ReadFailed);
-	EXPECT_EQ(Error.ResourceStatus, EPackageResourceReadStatus::IoError);
-	ASSERT_NE(Error.ResourceCause, nullptr);
-	EXPECT_EQ(Error.ResourceCause->Reason, EPackageResourceReadReason::ShortRead);
-	EXPECT_EQ(Error.ResourceCause->Path, "MaterialProgram.dbulk");
-	EXPECT_EQ(Error.ResourceCause->Offset, 128u);
-	EXPECT_EQ(Error.ResourceCause->Size, 1024u);
-	EXPECT_EQ(Error.ResourceCause->Actual, 16u);
-	EXPECT_EQ(Error.ResourceCause->SystemError, std::make_error_code(std::errc::io_error));
-}
-
 static auto QualifyDefaultMaterialCook(bool Metal) -> void
 {
 	Durin::Testing::FScopedRHIBackendOverride Backend(Metal ? "metal" : "vulkan");
@@ -115,6 +91,23 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	}
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
+	// Both demand loading and explicit preparation retain the terminal failure on the owner.
+	auto& CookedData = const_cast<Durin::FBulkData&>(Cooked->GetCookedProgramData());
+	const auto SavedCookedData = CookedData;
+	const std::array InvalidProgramBytes{std::byte{0}};
+	auto InvalidData = Durin::FBulkData::TryCreateDetached(InvalidProgramBytes);
+	ASSERT_TRUE(InvalidData);
+	CookedData = std::move(*InvalidData);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), nullptr);
+	EXPECT_EQ(Cooked->GetMaterialCookDiagnostic(), "Material cooked program byte extent is invalid.");
+	auto FailedPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
+	const auto FailureDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	while (FailedPreparation.Poll() == Durin::EMaterialProgramPreparationState::Pending
+		&& std::chrono::steady_clock::now() < FailureDeadline) std::this_thread::yield();
+	ASSERT_EQ(FailedPreparation.Poll(), Durin::EMaterialProgramPreparationState::Failed);
+	EXPECT_EQ(FailedPreparation.GetDiagnostic(), Cooked->GetMaterialCookDiagnostic());
+	EXPECT_EQ(FailedPreparation.GetProgram(), nullptr);
+	CookedData = SavedCookedData;
 	// Explicit program preparation starts before accepted-program demand.
 	auto CanceledPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
 	auto ProgramPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
@@ -127,6 +120,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		<< ProgramPreparation.GetDiagnostic();
 	ASSERT_NE(ProgramPreparation.GetProgram(), nullptr);
 	EXPECT_EQ(ProgramPreparation.GetProgram(), Cooked->GetAcceptedCompiledProgram());
+	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
 	auto StalePreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
 	const auto OriginalQuality = Durin::GetMaterialQualityLevel();
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality == Durin::EMaterialQualityLevel::High

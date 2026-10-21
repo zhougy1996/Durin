@@ -127,8 +127,7 @@ namespace Durin
 				const FMaterialExpressionInput& SM5, const FMaterialExpressionInput& SM6) -> FValue;
 			ENGINE_API auto Coordinates() -> uint32;
 			ENGINE_API auto IsNormalTexture(FValue Value) const -> bool;
-			ENGINE_API auto Fail(FMaterialError Error, FGuid PortId = {},
-				EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> void;
+			ENGINE_API auto Fail(std::string Message, FGuid PortId = {}) -> void;
 			ENGINE_API auto GetNode(uint32 Index) const -> const FNode&;
 		private:
 			friend class FGraphBuilderImpl;

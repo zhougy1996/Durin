@@ -50,8 +50,7 @@ TEST(FMaterialExpressionSemanticTests, InvalidNormalCompositionReportsTheConsumi
 	const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Blend->Id}});
 	ASSERT_FALSE(Built);
 	ASSERT_FALSE(Built.Diagnostics.empty());
-	EXPECT_EQ(Built.Diagnostics.front().Error.Code,
-		FMaterialError::FCode(EMaterialExpressionError::InputIncompatibleSemantics));
+	EXPECT_EQ(Built.Diagnostics.front().Message, "Expression input has an incompatible evaluation stage, spatial kind, or coordinate space.");
 	EXPECT_EQ(Built.Diagnostics.front().NodeId, Blend->Id);
 }
 
@@ -94,8 +93,7 @@ TEST(FMaterialExpressionSemanticTests, FunctionConstraintsRejectIncompatibleBind
 		std::array{FMaterialExpressionInput{Call->Id, 0, Output->Port.Id}}, Environment);
 	ASSERT_FALSE(Built);
 	ASSERT_FALSE(Built.Diagnostics.empty());
-	EXPECT_EQ(Built.Diagnostics.front().Error.Code,
-		FMaterialError::FCode(EMaterialFunctionError::BindingValueConstraintMismatch));
+	EXPECT_EQ(Built.Diagnostics.front().Message, "Function binding does not satisfy its stage or spatial constraint.");
 	EXPECT_EQ(Built.Diagnostics.front().PortId, Input->Port.Id);
 }
 
@@ -111,7 +109,7 @@ TEST(FMaterialExpressionTests, SnapshotFailureHasNoPayloadAndCanBeRetried)
 	ASSERT_FALSE(Capture);
 	EXPECT_FALSE(Capture.Snapshot.has_value());
 	ASSERT_FALSE(Capture.Diagnostics.empty());
-	EXPECT_EQ(Capture.Diagnostics.front().Error.Code, FMaterialError::FCode(EMaterialExpressionError::NoTypedExpressionOwner));
+	EXPECT_EQ(Capture.Diagnostics.front().Message, "Material has no typed expression owner.");
 	TStrongObjectPtr<DMaterial> Root(NewObject<DMaterial>(nullptr, "SnapshotRoot"));
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Instance->SetParent(Root.Get()));
@@ -141,8 +139,9 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	Outputs.BaseColor = {Mask->Id}; Outputs.Roughness = {Roughness->Id};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	FMaterialCompilerEnvironment Environment;
-	Durin::FMaterialOperationResult Error;
-	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
+
+	const auto CompilerEnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
+	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
 	auto InitialCapture = SnapshotMaterialCompilerInput(*Material, Environment);
 	ASSERT_TRUE(InitialCapture);
 	auto& Initial = InitialCapture.Snapshot->Input;
@@ -275,7 +274,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	EXPECT_EQ(Rejected.error().Code, EObjectValidationError::ModuleRejected);
 	const auto Cause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Rejected.error().Cause);
 	ASSERT_TRUE(Cause);
-	EXPECT_EQ(Cause->Error.Code, FMaterialError::FCode(EMaterialExpressionError::OwnerContainsAbandonedExpressionChildOutsideCollection));
+	EXPECT_EQ(Cause->Format(), "Owner contains an abandoned expression child outside its collection.");
 	ObjectPackage::FLinkerTables Linker;
 	const auto Captured = FSavePackageContext{}.Capture(Material->GetPackage(), Linker);
 	ASSERT_FALSE(Captured);
@@ -417,7 +416,7 @@ TEST(FMaterialExpressionTests, FunctionRejectsInvalidCandidatesAndUncollectedChi
 	EXPECT_EQ(Rejected.error().Code, EObjectValidationError::ModuleRejected);
 	const auto Cause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Rejected.error().Cause);
 	ASSERT_TRUE(Cause);
-	EXPECT_EQ(Cause->Error.Code, FMaterialError::FCode(EMaterialExpressionError::OwnerContainsAbandonedExpressionChildOutsideCollection));
+	EXPECT_EQ(Cause->Format(), "Owner contains an abandoned expression child outside its collection.");
 	Orphan->SetOuterPrivate(nullptr);
 	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}));
 	BeforeChildren[0]->SetOuterPrivate(Orphan.Get());
@@ -486,7 +485,7 @@ TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainInd
 	const auto InvalidBody = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_FALSE(InvalidBody);
 	ASSERT_FALSE(InvalidBody.Diagnostics.empty());
-	EXPECT_EQ(InvalidBody.Diagnostics.front().Error, FMaterialError(EMaterialFunctionError::UnsupportedMaterialExpression));
+	EXPECT_EQ(InvalidBody.Diagnostics.front().Message, "Functions cannot declare material parameters or material outputs.");
 	Body.Expressions.pop_back();
 	CallA->Inputs[0].Input = {};
 	const auto Disconnected = MIR::BuildGraph(Graph, Roots, Environment);
@@ -764,7 +763,7 @@ TEST(FMaterialExpressionTests, SamplingOutputSelectorsPreserveChannelsAndRejectR
 			SCOPED_TRACE(static_cast<int>(Index));
 			const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Expression->Id, Index}});
 			const bool Valid = Index <= 5 || (Expression == Parameter.Get() && Index == 7);
-			ASSERT_EQ(static_cast<bool>(Built), Valid) << (Built.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Built.Diagnostics.front().Error));
+			ASSERT_EQ(static_cast<bool>(Built), Valid) << (Built.Diagnostics.empty() ? "" : Built.Diagnostics.front().Message);
 			if (!Valid) continue;
 			const auto& Root = Built.IR.Nodes[Built.Roots.front()];
 			EXPECT_EQ(Root.ResultType, Index == 0 ? EMaterialProgramValueType::Float4
@@ -811,7 +810,7 @@ TEST(FMaterialExpressionTests, MultiOutputEmissionSharesSampleAndResourceAcrossC
 	const auto Cyclic = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_FALSE(Cyclic);
 	ASSERT_FALSE(Cyclic.Diagnostics.empty());
-	EXPECT_EQ(Cyclic.Diagnostics.front().Error, FMaterialError(EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound));
+	EXPECT_EQ(Cyclic.Diagnostics.front().Message, "Expression inputs contain a cycle or exceed the traversal depth bound.");
 	EXPECT_EQ(Cyclic.Diagnostics.front().NodeId, Sample->Id);
 	EXPECT_TRUE(Cyclic.IR.Nodes.empty());
 	EXPECT_TRUE(Cyclic.Roots.empty());
@@ -832,7 +831,7 @@ TEST(FMaterialExpressionTests, MultiOutputSampleRejectsNonTextureInput)
 	const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Sample->Id, 1}});
 	ASSERT_FALSE(Built);
 	ASSERT_FALSE(Built.Diagnostics.empty());
-	EXPECT_EQ(Built.Diagnostics.front().Error, FMaterialError(EMaterialExpressionError::InputIncompatibleType));
+	EXPECT_EQ(Built.Diagnostics.front().Message, "Expression input has an incompatible type.");
 	EXPECT_TRUE(Built.IR.Nodes.empty());
 }
 
@@ -868,10 +867,11 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	ASSERT_TRUE(Source);
 	EXPECT_NE(Source.Source.find("Sample("), std::string::npos);
 	MIR::FCompilerInput CompilerInput{.IR = Built.IR, .Parameters = Built.Parameters, .Sources = Built.Sources};
-	Durin::FMaterialOperationResult Error;
-	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment))) << Durin::FormatMaterialError(Error.Error);
+
+	const auto CompilerEnvironmentResult = BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment);
+	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
 	const auto Compiled = MIR::Compile(CompilerInput);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), MaterialCompiledEntryPoints.size());
 	Get->AttributeMask = 2;
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
@@ -1061,8 +1061,7 @@ TEST(FMaterialExpressionTests, NewMathConstantFoldingIsFiniteDeterministicAndSou
 	const std::array InvalidRoots{FMaterialExpressionInput{Log->Id}};
 	const auto Invalid = MIR::BuildGraph(InvalidExpressions, InvalidRoots);
 	ASSERT_FALSE(Invalid); ASSERT_FALSE(Invalid.Diagnostics.empty());
-	EXPECT_EQ(Invalid.Diagnostics.front().Error.Code,
-		FMaterialError::FCode(EMaterialExpressionError::ConstantFoldInvalidDomainNonFinite));
+	EXPECT_EQ(Invalid.Diagnostics.front().Message, "Expression constant folding encountered an invalid domain or non-finite result.");
 	EXPECT_EQ(Invalid.Diagnostics.front().NodeId, Log->Id);
 }
 
@@ -1290,7 +1289,7 @@ TEST(FMaterialExpressionTests, LocalCallsAdmitAllPortTypesAtTheAuthoredNodeBound
 		Expressions.push_back(Call);
 	}
 	const auto Validation = MIR::FGraphBuilder::ValidateSurface(Expressions, {});
-	ASSERT_TRUE(Validation) << (Validation.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Validation.Diagnostics.front().Error));
+	ASSERT_TRUE(Validation) << (Validation.Diagnostics.empty() ? "" : Validation.Diagnostics.front().Message);
 }
 
 TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesParameterDefaults)
@@ -1383,8 +1382,7 @@ TEST(FMaterialExpressionTests, GraphLoadValidationOwnsCompleteFunctionDiagnostic
 	const auto Cause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Result.error().Cause);
 	ASSERT_TRUE(Cause);
 	ASSERT_FALSE(Cause->Diagnostics.empty());
-	EXPECT_EQ(Cause->Error, Cause->Diagnostics.front().Error);
-	EXPECT_TRUE(Cause->Error.HasError());
+	EXPECT_EQ(Cause->Format(), FormatMaterialProgramDiagnostics(Cause->Diagnostics));
 	const auto Diagnostics = Cause->Diagnostics;
 	Output->Source = Before;
 	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}));

@@ -442,7 +442,7 @@ namespace Durin::Editor::Material
 		if (PreviewVisible)
 		{
 			const auto DrawDiagnostic = [&](const FMaterialProgramDiagnostic& Diagnostic) {
-				if (ImGui::Selectable(FormatMaterialError(Diagnostic.Error).c_str()))
+				if (ImGui::Selectable(Diagnostic.Message.c_str()))
 				{
 					if (Diagnostic.FunctionAssetPath.empty() || Diagnostic.FunctionAssetPath == Function.GetObjectPath()) Document.Canvas->SelectAndFrame(Diagnostic.NodeId);
 					else if (Manager.OpenAsset(Diagnostic.FunctionAssetPath, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()))
@@ -450,7 +450,7 @@ namespace Durin::Editor::Material
 				}
 			};
 			for (const auto& Diagnostic : Document.Diagnostics) DrawDiagnostic(Diagnostic);
-			for (const auto& Diagnostic : Document.Material()->GetMaterialCompileDiagnostics()) DrawDiagnostic(Diagnostic.Source);
+			for (const auto& Diagnostic : Document.Material()->GetMaterialCompileDiagnostics()) DrawDiagnostic(Diagnostic);
 			if (Document.bPreviewValid) Document.Preview->Draw(Document.Material());
 			else ImGui::TextDisabled("The selected output is unavailable.");
 		}

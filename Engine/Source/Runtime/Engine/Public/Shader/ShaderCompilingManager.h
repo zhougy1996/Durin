@@ -15,24 +15,16 @@ namespace Durin
 		~FShaderCompilingManager();
 		auto SubmitJobs(std::vector<FGeneratedShaderCompileRequest> Jobs, uint64 MaximumOutputBytes,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
+			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
 		auto SubmitJobs(std::string_view Path, const FShaderCompileOptions& CompileOptions,
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
-			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
+			-> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
 		auto CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput;
 		auto CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 		auto FinishCompilation(const FShaderBuildHandle& Handle) -> EShaderBuildWaitResult;
 		auto CancelAllCompilation() -> void;
 		auto GetPeakJobStats() const -> std::pair<uint64, uint64>;
 
-		auto SubmitJobs(std::shared_ptr<const MIR::FCompilerInput> Input,
-			MaterialBuildPrivate::FMaterialProgramCompileOptions Options,
-			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion)
-			-> std::expected<MaterialBuildPrivate::FMaterialProgramCompileHandle, MaterialBuildPrivate::EMaterialCompileAdmissionError>;
-		auto SubmitJobs(const MIR::FCompilerInput& Input,
-			MaterialBuildPrivate::FMaterialProgramCompileOptions Options,
-			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion)
-			-> std::expected<MaterialBuildPrivate::FMaterialProgramCompileHandle, MaterialBuildPrivate::EMaterialCompileAdmissionError>;
 		auto FinishCompilation(const MaterialBuildPrivate::FMaterialProgramCompileHandle& Handle) -> void;
 		auto CancelCompilation(const MaterialBuildPrivate::FMaterialProgramCompileHandle& Handle) -> void;
 		auto PrioritizeCompilation(const MaterialBuildPrivate::FMaterialProgramCompileHandle& Handle) -> void;
@@ -58,7 +50,7 @@ namespace Durin
 		friend auto GetMaterialCompilationDiagnostics() -> FMaterialCompilationDiagnostics;
 		FShaderCompilingManager();
 		struct FJobGroup;
-		auto Admit(std::shared_ptr<FJobGroup> Group) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
+		auto Admit(std::shared_ptr<FJobGroup> Group) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>;
 		auto FinishShaderJobs() -> void;
 		auto GetNumRemainingShaderJobs() const -> uint64;
 		mutable std::mutex JobMutex;

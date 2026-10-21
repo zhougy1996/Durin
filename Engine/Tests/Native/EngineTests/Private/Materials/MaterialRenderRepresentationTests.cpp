@@ -48,7 +48,7 @@ TEST(FMaterialRenderRepresentationTests, BindingOutlivesPublicationAndFailedRepl
 		FMaterialRenderRepresentationBuilder Invalid(Representation);
 		ASSERT_TRUE(Invalid.SetScalar(FGuid{2, 0, 0, 1}, std::numeric_limits<float>::quiet_NaN()));
 		EXPECT_FALSE(Invalid.Build(Representation, Diagnostic));
-		EXPECT_EQ(Diagnostic.Failure, EMaterialRenderValidationFailure::NonFiniteValue);
+		EXPECT_FALSE(Diagnostic.Message.empty());
 		EXPECT_TRUE(Representation.IsError());
 		EXPECT_EQ(Representation.GetRecordId(), FMaterialRenderRepresentation().GetRecordId());
 	}
@@ -72,7 +72,7 @@ TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPackin
 		Durin::MakeErrorMaterialRenderLayout();
 	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 	ASSERT_TRUE(Durin::ValidateMaterialRenderLayout(Layout, Diagnostic));
-	EXPECT_EQ(Diagnostic.Failure, Durin::EMaterialRenderValidationFailure::None);
+	EXPECT_TRUE(Diagnostic.Message.empty());
 	EXPECT_EQ(Layout.Identity.Version, Durin::CurrentMaterialRenderLayoutVersion);
 	EXPECT_TRUE(Layout.Identity.Id.IsValid());
 	EXPECT_EQ(Layout.UniformPayloadSize, 16u);
@@ -394,7 +394,7 @@ TEST(FMaterialRenderRepresentationTests, ValidPayloadIsAcceptedAsOneCompleteRepr
 	Durin::FMaterialRenderRepresentation Representation;
 	ASSERT_TRUE(Durin::FMaterialRenderRepresentation::TryCreate(
 		std::move(Input), Representation, Diagnostic));
-	EXPECT_EQ(Diagnostic.Failure, Durin::EMaterialRenderValidationFailure::None);
+	EXPECT_TRUE(Diagnostic.Message.empty());
 	EXPECT_FALSE(Representation.IsError());
 	EXPECT_EQ(Representation.GetUniformPayload().size(), 48u);
 }
@@ -414,9 +414,7 @@ TEST(FMaterialRenderRepresentationTests, RejectsUnsupportedLayoutAndMalformedPay
 		Durin::FMaterialRenderRepresentation Representation;
 		EXPECT_FALSE(Durin::FMaterialRenderRepresentation::TryCreate(
 			std::move(Input), Representation, Diagnostic));
-		EXPECT_EQ(
-			Diagnostic.Failure,
-			Durin::EMaterialRenderValidationFailure::UnsupportedVersion);
+		EXPECT_FALSE(Diagnostic.Message.empty());
 	}
 
 	{
@@ -430,9 +428,7 @@ TEST(FMaterialRenderRepresentationTests, RejectsUnsupportedLayoutAndMalformedPay
 		Durin::FMaterialRenderRepresentation Representation;
 		EXPECT_FALSE(Durin::FMaterialRenderRepresentation::TryCreate(
 			std::move(Input), Representation, Diagnostic));
-		EXPECT_EQ(
-			Diagnostic.Failure,
-			Durin::EMaterialRenderValidationFailure::InvalidField);
+		EXPECT_FALSE(Diagnostic.Message.empty());
 	}
 
 	{
@@ -447,9 +443,7 @@ TEST(FMaterialRenderRepresentationTests, RejectsUnsupportedLayoutAndMalformedPay
 		Durin::FMaterialRenderRepresentation Representation;
 		EXPECT_FALSE(Durin::FMaterialRenderRepresentation::TryCreate(
 			std::move(Input), Representation, Diagnostic));
-		EXPECT_EQ(
-			Diagnostic.Failure,
-			Durin::EMaterialRenderValidationFailure::NonFiniteValue);
+		EXPECT_FALSE(Diagnostic.Message.empty());
 	}
 
 	{
@@ -463,9 +457,7 @@ TEST(FMaterialRenderRepresentationTests, RejectsUnsupportedLayoutAndMalformedPay
 		Durin::FMaterialRenderRepresentation Representation;
 		EXPECT_FALSE(Durin::FMaterialRenderRepresentation::TryCreate(
 			std::move(Input), Representation, Diagnostic));
-		EXPECT_EQ(
-			Diagnostic.Failure,
-			Durin::EMaterialRenderValidationFailure::NonZeroPadding);
+		EXPECT_FALSE(Diagnostic.Message.empty());
 	}
 }
 
@@ -606,15 +598,16 @@ TEST(FMaterialRenderRepresentationTests, CompiledLayoutPreservesTypedValuesAndSa
 	Input.TextureFallbacks.assign(Binding.CompiledTextureFallbacks.begin(), Binding.CompiledTextureFallbacks.end());
 	Input.UniformPayload[0] = std::byte{1};
 	EXPECT_FALSE(FMaterialRenderRepresentation::TryCreate(Input, Representation, Diagnostic));
-	EXPECT_EQ(Diagnostic.Failure, EMaterialRenderValidationFailure::NonZeroPadding);
+	EXPECT_EQ(Diagnostic.Message, "Material render uniform padding must be zero.");
 	Input.UniformPayload[0] = std::byte{0};
 	Input.Samplers[0].AddressU = static_cast<EMaterialSamplerAddressMode>(255);
 	EXPECT_FALSE(FMaterialRenderRepresentation::TryCreate(Input, Representation, Diagnostic));
-	EXPECT_EQ(Diagnostic.Failure, EMaterialRenderValidationFailure::InvalidResource);
+	EXPECT_EQ(Diagnostic.Message, "Material sampling state or fallback is invalid. [index 0]");
 	const auto Empty = CompileMaterialLayout({});
 	ASSERT_TRUE(Empty);
 	FMaterialRenderRepresentationBuilder EmptyBuilder(Empty.Layout);
 	ASSERT_TRUE(EmptyBuilder.Build(Representation, Diagnostic));
+	EXPECT_TRUE(Diagnostic.Message.empty());
 	EXPECT_TRUE(Representation.GetResources().empty());
 	EXPECT_EQ(Representation.GetUniformPayload().size(), MaterialUniformHeaderBytes);
 }

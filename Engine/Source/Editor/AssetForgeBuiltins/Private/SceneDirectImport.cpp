@@ -1015,7 +1015,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 					    !Applied)
 					{
 						co_return AddError(Result, EImportDiagnosticCategory::ValidationFailure,
-						                   "scene-material-parameters", FormatMaterialError(Applied.Error),
+						                   "scene-material-parameters", Applied.error(),
 						                   Descriptor.StableIdentity);
 					}
 				}
@@ -1092,7 +1092,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 			        ? std::format("Scene material variant is not ready: {} (state {}).",
 			                      Material->GetObjectPath(),
 			                      static_cast<uint32>(Material->GetMaterialCompileStatus().State))
-			        : Durin::FormatMaterialError(Diagnostics.front().Source.Error);
+			        : Diagnostics.front().Message;
 			co_return AddError(Result, EImportDiagnosticCategory::ValidationFailure, "scene-material-compile",
 			                   Message);
 		}

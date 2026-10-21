@@ -1,4 +1,5 @@
 #include "Shader/ShaderCompilingManager.h"
+#include "Shader/ShaderDiagnostics.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialShaderMap.h"
 #ifdef _WIN32
@@ -188,11 +189,12 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 					FMaterialPreparedProgram Prepared{.Normalized = std::move(Normalized),
 						.StaticProperties = Captured.Snapshot->Input.StaticProperties,
 						.Environment = Captured.Snapshot->Input.Environment};
+					const auto GenerationBegin = std::chrono::steady_clock::now();
 					auto Translation = TranslatePreparedMaterialProgram(Prepared);
 					ASSERT_TRUE(Translation);
-					const auto GenerationUs = Translation.Timings.GenerationMicroseconds;
+					const auto GenerationUs = Micros(GenerationBegin);
 					auto Output = FShaderCompilingManager::Get().CompileGenerated(MakeMaterialShaderCompileRequest(Translation, false));
-					ASSERT_TRUE(Output) << Output.Diagnostic;
+					ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 					auto Candidate = FMaterialShaderMap::FinalizeContent(std::move(Translation), std::move(Output));
 					ASSERT_TRUE(Candidate);
 					const auto TotalUs = Micros(Begin);
@@ -246,7 +248,7 @@ TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 			std::vector<FMaterialProgramCompileHandle> Handles;
 			std::vector<FMaterialBuildResult> Results(Count);
 			for (uint32 Index = 0; Index < Count; ++Index) {
-				auto Compile = Manager.SubmitJobs(Inputs[Index], {}, [&, Index](auto Result) { Results[Index] = std::move(Result); });
+				auto Compile = FMaterialShaderMap::Compile(Inputs[Index], {}, [&, Index](auto Result) { Results[Index] = std::move(Result); });
 				ASSERT_TRUE(Compile); Handles.push_back(std::move(*Compile));
 			}
 			for (const auto& Handle : Handles) Manager.FinishCompilation(Handle);
@@ -547,9 +549,10 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::MIR::FCompilerInput Input = MakeSyntheticMaterialCompilerInput();
-	Durin::FMaterialOperationResult EnvironmentError;
-	ASSERT_TRUE((EnvironmentError = Durin::BuildDefaultMaterialCompilerEnvironment(
-		Input.Environment))) << Durin::FormatMaterialError(EnvironmentError.Error);
+
+	const auto CompilerEnvironmentResult = Durin::BuildDefaultMaterialCompilerEnvironment(
+		Input.Environment);
+	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
 	ASSERT_EQ(Input.Environment.Dependencies.size(), 1u);
 	EXPECT_EQ(Input.Environment.Dependencies.front().VirtualPath,
 		"/Engine/MaterialCompilerEnvironment");
@@ -558,7 +561,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	ASSERT_TRUE(Normalized);
 	std::string FirstSource;
 	std::string SecondSource;
-	Durin::FMaterialOperationResult Error;
+	std::expected<void, std::string> Error;
 	const auto FirstSourceGeneration = Durin::GenerateMaterialProgramSlang(Normalized.IR);
 	ASSERT_TRUE(FirstSourceGeneration);
 	FirstSource = FirstSourceGeneration.Source;
@@ -576,7 +579,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		Durin::MIR::Compile(Input, true);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
 		? "missing diagnostic"
-		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
+		: Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
 	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
@@ -590,7 +593,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	const Durin::FMaterialCompilerResult Warm =
 		Durin::MIR::Compile(Input);
 	ASSERT_TRUE(Warm) << (Warm.Diagnostics.empty()
-		? "missing diagnostic" : Durin::FormatMaterialError(Warm.Diagnostics.front().Error));
+		? "missing diagnostic" : Warm.Diagnostics.front().Message);
 	ASSERT_EQ(Warm.GetShaderMap().CompiledShaders.size(), Compiled.GetShaderMap().CompiledShaders.size());
 	uint64 SpirvBytes = 0;
 	for (size_t Index = 0; Index < Compiled.GetShaderMap().CompiledShaders.size(); ++Index)
@@ -603,18 +606,11 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	Durin::FByteBuffer CookedBytes;
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled, {},
 		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, CookedBytes))) << Durin::FormatMaterialError(Error.Error);
+		Durin::ECookTargetProfile::Game, CookedBytes))) << Error.error();
 	RecordProperty("GeneratedSourceBytes", Compiled.GetDebugData().GeneratedSource.size());
 	RecordProperty("DependencyCount", Compiled.GetShaderMap().Dependencies.size());
 	RecordProperty("SpirvBytes", SpirvBytes);
-	RecordProperty("NormalizationMicroseconds",
-		Compiled.Timings.NormalizationMicroseconds);
-	RecordProperty("GenerationMicroseconds",
-		Compiled.Timings.GenerationMicroseconds);
-	RecordProperty("ColdCompilationMicroseconds",
-		Compiled.Timings.CompilationMicroseconds);
-	RecordProperty("WarmCompilationMicroseconds",
-		Warm.Timings.CompilationMicroseconds);
+	RecordProperty("CompileTimeSeconds", std::to_string(Compiled.GetShaderMap().CompileTime));
 	std::cout << "[MaterialIRCompilerBaseline] input_ir_nodes="
 		<< Input.IR.Nodes.size()
 		<< " ir_nodes=" << Normalized.IR.Nodes.size()
@@ -630,10 +626,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		<< " dependencies=" << Compiled.GetShaderMap().Dependencies.size()
 		<< " spirv_bytes=" << SpirvBytes
 		<< " cooked_bytes=" << CookedBytes.size()
-		<< " normalize_us=" << Compiled.Timings.NormalizationMicroseconds
-		<< " generate_us=" << Compiled.Timings.GenerationMicroseconds
-		<< " cold_compile_us=" << Compiled.Timings.CompilationMicroseconds
-		<< " warm_compile_us=" << Warm.Timings.CompilationMicroseconds << '\n';
+		<< " compile_seconds=" << Compiled.GetShaderMap().CompileTime << '\n';
 
 	Durin::MIR::FModule InvalidIR = Normalized.IR;
 	InvalidIR.Version++;

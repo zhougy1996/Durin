@@ -49,8 +49,7 @@ namespace Durin::MIR
 			const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& ES3_1,
 			const FMaterialExpressionInput& SM5, const FMaterialExpressionInput& SM6) -> FValue;
 		auto Coordinates() -> uint32;
-		auto Fail(FMaterialError Error, FGuid PortId = {},
-			EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> uint32;
+		auto Fail(std::string Message, FGuid PortId = {}) -> uint32;
 		auto GetNode(uint32 Index) const -> const FNode& { return Result.IR.Nodes.at(Index); }
 		auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult;
 		auto FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FBuildResult;

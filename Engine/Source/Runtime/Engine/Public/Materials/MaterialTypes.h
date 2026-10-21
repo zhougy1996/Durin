@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 
-#include "Materials/MaterialDiagnostic.h"
 
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
@@ -334,15 +333,6 @@ namespace Durin
 		InvalidType,
 		InvalidDefault,
 		InvalidMetadata,
-		NotFound,
-		TypeConflict,
-		OwnerMissing,
-		OwnerMismatch,
-		Unreachable,
-		OverrideType,
-		UnresolvedValue,
-		UnsupportedProgramSchema,
-		InvalidProgram,
 	};
 
 	struct FMaterialParameterValidationResult
@@ -358,6 +348,6 @@ namespace Durin
 	ENGINE_API auto ValidateMaterialParameterDefinitions(
 		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialParameterValidationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialStaticProperties(
-		const FMaterialStaticProperties& Properties) -> FMaterialOperationResult;
+		const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>;
 
 }

@@ -372,21 +372,21 @@ namespace Durin
 		return EShaderBuildWaitResult::Completed;
 	}
 	auto FShaderBuilder::SubmitRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-		FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
+		FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
 	{
-		if (!Completion) return std::unexpected(FShaderBuildAdmissionError{});
-		if (!Options.bInlineExecution && !IsTaskSchedulerRunning()) return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::DispatchRejected});
+		if (!Completion) return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
+		if (!Options.bInlineExecution && !IsTaskSchedulerRunning()) return std::unexpected(EShaderBuildAdmissionReason::DispatchRejected);
 		auto Subscriber = std::make_shared<FAsyncState::FSubscriber>();
 		Subscriber->BinaryMetal = Request.Target == MetalLibraryShaderTarget;
 		if ((!Subscriber->BinaryMetal && (!Options.NativeProducerIdentity.empty() || Options.bNativeCacheOnly))
 			|| Options.NativeProducerIdentity.size() > 512
 			|| std::ranges::any_of(Options.NativeProducerIdentity, [](unsigned char Value) { return Value < 32 || Value > 126; })
 			|| (Options.bNativeCacheOnly && (Options.NativeProducerIdentity.empty() || Request.bForceRecompile)))
-			return std::unexpected(FShaderBuildAdmissionError{});
+			return std::unexpected(EShaderBuildAdmissionReason::InvalidRequest);
 		if (Subscriber->BinaryMetal)
 		{
 			if (Request.MaximumOutputBytes > ShaderCompiledOutput::MaximumValueBytes)
-				return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Capacity});
+				return std::unexpected(EShaderBuildAdmissionReason::Capacity);
 			Subscriber->NativeBytes = 2 * Request.MaximumOutputBytes;
 			Request.Target = MetalShaderTarget;
 		}
@@ -407,9 +407,9 @@ namespace Durin
 				if (It != Async->Operations.end()) { Async->Bytes -= Item->Bytes + Item->NativeBytes; Async->Operations.erase(It); }
 			}
 			Async->PruneCompilerOperations();
-			if (Async->Closed) return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Closed});
+			if (Async->Closed) return std::unexpected(EShaderBuildAdmissionReason::Closed);
 			if (Async->Operations.size() >= 512 || Subscriber->Bytes + Subscriber->NativeBytes > 1024ull * 1024 * 1024 - Async->Bytes)
-				return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Capacity});
+				return std::unexpected(EShaderBuildAdmissionReason::Capacity);
 			Async->Bytes += Subscriber->Bytes + Subscriber->NativeBytes; Async->Operations.push_back(Subscriber);
 		}
 		if (Subscriber->Options.bInlineExecution)
@@ -426,7 +426,7 @@ namespace Durin
 				{ std::lock_guard Lock(Async->Mutex); Async->Bytes -= Subscriber->Bytes + Subscriber->NativeBytes; std::erase(Async->Operations, Subscriber); }
 				{ std::lock_guard Lock(Subscriber->Mutex); Subscriber->Completion = {}; Subscriber->Delivery = FAsyncState::FSubscriber::EDelivery::Completed; Subscriber->Published = true; }
 				Subscriber->Condition.notify_all();
-				return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::DispatchRejected});
+				return std::unexpected(EShaderBuildAdmissionReason::DispatchRejected);
 			}
 			Subscriber->Preparation = std::move(Dispatch).TakeValue();
 		}
@@ -435,13 +435,13 @@ namespace Durin
 		return FShaderBuildHandle(Subscriber);
 	}
 	auto FShaderBuilder::SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-		FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
+		FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, EShaderBuildAdmissionReason>
 	{ return SubmitRequest(std::move(Request), std::move(Options), std::move(Completion), ESourceKind::Generated); }
 	auto FShaderBuilder::GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
 	{
 		FShaderCompilerOutput Output;
 		auto Submitted = SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
-		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionError(Submitted.error()));
+		if (!Submitted) return FShaderCompilerOutput::Failure(FormatShaderBuildAdmissionReason(Submitted.error()));
 		require(Submitted->Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}

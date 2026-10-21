@@ -5,7 +5,7 @@ namespace Durin::Editor
 	auto FormatMaterialChangeError(const FMaterialChangeError& Error) -> std::string
 	{
 		std::string Message;
-		if (Error.MaterialCause) Message = FormatMaterialError(*Error.MaterialCause);
+		if (!Error.Message.empty()) Message = Error.Message;
 		else if (Error.PropertyCause) Message = ToString(*Error.PropertyCause);
 		else switch (Error.Code)
 		{
