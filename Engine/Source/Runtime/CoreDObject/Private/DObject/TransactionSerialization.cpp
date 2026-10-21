@@ -368,25 +368,41 @@ namespace Durin
 	auto FSerializedObjectCapture::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{ Info.AddReferencedObjects(Collector); if (Data) Data->AddReferencedObjects(Collector); }
 
-	auto FSerializedObjectCapture::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	namespace
 	{
-		if (!Data || !Context) return false;
+		auto TryGetSerializedAllocationSize(const FSerializedObject* Data, const FSerializedObjectInfo& Info,
+			const FTransactionSerializationContext* Context, size_t& OutBytes) -> bool
+		{
+			if (!Data || !Context) return false;
+			size_t Total = 0;
+			auto Add = [&](size_t Count, size_t Size) {
+				if (Count > std::numeric_limits<size_t>::max() / Size) return false;
+				const auto Bytes = Count * Size;
+				if (Total > std::numeric_limits<size_t>::max() - Bytes) return false;
+				Total += Bytes; return true;
+			};
+			if (!Add(Info.Identity.OriginalOuterPath.capacity(), 1)
+				|| !Add(Info.Identity.OriginalClassPath.capacity(), 1)
+				|| !Add(Info.Identity.OriginalPackagePath.capacity(), 1)) return false;
+			if (!Add(Data->Bytes.capacity(), 1) || !Add(Context->Schema.capacity(), 1)
+				|| !Add(Data->HardReferences.capacity(), sizeof(FObjectKey))
+				|| !Add(Context->ExcludedMembers.capacity(), sizeof(FName))
+				|| !Add(Context->ReferenceSlots.capacity(), sizeof(FSerializedObjectReferenceSlot))
+				|| !Add(Context->Versions.Formats.capacity(), sizeof(FArchiveFormatVersion))
+				|| !Add(Context->Versions.CustomVersions.capacity(), sizeof(FArchiveCustomVersion))) return false;
+			OutBytes = Total; return true;
+		}
+	}
+
+	auto FSerializedObjectCapture::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	{ return TryGetSerializedAllocationSize(Data.get(), Info, Context.get(), OutBytes); }
+
+	auto FDiffableObject::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	{
 		size_t Total = 0;
-		auto Add = [&](size_t Count, size_t Size) {
-			if (Count > std::numeric_limits<size_t>::max() / Size) return false;
-			const auto Bytes = Count * Size;
-			if (Total > std::numeric_limits<size_t>::max() - Bytes) return false;
-			Total += Bytes; return true;
-		};
-		if (!Add(Info.Identity.OriginalOuterPath.capacity(), 1)
-			|| !Add(Info.Identity.OriginalClassPath.capacity(), 1)
-			|| !Add(Info.Identity.OriginalPackagePath.capacity(), 1)) return false;
-		if (!Add(Data->Bytes.capacity(), 1) || !Add(Context->Schema.capacity(), 1)
-			|| !Add(Data->HardReferences.capacity(), sizeof(FObjectKey))
-			|| !Add(Context->ExcludedMembers.capacity(), sizeof(FName))
-			|| !Add(Context->ReferenceSlots.capacity(), sizeof(FSerializedObjectReferenceSlot))
-			|| !Add(Context->Versions.Formats.capacity(), sizeof(FArchiveFormatVersion))
-			|| !Add(Context->Versions.CustomVersions.capacity(), sizeof(FArchiveCustomVersion))) return false;
-		OutBytes = Total; return true;
+		if (!TryGetSerializedAllocationSize(SerializedObject.get(), ObjectInfo, SerializationContext.get(), Total)
+			|| SerializedTaggedData.capacity() > (std::numeric_limits<size_t>::max() - Total) / sizeof(FSerializedTaggedData)) return false;
+		OutBytes = Total + SerializedTaggedData.capacity() * sizeof(FSerializedTaggedData);
+		return true;
 	}
 }

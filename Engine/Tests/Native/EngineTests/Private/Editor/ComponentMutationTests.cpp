@@ -177,8 +177,8 @@ TEST(FActorMutationTests, DeletionRestoresEarlierPropertyHistoryExternalAttachme
 	EXPECT_EQ(Grandchild->GetRootComponent()->GetAttachParent(), Light);
 	EXPECT_EQ(Grandchild->GetActorTransform().Translation, Before);
 	EXPECT_EQ(F.Scene.Lights.at(Light), Light->GetWorldLocation());
-	EXPECT_EQ(Light->Initialized, 2u);
-	EXPECT_EQ(Light->Uninitialized, 1u);
+	EXPECT_EQ(Light->Initialized, 1u);
+	EXPECT_EQ(Light->Uninitialized, 0u);
 	EXPECT_EQ(Light->Created, 1u);
 	EXPECT_EQ(Light->Destroyed, 0u);
 	ASSERT_TRUE(F.Transactions->Undo());

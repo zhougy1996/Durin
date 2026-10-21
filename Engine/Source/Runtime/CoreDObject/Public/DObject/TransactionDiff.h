@@ -24,6 +24,7 @@ namespace Durin
 		std::shared_ptr<const FTransactionSerializationContext> SerializationContext;
 		std::vector<FSerializedTaggedData> SerializedTaggedData;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
+		COREDOBJECT_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 	};
 
 	namespace DiffUtil

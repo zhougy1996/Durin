@@ -18,6 +18,9 @@ TEST(FActorComponentTests, TransientRemnantDoesNotDirtyLevelDuringGarbageCollect
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
 	auto* Actor = Level->SpawnActor<AStaticMeshActor>("Actor");
 	auto* Remnant = NewObject<DSceneComponent>(Actor, "TransientComponent", EObjectFlags::Transient);
+	EXPECT_TRUE(Actor->OwnsComponent(Remnant));
+	// Native initialization adopts the component; explicitly model a retired remnant.
+	Actor->RemoveOwnedComponent(Remnant);
 	auto* CreationMethod = DActorComponent::StaticClass()->FindPropertyByName("CreationMethod");
 	ASSERT_NE(CreationMethod, nullptr);
 	*CreationMethod->ContainerPtrToValuePtr<EComponentCreationMethod>(Remnant) = EComponentCreationMethod::Generated;

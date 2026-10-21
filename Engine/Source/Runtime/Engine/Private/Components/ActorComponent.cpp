@@ -6,6 +6,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/ComponentInstanceDataCache.h"
 #include "Engine/TransactionAnnotations.h"
 #include "Components/SceneComponent.h"
 
@@ -16,6 +17,12 @@ namespace Durin
 	{
 		OwnerActorPrivate = Cast<AActor>(ObjectInitializer.Outer);
 		PrimaryComponentTick.SetTarget(this);
+	}
+	auto DActorComponent::PostInitProperties() -> void
+	{
+		Super::PostInitProperties();
+		if (OwnerActorPrivate && CreationMethod != EComponentCreationMethod::Instance)
+			OwnerActorPrivate->AddOwnedComponent(this);
 	}
 	auto DActorComponent::GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData> { return {}; }
 
@@ -32,7 +39,7 @@ namespace Durin
 			if (!State || State->GetComponent() != this) throw std::runtime_error("Component transaction annotation is incompatible.");
 			if (auto Result = State->Restore(); !Result) throw std::runtime_error(Result.error().Message);
 		}
-		else if (auto Result = FComponentTransactionAnnotation::DefaultFor(*this).Restore(); !Result)
+		else if (auto Result = FComponentInstanceLifecycleState::DefaultFor(*this).Restore(); !Result)
 			throw std::runtime_error(Result.error().Message);
 		static_cast<DObject*>(this)->PostEditUndo();
 	}

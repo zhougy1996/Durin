@@ -48,6 +48,7 @@ namespace Durin
 		ENGINE_API auto SetActorLabel(const std::string& Label) -> bool;
 
 		// Internal ownership hooks used by component creation and destruction paths.
+		ENGINE_API auto ResetOwnedComponents() -> void;
 		ENGINE_API auto AddOwnedComponent(DActorComponent* Component) -> void;
 		ENGINE_API auto RemoveOwnedComponent(DActorComponent* Component) -> void;
 
@@ -105,7 +106,6 @@ namespace Durin
 		// Returns an explicit frozen entry set for mutation-capable callback boundaries.
 		ENGINE_API auto GetComponentsSnapshot() const -> std::vector<TObjectPtr<DActorComponent>>;
 		// Returns persistent native and instance-authored components only.
-		auto GetAuthoredComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return AuthoredComponents; }
 		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
 		ENGINE_API auto RerunConstructionScripts(const class FComponentInstanceDataCache* InstanceData = nullptr,
 			const struct FActorRootComponentReconstructionData* RootData = nullptr) -> bool;
@@ -191,8 +191,6 @@ namespace Durin
 
 		auto InitializeDefaults() -> void;
 		auto NotifyComponentsVisibilityChanged() -> void;
-		ENGINE_API auto AddAuthoredComponent(DActorComponent* Component) -> void;
-		auto RebuildOwnedComponentsFromAuthored() -> void;
 		auto RerunConstructionScriptsImpl(const class FComponentInstanceDataCache* InstanceData,
 			const struct FActorRootComponentReconstructionData* RootData) -> bool;
 		auto CompleteTransactionRestore(const class FActorTransactionAnnotation* Annotation) -> void;
@@ -224,7 +222,6 @@ namespace Durin
 				: GetConstructionPurpose();
 			T* Component = NewObject<T>(this, InComponentName, ComponentPurpose);
 			Component->SetCreationMethod(EComponentCreationMethod::Native);
-			AddAuthoredComponent(Component);
 			AddOwnedComponent(Component);
 			return Component;
 		}
@@ -236,10 +233,6 @@ namespace Durin
 		// Every currently live component owned by this actor; never serialized.
 		DPROPERTY(Transient, NonTransactional)
 		std::vector<TObjectPtr<DActorComponent>> OwnedComponents;
-
-		// Persistent native and per-instance authored component state.
-		DPROPERTY()
-		std::vector<TObjectPtr<DActorComponent>> AuthoredComponents;
 
 		// Runtime-added subset used for explicit instance-component management.
 		DPROPERTY()

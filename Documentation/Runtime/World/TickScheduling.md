@@ -6,9 +6,9 @@ Modules: Engine
 
 Durin schedules gameplay Tick callbacks through stable Tick functions rather
 than Actor or Component ownership containers. `DLevel::Actors` and
-`AActor::OwnedComponents` retains every live component. The persistent
-`AActor::AuthoredComponents` field defines authored structure; neither
-collection is a per-frame execution list.
+`AActor::OwnedComponents` retains every live component. Native subobjects and
+the persistent `AActor::InstanceComponents` subset define authored structure;
+ownership collections are not per-frame execution lists.
 
 ## Tick Functions And Registration
 

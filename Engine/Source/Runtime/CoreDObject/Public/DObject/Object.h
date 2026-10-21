@@ -170,6 +170,10 @@ namespace Durin
 
 		COREDOBJECT_API virtual auto FinishDestroy() -> void;
 
+		// Called once after native construction and object identity registration,
+		// before loading or duplication can dispatch graph callbacks.
+		COREDOBJECT_API virtual auto PostInitProperties() -> void;
+
 		// Completes loaded-object initialization. Recoverable failures are logged and
 		// leave safe object state; this notification does not reject or roll back a load.
 		COREDOBJECT_API virtual auto PostLoad() -> void;

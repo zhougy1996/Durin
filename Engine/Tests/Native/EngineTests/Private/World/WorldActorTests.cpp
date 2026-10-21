@@ -121,7 +121,7 @@ TEST(FNativeConstructionTests, RecreatesComponentsWithImmediateOwnershipAndLiveL
 	EXPECT_EQ(Actor->OwnedDuringConstruction, (std::vector<bool>{true, true}));
 	EXPECT_TRUE(First->IsRegistered());
 	EXPECT_EQ(static_cast<Durin::DSceneComponent*>(First)->GetAttachParent(), Actor->GetRootComponent());
-	EXPECT_EQ(Actor->GetAuthoredComponents().size(), 1u);
+	EXPECT_EQ(std::ranges::count_if(Actor->GetComponents(), [](const auto& Component) { return Component->GetCreationMethod() != Durin::EComponentCreationMethod::Generated; }), 1u);
 	EXPECT_EQ(Actor->GetComponents().size(), 3u);
 	EXPECT_EQ(First->GetCreationMethod(), Durin::EComponentCreationMethod::Generated);
 	EXPECT_TRUE(First->HasAnyObjectFlags(Durin::EObjectFlags::Transient));
@@ -196,7 +196,7 @@ TEST(FNativeConstructionTests, InstanceCreationMethodRemainsPersistentAuthoredSt
 		Durin::DSceneComponent::StaticClass(), "Instance");
 	ASSERT_NE(Instance, nullptr);
 	EXPECT_EQ(Instance->GetCreationMethod(), Durin::EComponentCreationMethod::Instance);
-	EXPECT_EQ(Actor->GetAuthoredComponents().size(), 2u);
+	EXPECT_EQ(std::ranges::count_if(Actor->GetComponents(), [](const auto& Component) { return Component->GetCreationMethod() != Durin::EComponentCreationMethod::Generated; }), 2u);
 	EXPECT_EQ(Actor->GetComponents().size(), 2u);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
@@ -486,6 +486,11 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	Durin::ACameraActor* ChildActor = Level->SpawnActor<Durin::ACameraActor>("ChildCamera");
 	Durin::DActorComponent* ExtraComponent = ChildActor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "ExtraScene");
 	ASSERT_NE(ExtraComponent, nullptr);
+	auto* OrderedComponent = ChildActor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "OrderedExtra");
+	ASSERT_NE(OrderedComponent, nullptr);
+	ASSERT_TRUE(ChildActor->SetInstanceComponentPresence(OrderedComponent, false));
+	ASSERT_TRUE(ChildActor->SetInstanceComponentPresence(OrderedComponent, true, true, 0));
+	ASSERT_TRUE(static_cast<Durin::DSceneComponent*>(OrderedComponent)->AttachToComponent(ChildActor->GetRootComponent(), Durin::EAttachmentTransformRule::KeepRelative));
 	ASSERT_TRUE(ParentActor->SetActorLabel("Camera display label"));
 	ASSERT_TRUE(Level->SetPrimaryCameraActor(ParentActor));
 
@@ -522,9 +527,12 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	EXPECT_EQ(LoadedChild->GetActorLabel(), "ChildCamera");
 	EXPECT_EQ(Loaded->GetPrimaryCameraActor(), LoadedParent);
 	EXPECT_EQ(LoadedParent->GetComponents().size(), 1u);
-	EXPECT_EQ(LoadedChild->GetComponents().size(), 2u);
-	ASSERT_EQ(LoadedChild->GetInstanceComponents().size(), 1u);
-	auto* LoadedExtraComponent = dynamic_cast<Durin::DSceneComponent*>(LoadedChild->GetInstanceComponents().front().Get());
+	ASSERT_EQ(LoadedChild->GetComponents().size(), 3u);
+	ASSERT_EQ(LoadedChild->GetInstanceComponents().size(), 2u);
+	EXPECT_EQ(LoadedChild->GetInstanceComponents().front()->GetFName(), Durin::FName("OrderedExtra"));
+	EXPECT_EQ(LoadedChild->GetComponents()[1], LoadedChild->GetInstanceComponents()[0]);
+	EXPECT_EQ(LoadedChild->GetComponents()[2], LoadedChild->GetInstanceComponents()[1]);
+	auto* LoadedExtraComponent = dynamic_cast<Durin::DSceneComponent*>(LoadedChild->GetInstanceComponents().back().Get());
 	ASSERT_NE(LoadedExtraComponent, nullptr);
 	EXPECT_EQ(LoadedExtraComponent->GetCreationMethod(), Durin::EComponentCreationMethod::Instance);
 	EXPECT_EQ(LoadedChild->GetRootComponent()->GetCreationMethod(),
@@ -688,4 +696,21 @@ TEST(FNativeConstructionTests, SharedSuspensionUnwindDoesNotRunConstructionOnPar
 	EXPECT_EQ(Actor->ConstructionCalls, Before);
 	ASSERT_TRUE(Actor->RerunConstructionScripts()); EXPECT_EQ(Actor->ConstructionCalls, Before + 1);
 	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+}
+
+TEST(FNativeConstructionTests, ResetOwnedComponentsUsesNativeGraphAndExcludesAbsentInstances)
+{
+	using namespace Durin;
+	InitializeDObjectSystem(); auto* World = CreateWorld();
+	auto* Actor = World->SpawnActor<ACameraActor>(); ASSERT_NE(Actor, nullptr);
+	TStrongObjectPtr<DSceneComponent> Native(NewObject<DSceneComponent>(Actor, "NativeInner"));
+	TStrongObjectPtr<DActorComponent> Instance(Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "AbsentInstance"));
+	ASSERT_TRUE(Instance); ASSERT_TRUE(Actor->SetInstanceComponentPresence(Instance.Get(), false));
+	Actor->RemoveOwnedComponent(Native.Get()); EXPECT_FALSE(Actor->OwnsComponent(Native.Get()));
+	Actor->ResetOwnedComponents();
+	EXPECT_TRUE(Actor->OwnsComponent(Native.Get())); EXPECT_FALSE(Actor->OwnsComponent(Instance.Get()));
+	const auto Components = Actor->GetComponentsSnapshot(); Actor->ResetOwnedComponents();
+	EXPECT_EQ(Actor->GetComponentsSnapshot(), Components);
+	EXPECT_EQ(Actor->GetComponents().size(), 2u);
+	MarkObjectHierarchyAsGarbage(World); CollectGarbage();
 }

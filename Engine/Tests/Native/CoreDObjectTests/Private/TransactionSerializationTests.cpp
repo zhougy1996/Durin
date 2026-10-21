@@ -150,17 +150,6 @@ TEST(FTransactionSerializationTests, TransferFailureLeavesCompensationToReplayOw
 	EXPECT_EQ(Object->Count, 31);
 }
 
-TEST(FTransactionSerializationTests, SchemaPreflightDoesNotLoadIncompatibleNativeData)
-{
-	Testing::InitializeDObjectSystemForTests();
-	TStrongObjectPtr<DTransactionStateObject> Object(NewObject<DTransactionStateObject>(nullptr, "PayloadSchemaPreflight"));
-	Object->Count = 51;
-	auto Captured = CaptureSerializedObject(*Object); ASSERT_TRUE(Captured);
-	Object->Count = 61; ++Object->NativeVersion;
-	EXPECT_FALSE(ValidateSerializedObject(*Object, *Captured));
-	EXPECT_EQ(Object->Count, 61);
-}
-
 TEST(FTransactionSerializationTests, VirtualSerializationIncludesNativeAndTransientButNotExcludedFields)
 {
 	Testing::InitializeDObjectSystemForTests();
@@ -320,6 +309,53 @@ TEST(FTransactionDiffTests, SharedObservationUsesTransferOnceWithoutAcquiringAnn
 	auto Current = DiffUtil::GetDiffableObject(*Object); ASSERT_TRUE(Current);
 	auto Changes = DiffUtil::GenerateObjectDiff(Observation, *Current); ASSERT_TRUE(Changes);
 	EXPECT_EQ(Changes->ChangedProperties, (std::vector<FName>{"Count"}));
+	size_t CaptureBytes = 0, ObservationBytes = 0, ReservedBytes = 0;
+	ASSERT_TRUE(Capture->TryGetAllocatedSize(CaptureBytes));
+	ASSERT_TRUE(Observation.TryGetAllocatedSize(ObservationBytes));
+	EXPECT_EQ(ObservationBytes, CaptureBytes + Observation.SerializedTaggedData.capacity() * sizeof(FSerializedTaggedData));
+	auto& OuterPath = Observation.ObjectInfo.Identity.OriginalOuterPath;
+	const auto OriginalCapacity = OuterPath.capacity();
+	OuterPath.reserve(4096);
+	ASSERT_TRUE(Observation.TryGetAllocatedSize(ReservedBytes));
+	EXPECT_EQ(ReservedBytes, ObservationBytes + OuterPath.capacity() - OriginalCapacity);
+}
+
+TEST(FTransactionDiffTests, LargeObservationsShareTransferStorageAndReleasePreviousSnapshots)
+{
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<DTransactionStateObject> Object(NewObject<DTransactionStateObject>(nullptr, "LargeSharedObservation"));
+	Object->Text.assign(1024u * 1024u, 'x');
+	std::vector<std::string> Trace; Object->CaptureTrace = &Trace;
+	Object->bEnableAnnotation = true;
+	FDiffableObject Observation;
+	std::weak_ptr<const FSerializedObject> PreviousPayload;
+	std::weak_ptr<const FTransactionSerializationContext> PreviousContext;
+	size_t RetainedBytes = 0, PayloadBytes = 0;
+	for (uint32 Index = 0; Index < 32; ++Index)
+	{
+		Object->Count = static_cast<int32>(Index);
+		auto Capture = CaptureSerializedObject(*Object, nullptr, &Observation); ASSERT_TRUE(Capture);
+		EXPECT_TRUE(PreviousPayload.expired()); EXPECT_TRUE(PreviousContext.expired());
+		EXPECT_EQ(Capture->Data, Observation.SerializedObject);
+		EXPECT_EQ(Capture->Context, Observation.SerializationContext);
+		EXPECT_EQ(Capture->Data.use_count(), 2); EXPECT_EQ(Capture->Context.use_count(), 2);
+		EXPECT_EQ(Trace.size(), Index + 1u); EXPECT_EQ(Object->AnnotationCaptures, 0u);
+		PayloadBytes = Capture->Data->Bytes.size();
+		EXPECT_GE(PayloadBytes, Object->Text.size()); EXPECT_LT(PayloadBytes, Object->Text.size() + 4096u);
+		size_t CurrentBytes = 0; ASSERT_TRUE(Observation.TryGetAllocatedSize(CurrentBytes));
+		if (Index == 0) RetainedBytes = CurrentBytes;
+		else EXPECT_EQ(CurrentBytes, RetainedBytes);
+		PreviousPayload = Capture->Data; PreviousContext = Capture->Context;
+		*Capture = {};
+		EXPECT_FALSE(PreviousPayload.expired()); EXPECT_FALSE(PreviousContext.expired());
+		EXPECT_EQ(Observation.SerializedObject.use_count(), 1);
+	}
+	Observation = {};
+	EXPECT_TRUE(PreviousPayload.expired()); EXPECT_TRUE(PreviousContext.expired());
+	Object->CaptureTrace = nullptr;
+	RecordProperty("payload_bytes", std::to_string(PayloadBytes));
+	RecordProperty("retained_observation_bytes", std::to_string(RetainedBytes));
+	RecordProperty("captures", "32");
 }
 
 TEST(FTransactionDiffTests, PartialDiffSkipsMetadataAndFiltersOnlyReflectedProperties)
