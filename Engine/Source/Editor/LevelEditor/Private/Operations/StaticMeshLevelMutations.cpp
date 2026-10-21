@@ -348,7 +348,7 @@ namespace Durin::Editor::Level
 							if (Actor) MarkObjectHierarchyAsGarbage(Actor);
 							return FailAfterMutation({.Code = ::Durin::Editor::EActorChangeError::ActorSpawn, .MemberIndex = Index});
 						}
-						Actor->SetActorLabel(Level.MakeUniqueActorLabel(Destination->Name.ToString()));
+						Actor->SetInitialActorLabel(Level.MakeUniqueActorLabel(Destination->Name.ToString()));
 						Actor->GetStaticMeshComponent()->SetStaticMesh(Destination->StaticMesh.Get());
 						Actor->SetActorTransform(Destination->Transform);
 						Actor->SetActorHiddenInGame(Destination->bHidden);

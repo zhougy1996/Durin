@@ -141,7 +141,7 @@ namespace Durin
 #endif
 		AActor* Actor = NewObject<AActor>(ActorClass, this, Name, Flags);
 		if (!Actor) return nullptr;
-		Actor->SetActorLabel(MakeUniqueActorLabel(RequestedName.ToString()));
+		Actor->SetInitialActorLabel(MakeUniqueActorLabel(RequestedName.ToString()));
 		Actors.emplace_back(Actor);
 		if (!Actor->RerunConstructionScripts())
 		{
@@ -208,15 +208,50 @@ namespace Durin
 		return true;
 	}
 
+	auto DLevel::PreEditUndo() -> void
+	{
+		Super::PreEditUndo();
+		PreUndoActors.emplace();
+		PreUndoActors->reserve(Actors.size());
+		for (const auto& Actor : Actors) PreUndoActors->push_back({FObjectKey(Actor.Get())});
+	}
+
+	auto DLevel::PostEditUndo() -> void
+	{
+		if (PreUndoActors)
+		{
+			// UE ULevel restores still-live Actors omitted by a historical array.
+			// Durin keeps absent objects valid, so only preserve previously published
+			// Actors that no native presence adapter changed in this operation.
+			for (const auto& Entry : *PreUndoActors)
+			{
+				auto* Object = ResolveObjectKey(Entry.Actor);
+				auto* Actor = IsValid(Object) ? Cast<AActor>(Object) : nullptr;
+				if (!Entry.bPresenceChanged && Actor && Actor->GetOuter() == this && !ContainsActor(Actor)) Actors.emplace_back(Actor);
+			}
+			PreUndoActors.reset();
+		}
+		Super::PostEditUndo();
+	}
+
+	auto DLevel::IsActorMembershipChangedDuringUndo(const AActor* Actor) const -> bool
+	{
+		return PreUndoActors && ContainsActor(Actor)
+			!= std::ranges::contains(*PreUndoActors, FObjectKey(Actor), &FPreUndoActor::Actor);
+	}
+
 	auto DLevel::SetActorPresence(AActor* Actor, bool bPresent, size_t ActorIndex, bool bRegisterComponents) -> bool
 	{
 		if (!IsValid(Actor) || Actor->IsTemplateObject() || Actor->GetOuter() != this || Actor->IsBeingDestroyed()
 			|| Actor->HasBegunPlay() || (OwningWorld && (OwningWorld->HasBegunPlay() || OwningWorld->IsEndingPlay()))
-			|| ContainsActor(Actor) == bPresent) return false;
+			|| (ContainsActor(Actor) == bPresent && !IsActorMembershipChangedDuringUndo(Actor))) return false;
+		if (PreUndoActors)
+			for (auto& Entry : *PreUndoActors)
+				if (Entry.Actor == FObjectKey(Actor)) Entry.bPresenceChanged = true;
 		if (bPresent)
 		{
 			if (!IsActorNameAvailable(Actor->GetFName(), Actor)) return false;
-			Actors.insert(Actors.begin() + std::min(ActorIndex, Actors.size()), Actor);
+			if (!ContainsActor(Actor)) Actors.insert(Actors.begin() + std::min(ActorIndex, Actors.size()), Actor);
 			if (OwningWorld) Actor->RegisterTickFunction(this);
 			if (bRegisterComponents) OnActorAdded(Actor);
 			if (!PrimaryCameraActor) PrimaryCameraActor = Cast<ACameraActor>(Actor);
@@ -268,7 +303,7 @@ namespace Durin
 		if (Name.IsNone()) return false;
 		if (Actor->GetFName() == Name) return true;
 		// Freeze the fallback label of a legacy object before changing its internal name.
-		Actor->SetActorLabel(Actor->GetActorLabel());
+		if (Actor->ActorLabel.empty()) Actor->ActorLabel = Actor->GetActorLabel();
 		Actor->Rename(Name);
 #if DURIN_WITH_EDITOR
 		NotifyEditorActorHierarchyChanged();

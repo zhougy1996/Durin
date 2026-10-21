@@ -189,10 +189,12 @@ wins over both strong pointers and manual roots.
 
 DurinEd's [transaction record foundation](../../Editor/Architecture/TransactionRecords.md)
 uses the same native-reference boundary without adding a new GC root source.
-`Editor::FPersistentObjectRef` stores an exact object-array handle and reports a
-reference only when its reachable owner explicitly traverses the non-reflected
-record. It rejects null, stale, physically removed, garbage, and begin-destroyed
-objects and never path-resolves or resurrects them.
+CoreDObject's `FPersistentObjectRef` reports references only when its reachable
+owner explicitly traverses the non-reflected record. Ordinary references preserve
+exact generations and never resurrect removed objects. CDO/default-subobject
+references enumerate their stable root and cached leaf without name lookup in
+the collector. Logical resolution outside collection follows the checked
+[runtime transaction categories](Transactions.md#coredobject-boundary).
 
 Focused transaction payloads store hard references as deduplicated exact
 handles. A record enumerates its target and distinct hard values; weak handles

@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-30
+Last reviewed: 2026-10-21
 
 ## Task routing
 
@@ -545,13 +545,22 @@ Move gestures retain their original service and use a private position submissio
 path; their Commit never redirects to a replacement editor. Working-copy checkpoint
 ownership and explicit low-level gesture bindings are separate from command modes.
 
-`Modify()` captures reflected members before mutation, including participants
+The domain-local `FGraphEditSession::Modify()` captures reflected members before mutation, including participants
 introduced by type adaptation. Only changed member payloads enter the global
 transactor. Structural history detaches deleted children and retains them through
 its reference collector, restoring their original identity on replay. Unchanged
 children retain identity; history never aliases mutable live values. History
 enumerates texture, function, and participant references and reports native payload
 allocation sizes. Connection commands and Undo/Redo do not duplicate expressions.
+
+Ordinary material Details rows use `FPropertyEditSession` and its canonical
+whole-object recording gate. The semantic edit session remains a coordinated
+graph command because type adaptation, expression membership and shared
+parameter references require one validated publication and compensation boundary.
+Sparse GUID-keyed presentation gestures preserve unrelated positions/labels;
+parameter gestures replay through the owner's expression-backed parameter setter.
+These retained custom responsibilities and participants are listed in the
+[transactor consumer audit](Transactors.md#structural-history-and-barriers).
 
 Abandoned or rejected edit scopes restore local writes without revisions or
 notifications. This domain compensation does not change generic `Modify()` or

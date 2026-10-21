@@ -10,12 +10,12 @@ namespace Durin
 {
 	class FObjectReplacementMap;
 	class IObjectReplacementParticipant;
-	// Owned transaction bytes and exact hard edges. Weak and soft values remain in
+	// Owned transaction bytes and persistent hard edges. Weak and soft values remain in
 	// the byte stream and do not acquire collector ownership.
 	struct FSerializedObject
 	{
 		FByteBuffer Bytes;
-		std::vector<FObjectKey> HardReferences;
+		std::vector<FPersistentObjectRef> HardReferences;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		auto operator==(const FSerializedObject&) const -> bool = default;
 	};

@@ -29,7 +29,7 @@ namespace Durin
 		auto ReleaseClassDefaultObjectOwnership(DClass* Class) -> DObject*;
 	}
 
-	// Describes the publication state of a class-owned immutable default object.
+	// Describes the publication state of a class-owned default object graph.
 	enum class EClassDefaultObjectState : uint8
 	{
 		Uninitialized,

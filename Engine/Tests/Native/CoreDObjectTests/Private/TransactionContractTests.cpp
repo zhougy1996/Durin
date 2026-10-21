@@ -69,10 +69,12 @@ TEST(FRuntimeTransactionContractTests, ExactReferencePreservesIdentityAndRejects
 	Object->SetOuterPrivate(SecondOuter);
 	EXPECT_EQ(Reference.Resolve(), Object);
 	Durin::MarkAsGarbage(Object);
+	EXPECT_TRUE(Durin::FPersistentObjectRef(Object).IsStale());
 	EXPECT_EQ(Reference.Resolve(), nullptr);
 	EXPECT_TRUE(Reference.IsStale());
 	Durin::CollectGarbage();
 	EXPECT_EQ(Reference.Resolve(), nullptr);
+	EXPECT_TRUE(Durin::FPersistentObjectRef(Object).IsNull());
 
 	auto* Reused = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("PersistentReusedSlot"));
 	EXPECT_NE(Durin::FObjectKey(Reused), Reference.GetKey());

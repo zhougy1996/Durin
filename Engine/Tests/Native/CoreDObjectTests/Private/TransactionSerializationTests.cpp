@@ -283,6 +283,21 @@ TEST(FTransactionDiffTests, VariableReflectedRangesDoNotInventNativeChanges)
 	EXPECT_TRUE(Native->bNonPropertyDataChanged); EXPECT_TRUE(Native->ChangedProperties.empty());
 }
 
+TEST(FTransactionDiffTests, PropertiesOnlyObservationBypassesNativeSerialization)
+{
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<DTransactionStateObject> Object(NewObject<DTransactionStateObject>(nullptr, "PropertiesOnlyDiff"));
+	std::vector<std::string> Trace; Object->CaptureTrace = &Trace;
+	const DiffUtil::FGetDiffableObjectOptions Options{DiffUtil::EGetDiffableObjectMode::SerializeProperties};
+	auto Before = DiffUtil::GetDiffableObject(*Object, Options); ASSERT_TRUE(Before);
+	Object->Count = 9; Object->RawNative = 8;
+	auto After = DiffUtil::GetDiffableObject(*Object, Options); ASSERT_TRUE(After);
+	auto Changes = DiffUtil::GenerateObjectDiff(*Before, *After); ASSERT_TRUE(Changes);
+	EXPECT_EQ(Changes->ChangedProperties, std::vector<FName>{"Count"}); EXPECT_FALSE(Changes->bNonPropertyDataChanged);
+	EXPECT_TRUE(Trace.empty()); EXPECT_TRUE(CaptureSerializedObject(*Object));
+	EXPECT_EQ(Trace, std::vector<std::string>{"serialize"}); Object->CaptureTrace = nullptr;
+}
+
 
 TEST(FTransactionDiffTests, DiffRejectsIncompatibleTargetsAndNativeSchemas)
 {

@@ -46,6 +46,8 @@ namespace Durin
 		ENGINE_API auto GetActorLabel() const -> std::string;
 		// Mechanism only. Editor callers use the Actor subsystem for admission and history.
 		ENGINE_API auto SetActorLabel(const std::string& Label) -> bool;
+		// Preparation before Level admission, without recording an ordinary edit.
+		ENGINE_API auto SetInitialActorLabel(const std::string& Label) -> bool;
 
 		// Internal ownership hooks used by component creation and destruction paths.
 		ENGINE_API auto ResetOwnedComponents() -> void;
@@ -200,8 +202,7 @@ namespace Durin
 		auto UnregisterTickFunction() -> void;
 
 	protected:
-		// The editor label command owns history; whole-object Modify must not record it twice.
-		DPROPERTY(NonTransactional)
+		DPROPERTY()
 		std::string ActorLabel;
 
 		// Persistent script/application markers, independent of mutable display labels.

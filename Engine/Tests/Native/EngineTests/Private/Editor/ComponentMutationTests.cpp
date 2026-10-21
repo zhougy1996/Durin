@@ -11,6 +11,7 @@
 #include "Components/SplineComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
+#include "DObject/Property.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Package.h"
@@ -183,7 +184,7 @@ TEST(FActorMutationTests, DeletionRestoresEarlierPropertyHistoryExternalAttachme
 	EXPECT_EQ(Light->Destroyed, 0u);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Actor->GetActorTransform().Translation, FVector3(0.0));
-	ASSERT_TRUE(F.Transactions->Redo());
+	ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult());
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_FALSE(Level->ContainsActor(Actor));
 }
@@ -398,7 +399,8 @@ TEST(FActorMutationTests, MixedSynchronousEditsJoinOuterTransactionAndReplayInOr
 	EXPECT_FALSE(Level->ContainsActor(Actor));
 	EXPECT_FALSE(Level->ContainsActor(Duplicate));
 	CollectGarbage();
-	ASSERT_TRUE(F.Transactions->Redo());
+	ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult())
+		<< " record=" << (F.Transactions->GetLastResult().ApplyCause ? F.Transactions->GetLastResult().ApplyCause->RecordIndex : 0);
 	EXPECT_TRUE(Level->ContainsActor(Actor));
 	EXPECT_FALSE(Level->ContainsActor(Duplicate));
 	EXPECT_EQ(Actor->GetFName(), FName("GroupedRenamed"));
@@ -838,7 +840,7 @@ TEST(FComponentMutationTests, AllComponentStructureCommandsShareOneHistoryAcross
 	const auto Copy = F.Editor.GetActorEditor()->DuplicateComponent(*F.Actor, Added, {false});
 	ASSERT_TRUE(Copy);
 	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*F.Actor, Added, {false}));
-	for (int Step = 0; Step < 6; ++Step) { ASSERT_TRUE(F.Transactions->Undo()); CollectGarbage(); }
+	for (int Step = 0; Step < 6; ++Step) { ASSERT_TRUE(F.Transactions->Undo()) << Step << ": " << FormatTransactorResult(F.Transactions->GetLastResult()); CollectGarbage(); }
 	EXPECT_FALSE(F.Actor->OwnsComponent(Added));
 	EXPECT_FALSE(F.Actor->OwnsComponent(Copy));
 	EXPECT_FALSE(F.Actor->OwnsComponent(Parent));
@@ -1028,7 +1030,7 @@ TEST(FActorMutationTests, UnavailableServiceAndRecoveringHistoryRejectBeforePrep
 	EXPECT_EQ(Level->FindActorByName("RecoveryBlocked"), nullptr);
 }
 
-TEST(FActorMutationTests, GeneralHistoryRetiresWithDurinEdRatherThanLevelEditor)
+TEST(FActorMutationTests, OrdinaryRenameSurvivesDurinEdCustomCommandRetirement)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
@@ -1039,10 +1041,12 @@ TEST(FActorMutationTests, GeneralHistoryRetiresWithDurinEdRatherThanLevelEditor)
 	EXPECT_EQ(F.Transactions->DiscardCustomChangesByModule("LevelEditor").Code, ETransactorResultCode::NoOp);
 	EXPECT_EQ(F.Transactions->GetUndoId(), UndoId);
 	ASSERT_TRUE(F.Transactions->DiscardCustomChangesByModule("DurinEd"));
-	EXPECT_FALSE(F.Transactions->CanUndo());
+	EXPECT_TRUE(F.Transactions->CanUndo());
+	ASSERT_TRUE(F.Transactions->Undo());
+	EXPECT_EQ(F.Actor->GetName(), "Owner");
 }
 
-TEST(FComponentMutationTests, ReplayRejectsDetachedOwnersBeforeChangingMembershipOrProperties)
+TEST(FComponentMutationTests, StructuralReplayRejectsDetachedOwnersWhileMetadataHistoryKeepsIdentity)
 {
 	for (int Operation = 0; Operation < 4; ++Operation)
 	{
@@ -1065,6 +1069,15 @@ TEST(FComponentMutationTests, ReplayRejectsDetachedOwnersBeforeChangingMembershi
 		const auto Name = Child->GetFName();
 		const auto ComponentCount = F.Actor->GetComponents().size();
 		ASSERT_TRUE(Level->SetActorPresence(F.Actor, false));
+		if (Operation == 2)
+		{
+			ASSERT_TRUE(F.Transactions->Undo()); EXPECT_EQ(Child->GetFName(), FName("Child"));
+			EXPECT_FALSE(Child->IsRegistered()); EXPECT_FALSE(Level->ContainsActor(F.Actor));
+			ASSERT_TRUE(F.Transactions->Redo()); EXPECT_EQ(Child->GetFName(), Name);
+			EXPECT_FALSE(Child->IsRegistered()); EXPECT_FALSE(Level->ContainsActor(F.Actor));
+			ASSERT_TRUE(Level->SetActorPresence(F.Actor, true));
+			continue;
+		}
 		EXPECT_FALSE(F.Transactions->Undo());
 		EXPECT_EQ(F.Transactions->GetUndoId(), Head);
 		EXPECT_EQ(Child->GetFName(), Name);
@@ -1281,7 +1294,7 @@ TEST(FActorMutationTests, UnspecifiedNamesIgnoreRequiredModeAndLegacyLabelsSurvi
     EXPECT_EQ(Legacy->GetActorLabel(), "Legacy");
 }
 
-TEST(FActorMutationTests, LabelCommandComposesWithWholeObjectModifyInTheSameTransaction)
+TEST(FActorMutationTests, LabelAndWholeObjectModifyComposeInEitherOrderWithoutCustomHistory)
 {
     Durin::Tests::FActorEditorFixture F;
     auto* Level = F.GetWorld()->GetCurrentLevel();
@@ -1289,9 +1302,9 @@ TEST(FActorMutationTests, LabelCommandComposesWithWholeObjectModifyInTheSameTran
     ASSERT_NE(Actor, nullptr);
     {
         Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify and label"});
+        ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Actor, "Display", {false}));
         ASSERT_TRUE(Actor->Modify());
         Actor->SetHidden(true);
-        ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Actor, "Display", {false}));
     }
     ASSERT_TRUE(F.GetTransactions()->Undo());
     EXPECT_FALSE(Actor->IsHidden());
@@ -1300,4 +1313,224 @@ TEST(FActorMutationTests, LabelCommandComposesWithWholeObjectModifyInTheSameTran
     EXPECT_TRUE(Actor->IsHidden());
     EXPECT_EQ(Actor->GetActorLabel(), "Display");
     EXPECT_EQ(Actor->GetName(), "Original");
+    ASSERT_EQ(F.GetTransactions()->GetQueueLength(), 1u);
+    EXPECT_EQ(F.GetTransactions()->GetTransaction(0)->GetRecordCount(), 1u);
+    EXPECT_FALSE(F.GetTransactions()->GetTransaction(0)->IsOwnedByModule("DurinEd"));
+    {
+        Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify then label"});
+        ASSERT_TRUE(Actor->Modify()); Actor->SetHidden(false);
+        ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Actor, "Next", {false}));
+    }
+    ASSERT_TRUE(F.GetTransactions()->Undo()); EXPECT_TRUE(Actor->IsHidden()); EXPECT_EQ(Actor->GetActorLabel(), "Display");
+    ASSERT_TRUE(F.GetTransactions()->Redo()); EXPECT_FALSE(Actor->IsHidden()); EXPECT_EQ(Actor->GetActorLabel(), "Next");
+}
+
+TEST(FActorMutationTests, OrdinaryNameLabelAndTagsShareOneRecordAfterStructuralCreation)
+{
+    Durin::Tests::FActorEditorFixture F;
+    auto* Level = F.GetWorld()->GetCurrentLevel();
+    AActor* Actor = nullptr;
+    {
+        Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Create and edit"});
+        Actor = F.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "Created", {}, {false}); ASSERT_NE(Actor, nullptr);
+        ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Actor, "Display", {false}));
+        ASSERT_TRUE(F.GetActorEditor()->RenameActor(*Level, Actor, "Internal", {false}));
+        auto* Tags = Actor->GetClass()->FindPropertyByName("Tags"); ASSERT_NE(Tags, nullptr);
+        static_cast<std::vector<FName>*>(Tags->GetValuePtr(Actor))->push_back("PersistentMarker");
+    }
+    EXPECT_EQ(F.GetTransactions()->GetTransaction(0)->GetRecordCount(), 3u);
+    ASSERT_TRUE(F.GetTransactions()->Undo()); EXPECT_FALSE(Level->ContainsActor(Actor));
+    ASSERT_TRUE(Actor->SetActorLabel("Outside history"));
+    for (int32 Index = 0; Index < 3; ++Index)
+    {
+        ASSERT_TRUE(F.GetTransactions()->Redo()); EXPECT_TRUE(Level->ContainsActor(Actor));
+        EXPECT_EQ(Actor->GetName(), "Internal"); EXPECT_EQ(Actor->GetActorLabel(), "Display");
+        auto* Tags = Actor->GetClass()->FindPropertyByName("Tags");
+        EXPECT_EQ(*static_cast<std::vector<FName>*>(Tags->GetValuePtr(Actor)), std::vector<FName>{"PersistentMarker"});
+        ASSERT_TRUE(F.GetTransactions()->Undo()); EXPECT_FALSE(Level->ContainsActor(Actor));
+    }
+}
+
+TEST(FActorMutationTests, LabelAndModifyComposeWithLaterComponentPublication)
+{
+	FComponentFixture F;
+	auto* Editor = F.Editor.GetActorEditor();
+	auto* Level = F.World->GetCurrentLevel();
+	DActorComponent* Added = nullptr;
+	{
+		FScopedTransaction Scope(F.Transactions.Get(), {"test", "Label then component"});
+		ASSERT_TRUE(Editor->SetActorLabel(*Level, F.Actor, "Display", {false}));
+		ASSERT_TRUE(F.Actor->Modify());
+		F.Actor->SetHidden(true);
+		Added = Editor->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false});
+		ASSERT_NE(Added, nullptr);
+		EXPECT_FALSE(Added->GetFName().IsNone());
+	}
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		ASSERT_TRUE(F.Transactions->Undo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_EQ(F.Actor->GetActorLabel(), "Owner");
+		EXPECT_FALSE(F.Actor->IsHidden());
+		EXPECT_FALSE(F.Actor->OwnsComponent(Added));
+		EXPECT_FALSE(Added->IsRegistered());
+		CollectGarbage();
+		ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_EQ(F.Actor->GetActorLabel(), "Display");
+		EXPECT_TRUE(F.Actor->IsHidden());
+		EXPECT_TRUE(F.Actor->OwnsComponent(Added));
+		EXPECT_TRUE(Added->IsRegistered());
+		EXPECT_EQ(std::ranges::count(F.Actor->GetInstanceComponents(), TObjectPtr<DActorComponent>(Added)), 1);
+	}
+}
+
+TEST(FActorMutationTests, OrdinaryFieldsAndMultipleMembershipTransitionsShareOneScope)
+{
+	FComponentFixture F;
+	auto* Editor = F.Editor.GetActorEditor();
+	DActorComponent* First = nullptr;
+	DActorComponent* Last = nullptr;
+	{
+		FScopedTransaction Scope(F.Transactions.Get(), {"test", "Fields and membership"});
+		ASSERT_TRUE(Editor->SetActorLabel(*F.World->GetCurrentLevel(), F.Actor, "Display", {false}));
+		First = Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false});
+		Last = Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false});
+		ASSERT_NE(First, nullptr);
+		ASSERT_NE(Last, nullptr);
+		ASSERT_TRUE(Editor->DeleteComponent(*F.Actor, First, {false}));
+	}
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		ASSERT_TRUE(F.Transactions->Undo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_TRUE(F.Actor->GetInstanceComponents().empty());
+		EXPECT_FALSE(F.Actor->OwnsComponent(First));
+		EXPECT_FALSE(F.Actor->OwnsComponent(Last));
+		CollectGarbage();
+		ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		ASSERT_EQ(F.Actor->GetInstanceComponents().size(), 1u);
+		EXPECT_EQ(F.Actor->GetInstanceComponents().front().Get(), Last);
+		EXPECT_FALSE(F.Actor->OwnsComponent(First));
+		EXPECT_TRUE(F.Actor->OwnsComponent(Last));
+		EXPECT_TRUE(Last->IsRegistered());
+	}
+}
+
+TEST(FComponentMutationTests, OrdinaryRenameAndLaterReparentShareOneScope)
+{
+	FComponentFixture F;
+	auto* Moving = Cast<DSceneComponent>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Moving"));
+	auto* Parent = Cast<DSceneComponent>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Parent"));
+	auto* Before = Moving->GetAttachParent();
+	{
+		FScopedTransaction Scope(F.Transactions.Get(), {"test", "Rename then reparent"});
+		ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Moving, "Renamed", {false}));
+		ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Moving, Parent, {false}));
+	}
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		ASSERT_TRUE(F.Transactions->Undo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_EQ(Moving->GetName(), "Moving");
+		EXPECT_EQ(Moving->GetAttachParent(), Before);
+		ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_EQ(Moving->GetName(), "Renamed");
+		EXPECT_EQ(Moving->GetAttachParent(), Parent);
+		EXPECT_EQ(std::ranges::count(Parent->GetAttachChildren(), TObjectPtr<DSceneComponent>(Moving)), 1);
+	}
+}
+
+TEST(FActorMutationTests, LabelRootModifyAndLaterAttachmentShareOneScope)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	auto* Parent = Level->SpawnActor<AStaticMeshActor>("Parent");
+	const auto Before = F.Actor->GetActorTransform();
+	{
+		FScopedTransaction Scope(F.Transactions.Get(), {"test", "Label then attachment"});
+		ASSERT_TRUE(F.Editor.GetActorEditor()->SetActorLabel(*Level, F.Actor, "Display", {false}));
+		std::array<AActor*, 1> Actors{F.Actor};
+		ASSERT_TRUE(F.Editor.GetActorEditor()->AttachActors(*Level, Actors, Parent, EAttachmentTransformRule::KeepWorld, {false}));
+	}
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		ASSERT_TRUE(F.Transactions->Undo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_EQ(F.Actor->GetActorLabel(), "Owner");
+		EXPECT_EQ(F.Actor->GetAttachParentActor(), nullptr);
+		EXPECT_EQ(F.Actor->GetActorTransform().Translation, Before.Translation);
+		EXPECT_EQ(F.Actor->GetActorTransform().Rotation, Before.Rotation);
+		EXPECT_EQ(F.Actor->GetActorTransform().Scale3D, Before.Scale3D);
+		ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_EQ(F.Actor->GetActorLabel(), "Display");
+		EXPECT_EQ(F.Actor->GetAttachParentActor(), Parent);
+		EXPECT_EQ(std::ranges::count(Parent->GetRootComponent()->GetAttachChildren(),
+			TObjectPtr<DSceneComponent>(F.Actor->GetRootComponent())), 1);
+	}
+}
+
+TEST(FActorMutationTests, LevelModifyPrimaryCameraAndActorPublicationShareOneScope)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	auto* First = Level->SpawnActor<ACameraActor>("FirstCamera");
+	auto* Second = Level->SpawnActor<ACameraActor>("SecondCamera");
+	ASSERT_EQ(Level->GetPrimaryCameraActor(), First);
+	AActor* Added = nullptr;
+	{
+		FScopedTransaction Scope(F.Transactions.Get(), {"test", "Camera and publication"});
+		ASSERT_TRUE(RecordObjectForEdit(*F.Transactions.Get(), *Level));
+		Added = F.Editor.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "Added", {}, {false});
+		ASSERT_NE(Added, nullptr);
+		ASSERT_TRUE(Level->SetPrimaryCameraActor(Second));
+	}
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		ASSERT_TRUE(F.Transactions->Undo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_FALSE(Level->ContainsActor(Added));
+		EXPECT_EQ(Level->GetPrimaryCameraActor(), First);
+		EXPECT_FALSE(Added->GetPrimaryActorTick().IsTickFunctionRegistered());
+		ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult());
+		EXPECT_TRUE(Level->ContainsActor(Added));
+		EXPECT_EQ(Level->GetPrimaryCameraActor(), Second);
+		EXPECT_TRUE(Added->GetPrimaryActorTick().IsTickFunctionRegistered());
+		EXPECT_EQ(std::ranges::count(Level->GetActors(), TObjectPtr<AActor>(Added)), 1);
+	}
+}
+
+TEST(FActorMutationTests, LevelHistoryPreservesActorsAddedOutsideTheRecording)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	auto* Added = F.Editor.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "Managed", {}, {false});
+	ASSERT_NE(Added, nullptr);
+	auto* External = Level->SpawnActor<AActor>("External");
+	ASSERT_NE(External, nullptr);
+	External->ClearFlags(EObjectFlags::Transactional);
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		ASSERT_TRUE(F.Transactions->Undo());
+		EXPECT_FALSE(Level->ContainsActor(Added));
+		EXPECT_TRUE(Level->ContainsActor(External));
+		EXPECT_TRUE(External->GetPrimaryActorTick().IsTickFunctionRegistered());
+		ASSERT_TRUE(F.Transactions->Redo());
+		EXPECT_TRUE(Level->ContainsActor(Added));
+		EXPECT_TRUE(Level->ContainsActor(External));
+		EXPECT_EQ(std::ranges::count(Level->GetActors(), TObjectPtr<AActor>(External)), 1);
+	}
+}
+
+TEST(FActorMutationTests, InitialLabelIsPreparationOnlyAndRenameComposesWithEarlierModify)
+{
+    Durin::Tests::FActorEditorFixture F;
+    auto* Level = F.GetWorld()->GetCurrentLevel();
+    auto* Actor = Level->SpawnActor<AActor>("Original"); ASSERT_NE(Actor, nullptr);
+    EXPECT_FALSE(Actor->SetInitialActorLabel("Rejected")); EXPECT_EQ(Actor->GetActorLabel(), "Original");
+    const auto Revision = Level->GetEditorActorHierarchyRevision();
+    {
+        Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify and rename"});
+        ASSERT_TRUE(Actor->Modify()); Actor->SetHidden(true);
+        ASSERT_TRUE(F.GetActorEditor()->RenameActor(*Level, Actor, "NewInternal", {false}));
+    }
+    EXPECT_EQ(F.GetTransactions()->GetTransaction(0)->GetRecordCount(), 1u);
+    ASSERT_TRUE(F.GetTransactions()->Undo()); EXPECT_EQ(Actor->GetName(), "Original"); EXPECT_FALSE(Actor->IsHidden());
+    EXPECT_GT(Level->GetEditorActorHierarchyRevision(), Revision);
+    ASSERT_TRUE(F.GetTransactions()->Redo()); EXPECT_EQ(Actor->GetName(), "NewInternal"); EXPECT_TRUE(Actor->IsHidden());
+    EXPECT_EQ(Actor->GetActorLabel(), "Original");
 }

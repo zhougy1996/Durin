@@ -7,6 +7,27 @@
 #include "Transactions/Transaction.h"
 #include "Math/Operations.h"
 #include "SkyBoxPlacement.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Texture/TextureCube.h"
+
+TEST(FSkyBoxEditorWorkflowTests, TextureAssignmentComposesWithOtherComponentFieldsThroughGenericHistory)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests(); Tests::FTestTransactorOwner Transactions;
+	TStrongObjectPtr<DLevel> Level(NewObject<DLevel>(nullptr, "SkyBoxOrdinaryEdits"));
+	TStrongObjectPtr<DTextureCube> Before(NewObject<DTextureCube>(nullptr, "SkyBefore")), After(NewObject<DTextureCube>(nullptr, "SkyAfter"));
+	auto* Actor = Level->SpawnActor<ASkyBoxActor>("Sky"); ASSERT_NE(Actor, nullptr);
+	auto* Component = Actor->GetSkyBoxComponent(); Component->SetTextureCube(Before.Get());
+	{
+		Editor::FScopedTransaction Scope(Transactions.Get(), {"test", "Texture and intensity"});
+		ASSERT_TRUE(Editor::Level::FSkyBoxPlacement::PlaceTextureCube(*Level, After.Get(), "Sky", Transactions.Get()));
+		Component->SetIntensity(3.0f);
+	}
+	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 1u);
+	EXPECT_FALSE(Transactions->GetTransaction(0)->IsOwnedByModule("LevelEditor"));
+	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Component->GetTextureCube(), Before.Get()); EXPECT_FLOAT_EQ(Component->GetIntensity(), 1.0f);
+	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Component->GetTextureCube(), After.Get()); EXPECT_FLOAT_EQ(Component->GetIntensity(), 3.0f);
+}
 
 TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 {

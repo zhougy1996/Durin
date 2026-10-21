@@ -234,6 +234,16 @@ An annotation never retains an obsolete generated instance solely to replay it.
 Participant validation rejects expired exact dependencies before historical
 fields load; generated keys may be absent until reconstruction publishes them.
 
+Historical completion respects final structural membership. An Actor removed
+from its World Level is not reconstructed or activated by an older annotation;
+an absent component likewise keeps its identity and authored fields without
+restoring registration. Component annotation preflight checks references, while
+native lifecycle admission runs after structural replay has settled ownership.
+During replay, the serialized instance array may precede native membership
+publication. The presence primitive avoids duplicate array entries and Actor
+completion derives and validates the final live set. Outside historical replay,
+normal membership operations retain immediate ownership validation.
+
 Replay completes components before their owning Actor. Actor PreEditUndo holds
 the shared construction suspension until component state settles. Scene completion repairs authored attachment reverse links and
 world transforms before restoring registration, so callbacks see that graph
@@ -255,6 +265,27 @@ keeps rejected or unchanged property edits out of history without replaying them
 merely to discard an empty capture. Component/root caches expose HasInstanceData;
 non-default native lifecycle and root recovery data still require annotations.
 Previous annotation snapshots retain their external-child capture scope.
+
+Actor annotations also retain `FDiffableComponentInfo` observations for generated
+components, matching UE's construction-script component event policy. Native and
+instance components report through their own object records; child-Actor support
+is not implemented. Observations use the shared serializer and diff engine, with
+reference slots projected to path FNames as in UE's diffable writer. They never
+load historical fields, retain old generated instances, or enter the annotation's
+serialized reconstruction data. The shared instance-source matcher pairs each
+live generated component with the captured generation. Construction-owned
+`CreationMethod` and construction-modified `RelativeTransform` are excluded;
+the current root's relative transform remains observable. A newly generated live
+component reports presence and its captured fields, without an unsupported
+archetype comparison; removed components have no live event target.
+
+These changes feed the existing annotation additional-change contract for
+Snapshot, Finalized and UndoRedo, including closure against the last snapshot.
+Replay observes components after Actor reconciliation. Retained observation
+allocations count toward annotation memory, and checked graph replacement remaps
+their metadata and reference paths without live serialization or construction.
+Source matching permits a generated key to be temporarily absent. Replaced
+annotations remain independent of the original immutable snapshot.
 
 Actor annotations compose the shared component cache and root reconstruction
 data. The shared root data reconciles root identity and conditionally captures a

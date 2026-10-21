@@ -32,6 +32,28 @@ labels. Duplicate labels are allowed when explicitly requested; labels are not
 identity keys. Persistent reflected `Tags` support script/application membership
 markers independently of mutable names and labels.
 
+`ActorLabel` is transactional string storage (`std::string`, corresponding to
+UE's `FString`); object Name remains `FName`. `SetActorLabel` calls `Modify`,
+assigns the value and emits its property notification. Label-only notifications
+refresh the hierarchy without rerunning construction. `SetInitialActorLabel`
+prepares an unpublished Actor without recording or notifications and rejects
+published Level members. Editor admission and optional label uniqueness belong
+to `DEditorActorSubsystem`; ordinary label and object-name history use the shared
+whole-object record rather than dedicated rename commands.
+
+Actor presence commands capture the Level through the common SaveObject path
+before native publication. The resulting object record owns Actor-array order
+and primary-camera history. Native presence replay uses the Level's temporary
+PreEditUndo membership baseline to recognize an already-loaded array without
+accepting unrelated earlier membership edits. It then registers/unregisters the
+exact retained Actor through the normal lifecycle boundary; ordinary field
+restoration alone does not activate it.
+As in UE's Level completion, still-live Actors omitted by an older array are
+preserved. Durin distinguishes reversible absence by preserving pre-replay
+published Actors only when no presence adapter changed them in that operation;
+older absent objects are not accidentally republished. This also preserves
+nontransactional Actors added outside the recording.
+
 Actors index transient generated components by stable native-construction keys.
 Those components also participate in unified live ownership and World/editor
 lifecycles but are excluded from authored package and duplication state. See

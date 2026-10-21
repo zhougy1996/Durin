@@ -6,6 +6,8 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/ObjectGraphReplacement.h"
+#include "DObject/TransactionObjectReference.h"
 #include "GCReferenceSchema.h"
 
 namespace Durin
@@ -42,7 +44,62 @@ namespace Durin
 		const size_t HandleBytes = ReferencedObjectKeys.capacity() * sizeof(FObjectKey);
 		if (ByteCapacity > std::numeric_limits<size_t>::max() - HandleBytes) return false;
 		OutBytes = ByteCapacity + HandleBytes;
+		if (WeakReferenceOffsets.capacity() > (std::numeric_limits<size_t>::max() - OutBytes) / sizeof(size_t)) return false;
+		OutBytes += WeakReferenceOffsets.capacity() * sizeof(size_t);
 		return true;
+	}
+
+	auto FPropertyValueSnapshotPayload::WithResolvedReferences(std::span<const FPersistentObjectRef> References) const
+		-> std::expected<FPropertyValueSnapshotPayload, std::string>
+	{
+		if (References.size() != ReferencedObjectKeys.size()) return std::unexpected("Snapshot reference table shape changed.");
+		auto Result = *this;
+		for (size_t Index = 0; Index < References.size(); ++Index)
+		{
+			auto* Object = References[Index].Resolve();
+			if (!Object) return std::unexpected("Snapshot transaction reference is unavailable.");
+			Result.ReferencedObjectKeys[Index] = FObjectKey(Object);
+		}
+		return Result;
+	}
+
+	auto FPropertyValueSnapshotPayload::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
+	{
+		for (auto Key : ReferencedObjectKeys) if (Map.Find(ResolveObjectKey(Key))) return true;
+		for (size_t Offset : WeakReferenceOffsets)
+		{
+			if (Offset > Bytes.size() || sizeof(uint64) > Bytes.size() - Offset) return true;
+			FObjectMemoryReader Reader(FByteView(Bytes).subspan(Offset, sizeof(uint64)));
+			FObjectKey Key; Key.SerializeForSnapshot(Reader);
+			if (Reader.IsError() || Map.Find(ResolveObjectKey(Key))) return true;
+		}
+		return false;
+	}
+
+	auto FPropertyValueSnapshotPayload::CreateReplacement(const FObjectReplacementMap& Map) const
+		-> std::expected<FPropertyValueSnapshotPayload, std::string>
+	{
+		auto Result = *this;
+		for (auto& Key : Result.ReferencedObjectKeys)
+		{
+			auto Mapped = Map.RemapObjectKey(Key);
+			if (!Mapped) return std::unexpected(ToString(Mapped.error()));
+			Key = *Mapped;
+		}
+		for (size_t Offset : WeakReferenceOffsets)
+		{
+			if (Offset > Bytes.size() || sizeof(uint64) > Bytes.size() - Offset) return std::unexpected("Invalid weak snapshot reference slot.");
+			FObjectMemoryReader Reader(FByteView(Bytes).subspan(Offset, sizeof(uint64)));
+			FObjectKey Key; Key.SerializeForSnapshot(Reader);
+			if (Reader.IsError()) return std::unexpected("Invalid weak snapshot reference.");
+			auto Mapped = Map.RemapObjectKey(Key, true);
+			if (!Mapped) return std::unexpected(ToString(Mapped.error()));
+			FByteBuffer Encoded;
+			FObjectMemoryWriter Writer(Encoded); Mapped->SerializeForSnapshot(Writer);
+			if (Writer.IsError() || Encoded.size() != sizeof(uint64)) return std::unexpected("Invalid weak snapshot replacement.");
+			std::copy(Encoded.begin(), Encoded.end(), Result.Bytes.begin() + Offset);
+		}
+		return Result;
 	}
 
 	auto FPropertyValueSnapshotPayload::operator==(
@@ -1641,6 +1698,9 @@ namespace Durin
 		return Result;
 	}
 
+	auto ValidatePropertyValueSnapshotType(const FProperty* Property, bool bTransacting) -> std::expected<void, FPropertySnapshotError>
+	{ return ValidateSnapshotProperty(Property, bTransacting); }
+
 	auto CapturePropertyValuePayload(
 		const FProperty* Property,
 		const void* Container,
@@ -1667,8 +1727,8 @@ namespace Durin
 		class FSnapshotWriter final : public FObjectMemoryWriter
 		{
 		public:
-			FSnapshotWriter(FByteBuffer& InBytes, std::vector<FObjectKey>& InReferences, bool bTransacting)
-				: FObjectMemoryWriter(InBytes, bTransacting ? EArchivePurpose::Transaction : EArchivePurpose::PropertySnapshot), References(InReferences)
+			FSnapshotWriter(FByteBuffer& InBytes, std::vector<FObjectKey>& InReferences, std::vector<size_t>& InWeakOffsets, bool bTransacting)
+				: FObjectMemoryWriter(InBytes, bTransacting ? EArchivePurpose::Transaction : EArchivePurpose::PropertySnapshot), References(InReferences), WeakOffsets(InWeakOffsets)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
 			}
@@ -1693,17 +1753,19 @@ namespace Durin
 			}
 			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
 			{
+				WeakOffsets.push_back(static_cast<size_t>(Tell()));
 				FObjectKey Handle = Value.GetKey();
 				Handle.SerializeForSnapshot(*this);
 			}
 		private:
 			std::vector<FObjectKey>& References;
+			std::vector<size_t>& WeakOffsets;
 		};
 
 		FPropertyValueSnapshotPayload Payload;
 		Payload.Property = Property;
 		Payload.bTransacting = bTransacting;
-		FSnapshotWriter Writer(Payload.Bytes, Payload.ReferencedObjectKeys, bTransacting);
+		FSnapshotWriter Writer(Payload.Bytes, Payload.ReferencedObjectKeys, Payload.WeakReferenceOffsets, bTransacting);
 		SerializePropertyValue(Writer, const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, true);
 		if (Writer.IsError())
 		{

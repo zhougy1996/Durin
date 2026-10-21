@@ -7,6 +7,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/TransactionObjectEvent.h"
 #include "Engine/Actor.h"
 #include "Engine/ComponentInstanceDataCache.h"
 #include "Engine/Level.h"
@@ -87,6 +88,8 @@ namespace Durin::Tests::ObjectState
 		bool bCollectOnRegister = false, bDestroyOnRegister = false, bThrowOnRegister = false;
 		bool bUnsupportedInstanceData = false, bTypedInstanceData = false;
 		std::function<void()> RegistrationCallback;
+		auto PostTransacted(const Durin::FTransactionObjectEvent& Event) -> void override { if (TransactionObserver) TransactionObserver(*this, Event); }
+		std::function<void(DTransactionLifecycleScene&, const Durin::FTransactionObjectEvent&)> TransactionObserver;
 	};
 
 	class DTransactionConstructionActor final : public Durin::AActor
@@ -109,6 +112,7 @@ namespace Durin::Tests::ObjectState
 		uint32 ConstructionCalls = 0;
 		bool bFailConstruction = false, bCollectDuringConstruction = false;
 		std::optional<Durin::FVector3> ConstructionLocation;
+		std::function<void(DTransactionLifecycleScene&, const Durin::FTransactionObjectEvent&)> GeneratedTransactionObserver;
 	protected:
 		auto OnConstruction(const Durin::FTransform&) -> void override
 		{
@@ -119,6 +123,7 @@ namespace Durin::Tests::ObjectState
 				if (!Component) throw std::runtime_error("Component creation failed.");
 				if (ConstructionLocation) static_cast<Durin::DSceneComponent*>(Component)->SetRelativeLocation(*ConstructionLocation);
 				FinishAddComponent(Component, false, Durin::FTransform());
+				static_cast<DTransactionLifecycleScene*>(Component)->TransactionObserver = GeneratedTransactionObserver;
 			}
 			if (bCollectDuringConstruction) Durin::CollectGarbage();
 			if (bFailConstruction) throw std::runtime_error("Injected transaction reconstruction failure.");

@@ -85,6 +85,7 @@ namespace Durin
 		ENGINE_API auto BuildEvaluationData() const -> std::shared_ptr<const FSplineEvaluationData>;
 
 	private:
+		friend class DSplineComponent;
 		DPROPERTY(Edit)
 		std::vector<FSplinePoint> Points;
 

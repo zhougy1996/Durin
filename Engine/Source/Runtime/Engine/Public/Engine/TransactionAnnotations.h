@@ -4,6 +4,7 @@
 #include "EngineAPI.h"
 #include "DObject/TransactionObjectAnnotation.h"
 #include "DObject/TransactionObjectReference.h"
+#include "DObject/TransactionDiff.h"
 #include "Engine/ComponentInstanceDataCache.h"
 #include "Engine/TickFunction.h"
 #include "Math/Transform.h"
@@ -42,7 +43,8 @@ namespace Durin
 		FComponentTransactionAnnotation() = default;
 		explicit FComponentTransactionAnnotation(const DActorComponent& Component) : Data(Component) {}
 		auto IsDefault() const -> bool { return Data.IsDefault(); }
-		auto Validate() const -> FTransactionCaptureResult override { return Data.Validate(); }
+		// Membership is settled by structural records before native completion.
+		auto Validate() const -> FTransactionCaptureResult override { return Data.ValidateReferences(); }
 		auto Restore() const -> FCommandChangeResult { return Data.Restore(); }
 		auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override { Data.AddReferencedObjects(Collector); }
 		auto Serialize(FArchive& Archive) -> void override { Data.Serialize(Archive); }
@@ -83,7 +85,16 @@ namespace Durin
 		ENGINE_API auto GetAllocatedSize() const -> size_t override;
 		ENGINE_API auto CreateReplacement(const FObjectReplacementMap& Map) const
 			-> std::expected<std::shared_ptr<ITransactionObjectAnnotation>, std::string> override;
+		ENGINE_API auto ComputeAdditionalObjectChanges(const ITransactionObjectAnnotation* Original) const
+			-> std::vector<std::pair<DObject*, FTransactionObjectChange>> override;
 	private:
 		FActorTransactionAnnotationData Data;
+		// Observation only: not serialized reconstruction state or an obsolete instance root.
+		struct FDiffableComponentInfo
+		{
+			FActorComponentInstanceSourceInfo ComponentSourceInfo;
+			FDiffableObject DiffableComponent;
+		};
+		std::vector<FDiffableComponentInfo> DiffableComponentInfos;
 	};
 }

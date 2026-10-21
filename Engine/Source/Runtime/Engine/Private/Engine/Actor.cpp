@@ -41,11 +41,13 @@ namespace Durin
 	}
 	auto AActor::FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
 	{
+		if (IsTemplateObject()) return nullptr;
 		return FActorTransactionAnnotation::CreateIfRequired(*this);
 	}
 	auto AActor::PreEditUndo() -> void
 	{
 		Super::PreEditUndo();
+		if (IsTemplateObject()) return;
 		if (!EditConstructionSuspension) EditConstructionSuspension = std::make_unique<FScopedSuspendRerunConstructionScripts>(*this, false);
 	}
 	auto AActor::PostEditUndo() -> void { CompleteTransactionRestore(nullptr); }
@@ -61,6 +63,7 @@ namespace Durin
 	}
 	auto AActor::CompleteTransactionRestore(const FActorTransactionAnnotation* Annotation) -> void
 	{
+		if (IsTemplateObject()) { Super::PostEditUndo(); return; }
 		FGarbageCollectionDeferralScope DeferCollection;
 		FScopedPackageDirtySuppression SuppressDirty;
 		struct FCompletionScope
@@ -69,6 +72,13 @@ namespace Durin
 			~FCompletionScope() { Actor.EditConstructionSuspension.reset(); }
 		} Scope{*this};
 		FScopedSuspendRerunConstructionScripts CompletionSuspension(*this, false);
+		if (const auto* Level = Cast<DLevel>(GetOuter()); Level && Level->GetWorld() && !Level->ContainsActor(this))
+		{
+			// Structural absence owns activation. Retain identity and authored data
+			// without reconstructing or registering an Actor outside the Level.
+			Super::PostEditUndo();
+			return;
+		}
 		for (const auto& Component : InstanceComponents)
 			if (!IsValid(Component.Get()) || Component->GetOwner() != this || Component->GetCreationMethod() != EComponentCreationMethod::Instance)
 				throw std::runtime_error("Actor authored component membership cannot be restored.");
@@ -104,11 +114,20 @@ namespace Durin
 		const std::string Resolved = Label.empty()
 			? (Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Label;
 		if (ActorLabel == Resolved) return true;
+		(void)Modify();
 		ActorLabel = Resolved;
-#if DURIN_WITH_EDITOR
-		if (auto* Level = Cast<DLevel>(GetOuter()); Level && Level->ContainsActor(this)) Level->NotifyEditorActorHierarchyChanged();
-#endif
-		MarkPackageDirty();
+		PostEditChangeProperty({.MemberProperty = GetClass()->FindPropertyByName("ActorLabel"),
+			.LeafProperty = GetClass()->FindPropertyByName("ActorLabel")});
+		return true;
+	}
+
+	auto AActor::SetInitialActorLabel(const std::string& Label) -> bool
+	{
+		if (IsTemplateObject() || Label.find('\0') != std::string::npos) return false;
+		if (auto* Level = Cast<DLevel>(GetOuter()); Level && Level->ContainsActor(this)) return false;
+		const auto* Class = GetClass();
+		ActorLabel = Label.empty()
+			? (Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Label;
 		return true;
 	}
 
@@ -253,13 +272,15 @@ namespace Durin
 			Component->SetCreationMethod(EComponentCreationMethod::Instance);
 			DActorComponent* Next = InstanceIndex < InstanceComponents.size() ? InstanceComponents[InstanceIndex].Get() : nullptr;
 			AddOwnedComponent(Component);
-			InstanceComponents.emplace_back(Component);
-			if (Next)
+			const bool bAlreadySerialized = IsInstanceComponent(Component);
+			if (!bAlreadySerialized) InstanceComponents.emplace_back(Component);
+			if (Next && Next != Component)
 			{
 				for (auto* Components : {&OwnedComponents, &InstanceComponents})
 				{
+					if (Components == &InstanceComponents && bAlreadySerialized) continue;
 					auto It = std::ranges::find_if(*Components, [Next](const auto& Entry) { return Entry.Get() == Next; });
-					std::rotate(It, std::prev(Components->end()), Components->end());
+					if (It != Components->end()) std::rotate(It, std::prev(Components->end()), Components->end());
 				}
 			}
 			Component->OnComponentCreated();
@@ -267,7 +288,7 @@ namespace Durin
 		}
 		else
 		{
-			if (!IsInstanceComponent(Component)) return false;
+			if (!OwnsComponent(Component) || (!IsInstanceComponent(Component) && !EditConstructionSuspension)) return false;
 			if (auto* SceneComponent = Cast<DSceneComponent>(Component))
 			{
 				const auto Children = SceneComponent->GetAttachChildren();
@@ -280,7 +301,9 @@ namespace Durin
 			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
 			RemoveOwnedComponent(Component);
 		}
-		ValidateComponentOwnership();
+		// During replay, the serialized instance array can precede native
+		// membership adapters. Actor completion validates the settled live set.
+		if (!EditConstructionSuspension) ValidateComponentOwnership();
 		MarkPackageDirty();
 		return true;
 	}
@@ -539,6 +562,13 @@ namespace Durin
 	auto AActor::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
+		if (IsTemplateObject()) return;
+		const bool bLabel = Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ActorLabel");
+#if DURIN_WITH_EDITOR
+		if (!Event.MemberProperty || bLabel)
+			if (auto* Level = Cast<DLevel>(GetOuter()); Level && Level->ContainsActor(this)) Level->NotifyEditorActorHierarchyChanged();
+#endif
+		if (bLabel) return;
 		RerunConstructionScripts();
 		// PostEditUndo dispatches a full-object edit after all transaction fields settle.
 		// Direct property edits also bypass SetActorHiddenInGame and need synchronization.

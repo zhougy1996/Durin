@@ -28,18 +28,26 @@ namespace Durin
 
 	auto DActorComponent::FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
 	{
+		if (IsTemplateObject()) return nullptr;
 		auto State = std::make_shared<FComponentTransactionAnnotation>(*this);
 		return State->IsDefault() ? nullptr : State;
 	}
 	auto DActorComponent::PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void
 	{
+		if (IsTemplateObject()) { static_cast<DObject*>(this)->PostEditUndo(); return; }
+		const auto* Owner = GetOwner();
+		const auto* Level = Owner ? Cast<DLevel>(Owner->GetOuter()) : nullptr;
+		// Membership commands settle before completion. Historical property data
+		// must not reactivate an absent component or an unpublished owning Actor.
+		const bool bAbsent = Owner && (!Owner->OwnsComponent(this)
+			|| (Level && Level->GetWorld() && !Level->ContainsActor(Owner)));
 		if (Annotation)
 		{
 			auto State = std::dynamic_pointer_cast<FComponentTransactionAnnotation>(Annotation);
 			if (!State || State->GetComponent() != this) throw std::runtime_error("Component transaction annotation is incompatible.");
-			if (auto Result = State->Restore(); !Result) throw std::runtime_error(Result.error().Message);
+			if (!bAbsent) if (auto Result = State->Restore(); !Result) throw std::runtime_error(Result.error().Message);
 		}
-		else if (auto Result = FComponentInstanceLifecycleState::DefaultFor(*this).Restore(); !Result)
+		else if (!bAbsent) if (auto Result = FComponentInstanceLifecycleState::DefaultFor(*this).Restore(); !Result)
 			throw std::runtime_error(Result.error().Message);
 		static_cast<DObject*>(this)->PostEditUndo();
 	}

@@ -6,6 +6,7 @@
 #include "Actors/SkyBoxActor.h"
 #include "Components/SkyBoxComponent.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
@@ -55,7 +56,7 @@ namespace Durin::Editor::Level
 				auto* Prepared = NewObject<ASkyBoxActor>(InLevel, ActorName);
 				if (!Prepared || !Prepared->RerunConstructionScripts())
 				{ if (Prepared) MarkObjectHierarchyAsGarbage(Prepared); return; }
-				Prepared->SetActorLabel(InLevel->MakeUniqueActorLabel(Label));
+				Prepared->SetInitialActorLabel(InLevel->MakeUniqueActorLabel(Label));
 				Prepared->GetSkyBoxComponent()->SetTextureCube(InTextureCube);
 				AActor* Base = Prepared;
 				Presence = MakeActorPresenceChange(*InLevel, {&Base, 1}, false, "Place sky box");
@@ -108,47 +109,7 @@ namespace Durin::Editor::Level
 			std::array<DPackage*, 1> AffectedPackages{};
 		};
 
-		// Restores the cube reference on one existing skybox component.
-		class FSetSkyBoxTextureTransaction final : public ::Durin::Editor::FActorCommandChange
-		{
-		public:
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
-			{ return {Component.Get()}; }
 
-			FSetSkyBoxTextureTransaction(DSkyBoxComponent* InComponent, DTextureCube* InBefore, DTextureCube* InAfter)
-				: Component(InComponent), Before(InBefore), After(InAfter)
-			{
-				AffectedPackages.front() = InComponent ? InComponent->GetPackage() : nullptr;
-			}
-
-			auto GetDescription() const -> std::string_view override { return "Set sky box texture"; }
-			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FActorChangeResult override
-			{ return Apply(Operation == ::Durin::Editor::ETransactionOperation::Undo ? Before.Get() : After.Get()); }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{
-				for (DObject* Object : {static_cast<DObject*>(Component.Get()),
-					static_cast<DObject*>(Before.Get()),
-					static_cast<DObject*>(After.Get())})
-					if (Object) Collector.AddReferencedObject(Object);
-			}
-
-		private:
-			auto Apply(DTextureCube* TextureCube) -> ::Durin::Editor::FActorChangeResult
-			{
-				if (!Component) return {{.Code = ::Durin::Editor::EActorChangeError::TargetUnavailable}};
-				if (TextureCube && !IsValid(TextureCube)) return {{.Code = ::Durin::Editor::EActorChangeError::ResourceUnavailable,
-					.TargetPath = Component->GetObjectPath()}};
-				Component->SetTextureCube(TextureCube);
-				return {};
-			}
-
-			TObjectPtr<DSkyBoxComponent> Component;
-			TObjectPtr<DTextureCube> Before;
-			TObjectPtr<DTextureCube> After;
-			std::array<DPackage*, 1> AffectedPackages{};
-		};
 	}
 
 	static auto FormatSkyBoxPlacementError(ESkyBoxPlacementError Error) -> std::string
@@ -207,9 +168,19 @@ namespace Durin::Editor::Level
 			if (!Component || !Actor) return Reject(ESkyBoxPlacementError::SkyBoxUnavailable);
 			if (Component->GetTextureCube() == TextureCube) return {.Actor = Actor};
 
-			auto Transaction = std::make_unique<FSetSkyBoxTextureTransaction>(
-				Component, Component->GetTextureCube(), TextureCube);
-			if (auto Applied = Apply(std::move(Transaction)); !Applied) return Applied;
+			FScopedTransaction Recording(Transactions, {"SkyBox", "Set sky box texture", Component});
+			if (Transactions)
+			{
+				if (!Recording.IsOutstanding()) return Reject(ESkyBoxPlacementError::Transaction);
+				const auto Record = RecordObjectForEdit(*Transactions, *Component);
+				if (!Record) return Reject(ESkyBoxPlacementError::Transaction);
+			}
+			Component->SetTextureCube(TextureCube);
+			auto* Property = Component->GetClass()->FindPropertyByName("TextureCube");
+			Component->PostEditChangeProperty({.MemberProperty = Property, .LeafProperty = Property});
+			(void)Recording.End();
+			if (Transactions && (Transactions->GetLastResult().Code == ETransactorResultCode::Failed
+				|| Transactions->GetLastResult().Code == ETransactorResultCode::RecoveryRequired)) return Reject(ESkyBoxPlacementError::Transaction);
 			if (!Transactions && Level.GetPackage()) Level.GetPackage()->MarkDirty();
 			return {.Actor = Actor, .bChanged = true};
 		}

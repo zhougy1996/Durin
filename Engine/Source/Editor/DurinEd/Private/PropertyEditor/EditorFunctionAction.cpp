@@ -81,6 +81,21 @@ namespace Durin::Editor
 		FScopedTransaction Transaction(Transactor.Get(), {
 			.Name = Request.RootOwner.ToString() + "::" + Request.FunctionName.ToString(),
 			.Description = Function->GetDisplayName(), .PrimaryObject = Target.Get()});
+		if (!Transaction.IsOutstanding())
+		{
+			Result.Error = EEditorFunctionError::History;
+			Result.History = Transactor->GetLastResult();
+			return Report();
+		}
+		if (auto Recorded = Target->HasAnyObjectFlags(EObjectFlags::Transactional)
+			? RecordObjectForEdit(*Transactor.Get(), *Target.Get()) : FTransactionCaptureResult{}; !Recorded)
+		{
+			Transaction.Cancel();
+			Result.Error = EEditorFunctionError::History;
+			Result.History = {.Code = ETransactorResultCode::Failed,
+				.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = Recorded.error()})};
+			return Report();
+		}
 		(void)Target->Modify();
 		const auto Invoked = Target->ProcessEvent(Function, {});
 		if (Invoked != EFunctionInvokeError::None)

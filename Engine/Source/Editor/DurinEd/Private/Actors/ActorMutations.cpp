@@ -121,15 +121,16 @@ namespace Durin
 						.CleanupCause = std::make_shared<FActorChangeError>(FActorChangeError{.Code = EActorChangeError::RollbackIncomplete})}};
 				};
 				if (!CanEditActorLevel(Level.Get())) return Reject(EActorChangeError::TargetUnavailable);
-				if (Level->GetPrimaryCameraActor() != (bAfter ? BeforeCamera : AfterCamera).Get()) return Reject(EActorChangeError::ActorChanged);
+				const bool bHistorical = Level->IsTransactionRestorePending();
+				if (!bHistorical && Level->GetPrimaryCameraActor() != (bAfter ? BeforeCamera : AfterCamera).Get()) return Reject(EActorChangeError::ActorChanged);
 				auto* DesiredCamera = (bAfter ? AfterCamera : BeforeCamera).Get();
-				if (DesiredCamera && (!IsValid(DesiredCamera) || (!Level->ContainsActor(DesiredCamera)
+				if (!bHistorical && DesiredCamera && (!IsValid(DesiredCamera) || (!Level->ContainsActor(DesiredCamera)
 					&& (!bPresent || std::ranges::none_of(States, [DesiredCamera](const auto& State) { return State.Actor.Get() == DesiredCamera; }))))) return Reject(EActorChangeError::ActorMembership);
 				for (const auto& State : States)
 				{
 					auto* Actor = State.Actor.Get();
 					if (!IsValid(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || Actor->GetOuter() != Level.Get()
-						|| Level->ContainsActor(Actor) == bPresent) return Reject(EActorChangeError::ActorMembership);
+						|| (Level->ContainsActor(Actor) == bPresent && !Level->IsActorMembershipChangedDuringUndo(Actor))) return Reject(EActorChangeError::ActorMembership);
 					if (Actor->GetFName() != State.Name) return Reject(EActorChangeError::ActorChanged);
 					if (bPresent)
 						if (!Level->IsActorNameAvailable(Actor->GetFName(), Actor)) return Reject(EActorChangeError::ActorNameCollision);
@@ -163,13 +164,22 @@ namespace Durin
 						}
 					}
 				}
+				if (GUndo && !bHistorical)
+				{
+					// One serialized owner for Level membership and camera fields. The
+					// command retains only native publication and local compensation.
+					GUndo->SaveObject(Level.Get());
+					if (!GUndo->ContainsObject(Level.Get())) return Reject(EActorChangeError::MemberUnavailable);
+				}
 				if (!bPresent)
 				{
 					RetainActors();
 					for (const auto& Link : Attachments) verify(Link.Child->DetachFromComponent(EDetachmentTransformRule::KeepWorld));
 					for (auto It = States.rbegin(); It != States.rend(); ++It)
 					{
-						if (!CanEditActorOwner(It->Actor.Get())) return Interrupted();
+						if (!CanEditActorLevel(Level.Get()) || !IsValid(It->Actor.Get())
+							|| It->Actor->IsBeingDestroyed() || It->Actor->HasBegunPlay()
+							|| (!Level->ContainsActor(It->Actor.Get()) && !Level->IsActorMembershipChangedDuringUndo(It->Actor.Get()))) return Interrupted();
 						It->Registered.clear();
 						for (const auto& Component : It->Actor->GetComponents()) if (Component->IsRegistered()) It->Registered.push_back(Component);
 						if (!Level->SetActorPresence(It->Actor.Get(), false)
@@ -202,7 +212,7 @@ namespace Durin
 						}
 				}
 				RetainActors();
-				if (!Level->SetPrimaryCameraActor((bAfter ? AfterCamera : BeforeCamera).Get())) return Interrupted();
+				if (!bHistorical && !Level->SetPrimaryCameraActor((bAfter ? AfterCamera : BeforeCamera).Get())) return Interrupted();
 				return {};
 			}
 		private:
@@ -221,67 +231,6 @@ namespace Durin
 			std::vector<FAttachmentState> Attachments;
 			std::vector<TObjectPtr<DObject>> Retained;
 			std::array<DPackage*, 1> Packages{};
-		};
-
-		class FActorRenameChange final : public FActorCommandChange
-		{
-		public:
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
-			{ return {Actor.Get()}; }
-
-			FActorRenameChange(DLevel& InLevel, AActor& InActor, FName InAfter) : Level(&InLevel), Actor(&InActor), Before(InActor.GetFName()), After(InAfter), Packages{InLevel.GetPackage()} {}
-			auto GetDescription() const -> std::string_view override { return "Rename actor"; }
-			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{ for (DObject* Object : {static_cast<DObject*>(Level.Get()), static_cast<DObject*>(Actor.Get())}) if (Object) Collector.AddReferencedObject(Object); }
-			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
-			{
-				FScopedPackageDirtySuppression SuppressReplay;
-				if (!CanEditActorLevel(Level.Get()) || !IsValid(Actor.Get()) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Level->ContainsActor(Actor.Get())) return {{.Code = EActorChangeError::ActorMembership}};
-				const bool bAfter = Operation != ETransactionOperation::Undo;
-				const FName Name = bAfter ? After : Before;
-				if (Actor->GetFName() != (bAfter ? Before : After)) return {{.Code = EActorChangeError::ActorChanged}};
-				if (!Level->IsActorNameAvailable(Name, Actor.Get())) return {{.Code = EActorChangeError::ActorNameCollision}};
-				verify(Level->RenameActor(Actor.Get(), Name, ESpawnActorNameMode::RequiredReturnNull));
-				return {};
-			}
-		private:
-			TObjectPtr<DLevel> Level;
-			TObjectPtr<AActor> Actor;
-			FName Before, After;
-			std::array<DPackage*, 1> Packages;
-		};
-		class FActorLabelChange final : public FActorCommandChange
-		{
-		public:
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
-			{ return {Actor.Get()}; }
-
-			FActorLabelChange(DLevel& InLevel, AActor& InActor, std::string InAfter)
-				: Level(&InLevel), Actor(&InActor), Before(InActor.GetActorLabel()), After(std::move(InAfter)), Packages{InLevel.GetPackage()} {}
-			auto GetDescription() const -> std::string_view override { return "Set actor label"; }
-			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto GetAllocatedSize() const -> size_t override { return Before.capacity() + After.capacity(); }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{ for (DObject* Object : {static_cast<DObject*>(Level.Get()), static_cast<DObject*>(Actor.Get())}) if (Object) Collector.AddReferencedObject(Object); }
-			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
-			{
-				FScopedPackageDirtySuppression SuppressReplay;
-				if (!CanEditActorLevel(Level.Get()) || !CanEditActorOwner(Actor.Get()) || !Level->ContainsActor(Actor.Get()))
-					return {{.Code = EActorChangeError::ActorMembership}};
-				const bool bAfter = Operation != ETransactionOperation::Undo;
-				if (Actor->GetActorLabel() != (bAfter ? Before : After)) return {{.Code = EActorChangeError::ActorChanged}};
-				// Labels need not be unique. Replay restores the recorded value exactly.
-				if (!Actor->SetActorLabel(bAfter ? After : Before)) return {{.Code = EActorChangeError::ActorChanged}};
-				return {};
-			}
-		private:
-			TObjectPtr<DLevel> Level;
-			TObjectPtr<AActor> Actor;
-			std::string Before, After;
-			std::array<DPackage*, 1> Packages;
 		};
 
 		auto Execute(std::unique_ptr<FActorCommandChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> bool
@@ -325,7 +274,7 @@ namespace Durin
 			{
 				FScopedPackageDirtySuppression SuppressPreparation;
 				Actor = NewObject<AActor>(Class, &Level, Name, EObjectFlags::Transactional);
-				if (Actor) Actor->SetActorLabel(Level.MakeUniqueActorLabel(Label.empty() ? Requested.ToString() : Label));
+				if (Actor) Actor->SetInitialActorLabel(Level.MakeUniqueActorLabel(Label.empty() ? Requested.ToString() : Label));
 				if (Actor && Actor->RerunConstructionScripts())
 				{
 					Actor->SetActorTransform(Transform);
@@ -386,7 +335,7 @@ namespace Durin
 					auto Copy = DuplicateObject(Source, &Level, Level.MakeUniqueActorName(Source->GetFName()), &Graph);
 					if (!Copy) { for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {}; }
 					Labels.push_back(Level.MakeUniqueActorLabel(Source->GetActorLabel(), nullptr, Labels));
-					(*Copy)->SetActorLabel(Labels.back());
+					(*Copy)->SetInitialActorLabel(Labels.back());
 					Copies.push_back(*Copy);
 					Raw.push_back(*Copy);
 					Duplicates.insert(Graph.begin(), Graph.end());
@@ -449,7 +398,12 @@ namespace Durin
 				? (Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Label;
 			if (bMakeUnique) Resolved = Level.MakeUniqueActorLabel(Resolved, Actor);
 			if (Actor->GetActorLabel() == Resolved) return true;
-			return Execute(std::make_unique<FActorLabelChange>(Level, *Actor, std::move(Resolved)), {Actor}, *Transactions);
+			FScopedTransaction Recording(Transactions, {"ActorLabel", "Set actor label", Actor});
+			if (!Recording.IsOutstanding() || !RecordObjectForEdit(*Transactions, *Actor)) return false;
+			if (!Actor->SetActorLabel(Resolved)) return false;
+			(void)Recording.End();
+			return Transactions->GetLastResult().Code != ETransactorResultCode::Failed
+				&& Transactions->GetLastResult().Code != ETransactorResultCode::RecoveryRequired;
 		});
 	}
 
@@ -464,7 +418,12 @@ namespace Durin
 			Name = Level.ResolveActorName(Name, NameMode, Actor);
 			if (Name.IsNone()) return false;
 			if (Actor->GetFName() == Name) return true;
-			return Execute(std::make_unique<FActorRenameChange>(Level, *Actor, Name), {Actor}, *Transactions);
+			FScopedTransaction Recording(Transactions, {"ActorRename", "Rename actor", Actor});
+			if (!Recording.IsOutstanding() || !RecordObjectForEdit(*Transactions, *Actor)) return false;
+			if (!Level.RenameActor(Actor, Name, ESpawnActorNameMode::RequiredReturnNull)) return false;
+			(void)Recording.End();
+			return Transactions->GetLastResult().Code != ETransactorResultCode::Failed
+				&& Transactions->GetLastResult().Code != ETransactorResultCode::RecoveryRequired;
 
 		});
 	}

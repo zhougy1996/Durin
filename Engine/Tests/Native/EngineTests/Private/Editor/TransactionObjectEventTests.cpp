@@ -2,6 +2,79 @@
 
 using namespace Durin::Tests::ObjectState;
 
+TEST(FTransactionObjectEventTests, OrdinaryEditAdmissionKeepsDomainParticipantsAndRejectsForeignScopes)
+{
+	using namespace Durin; using namespace Durin::Editor;
+	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer, Other;
+	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "MixedDomainFields"));
+	EXPECT_FALSE(RecordObjectForEdit(*Buffer, *Target));
+	int DomainValue = 1;
+	ASSERT_EQ(Buffer->Begin("test", "Domain and ordinary fields"), 0);
+	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(DomainValue, 0, 1)));
+	ASSERT_TRUE(RecordObjectForEdit(*Buffer, *Target));
+	const auto Saves = Target->SerializationSaves;
+	ASSERT_TRUE(RecordObjectForEdit(*Buffer, *Target)); EXPECT_EQ(Target->SerializationSaves, Saves);
+	EXPECT_FALSE(RecordObjectForEdit(*Other, *Target)); EXPECT_EQ(Target->SerializationSaves, Saves);
+	Target->Value = 9;
+	EXPECT_EQ(static_cast<FTransaction*>(GUndo)->GetRecordCount(), 2u);
+	EXPECT_EQ(Buffer->End(), 1);
+	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(DomainValue, 0);
+	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 9); EXPECT_EQ(DomainValue, 1);
+}
+
+TEST(FTransactionObjectEventTests, FailedReplayDoesNotPublishAnExternalReferenceIntoHistory)
+{
+	using namespace Durin; using namespace Durin::Editor;
+	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "RetryHistory"));
+	int DomainValue = 1;
+	auto Change = std::make_unique<FTestCustomChange>(DomainValue, 0, 1);
+	auto* Control = Change.get();
+	Control->bFailUndo = true;
+	ASSERT_EQ(Buffer->Begin("test", "Failed replay history"), 0);
+	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::move(Change)));
+	ASSERT_TRUE(RecordObjectForEdit(*Buffer, *Target));
+	Target->Value = 9;
+	EXPECT_EQ(Buffer->End(), 1);
+	auto* External = NewObject<DTransactionRecordParticipant>(nullptr, "ExternalReference");
+	Target->Hard = External;
+	EXPECT_FALSE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 9);
+	EXPECT_EQ(Target->Hard.Get(), External);
+	EXPECT_TRUE(Buffer->CanUndo());
+	Target->Hard = nullptr;
+	MarkObjectHierarchyAsGarbage(External);
+	CollectGarbage();
+	Control->bFailUndo = false;
+	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	EXPECT_EQ(Target->Value, 0);
+	EXPECT_EQ(DomainValue, 0);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Target->Value, 9);
+	EXPECT_EQ(Target->Hard.Get(), nullptr);
+	EXPECT_EQ(DomainValue, 1);
+}
+
+TEST(FTransactionObjectEventTests, ChangedTransactionRetainsAnUnchangedObjectBaseline)
+{
+	using namespace Durin; using namespace Durin::Editor;
+	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "UnchangedBaseline"));
+	int DomainValue = 1;
+	ASSERT_EQ(Buffer->Begin("test", "Keep complete transaction"), 0);
+	ASSERT_TRUE(Target->Modify());
+	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(DomainValue, 0, 1)));
+	EXPECT_EQ(Buffer->End(), 1);
+	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 2u);
+	Target->Value = 7;
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 0);
+	EXPECT_EQ(DomainValue, 0);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Target->Value, 7);
+	EXPECT_EQ(DomainValue, 1);
+}
+
 TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObservationStorageAtEnd)
 {
 	using namespace Durin; using namespace Durin::Editor;
@@ -63,6 +136,7 @@ TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordin
 			EXPECT_EQ(Buffer->Begin("reentry", "reentry"), -1); EXPECT_EQ(Buffer->End(), 0);
 			Buffer->Cancel(); EXPECT_EQ(GUndo, Recording);
 			const auto Saves = Target->SerializationSaves; (void)Target->Modify(); EXPECT_EQ(Target->SerializationSaves, Saves);
+			EXPECT_FALSE(RecordObjectForEdit(*Buffer, *Target)); EXPECT_EQ(Target->SerializationSaves, Saves);
 			EXPECT_FALSE(Recording->EndOperation()); EXPECT_FALSE(Recording->Finalize());
 			EXPECT_FALSE(Recording->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 99)));
 			EXPECT_EQ(Buffer->GetQueueLength(), 0u);
