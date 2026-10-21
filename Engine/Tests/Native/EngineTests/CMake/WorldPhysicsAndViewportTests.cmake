@@ -7,6 +7,7 @@ durin_add_native_test(InputActionTests
 )
 
 set(_durin_world_test_sources
+	Private/World/ComponentInstanceLifecycleTests.cpp
 	Private/World/NewLevelBaselineTests.cpp
 	Private/World/WorldPlayTests.cpp
 	Private/World/WorldSubsystemTests.cpp

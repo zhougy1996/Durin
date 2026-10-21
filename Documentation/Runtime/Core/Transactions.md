@@ -4,7 +4,7 @@ Summary: Define runtime-neutral transaction capture, custom changes, exact objec
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 ## Core Boundary
 
@@ -94,6 +94,13 @@ are shared with the undo capture from the same Serialize pass; it has no restore
 operation or annotation. Capture output and observations retain their exact hard
 edges through an enclosing collector owner. There is no mixed runtime object-state
 coordinator.
+
+`FDiffableObject::TryGetAllocatedSize` accounts its actual retained identity,
+shared transfer allocations and tagged-range capacity. It shares the transfer
+accounting implementation with `FSerializedObjectCapture`; callers must not count
+a second stored copy of the same identity or derive retained string capacity from
+a temporary transfer view. Annotation allocations remain the enclosing owner's
+responsibility.
 
 `PrepareSerializedObjectReplacement` and `DiffUtil::PrepareObjectReplacement`
 prepare detached values using the existing `FObjectReplacementMap`. Only explicit

@@ -98,6 +98,10 @@ durin_add_native_test(EditorOperationTests
 		Private/Editor/EditorSubsystemTests.cpp
 		Private/Editor/FactoryTests.cpp
 		Private/Editor/TransactionRecordTests.cpp
+		Private/Editor/TransactionHistoryTests.cpp
+		Private/Editor/TransactionObjectEventTests.cpp
+		Private/Editor/TransactionAnnotationTests.cpp
+		Private/Editor/TransactionReinstancingTests.cpp
 	LIBRARIES Core CoreDObject Engine AssetTools DurinEd
 	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
 	REQUIRES editor

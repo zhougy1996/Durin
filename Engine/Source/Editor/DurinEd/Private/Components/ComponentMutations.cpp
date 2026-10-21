@@ -315,6 +315,9 @@ namespace Durin
 				Component = NewObject<DActorComponent>(Class, &Owner, UniqueName(Owner, FName(Class->GetDefaultObjectName())), EObjectFlags::Transactional);
 			}
 			if (!Component) return nullptr;
+			// PostInitProperties establishes native ownership. This domain command
+			// prepares an absent instance and publishes membership only during Apply.
+			if (IsValid(&Owner) && IsValid(Component)) Owner.RemoveOwnedComponent(Component);
 			Component->SetTransient(true);
 			auto Change = std::make_unique<FComponentMembershipChange>(Owner, *Component, false);
 			auto* Scene = Cast<DSceneComponent>(Component);
@@ -357,6 +360,7 @@ namespace Durin
 			}();
 			if (!Copy) return nullptr;
 			auto* Component = *Copy;
+			if (IsValid(&Owner) && IsValid(Component)) Owner.RemoveOwnedComponent(Component);
 			auto Change = std::make_unique<FComponentMembershipChange>(Owner, *Component, false);
 			Component->SetTransient(true);
 			// Ordinary duplication runs PostLoad and remaps owned subobjects before publication.

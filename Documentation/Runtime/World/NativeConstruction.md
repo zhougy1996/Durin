@@ -4,7 +4,7 @@ Summary: Define deterministic native reconstruction and transient generated-comp
 
 Modules: CoreDObject, Engine
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 ## Component Ownership
 
@@ -18,7 +18,6 @@ Every actor component has one `EComponentCreationMethod`:
   runtime ownership collection, and never supplies package or duplication
   authority.
 
-`GetAuthoredComponents()` returns native and instance-authored components.
 `GetComponents()` returns a non-allocating const view of
 `OwnedComponents`, the ordered authority for every live authored and
 generated component.
@@ -28,13 +27,28 @@ exact-class query. Mutating component ownership invalidates iterators and
 references into the live view. Code that can invoke component callbacks uses
 `GetComponentsSnapshot()` and revalidates each handle before publication.
 
-The persistent `AuthoredComponents` field and its `InstanceComponents` subset
-retain authored state. Generic runtime code must not use authored storage as
-live ownership authority. `OwnedComponents` is the transient reflected
-strong-reference collection, while `GeneratedComponents` is the keyed
-reconstruction index. Serialization and object-graph duplication use only
-authored component state; the destination actor regenerates its own derived
-identities.
+Native components persist through the object's native subobject graph; the
+persistent `InstanceComponents` array records per-instance membership. There is
+no separately maintained authored aggregate. `ResetOwnedComponents` rebuilds
+runtime ownership from the Outer graph, admitting instance-created components
+only while present in `InstanceComponents`. Existing live iteration order is
+preserved where possible; relative instance iteration order follows the persistent
+instance list, independently of graph allocation order. Removed instances retained for Undo remain outside live
+ownership. The generated-component key index serves reconstruction matching only.
+Package capture and duplication discover native inner objects through the shared
+object graph, while transient generated output is regenerated at its destination.
+
+Following UE's initialization mechanism, `DActorComponent::PostInitProperties`
+adds native component ownership after the full constructor, before graph loading
+or component `PostLoad` callbacks. A Spline load callback can therefore request
+Actor reconstruction while all copied native components already have ownership;
+it need not wait for Actor `PostLoad`. Explicit instance-component adoption stays
+with the Actor APIs. Editor presence commands remove initial native ownership
+from prepared additions before their recorded membership transition.
+`OnComponentCreated`, registration and `InitializeComponent` callbacks do not run
+merely because ownership is added.
+The shared hook and failure lifetime are defined by
+[object initialization](../Core/GarbageCollection.md#object-initialization).
 
 Generated objects use `EObjectConstructionPurpose::Generated`, carry the
 `Transient` object flag, and are retained explicitly through
@@ -122,14 +136,21 @@ by a same-name authored component or an assignable but different class. An
 ambiguous generated owner or incomplete serialized source is invalid. An expired
 exact component reference never acquires a new generation by Name.
 
-Cache replacement prepares independent typed entries through `CreateReplacement`
-and publishes only after every source/reference check succeeds. Built-in scene
-entries preserve their supplemental transform. Derived entries must preserve
-their dynamic type and all native data; inheriting a base copy cannot silently
-slice them. Unknown data fails rather than applying a partial cache. This native
-copy hook replaces UE's typed struct-storage copy facility in Durin's current
-cache representation. Actor and component annotation replacement delegates to
-these same cache/source facilities, without constructing or registering components.
+Cache replacement prepares independent typed entries through the shared
+`CreateReplacement` implementation and publishes only after every reference check
+succeeds. `GetDataType` supplies a native descriptor registered with a stable name,
+construction and exact-type copy factories. Their coallocated native storage
+reuses existing `FDStructOps` construction, copy and destruction operations;
+no parallel struct lifetime table is maintained. This adapts UE's typed struct-storage
+facility; domain structs register through `RegisterType<T>` and override their
+normal Serialize, reference enumeration and reference replacement hooks as needed.
+The registered copy constructor must make mutable supplemental state independent;
+sharing immutable values is permitted. Registration must occur before archive loading (normally during module/owner
+initialization). Built-in descriptors are always available. A derived type that
+inherits an incompatible descriptor is rejected rather than sliced; duplicate
+type names and unknown archived types are rejected. No central list of concrete
+component data types or per-derived replacement clone is required. Native owners
+must retain the code module while data or its descriptor is in use.
 
 Every ordinary request captures the cache and shared
 `FActorRootComponentReconstructionData` before destroying generated components.
@@ -143,15 +164,16 @@ is reserved for future template/SCS execution and is not emitted today. Since
 Durin currently generates components in native `OnConstruction`, the second
 phase follows that hook. This differs from UE's Blueprint path, whose SCS/UCS
 cache phases precede its final native OnConstruction notification. The third
-phase restores settled supplemental lifecycle state. A scene pose explicitly
+phase is available to domain supplemental data outside script construction.
+Lifecycle history belongs to transaction annotations, not the reconstruction cache. A scene pose explicitly
 assigned during the native hook takes precedence over cached data, including
 same-value writes. Construction-owned fields are also omitted during cache capture.
 Tracking belongs to the component, with Actor's execution flag delimiting construction; automatic attachment and cache application do not
 acquire construction authority. Root and external attachment recovery follows
 the instance cache. No TLS construction-context stack remains.
 
-The cache's explicit archive path supports its built-in data kinds and lifecycle
-state; an unknown domain data kind reports an error rather than being omitted.
+The cache's explicit archive path uses registered type names and each type's
+serializer; an unknown domain type reports an error rather than being omitted.
 It is in-process supplemental data, not a new package or generic undo format.
 
 ## Lifecycle And Reregistration
@@ -166,8 +188,8 @@ EndPlay and terminal teardown still clear them.
 
 `DActorComponent::CaptureLifecycleState`, `ValidateLifecycleState` and
 `ApplyLifecycleState` own the supported native checkpoints. Their data is a
-Durin adaptation because these native flags are not reflected properties. Cache
-and annotation data retain identities and these checkpoints; they do not execute
+Durin adaptation because these native flags are not reflected properties. Actor and component
+transaction annotation data retain identities and these checkpoints; they do not execute
 a separate transition sequence. Restoring a checkpoint checks ownership and
 retirement after callbacks and reports unsettled results rather than resurrecting
 an object. Registered-but-uninitialized and unregistered-but-initialized/playing
@@ -202,7 +224,11 @@ construction/callback work; no transaction-only replay/completion booleans remai
 
 Engine-owned `FActorTransactionAnnotation` and
 `FComponentTransactionAnnotation` supplement authored object serialization with
-native lifecycle and Tick state. They retain exact authored components and use
+native lifecycle and Tick state. Actor-wide component checkpoints are retained
+by the Actor annotation; independently recorded component checkpoints stay with
+the component annotation. Both delegate transitions exclusively to the component.
+Reconstruction caches have no lifecycle capture mode or lifecycle application
+branch. They retain exact authored components and use
 the owning Actor, construction key and exact class for generated components.
 An annotation never retains an obsolete generated instance solely to replay it.
 Participant validation rejects expired exact dependencies before historical

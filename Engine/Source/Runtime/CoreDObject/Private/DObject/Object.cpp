@@ -324,6 +324,8 @@ namespace Durin
 		Serialize(Ar);
 	}
 
+	auto DObject::PostInitProperties() -> void {}
+
 	auto DObject::PostLoad() -> void
 	{
 	}

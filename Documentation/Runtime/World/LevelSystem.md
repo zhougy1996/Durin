@@ -4,14 +4,15 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 `DLevel` is the persistent scene asset. A packaged level is a top-level asset
 in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
 Each Actor's transient reflected `OwnedComponents` array is the ordered runtime
-authority for every live component. The persistent `AuthoredComponents` field
-and `InstanceComponents` provide package and duplication authority. Their Outer
-hierarchy separately provides structural containment and object paths.
+authority for every live component. Native inner objects persist through the
+shared object graph; `InstanceComponents` records persistent instance membership.
+`ResetOwnedComponents` derives live ownership from that graph and membership.
+The Outer hierarchy provides structural containment and object paths.
 
 Actor object `Name` and serialized `ActorLabel` have different contracts. Object
 names identify paths and are unique across live objects directly under the Level,

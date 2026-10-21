@@ -2,12 +2,45 @@
 
 Summary: Align Durin's object transactions, annotations, change events, reinstancing, and editor consumers with a pinned UE 5.8 baseline.
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 Status: Active
 Completed:
 
 ## Current Status
+
+Foundation cleanup Stages 8-11 are accepted on final native inputs: 1125
+isolated CPU cases, 426 shared-process cases, rendered Discard Vulkan
+qualification, the editor all build and bounded Game closures passed. The
+foundation plan is Completed again. Reconstruction caches contain instance data
+only; annotations own lifecycle history, component ownership is derived from
+the object graph and instance membership, and typed factories reuse FDStructOps.
+Resume this plan's Stage 4 Actor annotation component-event work. Business,
+template/CDO and other remaining feature/application gates stay open.
+
+The foundation's final consumer gate found that copied components lacked ownership
+when Spline PostLoad requested Actor reconstruction. The shared UE-style
+`PostInitProperties` allocation hook now establishes native component ownership
+before graph callbacks. Editor instance-presence commands explicitly prepare
+absence before their recorded Apply. This is an initialization foundation fix,
+not template transaction admission or a new duplication-specific context.
+Foundation Stage 7 is accepted: 1292 isolated CPU cases, 386 shared-process
+regressions, two Vulkan correctness gates, the editor all build and bounded
+Game project closures passed on final native inputs. That receipt covers the original foundation inputs; the subsequent cleanup
+acceptance is recorded above.
+All remaining gates here stay open until their own features and evidence are
+complete.
+
+Foundation Stage 6 removes duplicated record/snapshot storage and groups the
+regressions by owner. Its cleanup does not implement this plan's remaining
+business-consumer or template features. Actor Label is still NonTransactional
+and uses a domain command pending Stage 5's field/admission migration; Actor
+rename still checks level membership and reserved names. Actor/component presence,
+attachment and Material graph commands retain structural/domain work that a
+serialized field load alone does not perform. These are not temporary adapters
+for the removed mixed-state API. UE Actor annotation diffable-component additional
+change reporting remains a Stage 4 event feature; generic annotation additional
+changes already have snapshot/finalization closure coverage.
 
 The object-state foundation's Stage 5 now supplies checked ordinary-object
 reinstancing through the existing reload participant: transfer/observation data,
@@ -42,14 +75,12 @@ The starting production revision is
 `3e9c43a5b`, which separates Actor Name and Label. Its 516 passing naming and
 consumer tests are useful regression evidence, not transaction parity evidence.
 
-Durin already has one editor-owned history, `GUndo`, nested scoped recording,
-`Modify()`, focused reflected-property payloads, custom commands, collector-owned
-references, saved package checkpoints, and recovery-aware replay. Stage 2 replaces
-the Stage 1 reflected-field expansion with virtual object serialization and one
-canonical object owner shared with focused capture. Object-level event dispatch
-and active snapshots are implemented at `f6bc02f00`; Stage 4 remains incomplete.
-Array operation records and general reinstancing-aware logical transaction
-references remain open. Custom records now freeze explicit
+Durin has one editor-owned history, `GUndo`, nested scoped recording, `Modify()`,
+whole-object virtual serialization, custom commands, collector-owned references,
+saved package checkpoints and recovery-aware replay. Object-level event dispatch
+and active snapshots were introduced at `f6bc02f00` and migrated to the shared
+foundation; Stage 4's full acceptance remains incomplete. Array operation records
+and template-aware logical transaction references remain open. Custom records freeze explicit
 modified participants separately from GC dependencies; single-object declarations
 bind their target and composites supply summaries, hooks and affected packages.
 
@@ -349,7 +380,7 @@ implementation and test evidence to every row.
 | Nested Begin/End | **S** `TransBuffer.h::BeginInternal`, `EditorTransaction.cpp::UTransBuffer::End`: Begin returns prior depth; End returns prior depth and only depth 1 finalizes. | Preserve one outer recording, context and final capture; existing `NestedModifyPreservesOutermostFinalState` and `NativeBeginEndAndInnerCancelUseUEActiveCounts` characterize it. |
 | Cancel | **S** `UTransBuffer::Cancel`: any nonzero index is normalized to zero; drops the entire active recording, restores displaced history, does not call Apply. | Cancel is discard without rollback, including inner scopes; property gesture rollback is a separate domain action. Stage 8 preserves this distinction. |
 | Disabled scope | **S** `ScopedTransaction.cpp::Construct`: disabled helpers never Begin; they do not suspend GUndo. | An outer recording still captures Modify inside a disabled helper. `DisabledScopeLeavesOuterCaptureAndLifetimeIntact` covers depth and cleanup. Exact stale-helper protection remains **D**. |
-| First/final capture and replay | **S** `SaveObject`, record constructor, `Finalize`, `Save`, `Load`: first capture calls virtual Serialize; final state is serialized; replay captures current state before loading and swapping the two sides. | Stage 2 uses object-owned serialized states with live replay-side flip capture. Prepare every inverse before mutation; retain compensation/recovery **D**. No permanent parallel whole-object/property replay. |
+| First/final capture and replay | **S** `SaveObject`, record constructor, `Finalize`, `Save`, `Load`: first capture calls virtual Serialize; final state is serialized; replay captures current state before loading and swapping the two sides. | The foundation's canonical record uses whole-object states with live inverse capture. Before/final/inverse/snapshot storage shares one representation with no duplicate capture metadata. Prepare every inverse before mutation; compensation/recovery is **D**. No parallel focused-property replay remains. |
 | Custom before Modify | **A/S** `ITransaction::StoreUndo`, `SaveObject`: custom adds an object record; later SaveObject sees an existing record and adds no serialized snapshot. | Preserve this exclusive object-owner rule. Commands needing generic capture for unrelated authored fields must use serialized participants or distinct declared participants rather than claiming the whole object. Stage 1 migrates callers. |
 | Modify before custom | **S** `SaveObject`, `StoreUndo`, `Apply`: the earlier serialized record remains; Undo reverses record order, Redo follows record order. | Retain order, with no implicit deletion of the earlier snapshot. `ModifyBeforeCustomPreservesOrderedReplay` characterizes it. Domain callers must avoid duplicate ownership of a field; ordinary edits migrate to generic records. |
 | Focused capture | **S**, UE SaveObject has no focused-history overload; SnapshotObject is observation, not focused undo storage. | Foundation Stage 1 removes focused history, promotion and member locators. Property editing captures a whole object before mutation; domain commands retain only their own required property payloads. |
@@ -361,12 +392,12 @@ implementation and test evidence to every row.
 | Finalization events | **S** transaction `Finalize`, buffer `End`: component completion precedes Actor completion; changed serialized state/diff or annotation triggers PostTransacted; object Finalized occurs before operation closes and GUndo clears. | Stage 4 keeps object hooks synchronous in live context; queued idle history listeners remain separate **D**. No-op without annotation emits no object change. Cancel emits no Finalized object event. |
 | Undo/Redo event order | **S** `Apply`, buffer `Undo/Redo`: distinct targets get PreEditUndo, all records save/load, component PostEditUndo before Actor, then each object's PostTransacted; operation remains live. Custom-only records get completion hooks but no synthetic serialized delta event. | Stages 3/4 preserve ordering and declare modified participants explicitly. Recoverable failures and compensation emit no misleading successful completion; balanced cleanup/recovery dispositions are **D** and need trace tests. |
 | Annotation capture/lifetime | **A/S** `FSerializedObject::SetObject`, record `Snapshot/Finalize/Save/Load/AddReferencedObjects`: annotation captured before serialization, at finalization/snapshot and inverse capture; both serialized sides enumerate references; replay uses restored side's annotation. | Stage 3 puts annotation ownership/hooks in CoreDObject, additional object changes in event contracts; checked owned-byte accounting is **D**. Default object annotation is absent. |
-| Actor reconstruction | **S** `Actor.cpp::Modify`, `ActorEditor.cpp::FactoryTransactionAnnotation/CreateIfRequired/PreEditUndo/PostEditUndo`: native root capture, conditional instance/root/attachment data; lifecycle work accompanies state restore. | Engine owns reconciliation in Stage 3. No Blueprint subsystem is required; generated components remain construction-owned. Tick/render/physics registration must use native lifecycle adapters in Stage 5. |
+| Actor reconstruction | **S** `Actor.cpp::Modify`, `ActorEditor.cpp::FactoryTransactionAnnotation/CreateIfRequired/PreEditUndo/PostEditUndo`: native root capture, conditional instance/root/attachment data; lifecycle work accompanies state restore. | Foundation Stages 3-5 use Engine-owned destruction/recreation, instance caches, root/attachment data and shared lifecycle/Tick owners. No Blueprint subsystem is required. Actor/Component annotations adapt these owners; they do not schedule a second lifecycle implementation. Full editor consumer acceptance remains Stage 5 below. |
 | Package state | **S** `SavePackage`, `Apply`, dirty-fence counter, `Obj.cpp::Modify`, `UObjectGlobals.cpp::SaveToTransactionBuffer`: package state is independent of object fields; replay updates dirty state before loading; saves fence historical clean state. Modify can dirty without retaining history. | Keep Durin saved-revision/checkpoint authority **D**, including external writes, retirement and branch changes; do not replay dirty as a serialized member. Existing checkpoint/uncaptured dirty tests remain valid. |
 | Undo barriers | **A/S** `SetUndoBarrier/RemoveUndoBarrier/ClearUndoBarriers/GetCurrentUndoBarrier/CanUndo`: stack stores queue cursor; only top barrier limits further Undo; empty query is invalid index; Reset clears stack. | Stage 8 implements cursor barriers with tests for push/pop/clear, Redo, reset and trimmed history; retirement must preserve a valid bound. |
 | PIE inspection | **A/S** `ContainsPieObject/ContainsPieObjects/IsTransient`, `SaveArray`: checks target and serialized references on both sides; any PIE makes entry transient; array capture rejects PIE owner. Custom/annotation traversal is not a blanket PIE scan in this implementation. | Stage 8 makes PIE support explicit at package boundary; stronger declared-participant/dependency inspection is **D**. No implicit equivalence between runtime world and PIE package. |
 | History budget/branching | **S** `BeginInternal`, `End`, `Cancel`, `DataSize`: Begin temporarily removes Redo or oldest prefix at size >= budget; cancel/no-op restores it; successful entry can exceed budget; DataSize counts serialized side plus custom bytes. | Preserve final history outcomes; commit-time trimming is **D** (pending entry is not exposed as retained history). Checked native allocations, both owned sides and overflow rejection remain **D**; transitive GC graph size is not claimed. Stage 8 documents observable event differences. |
-| Exact/logical identity | **S** `TransactionCommon.cpp::FPersistentObjectRef` and `OnObjectsReinstanced`: ordinary root pointer, CDO/default-subobject owner/name chain, explicit replacement collector. | Stage 6 supports exact ordinary handles, admitted CDO/default-subobject chains under a validated logical root and explicit replacement maps. Class/owner/property compatibility and atomic remapping are stricter **D**. Arbitrary same-name objects never revive exact references. |
+| Exact/logical identity | **S** `TransactionCommon.cpp::FPersistentObjectRef` and `OnObjectsReinstanced`: ordinary root pointer, CDO/default-subobject owner/name chain, explicit replacement collector. | Foundation Stage 5 implements exact ordinary handles and explicit checked maps for payloads, caches, annotations and retained history. Generated component matching belongs to Engine instance-source info. This plan's Stage 6 still owns CDO/default-subobject chains and template admission. Class/owner/property compatibility and atomic publication are stricter **D**; same-name objects never revive exact references. |
 | Expiry and destruction | **S** `HasExpired`, buffer `Undo/Redo`: expired custom transactions may be skipped. UE replay also changes garbage state for recorded pending-kill transitions. | Preserve irreversible garbage exclusion **D**; reversible editor absence uses lifecycle records/annotations. Unsupported replacement/module unload retires whole entries atomically. Stage 6/8 must not silently skip partially incompatible entries. |
 
 The inspected source resolves the required baseline questions without a UE
@@ -375,16 +406,19 @@ PIE and barriers remain implementation work, not unresolved reference evidence.
 Durin differences above are selected deliberately; the final claim is the
 documented alignment boundary, not byte-for-byte UE behavior.
 
-Characterization authority is
-[TransactionRecordTests.cpp](../../Engine/Tests/Native/EngineTests/Private/Editor/TransactionRecordTests.cpp)
-in registered `EditorOperationTests`. Existing GC, compensation, overflow,
+Characterization is grouped into record, history, object-event, annotation and
+reinstancing sources under `Engine/Tests/Native/EngineTests/Private/Editor`,
+registered in `EditorOperationTests`. Ordinary construction/lifecycle regressions
+are in [ComponentInstanceLifecycleTests.cpp](../../Engine/Tests/Native/EngineTests/Private/World/ComponentInstanceLifecycleTests.cpp)
+under `WorldTests`; transfer/diff and exact-reference contracts belong to
+`CoreTransactionContractTests`. Existing GC, compensation, overflow,
 package, filtering, scope and ownership cases are retained; the three named new
 cases close disabled-scope, reverse custom ownership and Redo-preservation gaps.
 The exact-identity test remains valid for ordinary objects; it must be extended
 with explicit logical-reference cases rather than weakened globally in Stage 6.
 Generated-reference exclusions are construction guarantees, not a ban on Engine
-annotations. Existing whole-object tests prove reflected values only; they do
-not prove virtual Serialize, metadata, annotation, or event support.
+annotations. Current tests cover virtual Serialize, metadata, annotations and
+events; older focused-capture receipts remain historical evidence only.
 
 The Stage 1 non-editor contract-test target must link Core and CoreDObject only.
 The Stage 9 runtime gate selects the registered `Win64-Debug-DurinGame` preset
@@ -502,6 +536,10 @@ during recording, finalization, and Undo/Redo.
   transaction context; separate the two delivery contracts where necessary.
 - [ ] Add event-trace tests for nested edits, repeated snapshots, multiple targets,
   custom participants, annotations, and exceptions.
+- [ ] Add UE Actor annotation diffable-component additional-change reporting using
+  shared instance-source matching, including generated component recreation and
+  last-snapshot closure. Do not treat supplemental cache restoration alone as
+  evidence of component change events.
 
 Completion: traces match the selected UE 5.8 contracts or explicit Durin extensions;
 observers receive accurate modified objects and changed fields exactly as specified.

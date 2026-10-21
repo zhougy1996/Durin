@@ -1,5 +1,4 @@
 #include "Engine/ComponentInstanceDataCache.h"
-#include <typeinfo>
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
@@ -14,6 +13,16 @@ namespace Durin
 {
 	namespace
 	{
+		auto InstanceDataTypes() -> std::unordered_map<std::string, const FComponentInstanceDataType*>&
+		{
+			static std::unordered_map<std::string, const FComponentInstanceDataType*> Types;
+			return Types;
+		}
+		auto InstanceDataTypesMutex() -> std::mutex&
+		{
+			static std::mutex Mutex;
+			return Mutex;
+		}
 		auto SerializeReference(FArchive& Archive, FPersistentObjectRef& Reference) -> void
 		{
 			auto Key = Reference.GetKey(); Key.SerializeForSnapshot(Archive);
@@ -93,39 +102,6 @@ namespace Durin
 		if (Ar.IsLoading() && !Ar.IsError())
 			if (auto Valid = Validate(); !Valid) Ar.SetError(Valid.error());
 	}
-
-	FComponentInstanceLifecycleState::FComponentInstanceLifecycleState(const DActorComponent& Component)
-		: Target(&Component), Owner(Component.GetOwner()), State(Component.CaptureLifecycleState()) {}
-	auto FComponentInstanceLifecycleState::IsDefault() const -> bool { return State == FActorComponentLifecycleState{}; }
-	auto FComponentInstanceLifecycleState::DefaultFor(const DActorComponent& Component) -> FComponentInstanceLifecycleState
-	{
-		auto Data = FComponentInstanceLifecycleState(Component);
-		Data.State = {};
-		return Data;
-	}
-	auto FComponentInstanceLifecycleState::Validate() const -> FTransactionCaptureResult
-	{
-		if (auto Result = ValidateReferences(); !Result) return Result;
-		auto* Component = Target.Resolve();
-		if (!Component) return std::unexpected("Component lifecycle participant is unavailable.");
-		return Component->ValidateLifecycleState(State);
-	}
-	auto FComponentInstanceLifecycleState::ValidateReferences() const -> FTransactionCaptureResult
-	{
-		if (Target.IsNull() || Owner.IsStale()) return std::unexpected("Component lifecycle owner or target expired.");
-		return Target.Validate();
-	}
-	auto FComponentInstanceLifecycleState::Restore() const -> FCommandChangeResult
-	{
-		if (auto Valid = Validate(); !Valid) return std::unexpected(FCommandChangeError{Valid.error()});
-		if (auto Result = Target.Resolve()->ApplyLifecycleState(State); !Result)
-			return std::unexpected(FCommandChangeError{Result.error(), true});
-		return {};
-	}
-	auto FComponentInstanceLifecycleState::AddReferencedObjects(FReferenceCollector& Collector) const -> void
-	{ Target.AddReferencedObjects(Collector); Owner.AddReferencedObjects(Collector); }
-	auto FComponentInstanceLifecycleState::Serialize(FArchive& Ar) -> void
-	{ Target.Serialize(Ar); SerializeReference(Ar, Owner); DActorComponent::SerializeLifecycleState(Ar, State); }
 
 	FActorRootComponentReconstructionData::FActorRootComponentReconstructionData(const AActor& Actor, const FActorRootComponentReconstructionData* Previous)
 		: SourceActor(const_cast<AActor*>(&Actor))
@@ -243,6 +219,26 @@ namespace Durin
 		return Exact.Resolve() == &Component;
 	}
 
+	auto FActorComponentInstanceData::RegisterDataType(const FComponentInstanceDataType& Type) -> void
+	{
+		if (Type.Name.empty()) throw std::logic_error("Component instance data requires a stable type name.");
+		std::lock_guard Lock(InstanceDataTypesMutex());
+		const auto [Entry, Inserted] = InstanceDataTypes().emplace(Type.Name, &Type);
+		if (!Inserted && Entry->second != &Type) throw std::logic_error("Duplicate component instance data type name.");
+	}
+	auto FActorComponentInstanceData::GetDataType() const -> const FComponentInstanceDataType&
+	{ return RegisterType<FActorComponentInstanceData>("Durin.ActorComponentInstanceData"); }
+	auto FSceneComponentInstanceData::GetDataType() const -> const FComponentInstanceDataType&
+	{ return RegisterType<FSceneComponentInstanceData>("Durin.SceneComponentInstanceData"); }
+	auto FActorComponentInstanceData::FindDataType(std::string_view Name) -> const FComponentInstanceDataType*
+	{
+		RegisterType<FActorComponentInstanceData>("Durin.ActorComponentInstanceData");
+		RegisterType<FSceneComponentInstanceData>("Durin.SceneComponentInstanceData");
+		std::lock_guard Lock(InstanceDataTypesMutex());
+		const auto Entry = InstanceDataTypes().find(std::string(Name));
+		return Entry == InstanceDataTypes().end() ? nullptr : Entry->second;
+	}
+
 	FActorComponentInstanceData::FActorComponentInstanceData(const DActorComponent& Component) : Source(&Component) {}
 	auto FActorComponentInstanceData::MatchesComponent(const DActorComponent& Component, const FActorGeneratedComponentKey* Key) const -> bool
 	{ return Source.MatchesComponent(Component, Key); }
@@ -263,7 +259,7 @@ namespace Durin
 	auto FSceneComponentInstanceData::Serialize(FArchive& Archive) -> void
 	{ FActorComponentInstanceData::Serialize(Archive); SerializeTransform(Archive, Relative); }
 
-	FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor& Actor, bool bCaptureLifecycle)
+	FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor& Actor)
 		: SourceActor(const_cast<AActor*>(&Actor))
 	{
 		for (const auto& Component : Actor.GetComponentsSnapshot())
@@ -274,18 +270,15 @@ namespace Durin
 					if (!Data->MatchesComponent(*Component)) throw std::runtime_error("Component cache hook returned incompatible source data.");
 					ComponentsInstanceData.push_back(std::move(Data));
 				}
-				if (bCaptureLifecycle) ComponentLifecycle.emplace_back(*Component);
 			}
 	}
 	auto FComponentInstanceDataCache::HasInstanceData() const -> bool
 	{
-		return !ComponentsInstanceData.empty() || std::ranges::any_of(ComponentLifecycle,
-			[](const auto& State) { return !State.IsDefault(); });
+		return !ComponentsInstanceData.empty();
 	}
 	auto FComponentInstanceDataCache::Validate(const AActor* ExpectedActor) const -> FTransactionCaptureResult
 	{
 		if (SourceActor.IsStale() || (ExpectedActor && SourceActor.Resolve() != ExpectedActor)) return std::unexpected("Component instance cache owner is unavailable or incompatible.");
-		for (const auto& Component : ComponentLifecycle) if (auto Result = Component.ValidateReferences(); !Result) return Result;
 		for (const auto& Data : ComponentsInstanceData)
 		{
 			if (!Data) return std::unexpected("Null component instance cache entry.");
@@ -303,40 +296,16 @@ namespace Durin
 			auto Check = [&](const FActorComponentInstanceSourceInfo& Source) {
 				return !Source.MatchesGenerated(*Component.GetOwner(), *CandidateKey) || Source.MatchesComponent(Component, CandidateKey);
 			};
-			for (const auto& State : ComponentLifecycle)
-				if (!Check(State.GetSourceInfo())) return std::unexpected("Component lifecycle cache exact class mismatch.");
 			for (const auto& Data : ComponentsInstanceData)
 				if (Data && !Check(Data->GetSourceInfo())) return std::unexpected("Component instance cache exact class mismatch.");
 		}
 		return {};
 	}
 
-	auto FComponentInstanceDataCache::ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase,
-		const FActorGeneratedComponentKey* CandidateKey) const -> FCommandChangeResult
-	{
-		if (auto Valid = ValidateComponent(Component, CandidateKey); !Valid) return std::unexpected(FCommandChangeError{Valid.error()});
-		const FActorComponentInstanceData* Match = nullptr;
-		for (const auto& Data : ComponentsInstanceData)
-		{
-			if (Data && Data->MatchesComponent(Component, CandidateKey))
-			{
-				if (Match) return std::unexpected(FCommandChangeError{"Ambiguous component instance cache match."});
-				Match = Data.get();
-			}
-		}
-		if (Match) return Match->ApplyToComponent(Component, Phase);
-
-		return {};
-	}
 	auto FComponentInstanceDataCache::ApplyToActor(AActor& Actor, ECacheApplyPhase Phase) const -> FCommandChangeResult
 	{
 		if (SourceActor.Resolve() != &Actor) return std::unexpected(FCommandChangeError{"Component instance cache owner mismatch."});
 		if (auto Result = Validate(); !Result) return std::unexpected(FCommandChangeError{Result.error()});
-		if (Phase == ECacheApplyPhase::NonConstructionScript)
-		{
-			for (const auto& State : ComponentLifecycle) if (auto Result = State.Validate(); !Result) return std::unexpected(FCommandChangeError{Result.error()});
-			for (const auto& State : ComponentLifecycle) if (auto Result = State.Restore(); !Result) return Result;
-		}
 		std::unordered_set<const FActorComponentInstanceData*> Applied;
 		for (const auto& Component : Actor.GetComponentsSnapshot())
 			if (Component && IsValid(Component.Get()))
@@ -356,29 +325,33 @@ namespace Durin
 	auto FComponentInstanceDataCache::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
 		SourceActor.AddReferencedObjects(Collector);
-		for (const auto& State : ComponentLifecycle) State.AddReferencedObjects(Collector);
 		for (const auto& Data : ComponentsInstanceData) if (Data) Data->AddReferencedObjects(Collector);
 	}
 	auto FComponentInstanceDataCache::Serialize(FArchive& Archive) -> void
 	{
 		SerializeReference(Archive, SourceActor);
-		SerializeEntries(Archive, ComponentLifecycle, [&](auto& State) { State.Serialize(Archive); });
 		uint64 Count = ComponentsInstanceData.size(); Archive << Count;
 		if (Count > 1000000) { Archive.SetError("Component instance cache count exceeds the limit."); return; }
 		if (Archive.IsLoading() && !Archive.IsError()) ComponentsInstanceData.resize(static_cast<size_t>(Count));
 		for (auto& Data : ComponentsInstanceData)
 		{
 			if (Archive.IsError()) break;
-			uint8 Kind = dynamic_cast<FSceneComponentInstanceData*>(Data.get()) ? 1 : 0;
-			if (Archive.IsSaving() && (!Data || (Kind == 0 && typeid(*Data) != typeid(FActorComponentInstanceData))
-				|| (Kind == 1 && typeid(*Data) != typeid(FSceneComponentInstanceData))))
-			{ Archive.SetError("This domain's component instance data does not support explicit archive serialization."); return; }
-			Archive << Kind;
+			std::string TypeName;
+			if (Archive.IsSaving())
+			{
+				if (!Data || Data->GetDataType().Type != typeid(*Data))
+				{ Archive.SetError("Component instance data has no matching registered type."); return; }
+				TypeName = Data->GetDataType().Name;
+			}
+			Archive << TypeName;
+			if (Archive.IsError()) break;
 			if (Archive.IsLoading())
 			{
-				if (Kind > 1) { Archive.SetError("Unknown component instance cache data kind."); return; }
-				Data = Kind == 1 ? std::static_pointer_cast<FActorComponentInstanceData>(std::make_shared<FSceneComponentInstanceData>()) : std::make_shared<FActorComponentInstanceData>();
+				const auto* Type = FActorComponentInstanceData::FindDataType(TypeName);
+				if (!Type) { Archive.SetError("Unknown component instance data type."); return; }
+				Data = Type->Construct();
 			}
+
 			if (!Archive.IsError()) Data->Serialize(Archive);
 		}
 	}
@@ -387,9 +360,7 @@ namespace Durin
 		constexpr auto Limit = std::numeric_limits<size_t>::max();
 		size_t Total = sizeof(*this);
 		auto Add = [&](size_t Size) { if (Size > Limit - Total) return false; Total += Size; return true; };
-		if (ComponentLifecycle.capacity() > Limit / sizeof(FComponentInstanceLifecycleState)
-			|| ComponentsInstanceData.capacity() > Limit / sizeof(std::shared_ptr<FActorComponentInstanceData>)
-			|| !Add(ComponentLifecycle.capacity() * sizeof(FComponentInstanceLifecycleState))
+		if (ComponentsInstanceData.capacity() > Limit / sizeof(std::shared_ptr<FActorComponentInstanceData>)
 			|| !Add(ComponentsInstanceData.capacity() * sizeof(std::shared_ptr<FActorComponentInstanceData>))) return Limit;
 		for (const auto& Data : ComponentsInstanceData) if (Data && !Add(Data->GetAllocatedSize())) return Limit;
 		return Total;

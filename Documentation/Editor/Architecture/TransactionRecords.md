@@ -4,7 +4,7 @@ Summary: Define canonical whole-object transaction records, collector ownership,
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-21
 
 ## Scope
 
@@ -96,12 +96,16 @@ capture an ordinary object. Interactive drafts remain property-editor values;
 there is no separate focused history, field locator, promotion or record-update
 API. Selected `SnapshotObject` calls affect observation only.
 
-The record's private editor `FSerializedObject` composes runtime transfer data,
-annotations and `FDiffableObject` observations. It is distinct from CoreDObject's
-byte payload of the same name, following UE's editor/runtime ownership split.
-Snapshot storage contains only an observation and annotation, never a competing
-undo baseline. Immutable payload and compatibility allocations are shared between
-transfer and observation from one Serialize call; tags belong to observation.
+The record's private editor `FSerializedObject` owns an `FDiffableObject` and
+annotation. This is distinct from CoreDObject's byte payload of the same name,
+following UE's editor/runtime ownership split. Before, final, inverse and snapshot
+states use the same storage type: each retains one identity, immutable payload,
+compatibility context and set of tags from one Serialize call. Load/validate uses
+a temporary transfer view of that storage. Snapshot presence comes from its
+optional state; no separate presence flag or competing undo baseline is retained.
+CoreDObject accounts transfer allocations and observation tags at their owner;
+the record adds annotation allocations once. Collector traversal follows the same
+observation and annotation ownership.
 
 Selected Snapshot properties accumulate, and an unfiltered snapshot makes later
 snapshots unfiltered. Metadata and native changes remain observable independently

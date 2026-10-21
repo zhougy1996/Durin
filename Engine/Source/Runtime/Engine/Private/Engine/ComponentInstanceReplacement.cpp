@@ -56,35 +56,16 @@ namespace Durin
 		return {};
 	}
 
-	auto FComponentInstanceLifecycleState::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
-	{
-		auto Result = *this;
-		if (auto Valid = Result.Target.FindAndReplaceInstances(Map); !Valid) return Valid;
-		if (auto Valid = ReplaceReference(Result.Owner, Map); !Valid) return Valid;
-		if (auto Valid = Result.ValidateReferences(); !Valid) return Valid;
-		*this = std::move(Result);
-		return {};
-	}
-
 	auto FActorComponentInstanceData::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{ return Source.FindAndReplaceInstances(Map); }
 
 	auto FActorComponentInstanceData::CreateReplacement(const FObjectReplacementMap& Map) const
 		-> std::expected<std::shared_ptr<FActorComponentInstanceData>, std::string>
 	{
-		if (typeid(*this) != typeid(FActorComponentInstanceData))
-			return std::unexpected("Derived component instance data must preserve its dynamic type during reinstancing.");
-		auto Result = std::make_shared<FActorComponentInstanceData>(*this);
-		if (auto Valid = Result->FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
-		return Result;
-	}
-
-	auto FSceneComponentInstanceData::CreateReplacement(const FObjectReplacementMap& Map) const
-		-> std::expected<std::shared_ptr<FActorComponentInstanceData>, std::string>
-	{
-		if (typeid(*this) != typeid(FSceneComponentInstanceData))
-			return std::unexpected("Derived scene instance data must preserve its dynamic type during reinstancing.");
-		auto Result = std::make_shared<FSceneComponentInstanceData>(*this);
+		const auto& Type = GetDataType();
+		if (Type.Type != typeid(*this))
+			return std::unexpected("Component instance data has no matching registered copy operation.");
+		auto Result = Type.Copy(*this);
 		if (auto Valid = Result->FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
 		return Result;
 	}
@@ -108,8 +89,6 @@ namespace Durin
 	{
 		auto Result = *this;
 		if (auto Valid = ReplaceReference(Result.SourceActor, Map); !Valid) return Valid;
-		for (auto& State : Result.ComponentLifecycle)
-			if (auto Valid = State.FindAndReplaceInstances(Map); !Valid) return Valid;
 		for (auto& Entry : Result.ComponentsInstanceData)
 		{
 			if (!Entry) return std::unexpected("Null component instance data cannot be reinstanced.");

@@ -4,6 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "Engine/Level.h"
@@ -68,17 +69,17 @@ namespace Durin
 			~FCompletionScope() { Actor.EditConstructionSuspension.reset(); }
 		} Scope{*this};
 		FScopedSuspendRerunConstructionScripts CompletionSuspension(*this, false);
-		for (const auto& Component : AuthoredComponents)
-			if (!IsValid(Component.Get()) || Component->GetOwner() != this || Component->GetCreationMethod() == EComponentCreationMethod::Generated)
+		for (const auto& Component : InstanceComponents)
+			if (!IsValid(Component.Get()) || Component->GetOwner() != this || Component->GetCreationMethod() != EComponentCreationMethod::Instance)
 				throw std::runtime_error("Actor authored component membership cannot be restored.");
 		for (const auto& Component : GetComponentsSnapshot())
 		{
-			if (!Component || Component->GetCreationMethod() == EComponentCreationMethod::Generated
-				|| std::ranges::contains(AuthoredComponents, Component)) continue;
+			if (!Component || Component->GetCreationMethod() != EComponentCreationMethod::Instance
+				|| std::ranges::contains(InstanceComponents, Component)) continue;
 			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
 			Component->SetOwnedByActor(false);
 		}
-		RebuildOwnedComponentsFromAuthored();
+		ResetOwnedComponents();
 		if (!RerunConstructionScriptsImpl(Annotation ? &Annotation->GetComponentInstanceDataCache() : nullptr,
 			Annotation ? &Annotation->GetRootReconstructionData() : nullptr)) throw std::runtime_error(NativeConstructionError.empty()
 			? "Actor transaction reconstruction failed." : NativeConstructionError);
@@ -117,7 +118,6 @@ namespace Durin
 		GeneratedComponents.clear();
 		InstanceComponents.clear();
 		RootComponent = nullptr;
-		AuthoredComponents.clear();
 		OwnedComponents.clear();
 	}
 
@@ -126,13 +126,6 @@ namespace Durin
 		if (!Component || Component->GetOwner() != this || OwnsComponent(Component)) return;
 		OwnedComponents.emplace_back(Component);
 		Component->SetOwnedByActor(true);
-	}
-
-	auto AActor::AddAuthoredComponent(DActorComponent* Component) -> void
-	{
-		if (!Component || std::ranges::any_of(AuthoredComponents,
-			[Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; })) return;
-		AuthoredComponents.emplace_back(Component);
 	}
 
 	auto AActor::RemoveOwnedComponent(DActorComponent* Component) -> void
@@ -145,9 +138,6 @@ namespace Durin
 			}
 		);
 		if (It != OwnedComponents.end()) OwnedComponents.erase(It);
-		auto AuthoredIt = std::find_if(AuthoredComponents.begin(), AuthoredComponents.end(),
-			[Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
-		if (AuthoredIt != AuthoredComponents.end()) AuthoredComponents.erase(AuthoredIt);
 		RemoveInstanceComponent(Component);
 		auto GeneratedIt = std::find_if(GeneratedComponents.begin(), GeneratedComponents.end(),
 			[Component](const FGeneratedComponentRecord& Entry) { return Entry.Component.Get() == Component; });
@@ -201,7 +191,6 @@ namespace Durin
 		DActorComponent* Component = NewObject<DActorComponent>(ComponentClass, this, UniqueName);
 		if (!Component) return nullptr;
 		Component->SetCreationMethod(EComponentCreationMethod::Instance);
-		AddAuthoredComponent(Component);
 		AddOwnedComponent(Component);
 		InstanceComponents.emplace_back(Component);
 		Component->OnComponentCreated();
@@ -263,12 +252,11 @@ namespace Durin
 				if (Existing && Existing->GetFName() == Component->GetFName()) return false;
 			Component->SetCreationMethod(EComponentCreationMethod::Instance);
 			DActorComponent* Next = InstanceIndex < InstanceComponents.size() ? InstanceComponents[InstanceIndex].Get() : nullptr;
-			AddAuthoredComponent(Component);
 			AddOwnedComponent(Component);
 			InstanceComponents.emplace_back(Component);
 			if (Next)
 			{
-				for (auto* Components : {&AuthoredComponents, &OwnedComponents, &InstanceComponents})
+				for (auto* Components : {&OwnedComponents, &InstanceComponents})
 				{
 					auto It = std::ranges::find_if(*Components, [Next](const auto& Entry) { return Entry.Get() == Next; });
 					std::rotate(It, std::prev(Components->end()), Components->end());
@@ -564,7 +552,7 @@ namespace Durin
 		std::string Error;
 		Super::PostLoad();
 		if (ActorLabel.empty()) ActorLabel = GetName();
-		RebuildOwnedComponentsFromAuthored();
+		ResetOwnedComponents();
 		if (RerunConstructionScripts()) return;
 		Error = NativeConstructionError.empty()
 			? "Actor native reconstruction failed after load or duplication."
@@ -593,22 +581,34 @@ namespace Durin
 	{
 	}
 
-	auto AActor::RebuildOwnedComponentsFromAuthored() -> void
+	auto AActor::ResetOwnedComponents() -> void
 	{
-		OwnedComponents.clear();
-		for (const TObjectPtr<DActorComponent>& Component : AuthoredComponents)
+		// Outer is the ownership source; InstanceComponents alone records authored
+		// instance membership. Preserve existing iteration order where possible.
+		auto IsOwned = [&](const DActorComponent* Component) {
+			return IsValid(Component) && !Component->IsBeingDestroyed() && Component->GetOwner() == this
+				&& (Component->GetCreationMethod() != EComponentCreationMethod::Instance || IsInstanceComponent(Component));
+		};
+		const auto Previous = std::exchange(OwnedComponents, {});
+		for (const auto& Component : Previous)
 		{
-			if (!Component || Component->GetOwner() != this) continue;
-			AddOwnedComponent(Component.Get());
+			if (Component) Component->SetOwnedByActor(false);
+			if (IsOwned(Component.Get())) AddOwnedComponent(Component.Get());
 		}
-		// A duplicated authored component may complete PostLoad before its Actor and
-		// synchronously request native reconstruction. Preserve those already-keyed
-		// derived components so the Actor's final reconstruction can reuse them.
-		for (const FGeneratedComponentRecord& Entry : GeneratedComponents)
-		{
-			if (!Entry.Component || Entry.Component->GetOwner() != this) continue;
-			AddOwnedComponent(Entry.Component.Get());
-		}
+		for (auto* Object : GDObjectArray.GetObjectsWithOuter(this, EObjectQueryScope::LiveOnly))
+			if (auto* Component = Cast<DActorComponent>(Object); IsOwned(Component)) AddOwnedComponent(Component);
+		for (const auto& Component : InstanceComponents)
+			if (IsOwned(Component.Get())) AddOwnedComponent(Component.Get());
+		// Graph allocation order is not serialized membership order. Keep native
+		// and generated slots stable while restoring the authored instance order.
+		auto Instance = InstanceComponents.begin();
+		for (auto& Component : OwnedComponents)
+			if (Component->GetCreationMethod() == EComponentCreationMethod::Instance)
+			{
+				check(Instance != InstanceComponents.end());
+				Component = *Instance++;
+			}
+		check(Instance == InstanceComponents.end());
 		ValidateComponentOwnership();
 	}
 
@@ -621,23 +621,16 @@ namespace Durin
 			check(Component && Component->GetOwner() == this && Component->IsOwnedByActor());
 			check(Seen.insert(Component.Get()).second);
 		}
-		for (const TObjectPtr<DActorComponent>& Component : AuthoredComponents)
-		{
-			check(Component && Seen.contains(Component.Get()));
-			check(Component->GetCreationMethod() != EComponentCreationMethod::Generated);
-		}
 		for (const TObjectPtr<DActorComponent>& Component : InstanceComponents)
 		{
-			check(Component && std::ranges::any_of(AuthoredComponents,
-				[&](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component.Get(); }));
+			check(Component && Seen.contains(Component.Get()));
 			check(Component->GetCreationMethod() == EComponentCreationMethod::Instance);
 		}
 		for (const FGeneratedComponentRecord& Entry : GeneratedComponents)
 		{
 			check(Entry.Component && Seen.contains(Entry.Component.Get()));
 			check(Entry.Component->GetCreationMethod() == EComponentCreationMethod::Generated);
-			check(std::ranges::none_of(AuthoredComponents,
-				[&](const TObjectPtr<DActorComponent>& Component) { return Component.Get() == Entry.Component.Get(); }));
+
 		}
 #endif
 	}

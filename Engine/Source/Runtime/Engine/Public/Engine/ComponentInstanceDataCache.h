@@ -3,10 +3,12 @@
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
 #include "DObject/TransactionObjectReference.h"
+#include "DObject/StructOps.h"
 #include "Engine/ActorConstruction.h"
 #include "Components/ActorComponent.h"
 #include "Math/Transform.h"
 #include "Misc/Transaction.h"
+#include <typeinfo>
 
 namespace Durin
 {
@@ -33,29 +35,6 @@ namespace Durin
 		FActorGeneratedComponentKey Key;
 	};
 
-	// Contains native component lifecycle state, never another copy of authored fields.
-	class FComponentInstanceLifecycleState
-	{
-	public:
-		FComponentInstanceLifecycleState() = default;
-		ENGINE_API explicit FComponentInstanceLifecycleState(const DActorComponent& Component);
-		ENGINE_API static auto DefaultFor(const DActorComponent& Component) -> FComponentInstanceLifecycleState;
-		ENGINE_API auto IsDefault() const -> bool;
-		ENGINE_API auto Validate() const -> FTransactionCaptureResult;
-		ENGINE_API auto ValidateReferences() const -> FTransactionCaptureResult;
-		ENGINE_API auto Restore() const -> FCommandChangeResult;
-		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
-		ENGINE_API auto Serialize(FArchive& Archive) -> void;
-		ENGINE_API auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
-		auto GetAllocatedSize() const -> size_t { return sizeof(*this); }
-		auto GetComponent() const -> DActorComponent* { return Target.Resolve(); }
-		auto GetSourceInfo() const -> const FActorComponentInstanceSourceInfo& { return Target; }
-	private:
-		FActorComponentInstanceSourceInfo Target;
-		FPersistentObjectRef Owner;
-		FActorComponentLifecycleState State;
-	};
-
 
 	enum class ECacheApplyPhase : uint8
 	{
@@ -72,6 +51,17 @@ namespace Durin
 		virtual auto GetAllocatedSize() const -> size_t = 0;
 	};
 
+	struct FActorComponentInstanceData;
+
+	// Native type operations corresponding to UE's reflected struct storage.
+	struct FComponentInstanceDataType
+	{
+		std::string Name;
+		const std::type_info& Type;
+		std::shared_ptr<FActorComponentInstanceData> (*Construct)();
+		std::shared_ptr<FActorComponentInstanceData> (*Copy)(const FActorComponentInstanceData&);
+	};
+
 	// Component-owned supplemental instance state. Authored reflected fields remain
 	// with object serialization; domain overrides belong to derived cache entries.
 	struct FActorComponentInstanceData : FInstanceCacheDataBase
@@ -84,12 +74,38 @@ namespace Durin
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void override;
 		ENGINE_API virtual auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
-		// Native counterpart of copying UE's typed instance-data storage. Derived
-		// entries must preserve their dynamic type and all supplemental data.
-		ENGINE_API virtual auto CreateReplacement(const FObjectReplacementMap& Map) const
+		ENGINE_API virtual auto GetDataType() const -> const FComponentInstanceDataType&;
+		template<typename T>
+		static auto RegisterType(std::string_view Name) -> const FComponentInstanceDataType&;
+		ENGINE_API static auto FindDataType(std::string_view Name) -> const FComponentInstanceDataType*;
+		ENGINE_API auto CreateReplacement(const FObjectReplacementMap& Map) const
 			-> std::expected<std::shared_ptr<FActorComponentInstanceData>, std::string>;
 		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
 		auto GetSourceInfo() const -> const FActorComponentInstanceSourceInfo& { return Source; }
+	private:
+		ENGINE_API static auto RegisterDataType(const FComponentInstanceDataType& Type) -> void;
+		template<typename T>
+		static auto AllocateInstanceData(const T* Source = nullptr) -> std::shared_ptr<FActorComponentInstanceData>
+		{
+			static_assert(std::is_base_of_v<FActorComponentInstanceData, T>
+				&& std::is_default_constructible_v<T> && std::is_copy_constructible_v<T>);
+			struct FStorage
+			{
+				alignas(T) std::byte Memory[sizeof(T)];
+				explicit FStorage(const T* Value)
+				{
+					const auto& Ops = GetDStructOps<T>();
+					if (!Ops.DefaultConstruct || !Ops.CopyConstruct || !Ops.Destroy)
+						throw std::logic_error("Instance data requires native construction, copy and destruction operations.");
+					if (Value) Ops.CopyConstruct(Memory, Value);
+					else Ops.DefaultConstruct(Memory);
+				}
+				~FStorage() { GetDStructOps<T>().Destroy(Memory); }
+			};
+			auto Storage = std::make_shared<FStorage>(Source);
+			auto* Value = std::launder(reinterpret_cast<T*>(Storage->Memory));
+			return std::shared_ptr<FActorComponentInstanceData>(std::move(Storage), static_cast<FActorComponentInstanceData*>(Value));
+		}
 	protected:
 		FActorComponentInstanceSourceInfo Source;
 	};
@@ -101,12 +117,24 @@ namespace Durin
 		auto ContainsData() const -> bool override { return true; }
 		ENGINE_API auto ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase) const -> FCommandChangeResult override;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void override;
-		ENGINE_API auto CreateReplacement(const FObjectReplacementMap& Map) const
-			-> std::expected<std::shared_ptr<FActorComponentInstanceData>, std::string> override;
+		ENGINE_API auto GetDataType() const -> const FComponentInstanceDataType& override;
 		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
 	private:
 		FTransform Relative;
 	};
+
+	template<typename T>
+	auto FActorComponentInstanceData::RegisterType(std::string_view Name) -> const FComponentInstanceDataType&
+	{
+		static const FComponentInstanceDataType Type{std::string(Name), typeid(T),
+			[]() -> std::shared_ptr<FActorComponentInstanceData> { return AllocateInstanceData<T>(); },
+			[](const FActorComponentInstanceData& Source) -> std::shared_ptr<FActorComponentInstanceData> {
+				return AllocateInstanceData<T>(&static_cast<const T&>(Source));
+			}};
+		if (Type.Name != Name) throw std::logic_error("Component instance data type has conflicting names.");
+		RegisterDataType(Type);
+		return Type;
+	}
 
 	// Shared reconstruction data, including the attachment participants retained
 	// across an absent generated root. No transaction operation or history owner.
@@ -139,13 +167,11 @@ namespace Durin
 	{
 	public:
 		FComponentInstanceDataCache() = default;
-		ENGINE_API explicit FComponentInstanceDataCache(const AActor& Actor, bool bCaptureLifecycle = false);
+		ENGINE_API explicit FComponentInstanceDataCache(const AActor& Actor);
 		ENGINE_API auto HasInstanceData() const -> bool;
 		ENGINE_API auto Validate(const AActor* ExpectedActor = nullptr) const -> FTransactionCaptureResult;
 		ENGINE_API auto ValidateComponent(const DActorComponent& Component,
 			const FActorGeneratedComponentKey* CandidateKey = nullptr) const -> FTransactionCaptureResult;
-		ENGINE_API auto ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase,
-			const FActorGeneratedComponentKey* CandidateKey = nullptr) const -> FCommandChangeResult;
 		ENGINE_API auto ApplyToActor(AActor& Actor, ECacheApplyPhase Phase) const -> FCommandChangeResult;
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void;
@@ -154,6 +180,5 @@ namespace Durin
 	private:
 		FPersistentObjectRef SourceActor;
 		std::vector<std::shared_ptr<FActorComponentInstanceData>> ComponentsInstanceData;
-		std::vector<FComponentInstanceLifecycleState> ComponentLifecycle;
 	};
 }

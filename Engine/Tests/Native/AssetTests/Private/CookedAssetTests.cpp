@@ -233,6 +233,7 @@ TEST(FCookedPathTests, RejectionsOwnContextAndClearOutput)
 
 TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackageMutation)
 {
+	Testing::InitializeDObjectSystemForTests();
 	const std::filesystem::path Root = std::filesystem::absolute(
 		Durin::Testing::GetTestWorkDirectory() / "CookedMode"
 	);
