@@ -48,6 +48,7 @@ namespace Durin
 	class FTaskGenerationState;
 	namespace Tasks
 	{
+		class FPipe;
 		namespace Private { class FTaskHandle; }
 		// Public generic completion handle for any task or event.
 		using FTask = Private::FTaskHandle;
@@ -494,6 +495,8 @@ namespace Durin
 	// Immutable launch-time relationships and optional shared cancellation.
 	struct FTaskLaunchOptions
 	{
+		// Internal ready-time serialization; owned by the caller until completion.
+		Tasks::FPipe* Pipe = nullptr;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
 		// Order execution after every nonempty prerequisite completes, regardless of outcome.
