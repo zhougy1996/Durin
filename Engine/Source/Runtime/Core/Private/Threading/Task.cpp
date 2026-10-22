@@ -470,7 +470,11 @@ namespace Durin
 	public:
 		enum class ERelease : uint8 { ExecutionStarted, RetractionAttempt, Closed };
 		auto Reserve(size_t Count) -> void { Edges.reserve(Count); }
-		auto ReserveAdditional() -> void { Edges.reserve(Edges.size() + 1); }
+		auto ReserveAdditional() -> void
+		{
+			if (Edges.size() == Edges.capacity())
+				Edges.reserve(Edges.size() + std::max(size_t{1}, Edges.size() / 2));
+		}
 		auto Add(const std::shared_ptr<FTaskStateData>& Node, uint64 TaskId, ETaskDependencyKind Kind) -> void
 		{
 			if (Kind == ETaskDependencyKind::Execution) check(Edges.size() == ExecutionCount);
@@ -729,7 +733,11 @@ namespace Durin
 		}
 
 		auto ReserveSubsequentLocked() -> void
-		{ Subsequents.reserve(Subsequents.size() + ReservedDependents + 1); }
+		{
+			const size_t Required = Subsequents.size() + ReservedDependents + 1;
+			if (Required > Subsequents.capacity())
+				Subsequents.reserve(std::max(Required, Subsequents.capacity() + Subsequents.capacity() / 2));
+		}
 		auto RegisterDependentLocked(const std::shared_ptr<FTaskStateData>& Dependent, ETaskDependencyKind Kind) -> ETaskState
 		{
 			if (Phase == EPhase::Closed) return Outcome.State;
@@ -2354,6 +2362,27 @@ namespace Durin
 
 	auto Private::MakeVoidTaskResultState() -> std::shared_ptr<TTaskResultState<std::monostate>>
 	{ return std::make_shared<TTaskResultState<std::monostate>>(); }
+
+	auto Private::ReleaseForwardedTask(Tasks::FTask Task) noexcept -> void
+	{
+		if (!Task.IsValid()) return;
+		thread_local bool bDraining = false;
+		thread_local std::vector<Tasks::FTask> Pending;
+		if (bDraining)
+		{
+			Pending.push_back(std::move(Task));
+			return;
+		}
+		bDraining = true;
+		Task = {};
+		while (!Pending.empty())
+		{
+			auto Next = std::move(Pending.back());
+			Pending.pop_back();
+			Next = {};
+		}
+		bDraining = false;
+	}
 
 	Tasks::Private::FTaskHandle::FTaskHandle() = default;
 

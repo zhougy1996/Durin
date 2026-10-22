@@ -422,6 +422,7 @@ namespace Durin
 		EXPECT_EQ(Tasks::Wait(Tasks::TTask<void>{}, 0).WaitStatus, ETaskWaitStatus::Completed);
 
 		std::atomic<uint32> LateRuns = 0;
+		FThreadEvent ParentBodyFinished;
 		auto Parent = Tasks::LaunchTask("TimedCollectionParent", [&] {
 			FThreadEvent NeverSignaled;
 			std::vector<Tasks::TTask<void>> Inputs;
@@ -431,8 +432,14 @@ namespace Durin
 			EXPECT_EQ(Outcomes[0].WaitStatus, ETaskWaitStatus::Completed);
 			EXPECT_EQ(Outcomes[1].WaitStatus, ETaskWaitStatus::TimedOut);
 			EXPECT_EQ(LateRuns.load(), 0u);
+			// Even a failed timing assertion must retire captures before returning.
+			Inputs[0].Wait();
 			Tasks::AddNested(Inputs[1]);
+			ParentBodyFinished.Trigger();
 		});
+		// Keep the caller from retracting the parent or racing its child on the
+		// single worker: this case specifically tests inline timeout overrun.
+		EXPECT_TRUE(ParentBodyFinished.WaitFor(5));
 		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(LateRuns.load(), 1u);
 	}
@@ -1964,6 +1971,8 @@ namespace Durin
 			Tasks::Cancel(Running); Release.Trigger();
 			EXPECT_EQ(ETaskState::Succeeded, Running.Wait().TaskState);
 		}
+		// Completion publishes the result before the worker releases its node pin.
+		ShutdownTaskScheduler(true);
 		EXPECT_EQ(3, Destroyed.load());
 	}
 

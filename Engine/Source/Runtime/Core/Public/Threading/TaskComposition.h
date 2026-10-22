@@ -248,7 +248,7 @@ namespace Durin::Tasks
 			Body&& Function, Completion&& OnComplete, const FTaskLaunchOptions& Options)
 		{
 			constexpr uint64 StorageBytes = sizeof(std::decay_t<Body>) + sizeof(std::decay_t<Completion>)
-				+ sizeof(TTaskResultState<Value>) + sizeof(Value);
+				+ sizeof(TTaskResultState<Value>) + (std::same_as<Value, std::monostate> ? 0 : sizeof(Value));
 			return Durin::Private::TryLaunchCancelableTaskWithCompletion(Name, std::forward<Body>(Function),
 				std::forward<Completion>(OnComplete), Options, StorageBytes, {Result, !std::same_as<Value, std::monostate>});
 		}
@@ -258,7 +258,7 @@ namespace Durin::Tasks
 			Completion&& OnComplete, const FTaskContinuationOptions& Options)
 		{
 			constexpr uint64 StorageBytes = sizeof(std::decay_t<Body>) + sizeof(std::decay_t<Completion>)
-				+ sizeof(TTaskResultState<Value>) + sizeof(Value);
+				+ sizeof(TTaskResultState<Value>) + (std::same_as<Value, std::monostate> ? 0 : sizeof(Value));
 			return Durin::Private::TryLaunchContinuationTask(Predecessor, Name, std::forward<Body>(Function),
 				std::forward<Completion>(OnComplete), Options, StorageBytes, {Result, !std::same_as<Value, std::monostate>});
 		}

@@ -127,6 +127,8 @@ namespace Durin
 	{
 		// Void payload destruction must remain valid after a submitting module unloads.
 		CORE_API auto MakeVoidTaskResultState() -> std::shared_ptr<TTaskResultState<std::monostate>>;
+		// Retire forwarding ownership iteratively, including reentrant node destruction.
+		CORE_API auto ReleaseForwardedTask(Tasks::FTask Task) noexcept -> void;
 		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void(const FTaskCancellationToken&)>;
 
 		using FTaskCompletionFunction = TMoveOnlyFunction<void(ETaskState)>;
@@ -572,6 +574,7 @@ namespace Durin
 	template<typename T>
 	class TTaskResultState : public std::enable_shared_from_this<TTaskResultState<T>>
 	{
+		using FValueStorage = std::conditional_t<std::is_same_v<T, std::monostate>, std::optional<T>, std::unique_ptr<T>>;
 	public:
 		~TTaskResultState()
 		{
@@ -580,8 +583,12 @@ namespace Durin
 
 		auto SetPending(T&& InValue) -> void
 		{
-			std::unique_ptr<T> PendingValue;
-			try { PendingValue = std::make_unique<T>(std::move(InValue)); }
+			FValueStorage PendingValue;
+			try
+			{
+				if constexpr (std::is_same_v<T, std::monostate>) PendingValue.emplace();
+				else PendingValue = std::make_unique<T>(std::move(InValue));
+			}
 			catch (const std::bad_alloc&) { requiref(false, "Task result allocation failed."); std::terminate(); }
 			std::lock_guard Lock(Mutex);
 			check(!Value && !bCompleted);
@@ -590,7 +597,7 @@ namespace Durin
 
 		auto Complete(ETaskState State) -> void
 		{
-			std::unique_ptr<T> DetachedValue;
+			FValueStorage DetachedValue;
 			{
 				std::lock_guard Lock(Mutex);
 				bCompleted = true;
@@ -610,38 +617,42 @@ namespace Durin
 		{
 			std::lock_guard Lock(Mutex);
 			if (!bPublished) return nullptr;
-			return Forwarded ? Forwarded->PeekPublished() : Value.get();
+			return Forwarded ? Forwarded : Value ? &*Value : nullptr;
 		}
 
 		auto ForwardResult(std::shared_ptr<TTaskResultState> Other, Tasks::FTask Lifetime) -> void
 		{
+			// The source has published before its terminal hooks run. Cache the final
+			// address, but retain the immediate node to preserve all owner lifetimes.
+			T* Published = Other->PeekPublished();
+			require(Published && Lifetime.IsValid());
 			std::lock_guard Lock(Mutex);
 			require(!bCompleted && !Value && !Forwarded);
-			Forwarded = std::move(Other);
+			Forwarded = Published;
 			ForwardedTask = std::move(Lifetime);
 		}
 
 		auto Discard() -> void
 		{
-			std::unique_ptr<T> DetachedValue;
-			std::shared_ptr<TTaskResultState> DetachedForward;
+			FValueStorage DetachedValue;
 			Tasks::FTask DetachedTask;
 			{
 				std::lock_guard Lock(Mutex);
 				bPublished = false;
 				DetachedValue = std::move(Value);
-				DetachedForward = std::move(Forwarded);
+				Forwarded = nullptr;
 				DetachedTask = std::move(ForwardedTask);
 			}
+			Private::ReleaseForwardedTask(std::move(DetachedTask));
 		}
 
 	private:
 
 		mutable std::mutex Mutex;
-		std::unique_ptr<T> Value;
+		mutable FValueStorage Value;
 		bool bCompleted = false;
 		bool bPublished = false;
-		std::shared_ptr<TTaskResultState> Forwarded;
+		T* Forwarded = nullptr;
 		Tasks::FTask ForwardedTask;
 	};
 
