@@ -79,8 +79,9 @@ namespace Durin
 				{
 					std::unique_lock Lock(State.Mutex);
 					const auto CanConsume = [this]() {
-						return (!State.Queue.empty() && (!State.Queue.front().Work.IsReady || State.Queue.front().Work.IsReady()))
-							|| State.AdmissionState != ERHIThreadAdmissionState::Running;
+						return State.Queue.empty()
+							? State.AdmissionState != ERHIThreadAdmissionState::Running
+							: (!State.Queue.front().Work.IsReady || State.Queue.front().Work.IsReady());
 					};
 					while (!CanConsume())
 					{
@@ -106,7 +107,7 @@ namespace Durin
 				{
 					DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.Execute");
 					DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} batches={} payloadBytes={}", Entry.Serial, Entry.Work.BatchCount, Entry.Work.PayloadBytes));
-					if (!Entry.Work.IsReady || Entry.Work.IsReady()) Entry.Work.Execute();
+					Entry.Work.Execute();
 				}
 
 				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
@@ -313,8 +314,7 @@ namespace Durin
 		}
 
 		std::unique_lock Lock(State->Mutex);
-		if (Work.FrameCount > State->Limits.MaxFrames
-			|| Work.BatchCount > State->Limits.MaxBatches)
+		if (Work.FrameCount > State->Limits.MaxFrames)
 		{
 			++State->RejectedWorkCount;
 			return {.Result = ERHIThreadEnqueueResult::Oversized};
@@ -338,10 +338,10 @@ namespace Durin
 		auto HasCapacity = [this, &Work]() {
 			return Work.FrameCount <= State->Limits.MaxFrames - State->OutstandingFrameCount
 				&& State->OutstandingEntryCount < State->Limits.MaxEntries
-				&& State->OutstandingBatchCount + Work.BatchCount
-					<= State->Limits.MaxBatches
 				&& (State->OutstandingEntryCount == 0
-					|| (State->OutstandingPayloadBytes <= State->Limits.MaxPayloadBytes
+					|| (State->OutstandingBatchCount <= State->Limits.MaxBatches
+						&& Work.BatchCount <= State->Limits.MaxBatches - State->OutstandingBatchCount
+						&& State->OutstandingPayloadBytes <= State->Limits.MaxPayloadBytes
 						&& Work.PayloadBytes <= State->Limits.MaxPayloadBytes - State->OutstandingPayloadBytes));
 		};
 		if (!HasCapacity())

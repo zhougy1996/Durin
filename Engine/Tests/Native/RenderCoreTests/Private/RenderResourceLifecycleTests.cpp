@@ -389,6 +389,33 @@ namespace Durin
 		}
 	}
 
+	TEST_F(FRenderResourceLifecycleTests, PendingCommandsCountActiveBatchOnce)
+	{
+		FThreadEvent Started, Release;
+		ENQUEUE_RENDER_COMMAND(BlockPendingCount)([&](FRHICommandListImmediate&) {
+			Started.Trigger();
+			Release.Wait();
+		});
+		const bool bStarted = Started.WaitFor(1.0);
+		EXPECT_TRUE(bStarted);
+		if (bStarted)
+		{
+			EXPECT_EQ(GetNumPendingRenderCommands(), 1u);
+			for (uint32 Index = 0; Index < 32; ++Index)
+			{
+				ENQUEUE_RENDER_COMMAND(CountQueuedCommand)([](FRHICommandListImmediate&) {});
+			}
+			EXPECT_EQ(GetNumPendingRenderCommands(), 33u);
+		}
+		Release.Trigger();
+		// Exercise snapshots while the consumer clears and switches batches.
+		for (uint32 Index = 0; Index < 1000; ++Index)
+			EXPECT_LE(GetNumPendingRenderCommands(), 33u);
+		ShutdownRenderingThread();
+		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
+		InitRenderingThread();
+	}
+
 	TEST_F(FRenderResourceLifecycleTests,
 		ReplacingPendingFenceKeepsEachQueuedEventAlive)
 	{
