@@ -21,6 +21,83 @@ namespace Durin
 		auto TearDown() -> void override { ShutdownTaskScheduler(false); }
 	};
 
+	TEST_F(FTaskCloseTests, DeepAsyncResultsPreserveAliasesAndRetireOwnerLifetimes)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		constexpr uint32 Depth = 8192;
+		std::atomic<uint32> Retired = 0;
+		struct FOwner
+		{
+			std::atomic<uint32>& Count;
+			~FOwner() { ++Count; }
+		};
+		auto Seed = Tasks::LaunchTask("ForwardSeed", [] {});
+		Seed.Wait();
+		auto Root = Tasks::LaunchTask("ForwardValue", [] { return std::make_unique<int>(42); });
+		Root.Wait();
+		auto* Address = &Root.GetResult();
+		auto Current = Root;
+		std::thread Producer([&] {
+			for (uint32 Index = 0; Index < Depth; ++Index)
+			{
+				auto Next = Tasks::ThenAsync(Seed, Tasks::ETaskExecutor::Worker, {}, [Current] { return Current; });
+				ASSERT_EQ(Next.Wait().TaskState, ETaskState::Succeeded);
+				Next = Next.WithLifetime(std::shared_ptr<FOwner>(new FOwner{Retired}));
+				Current = std::move(Next);
+			}
+		});
+		Producer.join();
+		ShutdownTaskScheduler(false);
+		EXPECT_EQ(&Current.GetResult(), Address);
+		*Current.GetResult() = 73;
+		EXPECT_EQ(*Root.GetResult(), 73);
+		EXPECT_EQ(Retired.load(), 0u);
+		Root = {};
+		auto View = Current.GetResultShared();
+		Current = {};
+		EXPECT_EQ(**View, 73);
+		EXPECT_EQ(Retired.load(), 0u);
+		View.reset();
+		EXPECT_EQ(Retired.load(), Depth);
+	}
+
+	TEST_F(FTaskCloseTests, VoidStoragePublishesAndDiscardsInlineValue)
+	{
+		for (auto Outcome : {ETaskState::Succeeded, ETaskState::Failed, ETaskState::Canceled})
+		{
+			auto Storage = Private::MakeVoidTaskResultState();
+			EXPECT_EQ(Storage->PeekPublished(), nullptr);
+			Storage->SetPending(std::monostate{});
+			EXPECT_EQ(Storage->PeekPublished(), nullptr);
+			Storage->Complete(Outcome);
+			EXPECT_EQ(Storage->PeekPublished() != nullptr, Outcome == ETaskState::Succeeded);
+			Storage->Discard();
+			EXPECT_EQ(Storage->PeekPublished(), nullptr);
+		}
+	}
+
+	TEST_F(FTaskCloseTests, WideDependenciesKeepAllRegistrations)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		constexpr uint32 Count = 4096;
+		Tasks::FTaskEvent Gate("WideGate", false);
+		FThreadEvent Registered;
+		std::atomic<uint32> Runs = 0;
+		std::vector<Tasks::FTask> Children;
+		for (uint32 Index = 0; Index < Count; ++Index)
+			Children.push_back(Tasks::LaunchTask("WideChild", [&] { ++Runs; }, Gate));
+		auto Parent = Tasks::LaunchTask("WideParent", [&] {
+			for (const auto& Child : Children) Tasks::AddNested(Child);
+			Registered.Trigger();
+		});
+		EXPECT_FALSE(Parent.TryRetractAndExecute());
+		const bool bRegistered = Registered.WaitFor(5);
+		Gate.Trigger();
+		EXPECT_TRUE(bRegistered);
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Runs.load(), Count);
+	}
+
 	TEST_F(FTaskCloseTests, CancellationRequestsPreserveDependenciesBodiesAndResults)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(1));
