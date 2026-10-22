@@ -1,4 +1,7 @@
 #include "StaticMeshTestAccess.h"
+#include "PSOPrecache.h"
+#include "PSOPrecacheComponent.h"
+#include "Renderers/MeshVertexFactory.h"
 #include "Materials/MaterialShaderMap.h"
 
 #include "GeometrySubmissionTestSupport.h"
@@ -21,6 +24,10 @@
 #include "Asset/Load.h"
 #include "Asset/AssetCook.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SplineMeshComponent.h"
+#include "Engine/Actor.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"
@@ -3042,6 +3049,18 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 							ASSERT_EQ(B.Opaque.size(), 1u);
 							EXPECT_EQ(A.Opaque[0].Command->PipelineKey.Rasterizer.FrontFace, B.Opaque[0].Command->PipelineKey.Rasterizer.FrontFace);
 							EXPECT_EQ(A.Opaque[0].Command->PipelineKey.Rasterizer.CullMode, B.Opaque[0].Command->PipelineKey.Rasterizer.CullMode);
+							for (const auto* Prepared : {&A, &B})
+							{
+								const auto* Primitive = Prepared->GetPrimitive(Prepared->Opaque[0]);
+								ASSERT_NE(Primitive, nullptr);
+								const auto& Binding = Primitive->CollectedBinding;
+								ASSERT_TRUE(Binding && Binding->Declaration);
+								const auto Factory = RendererPrivate::FindMeshVertexFactory(Binding->GetFactoryKey());
+								ASSERT_TRUE(Factory);
+								const FPSOPrecacheVertexFactoryData Precache(&Factory->GetType());
+								EXPECT_TRUE(Precache.MatchesVertexElements(Binding->DeclarationElements));
+								EXPECT_TRUE(Precache.MatchesVertexElements(Binding->Declaration->GetElements()));
+							}
 						}
 					});
 					FlushRenderingCommands();
@@ -3128,6 +3147,198 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 	Lifecycle.Shutdown();
 	ShutdownRenderingThread();
 	RHIExit();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWorkAndRetiresChangedOwnersAndComponents)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("MaterialPSOPrecacheIntegration");
+	Lifecycle.Start(Renderer);
+	std::vector<FMaterialPSOPrecacheRequestID> SurvivingRequests;
+	{
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+		Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "PSOScalar"};
+		Parameter->DefaultValue = 0.5f;
+		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::Lit;
+		ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Parameter->Id};
+		const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
+		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+		ASSERT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
+		TStrongObjectPtr<DMaterialInstance> Instance(DMaterialInstance::CreateDynamic(Material.Get()));
+		ASSERT_NE(Instance.Get(), nullptr);
+		const auto Local = RendererPrivate::FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
+		const auto Spline = RendererPrivate::FindMeshVertexFactory(FSplineMeshBatchBinding{}.GetFactoryKey());
+		ASSERT_TRUE(Local && Spline);
+		const std::array Factories{FPSOPrecacheVertexFactoryData(&Local->GetType()), FPSOPrecacheVertexFactoryData(&Spline->GetType())};
+		FPSOPrecacheParams Options;
+		Options.Passes = Options.RequiredPasses = EMaterialPSOPrecachePass::Forward | EMaterialPSOPrecachePass::ShadowDepth | EMaterialPSOPrecachePass::GBuffer;
+		std::vector<FMaterialPSOPrecacheRequestID> Root, Dynamic, Duplicate;
+		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, Root));
+		ASSERT_TRUE(Instance->PrecachePSOs(Renderer, Factories, Options, Dynamic));
+		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, Duplicate));
+		ASSERT_EQ(Root.size(), 2u); ASSERT_EQ(Dynamic.size(), 2u);
+		EXPECT_EQ(Root[0].GetValue(), Dynamic[0].GetValue()); EXPECT_EQ(Root[0].GetValue(), Duplicate[0].GetValue());
+		Duplicate[0].Cancel();
+		ASSERT_TRUE(Instance->SetScalarParameterValue("PSOScalar", 0.2f));
+		EXPECT_EQ(Dynamic[0].GetProgress().State, EMaterialPSOPrecacheState::Pending);
+		auto PumpUntilFinished = [&](const auto& Requests) {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+			while (std::ranges::any_of(Requests, [](const auto& Id) { return Id.GetProgress().State == EMaterialPSOPrecacheState::Pending; })
+				&& std::chrono::steady_clock::now() < Deadline)
+			{
+				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Renderer.UpdateScenes_RenderThread(Commands); });
+				FlushRenderingCommands();
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			for (const auto& Id : Requests)
+			{
+				EXPECT_EQ(Id.GetProgress().State, EMaterialPSOPrecacheState::Ready) << Id.GetDiagnostic();
+				EXPECT_TRUE(Id.GetProgress().bRequiredReady); EXPECT_EQ(Id.GetProgress().Pipelines, 3u);
+			}
+		};
+		PumpUntilFinished(Dynamic);
+		EXPECT_EQ(Root[0].GetProgress().State, EMaterialPSOPrecacheState::Ready);
+		TStrongObjectPtr<DStaticMeshComponent> Component(NewObject<DStaticMeshComponent>(nullptr, NAME_None));
+		uint32 Completions = 0;
+		ASSERT_TRUE(Component->SetMaterialPSOPrecacheData(Dynamic, [&] { ++Completions; }));
+		EXPECT_EQ(Component->GetPSOPrecacheComponentData().Poll(), EMaterialPSOPrecacheState::Ready);
+		EXPECT_EQ(Completions, 1u);
+		Component->MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+		EXPECT_TRUE(Component->GetPSOPrecacheComponentData().IsPSOPrecacheCalled());
+		EXPECT_TRUE(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().empty());
+		EXPECT_EQ(Root[0].GetProgress().State, EMaterialPSOPrecacheState::Ready);
+		Properties.bTwoSided = true; ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		EXPECT_EQ(Root[0].GetProgress().State, EMaterialPSOPrecacheState::Stale);
+		EXPECT_EQ(Dynamic[0].GetProgress().State, EMaterialPSOPrecacheState::Stale);
+		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, SurvivingRequests));
+		EXPECT_NE(SurvivingRequests[0].GetValue(), Root[0].GetValue());
+		PumpUntilFinished(SurvivingRequests);
+	}
+	Lifecycle.Shutdown();
+	for (const auto& Request : SurvivingRequests) EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Stale);
+	ShutdownRenderingThread(); RHIExit();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAndGateCurrentProxyBatch)
+{
+	using namespace Durin; using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints()); ASSERT_TRUE(InitializeAssetManager()); ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext()); ASSERT_NE(GDynamicRHI, nullptr); InitRenderingThread();
+	FRendererModule Renderer; FModuleTestHarness Lifecycle("ComponentPSOPrecacheIntegration"); Lifecycle.Start(Renderer);
+	struct FRendererCleanup
+	{
+		FModuleTestHarness& Lifecycle;
+		~FRendererCleanup() { Lifecycle.Shutdown(); ShutdownRenderingThread(); RHIExit(); }
+	} RendererCleanup{Lifecycle};
+	{
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::Lit;
+		ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+		Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "ComponentPSORoughness"}; Parameter->DefaultValue = 0.5f;
+		FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Parameter->Id};
+		const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
+		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+		ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+		auto* Mesh = NewObject<DStaticMesh>(nullptr, NAME_None);
+		struct FMeshCleanup
+		{
+			DStaticMesh* Mesh;
+			~FMeshCleanup() {
+				auto* Data = FStaticMeshTestAccess::GetMutableRenderData(Mesh);
+				if (Data) EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });
+				FlushRenderingCommands(); MarkAsGarbage(Mesh); CollectGarbage(); FlushRenderingCommands();
+			}
+		} MeshCleanup{Mesh};
+		std::vector<FMeshMaterialSlotDefinition> Slots;
+		for (uint32 Index = 0; Index < 4; ++Index) Slots.push_back({.Name = FName(std::format("Section{}", Index)), .DefaultMaterial = Material.Get()});
+		ASSERT_TRUE(FStaticMeshTestAccess::ReplaceRenderData(Mesh, MakeRenderData(), std::move(Slots)));
+		auto SceneOwner = Renderer.CreateScene(); auto& Scene = *static_cast<FScene*>(SceneOwner.get());
+		TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, NAME_None));
+		struct FCleanup
+		{
+			DWorld* World; FScenePtr& Scene;
+			~FCleanup() { World->Shutdown(); World->SetRenderScene(nullptr); Scene->Release(); Scene.reset(); FlushRenderingCommands(); }
+		} Cleanup{World.Get(), SceneOwner};
+		ASSERT_TRUE(World->InitializeSubsystems());
+		auto* Level = NewObject<DLevel>(World.Get(), NAME_None);
+		ASSERT_TRUE(World->SetCurrentLevel(Level)); World->SetRenderScene(&Scene);
+		auto* Actor = Level->SpawnActor<AActor>(); ASSERT_NE(Actor, nullptr);
+		auto* Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(DStaticMeshComponent::StaticClass()));
+		ASSERT_NE(Component, nullptr); Component->SetStaticMesh(Mesh);
+		ASSERT_TRUE(Component->IsRegistered());
+		ASSERT_EQ(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().size(), 8u) << Component->GetPSOPrecacheDiagnostic();
+		auto OldRequests = std::vector<FMaterialPSOPrecacheRequestID>(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().begin(),
+			Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().end());
+		for (const auto& Request : OldRequests) EXPECT_EQ(Request.GetPriority(), EPSOPrecachePriority::Highest);
+		auto Count = [&] {
+			size_t Result = 0;
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) { Result = Scene.GetPrimitiveSceneInfos().size(); });
+			FlushRenderingCommands(); return Result;
+		};
+		EXPECT_EQ(Count(), 0u); // No explicit precache or first draw has occurred.
+		auto Pump = [&](size_t Expected) {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+			do {
+				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Renderer.UpdateScenes_RenderThread(Commands); });
+				FlushRenderingCommands(); DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
+				if (Count() == Expected) break;
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			} while (std::chrono::steady_clock::now() < Deadline);
+			EXPECT_EQ(Count(), Expected) << Component->GetPSOPrecacheDiagnostic();
+			for (const auto& Request : Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs())
+				EXPECT_TRUE(Request.GetProgress().bRequiredReady) << Request.GetDiagnostic();
+		};
+		Pump(1);
+		const auto Job = Component->GetPSOPrecacheComponentData().GetLatestJobSet();
+		Component->SetRelativeScale3D(FVector3(-1, 1, 1));
+		EXPECT_EQ(Component->GetPSOPrecacheComponentData().GetLatestJobSet(), Job);
+		Properties.bTwoSided = true; ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		EXPECT_EQ(Count(), 0u); // Material invalidation retires the old proxy before another draw.
+		DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
+		EXPECT_EQ(OldRequests[0].GetProgress().State, EMaterialPSOPrecacheState::Stale);
+		Pump(1);
+		TStrongObjectPtr<DMaterial> AddedMaterial(NewObject<DMaterial>(nullptr, NAME_None));
+		ASSERT_TRUE(Component->SetMaterial(0, AddedMaterial.Get()));
+		EXPECT_TRUE(Component->IsPSOPrecaching()); EXPECT_EQ(Count(), 0u);
+		Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
+		EXPECT_EQ(Count(), 1u); EXPECT_TRUE(Component->IsPSOPrecaching());
+		Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::DelayUntilPSOPrecached);
+		EXPECT_EQ(Count(), 0u);
+		ASSERT_TRUE(AddedMaterial->SetStaticProperties(Properties));
+		ASSERT_TRUE(AddedMaterial->SetMaterialExpressions(Expressions, Outputs));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*AddedMaterial);
+		Pump(1);
+		auto* Spline = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(DSplineMeshComponent::StaticClass()));
+		ASSERT_NE(Spline, nullptr); Spline->SetStaticMesh(Mesh);
+		ASSERT_EQ(Spline->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().size(), 8u);
+		EXPECT_EQ(Count(), 1u);
+		Spline->UnregisterComponent();
+		for (uint32 Index = 0; Index < 4; ++Index) DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
+		EXPECT_EQ(Count(), 1u);
+		Spline->RegisterComponent(); Pump(2);
+		Component->UnregisterComponent(); Spline->UnregisterComponent(); EXPECT_EQ(Count(), 0u);
+	}
 }
 
 TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundAndCacheInvalidation)

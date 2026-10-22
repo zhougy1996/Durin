@@ -1648,6 +1648,11 @@ namespace Durin
 
 	RHI_API auto ToString(ERHIGraphicsPipelineError Error) -> std::string_view;
 
+	// CPU-only validation shared by PSO precache descriptions and native requests.
+	// Elements after the first None are outside the RHI declaration identity.
+	RHI_API auto ValidateVertexDeclarationElements(const FVertexDeclarationElementList& Elements)
+		-> std::expected<void, ERHIGraphicsPipelineError>;
+
 	// Validates and canonicalizes one complete graphics initializer.
 	RHI_API auto BuildGraphicsPipelineStateKey(
 		const FGraphicsPipelineStateInitializer& Initializer,

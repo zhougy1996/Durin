@@ -40,6 +40,7 @@ namespace Durin
 
 	auto DPrimitiveComponent::OnUnregister() -> void
 	{
+		PSOPrecacheComponentData.Reset();
 		++PhysicsRegistrationGeneration;
 		DestroyPhysicsState();
 		DestroyRenderState();
@@ -275,11 +276,13 @@ namespace Durin
 	auto DPrimitiveComponent::CreateRenderState() -> void
 	{
 		if (!IsRegistered()) return;
-		if (FSceneInterface* Scene = GetRenderScene()) Scene->AddPrimitive(this);
+		if (FSceneInterface* Scene = GetRenderScene(); Scene && IsPSOPrecacheReadyForProxyCreation()) Scene->AddPrimitive(this);
 	}
 
 	auto DPrimitiveComponent::DestroyRenderState() -> void
 	{
+		PSOPrecacheComponentData.Reset();
+		bPSOPrecacheSubmissionPending = false;
 		if (!IsRegistered()) return;
 		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemovePrimitive(this);
 	}
@@ -293,6 +296,8 @@ namespace Durin
 
 	auto DPrimitiveComponent::MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags) -> void
 	{
+		const bool bPrecacheChanged = EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy | EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+		if (bPrecacheChanged) { PSOPrecacheComponentData.Reset(); PrecachePSOs(); }
 		if (!IsRegistered()) return;
 		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
@@ -301,6 +306,12 @@ namespace Durin
 			RecreateRenderState();
 			return;
 		}
+		if (bPrecacheChanged && !IsPSOPrecacheReadyForProxyCreation())
+		{
+			Scene->RemovePrimitive(this);
+			return;
+		}
+		if (SceneProxy == nullptr && bPrecacheChanged) { CreateRenderState(); return; }
 		if (SceneProxy == nullptr) return;
 
 		const FPrimitiveComponentId SceneId = EnsurePrimitiveComponentId();
@@ -323,6 +334,13 @@ namespace Durin
 				Scene->UpdatePrimitiveMaterialBinding(SceneId, Update);
 			}
 		}
+	}
+
+	auto DPrimitiveComponent::OnComponentPendingKill() -> void
+	{
+		PSOPrecacheComponentData.Reset();
+		bPSOPrecacheSubmissionPending = false;
+		Super::OnComponentPendingKill();
 	}
 
 	auto DPrimitiveComponent::BuildMaterialRenderProxyBindingUpdate(

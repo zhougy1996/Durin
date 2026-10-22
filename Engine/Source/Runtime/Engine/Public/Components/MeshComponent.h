@@ -39,6 +39,9 @@ namespace Durin
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
+	protected:
+		ENGINE_API auto CollectMeshPSOPrecacheData(const FPSOPrecacheParams& Params,
+			FComponentPSOPrecacheParamsList& OutParams, std::string_view FactoryName, bool bOrientationChanging = false) -> void;
 	private:
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;

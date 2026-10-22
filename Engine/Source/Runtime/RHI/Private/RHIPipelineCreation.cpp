@@ -142,6 +142,7 @@ namespace Durin
 		// Accessed only under the compile queue mutex, and cleared at publication.
 		std::shared_ptr<const FKey> PendingKey;
 		std::shared_ptr<const FKey> Identity;
+		std::shared_ptr<std::atomic<EPSOPrecachePriority>> Priority;
 	};
 
 	auto FRHIPipelineCreationRequest::Rejected(ERHIPipelineRequestRejection Reason) -> FRHIPipelineCreationRequest
@@ -188,6 +189,14 @@ namespace Durin
 		return std::visit([](const auto& Key) { return Key.PipelineLayout; }, *State->Identity);
 	}
 	auto FRHIPipelineCreationRequest::Cancel() const -> bool { return State && State->Cancel(); }
+	auto FRHIPipelineCreationRequest::BoostPriority(EPSOPrecachePriority Priority) const -> void
+	{
+		if (!State || !State->Priority || Priority >= EPSOPrecachePriority::Num) return;
+		auto Current = State->Priority->load();
+		while (Current < Priority && !State->Priority->compare_exchange_weak(Current, Priority)) {}
+	}
+	auto FRHIPipelineCreationRequest::GetPriority() const -> EPSOPrecachePriority
+	{ return State && State->Priority ? State->Priority->load() : EPSOPrecachePriority::NotSet; }
 	auto FRHIPipelineCreationRequest::CanWait() const -> bool
 	{
 		return GetState() != ERHIPipelineRequestState::Pending
@@ -210,6 +219,8 @@ namespace Durin
 		using FObserver = FRHIPipelineCreationRequest::FState;
 		struct FEntry
 		{
+			std::shared_ptr<std::atomic<EPSOPrecachePriority>> Priority =
+				std::make_shared<std::atomic<EPSOPrecachePriority>>(EPSOPrecachePriority::Medium);
 			std::shared_ptr<const FKey> Key;
 			std::variant<std::shared_ptr<const FRHIGraphicsPipelineCreationInputs>,
 				std::shared_ptr<const FRHIComputePipelineCreationInputs>> Inputs;
@@ -305,6 +316,7 @@ namespace Durin
 					Result.State = MakeObserver();
 					Result.State->PendingKey = Existing->second->Key;
 					Result.State->Identity = Existing->second->Key;
+					Result.State->Priority = Existing->second->Priority;
 					Result.Rejection = ERHIPipelineRequestRejection::None;
 					++Statistics.SharedPendingHits;
 					return Result;
@@ -323,6 +335,7 @@ namespace Durin
 				Result.State = MakeObserver();
 				Result.State->PendingKey = Entry->Key;
 				Result.State->Identity = Entry->Key;
+				Result.State->Priority = Entry->Priority;
 				Pending.emplace(Key, Entry);
 				try { Queue.push_back(Entry); }
 				catch (...) { Pending.erase(Key); throw; }
@@ -394,8 +407,12 @@ namespace Durin
 				{
 					std::lock_guard Lock(Mutex);
 					if (Queue.empty()) { DrainActive = false; return; }
-					Entry = std::move(Queue.front());
-					Queue.pop_front();
+					// max_element preserves FIFO order among equally urgent requests.
+					const auto Next = std::max_element(Queue.begin(), Queue.end(), [](const auto& A, const auto& B) {
+						return A->Priority->load() < B->Priority->load();
+					});
+					Entry = std::move(*Next);
+					Queue.erase(Next);
 					++Statistics.NativeRequests;
 				}
 				FRHIPipelineCreationResult Result;

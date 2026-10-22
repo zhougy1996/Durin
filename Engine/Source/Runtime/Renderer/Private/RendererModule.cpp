@@ -59,6 +59,12 @@ namespace Durin
 	FRendererModule::FRendererModule() = default;
 
 	FRendererModule::~FRendererModule() = default;
+	auto FRendererModule::PrecacheMaterialPSOs(FMaterialPSOPrecacheParams Params) -> FMaterialPSOPrecacheRequestID
+	{
+		CheckGameThread();
+		return RenderingService ? RenderingService->MaterialPSORequests.PrecachePSOs(std::move(Params))
+			: FMaterialPSOPrecacheRequestID::Rejected("Renderer is not initialized.");
+	}
 	auto FRendererModule::PrepareSceneThumbnailShaders() -> FShaderMapPreparation
 	{
 		auto Preparation = FShaderMapPreparation::Request("Renderer", {
@@ -162,7 +168,7 @@ namespace Durin
 	auto FRendererModule::CreateScene() -> FScenePtr
 	{
 		check(IsInGameThread());
-		return FScenePtr(new FScene(RenderingService.get()), FSceneDeleter(&FScene::DestroyScene));
+		return FScenePtr(new FScene(RenderingService.get(), RenderingService ? this : nullptr), FSceneDeleter(&FScene::DestroyScene));
 	}
 
 	auto FRendererModule::CreateViewState() -> FSceneViewStateOwner

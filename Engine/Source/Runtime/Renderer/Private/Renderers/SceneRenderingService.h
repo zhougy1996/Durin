@@ -50,6 +50,7 @@ namespace Durin
 		auto operator=(const FSceneRenderingService&) -> FSceneRenderingService& = delete;
 
 		auto UpdateSkyLighting_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void;
+		FMaterialPSORequestManager MaterialPSORequests;
 		std::unordered_set<FScene*> PendingSkyScenes;
 		std::function<void(FGPUTimingQueryRHIRef)> ViewGPUTimingSink;
         auto UpdatePendingScenes_RenderThread(FRHICommandListImmediate& Commands) -> void;

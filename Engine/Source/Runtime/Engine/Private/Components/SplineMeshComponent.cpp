@@ -176,7 +176,9 @@ namespace Durin
 		}
 		else if (bRebuildDeformation)
 		{
-			PushDynamicDataToScene();
+			PrecachePSOs();
+			if (IsPSOPrecacheReadyForProxyCreation()) PushDynamicDataToScene();
+			else MarkRenderStateDirty();
 		}
 		RecreatePhysicsState();
 		if (IsMeshDirty()) UpdateMesh();
@@ -391,6 +393,18 @@ namespace Durin
 				.Params = State->Params,
 				.LocalBounds = State->ConservativeLocalBounds,
 				.Revision = State->DeformationRevision});
+	}
+	auto DSplineMeshComponent::CollectPSOPrecacheData(const FPSOPrecacheParams& Params, FComponentPSOPrecacheParamsList& OutParams) -> void
+	{
+		if (!StaticMesh) return;
+		const auto State = GetDerivedState();
+		bool ChangesOrientation = false;
+		if (State) for (size_t Axis = 0; Axis < 2; ++Axis)
+		{
+			const auto Start = State->Params.StartScale[Axis], End = State->Params.EndScale[Axis];
+			ChangesOrientation |= Start == 0 || End == 0 || (Start < 0) != (End < 0);
+		}
+		CollectMeshPSOPrecacheData(Params, OutParams, "SplineVertexFactory", ChangesOrientation);
 	}
 
 	auto DSplineMeshComponent::OnRegister() -> void

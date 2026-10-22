@@ -62,6 +62,40 @@ namespace Durin
 		EXPECT_FALSE(Request.IsAccepted());
 		EXPECT_EQ(Request.GetRejection(), ERHIPipelineRequestRejection::Unsupported);
 	}
+	TEST_F(FRHIPipelineCreationTests, PriorityBoostReordersQueuedSharedWorkWithoutPreemptingActiveCompile)
+	{
+		std::promise<void> Release, Started;
+		auto Released = Release.get_future().share();
+		auto Running = Started.get_future();
+		std::vector<std::string> Order;
+		FPipelineCompileQueue Queue(Capabilities(), Backend([&](const auto& Input, const auto&) {
+			Order.push_back(Input.DebugName);
+			if (Input.DebugName == "active") { Started.set_value(); Released.wait(); }
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		auto Request = [&](uint32 Size, std::string_view Name) {
+			FComputePipelineStateInitializer Input; Input.ComputeShader = Shader;
+			Input.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, Size});
+			return Queue.RequestCompute(Input, Name);
+		};
+		auto Active = Request(4, "active");
+		EXPECT_EQ(Running.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+		auto Medium = Request(8, "medium");
+		auto First = Request(12, "first urgent");
+		auto Peer = Request(12, "shared observer");
+		auto Second = Request(16, "second urgent");
+		Peer.BoostPriority(EPSOPrecachePriority::Highest);
+		Peer.BoostPriority(EPSOPrecachePriority::Low);
+		Second.BoostPriority(EPSOPrecachePriority::Highest);
+		EXPECT_EQ(First.GetPriority(), EPSOPrecachePriority::Highest);
+		EXPECT_TRUE(Peer.Cancel());
+		Release.set_value();
+		EXPECT_TRUE(Active.Wait()); EXPECT_TRUE(First.Wait()); EXPECT_TRUE(Second.Wait()); EXPECT_TRUE(Medium.Wait());
+		Queue.StopAndWait();
+		EXPECT_EQ(Order, (std::vector<std::string>{"active", "first urgent", "second urgent", "medium"}));
+		EXPECT_EQ(Queue.GetStatistics().NativeRequests, 4u);
+	}
 
 	TEST_F(FRHIPipelineCreationTests, CacheSharesPendingIdentityWithoutSharingCancellationAuthority)
 	{

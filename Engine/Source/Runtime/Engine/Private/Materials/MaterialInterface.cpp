@@ -1,4 +1,5 @@
 #include "Materials/MaterialInterface.h"
+#include "Components/PrimitiveComponent.h"
 #include "Materials/MaterialShaderMap.h"
 #include "MaterialCompileRetryQueue.h"
 #include "Materials/ObjectCacheContext.h"
@@ -586,6 +587,8 @@ namespace Durin
 
 	auto DMaterialInterface::BeginDestroy() -> void
 	{
+		if (PSOPrecacheRevision) ++*PSOPrecacheRevision;
+		DPrimitiveComponent::InvalidatePSOPrecacheRequests();
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		FObjectCacheContext Context;
@@ -798,7 +801,10 @@ namespace Durin
 		bool bNotifyParameterChanges, FObjectCacheContext* Context) -> void
 	{
 		if (DirtyFlags == EMaterialRenderDirtyFlags::None) return;
-		auto Publish = [](DMaterialInterface& Owner) {
+		auto Publish = [DirtyFlags](DMaterialInterface& Owner) {
+			if (Owner.PSOPrecacheRevision && EnumHasAnyFlags(DirtyFlags,
+				EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState | EMaterialRenderDirtyFlags::ParentChain))
+				++*Owner.PSOPrecacheRevision;
 			++Owner.RenderStateVersion;
 			if (Owner.RenderStateVersion == 0) ++Owner.RenderStateVersion;
 			if (Owner.CompilationOwner.RenderLayer.CompiledProgram)
@@ -821,6 +827,9 @@ namespace Durin
 		if (IsDynamicInstance())
 		{
 			Publish(*this);
+			if (EnumHasAnyFlags(DirtyFlags, EMaterialRenderDirtyFlags::ShaderMap
+				| EMaterialRenderDirtyFlags::PipelineState | EMaterialRenderDirtyFlags::ParentChain))
+				DPrimitiveComponent::InvalidatePSOPrecacheRequests();
 			if (bNotifyParameterChanges) ParameterChanges.Broadcast();
 			return;
 		}
@@ -832,6 +841,9 @@ namespace Durin
 		{
 			if (IsValid(Owner) && Owner != this) Publish(*Owner);
 		}
+		if (EnumHasAnyFlags(DirtyFlags, EMaterialRenderDirtyFlags::ShaderMap
+			| EMaterialRenderDirtyFlags::PipelineState | EMaterialRenderDirtyFlags::ParentChain))
+			DPrimitiveComponent::InvalidatePSOPrecacheRequests();
 		if (bNotifyParameterChanges)
 		{
 			Context->EndDiscovery();

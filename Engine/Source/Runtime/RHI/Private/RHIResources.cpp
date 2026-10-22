@@ -483,33 +483,8 @@ namespace Durin
 
 		if (!Initializer.VertexDeclaration)
 			return std::unexpected(ERHIGraphicsPipelineError::MissingVertexDeclaration);
-		std::unordered_set<uint32> Attributes;
-		std::unordered_map<uint8, std::pair<uint16,
-			FRHIVertexElementIdentity::EInputRate>> Streams;
-		for (const FVertexElement& Element : Initializer.VertexDeclaration->GetElements())
-		{
-			if (Element.Type == EVertexElementType::None) break;
-			const uint32 ElementSize = GetVertexElementSize(Element.Type);
-			if (Element.Type >= EVertexElementType::Count || Element.Stride == 0
-				|| Element.InputRate >= FRHIVertexElementIdentity::EInputRate::Count
-				|| ElementSize == 0
-				|| static_cast<uint32>(Element.Offset) + ElementSize > Element.Stride
-				|| !Attributes.insert(Element.AttributeIndex).second)
-				return std::unexpected(ERHIGraphicsPipelineError::InvalidVertexDeclaration);
-			const auto [StreamIt, bInserted] = Streams.emplace(Element.StreamIndex,
-				std::pair{Element.Stride, Element.InputRate});
-			if (!bInserted && StreamIt->second != std::pair{Element.Stride, Element.InputRate})
-				return std::unexpected(ERHIGraphicsPipelineError::InconsistentVertexStream);
-			for (const FVertexElement& Existing : Initializer.VertexDeclaration->GetElements())
-			{
-				if (&Existing == &Element) break;
-				const uint32 ExistingSize = GetVertexElementSize(Existing.Type);
-				if (Existing.StreamIndex == Element.StreamIndex
-					&& Element.Offset < Existing.Offset + ExistingSize
-					&& Existing.Offset < Element.Offset + ElementSize)
-					return std::unexpected(ERHIGraphicsPipelineError::OverlappingVertexElements);
-			}
-		}
+		if (const auto Valid = ValidateVertexDeclarationElements(Initializer.VertexDeclaration->GetElements()); !Valid)
+			return std::unexpected(Valid.error());
 
 		if (Capabilities)
 		{
@@ -643,6 +618,39 @@ namespace Durin
 			HashPipelineLayout(Builder, Value);
 			return SharePipelineDescription(std::move(Value), Bytes, Builder.Finalize().HashValue);
 		}
+	}
+
+	auto ValidateVertexDeclarationElements(const FVertexDeclarationElementList& Elements)
+		-> std::expected<void, ERHIGraphicsPipelineError>
+	{
+		std::unordered_set<uint32> Attributes;
+		std::unordered_map<uint8, std::pair<uint16,
+			FRHIVertexElementIdentity::EInputRate>> Streams;
+		for (const FVertexElement& Element : Elements)
+		{
+			if (Element.Type == EVertexElementType::None) break;
+			const uint32 ElementSize = GetVertexElementSize(Element.Type);
+			if (Element.Type >= EVertexElementType::Count || Element.Stride == 0
+				|| Element.InputRate >= FRHIVertexElementIdentity::EInputRate::Count
+				|| ElementSize == 0
+				|| static_cast<uint32>(Element.Offset) + ElementSize > Element.Stride
+				|| !Attributes.insert(Element.AttributeIndex).second)
+				return std::unexpected(ERHIGraphicsPipelineError::InvalidVertexDeclaration);
+			const auto [StreamIt, bInserted] = Streams.emplace(Element.StreamIndex,
+				std::pair{Element.Stride, Element.InputRate});
+			if (!bInserted && StreamIt->second != std::pair{Element.Stride, Element.InputRate})
+				return std::unexpected(ERHIGraphicsPipelineError::InconsistentVertexStream);
+			for (const FVertexElement& Existing : Elements)
+			{
+				if (&Existing == &Element) break;
+				const uint32 ExistingSize = GetVertexElementSize(Existing.Type);
+				if (Existing.StreamIndex == Element.StreamIndex
+					&& Element.Offset < Existing.Offset + ExistingSize
+					&& Existing.Offset < Element.Offset + ElementSize)
+					return std::unexpected(ERHIGraphicsPipelineError::OverlappingVertexElements);
+			}
+		}
+		return {};
 	}
 
 	auto BuildGraphicsPipelineStateKey(

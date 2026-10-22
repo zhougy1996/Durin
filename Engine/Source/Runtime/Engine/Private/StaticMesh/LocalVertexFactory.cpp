@@ -27,54 +27,39 @@ namespace Durin
 			return false;
 		}
 
-		const auto& TangentsBuffer =
-			StaticMeshBuffer.TangentsVertexBuffer;
-		const auto& TexCoordBuffer =
-			StaticMeshBuffer.TexCoordVertexBuffer;
-		const auto& ColorBuffer =
-			VertexBuffers.ColorVertexBuffer;
-		Data.PositionComponent = {
-			.VertexBuffer = &PositionBuffer,
-			.Offset = 0,
-			.Stride = static_cast<uint16>(PositionBuffer.GetStride()),
-			.Type = EVertexElementType::Float3,
-			.AttributeIndex = 0,
-			.StreamIndex = 0};
-		Data.TangentBasisComponents[0] = {
-			.VertexBuffer = &TangentsBuffer,
-			.Offset = offsetof(FStaticMeshPackedTangentBasis, Normal),
-			.Stride = static_cast<uint16>(TangentsBuffer.GetStride()),
-			.Type = EVertexElementType::Short4N,
-			.AttributeIndex = 1,
-			.StreamIndex = 1};
-		Data.TangentBasisComponents[1] = {
-			.VertexBuffer = &TangentsBuffer,
-			.Offset = offsetof(FStaticMeshPackedTangentBasis, Tangent),
-			.Stride = static_cast<uint16>(TangentsBuffer.GetStride()),
-			.Type = EVertexElementType::Short4N,
-			.AttributeIndex = 2,
-			.StreamIndex = 1};
+		FVertexDeclarationElementList Elements{};
+		GetPSOPrecacheVertexFetchElements(EVertexInputStreamType::Default, Elements);
+		const auto Component = [](const FVertexElement& Element, const FVertexBuffer& Buffer) {
+			return FVertexStreamComponent{&Buffer, Element.Offset, Element.Stride, Element.Type,
+				Element.AttributeIndex, Element.StreamIndex};
+		};
+		Data.PositionComponent = Component(Elements[0], PositionBuffer);
+		Data.TangentBasisComponents[0] = Component(Elements[1], StaticMeshBuffer.TangentsVertexBuffer);
+		Data.TangentBasisComponents[1] = Component(Elements[2], StaticMeshBuffer.TangentsVertexBuffer);
 		for (uint8 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
-		{
-			Data.TextureCoordinates[Channel] = {
-				.VertexBuffer = &TexCoordBuffer,
-				.Offset = static_cast<uint32>(offsetof(FStaticMeshTexcoordVertex, TexCoords)
-					+ sizeof(FVector2f) * Channel),
-				.Stride =
-					static_cast<uint16>(TexCoordBuffer.GetStride()),
-				.Type = EVertexElementType::Float2,
-				.AttributeIndex = static_cast<uint8>(3 + Channel),
-				.StreamIndex = 2};
-		}
-		Data.ColorComponent = {
-			.VertexBuffer = &ColorBuffer,
-			.Offset = offsetof(FStaticMeshColorVertex, Color),
-			.Stride = static_cast<uint16>(ColorBuffer.GetStride()),
-			.Type = EVertexElementType::UByte4N,
-			.AttributeIndex = 7,
-			.StreamIndex = 3};
+			Data.TextureCoordinates[Channel] = Component(Elements[3 + Channel], StaticMeshBuffer.TexCoordVertexBuffer);
+		Data.ColorComponent = Component(Elements[7], VertexBuffers.ColorVertexBuffer);
 		Data.NumVertices = NumVertices;
 		return true;
+	}
+
+	auto FLocalVertexFactory::GetPSOPrecacheVertexFetchElements(EVertexInputStreamType VertexInputStreamType,
+		FVertexDeclarationElementList& Elements) -> void
+	{
+		Elements = {};
+		if (VertexInputStreamType >= EVertexInputStreamType::Count) return;
+		Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, sizeof(FVector3f));
+		if (VertexInputStreamType == EVertexInputStreamType::PositionOnly) return;
+		Elements[1] = FVertexElement(1, offsetof(FStaticMeshPackedTangentBasis, Normal), EVertexElementType::Short4N,
+			1, sizeof(FStaticMeshPackedTangentBasis));
+		if (VertexInputStreamType == EVertexInputStreamType::PositionAndNormalOnly) return;
+		Elements[2] = FVertexElement(1, offsetof(FStaticMeshPackedTangentBasis, Tangent), EVertexElementType::Short4N,
+			2, sizeof(FStaticMeshPackedTangentBasis));
+		for (uint8 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
+			Elements[3 + Channel] = FVertexElement(2, offsetof(FStaticMeshTexcoordVertex, TexCoords) + sizeof(FVector2f) * Channel,
+				EVertexElementType::Float2, 3 + Channel, sizeof(FStaticMeshTexcoordVertex));
+		Elements[7] = FVertexElement(3, offsetof(FStaticMeshColorVertex, Color), EVertexElementType::UByte4N,
+			7, sizeof(FStaticMeshColorVertex));
 	}
 
 	auto FLocalVertexFactory::GetDeclarationElements() const

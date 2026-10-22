@@ -177,6 +177,10 @@ namespace Durin
 			RenderData,
 			std::move(MaterialProxies), RenderInstances);
 	}
+	auto DStaticMeshComponent::CollectPSOPrecacheData(const FPSOPrecacheParams& Params, FComponentPSOPrecacheParamsList& OutParams) -> void
+	{
+		if (StaticMesh) CollectMeshPSOPrecacheData(Params, OutParams, "LocalVertexFactory");
+	}
 
 	auto DStaticMeshComponent::OnRegister() -> void
 	{

@@ -1,6 +1,7 @@
 #include "Renderers/SceneRenderingService.h"
 
 #include "Renderers/SceneRenderPipeline.h"
+#include "Renderers/MaterialPSOPrecacheCollector.h"
 
 #include "Asset/Asset.h"
 #include "Console/ConsoleCommand.h"
@@ -39,6 +40,9 @@ namespace Durin
     {
         CheckRenderingThread();
         PrunePreparations_RenderThread();
+		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection) {
+			return RendererPrivate::CollectMaterialPSOs(Params, Collection, Coordinator.GetGeneration_RenderThread());
+		});
         for (auto* Scene : PendingSkyScenes)
         {
             UpdateSkyLighting_RenderThread(Commands,*Scene);
@@ -79,6 +83,7 @@ namespace Durin
 
 	auto FSceneRenderingService::ReleaseResources_RenderThread() -> void
 	{
+		MaterialPSORequests.Close();
 		ReleaseDeviceResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 		VisibilityScratch = {};
@@ -87,6 +92,7 @@ namespace Durin
 	auto FSceneRenderingService::ReleaseDeviceResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
+		MaterialPSORequests.Invalidate();
 		RetirePreparations_RenderThread();
 		DefaultTextures.ReleaseResources_RenderThread();
 		EnvironmentLighting.ReleaseResources_RenderThread();
@@ -162,6 +168,7 @@ namespace Durin
 	) -> void
 	{
 		check(IsInRenderingThread());
+		MaterialPSORequests.Invalidate();
 		RetirePreparations_RenderThread();
 		if (Cause == ERendererResourceInvalidationCause::Device)
 			ViewStates.InvalidateAll(

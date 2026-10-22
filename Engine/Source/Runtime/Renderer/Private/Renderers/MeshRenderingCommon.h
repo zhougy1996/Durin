@@ -4,6 +4,7 @@
 
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/MeshRenderPreparationCommon.h"
+#include "Renderers/MeshPipelineDescription.h"
 
 namespace Durin::RendererPrivate
 {
@@ -61,15 +62,10 @@ namespace Durin::RendererPrivate
 	) -> FEffectiveMeshPipelineKey
 	{
 		FEffectiveMeshPipelineKey Result = Source;
-		Result.Rasterizer = MakeShadowRasterizerState(Source.Rasterizer);
-		// Bias magnitudes are dynamic draw state and do not identify pipeline slots.
-		Result.Rasterizer.DepthBiasConstantFactor = 0.0f;
-		Result.Rasterizer.DepthBiasSlopeFactor = 0.0f;
-		Result.Rasterizer.DepthBiasClamp = 0.0f;
-		Result.Depth.bEnableTest = true;
-		Result.Depth.bEnableWrite = true;
-		Result.Depth.CompareOp = ERHIDepthCompareOp::Less;
-		Result.ColorBlend = {};
+		const auto State = MakeShadowMeshPipelineState({Source.Rasterizer, Source.Depth, Source.ColorBlend});
+		Result.Rasterizer = State.Rasterizer;
+		Result.Depth = State.Depth;
+		Result.ColorBlend = State.ColorBlend;
 		return Result;
 	}
 }
