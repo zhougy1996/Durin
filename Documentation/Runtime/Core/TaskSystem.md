@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-22
 
 ## Construction And Acceptance
 
@@ -409,8 +409,11 @@ can introduce new deferred or external dependencies.
 
 A retraction pass visits prerequisites before attempting the node, then inspects
 dynamic/nested backlinks again to include work added by its body. The local
-postorder stack, dependency scratch vector and task-ID deduplication buckets are
-reused during one wait. Pins are released between passes; there is no graph
+postorder stack, dependency scratch vector and open-addressed task-ID table are
+reused during one wait. Cycle and executor-authority checks share one inspection
+with separate reachability flags for closed ancestors. Both checks still run
+before retraction and before sleeping; no graph result is cached across passes.
+Pins are released between passes; there is no graph
 revision cache or recursion-depth limit. An expired deadline starts no work.
 A started body is not preempted.
 
@@ -432,9 +435,12 @@ lost. Events use the same node notifications and keep no waiting-scheduler list.
 Waiting uses no worker polling slice; the long-wait diagnostic has one deadline
 of its own. Scheduler quiescence notification remains separate for shutdown.
 
-Node construction completes before acceptance commits its registry entries and
-accounting under the scheduler lock. Preparation failures roll back registry and
-dependency reservations; rejected payloads retire outside scheduler locks without
+Node construction and prerequisite-slot reservation run outside the scheduler
+lock, under the in-flight submission lifetime guard. Acceptance checks closure
+and capacity, then commits registry entries and accounting under the lock.
+Preparation failures and rejected commits release prerequisite slots outside
+that lock. Failed commits roll back registry and scheduler reservations;
+rejected payloads retire outside scheduler locks without
 running body or completion callbacks. Dependency registration follows the commit,
 then one activation enables dispatch. Failures after commit settle
 the accepted node rather than return a rejected admission. Standalone completions

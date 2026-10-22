@@ -462,6 +462,39 @@ namespace Durin
 
 	enum class ETaskDependencyKind : uint8 { Execution, Nested, Dynamic };
 
+	// Per-walk scratch, never a graph cache. Open addressing retains allocations
+	// across wakeups instead of allocating a hash node for every visited task.
+	class FTaskGraphVisited
+	{
+		struct FSlot { uint64 Id = 0; uint8 Flags = 0; };
+		std::array<FSlot, 64> Inline{};
+		std::vector<FSlot> Overflow;
+		size_t Count = 0;
+		auto Slots() -> std::span<FSlot> { return Overflow.empty() ? std::span<FSlot>(Inline) : std::span<FSlot>(Overflow); }
+		static auto Find(std::span<FSlot> Table, uint64 Id) -> FSlot&
+		{
+			size_t Index = static_cast<size_t>(((Id ^ (Id >> 33)) * 0xff51afd7ed558ccdull) >> 32) & (Table.size() - 1);
+			while (Table[Index].Id != 0 && Table[Index].Id != Id) Index = (Index + 1) & (Table.size() - 1);
+			return Table[Index];
+		}
+	public:
+		auto Visit(uint64 Id, uint8 Flags = 1) -> bool
+		{
+			if ((Count + 1) * 2 > Slots().size())
+			{
+				std::vector<FSlot> Grown(Slots().size() * 2);
+				for (const auto& Slot : Slots()) if (Slot.Id) Find(Grown, Slot.Id) = Slot;
+				Overflow = std::move(Grown);
+			}
+			auto& Slot = Find(Slots(), Id);
+			if ((Slot.Flags & Flags) == Flags) return false;
+			if (!Slot.Id) { Slot.Id = Id; ++Count; }
+			Slot.Flags |= Flags;
+			return true;
+		}
+		auto Reset() -> void { std::ranges::fill(Slots(), FSlot{}); Count = 0; }
+	};
+
 	// Execution edges occupy a fixed prefix. Nested and the optional dynamic edge
 	// share the suffix; weak backlinks survive consumption of their owning refs.
 	// The owning node's mutex protects every operation on this collection.
@@ -837,43 +870,38 @@ namespace Durin
 		// requirement; pinning each frontier keeps concurrent publication safe.
 		auto IsIndependentCPU() const -> bool { return bIndependentCPU; }
 
-		auto RequiresGameThread(bool bOnlyUnknown = false) const -> bool
+		struct FWaitGraphWork
 		{
-			// Most waits inspect a short chain. Pin and deduplicate that graph on
-			// the stack; unusually wide/deep graphs use the unbounded traversal.
-			std::array<std::shared_ptr<const FTaskStateData>, 16> Inline;
-			Inline[0] = shared_from_this();
-			size_t Count = 1;
-			bool bOverflow = false;
-			for (size_t Index = 0; Index < Count && !bOverflow; ++Index)
+			struct FEntry { std::shared_ptr<const FTaskStateData> Node; bool bRequirements; };
+			std::vector<FEntry> Pending;
+			FTaskGraphVisited Visited;
+		};
+		struct FWaitRequirements { bool bCycle = false; bool bUnknown = false; bool bGameThread = false; };
+		auto InspectWaitGraph(const FTaskStateData* CycleTarget, FWaitGraphWork& Work) const -> FWaitRequirements
+		{
+			FWaitRequirements Result;
+			Work.Pending.push_back({shared_from_this(), true});
+			while (!Work.Pending.empty())
 			{
-				const auto& Current = Inline[Index];
-				std::lock_guard Lock(Current->Mutex);
-				if (Current->Phase == EPhase::Closed) continue;
-				if ((!bOnlyUnknown && Current->Phase == EPhase::Open && Current->Target == ETaskTarget::GameThreadDeferred) || Current->bUnknownExecutionRequirement) return true;
-				auto Add = [&](std::shared_ptr<const FTaskStateData> Prerequisite) {
-					if (!Prerequisite) return;
-					for (size_t Seen = 0; Seen < Count; ++Seen)
-						if (Inline[Seen] == Prerequisite) return;
-					if (Count == Inline.size()) { bOverflow = true; return; }
-					Inline[Count++] = std::move(Prerequisite);
-				};
-				Current->Dependencies.Visit(Add);
+				auto Entry = std::move(Work.Pending.back());
+				Work.Pending.pop_back();
+				if (Entry.Node.get() == CycleTarget) { Result.bCycle = true; break; }
+				if (!Work.Visited.Visit(Entry.Node->GetTaskId(), Entry.bRequirements ? 3 : 1)) continue;
+				std::lock_guard Lock(Entry.Node->Mutex);
+				const bool bRequirements = Entry.bRequirements && Entry.Node->Phase != EPhase::Closed;
+				if (bRequirements)
+				{
+					Result.bUnknown |= Entry.Node->bUnknownExecutionRequirement;
+					Result.bGameThread |= Entry.Node->Phase == EPhase::Open && Entry.Node->Target == ETaskTarget::GameThreadDeferred;
+				}
+				// Closed ancestors still participate in cycle identity, but must not
+				// leak their former executor restrictions into an active wait.
+				if (CycleTarget || bRequirements)
+					Entry.Node->Dependencies.Visit([&](auto Node) { Work.Pending.push_back({std::move(Node), bRequirements}); });
 			}
-			if (!bOverflow) return false;
-			std::vector<std::shared_ptr<const FTaskStateData>> Pending{shared_from_this()};
-			std::unordered_set<const FTaskStateData*> Visited;
-			while (!Pending.empty())
-			{
-				auto Current = std::move(Pending.back());
-				Pending.pop_back();
-				if (!Visited.emplace(Current.get()).second) continue;
-				std::lock_guard Lock(Current->Mutex);
-				if (Current->Phase == EPhase::Closed) continue;
-				if ((!bOnlyUnknown && Current->Phase == EPhase::Open && Current->Target == ETaskTarget::GameThreadDeferred) || Current->bUnknownExecutionRequirement) return true;
-				Current->Dependencies.Visit([&](auto Node) { Pending.push_back(std::move(Node)); });
-			}
-			return false;
+			Work.Pending.clear();
+			Work.Visited.Reset();
+			return Result;
 		}
 
 		auto AppendRetractionDependencies(std::vector<std::shared_ptr<FTaskStateData>>& Result) -> void
@@ -1172,6 +1200,47 @@ namespace Durin
 			std::shared_ptr<FTaskStateData> State;
 			size_t ReservedDependencyCount = 0;
 			auto& PrerequisiteStates = Init.Prerequisites;
+			// Preparation owns no scheduler reservation. The submission guard keeps
+			// shutdown from retiring this scheduler until preparation/rollback ends.
+			struct FDependencyReservations
+			{
+				std::vector<std::shared_ptr<FTaskStateData>>& Prerequisites;
+				size_t& Count;
+				~FDependencyReservations()
+				{
+					for (size_t Index = 0; Index < Count; ++Index) Prerequisites[Index]->ReleaseDependentReservation();
+				}
+			} Reservations{PrerequisiteStates, ReservedDependencyCount};
+			std::optional<Tasks::FTaskAdmissionError> ValidationError;
+			if ((GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
+				|| (Options.bIndependentCPU && (Target != ETaskTarget::AnyWorker
+					|| Options.bExternalCompletion || std::ranges::any_of(Options.Prerequisites, [](const auto& Task) { return Task.IsValid(); }))))
+				ValidationError = Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
+			if (!ValidationError)
+			{
+				PrerequisiteStates.reserve(Options.Prerequisites.size());
+				for (const Tasks::FTask& Prerequisite : Options.Prerequisites)
+				{
+					if (!Prerequisite.State) continue;
+					if (!Prerequisite.State->IsTaskEvent() && Prerequisite.State->PinScheduler().get() != this)
+					{
+						ValidationError = Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidPrerequisite, Prerequisite.GetTaskId()};
+						break;
+					}
+					PrerequisiteStates.emplace_back(Prerequisite.State);
+				}
+			}
+			if (!ValidationError)
+			{
+				State = std::make_shared<FTaskStateData>(Init);
+				CheckTaskAdmissionAllocation(1);
+				for (const auto& Prerequisite : PrerequisiteStates)
+				{
+					Prerequisite->ReserveDependent();
+					++ReservedDependencyCount;
+				}
+				CheckTaskAdmissionAllocation(2);
+			}
 			bool bReportOverload = false;
 			{
 				std::lock_guard Lock(Mutex);
@@ -1182,25 +1251,11 @@ namespace Durin
 					return {};
 				}
 
-				if ((GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
-					|| (Options.bIndependentCPU && (Target != ETaskTarget::AnyWorker
-						|| Options.bExternalCompletion || std::ranges::any_of(Options.Prerequisites, [](const auto& Task) { return Task.IsValid(); }))))
+				if (ValidationError)
 				{
 					RecordRejectedTask(Options.Attribution);
-					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
+					if (AdmissionError) *AdmissionError = *ValidationError;
 					return {};
-				}
-
-				for (const Tasks::FTask& Prerequisite : Options.Prerequisites)
-				{
-					if (!Prerequisite.State) continue;
-					if (!Prerequisite.State->IsTaskEvent() && Prerequisite.State->PinScheduler().get() != this)
-					{
-						RecordRejectedTask(Options.Attribution);
-						if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::InvalidPrerequisite, Prerequisite.GetTaskId()};
-						return {};
-					}
-					PrerequisiteStates.emplace_back(Prerequisite.State);
 				}
 				if (!Options.bQueueOnSaturation && (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity
 					|| (Target == ETaskTarget::BlockingIO && BlockingIOReservations >= BlockingIOCapacity)))
@@ -1217,14 +1272,6 @@ namespace Durin
 
 				try
 				{
-					State = std::make_shared<FTaskStateData>(Init);
-					CheckTaskAdmissionAllocation(1);
-					for (const auto& Prerequisite : PrerequisiteStates)
-					{
-						Prerequisite->ReserveDependent();
-						++ReservedDependencyCount;
-					}
-					CheckTaskAdmissionAllocation(2);
 					ActiveTasks.emplace(State->GetTaskId(), State);
 					CheckTaskAdmissionAllocation(3);
 					if (Target == ETaskTarget::BlockingIO) ++BlockingIOReservations;
@@ -1237,7 +1284,6 @@ namespace Durin
 					{
 						ActiveTasks.erase(State->GetTaskId());
 					}
-					for (size_t Index = 0; Index < ReservedDependencyCount; ++Index) PrerequisiteStates[Index]->ReleaseDependentReservation();
 					throw;
 				}
 				auto& Storage = ExecutorStorage[static_cast<size_t>(Target)];
@@ -1256,6 +1302,8 @@ namespace Durin
 					bReportOverload = (Crossings & (Crossings - 1)) == 0;
 				}
 				RecordAcceptedTask(State->GetAccountingSnapshot());
+				// Committed registrations now own the reserved dependent slots.
+				ReservedDependencyCount = 0;
 			}
 
 			// Registry publication commits acceptance. Every subsequent failure settles
@@ -1537,7 +1585,7 @@ namespace Durin
 			struct FFrame { std::shared_ptr<FTaskStateData> Task; bool bExecute = false; };
 			std::vector<FFrame> Stack;
 			std::vector<std::shared_ptr<FTaskStateData>> Dependencies;
-			std::unordered_set<uint64> Visited;
+			FTaskGraphVisited Visited;
 		};
 
 		auto RetractTask(const std::shared_ptr<FTaskStateData>& Target, const FTaskWaitDeadline& Deadline,
@@ -1558,7 +1606,7 @@ namespace Durin
 				if (IsTerminalState(Frame.Task->GetState())) continue;
 				if (!Frame.bExecute)
 				{
-					if (!Work.Visited.emplace(Frame.Task->GetTaskId()).second) continue;
+					if (!Work.Visited.Visit(Frame.Task->GetTaskId())) continue;
 					Work.Stack.push_back({Frame.Task, true});
 				}
 				else Execute(Frame.Task);
@@ -1569,7 +1617,7 @@ namespace Durin
 			}
 			// Release pins between passes; retain only allocation capacity for this Wait.
 			Work.Stack.clear();
-			Work.Visited.clear();
+			Work.Visited.Reset();
 		}
 
 		auto GetActiveTaskCount() const -> uint64
@@ -3059,7 +3107,8 @@ namespace Durin
 
 	namespace
 	{
-		auto GetTaskWaitRestriction(const std::shared_ptr<FTaskStateData>& TaskState) -> std::optional<ETaskWaitStatus>
+		auto GetTaskWaitRestriction(const std::shared_ptr<FTaskStateData>& TaskState,
+			FTaskStateData::FWaitGraphWork& Work) -> std::optional<ETaskWaitStatus>
 		{
 			if (GCurrentTaskState == TaskState.get())
 			{
@@ -3067,7 +3116,10 @@ namespace Durin
 				return ETaskWaitStatus::SelfWait;
 			}
 
-			if (GCurrentTaskState && TaskState->DependsOn(GCurrentTaskState))
+			const bool bGameThread = GIsGameThreadIdInitialized && IsInGameThread();
+			const auto Requirements = GCurrentTaskState || bGameThread
+				? TaskState->InspectWaitGraph(GCurrentTaskState, Work) : FTaskStateData::FWaitRequirements{};
+			if (Requirements.bCycle)
 			{
 				DURIN_WARN("Task wait rejected because the target depends on the current task. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
 				return ETaskWaitStatus::DependencyCycle;
@@ -3080,9 +3132,9 @@ namespace Durin
 				DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
 				return ETaskWaitStatus::UnsupportedThread;
 			}
-			if (GCurrentTaskState && TaskState->RequiresGameThread(true))
+			if (GCurrentTaskState && Requirements.bUnknown)
 				return ETaskWaitStatus::UnsupportedThread;
-			if (GIsGameThreadIdInitialized && IsInGameThread() && TaskState->RequiresGameThread())
+			if (bGameThread && (Requirements.bUnknown || Requirements.bGameThread))
 			{
 				DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
 				return ETaskWaitStatus::UnsupportedThread;
@@ -3115,7 +3167,8 @@ namespace Durin
 			// Polling never executes user code or requires authority to block.
 			if (Deadline.IsExpired()) return {ETaskWaitStatus::TimedOut, State};
 
-			if (auto Restriction = GetTaskWaitRestriction(TaskState)) return {*Restriction, State};
+			FTaskStateData::FWaitGraphWork WaitGraph;
+			if (auto Restriction = GetTaskWaitRestriction(TaskState, WaitGraph)) return {*Restriction, State};
 
 			std::shared_ptr<FTaskScheduler> Scheduler = GetRetractionScheduler(TaskState);
 			auto Signal = std::make_shared<FTaskStateData::FWaitSignal>();
@@ -3165,7 +3218,7 @@ namespace Durin
 				if (IsTerminalState(State)) break;
 				if (Deadline.IsExpired()) return {ETaskWaitStatus::TimedOut, State};
 				// Retraction and concurrent bodies may introduce deferred or external dependencies.
-				if (auto Restriction = GetTaskWaitRestriction(TaskState)) return {*Restriction, State};
+				if (auto Restriction = GetTaskWaitRestriction(TaskState, WaitGraph)) return {*Restriction, State};
 				const double UntilDiagnostic = bReportedLongWait ? std::numeric_limits<double>::infinity()
 					: std::max(0.0, LongWaitThresholdSeconds - std::chrono::duration<double>(std::chrono::steady_clock::now() - WaitStartTime).count());
 				const double Timeout = std::min(Deadline.Remaining(), UntilDiagnostic);
@@ -3178,7 +3231,8 @@ namespace Durin
 	auto Tasks::Private::FTaskHandle::TryRetractAndExecute() const -> bool
 	{
 		if (!State || IsTerminalState(State->GetState())) return true;
-		if (GetTaskWaitRestriction(State)) return false;
+		FTaskStateData::FWaitGraphWork WaitGraph;
+		if (GetTaskWaitRestriction(State, WaitGraph)) return false;
 		if (auto Scheduler = GetRetractionScheduler(State))
 		{
 			FTaskScheduler::FRetractionWork Work;
