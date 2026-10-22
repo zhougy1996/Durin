@@ -359,8 +359,9 @@ namespace Durin
 	auto FRenderThreadCommandPipe::GetNumPendingCommandsImpl() const -> size_t
 	{
 		std::lock_guard Lock(Mutex);
-		return CommandQueue[0].size() + CommandQueue[1].size()
-			+ ActiveCommandCount;
+		// The consumer clears its vector outside Mutex. Count that batch only
+		// through ActiveCommandCount, which is published under Mutex.
+		return CommandQueue[ProduceIndex].size() + ActiveCommandCount;
 	}
 
 	FRenderThreadCommandPipe FRenderThreadCommandPipe::Instance;

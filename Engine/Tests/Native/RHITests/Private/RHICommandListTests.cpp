@@ -1332,6 +1332,32 @@ namespace Durin
 		RHIThread.Stop();
 	}
 
+	TEST(FRHICommandListTests, SubmissionBeyondBatchBudgetPreservesRecordedOrder)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		std::vector<uint32> Executed;
+		auto& Immediate = Executor.GetImmediateCommandList();
+		for (uint32 Index = 0; Index < 64; ++Index)
+		{
+			Immediate.EnqueueLambda([&, Index] { Executed.push_back(Index * 2); });
+			FRHICommandList Recorded;
+			Recorded.EnqueueLambda([&, Index] { Executed.push_back(Index * 2 + 1); });
+			Recorded.FinishRecording();
+			Immediate.QueueCommandList(std::move(Recorded));
+		}
+		const auto Submission = Executor.TrySubmit({}, ERHISubmitFlags::None);
+		EXPECT_TRUE(Submission.IsAccepted());
+		if (Submission.IsAccepted()) Executor.CreateFence(Submission.Serial).Wait();
+		RHIThread.Stop();
+		ASSERT_EQ(Executed.size(), 128u);
+		for (uint32 Index = 0; Index < Executed.size(); ++Index)
+			EXPECT_EQ(Executed[Index], Index);
+		EXPECT_EQ(Executor.GetStats().RejectedSubmissionCount, 0u);
+	}
+
 	TEST(FRHICommandListTests,
 		ClosingThreadRejectionPreservesCommandsForRetry)
 	{

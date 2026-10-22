@@ -47,6 +47,8 @@ namespace Durin
 	struct FRHIThreadQueueLimits
 	{
 		uint32 MaxEntries = 8;
+		// Batch and byte budgets apply across outstanding work; an oversized
+		// indivisible submission is admitted only when it can run alone.
 		uint32 MaxBatches = 16;
 		uint64 MaxPayloadBytes = 32ull * 1024ull * 1024ull;
 		uint32 ThreadStackSize = 0;
@@ -63,7 +65,8 @@ namespace Durin
 
 		// Exceptions escaping work are fatal; the queue does not translate them.
 		std::function<void()> Execute;
-		// A pending head stays queued; later serials never bypass it.
+		// A pending head stays queued, including during drain; later serials never
+		// bypass it. Readiness is monotonic and its publisher must wake the queue.
 		std::function<bool()> IsReady;
 		uint32 BatchCount = 0;
 		uint64 PayloadBytes = 0;
@@ -125,6 +128,7 @@ namespace Durin
 		auto operator=(const FRHIThread&) -> FRHIThread& = delete;
 
 		RHI_API auto Start(const FRHIThreadQueueLimits& InLimits = {}) -> bool;
+		// Closes admission but preserves accepted work and its readiness dependencies.
 		RHI_API auto BeginDrain() -> void;
 		// Explicit terminal notification cancels queued work and wakes waiters.
 		RHI_API auto ReportExternalFailure() -> void;
