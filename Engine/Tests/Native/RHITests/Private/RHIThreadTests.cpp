@@ -525,6 +525,52 @@ namespace Durin
 		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 0u);
 	}
 
+	TEST(FRHIThreadTests, PartialWorkRetainsSerialCapacityAndOwnershipThroughDrainOrFailure)
+	{
+		for (const bool bFail : {false, true})
+		{
+			SCOPED_TRACE(bFail);
+			FRHIThread Thread;
+			ASSERT_TRUE(Thread.Start());
+			FThreadEvent PrefixExecuted;
+			std::atomic<bool> Ready = false;
+			uint32 Steps = 0;
+			bool bTerminalExecuted = false;
+			auto Owner = std::make_shared<int>(1);
+			std::weak_ptr<int> Lifetime = Owner;
+			FRHIThreadWork Work;
+			Work.BatchCount = 1;
+			Work.IsReady = [&] { return Steps == 0 || Ready.load(); };
+			Work.Execute = [&, Owner] { ++Steps; PrefixExecuted.Trigger(); };
+			Work.IsComplete = [&] { return Steps == 2; };
+			const auto Accepted = Thread.Enqueue(Work);
+			EXPECT_TRUE(Accepted.IsAccepted());
+			Owner.reset();
+			EXPECT_TRUE(PrefixExecuted.WaitFor(5.0));
+			FRHIThreadWork Terminal;
+			Terminal.Execute = [&] { bTerminalExecuted = true; };
+			const auto Last = Thread.EnqueueTerminal(Terminal);
+			EXPECT_TRUE(Last.IsAccepted());
+			EXPECT_EQ(Thread.GetStats().CompletedSerial, 0u);
+			EXPECT_EQ(Thread.GetStats().OutstandingBatchCount, 1u);
+			EXPECT_FALSE(Lifetime.expired());
+			if (bFail) Thread.ReportExternalFailure();
+			else
+			{
+				Ready.store(true);
+				Thread.GetWakeCallback()();
+			}
+			EXPECT_EQ(Thread.WaitForSerial(Last.Serial), bFail
+				? ERHIThreadWaitResult::Failed : ERHIThreadWaitResult::Completed);
+			Thread.Stop();
+			EXPECT_EQ(Steps, bFail ? 1u : 2u);
+			EXPECT_EQ(bTerminalExecuted, !bFail);
+			EXPECT_TRUE(Lifetime.expired());
+			EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 0u);
+			EXPECT_EQ(Thread.GetStats().OutstandingBatchCount, 0u);
+		}
+	}
+
 	TEST(FRHIThreadTests, RHIThreadSelfWaitIsRejected)
 	{
 		FRHIThread Thread;

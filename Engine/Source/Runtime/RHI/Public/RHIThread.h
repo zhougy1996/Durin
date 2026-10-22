@@ -66,8 +66,12 @@ namespace Durin
 		// Exceptions escaping work are fatal; the queue does not translate them.
 		std::function<void()> Execute;
 		// A pending head stays queued, including during drain; later serials never
-		// bypass it. Readiness is monotonic and its publisher must wake the queue.
+		// bypass it. Readiness is monotonic per step and its publisher must wake the queue.
 		std::function<bool()> IsReady;
+		// Optional continuation: false retains this serial at the head after
+		// Execute and waits for IsReady again. Capacity and captures stay owned
+		// until the final step; later work cannot overtake a partial execution.
+		std::function<bool()> IsComplete;
 		uint32 BatchCount = 0;
 		uint64 PayloadBytes = 0;
 		uint32 FrameCount = 0;

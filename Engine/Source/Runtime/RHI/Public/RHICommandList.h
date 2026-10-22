@@ -333,6 +333,8 @@ namespace Durin
 		RHI_API ~FRHICommandListImmediate() override;
 		RHI_API auto QueueCommandList(FRHICommandList&& CommandList) -> void;
 		RHI_API auto TryQueueCommandList(FRHICommandList&& CommandList) -> bool;
+		// Preserve a closed submission boundary for dependency-gated replay.
+		RHI_API auto EndGPUSubmission() -> void;
 		// Hands recorded work to the RHI executor without a completion wait or GPU flush.
 		// Bounded queue admission can apply backpressure; inline mode replays locally.
 		RHI_API auto DispatchToRHIThread() -> uint64;

@@ -1536,6 +1536,89 @@ namespace Durin
 		EXPECT_EQ(PipelineStateCache::PrecacheComputePipelineState({}, "unsupported").error(), ERHIPipelineRequestRejection::Unsupported);
 	}
 
+	TEST(FRHICommandListTests, PendingPipelineAllowsClosedPrefixAndRetainsSerialAndStorage)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+		for (const bool bOrderedEvent : {false, true})
+		for (const int Outcome : {0, 1, 2})
+		{
+			SCOPED_TRACE(Outcome);
+			SCOPED_TRACE(bOrderedEvent);
+			FThreadEvent Entered, Release, PrefixReplayed, LaterReplayed;
+			FRHICapabilities Capabilities;
+			Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+			FRHIPipelineCompileBackend Backend;
+			Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
+			Backend.CreateCompute = [&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
+				Entered.Trigger(); Release.Wait();
+				return Outcome == 1 ? FComputePipelineStateRHIRef{} : MakeRefCount<FRHIComputePipelineState>();
+			};
+			Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
+			FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			auto Cached = Cache.GetCompute(Initializer, "prefix-dependency");
+			ASSERT_TRUE(Cached);
+			EXPECT_TRUE(Entered.WaitFor(5.0));
+			FRHIThread Thread;
+			ASSERT_TRUE(Thread.Start());
+			FRecordingCommandContext Context;
+			FRHICommandListExecutor Executor(Context, Thread);
+			auto& Commands = Executor.GetImmediateCommandList();
+			std::vector<int> Order;
+			auto Owner = std::make_shared<int>(1);
+			std::weak_ptr<int> Lifetime = Owner;
+			Commands.BeginGPUSubmission({});
+			Commands.EnqueueLambda([&, Owner] { Order.push_back(*Owner); PrefixReplayed.Trigger(); }, sizeof(int));
+			Commands.EndGPUSubmission();
+			Owner.reset();
+			Commands.BeginGPUSubmission({});
+			FRHICommandList Dependent;
+			Dependent.SwitchPipeline(ERHIPipeline::Compute);
+			Dependent.SetComputePipelineState(*Cached);
+			Dependent.EnqueueLambda([&] { Order.push_back(2); });
+			Dependent.FinishRecording();
+			Commands.QueueCommandList(std::move(Dependent));
+			Commands.EndGPUSubmission();
+			const auto Serial = Executor.Submit({}, bOrderedEvent
+				? ERHISubmitFlags::SubmitToGPU : ERHISubmitFlags::None);
+			auto Fence = Executor.CreateFence(Serial);
+			Commands.EnqueueLambda([&] { Order.push_back(3); LaterReplayed.Trigger(); });
+			Executor.Submit({}, ERHISubmitFlags::None);
+			auto Last = Executor.CreateFence();
+			EXPECT_EQ(PrefixReplayed.WaitFor(bOrderedEvent ? 0.05 : 5.0), !bOrderedEvent);
+			EXPECT_FALSE(Fence.IsComplete());
+			EXPECT_FALSE(LaterReplayed.IsTriggered());
+			EXPECT_FALSE(Lifetime.expired());
+			EXPECT_LT(Executor.GetCompletedSerial(), Serial);
+			if (Outcome == 2)
+			{
+				auto Closing = std::async(std::launch::async, [&] { Cache.StopAndWait(); });
+				Last.Wait();
+				Release.Trigger();
+				Closing.get();
+			}
+			else
+			{
+				Release.Trigger();
+				Last.Wait();
+			}
+			EXPECT_EQ(Fence.GetState(), Outcome == 0 ? ERHICommandBatchState::Succeeded
+				: Outcome == 1 ? ERHICommandBatchState::Failed : ERHICommandBatchState::Canceled);
+			EXPECT_EQ(Order, Outcome == 0 ? std::vector<int>({1, 2, 3})
+				: bOrderedEvent ? std::vector<int>({3}) : std::vector<int>({1, 3}));
+			EXPECT_EQ(std::ranges::count(Context.Operations, "BeginSubmission"), Outcome == 0 ? 2 : bOrderedEvent ? 0 : 1);
+			EXPECT_EQ(std::ranges::count(Context.Operations, "SubmitToGPU"), bOrderedEvent && Outcome == 0 ? 1 : 0);
+			EXPECT_TRUE(Lifetime.expired());
+			Cache.ReleaseResources();
+			Thread.Stop();
+		}
+	}
+
 	TEST(FRHICommandListTests, PendingPipelineBatchesKeepFifoAndExposeCanceledFences)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();

@@ -460,6 +460,16 @@ namespace Durin
 			return Recorded;
 		};
 		std::deque<FRHICommandList> ReadyRecordings;
+		struct FPendingRecordings
+		{
+			std::vector<Tasks::TTask<FRHICommandList>> Work;
+			size_t Next = 0;
+			~FPendingRecordings()
+			{
+				for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task);
+				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
+			}
+		} Pending;
 		struct FCloseRaster final
 		{
 			FRHICommandListImmediate& Commands;
@@ -467,6 +477,20 @@ namespace Durin
 			~FCloseRaster() { if (bOpen) Commands.EndRenderPass(); }
 		};
 		auto PrepareRecordingWave = [&](uint32 First) -> bool {
+			// Consume only the next ordered result. Other recorders keep running
+			// while the render thread records barriers and dispatches completed work.
+			if (Pending.Next != Pending.Work.size())
+			{
+				auto& Task = Pending.Work[Pending.Next++];
+				const auto Wait = Task.Wait();
+				require(Wait.WaitStatus == ETaskWaitStatus::Completed);
+				if (Wait.TaskState != ETaskState::Succeeded) return false;
+				ReadyRecordings.push_back(std::move(Task.GetResult()));
+				Task = {};
+				return true;
+			}
+			Pending.Work.clear();
+			Pending.Next = 0;
 			auto Eligible = [&](uint32 Index) {
 				const auto& Runtime = Compiled->RuntimePasses[Index];
 				return Runtime.RecordingPolicy == ERDGRecordingPolicy::Parallel
@@ -481,31 +505,17 @@ namespace Durin
 				ReadyRecordings.push_back(RecordOwned(First));
 				return true;
 			}
-			struct FPendingRecordings
-			{
-				std::vector<Tasks::TTask<FRHICommandList>> Work;
-				~FPendingRecordings()
-				{
-					for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task);
-					for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
-				}
-			} Pending;
 			// Allocate handle storage before launching work that borrows this graph.
 			// A vector growth failure must not orphan an already-running callback.
 			Pending.Work.reserve(End - First);
 			for (uint32 Index = First; Index < End; ++Index)
 				Pending.Work.push_back(Tasks::LaunchIndependentTask("RDG.RecordPass", [RecordOwned, Index] { return RecordOwned(Index); }));
-			for (auto& Task : Pending.Work)
-			{
-				const auto Wait = Task.Wait();
-				require(Wait.WaitStatus == ETaskWaitStatus::Completed);
-				if (Wait.TaskState != ETaskState::Succeeded)
-				{
-					ReadyRecordings.clear();
-					return false;
-				}
-				ReadyRecordings.push_back(std::move(Task.GetResult()));
-			}
+			auto& Task = Pending.Work[Pending.Next++];
+			const auto Wait = Task.Wait();
+			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
+			if (Wait.TaskState != ETaskState::Succeeded) return false;
+			ReadyRecordings.push_back(std::move(Task.GetResult()));
+			Task = {};
 			return true;
 		};
 		FRHIGPUSyncPointRef InitialSignal;

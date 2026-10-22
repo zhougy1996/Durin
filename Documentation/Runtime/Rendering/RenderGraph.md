@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-22
 
 ## Reading and Calling the Graph
 
@@ -333,9 +333,10 @@ Eligible consecutive callbacks form waves of at most eight. CPU prerequisites
 GPU texture/buffer hazards preserve replay order without serializing recording.
 Deduplicated edges retain CPU authority even when another GPU cause upgrades
 retention. Serial callbacks also cut waves. Single-pass waves and unavailable
-schedulers run inline. Worker results are joined in pass order and the complete
-wave must succeed before any of its lists is queued. Failure or cancellation
-discards that wave and drains every launched task; earlier queued waves remain.
+schedulers run inline. Worker results are joined and queued individually in pass
+order, so a ready prefix can dispatch while later callbacks are still recording.
+Failure or cancellation discards the unpublished suffix and drains every launched
+task; previously queued passes remain, including the prefix of the current wave.
 Task-handle storage is reserved before dispatch so allocation failure cannot
 orphan work borrowing the graph. A failed graph remains consumed: later callbacks
 and extraction publication do not run, and another `Execute` cannot replay its

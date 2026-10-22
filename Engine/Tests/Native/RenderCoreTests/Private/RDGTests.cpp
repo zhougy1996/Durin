@@ -9,6 +9,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Threading/Task.h"
+#include "Threading/ThreadEvent.h"
 
 #include <gtest/gtest.h>
 #include "RHIThread.h"
@@ -187,9 +188,10 @@ namespace Durin
 		class FSplitBarrierTestRHI final : public FDynamicRHI
 		{
 		public:
-			FSplitBarrierTestRHI()
+			explicit FSplitBarrierTestRHI(bool bExplicitSubmissions = false)
 			{
 				Queues.bSplitBarriers = true;
+				if (bExplicitSubmissions) Queues.Queues.push_back({.Id = {}, .bGraphics = true});
 				FRHICapabilities Capabilities;
 				Capabilities.SupportedTextureDimensions =
 					ERHITextureDimensionFlags::Texture2D
@@ -2641,6 +2643,56 @@ namespace Durin
 		EXPECT_EQ(Replay, (std::vector<int>{1, 2, 3}));
 	}
 
+	TEST_F(FRDGTests, ParallelRecordingDispatchesPrefixBeforeBlockedLaterRecorder)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FStopScheduler { ~FStopScheduler() { ShutdownTaskScheduler(); } } StopScheduler;
+		FSplitBarrierTestRHI TestRHI(true);
+		struct FScopedRHI
+		{
+			FDynamicRHI* Previous = GDynamicRHI;
+			explicit FScopedRHI(FDynamicRHI& Current) { GDynamicRHI = &Current; }
+			~FScopedRHI() { GDynamicRHI = Previous; }
+		} ScopedRHI(TestRHI);
+		class FSubmissionContext final : public FBarrierRecordingContext
+		{
+		public:
+			auto RHIGetQueueContext(FRHIQueueId) -> IRHICommandContext* override { return this; }
+			auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc&) -> void override {}
+			auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef&) -> void override {}
+		} Backend;
+		FRHIThread Thread;
+		ASSERT_TRUE(Thread.Start());
+		FRHICommandListExecutor Executor(Backend, Thread);
+		FThreadEvent PrefixReplayed, LaterStarted, ReleaseLater;
+		std::vector<int> Replay;
+		FRDGBuilder Builder;
+		for (int Index = 0; Index < 2; ++Index)
+		{
+			const auto Pass = Builder.AddRecordingPass(std::to_string(Index), ERDGPassType::Copy,
+				Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+				[&, Index](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+					if (Index == 1) { LaterStarted.Trigger(); ReleaseLater.Wait(); }
+					Recorded.EnqueueLambda([&, Index] {
+						Replay.push_back(Index);
+						if (Index == 0) PrefixReplayed.Trigger();
+					});
+				}, ERDGRecordingPolicy::Parallel);
+			Builder.MarkPassRoot(Pass);
+		}
+		std::thread Observer([&] {
+			EXPECT_TRUE(LaterStarted.WaitFor(5.0));
+			EXPECT_TRUE(PrefixReplayed.WaitFor(5.0));
+			ReleaseLater.Trigger();
+		});
+		EXPECT_TRUE(Builder.Execute(Executor.GetImmediateCommandList()));
+		Observer.join();
+		Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		Thread.Stop();
+		EXPECT_EQ(Replay, (std::vector<int>{0, 1}));
+	}
+
 	TEST_F(FRDGTests, ParallelRecordingRetainsPayloadsAcrossWavesAndGraphDestruction)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -2684,7 +2736,7 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FRDGTests, FailedParallelWaveDrainsOwnersWithholdsExtractionAndPreservesPriorCommands)
+	TEST_F(FRDGTests, FailedParallelRecordingDrainsOwnersWithholdsExtractionAndPreservesOrderedPrefix)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		ASSERT_TRUE(InitializeTaskScheduler(2));
@@ -2737,7 +2789,7 @@ namespace Durin
 				EXPECT_FALSE(Extracted);
 				EXPECT_FALSE(bConsumerCalled);
 				for (uint32 Index = 0; Index < Owners.size(); ++Index)
-					EXPECT_EQ(Owners[Index].expired(), Index >= (FailureIndex / 8) * 8);
+					EXPECT_EQ(Owners[Index].expired(), Index >= FailureIndex);
 				const auto CompletedRecorders = Recorders.load();
 				EXPECT_GT(CompletedRecorders, FailureIndex);
 				EXPECT_FALSE(Builder.Execute(Commands));
@@ -2745,13 +2797,13 @@ namespace Durin
 			}
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 			std::vector<int> Expected{-1};
-			for (uint32 Index = 0; Index < (FailureIndex / 8) * 8; ++Index) Expected.push_back(Index);
+			for (uint32 Index = 0; Index < FailureIndex; ++Index) Expected.push_back(Index);
 			EXPECT_EQ(Replay, Expected);
 			for (const auto& Owner : Owners) EXPECT_TRUE(Owner.expired());
 		}
 	}
 
-	TEST_F(FRDGTests, FailedParallelRecordingDiscardsTheWholeWave)
+	TEST_F(FRDGTests, FailedFirstParallelRecordingDiscardsUnpublishedSuffix)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		ASSERT_TRUE(InitializeTaskScheduler(2));

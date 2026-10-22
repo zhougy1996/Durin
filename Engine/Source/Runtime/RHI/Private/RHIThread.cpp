@@ -109,6 +109,15 @@ namespace Durin
 					DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} batches={} payloadBytes={}", Entry.Serial, Entry.Work.BatchCount, Entry.Work.PayloadBytes));
 					Entry.Work.Execute();
 				}
+				if (Entry.Work.IsComplete && !Entry.Work.IsComplete())
+				{
+					std::lock_guard Lock(State.Mutex);
+					if (State.FailedSerial == 0)
+					{
+						State.Queue.push_front(std::move(Entry));
+						continue;
+					}
+				}
 
 				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
 				const uint32 CompletedBatchCount = Entry.Work.BatchCount;
