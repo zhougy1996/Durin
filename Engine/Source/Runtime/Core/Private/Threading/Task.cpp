@@ -1,4 +1,5 @@
 #include "Threading/Task.h"
+#include "Threading/TaskPipe.h"
 #include "Threading/Private/TaskSchedulerLifetime.h"
 
 #include "Profiling/Profiling.h"
@@ -460,7 +461,7 @@ namespace Durin
 		std::atomic<uint64> Generation = 1;
 	};
 
-	enum class ETaskDependencyKind : uint8 { Execution, Nested, Dynamic };
+	enum class ETaskDependencyKind : uint8 { Execution, Nested, Dynamic, Pipe };
 
 	// Per-walk scratch, never a graph cache. Open addressing retains allocations
 	// across wakeups instead of allocating a hash node for every visited task.
@@ -585,6 +586,7 @@ namespace Durin
 
 	struct FTaskNodeInit
 	{
+		Tasks::FPipe* Pipe = nullptr;
 		const char* DebugName = "Task";
 		std::weak_ptr<FTaskScheduler> Scheduler;
 		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting;
@@ -648,10 +650,14 @@ namespace Durin
 			PendingFunction = std::move(Init.Function);
 			CompletionFunction = std::move(Init.Completion);
 			ResultStorage = std::move(Init.Result.Storage);
+			Pipe = Init.Pipe;
+			bPipeMayHaveDependents = !Init.Prerequisites.empty();
+			if (Pipe) { Pipe->AddTask(); bPipeCounted = true; }
 		}
 
 		~FTaskStateData()
 		{
+			if (bPipeCounted) Pipe->RemoveTask();
 			requiref(!Event || (Phase == EPhase::Closed),
 				"Task event nodes must be completed before their final reference is released.");
 			ResultStorage.reset();
@@ -795,13 +801,44 @@ namespace Durin
 		auto PrepareForQueue() -> bool
 		{
 			std::lock_guard Lock(Mutex);
-			if (Phase != EPhase::Open || ExecutionState != ETaskState::Queued || bAdmissionPending || DispatchTimeNanoseconds != 0)
+			if (Phase != EPhase::Open || ExecutionState != ETaskState::Queued || bAdmissionPending || bQueueClaimed || bPipeWaiting)
 			{
 				return false;
 			}
-			DispatchTimeNanoseconds = MonotonicNanoseconds();
+			bQueueClaimed = true;
+			if (!Pipe) DispatchTimeNanoseconds = MonotonicNanoseconds();
 			return true;
 		}
+
+		auto EnterPipe() -> bool
+		{
+			if (!Pipe || bPiped) return true;
+			// Serialize tail and graph mutation with nested/dynamic edge insertion.
+			// The pipe's count mutex is separate and is never taken here.
+			std::lock_guard GraphLock(GTaskDependencyMutex);
+			auto Previous = Pipe->LastTask.lock();
+			bPiped = true;
+			if (!Previous) { Pipe->LastTask = shared_from_this(); return true; }
+			// A newly launched ready task has not escaped admission yet. Only a
+			// task delayed by prerequisites can already have incoming graph edges.
+			if (bPipeMayHaveDependents && !IsTerminalState(Previous->GetState()))
+				requiref(!Previous->DependsOn(this), "Pipe ordering would create a task dependency cycle.");
+			std::scoped_lock Lock(Mutex, Previous->Mutex);
+			if (Previous->Phase == EPhase::Closed) { Pipe->LastTask = shared_from_this(); return true; }
+			Dependencies.ReserveAdditional();
+			Previous->ReserveSubsequentLocked();
+			Dependencies.Add(Previous, Previous->GetTaskId(), ETaskDependencyKind::Execution);
+			Previous->RegisterDependentLocked(shared_from_this(), ETaskDependencyKind::Pipe);
+			bPipeWaiting = true;
+			// Publish only after all throwing preparation. A checked allocation
+			// rejection must not replace the live tail and let later work bypass it.
+			Pipe->LastTask = shared_from_this();
+			return false;
+		}
+		auto OnPipePredecessorTerminal() -> void;
+		auto GetPipe() const -> Tasks::FPipe* { return Pipe; }
+		auto MarkDispatched() -> void
+		{ std::lock_guard Lock(Mutex); DispatchTimeNanoseconds = MonotonicNanoseconds(); }
 
 		auto Execute() -> void override;
 		auto Discard() -> void override
@@ -910,7 +947,7 @@ namespace Durin
 			{
 				std::lock_guard Lock(Mutex);
 				if (Phase == EPhase::Closed) return;
-				Dependencies.AppendTo(Result, RemainingPrerequisites != 0, PendingNestedCount != 0);
+				Dependencies.AppendTo(Result, RemainingPrerequisites != 0 || bPipeWaiting, PendingNestedCount != 0);
 				Released = Dependencies.Release(FTaskDependencyEdges::ERelease::RetractionAttempt);
 			}
 		}
@@ -1043,6 +1080,12 @@ namespace Durin
 		std::vector<std::shared_ptr<void>> ResultLifetimes;
 		bool bHasResultStorage = false;
 		bool bAdmissionPending = true;
+		Tasks::FPipe* Pipe = nullptr;
+		bool bPipeCounted = false;
+		bool bPiped = false;
+		bool bPipeMayHaveDependents = false;
+		bool bPipeWaiting = false;
+		bool bQueueClaimed = false;
 		size_t ReservedDependents = 0;
 		const ETaskNodeKind Kind;
 		struct FEventData
@@ -1178,6 +1221,7 @@ namespace Durin
 			Private::FTaskResultStorage Result = {}) -> std::shared_ptr<FTaskStateData>
 		{
 			FTaskNodeInit Init;
+			Init.Pipe = Options.Pipe;
 			Init.DebugName = Name;
 			Init.Scheduler = weak_from_this();
 			Init.LifetimeAccounting = LifetimeAccounting;
@@ -1213,6 +1257,7 @@ namespace Durin
 			} Reservations{PrerequisiteStates, ReservedDependencyCount};
 			std::optional<Tasks::FTaskAdmissionError> ValidationError;
 			if ((GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
+				|| (Options.Pipe && (Target != ETaskTarget::AnyWorker || Options.bExternalCompletion || Options.bIndependentCPU))
 				|| (Options.bIndependentCPU && (Target != ETaskTarget::AnyWorker
 					|| Options.bExternalCompletion || std::ranges::any_of(Options.Prerequisites, [](const auto& Task) { return Task.IsValid(); }))))
 				ValidationError = Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
@@ -1360,6 +1405,8 @@ namespace Durin
 				{
 					return;
 				}
+				if (!State->EnterPipe()) { State->NotifyStateChanged(); return; }
+				if (State->GetPipe()) State->MarkDispatched();
 				if (State->GetTarget() == ETaskTarget::GameThreadDeferred)
 				{
 					if (!DispatchGameThreadDeferredTask(State))
@@ -2240,6 +2287,7 @@ namespace Durin
 					}
 					ReleasedDependencies = Dependencies.Release(FTaskDependencyEdges::ERelease::Closed);
 					Phase = EPhase::Closed;
+					if (bPipeCounted) { Pipe->RemoveTask(); bPipeCounted = false; }
 					SubsequentNodes = std::move(Subsequents);
 					if (Event) EventLifetime = std::move(Event->CompletionLifetime);
 					break;
@@ -2259,9 +2307,45 @@ namespace Durin
 			if (auto Pinned = Subsequent.Node.lock())
 			{
 				if (Subsequent.Kind == ETaskDependencyKind::Execution) Pinned->OnPrerequisiteTerminal();
+				else if (Subsequent.Kind == ETaskDependencyKind::Pipe) Pinned->OnPipePredecessorTerminal();
 				else Pinned->OnNestedCompleted();
 			}
 		if (auto PinnedScheduler = Scheduler.lock()) PinnedScheduler->OnTaskTerminal(shared_from_this());
+	}
+
+	auto FTaskStateData::OnPipePredecessorTerminal() -> void
+	{
+		{
+			std::lock_guard Lock(Mutex);
+			check(bPipeWaiting && bQueueClaimed);
+			bPipeWaiting = false;
+			bQueueClaimed = false;
+		}
+		if (auto PinnedScheduler = Scheduler.lock()) PinnedScheduler->QueueTask(shared_from_this());
+	}
+
+	auto Tasks::FPipe::AddTask() -> void
+	{ std::lock_guard Lock(Mutex); ++TaskCount; }
+	auto Tasks::FPipe::RemoveTask() -> void
+	{
+		std::lock_guard Lock(Mutex);
+		check(TaskCount > 0);
+		if (--TaskCount == 0) Empty.notify_all();
+	}
+	Tasks::FPipe::~FPipe()
+	{ requiref(!HasWork(), "A pipe must outlive all of its tasks."); }
+	auto Tasks::FPipe::HasWork() const -> bool
+	{ std::lock_guard Lock(Mutex); return TaskCount != 0; }
+	auto Tasks::FPipe::IsInContext() const -> bool
+	{ return GCurrentTaskState && GCurrentTaskState->GetPipe() == this; }
+	auto Tasks::FPipe::WaitUntilEmpty(double TimeoutSeconds) -> bool
+	{
+		std::unique_lock Lock(Mutex);
+		if (TaskCount == 0) return true;
+		if (IsInContext() || (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
+			|| IsInRenderingThread() || !(TimeoutSeconds > 0)) return false;
+		if (std::isinf(TimeoutSeconds)) { Empty.wait(Lock, [&] { return TaskCount == 0; }); return true; }
+		return Empty.wait_for(Lock, std::chrono::duration<double>(TimeoutSeconds), [&] { return TaskCount == 0; });
 	}
 
 	auto FTaskStateData::OnPrerequisiteTerminal() -> void

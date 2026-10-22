@@ -249,6 +249,36 @@ work; an already in-flight notification may finish. Notification exceptions are
 contained. `WithLifetime(SharedOwner)` attaches ownership to the shared node and
 all its handles and result aliases; this supports accounting that outlives receipt eviction.
 
+## Serial Pipes
+
+`Threading/TaskPipe.h` provides noncopyable, nonmovable `Tasks::FPipe`.
+`Launch(Name, Callable[, Prerequisites][, OptionsOrPriority])` returns the same
+typed task and preserves ordinary result, exception and cooperative cancellation
+semantics. Pipes currently dispatch Worker tasks with the existing priority set.
+Construction allocates no task or queue; the pipe keeps a weak tail and a count
+of all outstanding tasks, including tasks still waiting on prerequisites.
+
+As in [UE pipes](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/FPipe),
+prerequisites resolve **before** tasks enter the serial chain. An earlier launch
+with unmet prerequisites cannot block later ready work. Ready tasks execute in
+pipe-entry order regardless of priority; sequential prerequisite-free launches
+therefore execute FIFO. Concurrent launches and prerequisite completion races
+have no guaranteed order. Different pipes can execute concurrently.
+Each task waits for its pipe predecessor's full completion, including nested
+tasks and result publication. Pipe edges participate in dependency retraction,
+wait restrictions and cycle detection. Waiting for or nesting a successor from
+the same pipe creates a dependency cycle; a cycle discovered during delayed
+pipe entry is a programming-contract violation.
+
+`IsInContext()` identifies the currently executing task's pipe, including during
+wait retraction; `HasWork()` includes all accepted unfinished work.
+`WaitUntilEmpty(TimeoutSeconds)` is a blocking drain without dependency helping
+or executor pumping. Stop producers before draining and ensure prerequisites can
+progress independently. It returns false on timeout or when outstanding work
+cannot be joined from the current pipe, an independent CPU leaf, or RenderingThread.
+The pipe must outlive every task it launches; destruction checks that it is empty.
+Completed task handles and result aliases may outlive the pipe.
+
 ## Dependencies, Waiting And CPU Policy
 
 `Tasks::AddNested(Task)` adds a completion dependency to the currently executing
@@ -535,6 +565,7 @@ See [CPU Profiling](../../Development/Build/Profiling.md).
 ## Related Code
 
 - `Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h`
+- `Engine/Source/Runtime/Core/Public/Threading/TaskPipe.h`
 - `Engine/Source/Runtime/Core/Public/Threading/Task.h`
 - `Engine/Source/Runtime/Core/Private/Threading/Task.cpp`
 - `Engine/Source/Runtime/Launch/Private/EngineLoop.cpp`

@@ -269,13 +269,14 @@ namespace Durin::Tasks
 	{
 	template<typename F, typename T = typename Detail::TTokenResult<std::decay_t<F>>::Type>
 	requires (!std::is_reference_v<T> && !Detail::TIsTask<T>::value)
-	auto LaunchTaskImpl(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false)
+	auto LaunchTaskImpl(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
 		-> TTask<T>
 	{
 		try
 		{
 			auto State = Detail::MakeResultState<TTaskValue<T>>();
 			FTaskLaunchOptions Launch;
+			Launch.Pipe = Pipe;
 			Launch.bIndependentCPU = bIndependentCPU;
 			Launch.Attribution = Options.Attribution;
 			Launch.CancellationToken = Options.Cancellation;
