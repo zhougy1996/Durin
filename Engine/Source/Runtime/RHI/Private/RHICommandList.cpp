@@ -1420,14 +1420,15 @@ namespace Durin
 		class FBatch
 		{
 		public:
-			explicit FBatch(std::unique_ptr<FRHICommandStorage>&& InStorage)
-				: Storage(std::move(InStorage))
+			explicit FBatch(std::unique_ptr<FRHICommandStorage>&& InStorage, bool bInSafeBoundary)
+				: Storage(std::move(InStorage)), bSafeBoundary(bInSafeBoundary)
 			{
 				check(Storage);
 			}
 
 			FBatch(FBatch&&) noexcept = default;
 			auto GetDependencies() const -> std::span<const FRHIPipelineCreationRequest> { return Storage->GetDependencies(); }
+			auto EndsReplayScope() const -> bool { return bSafeBoundary; }
 			auto operator=(FBatch&&) noexcept -> FBatch& = default;
 			FBatch(const FBatch&) = delete;
 			auto operator=(const FBatch&) -> FBatch& = delete;
@@ -1460,6 +1461,7 @@ namespace Durin
 
 			std::unique_ptr<FRHICommandStorage> Storage;
 			EState State = EState::Submitted;
+			bool bSafeBoundary = false;
 		};
 
 		class FSubmissionGroup
@@ -1492,12 +1494,16 @@ namespace Durin
 			auto GetDependencyState() const -> ERHICommandBatchState
 			{
 				bool Pending = false, Canceled = false;
-				for (const auto& Request : Dependencies)
+				const size_t End = GetStepEnd();
+				for (size_t Index = NextBatch; Index < End; ++Index)
 				{
-					const auto State = Request.GetState();
-					if (State == ERHIPipelineRequestState::Failed) return ERHICommandBatchState::Failed;
-					Canceled |= State == ERHIPipelineRequestState::Canceled;
-					Pending |= State == ERHIPipelineRequestState::Pending;
+					for (const auto& Request : (*Batches)[Index].GetDependencies())
+					{
+						const auto State = Request.GetState();
+						if (State == ERHIPipelineRequestState::Failed) return ERHICommandBatchState::Failed;
+						Canceled |= State == ERHIPipelineRequestState::Canceled;
+						Pending |= State == ERHIPipelineRequestState::Pending;
+					}
 				}
 				return Canceled ? ERHICommandBatchState::Canceled : Pending ? ERHICommandBatchState::Pending : ERHICommandBatchState::Succeeded;
 			}
@@ -1512,11 +1518,14 @@ namespace Durin
 
 			auto Replay(FRHICommandReplayContext& ReplayContext) -> void
 			{
-				for (FBatch& Batch : *Batches)
+				do
 				{
-					Batch.Replay(ReplayContext);
+					const size_t End = GetStepEnd();
+					while (NextBatch < End) (*Batches)[NextBatch++].Replay(ReplayContext);
 				}
+				while (!IsReplayComplete() && GetDependencyState() == ERHICommandBatchState::Succeeded);
 			}
+			auto IsReplayComplete() const -> bool { return NextBatch == BatchCount; }
 
 			auto ReleaseBatches() -> void
 			{
@@ -1535,6 +1544,16 @@ namespace Durin
 			auto GetPayloadBytes() const -> size_t { return PayloadBytes; }
 
 		private:
+			auto GetStepEnd() const -> size_t
+			{
+				// Ordered frame/resource events keep their original all-or-nothing
+				// dependency gate. Ordinary dispatches may advance complete scopes.
+				if (Flags == ERHISubmitFlags::None)
+					for (size_t Index = NextBatch; Index < BatchCount; ++Index)
+						if ((*Batches)[Index].EndsReplayScope()) return Index + 1;
+				return BatchCount;
+			}
+			size_t NextBatch = 0;
 			const ERHISubmitFlags Flags;
 			std::shared_ptr<std::vector<FBatch>> Batches;
 			size_t BatchCount = 0;
@@ -2404,6 +2423,12 @@ namespace Durin
 		return Executor->Submit({}, ERHISubmitFlags::None);
 	}
 
+	auto FRHICommandListImmediate::EndGPUSubmission() -> void
+	{
+		FRHICommandListBase::EndGPUSubmission();
+		if (CanDispatchToRHIThread()) Executor->SealImmediateSegment();
+	}
+
 	auto FRHICommandListImmediate::IsRHIThreadEnabled() const -> bool
 	{
 		return Executor->State->RHIThread != nullptr;
@@ -2633,7 +2658,8 @@ namespace Durin
 		}
 		SealImmediateSegment();
 		const ERHIPipeline InsertedFinalPipeline = CommandList.ActivePipeline;
-		State->PendingBatches.emplace_back(CommandList.DetachStorage());
+		State->PendingBatches.emplace_back(CommandList.DetachStorage(),
+			CommandListImmediate.CanDispatchToRHIThread() && CommandListImmediate.ActiveTransitions.empty());
 		CommandList.MarkAdmitted();
 		if (InsertedFinalPipeline != CommandListImmediate.ActivePipeline)
 		{
@@ -2650,7 +2676,8 @@ namespace Durin
 			return;
 		}
 		State->PendingBatches.emplace_back(
-			CommandListImmediate.DetachStorage());
+			CommandListImmediate.DetachStorage(),
+			CommandListImmediate.CanDispatchToRHIThread() && CommandListImmediate.ActiveTransitions.empty());
 	}
 
 	auto FRHICommandListExecutor::TrySubmit(
@@ -2696,7 +2723,8 @@ namespace Durin
 			if (CommandList->GetNumRecordedCommands() != 0)
 			{
 				State->PendingBatches.emplace_back(
-					CommandList->DetachStorage());
+					CommandList->DetachStorage(),
+					CommandListImmediate.CanDispatchToRHIThread() && CommandListImmediate.ActiveTransitions.empty());
 				AppendedFinalPipeline = CommandList->ActivePipeline;
 				bAppendedCommands = true;
 			}
@@ -2842,7 +2870,7 @@ namespace Durin
 				StorageOwnerScope.Context->SetStorageOwner({});
 				StorageOwnerScope.Context = nullptr;
 			}
-			Group.ReleaseBatches();
+			if (Group.IsReplayComplete()) Group.ReleaseBatches();
 			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::DeleteResources))
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.DeleteDeferredResources");
@@ -2874,11 +2902,20 @@ namespace Durin
 					[Wake = State->RHIThread->GetWakeCallback()](ETaskState) { Wake(); }));
 			}
 			Work.Execute = [Replay, SubmissionGroup]() mutable {
-				auto Outcome = SubmissionGroup->GetDependencyState();
-				if (Outcome == ERHICommandBatchState::Succeeded) Replay(*SubmissionGroup);
-				else if (Outcome == ERHICommandBatchState::Pending) Outcome = ERHICommandBatchState::Canceled;
-				SubmissionGroup->Completion->State.store(Outcome);
-				SubmissionGroup.reset();
+				while (true)
+				{
+					const auto Outcome = SubmissionGroup->GetDependencyState();
+					if (Outcome == ERHICommandBatchState::Pending) return;
+					if (Outcome == ERHICommandBatchState::Succeeded) Replay(*SubmissionGroup);
+					if (Outcome != ERHICommandBatchState::Succeeded || SubmissionGroup->IsReplayComplete())
+					{
+						SubmissionGroup->Completion->State.store(Outcome);
+						return;
+					}
+				}
+			};
+			Work.IsComplete = [SubmissionGroup] {
+				return SubmissionGroup->Completion->State.load() != ERHICommandBatchState::Pending;
 			};
 			const FRHIThreadSubmission Submission = State->RHIThread->Enqueue(Work);
 			if (!Submission.IsAccepted())
@@ -2941,8 +2978,13 @@ namespace Durin
 		State->LastSubmittedSerial.store(Serial, std::memory_order_release);
 		State->RememberCompletion(Serial, SubmissionGroup->Completion);
 		for (const auto& Request : SubmissionGroup->Dependencies) Request.Wait();
-		const auto Outcome = SubmissionGroup->GetDependencyState();
-		if (Outcome == ERHICommandBatchState::Succeeded) Replay(*SubmissionGroup);
+		auto Outcome = SubmissionGroup->GetDependencyState();
+		while (Outcome == ERHICommandBatchState::Succeeded)
+		{
+			Replay(*SubmissionGroup);
+			if (SubmissionGroup->IsReplayComplete()) break;
+			Outcome = SubmissionGroup->GetDependencyState();
+		}
 		SubmissionGroup->Completion->State.store(Outcome);
 		SubmissionGroup.reset();
 		{

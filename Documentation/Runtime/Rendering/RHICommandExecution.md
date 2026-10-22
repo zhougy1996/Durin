@@ -158,9 +158,9 @@ capture that same queue-owned last-accepted serial. Inline mode preserves the
 same serial and completion behavior locally. Empty work without an ordered
 event does not manufacture a serial or backend submission.
 
-The queue admits at most 8 queued-or-active entries, 16 batches, 3 frame-end
-boundaries, with a 32 MiB owned-payload backpressure threshold. A single
-submission above that byte threshold waits for an empty queue and runs alone;
+The queue admits at most 8 queued-or-active entries and 3 frame-end boundaries,
+with backpressure budgets of 16 batches and 32 MiB of owned payload. A single
+indivisible submission above either budget waits for an empty queue and runs alone;
 later work waits for its completion. Each submission carrying `EndFrame`
 charges one frame until replay finishes or rejects the work. This is a CPU
 queue latency limit, independent of Vulkan's two-slot GPU pacing. A producer
@@ -170,6 +170,19 @@ on completion, failure, or admission close. Admission is explicit
 producer's work. The RHI thread is the sole runtime owner of command-context
 replay, Vulkan command-pool/buffer mutation, graphics and present queue
 submission, frame state, and ordered backend deletion.
+
+Ordinary dispatches can replay a ready ordered prefix before later PSO dependencies
+complete. Replay pauses only at recorded closed scopes, never inside a GPU
+submission, render pass, timing/diagnostic interval, buffer lock, or split
+transition. Immediate GPU-submission ends preserve such boundaries in storage.
+The partial work keeps its queue serial, capacity charge, and storage owners;
+later entries cannot overtake it, and its fence remains pending. Ready adjacent
+scopes replay together without another queue round trip. Dependency failure or
+cancellation discards the remaining suffix and publishes the group's failed or
+canceled outcome; it cannot undo the already executed prefix. Frame/resource
+event submissions retain an aggregate dependency gate and execute their events
+only after all dependencies succeed. Drain preserves readiness waits, while
+explicit external failure cancels queued continuations and wakes waiters.
 
 Ordered events execute in this sequence:
 
