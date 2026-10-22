@@ -98,6 +98,73 @@ namespace Durin
 		EXPECT_EQ(Runs.load(), Count);
 	}
 
+	TEST_F(FTaskCloseTests, PreparedDependenciesRaceClosureWithoutLeakingReservations)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .MaxNonterminalTasks = 32}));
+		Tasks::FTaskEvent Gate("PreparationCloseGate", false);
+		FThreadEvent Start;
+		std::atomic<uint32> Ready = 0, Accepted = 0, Runs = 0;
+		std::array<std::thread, 4> Producers;
+		for (auto& Producer : Producers)
+			Producer = std::thread([&] {
+				++Ready;
+				Start.Wait();
+				for (uint32 Index = 0; Index < 128; ++Index)
+				{
+					const auto Prerequisites = Tasks::Prerequisites(Gate);
+					FTaskLaunchOptions Options;
+					Options.Prerequisites = Prerequisites;
+					auto Admission = Private::TryLaunchCancelableTaskWithCompletion("PreparedClose",
+						[&](const FTaskCancellationToken&) { ++Runs; }, {}, Options);
+					if (Admission.HasValue()) ++Accepted;
+					else EXPECT_TRUE(Admission.GetError().Code == Tasks::ETaskAdmissionErrorCode::LifetimeClosed
+						|| Admission.GetError().Code == Tasks::ETaskAdmissionErrorCode::CapacityExhausted);
+				}
+			});
+		while (Ready.load() != Producers.size()) std::this_thread::yield();
+		Start.Trigger();
+		Gate.Trigger();
+		ShutdownTaskScheduler(true);
+		for (auto& Producer : Producers) Producer.join();
+		EXPECT_EQ(Runs.load(), Accepted.load());
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTaskReservationCount, 0u);
+		// Reusing the event in another lifetime also exercises completed-node
+		// registration after all speculative reservations have been rolled back.
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		EXPECT_EQ(Tasks::LaunchTask("AfterPreparedClose", [] {}, Gate).Wait().TaskState, ETaskState::Succeeded);
+	}
+
+	TEST_F(FTaskCloseTests, CombinedWaitInspectionPreservesCyclePrecedenceAndClosedRequirements)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent ClosedUnknown("ClosedUnknown");
+		ClosedUnknown.Trigger();
+		Tasks::FTaskEvent Gate("KnownProgress", false);
+		Tasks::FTask Tail = Gate;
+		for (uint32 Index = 0; Index < 128; ++Index)
+			Tail = Tasks::LaunchTask("SharedInspectionGraph", [] {}, Tasks::Prerequisites(Tail, ClosedUnknown));
+		auto Observer = Tasks::LaunchTask("CheckClosedRequirements", [&] {
+			EXPECT_EQ(Tail.Wait(0.001).WaitStatus, ETaskWaitStatus::TimedOut);
+			Gate.Trigger();
+			EXPECT_EQ(Tail.Wait().TaskState, ETaskState::Succeeded);
+		});
+		Observer.Wait();
+
+		Tasks::FTaskEvent Unknown("PendingUnknown");
+		Tasks::FTaskEvent Cycle("CycleAndUnknown", false);
+		FThreadEvent Bound;
+		auto Parent = Tasks::LaunchTask("CyclePrecedence", [&] {
+			Bound.Wait();
+			EXPECT_EQ(Cycle.Wait().WaitStatus, ETaskWaitStatus::DependencyCycle);
+		});
+		Cycle.AddPrerequisites(Tasks::Prerequisites(Parent, Unknown));
+		Cycle.Trigger();
+		Bound.Trigger();
+		Parent.Wait();
+		Unknown.Trigger();
+		EXPECT_TRUE(Cycle.IsCompleted());
+	}
+
 	TEST_F(FTaskCloseTests, CancellationRequestsPreserveDependenciesBodiesAndResults)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(1));

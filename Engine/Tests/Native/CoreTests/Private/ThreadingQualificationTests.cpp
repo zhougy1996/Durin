@@ -20,6 +20,83 @@ namespace Durin
 		};
 	}
 
+	TEST(FTaskHotPathQualificationTests, SubmissionAndBlockedGraphTraversal)
+	{
+		FTaskSchedulerQualificationGuard Guard;
+		constexpr int Warmups = 2;
+		constexpr int Samples = 9;
+		auto Report = [](const char* Name, uint32 Width, std::vector<double>& Times) {
+			std::cout << "TaskHotPathSamples case=" << Name << " width=" << Width << " us=";
+			for (double Time : Times) std::cout << Time << ',';
+			std::cout << '\n';
+			std::ranges::sort(Times);
+			std::cout << "TaskHotPath case=" << Name << " width=" << Width
+				<< " warmup=" << Warmups << " samples=" << Samples
+				<< " median_us=" << Times[Samples / 2] << " p95_us=" << Times.back() << '\n';
+		};
+		for (uint32 Producers : {1u, 4u})
+		{
+			std::vector<double> Times;
+			for (int Sample = -Warmups; Sample < Samples; ++Sample)
+			{
+				ShutdownTaskScheduler(true);
+				ASSERT_TRUE(InitializeTaskScheduler(4));
+				constexpr uint32 Count = 8192;
+				std::vector<Tasks::FTask> Handles(Count);
+				std::vector<Tasks::FTaskEvent> Gates;
+				for (uint32 Index = 0; Index < Producers; ++Index) Gates.emplace_back("SubmissionGate", false);
+				FThreadEvent Start;
+				std::atomic<uint32> Ready = 0;
+				std::vector<std::thread> Threads;
+				for (uint32 Producer = 0; Producer < Producers; ++Producer)
+					Threads.emplace_back([&, Producer] {
+						++Ready;
+						Start.Wait();
+						for (uint32 Index = Producer; Index < Count; Index += Producers)
+							Handles[Index] = Tasks::LaunchTask("SubmissionMeasure", [] {}, Gates[Producer]);
+					});
+				while (Ready.load() != Producers) std::this_thread::yield();
+				const auto Begin = std::chrono::steady_clock::now();
+				Start.Trigger();
+				for (auto& Thread : Threads) Thread.join();
+				const double Micros = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - Begin).count();
+				if (Sample >= 0) Times.push_back(Micros);
+				for (auto& Gate : Gates) Gate.Trigger();
+				for (const auto& Result : WaitAll(Handles)) EXPECT_EQ(Result.TaskState, ETaskState::Succeeded);
+			}
+			Report("submit_8192", Producers, Times);
+		}
+		for (uint32 Depth : {32u, 1024u})
+		{
+			std::vector<double> Times;
+			for (int Sample = -Warmups; Sample < Samples; ++Sample)
+			{
+				ShutdownTaskScheduler(true);
+				ASSERT_TRUE(InitializeTaskScheduler(1));
+				Tasks::FTaskEvent Gate("TraversalGate", false);
+				Tasks::FTask Tail = Gate;
+				for (uint32 Index = 0; Index < Depth; ++Index)
+					Tail = Tasks::LaunchTask("BlockedChain", [] {}, Tail);
+				double Micros = 0;
+				FThreadEvent Finished;
+				auto Observer = Tasks::LaunchTask("TraversalObserver", [&] {
+					// Exercise worker cycle/authority checks plus directed retraction,
+					// without sleep time or task execution obscuring graph-walk cost.
+					const auto Begin = std::chrono::steady_clock::now();
+					for (uint32 Attempt = 0; Attempt < 64; ++Attempt) EXPECT_FALSE(Tail.TryRetractAndExecute());
+					Micros = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - Begin).count();
+					Finished.Trigger();
+				});
+				Finished.Wait();
+				Observer.Wait();
+				if (Sample >= 0) Times.push_back(Micros);
+				Gate.Trigger();
+				EXPECT_EQ(Tail.Wait().TaskState, ETaskState::Succeeded);
+			}
+			Report("retract_64", Depth, Times);
+		}
+	}
+
 	TEST(FTaskDiagnosticsQualificationTests, FirstSnapshotAfterObservationFreeLifetimeIsNotHistoryLinear)
 	{
 		FTaskSchedulerQualificationGuard Guard;
