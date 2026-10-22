@@ -2,6 +2,12 @@
 #include "Backend/RHICompletionBackend.h"
 #include "RDG/RDG.h"
 #include "Renderers/MeshVertexFactory.h"
+#include "Renderers/MeshPipelineDescription.h"
+#include "HitProxy.h"
+#include "PSOPrecache.h"
+#include "PSOPrecacheComponent.h"
+#include "Materials/MaterialPSOPrecache.h"
+#include "RHICapabilities.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/MeshBatch.h"
@@ -264,6 +270,91 @@ concept CHasDirectExecutionCounters = requires(T Value) {
 	Value.SuccessfulDraws;
 	Value.RejectedDraws;
 };
+
+TEST(FRendererSceneContractTests, MeshPipelineDescriptionsCollectAllMaterialPassStatesWithoutNativeResources)
+{
+	using namespace Durin;
+	using namespace Durin::RendererPrivate;
+	constexpr auto Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
+	for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
+		for (const auto Policy : {EMaterialDepthWritePolicy::Automatic, EMaterialDepthWritePolicy::Enabled, EMaterialDepthWritePolicy::Disabled})
+		{
+			FMaterialPlanningPassIdentity Material;
+			Material.ShaderMap.BlendMode = Blend;
+			Material.DepthWritePolicy = Policy;
+			const auto State = MakeMeshPipelineState(Material, {.bWireframe = true, .bReverseCulling = true, .bReversedZ = true});
+			EXPECT_EQ(State.Rasterizer.PolygonMode, ERHIPolygonMode::Line);
+			EXPECT_EQ(State.Rasterizer.CullMode, ERHICullMode::Back);
+			EXPECT_EQ(State.Rasterizer.FrontFace, ERHIFrontFace::CounterClockwise);
+			EXPECT_EQ(State.Depth.CompareOp, ERHIDepthCompareOp::GreaterOrEqual);
+			EXPECT_EQ(State.Depth.bEnableWrite, Policy == EMaterialDepthWritePolicy::Enabled
+				|| (Policy == EMaterialDepthWritePolicy::Automatic && Blend != EMaterialBlendMode::Translucent));
+			for (const auto Pass : {EMeshPipelinePass::Forward, EMeshPipelinePass::HybridRetainedForward,
+				EMeshPipelinePass::SortedTranslucency, EMeshPipelinePass::ShadowDepth, EMeshPipelinePass::GBuffer, EMeshPipelinePass::HitProxy})
+			{
+				SCOPED_TRACE(std::format("blend={},policy={},pass={}", uint8(Blend), uint8(Policy), uint8(Pass)));
+				const auto Description = DescribeMeshPipeline(Pass, State, Topology, Blend, true);
+				const auto Initializer = Description.MakeInitializer(nullptr, nullptr, nullptr, {});
+				EXPECT_EQ(Initializer.BoundShaders.VertexShader, nullptr);
+				EXPECT_EQ(Initializer.VertexDeclaration, nullptr);
+				EXPECT_EQ(Initializer.PrimitiveTopology, Topology);
+				EXPECT_TRUE(Initializer.RenderTargetLayout.bHasDepthStencil);
+				if (Pass == EMeshPipelinePass::ShadowDepth)
+				{
+					EXPECT_EQ(Initializer.RenderTargetLayout.NumColorRenderTargets, 0u);
+					EXPECT_EQ(Initializer.RenderTargetLayout.DepthStencilAttachment.Format, EPixelFormat::D32);
+					EXPECT_EQ(Initializer.RasterizerState.PolygonMode, ERHIPolygonMode::Fill);
+					EXPECT_TRUE(Initializer.RasterizerState.bEnableDepthBias);
+					EXPECT_TRUE(Initializer.DepthStencilState.bEnableWrite);
+					EXPECT_EQ(Initializer.DepthStencilState.CompareOp, ERHIDepthCompareOp::Less);
+				}
+				else if (Pass == EMeshPipelinePass::HitProxy)
+				{
+					EXPECT_EQ(Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format, FHitProxyPixel::Format);
+					EXPECT_EQ(Initializer.RasterizerState.PolygonMode, ERHIPolygonMode::Fill);
+					EXPECT_TRUE(Initializer.DepthStencilState.bEnableWrite);
+					EXPECT_FALSE(Initializer.ColorBlendStates[0].bEnable);
+				}
+				else
+				{
+					EXPECT_EQ(Initializer.DepthStencilState, State.Depth);
+					EXPECT_EQ(Initializer.RasterizerState, State.Rasterizer);
+					EXPECT_EQ(Initializer.RenderTargetLayout.NumColorRenderTargets, Pass == EMeshPipelinePass::GBuffer ? 4u : 1u);
+					EXPECT_EQ(Initializer.ColorBlendStates[0].bEnable, Pass != EMeshPipelinePass::GBuffer && Blend == EMaterialBlendMode::Translucent);
+					if (Pass == EMeshPipelinePass::HybridRetainedForward || Pass == EMeshPipelinePass::SortedTranslucency)
+						EXPECT_EQ(Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Load);
+				}
+			}
+		}
+}
+
+TEST(FRendererSceneContractTests, MeshPipelineDescriptionsNormalizeShadowIdentityAndPreserveMirroredCulling)
+{
+	using namespace Durin;
+	using namespace Durin::RendererPrivate;
+	FMaterialPlanningPassIdentity Material;
+	Material.bTwoSided = true;
+	EXPECT_EQ(MakeMeshPipelineState(Material, {}).Rasterizer.CullMode, ERHICullMode::None);
+	Material.bTwoSided = false;
+	EXPECT_EQ(MakeMeshPipelineState(Material, {.bOrientationChanging = true}).Rasterizer.CullMode, ERHICullMode::None);
+	FEffectiveMeshPipelineKey Source;
+	Source.Rasterizer = MakeMeshPipelineState(Material, {.bReverseCulling = true}).Rasterizer;
+	Source.Rasterizer.bEnableDepthBias = true;
+	Source.Rasterizer.DepthBiasConstantFactor = 7.f;
+	Source.Rasterizer.DepthBiasSlopeFactor = 3.f;
+	Source.Rasterizer.DepthBiasClamp = 2.f;
+	const auto Key = MakeShadowPipelineKey(Source);
+	const auto Description = DescribeMeshPipeline(EMeshPipelinePass::ShadowDepth,
+		{Source.Rasterizer, Source.Depth, Source.ColorBlend}, Source.Topology);
+	EXPECT_EQ(Description.Rasterizer, Key.Rasterizer);
+	EXPECT_EQ(Description.Depth, Key.Depth);
+	EXPECT_EQ(Description.Rasterizer.FrontFace, ERHIFrontFace::CounterClockwise);
+	EXPECT_EQ(Description.Rasterizer.DepthBiasConstantFactor, 0.f);
+	EXPECT_EQ(Description.Rasterizer.DepthBiasSlopeFactor, 0.f);
+	EXPECT_EQ(Description.Rasterizer.DepthBiasClamp, 0.f);
+	const auto HitProxy = DescribeMeshPipeline(EMeshPipelinePass::HitProxy, {}, Source.Topology);
+	EXPECT_EQ(HitProxy.Depth.CompareOp, ERHIDepthCompareOp::LessOrEqual);
+}
 
 TEST(FRendererSceneContractTests, MaterialProgramIdentityParticipatesInRendererKeys)
 {
@@ -3636,6 +3727,308 @@ TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnF
 		{Uniform.GetReference(), 48, 32}, {}, {}, {}, {}, Bindings));
 	EXPECT_EQ(Bindings.GetShader(), nullptr);
 	EXPECT_TRUE(Bindings.GetResources().empty());
+}
+
+TEST(FRendererSceneContractTests, VertexFactoryPrecacheDescriptionsAreCpuOnlyAndOwnExplicitDefaultLayouts)
+{
+	using namespace Durin;
+	using namespace Durin::RendererPrivate;
+	const auto Local = FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
+	const auto Spline = FindMeshVertexFactory(FSplineMeshBatchBinding{}.GetFactoryKey());
+	ASSERT_TRUE(Local);
+	ASSERT_TRUE(Spline);
+	EXPECT_TRUE(Local->GetType().SupportsPSOPrecaching());
+	EXPECT_TRUE(Spline->GetType().SupportsPSOPrecaching());
+	EXPECT_FALSE(EnumHasAnyFlags(Local->GetType().GetFlags(), EVertexFactoryFlags::SupportsManualVertexFetch));
+	for (const auto Stream : {EVertexInputStreamType::Default, EVertexInputStreamType::PositionOnly, EVertexInputStreamType::PositionAndNormalOnly})
+	{
+		const auto Elements = FPSOPrecacheVertexFactoryData(&Local->GetType()).GetVertexElements(Stream);
+		const auto SplineElements = FPSOPrecacheVertexFactoryData(&Spline->GetType()).GetVertexElements(Stream);
+		ASSERT_TRUE(Elements);
+		ASSERT_TRUE(SplineElements);
+		EXPECT_EQ(*Elements, *SplineElements);
+		EXPECT_TRUE(ValidateVertexDeclarationElements(*Elements));
+		EXPECT_EQ(std::ranges::count_if(*Elements, [](const auto& Element) { return Element.Type != EVertexElementType::None; }),
+			Stream == EVertexInputStreamType::Default ? 8 : Stream == EVertexInputStreamType::PositionOnly ? 1 : 2);
+	}
+	const auto Fixed = FPSOPrecacheVertexFactoryData(&Local->GetType()).GetVertexElements();
+	ASSERT_TRUE(Fixed);
+	auto Custom = *Fixed;
+	Custom[0].Stride += 4;
+	const FPSOPrecacheVertexFactoryData Snapshot(&Local->GetType(), Custom);
+	EXPECT_TRUE(Snapshot.MatchesVertexElements(Custom));
+	EXPECT_FALSE(Snapshot.MatchesVertexElements(*Fixed));
+	Custom[0].Stride += 4;
+	EXPECT_FALSE(Snapshot.MatchesVertexElements(Custom));
+	const auto Position = Snapshot.GetVertexElements(EVertexInputStreamType::PositionOnly);
+	ASSERT_TRUE(Position);
+	EXPECT_EQ((*Position)[0], (*Fixed)[0]); // Default overrides do not change reduced streams.
+	EXPECT_FALSE(Snapshot.GetVertexElements(EVertexInputStreamType::Count));
+	FVertexDeclarationElementList Reused = *Fixed;
+	Local->GetType().GetPSOPrecacheVertexFetchElements(EVertexInputStreamType::Count, Reused);
+	EXPECT_TRUE(std::ranges::all_of(Reused, [](const auto& Element) { return Element.Type == EVertexElementType::None; }));
+}
+
+TEST(FRendererSceneContractTests, VertexFactoryPrecacheRejectsUnsupportedMissingAndMalformedLayouts)
+{
+	using namespace Durin;
+	static const FVertexFactoryType Legacy("PrecacheLegacyFixture");
+	static const FVertexFactoryType ExplicitOnly("PrecacheExplicitFixture", EVertexFactoryFlags::SupportsPSOPrecaching);
+	static const FVertexFactoryType Manual("PrecacheManualFixture",
+		EVertexFactoryFlags::SupportsPSOPrecaching | EVertexFactoryFlags::SupportsManualVertexFetch,
+		+[](EVertexInputStreamType, FVertexDeclarationElementList& Elements) { Elements = {}; });
+	EXPECT_EQ(FPSOPrecacheVertexFactoryData{}.GetVertexElements().error(), EPSOPrecacheVertexFactoryError::UnsupportedVertexFactory);
+	EXPECT_EQ(FPSOPrecacheVertexFactoryData(&Legacy).GetVertexElements().error(), EPSOPrecacheVertexFactoryError::UnsupportedVertexFactory);
+	EXPECT_EQ(FPSOPrecacheVertexFactoryData(&ExplicitOnly).GetVertexElements().error(), EPSOPrecacheVertexFactoryError::MissingVertexElements);
+	FVertexDeclarationElementList Elements{};
+	Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, 16);
+	EXPECT_TRUE(FPSOPrecacheVertexFactoryData(&ExplicitOnly, Elements).GetVertexElements());
+	EXPECT_EQ(FPSOPrecacheVertexFactoryData(&Legacy, Elements).GetVertexElements().error(), EPSOPrecacheVertexFactoryError::UnsupportedVertexFactory);
+	EXPECT_EQ(FPSOPrecacheVertexFactoryData(&ExplicitOnly, Elements).GetVertexElements(EVertexInputStreamType::PositionOnly).error(), EPSOPrecacheVertexFactoryError::UnsupportedStream);
+	EXPECT_TRUE(FPSOPrecacheVertexFactoryData(&Manual).GetVertexElements());
+	EXPECT_FALSE(FPSOPrecacheVertexFactoryData(&Manual).GetVertexElements(EVertexInputStreamType::PositionAndNormalOnly));
+	EXPECT_FALSE(FPSOPrecacheVertexFactoryData(&ExplicitOnly, {}).GetVertexElements());
+	for (uint32 Mutation = 0; Mutation < 5; ++Mutation)
+	{
+		SCOPED_TRACE(Mutation);
+		auto Invalid = Elements;
+		switch (Mutation)
+		{
+		case 0: Invalid[0].Stride = 4; break;
+		case 1: Invalid[1] = FVertexElement(1, 0, EVertexElementType::Float1, 0, 4); break;
+		case 2: Invalid[1] = FVertexElement(0, 0, EVertexElementType::Float1, 1, 16); break;
+		case 3: Invalid[1] = FVertexElement(0, 12, EVertexElementType::Float1, 1, 20); break;
+		case 4: Invalid[2] = FVertexElement(1, 0, EVertexElementType::Float1, 1, 4); break;
+		}
+		const auto Result = FPSOPrecacheVertexFactoryData(&ExplicitOnly, Invalid).GetVertexElements();
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error(), EPSOPrecacheVertexFactoryError::InvalidVertexElements);
+	}
+}
+
+namespace
+{
+	class FMaterialPSOTestPipelines
+	{
+	public:
+		FMaterialPSOTestPipelines() : Released(Gate.get_future().share())
+		{
+			using namespace Durin;
+			OwnsScheduler = !IsTaskSchedulerRunning();
+			if (OwnsScheduler) require(InitializeTaskScheduler(1));
+			FRHICapabilities Caps;
+			Caps.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+			FRHIPipelineCompileBackend Backend{
+				.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
+				.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; },
+				.CreateGraphics = [](const auto&, const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
+				.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Input, const auto&) -> FComputePipelineStateRHIRef {
+					if (Input.DebugName == "gated") Released.wait();
+					if (Input.DebugName == "failed") return {};
+					return MakeRefCount<FRHIComputePipelineState>();
+				},
+				.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE() << "Unexpected material test pipeline failure."; }};
+			Cache = std::make_unique<FRHIPipelineStateCache>(Caps, std::move(Backend));
+			Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		}
+		~FMaterialPSOTestPipelines()
+		{
+			Release(); Cache.reset(); Shader = nullptr;
+			if (OwnsScheduler) Durin::ShutdownTaskScheduler();
+			Durin::RHIFlushDeferredResources();
+		}
+		auto Release() -> void { if (!GateReleased) { GateReleased = true; Gate.set_value(); } }
+		auto Request(bool Gated, bool Failed = false) -> std::shared_ptr<Durin::FPipelineState>
+		{
+			using namespace Durin;
+			FComputePipelineStateInitializer Input;
+			Input.ComputeShader = Shader;
+			Input.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, Failed ? 12u : Gated ? 8u : 4u});
+			const auto Result = Cache->GetCompute(Input, Failed ? "failed" : Gated ? "gated" : "ready");
+			require(Result.has_value());
+			return *Result;
+		}
+	private:
+		std::promise<void> Gate;
+		std::shared_future<void> Released;
+		bool GateReleased = false, OwnsScheduler = false;
+		std::unique_ptr<Durin::FRHIPipelineStateCache> Cache;
+		Durin::FShaderRHIRef Shader;
+	};
+
+	auto MaterialPSOTestParams() -> Durin::FMaterialPSOPrecacheParams
+	{
+		using namespace Durin;
+		const auto Factory = RendererPrivate::FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
+		require(Factory != nullptr);
+		FMaterialPSOPrecacheParams Params;
+		Params.VertexFactoryData = FPSOPrecacheVertexFactoryData(&Factory->GetType());
+		return Params;
+	}
+}
+
+TEST(FRendererSceneContractTests, MaterialPSORequestsShareWorkWithoutSharingCancellationOrOwnerStaleness)
+{
+	using namespace Durin;
+	FMaterialPSOTestPipelines Pipelines;
+	auto Ready = Pipelines.Request(false);
+	ASSERT_TRUE(Ready->Wait());
+	FMaterialPSORequestManager Manager;
+	auto First = Manager.PrecachePSOs(MaterialPSOTestParams());
+	auto Params = MaterialPSOTestParams();
+	Params.VertexFactoryData.CustomDefaultVertexElements = *Params.VertexFactoryData.GetVertexElements();
+	auto Peer = Manager.PrecachePSOs(Params);
+	ASSERT_NE(First.GetValue(), 0u);
+	EXPECT_EQ(First.GetValue(), Peer.GetValue());
+	auto Revision = std::make_shared<std::atomic<uint64>>(1);
+	auto Owner = Peer.WithOwnerRevision(Revision);
+	First.Cancel();
+	EXPECT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Canceled);
+	uint32 Collections = 0;
+	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+		++Collections; Out.Pipelines.push_back({Ready, true}); return true;
+	});
+	EXPECT_EQ(Collections, 1u);
+	EXPECT_EQ(Peer.GetProgress().State, EMaterialPSOPrecacheState::Ready);
+	++*Revision;
+	EXPECT_EQ(Owner.GetProgress().State, EMaterialPSOPrecacheState::Stale);
+	EXPECT_FALSE(Owner.GetProgress().bRequiredReady);
+	EXPECT_EQ(Peer.GetProgress().State, EMaterialPSOPrecacheState::Ready);
+	Manager.Invalidate();
+	EXPECT_EQ(Peer.GetProgress().State, EMaterialPSOPrecacheState::Stale);
+	EXPECT_NE(Manager.PrecachePSOs(Params).GetValue(), Peer.GetValue());
+	Manager.Close();
+	EXPECT_EQ(Manager.PrecachePSOs(Params).GetValue(), 0u);
+}
+
+TEST(FRendererSceneContractTests, ComponentPriorityBoostReachesSharedMaterialCollectionAndNativeWork)
+{
+	using namespace Durin;
+	FMaterialPSOTestPipelines Pipelines;
+	FMaterialPSORequestManager Manager;
+	auto Ordinary = Manager.PrecachePSOs(MaterialPSOTestParams());
+	auto Params = MaterialPSOTestParams(); Params.PrecachePSOParams.bWireframe = true;
+	auto Urgent = Manager.PrecachePSOs(Params);
+	auto Peer = Manager.PrecachePSOs(Params);
+	FPSOPrecacheComponentData Component;
+	ASSERT_TRUE(Component.SetMaterialPSOPrecacheData({Urgent}));
+	EXPECT_TRUE(Component.CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority::Highest));
+	Peer.BoostPriority(EPSOPrecachePriority::Low);
+	EXPECT_EQ(Peer.GetPriority(), EPSOPrecachePriority::Highest);
+	std::vector<bool> Order;
+	auto Native = Pipelines.Request(true);
+	Manager.Pump([&](const auto& Input, auto& Collection) -> std::expected<bool, std::string> {
+		Order.push_back(Input.PrecachePSOParams.bWireframe);
+		Collection.Pipelines.push_back({Native, true}); return true;
+	});
+	EXPECT_EQ(Order, (std::vector<bool>{true, false}));
+	EXPECT_EQ(Native->GetPriority(), EPSOPrecachePriority::Highest);
+	EXPECT_FALSE(Component.IsReadyForProxyCreation());
+	Pipelines.Release(); EXPECT_TRUE(Native->Wait());
+	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+	EXPECT_TRUE(Component.IsReadyForProxyCreation());
+	EXPECT_FALSE(Component.CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority::Highest));
+}
+
+TEST(FRendererSceneContractTests, ComponentPSOSetsSeparateRequiredReadinessFromAllWorkAndIgnoreLateBatches)
+{
+	using namespace Durin;
+	FMaterialPSOTestPipelines Pipelines;
+	auto Ready = Pipelines.Request(false);
+	ASSERT_TRUE(Ready->Wait());
+	auto Gated = Pipelines.Request(true);
+	FMaterialPSORequestManager Manager;
+	auto First = Manager.PrecachePSOs(MaterialPSOTestParams());
+	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+		Out.Pipelines = {{Ready, true}, {Gated, false}}; return true;
+	});
+	ASSERT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Pending);
+	EXPECT_TRUE(First.GetProgress().bRequiredReady);
+	FPSOPrecacheComponentData Component, Peer;
+	uint32 OldCallbacks = 0, NewCallbacks = 0;
+	ASSERT_TRUE(Component.SetMaterialPSOPrecacheData({First}, [&] { ++OldCallbacks; }));
+	ASSERT_TRUE(Peer.SetMaterialPSOPrecacheData({First}));
+	const auto OldBatch = Component.GetLatestJobSet();
+	EXPECT_TRUE(Component.IsPSOPrecaching());
+	EXPECT_TRUE(Component.IsReadyForProxyCreation());
+	EXPECT_EQ(Component.Poll(), EMaterialPSOPrecacheState::Pending);
+	auto Params = MaterialPSOTestParams(); Params.PrecachePSOParams.bReverseCulling = true;
+	auto New = Manager.PrecachePSOs(Params);
+	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> { Out.Pipelines = {{Ready, true}}; return true; });
+	ASSERT_TRUE(Component.SetMaterialPSOPrecacheData({New}, [&] { ++NewCallbacks; }));
+	EXPECT_EQ(Component.Poll(), EMaterialPSOPrecacheState::Ready);
+	EXPECT_EQ(NewCallbacks, 1u);
+	Component.Poll(); EXPECT_EQ(NewCallbacks, 1u);
+	Pipelines.Release(); ASSERT_TRUE(Gated->Wait());
+	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+	EXPECT_FALSE(Component.SetLatestJobSetCompleted(OldBatch));
+	EXPECT_EQ(OldCallbacks, 0u);
+	EXPECT_EQ(Peer.Poll(), EMaterialPSOPrecacheState::Ready);
+	Component.Reset();
+	EXPECT_FALSE(Component.IsReadyForProxyCreation());
+	EXPECT_EQ(Peer.Poll(), EMaterialPSOPrecacheState::Ready);
+	ASSERT_TRUE(Component.SetMaterialPSOPrecacheData({New}, [&] { Component.Reset(); }));
+	EXPECT_EQ(Component.Poll(), EMaterialPSOPrecacheState::Canceled);
+	auto Ephemeral = std::make_unique<FPSOPrecacheComponentData>();
+	ASSERT_TRUE(Ephemeral->SetMaterialPSOPrecacheData({New}, [&] { Ephemeral.reset(); }));
+	auto* Completing = Ephemeral.get();
+	EXPECT_EQ(Completing->Poll(), EMaterialPSOPrecacheState::Canceled);
+	Manager.Close();
+}
+
+TEST(FRendererSceneContractTests, MaterialPSOFailuresAndCapacityRemainObservableAndReleasedRequestsArePruned)
+{
+	using namespace Durin;
+	FMaterialPSOTestPipelines Pipelines;
+	auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+	FMaterialPSORequestManager Manager;
+	auto Failure = Manager.PrecachePSOs(MaterialPSOTestParams());
+	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { return std::unexpected(std::string("fixture collection failure")); });
+	EXPECT_EQ(Failure.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+	EXPECT_FALSE(Failure.GetProgress().bRequiredReady);
+	EXPECT_EQ(Failure.GetDiagnostic(), "fixture collection failure");
+	FPSOPrecacheComponentData Component;
+	ASSERT_TRUE(Component.SetMaterialPSOPrecacheData({Failure}));
+	EXPECT_EQ(Component.Poll(), EMaterialPSOPrecacheState::Failed);
+	EXPECT_FALSE(Component.IsReadyForProxyCreation());
+	Manager.Invalidate();
+	auto NativeFailure = Pipelines.Request(false, true);
+	(void)NativeFailure->Wait();
+	ASSERT_EQ(NativeFailure->GetState(), ERHIPipelineRequestState::Failed);
+	Failure = Manager.PrecachePSOs(MaterialPSOTestParams());
+	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> { Out.Pipelines = {{NativeFailure, true}}; return true; });
+	EXPECT_EQ(Failure.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+	EXPECT_FALSE(Failure.GetProgress().bRequiredReady);
+	Manager.Invalidate();
+	std::vector<FMaterialPSOPrecacheRequestID> Requests;
+	for (size_t Index = 0; Index < FMaterialPSORequestManager::MaximumRequests; ++Index)
+	{
+		auto Params = MaterialPSOTestParams();
+		FVertexDeclarationElementList Elements{};
+		Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, uint16(16 + Index));
+		Params.VertexFactoryData.CustomDefaultVertexElements = Elements;
+		Requests.push_back(Manager.PrecachePSOs(Params));
+		ASSERT_NE(Requests.back().GetValue(), 0u);
+	}
+	EXPECT_EQ(Manager.PrecachePSOs(MaterialPSOTestParams()).GetValue(), 0u);
+	Requests.clear();
+	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+	EXPECT_NE(Manager.PrecachePSOs(MaterialPSOTestParams()).GetValue(), 0u);
+	Manager.Close();
+}
+
+TEST(FRendererSceneContractTests, MaterialPSOCollectionCannotPublishEmptyOrInvalidatedSuccess)
+{
+	using namespace Durin;
+	FMaterialPSORequestManager Manager;
+	auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
+	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { return true; });
+	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+	Manager.Invalidate();
+	Request = Manager.PrecachePSOs(MaterialPSOTestParams());
+	Manager.Pump([&](const auto&, auto&) -> std::expected<bool, std::string> { Manager.Invalidate(); return true; });
+	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Stale);
+	EXPECT_FALSE(Request.GetProgress().bRequiredReady);
 }
 
 TEST(FRendererSceneContractTests, ResolvesRegisteredMeshFactoriesWithoutFamilyDispatch)

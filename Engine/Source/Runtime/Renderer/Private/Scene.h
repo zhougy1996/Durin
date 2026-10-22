@@ -35,6 +35,7 @@ namespace Durin
 	class FScene : public FSceneInterface
 	{
 	public:
+		auto GetRendererModule() const -> IRendererModule* override { return RendererModule; }
 		RENDERER_API auto AddPrimitive(DPrimitiveComponent* Primitive) -> void override;
 		RENDERER_API auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void override;
 		RENDERER_API auto AddLight(DLightComponent* Light) -> void override;
@@ -91,8 +92,9 @@ namespace Durin
 			-> const FVolumetricCloudSceneInfo*;
 
 	private:
-		RENDERER_API explicit FScene(FSceneRenderingService* InRenderer = nullptr);
+		RENDERER_API explicit FScene(FSceneRenderingService* InRenderer = nullptr, IRendererModule* InModule = nullptr);
 		FSceneRenderingService* Renderer = nullptr;
+		IRendererModule* RendererModule = nullptr;
 		uint64 HitProxyRevision = 1;
 		RENDERER_API ~FScene() override;
 

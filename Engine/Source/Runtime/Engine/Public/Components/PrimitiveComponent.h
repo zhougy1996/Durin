@@ -5,12 +5,15 @@
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Physics/BodyInstance.h"
 #include "Rendering/PrimitiveComponentId.h"
+#include "PSOPrecacheComponent.h"
 
 #include "PrimitiveComponent.gen.h"
 
 namespace Durin
 {
 	class DWorld;
+	class IRendererModule;
+	enum class EPSOPrecacheProxyCreationStrategy : uint8 { AlwaysCreate, DelayUntilPSOPrecached };
 	// Selects when a registered primitive may create and publish its physics body.
 	enum class EPhysicsStateCreationPolicy : uint8
 	{
@@ -37,6 +40,17 @@ namespace Durin
 	public:
 		ENGINE_API explicit DPrimitiveComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto OnRegister() -> void override;
+		ENGINE_API auto PostLoad() -> void override;
+		ENGINE_API virtual auto PrecachePSOs() -> void;
+		ENGINE_API virtual auto CollectPSOPrecacheData(const FPSOPrecacheParams& Params, FComponentPSOPrecacheParamsList& OutParams) -> void;
+		ENGINE_API auto CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority Priority = EPSOPrecachePriority::Highest) -> bool;
+		ENGINE_API auto IsPSOPrecacheReadyForProxyCreation() -> bool;
+		ENGINE_API auto SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy Strategy) -> void;
+		auto GetPSOPrecacheProxyCreationStrategy() const -> EPSOPrecacheProxyCreationStrategy { return PSOPrecacheProxyCreationStrategy; }
+		auto GetPSOPrecacheDiagnostic() const -> const std::string& { return PSOPrecacheDiagnostic; }
+		// Called by engine/world owner ticks, including editor and paused worlds.
+		ENGINE_API static auto ProcessPSOPrecacheRequests(DWorld* World = nullptr) -> void;
+		ENGINE_API static auto InvalidatePSOPrecacheRequests() -> void;
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -47,6 +61,11 @@ namespace Durin
 		ENGINE_API auto DestroyRenderState() -> void;
 		ENGINE_API auto RecreateRenderState() -> void;
 		ENGINE_API auto MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags = EPrimitiveRenderStateDirtyFlags::Proxy) -> void;
+		auto GetPSOPrecacheComponentData() -> FPSOPrecacheComponentData& { return PSOPrecacheComponentData; }
+		auto GetPSOPrecacheComponentData() const -> const FPSOPrecacheComponentData& { return PSOPrecacheComponentData; }
+		auto SetMaterialPSOPrecacheData(std::vector<FMaterialPSOPrecacheRequestID> Requests, std::function<void()> Finished = {}) -> bool
+		{ return PSOPrecacheComponentData.SetMaterialPSOPrecacheData(std::move(Requests), std::move(Finished)); }
+		auto IsPSOPrecaching() const -> bool { return bPSOPrecacheSubmissionPending || PSOPrecacheComponentData.IsPSOPrecaching(); }
 		ENGINE_API auto SetVisible(bool bInVisible) -> void;
 		ENGINE_API auto SetCustomPrimitiveData(uint32 First, std::span<const float> Values) -> bool;
 		auto GetCustomPrimitiveData() const -> const FPrimitiveCustomData& { return CustomPrimitiveData; }
@@ -72,6 +91,7 @@ namespace Durin
 
 
 	protected:
+		ENGINE_API auto OnComponentPendingKill() -> void override;
 		ENGINE_API virtual auto PopulateCollisionGeometry(FPhysicsBodyDesc& Desc) const -> bool;
 		ENGINE_API auto OnUpdateTransform() -> void override;
 		ENGINE_API virtual auto BuildMaterialRenderProxyBindingUpdate(
@@ -83,6 +103,7 @@ namespace Durin
 		auto GetPhysicsWorld() const -> DWorld*;
 
 	private:
+		auto GetPSOPrecacheRenderer() const -> IRendererModule*;
 		auto CreateRenderState() -> void;
 		ENGINE_API auto EnsurePrimitiveComponentId() -> FPrimitiveComponentId;
 		auto UpdatePhysicsState() -> void;
@@ -90,6 +111,11 @@ namespace Durin
 
 		FPrimitiveComponentId PrimitiveComponentId = InvalidPrimitiveComponentId;
 		FPrimitiveCustomData CustomPrimitiveData;
+		FPSOPrecacheComponentData PSOPrecacheComponentData;
+		bool bPSOPrecacheSubmissionPending = false;
+		bool bProcessingPSOPrecache = false;
+		EPSOPrecacheProxyCreationStrategy PSOPrecacheProxyCreationStrategy = EPSOPrecacheProxyCreationStrategy::DelayUntilPSOPrecached;
+		std::string PSOPrecacheDiagnostic;
 		// Non-owning publication token; the scene keeps the proxy alive until its removal command runs.
 		FPrimitiveSceneProxy* SceneProxy = nullptr;
 		uint64 PhysicsRegistrationGeneration = 0;

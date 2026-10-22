@@ -16,6 +16,7 @@
 #include "Client/SceneViewport.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/DefaultMaterialService.h"
+#include "Components/PrimitiveComponent.h"
 #include "Profiling/Profiling.h"
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
@@ -301,6 +302,7 @@ namespace Durin
 		FHostOperationScope Operation(*this);
 		(void)bIdleMode;
 		PumpCookedMeshLoadManager();
+		DPrimitiveComponent::ProcessPSOPrecacheRequests();
 		if (GameInputWindow.expired() && GameInputState.IsEnabled()) ClearGameInputWindow();
 		if (const auto Window = GameInputWindow.lock(); Window && Mona::FMonaApplication::IsInitialized())
 		{

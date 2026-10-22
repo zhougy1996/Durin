@@ -1,4 +1,5 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include <typeinfo>
@@ -490,14 +491,14 @@ namespace Durin
 						Candidate->PipelineKey.LayoutKey = Batch.LayoutKey;
 						Candidate->PipelineKey.VertexDeclaration = Binding->Declaration;
 						Candidate->PipelineKey.Topology = Element.Draw.Topology;
-						Candidate->PipelineKey.Rasterizer.PolygonMode =
-							RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
-						Candidate->PipelineKey.Rasterizer.CullMode =
-							Candidate->Material.PlanningPassIdentity.bTwoSided || bSplineChangesOrientation ? ERHICullMode::None : ERHICullMode::Back;
-						Candidate->PipelineKey.Rasterizer.FrontFace = bReverseCulling ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
-						Candidate->PipelineKey.Depth.bEnableTest = true;
-						Candidate->PipelineKey.Depth.CompareOp =
-							View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less;
+						const auto PipelineState = MakeMeshPipelineState(Candidate->Material.PlanningPassIdentity, {
+							.bWireframe = RasterMode == ERasterMode::Wireframe,
+							.bReverseCulling = bReverseCulling,
+							.bOrientationChanging = bSplineChangesOrientation,
+							.bReversedZ = View.DepthConvention == ESceneDepthConvention::ReversedZ});
+						Candidate->PipelineKey.Rasterizer = PipelineState.Rasterizer;
+						Candidate->PipelineKey.Depth = PipelineState.Depth;
+						Candidate->PipelineKey.ColorBlend = PipelineState.ColorBlend;
 						const auto BlendMode =
 							Candidate->Material.PlanningPassIdentity.ShaderMap.BlendMode;
 						Candidate->Pass = BlendMode == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
@@ -505,16 +506,6 @@ namespace Durin
 						if (Mode == ERenderPreparationMode::ShadowDepth
 							&& Candidate->Pass == EMeshBasePass::Translucent)
 							continue;
-						const EMaterialDepthWritePolicy DepthPolicy =
-							Candidate->Material.PlanningPassIdentity.DepthWritePolicy;
-						Candidate->PipelineKey.Depth.bEnableWrite =
-							DepthPolicy == EMaterialDepthWritePolicy::Enabled
-							|| (DepthPolicy == EMaterialDepthWritePolicy::Automatic
-								&& Candidate->Pass != EMeshBasePass::Translucent);
-						if (Candidate->Pass == EMeshBasePass::Translucent)
-						{
-							Candidate->PipelineKey.ColorBlend = FRHIColorBlendState::StraightAlpha();
-						}
 
 						if (!std::isfinite(Candidate->PipelineKey.Material.ShaderMap.OpacityMaskThreshold)) continue;
 						FPreparedStaticMeshPrimitive StablePrimitive;

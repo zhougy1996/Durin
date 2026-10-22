@@ -1,5 +1,6 @@
 #include "Profiling/Profiling.h"
 #include "Renderers/StaticMeshRenderer.h"
+#include "Renderers/MeshPipelineDescription.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Renderers/StaticMeshSectionResources.h"
 #include "Rendering/StaticMeshBatchBinding.h"
@@ -501,36 +502,18 @@ namespace Durin
 					ShaderMapPayload->ShadowFragmentShader;
 				Candidate.OpaqueShadowFragmentShader =
 					ShaderMapPayload->OpaqueShadowFragmentShader;
-				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout = bShadowDepth
-					? RenderTargetLayouts::MakeDirectionalShadowDepth()
-					: (Identity.bHybridRetained
-						? (Identity.Material.ShaderMap.BlendMode
-								== EMaterialBlendMode::Translucent
-							? RenderTargetLayouts::MakeGraphSortedTranslucency()
-							: RenderTargetLayouts::MakeGraphHybridRetainedForward())
-						: RenderTargetLayouts::MakeGraphSceneTargets());
-				Initializer.BoundShaders.VertexShader = Candidate.VertexShader->GetRHIShader();
-				Initializer.BoundShaders.FragmentShader = bShadowDepth ? (Identity.Material.ShaderMap.BlendMode
-																				  == EMaterialBlendMode::Masked ?
-																			  Candidate.ShadowFragmentShader.GetRHIShader() :
-																			  Candidate.OpaqueShadowFragmentShader.GetRHIShader()) :
-																		 Candidate.FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration = VertexFactory.Declaration;
-				Initializer.PrimitiveTopology = Identity.Topology;
-				Initializer.RasterizerState = Identity.Rasterizer;
-				Initializer.DepthStencilState = Identity.Depth;
-				if (!bShadowDepth)
-				{
-					Initializer.ColorBlendStates[0] = Identity.ColorBlend;
-					if (Identity.Material.ShaderMap.BlendMode
-						== EMaterialBlendMode::Translucent)
-					{
-						Initializer.ColorBlendStates[1].ColorWriteMask =
-							ERHIColorWriteMask::None;
-					}
-				}
-				Initializer.PipelineLayout = Candidate.ShaderMap.GetPipelineLayout();
+				const auto BlendMode = Identity.Material.ShaderMap.BlendMode;
+				const auto Pass = bShadowDepth ? EMeshPipelinePass::ShadowDepth
+					: !Identity.bHybridRetained ? EMeshPipelinePass::Forward
+					: BlendMode == EMaterialBlendMode::Translucent ? EMeshPipelinePass::SortedTranslucency
+					: EMeshPipelinePass::HybridRetainedForward;
+				const auto Description = DescribeMeshPipeline(Pass,
+					{Identity.Rasterizer, Identity.Depth, Identity.ColorBlend}, Identity.Topology, BlendMode);
+				const auto Initializer = Description.MakeInitializer(Candidate.VertexShader->GetRHIShader(),
+					bShadowDepth ? (BlendMode == EMaterialBlendMode::Masked
+						? Candidate.ShadowFragmentShader.GetRHIShader() : Candidate.OpaqueShadowFragmentShader.GetRHIShader())
+						: Candidate.FragmentShader.GetRHIShader(),
+					VertexFactory.Declaration, Candidate.ShaderMap.GetPipelineLayout());
 				Candidate.PipelineState =
 					FRenderPipelineRequestScope::Graphics(
 						FName(std::format(

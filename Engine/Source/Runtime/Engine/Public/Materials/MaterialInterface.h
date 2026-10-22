@@ -13,12 +13,14 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialFunctionInterface.h"
 #include "Delegates/Delegate.h"
+#include "Materials/MaterialPSOPrecache.h"
 
 #include "MaterialInterface.gen.h"
 
 namespace Durin
 {
 	class FMaterialProgramPreparation;
+	class IRendererModule;
 	class FObjectCacheContext;
 	template<typename T> class TObjectCacheIterator;
 	// Owning-thread invalidation of parameter definitions, values, ancestry or reachability.
@@ -179,6 +181,18 @@ namespace Durin
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;
 		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
+		ENGINE_API auto PrecachePSOs(std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
+			const FPSOPrecacheParams& PrecacheParams, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs)
+			-> std::expected<void, std::string>;
+		ENGINE_API auto PrecachePSOs(IRendererModule& Renderer, std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
+			const FPSOPrecacheParams& PrecacheParams, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs)
+			-> std::expected<void, std::string>;
+		ENGINE_API auto PrecachePSOs(std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
+			const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
+			std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
+		ENGINE_API auto PrecachePSOs(IRendererModule& Renderer, std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
+			const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
+			std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
 		ENGINE_API auto GetMaterialRenderProxy() const
 			-> FMaterialRenderProxyRef;
 		// Refreshes native texture bindings after a referenced texture package was
@@ -233,6 +247,7 @@ namespace Durin
 
 		FMaterialParameterChangedEvent ParameterChanges;
 		uint64 RenderStateVersion = 1;
+		std::shared_ptr<std::atomic<uint64>> PSOPrecacheRevision;
 		mutable std::shared_ptr<const FMaterialParameterReachability> ParameterReachability;
 		mutable uint64 ParameterReachabilityProgramRevision = 0;
 		mutable std::vector<FMaterialFunctionOwnerStamp> ParameterReachabilityFunctionOwners;

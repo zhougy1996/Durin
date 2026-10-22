@@ -229,6 +229,7 @@ namespace Durin
 		}
 		if (bGameplay && CanContinueTicking(CapturedLevel)) Timers.Dispatch();
 		if (CanDispatchSubsystems() && RenderScene) RenderScene->UpdateSkyLighting();
+		if (CanDispatchSubsystems()) DPrimitiveComponent::ProcessPSOPrecacheRequests(this);
 	}
 
 	auto DWorld::CanContinueTicking(const DLevel* Level) const -> bool

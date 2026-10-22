@@ -6,6 +6,7 @@
 
 #include "RHI.h"
 #include "RenderResource.h"
+#include "Misc/EnumClassFlags.h"
 
 namespace Durin
 {
@@ -13,18 +14,46 @@ namespace Durin
 	struct FGeometryDrawRange;
 	enum class EGeometrySubmissionOutcome : uint8;
 
+	enum class EVertexInputStreamType : uint8
+	{
+		Default,
+		PositionOnly,
+		PositionAndNormalOnly,
+		Count,
+	};
+
+	enum class EVertexFactoryFlags : uint32
+	{
+		None = 0,
+		SupportsPositionOnly = 1u << 5,
+		SupportsPSOPrecaching = 1u << 13,
+		SupportsManualVertexFetch = 1u << 14,
+	};
+	ENUM_CLASS_FLAGS(EVertexFactoryFlags);
+
+	using FGetPSOPrecacheVertexFetchElements = void (*)(EVertexInputStreamType, FVertexDeclarationElementList&);
+
 	class FVertexFactoryType
 	{
 	public:
 		RENDERCORE_API explicit FVertexFactoryType(std::string_view InName);
+		RENDERCORE_API FVertexFactoryType(std::string_view InName, EVertexFactoryFlags InFlags,
+			FGetPSOPrecacheVertexFetchElements InGetPSOPrecacheVertexFetchElements = nullptr);
 		auto GetName() const -> std::string_view { return Name; }
 		auto GetStableKey() const -> FXxHash64 { return StableKey; }
+		auto GetFlags() const -> EVertexFactoryFlags { return Flags; }
+		auto SupportsPSOPrecaching() const -> bool { return EnumHasAnyFlags(Flags, EVertexFactoryFlags::SupportsPSOPrecaching); }
+		auto HasPSOPrecacheVertexFetchElements() const -> bool { return GetPSOPrecacheVertexFetchElementsFunction != nullptr; }
+		RENDERCORE_API auto GetPSOPrecacheVertexFetchElements(EVertexInputStreamType StreamType,
+			FVertexDeclarationElementList& Elements) const -> void;
 		RENDERCORE_API static auto GetTypeList()
 			-> const std::vector<const FVertexFactoryType*>&;
 
 	private:
 		std::string Name;
 		FXxHash64 StableKey;
+		EVertexFactoryFlags Flags = EVertexFactoryFlags::None;
+		FGetPSOPrecacheVertexFetchElements GetPSOPrecacheVertexFetchElementsFunction = nullptr;
 	};
 
 	struct FVertexStreamComponent

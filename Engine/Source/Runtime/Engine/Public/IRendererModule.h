@@ -9,6 +9,7 @@
 #include "RHIResources.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "RenderResourcePreparation.h"
+#include "Materials/MaterialPSOPrecache.h"
 
 namespace Durin
 {
@@ -31,6 +32,8 @@ namespace Durin
 	class IRendererModule : public IModuleInterface
 	{
 	public:
+		virtual auto PrecacheMaterialPSOs(FMaterialPSOPrecacheParams) -> FMaterialPSOPrecacheRequestID
+		{ return FMaterialPSOPrecacheRequestID::Rejected("Renderer does not support material PSO precaching."); }
 		virtual auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap> { return {}; }
 		virtual auto CreateScene() -> FScenePtr = 0;
 		// Starts CPU-only built-in shader work for the lit scene-thumbnail profile.

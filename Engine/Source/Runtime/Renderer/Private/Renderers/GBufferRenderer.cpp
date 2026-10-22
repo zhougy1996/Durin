@@ -1,5 +1,7 @@
 #include "Renderers/SurfaceMaterial.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/MeshPipelineDescription.h"
+#include "Renderers/MaterialPSOPrecacheCollector.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/MeshVertexFactory.h"
 
@@ -92,6 +94,11 @@ namespace Durin
 					Key.VertexDeclaration.GetReference()));
 		}
 	} // namespace
+
+	auto RendererPrivate::GetGBufferPSOPrecacheFragmentShader() -> FMaterialPSOFragmentShader
+	{
+		return {&FGBufferFragmentShader::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<FGBufferFragmentShader>(Map).GetRHIShader(false); }};
+	}
 
 	struct FGBufferPipeline
 	{
@@ -264,18 +271,10 @@ namespace Durin
 				Candidate->VertexDeclaration = VertexDeclaration;
 				Candidate->FactoryKey = PipelineKey.FactoryKey;
 				Candidate->LayoutKey = PipelineKey.LayoutKey;
-				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeGBufferTargets();
-				Initializer.BoundShaders.VertexShader = Candidate->Vertex->GetRHIShader();
-				Initializer.BoundShaders.FragmentShader =
-					Candidate->Fragment.GetRHIShader();
-				Initializer.VertexDeclaration = VertexDeclaration;
-				Initializer.PrimitiveTopology = PipelineKey.Topology;
-				Initializer.RasterizerState = PipelineKey.Rasterizer;
-				Initializer.DepthStencilState = PipelineKey.Depth;
-				Initializer.PipelineLayout =
-					Candidate->ShaderMap.GetPipelineLayout();
+				const auto Description = RendererPrivate::DescribeMeshPipeline(RendererPrivate::EMeshPipelinePass::GBuffer,
+					{PipelineKey.Rasterizer, PipelineKey.Depth, {}}, PipelineKey.Topology);
+				const auto Initializer = Description.MakeInitializer(Candidate->Vertex->GetRHIShader(),
+					Candidate->Fragment.GetRHIShader(), VertexDeclaration, Candidate->ShaderMap.GetPipelineLayout());
 				Candidate->PipelineState =
 					FRenderPipelineRequestScope::Graphics(
 						FName(std::format("GBufferPipeline_{}",

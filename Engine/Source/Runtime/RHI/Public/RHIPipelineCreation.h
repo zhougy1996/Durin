@@ -8,6 +8,8 @@
 namespace Durin
 {
 	class FRHIPipelineStateCache;
+	// Monotonic shared-work priority; an executing native compile is not preempted.
+	enum class EPSOPrecachePriority : uint8 { Low, Medium, High, Highest, Num, NotSet = Num };
 	// Budget control blocks are owned by RHI, so backend unload does not invalidate
 	// metadata-only request/layout handles retained after device shutdown.
 	class RHI_API FRHIPipelineMetadataBudget
@@ -77,6 +79,8 @@ namespace Durin
 		// Immutable recording metadata is available before the native pipeline.
 		RHI_API auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc>;
 		RHI_API auto Cancel() const -> bool;
+		RHI_API auto BoostPriority(EPSOPrecachePriority Priority) const -> void;
+		RHI_API auto GetPriority() const -> EPSOPrecachePriority;
 		// Pending waits reject replay and Core workers; asynchronous callers use completion edges.
 		RHI_API auto Wait() const -> bool;
 		RHI_API auto CanWait() const -> bool;

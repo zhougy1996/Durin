@@ -10,6 +10,7 @@
 namespace Durin
 {
 	class DLightComponent;
+	class IRendererModule;
 	class DPrimitiveComponent;
 	class DSkyBoxComponent;
 	class DSkyLightComponent;
@@ -25,6 +26,7 @@ namespace Durin
 	public:
 		ENGINE_API FSceneInterface() = default;
 		ENGINE_API virtual ~FSceneInterface() = default;
+		virtual auto GetRendererModule() const -> IRendererModule* { return nullptr; }
 
 		virtual auto AddPrimitive(DPrimitiveComponent* Primitive) -> void = 0;
 		virtual auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void = 0;

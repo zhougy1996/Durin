@@ -19,6 +19,7 @@ namespace Durin
 		RENDERER_API ~FRendererModule() override;
 
 		RENDERER_API auto StartupModule() -> void override;
+		RENDERER_API auto PrecacheMaterialPSOs(FMaterialPSOPrecacheParams Params) -> FMaterialPSOPrecacheRequestID override;
 		RENDERER_API auto ShutdownModule() -> void override;
 		RENDERER_API auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap> override;
 		RENDERER_API auto CreateScene() -> FScenePtr override;

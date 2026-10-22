@@ -1,5 +1,7 @@
 #include "Renderers/SceneRenderingService.h"
 #include "Materials/MaterialShaderMap.h"
+#include "Renderers/MeshPipelineDescription.h"
+#include "Renderers/MaterialPSOPrecacheCollector.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Shader/ShaderCookedLibrary.h"
@@ -119,6 +121,11 @@ namespace Durin
 		};
 	}
 
+	auto RendererPrivate::GetHitProxyPSOPrecacheFragmentShader() -> FMaterialPSOFragmentShader
+	{
+		return {&FHitProxyFragmentShader::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<FHitProxyFragmentShader>(Map).GetRHIShader(false); }};
+	}
+
 	auto FSceneRenderingService::RenderHitProxies_RenderThread(FRHICommandListImmediate& Commands,
 		FScene* Scene, const FHitProxyRenderRequest& Request) -> std::shared_ptr<const FHitProxyMap>
 	{
@@ -176,19 +183,11 @@ namespace Durin
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding)
 						.Prepare(ESurfaceMaterialPass::MaskedShadow, nullptr, nullptr, Item.Material)) { bReady = false; break; }
-				FGraphicsPipelineStateInitializer Pipeline;
-				Pipeline.RenderTargetLayout = MakeHitProxyLayout();
-				Pipeline.BoundShaders.VertexShader = Item.Vertex->GetRHIShader();
-				Pipeline.BoundShaders.FragmentShader = Item.Fragment.GetRHIShader();
-				Pipeline.VertexDeclaration = Item.Primitive->CollectedBinding->Declaration;
-				Pipeline.PrimitiveTopology = Draw.Command->PipelineKey.Topology;
-				Pipeline.RasterizerState = Draw.Command->PipelineKey.Rasterizer;
-				Pipeline.RasterizerState.PolygonMode = ERHIPolygonMode::Fill;
-				Pipeline.DepthStencilState.bEnableTest = true;
-				Pipeline.DepthStencilState.bEnableWrite = true;
-				Pipeline.DepthStencilState.CompareOp = View.DepthConvention == ESceneDepthConvention::ReversedZ
-					? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual;
-				Pipeline.PipelineLayout = Item.ShaderMap.GetPipelineLayout();
+				const auto Description = DescribeMeshPipeline(EMeshPipelinePass::HitProxy,
+					{Draw.Command->PipelineKey.Rasterizer, {}, {}}, Draw.Command->PipelineKey.Topology,
+					Identity.BlendMode, View.DepthConvention == ESceneDepthConvention::ReversedZ);
+				const auto Pipeline = Description.MakeInitializer(Item.Vertex->GetRHIShader(), Item.Fragment.GetRHIShader(),
+					Item.Primitive->CollectedBinding->Declaration, Item.ShaderMap.GetPipelineLayout());
 				Item.Pipeline = FRenderPipelineRequestScope::Graphics("HitProxy", Pipeline);
 				if (!Item.Pipeline) { bReady = false; break; }
 				Item.Transform = FStaticMeshPrimitiveUniformPreparer(Commands).Prepare(*Item.Primitive).Transform;

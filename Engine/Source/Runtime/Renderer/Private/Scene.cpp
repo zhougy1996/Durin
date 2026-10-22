@@ -49,11 +49,12 @@ namespace Durin
 		}
 	} // namespace
 
-	FScene::FScene(FSceneRenderingService* InRenderer)
+	FScene::FScene(FSceneRenderingService* InRenderer, IRendererModule* InModule)
 		: Renderer(InRenderer), Lights(std::make_unique<FLightSceneRegistry>())
 		, SkyBoxes(std::make_unique<FSkyBoxSceneRegistry>())
 		, VolumetricClouds(std::make_unique<FVolumetricCloudSceneRegistry>())
 	{
+		RendererModule = InModule;
 		GActiveSceneCount.fetch_add(1, std::memory_order_relaxed);
 		GAllocatedSceneCount.fetch_add(1, std::memory_order_relaxed);
 	}
@@ -80,6 +81,7 @@ namespace Durin
 		RequireComponentBoundary(Primitive, "AddPrimitive");
 		requiref(Primitive->GetRenderScene() == this, "AddPrimitive requires the component to target this scene.");
 		requiref(Primitive->SceneProxy == nullptr, "AddPrimitive cannot publish a component twice.");
+		if (!Primitive->IsPSOPrecacheReadyForProxyCreation()) return;
 		std::unique_ptr<FPrimitiveSceneProxy> Proxy = Primitive->CreateSceneProxy();
 		if (Proxy == nullptr) return;
 		const FPrimitiveComponentId Id = Primitive->EnsurePrimitiveComponentId();

@@ -43,6 +43,9 @@ namespace Durin
 		auto GetData() const -> const FDataType& { return Data; }
 		ENGINE_API auto GetDeclarationElements() const
 			-> FVertexDeclarationElementList;
+		// The packed Local/Spline layout is fixed, independent of mesh residency.
+		ENGINE_API static auto GetPSOPrecacheVertexFetchElements(EVertexInputStreamType VertexInputStreamType,
+			FVertexDeclarationElementList& Elements) -> void;
 		ENGINE_API auto IsDataValid() const -> bool;
 		auto IsReady() const -> bool
 		{

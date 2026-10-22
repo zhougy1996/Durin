@@ -23,6 +23,8 @@ namespace Durin
 		auto GetResult() const -> FRHIPipelineCreationResult { return Request.GetResult(); }
 		auto CanWait() const -> bool { return Request.CanWait(); }
 		auto Wait() const -> bool { return Request.Wait(); }
+		auto BoostPriority(EPSOPrecachePriority Priority) const -> void { Request.BoostPriority(Priority); }
+		auto GetPriority() const -> EPSOPrecachePriority { return Request.GetPriority(); }
 	protected:
 		explicit FPipelineState(FRHIPipelineCreationRequest InRequest, std::shared_ptr<void> InMetadata)
 			: Request(std::move(InRequest)), Metadata(std::move(InMetadata)) {}

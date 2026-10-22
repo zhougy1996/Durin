@@ -120,6 +120,11 @@ namespace Durin
 			? GDefaultMaterialService.Proxy
 			: FMaterialRenderProxyRef{};
 	}
+	auto GetDefaultMaterial() -> DMaterialInterface*
+	{
+		CheckDefaultMaterialGameThread();
+		return GDefaultMaterialService.bAcceptingBindings ? GDefaultMaterialService.Material : nullptr;
+	}
 
 	auto IsDefaultMaterialServiceAvailable() -> bool
 	{

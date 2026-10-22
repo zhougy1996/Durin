@@ -30,18 +30,23 @@
 #include "Shader/MaterialShader.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "StaticMesh/LocalVertexFactory.h"
 
 namespace Durin::RendererPrivate
 {
 	inline auto GetLocalVertexFactoryShaderType() -> const FVertexFactoryType&
 	{
-		static const FVertexFactoryType Type("LocalVertexFactory");
+		static const FVertexFactoryType Type("LocalVertexFactory",
+			EVertexFactoryFlags::SupportsPSOPrecaching | EVertexFactoryFlags::SupportsPositionOnly,
+			&FLocalVertexFactory::GetPSOPrecacheVertexFetchElements);
 		return Type;
 	}
 
 	inline auto GetSplineVertexFactoryShaderType() -> const FVertexFactoryType&
 	{
-		static const FVertexFactoryType Type("SplineVertexFactory");
+		static const FVertexFactoryType Type("SplineVertexFactory",
+			EVertexFactoryFlags::SupportsPSOPrecaching | EVertexFactoryFlags::SupportsPositionOnly,
+			&FLocalVertexFactory::GetPSOPrecacheVertexFetchElements);
 		return Type;
 	}
 

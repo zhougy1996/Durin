@@ -582,6 +582,11 @@ TEST(FStaticMeshPayloadCodecTests,
 		RenderData->LODResources[0].VertexBuffers));
 	const FVertexDeclarationElementList Elements =
 		VertexFactory.GetDeclarationElements();
+	FVertexDeclarationElementList PrecacheElements{};
+	FLocalVertexFactory::GetPSOPrecacheVertexFetchElements(EVertexInputStreamType::Default, PrecacheElements);
+	EXPECT_EQ(PrecacheElements, Elements);
+	EXPECT_EQ(VertexFactory.GetDeclaration(), nullptr);
+	EXPECT_EQ(RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer.GetRHI(), nullptr);
 	constexpr uint16 PositionStride = sizeof(FVector3f);
 	constexpr uint16 TangentStride =
 		sizeof(FStaticMeshPackedTangentBasis);

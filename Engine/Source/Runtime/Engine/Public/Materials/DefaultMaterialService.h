@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	class DMaterialInterface;
+	ENGINE_API auto GetDefaultMaterial() -> DMaterialInterface*;
 	inline constexpr std::string_view DefaultMaterialPackagePath =
 		"/Engine/Materials/DefaultMaterial";
 	inline constexpr std::string_view DefaultMaterialObjectPath =
