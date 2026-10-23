@@ -89,7 +89,7 @@ namespace
 				Durin::GetTaskSchedulerDiagnostics();
 			bRestoreScheduler = Diagnostics.bRunning;
 			PreviousConfig.NumWorkerThreads = Diagnostics.WorkerCount;
-			PreviousConfig.MaxNonterminalTasks = Diagnostics.TaskReservationCapacity;
+			PreviousConfig.TaskWarningThreshold = Diagnostics.TaskWarningThreshold;
 			bRestoreDeferredExecutor =
 				Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting;
 			Durin::ShutdownTaskScheduler(false);

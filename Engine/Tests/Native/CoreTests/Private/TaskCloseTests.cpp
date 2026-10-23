@@ -183,7 +183,7 @@ namespace Durin
 			EXPECT_EQ(Child.Wait().WaitStatus, ETaskWaitStatus::DependencyCycle);
 			const auto Error = Private::FTaskRuntimeAccess::AddNested(Child);
 			ASSERT_TRUE(Error.has_value());
-			EXPECT_EQ(Error->Code, Tasks::ETaskAdmissionErrorCode::DependencyCycle);
+			EXPECT_EQ(Error->Code, Tasks::ETaskConstructionErrorCode::DependencyCycle);
 			EXPECT_FALSE(Pipe.WaitUntilEmpty(0.01));
 			EXPECT_TRUE(Pipe.IsInContext());
 		});
@@ -248,19 +248,93 @@ namespace Durin
 		EXPECT_EQ(Retired.load(), Depth);
 	}
 
-	TEST_F(FTaskCloseTests, VoidStoragePublishesAndDiscardsInlineValue)
+	namespace
 	{
-		for (auto Outcome : {ETaskState::Succeeded, ETaskState::Failed, ETaskState::Canceled})
+		template<typename T> concept CHasTaskResult = requires(const T& Task) { Task.GetResult(); };
+		template<typename T> concept CHasSharedTaskResult = requires(const T& Task) { Task.GetResultShared(); };
+	}
+	static_assert(!CHasTaskResult<Tasks::TTask<void>>);
+	static_assert(!CHasSharedTaskResult<Tasks::TTask<void>>);
+	static_assert(CHasTaskResult<Tasks::TTask<std::monostate>>);
+	static_assert(std::same_as<Tasks::Detail::TResultState<void>, std::nullptr_t>);
+
+	TEST_F(FTaskCloseTests, VoidTasksPublishOnlyAfterCaptureAndNestedRetirement)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Gate("VoidNestedGate", false);
+		auto Capture = std::make_shared<int>(42);
+		std::weak_ptr<int> WeakCapture = Capture;
+		auto Parent = Tasks::LaunchTask("VoidParent", [Capture = std::move(Capture), Gate] { Tasks::AddNested(Gate); });
+		EXPECT_FALSE(Parent.TryRetractAndExecute());
+		// A queued barrier establishes that the parent body and captures have retired.
+		auto Barrier = Tasks::LaunchTask("VoidBarrier", [] {});
+		Barrier.Wait();
+		EXPECT_FALSE(Parent.IsCompleted());
+		Gate.Trigger();
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_TRUE(WeakCapture.expired());
+		auto Edge = Tasks::Then(Parent, Tasks::ETaskExecutor::Worker, {}, [] {});
+		auto Observed = Tasks::ThenCompleted(Edge, Tasks::ETaskExecutor::Worker, {}, [](const auto& Task) {
+			EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
+		});
+		EXPECT_EQ(Observed.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Tasks::Detail::FTaskAccess::GetResultState(Parent), nullptr);
+	}
+
+	TEST_F(FTaskCloseTests, VoidCompletionSourcesPreserveOutcomesAndLatePublication)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		for (bool Detached : {false, true})
 		{
-			auto Storage = Private::MakeVoidTaskResultState();
-			EXPECT_EQ(Storage->PeekPublished(), nullptr);
-			Storage->SetPending(std::monostate{});
-			EXPECT_EQ(Storage->PeekPublished(), nullptr);
-			Storage->Complete(Outcome);
-			EXPECT_EQ(Storage->PeekPublished() != nullptr, Outcome == ETaskState::Succeeded);
-			Storage->Discard();
-			EXPECT_EQ(Storage->PeekPublished(), nullptr);
+			for (auto Outcome : {ETaskState::Succeeded, ETaskState::Failed, ETaskState::Canceled})
+			{
+				auto Source = Detached ? Tasks::TCompletionSource<void>::CreateDetached() : Tasks::TCompletionSource<void>::Create();
+				auto Task = Source.TakeTask();
+				EXPECT_FALSE(Task.IsCompleted());
+				if (Outcome == ETaskState::Succeeded) EXPECT_TRUE(Source.TrySetValue());
+				else if (Outcome == ETaskState::Failed) EXPECT_TRUE(Source.TrySetFailure({}));
+				else EXPECT_TRUE(Source.TrySetCanceled());
+				EXPECT_FALSE(Source.TrySetValue());
+				EXPECT_EQ(Task.Wait().TaskState, Outcome);
+			}
 		}
+		Tasks::TTask<void> Abandoned;
+		{ auto Source = Tasks::TCompletionSource<void>::Create(); Abandoned = Source.TakeTask(); }
+		EXPECT_EQ(Abandoned.Wait().TaskState, ETaskState::Failed);
+		EXPECT_EQ(Abandoned.GetFailure().Code, Tasks::ETaskFailureCode::AbandonedSource);
+	}
+
+	TEST_F(FTaskCloseTests, VoidFanInAndDeepFlattenRetainNodeLifetimesAfterShutdown)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		constexpr uint32 Depth = 2048;
+		std::atomic<uint32> Retired = 0;
+		struct FOwner { std::atomic<uint32>& Count; ~FOwner() { ++Count; } };
+		auto Seed = Tasks::LaunchTask("VoidSeed", [] {});
+		Seed.Wait();
+		auto Current = Seed;
+		std::thread Producer([&] {
+			for (uint32 Index = 0; Index < Depth; ++Index)
+			{
+				auto Next = Tasks::ThenAsync(Seed, Tasks::ETaskExecutor::Worker, {}, [Current] { return Current; });
+				ASSERT_EQ(Next.Wait().TaskState, ETaskState::Succeeded);
+				Current = Next.WithLifetime(std::shared_ptr<FOwner>(new FOwner{Retired}));
+			}
+		});
+		Producer.join();
+		auto All = Tasks::WhenAll(std::vector{Current, Current});
+		auto Mixed = Tasks::WhenAll(std::tuple{Current, Tasks::LaunchTask("MixedValue", [] { return 42; })});
+		EXPECT_EQ(All.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Mixed.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(*std::get<1>(Mixed.GetResult()), 42);
+		EXPECT_EQ(std::get<0>(Mixed.GetResult()).GetTaskId(), Current.GetTaskId());
+		Tasks::FTask Retained = All.GetResult().front();
+		EXPECT_EQ(All.GetResult()[1].GetTaskId(), Retained.GetTaskId());
+		Current = {}; All = {}; Mixed = {};
+		ShutdownTaskScheduler(false);
+		EXPECT_EQ(Retired.load(), 0u);
+		Retained = {};
+		EXPECT_EQ(Retired.load(), Depth);
 	}
 
 	TEST_F(FTaskCloseTests, WideDependenciesKeepAllRegistrations)
@@ -285,9 +359,9 @@ namespace Durin
 		EXPECT_EQ(Runs.load(), Count);
 	}
 
-	TEST_F(FTaskCloseTests, PreparedDependenciesRaceClosureWithoutLeakingReservations)
+	TEST_F(FTaskCloseTests, PreparedDependenciesDrainAfterProducersStop)
 	{
-		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .MaxNonterminalTasks = 32}));
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .TaskWarningThreshold = 32}));
 		Tasks::FTaskEvent Gate("PreparationCloseGate", false);
 		FThreadEvent Start;
 		std::atomic<uint32> Ready = 0, Accepted = 0, Runs = 0;
@@ -301,20 +375,19 @@ namespace Durin
 					const auto Prerequisites = Tasks::Prerequisites(Gate);
 					FTaskLaunchOptions Options;
 					Options.Prerequisites = Prerequisites;
-					auto Admission = Private::TryLaunchCancelableTaskWithCompletion("PreparedClose",
+					auto Admission = Private::LaunchCancelableTaskWithCompletion("PreparedClose",
 						[&](const FTaskCancellationToken&) { ++Runs; }, {}, Options);
-					if (Admission.HasValue()) ++Accepted;
-					else EXPECT_TRUE(Admission.GetError().Code == Tasks::ETaskAdmissionErrorCode::LifetimeClosed
-						|| Admission.GetError().Code == Tasks::ETaskAdmissionErrorCode::CapacityExhausted);
+					EXPECT_TRUE(Admission.IsValid());
+					++Accepted;
 				}
 			});
 		while (Ready.load() != Producers.size()) std::this_thread::yield();
 		Start.Trigger();
 		Gate.Trigger();
-		ShutdownTaskScheduler(true);
 		for (auto& Producer : Producers) Producer.join();
+		ShutdownTaskScheduler(true);
 		EXPECT_EQ(Runs.load(), Accepted.load());
-		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTaskReservationCount, 0u);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTrackedTaskCount, 0u);
 		// Reusing the event in another lifetime also exercises completed-node
 		// registration after all speculative reservations have been rolled back.
 		ASSERT_TRUE(InitializeTaskScheduler(1));
@@ -425,7 +498,7 @@ namespace Durin
 		EXPECT_EQ(Runs, 2u);
 		for (Tasks::FTask Task : {Tasks::FTask(Running), Tasks::FTask(Deferred), Tasks::FTask(Dependent)})
 			EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
-		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTaskReservationCount, 0u);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTrackedTaskCount, 0u);
 	}
 
 	TEST_F(FTaskCloseTests, ClosingHooksCanRegisterDependenciesAndMoreHooks)
@@ -483,42 +556,6 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FTaskCloseTests, RejectedConstructedNodesRetirePayloadOutsideSchedulerLocks)
-	{
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		for (int32 Checkpoint = 1; Checkpoint <= 3; ++Checkpoint)
-		{
-			uint32 Destroyed = 0, Calls = 0;
-			struct FCapture
-			{
-				uint32& Destroyed;
-				~FCapture()
-				{
-					// Reentering scheduler diagnostics must be safe even when a fully
-					// constructed node is rolled back after registry insertion.
-					EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTaskReservationCount, 0u);
-					++Destroyed;
-				}
-			};
-			auto Capture = std::shared_ptr<FCapture>(new FCapture{Destroyed});
-			Private::FMoveOnlyTaskFunction Body = [Capture, &Calls](const FTaskCancellationToken&) { ++Calls; };
-			Private::FTaskCompletionFunction Completion = [Capture, &Calls](ETaskState) { ++Calls; };
-			Private::FTaskResultStorage Result{Capture, true};
-			Capture.reset();
-			FTaskCancellationSource Cancellation;
-			FTaskLaunchOptions Options;
-			Options.CancellationToken = Cancellation.GetToken();
-			Private::SetTaskAdmissionAllocationFailureForTests(Checkpoint);
-			auto Rejected = Private::TryLaunchCancelableTaskWithCompletion("RejectedNodePayload",
-				std::move(Body), std::move(Completion), Options, 0, std::move(Result));
-			ASSERT_FALSE(Rejected.HasValue());
-			EXPECT_EQ(Rejected.GetError().Code, Tasks::ETaskAdmissionErrorCode::CapacityExhausted);
-			Cancellation.RequestCancellation();
-			EXPECT_EQ(Calls, 0u);
-			EXPECT_EQ(Destroyed, 1u);
-			EXPECT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
-		}
-	}
 
 	TEST_F(FTaskCloseTests, NodeNotificationsRevisitBlockedNestedAndDynamicGraphs)
 	{

@@ -405,15 +405,14 @@ namespace Durin
 		else {
 			EShaderBuildPriority Priority;
 			{ std::lock_guard Lock(Owner->Mutex); Priority = Options.Priority; }
-			auto Dispatch = Private::TryLaunchCancelableTaskWithCompletion("ShaderPrepare",
+			auto Dispatch = Private::LaunchCancelableTaskWithCompletion("ShaderPrepare",
 				[Owner, Subscriber](const FTaskCancellationToken& Token) {
 					try { if (Token.IsCancellationRequested()) Subscriber->Finish(CanceledShader()); else Owner->Prepare(Subscriber); }
 					catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure("Shader entry-point request is invalid.")); }
 				}, [Subscriber](ETaskState State) {
 					if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderCompilerOutput::Failure("Shader preparation task failed."));
 				}, {.CancellationToken = PreparationCancellation.GetToken(), .Priority = static_cast<ETaskPriority>(Priority)});
-			if (!Dispatch.HasValue()) Finish(FShaderCompilerOutput::Failure("Shader preparation task dispatch failed."));
-			else { std::lock_guard Lock(Mutex); Preparation = std::move(Dispatch).TakeValue(); }
+			{ std::lock_guard Lock(Mutex); Preparation = std::move(Dispatch); }
 		}
 		Publish();
 	}

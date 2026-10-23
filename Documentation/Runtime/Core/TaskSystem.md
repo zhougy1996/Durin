@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-10-22
+Last reviewed: 2026-10-23
 
 ## Construction And Acceptance
 
@@ -55,13 +55,11 @@ in scheduler construction/registration/dispatch/result storage is fatal; it is
 not ordinary task failure. Exceptions from user work produce Failed tasks.
 
 `Threading/Task.h` defines the common task handle, shared result storage, cancellation,
-wait operations, lifecycle and kernel primitives. Checked admission is limited
-to `Private::TryLaunchCancelableTaskWithCompletion` and
-`Private::TryLaunchContinuationTask`, Core kernel tests, deliberate lifecycle
-close probes, and ParallelFor's bounded infrastructure chunk submission.
-These operations retain structured capacity/lifetime/prerequisite errors
-and transactional rollback. They always validate construction. Business code
-must use the ordinary API rather than selecting the checked policy.
+wait operations, lifecycle and kernel primitives. Internal erased submission and
+continuation construction also return handles directly and use the same fatal
+construction contract. There is no checked capacity-admission API or admission
+result wrapper. Terminal callbacks remain available internally for owners that
+must settle a domain operation before the task publishes completion.
 
 ## Storage And Execution Limits
 
@@ -73,17 +71,17 @@ Pending storage can grow with accepted work; this is not an unlimited-memory
 guarantee. The scheduler does not inspect allocations behind containers or
 pointers captured by a callable.
 
-`MaxNonterminalTasks` defaults to 16,384 and `MaxBlockingIOTasks` to 128.
-They remain checked-kernel reservation limits and are overload thresholds for
-ordinary work. Actual CPU and blocking-I/O execution is limited by the installed
-thread pools. A waiting parent never holds a capacity permit that prevents its
-child or prerequisite from progressing through executor-specific helping.
+`TaskWarningThreshold` defaults to 16,384 and `BlockingIOWarningThreshold` to 128.
+These are diagnostic thresholds only; neither rejects nor delays tasks. CPU and
+blocking-I/O execution uses the installed thread pools. Explicit limits on a
+selected set of Worker tasks belong to `FTaskConcurrencyLimiter` below.
 
 The deferred executor retains its frame time/item budget, priorities, FIFO,
-generations and coalescing. Its configured 1,024 entries, 8 MiB queued payload,
-and 1 MiB per-entry limits apply to checked work; ordinary accepted entries
-remain queued beyond them. Large domain results remain in owner-controlled
-records or mailboxes with independent payload budgets. Deferred shutdown and
+generations and coalescing. `QueuedEntriesWarningThreshold` (1,024),
+`QueuedBytesWarningThreshold` (8 MiB), and `EntryBytesWarningThreshold` (1 MiB)
+only report overload. Accepted entries remain queued beyond them. Storage is
+estimated consistently for every entry; callers do not declare admission budgets.
+Domain payload budgets remain with their resource owners. Deferred shutdown and
 selected module drain see the entire accepted queue.
 
 `FTaskSchedulerDiagnostics::ExecutorStorage` is indexed by native `ETaskTarget`.
@@ -103,13 +101,49 @@ are not charged again as continuation payloads. Existing attribution gauges
 distinguish waiting, queued, running and nonterminal nodes and report payload peaks.
 Deferred diagnostics include current/peak retained queue storage, queue depth
 and crossings of configured count/byte thresholds.
-Terminal publication releases scheduler reservations exactly once; retained
+Terminal publication removes scheduler tracking exactly once; retained
 terminal handles/results have separate lifetimes.
 
 External producers can use `TCompletionSource<T>::Create(Options)` in the
 scheduler lifetime.
 Register consumers before starting external work so producer acknowledgement
 does not require another submission during shutdown.
+
+## Concurrency Limiter
+
+`Threading/TaskConcurrencyLimiter.h` provides `Tasks::FTaskConcurrencyLimiter`.
+Construct it with `MaxConcurrency` and an optional priority, then call
+`Push(Name, Callable)` and `Wait(TimeoutSeconds)`. The callable receives a slot
+index in `[0, MaxConcurrency)`, unique among active tasks. It may additionally
+accept a cancellation token; pass that token as the optional third `Push`
+argument. Cancellation remains cooperative and exceptions use normal task failure.
+
+Each push creates one scheduler-tracked void task. Ready tasks wait in the
+limiter's FIFO without occupying a worker or allocating another completion task.
+A slot transfers to the next ready task when the callable returns or throws,
+before capture retirement and nested completion. This matches the body-return
+handoff in UE 5.8.0 (CL 53629095), `Tasks/TaskConcurrencyLimiter.h` and
+`Private/Tasks/TaskConcurrencyLimiter.cpp`. Normal task completion and scheduler
+shutdown still wait for capture retirement and nested work. The limiter bounds
+callable concurrency, not queue length or memory. Captures and nested work must
+not keep using a slot's scratch storage after the callable returns. A callable
+must not wait for work queued behind its own slot.
+
+Stop producers before `Wait`. A blocking wait attempts execution across all
+scheduled slots before sleeping on shared work progress; it does not join nested
+completion or capture retirement. UE 5.8's completion event is one-shot, but its
+`Wait` drains current work before checking that event, even after an earlier
+successful wait. Durin likewise checks current work rather than latching success.
+Prefer a fresh limiter for another batch, as UE's public contract recommends.
+Durin retains deadline checks and notification-based sleeping instead of UE 5.8's
+unbounded retraction scan before the timed event wait. Empty and zero-timeout
+waits allocate no waiting state. Own-limiter waits, independent CPU contexts,
+and rendering-thread waits return false while callable work remains.
+Timeouts do not interrupt an executing callable. Destroying the
+limiter does not cancel accepted work: bodies retain its state through capture
+retirement, and
+scheduler shutdown still drains all pending tasks. Completed tasks are not
+retained by the limiter.
 
 ## Shared Task Results
 
@@ -119,6 +153,9 @@ share one execution node and result; the result type itself may be move-only.
 The node retains successful result storage until its final reference is released,
 including generic `FTask` references and external completion sources. Releasing a
 typed handle does not discard a result still retained by another handle.
+Non-void results occupy aligned storage in their result state without a separate
+value allocation. Task nodes store their move-only callback directly; execution
+and capture retirement happen outside the node mutex.
 Result storage, the task body, the completion callback and the node kind are
 bound during construction, including external and detached completion sources
 and events. The node's result-storage binding and kind cannot change afterward.
@@ -138,9 +175,12 @@ separate shared task type, sharing conversion, or framework consuming accessor.
 Rejected waits, failure and cancellation must be handled before result access.
 `GetResultShared()` is a nonblocking nullable immutable view retaining the entire
 node; it returns empty before publication or after failure/cancellation.
-Void tasks compose without a value argument. Core allocates their trivial result
-storage so retained void handles do not require a submitting module's destructor
-code or a module result reservation.
+Void tasks compose without a value argument and allocate no result state or result
+publication callback. They expose no `GetResult()` or `GetResultShared()`; use
+`Wait()` and inspect its outcome. `TCompletionSource<void>::TrySetValue()` takes no
+value. Retained void handles require neither a submitting module's result destructor
+code nor a module result reservation. Void async flattening retains the inner node
+and its attached lifetimes, with iterative retirement of deep forwarding chains.
 
 Publication/discard precedes externally visible terminal state and dependent
 release. Failed or canceled pending results are destroyed exactly once. Successful
@@ -169,8 +209,8 @@ All ordinary composition returns task handles directly:
 | `Then(FTask or FTaskEvent, Executor, Options, F)` | Success edge with a completion handle and no input value |
 | `ThenCompleted(const TTask<T>&, Executor, Options, F)` | Receive the task in any terminal state; inspect before accessing a result |
 | `ThenAsync(const TTask<T>&, Executor, Options, F)` | Flatten a returned task by retaining its node and result without moving the value |
-| `WhenAll(const vector<TTask<T>>&)` | Immutable owning result views in input order, including duplicate positions |
-| `WhenAll(const tuple<TTask<Ts>...>&)` | Heterogeneous immutable owning result views; void positions view monostate |
+| `WhenAll(const vector<TTask<T>>&)` | Owning result views (completion handles for void) in input order, including duplicate positions |
+| `WhenAll(const tuple<TTask<Ts>...>&)` | Heterogeneous owning result views; void positions hold generic `FTask` completion handles |
 
 `LaunchTask(Executor, Options, Callable, Dependency)` accepts a task, event,
 or generic `FTask` directly, or a vector, array, or span of these types. The named
@@ -211,7 +251,12 @@ and their borrowed span is not retained in the later observer. An inner user exc
 execution failure, not a scheduler admission result.
 Copying and flattening preserve the original failure reason, code, dependency
 error and input identity. A flattening callback exception remains a callback
-failure; it is not relabeled as a failed prerequisite.
+failure; it is not relabeled as a failed prerequisite. Detailed composition failure
+metadata is allocated only when needed and belongs to the task node; typed
+handles do not own a separate failure object. Internal terminal hooks can read
+that metadata before public completion, while `GetFailure()` still requires Failed.
+Continuation prerequisites are normalized once during submission; fan-in keeps
+its original input order and duplicates for result and failure-index semantics.
 
 `TCompletionSource<T>::Create` returns a counted external producer directly.
 It does not occupy a worker. `TakeTask()` obtains its typed handle once; that
@@ -398,6 +443,9 @@ SelfWait, DependencyCycle, UnsupportedThread and TimedOut do not prove completio
 `WaitTask` and `WaitAll` accept a timeout in seconds. Omitting it waits indefinitely.
 A collection shares one steady-clock deadline across all inputs and preserves one
 result per input, including completed or invalid entries after the deadline.
+It attempts progress across all eligible inputs before blocking on a shared signal;
+one unfinished input does not prevent retraction of later inputs. Rejected waits
+remain individual outcomes and do not stop progress on other inputs.
 Timeout does not request cancellation or consume results. Nonpositive timeouts
 only inspect completion, without executing user code or requiring blocking authority; positive
 timeouts stop starting work after the deadline. Executed callables cannot be
@@ -410,9 +458,8 @@ created with `Tasks::LaunchIndependentTask(Name, Callable, Options)`. This entry
 uses Worker execution and ordinary scheduler/owner lifetime. It rejects launch
 prerequisites, external completion and non-Worker targets. An independent leaf
 cannot submit children, acquire dynamic task dependencies, block on nonterminal
-tasks. Contract violations reject checked-kernel
-admission with `InvalidExecutionContract`; ordinary construction treats them as
-programming violations. Completed values remain readable without blocking.
+tasks. Construction contract violations are fatal and report
+`InvalidExecutionContract`. Completed values remain readable without blocking.
 The callable must not depend on owner-thread, RHI, I/O or other external progress;
 these ordinary C++ effects remain a caller contract. This explicit declaration
 permits render preparation/recording joins without relaxing general wait policy.
@@ -466,14 +513,11 @@ Waiting uses no worker polling slice; the long-wait diagnostic has one deadline
 of its own. Scheduler quiescence notification remains separate for shutdown.
 
 Node construction and prerequisite-slot reservation run outside the scheduler
-lock, under the in-flight submission lifetime guard. Acceptance checks closure
-and capacity, then commits registry entries and accounting under the lock.
-Preparation failures and rejected commits release prerequisite slots outside
-that lock. Failed commits roll back registry and scheduler reservations;
-rejected payloads retire outside scheduler locks without
-running body or completion callbacks. Dependency registration follows the commit,
-then one activation enables dispatch. Failures after commit settle
-the accepted node rather than return a rejected admission. Standalone completions
+lock, under the in-flight submission lifetime guard. Construction checks closure,
+then commits registry entries and accounting under the lock.
+Allocation failures are fatal. Preparation rollback releases prerequisite slots
+and payloads outside the lock; registry rollback restores tracking. Dependency
+registration follows the commit, then one activation enables dispatch. Standalone completions
 and events are constructed active without scheduler admission. The body is retired
 before terminal publication. Task handles and shared result views retain the
 node's result storage beyond execution without retaining retired callback
@@ -490,9 +534,14 @@ ParallelFor keeps its existing CPU policy, cancellation and stable failure
 selection. The native default MinBatchSize remains the serial sentinel.
 `Tasks::ParallelFor` offers Auto, Serial and ExplicitBatch; zero explicit batch
 is invalid. Auto uses a 16,384-element threshold and 2,048 minimum batch, at
-most Worker count plus caller chunks, and serial nesting. If checked chunk
-submission fails after earlier chunks were accepted, those chunks stay owned,
-are canceled/drained and are waited before captures are released. Correctness
+most Worker count plus caller chunks, and serial nesting. Chunks use ordinary
+submission with no capacity rejection or partial-admission fallback. All chunks
+are joined before captures are released. The single-chunk path runs before
+allocating parallel shared state or an internal cancellation source, as in UE 5.8.
+Ordinary and cancelable bodies share the implementation without an extra erased
+callback wrapper; parallel state owns the body directly. Serial execution retains
+cancellation checks, exception precedence, diagnostic ranges and capture retirement.
+Correctness
 validation of queueing is not performance-equivalence evidence.
 
 ## Owner And Module Lifetime
@@ -541,7 +590,7 @@ terminal, including completion publications from external producers and capture
 destructors during shutdown. Only then is its queue closed and uninstalled.
 Worker-only owners may use ShutdownTaskScheduler. Recursive deferred pump or
 shutdown from a deferred callback is rejected. Queue depth, running bodies and
-nonterminal reservations are zero at successful shutdown.
+nonterminal tracking counts are zero at successful shutdown.
 
 Attribution uses process-lifetime low-cardinality owner/category labels with
 256-owner/1,024-pair bounds and overflow counters. Explicit attribution wins;

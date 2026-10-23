@@ -4,7 +4,7 @@ namespace Durin::Tasks
 {
 	namespace Detail
 	{
-		[[noreturn]] auto FailConstruction(FTaskAdmissionError Error) -> void
+		[[noreturn]] auto FailConstruction(FTaskConstructionError Error) -> void
 		{
 			requiref(false, "Task construction failed (code {}, task {}).", static_cast<uint32>(Error.Code), Error.RelatedTaskId);
 			std::terminate();
@@ -16,11 +16,10 @@ namespace Durin::Tasks
 			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && Handle.GetState() == ETaskState::Succeeded);
 		}
 
-		auto ReadFailure(const Tasks::FTask& Handle, const FTaskFailure* Failure) -> FTaskFailure
+		auto ReadFailure(const Tasks::FTask& Handle) -> FTaskFailure
 		{
 			requiref(Handle.GetState() == ETaskState::Failed, "Failure access requires Failed (task {} {}, state {}).", Handle.GetTaskId(), Handle.GetDebugName(), static_cast<uint32>(Handle.GetState()));
-			if (Failure) return *Failure;
-			return FTaskFailure{Handle.GetDiagnostics().TerminalReason};
+			return Durin::Private::FTaskRuntimeAccess::GetFailure(Handle);
 		}
 	}
 

@@ -8,7 +8,7 @@
 #include "CoreAPI.h"
 
 #include "HAL/Platform.h"
-#include "Threading/TaskAdmission.h"
+#include "Threading/TaskError.h"
 
 namespace Durin
 {
@@ -16,6 +16,7 @@ namespace Durin
 	{
 		struct FTaskAttributionAccess;
 		struct FTaskRuntimeAccess;
+		struct FParallelForAccess;
 	}
 
 	class FTaskAttribution
@@ -49,7 +50,7 @@ namespace Durin
 	namespace Tasks
 	{
 		class FPipe;
-		namespace Private { class FTaskHandle; }
+		namespace Private { class FTaskHandle; struct FTaskConcurrencyLimiterState; }
 		// Public generic completion handle for any task or event.
 		using FTask = Private::FTaskHandle;
 	}
@@ -117,17 +118,29 @@ namespace Durin
 		DependencyFailed,
 		CancellationRequested,
 		DispatchRejected,
-		CapacityExhausted,
 		Superseded,
 		StaleGeneration,
 		CallbackFailure,
 		ShutdownCanceled,
 	};
 
+	namespace Tasks
+	{
+		// Framework failure is distinct from a successful value carrying a domain error.
+		enum class ETaskFailureCode : uint8 { CallableException, DependencyBindingFailed, AbandonedSource, DependencyFailed };
+		struct FTaskFailure
+		{
+			ETaskTerminalReason Reason = ETaskTerminalReason::CallbackFailure;
+			std::optional<FTaskConstructionError> DependencyError;
+			ETaskFailureCode Code = ETaskFailureCode::CallableException;
+			uint64 RelatedTaskId = 0;
+			size_t InputIndex = 0;
+		};
+	}
+
 	namespace Private
 	{
-		// Void payload destruction must remain valid after a submitting module unloads.
-		CORE_API auto MakeVoidTaskResultState() -> std::shared_ptr<TTaskResultState<std::monostate>>;
+		CORE_API auto RetainForwardedTask(const Tasks::FTask& Owner, Tasks::FTask Inner) -> void;
 		// Retire forwarding ownership iteratively, including reentrant node destruction.
 		CORE_API auto ReleaseForwardedTask(Tasks::FTask Task) noexcept -> void;
 		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void(const FTaskCancellationToken&)>;
@@ -141,13 +154,10 @@ namespace Durin
 			bool bHasValue = false;
 		};
 
-		// Reports rejection before acceptance; accepted work can still fail during execution.
-		CORE_API auto TryLaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes = 0, FTaskResultStorage Result = {}) -> Tasks::TTaskAdmission<Tasks::FTask>;
-		CORE_API auto TryLaunchContinuationTask(const Tasks::FTask& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, uint64 AdditionalStorageBytes = 0, FTaskResultStorage Result = {}) -> Tasks::TTaskAdmission<Tasks::FTask>;
-		CORE_API auto ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority, uint64 PayloadBytes, bool bQueueOnSaturation = false) -> std::optional<Tasks::FTaskAdmissionError>;
+		// Valid construction returns a handle; contract and allocation failures are fatal.
+		CORE_API auto LaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes = 0, FTaskResultStorage Result = {}, const Tasks::FTask* PrimaryPrerequisite = nullptr) -> Tasks::FTask;
+		CORE_API auto LaunchContinuationTask(const Tasks::FTask& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, uint64 AdditionalStorageBytes = 0, FTaskResultStorage Result = {}) -> Tasks::FTask;
 		// Native-test seam for pausing after Close is claimed, before result publication.
-		// Injects bad_alloc at checkpoints 1-5 before acceptance or 6 during dispatch; zero disables it.
-		CORE_API auto SetTaskAdmissionAllocationFailureForTests(int32 Checkpoint) -> void;
 		CORE_API auto SetTaskTerminalPublicationTestHook(std::function<void(uint64)>&& Hook) -> void;
 		// Native-test seam for pausing after the active cohort is pinned and scheduler locks are released.
 		CORE_API auto SetTaskSchedulerSnapshotTestHook(std::function<void()>&& Hook) -> void;
@@ -202,7 +212,6 @@ namespace Durin
 		uint64 RejectedCount = 0;
 		uint64 CancellationRequestedCount = 0;
 		uint64 DispatchRejectedCount = 0;
-		uint64 CapacityExhaustedCount = 0;
 		uint64 SupersededCount = 0;
 		uint64 StaleGenerationCount = 0;
 		uint64 CallbackFailureCount = 0;
@@ -240,20 +249,19 @@ namespace Durin
 	{
 		uint32 WorkerCount = 0;
 		std::array<FTaskExecutorStorageDiagnostics, 3> ExecutorStorage;
-		uint64 TaskReservationCapacity = 0;
-		uint64 CurrentTaskReservationCount = 0;
-		uint64 PeakTaskReservationCount = 0;
+		uint64 TaskWarningThreshold = 0;
+		uint64 CurrentTrackedTaskCount = 0;
+		uint64 PeakTrackedTaskCount = 0;
 		uint32 QueueDepth = 0;
 		uint32 BlockingIOWorkerCount = 0;
 		uint32 BlockingIOQueueDepth = 0;
-		uint32 BlockingIOReservations = 0;
-		uint32 BlockingIOCapacity = 0;
+		uint32 BlockingIOTrackedTasks = 0;
+		uint32 BlockingIOWarningThreshold = 0;
 		uint32 ActiveWorkerCount = 0;
 		uint64 CompletedTaskCount = 0;
 		uint64 FailedTaskCount = 0;
 		uint64 CanceledTaskCount = 0;
 		uint64 RejectedTaskCount = 0;
-		uint64 CapacityRejectedTaskCount = 0;
 		uint64 LongWaitCount = 0;
 		uint64 NonterminalTaskCount = 0;
 		uint64 RetainedTerminalHandleCount = 0;
@@ -310,9 +318,9 @@ namespace Durin
 
 	struct FGameThreadDeferredWorkQueueConfig
 	{
-		uint32 MaxQueuedEntries = 1'024;
-		uint64 MaxQueuedPayloadBytes = 8ull * 1'024ull * 1'024ull;
-		uint64 MaxPayloadBytesPerEntry = 1ull * 1'024ull * 1'024ull;
+		uint32 QueuedEntriesWarningThreshold = 1'024;
+		uint64 QueuedBytesWarningThreshold = 8ull * 1'024ull * 1'024ull;
+		uint64 EntryBytesWarningThreshold = 1ull * 1'024ull * 1'024ull;
 		uint32 FrameMaxCallbacks = 64;
 		double FrameMaxSeconds = 0.001;
 		double LongCallbackSeconds = 0.002;
@@ -400,7 +408,7 @@ namespace Durin
 	private:
 		FParallelForCancellationToken(FTaskCancellationToken InGroupToken, FTaskCancellationToken InExternalToken);
 
-		friend CORE_API auto ParallelForCancelable(const char* Name, uint64 Num, FCancelableParallelForFunction&& Function, const FParallelForOptions& Options) -> FParallelForResult;
+		friend struct Private::FParallelForAccess;
 
 		FTaskCancellationToken GroupToken;
 		FTaskCancellationToken ExternalToken;
@@ -451,8 +459,8 @@ namespace Durin
 			friend class Durin::FTaskScheduler;
 			friend struct Durin::Private::FTaskRuntimeAccess;
 			friend struct Durin::Tasks::Detail::FTaskAccess;
-			friend CORE_API auto Durin::Private::TryLaunchCancelableTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes, Durin::Private::FTaskResultStorage Result) -> Durin::Tasks::TTaskAdmission<FTaskHandle>;
-			friend CORE_API auto Durin::Private::TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, uint64 AdditionalStorageBytes, Durin::Private::FTaskResultStorage Result) -> Durin::Tasks::TTaskAdmission<FTaskHandle>;
+			friend CORE_API auto Durin::Private::LaunchCancelableTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes, Durin::Private::FTaskResultStorage Result, const Tasks::FTask* PrimaryPrerequisite) -> FTaskHandle;
+			friend CORE_API auto Durin::Private::LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, uint64 AdditionalStorageBytes, Durin::Private::FTaskResultStorage Result) -> FTaskHandle;
 			friend CORE_API auto Durin::CancelTask(const FTaskHandle& Task) -> bool;
 			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
 			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
@@ -472,10 +480,14 @@ namespace Durin
 		};
 		struct FTaskRuntimeAccess
 		{
+			// Internal reads are also valid from terminal hooks before public completion.
+			CORE_API static auto GetFailure(const Tasks::FTask& Task) -> Tasks::FTaskFailure;
+			CORE_API static auto SetFailure(const Tasks::FTask& Task, Tasks::FTaskFailure Failure) -> void;
+			CORE_API static auto SetCurrentFailure(Tasks::FTaskFailure Failure) -> void;
 			// Detached completion reuses task storage without admitting a scheduled body.
 			CORE_API static auto CreateDetachedCompletion(FTaskCompletionFunction&& Completion, FTaskResultStorage Result) -> Tasks::FTask;
 			CORE_API static auto CreateTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement) -> Tasks::FTask;
-			CORE_API static auto AddTaskEventPrerequisites(const Tasks::FTask& Event, std::span<const Tasks::FTask> Prerequisites) -> std::optional<Tasks::FTaskAdmissionError>;
+			CORE_API static auto AddTaskEventPrerequisites(const Tasks::FTask& Event, std::span<const Tasks::FTask> Prerequisites) -> std::optional<Tasks::FTaskConstructionError>;
 			CORE_API static auto TriggerTaskEvent(const Tasks::FTask& Event) -> void;
 			CORE_API static auto PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>;
 			CORE_API static auto RetainLifetime(const Tasks::FTask& Task, std::shared_ptr<void> Lifetime) -> void;
@@ -486,9 +498,9 @@ namespace Durin
 			CORE_API static auto GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution;
 			CORE_API static auto BindTerminal(const Tasks::FTask& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
 			CORE_API static auto CompleteExternal(const Tasks::FTask& Task, ETaskState State) -> void;
-			CORE_API static auto AddCompletionDependency(const Tasks::FTask& Parent, const Tasks::FTask& Child) -> std::optional<Tasks::FTaskAdmissionError>;
-			CORE_API static auto AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskAdmissionError>;
-			CORE_API static auto BindDynamicDependency(const Tasks::FTask& Task, const Tasks::FTask& Inner) -> std::optional<Tasks::FTaskAdmissionError>;
+			CORE_API static auto AddCompletionDependency(const Tasks::FTask& Parent, const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>;
+			CORE_API static auto AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>;
+			CORE_API static auto BindDynamicDependency(const Tasks::FTask& Task, const Tasks::FTask& Inner) -> std::optional<Tasks::FTaskConstructionError>;
 		};
 	}
 
@@ -497,6 +509,7 @@ namespace Durin
 	{
 		// Internal ready-time serialization; owned by the caller until completion.
 		Tasks::FPipe* Pipe = nullptr;
+		std::shared_ptr<Tasks::Private::FTaskConcurrencyLimiterState> ConcurrencyLimiter;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
 		// Order execution after every nonempty prerequisite completes, regardless of outcome.
@@ -506,8 +519,6 @@ namespace Durin
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
-		// Internal ordinary construction queues beyond checked reservation limits.
-		bool bQueueOnSaturation = false;
 		// Internal completion sources stay counted until producer acknowledgement.
 		bool bExternalCompletion = false;
 		bool bUnknownExecutionRequirement = true;
@@ -518,7 +529,6 @@ namespace Durin
 
 	struct FTaskContinuationOptions
 	{
-		bool bQueueOnSaturation = false;
 		std::span<const Tasks::FTask> Prerequisites;
 		FTaskCancellationToken CancellationToken;
 		FTaskGenerationToken GenerationToken;
@@ -547,9 +557,9 @@ namespace Durin
 	struct FTaskSchedulerConfig
 	{
 		uint32 NumWorkerThreads = 0;
-		uint64 MaxNonterminalTasks = 16'384;
+		uint64 TaskWarningThreshold = 16'384;
 		uint32 NumBlockingIOThreads = 2;
-		uint32 MaxBlockingIOTasks = 128;
+		uint32 BlockingIOWarningThreshold = 128;
 	};
 
 	// Starts the process-owned CPU scheduler. Engine lifecycle starts it once during PreInit.
@@ -577,7 +587,6 @@ namespace Durin
 	template<typename T>
 	class TTaskResultState : public std::enable_shared_from_this<TTaskResultState<T>>
 	{
-		using FValueStorage = std::conditional_t<std::is_same_v<T, std::monostate>, std::optional<T>, std::unique_ptr<T>>;
 	public:
 		~TTaskResultState()
 		{
@@ -586,33 +595,35 @@ namespace Durin
 
 		auto SetPending(T&& InValue) -> void
 		{
-			FValueStorage PendingValue;
+			// A producer owns construction until completion publication. Construct
+			// outside the mutex: a user move constructor can reenter task APIs.
 			try
 			{
-				if constexpr (std::is_same_v<T, std::monostate>) PendingValue.emplace();
-				else PendingValue = std::make_unique<T>(std::move(InValue));
+				std::construct_at(reinterpret_cast<T*>(ValueStorage), std::move(InValue));
 			}
 			catch (const std::bad_alloc&) { requiref(false, "Task result allocation failed."); std::terminate(); }
 			std::lock_guard Lock(Mutex);
-			check(!Value && !bCompleted);
-			Value = std::move(PendingValue);
+			check(!bHasValue && !bCompleted);
+			bHasValue = true;
 		}
 
 		auto Complete(ETaskState State) -> void
 		{
-			FValueStorage DetachedValue;
+			T* DetachedValue = nullptr;
 			{
 				std::lock_guard Lock(Mutex);
 				bCompleted = true;
-				if (State == ETaskState::Succeeded && (Value || Forwarded))
+				if (State == ETaskState::Succeeded && (bHasValue || Forwarded))
 				{
 					bPublished = true;
 				}
 				else
 				{
-					DetachedValue = std::move(Value);
+					if (bHasValue) DetachedValue = Value();
+					bHasValue = false;
 				}
 			}
+			if (DetachedValue) std::destroy_at(DetachedValue);
 		}
 
 		// Shared access never consumes or invalidates another task handle.
@@ -620,7 +631,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(Mutex);
 			if (!bPublished) return nullptr;
-			return Forwarded ? Forwarded : Value ? &*Value : nullptr;
+			return Forwarded ? Forwarded : bHasValue ? Value() : nullptr;
 		}
 
 		auto ForwardResult(std::shared_ptr<TTaskResultState> Other, Tasks::FTask Lifetime) -> void
@@ -630,29 +641,33 @@ namespace Durin
 			T* Published = Other->PeekPublished();
 			require(Published && Lifetime.IsValid());
 			std::lock_guard Lock(Mutex);
-			require(!bCompleted && !Value && !Forwarded);
+			require(!bCompleted && !bHasValue && !Forwarded);
 			Forwarded = Published;
 			ForwardedTask = std::move(Lifetime);
 		}
 
 		auto Discard() -> void
 		{
-			FValueStorage DetachedValue;
+			T* DetachedValue = nullptr;
 			Tasks::FTask DetachedTask;
 			{
 				std::lock_guard Lock(Mutex);
 				bPublished = false;
-				DetachedValue = std::move(Value);
+				if (bHasValue) DetachedValue = Value();
+				bHasValue = false;
 				Forwarded = nullptr;
 				DetachedTask = std::move(ForwardedTask);
 			}
 			Private::ReleaseForwardedTask(std::move(DetachedTask));
+			if (DetachedValue) std::destroy_at(DetachedValue);
 		}
 
 	private:
 
 		mutable std::mutex Mutex;
-		mutable FValueStorage Value;
+		auto Value() const -> T* { return std::launder(reinterpret_cast<T*>(ValueStorage)); }
+		alignas(T) mutable std::byte ValueStorage[sizeof(T)];
+		bool bHasValue = false;
 		bool bCompleted = false;
 		bool bPublished = false;
 		T* Forwarded = nullptr;

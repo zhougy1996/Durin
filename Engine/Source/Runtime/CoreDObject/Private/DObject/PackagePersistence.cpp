@@ -71,25 +71,22 @@ namespace Durin
 			if (auto Result = CheckAsyncAdmission(Bytes); !Result) return Result;
 			auto Save = std::make_shared<FOwnedAsyncSave>();
 			Save->Bytes = Bytes; Save->Write = std::move(Write); Save->Finish = std::move(Finish);
-			// Register completion before releasing disk work. Rejected deferred
-			// admission must never allow a destructive write to start.
+			// Register publication before releasing disk work. The owner gate also
+			// prevents writes when publication setup is deliberately canceled.
 			auto Gate = Tasks::TCompletionSource<void>::Create({.DebugName = "Package.SaveAdmission"});
 			const std::array Prerequisites{Gate.GetTaskHandle()};
-			FTaskLaunchOptions DiskOptions;
-			DiskOptions.Target = ETaskTarget::BlockingIO;
-			DiskOptions.bQueueOnSaturation = true;
+			Tasks::FTaskExecutionOptions DiskOptions;
+			DiskOptions.DebugName = "Package.SaveIO";
 			DiskOptions.Prerequisites = Prerequisites;
-			auto Disk = Private::TryLaunchCancelableTaskWithCompletion("Package.SaveIO",
+			auto Disk = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, DiskOptions,
 				[Save, Admission = Gate.GetTaskHandle()](const FTaskCancellationToken&) {
 					if (Admission.GetState() != ETaskState::Succeeded) {
 						Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
 						return;
 					}
 					Save->Write();
-				}, [](ETaskState) {}, DiskOptions);
-			if (!Disk.HasValue())
-			{ Gate.TrySetCanceled(); return Fail(EPackageSaveError::ShuttingDown, "Save I/O admission failed."); }
-			Save->Disk = std::move(Disk).TakeValue();
+				});
+			Save->Disk = std::move(Disk);
 			if (PublicationFault == EPublicationFault::RejectAdmission)
 			{
 				Gate.TrySetCanceled();
@@ -98,19 +95,9 @@ namespace Durin
 				Save->Write = {}; Save->Finish = {};
 				return Fail(EPackageSaveError::ShuttingDown, "Injected save publication admission failure.");
 			}
-			FTaskContinuationOptions CompletionOptions;
-			CompletionOptions.Target = ETaskTarget::GameThreadDeferred;
-			CompletionOptions.bQueueOnSaturation = true;
-			auto Completion = Private::TryLaunchContinuationTask(Save->Disk, "Package.SavePublication",
-				[Save](const FTaskCancellationToken&) { FinishAsyncSave(Save); }, [](ETaskState) {},
-				CompletionOptions);
-			if (!Completion.HasValue())
-			{
-				Gate.TrySetCanceled();
-				Save->Write = {}; Save->Finish = {};
-				return Fail(EPackageSaveError::ShuttingDown, "Save publication admission failed.");
-			}
-			Save->Publication = std::move(Completion).TakeValue();
+			auto Completion = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
+				{.DebugName = "Package.SavePublication"}, [Save] { FinishAsyncSave(Save); }, Save->Disk);
+			Save->Publication = std::move(Completion);
 			{ std::lock_guard Lock(AsyncSaveMutex); AsyncSaves.push_back(Save); }
 			if (PublicationFault == EPublicationFault::CancelContinuation) CancelTask(Save->Publication);
 			Gate.TrySetValue();

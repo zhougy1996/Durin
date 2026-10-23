@@ -8,13 +8,13 @@ namespace Durin
 {
 	namespace
 	{
-		// Kernel fixtures deliberately observe recoverable admission and erased lifetime state.
+		// Kernel fixtures exercise erased callable and completion lifetime state.
 		// Ordinary result/acceptance behavior is exercised by TaskCompositionTests.
 		template<typename F>
 		auto SubmitCancelableKernelTask(const char* Name, F&& Function, const FTaskLaunchOptions& Options = {}) -> Tasks::FTask
 		{
-			auto Admission = Private::TryLaunchCancelableTaskWithCompletion(Name, std::forward<F>(Function), {}, Options);
-			return Admission.HasValue() ? std::move(Admission).TakeValue() : Tasks::FTask{};
+			auto Admission = Private::LaunchCancelableTaskWithCompletion(Name, std::forward<F>(Function), {}, Options);
+			return Admission;
 		}
 		template<typename F>
 		auto SubmitKernelTask(const char* Name, F&& Function, const FTaskLaunchOptions& Options = {}) -> Tasks::FTask
@@ -28,10 +28,10 @@ namespace Durin
 		auto SubmitKernelContinuation(const Tasks::FTask& Input, const char* Name, F&& Function,
 			const FTaskContinuationOptions& Options = {}) -> Tasks::FTask
 		{
-			auto Admission = Private::TryLaunchContinuationTask(Input, Name,
+			auto Admission = Private::LaunchContinuationTask(Input, Name,
 				[Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable { std::invoke(Function); },
 				{}, Options);
-			return Admission.HasValue() ? std::move(Admission).TakeValue() : Tasks::FTask{};
+			return Admission;
 		}
 
 	}

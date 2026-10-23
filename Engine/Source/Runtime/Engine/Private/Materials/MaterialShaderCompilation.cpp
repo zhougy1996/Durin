@@ -81,17 +81,16 @@ namespace Durin
 		DerivedData::FRequestBarrier Submission(*ShaderMap->Owner);
 		ETaskPriority Priority;
 		{ std::lock_guard Lock(ShaderMap->Mutex); Priority = ShaderMap->HighPriority ? ETaskPriority::High : ETaskPriority::Normal; }
-		auto Dispatch = Private::TryLaunchCancelableTaskWithCompletion("MaterialCompileStage",
+		auto Dispatch = Private::LaunchCancelableTaskWithCompletion("MaterialCompileStage",
 			[ShaderMap, Work = std::move(Work)](const FTaskCancellationToken& Token) {
 				try { if (Token.IsCancellationRequested() || IsBuildCanceled(ShaderMap)) FMaterialShaderMap::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
 				catch (...) { FMaterialShaderMap::CompleteCompilation(ShaderMap, FailedMaterial()); }
 			}, [ShaderMap](ETaskState Terminal) {
 				if (Terminal != ETaskState::Succeeded) FMaterialShaderMap::CompleteCompilation(ShaderMap, FailedMaterial());
 			}, {.CancellationToken = ShaderMap->CpuCancellation.GetToken(), .Priority = Priority});
-		if (!Dispatch.HasValue()) FMaterialShaderMap::CompleteCompilation(ShaderMap, FailedMaterial());
-		else {
+		{
 			std::lock_guard Lock(ShaderMap->Mutex);
-			auto Task = std::move(Dispatch).TakeValue();
+			auto Task = std::move(Dispatch);
 			ShaderMap->Owner->TrackTask(std::move(Task));
 		}
 	}
