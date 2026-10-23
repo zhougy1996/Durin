@@ -10,7 +10,7 @@ namespace Durin::DerivedData
 	auto FFileSystemCacheBackend::GetBucketDirectory(const FCacheBucket& Bucket, ECacheStorageNamespace Namespace) const
 		-> FFilePath
 	{
-		auto Root = FFilePath(FPaths::DerivedDataCacheDir());
+		auto Root = FFilePath(Lease.Root);
 		if (Namespace == ECacheStorageNamespace::Records) Root /= "records/v4";
 		else if (Namespace == ECacheStorageNamespace::Values) Root /= FCacheBlobIdentity::Namespace;
 		return (Root / std::string(Bucket.ToString())).lexically_normal();
@@ -41,8 +41,6 @@ namespace Durin::DerivedData
 	auto FFileSystemCacheBackend::Get(const FCacheStorageGetRequest& Request) const
 		-> FCacheStorageGetResult
 	{
-		auto Lease = Private::AcquireCacheStorageOwnership();
-		if (!Lease) return std::unexpected(std::move(Lease.error()));
 		if (Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache get request is invalid."});
 		auto EntryPath = GetEntryPath(Request.Key, Request.Namespace);
@@ -109,8 +107,6 @@ namespace Durin::DerivedData
 	auto FFileSystemCacheBackend::Put(const FCacheStoragePutRequest& Request) const
 		-> FCacheStoragePutResult
 	{
-		auto Lease = Private::AcquireCacheStorageOwnership();
-		if (!Lease) return std::unexpected(std::move(Lease.error()));
 		if (Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache put request is invalid."});
 		if (Request.Value.size() > Request.MaximumValueBytes)

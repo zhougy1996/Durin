@@ -181,10 +181,11 @@ namespace Durin::DerivedData
 						? (**Result).ToOutput(Key, Work->Options.Policy.OutputLimits)
 						: std::expected<FBuildOutput, FCacheError>(std::unexpected(FCacheError{
 							ECacheError::Corrupt, "Cache output schema does not match the build function."}));
-					if (Output) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildExecutionFlags::CacheQueryHit)); return; }
+					if (Output && !Output->HasError()) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildExecutionFlags::CacheQueryHit)); return; }
 					Private::ObserveCache(Key, (**Result).GetSchema() != Function.OutputType || (**Result).GetSchemaVersion() != Function.OutputSchema
 						? Private::ECacheObservation::SchemaRejected : Private::ECacheObservation::RecordRejected);
-					Result = std::unexpected(std::move(Output.error()));
+					Result = std::unexpected(Output ? FCacheError{ECacheError::Corrupt, "Cached build output contains errors."}
+						: std::move(Output.error()));
 				}
 				if (!Result) CacheFailure("read", Result.error());
 				if (Work->Options.Policy.BuildLocal) Private::ObserveCache(Key, Private::ECacheObservation::Fallback);
@@ -196,8 +197,8 @@ namespace Durin::DerivedData
 			try
 			{
 				const auto* Output = Completion.GetOutput();
-				if (!Output || !Work->Options.Policy.StoreOnBuild || Output->HasLogs()
-					|| (Completion.GetStatus() == EStatus::Error && !Completion.GetDiagnostic().empty())) { Work.reset(); Finish(std::move(Completion)); return; }
+				if (Completion.GetStatus() != EStatus::Ok || !Output || !Work->Options.Policy.StoreOnBuild
+					|| Output->HasLogs()) { Work.reset(); Finish(std::move(Completion)); return; }
 				const auto Policy = Work->Options.Policy;
 				Work->LocalCompletion = std::move(Completion);
 				auto Record = FCacheRecord::FromOutput(*Work->LocalCompletion->GetCacheKey(), *Work->LocalCompletion->GetOutput(), Policy.PersistenceLimits);

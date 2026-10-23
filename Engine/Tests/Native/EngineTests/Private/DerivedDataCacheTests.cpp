@@ -1614,6 +1614,36 @@ TEST(FCacheTests, RepeatedBlobIdentitiesShareReadDecodeAndPhysicalBudgets)
 	}
 }
 
+TEST(FCacheTests, MixedBlobIdentitiesDeduplicateOnlyMatchingContent)
+{
+	FScopedCacheDirectory Directory("MixedBlobIdentities");
+	const auto Key = MakeKey(FCacheBucket::FromString("Reuse"), 'd');
+	const auto Empty = FSharedByteBuffer::Take(FByteBuffer{});
+	const auto First = FSharedByteBuffer::Take(Bytes({1, 2}));
+	const auto SameSize = FSharedByteBuffer::Take(Bytes({3, 4}));
+	const auto OtherSize = FSharedByteBuffer::Take(Bytes({1, 2, 3}));
+	const auto Record = RecordWith(Key, {Empty, First, SameSize, OtherSize,
+		FSharedByteBuffer::Copy(First.GetBytes()), Empty, SameSize});
+	FCacheStoreStats Cold, Warm;
+	ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Cold}));
+	EXPECT_EQ(Cold.BlobsCompressed, 4u); EXPECT_EQ(Cold.BlobsWritten, 4u);
+	ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Warm}));
+	EXPECT_EQ(Warm.BlobsReused, 4u); EXPECT_EQ(Warm.BlobsCompressed, 0u); EXPECT_EQ(Warm.BlobsWritten, 0u);
+	FCacheQueryStats Stats;
+	auto Loaded = GetCache().Get({.Key = Key, .Stats = &Stats}); ASSERT_TRUE(Loaded && *Loaded);
+	EXPECT_EQ(Stats.ValuesRead, 4u); EXPECT_EQ(Stats.DecodedBytes, 7u);
+	ASSERT_EQ((**Loaded).GetValues().size(), Record.GetValues().size());
+	for (const auto& Item : Record.GetValues()) {
+		const auto* Actual = (**Loaded).FindValue(Item.Id); ASSERT_NE(Actual, nullptr);
+		EXPECT_TRUE(std::ranges::equal(Actual->GetData().GetBytes(), Item.Value.GetData().GetBytes()));
+		for (const auto& Other : Record.GetValues()) {
+			const bool SameContent = Item.Value.GetBlobIdentity() == Other.Value.GetBlobIdentity()
+				&& Item.Value.GetRawSize() == Other.Value.GetRawSize();
+			EXPECT_EQ(Actual->GetData().SharesStorageWith((**Loaded).FindValue(Other.Id)->GetData()), SameContent);
+		}
+	}
+}
+
 TEST(FCacheTests, StoredReuseVerifiesRawContentAndDoesNotRepublishValidBlobs)
 {
 	FScopedCacheDirectory Directory("VerifiedReuse");
@@ -1749,6 +1779,41 @@ TEST(FCacheDiagnosticsTests, BoundsBucketsAndObservesAdmissionWithoutChangingRes
 	EXPECT_GT(Stats.Total.QueueNanoseconds, 0u); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 }
 
+TEST(FCacheStorageTests, RecordTransactionsKeepTheirLeasedRootAcrossAllFiles)
+{
+	FScopedCacheDirectory First("TransactionRootFirst");
+	FScopedCacheDirectory Second("TransactionRootSecond");
+	const auto Key = MakeKey(FCacheBucket::FromString("Ownership"), 'c');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2})), FSharedByteBuffer::Take(Bytes({3, 4}))});
+	FPaths::SetDerivedDataCacheDirForTests(First.Root.generic_string());
+	uint32 Checks = 0;
+	// Switch only through a synchronous test callback, after transaction admission.
+	// Production root changes still require drained work.
+	auto SwitchRoot = [&] {
+		if (++Checks == 2) {
+			FPaths::SetDerivedDataCacheDirForTests(Second.Root.generic_string());
+			EXPECT_FALSE(MaintainCacheStorage({.Root = First.Root}));
+		}
+		return false;
+	};
+	ASSERT_TRUE(GetCache().Put({.Record = Record, .ShouldCancel = SwitchRoot}));
+	EXPECT_GE(Checks, 2u);
+	auto Other = GetCache().Get({Key}); ASSERT_TRUE(Other); EXPECT_FALSE(*Other);
+	// The completed transaction released its request lease; changing roots also
+	// replaced the process lease, so maintenance can now acquire the first root.
+	EXPECT_TRUE(MaintainCacheStorage({.Root = First.Root}));
+	FPaths::SetDerivedDataCacheDirForTests(First.Root.generic_string()); Checks = 0;
+	auto Loaded = GetCache().Get({.Key = Key, .ShouldCancel = SwitchRoot});
+	ASSERT_TRUE(Loaded); ASSERT_TRUE(*Loaded); EXPECT_GE(Checks, 2u);
+	ASSERT_EQ((**Loaded).GetValues().size(), 2u);
+	for (const auto& Value : Record.GetValues()) {
+		const auto* Actual = (**Loaded).FindValue(Value.Id); ASSERT_NE(Actual, nullptr);
+		EXPECT_TRUE(std::ranges::equal(Actual->GetData().GetBytes(), Value.Value.GetData().GetBytes()));
+	}
+	Other = GetCache().Get({Key}); ASSERT_TRUE(Other); EXPECT_FALSE(*Other);
+	EXPECT_TRUE(MaintainCacheStorage({.Root = First.Root}));
+}
+
 TEST(FCacheMaintenanceTests, RefusesLiveRootAndNormalAccessRefusesExclusiveMaintenance)
 {
 	FScopedCacheDirectory Directory("OfflineOwnership");
@@ -1760,6 +1825,9 @@ TEST(FCacheMaintenanceTests, RefusesLiveRootAndNormalAccessRefusesExclusiveMaint
 	auto Lease = Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, true); ASSERT_TRUE(Lease);
 	EXPECT_FALSE(Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, true));
 	EXPECT_FALSE(GetCache().Get({Key})); EXPECT_FALSE(GetCache().Put({RecordWith(Key, {})}));
+	uint64 ReadBytes = 99;
+	EXPECT_FALSE(GetCacheStorage().Get({Key, 1024, ECacheStorageNamespace::Records, &ReadBytes}));
+	EXPECT_EQ(ReadBytes, 0u);
 	Lease->reset(); EXPECT_TRUE(GetCache().Get({Key}));
 }
 

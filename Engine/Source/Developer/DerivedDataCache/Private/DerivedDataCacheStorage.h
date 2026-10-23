@@ -6,6 +6,7 @@
 
 namespace Durin::DerivedData
 {
+	namespace Private { class FCacheStorageLease; }
 	enum class ECacheStorageNamespace : uint8 { Legacy, Records, Values };
 	struct FCacheStorageGetRequest
 	{
@@ -53,6 +54,11 @@ namespace Durin::DerivedData
 			const FCacheStorageGetRequest& Request) const -> FCacheStorageGetResult;
 		DERIVEDDATACACHE_API auto Put(
 			const FCacheStoragePutRequest& Request) const -> FCacheStoragePutResult;
+		// A record transaction supplies one lease for every manifest/blob access.
+		DERIVEDDATACACHE_API auto Get(const FCacheStorageGetRequest& Request,
+			const Private::FCacheStorageLease& Lease) const -> FCacheStorageGetResult;
+		DERIVEDDATACACHE_API auto Put(const FCacheStoragePutRequest& Request,
+			const Private::FCacheStorageLease& Lease) const -> FCacheStoragePutResult;
 	};
 
 	DERIVEDDATACACHE_API auto GetCacheStorage() -> FCacheStorage&;

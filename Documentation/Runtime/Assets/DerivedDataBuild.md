@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-23
 
 ## Ownership
 
@@ -110,8 +110,8 @@ working-set budget. Cache requests retain independent byte and codec limits.
 `IBuildFunction::Build` returns `void`; it reads only through
 `FBuildContext` and publishes values, Compact Binary metadata, notes, warnings,
 deterministic errors, and transient logs into the context-owned output builder.
-Deterministic messages may be cached; transient logs are returned only with the
-cold output and prevent cache storage. DDC freezes the output synchronously after
+Notes and warnings may be cached; error messages and transient logs are returned
+only with the cold output and prevent cache storage. DDC freezes the output synchronously after
 return. Family semantic validation runs while
 producing fresh output and again during typed assembly; DDC owns generic schema,
 hash, ordering, and byte-bound validation.
@@ -173,9 +173,9 @@ Cache lookup returns `expected<optional<FCacheRecord>, FCacheError>`.
 An empty optional is a normal miss and emits no diagnostic. Backend failure is a
 real error and is never labeled corruption. When policy allows local build, a
 miss, rejected record, or cache infrastructure failure falls through once to
-resolution/build. Before accepting either a positive or deterministic negative
-hit, the session compares its output schema name and version with the prepared
-action's function descriptor. A mismatch rejects the record and takes the same
+resolution/build. Before accepting a hit, the session compares its output schema
+name and version with the prepared action's function descriptor and rejects
+records containing error messages. A mismatch or cached error takes the same
 fallback path; cache-only requests fail without production or persistence.
 The cache validates and decodes persisted bytes before
 returning a record. Cache-query failures are logged by DDC before the build falls
@@ -185,18 +185,18 @@ Persistence converts the validated build output into a keyed record and submits
 that record to the cache. The cache encodes, compresses, and stores it. Record or
 cache-store failure cannot discard an already validated local output; completion
 remains successful and DDC logs the store failure. Fresh invalid producer output
-and outputs containing transient logs never reach persistence.
+and outputs containing errors or transient logs never reach persistence.
 
 The [cache storage contract](DerivedDataCacheStorage.md) owns the canonical CB
 manifest, versioned attachment identities, full/metadata/selected queries,
 byte/codec budgets, integrity validation, and retain-only atomic publication.
 Build sessions retain complete-output validation and local-result preservation.
 
-An output containing an error message is a deterministic negative result: its
-values are discarded, it completes with `EStatus::Error`, and it is persisted
-and reused under the same action key. A warm negative hit does not resolve
-inputs or invoke the producer. There is no time expiry; key or version changes
-invalidate it. Infrastructure failures and cancellation are never cached. Execution failures
+An output containing an error message discards its values, completes with
+`EStatus::Error`, and is not persisted. The next request for the same action
+queries the cache and can build again. Previously stored error records are
+rejected and rebuilt when local execution is allowed. Infrastructure failures
+and cancellation are never cached. Execution failures
 may return an observation-only diagnostic output; partial values and metadata
 are discarded. Cancellation has no output.
 
@@ -226,7 +226,7 @@ non-cacheable. `FailExecution` reports resource, environment or unclassified
 recipe failures without a product or persistence. Existing observations may
 accompany the failure; `GetDiagnostic` retains bounded
 completion-only error text for callers. Only input-determined failures
-use `AddError`; budget and module availability never become negative cache entries.
+use `AddError`; neither these errors nor budget and module failures become cache entries.
 Adapter versions are advanced to invalidate previously misclassified failures. Cache and input infrastructure failures are logged by their owning
 layer and are not translated into request-level phase or cause objects.
 Cancellation is a distinct terminal status. Request options carry the Core
@@ -355,7 +355,7 @@ Put; write admission, serialization, dispatch, backend failure, or a dropped wri
 cannot discard it. By default, `EBuildResultDelivery::AfterPersistence` delays
 notification until persistence responds, and request cancellation clears the final
 output. Opt-in `BeforePersistence` notifies exactly once with the validated local
-output before submitting Put, including deterministic negative outputs. Cancellation
+output before submitting Put. Error outputs complete without submitting Put. Cancellation
 before notification still returns Canceled; cancellation or store failure afterward
 can stop persistence but cannot revoke or replace an already delivered result.
 The result callback and its captures retire after notification. `IsResultReady`

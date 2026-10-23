@@ -110,10 +110,10 @@ TEST(FBuildExecutionTests, TransientLogsPreventCacheStorage)
 	FHarness H; H.Function->Log = true; auto Result = H.Run(); ASSERT_EQ(Result.GetStatus(), EStatus::Ok); ASSERT_NE(Result.GetOutput(), nullptr); EXPECT_TRUE(Result.GetOutput()->HasLogs()); EXPECT_EQ(H.Cache->Puts, 0u);
 }
 
-TEST(FBuildExecutionTests, DeterministicErrorIsPersistedAndReplayed)
+TEST(FBuildExecutionTests, ErrorOutputIsNotPersistedAndNextRequestRebuilds)
 {
-	FHarness H; H.Function->Fail = true; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Error); ASSERT_NE(Cold.GetOutput(), nullptr); EXPECT_TRUE(Cold.GetOutput()->HasError()); EXPECT_EQ(H.Cache->Puts, 1u);
-	H.Function->Fail = false; auto Warm = H.Run(); EXPECT_EQ(Warm.GetStatus(), EStatus::Error); EXPECT_TRUE(HasBuildExecutionFlag(Warm.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u);
+	FHarness H; H.Function->Fail = true; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Error); ASSERT_NE(Cold.GetOutput(), nullptr); EXPECT_TRUE(Cold.GetOutput()->HasError()); EXPECT_EQ(H.Cache->Puts, 0u);
+	H.Function->Fail = false; auto Retry = H.Run(); EXPECT_EQ(Retry.GetStatus(), EStatus::Ok); EXPECT_FALSE(HasBuildExecutionFlag(Retry.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 2u); EXPECT_EQ(H.Cache->Puts, 1u);
 }
 
 TEST(FBuildExecutionTests, CancellationRemainsDistinct)
@@ -242,7 +242,7 @@ TEST(FBuildExecutionTests, QueuedProducerUsesOnePreparationAndSkipsProductionOnW
 	EXPECT_EQ(H.Cache->Puts, 1u);
 }
 
-TEST(FBuildExecutionTests, EarlyInlineResultsAndWarmNegativeHitsRemainEquivalent)
+TEST(FBuildExecutionTests, EarlyInlineSuccessHitsCacheAndErrorsRetry)
 {
 	for (bool Negative : {false, true})
 	{
@@ -252,8 +252,8 @@ TEST(FBuildExecutionTests, EarlyInlineResultsAndWarmNegativeHitsRemainEquivalent
 		EXPECT_EQ(Cold.GetStatus(), Negative ? EStatus::Error : EStatus::Ok);
 		EXPECT_EQ(Warm.GetStatus(), Cold.GetStatus());
 		ASSERT_TRUE(Cold.GetOutput()); ASSERT_TRUE(Warm.GetOutput());
-		EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Cache->Puts, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u);
-		EXPECT_TRUE(HasBuildExecutionFlag(Warm.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
+		EXPECT_EQ(H.Function->Builds, Negative ? 2u : 1u); EXPECT_EQ(H.Cache->Puts, Negative ? 0u : 1u); EXPECT_EQ(H.Resolver->Resolves, Negative ? 2u : 1u);
+		EXPECT_EQ(HasBuildExecutionFlag(Warm.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit), !Negative);
 		EXPECT_EQ(Cold.GetOutput()->GetValues().size(), Warm.GetOutput()->GetValues().size());
 		if (!Negative) EXPECT_EQ(Cold.GetOutput()->GetValues()[0].Value.GetRawHash(), Warm.GetOutput()->GetValues()[0].Value.GetRawHash());
 	}

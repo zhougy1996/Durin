@@ -4,7 +4,7 @@ Summary: Specify Durin CB manifests, versioned value attachments, selective loca
 
 Modules: DerivedDataCache
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-23
 
 Build ownership and completion belong to the [build protocol](DerivedDataBuild.md).
 This contract owns persistent storage, not asset assembly policy.
@@ -166,6 +166,10 @@ Normal structured Get/Put and private storage access acquire shared nonblocking 
 ownership of `<root>/.durin-ddc-v1.lock`. The configured root's shared lease remains
 owned by the process while idle. The next cache access after a drained root change
 replaces that process lease; request-held leases span the complete record transaction.
+Each record Get/Put acquires one lease. All manifest/blob paths and in-flight read
+coalescing identities use that lease's canonical root without reacquiring ownership
+or consulting the configured root for each file. Independent private storage calls
+acquire their own lease at entry.
 In particular, a Put cannot expose its blob-before-manifest interval to maintenance.
 The persistent lock file is not a PID marker and is never unlinked by maintenance;
 OS handle close/process termination releases ownership without stale-lock recovery.
