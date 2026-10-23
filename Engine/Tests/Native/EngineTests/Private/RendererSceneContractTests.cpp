@@ -3838,6 +3838,15 @@ namespace
 			Durin::RHIFlushDeferredResources();
 		}
 		auto Release() -> void { if (!GateReleased) { GateReleased = true; Gate.set_value(); } }
+		auto TryRequestSlot(uint32 Slot) -> std::expected<std::shared_ptr<Durin::FComputePipelineState>, Durin::ERHIPipelineRequestRejection>
+		{
+			using namespace Durin;
+			FComputePipelineStateInitializer Input;
+			Input.ComputeShader = Shader;
+			Input.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+				EShaderStageFlags::Compute, Slot, ERHIBindingType::UniformBuffer);
+			return Cache->GetCompute(Input, "slot");
+		}
 		auto Request(bool Gated, bool Failed = false) -> std::shared_ptr<Durin::FPipelineState>
 		{
 			using namespace Durin;
@@ -3976,7 +3985,7 @@ TEST(FRendererSceneContractTests, ComponentPSOSetsSeparateRequiredReadinessFromA
 	Manager.Close();
 }
 
-TEST(FRendererSceneContractTests, MaterialPSOFailuresAndCapacityRemainObservableAndReleasedRequestsArePruned)
+TEST(FRendererSceneContractTests, MaterialPSOFailuresRemainObservableAndRequestsHaveNoAggregateCountLimit)
 {
 	using namespace Durin;
 	FMaterialPSOTestPipelines Pipelines;
@@ -4001,7 +4010,7 @@ TEST(FRendererSceneContractTests, MaterialPSOFailuresAndCapacityRemainObservable
 	EXPECT_FALSE(Failure.GetProgress().bRequiredReady);
 	Manager.Invalidate();
 	std::vector<FMaterialPSOPrecacheRequestID> Requests;
-	for (size_t Index = 0; Index < FMaterialPSORequestManager::MaximumRequests; ++Index)
+	for (size_t Index = 0; Index < 512; ++Index)
 	{
 		auto Params = MaterialPSOTestParams();
 		FVertexDeclarationElementList Elements{};
@@ -4010,11 +4019,112 @@ TEST(FRendererSceneContractTests, MaterialPSOFailuresAndCapacityRemainObservable
 		Requests.push_back(Manager.PrecachePSOs(Params));
 		ASSERT_NE(Requests.back().GetValue(), 0u);
 	}
-	EXPECT_EQ(Manager.PrecachePSOs(MaterialPSOTestParams()).GetValue(), 0u);
+	EXPECT_NE(Manager.PrecachePSOs(MaterialPSOTestParams()).GetValue(), 0u);
+	uint32 Collections = 0;
+	for (size_t Pump = 0; Pump < 64; ++Pump)
+		Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+			++Collections; Out.Pipelines = {{Ready, true}}; return true;
+		});
+	EXPECT_EQ(Collections, 512u);
+	EXPECT_EQ(Manager.GetPendingRequestCount(), 0u);
+	for (const auto& Request : Requests) EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Ready);
+	// Retaining all completed observations neither occupies active capacity nor
+	// causes their collectors to run on later frames.
+	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 	Requests.clear();
 	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 	EXPECT_NE(Manager.PrecachePSOs(MaterialPSOTestParams()).GetValue(), 0u);
 	Manager.Close();
+}
+
+TEST(FRendererSceneContractTests, MaterialPSOCompletionReleasesPipelinesAndResourcesButKeepsSharedStatus)
+{
+	using namespace Durin;
+	FMaterialPSOTestPipelines Pipelines;
+	auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+	std::weak_ptr<FPipelineState> WeakPipeline = Ready;
+	auto Resources = std::make_shared<int>(42);
+	std::weak_ptr<int> WeakResources = Resources;
+	FMaterialPSORequestManager Manager;
+	auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
+	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+		Out.Pipelines.push_back({std::move(Ready), true}); Out.Resources = std::move(Resources); return true;
+	});
+	EXPECT_TRUE(WeakPipeline.expired());
+	EXPECT_TRUE(WeakResources.expired());
+	EXPECT_EQ(Request.GetProgress().Pipelines, 1u);
+	EXPECT_TRUE(Request.GetProgress().bRequiredReady);
+	EXPECT_EQ(Manager.GetPendingRequestCount(), 0u);
+	const auto Peer = Manager.PrecachePSOs(MaterialPSOTestParams());
+	EXPECT_EQ(Peer.GetValue(), Request.GetValue());
+	EXPECT_EQ(Peer.GetProgress().State, EMaterialPSOPrecacheState::Ready);
+	Manager.Invalidate();
+	EXPECT_EQ(Peer.GetProgress().State, EMaterialPSOPrecacheState::Stale);
+}
+
+TEST(FRendererSceneContractTests, MaterialPSOCollectionConcurrencyIsBoundedAcrossPumps)
+{
+	using namespace Durin;
+	FMaterialPSOTestPipelines Pipelines;
+	auto Gated = Pipelines.Request(true);
+	FMaterialPSORequestManager Manager;
+	std::vector<FMaterialPSOPrecacheRequestID> Requests;
+	for (uint32 Index = 0; Index < 24; ++Index)
+	{
+		auto Params = MaterialPSOTestParams(); Params.Material.ShaderMap.OpacityMaskThreshold = float(Index);
+		Requests.push_back(Manager.PrecachePSOs(Params));
+	}
+	uint32 Collections = 0;
+	auto Collect = [&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+		++Collections; Out.Pipelines = {{Gated, true}}; return true;
+	};
+	for (uint32 Frame = 0; Frame < 5; ++Frame) Manager.Pump(Collect);
+	EXPECT_EQ(Collections, FMaterialPSORequestManager::MaximumActiveCollections);
+	Pipelines.Release(); ASSERT_TRUE(Gated->Wait());
+	for (uint32 Frame = 0; Frame < 4; ++Frame) Manager.Pump(Collect);
+	EXPECT_EQ(Collections, 24u);
+	EXPECT_EQ(Manager.GetPendingRequestCount(), 0u);
+}
+
+TEST(FRendererSceneContractTests, MaterialPSOResumesAfterNativeCapacityWithoutResubmittingAcceptedPrefix)
+{
+	using namespace Durin;
+	FMaterialPSOTestPipelines Pipelines;
+	auto Gated = Pipelines.Request(true);
+	std::vector<std::shared_ptr<FComputePipelineState>> Occupied;
+	for (uint32 Slot = 0; Slot < 254; ++Slot)
+	{
+		auto Result = Pipelines.TryRequestSlot(Slot); ASSERT_TRUE(Result);
+		Occupied.push_back(*Result);
+	}
+	FMaterialPSORequestManager Manager;
+	auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
+	uint32 Accepted = 0, Rejected = 0;
+	std::weak_ptr<FPipelineState> Prefix;
+	auto Collect = [&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+		while (Out.Pipelines.size() < 2)
+		{
+			auto Result = Pipelines.TryRequestSlot(254 + uint32(Out.Pipelines.size()));
+			if (!Result) { EXPECT_EQ(Result.error(), ERHIPipelineRequestRejection::CapacityExceeded); ++Rejected; return false; }
+			++Accepted; Out.Pipelines.push_back({*Result, true});
+			if (Out.Pipelines.size() == 1) Prefix = *Result;
+		}
+		return true;
+	};
+	Manager.Pump(Collect); Manager.Pump(Collect);
+	EXPECT_EQ(Accepted, 1u); EXPECT_EQ(Rejected, 2u);
+	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Pending);
+	Pipelines.Release(); ASSERT_TRUE(Gated->Wait());
+	for (auto& Pipeline : Occupied) ASSERT_TRUE(Pipeline->Wait());
+	{ const auto Pipeline = Prefix.lock(); ASSERT_TRUE(Pipeline); ASSERT_TRUE(Pipeline->Wait()); }
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (Request.GetProgress().State == EMaterialPSOPrecacheState::Pending && std::chrono::steady_clock::now() < Deadline)
+	{
+		Manager.Pump(Collect); std::this_thread::yield();
+	}
+	EXPECT_EQ(Accepted, 2u);
+	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Ready);
+	EXPECT_TRUE(Prefix.expired());
 }
 
 TEST(FRendererSceneContractTests, MaterialPSOCollectionCannotPublishEmptyOrInvalidatedSuccess)

@@ -143,8 +143,9 @@ Material-owned revision stamps additionally retire that material's observers on
 ShaderMap, pipeline, parent-chain changes and destruction, without invalidating
 other materials sharing the same work. Dynamic parameter changes preserve them.
 
-The Renderer pumps up to eight unfinished collections per update, independently
-of scene visibility. Its collector uses the normal typed ShaderMaps and shared
+The Renderer permits up to eight active material collections across updates,
+including their outstanding native compilation, independently of scene visibility.
+Additional requests wait without expanding their pipeline resources. Its collector uses the normal typed ShaderMaps and shared
 mesh PSO descriptions for explicit Forward, ShadowDepth, GBuffer, hybrid retained,
 sorted translucency and HitProxy routes. Fixed Shader requests are started and
 retained before nonblocking ShaderMap resolution. Unsupported requested routes
@@ -152,13 +153,26 @@ fail instead of claiming coverage. GPU-culling and global feature PSOs are outsi
 this material collector. Native compilation uses the existing service queue;
 no additional compile thread pool is introduced.
 
-One manager admits at most 256 retained work entries and 64 MiB of accounted
-accepted Shader code, conservatively counted per distinct request. A collection
-may retain at most 64 pipeline identities. Unobserved entries are pruned on the
-next render-thread pump. Code accounting excludes IR, nested allocations, fixed
-Shader preparation and driver memory; it is not a process RSS bound. Admission
-is thread-safe; Pump, Invalidate and Close are serialized on the resource-owning
-thread. Close must precede backend/module shutdown.
+There is no aggregate material-request count or aggregate Shader-code admission
+limit. Waiting requests share accepted immutable programs; each program remains
+bounded to 64 MiB of Shader code and each collection to 64 pipeline identities.
+Concurrency bounds expanded work, not total queued metadata or process RSS.
+Only pending work participates in the render-thread pump. Completed observers
+retain identity and progress, while terminal pipeline observations, collection
+resources and accepted-program references are released on the render thread.
+The sharing index holds weak work references and prunes expired keys on admission.
+Admission is thread-safe; Pump, Invalidate and Close are serialized on the
+resource-owning thread. Close must precede backend/module shutdown.
+
+Lower-level limits remain independent: the native queue admits 256 unfinished
+requests, 16 MiB of pending descriptions and 4,096 observers; the shared pipeline
+identity cache admits 4,096 live entries and metadata remains budgeted. Collector
+admission pressure preserves completed passes and retries only the unfinished
+suffix. Terminal pipeline references are released even while another pass awaits
+capacity. A completed precache records successful preparation, not permanent
+native residency. Vulkan may evict cache-only pipelines and reuse its driver
+cache on recreation; drawing still acquires a real ready pipeline through normal
+render preparation. Live draw/command references remain protected from eviction.
 
 `FPSOPrecacheComponentData::SetMaterialPSOPrecacheData` replaces one component's
 observer set and advances its JobSet. `Poll` runs on GameThread and invokes the
@@ -174,11 +188,14 @@ sets retain at most 256 observers.
 ## Automatic component collection and proxy publication
 
 `DPrimitiveComponent::PrecachePSOs` calls the virtual `CollectPSOPrecacheData`
-with an `FComponentPSOPrecacheParamsList`, then transactionally submits its
+with an `FComponentPSOPrecacheParamsList`, checks readiness of the entire set, then submits its
 material/Vertex Factory descriptions. PostLoad queues this work for the owner
 thread, registration requests it before proxy publication, and mesh/material
 replacement collects a fresh set. Missing Renderer, RHI or accepted material programs
-and admission pressure defer submission; no partial set authorizes a proxy.
+defer submission before any prefix is accepted; no partial set authorizes a proxy.
+Invalid or closed admissions remain terminal and observable. Lower-level capacity
+pressure stays with the accepted material collection rather than resubmitting
+the component's complete set. Proxy readiness checks do not retry deferred submission.
 Oversized sets fail explicitly. `GetPSOPrecacheDiagnostic` exposes submission
 diagnostics; individual request handles expose collection/native failures.
 
@@ -202,11 +219,15 @@ withdraw affected gated proxies; dynamic numeric parameters preserve them.
 Shader/device stale observations are resubmitted on the next owner tick.
 
 Engine and world ticks call `ProcessPSOPrecacheRequests`, including paused and
-editor worlds. The queue holds weak component identities, with no worker callback
+editor worlds. Only pending components enter the tick worklist; completed and
+failed sets leave it. A separate hash registry retains weak identities for explicit
+material invalidation and changes to Shader/device invalidation generations, with
+no full component traversal on unchanged frames. The queue holds weak component identities, with no worker callback
 holding a raw component. Unregister and teardown reset the set; old completions
 cannot recreate an unregistered component. The current ready set publishes at
-most one proxy through the existing scene command boundary. Components with a
-scene remain observed for material revision and Shader/device invalidation.
+most one proxy through the existing scene command boundary. Unregister and teardown
+remove both registry and pending entries; material invalidation also wakes completed
+components without a proxy and unregistered PostLoad observers.
 
 `CheckPSOPrecachingAndBoostPriority` exists on both the component and its request
 set. `DMaterialInterface::PrecachePSOs` also accepts `EPSOPrecachePriority`.

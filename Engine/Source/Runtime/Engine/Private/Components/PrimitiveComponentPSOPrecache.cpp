@@ -9,19 +9,29 @@
 #include "Materials/MaterialInterface.h"
 #include "Rendering/SceneInterface.h"
 #include "RenderingThread.h"
+#include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {
 	namespace
 	{
-		std::vector<FWeakObjectPtr> GPrecacheComponents;
+		std::unordered_set<FObjectKey> GPrecacheComponents;
+		std::unordered_set<FObjectKey> GPendingPrecacheComponents;
 		bool GProcessingPrecacheComponents = false;
 		auto TrackPrecacheComponent(DPrimitiveComponent* Component) -> void
 		{
-			const FWeakObjectPtr Weak(Component);
-			if (std::ranges::find(GPrecacheComponents, Weak) == GPrecacheComponents.end()) GPrecacheComponents.push_back(Weak);
+			const FObjectKey Key(Component);
+			GPrecacheComponents.insert(Key);
+			GPendingPrecacheComponents.insert(Key);
 		}
 	}
+	auto DPrimitiveComponent::UntrackPSOPrecache() -> void
+	{
+		const FObjectKey Key(this);
+		GPrecacheComponents.erase(Key);
+		GPendingPrecacheComponents.erase(Key);
+	}
+	auto DPrimitiveComponent::GetPendingPSOPrecacheComponentCount() -> size_t { return GPendingPrecacheComponents.size(); }
 	auto DPrimitiveComponent::GetPSOPrecacheRenderer() const -> IRendererModule*
 	{
 		if (auto* Scene = GetRenderScene()) if (auto* Renderer = Scene->GetRendererModule()) return Renderer;
@@ -52,6 +62,8 @@ namespace Durin
 		std::vector<FMaterialPSOPrecacheRequestID> Requests;
 		auto* Renderer = GetPSOPrecacheRenderer();
 		if (!Params.empty()) TrackPrecacheComponent(this);
+		// Validate readiness for the whole set before admitting any work. A missing
+		// program must not discard and resubmit an already accepted prefix.
 		for (const auto& Param : Params)
 		{
 			if (!Renderer || !GDynamicRHI || !GDynamicRHI->RHIGetCapabilities()
@@ -61,14 +73,19 @@ namespace Durin
 				PSOPrecacheDiagnostic = "Waiting for Renderer, RHI and accepted material programs.";
 				return;
 			}
+		}
+		for (const auto& Param : Params)
+		{
 			std::vector<FMaterialPSOPrecacheRequestID> MaterialRequests;
 			const auto Submitted = Param.MaterialInterface->PrecachePSOs(*Renderer, Param.VertexFactoryDataList,
 				Param.PSOPrecacheParams, Param.Priority, MaterialRequests);
 			if (!Submitted)
 			{
 				PSOPrecacheDiagnostic = Submitted.error();
-				// Admission pressure is retried on owner ticks, without publishing a partial set.
-				bPSOPrecacheSubmissionPending = true;
+				// Material admission has no aggregate capacity limit. Invalid/closed
+				// requests are terminal; lower-level pressure stays inside the collector.
+				Requests.push_back(FMaterialPSOPrecacheRequestID::Rejected(PSOPrecacheDiagnostic));
+				PSOPrecacheComponentData.SetMaterialPSOPrecacheData(std::move(Requests));
 				return;
 			}
 			for (auto& Request : MaterialRequests)
@@ -87,7 +104,7 @@ namespace Durin
 	}
 	auto DPrimitiveComponent::CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority Priority) -> bool
 	{
-		if (!PSOPrecacheComponentData.IsPSOPrecacheCalled() || bPSOPrecacheSubmissionPending) PrecachePSOs();
+		if (!PSOPrecacheComponentData.IsPSOPrecacheCalled() && !bPSOPrecacheSubmissionPending) PrecachePSOs();
 		return PSOPrecacheComponentData.CheckPSOPrecachingAndBoostPriority(Priority) || bPSOPrecacheSubmissionPending;
 	}
 	auto DPrimitiveComponent::IsPSOPrecacheReadyForProxyCreation() -> bool
@@ -108,14 +125,24 @@ namespace Durin
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (GProcessingPrecacheComponents) return;
+		static uint64 LastInvalidation = 0, LastShaderGeneration = 0;
+		const auto Invalidation = FMaterialPSORequestManager::GetInvalidationSerial();
+		const auto ShaderGeneration = GetShaderReloadGeneration();
+		if (LastInvalidation != Invalidation || LastShaderGeneration != ShaderGeneration)
+		{
+			LastInvalidation = Invalidation; LastShaderGeneration = ShaderGeneration;
+			InvalidatePSOPrecacheRequests();
+		}
 		GProcessingPrecacheComponents = true;
 		struct FScope { ~FScope() { GProcessingPrecacheComponents = false; } } Scope;
-		const auto Components = GPrecacheComponents;
-		for (const auto& Weak : Components)
+		const auto Components = std::exchange(GPendingPrecacheComponents, {});
+		for (const auto& Key : Components)
 		{
+			const FWeakObjectPtr Weak(Key);
 			auto* Component = Cast<DPrimitiveComponent>(Weak.Get());
-			if (!Component || Component->IsPendingKill()) continue;
-			if (World && Component->GetPhysicsWorld() != World) { TrackPrecacheComponent(Component); continue; }
+			if (!Component || Component->IsPendingKill()) { GPrecacheComponents.erase(Key); continue; }
+			if (World && Component->GetPhysicsWorld() && Component->GetPhysicsWorld() != World)
+			{ GPendingPrecacheComponents.insert(Key); continue; }
 			const bool Stale = std::ranges::any_of(Component->PSOPrecacheComponentData.GetMaterialPSOPrecacheRequestIDs(),
 				[](const auto& Request) { const auto State = Request.GetProgress().State;
 					return State == EMaterialPSOPrecacheState::Stale || State == EMaterialPSOPrecacheState::Canceled; });
@@ -131,25 +158,31 @@ namespace Durin
 			if (!Component || Component->IsPendingKill()) continue;
 			if (Component->IsRegistered() && !Component->SceneProxy && Component->IsPSOPrecacheReadyForProxyCreation())
 				Component->CreateRenderState();
-			if (Component->IsRegistered() || Component->bPSOPrecacheSubmissionPending || Component->IsPSOPrecaching())
+			// Ready and failed sets leave the tick worklist. The weak registry is
+			// inspected only for explicit material/device/shader invalidation.
+			GPendingPrecacheComponents.erase(Key);
+			if (Component->bPSOPrecacheSubmissionPending || Component->IsPSOPrecaching())
 				TrackPrecacheComponent(Component);
 		}
-		std::erase_if(GPrecacheComponents, [](const auto& Weak) {
-			const auto* Component = Cast<DPrimitiveComponent>(Weak.Get());
-			return !Component || Component->IsPendingKill() || (!Component->IsRegistered() && !Component->IsPSOPrecaching());
-		});
 	}
 	auto DPrimitiveComponent::InvalidatePSOPrecacheRequests() -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		for (const auto& Weak : GPrecacheComponents)
+		std::erase_if(GPrecacheComponents, [](const auto& Key) {
+			const auto* Component = Cast<DPrimitiveComponent>(FWeakObjectPtr(Key).Get());
+			return !Component || Component->IsPendingKill();
+		});
+		for (const auto& Key : GPrecacheComponents)
 		{
-			auto* Component = Cast<DPrimitiveComponent>(Weak.Get());
-			if (!Component || !Component->IsRegistered() || !Component->SceneProxy) continue;
+			auto* Component = Cast<DPrimitiveComponent>(FWeakObjectPtr(Key).Get());
+			if (!Component) continue;
 			if (!std::ranges::any_of(Component->PSOPrecacheComponentData.GetMaterialPSOPrecacheRequestIDs(),
-				[](const auto& Request) { return Request.GetProgress().State == EMaterialPSOPrecacheState::Stale; })) continue;
+				[](const auto& Request) { const auto State = Request.GetProgress().State;
+					return State == EMaterialPSOPrecacheState::Stale || State == EMaterialPSOPrecacheState::Canceled; })) continue;
 			Component->bPSOPrecacheSubmissionPending = true;
-			if (Component->PSOPrecacheProxyCreationStrategy == EPSOPrecacheProxyCreationStrategy::DelayUntilPSOPrecached)
+			GPendingPrecacheComponents.insert(Key);
+			if (Component->IsRegistered() && Component->SceneProxy
+				&& Component->PSOPrecacheProxyCreationStrategy == EPSOPrecacheProxyCreationStrategy::DelayUntilPSOPrecached)
 				if (auto* Scene = Component->GetRenderScene()) Scene->RemovePrimitive(Component);
 		}
 	}

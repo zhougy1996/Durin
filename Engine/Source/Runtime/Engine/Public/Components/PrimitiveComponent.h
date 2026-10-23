@@ -50,6 +50,7 @@ namespace Durin
 		auto GetPSOPrecacheDiagnostic() const -> const std::string& { return PSOPrecacheDiagnostic; }
 		// Called by engine/world owner ticks, including editor and paused worlds.
 		ENGINE_API static auto ProcessPSOPrecacheRequests(DWorld* World = nullptr) -> void;
+		ENGINE_API static auto GetPendingPSOPrecacheComponentCount() -> size_t;
 		ENGINE_API static auto InvalidatePSOPrecacheRequests() -> void;
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
@@ -103,6 +104,7 @@ namespace Durin
 		auto GetPhysicsWorld() const -> DWorld*;
 
 	private:
+		auto UntrackPSOPrecache() -> void;
 		auto GetPSOPrecacheRenderer() const -> IRendererModule*;
 		auto CreateRenderState() -> void;
 		ENGINE_API auto EnsurePrimitiveComponentId() -> FPrimitiveComponentId;
