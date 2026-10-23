@@ -281,6 +281,7 @@ namespace Durin
 
 	auto DPrimitiveComponent::DestroyRenderState() -> void
 	{
+		UntrackPSOPrecache();
 		PSOPrecacheComponentData.Reset();
 		bPSOPrecacheSubmissionPending = false;
 		if (!IsRegistered()) return;
@@ -338,6 +339,7 @@ namespace Durin
 
 	auto DPrimitiveComponent::OnComponentPendingKill() -> void
 	{
+		UntrackPSOPrecache();
 		PSOPrecacheComponentData.Reset();
 		bPSOPrecacheSubmissionPending = false;
 		Super::OnComponentPendingKill();

@@ -2364,6 +2364,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		};
 		// Excluding the optional GPU stage preserves the declared direct route,
 		// even when view policy requests GPU grouping.
+		EXPECT_EQ(Custom->GetAcceptedCompiledProgram(), Program);
 		Properties.GeometryUsage = 1;
 		ASSERT_TRUE(Custom->SetStaticProperties(Properties));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Custom);
@@ -2413,6 +2414,8 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		Properties.GeometryUsage = 5; Properties.PassUsage = 7;
 		ASSERT_TRUE(Custom->SetStaticProperties(Properties));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Custom);
+		const auto RestoredProgram = Custom->GetAcceptedCompiledProgram();
+		ASSERT_TRUE(RestoredProgram);
 		std::reverse(Instances.begin(), Instances.end());
 		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
 		FObservation Reordered; Render(Instanced.Get(), true, ERenderMode::Lit, Reordered);
@@ -2435,7 +2438,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		Render(Instanced.Get(), false, ERenderMode::Lit, Repeated);
 		EXPECT_NE(Changed.Pixels, Grouped.Pixels); EXPECT_EQ(Changed.Pixels, Repeated.Pixels);
 		EXPECT_EQ(Changed.Telemetry.GBuffer.GBufferSuccessfulDraws, 63u);
-		EXPECT_EQ(Custom->GetAcceptedCompiledProgram(), Program);
+		EXPECT_EQ(Custom->GetAcceptedCompiledProgram(), RestoredProgram);
 		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>());
 		FObservation Empty; Render(Instanced.Get(), false, ERenderMode::Unlit, Empty);
 		EXPECT_EQ(Empty.Telemetry.StaticMesh.PreparedStaticMeshPrimitives, 0u);
@@ -3213,6 +3216,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 		};
 		PumpUntilFinished(Dynamic);
 		EXPECT_EQ(Root[0].GetProgress().State, EMaterialPSOPrecacheState::Ready);
+		// Completion releases the accepted program and native observations without
+		// changing the deduplication key for another owner of the same program.
+		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, Duplicate));
+		EXPECT_EQ(Duplicate[0].GetValue(), Root[0].GetValue());
+		EXPECT_EQ(Duplicate[0].GetProgress().State, EMaterialPSOPrecacheState::Ready);
 		TStrongObjectPtr<DStaticMeshComponent> Component(NewObject<DStaticMeshComponent>(nullptr, NAME_None));
 		uint32 Completions = 0;
 		ASSERT_TRUE(Component->SetMaterialPSOPrecacheData(Dynamic, [&] { ++Completions; }));
@@ -3311,9 +3319,24 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		};
 		Pump(1);
 		const auto Job = Component->GetPSOPrecacheComponentData().GetLatestJobSet();
+		EXPECT_EQ(DPrimitiveComponent::GetPendingPSOPrecacheComponentCount(), 0u);
+		for (uint32 Frame = 0; Frame < 16; ++Frame)
+			DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
+		EXPECT_EQ(DPrimitiveComponent::GetPendingPSOPrecacheComponentCount(), 0u);
+		EXPECT_EQ(Component->GetPSOPrecacheComponentData().GetLatestJobSet(), Job);
 		Component->SetRelativeScale3D(FVector3(-1, 1, 1));
 		EXPECT_EQ(Component->GetPSOPrecacheComponentData().GetLatestJobSet(), Job);
+		// Renderer invalidation must wake a dormant component even without a
+		// material revision or Shader reload-generation change.
+		ASSERT_TRUE(Renderer.RequestResourceInvalidation(ERendererResourceInvalidationCause::ManualRetry).bSuccess);
+		FlushRenderingCommands();
+		EXPECT_EQ(OldRequests[0].GetProgress().State, EMaterialPSOPrecacheState::Stale);
+		DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
+		EXPECT_GT(Component->GetPSOPrecacheComponentData().GetLatestJobSet(), Job);
+		Pump(1);
+		EXPECT_EQ(DPrimitiveComponent::GetPendingPSOPrecacheComponentCount(), 0u);
 		Properties.bTwoSided = true; ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		EXPECT_GT(DPrimitiveComponent::GetPendingPSOPrecacheComponentCount(), 0u);
 		EXPECT_EQ(Count(), 0u); // Material invalidation retires the old proxy before another draw.
 		DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
 		EXPECT_EQ(OldRequests[0].GetProgress().State, EMaterialPSOPrecacheState::Stale);

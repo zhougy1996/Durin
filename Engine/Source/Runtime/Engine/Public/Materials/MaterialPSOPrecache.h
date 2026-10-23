@@ -67,6 +67,8 @@ namespace Durin
 	{
 		std::shared_ptr<FPipelineState> Pipeline;
 		bool bRequired = true;
+		// Preserve terminal progress after releasing the native pipeline observation.
+		ERHIPipelineRequestState CompletedState = ERHIPipelineRequestState::Failed;
 	};
 	struct FMaterialPSOPrecacheCollection
 	{
@@ -90,7 +92,9 @@ namespace Durin
 		ENGINE_API auto Invalidate() -> void;
 		// Close before backend/module shutdown, on the resource-owning thread.
 		ENGINE_API auto Close() -> void;
-		static constexpr size_t MaximumRequests = 256;
+		ENGINE_API static auto GetInvalidationSerial() -> uint64;
+		ENGINE_API auto GetPendingRequestCount() const -> size_t;
+		static constexpr size_t MaximumActiveCollections = 8;
 		static constexpr size_t MaximumPipelinesPerRequest = 64;
 		static constexpr uint64 MaximumCodeBytes = 64 * 1024 * 1024;
 	private:

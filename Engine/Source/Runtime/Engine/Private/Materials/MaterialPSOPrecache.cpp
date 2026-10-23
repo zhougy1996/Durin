@@ -6,6 +6,7 @@
 namespace Durin
 {
 	static std::atomic<uint64> NextMaterialPSORequestId = 1;
+	static std::atomic<uint64> MaterialPSOInvalidationSerial = 0;
 	static auto AllocateMaterialPSORequestId() -> uint64
 	{
 		auto Current = NextMaterialPSORequestId.load();
@@ -15,11 +16,13 @@ namespace Durin
 	}
 	struct FMaterialPSOPrecacheWork
 	{
-		uint64 Id = 0, ShaderGeneration = 0, CodeBytes = 0;
+		uint64 Id = 0, ShaderGeneration = 0;
+		std::optional<std::string> Target;
 		FMaterialPSOPrecacheParams Params;
 		FVertexDeclarationElementList Elements{};
 		FMaterialPSOPrecacheCollection Collection;
 		bool Collected = false;
+		bool Started = false;
 		std::atomic<EMaterialPSOPrecacheState> Status = EMaterialPSOPrecacheState::Pending;
 		std::atomic<uint32> Pipelines = 0, Pending = 0, RequiredPending = 0, Failed = 0;
 		std::atomic<bool> RequiredReady = false;
@@ -43,9 +46,8 @@ namespace Durin
 	struct FMaterialPSORequestManager::FState
 	{
 		std::mutex Mutex;
-		std::vector<std::shared_ptr<FMaterialPSOPrecacheWork>> Entries;
-		uint64 CodeBytes = 0;
-		size_t NextCollection = 0;
+		std::vector<std::weak_ptr<FMaterialPSOPrecacheWork>> Entries;
+		std::vector<std::shared_ptr<FMaterialPSOPrecacheWork>> Pending;
 		bool Closed = false;
 	};
 
@@ -75,7 +77,10 @@ namespace Durin
 		std::lock_guard Lock(Observer->Work->DiagnosticMutex);
 		return Observer->Work->Diagnostic;
 	}
-	auto FMaterialPSOPrecacheRequestID::Cancel() const -> void { if (Observer) Observer->Canceled = true; }
+	auto FMaterialPSOPrecacheRequestID::Cancel() const -> void
+	{
+		if (Observer && !Observer->Canceled.exchange(true)) ++MaterialPSOInvalidationSerial;
+	}
 	auto FMaterialPSOPrecacheRequestID::GetPriority() const -> EPSOPrecachePriority
 	{ return Observer ? Observer->Work->Priority.load() : EPSOPrecachePriority::NotSet; }
 	auto FMaterialPSOPrecacheRequestID::BoostPriority(EPSOPrecachePriority Priority) const -> void
@@ -127,27 +132,27 @@ namespace Durin
 		if (State->Closed) return FMaterialPSOPrecacheRequestID::Rejected("Material PSO request manager is closed.");
 		FMaterialPSOPrecacheRequestID Result;
 		Result.Observer = std::make_shared<FMaterialPSOPrecacheObserver>();
-		for (const auto& Entry : State->Entries)
-			if (Entry->Status != EMaterialPSOPrecacheState::Stale && Entry->ShaderGeneration == Generation
+		std::erase_if(State->Entries, [](const auto& Entry) { return Entry.expired(); });
+		const auto Target = Params.CompiledProgram ? std::optional{Params.CompiledProgram->GetShaderMap().Target} : std::nullopt;
+		for (const auto& Weak : State->Entries)
+			if (const auto Entry = Weak.lock(); Entry && Entry->Status != EMaterialPSOPrecacheState::Stale && Entry->ShaderGeneration == Generation
 				&& Entry->Params.Material == Params.Material && Entry->Params.PrecachePSOParams == Options
 				&& Entry->Params.VertexFactoryData.VertexFactoryType == Params.VertexFactoryData.VertexFactoryType
-				&& bool(Entry->Params.CompiledProgram) == bool(Params.CompiledProgram)
-				&& (!Params.CompiledProgram || Entry->Params.CompiledProgram->GetShaderMap().Target == Params.CompiledProgram->GetShaderMap().Target)
+				&& Entry->Target == Target
 				&& Entry->Elements == *Elements)
 			{
 				Result.Observer->Work = Entry;
 				Result.BoostPriority(Params.Priority);
 				return Result;
 			}
-		if (State->Entries.size() >= MaximumRequests || CodeBytes > MaximumCodeBytes - State->CodeBytes)
-			return FMaterialPSOPrecacheRequestID::Rejected("Material PSO request capacity exceeded.");
 		auto Work = std::make_shared<FMaterialPSOPrecacheWork>();
 		Work->Id = AllocateMaterialPSORequestId();
 		if (!Work->Id) return FMaterialPSOPrecacheRequestID::Rejected("Material PSO request identity exhausted.");
-		Work->ShaderGeneration = Generation; Work->CodeBytes = CodeBytes;
+		Work->ShaderGeneration = Generation; Work->Target = Target;
 		Work->Priority = Params.Priority;
 		Work->Params = std::move(Params); Work->Elements = *Elements;
-		State->Entries.push_back(Work); State->CodeBytes += CodeBytes;
+		State->Entries.push_back(Work);
+		State->Pending.push_back(Work);
 		Result.Observer->Work = std::move(Work);
 		return Result;
 	}
@@ -156,23 +161,14 @@ namespace Durin
 		std::vector<std::shared_ptr<FMaterialPSOPrecacheWork>> Entries;
 		{
 			std::lock_guard Lock(State->Mutex);
-			std::erase_if(State->Entries, [&](auto& Entry) {
-				if (Entry.use_count() != 1) return false;
-				State->CodeBytes -= Entry->CodeBytes;
-				return true;
-			});
-			Entries = State->Entries;
-			if (!Entries.empty())
-			{
-				std::rotate(Entries.begin(), Entries.begin() + State->NextCollection % Entries.size(), Entries.end());
-				State->NextCollection = (State->NextCollection + 8) % Entries.size();
-			}
+			std::erase_if(State->Pending, [](const auto& Entry) { return Entry.use_count() == 1; });
+			Entries = State->Pending;
 		}
 		for (const auto& Work : Entries) Work->ScheduledPriority = Work->Priority.load();
 		std::stable_sort(Entries.begin(), Entries.end(), [](const auto& A, const auto& B) {
 			return A->ScheduledPriority > B->ScheduledPriority;
 		});
-		size_t Collections = 0;
+		size_t Active = std::ranges::count_if(Entries, [](const auto& Work) { return Work->Started; });
 		for (auto& Work : Entries)
 		{
 			if (Work->ShaderGeneration != GetShaderReloadGeneration())
@@ -180,11 +176,15 @@ namespace Durin
 				std::lock_guard Lock(State->Mutex);
 				Work->RequiredReady = false; Work->Status = EMaterialPSOPrecacheState::Stale;
 				Work->Collection = {}; Work->Params.CompiledProgram.reset();
-				State->CodeBytes -= Work->CodeBytes; Work->CodeBytes = 0;
 				continue;
 			}
 			if (Work->Status != EMaterialPSOPrecacheState::Pending) continue;
-			if (!Work->Collected && Collections++ < 8)
+			if (!Work->Started)
+			{
+				if (Active >= MaximumActiveCollections) continue;
+				Work->Started = true; ++Active;
+			}
+			if (!Work->Collected)
 			{
 				try
 				{
@@ -200,10 +200,15 @@ namespace Durin
 				catch (const std::exception& Error) { Work->Fail(Error.what()); continue; }
 			}
 			uint32 Pending = 0, RequiredPending = 0, Failed = 0, RequiredFailed = 0;
-			for (const auto& Pipeline : Work->Collection.Pipelines)
+			for (auto& Pipeline : Work->Collection.Pipelines)
 			{
 				if (Pipeline.Pipeline) Pipeline.Pipeline->BoostPriority(Work->Priority.load());
-				const auto Status = Pipeline.Pipeline ? Pipeline.Pipeline->GetState() : ERHIPipelineRequestState::Failed;
+				const auto Status = Pipeline.Pipeline ? Pipeline.Pipeline->GetState() : Pipeline.CompletedState;
+				if (Status != ERHIPipelineRequestState::Pending)
+				{
+					Pipeline.CompletedState = Status;
+					Pipeline.Pipeline.reset();
+				}
 				if (Status == ERHIPipelineRequestState::Pending) { ++Pending; if (Pipeline.bRequired) ++RequiredPending; }
 				else if (Status != ERHIPipelineRequestState::Ready) { ++Failed; if (Pipeline.bRequired) ++RequiredFailed; }
 			}
@@ -216,17 +221,33 @@ namespace Durin
 				else Work->Status = EMaterialPSOPrecacheState::Ready;
 			}
 		}
+		// Terminal observations retain only identity and progress, never native PSOs
+		// or shader preparation resources. Release on the resource-owning thread.
+		std::lock_guard Lock(State->Mutex);
+		std::erase_if(State->Pending, [](auto& Work) {
+			if (Work->Status == EMaterialPSOPrecacheState::Pending) return false;
+			Work->Collection = {}; Work->Params.CompiledProgram.reset();
+			return true;
+		});
+	}
+	auto FMaterialPSORequestManager::GetInvalidationSerial() -> uint64 { return MaterialPSOInvalidationSerial.load(); }
+	auto FMaterialPSORequestManager::GetPendingRequestCount() const -> size_t
+	{
+		std::lock_guard Lock(State->Mutex);
+		return State->Pending.size();
 	}
 	auto FMaterialPSORequestManager::Invalidate() -> void
 	{
 		std::lock_guard Lock(State->Mutex);
-		for (auto& Entry : State->Entries)
+		for (auto& Weak : State->Entries)
 		{
+			const auto Entry = Weak.lock();
+			if (!Entry) continue;
 			Entry->RequiredReady = false; Entry->Status = EMaterialPSOPrecacheState::Stale;
 			Entry->Collection = {}; Entry->Params.CompiledProgram.reset();
-			Entry->CodeBytes = 0;
 		}
-		State->Entries.clear(); State->CodeBytes = 0;
+		State->Entries.clear(); State->Pending.clear();
+		++MaterialPSOInvalidationSerial;
 	}
 	auto FMaterialPSORequestManager::Close() -> void
 	{
