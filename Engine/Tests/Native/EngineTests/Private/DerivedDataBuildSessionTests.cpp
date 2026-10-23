@@ -388,19 +388,24 @@ TEST(FBuildContinuationTests, SchemaMismatchRejectsPositiveAndNegativeHits)
 	}
 }
 
-TEST(FBuildContinuationTests, MatchingNegativeSchemaRemainsCacheHit)
+TEST(FBuildContinuationTests, MatchingCachedErrorIsRejectedAndRebuilt)
 {
-	auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true; Cache->Negative = true;
-	auto Service = CreateBuild({.Cache = Cache}); auto Function = std::make_shared<FFunction>();
-	ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession().value(); uint32 Calls = 0;
-	auto Request = Session->Build(Definition(), [&](auto Completion) {
-		++Calls; EXPECT_EQ(Completion.GetStatus(), EStatus::Error); ASSERT_TRUE(Completion.GetOutput());
-		EXPECT_TRUE(Completion.GetOutput()->HasError());
-		EXPECT_TRUE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
-		EXPECT_FALSE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::BuildLocal));
-	});
-	ASSERT_TRUE(Request); EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Calls, 1u); EXPECT_EQ(Function->Builds, 0u); EXPECT_EQ(Cache->Puts, 0u);
+	for (bool BuildLocal : {false, true})
+	{
+		SCOPED_TRACE(BuildLocal);
+		auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true; Cache->Negative = true;
+		auto Service = CreateBuild({.Cache = Cache}); auto Function = std::make_shared<FFunction>();
+		ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession().value(); uint32 Calls = 0;
+		auto Request = Session->Build(Definition(), [&](auto Completion) {
+			++Calls; EXPECT_EQ(Completion.GetStatus(), BuildLocal ? EStatus::Ok : EStatus::Error);
+			if (BuildLocal) { ASSERT_TRUE(Completion.GetOutput()); EXPECT_FALSE(Completion.GetOutput()->HasError()); }
+			else EXPECT_FALSE(Completion.GetOutput());
+			EXPECT_FALSE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
+			EXPECT_EQ(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::BuildLocal), BuildLocal);
+		}, {}, {.Policy = {.BuildLocal = BuildLocal}});
+		ASSERT_TRUE(Request); EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
+		EXPECT_EQ(Calls, 1u); EXPECT_EQ(Function->Builds, BuildLocal ? 1u : 0u); EXPECT_EQ(Cache->Puts, BuildLocal ? 1u : 0u);
+	}
 }
 
 TEST(FBuildContinuationTests, CancellationCloseAndDroppedContinuationCompleteOnce)
@@ -1068,20 +1073,20 @@ TEST(FBuildSessionDeathTests, SynchronousOwnerCancellationInsideCallbackIsReject
 
 TEST(FBuildContinuationTests, EarlyResultDeliveryKeepsPersistenceOwnedThroughRetirement)
 {
-	for (bool Early : {false, true}) for (bool CancelAfterDelivery : {false, true}) for (bool Negative : {false, true})
+	for (bool Early : {false, true}) for (bool CancelAfterDelivery : {false, true})
 	{
-		SCOPED_TRACE(std::format("early={}, cancel={}, negative={}", Early, CancelAfterDelivery, Negative));
+		SCOPED_TRACE(std::format("early={}, cancel={}", Early, CancelAfterDelivery));
 		auto Producer = std::make_shared<FStageScheduler>(), IO = std::make_shared<FStageScheduler>();
 		auto Cache = std::make_shared<FContinuationCache>(); Cache->ThrowPut = true;
 		auto Service = CreateBuild({.AsyncCache = CreateAsyncCache(Cache, IO)});
-		auto Function = std::make_shared<FFunction>(); Function->Negative = Negative;
+		auto Function = std::make_shared<FFunction>();
 		ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession({}, Producer).value();
 		FRequestOwner Owner; uint32 Calls = 0; std::optional<FBuildOutput> Delivered;
 		auto Capture = std::make_shared<int>(1); std::weak_ptr<int> Weak = Capture;
 		std::chrono::steady_clock::time_point DeliveredAt;
 		auto Request = Session->Build(Definition(), Owner, [&, Capture](auto Completion) {
 			DeliveredAt = std::chrono::steady_clock::now(); ++Calls;
-			EXPECT_EQ(Completion.GetStatus(), Negative ? EStatus::Error : EStatus::Ok);
+			EXPECT_EQ(Completion.GetStatus(), EStatus::Ok);
 			ASSERT_TRUE(Completion.GetOutput()); Delivered = *Completion.GetOutput();
 			EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
 		}, {}, {.Policy = {.QueryCache = false, .ResultDelivery = Early ? EBuildResultDelivery::BeforePersistence : EBuildResultDelivery::AfterPersistence}});
@@ -1097,9 +1102,9 @@ TEST(FBuildContinuationTests, EarlyResultDeliveryKeepsPersistenceOwnedThroughRet
 		IO->Run(); Waiter.join();
 		EXPECT_EQ(FinishedBeforePut, Early && CancelAfterDelivery); EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Weak.expired());
 		EXPECT_TRUE(Request->IsResultReady()); EXPECT_TRUE(Request->IsComplete()); EXPECT_TRUE(Owner.Poll());
-		ASSERT_TRUE(Delivered); EXPECT_EQ(Delivered->HasError(), Negative);
-		if (!Negative) EXPECT_EQ(Delivered->FindValue(FValueId::FromName("Data"))->GetRawSize(), 32u);
-		std::cout << "[ResultDelivery] early=" << Early << " negative=" << Negative
+		ASSERT_TRUE(Delivered); EXPECT_FALSE(Delivered->HasError());
+		EXPECT_EQ(Delivered->FindValue(FValueId::FromName("Data"))->GetRawSize(), 32u);
+		std::cout << "[ResultDelivery] early=" << Early
 			<< " canceled_after_delivery=" << CancelAfterDelivery << " delivery_us="
 			<< std::chrono::duration_cast<std::chrono::microseconds>(DeliveredAt - Begin).count() << '\n';
 		EXPECT_EQ(Session->Drain(), EBuildDrainResult::Drained);

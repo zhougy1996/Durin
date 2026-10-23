@@ -303,7 +303,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Cache->Gets, 3u); EXPECT_EQ(Cache->Puts, 2u);
 	}
 
-	TEST_F(FShaderBuilderTests, NegativeCacheHitRetainsDiagnosticsWithoutCompiling)
+	TEST_F(FShaderBuilderTests, CachedErrorIsRejectedAndShaderRecompiled)
 	{
 		using namespace DerivedData;
 		struct FNegativeCache final : ICache
@@ -316,17 +316,16 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
 			}
 			auto Put(const FCachePutRequest&) const -> FCachePutResult override
-			{ ADD_FAILURE() << "Negative hits must not be rebuilt or stored"; return {}; }
+			{ return {}; }
 		};
 		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{},
 			FBuildServiceOptions{.Cache = std::make_shared<FNegativeCache>()});
 		Builder = std::make_unique<FShaderBuilder>(Service);
 		const auto Result = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
-		EXPECT_EQ(Result.Status, EShaderBuildStatus::Error);
-		EXPECT_TRUE(Result.CompiledShaders.empty());
-		EXPECT_EQ(FormatShaderCompilerErrors(Result.Errors), "deterministic shader failure");
-		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
-		EXPECT_EQ(Builder->GetStats().DdcHits, 1u);
+		EXPECT_EQ(Result.Status, EShaderBuildStatus::Ok) << FormatShaderCompilerErrors(Result.Errors);
+		EXPECT_FALSE(Result.CompiledShaders.empty());
+		EXPECT_EQ(Builder->GetStats().Compilations, 1u);
+		EXPECT_EQ(Builder->GetStats().DdcHits, 0u);
 	}
 
 	TEST_F(FShaderBuilderTests, OutputBudgetIncludesMetadataOnMemoryAndDdcHits)

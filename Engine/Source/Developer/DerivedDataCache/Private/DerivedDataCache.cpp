@@ -5,12 +5,28 @@
 #include "CacheDiagnosticsPrivate.h"
 #include "FileSystemCacheBackend.h"
 #include "CompressedCacheValue.h"
-#include "Misc/Paths.h"
 
 namespace Durin::DerivedData
 {
 	namespace
 	{
+		// FCacheBlobIdentity fixes the supported identity version; size remains
+		// part of request-local deduplication even though storage addresses by hash.
+		struct FBlobContentKey
+		{
+			FCacheBlobIdentity Identity;
+			uint64 RawSize;
+			auto operator==(const FBlobContentKey&) const -> bool = default;
+		};
+		struct FBlobContentKeyHash
+		{
+			auto operator()(const FBlobContentKey& Key) const noexcept -> size_t
+			{
+				const size_t Hash = std::hash<FXxHash128>{}(Key.Identity.Hash);
+				return Hash ^ (std::hash<uint64>{}(Key.RawSize) + 0x9e3779b97f4a7c15ull + (Hash << 6) + (Hash >> 2));
+			}
+		};
+
 		struct FCacheBucketRegistry
 		{
 			std::mutex Mutex;
@@ -87,7 +103,7 @@ namespace Durin::DerivedData
 				auto Lease = Private::AcquireCacheStorageOwnership();
 				if (!Lease) return std::unexpected(std::move(Lease.error()));
 				auto Stored = GCacheStorage.Get({Request.Key,
-					std::min(Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes), ECacheStorageNamespace::Records});
+					std::min(Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes), ECacheStorageNamespace::Records}, **Lease);
 				if (Stored && *Stored) Stats.ReadBytes = Stats.PeakWorkingSetBytes = (**Stored).GetSize();
 				if (Canceled()) return CancelError();
 				if (!Stored) return std::unexpected(std::move(Stored.error()));
@@ -101,14 +117,13 @@ namespace Durin::DerivedData
 					if (!Record->FindValue(Id)) return std::unexpected(FCacheError{ECacheError::MissingValue, "Required value is absent from manifest."});
 				uint64 EncodedBytes = ManifestBytes, ResidentBytes = ManifestBytes;
 				std::vector<FValueWithId> Values;
-				std::unordered_map<std::string, FValue> Resolved;
+				std::unordered_map<FBlobContentKey, FValue, FBlobContentKeyHash> Resolved;
 				for (const auto& Item : Record->GetValues())
 				{
 					if (Request.Mode == ECacheGetMode::MetadataOnly
 						|| (Request.Mode == ECacheGetMode::SelectedValues && !std::ranges::binary_search(Required, Item.Id))) continue;
 					if (Canceled()) return CancelError();
-					const auto Identity = std::format("{}:{}:{}", FCacheBlobIdentity::Version,
-						Item.Value.GetRawHash().ToString(), Item.Value.GetRawSize());
+					const FBlobContentKey Identity{Item.Value.GetBlobIdentity(), Item.Value.GetRawSize()};
 					if (const auto Existing = Resolved.find(Identity); Existing != Resolved.end())
 					{
 						Values.push_back({Item.Id, Existing->second});
@@ -119,7 +134,7 @@ namespace Durin::DerivedData
 					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
 					uint64 ReadBytes = 0;
 					auto Blob = GCacheStorage.Get({Key, std::min(Request.MaximumEncodedBytes - EncodedBytes,
-						Request.MaximumWorkingSetBytes - ResidentBytes), ECacheStorageNamespace::Values, &ReadBytes, Request.ShouldCancel});
+						Request.MaximumWorkingSetBytes - ResidentBytes), ECacheStorageNamespace::Values, &ReadBytes, Request.ShouldCancel}, **Lease);
 					Stats.ReadBytes += ReadBytes;
 					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + ReadBytes);
 					if (!Blob) return std::unexpected(std::move(Blob.error()));
@@ -195,12 +210,11 @@ namespace Durin::DerivedData
 				uint64 EncodedBytes = Manifest->GetSize();
 				const uint64 RetainedBytes = ResidentBytes + Manifest->GetSize();
 				Stats.PeakWorkingSetBytes = RetainedBytes;
-				std::unordered_set<std::string> Published;
+				std::unordered_set<FBlobContentKey, FBlobContentKeyHash> Published;
 				for (const auto& Item : Request.Record.GetValues())
 				{
 					if (Canceled()) return CancelError();
-					const auto Identity = std::format("{}:{}:{}", FCacheBlobIdentity::Version,
-						Item.Value.GetRawHash().ToString(), Item.Value.GetRawSize());
+					const FBlobContentKey Identity{Item.Value.GetBlobIdentity(), Item.Value.GetRawSize()};
 					if (!Published.emplace(Identity).second) continue;
 					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
 					const uint64 Workspace = Request.MaximumWorkingSetBytes - RetainedBytes;
@@ -212,7 +226,7 @@ namespace Durin::DerivedData
 					bool Reused = false;
 					{
 						uint64 ReadBytes = 0;
-						auto Existing = GCacheStorage.Get({Key, std::min(EncodedBudget, Workspace), ECacheStorageNamespace::Values, &ReadBytes, Request.ShouldCancel});
+						auto Existing = GCacheStorage.Get({Key, std::min(EncodedBudget, Workspace), ECacheStorageNamespace::Values, &ReadBytes, Request.ShouldCancel}, **Lease);
 						Stats.ReadBytes += ReadBytes;
 						Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, RetainedBytes + ReadBytes);
 						if (!Existing && Existing.error().Code != ECacheError::Corrupt && Existing.error().Code != ECacheError::ValueTooLarge)
@@ -243,13 +257,13 @@ namespace Durin::DerivedData
 					++Stats.BlobsCompressed; Stats.CompressedBytes += Item.Value.GetRawSize();
 					if (Canceled()) return CancelError();
 					EncodedBytes += Blob->GetEncoded().GetSize();
-					auto Saved = GCacheStorage.Put({Key, Blob->GetEncoded().GetBytes(), Blob->GetEncoded().GetSize(), ECacheStorageNamespace::Values});
+					auto Saved = GCacheStorage.Put({Key, Blob->GetEncoded().GetBytes(), Blob->GetEncoded().GetSize(), ECacheStorageNamespace::Values}, **Lease);
 					if (!Saved) return std::unexpected(std::move(Saved.error()));
 					++Stats.BlobsWritten; Stats.WrittenBytes += Blob->GetEncoded().GetSize();
 				}
 				// All required content is complete before the manifest becomes visible.
 				if (Canceled()) return CancelError();
-				auto Saved = GCacheStorage.Put({Request.Record.GetKey(), Manifest->GetBytes(), Manifest->GetSize(), ECacheStorageNamespace::Records});
+				auto Saved = GCacheStorage.Put({Request.Record.GetKey(), Manifest->GetBytes(), Manifest->GetSize(), ECacheStorageNamespace::Records}, **Lease);
 				if (Saved) Stats.WrittenBytes += Manifest->GetSize();
 				return Saved;
 			}
@@ -342,15 +356,23 @@ namespace Durin::DerivedData
 		-> FCacheStorageGetResult
 	{
 		if (Request.ReadBytes) *Request.ReadBytes = 0;
+		auto Lease = Private::AcquireCacheStorageOwnership();
+		if (!Lease) return std::unexpected(std::move(Lease.error()));
+		return Get(Request, **Lease);
+	}
+	auto FCacheStorage::Get(const FCacheStorageGetRequest& Request, const Private::FCacheStorageLease& Lease) const
+		-> FCacheStorageGetResult
+	{
+		if (Request.ReadBytes) *Request.ReadBytes = 0;
 		auto Read = [&]
 		{
-			auto Result = FFileSystemCacheBackend().Get(Request);
+			auto Result = FFileSystemCacheBackend(Lease).Get(Request);
 			if (Request.ReadBytes && Result && *Result) *Request.ReadBytes = (**Result).GetSize();
 			return Result;
 		};
 		if (Request.Namespace != ECacheStorageNamespace::Values) return Read();
 		static FCacheReadCoalescer Coalescer;
-		const auto Root = FPaths::DerivedDataCacheDir(); const auto Bucket = Request.Key.GetBucket().ToString();
+		const auto Root = Lease.Root.generic_string(); const auto Bucket = Request.Key.GetBucket().ToString();
 		const auto Identity = std::format("{}:{}|{}:{}|{}|{}", Root.size(), Root, Bucket.size(), Bucket,
 			Request.Key.ToString(), Request.MaximumValueBytes);
 		return Coalescer.Get(Identity, Read, Request.ReadBytes, Request.ShouldCancel);
@@ -426,7 +448,14 @@ namespace Durin::DerivedData
 	auto FCacheStorage::Put(const FCacheStoragePutRequest& Request) const
 		-> FCacheStoragePutResult
 	{
-		return FFileSystemCacheBackend().Put(Request);
+		auto Lease = Private::AcquireCacheStorageOwnership();
+		if (!Lease) return std::unexpected(std::move(Lease.error()));
+		return Put(Request, **Lease);
+	}
+	auto FCacheStorage::Put(const FCacheStoragePutRequest& Request, const Private::FCacheStorageLease& Lease) const
+		-> FCacheStoragePutResult
+	{
+		return FFileSystemCacheBackend(Lease).Put(Request);
 	}
 
 	auto GetCacheStorage() -> FCacheStorage&
