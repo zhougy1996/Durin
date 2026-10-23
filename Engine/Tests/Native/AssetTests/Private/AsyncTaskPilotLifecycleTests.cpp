@@ -357,8 +357,8 @@ namespace
 		Testing::FScopedMountRegistryFixture Mounts;
 		ASSERT_TRUE(Mounts.IsValid());
 		FPilotLifecycle Lifetime;
-		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .MaxNonterminalTasks = 8, .NumBlockingIOThreads = 3}));
-		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.MaxQueuedEntries = 1, .MaxQueuedPayloadBytes = 64, .MaxPayloadBytesPerEntry = 64}));
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .TaskWarningThreshold = 8, .NumBlockingIOThreads = 3}));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.QueuedEntriesWarningThreshold = 1, .QueuedBytesWarningThreshold = 64, .EntryBytesWarningThreshold = 64}));
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		auto Root = Durin::Tasks::FTask(Tasks::LaunchTask("TextureSaturationRoot", [] {}));
@@ -552,7 +552,7 @@ namespace
 		ASSERT_TRUE(StartedA.WaitFor(1.0));
 		ASSERT_TRUE(StartedB.WaitFor(1.0));
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "ShutdownContent").generic_string() + "/");
-		// Fill scheduler capacity independently of the manager's pending-request limit.
+		// Cross the scheduler warning threshold independently of the manager's pending-request limit.
 		// Requests accepted below must still receive failure/cancellation delivery.
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{

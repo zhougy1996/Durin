@@ -113,7 +113,6 @@ namespace Durin
 			}
 		};
 
-		std::atomic<bool> GFailQueuedWorkAllocation = false;
 
 		thread_local const void* GCurrentQueuedThreadPool = nullptr;
 	}
@@ -292,7 +291,6 @@ namespace Durin
 			{
 				std::lock_guard Lock(Mutex);
 				if (!bRunning || !bAcceptingWork || bStopRequested) return false;
-				if (GFailQueuedWorkAllocation.exchange(false)) throw std::bad_alloc();
 				const void* Expected = nullptr;
 				if (!Node->Pool.compare_exchange_strong(Expected, this)) return false;
 				Node->QueuePriority = Priority;
@@ -527,11 +525,6 @@ namespace Durin
 	auto FQueuedThreadPool::IsRunning() const -> bool
 	{
 		return Impl->IsRunning();
-	}
-
-	auto Private::SetQueuedWorkAllocationFailureForTests(bool bFail) -> void
-	{
-		GFailQueuedWorkAllocation.store(bFail);
 	}
 
 	auto GetDefaultThreadPoolThreadCount() -> uint32

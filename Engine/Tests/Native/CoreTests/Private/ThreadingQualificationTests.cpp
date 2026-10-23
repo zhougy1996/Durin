@@ -102,7 +102,7 @@ namespace Durin
 		FTaskSchedulerQualificationGuard Guard;
 		auto RunCohort = [](uint32 TaskCount) -> uint64 {
 			ShutdownTaskScheduler(false);
-			EXPECT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 4, .MaxNonterminalTasks = 100'000}));
+			EXPECT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 4, .TaskWarningThreshold = 100'000}));
 			std::vector<Tasks::FTask> Handles;
 			Handles.reserve(TaskCount);
 			for (uint32 Index = 0; Index < TaskCount; ++Index)
@@ -143,7 +143,7 @@ namespace Durin
 	{
 		ShutdownTaskScheduler(false);
 		FTaskSchedulerQualificationGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 64}));
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .TaskWarningThreshold = 64}));
 
 		constexpr uint32 RoundCount = 32;
 		constexpr uint32 SucceededPerRound = 32;
@@ -218,10 +218,9 @@ namespace Durin
 		EXPECT_EQ(0u, Category->CurrentNonterminalCount);
 		EXPECT_EQ(ExpectedAccepted, Final.CompletedTaskCount);
 		EXPECT_EQ(ExpectedRejected, Final.RejectedTaskCount);
-		EXPECT_EQ(ExpectedRejected, Final.CapacityRejectedTaskCount);
 		EXPECT_EQ(Category->AcceptedCount,
 			Category->SucceededCount + Category->FailedCount + Category->CanceledCount + Category->CurrentNonterminalCount);
-		EXPECT_EQ(0u, Final.CurrentTaskReservationCount);
+		EXPECT_EQ(0u, Final.CurrentTrackedTaskCount);
 		EXPECT_EQ(0u, Final.NonterminalTaskCount);
 	}
 
@@ -376,8 +375,8 @@ namespace Durin
 		FTaskSchedulerQualificationGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		FGameThreadDeferredWorkQueueConfig Config;
-		Config.MaxQueuedEntries = 256;
-		Config.MaxQueuedPayloadBytes = 256 * 64;
+		Config.QueuedEntriesWarningThreshold = 256;
+		Config.QueuedBytesWarningThreshold = 256 * 64;
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
 		Tasks::FTask Root = SubmitKernelTask("DeferredMeasurementRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);

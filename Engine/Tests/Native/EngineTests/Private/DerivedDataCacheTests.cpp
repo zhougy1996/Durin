@@ -217,12 +217,11 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
 		{
 			auto Scheduled = std::make_shared<FWork>();
 			FTaskLaunchOptions Options;
-			auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion("DDCNativeTail",
+			auto Admission = Durin::Private::LaunchCancelableTaskWithCompletion("DDCNativeTail",
 				[this, Work = std::move(Work), Capture = std::exchange(Capture, {})](const FTaskCancellationToken&) {
 					Work(); Entered.Trigger(); Release.Wait();
 				}, {}, Options);
-			if (!Admission.HasValue()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "test native dispatch rejected"});
-			Scheduled->Handle = std::move(Admission).TakeValue(); return Scheduled;
+			Scheduled->Handle = std::move(Admission); return Scheduled;
 		}
 	};
 	auto Scheduler = std::make_shared<FTailScheduler>(); std::weak_ptr<int> Weak = Scheduler->Capture;
@@ -383,9 +382,9 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeHandlePublishedAfterSynchronous
 			EXPECT_FALSE(Owner->Poll()); // No native handle has been published yet.
 			auto Scheduled = std::make_shared<FWork>();
 			FTaskLaunchOptions Options;
-			auto Native = Durin::Private::TryLaunchCancelableTaskWithCompletion("OperationDispatchTail",
+			auto Native = Durin::Private::LaunchCancelableTaskWithCompletion("OperationDispatchTail",
 				[this, Work = std::move(Work)](const FTaskCancellationToken&) { TailEntered.Trigger(); ReleaseTail.Wait(); }, {}, Options);
-			require(Native.HasValue()); Scheduled->Handle = std::move(Native).TakeValue(); return Scheduled;
+			Scheduled->Handle = std::move(Native); return Scheduled;
 		}
 	};
 	auto Scheduler = std::make_shared<FPublicationScheduler>();

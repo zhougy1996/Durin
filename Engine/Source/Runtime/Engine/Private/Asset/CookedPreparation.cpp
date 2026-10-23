@@ -3,7 +3,7 @@
 #include "DObject/Package.h"
 #include "DObject/Class.h"
 #include "Asset/AssetBuildTaskContext.h"
-#include "Threading/Task.h"
+#include "Threading/TaskComposition.h"
 
 namespace Durin::AssetPrivate
 {
@@ -220,9 +220,7 @@ namespace Durin
 			State->Result = std::move(Result);
 		};
 		if (IsTaskSchedulerRunning()) {
-			auto Admission = Private::TryLaunchCancelableTaskWithCompletion("CookDetachedPreparation", std::move(Run), [](ETaskState) {}, {.EstimatedPayloadBytes = WorkingSetBytes});
-			if (!Admission.HasValue()) { Lifecycle.Result = {EObjectCookError::Preparation, "Cook task admission failed."}; return; }
-			State->Task = std::move(Admission).TakeValue();
+			State->Task = Tasks::LaunchTask("CookDetachedPreparation", std::move(Run));
 		} else Run({});
 		CancelWork = [State] { State->Cancellation.Cancel(); };
 		Lifecycle.WaitForCompletion = [this, State] {

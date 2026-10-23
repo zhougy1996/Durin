@@ -68,7 +68,6 @@ namespace Durin
 		std::unique_ptr<FImpl> Impl;
 	};
 
-	namespace Private { CORE_API auto SetQueuedWorkAllocationFailureForTests(bool bFail) -> void; }
 
 	CORE_API auto GetDefaultThreadPoolThreadCount() -> uint32;
 }
