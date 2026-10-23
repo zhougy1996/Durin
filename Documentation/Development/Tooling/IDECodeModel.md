@@ -45,25 +45,30 @@ Build/Win64-Debug-DurinEditor/compile_commands.json
 `DevTool setup` copies the tracked `settings.json` and `extensions.json`
 templates under `Templates/VSCode` into the ignored local `.vscode` directory
 without overwriting existing files. The generated `settings.json` points clangd
-at this database, enables its background index, and disables automatic
-configure/build behavior if CMake Tools happens to be installed. Linked
-worktrees share the prepared source worktree's `.vscode` directory through
-`DevTool worktree prepare`. Run `DurinDevTool configure` after creating a fresh
-build tree or changing CMake inputs so the database remains current. Run a
-normal DurinDevTool build when generated DHT headers or sources are missing or
-stale.
+at this database, leaves the language server disabled until requested, and
+disables automatic configure/build behavior if CMake Tools happens to be
+installed. Linked worktrees share the prepared source worktree's `.vscode`
+directory through `DevTool worktree prepare`. Run `DurinDevTool configure`
+after creating a fresh build tree or changing CMake inputs so the database
+remains current. Run a normal DurinDevTool build when generated DHT headers or
+sources are missing or stale.
 
 ### clangd
 
 Install the `llvm-vs-code-extensions.vscode-clangd` extension. The extension and
-the clangd language server are separate: opening a C or C++ file activates the
-extension and offers to download the server when it cannot find one. The same
-operation is available from the command palette as **clangd: Download language
-server**. Restart it after installation with **clangd: Restart language server**.
+the clangd language server are separate. Opening a C or C++ file activates the
+extension, but the workspace setting `clangd.enable: false` prevents the server
+from starting or indexing automatically. When code navigation is needed, run
+**clangd: Manually activate extension** from the command palette and accept
+**Enable**. The extension enables `clangd.enable` persistently, so set it back
+to `false` in `.vscode/settings.json` after the session to keep later launches
+manual. **clangd: Shutdown language server** stops the current session. If the
+server is unavailable, run **clangd: Download language server**, then
+**clangd: Restart language server**.
 
 clangd and Microsoft C/C++ IntelliSense must not both provide language features.
-Developers who keep `ms-vscode.cpptools` for its debugger should disable its
-IntelliSense in a personal VS Code profile or user settings:
+The workspace template disables `ms-vscode.cpptools` IntelliSense so it does not
+start an alternative automatic code model while clangd is off:
 
 ```json
 {
@@ -71,9 +76,8 @@ IntelliSense in a personal VS Code profile or user settings:
 }
 ```
 
-This preference is intentionally not forced by the tracked workspace settings,
-so another developer may disable clangd and use Microsoft C/C++ IntelliSense
-instead. In that case, configure the C/C++ extension to read the same
+Developers who prefer Microsoft C/C++ IntelliSense can change this workspace
+setting to `default` and configure the extension to read the same
 `compile_commands.json` file.
 
 ### Debugging

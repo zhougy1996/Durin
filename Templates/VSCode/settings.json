@@ -1,8 +1,10 @@
 {
+  "clangd.enable": false,
   "clangd.arguments": [
     "--compile-commands-dir=${workspaceFolder}/Build/Win64-Debug-DurinEditor",
     "--background-index"
   ],
+  "C_Cpp.intelliSenseEngine": "disabled",
   "json.schemas": [
     {
       "fileMatch": ["*.dworkspace"],
