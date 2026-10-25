@@ -180,6 +180,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"ContactVisibility.Compute", Types, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -232,6 +233,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"ContactVisibility.Fragment", Types, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeRendererResourceCreateError(

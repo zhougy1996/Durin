@@ -87,10 +87,6 @@ namespace Durin
 		FPreparedShaderMapScope(const FPreparedShaderMapScope&) = delete;
 		static auto IsActive() -> bool;
 		static auto AllowsAsyncRequests() -> bool;
-		static auto RecordPendingRequest() -> void;
-		// Counts unavailable CPU outputs encountered in the current outer scope.
-		// Resource attempts compare before/after counts to defer only their own work.
-		static auto GetPendingRequestCount() -> uint64;
 	private:
 		bool bAllowsAsyncRequests = false;
 	};

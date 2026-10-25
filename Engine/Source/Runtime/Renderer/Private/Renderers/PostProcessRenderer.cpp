@@ -164,6 +164,7 @@ namespace Durin
 				const auto CopyShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"PostProcess.Copy", CopyShaderTypes, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (CopyShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (CopyShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!CopyShaderSetCompletion)
 				{
@@ -180,6 +181,7 @@ namespace Durin
 				const auto FXAAShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"PostProcess.FXAA", FXAAShaderTypes, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (FXAAShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (FXAAShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!FXAAShaderSetCompletion)
 				{

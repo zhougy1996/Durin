@@ -208,6 +208,7 @@ namespace Durin
 					MeshPass, ShaderKey.Material,
 					Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(),
 					Options, ShaderMap);
+				if (ShaderResult.Status == EShaderBuildStatus::Pending) return FShaderResult::Pending();
 				if (ShaderResult.Status == EShaderBuildStatus::Canceled) return FShaderResult::Canceled();
 				if (!ShaderResult)
 				{
@@ -344,6 +345,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"GBuffer.GPUCulling", Types, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeRendererResourceCreateError(

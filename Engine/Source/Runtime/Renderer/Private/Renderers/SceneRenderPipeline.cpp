@@ -177,10 +177,9 @@ namespace Durin
 		FResourcePreparationStage Stage) -> ERenderViewResult
 	{
 		FRenderPipelinePreparationBatch Batch;
-		const uint64 PendingShadersBefore = FPreparedShaderMapScope::GetPendingRequestCount();
 		const auto Result = (this->*Stage)(CommandList, Context);
 		if (Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
-		if (FPreparedShaderMapScope::GetPendingRequestCount() != PendingShadersBefore || Batch.GetRequestCount() != 0)
+		if (FRenderPipelinePreparationBatch::HasPending())
 			return ERenderViewResult::RendererResourcesPending;
 		return Result;
 	}

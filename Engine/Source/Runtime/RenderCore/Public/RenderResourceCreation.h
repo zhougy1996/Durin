@@ -184,6 +184,8 @@ namespace Durin
 		}
 
 		static auto Canceled() -> TRenderResourceCreateResult { TRenderResourceCreateResult Result; Result.bCanceled = true; return Result; }
+		static auto Pending() -> TRenderResourceCreateResult { TRenderResourceCreateResult Result; Result.bPending = true; return Result; }
+		auto IsPending() const -> bool { return bPending; }
 		auto IsCanceled() const -> bool { return bCanceled; }
 		auto HasPayload() const -> bool { return Payload.has_value(); }
 		auto TakePayload() -> PayloadType { return std::move(*Payload); }
@@ -194,6 +196,7 @@ namespace Durin
 
 	private:
 		bool bCanceled = false;
+		bool bPending = false;
 		std::optional<PayloadType> Payload;
 		std::optional<FRenderResourceCreateError> Error;
 	};
@@ -237,12 +240,11 @@ namespace Durin
 			Availability = ERenderResourceAvailability::Pending;
 			FPreparedShaderMapScope ShaderScope(true);
 			FRenderPipelineRequestScope PipelineScope(PipelineRequests, Generation);
-			const uint64 PendingShadersBefore = FPreparedShaderMapScope::GetPendingRequestCount();
 			auto Result = std::forward<FactoryType>(Factory)();
 			bResolving = false;
-			if (PipelineScope.HasPending()
-				|| FPreparedShaderMapScope::GetPendingRequestCount() != PendingShadersBefore)
+			if (Result.IsPending() || PipelineScope.HasPending())
 			{
+				PipelineScope.PropagatePending(Result.IsPending());
 				bHasAttempt = false;
 				return nullptr;
 			}

@@ -175,6 +175,7 @@ namespace Durin
 				const auto ShaderCompletion = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward), FHitProxyFragmentShader::StaticType(),
 					Factory->GetType(), MaterialMeshPassForward, Identity, Coordinator.GetGeneration_RenderThread(),
 					Draw.Command->Material.CompiledProgram.get(), Options, Item.ShaderMap);
+				if (ShaderCompletion.Status == EShaderBuildStatus::Pending) { FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
 				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { bReady = false; break; }
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
 				Item.Vertex = Factory->Resolve(Item.ShaderMap, MaterialMeshPassForward);

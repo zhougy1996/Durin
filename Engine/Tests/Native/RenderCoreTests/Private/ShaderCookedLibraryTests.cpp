@@ -192,6 +192,18 @@ namespace Durin
 		EXPECT_FALSE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(Bytes), EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, {}, Library)));
 	}
 
+	TEST(FShaderCookedLibraryTests, PendingResolutionCannotBePublishedAsCookedCompilerOutput)
+	{
+		FShaderCookedLibraryRecord Record{
+			.Request = MakeRequest(), .ProductionIdentity = {7, 11}, .Output = MakeOutput()};
+		FByteBuffer Bytes;
+		ASSERT_TRUE(EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64,
+			EShaderTargetProfile::Game, std::span(&Record, 1), Bytes));
+		Record.Output.Status = EShaderBuildStatus::Pending;
+		EXPECT_FALSE(EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64,
+			EShaderTargetProfile::Game, std::span(&Record, 1), Bytes));
+	}
+
 	TEST(FShaderCookedLibraryTests, MacOSLibraryKeepsBinaryAndRejectsVulkanAdmission)
 	{
 		auto Request = MakeRequest();

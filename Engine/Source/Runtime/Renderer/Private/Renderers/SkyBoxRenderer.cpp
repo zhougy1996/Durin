@@ -100,6 +100,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"SkyBox.Default", ShaderTypes, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 				{
