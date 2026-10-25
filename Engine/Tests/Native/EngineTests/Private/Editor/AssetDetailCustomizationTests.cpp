@@ -3,6 +3,8 @@
 #include "TextureBuildSettingsDetails.h"
 #include "MaterialParameterCollectionDetails.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureSource.h"
+#include "Image/Image.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
@@ -48,6 +50,13 @@ TEST(FAssetDetailCustomizationTests, PreservesPreviewCancellationAndAssetUndoRed
 {
 	InitializeDObjectSystem();
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "UndoBuildDetailsTexture");
+	// Undo deserializes the authored texture, including its bulk-data identity.
+	auto Image = Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(16, std::byte{42}));
+	ASSERT_TRUE(Image);
+	Durin::FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image->GetView(), 4, 0, Durin::ETextureSourceCompression::Raw));
+	Texture->SetSource(std::move(Source));
 	auto* Collection = Durin::NewObject<Durin::DMaterialParameterCollection>(nullptr, "UndoDetailsCollection");
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	std::string Error;

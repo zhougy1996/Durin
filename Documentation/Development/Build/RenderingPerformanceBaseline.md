@@ -2,7 +2,7 @@
 
 Summary: Define the reproducible RHI, RDG, and Renderer performance qualification selection, measurement ownership, authority, and comparison rules.
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-25
 
 ## Selection
 
@@ -36,7 +36,9 @@ acceptance.
 | `VulkanCreationQualificationTests` | Real Vulkan cold/hot/concurrent creation and checked binding submission | shader/PSO/resource creation time, instrumentation overhead, allocation and request pressure; binding producer and queue/replay CPU samples |
 | `MaterialCreationQualificationTests` | Fixed production material frames | producer/render/GPU completion spans, synchronous operations, queue and native creation counts |
 | `MaterialQualificationTests` | Backend-free material publication/resolve and compiler/editor workloads | parameter-scale proxy publication/resolve median/p95, cached resolve cost, compiler/layout costs |
-| `StaticMeshRenderPreparationVulkanTests` | Mixed StaticMesh/Spline preparation with 64 primitives and 256 draws | preparation median/p95 and owned container capacity |
+| `StaticMeshRenderPreparationQualificationTests` | Mixed StaticMesh/Spline preparation with 64 primitives and 256 draws | preparation median/p95 and owned container capacity |
+| `RendererResourceSlotCacheQualificationTests` | Backend-free slot lookup with cyclic and hot working sets | lookup samples, recreation/eviction counts and retained slot bytes |
+| `MaterialCollectionRenderQualificationTests` | Stable parameter-collection world rendered at 192x108 | RenderView CPU samples and command/binding counters |
 | `DirectionalShadowBaselineVulkanTests` | Single and cascaded shadow preparation plus rendered output | logical/discovery/static preparation, GPU shadow time, output parity |
 | `HDRDisplayMappingQualificationTests` | 1920x1080 copy and FXAA routes | GPU median/p95 and incremental FXAA cost |
 | `GBufferQualificationTests` | 1920x1080 production GBuffer/deferred/AO/shadow/contact/postprocess frame | per-pass and total GPU median/p95, retained and peak memory, output parity |
@@ -48,10 +50,10 @@ observations. Correctness-only Vulkan integration remains outside this catalog.
 
 ### Binding Update and Submission Workload
 
-`FRendererResourceSlotCacheTests.LookupAndRetentionBaseline` in
-`EditorRenderingTests` is a backend-free, opt-in diagnostic for renderer slot
-lookup/retention. Set `DURIN_RENDERER_SLOT_BENCHMARK=1` and
-`DURIN_TEST_KEEP_WORK=1` and select that case directly. It writes
+`FRendererResourceSlotCacheQualificationTests.LookupAndRetentionBaseline` in
+`RendererResourceSlotCacheQualificationTests` is a backend-free diagnostic for renderer slot
+lookup/retention. Run `./DevTool test RendererResourceSlotCacheQualificationTests --mode qualification --report`
+with `DURIN_TEST_KEEP_WORK=1`. It writes
 `RendererSlotBaseline/samples.csv` in the printed test work directory. A fixed
 512-slot cache processes 256/512/1024/4096-key working sets in cyclic order or
 with 90% accesses to 64 hot keys and 10% rotating cold admissions. Three runs
@@ -73,14 +75,13 @@ publication copies remain inside the measured interval on both revisions. This
 isolates proxy work, not GameThread instance mutation or GPU execution. The
 fixture writes `MaterialProxyBaseline/samples.csv` and prints per-run median/p95.
 
-Set `DURIN_MATERIAL_CACHE_BENCHMARK=1` for
-`FMaterialParameterCollectionVulkanTests.WorldSnapshotsDriveForwardGBufferAndMaskedShadowValues`
-in `StaticMeshRenderPreparationVulkanTests` to collect an additional three-run,
-30-warm-up/120-sample Collection workload. It measures `RenderView` CPU work for
+Run `./DevTool test MaterialCollectionRenderQualificationTests --mode qualification --report`
+for the three-run, 30-warm-up/120-sample Collection workload. It measures `RenderView` CPU work for
 two masked sections at 192x108, with a fixed world snapshot and Unlit view;
 frame begin/end and readback are outside the interval. The CSV includes command
 hits/misses, surface preparation and binding-batch counts. It is not GPU frame
-time. Ordinary execution retains correctness checks without repeated sampling.
+time. `StaticMeshRenderPreparationVulkanTests` retains the world-snapshot correctness
+checks without repeated sampling or an environment-variable benchmark mode.
 Retain work with `DURIN_TEST_KEEP_WORK=1` and record the exact revision, command,
 build/Tracy settings and log/XML alongside each CSV. Debug or nonexclusive runs
 are diagnostic; these fixtures impose no device-independent timing threshold.

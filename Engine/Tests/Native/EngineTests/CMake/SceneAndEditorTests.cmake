@@ -162,7 +162,7 @@ durin_add_native_test(RendererResourceReloadVulkanTests
 
 durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	KIND ${_durin_vulkan_integration_kind}
-	DOMAINS render-performance static-mesh
+	DOMAINS static-mesh
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
@@ -178,6 +178,58 @@ durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
 	HEAVY_RUNTIME_RATIONALE
 		"Exercises view-local StaticMesh material preparation against initialized render resources."
+)
+
+durin_add_native_test(StaticMeshRenderPreparationQualificationTests
+	KIND qualification
+	DOMAINS render-performance static-mesh
+	MODULES engine renderer vulkan-rhi
+	BACKENDS vulkan
+	STACKS renderer
+	TIMEOUT 900
+	SOURCES Private/StaticMeshRenderPreparationQualificationTests.cpp
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer ShaderBuild VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Builds material programs for the mixed geometry preparation baseline."
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Measures repeated preparation of 64 mixed StaticMesh/Spline primitives separately from bounded correctness coverage."
+)
+
+durin_add_native_test(MaterialCollectionRenderQualificationTests
+	KIND qualification
+	DOMAINS material render-performance renderer
+	MODULES engine renderer vulkan-rhi
+	BACKENDS vulkan
+	STACKS renderer
+	TIMEOUT 900
+	SOURCES Private/MaterialCollectionRenderQualificationTests.cpp
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer ShaderBuild VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Builds the masked material and parameter collection used by the render-view baseline."
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Measures repeated material-collection RenderView work separately from world snapshot correctness checks."
+)
+
+durin_add_native_test(RendererResourceSlotCacheQualificationTests
+	KIND qualification
+	DOMAINS render-performance renderer
+	MODULES renderer
+	STACKS renderer
+	SOURCES Private/RendererResourceSlotCacheQualificationTests.cpp
+	LIBRARIES Core RenderCore Renderer
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+	HEAVY_RUNTIME_RATIONALE
+		"Measures renderer slot-cache lookup and retention with synthetic integer payloads without initializing a GPU."
 )
 
 durin_add_native_test(DirectionalShadowBaselineVulkanTests
