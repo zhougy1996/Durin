@@ -213,7 +213,8 @@ namespace Durin::Editor::Material
 			Error = "The material changes could not be applied to the source.";
 			return false;
 		}
-		Source->SetStaticProperties(Candidate.Properties);
+		// Candidate.Properties already passed the setter's validation above.
+		(void)Source->SetStaticProperties(Candidate.Properties);
 		Source->SetMaterialGraphPresentation(Candidate.Presentation);
 		if (Source->GetMaterialCompileStatus().HasUnsubmittedEdits()) Source->CompileEdits();
 		Source->SetEditCompileMode(PreviousMode);
