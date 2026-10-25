@@ -52,6 +52,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
+#include "RenderResourcePreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 #include "SceneTestAccess.h"
@@ -1286,6 +1287,73 @@ namespace Durin::Tests
 	[[maybe_unused]] const auto GeometryEnvironment = testing::AddGlobalTestEnvironment(new FGeometryQualificationEnvironment());
 }
 
+namespace
+{
+	// Every preparation pump owns a complete frame, including early Pending exits.
+	class FGeometryQualificationFrame final
+	{
+	public:
+		explicit FGeometryQualificationFrame(Durin::FRHICommandListImmediate& InCommands) : Commands(InCommands)
+		{
+			++Durin::GRenderFrameCounterRenderThread;
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+		}
+		~FGeometryQualificationFrame()
+		{
+			Durin::SetGBufferCaptureSink(nullptr);
+			Durin::SetShadowDepthCaptureSink(nullptr);
+			Durin::SetViewRenderTelemetrySink(nullptr);
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+		}
+	private:
+		Durin::FRHICommandListImmediate& Commands;
+	};
+
+	auto RenderPreparedGeometryView(Durin::FRendererModule& Renderer, Durin::FSceneInterface& Scene,
+		const Durin::FSceneView& View, const Durin::FRHITextureCreateDesc& TargetDesc,
+		const std::function<void()>& BeforeDraw = {},
+		const std::function<void(Durin::FRHICommandListImmediate&, Durin::FRHITexture*)>& AfterDraw = {}) -> Durin::ERenderViewResult
+	{
+		using namespace Durin;
+		const auto Preparation = FRenderResourcePreparation::Create();
+		FTextureRHIRef Target;
+		auto Result = ERenderViewResult::RendererResourcesPending;
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+		do
+		{
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				FGeometryQualificationFrame Frame(Commands);
+				if (!Target) Target = GDynamicRHI->RHICreateTexture(Commands, TargetDesc);
+				if (!Target) { Result = ERenderViewResult::RendererResourcesUnavailable; return; }
+				const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
+				Renderer.PrepareViewResources(Commands, &Scene, View, Target, false, {}, Preparation);
+				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), DrawsBefore);
+				const auto State = Preparation.GetProgress().State;
+				if (State == ERenderResourcePreparationState::Pending) return;
+				if (State != ERenderResourcePreparationState::Ready)
+				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
+				if (BeforeDraw) BeforeDraw();
+				if (testing::Test::HasFatalFailure())
+				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
+				Result = Renderer.RenderView(Commands, &Scene, View, Target, false, {});
+				if (Result == ERenderViewResult::Success && AfterDraw) AfterDraw(Commands, Target);
+			});
+			FlushRenderingCommands();
+			if (Result != ERenderViewResult::RendererResourcesPending || testing::Test::HasFatalFailure()) break;
+			// Only the host yields between frames; the render thread never joins Shader work.
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		} while (std::chrono::steady_clock::now() < Deadline);
+		if (Result == ERenderViewResult::RendererResourcesPending) Preparation.RequestCancel();
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+			if (Result == ERenderViewResult::RendererResourcesPending)
+				Preparation.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
+			Target = {};
+		});
+		FlushRenderingCommands();
+		return Result;
+	}
+}
+
 TEST(FStaticMeshRenderPreparationVulkanTests, DepthReadbackConsumesHostPreparedShaders)
 {
 	using namespace Durin;
@@ -1355,6 +1423,18 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	FRendererModule Renderer;
 	FModuleTestHarness RendererLifecycle("GeometryQualification");
 	RendererLifecycle.Start(Renderer);
+	struct FRendererCleanup
+	{
+		FModuleTestHarness& Lifecycle;
+		~FRendererCleanup()
+		{
+			FlushRenderingCommands();
+			Lifecycle.Shutdown();
+			ShutdownRenderingThread();
+			FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+			RHIExit();
+		}
+	} Cleanup{RendererLifecycle};
 	FSceneTestOwner Owner;
 	auto& Scene = *Owner;
 	const auto Opaque = MakeMaterial(EMaterialBlendMode::Opaque, true);
@@ -1592,20 +1672,20 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		EXPECT_TRUE(Missing.bResourceFailure);
 		EXPECT_EQ(Missing.GetNumSections(), 0u);
 		EXPECT_EQ(Missing.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::ResourceFailure)], 2u);
-		const auto Desc = FRHITextureCreateDesc::Create2D("IndependentGeometryColor", 192, 108, EPixelFormat::SRGBA8_UNORM)
-			.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
-		const auto Target = GDynamicRHI->RHICreateTexture(CommandList, Desc);
-		ASSERT_NE(Target, nullptr);
-		for (auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
-		{
-			View.Settings.Mode.RenderMode = Mode;
-			++GRenderFrameCounterRenderThread;
-			GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), ERenderViewResult::Success);
-			GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-		}
 	});
 	FlushRenderingCommands();
+	FSceneView InitialView;
+	InitialView.ViewportWidth = 192; InitialView.ViewportHeight = 108;
+	InitialView.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+	for (auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
+	{
+		InitialView.Settings.Mode.RenderMode = Mode;
+		ASSERT_EQ(RenderPreparedGeometryView(Renderer, Scene, InitialView,
+			FRHITextureCreateDesc::Create2D("IndependentGeometryColor", 192, 108, EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)),
+			ERenderViewResult::Success);
+	}
+
 	ASSERT_TRUE(FrozenInput);
 	{
 		// Both render-thread preparation caches are already gone.
@@ -1689,26 +1769,24 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(PairScene, FLightComponentId(1), Light), nullptr);
 	}
 	FlushRenderingCommands();
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
-		FSceneView View;
-		View.ViewportWidth = 1920; View.ViewportHeight = 1080;
-		View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
-		View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
-		for (auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
+	FSceneView View;
+	View.ViewportWidth = 1920; View.ViewportHeight = 1080;
+	View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+	View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
+	for (auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
+	{
+		View.Settings.Mode.RenderMode = Mode;
+		std::array<FByteBuffer, 2> Pixels;
+		std::array<std::array<FByteBuffer, 5>, 2> Attachments;
+		static std::array<FByteBuffer, 5>* Capture = nullptr;
+		std::array<FByteBuffer, 2> ShadowPixels;
+		static FByteBuffer* ShadowCapture = nullptr;
+		for (size_t I = 0; I < 2; ++I)
 		{
-			View.Settings.Mode.RenderMode = Mode;
-			std::array<FByteBuffer, 2> Pixels;
-			std::array<std::array<FByteBuffer, 5>, 2> Attachments;
-			static std::array<FByteBuffer, 5>* Capture = nullptr;
-			std::array<FByteBuffer, 2> ShadowPixels;
-			static FByteBuffer* ShadowCapture = nullptr;
-			for (size_t I = 0; I < 2; ++I)
-			{
-				const auto Desc = FRHITextureCreateDesc::Create2D("GeometryParity", 1920, 1080, EPixelFormat::SRGBA8_UNORM)
-					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
-				const auto Target = GDynamicRHI->RHICreateTexture(CommandList, Desc);
-				++GRenderFrameCounterRenderThread;
-				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			const auto Desc = FRHITextureCreateDesc::Create2D("GeometryParity", 1920, 1080, EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+			const auto Result = RenderPreparedGeometryView(Renderer, I == 0 ? *ReferenceOwner : *DeformedOwner,
+				View, Desc, [&] {
 				Capture = &Attachments[I];
 				ShadowCapture = &ShadowPixels[I];
 				if (Mode == ERenderMode::Lit) SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& Commands, FRHITexture* Depth, uint32 Cascades) {
@@ -1719,69 +1797,66 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 					const std::array Textures{Material, Normals, Surface, Emissive, Depth};
 					for (size_t A = 0; A < Textures.size(); ++A) ReadGeometryTexture(Commands, Textures[A], (*Capture)[A], A == 4);
 				});
-				const auto Result = Renderer.RenderView(CommandList, I == 0 ? &*ReferenceOwner : &*DeformedOwner, View, Target, false, {});
-				SetGBufferCaptureSink(nullptr);
-				SetShadowDepthCaptureSink(nullptr);
-				ShadowCapture = nullptr;
-				Capture = nullptr;
-				ASSERT_EQ(Result, ERenderViewResult::Success);
-				ReadGeometryTexture(CommandList, Target, Pixels[I]);
-				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-			}
-			ASSERT_EQ(Pixels[0].size(), Pixels[1].size());
-			ASSERT_EQ(Pixels[0].size(), 1920u * 1080u * 4u);
-			size_t OutsideTolerance = 0;
-			uint32 MaxError = 0;
-			for (size_t Pixel = 0; Pixel < Pixels[0].size(); Pixel += 4)
-			{
-				uint32 Error = 0;
-				for (size_t Channel = 0; Channel < 4; ++Channel)
-					Error = std::max(Error, static_cast<uint32>(std::abs(std::to_integer<int>(Pixels[0][Pixel + Channel]) - std::to_integer<int>(Pixels[1][Pixel + Channel]))));
-				MaxError = std::max(MaxError, Error); OutsideTolerance += Error > 2;
-			}
-			EXPECT_LE(MaxError, 8u);
-			EXPECT_LE(OutsideTolerance, 1920u * 1080u / 1000u);
-			if (Mode == ERenderMode::Lit)
-			{
-				for (size_t A = 0; A < 5; ++A)
-				{
-					ASSERT_EQ(Attachments[0][A].size(), 1920u * 1080u * 4u) << A;
-					ASSERT_EQ(Attachments[0][A].size(), Attachments[1][A].size()) << A;
-				}
-				size_t Covered = 0;
-				for (size_t Offset = 0; Offset < Attachments[0][4].size(); Offset += sizeof(float))
-				{
-					float Depth[2];
-					for (size_t I = 0; I < 2; ++I) std::memcpy(&Depth[I], Attachments[I][4].data() + Offset, sizeof(float));
-					ASSERT_TRUE(std::isfinite(Depth[0]) && std::isfinite(Depth[1]));
-					ASSERT_EQ(Depth[0] < 1.0f, Depth[1] < 1.0f) << Offset;
-					if (Depth[0] >= 1.0f) continue;
-					++Covered;
-					ASSERT_NEAR(Depth[0], Depth[1], 1e-5f) << Offset;
-					// These constant material values have identical quantized encodings;
-					// exact comparison is stricter than the frozen float-channel allowance.
-					for (size_t A = 0; A < 4; ++A)
-						for (size_t Byte = 0; Byte < 4; ++Byte)
-							ASSERT_EQ(Attachments[0][A][Offset + Byte], Attachments[1][A][Offset + Byte]) << A << ":" << Offset;
-				}
-				ASSERT_FALSE(ShadowPixels[0].empty());
-				ASSERT_EQ(ShadowPixels[0].size(), ShadowPixels[1].size());
-				size_t ShadowCovered = 0;
-				for (size_t Offset = 0; Offset < ShadowPixels[0].size(); Offset += sizeof(float))
-				{
-					float Depth[2];
-					for (size_t I = 0; I < 2; ++I) std::memcpy(&Depth[I], ShadowPixels[I].data() + Offset, sizeof(float));
-					ASSERT_EQ(Depth[0] < 1.0f, Depth[1] < 1.0f) << Offset;
-					ASSERT_NEAR(Depth[0], Depth[1], 1e-5f) << Offset;
-					ShadowCovered += Depth[0] < 1.0f;
-				}
-				EXPECT_GT(ShadowCovered, 100u);
-				EXPECT_GT(Covered, 1000u);
-				EXPECT_LT(Covered, 1920u * 1080u / 2u);
-			}
+			}, [&](FRHICommandListImmediate& Commands, FRHITexture* Target) {
+				ReadGeometryTexture(Commands, Target, Pixels[I]);
+			});
+			ShadowCapture = nullptr;
+			Capture = nullptr;
+			ASSERT_EQ(Result, ERenderViewResult::Success);
 		}
-	});
-	FlushRenderingCommands();
+		ASSERT_EQ(Pixels[0].size(), Pixels[1].size());
+		ASSERT_EQ(Pixels[0].size(), 1920u * 1080u * 4u);
+		size_t OutsideTolerance = 0;
+		uint32 MaxError = 0;
+		for (size_t Pixel = 0; Pixel < Pixels[0].size(); Pixel += 4)
+		{
+			uint32 Error = 0;
+			for (size_t Channel = 0; Channel < 4; ++Channel)
+				Error = std::max(Error, static_cast<uint32>(std::abs(std::to_integer<int>(Pixels[0][Pixel + Channel]) - std::to_integer<int>(Pixels[1][Pixel + Channel]))));
+			MaxError = std::max(MaxError, Error); OutsideTolerance += Error > 2;
+		}
+		EXPECT_LE(MaxError, 8u);
+		EXPECT_LE(OutsideTolerance, 1920u * 1080u / 1000u);
+		if (Mode == ERenderMode::Lit)
+		{
+			for (size_t A = 0; A < 5; ++A)
+			{
+				ASSERT_EQ(Attachments[0][A].size(), 1920u * 1080u * 4u) << A;
+				ASSERT_EQ(Attachments[0][A].size(), Attachments[1][A].size()) << A;
+			}
+			size_t Covered = 0;
+			for (size_t Offset = 0; Offset < Attachments[0][4].size(); Offset += sizeof(float))
+			{
+				float Depth[2];
+				for (size_t I = 0; I < 2; ++I) std::memcpy(&Depth[I], Attachments[I][4].data() + Offset, sizeof(float));
+				ASSERT_TRUE(std::isfinite(Depth[0]) && std::isfinite(Depth[1]));
+				ASSERT_EQ(Depth[0] < 1.0f, Depth[1] < 1.0f) << Offset;
+				if (Depth[0] >= 1.0f) continue;
+				++Covered;
+				ASSERT_NEAR(Depth[0], Depth[1], 1e-5f) << Offset;
+				// These constant material values have identical quantized encodings;
+				// exact comparison is stricter than the frozen float-channel allowance.
+				for (size_t A = 0; A < 4; ++A)
+					for (size_t Byte = 0; Byte < 4; ++Byte)
+						ASSERT_EQ(Attachments[0][A][Offset + Byte], Attachments[1][A][Offset + Byte]) << A << ":" << Offset;
+			}
+			ASSERT_FALSE(ShadowPixels[0].empty());
+			ASSERT_EQ(ShadowPixels[0].size(), ShadowPixels[1].size());
+			size_t ShadowCovered = 0;
+			for (size_t Offset = 0; Offset < ShadowPixels[0].size(); Offset += sizeof(float))
+			{
+				float Depth[2];
+				for (size_t I = 0; I < 2; ++I) std::memcpy(&Depth[I], ShadowPixels[I].data() + Offset, sizeof(float));
+				ASSERT_EQ(Depth[0] < 1.0f, Depth[1] < 1.0f) << Offset;
+				ASSERT_NEAR(Depth[0], Depth[1], 1e-5f) << Offset;
+				ShadowCovered += Depth[0] < 1.0f;
+			}
+			EXPECT_GT(ShadowCovered, 100u);
+			EXPECT_GT(Covered, 1000u);
+			EXPECT_LT(Covered, 1920u * 1080u / 2u);
+		}
+	}
+
 	ReferenceOwner.Reset(); DeformedOwner.Reset();
 	// Optional GBuffer exclusion must preserve retained-forward and translucency.
 	FSceneTestOwner ForwardOwner;
@@ -1817,24 +1892,24 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			EXPECT_EQ(Prepared.Opaque[0].Command->bSupportsGBuffer, LocalFactory);
 			const auto Shadow = PrepareStaticMeshView_RenderThread(Commands, ForwardOwner->GetPrimitiveSceneInfos(), View, ERasterMode::Solid, ERenderPreparationMode::ShadowDepth);
 			EXPECT_EQ(Shadow.bResourceFailure, FailShadow);
-			static FViewRenderTelemetry Telemetry;
-			Telemetry = {};
-			SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Telemetry = Value; });
-			const auto Target = GDynamicRHI->RHICreateTexture(Commands,
-				FRHITextureCreateDesc::Create2D("ForwardOnlyGeometry", 192, 108, EPixelFormat::SRGBA8_UNORM)
-					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
-			++GRenderFrameCounterRenderThread;
-			GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-			const auto Result = Renderer.RenderView(Commands, &*ForwardOwner, View, Target, false, {});
-			SetViewRenderTelemetrySink(nullptr);
-			GDynamicRHI->RHIEndFrame_RenderThread(Commands);
-			EXPECT_EQ(Result, ERenderViewResult::Success);
-			EXPECT_EQ(Telemetry.GBuffer.GBufferSuccessfulDraws, LocalFactory ? 1u : 0u);
-			EXPECT_EQ(Telemetry.CombinedTranslucentGeometryDraws, 1u);
-			EXPECT_EQ(Telemetry.DirectionalShadow.ShadowPreparationFailures, FailShadow ? 1u : 0u);
-			EXPECT_EQ(Telemetry.DirectionalShadow.ShadowSuccessfulDraws, FailShadow ? 0u : 1u);
 		});
 		FlushRenderingCommands();
+		FSceneView View;
+		View.ViewportWidth = 192; View.ViewportHeight = 108;
+		View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+		View.Settings.Mode.RenderMode = ERenderMode::Lit;
+		View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
+		static FViewRenderTelemetry Telemetry;
+		Telemetry = {};
+		const auto Result = RenderPreparedGeometryView(Renderer, *ForwardOwner, View,
+			FRHITextureCreateDesc::Create2D("ForwardOnlyGeometry", 192, 108, EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource),
+			[] { SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Telemetry = Value; }); });
+		ASSERT_EQ(Result, ERenderViewResult::Success);
+		EXPECT_EQ(Telemetry.GBuffer.GBufferSuccessfulDraws, LocalFactory ? 1u : 0u);
+		EXPECT_EQ(Telemetry.CombinedTranslucentGeometryDraws, 1u);
+		EXPECT_EQ(Telemetry.DirectionalShadow.ShadowPreparationFailures, FailShadow ? 1u : 0u);
+		EXPECT_EQ(Telemetry.DirectionalShadow.ShadowSuccessfulDraws, FailShadow ? 0u : 1u);
 	}
 	ForwardOwner.Reset();
 	FlushRenderingCommands();
@@ -1862,9 +1937,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	OldBuffer = {};
 	Snapshot = {};
 	Geometries = {};
-	RendererLifecycle.Shutdown();
-	ShutdownRenderingThread();
-	RHIExit();
 }
 
 TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndTransformChanges)
