@@ -385,7 +385,7 @@ normal unload of retained dependencies; and failed replacement preserving the
 old live graph. Test semantics rather than the shape of diagnostic wrappers.
 
 Update [asset packages](../../../Runtime/Assets/AssetPackages.md),
-[serialization](../../../Runtime/Core/Serialization.md), and other affected owning
+[serialization](../../../Runtime/ObjectSystem/Serialization.md), and other affected owning
 contracts only as behavior is implemented. Update this plan in the same commit
 as each validated implementation batch, using its exact Plan and Stage trailers.
 Plan replacement alone requires changed-document and all-plan validation, not

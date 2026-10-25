@@ -427,7 +427,7 @@ correctness gate here, not a performance qualification.
 
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

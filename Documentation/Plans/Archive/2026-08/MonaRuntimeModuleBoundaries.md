@@ -364,11 +364,11 @@ runtime unless a future target explicitly selects it.
 ## Related Documentation
 
 - [Code Modules](../../../Workspace/CodeModules.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
 - [Build System](../../../Development/Build/BuildSystem.md)
-- [Window Frames](../../../Runtime/Core/WindowFrames.md)
+- [Window Frames](../../../Runtime/Application/WindowFrames.md)
 - [Modular Features and Module Retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Test Execution](../../../Development/Build/NativeTests.md)

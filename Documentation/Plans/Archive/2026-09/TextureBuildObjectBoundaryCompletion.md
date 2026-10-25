@@ -589,7 +589,7 @@ validation also passed.
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

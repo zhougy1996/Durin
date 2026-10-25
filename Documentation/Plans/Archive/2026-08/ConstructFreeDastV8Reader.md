@@ -186,7 +186,7 @@ consume a trusted header projection without parsing exports.
 - [Core binary envelope](../../../../Engine/Source/Runtime/Core/Public/Serialization/BinaryEnvelope.h)
 - [Canonical DAST v8 writer plan](CanonicalDastV8Writer.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Testing Workflow](../../../Agents/Testing.md)

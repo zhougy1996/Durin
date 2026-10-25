@@ -240,7 +240,7 @@ a permanent wrapper around `FDecodedPackage`.
 - [Engine direct linker application](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp)
 - [Asset reference records](../../../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/References.h)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)

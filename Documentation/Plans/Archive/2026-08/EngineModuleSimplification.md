@@ -828,7 +828,7 @@ test-count snapshot in this plan.
 - [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

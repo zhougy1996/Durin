@@ -109,7 +109,7 @@ The annotated method must have a callable definition when its module links.
 - [Reflection generation](../../../Development/Tooling/ReflectionGeneration.md):
   hermetic declaration extraction, thin exports, generated friends, and output
   invalidation. Function bodies remain outside DHT's semantic inputs.
-- [Generated reflection](../../../Runtime/Core/ReflectionSystem.md): `DClass`, type
+- [Generated reflection](../../../Runtime/ObjectSystem/ReflectionSystem.md): `DClass`, type
   registration, class defaults, and property ownership. The empty `DFUNCTION`
   macro is not an implemented function-reflection contract.
 - [Reflected property editing](../../../Editor/Architecture/ReflectedPropertyEditing.md):

@@ -254,7 +254,7 @@ documents.
 
 ## Related Documentation
 
-- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
+- [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
 - [Transaction Record Foundation](../../../Editor/Architecture/TransactionRecords.md)
 - [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)

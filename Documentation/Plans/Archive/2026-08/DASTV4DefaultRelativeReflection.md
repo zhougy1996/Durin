@@ -787,7 +787,7 @@ begins or a focused test points to that direct dependency.
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [DAST V4 Measurement and Wire Contract Plan](DASTV4MeasurementAndWireContract.md)
 - [Class Default Object Lifecycle Plan](ClassDefaultObjectLifecycle.md)
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

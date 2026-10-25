@@ -829,7 +829,7 @@ reuses the same SDK/source/package inputs as the passing real-runtime receipt.
   [transaction records](../../../Editor/Architecture/TransactionRecords.md),
   [property replay](../../../Editor/Architecture/ReflectedPropertyEditing.md),
   [function actions](../../../Editor/Architecture/EditorFunctionActions.md), and
-  [GC ownership](../../../Runtime/Core/GarbageCollection.md).
+  [GC ownership](../../../Runtime/ObjectSystem/GarbageCollection.md).
 - Related code: [Toolset API](../../../../Engine/Source/Runtime/Core/Public/Tools/Tool.h),
   [native bindings](../../../../Engine/Source/Runtime/Core/Public/Tools/NativeToolset.h),
   [task composition](../../../../Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h),

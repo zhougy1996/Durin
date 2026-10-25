@@ -25,7 +25,7 @@ The contracts are owned by the following documents:
 | Archives, duplication, defaults, and authored override intent | [Serialization](Serialization.md) |
 | Details editing and transactions | [Reflected property editing](../../Editor/Architecture/ReflectedPropertyEditing.md) |
 
-`DSTRUCT()` preserves normal C++ copy/move behavior. [Core math aliases](Math.md)
+`DSTRUCT()` preserves normal C++ copy/move behavior. [Core math aliases](../Core/Math.md)
 cannot depend on `CoreDObject`; their externally registered intrinsic structs
 still appear as ordinary `FStructProperty` values. Explicit `FVector*d` and
 `FQuatd` spellings resolve to the default-double descriptors.
@@ -158,5 +158,5 @@ Enum properties use `FEnumProperty`. The property still stores the ordinary prop
 
 ## Related Documentation
 
-- [Runtime lifecycle](RuntimeLifecycle.md)
+- [Runtime lifecycle](../Application/RuntimeLifecycle.md)
 - [Editor function actions](../../Editor/Architecture/EditorFunctionActions.md)

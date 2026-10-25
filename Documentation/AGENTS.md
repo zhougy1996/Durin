@@ -38,6 +38,26 @@ Keep stages, open decisions, and roadmaps out of contract domains. After
 implementation, move lasting contracts to their owning domain. Keep informal
 research in ignored `Documentation/Local/` or outside the repository.
 
+### Runtime Domains
+
+Organize Runtime contracts by stable architectural responsibility. Directories
+do not mirror source modules; use `Modules:` to declare implementation ownership.
+Place a cross-module contract with its primary responsibility and link to it
+from related domains rather than duplicating it.
+
+- `Runtime/Core`: low-level platform, file I/O, logging, math, task scheduling,
+  module mechanisms, image codecs, and transport-independent Toolset contracts.
+- `Runtime/ObjectSystem`: reflection, managed-object lifetime, object and value
+  serialization, runtime transaction contracts, and Engine-free package persistence.
+  Shared byte-archive rules remain with the serialization contract.
+- `Runtime/Application`: process startup, frame entry, shutdown orchestration,
+  native windows, and application-host integration.
+- `Runtime/Engine`: Engine-level services and shared subsystem host/lifetime
+  contracts. World-specific services remain under `Runtime/World`.
+
+Keep asset construction, loading, cooking, and publication under `Runtime/Assets`;
+the object and package substrate belongs to `Runtime/ObjectSystem`.
+
 ## Maintenance
 
 - Prefer links to the authoritative topic document over duplicated guidance.

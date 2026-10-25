@@ -50,11 +50,11 @@ the log directory while the logger object remains alive. Public flush operations
 serialize with initialization and shutdown. Calls
 after shutdown are fallback-only and are not inserted into retained history.
 Process placement of logger initialization and finalization is defined by
-[Runtime Lifecycle](RuntimeLifecycle.md).
+[Runtime Lifecycle](../Application/RuntimeLifecycle.md).
 
 ## Related Documentation
 
-- [Runtime Lifecycle](RuntimeLifecycle.md)
+- [Runtime Lifecycle](../Application/RuntimeLifecycle.md)
 - [Native Crash Diagnostics](NativeCrashDiagnostics.md)
 
 ## Related Code

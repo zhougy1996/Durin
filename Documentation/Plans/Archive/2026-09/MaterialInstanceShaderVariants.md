@@ -617,7 +617,7 @@ the gate is reuse and bounded lifetime, not an invented timing threshold.
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Geometry Submission Refactor](../2026-10/GeometrySubmissionRefactor.md): consume its current
   accepted interface; this plan adds no geometry dispatch mechanism.
 - `Engine/Source/Runtime/Engine/Public/Materials/MaterialInterface.h`

@@ -373,7 +373,7 @@ Dependencies: Stages 1-3 and all focused acceptance gates.
 ## Related Documentation
 
 - [Gameplay Foundation Roadmap](../../../Roadmaps/Archive/2026-08/GameplayFoundation.md)
-- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build System](../../../Development/Build/BuildSystem.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)

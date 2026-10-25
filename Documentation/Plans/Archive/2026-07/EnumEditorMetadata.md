@@ -176,7 +176,7 @@ feature-local string transformations.
 
 ### Stage 4: Documentation and Completion Validation
 
-- [x] Update `Documentation/Runtime/Core/ReflectionSystem.md` with annotation
+- [x] Update `Documentation/Runtime/ObjectSystem/ReflectionSystem.md` with annotation
   syntax, defaults, runtime APIs, duplicate-value behavior, and serialization
   invariants.
 - [x] Add DHT generation tests for explicit, implicit, malformed, and escaped
@@ -226,7 +226,7 @@ feature-local string transformations.
 
 ## Related Documentation
 
-- `Documentation/Runtime/Core/ReflectionSystem.md`
+- `Documentation/Runtime/ObjectSystem/ReflectionSystem.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`
 

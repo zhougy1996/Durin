@@ -34,7 +34,7 @@ Completed: 2026-08-06
   fixtures are removed. Container loads are transactional, canonical writers
   are independent of unordered insertion and bucket history, and DAST v2
   remains backward-readable without a version change.
-- The lasting contract now lives in `Runtime/Core/ReflectionSystem.md` and
+- The lasting contract now lives in `Runtime/ObjectSystem/ReflectionSystem.md` and
   `Runtime/Assets/AssetPackages.md`. DHT passes 173/173, CoreObjectTests 66/66,
   AssetPackageTests 40/40, EditorPropertyTests 25/25, the complete native-test
   aggregate, and the full `all` build.
@@ -1041,7 +1041,7 @@ Dependencies: Stage 4 consumer migration.
   callback when traversal stops early, replacing the former indexed quadratic
   iterator-advance behavior.
 - Lasting ownership is documented in
-  `Documentation/Runtime/Core/ReflectionSystem.md` for typed registration,
+  `Documentation/Runtime/ObjectSystem/ReflectionSystem.md` for typed registration,
   capabilities, traversal, detached commit, adapter restrictions, and
   canonical-key support, and in
   `Documentation/Runtime/Assets/AssetPackages.md` for DAST v2 canonical save,

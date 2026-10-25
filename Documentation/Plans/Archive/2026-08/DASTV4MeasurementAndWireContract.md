@@ -877,7 +877,7 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 - [Reflected Struct Operations Plan](ReflectedStructOperations.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

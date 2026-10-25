@@ -48,7 +48,7 @@ from prepared additions before their recorded membership transition.
 `OnComponentCreated`, registration and `InitializeComponent` callbacks do not run
 merely because ownership is added.
 The shared hook and failure lifetime are defined by
-[object initialization](../Core/GarbageCollection.md#object-initialization).
+[object initialization](../ObjectSystem/GarbageCollection.md#object-initialization).
 
 Generated objects use `EObjectConstructionPurpose::Generated`, carry the
 `Transient` object flag, and are retained explicitly through

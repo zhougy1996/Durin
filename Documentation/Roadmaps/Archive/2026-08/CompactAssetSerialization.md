@@ -368,7 +368,7 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 - [Class Default Object Lifecycle Plan](../../../Plans/Archive/2026-08/ClassDefaultObjectLifecycle.md)
 - [Unified Archive Serialization Plan](../../../Plans/Archive/2026-08/UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](../../../Plans/Archive/2026-08/ReflectedStructOperations.md)
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)

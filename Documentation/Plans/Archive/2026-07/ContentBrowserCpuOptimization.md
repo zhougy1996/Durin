@@ -265,7 +265,7 @@ not steady-state drawing work.
 ## Related Documentation
 
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 
 ## Related Code
 

@@ -749,7 +749,7 @@ resource:
 
 ## Related Documentation
 
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
 - `Documentation/Runtime/Rendering/ShaderCache.md`
 - `Documentation/Plans/Archive/2026-07/DemandDrivenEditorAssistanceRenderer.md`

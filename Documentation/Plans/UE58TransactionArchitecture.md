@@ -64,7 +64,7 @@ protections remain intact; arbitrary archetypes and instance propagation remain
 unsupported. Opaque commands retain exact participants and require checked
 replacement or expire before replay. The explicit native hook reuses the existing
 history participant, whole-entry retirement and package checkpoint policy.
-Implemented rules live in [Runtime Transactions](../Runtime/Core/Transactions.md)
+Implemented rules live in [Runtime Transactions](../Runtime/ObjectSystem/Transactions.md)
 and [Transaction Records](../Editor/Architecture/TransactionRecords.md).
 
 Windows/MSVC Debug acceptance passed: 1312 isolated editor cases across 21 targets,
@@ -389,7 +389,7 @@ assertion was removed; functional snapshot coverage owns that behavior.
 ### Stage 1 temporary adapters
 
 These are declarations/adapters around the one recorder, not alternate histories.
-Implemented module rules live in [runtime transaction contracts](../Runtime/Core/Transactions.md).
+Implemented module rules live in [runtime transaction contracts](../Runtime/ObjectSystem/Transactions.md).
 
 | Adapter | Owner | Required removal/replacement |
 | --- | --- | --- |
@@ -481,9 +481,9 @@ and [Actor mutations](../../Engine/Source/Editor/DurinEd/Private/Actors/ActorMut
 
 Follow the existing [record foundation](../Editor/Architecture/TransactionRecords.md),
 [property editing](../Editor/Architecture/ReflectedPropertyEditing.md),
-[serialization](../Runtime/Core/Serialization.md),
-[GC](../Runtime/Core/GarbageCollection.md), and
-[reflection/defaults](../Runtime/Core/ReflectionSystem.md) contracts when changing
+[serialization](../Runtime/ObjectSystem/Serialization.md),
+[GC](../Runtime/ObjectSystem/GarbageCollection.md), and
+[reflection/defaults](../Runtime/ObjectSystem/ReflectionSystem.md) contracts when changing
 their boundaries. Record intentional changes before depending on them.
 
 ## Implementation Stages

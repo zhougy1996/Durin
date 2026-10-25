@@ -843,7 +843,7 @@ and any environment-dependent measurements rather than embedding commands here.
 - [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)

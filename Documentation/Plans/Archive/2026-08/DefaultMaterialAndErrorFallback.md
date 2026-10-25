@@ -486,7 +486,7 @@ Dependencies: Stage 3.
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [PBR Material Surface Plan](PBRMaterialSurface.md)
 

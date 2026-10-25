@@ -550,7 +550,7 @@ its package-local program bytes.
 - [Global Shaders](../../../Runtime/Rendering/GlobalShaders.md)
 - [Material System](../../../Runtime/Rendering/MaterialSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)

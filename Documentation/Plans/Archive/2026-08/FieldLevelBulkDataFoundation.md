@@ -363,7 +363,7 @@ those consumers together.
 - [Package Bulk Data System Roadmap](../../../Roadmaps/Archive/2026-08/PackageBulkDataSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [File I/O](../../../Runtime/Core/FileIO.md)
 - [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)

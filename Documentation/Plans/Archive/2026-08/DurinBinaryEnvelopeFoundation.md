@@ -321,7 +321,7 @@ Dependencies: Stage 3 acceptance gate.
 ## Related Documentation
 
 - [Durin Binary Envelope and DAST v6 Roadmap](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)

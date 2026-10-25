@@ -405,7 +405,7 @@ Dependencies: Stages 0-4 and all focused acceptance gates.
 
 ## Related Documentation
 
-- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build System](../../../Development/Build/BuildSystem.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

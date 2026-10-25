@@ -364,7 +364,7 @@ Depends on Stages 1 through 4.
 
 ## Related Documentation
 
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Editor/Guides/Console.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`

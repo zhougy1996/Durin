@@ -596,7 +596,7 @@ Dependencies: Stages 1-5.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 - [Profiling](../../../Development/Build/Profiling.md)

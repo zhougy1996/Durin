@@ -399,7 +399,7 @@ After the plan:
 ## Related Documentation
 
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

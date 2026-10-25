@@ -21,7 +21,7 @@ specialized subclasses remain only for additional lifecycle probes. Startup-only
 reflected subclasses and translation-unit-specific definitions of the same test
 accessor are not needed.
 
-`DEditorSubsystem` extends the [common subsystem contract](../../Runtime/Core/Subsystems.md)
+`DEditorSubsystem` extends the [common subsystem contract](../../Runtime/Engine/Subsystems.md)
 in DurinEd. The single active `DEditorEngine` owns an Editor collection separately from its inherited
 Engine collection. `GetEditorSubsystem<T>()` selects exact Editor types;
 inherited `GetSubsystem<T>()` still selects Engine types. Editor services have

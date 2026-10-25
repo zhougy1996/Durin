@@ -623,4 +623,4 @@ The opt-in Release profiling workflow is documented in
 - `Documentation/Development/Build/BuildSystem.md`
 - `Documentation/Development/Build/RuntimeVariants.md`
 - `Documentation/Development/Build/Profiling.md`
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`

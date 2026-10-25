@@ -122,4 +122,4 @@ scene/default-material resources and retains its render fence. Scope-specific
 service BeginDestroy requests its known host's explicit shutdown and delegates
 readiness; the generic base never interprets arbitrary Outers as hosts to destroy.
 Launch calls host preparation before Mona, cooked-mesh and task-system teardown;
-see [Runtime lifecycle](RuntimeLifecycle.md).
+see [Runtime lifecycle](../Application/RuntimeLifecycle.md).

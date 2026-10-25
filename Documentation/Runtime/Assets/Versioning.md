@@ -199,5 +199,5 @@ major version one. Development builds use a prerelease channel such as
 ## Related Documentation
 
 - [Asset Packages](AssetPackages.md)
-- [Serialization](../Core/Serialization.md)
+- [Serialization](../ObjectSystem/Serialization.md)
 - [Package Bulk Data](BulkData.md)

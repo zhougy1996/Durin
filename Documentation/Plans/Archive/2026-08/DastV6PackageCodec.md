@@ -251,7 +251,7 @@ and a detached codec proving every AssetCore capability before cutover.
 - [Durin Binary Envelope Foundation](DurinBinaryEnvelopeFoundation.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Testing Workflow](../../../Agents/Testing.md)
 

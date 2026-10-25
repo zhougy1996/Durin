@@ -426,7 +426,7 @@ Dependencies: Stages 1-4.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [UI Style](../../../Editor/Design/UIStyle.md)

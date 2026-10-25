@@ -147,7 +147,7 @@ migration rather than deferred compatibility work.
 ## Related Documentation
 
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [File I/O](../../../Runtime/Core/FileIO.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

@@ -62,7 +62,7 @@ ownership contracts are maintained by their owning domains:
   soft resolution, caller-owned reports, dependency residency and save effects.
 - [Package bulk data](../../../Runtime/Assets/BulkData.md): construction, validation,
   registration, storage inspection, pending reads and admission leases.
-- [Package persistence](../../../Runtime/Core/PackagePersistence.md#writer-outcome-reports):
+- [Package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md#writer-outcome-reports):
   physical writer phases, committed/recovery/partial outcomes and file diagnostics.
 - [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md): cache outcomes
   and diagnostic ownership independent of build success.
@@ -189,7 +189,7 @@ can consume the returned report. One failure-injection fixture observed the old
 output argument during execution; it now inspects live destination packages
 independently, keeping the pre-publication visibility assertion meaningful.
 Physical and business state tables belong to
-[package persistence](../../../Runtime/Core/PackagePersistence.md#writer-outcome-reports)
+[package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md#writer-outcome-reports)
 and [asset packages](../../../Runtime/Assets/AssetPackages.md#production-save-and-load).
 No expected conversion of publication reports is selected. Cache hit/miss and
 put outcomes, pending package-resource requests, and bulk acquired/empty/busy/

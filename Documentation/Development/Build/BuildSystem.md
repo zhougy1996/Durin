@@ -268,10 +268,10 @@ precedence, and no `DurinDeveloper` runtime variant exists.
 ## Related Docs
 
 - `Documentation/Runtime/Assets/Versioning.md`
-- `Documentation/Runtime/Core/ReflectionSystem.md`
-- `Documentation/Runtime/Core/GarbageCollection.md`
+- `Documentation/Runtime/ObjectSystem/ReflectionSystem.md`
+- `Documentation/Runtime/ObjectSystem/GarbageCollection.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/RuntimeVariants.md`
 - `Documentation/Development/Build/Profiling.md`
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Runtime/Core/FileIO.md`

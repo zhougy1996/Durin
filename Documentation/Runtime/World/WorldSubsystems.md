@@ -31,7 +31,7 @@ absent or incompletely initialized types, and never constructs an object.
 Registration, lookup, mutation, and lifecycle callbacks are game-thread-only.
 
 Shared descriptor ordering, rollback, GC and work cancellation are owned by
-[the common subsystem contract](../Core/Subsystems.md). `DWorldSubsystem` derives
+[the common subsystem contract](../Engine/Subsystems.md). `DWorldSubsystem` derives
 from `DSubsystem`; World result/state/error/work-gate names remain compatibility
 aliases. World eligibility, play, Level and Tick policy stay in this adapter.
 Typed World lookup rejects Engine and Editor subsystem classes.

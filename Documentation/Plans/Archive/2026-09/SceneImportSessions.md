@@ -100,7 +100,7 @@ Depends on Stage 1.
 
 - [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
 - [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Package persistence](../../../Runtime/Core/PackagePersistence.md)
+- [Package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md)
 - [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Task system](../../../Runtime/Core/TaskSystem.md)
 - [Build workflow](../../../Agents/BuildAndRun.md)

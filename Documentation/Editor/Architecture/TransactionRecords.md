@@ -41,7 +41,7 @@ membership does not by itself claim exclusive whole-object capture. Both must
 report hard dependencies, modified packages, native owned allocations, and the
 module whose executable code/deleter they retain. Collector-only dependencies
 receive no object completion hooks. See
-[runtime transaction contracts](../../Runtime/Core/Transactions.md) for module
+[runtime transaction contracts](../../Runtime/ObjectSystem/Transactions.md) for module
 ownership and the runtime boundary.
 
 ## Exact Participant Identity
@@ -51,7 +51,7 @@ Ordinary root references and `FromKey` preserve exact slot/generation identity.
 They resolve only while that generation remains registered and is not garbage
 or begin-destroyed. Published CDO/default-subobject chains instead retain an exact
 root and checked Outer/name steps, as defined by the
-[runtime reference contract](../../Runtime/Core/Transactions.md#coredobject-boundary).
+[runtime reference contract](../../Runtime/ObjectSystem/Transactions.md#coredobject-boundary).
 
 An ordinary root reference never falls back to object path, name, Outer path, class lookup,
 or a newly allocated object in a reused slot. Rename and reparent therefore
@@ -290,5 +290,5 @@ recovery storage, preserving their participant graphs and module references.
 ## Related Documentation
 
 - [Editor Transactor Core](Transactors.md)
-- [Garbage Collection](../../Runtime/Core/GarbageCollection.md)
+- [Garbage Collection](../../Runtime/ObjectSystem/GarbageCollection.md)
 - [Reflected Property Editing](ReflectedPropertyEditing.md)

@@ -794,7 +794,7 @@ Dependencies: Stage 4, Stage 4 of `MultithreadingV1.md`, and Stage 3 of
   workflow.
 - [x] Publish the stable exit phase, owner channels, object drain, module
   boundary, render closure, and failure rules in
-  `Documentation/Runtime/Core/RuntimeLifecycle.md`.
+  `Documentation/Runtime/Application/RuntimeLifecycle.md`.
 
 #### Stage 5 Validation Progress
 
@@ -902,7 +902,7 @@ Dependencies: Stage 4, Stage 4 of `MultithreadingV1.md`, and Stage 3 of
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Static Mesh Render-Data Lifecycle](../2026-08/StaticMeshRenderDataLifecycle.md)
 - [Multithreading V1](../2026-08/MultithreadingV1.md)
 - [Render Resource Lifetime](RenderResourceLifetime.md)

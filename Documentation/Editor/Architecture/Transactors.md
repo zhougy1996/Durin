@@ -20,7 +20,7 @@ no-op or unsupported behavior. The base retains listener registration, result
 storage and convenience forwarding. ApplyEditorChange is declared only in
 Transactions/Transactor.h; consumers include that header directly.
 
-Core defines the [runtime transaction contracts](../../Runtime/Core/Transactions.md),
+Core defines the [runtime transaction contracts](../../Runtime/ObjectSystem/Transactions.md),
 including custom changes, context, `ITransaction`, and ordinary
 GameThread pointer `GUndo`. Outermost Begin publishes the pending `FTransaction`;
 End, Cancel, owner retirement and destruction clear it before releasing storage.
@@ -102,7 +102,7 @@ creation establishes the flag, children inherit it from their Outer, and known
 saved package activation flags its loaded graph. Explicit low-level callers may
 set or clear it. Templates are excluded from ordinary editor property/script
 editing; native default-graph transactions have explicit
-[runtime admission](../../Runtime/Core/Transactions.md#coredobject-boundary).
+[runtime admission](../../Runtime/ObjectSystem/Transactions.md#coredobject-boundary).
 
 `FTransaction` owns first-before capture and deduplicates objects across every
 nested action. Final-after capture happens at outermost End, so 0, outer write 1,

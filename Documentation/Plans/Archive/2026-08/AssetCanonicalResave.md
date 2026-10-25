@@ -353,7 +353,7 @@ applicable targets before broader validation.
 
 ## Related Documentation
 
-- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
 - [Content Browser](../../../Editor/Architecture/ContentBrowser.md)

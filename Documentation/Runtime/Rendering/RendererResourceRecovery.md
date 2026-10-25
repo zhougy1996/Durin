@@ -459,7 +459,7 @@ uncertainty instead of treating microsecond percentage drift as a functional gat
 - [Viewport Rendering](ViewportRendering.md)
 - [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md)
 - [Renderer Frame Preparation and Render Graph Execution](RendererFramePreparation.md)
-- [Runtime Lifecycle](../Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../Application/RuntimeLifecycle.md)
 
 Independent procedural capture and transient environment generations follow
 [Sky Lighting](SkyLighting.md).

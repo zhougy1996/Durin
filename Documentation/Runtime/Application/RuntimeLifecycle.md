@@ -37,7 +37,7 @@ or starting the engine. Runtime storage preparation later publishes
 `Saved/Crashes` without leaving a partially visible path. A lifetime guard
 restores the prior handlers exactly once on every ordinary return. Native fault
 ownership, phase values, and artifact safety are defined by
-[Native Crash Diagnostics](NativeCrashDiagnostics.md).
+[Native Crash Diagnostics](../Core/NativeCrashDiagnostics.md).
 
 `ApplicationRunner.cpp` constructs one private, local `FEngineLoop` and drives
 it through:
@@ -258,7 +258,7 @@ isolation and restoration rules in
 runtime-storage preparation warnings only after the logger is ready. The process runner owns
 conditional finalization after engine exit. Record ordering, bounded admission,
 structured history, sink durability, and shutdown behavior are defined by
-[Logging](Logging.md).
+[Logging](../Core/Logging.md).
 
 ## Module Integration
 
@@ -267,7 +267,7 @@ Launch loads modules by logical name using
 CMake dependencies and runtime load-order expectations. Typed feature
 invocation, owner-bound asynchronous drain, state transitions, failure
 categories, and physical unload are defined by
-[Modular Features And Module Retirement](ModularFeaturesAndModuleRetirement.md).
+[Modular Features And Module Retirement](../Core/ModularFeaturesAndModuleRetirement.md).
 This document owns only the module pass's placement in startup and process exit.
 
 ## Rendering And UI Integration
@@ -294,7 +294,7 @@ shutdown order directly:
 | Step | Boundary |
 | --- | --- |
 | Stop asset compilation | Close every compiling manager, finish accepted object publication in reverse canonical-name order, and release provider values before Core task admission closes. |
-| Retire host services | After asset compilation retires, prepare the engine host before UI/backend, cooked-mesh and task teardown; see [Subsystems](Subsystems.md). |
+| Retire host services | After asset compilation retires, prepare the engine host before UI/backend, cooked-mesh and task teardown; see [Subsystems](../Engine/Subsystems.md). |
 | Detach render consumers | Shut down the selected UI backend, then Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before Engine shutdown. |
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; reflection cleanup is owned by this explicit exit stage. |
@@ -303,7 +303,7 @@ shutdown order directly:
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
 | Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and its final RHI deletion submission drain. The RHI thread remains alive. |
 | Stop RHI | Atomically install backend shutdown with RHI admission `Draining`, wait its exact serial, then stop and join the RHI thread. |
-| Stop CPU work | After render/RHI teardown, shut down both CPU and blocking-I/O pools through the process [task system](TaskSystem.md) in `Drain` mode. Keep task-event admission open until all render fences have retired. |
+| Stop CPU work | After render/RHI teardown, shut down both CPU and blocking-I/O pools through the process [task system](../Core/TaskSystem.md) in `Drain` mode. Keep task-event admission open until all render fences have retired. |
 | Close the application | Shut down the platform application and publish successful process termination. |
 
 There is no global exit phase or pre-exit callback registry. Each owner closes
@@ -324,7 +324,7 @@ task events. Work that accesses objects must finish during host/service
 or object teardown before those objects are collected; retaining the executors
 for later module cleanup does not extend object lifetimes. Owners are responsible
 for their manager mailboxes, providers, caches, objects, render and RHI work. The
-[CPU Task System](TaskSystem.md) defines process shutdown, continuation dispatch,
+[CPU Task System](../Core/TaskSystem.md) defines process shutdown, continuation dispatch,
 pumping, waits and diagnostics; this document defines where that process-level
 boundary occurs.
 
@@ -375,10 +375,10 @@ protocol above.
 
 ## Related Documentation
 
-- [Logging](Logging.md)
-- [Native Crash Diagnostics](NativeCrashDiagnostics.md)
-- [CPU Task System](TaskSystem.md)
-- [Modular Features And Module Retirement](ModularFeaturesAndModuleRetirement.md)
+- [Logging](../Core/Logging.md)
+- [Native Crash Diagnostics](../Core/NativeCrashDiagnostics.md)
+- [CPU Task System](../Core/TaskSystem.md)
+- [Modular Features And Module Retirement](../Core/ModularFeaturesAndModuleRetirement.md)
 - [Level System](../World/LevelSystem.md)
 - [Viewport Rendering](../Rendering/ViewportRendering.md)
 - [Render Resource Lifecycle](../Rendering/RenderResourceLifecycle.md)

@@ -288,7 +288,7 @@ Depends on Stages 1-3.
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
 - [Authored Asset Bulk Data Foundation](AuthoredAssetBulkDataFoundation.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Testing](../../../Agents/Testing.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)
 

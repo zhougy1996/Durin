@@ -33,7 +33,7 @@ Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
   production DAST v10 read/write, generic live graph capture, package persistence,
-  and bounded validation. See [Package Persistence](../Core/PackagePersistence.md).
+  and bounded validation. See [Package Persistence](../ObjectSystem/PackagePersistence.md).
 - `AssetRegistry` owns canonical mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
 - `Engine` prepares asset-specific capture inputs, applies validated linker
@@ -335,7 +335,7 @@ values. A failed delta plan reports its reason without silently changing modes.
 
 Baseline tags, inherited Struct defaults, whole-container replacement, Forced
 intent, and explicit hard references follow
-[Default-relative logical planning](../Core/Serialization.md#default-relative-logical-planning).
+[Default-relative logical planning](../ObjectSystem/Serialization.md#default-relative-logical-planning).
 The loader initializes unpublished delta objects from reflected defaults and
 remaps template references; explicit complete exports skip that initialization.
 Missing or incompatible constructor-created default children reject delta saves,
@@ -458,7 +458,7 @@ Their boolean conversion alone does not describe the resulting content:
 | Later batch member fails | `SavedPackages`, `FailedPackage`, and `Result` | Earlier members stay committed. The failed member can itself have a nonempty `Effect` and need not appear in `SavedPackages`. |
 
 Physical writer reports retain recovery/affected paths as described in
-[writer outcome reports](../Core/PackagePersistence.md#writer-outcome-reports).
+[writer outcome reports](../ObjectSystem/PackagePersistence.md#writer-outcome-reports).
 The existing Engine adapter appends recovery paths to the message and logs
 failed affected-file paths; it does not expose those vectors as asset fields.
 A Registry failure combined with finalization failure keeps projection-pending
@@ -715,6 +715,6 @@ User-facing resave steps are in
 - [Asset Data Lifecycle](AssetDataLifecycle.md)
 - [Package Bulk Data](BulkData.md)
 - [Versioning](Versioning.md)
-- [Serialization](../Core/Serialization.md)
+- [Serialization](../ObjectSystem/Serialization.md)
 - [File I/O](../Core/FileIO.md)
 - [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)

@@ -957,7 +957,7 @@ defined there.
 - [Recorded RHI Command List](RecordedRHICommandList.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
 - [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
-- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
 

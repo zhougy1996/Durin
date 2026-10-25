@@ -520,8 +520,8 @@ Dependencies: Stages 1-4.
 ## Related Documentation
 
 - [Gameplay Foundation Roadmap](../../../Roadmaps/Archive/2026-08/GameplayFoundation.md)
-- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)

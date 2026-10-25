@@ -398,7 +398,7 @@ Tracy capture; no profiler or per-scenario visual artifact is claimed.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
 - [Play In Editor](../../../Editor/Guides/PlayInEditor.md)

@@ -329,7 +329,7 @@ the discarded action. The new regressions run through production APIs.
 | Cross-scope cleanup ordering | WorldAndEditorCleanupRetainEngineDependencies verifies that dependent cleanup can still query Engine services. |
 | Runtime exclusion | DHT Engine/DurinGame module closure includes Engine and excludes DurinEd/MainFrame; new reflected headers are owned by their respective module manifests. |
 | One production consumer and update phase | DEditorNotificationSubsystem owns the only host manager; MainFrame calls UpdateNotifications once after transaction publication. NotificationServiceOwnsFacadeAndRejectsRetainedActionsAfterShutdown and NotificationShutdownCallbackRetiresAtTheNextHostBoundary pass. EditorShellTests covers normal flow and standalone retirement. |
-| Published contracts and handoff | Runtime/Core/Subsystems.md, Editor/Architecture/EditorSubsystems.md, WorldSubsystems.md and RuntimeLifecycle.md describe the implemented boundaries. Final validation receipt follows. |
+| Published contracts and handoff | Runtime/Engine/Subsystems.md, Editor/Architecture/EditorSubsystems.md, WorldSubsystems.md and RuntimeLifecycle.md describe the implemented boundaries. Final validation receipt follows. |
 
 Final audit receipt (2026-09-08, MacOS-arm64-Debug-DurinEditor):
 
@@ -369,7 +369,7 @@ repository. Planning alone does not close implementation checkboxes.
 
 - [World subsystem contract](../../../Runtime/World/WorldSubsystems.md)
 - [World operation and Level contract](../../../Runtime/World/LevelSystem.md)
-- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [World subsystem API](../../../../Engine/Source/Runtime/Engine/Public/Engine/WorldSubsystem.h)
 - [World collection implementation](../../../../Engine/Source/Runtime/Engine/Private/Engine/WorldSubsystem.cpp)
 - [World host lifecycle](../../../../Engine/Source/Runtime/Engine/Private/Engine/WorldCore.cpp)

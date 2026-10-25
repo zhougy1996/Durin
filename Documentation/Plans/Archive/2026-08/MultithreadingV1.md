@@ -688,7 +688,7 @@ Dependencies: Stages 1 through 4.
 - Working set: the new CPU task-system runtime contract, runtime lifecycle and
   documentation routing links, and this completed plan.
 - Key documents: `Documentation/Runtime/Core/TaskSystem.md` and
-  `Documentation/Runtime/Core/RuntimeLifecycle.md`.
+  `Documentation/Runtime/Application/RuntimeLifecycle.md`.
 - Key decisions: the runtime contract, rather than the completed plan, is the
   lasting source of truth; the production scheduler remains one-start/
   one-shutdown; the `ParallelFor` default remains serial; and all advanced
@@ -785,8 +785,8 @@ documentation; this plan does not duplicate commands or mutable test totals.
 ## Related Documentation
 
 - `Documentation/Runtime/Core/TaskSystem.md`
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
-- `Documentation/Runtime/Core/GarbageCollection.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`
+- `Documentation/Runtime/ObjectSystem/GarbageCollection.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`
 - `Documentation/Development/Build/Profiling.md`

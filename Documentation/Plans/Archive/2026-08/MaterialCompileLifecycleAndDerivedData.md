@@ -681,7 +681,7 @@ and any environment-dependent qualification values.
 - [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
 - [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [File I/O](../../../Runtime/Core/FileIO.md)

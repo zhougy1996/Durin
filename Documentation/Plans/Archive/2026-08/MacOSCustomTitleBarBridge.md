@@ -370,7 +370,7 @@ agent workflows rather than embedding command lines that may become stale.
 
 ## Related Documentation
 
-- [Window Frame Contract](../../../Runtime/Core/WindowFrames.md)
+- [Window Frame Contract](../../../Runtime/Application/WindowFrames.md)
 - [Editor Main Window Custom Title Bar Plan](EditorMainWindowCustomTitleBar.md)
 - [macOS Platform Runtime Plan](MacOSPlatformRuntime.md)
 - [macOS Platform Enablement Roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md)

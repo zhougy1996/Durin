@@ -551,7 +551,7 @@ cleanly; the temporary file was then removed to restore the original state.
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/Profiling.md`
 - `Documentation/Editor/Architecture/WorkspaceFramework.md`
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md`
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
 

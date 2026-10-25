@@ -227,7 +227,7 @@ budgets, and recorded evidence.
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Testing Workflow](../../../Agents/Testing.md)

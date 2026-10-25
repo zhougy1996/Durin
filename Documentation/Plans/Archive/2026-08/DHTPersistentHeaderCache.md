@@ -707,7 +707,7 @@ DurinDevTool; DHT values are Engine Export plus Reflection elapsed time.
 - [Build System](../../../Development/Build/BuildSystem.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [DHT And Ninja Parallelism Coordination](../../../Investigations/DHTNinjaParallelismCoordination.md)
 
 ## Related Code

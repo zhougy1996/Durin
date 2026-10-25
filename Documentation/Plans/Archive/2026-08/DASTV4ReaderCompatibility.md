@@ -205,7 +205,7 @@ immutable model, live adapter, or compatibility adapter.
 
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

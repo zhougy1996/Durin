@@ -286,4 +286,4 @@ current selection.
 - [Property Details views](PropertyDetailsViews.md)
 - `Documentation/Editor/Design/UIStyle.md`
 - `Documentation/Editor/Guides/StaticMeshInspector.md`
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`

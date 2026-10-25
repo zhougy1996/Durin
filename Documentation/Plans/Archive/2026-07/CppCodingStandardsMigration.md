@@ -204,7 +204,7 @@ work into one unreviewable repository-wide rewrite.
 
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
-- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build System](../../../Development/Build/BuildSystem.md)
 
 ## Related Code

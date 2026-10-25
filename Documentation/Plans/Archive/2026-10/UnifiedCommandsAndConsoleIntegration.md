@@ -201,7 +201,7 @@ Completed. Application-hosted execution is not an implicit gate.
 
 - [Code module ownership](../../../Workspace/CodeModules.md)
 - [Modular features and module retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [Subsystem lifecycle](../../../Runtime/Core/Subsystems.md)
+- [Subsystem lifecycle](../../../Runtime/Engine/Subsystems.md)
 - [Editor subsystems](../../../Editor/Architecture/EditorSubsystems.md)
 - [Editor transactor](../../../Editor/Architecture/Transactors.md)
 - [Agent documentation workflow](../../../Agents/Documentation.md)
