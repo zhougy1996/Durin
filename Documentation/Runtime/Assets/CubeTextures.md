@@ -114,7 +114,7 @@ It retains an immutable allocation snapshot and supplies its fixed texture refer
 environment; accepted work retains no asset, concrete resource, Actor,
 Component, or Scene membership. Provider identity, scheduling, snapshot acceptance,
 persistence, failure, and reset behavior are owned by
-[Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
+[Asset Thumbnails](../../Editor/Architecture/Assets/AssetThumbnails.md).
 
 ## Equirectangular Panorama Import
 

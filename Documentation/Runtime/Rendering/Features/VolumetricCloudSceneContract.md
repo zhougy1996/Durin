@@ -111,7 +111,7 @@ path from a real actor and volume assets through offscreen, Present, resize,
 invalid-input, compute, and fragment routes in inline and threaded execution.
 Generic property editing uses the standard transaction system. Cloud Details
 presentation and volume previews are defined by
-[Volumetric Cloud Authoring](../../../Editor/Architecture/VolumetricCloudAuthoring.md).
+[Volumetric Cloud Authoring](../../../Editor/Architecture/LevelEditing/VolumetricCloudAuthoring.md).
 
 ## Related documents
 

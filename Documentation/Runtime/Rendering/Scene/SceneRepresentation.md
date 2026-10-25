@@ -131,7 +131,7 @@ on-demand Hit Proxy pass. `FHitProxyRenderRequest` carries request-local numeric
 IDs and detached overlay triangles. The editor retains weak Actor/component
 identities and resolves the asynchronous ID readback on the game thread. No
 picking mutation observer or spatial index is attached to `DLevel`. See the
-[semantic picking contract](../../../Editor/Architecture/ViewportEditing.md#semantic-picking-contract).
+[semantic picking contract](../../../Editor/Architecture/LevelEditing/ViewportEditing.md#semantic-picking-contract).
 
 ## Failure and Thread Contracts
 
@@ -165,6 +165,6 @@ picking mutation observer or spatial index is attached to `DLevel`. See the
 - [Viewport Rendering](../Pipeline/ViewportRendering.md)
 - [Static Mesh Rendering](StaticMeshRendering.md)
 - [Cube Textures](../../Assets/CubeTextures.md)
-- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
 - [RHI Command Execution](../RHI/RHICommandExecution.md)
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)

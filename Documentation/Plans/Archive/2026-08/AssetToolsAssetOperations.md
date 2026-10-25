@@ -431,8 +431,8 @@ characterization constraints rather than migration targets.
 
 ## Related Documentation
 
-- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Code Modules](../../../Workspace/CodeModules.md)

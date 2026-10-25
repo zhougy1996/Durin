@@ -23,7 +23,7 @@ The contracts are owned by the following documents:
 | `DFUNCTION` signatures, parameter storage, inheritance, and invocation | [Native function reflection](FunctionReflection.md) |
 | Object lifetime, reference schemas, and collection | [Garbage collection](GarbageCollection.md) |
 | Archives, duplication, defaults, and authored override intent | [Serialization](Serialization.md) |
-| Details editing and transactions | [Reflected property editing](../../Editor/Architecture/ReflectedPropertyEditing.md) |
+| Details editing and transactions | [Reflected property editing](../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md) |
 
 `DSTRUCT()` preserves normal C++ copy/move behavior. [Core math aliases](../Core/Math.md)
 cannot depend on `CoreDObject`; their externally registered intrinsic structs
@@ -80,7 +80,7 @@ records are validated at registration. ScriptReadWrite conflicts with ReadOnly
 and NonTransactional, and native object fields additionally require Edit.
 
 These markers do not register Toolsets or imply remote tool discovery. The
-[Python adapter](../../Editor/Architecture/PythonTools.md#reflected-types-and-object-wrappers)
+[Python adapter](../../Editor/Architecture/Tools/PythonTools.md#reflected-types-and-object-wrappers)
 owns script-visible names, wrapper policy and the currently supported operations.
 CoreDObject supplies reflection metadata and native dispatch without a Python
 runtime dependency. Signature-default and dispatch semantics remain defined by
@@ -159,4 +159,4 @@ Enum properties use `FEnumProperty`. The property still stores the ordinary prop
 ## Related Documentation
 
 - [Runtime lifecycle](../Application/RuntimeLifecycle.md)
-- [Editor function actions](../../Editor/Architecture/EditorFunctionActions.md)
+- [Editor function actions](../../Editor/Architecture/PropertyEditing/EditorFunctionActions.md)

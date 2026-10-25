@@ -173,7 +173,7 @@ The final Release Profiling `all` build passed. Its ignored capture at
 contains 31 `Asset.LoadPackage` zones and measured the default-document asset
 load at 56.471 ms, compatibility at 0.00083 ms, and activation at 1.037 ms.
 Lasting MainFrame bootstrap ownership now lives in
-`Documentation/Editor/Architecture/WorkspaceFramework.md`; the one-read package
+`Documentation/Editor/Architecture/Framework/WorkspaceFramework.md`; the one-read package
 load and bounded report counter contract lives in
 `Documentation/Runtime/Assets/AssetPackages.md`.
 
@@ -550,7 +550,7 @@ cleanly; the temporary file was then removed to restore the original state.
 
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/Profiling.md`
-- `Documentation/Editor/Architecture/WorkspaceFramework.md`
+- `Documentation/Editor/Architecture/Framework/WorkspaceFramework.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md`
 - `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`

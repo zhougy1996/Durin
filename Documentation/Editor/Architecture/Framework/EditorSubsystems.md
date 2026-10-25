@@ -21,7 +21,7 @@ specialized subclasses remain only for additional lifecycle probes. Startup-only
 reflected subclasses and translation-unit-specific definitions of the same test
 accessor are not needed.
 
-`DEditorSubsystem` extends the [common subsystem contract](../../Runtime/Engine/Subsystems.md)
+`DEditorSubsystem` extends the [common subsystem contract](../../../Runtime/Engine/Subsystems.md)
 in DurinEd. The single active `DEditorEngine` owns an Editor collection separately from its inherited
 Engine collection. `GetEditorSubsystem<T>()` selects exact Editor types;
 inherited `GetSubsystem<T>()` still selects Engine types. Editor services have
@@ -37,7 +37,7 @@ Editor Init loads project providers and AssetForgeBuiltins, runs base Init,
 retains EditorWorld, loads MainFrame, then initializes currently available Editor services before
 CreateEditorHost exposes consumers. The constructor-created transactor is
 available; the shell is not yet created. DurinEd's module startup registers the
-Actor editing, asset editor, notification and [tool](EditorTools.md) services. LevelEditor
+Actor editing, asset editor, notification and [tool](../Tools/EditorTools.md) services. LevelEditor
 registers the Level editing service and PIE Toolset. A returned failure, cancellation or exception retires
 partial host state and prevents successful initialization.
 
@@ -214,8 +214,8 @@ editor-owned history; production services have no injected-history or hostless m
 
 Document adapters retain selection, focus, confirmation and error presentation.
 The subsystem does not retain a LevelEditor context or depend on UI modules.
-See [structural history](ViewportEditing.md#actor-structure-commands) and
-[Component history](LevelEditorDetails.md#component-structure-history).
+See [structural history](../LevelEditing/ViewportEditing.md#actor-structure-commands) and
+[Component history](../LevelEditing/LevelEditorDetails.md#component-structure-history).
 
 ## Script Actor Adapter
 
@@ -251,7 +251,7 @@ history. Outliner rename uses this label operation.
 Creation initializes a unique display label from `label`, the requested Name or
 the class default name, independently of any suffix on the internal Name.
 Duplication reserves labels across the entire prepared batch. Object naming uses
-the shared [Level rules](../../Runtime/World/LevelSystem.md).
+the shared [Level rules](../../../Runtime/World/LevelSystem.md).
 
 Edits derive FActorEditContext from native job/document authority. Native admission
 rechecks live script authority on entry and after preparation callbacks, keeping
@@ -270,7 +270,7 @@ Structural edits and generic property edits join the same Host transaction;
 there is no automatic rollback of earlier completed edits on later failure.
 Component structural adapters, selection/focus and specialized transform setters
 are not exposed. Use the root Component's generic relative_transform editor
-property for transform editing; see the [script guide](../Guides/PythonScripts.md).
+property for transform editing; see the [script guide](../../Guides/PythonScripts.md).
 
 ## Notifications
 

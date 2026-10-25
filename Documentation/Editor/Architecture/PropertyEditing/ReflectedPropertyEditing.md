@@ -16,10 +16,10 @@ still use their own setters; `DObject` does not own editor history.
 | Concern | Owner |
 | --- | --- |
 | Widgets, shared layouts, custom controls, and host view lifetime | [Property Details views](PropertyDetailsViews.md) |
-| Actor/Component targets and aggregation | [Level Editor Details](LevelEditorDetails.md) |
-| Payload encoding, exact object identity, and record retention | [Transaction records](TransactionRecords.md) |
-| Scoped recording, Undo/Redo ordering, package revisions, and dirty checkpoints | [Transactors](Transactors.md) |
-| Property kinds, metadata, and value operations | [Property reflection](../../Runtime/ObjectSystem/PropertyReflection.md) |
+| Actor/Component targets and aggregation | [Level Editor Details](../LevelEditing/LevelEditorDetails.md) |
+| Payload encoding, exact object identity, and record retention | [Transaction records](../Transactions/TransactionRecords.md) |
+| Scoped recording, Undo/Redo ordering, package revisions, and dirty checkpoints | [Transactors](../Transactions/Transactors.md) |
+| Property kinds, metadata, and value operations | [Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md) |
 
 A host owns `FPropertyView`, which owns one `FPropertyEditSession`. A live session
 temporarily roots its exact preview target and releases that root on commit,
@@ -99,7 +99,7 @@ unsupported or incompatible property shape.
 
 Sessions and records use `FPropertyValueSnapshotPayload`. Encoding, exact hard
 handles, soft/weak semantics, and collector retention follow
-[Transaction records](TransactionRecords.md#retention-neutral-property-payload).
+[Transaction records](../Transactions/TransactionRecords.md#retention-neutral-property-payload).
 The detached `FPropertyValueSnapshot` adapter is available outside history;
 committed property records use collector enumeration rather than manual roots.
 
@@ -246,8 +246,8 @@ whole-object serialized payloads and annotations. Undo/Redo check structural/typ
 payloads directly, bypassing new-edit proposal validators and normalization.
 New edits continue to use detached validation; replay emits the normal
 property notifications followed by balanced object completion hooks. Record identity and payload
-rules belong to [Transaction records](TransactionRecords.md);
-ordering, rollback, and recovery belong to [Transactors](Transactors.md#structural-history-and-barriers).
+rules belong to [Transaction records](../Transactions/TransactionRecords.md);
+ordering, rollback, and recovery belong to [Transactors](../Transactions/Transactors.md#structural-history-and-barriers).
 
 Editor object creation supplies `EObjectFlags::Transactional` for automatic
 whole-object capture. Explicit business admission also supports low-level targets
@@ -256,7 +256,7 @@ without that object flag; the session does not add it. A snapshot member marked
 a different history backend. Object eligibility and property exclusion are distinct.
 
 Dirty-state and save-checkpoint behavior belongs to
-[Package and discovery revisions](Transactors.md#package-and-discovery-revisions).
+[Package and discovery revisions](../Transactions/Transactors.md#package-and-discovery-revisions).
 Persistent changes outside history must invalidate the checkpoint and mark the
 package dirty. Reflected property edits do not request asset-registry scans.
 

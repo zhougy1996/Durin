@@ -685,8 +685,8 @@ and any environment-dependent qualification values.
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [File I/O](../../../Runtime/Core/FileIO.md)
-- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
-- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
+- [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
 
 ## Related Code
 

@@ -479,7 +479,7 @@ Stage 5 evidence (2026-09-03):
 
 - [Texture System](../../../Runtime/Assets/TextureSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
 - [Texture Build Object Boundary Completion Plan](TextureBuildObjectBoundaryCompletion.md)
 - [Texture Build DDC Decoupling Plan](TextureBuildDdcDecoupling.md)

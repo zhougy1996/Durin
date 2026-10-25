@@ -670,7 +670,7 @@ into this plan.
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Versioning](../../../Runtime/Assets/Versioning.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Asset Redirectors Refactor Plan](AssetRedirectors.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

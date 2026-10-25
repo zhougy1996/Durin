@@ -206,7 +206,7 @@ Dependencies: Stage 3. Outcome: validated migration and authoritative documentat
 - [x] Update [Package Persistence](../../../Runtime/ObjectSystem/PackagePersistence.md),
   [Asset Packages](../../../Runtime/Assets/AssetPackages.md),
   [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md), and
-  [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md).
+  [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md).
   Update [Task System](../../../Runtime/Core/TaskSystem.md) only if its contract changes.
 - [x] Record exact passed validation and any outstanding gates, validate the plan
   and changed documents, and mark completion only after every required gate passes.

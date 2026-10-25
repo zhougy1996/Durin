@@ -360,7 +360,7 @@ The completed workflow must provide:
 - [x] Record exact authored/IR node counts, generated sample counts, identities,
   cache outcomes, compile generations, active bindings, rendered comparison,
   configuration, timing method, and pass/fail evidence in this plan.
-- [x] Update [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [x] Update [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
   and [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md) with lasting
   surface-default, reachability, compilation, parameter, instance, migration,
   and cook contracts; add a user guide only if promotion needs durable help.
@@ -463,7 +463,7 @@ Validation results:
 
 ## Related Documentation
 
-- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Material Graph Editor Usability Plan](MaterialGraphEditorUsability.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

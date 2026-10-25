@@ -431,5 +431,5 @@ unloading provider code.
 
 - [Asset Packages](AssetPackages.md)
 - [Asset Data Lifecycle and Storage](AssetDataLifecycle.md)
-- [Content Browser](../../Editor/Architecture/ContentBrowser.md)
+- [Content Browser](../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)

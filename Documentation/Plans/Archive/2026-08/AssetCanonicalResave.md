@@ -355,8 +355,8 @@ applicable targets before broader validation.
 
 - [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

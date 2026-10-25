@@ -28,7 +28,7 @@ Validation on Win64-Debug-DurinEditor:
   scene import policy, its editor controls, and the scene import tests.
 - Changed-document validation, all-plan validation and diff whitespace checks passed.
 
-Lasting behavior is documented in [asset import architecture](../../../Editor/Architecture/AssetImportFramework.md#scene-import)
+Lasting behavior is documented in [asset import architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md#scene-import)
 and [source workflows](../../../Editor/Guides/SourceFileWorkflows.md#scene-sources).
 Interactive editor UI smoke was not performed; editor compilation and native
 rendering integration were validated.

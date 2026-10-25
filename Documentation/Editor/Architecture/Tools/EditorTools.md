@@ -11,7 +11,7 @@ Last reviewed: 2026-10-19
 DurinEd registers `DEditorToolSubsystem` before editor subsystem initialization.
 The active editor owns one service shared by windows, clients and PIE controls. MainFrame's
 [Console adapter and LevelEditor PIE tools](ConsoleTools.md) and the
-[MCP adapter](MCPTools.md) consume this service. [Core tool contracts](../../Runtime/Core/Tools.md)
+[MCP adapter](MCPTools.md) consume this service. [Core tool contracts](../../../Runtime/Core/Tools.md)
 remain the authority for values, schemas, provider interfaces, and feature lifetime.
 
 Acquire `GetService()` on GameThread and retain its shared native
@@ -79,7 +79,7 @@ and GC lifetime through synchronous return. A provider may request host shutdown
 gates close immediately while destruction waits for the host boundary. Tick stops
 before subsequent editor/world work after such a request. A native immediate
 callback defers cleanup until the next host Tick/shutdown boundary, matching the
-[subsystem lifecycle](EditorSubsystems.md).
+[subsystem lifecycle](../Framework/EditorSubsystems.md).
 
 `GetToolEditor(Context)` resolves the admitting editor only during the exact
 provider availability/execution callback for that context object. It returns
@@ -196,7 +196,7 @@ they are not authorization or permission to retry a failed call. The adapter own
 transport access policy and constructs trusted source/context information;
 clients cannot override trusted context through business arguments.
 
-The Core schema vocabulary and [validation limits](../../Runtime/Core/Tools.md)
+The Core schema vocabulary and [validation limits](../../../Runtime/Core/Tools.md)
 are authoritative. Translate schemas and detached values at the protocol boundary,
 bound serialized input before parsing, and preserve signed/unsigned 64-bit values.
 Do not retain parser views, DObjects, native handlers, or registry visitor

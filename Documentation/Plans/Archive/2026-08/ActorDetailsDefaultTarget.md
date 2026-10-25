@@ -259,7 +259,7 @@ Builds, tests, and runtime launches must follow
 
 ## Related Documentation
 
-- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 - [Actor Component System Plan](../2026-07/ActorComponentSystem.md)

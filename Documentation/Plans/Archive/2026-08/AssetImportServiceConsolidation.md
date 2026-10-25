@@ -297,7 +297,7 @@ records, all 16 roadmaps, and all 113 active repository documents validated.
 ## Related Documentation
 
 - [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

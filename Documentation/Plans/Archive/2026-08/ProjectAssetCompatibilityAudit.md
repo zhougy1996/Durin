@@ -570,8 +570,8 @@ Dependencies: Stages 0 through 3.
 ## Related Documentation
 
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Workspace Framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)

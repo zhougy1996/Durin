@@ -35,7 +35,7 @@ links, and a hidden Sandbox startup remains alive through the smoke window.
 Visible Level Editor validation confirmed the clean/dirty indicator and close
 prompt across edit, save, Undo, Redo, history branching, cancel, and failed-save
 flows. The lasting contract now lives in
-`Documentation/Editor/Architecture/ReflectedPropertyEditing.md`; this plan is
+`Documentation/Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md`; this plan is
 complete and awaiting the repository's periodic monthly archive workflow.
 
 ### Stage 1 Handoff
@@ -136,7 +136,7 @@ complete and awaiting the repository's periodic monthly archive workflow.
 
 - Baseline commit: `7024938d`.
 - Working set:
-  - `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
+  - `Documentation/Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md`
   - `Documentation/Plans/Archive/2026-07/SavedRevisionDirtyState.md`
 - Key contracts: affected-package metadata on editor transactions,
   package-scoped current/saved revisions, `DPackage::IsDirty()` synchronization,
@@ -503,7 +503,7 @@ Dependencies: Stage 3.
 
 ## Related Documentation
 
-- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

@@ -364,8 +364,8 @@ Validation evidence:
 ## Related Documentation
 
 - [Editor UI Style](../../../Editor/Design/UIStyle.md)
-- [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Editor Workspace Framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Editor Console](../../../Editor/Guides/Console.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

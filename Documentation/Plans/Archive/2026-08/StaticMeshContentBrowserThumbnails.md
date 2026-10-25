@@ -344,8 +344,8 @@ Dependencies: Stage 3.
 
 ## Related Documentation
 
-- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

@@ -391,7 +391,7 @@ commands.
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
-- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 
 ## Related Code
 

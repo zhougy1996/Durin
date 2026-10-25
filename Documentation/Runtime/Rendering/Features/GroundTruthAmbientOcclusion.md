@@ -13,7 +13,7 @@ per-view enable selection and defaults to enabled. The separate immutable
 `FSceneViewSettings::AmbientOcclusion.Quality` selects `HalfResolution`, the
 production default, or `FullResolution`, the quality reference. Wireframe and
 Unlit views neither allocate nor sample GTAO. Editor controls are defined by
-[Viewport Rendering Diagnostics](../../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+[Viewport Rendering Diagnostics](../../../Editor/Architecture/LevelEditing/ViewportRenderingDiagnostics.md).
 
 The local half-resolution sequence is GBuffer/D32, representative selector,
 raw GTAO, horizontal/vertical bilateral filtering, then full-resolution resolve.

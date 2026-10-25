@@ -536,8 +536,8 @@ Completed on Windows MSVC x64 with the `Win64-Debug-DurinEditor` preset on
 
 ## Related Documentation
 
-- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Core Task System](../../../Runtime/Core/TaskSystem.md)

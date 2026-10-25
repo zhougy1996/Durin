@@ -169,7 +169,7 @@ Native validation failures raise `ValueError`, admission failures raise
 `ScriptAccessError`, and retired targets raise `ReferenceError`.
 
 The native editing contract belongs to
-[reflected property editing](ReflectedPropertyEditing.md).
+[reflected property editing](../PropertyEditing/ReflectedPropertyEditing.md).
 
 `durin.get_editor_subsystem(durin.EditorActorSubsystem)` exposes reflected
 queries and six structural Actor edits through the same generic descriptors,
@@ -182,7 +182,7 @@ domain edits use None/empty/false; successful no-ops return true without adding
 history. Transaction recovery diagnostics stay native, and binding/type/lifetime
 errors continue to raise exceptions.
 The full API and admission rules belong to
-[editor subsystems](EditorSubsystems.md#script-actor-adapter).
+[editor subsystems](../Framework/EditorSubsystems.md#script-actor-adapter).
 
 ## Discovery and IDE Declarations
 
@@ -291,7 +291,7 @@ releases interpreter execution, not the recording. Scope validity uses the nativ
 ID and GC-visible transactor ownership so stale helpers cannot alter a replacement.
 Prefer waiting/preparation outside recording, then revalidate and apply in a short
 synchronous scope. No isolation, automatic splitting or rollback is supplied.
-See [native recording](Transactors.md#transactions-and-scoped-recording).
+See [native recording](../Transactions/Transactors.md#transactions-and-scoped-recording).
 
 ## Results, Limits and Closure
 
@@ -374,5 +374,5 @@ without adding a general asynchronous provider scheduler or changing transport.
 ordered/fair continuations, real return-to-tick boundaries, global recording,
 result-dependent short apply, cancellation/finally, multiple client sessions and sequential editor teardown.
 `MCPPythonJobTests` verifies existing transport consumers with the explicit script
-pump. Follow [usage](../Guides/PythonScripts.md), [testing](../../Agents/Testing.md)
-and [build guidance](../../Agents/BuildAndRun.md).
+pump. Follow [usage](../../Guides/PythonScripts.md), [testing](../../../Agents/Testing.md)
+and [build guidance](../../../Agents/BuildAndRun.md).

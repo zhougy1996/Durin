@@ -359,8 +359,8 @@ and never enters semantic validation, normalized
 IR, compile snapshots, shader identity, derived data, or Cook. MaterialEditor's
 shared inspection, command, canvas, clipboard, transaction, and
 diagnostic-navigation boundary is defined by
-[Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
-and [Material Graph Canvas](../../../Editor/Architecture/MaterialGraphCanvas.md).
+[Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
+and [Material Graph Canvas](../../../Editor/Architecture/Materials/MaterialGraphCanvas.md).
 
 The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,
@@ -646,7 +646,7 @@ edits use `Scheduled` state and the manager's bounded retry scan, without taking
 compiler snapshots or advancing request generations until submission. Selected
 finish flushes scheduled automatic work; manual work requires an explicit request.
 Late results cannot replace a material with unsubmitted edits. See
-[Material editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md#compile-apply-and-save)
+[Material editor lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md#compile-apply-and-save)
 for toolbar and save behavior.
 The editor working copy has no scene dependents. Its compilation and dynamic
 edits affect only preview rendering; Apply copies authored state to the source
@@ -1177,8 +1177,8 @@ lighting or Emissive. Studio lighting is ordinary scene/component content.
 [Static Mesh Rendering](../Scene/StaticMeshRendering.md) owns imported vertex semantics,
 source provenance, derived data, and Cook. Material consumers use its vertex
 factory and positional slot contract rather than defining another payload.
-[Material Editor Lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md#preview-resources)
-owns editor preview lifetime; [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+[Material Editor Lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md#preview-resources)
+owns editor preview lifetime; [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
 owns thumbnail fixtures, dependency keys, scheduling, and recovery.
 
 Long-term sequencing and current editor/rendering limitations are tracked in

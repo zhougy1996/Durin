@@ -1016,7 +1016,7 @@ and Editor documents only after implementation.
 ## References
 
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [UE Material Functions](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-material-functions-overview): typed texture inputs and reusable function assets.

@@ -52,7 +52,7 @@ Persisted import metadata is provenance, not a guarantee that the editor support
 source reimport. New and legacy glTF/GLB/FBX outputs remain readable and editable,
 but their source reimport routes are disabled. Authored source and bulk data still
 support loading and rebuilding derived data without the physical source files.
-The editor policy is owned by [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
+The editor policy is owned by [Asset Import Framework](../../Editor/Architecture/Assets/AssetImportFramework.md).
 
 ## Texture source storage compression
 
@@ -175,7 +175,7 @@ build transforms detached inputs into derived products; compilation schedules
 and applies those products for live objects. Scheduling, request identity,
 completion, and lifetime rules belong to [Asset Compilation](AssetCompilation.md).
 Editor commit and recovery belong to
-[Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md).
+[Async Asset Operations](../../Editor/Architecture/Assets/AsyncAssetOperations.md).
 
 ## Storage Classes
 
@@ -240,7 +240,7 @@ imported arrays use `FEditorBulkData`, allowing Engine to keep small values
 inline and place large values in package-resource ranges of the raw segment.
 Field state, placement, validation, and resource lifetime are defined by
 [Package Bulk Data](BulkData.md). Optional source-hint resolution is defined by
-[Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md#optional-source-hint-contract).
+[Asset Import Framework](../../Editor/Architecture/Assets/AssetImportFramework.md#optional-source-hint-contract).
 
 StaticMesh separates persistent `FStaticMeshSource` from detached
 `FMeshDescription`. `Initialize` validates a complete replacement;
@@ -275,7 +275,7 @@ Import creates or updates authored `.dasset` packages and optional authored
 use, and populates the DDC. Only Cook publishes `Cooked/` packages, cooked bulk,
 and `CookManifest.bin`. Factory/reimport acceptance, live-state commit versus
 save failure, and atomic Scene publication are defined by
-[Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
+[Asset Import Framework](../../Editor/Architecture/Assets/AssetImportFramework.md).
 
 The current import behavior is:
 

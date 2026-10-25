@@ -1022,7 +1022,7 @@ not module count or API compatibility:
 ## Related Documentation
 
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)

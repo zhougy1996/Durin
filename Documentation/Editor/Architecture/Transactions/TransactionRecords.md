@@ -41,7 +41,7 @@ membership does not by itself claim exclusive whole-object capture. Both must
 report hard dependencies, modified packages, native owned allocations, and the
 module whose executable code/deleter they retain. Collector-only dependencies
 receive no object completion hooks. See
-[runtime transaction contracts](../../Runtime/ObjectSystem/Transactions.md) for module
+[runtime transaction contracts](../../../Runtime/ObjectSystem/Transactions.md) for module
 ownership and the runtime boundary.
 
 ## Exact Participant Identity
@@ -51,7 +51,7 @@ Ordinary root references and `FromKey` preserve exact slot/generation identity.
 They resolve only while that generation remains registered and is not garbage
 or begin-destroyed. Published CDO/default-subobject chains instead retain an exact
 root and checked Outer/name steps, as defined by the
-[runtime reference contract](../../Runtime/ObjectSystem/Transactions.md#coredobject-boundary).
+[runtime reference contract](../../../Runtime/ObjectSystem/Transactions.md#coredobject-boundary).
 
 An ordinary root reference never falls back to object path, name, Outer path, class lookup,
 or a newly allocated object in a reused slot. Rename and reparent therefore
@@ -128,7 +128,7 @@ precedes Actor reconciliation and dispatch, as owned by the transactor.
 Actor annotations now supply generated-component additional changes through this
 same path; their property-only observations, construction filtering and reference
 path matching are owned by
-[native construction](../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
+[native construction](../../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
 
 Historical load bypasses new-edit proposal validation and normalization.
 Reflected member notifications follow the complete load and precede object
@@ -168,7 +168,7 @@ An object record delivers annotation-aware completion even for explicit absence.
 Custom-only participants receive ordinary completion. The base DObject overload
 forwards safely; Engine components interpret an empty serialized annotation as
 their implicit default native state. See
-[native construction](../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
+[native construction](../../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
 
 Each retained payload enumerates its exact hard edges through the enclosing
 record's collector callback. Weak and soft targets remain non-owning. Removing
@@ -278,7 +278,7 @@ Transaction references follow the ordinary CoreDObject reachability rules. A
 directly referenced child keeps its complete Outer chain alive. Referencing an
 Outer does not retain children or siblings. Object creation and deletion need
 explicit structural records; a persistent reference never resurrects a garbage
-object. [Component structure history](LevelEditorDetails.md#component-structure-history)
+object. [Component structure history](../LevelEditing/LevelEditorDetails.md#component-structure-history)
 retains the component and its complete Outer subtree while membership is absent,
 then restores the same live identity through lifecycle and attachment APIs.
 
@@ -290,5 +290,5 @@ recovery storage, preserving their participant graphs and module references.
 ## Related Documentation
 
 - [Editor Transactor Core](Transactors.md)
-- [Garbage Collection](../../Runtime/ObjectSystem/GarbageCollection.md)
-- [Reflected Property Editing](ReflectedPropertyEditing.md)
+- [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
+- [Reflected Property Editing](../PropertyEditing/ReflectedPropertyEditing.md)

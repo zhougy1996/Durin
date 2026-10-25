@@ -146,7 +146,7 @@ asset compilation, runtime-variant closure, and focused test coverage.
 
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
 - [Build System](../../../Development/Build/BuildSystem.md)

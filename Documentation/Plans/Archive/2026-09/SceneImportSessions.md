@@ -98,7 +98,7 @@ Depends on Stage 1.
 
 ## Required References
 
-- [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md)
 - [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)

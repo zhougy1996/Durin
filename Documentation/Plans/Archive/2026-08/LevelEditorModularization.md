@@ -143,7 +143,7 @@ composition boundaries.
   containment, dependency checks, and source-write policy.
 - `DurinEd` retains provider-neutral thumbnail request, scheduling, persistent
   cache, and preview-scene ownership described by
-  [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md). Content Browser
+  [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md). Content Browser
   refactoring may move only LevelEditor state and presentation.
 - Existing mounted-source reference/ingest/repair/relocation behavior and the
   three current import forms are the behavioral baseline. Common dialog
@@ -583,7 +583,7 @@ Dependencies: Stages 1 through 6 as applicable.
 - Baseline: `6b1657ea` (`refactor(level-editor): extract outliner and details models`).
 - Working set: `DocumentDialogPresenters.h/.cpp`,
   `LevelDocumentController.h/.cpp`, `MLevelEditor.h/.cpp`,
-  `Documentation/Editor/Architecture/WorkspaceFramework.md`, and this plan.
+  `Documentation/Editor/Architecture/Framework/WorkspaceFramework.md`, and this plan.
 - Key symbols: `FUnsavedLevelDialogPresenter`,
   `FAssetStructureUpgradeDialogPresenter`,
   `FLevelDocumentController::ResolveUnsavedLevelDialog`, and
@@ -657,7 +657,7 @@ commands or output paths that may change.
 
 ## Related Documentation
 
-- [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Editor Workspace Framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
 - [Editor UI Style](../../../Editor/Design/UIStyle.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

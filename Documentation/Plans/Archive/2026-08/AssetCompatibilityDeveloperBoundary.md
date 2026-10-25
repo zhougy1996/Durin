@@ -182,4 +182,4 @@ For performance qualification, include at least one package with a payload much 
 - [Code module ownership](../../../Workspace/CodeModules.md)
 - [Asset package contract](../../../Runtime/Assets/AssetPackages.md)
 - [Canonical resave guide](../../../Editor/Guides/CanonicalResave.md)
-- [Editor workspace architecture](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Editor workspace architecture](../../../Editor/Architecture/Framework/WorkspaceFramework.md)

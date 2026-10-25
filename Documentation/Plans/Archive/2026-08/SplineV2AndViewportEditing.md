@@ -77,7 +77,7 @@ Completed: 2026-08-05
   `Sandbox/Sandbox.dproject`.
 - Stage 5 is complete. The lasting runtime contract now lives in
   `Runtime/World/SplineSystem.md`, viewport mode/selection/gizmo ownership lives
-  in `Editor/Architecture/ViewportEditing.md`, shared proposal/transaction reuse
+  in `Editor/Architecture/LevelEditing/ViewportEditing.md`, shared proposal/transaction reuse
   is recorded in `ReflectedPropertyEditing.md`, and the user workflow lives in
   `SceneViewportNavigation.md`. Qualification found and closed one Stage 4 gap:
   Escape now cancels a drag, clears spline sub-selection, then requests a safe
@@ -679,8 +679,8 @@ Dependencies: Stages 1-4.
 ## Related Documentation
 
 - [Spline System](../../../Runtime/World/SplineSystem.md)
-- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
 - [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 

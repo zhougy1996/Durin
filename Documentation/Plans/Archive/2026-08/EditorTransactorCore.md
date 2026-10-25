@@ -17,8 +17,8 @@ undoable, and redoable records. `DEditorEngine` owns the buffer through the
 transient reflected `Trans` edge and clears it safely during shutdown.
 
 The lasting service, recording, history, accounting, GC, and coexistence rules
-are recorded in [Editor Transactor Core](../../../Editor/Architecture/Transactors.md),
-while [Transaction Record Foundation](../../../Editor/Architecture/TransactionRecords.md)
+are recorded in [Editor Transactor Core](../../../Editor/Architecture/Transactions/Transactors.md),
+while [Transaction Record Foundation](../../../Editor/Architecture/Transactions/TransactionRecords.md)
 remains authoritative for exact identity and focused payload behavior.
 
 Qualification passed on the `macos-xcode-arm64` registered Debug editor profile:

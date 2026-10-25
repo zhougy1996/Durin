@@ -371,4 +371,4 @@ approved retirement.
 
 - [Reflection generation](../../Development/Tooling/ReflectionGeneration.md)
 - [Serialization](Serialization.md)
-- [Reflected property editing](../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Reflected property editing](../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)

@@ -282,8 +282,8 @@ current selection.
 
 ## Related Documentation
 
-- `Documentation/Editor/Architecture/PlayInEditorArchitecture.md`
-- [Property Details views](PropertyDetailsViews.md)
+- `Documentation/Editor/Architecture/LevelEditing/PlayInEditorArchitecture.md`
+- [Property Details views](../PropertyEditing/PropertyDetailsViews.md)
 - `Documentation/Editor/Design/UIStyle.md`
 - `Documentation/Editor/Guides/StaticMeshInspector.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`

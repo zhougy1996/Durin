@@ -448,7 +448,7 @@ Checked Epic's UE 5.3.2 source at mirror revision
 before appending a new transaction; `End` does not reject or remove that transaction
 for exceeding MaxMemory. Thus immediate Undo for oversized edits agrees with
 Durin, while trimming time differs. The owning
-[transactor contract](../../../Editor/Architecture/Transactors.md#bounds-and-accounting)
+[transactor contract](../../../Editor/Architecture/Transactions/Transactors.md#bounds-and-accounting)
 records pinned source references and the version boundary. No later UE version
 is claimed verified.
 
@@ -534,12 +534,12 @@ source/consumer searches and Git diff review passed. No required gates remain op
 
 ## Required References
 
-- [Editor subsystems](../../../Editor/Architecture/EditorSubsystems.md)
-- [Editor transactor core](../../../Editor/Architecture/Transactors.md)
-- [Transaction record foundation](../../../Editor/Architecture/TransactionRecords.md)
-- [Level Editor Details](../../../Editor/Architecture/LevelEditorDetails.md)
-- [Viewport editing](../../../Editor/Architecture/ViewportEditing.md)
-- [Static mesh level mutations](../../../Editor/Architecture/StaticMeshLevelMutations.md)
+- [Editor subsystems](../../../Editor/Architecture/Framework/EditorSubsystems.md)
+- [Editor transactor core](../../../Editor/Architecture/Transactions/Transactors.md)
+- [Transaction record foundation](../../../Editor/Architecture/Transactions/TransactionRecords.md)
+- [Level Editor Details](../../../Editor/Architecture/LevelEditing/LevelEditorDetails.md)
+- [Viewport editing](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
+- [Static mesh level mutations](../../../Editor/Architecture/LevelEditing/StaticMeshLevelMutations.md)
 - [Level system](../../../Runtime/World/LevelSystem.md)
 - [Code modules](../../../Workspace/CodeModules.md)
 - [Documentation workflow](../../../Agents/Documentation.md)

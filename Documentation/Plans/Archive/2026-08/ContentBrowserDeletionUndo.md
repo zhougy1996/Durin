@@ -100,7 +100,7 @@ Completed: 2026-08-05
   passed. Stage 4 is complete against baseline `982f2b29`; the automated
   evidence is committed at `e88c326a`.
 - Stage 5 is complete against baseline `5059923e`; working set:
-  `Documentation/Editor/Architecture/ContentBrowser.md` and this plan. The
+  `Documentation/Editor/Architecture/Assets/ContentBrowser.md` and this plan. The
   owning architecture document now records physical-source discovery,
   reference and companion safety, immutable-plan revalidation, same-volume
   staging, compensation/recovery, history ownership, and refresh invariants.
@@ -497,10 +497,10 @@ Dependencies: Stages 1 through 3.
 
 Dependencies: Stage 4 evidence.
 
-- [x] Update `Documentation/Editor/Architecture/ContentBrowser.md` with the
+- [x] Update `Documentation/Editor/Architecture/Assets/ContentBrowser.md` with the
   recursive delete, physical-source discovery, reference, companion, staging,
   conflict, compensation, and transaction invariants.
-- [x] Update `Documentation/Editor/Architecture/WorkspaceFramework.md` only if
+- [x] Update `Documentation/Editor/Architecture/Framework/WorkspaceFramework.md` only if
   the transaction/notification ownership boundary changes the shared editor
   command contract.
 - [x] Record validation evidence in this plan, set `Status: Completed`, fill
@@ -578,8 +578,8 @@ Dependencies: Stage 4 evidence.
 
 ## Related Documentation
 
-- [Content Browser architecture](../../../Editor/Architecture/ContentBrowser.md)
-- [Editor workspace framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Content Browser architecture](../../../Editor/Architecture/Assets/ContentBrowser.md)
+- [Editor workspace framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
 - [File I/O contract](../../../Runtime/Core/FileIO.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
 - [Unreal Engine Sources Panel Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/sources-panel-reference-in-unreal-engine?lang=en-US)

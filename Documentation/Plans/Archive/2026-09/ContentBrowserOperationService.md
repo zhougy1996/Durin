@@ -295,7 +295,7 @@ architecture document describes implemented behavior rather than this proposal.
 
 ## Related Documentation
 
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

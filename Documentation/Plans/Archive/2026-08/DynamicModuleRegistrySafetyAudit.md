@@ -341,7 +341,7 @@ while preserving each specialized registry's domain selection semantics.
 - [Parent roadmap](../../../Roadmaps/Archive/2026-08/ModularFeatureAndDllUnloadSafety.md)
 - [Modular features and module retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 

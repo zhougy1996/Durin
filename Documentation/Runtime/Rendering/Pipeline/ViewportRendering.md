@@ -75,7 +75,7 @@ selected mode, or Unavailable when no output exists. Unsupported backends retain
 their creation policy and report Unavailable. Mona's optional application-thread
 policy override covers existing and future windows; it leaves per-window defaults
 in effect when unset. The editor control is defined by
-[Viewport Rendering Diagnostics](../../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+[Viewport Rendering Diagnostics](../../../Editor/Architecture/LevelEditing/ViewportRenderingDiagnostics.md).
 
 Metal sets `CAMetalLayer.maximumDrawableCount=2` once at viewport creation and
 preserves ApplicationCore's `opaque=true` layer contract for every presentation
@@ -157,7 +157,7 @@ Procedural fullscreen Grid and solid Gizmo meshes remain specialized because
 they are not simple line/point/sprite batches.
 
 Editor control presentation is defined by
-[Viewport Rendering Diagnostics](../../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+[Viewport Rendering Diagnostics](../../../Editor/Architecture/LevelEditing/ViewportRenderingDiagnostics.md).
 
 For the main scene viewport, a valid view supplied by its `FViewportClient`
 still has first priority. If it supplies none, Engine resolves the active
@@ -335,7 +335,7 @@ Main, window-backed, and auxiliary viewports own independent snapshots; camera
 preview rendering cannot overwrite the Level Editor main-view statistics.
 
 Editor badge, panel, input exclusion, and capture controls are defined by
-[Viewport Rendering Diagnostics](../../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+[Viewport Rendering Diagnostics](../../../Editor/Architecture/LevelEditing/ViewportRenderingDiagnostics.md).
 
 Full graph inspection is explicitly sampled rather than copied every frame.
 `FSceneViewport` carries each request atomically into the exact render

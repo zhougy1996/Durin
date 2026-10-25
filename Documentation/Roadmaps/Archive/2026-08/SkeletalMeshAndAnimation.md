@@ -228,7 +228,7 @@ cook publication, and transactional runtime-only loading. Repository-authored
 data-URI `.gltf`, external-buffer `.gltf`, `.glb`, static-projection, and
 malformed fixtures supply reproducible source evidence. Lasting contracts now
 live in [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-and [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md).
+and [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md).
 
 The S2 entry gate was re-inspected on 2026-08-10. Current world ticking
 traverses actor-owned components, Core provides checked transform decomposition,
@@ -324,7 +324,7 @@ contract.
 - [Skeletal Mesh Rendering Plan](../../../Plans/Archive/2026-08/SkeletalMeshRendering.md)
 - [Skeletal Editor Workflow and Production Qualification Plan](../../../Plans/Archive/2026-08/SkeletalEditorWorkflowAndProductionQualification.md)
 - [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Core Math](../../../Runtime/Core/Math.md)

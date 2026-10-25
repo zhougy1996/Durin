@@ -19,17 +19,17 @@ requires; do not read unrelated topics or scan an entire directory.
 | DPROPERTY types, typed metadata, containers, or serialized field compatibility | [Property reflection](Runtime/ObjectSystem/PropertyReflection.md) |
 | DSTRUCT value capabilities, detached storage, logical comparison, or type defaults | [Reflected struct operations](Runtime/ObjectSystem/StructOperations.md) |
 | DHT parsing, reflected symbol exports, or generated C++ | [Reflection generation](Development/Tooling/ReflectionGeneration.md) |
-| DFUNCTION native invocation, inherited CallInEditor buttons, or action transactions | [Native function reflection](Runtime/ObjectSystem/FunctionReflection.md), [Editor function actions](Editor/Architecture/EditorFunctionActions.md) |
+| DFUNCTION native invocation, inherited CallInEditor buttons, or action transactions | [Native function reflection](Runtime/ObjectSystem/FunctionReflection.md), [Editor function actions](Editor/Architecture/PropertyEditing/EditorFunctionActions.md) |
 | CMake metadata, target generation, or module binaries | [Build system](Development/Build/BuildSystem.md) |
 | Runtime variants or build presets | [Runtime variants](Development/Build/RuntimeVariants.md) |
 | Tracy or CPU profiling | [CPU profiling](Development/Build/Profiling.md) |
 | IDE code model or debugging | [IDE code model](Development/Tooling/IDECodeModel.md) |
 | DurinDevTool shell, path discovery, documentation commands, or scaffolding | [DurinDevTool command interface](Development/Tooling/DurinDevTool.md) |
 | Toolset definitions, explicit native bindings, tool schemas, or exact tool invocation | [Toolset contracts](Runtime/Core/Tools.md) |
-| Editor toolset catalog, queued invocation, cancellation, detached endpoints, or external adapter seam | [Editor tool service](Editor/Architecture/EditorTools.md) |
-| Console tool syntax, JSON argument files, merged help/completion, or PIE tool calls | [Console Toolset integration](Editor/Architecture/ConsoleTools.md) |
-| Local MCP transport, external Toolset discovery/calls/cancellation, or client connection setup | [MCP adapter](Editor/Architecture/MCPTools.md), [connection guide](Editor/Guides/LocalMCP.md) |
-| Embedded Python scripts, reflected type/object wrappers, Python Toolset calls, script jobs, or interpreter lifecycle | [Python adapter](Editor/Architecture/PythonTools.md), [script guide](Editor/Guides/PythonScripts.md) |
+| Editor toolset catalog, queued invocation, cancellation, detached endpoints, or external adapter seam | [Editor tool service](Editor/Architecture/Tools/EditorTools.md) |
+| Console tool syntax, JSON argument files, merged help/completion, or PIE tool calls | [Console Toolset integration](Editor/Architecture/Tools/ConsoleTools.md) |
+| Local MCP transport, external Toolset discovery/calls/cancellation, or client connection setup | [MCP adapter](Editor/Architecture/Tools/MCPTools.md), [connection guide](Editor/Guides/LocalMCP.md) |
+| Embedded Python scripts, reflected type/object wrappers, Python Toolset calls, script jobs, or interpreter lifecycle | [Python adapter](Editor/Architecture/Tools/PythonTools.md), [script guide](Editor/Guides/PythonScripts.md) |
 | Runtime HTTP listeners, routes, chunked responses, or transport shutdown | [HTTP server](Runtime/Networking/HTTPServer.md) |
 | Dependencies, bootstrap, or worktrees | [Third-party bootstrap](Development/Build/ThirdPartyBootstrap.md) |
 | Selecting or running native tests for task validation | [Agent testing workflow](Agents/Testing.md) |
@@ -54,7 +54,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Sky Light sources, procedural capture, Studio migration, or GPU environment filtering | [Sky lighting](Runtime/Rendering/Features/SkyLighting.md) |
 | Volume texture source, build, payload, cook, or GPU resource contract | [Volume textures](Runtime/Assets/VolumeTextures.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Application/RuntimeLifecycle.md) |
-| Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/AsyncAssetOperations.md) |
+| Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/Assets/AsyncAssetOperations.md) |
 | Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |
 | Engine-free package saves, async completion, or staged package persistence | [Package persistence](Runtime/ObjectSystem/PackagePersistence.md) |
 | Canonical archives, object serialization, duplication, defaults, or authored override intent | [Serialization](Runtime/ObjectSystem/Serialization.md) |
@@ -63,7 +63,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Actor or Component Tick registration, groups, ordering, or mutation | [Tick scheduling](Runtime/World/TickScheduling.md) |
 | Gameplay delay, looping callbacks, next-frame scheduling, or World time scale | [World timers](Runtime/World/WorldTimers.md) |
 | Common subsystem lifecycle, Engine services, or scope selection | [Subsystems](Runtime/Engine/Subsystems.md) |
-| Editor subsystem services, Actor/Component structural editing, or notification lifetime | [Editor subsystems](Editor/Architecture/EditorSubsystems.md) |
+| Editor subsystem services, Actor/Component structural editing, or notification lifetime | [Editor subsystems](Editor/Architecture/Framework/EditorSubsystems.md) |
 | World subsystem registration, per-World services, or subsystem retirement | [World subsystems](Runtime/World/WorldSubsystems.md) |
 | Level ownership, World play state, gameplay session, lifecycle mutation, or Actor iteration | [Level system](Runtime/World/LevelSystem.md) |
 | Sandbox gameplay controls, tuning, camera, or ground-plane limits | [Sandbox gameplay](Runtime/Gameplay/SandboxGameplay.md) |
@@ -81,7 +81,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Render Graph, RDG, pass declarations, dependencies, barriers, or graph captures | [Render Graph](Runtime/Rendering/Pipeline/RenderGraph.md) |
 | RHI public API stability, experimental headers, backend-only interfaces, deprecation, or compatibility | [RHI public API stability](Runtime/Rendering/RHI/RHIPublicAPIStability.md) |
 | Production frame preparation, feature ordering, transient allocation, or output transactions | [Renderer frame preparation](Runtime/Rendering/Pipeline/RendererFramePreparation.md) |
-| Rendering statistics overlay, diagnostics panel, or sampled graph inspection UI | [Viewport rendering diagnostics](Editor/Architecture/ViewportRenderingDiagnostics.md) |
+| Rendering statistics overlay, diagnostics panel, or sampled graph inspection UI | [Viewport rendering diagnostics](Editor/Architecture/LevelEditing/ViewportRenderingDiagnostics.md) |
 | GBuffer encoding, reconstruction, diagnostics, memory, or lifecycle | [Minimal GBuffer contract](Runtime/Rendering/Pipeline/GBuffer.md) |
 | Deferred directional lighting, parity, diagnostics, memory, or qualification | [Deferred directional lighting](Runtime/Rendering/Features/DeferredDirectionalLighting.md) |
 | Volumetric-cloud components, eligibility, scene selection, or texture-reference recovery | [Volumetric cloud scene contract](Runtime/Rendering/Features/VolumetricCloudSceneContract.md) |
@@ -94,15 +94,16 @@ requires; do not read unrelated topics or scan an entire directory.
 | Material vertex roots, World Position Offset, or vertex-to-pixel interpolation | [Material vertex evaluation](Runtime/Rendering/Materials/MaterialVertexEvaluation.md) |
 | Primitive or Instance custom numeric channels, stable render instances, or material variation without separate instances | [Primitive and Instance material data](Runtime/Rendering/Materials/MaterialCustomData.md) |
 | Material expression emission, output registration, graph traversal, or function invocation caches | [Material expression building](Runtime/Rendering/Materials/MaterialExpressionBuilding.md) |
-| Material graph commands, function authoring, UV inputs, transactions, or clipboard | [Material graph operations](Editor/Architecture/MaterialGraphOperations.md) |
-| Material editor panels, canvas geometry, node menus, or graph diagnostics | [Material graph canvas](Editor/Architecture/MaterialGraphCanvas.md) |
-| Material preview resources, Compile/Apply/Save, document lifecycle, or instance overrides | [Material editor lifecycle](Editor/Architecture/MaterialEditorLifecycle.md) |
-| Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
-| Reflected edit targets, detached validation, object notifications, or edit sessions | [Reflected property editing](Editor/Architecture/ReflectedPropertyEditing.md) |
-| Details layouts, categories/search, custom property widgets, or host view lifetime | [Property Details views](Editor/Architecture/PropertyDetailsViews.md) |
-| Level Editor Actor/Component Details, aggregation, or material-slot controls | [Level Editor Details](Editor/Architecture/LevelEditorDetails.md) |
-| Editor transaction identity, whole-object or array operation records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/TransactionRecords.md) |
-| Editor transactor, scoped recording, bounded history, structural Undo/Redo, or transaction buffer ownership | [Editor transactor core](Editor/Architecture/Transactors.md) |
+| Material graph commands, function authoring, UV inputs, transactions, or clipboard | [Material graph operations](Editor/Architecture/Materials/MaterialGraphOperations.md) |
+| Material editor panels, canvas geometry, node menus, or graph diagnostics | [Material graph canvas](Editor/Architecture/Materials/MaterialGraphCanvas.md) |
+| Material preview resources, Compile/Apply/Save, document lifecycle, or instance overrides | [Material editor lifecycle](Editor/Architecture/Materials/MaterialEditorLifecycle.md) |
+| Editor architecture domain ownership or contract placement | [Editor Architecture domain rules](Editor/Architecture/AGENTS.md) |
+| Editor architecture, design, or user workflow | Use a targeted search within the relevant `Editor/Architecture/` domain, `Editor/Design/`, or `Editor/Guides/` |
+| Reflected edit targets, detached validation, object notifications, or edit sessions | [Reflected property editing](Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md) |
+| Details layouts, categories/search, custom property widgets, or host view lifetime | [Property Details views](Editor/Architecture/PropertyEditing/PropertyDetailsViews.md) |
+| Level Editor Actor/Component Details, aggregation, or material-slot controls | [Level Editor Details](Editor/Architecture/LevelEditing/LevelEditorDetails.md) |
+| Editor transaction identity, whole-object or array operation records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/Transactions/TransactionRecords.md) |
+| Editor transactor, scoped recording, bounded history, structural Undo/Redo, or transaction buffer ownership | [Editor transactor core](Editor/Architecture/Transactions/Transactors.md) |
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |
 | Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |
 | Active implementation plan | Humans run `.\DevTool.bat` for the interactive shell; agents run `.\DevTool.bat doc plan list` to select work, then `.\DevTool.bat doc plan context "<title-or-filename>"` for compact execution context |
@@ -130,7 +131,7 @@ complete matching sections and any directly required contract dependencies.
 For example, on Windows:
 
 ```powershell
-rg -n '^#{1,3} |TextureCoordinates|UV' Documentation/Editor/Architecture/MaterialGraphOperations.md
+rg -n '^#{1,3} |TextureCoordinates|UV' Documentation/Editor/Architecture/Materials/MaterialGraphOperations.md
 Get-Content <document-path> | Select-Object -Skip <start-line-minus-one> -First <line-count>
 ```
 

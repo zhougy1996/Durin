@@ -159,5 +159,5 @@ not acceptance gates for this ownership refactor.
 - [UE scoped transactions](https://dev.epicgames.com/documentation/unreal-engine/API/Editor/UnrealEd/FScopedTransaction)
 - [UE transaction buffer](https://dev.epicgames.com/documentation/unreal-engine/API/Editor/UnrealEd/UTransBuffer)
 - [UE World context](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FWorldContext)
-- [Current transaction contract](../../../Editor/Architecture/Transactors.md)
-- [Editor subsystem ownership](../../../Editor/Architecture/EditorSubsystems.md)
+- [Current transaction contract](../../../Editor/Architecture/Transactions/Transactors.md)
+- [Editor subsystem ownership](../../../Editor/Architecture/Framework/EditorSubsystems.md)

@@ -1203,10 +1203,10 @@ Dependencies: Stage 5 complete authoring workflow.
 
 - [Documentation entry point](../../../README.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Soft Asset References Plan](SoftAssetReferences.md) — completed historical
   implementation evidence only; its move contract is replaced by this plan.

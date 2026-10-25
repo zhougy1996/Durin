@@ -373,7 +373,7 @@ and the plan can be marked completed.
 ## Related Documentation and Code
 
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [`MaterialProgramTypes.h`](../../../../Engine/Source/Runtime/Engine/Public/Materials/MaterialProgramTypes.h)
 - [`MaterialProgramTypes.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Materials/MaterialProgramTypes.cpp)

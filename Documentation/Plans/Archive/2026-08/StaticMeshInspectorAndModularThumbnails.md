@@ -101,7 +101,7 @@ passed the focused, full-build, and editor-lifecycle gates.
   `Thumbnail/RenderedAssetThumbnailExtension.h`,
   `Thumbnail/AssetThumbnail.cpp`, the temporary rendered-cache input access in
   `MaterialAssetThumbnail.cpp`, `AssetThumbnailContractTests.cpp`, and
-  `Documentation/Editor/Architecture/AssetThumbnails.md`.
+  `Documentation/Editor/Architecture/Assets/AssetThumbnails.md`.
 - Key symbols: `FAssetThumbnailProviderRegistrationHandle`,
   `FAssetThumbnailGenerationLease`, `IRenderedAssetThumbnailExtension`, and
   `IRenderedAssetThumbnailGenerationSession`.
@@ -543,9 +543,9 @@ Dependencies: Stages 2-4.
 
 ## Related Documentation
 
-- `Documentation/Editor/Architecture/WorkspaceFramework.md`
-- `Documentation/Editor/Architecture/AssetThumbnails.md`
-- `Documentation/Editor/Architecture/ContentBrowser.md`
+- `Documentation/Editor/Architecture/Framework/WorkspaceFramework.md`
+- `Documentation/Editor/Architecture/Assets/AssetThumbnails.md`
+- `Documentation/Editor/Architecture/Assets/ContentBrowser.md`
 - `Documentation/Runtime/Rendering/Scene/StaticMeshRendering.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 

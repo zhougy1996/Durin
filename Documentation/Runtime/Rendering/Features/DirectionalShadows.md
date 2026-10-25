@@ -224,7 +224,7 @@ resources, invalid light or matrix input, or total
 persistent-payload failure binds the complete white fallback and continues the
 same deferred path. Shared graph allocation failure follows the frame abort
 contract. A view with no successful deferred receiver draw records no target
-or pass. Editor controls follow [Viewport Rendering Diagnostics](../../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+or pass. Editor controls follow [Viewport Rendering Diagnostics](../../../Editor/Architecture/LevelEditing/ViewportRenderingDiagnostics.md).
 Per-view counters
 distinguish compute, fragment, and factor-one routes; exact dispatch/draw
 counts, bounded route reasons, and

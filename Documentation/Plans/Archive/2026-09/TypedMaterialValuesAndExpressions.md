@@ -1196,7 +1196,7 @@ Depends on Stage 4.
 - [x] Reject unsupported material schemas before publishing a partially loaded
   graph; never interpret a missing new collection as a valid empty old asset.
 - [x] Update the owning runtime material documentation and
-  [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+  [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
   to describe implemented ownership, snapshot, transaction, and Cook contracts.
 - [x] Complete an `all` build of the workspace, affected native suites, renderer
   qualification, both projects' Cook/Game checks, and documentation validation.
@@ -1216,7 +1216,7 @@ targets from the changed ownership rather than copying historical test counts.
 
 Use [Serialization](../../../Runtime/ObjectSystem/Serialization.md),
 [Asset Packages](../../../Runtime/Assets/AssetPackages.md), and
-[Transaction Records](../../../Editor/Architecture/TransactionRecords.md) as current
+[Transaction Records](../../../Editor/Architecture/Transactions/TransactionRecords.md) as current
 infrastructure contracts. This plan replaces the value-node authoring boundary
 in Material Graph Operations as implementation lands, while preserving the
 graph-owned parameter decision in

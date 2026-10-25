@@ -266,7 +266,7 @@ Dependencies: Stages 1-2.
 - [Gameplay Foundation Roadmap](../../../Roadmaps/Archive/2026-08/GameplayFoundation.md)
 - [Native Gameplay Core](NativeGameplayCore.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
-- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/LevelEditing/PlayInEditorArchitecture.md)
 - [Play In Editor Guide](../../../Editor/Guides/PlayInEditor.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)

@@ -19,13 +19,13 @@ preview creation performs no transient OBJ import, and retained handles provide
 the GC lifetime edge. The editor session also owns this fixed pair and prepares
 their CPU and GPU resources before opening the shell, so closing every material
 document does not evict them. Startup preparation and retirement follow the
-[shared preview-mesh lifetime](AssetThumbnails.md#identity-and-output-size).
+[shared preview-mesh lifetime](../Assets/AssetThumbnails.md#identity-and-output-size).
 
 Preview framing fits the selected mesh to both viewport axes with a margin and
 adapts to panel aspect-ratio changes. Mouse-wheel zoom is relative to that framing;
 Fit and mesh changes restore the fitted view.
 
-Preview rendering follows [Material System](../../Runtime/Rendering/Materials/MaterialSystem.md).
+Preview rendering follows [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md).
 Each preview document owns explicit Low/High quality and ES3_1/SM5/SM6 feature
 selectors. Changing either requests the matching ordinary material variant and
 does not alter the asset, global game quality, or RHI capability. Unsupported
@@ -33,7 +33,7 @@ feature choices are clamped to the active device capability. Preview, Apply, and
 Save continue to use the same compiler lifecycle and accepted-program rules;
 there is no editor-only selector evaluator.
 Thumbnail sessions and texture-node images follow the shared
-[texture preview contract](AssetThumbnails.md#identity-and-output-size). Texture
+[texture preview contract](../Assets/AssetThumbnails.md#identity-and-output-size). Texture
 nodes sample published built allocations for every usage, including normals;
 missing or pending allocations show a placeholder instead of source thumbnails.
 
@@ -101,7 +101,7 @@ presented as active. Reconnecting the same GUID restores the preserved base
 value and makes that override eligible again.
 
 Parameter controls use the shared
-[property view and submission API](PropertyDetailsViews.md#view-ownership-and-submission).
+[property view and submission API](../PropertyEditing/PropertyDetailsViews.md#view-ownership-and-submission).
 Edits snapshot the reflected definition/override collection root and resolve the
 entry by GUID in detached storage. The parameter GUID is also the logical
 transaction identity, preventing two entries in the same root from coalescing
@@ -145,7 +145,7 @@ release the working copy with its canvas and preview. Material-instance document
 continue editing their own overrides live and see base edits only after Apply.
 Material callbacks remain synchronous. Runtime discovery is sealed before
 notifications, and edits performed by listeners use fresh batches; see
-[scoped material queries](../../Runtime/Rendering/Materials/MaterialQueries.md#external-notifications-and-reentrancy).
+[scoped material queries](../../../Runtime/Rendering/Materials/MaterialQueries.md#external-notifications-and-reentrancy).
 
 Canvas maps use document IDs, so selection cannot leak across materials or
 instances. User-scoped material-editor session settings retain the left, right,

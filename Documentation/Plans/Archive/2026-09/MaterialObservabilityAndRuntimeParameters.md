@@ -300,7 +300,7 @@ Out of scope:
   and the boundary with later expression/stage/shading work.
 - [Material system](../../../Runtime/Rendering/Materials/MaterialSystem.md),
   [material expression building](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md),
-  and [Material Editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)
+  and [Material Editor lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md)
   own the implemented contracts after completion.
 - Follow [Build and run](../../../Agents/BuildAndRun.md), [Testing](../../../Agents/Testing.md)
   and [Documentation](../../../Agents/Documentation.md). Timing qualification additionally

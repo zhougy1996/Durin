@@ -303,8 +303,8 @@ implementation stage.
 Authoritative local contracts:
 
 - [Material expression building](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md)
-- [Material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
-- [Material editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)
+- [Material graph operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
+- [Material editor lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md)
 - [Material compatibility boundary](../../../Runtime/Rendering/Materials/MaterialSystem.md#compatibility-boundary)
 
 UE design references are official API documentation, not a claim that Durin must

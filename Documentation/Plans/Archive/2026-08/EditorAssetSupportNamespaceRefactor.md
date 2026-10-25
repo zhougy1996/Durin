@@ -201,7 +201,7 @@ are not required for this ownership cleanup.
 - [Editor Common Namespace Refactor](EditorCommonNamespaceRefactor.md)
 - [Editor Workspace Namespace Refactor](EditorWorkspaceNamespaceRefactor.md)
 - [Editor Interaction Namespace Refactor](EditorInteractionNamespaceRefactor.md)
-- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code

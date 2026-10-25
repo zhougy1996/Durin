@@ -513,4 +513,4 @@ Plan/Stage trailers under repository handoff rules.
 - `Engine/Source/Editor/AssetForgeBuiltins/Private/ImportedSurfaceMaterial.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Materials`
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)

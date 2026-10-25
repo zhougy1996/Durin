@@ -461,7 +461,7 @@ The reconciliation fixtures establish these expected identity results:
 - [x] Update `Documentation/Runtime/Rendering/Materials/MaterialSystem.md` with mesh slot
   ownership, identity, reconciliation, resolution, orphan, dependency, and
   renderer-boundary rules.
-- [x] Update `Documentation/Editor/Architecture/ReflectedPropertyEditing.md` to
+- [x] Update `Documentation/Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md` to
   replace the ordinary `Materials` array description with the Details
   customization and collection-root transaction behavior.
 - [x] Update `Documentation/Roadmaps/MaterialSystem.md` to reference the landed
@@ -538,7 +538,7 @@ All build, test, and smoke operations must use the root workflow documented in
 ## Related Documentation
 
 - `Documentation/Runtime/Rendering/Materials/MaterialSystem.md`
-- `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
+- `Documentation/Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md`
 - `Documentation/Runtime/World/LevelSystem.md`
 - `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`

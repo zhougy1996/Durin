@@ -22,7 +22,8 @@ paths, and quoted source text.
 - `Development`: build, test, tooling, standards, dependency, and version-control
   workflows and contracts.
 - `Runtime`: implemented engine-runtime contracts and long-lived invariants.
-- `Editor/Architecture`: implemented editor contracts and invariants.
+- `Editor/Architecture`: implemented editor contracts and invariants; follow the
+  [Editor Architecture domain rules](Editor/Architecture/AGENTS.md) for placement.
 - `Editor/Design`: visual language, tokens, layout, interaction, and themes.
 - `Editor/Guides`: user-facing editor workflows.
 - `Workspace`: cross-cutting workspace, project, module, and profile ownership.

@@ -81,9 +81,9 @@ EditorToolService and retain External source/exposure checks. Python itself is
 trusted process code with normal process privileges, not a sandbox; the configured
 MCP bearer token therefore grants script execution when these tools are enabled.
 
-Reuse the [MCP adapter](../../../Editor/Architecture/MCPTools.md),
-[Python adapter](../../../Editor/Architecture/PythonTools.md) and
-[editor tool service](../../../Editor/Architecture/EditorTools.md). Adapter tools use
+Reuse the [MCP adapter](../../../Editor/Architecture/Tools/MCPTools.md),
+[Python adapter](../../../Editor/Architecture/Tools/PythonTools.md) and
+[editor tool service](../../../Editor/Architecture/Tools/EditorTools.md). Adapter tools use
 normal schema descriptions/results, explicit route kinds and collision rejection;
 they do not register global native Toolsets or call Python from GameThread tool
 handlers. Python absence omits these tools while ordinary MCP remains available.

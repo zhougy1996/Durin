@@ -385,9 +385,9 @@ Gaps to close:
 ## Related Documentation
 
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
-- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/LevelEditing/PlayInEditorArchitecture.md)
 - [Play In Editor](../../../Editor/Guides/PlayInEditor.md)
-- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 
