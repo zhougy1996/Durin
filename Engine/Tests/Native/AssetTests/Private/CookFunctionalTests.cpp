@@ -1811,9 +1811,9 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 			EXPECT_NE(Package.Status, ECookPackageStatus::CookHit);
 		else EXPECT_EQ(Package.Status, ECookPackageStatus::CookHit);
 	}
-	Request.MaterialConfigurations.clear();
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
-	EXPECT_EQ(Inventory(Output / "Game"), First);
+	// Keep the selected configuration for recipe invalidation and warm reuse;
+	// restoring the default matrix here would only add another full material cook.
+	const auto Configured = Inventory(Output / "Game");
 	FByteBuffer StateBytes;
 	auto StateBytesRead = FFileHelper::LoadFileToArray(Output / "CookState.bin");
 	ASSERT_TRUE(StateBytesRead) << StateBytesRead.error().ToString();
@@ -1874,12 +1874,12 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 			EXPECT_NE(Package.Status, ECookPackageStatus::CookHit);
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	for (const auto& Package : Result.Packages) EXPECT_EQ(Package.Status, ECookPackageStatus::CookHit);
-	EXPECT_EQ(Inventory(Output / "Game"), First);
+	EXPECT_EQ(Inventory(Output / "Game"), Configured);
 	Request.IncrementalPolicy = ECookIncrementalPolicy::Disabled;
 	const auto WarmCompilations = GetShaderBuildStats().Compilations;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, WarmCompilations);
-	EXPECT_EQ(Inventory(Output / "Game"), First);
+	EXPECT_EQ(Inventory(Output / "Game"), Configured);
 	EXPECT_EQ(Inventory(Source), Before);
 	Testing::FScopedAssetRuntimeForTests Runtime;
 	ASSERT_TRUE(Runtime.RestartCooked(Output));

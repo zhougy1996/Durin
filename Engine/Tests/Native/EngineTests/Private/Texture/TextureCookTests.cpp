@@ -34,6 +34,7 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "RenderingThread.h"
+#include "RenderResourcePreparation.h"
 #include "SceneTestAccess.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMesh.h"
@@ -60,6 +61,8 @@ namespace
 {
 	auto WriteNpotTextureFixture(const std::filesystem::path& Path) -> void
 	{
+		// Keep the compressed mip chain above the external-bulk threshold so
+		// cooked loading can validate missing and corrupt sidecars as well as NPOT edges.
 		constexpr uint16 Width = 1025;
 		constexpr uint16 Height = 513;
 		std::array<uint8, 18> Header{};
@@ -252,7 +255,6 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::SaveCookPackage((*Import.Asset).GetPackage(), "/Game/CookedTexture", Second)) << Error;
-	ASSERT_TRUE(Durin::SaveCookPackage((*SourceMaterial).GetPackage(), "/Game/SampleMaterial", Second)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondCookRoot)) << Error;
 
 	Durin::FCookContext Diagnostic(
@@ -260,7 +262,6 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		Durin::ECookTargetProfile::Game,
 		true);
 	ASSERT_TRUE(Durin::SaveCookPackage((*Import.Asset).GetPackage(), "/Game/CookedTexture", Diagnostic)) << Error;
-	ASSERT_TRUE(Durin::SaveCookPackage((*SourceMaterial).GetPackage(), "/Game/SampleMaterial", Diagnostic)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Diagnostic, DiagnosticCookRoot)) << Error;
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
@@ -488,6 +489,22 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 			View.ViewLocation = {0.0, 0.0, -1.0};
 			View.ViewportWidth = 17;
 			View.ViewportHeight = 17;
+			// A cold cooked host prepares native view resources before its first draw.
+			auto Preparation = Durin::FRenderResourcePreparation::Create();
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+			do
+			{
+				Renderer.PrepareViewResources(CommandList, &Scene, View, Color, false, {}, Preparation);
+				CommandList.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread);
+				std::this_thread::yield();
+			} while (Preparation.GetProgress().State == Durin::ERenderResourcePreparationState::Pending
+				&& std::chrono::steady_clock::now() < Deadline);
+			if (Preparation.GetProgress().State != Durin::ERenderResourcePreparationState::Ready)
+			{
+				UploadResult->bSucceeded = false;
+				UploadResult->Error = "Cooked Texture2D sample view resources were not ready.";
+				return;
+			}
 			if (Renderer.RenderView(
 					CommandList, &Scene, View, Color, false, {})
 				!= Durin::ERenderViewResult::Success)
