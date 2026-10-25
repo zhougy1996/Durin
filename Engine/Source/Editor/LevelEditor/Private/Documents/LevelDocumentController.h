@@ -6,11 +6,13 @@
 #include "Asset/Load.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
+#include "Engine/HostStartup.h"
 
 namespace Durin
 {
 	class DLevel;
 	class DWorld;
+	class FSceneLoadOperation;
 }
 
 namespace Durin::Editor::Level
@@ -54,8 +56,10 @@ namespace Durin::Editor::Level
 		auto RequestOpenProject(std::string ProjectFile) -> void;
 		auto RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
-		auto OpenDefaultLevel() -> bool;
+		auto AdvancePendingOpen() -> void;
+		auto OpenDefaultLevel() -> EHostStartupState;
 		auto CanSaveCurrentLevel() const -> bool;
+		auto IsOpening() const -> bool { return PendingSceneLoad != nullptr; }
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
 		auto CloseLevel() -> bool;
@@ -72,7 +76,8 @@ namespace Durin::Editor::Level
 		auto OpenLevel(std::string_view Path) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
 		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
-		auto ActivateLevel(DLevel* Level, FAssetPackageLoadScope& LoadScope) -> bool;
+		auto ActivateLevel(FSceneLoadOperation& Loading) -> bool;
+		auto AdvanceOpening() -> EHostStartupState;
 		auto SetError(std::string Message) const -> void;
 
 		FLevelEditorContext& Context;
@@ -88,7 +93,9 @@ namespace Durin::Editor::Level
 		std::string PendingLevelPath;
 		std::string PendingProjectFile;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
-		FAssetPackageLoadScope ActiveLoadScope;
+		std::shared_ptr<FSceneLoadOperation> ActiveSceneLoad, PendingSceneLoad;
+		bool bDefaultStarted = false;
+		EHostStartupState DefaultOpenState = EHostStartupState::Pending;
 		TWeakObjectPtr<DPackage> DocumentPackage;
 		TWeakObjectPtr<DWorld> DocumentWorld;
 		bool bPendingDocumentOpen = false;

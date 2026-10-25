@@ -4,7 +4,7 @@ Summary: Define shared native subsystem registration, construction, retention, r
 
 Modules: Engine, Core, CoreDObject
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-25
 
 ## Scope And Ownership
 
@@ -107,9 +107,12 @@ by their owners.
 
 ## Engine Host Sequence
 
-Engine loads its providers and initializes cooked-mesh loading, catalog, default
-materials and renderer/scene endpoints before initializing Engine services. Only
-then does it construct and initialize the initial World and publish it. Worlds
+Minimum host initialization establishes cooked-mesh and renderer endpoints.
+Project admission then loads its providers, requires a successful catalog,
+initializes default materials and the complete Engine subsystem set, and only
+then constructs and publishes the initial World with its frozen provider set.
+The Editor performs this admission after shell presentation; Project Browser has
+no initial project World or project-scoped Engine services. Worlds
 whose Outer is an Engine register a scoped initialization reference with that
 host, so retirement also closes unpublished World admission; the reference is
 removed after the World operation unwinds. Init

@@ -19,10 +19,17 @@ namespace Durin
 		ENGINE_API auto Init(const FEngineInitContext& Context)
 			-> bool override;
 		ENGINE_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
+		ENGINE_API auto AdvanceStartup() -> void override;
+		ENGINE_API auto ShouldDrawStartupScene() const -> bool override;
+		auto GetStartupState() const -> EHostStartupState override
+		{
+			return !StartupError.empty() ? EHostStartupState::Failed
+				: StartupPreparation ? EHostStartupState::Pending : EHostStartupState::Ready;
+		}
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto RequestGameMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool;
 		ENGINE_API auto ReleaseGameMouseCapture() -> void;
-		auto GetStartupError() const -> const std::string& { return StartupError; }
+		auto GetStartupError() const -> const std::string& override { return StartupError; }
 		auto IsGameMouseCaptured() const -> bool { return !CapturedMouseWindow.expired(); }
 
 	protected:
@@ -34,6 +41,7 @@ namespace Durin
 
 	private:
 		std::shared_ptr<FGameStartupPreparation> StartupPreparation;
+		std::shared_ptr<FSceneLoadOperation> ActiveSceneLoad;
 		std::string StartupError;
 		std::weak_ptr<FGenericWindow> CapturedMouseWindow;
 

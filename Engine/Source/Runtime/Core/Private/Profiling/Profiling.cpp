@@ -126,7 +126,6 @@ namespace Durin::Profiling
 			EStartupMilestone::ProcessEntry,
 			EStartupMilestone::PreInitComplete,
 			EStartupMilestone::RHIReady,
-			EStartupMilestone::DefaultMaterialReady,
 			EStartupMilestone::RendererReady,
 			EStartupMilestone::EditorShellComplete,
 			EStartupMilestone::WorkspaceRegistrationComplete,
@@ -137,7 +136,8 @@ namespace Durin::Profiling
 		for (const EStartupMilestone Milestone : RequiredMilestones)
 			if (GetStartupNanoseconds(Milestone) < 0) return false;
 		if (GStartupTiming.bHasProject.load(std::memory_order_acquire)
-			&& GetStartupNanoseconds(EStartupMilestone::DefaultDocumentComplete) < 0)
+			&& (GetStartupNanoseconds(EStartupMilestone::DefaultDocumentComplete) < 0
+				|| GetStartupNanoseconds(EStartupMilestone::DefaultMaterialReady) < 0))
 			return false;
 
 		bool bExpected = false;

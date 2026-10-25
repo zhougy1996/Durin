@@ -81,7 +81,8 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
-			FRDGCapture* OutRenderGraphCapture
+			FRDGCapture* OutRenderGraphCapture,
+			const FRenderResourcePreparation* Preparation = nullptr
 		) -> ERenderViewResult;
 
 		auto GetResourceCoordinator() -> FRendererResourceCoordinator&
@@ -109,6 +110,8 @@ namespace Durin
 		struct FPreparationOwner { FScene* Scene; FRenderResourcePreparation Preparation; };
 		std::vector<FPreparationOwner> Preparations;
 		auto PrunePreparations_RenderThread() -> void;
+		auto AdmitPreparation_RenderThread(FScene* Scene, FRHITexture* Output,
+			const FRenderResourcePreparation& Preparation) -> bool;
 		FRendererResourceCoordinator Coordinator;
 		FRendererRDGAllocator RDGAllocator;
 		FDefaultTextureResources DefaultTextures;

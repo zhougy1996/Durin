@@ -2,6 +2,7 @@
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetAsyncLoadInternal.h"
+#include "AssetLoadTiming.h"
 #include "Asset/AsyncLoad.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRegistry/Scan.h"
@@ -591,6 +592,7 @@ namespace Durin
 		}
 		for (const auto& Member : Group)
 		{
+			AssetPrivate::FScopedAssetLoadTiming Timing(Member->Path, "component validation");
 			if (Member->Phase != ELoadPhase::ValuesRestored || !Member->Validate || !Member->PostLoad)
 				return Error(EAssetReadError::InvalidObjectGraph, "Load component contains unrestored values.");
 			if (auto Result = Member->Validate(); !Result) return Result;
@@ -603,7 +605,11 @@ namespace Durin
 			for (const auto& Member : Group) GOwnedLoadPackages->emplace_back(Member->Package.Get());
 		}
 		for (const auto& Member : Group) Member->Phase = ELoadPhase::PostLoading;
-		for (const auto& Member : Group) Member->PostLoad();
+		for (const auto& Member : Group)
+		{
+			AssetPrivate::FScopedAssetLoadTiming Timing(Member->Path, "component PostLoad");
+			Member->PostLoad();
+		}
 		for (const auto& Member : Group)
 		{
 			Member->Phase = ELoadPhase::Ready;
@@ -621,7 +627,11 @@ namespace Durin
 			if (Record->Index >= FirstIndex)
 			{
 				Record->Phase = ELoadPhase::Failed;
-				if (Record->Package) MarkObjectHierarchyAsGarbage(Record->Package.Get());
+				if (DPackage* Package = Record->Package.Get())
+				{
+					MarkObjectHierarchyAsGarbage(Package);
+					Package->RetireFailedLoadRegistration();
+				}
 			}
 		while (!CompletionStack.empty() && CompletionStack.back()->Index >= FirstIndex)
 		{

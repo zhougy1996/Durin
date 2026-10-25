@@ -1211,8 +1211,17 @@ namespace
 			return Preparation.GetProgress();
 		}
 		uint32 PrepareCount = 0;
-		auto RenderView(Durin::FRHICommandListImmediate&, const Durin::FSceneViewRenderRequest&) -> Durin::ERenderViewResult override
+		uint32 RenderCount = 0;
+		auto RenderView(Durin::FRHICommandListImmediate&, const Durin::FSceneViewRenderRequest& Request) -> Durin::ERenderViewResult override
 		{
+			++RenderCount;
+			if (Request.Preparation)
+			{
+				Durin::FRenderResourcePreparationScope Scope(*Request.Preparation);
+				const bool Ready = Request.View.ViewportWidth == 64;
+				Scope.Complete(Ready ? Durin::ERenderResourcePreparationState::Ready : Durin::ERenderResourcePreparationState::Pending);
+				return Ready ? Durin::ERenderViewResult::Success : Durin::ERenderViewResult::RendererResourcesPending;
+			}
 			return Durin::ERenderViewResult::RendererResourcesUnavailable;
 		}
 
@@ -4517,12 +4526,14 @@ TEST(FRendererSceneContractTests, ViewportRechecksReadyPreparationForTheCurrentC
         FTestViewStateRenderer Renderer;
         FSceneViewRenderRequest Request;
         Request.View.ViewportWidth = 64;
-        EXPECT_TRUE(Viewport->PrepareResources_RenderThread(Renderer, Commands, Request));
+        EXPECT_EQ(Viewport->RenderView_RenderThread(Renderer, Commands, Request), ERenderViewResult::Success);
         Request.View.ViewportWidth = 128;
-        EXPECT_FALSE(Viewport->PrepareResources_RenderThread(Renderer, Commands, Request));
-        EXPECT_EQ(Renderer.PrepareCount, 2u);
+        EXPECT_EQ(Viewport->RenderView_RenderThread(Renderer, Commands, Request), ERenderViewResult::RendererResourcesPending);
+        EXPECT_EQ(Renderer.PrepareCount, 0u);
+        EXPECT_EQ(Renderer.RenderCount, 2u);
         Request.View.ViewportWidth = 64;
-        EXPECT_TRUE(Viewport->PrepareResources_RenderThread(Renderer, Commands, Request));
+        EXPECT_EQ(Viewport->RenderView_RenderThread(Renderer, Commands, Request), ERenderViewResult::Success);
+        EXPECT_EQ(Renderer.RenderCount, 3u);
     });
     FlushRenderingCommands();
 }

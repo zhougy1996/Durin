@@ -30,7 +30,8 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
-			FRDGCapture* OutRenderGraphCapture
+			FRDGCapture* OutRenderGraphCapture,
+			bool bPrepareOnly = false
 		) -> ERenderViewResult;
 
 	private:

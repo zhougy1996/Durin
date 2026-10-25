@@ -11,6 +11,7 @@
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/SceneLoadOperation.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
@@ -124,6 +125,12 @@ namespace Durin::Editor::Level
 		return ELevelDocumentOpenResult::Rejected;
 	}
 
+	auto FLevelDocumentController::AdvancePendingOpen() -> void
+	{
+		if (PendingSceneLoad && (!bDefaultStarted || DefaultOpenState != EHostStartupState::Pending))
+			(void)AdvanceOpening();
+	}
+
 	auto FLevelDocumentController::DrawDialogs() -> void
 	{
 		const bool bOpenUnsavedLevel = QueuedPopup == EQueuedPopup::UnsavedLevel;
@@ -158,76 +165,82 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FLevelDocumentController::OpenDefaultLevel() -> bool
+	auto FLevelDocumentController::OpenDefaultLevel() -> EHostStartupState
 	{
-		const FProjectInfo* Project = GetCurrentProject();
-		if (!Project || DefaultLevel.IsNull()
-			|| !DefaultLevel.GetPath().GetPackagePath().GetView().starts_with(Project->MountRoot))
-			return true;
-		if (ClearError) ClearError();
-		FAssetPackageLoadScope LoadScope;
-		DLevel* Level = nullptr;
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
-		std::expected<DLevel*, FAssetReadError> Result;
+		if (!bDefaultStarted)
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.AssetLoad");
-			Result = LoadScope.LoadSoftObject(
-				DefaultLevel, ESoftObjectNullPolicy::Reject);
-			Level = Result.value_or(nullptr);
+			bDefaultStarted = true;
+			const FProjectInfo* Project = GetCurrentProject();
+			if (!Project || DefaultLevel.IsNull()) return DefaultOpenState = EHostStartupState::Ready;
+			if (!DefaultLevel.GetPath().GetPackagePath().GetView().starts_with(Project->MountRoot))
+			{
+				SetError("The configured default Level is outside the selected project mount.");
+				return DefaultOpenState = EHostStartupState::Failed;
+			}
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
+			if (OpenLevel(DefaultLevel.GetPath().ToString()) == ELevelDocumentOpenResult::Rejected)
+				return DefaultOpenState = EHostStartupState::Failed;
 		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
-		if (!Result)
-		{
-			SetError(Result.error().Message);
-			(void)LoadScope.ReleaseResidency();
-			return false;
-		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
-		bool bActivated = false;
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.Activation");
-			bActivated = ActivateLevel(Level, LoadScope);
-		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
-		if (!bActivated)
-		{
-			(void)LoadScope.ReleaseResidency();
-			return false;
-		}
-		return true;
+		if (DefaultOpenState != EHostStartupState::Pending) return DefaultOpenState;
+		DefaultOpenState = AdvanceOpening();
+		return DefaultOpenState;
 	}
 
 	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> ELevelDocumentOpenResult
 	{
 		if (ClearError) ClearError();
+		if (!Context.EditorHost || Context.EditorHost->IsPlaying()) return ELevelDocumentOpenResult::Rejected;
 		FObjectPath Path;
-		std::string PathError;
-		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
+		if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !Validation)
 		{
-			PathError = Durin::ToString(PathValidation.error());
-			SetError(PathError);
+			SetError(Durin::ToString(Validation.error()));
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		FAssetPackageLoadScope LoadScope;
-		DLevel* Level = nullptr;
-		std::expected<DLevel*, FAssetReadError> Result;
-		Result = LoadScope.LoadObject<DLevel>(Path);
-		Level = Result.value_or(nullptr);
-		if (!Result)
-		{
-			SetError(Result.error().Message);
-			(void)LoadScope.ReleaseResidency();
-			return ELevelDocumentOpenResult::Rejected;
-		}
-		if (!ActivateLevel(Level, LoadScope))
-		{
-			(void)LoadScope.ReleaseResidency();
-			return ELevelDocumentOpenResult::Rejected;
-		}
-		PendingAction = ELevelDocumentAction::None;
-		return ELevelDocumentOpenResult::Opened;
+		if (PendingSceneLoad) PendingSceneLoad->Cancel();
+		PendingSceneLoad = Context.EditorHost->CreateSceneLoad({.Path = Path, .BuildInitialView = SessionSettings.CreateInitialViewBuilder(SceneViewportPanel)});
+		return ELevelDocumentOpenResult::Deferred;
 	}
 
+	auto FLevelDocumentController::AdvanceOpening() -> EHostStartupState
+	{
+		if (!PendingSceneLoad) return EHostStartupState::Failed;
+		auto Loading = PendingSceneLoad;
+		const auto Progress = Loading->GetProgress();
+		if (Loading->GetLevel() && Progress.Phase == ESceneLoadPhase::PreparingProducts)
+		{
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
+			if (Loading->GetLevel() == Context.Level)
+			{
+				Loading->Cancel();
+				PendingSceneLoad.reset();
+				CompletePendingDocumentOpen(true);
+				return EHostStartupState::Ready;
+			}
+		}
+		if (Progress.Phase == ESceneLoadPhase::Ready)
+		{
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
+			if (ActivateLevel(*Loading))
+			{
+				ActiveSceneLoad = std::move(Loading);
+				PendingSceneLoad.reset();
+				PendingAction = ELevelDocumentAction::None;
+				PendingLevelPath.clear();
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
+				CompletePendingDocumentOpen(true);
+				return EHostStartupState::Ready;
+			}
+			Loading->Cancel();
+		}
+		else if (Progress.Phase != ESceneLoadPhase::Failed && Progress.Phase != ESceneLoadPhase::Canceled)
+			return EHostStartupState::Pending;
+		if (!Progress.Diagnostic.empty()) SetError(Progress.Diagnostic);
+		PendingSceneLoad.reset();
+		PendingAction = ELevelDocumentAction::None;
+		PendingLevelPath.clear();
+		CompletePendingDocumentOpen(false);
+		return EHostStartupState::Failed;
+	}
 	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded) -> void
 	{
 		if (!std::exchange(bPendingDocumentOpen, false) || !CompleteDeferredOpen) return;
@@ -238,7 +251,7 @@ namespace Durin::Editor::Level
 	{
 		const auto* Gizmo = SceneViewportPanel.GetTransformGizmo();
 		const auto* Transactions = GetLevelTransactions();
-		return Context.Level && Context.Level->GetPackage() && !(GEditor && GEditor->IsPlaying())
+		return !PendingSceneLoad && Context.Level && Context.Level->GetPackage() && !(GEditor && GEditor->IsPlaying())
 			&& !(Gizmo && Gizmo->IsDragging()) && (!Transactions || (Transactions->CanTransact() && !Transactions->IsActive()));
 	}
 
@@ -354,6 +367,7 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::CloseLevel() -> bool
 	{
+		if (PendingSceneLoad) { PendingSceneLoad->Cancel(); PendingSceneLoad.reset(); CompletePendingDocumentOpen(false); }
 		if (DocumentWorld.IsValid() && GEditor && GEditor->IsPlaying()) return false;
 		DWorld* World = DocumentWorld.Get();
 		DPackage* Package = DocumentPackage.Get();
@@ -369,16 +383,15 @@ namespace Durin::Editor::Level
 			Context.Synchronize(World);
 			SceneViewportPanel.RestoreCameraState(nullptr, nullptr);
 		}
-		const auto Result = ActiveLoadScope.ReleaseResidency(
-			Package && Package->IsAssetPackage() ? Package : nullptr, EAssetPackageUnloadPolicy::DiscardUnsaved);
-		if (!Result) { SetError(Result.Message); return false; }
+		ActiveSceneLoad.reset();
 		DocumentPackage.Reset();
 		DocumentWorld.Reset();
 		return true;
 	}
 
-	auto FLevelDocumentController::ActivateLevel(DLevel* Level, FAssetPackageLoadScope& LoadScope) -> bool
+	auto FLevelDocumentController::ActivateLevel(FSceneLoadOperation& Loading) -> bool
 	{
+		DLevel* Level = Loading.GetLevel();
 		if (!Context.World || !Level)
 		{
 			SetError("No world is available to activate the level.");
@@ -389,22 +402,14 @@ namespace Durin::Editor::Level
 		DLevel* Previous = Context.World->GetCurrentLevel();
 		DPackage* PreviousPackage = Previous ? Previous->GetPackage() : nullptr;
 		if (Previous != Level && !SceneViewportPanel.PrepareForLevelChange(Context)) return false;
-		if (!Context.World->SetCurrentLevel(Level))
+		if (!Loading.Commit())
 		{
 			SetError("The level is already active in another world.");
 			return false;
 		}
 		FLevelDocumentRevisionState::Activate(GetLevelTransactions(), PreviousPackage, Level->GetPackage());
-		Context.Synchronize(Context.World);
+		Context.Synchronize(Context.EditorHost->GetEditorWorld());
 		SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
-		if (PreviousPackage != Level->GetPackage())
-		{
-			const auto Result = ActiveLoadScope.ReleaseResidency(
-				PreviousPackage && PreviousPackage->IsAssetPackage() ? PreviousPackage : nullptr,
-				EAssetPackageUnloadPolicy::DiscardUnsaved);
-			if (!Result) DURIN_WARN("Failed to release previous level residency: {}", Result.Message);
-			ActiveLoadScope = std::move(LoadScope);
-		}
 		DocumentPackage = Level->GetPackage();
 		DocumentWorld = Context.World;
 		return true;

@@ -232,10 +232,35 @@ namespace Durin::AssetPrivate
 				if (Scope.IsIntrinsicComponent()) StoredKind = Scope.Type->Parameter == 6 ? K::F32 : K::F64;
 				if (StoredKind == K::Byte) StoredKind = K::U8;
 				const auto& V = *Scope.Value;
+				// Canonical enum storage preserves its unsigned bit pattern even when
+				// the reflected C++ underlying type is signed. Only equal widths match.
+				const bool bUnsignedEnum = Scope.Type->Kind == K::Enum
+					&& StoredKind >= K::U8 && StoredKind <= K::U64;
+				if (bUnsignedEnum)
+				{
+					if (Kind == P::Int8 && StoredKind == K::U8) StoredKind = K::I8;
+					if (Kind == P::Int16 && StoredKind == K::U16) StoredKind = K::I16;
+					if (Kind == P::Int32 && StoredKind == K::U32) StoredKind = K::I32;
+					if (Kind == P::Int64 && StoredKind == K::U64) StoredKind = K::I64;
+				}
+				// Native boolean fields use the scalar U8 descriptor. Reflected
+				// booleans instead have their own Bool kind; both encode only 0 or 1.
+				if (Kind == P::Bool && StoredKind == K::U8)
+				{
+					if (V.Unsigned > 1 || !TakeAtomic(Scope)) Invalid("Native boolean storage requires one zero-or-one byte.");
+					else *static_cast<bool*>(Out) = V.Unsigned != 0;
+					return true;
+				}
 				auto Load = [&]<typename T>(K Expected, T Value) {
 					if (StoredKind != Expected || !TakeAtomic(Scope))
-						Invalid("Primitive read does not match the stored logical value.");
-					else *static_cast<T*>(Out) = Value;
+						Invalid(std::format("Primitive read does not match the stored logical value (stored kind={}, requested kind={}).",
+							static_cast<uint32>(Scope.Type->Kind), static_cast<uint32>(Expected)));
+					else
+					{
+						if constexpr (std::is_integral_v<T> && std::is_signed_v<T>)
+							if (bUnsignedEnum) Value = std::bit_cast<T>(static_cast<std::make_unsigned_t<T>>(V.Unsigned));
+						*static_cast<T*>(Out) = Value;
+					}
 				};
 				const uint64 Bits = Scope.IsIntrinsicComponent() ? V.ComponentBits[Scope.ComponentOffset] : V.FloatingBits;
 				switch (Kind)

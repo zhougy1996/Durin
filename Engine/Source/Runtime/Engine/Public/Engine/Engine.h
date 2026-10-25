@@ -9,6 +9,8 @@
 #include "SceneOwnership.h"
 #include "Engine/World.h"
 #include "Engine/EngineSubsystem.h"
+#include "Engine/HostStartup.h"
+#include "Engine/SceneLoadProgress.h"
 #include "DObject/ObjectLifecycle.h"
 
 #include "Engine.gen.h"
@@ -20,10 +22,10 @@ namespace Durin
 	// Narrow Launch-owned capability available while a concrete engine initializes.
 	struct FEngineInitContext
 	{
-		std::function<bool()> PumpStartupFrame;
 		// Launch creates the real primary native window before RHI device
 		// admission and transfers the Mona-level owner here for viewport setup.
 		std::shared_ptr<MWindow> StartupWindow;
+		std::string ProjectAdmissionError;
 	};
 
 	class DCameraComponent;
@@ -34,6 +36,9 @@ namespace Durin
 	class FGenericWindow;
 	class DWorld;
 	class FSceneInterface;
+	class FSceneLoadOperation;
+	struct FSceneLoadRequest;
+	class FObjectPath;
 	struct FSceneView;
 
 	// Identifies a World's role in one engine; it does not own an editor or window.
@@ -61,6 +66,11 @@ namespace Durin
 			-> bool;
 
 		ENGINE_API virtual auto Tick(float DeltaSeconds, bool bIdleMode) -> void;
+		// Called once from the ordinary owner frame, outside simulation and UI callbacks.
+		virtual auto AdvanceStartup() -> void {}
+		virtual auto GetStartupState() const -> EHostStartupState { return EHostStartupState::Ready; }
+		virtual auto ShouldDrawStartupScene() const -> bool { return false; }
+		ENGINE_API virtual auto GetStartupError() const -> const std::string&;
 		// Detaches host-owned consumers while the task system and objects are still alive.
 		ENGINE_API virtual auto PrepareForShutdown() -> void;
 		ENGINE_API virtual auto BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject = nullptr) -> int32;
@@ -76,6 +86,10 @@ namespace Durin
 		ENGINE_API auto RegisterAuxiliarySceneViewport(const std::shared_ptr<FSceneViewport>& InSceneViewport) -> void;
 		ENGINE_API auto UnregisterAuxiliarySceneViewport(const FSceneViewport* InSceneViewport) -> void;
 		ENGINE_API virtual auto SetWorld(DWorld* InWorld) -> void;
+		ENGINE_API auto CreateSceneLoad(FSceneLoadRequest Request) -> std::shared_ptr<FSceneLoadOperation>;
+		ENGINE_API auto HasPendingSceneLoad() const -> bool;
+		ENGINE_API auto GetSceneLoadProgress() const -> std::optional<FSceneLoadProgress>;
+		auto GetSceneGeneration() const -> uint64 { return SceneGeneration; }
 		ENGINE_API auto GetWorldContextFromWorld(const DWorld* World) const -> const FWorldContext*;
 		auto GetWorldContexts() const -> std::span<const FWorldContext> { return WorldContexts; }
 
@@ -100,6 +114,10 @@ namespace Durin
 		ENGINE_API auto ResetGameInputMouse() -> void;
 
 	protected:
+		ENGINE_API auto BuildWorldSceneView(const DWorld& World, uint32 Width, uint32 Height) const -> FSceneView;
+		ENGINE_API virtual auto AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void;
+		// Content admission runs after host services exist and schema providers load.
+		ENGINE_API auto InitializeProjectContent() -> std::expected<void, std::string>;
 		// Pins host lifecycle mutation until a complete host callback has returned.
 		class FHostOperationScope
 		{
@@ -120,6 +138,10 @@ namespace Durin
 		bool bShutdownRequested = false;
 		bool bShutdownComplete = false;
 	private:
+		friend class FEngineLoop;
+		friend class FSceneLoadOperation;
+		ENGINE_API auto AdvanceSceneLoads() -> void;
+		auto SubmitPendingScenes() -> void;
 		// Tracks unpublished Worlds so host retirement can close their admission during boot.
 		class FWorldInitializationScope
 		{
@@ -133,6 +155,8 @@ namespace Durin
 		};
 		std::vector<DWorld*> InitializingWorlds;
 		std::vector<FWorldContext> WorldContexts;
+		std::vector<std::weak_ptr<FSceneLoadOperation>> SceneLoads;
+		uint64 SceneGeneration = 0;
 		// World lifecycle and SetWorld are the only writers of the context registry.
 		ENGINE_API auto RegisterWorldContext(DWorld& World) -> void;
 		ENGINE_API auto DestroyWorldContext(DWorld* World) -> void;

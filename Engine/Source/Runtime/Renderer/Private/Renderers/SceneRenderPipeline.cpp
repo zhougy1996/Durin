@@ -75,10 +75,10 @@ namespace Durin
 	auto FSceneRenderPipeline::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
+		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture, bool bPrepareOnly) -> ERenderViewResult
 	{
 		FPreparedShaderMapScope ShaderScope(true);
-		if (!FRenderResourcePreparationScope::IsActive() && Service.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
+		if (!bPrepareOnly && Service.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++Service.RenderSubmissionSerial;
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
@@ -133,7 +133,7 @@ namespace Durin
 		const auto FeatureResult = ResolvePipelineStage_RenderThread(CommandList, Context,
 			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread);
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
-		if (FRenderResourcePreparationScope::IsActive()) return ERenderViewResult::Success;
+		if (bPrepareOnly) return ERenderViewResult::Success;
 		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
 		BeginTemporalState_RenderThread(Context);
 		FRDGBuilder Graph;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/HostStartup.h"
 
 #include "LevelEditorAPI.h"
 #include "Modules/ModuleManager.h"
@@ -46,7 +47,8 @@ namespace Durin
 			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks,
 			std::function<void()> OpenProjectBrowser) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
-		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
+		LEVELEDITOR_API auto OpenDefaultDocument(std::string& OutError) -> EHostStartupState;
+		LEVELEDITOR_API auto AdvancePendingDocument() -> void;
 		LEVELEDITOR_API auto RequestOpenProject(std::string ProjectFile) -> bool;
 	private:
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;

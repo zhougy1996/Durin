@@ -340,8 +340,11 @@ namespace Durin::VulkanRHI
 		}
 		AcquiredBackBufferIndex = -1;
 		AcquiredSemaphore = nullptr;
-		if (PresentOutcome.bPresented && Profiling::RecordEditorShellFirstPresent())
-			DURIN_PROFILE_STARTUP_FIRST_PRESENT();
+		if (PresentOutcome.bPresented)
+		{
+			RecordSuccessfulPresentation();
+			if (Profiling::RecordEditorShellFirstPresent()) DURIN_PROFILE_STARTUP_FIRST_PRESENT();
+		}
 		return PresentOutcome.bPresented;
 	}
 

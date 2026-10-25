@@ -862,7 +862,7 @@ namespace Durin::AssetPrivate
 		if (FindPackage(PackagePath.GetView()))
 		{
 			LinkerApplyFail(Diagnostic, EAssetReadError::AlreadyExists,
-				"A package with the requested path is already live.");
+				std::format("A package with the requested path '{}' is already live.", PackagePath.ToString()));
 			return Finish({EAssetReadError::AlreadyExists, Diagnostic.Message});
 		}
 		FLinkerApplication Application;
@@ -897,7 +897,11 @@ namespace Durin::AssetPrivate
 			});
 			Cleanup([&] {
 				if (!bSkeletonPublished || !Options.DeferCompletion)
-				{ MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+				{
+					MarkObjectHierarchyAsGarbage(Package);
+					if (Package->IsAssetPackage()) Package->RetireFailedLoadRegistration();
+					CollectGarbage();
+				}
 			});
 			Cleanup([&] {
 				if (Options.DependencyLoadPolicy && Options.DependencyLoadPolicy->Rollback) Options.DependencyLoadPolicy->Rollback();

@@ -111,6 +111,11 @@ namespace Durin::MonaImGui
 		return {Scale.x, Scale.y};
 	}
 
+	auto FMonaImGuiBackend::ObserveTexturePresentation(const FRHITexture* Texture, std::shared_ptr<FViewportOutputReceipt> Receipt) -> void
+	{
+		ImGuiRHIImpl_ObserveTexturePresentation(Texture, std::move(Receipt));
+	}
+
 	auto FMonaImGuiBackend::DrawImage(const FRHITexture* InTexture, const FVector2f& Size) -> bool
 	{
 		if (InTexture == nullptr)
@@ -125,7 +130,7 @@ namespace Durin::MonaImGui
 		}
 
 		ImGui::Image(TextureID, {Size.x, Size.y});
-		return true;
+		return ImGui::IsItemVisible();
 	}
 
 	auto FMonaImGuiBackend::Get() -> FMonaImGuiBackend&

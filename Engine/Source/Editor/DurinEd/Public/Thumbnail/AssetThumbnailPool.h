@@ -85,7 +85,9 @@ namespace Durin::Editor
 		DURINED_API auto AddReferencer(const FTopLevelAssetPath& AssetPath) -> void;
 		DURINED_API auto RemoveReferencer(const FTopLevelAssetPath& AssetPath) -> void;
 		DURINED_API auto Refresh(const FTopLevelAssetPath& AssetPath) -> void;
-		DURINED_API auto EndFrame() -> void;
+		// Existing completions/retirement still progress while required scene work
+		// temporarily defers new optional thumbnail admissions.
+		DURINED_API auto EndFrame(bool bAllowNewAdmissions = true) -> void;
 		DURINED_API auto CancelPendingRequests() -> void;
 		DURINED_API auto Clear() -> void;
 		DURINED_API auto GetStats() const -> FAssetThumbnailPoolStats;

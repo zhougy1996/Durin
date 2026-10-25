@@ -37,6 +37,9 @@ namespace Durin
 		FSceneViewRenderOptions Options;
 		FSceneViewStatistics* Statistics = nullptr;
 		FRDGCapture* Capture = nullptr;
+		// Observe and bound preparation during this same invocation, then draw the
+		// prepared frame directly. Separate PrepareViewResources calls remain prepare-only.
+		const FRenderResourcePreparation* Preparation = nullptr;
 	};
 
 	// Defines scene ownership and frame rendering services exposed by the renderer module.

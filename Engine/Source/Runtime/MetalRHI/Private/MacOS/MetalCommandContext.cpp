@@ -384,6 +384,7 @@ namespace Durin
 					DURIN_PROFILE_CPU_ZONE_NAMED("Metal.Present.Commit");
 					Command->commit();
 				}
+				MetalViewport->RecordSuccessfulPresentation();
 				if (Profiling::RecordEditorShellFirstPresent())
 					DURIN_PROFILE_STARTUP_FIRST_PRESENT();
 			}

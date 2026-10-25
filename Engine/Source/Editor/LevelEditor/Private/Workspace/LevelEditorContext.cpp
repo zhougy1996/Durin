@@ -25,7 +25,7 @@ namespace Durin::Editor::Level
                 ScriptEditPolicy = std::make_unique<FEditorScriptTargetPolicyRegistration>(*EditorHost, *Level, [this] {
                     if (!IsValid(EditorHost) || !IsValid(Level) || !IsValid(World) || Level->GetWorld() != World
                         || World->GetCurrentLevel() != Level) return EEditorScriptTargetAccess::Unavailable;
-                    return bReadOnly || EditorHost->IsPlaying() ? EEditorScriptTargetAccess::ReadOnly : EEditorScriptTargetAccess::Writable;
+                    return bReadOnly || EditorHost->IsPlaying() || !EditorHost->CanTransact() ? EEditorScriptTargetAccess::ReadOnly : EEditorScriptTargetAccess::Writable;
                 });
 			ClearSelection();
 			return;

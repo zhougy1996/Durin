@@ -1,5 +1,6 @@
 #include "Shader/ShaderMapPreparation.h"
 #include "ImGuiRHIImpl.h"
+#include "Rendering/ViewportPresentation.h"
 #include "ImGuiRHIDrawState.h"
 #include "ImGuiRHIBufferCapacity.h"
 #include "Profiling/Profiling.h"
@@ -84,6 +85,7 @@ namespace Durin::MonaImGui
 	struct FImGuiRHIImpl_Texture
 	{
 		FTextureRHIRef Texture;
+		std::shared_ptr<FViewportOutputReceipt> Receipt;
 	};
 
 	auto FImGuiRHIImpl_WindowRenderBuffers::Clear() -> void
@@ -415,6 +417,11 @@ namespace Durin::MonaImGui
 		UnregisterTextureImpl(InRHITexture);
 	}
 
+	auto ImGuiRHIImpl_ObserveTexturePresentation(const FRHITexture* Texture, std::shared_ptr<FViewportOutputReceipt> Receipt) -> void
+	{
+		if (const auto It = GRegisteredTextures.find(Texture); It != GRegisteredTextures.end()) It->second.Receipt = std::move(Receipt);
+	}
+
 	auto ImGuiRHIImpl_GetTextureID(const FRHITexture* InRHITexture) -> ImTextureID
 	{
 		return GRegisteredTextures.contains(InRHITexture) ? reinterpret_cast<ImTextureID>(InRHITexture) : ImTextureID_Invalid;
@@ -643,13 +650,16 @@ namespace Durin::MonaImGui
 		CommandList.SetScissor(0.0f, 0.0f, FrameBufferWidth, FrameBufferHeight);
 	}
 
+	using FOutputObservers = std::unordered_map<const FRHITexture*, std::shared_ptr<FViewportOutputReceipt>>;
+	using FConsumedOutputs = std::vector<std::pair<std::shared_ptr<FViewportOutputReceipt>, uint64>>;
 	static auto ImGuiRHIImplRT_RenderDrawData(
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* InTargetFrameBuffer,
 		const ImDrawData* DrawData,
 		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers,
 		const FClearValueBinding& ClearValue,
-		const FGraphicsPipelineStateRHIRef& PipelineState
+		const FGraphicsPipelineStateRHIRef& PipelineState,
+		const FOutputObservers& Observers, FConsumedOutputs& Consumed
 	) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.RenderDrawData");
@@ -751,6 +761,9 @@ namespace Durin::MonaImGui
 						}
 
 						CommandList.DrawIndexed(Cmd->ElemCount, Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
+						if (Cmd->ElemCount != 0)
+							if (const auto It = Observers.find(Texture); It != Observers.end())
+								Consumed.emplace_back(It->second, It->second->GetProduced());
 						++DrawCount;
 					}
 				}
@@ -801,7 +814,16 @@ namespace Durin::MonaImGui
 		const ImVec4 WindowBgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
 		const FClearValueBinding ClearValue(WindowBgColor.x, WindowBgColor.y, WindowBgColor.z, 1.0f);
 
-		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers, ClearValue, bPresent](FRHICommandListImmediate& CommandList) {
+		// Snapshot observers on their owner thread. The render thread must never
+		// read the mutable registration map or pin a display producer/World.
+		FOutputObservers Observers;
+		if (DrawData) for (const auto* List : DrawData->CmdLists) for (const auto& Cmd : List->CmdBuffer)
+		{
+			const auto It = GRegisteredTextures.find(reinterpret_cast<FRHITexture*>(Cmd.GetTexID()));
+			if (It != GRegisteredTextures.end() && It->second.Receipt) Observers.emplace(It->first, It->second.Receipt);
+		}
+		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers, ClearValue, bPresent,
+			Observers = std::move(Observers)](FRHICommandListImmediate& CommandList) {
 			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.RenderViewport");
 			check(WindowRenderBuffers != nullptr);
 			auto& RenderBuffersCurrentFrame = WindowRenderBuffers->FrameRenderBuffers[GRenderFrameCounterRenderThread % FrameInFlight];
@@ -825,6 +847,7 @@ namespace Durin::MonaImGui
 
 			const FGraphicsPipelineStateRHIRef PipelineState =
 				ImGuiRHIImplRT_GetPipeline(BackBuffer->GetFormat());
+			FConsumedOutputs Consumed;
 			if (DrawData != nullptr
 				&& DrawData->TotalVtxCount > 0
 				&& DrawData->TotalIdxCount > 0
@@ -834,7 +857,7 @@ namespace Durin::MonaImGui
 			{
 				ImGuiRHIImplRT_RenderDrawData(
 					CommandList, BackBuffer, DrawData,
-					RenderBuffersCurrentFrame, ClearValue, PipelineState);
+					RenderBuffersCurrentFrame, ClearValue, PipelineState, Observers, Consumed);
 			}
 			else
 			{
@@ -864,7 +887,7 @@ namespace Durin::MonaImGui
 
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.EndViewport");
-				CommandList.EndDrawingViewport(ViewportRHI, bPresent, false);
+				EndDrawingViewportWithReceipts(CommandList, ViewportRHI, bPresent, std::move(Consumed));
 			}
 		});
 	}

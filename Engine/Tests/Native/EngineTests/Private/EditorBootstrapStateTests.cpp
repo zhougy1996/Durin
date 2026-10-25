@@ -1,7 +1,6 @@
 #include "gtest/gtest.h"
 
 #include "Editor/EditorHost.h"
-#include "Runtime/Launch/Private/EngineFrame.h"
 
 namespace Durin::Editor::Host
 {
@@ -25,7 +24,7 @@ namespace Durin::Editor::Host
 						&& To == EBootstrapState::WaitingForFirstPresent)
 					|| (From == EBootstrapState::WaitingForFirstPresent
 						&& (To == EBootstrapState::LoadingWorkspace
-							|| To == EBootstrapState::Ready))
+							|| To == EBootstrapState::Ready || To == EBootstrapState::Failed))
 					|| (From == EBootstrapState::LoadingWorkspace
 						&& (To == EBootstrapState::WorkspaceReady
 							|| To == EBootstrapState::Failed))
@@ -50,9 +49,4 @@ namespace Durin::Editor::Host
 			EBootstrapStepStatus::Pending);
 	}
 
-	TEST(FEditorBootstrapStateTests, StartupFramesExcludeEngineViewportRendering)
-	{
-		EXPECT_FALSE(ShouldRedrawEngineViewports(EEngineFrameMode::Startup));
-		EXPECT_TRUE(ShouldRedrawEngineViewports(EEngineFrameMode::Running));
-	}
 }

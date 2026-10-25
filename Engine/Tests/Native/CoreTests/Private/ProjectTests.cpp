@@ -393,6 +393,30 @@ TEST_F(FProjectHistoryTest, RecordsNewestFirstDeduplicatesAndCapsHistory)
 	EXPECT_EQ(History.GetEntries().front().Name, "Renamed");
 }
 
+TEST_F(FProjectHistoryTest, RestoreTargetIsIndependentOfRecentEntriesAndBrowserPolicy)
+{
+	const auto Interactive = WriteProject("Interactive", R"({"ProjectName":"Interactive"})");
+	const auto Diagnostic = WriteProject("Diagnostic", R"({"ProjectName":"Diagnostic"})");
+	Durin::FProjectHistory History(HistoryFile());
+	ASSERT_TRUE(History.Load());
+	ASSERT_TRUE(History.Record("Interactive", Interactive));
+	ASSERT_TRUE(History.Record("Diagnostic", Diagnostic, false));
+	EXPECT_EQ(History.GetMostRecentProjectFile(), Diagnostic);
+	EXPECT_EQ(History.GetRestoreProjectFile(), Interactive);
+	Durin::FProjectHistory Reloaded(HistoryFile());
+	ASSERT_TRUE(Reloaded.Load());
+	EXPECT_EQ(Reloaded.GetRestoreProjectFile(), Interactive);
+	ASSERT_TRUE(Reloaded.SetAutoRestoreEnabled(false));
+	ASSERT_TRUE(Reloaded.Load());
+	EXPECT_TRUE(Reloaded.GetRestoreProjectFile().empty());
+	ASSERT_TRUE(Reloaded.SetAutoRestoreEnabled(true));
+	EXPECT_EQ(Reloaded.GetRestoreProjectFile(), Interactive);
+	ASSERT_TRUE(Reloaded.Remove(Interactive));
+	ASSERT_TRUE(Reloaded.Load());
+	EXPECT_EQ(Reloaded.GetMostRecentProjectFile(), Diagnostic);
+	EXPECT_TRUE(Reloaded.GetRestoreProjectFile().empty());
+}
+
 TEST_F(FProjectHistoryTest, ReloadClassifiesAvailableMissingAndInvalidProjects)
 {
 	const std::string Valid = WriteProject("Valid", R"({"ProjectName":"Valid"})");

@@ -60,6 +60,8 @@ namespace Durin
 	auto FProjectHistory::Load() -> std::expected<void, FProjectError>
 	{
 		Entries.clear();
+		RestoreProjectFile.clear();
+		bAutoRestoreEnabled = true;
 		const bool bHistoryExists = std::filesystem::exists(HistoryFile);
 		if (bHistoryExists)
 		{
@@ -70,6 +72,7 @@ namespace Durin
 			}
 
 			const FYamlNodeView RecentProjects = Document.GetRootView().GetView("RecentProjects");
+			bAutoRestoreEnabled = Document.GetRootView().GetView("AutoRestoreEnabled").GetBool(true);
 			std::unordered_set<std::string> SeenProjects;
 			for (size_t Index = 0; Index < RecentProjects.Num() && Entries.size() < MaximumRecentProjects; ++Index)
 			{
@@ -80,6 +83,9 @@ namespace Durin
 				if (!SeenProjects.insert(MakeProjectKey(ProjectFile)).second) continue;
 				Entries.push_back({Item.GetView("Name").GetString(std::filesystem::path(ProjectFile).stem().string()), std::move(ProjectFile)});
 			}
+			const auto Root = Document.GetRootView();
+			RestoreProjectFile = Root.Contains("RestoreProjectFile")
+				? Root.GetView("RestoreProjectFile").GetString() : GetMostRecentProjectFile();
 		}
 		else
 		{
@@ -91,12 +97,13 @@ namespace Durin
 		return {};
 	}
 
-	auto FProjectHistory::Record(std::string_view ProjectName, std::string_view ProjectFile) -> std::expected<void, FProjectError>
+	auto FProjectHistory::Record(std::string_view ProjectName, std::string_view ProjectFile, bool bUpdateRestoreTarget) -> std::expected<void, FProjectError>
 	{
 		const std::string Normalized = NormalizeProjectFile(ProjectFile);
 		const std::string Key = MakeProjectKey(Normalized);
 		std::erase_if(Entries, [&Key](const FRecentProjectInfo& Entry) { return MakeProjectKey(Entry.ProjectFile) == Key; });
 		Entries.insert(Entries.begin(), {std::string(ProjectName), Normalized, ERecentProjectStatus::Available, {}});
+		if (bUpdateRestoreTarget) RestoreProjectFile = Normalized;
 		if (Entries.size() > MaximumRecentProjects) Entries.resize(MaximumRecentProjects);
 		return Save();
 	}
@@ -104,7 +111,14 @@ namespace Durin
 	auto FProjectHistory::Remove(std::string_view ProjectFile) -> std::expected<void, FProjectError>
 	{
 		const std::string Key = MakeProjectKey(ProjectFile);
+		if (MakeProjectKey(RestoreProjectFile) == Key) RestoreProjectFile.clear();
 		std::erase_if(Entries, [&Key](const FRecentProjectInfo& Entry) { return MakeProjectKey(Entry.ProjectFile) == Key; });
+		return Save();
+	}
+
+	auto FProjectHistory::SetAutoRestoreEnabled(bool bEnabled) -> std::expected<void, FProjectError>
+	{
+		bAutoRestoreEnabled = bEnabled;
 		return Save();
 	}
 
@@ -114,6 +128,8 @@ namespace Durin
 		FYamlNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureMap();
 		Root.SetChildValue("Version", 1);
+		Root.SetChildValue("RestoreProjectFile", RestoreProjectFile);
+		Root.SetChildValue("AutoRestoreEnabled", bAutoRestoreEnabled);
 		FYamlNodeRef RecentProjects = Root.AddSequence("RecentProjects");
 		for (const FRecentProjectInfo& Entry : Entries)
 		{

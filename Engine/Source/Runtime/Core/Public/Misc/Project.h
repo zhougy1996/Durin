@@ -17,6 +17,7 @@ namespace Durin
 		std::string MountRoot;
 		// Project-owned module roots enabled for this executable's runtime variant.
 		std::vector<std::string> EnabledRootModules;
+		bool bRecordInteractiveHistory = true;
 	};
 
 	// Describes how startup selects the process's initial project.
@@ -26,6 +27,7 @@ namespace Durin
 
 		// An empty path falls back to project history unless the browser is requested.
 		std::string RequestedProjectFile;
+		bool bRecordInteractiveHistory = true;
 	};
 
 	CORE_API auto GetCurrentProject() -> const FProjectInfo*;

@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-26
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -124,9 +124,12 @@ Current engine selection is semantic:
 
 Host-specific startup then lives in the concrete engine overrides.
 
-Concrete engine initialization returns `bool` and logs errors where they occur.
-Launch supplies an `FEngineInitContext` with the primary startup window and a
-startup-frame pump; editor modules do not depend on Launch internals.
+Concrete engine initialization returns `bool` for service construction and logs
+errors where they occur. Launch supplies an `FEngineInitContext` with the primary
+startup window and any initial project-admission error. Host startup readiness is
+separate: `GetStartupState()` reports Pending, Ready, or Failed, and the ordinary
+frame loop calls `AdvanceStartup()` outside simulation and UI callbacks. Editor
+modules do not depend on Launch internals.
 Editor and Game adopt that same window rather than creating
 a replacement after RHI initialization. The parsed `FEngineStartupParams` is
 passed directly to `FEngineLoop::PreInit()` without an intermediate conversion.
@@ -139,15 +142,21 @@ and selects a clean process result; otherwise it selects failure. A concurrent
 close request therefore takes precedence over an initialization error for exit
 code selection, while the error remains logged.
 
-MainFrame keeps one bootstrap state, including default-document loading and its
-terminal outcome. `AdvanceBootstrap()` returns only pending, ready, or failed;
-it logs failures locally and retains the message for the loading UI. Phase
-indices and counts are MainFrame presentation details, not cross-module progress
-payloads. Each step still yields to the startup pump before the next phase.
+DurinEd owns the ordered bootstrap state, including project admission,
+workspace activation, default-document loading, and terminal outcome. MainFrame
+adapts requested workspace/document actions and presents published phase/error
+snapshots; it does not advance the workflow. Each step advances at most once per
+ordinary outer frame. Shell
+presentation is observed from the retained primary RHI viewport's successful
+presentation serial, relative to its shell baseline, rather than a profiling
+timestamp. An auxiliary viewport cannot satisfy that gate.
 
-`DEngine::Init()` places the default-material service after Engine Content,
-Engine, RHI, and render-command admission but before scene proxies can be
-created. Material loading, fallback, and render-proxy semantics are defined by
+`DEngine::Init()` constructs minimum runtime/renderer services without admitting
+project content or creating the initial World. After schema providers are active,
+`InitializeProjectContent()` requires a successful catalog refresh, initializes
+the default-material service, then constructs the complete Engine/World subsystem
+sets and initial World. Editor invokes this after shell presentation; Game invokes
+it after loading its project providers. Material loading, fallback, and render-proxy semantics are defined by
 [Material System](../Rendering/Materials/MaterialSystem.md).
 
 `DGameEngine` first loads every project root module enabled for the Game runtime,
@@ -160,26 +169,54 @@ play with an explicit World request. A missing pair selects lifecycle-only
 play. A partial or invalid configured pair, or a native bootstrap failure,
 produces an actionable startup error and leaves the World stopped.
 
-`DEditorEngine::Init()` constructs the production MainFrame shell and drives
-workspace activation plus default-Level opening to a terminal result before it
-returns. The Editor loads `AssetForgeBuiltins` before the base Engine performs
-its atomic catalog scan so concrete editor-only import data classes are
-registered. Built-in
-authoring UI starts with workspace activation. Startup pumps a real Mona/ImGui
-frame and waits for the presentation path to publish `FirstPresent`, including
-bounded smoke runs and startup commands. Project Browser initialization completes
-after its visible host frame without loading project workspaces.
+`DEditorEngine::Init()` constructs the production MainFrame shell and returns
+with Pending host readiness. `AdvanceStartup()` drives workspace activation and
+default-Level opening through ordinary frames. After shell presentation, the
+Editor loads `AssetForgeBuiltins` and project roots before its atomic catalog
+scan so concrete import-data and project classes are registered. Eager preview
+mesh warmup is not a shell or initial-scene dependency; preview consumers retain
+their meshes on demand. Built-in
+authoring UI starts with workspace activation. Project Browser readiness follows
+its visible host frame without loading project workspaces. Startup uses the
+ordinary event/completion/render/GC loop. Pending or failed hosts do not run
+gameplay or editor tools/scripts; necessary geometry and PSO service work remains
+pumpable. Candidate scene submissions run within normal RHI framing. After
+document commit the active scene may draw while startup still awaits its actual
+primary-window composition/presentation receipt. That gate does not read profiling.
 
-The startup pump processes application events and submits a loading-only frame
-through the existing RHI begin/end, Mona render, frame synchronization, and
-render-counter protocol. It does not call `DEngine::Tick()`, redraw engine
-viewports, pump ordinary deferred or asset-completion budgets, collect garbage,
-tick diagnostics or PIE, publish FPS/profiler frames, or increment the logic
-frame counter. The editor loading view reports named phase progress; synchronous
-workspace and Level operations may keep the last submitted frame static until
-the operation returns.
+Editor default/open-Level and authored/cooked Game loading share
+`FSceneLoadOperation`. Callers submit one `FSceneLoadRequest` with the asset
+path, optional BeginPlay policy and optional initial-view builder. The ordinary
+Engine frame advances operations after completions and submits candidate views
+inside `RedrawViewports`; UI and modal callbacks never drive operation stages.
+Callers read one `FSceneLoadProgress` snapshot, then cancel or explicitly commit.
+Closed admission returns a failed operation through the same diagnostic channel.
+Editor view builders capture persisted camera state and viewport parameters by
+value. Engine reports typed progress; MainFrame owns its display text.
+The operation retains an asynchronous asset handle, prepares required products,
+initializes an isolated World/Scene, and renders an initial candidate view before
+explicit commit. Failure or cancellation retires the candidate and
+preserves the old document. Native World initialization/registration callbacks
+and package object application remain atomic owner-thread work. Game BeginPlay
+runs once on the candidate; its spawned products are recollected before rendering.
+Simulation and input wait until the committed generation has actually presented.
+
+Automated running-tick counts and startup-command dispatch begin only after host
+readiness. Required startup failure returns a failed automated result even when
+the interactive Editor preserves its error/browser UI. Game startup failure also
+terminates the process. A malformed configured default Level remains a failure,
+distinct from an intentionally empty default-Level setting.
 
 ## Frame Lifecycle
+
+VSync does not provide a work budget for an unsynchronized swapchain. The Editor
+limits visible focused running frames to 60 Hz, startup/error frames to 30 Hz,
+unfocused frames to 10 Hz and minimized service frames to 5 Hz. Game running
+frames retain their presentation policy; Game startup uses 30 Hz and minimized
+frames use 20 Hz. Event waits wake for native input, while the monotonic deadline
+prevents an input storm from bypassing render pacing. Modal continuations do not
+wait or advance operations/simulation. Automated tick counts count real running
+ticks, excluding event-only pacing iterations and canceled startup.
 
 `FEngineLoop::Tick()` measures and clamps real frame delta time before calling
 `DEngine::Tick()`. Active game worlds receive an `FWorldTickContext` containing
@@ -191,10 +228,11 @@ into bounded pawn-control intent. Raw one-frame transitions are cleared only aft
 the World call, so one advancing tick or single-step can observe each edge at
 most once.
 
-Immediately after `DEngine::Tick()`, the engine pumps low-priority
+Before host startup advancement and `DEngine::Tick()`, the engine pumps low-priority
 `GameThreadDeferred` continuations using the configured item and time budgets.
-It then calls the Engine-owned asset-service completion pump before incrementing
-the logic-frame counter. Together these are the sole normal-frame GameThread
+It then calls the Engine-owned asset-service completion pump. These precede host
+advancement and admitted simulation; the frame counter advances for loading
+frames as well as running frames. Together these are the normal-frame GameThread
 completion safe point, in this fixed order. Deferred callbacks are not
 frame-critical synchronization, do not run inline at submission, and may be
 carried into a later frame when the budget is exhausted. Asset-service mailboxes
@@ -205,8 +243,9 @@ Launch keeps the frame render decision visible in `FEngineLoop::Tick()`, while
 its private `EngineFrame` component owns begin/end render-thread callbacks, UI
 and viewport submission, end-frame synchronization, and the render counter.
 The same component has a startup mode that shares those frame mechanics while
-submitting only Mona/ImGui. Startup mode is callable only through the narrow
-engine-init context and ends before `FEngineLoop` publishes `Running`.
+submitting only Mona/ImGui. This mode is selected by host readiness in the same
+frame loop, after process services have entered Running. Modal continuation
+frames do not reenter startup advancement or simulation.
 Responsibility-specific diagnostics own editor PIE, native gameplay, and
 task-scheduler retained state. Typed native-crash phases are resolved at the
 argument boundary rather than compared as arbitrary strings by the loop. These

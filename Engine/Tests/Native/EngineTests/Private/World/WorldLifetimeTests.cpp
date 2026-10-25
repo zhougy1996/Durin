@@ -1,4 +1,7 @@
 #include "WorldTestSupport.h"
+#include "Engine/SceneLoadOperation.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "PropertyEditor/PropertyEditing.h"
 #include "Preview/PreviewScene.h"
@@ -701,4 +704,55 @@ TEST(FWorldTests, SceneReplacementPreservesPlayingComponentLifecycleAndBoundTime
 	World->Tick({.DeltaSeconds = 0.1f}); EXPECT_EQ(Calls, 1);
 	World->SetRenderScene(nullptr); EXPECT_TRUE(Second.Lights.empty());
 	World->EndPlay(); Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+}
+
+TEST(FWorldTests, CanceledSceneOperationPreservesTheActiveWorldAndCannotCommit)
+{
+	using namespace Durin;
+	const std::array MountDefinitions{FMountPoint{.VirtualRoot = "/SceneCancellation/", .Owner = EMountOwner::Test,
+		.Root = std::filesystem::current_path()}};
+	Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "SceneCancellationHost"));
+	auto* Previous = CreateWorld(Host.Get(), EWorldType::Editor);
+	Host->SetWorld(Previous);
+	auto* Level = Previous->GetCurrentLevel();
+	FObjectPath Path;
+	ASSERT_TRUE(FObjectPath::TryCreate("/SceneCancellation/Candidate.Candidate", Path));
+	{
+		bool bBuiltView = false;
+		auto Loading = Host->CreateSceneLoad({.Path = Path, .BuildInitialView = [&](const DWorld&) -> std::expected<FSceneView, std::string> {
+			bBuiltView = true;
+			return std::unexpected("Canceled requests must not build a view.");
+		}});
+		EXPECT_TRUE(Host->HasPendingSceneLoad());
+		ASSERT_TRUE(Host->GetSceneLoadProgress());
+		EXPECT_EQ(Host->GetSceneLoadProgress()->Id, Loading->GetProgress().Id);
+		EXPECT_EQ(Loading->GetProgress().Phase, ESceneLoadPhase::LoadingAssets);
+		Loading->Cancel();
+		Loading->Cancel();
+		EXPECT_EQ(Loading->GetProgress().Phase, ESceneLoadPhase::Canceled);
+		EXPECT_FALSE(Host->HasPendingSceneLoad());
+		EXPECT_FALSE(Host->GetSceneLoadProgress());
+		EXPECT_FALSE(bBuiltView);
+		EXPECT_FALSE(Loading->Commit());
+		EXPECT_EQ(Host->GetWorld(), Previous);
+		EXPECT_EQ(Previous->GetCurrentLevel(), Level);
+		EXPECT_FALSE(Previous->IsShutdownRequested());
+	}
+	Host->PrepareForShutdown();
+	{
+		auto Rejected = Host->CreateSceneLoad({.Path = Path});
+		ASSERT_TRUE(Rejected);
+		EXPECT_EQ(Rejected->GetProgress().Phase, ESceneLoadPhase::Failed);
+		EXPECT_NE(Rejected->GetProgress().Diagnostic.find("admission is closed"), std::string::npos);
+		EXPECT_EQ(Rejected->GetLevel(), nullptr);
+		EXPECT_FALSE(Rejected->Commit());
+		EXPECT_FALSE(Host->HasPendingSceneLoad());
+	}
+	auto* Retired = Host.Get();
+	Host.Reset();
+	MarkObjectHierarchyAsGarbage(Retired);
+	CollectGarbage();
 }

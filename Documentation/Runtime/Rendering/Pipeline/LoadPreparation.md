@@ -4,7 +4,7 @@ Summary: Prepare cooked material programs and exact scene Shader/PSO resources b
 
 Modules: Engine, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-10-26
 
 ## Object and program readiness
 
@@ -29,13 +29,19 @@ admission. Terminal results remain observable after cancellation. Each request
 has the existing 8 MiB encoded family limit. Decoded products and package-task storage have additional allocation cost;
 these limits are not a process RSS bound.
 
-Cooked Game startup explicitly requests the default level’s selected Local/Spline
-mesh CPU/GPU residency in batches of four before registration, then collects the default
-level's effective mesh-slot materials and their parent chains, and prepares at
-most eight programs concurrently. The collection is limited to 4,096 owners.
-It activates the level after admission, then requests main-viewport resource
-preparation. Materials introduced by gameplay or later streaming retain demand
-loading. Authored startup keeps its existing material-program loading behavior.
+The shared scene operation requests selected Local/Spline mesh CPU/GPU residency
+with at most four requests per advancement and waits for authored compilation
+without joining it. Cooked operations also collect effective mesh-slot materials
+and their parent chains, preparing at most eight programs concurrently. Collections
+are limited to 4,096 owners. Game BeginPlay runs on the candidate before its final
+product collection, so spawned initial resources participate in admission. The
+operation renders a candidate view before commit; actual committed output and
+primary-window presentation have separate generation-scoped receipts. Later
+streamed products retain their normal component/demand preparation gates.
+
+The Editor thumbnail pool continues polling and retiring accepted jobs during
+required scene loading, but `EndFrame(false)` defers new optional admissions.
+Queued requests remain available when the host and required scene are ready.
 
 ## Scene resource readiness
 
@@ -150,10 +156,15 @@ create a new request after invalidation.
 ## Activation and uncovered work
 
 `FSceneViewport::RequestResourcePreparation` enables an explicit drawing barrier.
-The viewport pumps the actual request before every covered draw, including after
-Ready, and retains its handle through activation. `PrepareViewResources` returns
-the progress directly. A Ready handle describes the most recent pump; changes to
-view/output/features are rechecked before activation. Repumping Ready replaces
+The viewport supplies its observer in `FSceneViewRenderRequest::Preparation` to
+one `RenderView` invocation, including after Ready. That invocation prepares the
+current view once and continues directly into graph construction/drawing when
+ready; Pending returns without drawing. The prepared frame is local to that call,
+never borrowed across frames. `PrepareViewResources` remains an explicit
+prepare-only operation for callers that do not want a draw. Observation scope
+does not choose prepare-only execution or suppress the rendering submission serial.
+A Ready handle describes the most recent invocation; changes to
+view/output/features are rechecked before drawing. Repumping Ready replaces
 its retained resource window; Pending pumps retain their partial progress.
 Failed preparation remains observable and does not draw a falsely ready
 scene. Cooked default-level startup and the Level Editor's main and camera-preview
@@ -164,10 +175,11 @@ scene's pipeline compilation on the rendering thread. Device invalidation
 restarts a stale viewport preparation. Later scene/configuration changes and
 streamed mesh components additionally use the component PSO gate below. Other
 uses retain the ordinary resource-phase fallback unless their owner explicitly
-requests preparation. Activated viewports observe newly
-required Shader and pipeline admissions separately as uncovered work in the
-preparation progress. Those counts are independent of Failed; a shared cache can
-satisfy an uncovered pipeline admission without new native compilation.
+requests preparation. Covered viewports keep required Shader and pipeline
+admissions within their preparation budget on subsequent frames. Explicit
+`FRenderResourcePreparationUseScope` consumers can still count uncovered
+admissions independently of Failed; a shared cache can satisfy an uncovered
+pipeline admission without new native compilation.
 
 A preparation handle can be released after the renderer slots have adopted the
 ready resources. Residency and cache eviction remain bounded by their existing

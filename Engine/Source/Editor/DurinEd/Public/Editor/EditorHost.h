@@ -1,6 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/HostStartup.h"
+
+namespace Durin { class FViewportOutputReceipt; }
 
 namespace Durin::Editor::Host
 {
@@ -44,7 +47,7 @@ namespace Durin::Editor::Host
 			return To == EBootstrapState::WaitingForFirstPresent;
 		case EBootstrapState::WaitingForFirstPresent:
 			return To == EBootstrapState::LoadingWorkspace
-				|| To == EBootstrapState::Ready;
+				|| To == EBootstrapState::Ready || To == EBootstrapState::Failed;
 		case EBootstrapState::LoadingWorkspace:
 			return To == EBootstrapState::WorkspaceReady
 				|| To == EBootstrapState::Failed;
@@ -71,9 +74,13 @@ namespace Durin
 	{
 	public:
 		virtual auto CreateEditorHost(
-			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void = 0;
+			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow, std::string InitialProjectError) -> void = 0;
 		virtual auto DestroyEditorHost() -> void = 0;
-		virtual auto AdvanceBootstrap(bool bFirstPresentAvailable)
-			-> Editor::Host::EBootstrapStepStatus = 0;
+		virtual auto IsShellPresented() const -> bool = 0;
+		virtual auto IsScenePresented(const FViewportOutputReceipt& Receipt, uint64 Generation) const -> bool = 0;
+		virtual auto PublishBootstrapState(Editor::Host::EBootstrapState State, std::string Error = {}) -> void = 0;
+		virtual auto ActivateWorkspaces(std::string& OutError) -> bool = 0;
+		virtual auto OpenDefaultDocument(std::string& OutError) -> EHostStartupState = 0;
+		virtual auto AdvanceDocumentOperations() -> void = 0;
 	};
 }

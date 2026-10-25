@@ -42,7 +42,7 @@ namespace Durin
 
 	namespace
 	{
-		auto RenderFrame(EEngineFrameMode Mode) -> void
+		auto RenderFrame() -> void
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.RenderFrame");
 			if (GDynamicRHI == nullptr)
@@ -71,7 +71,7 @@ namespace Durin
 			const double SceneSubmissionStarted = FTime::Seconds();
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.SceneSubmission");
-				if (ShouldRedrawEngineViewports(Mode) && GEngine != nullptr)
+				if (GEngine)
 					GEngine->RedrawViewports();
 			}
 			const double UISubmissionStarted = FTime::Seconds();
@@ -101,11 +101,6 @@ namespace Durin
 
 	auto RenderEngineFrame() -> void
 	{
-		RenderFrame(EEngineFrameMode::Running);
-	}
-
-	auto RenderEngineStartupFrame() -> void
-	{
-		RenderFrame(EEngineFrameMode::Startup);
+		RenderFrame();
 	}
 }

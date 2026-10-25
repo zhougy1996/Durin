@@ -6,6 +6,8 @@
 #include "Math/MathFwd.h"
 #include "RHIResources.h"
 
+namespace Durin { class FViewportOutputReceipt; }
+
 namespace Durin::Mona
 {
 	// Abstracts the immediate-mode UI lifecycle and renderer texture bridge.
@@ -27,5 +29,6 @@ namespace Durin::Mona
 
 		// Returns true if the image was successfully drawn, false otherwise (e.g. if the texture was not registered or if the backend does not support direct image drawing).
 		virtual auto DrawImage(const FRHITexture*, const FVector2f& Size) -> bool = 0;
+		virtual auto ObserveTexturePresentation(const FRHITexture*, std::shared_ptr<FViewportOutputReceipt>) -> void {}
 	};
 }

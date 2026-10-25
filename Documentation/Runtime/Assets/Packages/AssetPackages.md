@@ -494,7 +494,11 @@ tables through ordinary `Serialize` or `SerializeCooked` dispatch. It owns only
 traversal and consumption state; it neither re-encodes values into temporary
 field payloads nor copies nested field records. Primitive and text reads use
 Core Archive logical read hooks. Raw reads are limited to explicit opaque Bytes
-and Byte values. Container scopes check indices, duplicate visits and complete
+and Byte values. Enum reads preserve canonical unsigned storage bits at the
+declared underlying width, including signed C++ enums. Native boolean reads accept
+only zero or one in their U8 scalar descriptor; reflected booleans retain Bool
+storage. Other primitive kind/width mismatches are rejected without coercion.
+Container scopes check indices, duplicate visits and complete
 consumption; stored struct fields must be consumed or explicitly removable under
 authored compatibility policy. Reference resolution and external BulkData use
 the supplied load bindings. Construct-free byte-tool payloads retain their
@@ -573,8 +577,13 @@ members use DFS completion order, with reverse object order within each package.
 All members become publicly ready together. Failure retires incomplete members
 and their resources; independent completed dependencies and pre-existing residents
 remain valid. Explicit load scopes also record successful dependencies of a
-failed root and can release those exact generations normally. Forced GC remains
-part of failed candidate retirement to support immediate same-path retry.
+failed root and can release those exact generations normally. Failed candidates
+withdraw their exact package registration and become private before releasing
+pending-load ownership. Same-path retry does not depend on physical GC, which may
+remain deferred by an enclosing operation. Resource retirement remains owned by
+the failed load, and late destruction cannot remove a replacement generation's
+registration. Cleanup still requests collection to release dead storage at the
+next permitted safe point.
 
 Constructors, serializers and graph validators must not publish candidate
 references or perform external mutations requiring compensation. Serializers

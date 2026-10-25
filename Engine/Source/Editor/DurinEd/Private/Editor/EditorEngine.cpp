@@ -4,7 +4,6 @@
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
-#include "Preview/PreviewMeshResources.h"
 
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
@@ -65,7 +64,8 @@ namespace Durin
 	}
 	auto DEditorEngine::EndTransaction() -> int32 { return Trans ? Trans->End() : 0; }
 	auto DEditorEngine::CanTransact() const -> bool
-	{ return GEditor == this && !bShutdownRequested && Trans && Trans->CanTransact(); }
+	{ return GEditor == this && StartupState == EHostStartupState::Ready
+		&& !bShutdownRequested && !HasPendingSceneLoad() && Trans && Trans->CanTransact(); }
 	auto DEditorEngine::CancelTransaction(int32 StartIndex) -> void { if (Trans) Trans->Cancel(StartIndex); }
 
 	auto DEditorEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -94,6 +94,8 @@ namespace Durin
 			return false;
 		}
 		bEditorInitStarted = true;
+		StartupState = EHostStartupState::Pending;
+		StartupError = Context.ProjectAdmissionError;
 		FHostOperationScope Operation(*this);
 		bool bInitialized = false;
 		try { bInitialized = InitEditorInternal(Context); }
@@ -110,25 +112,6 @@ namespace Durin
 	auto DEditorEngine::InitEditorInternal(const FEngineInitContext& InitContext)
 		-> bool
 	{
-		if (const FProjectInfo* Project = GetCurrentProject())
-		{
-			for (const std::string& ModuleName : Project->EnabledRootModules)
-			{
-				if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
-				{
-					DURIN_ERROR("Editor initialization could not load project module '{}'.", ModuleName);
-					return false;
-				}
-			}
-		}
-		// The registry extracts references before MainFrame activates the full
-		// editor stack. Publish editor-authored package classes first so import
-		// records participate in that initial, atomic catalog revision.
-		if (!FModuleManager::Get().LoadModule("AssetForgeBuiltins"))
-		{
-			DURIN_ERROR("Editor initialization requires AssetForgeBuiltins before the asset catalog scan.");
-			return false;
-		}
 		if (!DEngine::Init(InitContext))
 			return false;
 		EditorWorld = GetWorld();
@@ -140,49 +123,14 @@ namespace Durin
 			DURIN_ERROR("{}", Result.Message);
 			return false;
 		}
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.PreviewMeshes");
-			// Bootstrap previously activated this provider only after shell creation.
-			// Mesh PostLoad needs it before the eager acquisition below.
-			if (!FModuleManager::Get().LoadModule("MeshBuilder"))
-			{
-				DURIN_ERROR("Editor initialization requires MeshBuilder for preview mesh warmup.");
-				return false;
-			}
-			PreviewMeshResources = std::make_unique<Editor::FPreviewMeshResources>();
-			if (const auto Warmup = PreviewMeshResources->Initialize(); !Warmup)
-				DURIN_WARN("Editor preview mesh warmup failed: {}", Warmup.error());
-		}
 		Profiling::SetStartupProjectMode(HasCurrentProject());
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.EditorShell");
-			EditorHost->CreateEditorHost(*this, InitContext.StartupWindow);
+			EditorHost->CreateEditorHost(*this, InitContext.StartupWindow, InitContext.ProjectAdmissionError);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 
-		if (!InitContext.PumpStartupFrame)
-		{
-			DURIN_ERROR("Editor initialization requires a startup-frame pump.");
-			return false;
-		}
-		while (true)
-		{
-			if (!InitContext.PumpStartupFrame())
-				return false;
-			const bool bFirstPresentAvailable = Profiling::GetStartupMilestoneMilliseconds(
-				Profiling::EStartupMilestone::FirstPresent) >= 0.0;
-			const Editor::Host::EBootstrapStepStatus Status =
-				EditorHost->AdvanceBootstrap(bFirstPresentAvailable);
-			if (Status == Editor::Host::EBootstrapStepStatus::Ready) break;
-			if (Status == Editor::Host::EBootstrapStepStatus::Failed)
-			{
-				// Keep the actionable failure visible for one final safe frame.
-				InitContext.PumpStartupFrame();
-				return false;
-			}
-		}
-		Profiling::TryLogStartupTimingSummary();
 
 		auto RegisterCommand = [this](FConsoleCommandDesc Desc) {
 			if (const FConsoleCommandHandle Handle = FConsoleCommandRegistry::Get().RegisterCommand(std::move(Desc))) ConsoleCommandHandles.push_back(Handle);
@@ -210,12 +158,111 @@ namespace Durin
 		return true;
 	}
 
+	auto DEditorEngine::AdvanceStartup() -> void
+	{
+		if (bShutdownRequested) return;
+		if (StartupState == EHostStartupState::Ready)
+		{
+			FHostOperationScope Operation(*this);
+			EditorHost->AdvanceDocumentOperations();
+			return;
+		}
+		if (StartupState != EHostStartupState::Pending) return;
+		using namespace Editor::Host;
+		auto Publish = [&](EBootstrapState Phase) {
+			check(IsValidBootstrapTransition(StartupPhase, Phase));
+			StartupPhase = Phase;
+			EditorHost->PublishBootstrapState(Phase, StartupError);
+			const auto Status = GetBootstrapStepStatus(Phase);
+			if (Status == EBootstrapStepStatus::Ready) StartupState = EHostStartupState::Ready;
+			if (Status == EBootstrapStepStatus::Failed) StartupState = EHostStartupState::Failed;
+			if (StartupState != EHostStartupState::Pending) Profiling::TryLogStartupTimingSummary();
+		};
+		if (EditorHost->IsShellPresented() && HasCurrentProject() && !bProjectContentReady)
+		{
+			std::string AdmissionError;
+			{
+				FHostOperationScope Admission(*this);
+				// Register every schema provider before the first content scan.
+				if (!FModuleManager::Get().LoadModule("AssetForgeBuiltins"))
+					AdmissionError = "Project admission requires AssetForgeBuiltins.";
+				const auto Modules = GetCurrentProject()->EnabledRootModules;
+				for (const auto& ModuleName : Modules)
+					if (AdmissionError.empty() && !FModuleManager::Get().LoadModule(FName(ModuleName)))
+						AdmissionError = std::format("Project module '{}' could not start.", ModuleName);
+				if (AdmissionError.empty())
+					if (const auto Content = InitializeProjectContent(); !Content) AdmissionError = Content.error();
+			}
+			if (bShutdownRequested) return;
+			EditorWorld = GetWorld();
+			if (AdmissionError.empty())
+				if (const auto Services = RefreshEditorSubsystems(true); !Services) AdmissionError = Services.Message;
+			if (!AdmissionError.empty())
+			{
+				StartupError = std::move(AdmissionError);
+				Publish(EBootstrapState::Failed);
+				return;
+			}
+			bProjectContentReady = true;
+			return;
+		}
+		FHostOperationScope Operation(*this);
+		switch (StartupPhase)
+		{
+		case EBootstrapState::WaitingForFirstPresent:
+			if (!EditorHost->IsShellPresented()) return;
+			if (!StartupError.empty()) { Publish(EBootstrapState::Failed); return; }
+			if (!HasCurrentProject())
+			{
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultWorkspaceReady);
+				Publish(EBootstrapState::Ready);
+			}
+			else Publish(EBootstrapState::LoadingWorkspace);
+			return;
+		case EBootstrapState::LoadingWorkspace:
+			Publish(EditorHost->ActivateWorkspaces(StartupError) ? EBootstrapState::WorkspaceReady : EBootstrapState::Failed);
+			return;
+		case EBootstrapState::WorkspaceReady:
+			Publish(EBootstrapState::LoadingDefaultDocument);
+			return;
+		case EBootstrapState::LoadingDefaultDocument:
+		{
+			const auto Document = EditorHost->OpenDefaultDocument(StartupError);
+			if (Document == EHostStartupState::Ready && GetWorld() && GetWorld()->GetCurrentLevel() && MainSceneViewport)
+			{
+				if (MainSceneViewport->HasRenderFailed())
+				{
+					StartupError = "The committed initial scene could not render for primary presentation.";
+					Publish(EBootstrapState::Failed);
+					return;
+				}
+				if (!EditorHost->IsScenePresented(*MainSceneViewport->GetOutputReceipt(), GetSceneGeneration())) return;
+			}
+			if (Document != EHostStartupState::Pending)
+				Publish(Document == EHostStartupState::Ready ? EBootstrapState::Ready : EBootstrapState::Failed);
+			return;
+		}
+		default:
+			return;
+		}
+	}
+
+	auto DEditorEngine::AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void
+	{
+		check(!IsPlaying());
+		Super::AdoptSceneWorld(World, std::move(Scene), Generation);
+		EditorWorld = World;
+	}
+
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		if (bShutdownRequested) { PrepareForShutdown(); return; }
+		if (StartupState != EHostStartupState::Ready) return;
 		(void)RefreshEditorSubsystems();
 		FHostOperationScope Operation(*this);
-		if (auto* Tools = GetEditorSubsystem<DEditorToolSubsystem>())
+		if (auto* Tools = !HasPendingSceneLoad() ? GetEditorSubsystem<DEditorToolSubsystem>() : nullptr)
 		{
 			Tools->TickTools();
 			Tools->TickScripts();
@@ -264,7 +311,6 @@ namespace Durin
 		if (EditorWorld) EditorWorld->Shutdown();
 		if (EditorHost) EditorHost->DestroyEditorHost();
 		EditorSubsystems.Shutdown();
-		PreviewMeshResources.reset();
 	}
 
 	auto DEditorEngine::PrepareForShutdown() -> void
@@ -329,7 +375,8 @@ namespace Durin
 		std::optional<DClass*> GameModeOverride,
 		std::string* OutError) -> bool
 	{
-		if (bShutdownRequested) return false;
+		if (bShutdownRequested || HasPendingSceneLoad()
+			|| (bEditorInitStarted && StartupState != EHostStartupState::Ready)) return false;
 		FHostOperationScope Operation(*this);
 		DLevel* SourceLevel = Request.SourceLevel;
 		if (OutError) OutError->clear();
