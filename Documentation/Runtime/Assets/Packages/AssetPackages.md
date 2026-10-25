@@ -445,6 +445,43 @@ restores the prior closure and leaves the package retryably Dirty. Registry
 failure after authored commit keeps valid bytes, fences the affected path, and
 returns `ContentCommittedProjectionPending` for reconciliation.
 
+The private implementation separates stage inputs and failure ownership:
+
+| Boundary | Input and owned state | Failure responsibility |
+| --- | --- | --- |
+| `AssetPackageOperations.cpp` | Capture and scheduling; `FPreparedPackageSave` owns the package pin, edit revision, canonical header, destination and writer. The header is the sole captured package identity; encoded buffers transfer to the writer before preparation returns. | Reject stale async participants; stop batches without undoing completed members. Workers stage only the writer; the operation is released on GameThread. |
+| `AssetPackageSavePublication.cpp` | The staged preparation, publication options and expected Registry revision. | The transaction entrypoint revalidates live-state admission. The physical writer owns file recovery; Engine selects rollback or projection fencing, acknowledges the captured edit revision, and finalizes the writer. |
+| `AssetPackageInspection.cpp` | Immutable package/bulk bytes and mounted identity; inspection outputs. | Inspection remains construct-free and publishes no state. Explicit typed reads delegate value restoration to the load Archive. |
+| `AssetPackageLoadArchive.cpp` | Object fields or byte-tool values and load bindings. | Own value decoding and detached value cleanup; typed byte-tool restoration may resolve external object references. Graph construction and rollback belong to the caller. |
+| `AssetPackageCook.cpp` | Source/output identities and immutable closures; relocated buffers and reference mappings. | Return canonical output or an encoding/read failure; no file publication. |
+| `AssetPackageLinkerSchema.cpp` | Name fixups and direct property queries against Engine-owned linker tables. | Normalize identities before skeleton construction and reject alias collisions. One property-matching rule serves linker admission and the load Archive; source bytes and live objects remain unchanged. |
+
+The linker loader retains schema admission, skeleton construction, value application
+and graph lifetime ownership. Both live loading and private graph preparation use
+the same reflection identity preparation before those phases; schema helpers do
+not construct objects, publish packages or own load rollback.
+
+The loader follows the Linker/tagged-property boundary: its decoded linker tables
+are the sole package schema owner. `FixupSerializedNames` resolves aliases once
+before construction, including nested field names and sparse struct value types,
+and records original identities as evidence. `FindSchema` and `FindPropertyByName`
+query those normalized tables directly; no separate schema index, type cache or
+borrowed binding plan is retained. `ResolvePropertyForLoad` is the one reflected
+property matching rule shared by linker admission and the load Archive.
+
+Matching results are local to the current struct projection or object's value
+and authored-ledger work; none escapes into prepared graphs or resident packages.
+Tables stay unchanged
+during application. Wire validation and load admission require each value's field
+type to match its schema declaration. A failed name fixup leaves evidence output
+intact and requires discarding the partially normalized linker candidate.
+Current compatible fields take priority over a unique compatible historical route.
+Only a missing current field with no historical identity is removable; a known
+incompatible identity remains an error. Cooked native fields still require exact
+Archive manifest consumption. The load service owns request diagnostics and
+callback mutations; the linker transfers only its own compatibility evidence,
+without copying or replacing the complete request report.
+
 `FAssetWriteResult` and `FAssetBatchSaveResult` remain publication reports.
 Their boolean conversion alone does not describe the resulting content:
 

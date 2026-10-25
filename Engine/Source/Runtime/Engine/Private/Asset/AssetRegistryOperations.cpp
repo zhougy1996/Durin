@@ -1,8 +1,9 @@
 #include "Asset/RegistryOperations.h"
+#include "Asset/References.h"
+#include "Asset/PackageInspection.h"
 #include "AssetRegistry/Scan.h"
 #include "AssetRegistryOperationsInternal.h"
 #include "AssetRegistryResultAdapter.h"
-#include "AssetMutationReferenceInternal.h"
 #include "AssetMutationRegistryInternal.h"
 
 #include "DObject/Class.h"
@@ -90,9 +91,6 @@ namespace Durin
 			ExpectedClass, Checked.FinalPath.IsTopLevelAsset());
 		return Checked ? FAssetReadResult{} : AssetPathResolutionError(Checked);
 	}
-
-	using AssetPrivate::FMutationPackageMetadata;
-	using AssetPrivate::ValidateMutationPackageMetadata;
 
 	namespace
 	{

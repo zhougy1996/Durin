@@ -1,4 +1,5 @@
 #include "AssetPackageLinker.h"
+#include "AssetPackageLinkerSchema.h"
 #include "AssetLiveLoadGuard.h"
 
 #include "AssetPackageArchive.h"
@@ -20,6 +21,10 @@
 
 namespace Durin::AssetPrivate
 {
+	using LinkerSchema::EPropertyLoadRoute;
+	using LinkerSchema::TypeWidth;
+	using LinkerSchema::IntrinsicName;
+
 	namespace
 	{
 		struct FLinkerApplyDiagnostic
@@ -27,8 +32,6 @@ namespace Durin::AssetPrivate
 			EAssetReadError Error = EAssetReadError::None;
 			std::string LogicalPath;
 			std::string Message;
-
-			auto Reset() -> void { *this = {}; }
 		};
 
 		auto LinkerApplyFail(FLinkerApplyDiagnostic& Diagnostic, EAssetReadError Error,
@@ -38,131 +41,6 @@ namespace Durin::AssetPrivate
 			if (Diagnostic.Error == EAssetReadError::None)
 				Diagnostic = {Error, std::move(Path), std::string(Message)};
 			return false;
-		}
-
-		auto FindSchema(const ObjectPackage::FLinkerTables& Linker,
-			std::string_view Name) -> const ObjectPackage::FSerializedSchema*
-		{
-			const auto It = std::ranges::find(Linker.Schemas, Name,
-				&ObjectPackage::FSerializedSchema::QualifiedName);
-			return It == Linker.Schemas.end() ? nullptr : &*It;
-		}
-
-		// Only an absent field on a known declaring type is disposable. A current
-		// property or any explicit historical route still owns type compatibility.
-		auto IsRemovedField(std::string_view DeclaringType, std::string_view Name) -> bool
-		{
-			DStructBase* Owner = FindClassByQualifiedName(FName(DeclaringType));
-			if (!Owner) Owner = FindStructByQualifiedName(FName(DeclaringType));
-			if (!Owner || Owner->FindPropertyByName(FName(Name), false)) return false;
-			bool bHistoricalName = false;
-			Owner->ForEachProperty([&](FProperty* Property) {
-				if (const auto* Route = Property->GetDeprecation())
-					bHistoricalName |= Route->HistoricalName.ToString() == Name;
-			}, false);
-			return !bHistoricalName;
-		}
-
-		auto TypeKind(const ObjectPackage::FSerializedType& Input)
-			-> DurinCodeGen::EPropertyGenFlags
-		{
-			using K = DurinCodeGen::EPropertyGenFlags;
-			const ObjectPackage::FSerializedType* Type = &Input;
-			if (Type->Kind == ObjectPackage::EValueKind::FixedArray && Type->Children.size() == 1)
-				Type = &Type->Children[0];
-			switch (Type->Kind)
-			{
-			case ObjectPackage::EValueKind::Bool: return K::Bool;
-			case ObjectPackage::EValueKind::I8: return K::Int8;
-			case ObjectPackage::EValueKind::I16: return K::Int16;
-			case ObjectPackage::EValueKind::I32: return K::Int32;
-			case ObjectPackage::EValueKind::I64: return K::Int64;
-			case ObjectPackage::EValueKind::U8: return K::UInt8;
-			case ObjectPackage::EValueKind::U16: return K::UInt16;
-			case ObjectPackage::EValueKind::U32: return K::UInt32;
-			case ObjectPackage::EValueKind::U64: return K::UInt64;
-			case ObjectPackage::EValueKind::F32: return K::Float;
-			case ObjectPackage::EValueKind::F64: return K::Double;
-			case ObjectPackage::EValueKind::String: return K::String;
-			case ObjectPackage::EValueKind::Name: return K::Name;
-			case ObjectPackage::EValueKind::Guid: return K::Guid;
-			case ObjectPackage::EValueKind::Enum: return K::Enum;
-			case ObjectPackage::EValueKind::Intrinsic:
-			case ObjectPackage::EValueKind::Struct: return K::Struct;
-			case ObjectPackage::EValueKind::Array: return K::Array;
-			case ObjectPackage::EValueKind::Map: return K::Map;
-			case ObjectPackage::EValueKind::HardReference: return K::Object;
-			case ObjectPackage::EValueKind::SoftReference: return K::SoftObject;
-			case ObjectPackage::EValueKind::Byte:
-			case ObjectPackage::EValueKind::Bytes: return K::Blob;
-			case ObjectPackage::EValueKind::BulkData: return K::BulkData;
-			case ObjectPackage::EValueKind::FixedArray: break;
-			}
-			return K::None;
-		}
-
-		auto TypeWidth(ObjectPackage::EValueKind Kind) -> uint64
-		{
-			switch (Kind)
-			{
-			case ObjectPackage::EValueKind::Bool:
-			case ObjectPackage::EValueKind::I8:
-			case ObjectPackage::EValueKind::U8: return 1;
-			case ObjectPackage::EValueKind::I16:
-			case ObjectPackage::EValueKind::U16: return 2;
-			case ObjectPackage::EValueKind::I32:
-			case ObjectPackage::EValueKind::U32:
-			case ObjectPackage::EValueKind::F32: return 4;
-			case ObjectPackage::EValueKind::I64:
-			case ObjectPackage::EValueKind::U64:
-			case ObjectPackage::EValueKind::F64: return 8;
-			default: return 0;
-			}
-		}
-
-		auto IntrinsicName(uint64 Layout) -> std::string_view
-		{
-			switch (Layout)
-			{
-			case 1: return "Durin::FVector2"; case 2: return "Durin::FVector3";
-			case 3: return "Durin::FVector4"; case 4: return "Durin::FQuat";
-			case 5: return "Durin::FTransform"; case 6: return "Durin::FLinearColor";
-			default: return {};
-			}
-		}
-
-		auto TypeSignature(const ObjectPackage::FSerializedType& Input) -> std::string
-		{
-			const ObjectPackage::FSerializedType* Type = &Input;
-			if (Type->Kind == ObjectPackage::EValueKind::FixedArray && Type->Children.size() == 1)
-				Type = &Type->Children[0];
-			using K = DurinCodeGen::EPropertyGenFlags;
-			switch (Type->Kind)
-			{
-			case ObjectPackage::EValueKind::Array:
-				return std::format("Array<{}>", Type->Children.size() == 1
-					? TypeSignature(Type->Children[0]) : "Invalid");
-			case ObjectPackage::EValueKind::Map:
-				return std::format("Map<{},{}>", Type->Children.size() == 2
-					? TypeSignature(Type->Children[0]) : "Invalid", Type->Children.size() == 2
-					? TypeSignature(Type->Children[1]) : "Invalid");
-			case ObjectPackage::EValueKind::HardReference:
-				return std::format("Object:{}:true", Type->QualifiedName.empty() ? "DObject" : Type->QualifiedName);
-			case ObjectPackage::EValueKind::SoftReference:
-				return std::format("SoftObject:{}:v1", Type->QualifiedName.empty() ? "DObject" : Type->QualifiedName);
-			case ObjectPackage::EValueKind::Enum:
-				return std::format("Enum:{}:{}", Type->QualifiedName,
-					TypeWidth(static_cast<ObjectPackage::EValueKind>(Type->Parameter)));
-			case ObjectPackage::EValueKind::Struct: return std::format("Struct<{}>", Type->QualifiedName);
-			case ObjectPackage::EValueKind::Intrinsic: return std::format("Struct<{}>", IntrinsicName(Type->Parameter));
-			case ObjectPackage::EValueKind::String: return std::format("{}:v1", uint32(K::String));
-			case ObjectPackage::EValueKind::Name: return std::format("{}:v1", uint32(K::Name));
-			case ObjectPackage::EValueKind::Guid: return std::format("{}:v1", uint32(K::Guid));
-			case ObjectPackage::EValueKind::Byte:
-			case ObjectPackage::EValueKind::Bytes: return std::format("{}:v1", uint32(K::Blob));
-			case ObjectPackage::EValueKind::BulkData: return std::format("{}:v1", uint32(K::BulkData));
-			default: return std::format("{}:{}", uint32(TypeKind(*Type)), TypeWidth(Type->Kind));
-			}
 		}
 
 		template<typename T>
@@ -289,28 +167,36 @@ namespace Durin::AssetPrivate
 				return EncodeIntrinsicLoadValue(Type.Parameter, Value.ComponentBits, Writer, Diagnostic);
 			case K::Struct:
 			{
-				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
+				const auto* Schema = LinkerSchema::FindSchema(Linker, Type.QualifiedName);
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
 					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
 					return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct load projection is invalid.", 0, std::move(Path));
 				uint64 FieldCount = 0;
-				for (const auto& Name : Value.FieldNames)
-					if (!bDiscardRemovedFields || !IsRemovedField(Schema->QualifiedName, Name)) ++FieldCount;
+				std::vector<LinkerSchema::FPropertyLoadInfo> StructFields;
+				StructFields.reserve(Value.FieldNames.size());
+				for (size_t Index = 0; Index < Value.FieldNames.size(); ++Index)
+				{
+					auto Field = LinkerSchema::FindPropertyByName(*Schema, Value.FieldNames[Index]);
+					if (!Field || Field->Descriptor->Type != ObjectPackage::StructFieldTypes(Type, Value)[Index])
+						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
+							"Struct field does not match its declared schema.", 0, Path);
+					if (!bDiscardRemovedFields || Field->Match.Route != EPropertyLoadRoute::Removed) ++FieldCount;
+					StructFields.push_back(std::move(*Field));
+				}
 				Writer.Write(uint8(Value.Baseline));
 				Writer.WriteString(Type.QualifiedName); Writer.Write(FieldCount);
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
-					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index],
-						&ObjectPackage::FSerializedField::Name);
-					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct field is absent from its schema.", 0, std::move(Path));
-					if (bDiscardRemovedFields && IsRemovedField(Schema->QualifiedName, It->Name)) continue;
+					const auto& Field = StructFields[Index];
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
+					if (bDiscardRemovedFields && Field.Match.Route
+						== EPropertyLoadRoute::Removed) continue;
 					Durin::PackagePrivate::FByteWriter Payload;
 					if (!EncodeLoadArchiveValue(ChildType, Value.Elements[Index], Linker, Payload,
 						BulkFieldIndex, Diagnostic,
-						std::format("{}::{}", Schema->QualifiedName, It->Name), bDiscardRemovedFields)) return false;
-					Writer.WriteString(Schema->QualifiedName); Writer.WriteString(It->Name);
-					Writer.Write(uint8(TypeKind(ChildType))); Writer.WriteString(TypeSignature(ChildType));
+						std::format("{}::{}", Schema->QualifiedName, Field.Descriptor->Name), bDiscardRemovedFields)) return false;
+					Writer.WriteString(Schema->QualifiedName); Writer.WriteString(Field.Descriptor->Name);
+					Writer.Write(uint8(Field.Kind)); Writer.WriteString(Field.Signature);
 					Writer.Write(uint64(Payload.Bytes.size())); Writer.WriteBytes(Payload.Bytes);
 				}
 				return true;
@@ -382,10 +268,6 @@ namespace Durin::AssetPrivate
 			return nullptr;
 		}
 
-		auto FindLinkerDeprecatedRoute(const ObjectPackage::FLinkerTables& Linker,
-			const ObjectPackage::FSerializedSchema& Schema,
-			const ObjectPackage::FSerializedField& Field,
-			const ObjectPackage::FSerializedType& Type) -> FProperty*;
 
 		// Scan validated tags without constructing paths or resolving names for ordinary values.
 		auto HasNestedReplacement(const ObjectPackage::FSerializedValue& Value) -> bool
@@ -404,20 +286,19 @@ namespace Durin::AssetPrivate
 			if (!HasNestedReplacement(Value)) return true;
 			if (Type.Kind == K::Struct)
 			{
-				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
+				const auto* Schema = LinkerSchema::FindSchema(Linker, Type.QualifiedName);
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
 					|| Value.Provenances.size() != Value.Elements.size()
 					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
 					return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct ledger projection is invalid.");
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
-					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index],
-						&ObjectPackage::FSerializedField::Name);
-					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct ledger field is missing.");
-					if (IsRemovedField(Schema->QualifiedName, It->Name)) continue;
+					const auto It = LinkerSchema::FindPropertyByName(*Schema, Value.FieldNames[Index]);
+					if (!It) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct ledger field is missing.");
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
-					if (FindLinkerDeprecatedRoute(Linker, *Schema, *It, ChildType)) continue;
-					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Name)));
+					const auto Route = It->Match.Route;
+					if (Route == EPropertyLoadRoute::Removed || Route == EPropertyLoadRoute::Deprecated) continue;
+					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Descriptor->Name)));
 					if (Value.Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced)
 						Entries.push_back({Path, EAuthoredOverrideProvenance::Forced});
 					else if (!RestoreNestedReplacements(ChildType, Value.Elements[Index], Linker, Path,
@@ -457,199 +338,6 @@ namespace Durin::AssetPrivate
 			return true;
 		}
 
-		auto CanonicalizeSerializedClassName(std::string& Name) -> void
-		{
-			if (DClass* Class = FindClassBySerializedName(FName(Name)))
-				Name = Class->GetQualifiedName().ToString();
-		}
-
-		auto CanonicalizeSerializedSchemaName(std::string& Name) -> void
-		{
-			if (DClass* Class = FindClassBySerializedName(FName(Name)))
-			{
-				Name = Class->GetQualifiedName().ToString();
-				return;
-			}
-			if (DStruct* Struct = FindStructBySerializedName(FName(Name)))
-				Name = Struct->GetQualifiedName().ToString();
-		}
-
-		auto CanonicalizeSerializedPropertyName(
-			std::string_view DeclaringType,
-			std::string& Name) -> void
-		{
-			DStructBase* Owner = FindClassBySerializedName(FName(DeclaringType));
-			if (!Owner) Owner = FindStructBySerializedName(FName(DeclaringType));
-			if (Owner)
-				if (FProperty* Property = Owner->FindPropertyBySerializedName(FName(Name), false))
-					Name = Property->NamePrivate.ToString();
-		}
-
-		auto CanonicalizeSerializedTypeName(ObjectPackage::FSerializedType& Type) -> void
-		{
-			for (auto& Child : Type.Children) CanonicalizeSerializedTypeName(Child);
-			if (Type.QualifiedName.empty()) return;
-			if (Type.Kind == ObjectPackage::EValueKind::Enum)
-			{
-				if (DEnum* Enum = FindEnumBySerializedName(FName(Type.QualifiedName)))
-					Type.QualifiedName = Enum->GetQualifiedName().ToString();
-			}
-			else if (Type.Kind == ObjectPackage::EValueKind::Struct)
-			{
-				if (DStruct* Struct = FindStructBySerializedName(FName(Type.QualifiedName)))
-					Type.QualifiedName = Struct->GetQualifiedName().ToString();
-			}
-			else if (Type.Kind == ObjectPackage::EValueKind::HardReference
-				|| Type.Kind == ObjectPackage::EValueKind::SoftReference)
-			{
-				CanonicalizeSerializedClassName(Type.QualifiedName);
-			}
-		}
-
-		auto GatherCanonicalizationEvidence(
-			const ObjectPackage::FLinkerTables& Linker,
-			const FPackagePath& PackagePath)
-			-> std::vector<FAssetCanonicalizationEvidence>
-		{
-			std::vector<FAssetCanonicalizationEvidence> Result;
-			auto AddClass = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
-				std::string LogicalPath) {
-				if (DClass* Class = FindClassBySerializedName(FName(Stored));
-					Class && Class->GetQualifiedName().ToString() != Stored)
-					Result.push_back({PackagePath, std::string(Stored),
-						Class->GetQualifiedName().ToString(), EAssetReflectedIdentityKind::Class,
-						Location, std::move(LogicalPath)});
-			};
-			auto AddStruct = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
-				std::string LogicalPath) {
-				if (DStruct* Struct = FindStructBySerializedName(FName(Stored));
-					Struct && Struct->GetQualifiedName().ToString() != Stored)
-					Result.push_back({PackagePath, std::string(Stored),
-						Struct->GetQualifiedName().ToString(), EAssetReflectedIdentityKind::Struct,
-						Location, std::move(LogicalPath)});
-			};
-			auto AddEnum = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
-				std::string LogicalPath) {
-				if (DEnum* Enum = FindEnumBySerializedName(FName(Stored));
-					Enum && Enum->GetQualifiedName().ToString() != Stored)
-					Result.push_back({PackagePath, std::string(Stored),
-						Enum->GetQualifiedName().ToString(), EAssetReflectedIdentityKind::Enum,
-						Location, std::move(LogicalPath)});
-			};
-
-			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
-				AddClass(Linker.Exports[Index].ClassName, EAssetSerializedIdentityLocation::ObjectRecord,
-					std::format("objects[{}].class", Index));
-			for (size_t Index = 0; Index < Linker.Schemas.size(); ++Index)
-			{
-				const std::string& Stored = Linker.Schemas[Index].QualifiedName;
-				const size_t Before = Result.size();
-				AddClass(Stored, EAssetSerializedIdentityLocation::Schema,
-					std::format("schemas[{}].identity", Index));
-				if (Result.size() == Before)
-					AddStruct(Stored, EAssetSerializedIdentityLocation::Schema,
-						std::format("schemas[{}].identity", Index));
-				DStructBase* Owner = FindClassBySerializedName(FName(Stored));
-				if (!Owner) Owner = FindStructBySerializedName(FName(Stored));
-				if (Owner)
-					for (size_t FieldIndex = 0; FieldIndex < Linker.Schemas[Index].Fields.size(); ++FieldIndex)
-					{
-						const std::string& FieldName = Linker.Schemas[Index].Fields[FieldIndex].Name;
-						if (FProperty* Property = Owner->FindPropertyBySerializedName(FName(FieldName), false);
-							Property && Property->NamePrivate.ToString() != FieldName)
-							Result.push_back({PackagePath, FieldName, Property->NamePrivate.ToString(),
-								EAssetReflectedIdentityKind::Property,
-								EAssetSerializedIdentityLocation::Schema,
-								std::format("schemas[{}].fields[{}].name", Index, FieldIndex)});
-					}
-			}
-			for (size_t Index = 0; Index < Linker.Types.size(); ++Index)
-			{
-				const auto& Type = Linker.Types[Index];
-				const std::string Path = std::format("types[{}].identity", Index);
-				switch (Type.Kind)
-				{
-				case ObjectPackage::EValueKind::Enum: AddEnum(Type.QualifiedName, EAssetSerializedIdentityLocation::TypeDescriptor, Path); break;
-				case ObjectPackage::EValueKind::Struct: AddStruct(Type.QualifiedName, EAssetSerializedIdentityLocation::TypeDescriptor, Path); break;
-				case ObjectPackage::EValueKind::HardReference:
-				case ObjectPackage::EValueKind::SoftReference: AddClass(Type.QualifiedName, EAssetSerializedIdentityLocation::TypeDescriptor, Path); break;
-				default: break;
-				}
-			}
-			std::ranges::sort(Result, [](const auto& Left, const auto& Right) {
-				return std::tie(Left.Location, Left.LogicalPath, Left.Kind, Left.StoredIdentity, Left.CurrentIdentity)
-					< std::tie(Right.Location, Right.LogicalPath, Right.Kind, Right.StoredIdentity, Right.CurrentIdentity);
-			});
-			return Result;
-		}
-
-		// Converts recognized reflection aliases on the Engine-owned linker copy.
-		auto CanonicalizeSerializedReflectionNames(
-			ObjectPackage::FLinkerTables& Linker,
-			std::string* OutError = nullptr) -> bool
-		{
-			for (auto& Export : Linker.Exports)
-				CanonicalizeSerializedClassName(Export.ClassName);
-			for (auto& Asset : Linker.Summary.TopLevelAssets)
-				CanonicalizeSerializedClassName(Asset.ClassName);
-			for (auto& Import : Linker.Imports)
-				CanonicalizeSerializedClassName(Import.ClassName);
-			for (auto& Schema : Linker.Schemas)
-			{
-				CanonicalizeSerializedSchemaName(Schema.QualifiedName);
-				std::unordered_set<std::string> CurrentFieldNames;
-				for (auto& Field : Schema.Fields)
-				{
-					CanonicalizeSerializedPropertyName(Schema.QualifiedName, Field.Name);
-					CanonicalizeSerializedTypeName(Field.Type);
-					if (!CurrentFieldNames.emplace(Field.Name).second)
-					{
-						if (OutError) *OutError = std::format(
-							"Serialized schema {} contains fields that canonicalize to duplicate name {}.",
-							Schema.QualifiedName, Field.Name);
-						return false;
-					}
-				}
-			}
-			for (auto& Type : Linker.Types)
-				CanonicalizeSerializedTypeName(Type);
-			for (auto& Export : Linker.Exports)
-				for (auto& Property : Export.Properties)
-				{
-					CanonicalizeSerializedSchemaName(Property.DeclaringType);
-					CanonicalizeSerializedPropertyName(Property.DeclaringType, Property.FieldName);
-					CanonicalizeSerializedTypeName(Property.Type);
-				}
-			return true;
-		}
-
-		auto FindLinkerDeprecatedRoute(const ObjectPackage::FLinkerTables& Linker,
-			const ObjectPackage::FSerializedSchema& Schema,
-			const ObjectPackage::FSerializedField& Field,
-			const ObjectPackage::FSerializedType& Type) -> FProperty*
-		{
-			DStructBase* Owner = FindClassByQualifiedName(FName(Schema.QualifiedName));
-			if (!Owner) Owner = FindStructByQualifiedName(FName(Schema.QualifiedName));
-			if (!Owner) return nullptr;
-			const DurinCodeGen::EPropertyGenFlags Kind = TypeKind(Type);
-			const std::string Signature = TypeSignature(Type);
-			if (FProperty* Current = Owner->FindPropertyByName(FName(Field.Name), false);
-				Current && !Current->IsDeprecated() && Current->GetKind() == Kind
-				&& Durin::PackagePrivate::GetSerializedTypeSignature(Current) == Signature) return nullptr;
-			FProperty* Match = nullptr;
-			bool bAmbiguous = false;
-			Owner->ForEachProperty([&](FProperty* Property) {
-				if (bAmbiguous || !Property) return;
-				const FPropertyDeprecation* Deprecation = Property->GetDeprecation();
-				if (!Deprecation || Deprecation->HistoricalName.ToString() != Field.Name
-					|| Property->GetKind() != Kind
-					|| Durin::PackagePrivate::GetSerializedTypeSignature(Property) != Signature) return;
-				if (Match) bAmbiguous = true;
-				else Match = Property;
-			}, false);
-			return bAmbiguous ? nullptr : Match;
-		}
-
 		auto GatherLiveValueDependencies(const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value, const ObjectPackage::FLinkerTables& Linker,
 			std::vector<FPackagePath>& Dependencies, uint64& DiscardedFields,
@@ -658,27 +346,24 @@ namespace Durin::AssetPrivate
 			using K = ObjectPackage::EValueKind;
 			if (Type.Kind == K::Struct)
 			{
-				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
-				DStruct* Owner = FindStructByQualifiedName(FName(Type.QualifiedName));
-				if (!Schema || !Owner || Value.FieldNames.size() != Value.Elements.size()
+				const auto* Schema = LinkerSchema::FindSchema(Linker, Type.QualifiedName);
+				if (!Schema || !FindStructByQualifiedName(FName(Schema->QualifiedName)) || Value.FieldNames.size() != Value.Elements.size()
 					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
 					return LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
 						"Serialized struct is unavailable or has an invalid schema.");
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
-					const auto Field = std::ranges::find(Schema->Fields, Value.FieldNames[Index],
-						&ObjectPackage::FSerializedField::Name);
-					if (Field == Schema->Fields.end())
-						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct field has no schema.");
-					if (IsRemovedField(Schema->QualifiedName, Field->Name)) { ++DiscardedFields; continue; }
+					const auto Field = LinkerSchema::FindPropertyByName(*Schema, Value.FieldNames[Index]);
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
-					FProperty* Expected = Owner->FindPropertyByName(FName(Field->Name), false);
-					if (!(Expected && !Expected->IsDeprecated() && Expected->GetKind() == TypeKind(ChildType)
-						&& Durin::PackagePrivate::GetSerializedTypeSignature(Expected) == TypeSignature(ChildType))
-						&& !FindLinkerDeprecatedRoute(Linker, *Schema, *Field, ChildType))
+					if (!Field || Field->Descriptor->Type != ChildType)
+						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
+							"Struct field does not match its declared schema.");
+					const auto Route = Field->Match.Route;
+					if (Route == EPropertyLoadRoute::Removed) { ++DiscardedFields; continue; }
+					if (Route == EPropertyLoadRoute::Incompatible)
 						return LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
 							std::format("Serialized struct field {}::{} is incompatible with the live schema.",
-								Schema->QualifiedName, Field->Name));
+								Schema->QualifiedName, Field->Descriptor->Name));
 					if (!GatherLiveValueDependencies(ChildType, Value.Elements[Index], Linker,
 						Dependencies, DiscardedFields, Diagnostic)) return false;
 				}
@@ -715,23 +400,22 @@ namespace Durin::AssetPrivate
 			using K = ObjectPackage::EValueKind;
 			if (Type.Kind == K::Struct)
 			{
-				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
+				const auto* Schema = LinkerSchema::FindSchema(Linker, Type.QualifiedName);
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
 					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size()) return;
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
-					const auto Field = std::ranges::find(
-						Schema->Fields, Value.FieldNames[Index], &ObjectPackage::FSerializedField::Name);
-					if (Field == Schema->Fields.end() || IsRemovedField(Schema->QualifiedName, Field->Name)) continue;
+					const auto Field = LinkerSchema::FindPropertyByName(*Schema, Value.FieldNames[Index]);
+					if (!Field) continue;
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
-					FProperty* LiveRoute =
-						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, ChildType);
-					if (LiveRoute)
+					const auto& Binding = Field->Match;
+					if (Binding.Route == EPropertyLoadRoute::Removed) continue;
+					if (Binding.Route == EPropertyLoadRoute::Deprecated)
 					{
 						Out.push_back({
 							.PackagePath = PackagePath, .ObjectPath = std::string(ObjectPath),
-							.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field->Name,
-							.DeprecatedPropertyName = LiveRoute->NamePrivate.ToString()});
+							.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field->Descriptor->Name,
+							.DeprecatedPropertyName = Binding.Property->NamePrivate.ToString()});
 					}
 					else GatherNestedDeprecatedRouteEvidence(ChildType, Value.Elements[Index],
 						Linker, PackagePath, ObjectPath, Out);
@@ -754,12 +438,13 @@ namespace Durin::AssetPrivate
 
 		struct FExportView
 		{
-			ObjectPackage::FPackageExport* Export = nullptr;
+			const ObjectPackage::FPackageExport* Export = nullptr;
+			DClass* Class = nullptr;
 			std::string Path;
 			uint64 OuterId = 0;
 		};
 
-		auto BuildExportViews(ObjectPackage::FLinkerTables& Linker,
+		auto BuildExportViews(const ObjectPackage::FLinkerTables& Linker,
 			std::vector<FExportView>& Out, FLinkerApplyDiagnostic& Diagnostic) -> bool
 		{
 			std::vector<FExportView> Views;
@@ -772,7 +457,7 @@ namespace Durin::AssetPrivate
 					|| !Linker.TryResolvePath(PackageIndex, Path))
 					return LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph,
 						"An export path cannot be resolved.");
-				auto& Export = Linker.Exports[Index];
+				const auto& Export = Linker.Exports[Index];
 				uint64 OuterId = 0;
 				if (!Export.Outer.IsNull())
 				{
@@ -781,27 +466,41 @@ namespace Durin::AssetPrivate
 							"Export Outer topology is not constructible in table order.", 0, Path);
 					OuterId = static_cast<uint64>(Export.Outer.GetTableIndex() + 1);
 				}
-				Views.push_back({&Export, std::move(Path), OuterId});
+				Views.push_back({&Export, nullptr, std::move(Path), OuterId});
 			}
 			Out = std::move(Views);
 			return true;
 		}
+		// The load service owns request diagnostics and callback mutations. The
+		// linker owns only its compatibility evidence, transferred on success.
+		struct FLinkerCompatibilityEvidence
+		{
+			std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
+			std::vector<FAssetDeprecatedRouteEvidence> DeprecatedRouteEvidence;
+			uint64 DiscardedFieldCount = 0;
+
+			auto TransferTo(FAssetLoadReport& Report) -> void
+			{
+				Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
+				Report.DeprecatedRouteEvidence = std::move(DeprecatedRouteEvidence);
+				Report.DiscardedFieldCount = DiscardedFieldCount;
+			}
+		};
+
 		// Shared decoded-package phases; publication and PostLoad belong to callers.
 		struct FLinkerApplication
 		{
 			ObjectPackage::FLinkerTables Linker;
-			FPackagePath PackagePath;
 			std::vector<FExportView> Exports;
 			std::vector<FPackagePath> LiveDependencies;
 			std::vector<DObject*> Objects;
 			DPackage* Package = nullptr;
-			FAssetLoadReport Report;
+			FLinkerCompatibilityEvidence Compatibility;
 		};
 
 		auto ValidateLinker(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
 			FLinkerApplyDiagnostic& Diagnostic) -> FAssetReadResult
 		{
-			const auto& PackagePath = Application.PackagePath;
 			auto& Linker = Application.Linker;
 			std::string VersionError;
 			if (!FCustomVersionRegistry::Validate(Linker.CustomVersions, VersionError))
@@ -809,22 +508,20 @@ namespace Durin::AssetPrivate
 				LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedVersion, VersionError);
 				return {EAssetReadError::UnsupportedVersion, Diagnostic.Message};
 			}
-			std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
-				GatherCanonicalizationEvidence(Linker, PackagePath);
-			std::string CanonicalizationError;
-			if (!CanonicalizeSerializedReflectionNames(Linker, &CanonicalizationError))
+			if (auto Result = LinkerSchema::FixupSerializedNames(
+				Linker, Application.Compatibility.CanonicalizationEvidence); !Result)
 			{
-				LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, CanonicalizationError);
-				return {EAssetReadError::CorruptFile, Diagnostic.Message};
+				LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
+				return Result;
 			}
 			auto& Exports = Application.Exports;
 			if (!BuildExportViews(Linker, Exports, Diagnostic))
 				return {Diagnostic.Error, Diagnostic.Message};
 			uint64 DiscardedFields = 0;
 			auto& LiveDependencies = Application.LiveDependencies;
-			for (const FExportView& Object : Exports)
+			for (FExportView& Object : Exports)
 			{
-				DClass* Class = FindClassByQualifiedName(FName(Object.Export->ClassName));
+				DClass* Class = Object.Class = FindClassByQualifiedName(FName(Object.Export->ClassName));
 				if (!Class)
 				{
 					LinkerApplyFail(Diagnostic, EAssetReadError::UnknownClass,
@@ -833,11 +530,9 @@ namespace Durin::AssetPrivate
 				}
 				for (const ObjectPackage::FPropertyTag& Property : Object.Export->Properties)
 				{
-					const auto* Schema = FindSchema(Linker, Property.DeclaringType);
-					const auto Field = Schema ? std::ranges::find(Schema->Fields,
-						Property.FieldName, &ObjectPackage::FSerializedField::Name)
-						: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
-					if (!Schema || Field == Schema->Fields.end() || Field->Type != Property.Type)
+					const auto* Schema = LinkerSchema::FindSchema(Linker, Property.DeclaringType);
+					const auto Field = Schema ? LinkerSchema::FindPropertyByName(*Schema, Property.FieldName) : std::nullopt;
+					if (!Schema || !Field || Field->Descriptor->Type != Property.Type)
 					{
 						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
 							"A linker property is absent from its declared schema.", 0, Object.Path);
@@ -851,30 +546,22 @@ namespace Durin::AssetPrivate
 							bDeclaringClassMatches = true;
 							break;
 						}
-					FProperty* Expected = bDeclaringClassMatches
-						? DeclaringClass->FindPropertyByName(FName(Field->Name), false) : nullptr;
-					if (!Options.bCooked && bDeclaringClassMatches
-						&& IsRemovedField(Schema->QualifiedName, Field->Name))
+					const auto& Binding = Field->Match;
+					if (!Options.bCooked && bDeclaringClassMatches && Binding.Route == EPropertyLoadRoute::Removed)
 					{
 						++DiscardedFields;
 						continue;
 					}
-					const bool bCurrentCompatible = Expected
-						&& !Expected->GetDeprecation()
-						&& Expected->GetKind() == TypeKind(Property.Type)
-						&& Durin::PackagePrivate::GetSerializedTypeSignature(Expected) == TypeSignature(Property.Type);
-					const bool bDeprecatedCompatible =
-						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
-					// Cooked native projection fields are validated against the exact
-					// SerializeCooked manifest and must be consumed by the load Archive.
-					const bool bCookedNativeCandidate = Options.bCooked && !Expected;
-					const bool bCompatible = bCurrentCompatible || bDeprecatedCompatible
-						|| bCookedNativeCandidate;
+					// Cooked native fields still require exact Archive manifest consumption.
+					const bool bCookedNativeCandidate = Options.bCooked
+						&& (!bDeclaringClassMatches || !Binding.bHasCurrentProperty);
+					const bool bCompatible = (bDeclaringClassMatches && Binding.Route == EPropertyLoadRoute::Current)
+						|| Binding.Route == EPropertyLoadRoute::Deprecated || bCookedNativeCandidate;
 					if (!bCompatible)
 					{
 						LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
 							std::format("Serialized field {}::{} is incompatible with the live schema.",
-								Schema->QualifiedName, Field->Name), 0, Object.Path);
+								Schema->QualifiedName, Field->Descriptor->Name), 0, Object.Path);
 						return {EAssetReadError::UnsupportedProperty, Diagnostic.Message};
 					}
 					if (!Options.bCooked && !GatherLiveValueDependencies(Property.Type, Property.Value,
@@ -890,9 +577,7 @@ namespace Durin::AssetPrivate
 				return {EAssetReadError::InvalidObjectGraph, Diagnostic.Message};
 			}
 
-			Application.Report.PackagePath = PackagePath;
-			Application.Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
-			Application.Report.DiscardedFieldCount = DiscardedFields;
+			Application.Compatibility.DiscardedFieldCount = DiscardedFields;
 			return {};
 		}
 
@@ -911,7 +596,7 @@ namespace Durin::AssetPrivate
 					return {EAssetReadError::InvalidObjectGraph, Diagnostic.Message};
 				}
 				const FExportView& Descriptor = Exports[Index];
-				DClass* Class = FindClassByQualifiedName(FName(Descriptor.Export->ClassName));
+				DClass* Class = Descriptor.Class;
 				if (!Class || !Class->ClassConstructor)
 				{
 					LinkerApplyFail(Diagnostic, EAssetReadError::UnknownClass, std::format("Serialized class '{}' is unavailable.", Descriptor.Export->ClassName), 0, Descriptor.Path);
@@ -956,11 +641,11 @@ namespace Durin::AssetPrivate
 		auto ApplyLinkerValues(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
 			FLinkerApplyDiagnostic& Diagnostic, const FPackageLoadBindings& Bindings) -> FAssetReadResult
 		{
-			const auto& PackagePath = Application.PackagePath;
-			auto& Linker = Application.Linker;
+			const auto& PackagePath = Application.Linker.Summary.PackagePath;
+			const auto& Linker = Application.Linker;
 			auto& Exports = Application.Exports;
 			auto& Objects = Application.Objects;
-			auto& Report = Application.Report;
+			auto& Report = Application.Compatibility;
 			if (!Options.bCooked)
 			{
 				std::vector<DClass*> Classes;
@@ -1009,7 +694,9 @@ namespace Durin::AssetPrivate
 			for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
 				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
 				{
-					if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
+					const auto Field = LinkerSchema::FindPropertyByName(
+						*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
+					if (!Options.bCooked && Field->Match.Route == EPropertyLoadRoute::Removed) continue;
 					GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker,
 						PackagePath, Exports[ObjectIndex].Path,
 						Report.DeprecatedRouteEvidence);
@@ -1022,10 +709,17 @@ namespace Durin::AssetPrivate
 					return {EAssetReadError::CorruptFile, Diagnostic.Message};
 				}
 				std::vector<FAuthoredPackageFieldRecord> Fields;
-				std::vector<const ObjectPackage::FPropertyTag*> KnownProperties;
+				struct FKnownProperty
+				{
+					const ObjectPackage::FPropertyTag* Tag;
+					LinkerSchema::FPropertyLoadBinding Binding;
+				};
+				std::vector<FKnownProperty> KnownProperties;
 				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
 				{
-					if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
+					const auto Field = LinkerSchema::FindPropertyByName(
+						*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
+					if (!Options.bCooked && Field->Match.Route == EPropertyLoadRoute::Removed) continue;
 					Durin::PackagePrivate::FByteWriter Payload;
 					if (!EncodeLoadArchiveValue(Property.Type, Property.Value, Linker, Payload,
 						BulkFieldIndex, Diagnostic,
@@ -1033,9 +727,9 @@ namespace Durin::AssetPrivate
 					{
 						return {EAssetReadError::CorruptFile, Diagnostic.Message};
 					}
-					Fields.push_back({Property.DeclaringType, Property.FieldName, TypeKind(Property.Type),
-						TypeSignature(Property.Type), std::move(Payload.Bytes)});
-					KnownProperties.push_back(&Property);
+					Fields.push_back({Property.DeclaringType, Property.FieldName, Field->Kind,
+						Field->Signature, std::move(Payload.Bytes)});
+					KnownProperties.push_back({&Property, Field->Match});
 				}
 				FArchiveState LoadContext;
 				LoadContext.bCooking = Options.bCooked;
@@ -1053,39 +747,30 @@ namespace Durin::AssetPrivate
 				std::vector<FName> LoadedDeprecatedProperties;
 				for (size_t PropertyIndex = 0; PropertyIndex < KnownProperties.size(); ++PropertyIndex)
 				{
-					const auto& Property = *KnownProperties[PropertyIndex];
-					const auto* Schema = FindSchema(Linker, Property.DeclaringType);
-					const auto Field = Schema ? std::ranges::find(Schema->Fields,
-						Property.FieldName, &ObjectPackage::FSerializedField::Name)
-						: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
-					if (!Schema || Field == Schema->Fields.end())
-					{
-						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "A linker property lost its schema binding.");
-						return {EAssetReadError::CorruptFile, Diagnostic.Message};
-					}
+					const auto& Known = KnownProperties[PropertyIndex];
+					const auto& Property = *Known.Tag;
+					const auto& Binding = Known.Binding;
 					if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, PropertyIndex + 1))
 					{
 						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Injected ledger restoration failure.");
 						return {EAssetReadError::CorruptFile, Diagnostic.Message};
 					}
-					FProperty* DeprecatedRoute =
-						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
-					if (DeprecatedRoute)
+					if (Binding.Route == EPropertyLoadRoute::Deprecated)
 					{
-						LoadedDeprecatedProperties.push_back(DeprecatedRoute->NamePrivate);
+						LoadedDeprecatedProperties.push_back(Binding.Property->NamePrivate);
 						FAssetDeprecatedRouteEvidence Evidence{
 							.PackagePath = PackagePath,
 							.ObjectPath = Exports[ObjectIndex].Path,
-							.DeclaringType = Schema->QualifiedName,
-							.StoredFieldName = Field->Name,
-							.DeprecatedPropertyName = DeprecatedRoute->NamePrivate.ToString()};
+							.DeclaringType = Property.DeclaringType,
+							.StoredFieldName = Property.FieldName,
+							.DeprecatedPropertyName = Binding.Property->NamePrivate.ToString()};
 						Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
 						continue;
 					}
 					if (Property.Provenance != ObjectPackage::EPropertyProvenance::Forced
 						&& !HasNestedReplacement(Property.Value)) continue;
 					FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
-						FName(Schema->QualifiedName), FName(Field->Name))};
+						FName(Property.DeclaringType), FName(Property.FieldName))};
 					if (Property.Provenance == ObjectPackage::EPropertyProvenance::Forced)
 						LedgerEntries.push_back({Path, EAuthoredOverrideProvenance::Forced});
 					else if (!RestoreNestedReplacements(Property.Type, Property.Value, Linker, Path,
@@ -1204,7 +889,6 @@ namespace Durin::AssetPrivate
 					if (Sources[Previous].PackagePath == CurrentPath)
 						return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::DuplicatePackage};
 				auto& Application = Applications[Index];
-				Application.PackagePath = CurrentPath;
 				ObjectPackage::FPackageReaderResult ReaderDiagnostic;
 				const auto& Bulk = Source.Storage.GetBulkResource();
 				if (!(ReaderDiagnostic = ObjectPackage::ReadPackageMetadata(Source.Storage.GetMainBytes(),
@@ -1219,7 +903,7 @@ namespace Durin::AssetPrivate
 				ObjectCount += Application.Exports.size() + 1;
 				for (const auto& Export : Application.Exports)
 				{
-					DClass* Class = FindClassByQualifiedName(FName(Export.Export->ClassName));
+					DClass* Class = Export.Class;
 					if (!std::ranges::contains(Options.AdmittedClasses, Class))
 						return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::ClassNotAdmitted, .Subject = Export.Export->ClassName};
 				}
@@ -1234,10 +918,10 @@ namespace Durin::AssetPrivate
 				for (size_t DependencyIndex = 0; DependencyIndex < Application.LiveDependencies.size(); ++DependencyIndex)
 				{
 					const auto& Path = Application.LiveDependencies[DependencyIndex];
-					CurrentPath = Application.PackagePath;
-					if (Cancelled()) return {.Status = S::Cancelled, .PackagePath = Application.PackagePath, .Reason = R::Cancelled};
+					CurrentPath = Application.Linker.Summary.PackagePath;
+					if (Cancelled()) return {.Status = S::Cancelled, .PackagePath = Application.Linker.Summary.PackagePath, .Reason = R::Cancelled};
 					if (Options.ShouldFail && Options.ShouldFail(PackageIndex, ELinkerLoadPhase::ResolveDependency, DependencyIndex))
-						return {.Status = S::MissingDependency, .PackagePath = Application.PackagePath, .Reason = R::InjectedDependencyFailure};
+						return {.Status = S::MissingDependency, .PackagePath = Application.Linker.Summary.PackagePath, .Reason = R::InjectedDependencyFailure};
 					if (IsAssetRegistryProjectionFenced(Path))
 						return {.Status = S::Busy, .PackagePath = Path, .Reason = R::DependencyProjectionFenced};
 					if (std::ranges::contains(Sources, Path, &FPackageGraphSource::PackagePath)) continue;
@@ -1249,7 +933,7 @@ namespace Durin::AssetPrivate
 						Package = Result.value_or(nullptr);
 						if (!Result) return {.Status = (Result ? Durin::EAssetReadError::None : Result.error().Code) == EAssetReadError::InUse ? S::Busy : S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .Message = (Result ? std::string{} : Result.error().Message)};
 					}
-					if (!Package) return {.Status = S::MissingDependency, .PackagePath = Application.PackagePath, .Reason = R::DependencyNotResident, .Subject = Path.ToString()};
+					if (!Package) return {.Status = S::MissingDependency, .PackagePath = Application.Linker.Summary.PackagePath, .Reason = R::DependencyNotResident, .Subject = Path.ToString()};
 					ExternalPackages.emplace_back(Path, Package);
 					const size_t Begin = ExternalPins.size();
 					ExternalPins.emplace_back(Package);
@@ -1273,7 +957,7 @@ namespace Durin::AssetPrivate
 			for (size_t Index = 0; Index < Applications.size(); ++Index)
 			{
 				auto& Application = Applications[Index];
-				CurrentPath = Application.PackagePath;
+				CurrentPath = Application.Linker.Summary.PackagePath;
 				if (Cancelled()) return {.Status = S::Cancelled, .PackagePath = CurrentPath, .Reason = R::Cancelled};
 				auto& State = Candidates[Index].State;
 				State = std::make_unique<FPreparedPackageGraph::FState>();
@@ -1296,7 +980,7 @@ namespace Durin::AssetPrivate
 				Object = nullptr;
 				DPackage* Package = nullptr;
 				for (const auto& Application : Applications)
-					if (Application.PackagePath == Path.GetPackagePath()) Package = Application.Package;
+					if (Application.Linker.Summary.PackagePath == Path.GetPackagePath()) Package = Application.Package;
 				if (!Package)
 					for (const auto& External : ExternalPackages)
 						if (External.first == Path.GetPackagePath()) Package = External.second;
@@ -1316,21 +1000,22 @@ namespace Durin::AssetPrivate
 			for (size_t Index = 0; Index < Applications.size(); ++Index)
 			{
 				auto& Application = Applications[Index];
-				CurrentPath = Application.PackagePath;
+				CurrentPath = Application.Linker.Summary.PackagePath;
 				const FPackageLoadBindings Bindings{Sources[Index].Storage.GetBulkResource(), Resolve};
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ApplyLinkerValues(Application, LoadOptions(Index), Diagnostic, Bindings); !Result)
 					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::ApplyValues, .Message = Result.Message};
 				Application.Package->ClearDirty();
 				Application.Package->SetCanonicalResaveRecommended(Application.Package->IsCanonicalResaveRecommended()
-					|| !Application.Report.CanonicalizationEvidence.empty()
-					|| !Application.Report.DeprecatedRouteEvidence.empty() || Application.Report.DiscardedFieldCount != 0);
-				Candidates[Index].State->Report = std::move(Application.Report);
+					|| !Application.Compatibility.CanonicalizationEvidence.empty()
+					|| !Application.Compatibility.DeprecatedRouteEvidence.empty() || Application.Compatibility.DiscardedFieldCount != 0);
+				Candidates[Index].State->Report.PackagePath = CurrentPath;
+				Application.Compatibility.TransferTo(Candidates[Index].State->Report);
 			}
 			// Cross-package references in this prepared batch now see restored values.
 			for (const auto& Application : Applications)
 			{
-				CurrentPath = Application.PackagePath;
+				CurrentPath = Application.Linker.Summary.PackagePath;
 				if (auto Result = ValidateLoadedGraphs(Application.Objects, {.bPrivateGraph = true}); !Result)
 					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::GraphValidation, .Message = Result.Message};
 			}
@@ -1415,12 +1100,11 @@ namespace Durin::AssetPrivate
 		}
 		FLinkerApplication Application;
 		Application.Linker = std::move(Linker);
-		Application.PackagePath = PackagePath;
 		if (auto Result = ValidateLinker(Application, Options, Diagnostic); !Result)
 			return Finish(Result);
 		auto& Exports = Application.Exports;
 		auto& Objects = Application.Objects;
-		auto& Report = Application.Report;
+		auto& Report = Application.Compatibility;
 
 		DPackage* Package = NewObject<DPackage>(
 			nullptr,
@@ -1539,13 +1223,6 @@ namespace Durin::AssetPrivate
 			}
 		}
 
-		// Preserve report mutations emitted while admitting ordinary dependencies.
-		auto CanonicalizationEvidence = std::move(Report.CanonicalizationEvidence);
-		const uint64 DiscardedFields = Report.DiscardedFieldCount;
-		Report = OutReport ? *OutReport : FAssetLoadReport{};
-		Report.PackagePath = PackagePath;
-		Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
-		Report.DiscardedFieldCount = DiscardedFields;
 		// Choose sources once for this package; object archives only consume them.
 		const FPackageLoadBindings Bindings{
 			.BulkResource = Options.BulkResource,
@@ -1598,9 +1275,13 @@ namespace Durin::AssetPrivate
 		Package->SetCanonicalResaveRecommended(Package->IsCanonicalResaveRecommended()
 			|| !Report.CanonicalizationEvidence.empty()
 			|| !Report.DeprecatedRouteEvidence.empty() || Report.DiscardedFieldCount != 0);
-		if (OutReport) *OutReport = std::move(Report);
+		if (OutReport)
+		{
+			OutReport->PackagePath = PackagePath;
+			Report.TransferTo(*OutReport);
+		}
 		bFinalized = true;
-		Diagnostic.Reset(); return Finish({});
+		return Finish({});
 	}
 
 }

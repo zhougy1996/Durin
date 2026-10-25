@@ -1,6 +1,9 @@
 #include "AssetPackageArchive.h"
+#include "AssetPropertyKindTraits.h"
+#include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetPackageLinker.h"
+#include "AssetPackageLinkerSchema.h"
 #include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "DObject/PackageValueCodec.h"
@@ -18,6 +21,9 @@ namespace Durin::AssetPrivate
 {
 	namespace
 	{
+		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
+		{ return {Code, std::move(Message)}; }
+
 		auto FindReflectedProperty(const FArchiveFieldDescriptor& Descriptor) -> FProperty*
 		{
 			if (Descriptor.DeclaringType.IsNone() || Descriptor.Name.IsNone()) return nullptr;
@@ -39,35 +45,6 @@ namespace Durin::AssetPrivate
 		{
 			if (DClass* Class = FindClassByQualifiedName(QualifiedName)) return Class;
 			return FindStructByQualifiedName(QualifiedName);
-		}
-
-		auto FindDeprecatedRoute(
-			DStructBase* Owner,
-			std::string_view StoredName,
-			DurinCodeGen::EPropertyGenFlags StoredKind,
-			std::string_view StoredSignature
-		) -> FProperty*
-		{
-			if (!Owner) return nullptr;
-			if (FProperty* Current = Owner->FindPropertyByName(FName(StoredName), false);
-				Current && !Current->IsDeprecated() && Current->GetKind() == StoredKind
-				&& Durin::PackagePrivate::GetSerializedTypeSignature(Current) == StoredSignature) return nullptr;
-			FProperty* Match = nullptr;
-			bool bAmbiguous = false;
-			Owner->ForEachProperty([&](FProperty* Property) {
-				if (bAmbiguous) return;
-				const FPropertyDeprecation* Deprecation = Property ? Property->GetDeprecation() : nullptr;
-				if (!Deprecation || Deprecation->HistoricalName.ToString() != StoredName
-					|| Property->GetKind() != StoredKind
-					|| Durin::PackagePrivate::GetSerializedTypeSignature(Property) != StoredSignature) return;
-				if (Match)
-				{
-					bAmbiguous = true;
-					return;
-				}
-				Match = Property;
-			}, false);
-			return bAmbiguous ? nullptr : Match;
 		}
 
 		class FAuthoredLoadArchive final : public FObjectArchive
@@ -395,8 +372,8 @@ namespace Durin::AssetPrivate
 					bFoundIdentity = true;
 					FoundKind = Candidate.Kind;
 					FoundSignature = Candidate.TypeSignature;
-					if (!Deprecation && FindDeprecatedRoute(DeclaringStruct, Candidate.Name,
-						Candidate.Kind, Candidate.TypeSignature))
+					if (!Deprecation && LinkerSchema::ResolvePropertyForLoad(DeclaringStruct, Candidate.Name,
+						Candidate.Kind, Candidate.TypeSignature).Route == LinkerSchema::EPropertyLoadRoute::Deprecated)
 					{
 						bReservedForDeprecatedRoute = true;
 						continue;
@@ -659,4 +636,315 @@ namespace Durin::AssetPrivate
 		}
 		return Archive.GetResult();
 	}
+	auto DecodeReferenceByteToolValue(
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		Durin::PackagePrivate::FByteReader& Reader,
+		const std::vector<DObject*>& Objects,
+		uint32 SourceVersion) -> FAssetReadResult
+	{
+		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
+		if (AssetPrivate::IsByteToolRawScalarKind(Kind))
+			return Reader.ReadBytes(Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize()) ? FAssetReadResult{} : Error(EAssetReadError::CorruptFile, "Truncated property payload.");
+		switch (Kind)
+		{
+		case DurinCodeGen::EPropertyGenFlags::String:
+		{
+			std::string Value;
+			if (!Reader.ReadString(Value)) return Error(EAssetReadError::CorruptFile, "Truncated string property.");
+			*static_cast<FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex) = std::move(Value);
+			return {};
+		}
+		case DurinCodeGen::EPropertyGenFlags::Name:
+		{
+			std::string Value;
+			if (!Reader.ReadString(Value)) return Error(EAssetReadError::CorruptFile, "Truncated name property.");
+			*static_cast<FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex) = FName(Value);
+			return {};
+		}
+		case DurinCodeGen::EPropertyGenFlags::Guid:
+		{
+			FGuid Value;
+			if (!Reader.Read(Value.A) || !Reader.Read(Value.B) || !Reader.Read(Value.C) || !Reader.Read(Value.D))
+				return Error(EAssetReadError::CorruptFile, "Truncated GUID property.");
+			*static_cast<FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex) = Value;
+			return {};
+		}
+		case DurinCodeGen::EPropertyGenFlags::Object:
+		{
+			auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+			uint8 ReferenceKind = 0;
+			if (!Reader.Read(ReferenceKind)) return Error(EAssetReadError::CorruptFile, "Truncated object reference.");
+			DObject* Value = nullptr;
+			if (ReferenceKind == 1)
+			{
+				uint64 Id = 0;
+				if (!Reader.Read(Id) || Id == 0 || Id > Objects.size()) return Error(EAssetReadError::InvalidObjectGraph, "Invalid internal object reference.");
+				Value = Objects[static_cast<size_t>(Id - 1)];
+			}
+			else if (ReferenceKind == 2)
+			{
+				std::string PathString;
+				FObjectPath Path;
+				if (!Reader.ReadString(PathString) || !FObjectPath::TryCreate(PathString, Path)) return Error(EAssetReadError::InvalidPath, "Invalid external object reference.");
+				auto Result = FAssetRuntimeState::Get().GetLoadService().LoadObject(
+					Path, ObjectProperty->GetReferencedClass());
+				if (!Result) return Error(EAssetReadError::MissingDependency, Result.error().Message);
+				Value = *Result;
+			}
+			else if (ReferenceKind != 0) return Error(EAssetReadError::CorruptFile, "Unknown object reference kind.");
+			if (Value && ObjectProperty->GetReferencedClass() && !Value->IsA(ObjectProperty->GetReferencedClass())) return Error(EAssetReadError::TypeMismatch, "Object reference class mismatch.");
+			ObjectProperty->SetObjectPropertyValue(Container, Value, ArrayIndex);
+			return {};
+		}
+		case DurinCodeGen::EPropertyGenFlags::SoftObject:
+		{
+			auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
+			FSoftObjectPtr* Reference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
+			if (!Reference)
+				return Error(EAssetReadError::UnsupportedProperty,
+					"Soft object property has no typed value accessor.");
+			uint8 ReferenceKind = 0;
+			if (!Reader.Read(ReferenceKind))
+				return Error(EAssetReadError::CorruptFile, "Truncated soft object reference.");
+			if (ReferenceKind == 0)
+			{
+				Reference->Reset();
+				return {};
+			}
+			if (ReferenceKind != 1)
+				return Error(EAssetReadError::CorruptFile, "Unknown soft object reference tag.");
+			std::string PathString;
+			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
+				return Error(EAssetReadError::CorruptFile, "Truncated or overlong soft object path.");
+			FObjectPath Path;
+			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
+			{
+				return Error(EAssetReadError::InvalidPath, ToString(PathValidation.error()));
+			}
+			Reference->SetPath(std::move(Path));
+			return {};
+		}
+		case DurinCodeGen::EPropertyGenFlags::Struct:
+		{
+			auto* StructProperty = static_cast<FStructProperty*>(Property);
+			DStruct* Struct = StructProperty->GetStruct();
+			if (!Struct)
+				return Error(EAssetReadError::UnsupportedProperty, "Struct property has no reflected type.");
+			if (!Struct->HasCompleteAuthoredFields())
+				return Error(
+					EAssetReadError::UnsupportedProperty,
+					std::format(
+						"CustomStructCodecRequired: '{}' does not declare a complete authored "
+						"field representation.",
+						Struct->GetQualifiedName()));
+			if (!Struct->CanDefaultConstruct() || !Struct->CanDestroy()
+				|| !Struct->CanCopyAssign())
+				return Error(
+					EAssetReadError::UnsupportedProperty,
+					std::format(
+						"DStructOperationUnavailable: authored loading requires "
+						"DefaultConstruct, Destroy, and CopyAssign for '{}'.",
+						Struct->GetQualifiedName()));
+			std::string StorageError;
+			std::optional<FStructProperty> DetachedProperty;
+			const FProperty* StorageProperty = Property;
+			if (Property->HasValueAccessors())
+			{
+				DetachedProperty.emplace(
+					FFieldVariant(), Property->NamePrivate, EObjectFlags::Transient,
+					EPropertyFlags::Transient, 1, 0, Struct);
+				StorageProperty = &*DetachedProperty;
+			}
+			FReflectedValueStorage Storage;
+			if (!([&] {
+				const auto ValueResult = Storage.DefaultConstruct(StorageProperty, 0);
+				if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+				return ValueResult.has_value();
+			}()))
+				return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
+			std::string StructName;
+			uint64 FieldCount = 0;
+			if (!Reader.ReadString(StructName) || StructName != Struct->GetQualifiedName().ToString() || !Reader.Read(FieldCount) || FieldCount > 100000)
+				return Error(EAssetReadError::CorruptFile, "Invalid struct payload header.");
+			void* StructValue = Storage.GetValue();
+			for (uint64 Index = 0; Index < FieldCount; ++Index)
+			{
+				std::string DeclaringStruct, FieldName, Signature;
+				uint8 Kind = 0;
+				uint64 PayloadSize = 0;
+				FByteView Payload;
+				if (!Reader.ReadString(DeclaringStruct) || !Reader.ReadString(FieldName) || !Reader.Read(Kind) || !Reader.ReadString(Signature) || !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size() || !Reader.ReadSpan(static_cast<size_t>(PayloadSize), Payload))
+					return Error(EAssetReadError::CorruptFile, "Invalid struct field record.");
+				if (DeclaringStruct != StructName) continue;
+				FProperty* Field = Struct->FindPropertyBySerializedName(FName(FieldName), false);
+				if (!Field)
+				{
+					DURIN_WARN("Skipping unknown struct field {}::{}", StructName, FieldName);
+					continue;
+				}
+				if (static_cast<uint8>(Field->GetKind()) != Kind
+					|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Field, Signature))
+					return Error(
+						EAssetReadError::TypeMismatch,
+						std::format(
+							"Serialized struct field {}::{} is incompatible with the current schema.",
+							StructName,
+							FieldName));
+				Durin::PackagePrivate::FByteReader PayloadReader{Payload};
+				for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
+				{
+					auto Result = DecodeReferenceByteToolValue(
+						Field, StructValue, FieldIndex, PayloadReader, Objects, SourceVersion);
+					if (!Result) return Result;
+				}
+				if (PayloadReader.Offset != Payload.size()) return Error(EAssetReadError::CorruptFile, "Struct field payload has trailing bytes.");
+			}
+			if (Struct->HasPostDeserialize())
+			{
+				FDStructPostDeserializeContext Context{
+					.Source = EDStructDeserializeSource::AuthoredAsset,
+					.SourceVersion = SourceVersion};
+				auto Validation = Struct->GetOps().PostDeserialize(StructValue, Context);
+				if (!Validation)
+				{
+					Validation.error().StructName = Struct->GetQualifiedName().ToString();
+					Validation.error().SourceVersion = SourceVersion;
+					auto Result = Error(EAssetReadError::CorruptFile, ToString(Validation.error()));
+					return Result;
+				}
+			}
+			if (!([&] {
+				const auto ValueResult = Property->CopyAssignValue(Property->GetValuePtr(Container, ArrayIndex), StructValue);
+				if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+				return ValueResult.has_value();
+			}()))
+				return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
+			return {};
+		}
+		case DurinCodeGen::EPropertyGenFlags::Array:
+		{
+			auto* Array = static_cast<FArrayProperty*>(Property);
+			uint64 Num = 0;
+			if (!Array->HasArrayOps() || !Array->GetInner() || !Reader.Read(Num) || Num > 10000000)
+				return Error(EAssetReadError::CorruptFile, "Invalid array payload.");
+			if (!Array->HasCapability(EArrayOpsFlags::DetachedStorage | EArrayOpsFlags::TransactionalCommit
+				| EArrayOpsFlags::RandomAccess) || (Num > 0 && !Array->HasCapability(EArrayOpsFlags::DefaultGrow)))
+				return Error(EAssetReadError::UnsupportedProperty,
+					"ArrayOperationUnavailable: DAST load requires DetachedStorage, RandomAccess, DefaultGrow, and TransactionalCommit.");
+			const FArrayOps& Ops = Array->GetOps();
+			FDetachedContainerStorage Detached;
+			EContainerOpResult OpResult = Detached.Create(Ops);
+			if (OpResult == EContainerOpResult::Success) OpResult = Ops.Resize(Detached.Get(), Num);
+			if (OpResult != EContainerOpResult::Success)
+				return Error(EAssetReadError::UnsupportedProperty,
+					std::format("ArrayOperationFailed: detached allocation/resize returned {}.", static_cast<uint32>(OpResult)));
+			for (uint64 Index = 0; Index < Num; ++Index)
+			{
+				void* Element = nullptr;
+				OpResult = Ops.GetMutableAt(Detached.Get(), Index, &Element);
+				if (OpResult != EContainerOpResult::Success)
+					return Error(EAssetReadError::UnsupportedProperty,
+						std::format("ArrayElement[{}]: mutable access returned {}.", Index, static_cast<uint32>(OpResult)));
+				auto Result = DecodeReferenceByteToolValue(
+					Array->GetInner(), Element,
+					0, Reader, Objects, SourceVersion);
+				if (!Result)
+				{
+					Result.Message = std::format("ArrayElement[{}]: {}", Index, Result.Message);
+					return Result;
+				}
+			}
+			OpResult = Ops.Commit(Array->GetValuePtr(Container, ArrayIndex), Detached.Get());
+			if (OpResult != EContainerOpResult::Success)
+				return Error(EAssetReadError::UnsupportedProperty,
+					std::format("ArrayOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
+			return {};
+		}
+		case DurinCodeGen::EPropertyGenFlags::Map:
+		{
+			auto* Map = static_cast<FMapProperty*>(Property);
+			uint64 Num = 0;
+			if (!Map->HasMapOps() || !Map->GetKeyProp() || !Map->GetValueProp()
+				|| !Reader.Read(Num) || Num > 10000000)
+				return Error(EAssetReadError::CorruptFile, "Invalid map payload.");
+			if (!Map->HasCapability(EMapOpsFlags::DetachedStorage | EMapOpsFlags::TransactionalCommit | EMapOpsFlags::Insert))
+				return Error(EAssetReadError::UnsupportedProperty,
+					"MapOperationUnavailable: DAST load requires DetachedStorage, Insert, and TransactionalCommit.");
+			const FMapOps& Ops = Map->GetOps();
+			FDetachedContainerStorage Detached;
+			EContainerOpResult OpResult = Detached.Create(Ops);
+			if (OpResult != EContainerOpResult::Success)
+				return Error(EAssetReadError::UnsupportedProperty,
+					std::format("MapOperationFailed: detached allocation returned {}.", static_cast<uint32>(OpResult)));
+			if (Ops.Reserve && (OpResult = Ops.Reserve(Detached.Get(), Num)) != EContainerOpResult::Success)
+				return Error(EAssetReadError::UnsupportedProperty,
+					std::format("MapOperationFailed: Reserve returned {}.", static_cast<uint32>(OpResult)));
+			FReflectedValueStorage KeyStorage;
+			FReflectedValueStorage ValueStorage;
+			std::string StorageError;
+			if (Num > 0
+				&& (!([&] {
+					const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
+					if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+					return ValueResult.has_value();
+				}())
+					|| !([&] {
+						const auto ValueResult = ValueStorage.DefaultConstruct(Map->GetValueProp(), 0);
+						if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+						return ValueResult.has_value();
+					}())))
+				return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
+			for (uint64 Index = 0; Index < Num; ++Index)
+			{
+				if (Index > 0)
+				{
+					KeyStorage.Reset();
+					ValueStorage.Reset();
+					if (!([&] {
+						const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
+						if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+						return ValueResult.has_value();
+					}())
+						|| !([&] {
+							const auto ValueResult = ValueStorage.DefaultConstruct(Map->GetValueProp(), 0);
+							if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+							return ValueResult.has_value();
+						}()))
+						return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
+				}
+				auto Result = DecodeReferenceByteToolValue(
+					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, Objects, SourceVersion);
+				if (!Result)
+				{
+					Result.Message = std::format("MapEntry[{}].Key: {}", Index, Result.Message);
+					return Result;
+				}
+				Result = DecodeReferenceByteToolValue(
+					Map->GetValueProp(), ValueStorage.GetContainer(), 0, Reader, Objects, SourceVersion);
+				if (!Result)
+				{
+					Result.Message = std::format("MapEntry[{}].Value: {}", Index, Result.Message);
+					return Result;
+				}
+				OpResult = Ops.InsertCopy(Detached.Get(), KeyStorage.GetValue(), ValueStorage.GetValue());
+				if (OpResult == EContainerOpResult::DuplicateKey)
+					return Error(EAssetReadError::CorruptFile,
+						std::format("MapEntry[{}].Key: duplicate decoded key.", Index));
+				if (OpResult != EContainerOpResult::Success)
+					return Error(EAssetReadError::UnsupportedProperty,
+						std::format("MapEntry[{}]: Insert returned {}.", Index, static_cast<uint32>(OpResult)));
+			}
+			OpResult = Ops.Commit(Map->GetValuePtr(Container, ArrayIndex), Detached.Get());
+			if (OpResult != EContainerOpResult::Success)
+				return Error(EAssetReadError::UnsupportedProperty,
+					std::format("MapOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
+			return {};
+		}
+		default:
+			return Error(EAssetReadError::UnsupportedProperty, "Unsupported property kind.");
+		}
+	}
+
 }

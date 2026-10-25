@@ -57,7 +57,6 @@ namespace Durin
 		bool bRetainEditorOnlyData = false;
 		std::shared_ptr<const FObjectSaveOverrides> SaveOverrides;
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
-		std::vector<FPackageBulkStoragePayload>* EditorBulkDataStoragePayloads = nullptr;
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
 		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
 		std::function<bool()> IsCancelled;

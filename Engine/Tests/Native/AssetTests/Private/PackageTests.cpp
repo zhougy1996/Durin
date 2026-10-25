@@ -721,9 +721,11 @@ namespace
 	{
 		using namespace Durin;
 		using namespace Durin::DurinCodeGen;
-		static const FFloatPropertyParams ValueProp{
+		static const char* const ValueLegacyNames[] = {"LegacyNestedValue"};
+		static const FFloatPropertyParams ValueProp = WithLegacyNames(FFloatPropertyParams{
 			"Value", EPropertyFlags::None, 1,
-			STRUCT_OFFSET_UINT16(AssetStructTest::FMigratingValue, Value)};
+			STRUCT_OFFSET_UINT16(AssetStructTest::FMigratingValue, Value)},
+			ValueLegacyNames, std::size(ValueLegacyNames));
 		static const FInt32PropertyParams DeprecatedProp{
 			"Value_DEPRECATED", EPropertyFlags::Deprecated, 1,
 			STRUCT_OFFSET_UINT16(AssetStructTest::FMigratingValue, Value_DEPRECATED)};
@@ -2315,6 +2317,165 @@ TEST(FPackageAssetTests, HistoricalRoutesStillConvertAndRejectIncompatibleStored
 		EXPECT_EQ(Report.DiscardedFieldCount, 0u);
 		ASSERT_EQ(Report.DeprecatedRouteEvidence.size(), 1u);
 		EXPECT_EQ(Report.DeprecatedRouteEvidence.front().DeprecatedPropertyName, "Left_DEPRECATED");
+	}
+}
+
+TEST(FPackageAssetTests, LegacyFieldNormalizationPreservesCallbackMutationsAndSourceBytes)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/LegacyFieldIdentity", Path));
+	DPackageAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	Source->Value = 173;
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		for (auto& Schema : Linker.Schemas)
+			if (Schema.QualifiedName == "Tests::DPackageAssetForTest")
+				for (auto& Field : Schema.Fields) if (Field.Name == "Value") Field.Name = "LegacyValue";
+		for (auto& Export : Linker.Exports)
+			for (auto& Property : Export.Properties)
+				if (Property.FieldName == "Value") Property.FieldName = "LegacyValue";
+	}));
+	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "LegacyFieldIdentity.dasset";
+	const auto Before = FFileHelper::LoadFileToArray(File);
+	ASSERT_TRUE(Before);
+	ShutdownAssetManagerForRestart();
+	struct FReset { ~FReset() { GAuthoredLoadProbe = {}; GAuthoredPostLoadProbe = {}; } } Reset;
+	GAuthoredLoadProbe = [](DObject& Object, FArchive&) {
+		ReportAssetLoadMutation(&Object, "Tests.Deserialize", "Deserialize observation");
+	};
+	GAuthoredPostLoadProbe = [](DObject& Object) {
+		ReportAssetLoadMutation(&Object, "Tests.PostLoad", "PostLoad observation");
+	};
+	FAssetLoadReport Report;
+	const auto Loaded = LoadPackage(Path, &Report);
+	ASSERT_TRUE(Loaded) << Loaded.error().Message;
+	auto* Asset = Cast<DPackageAssetForTest>((*Loaded)->FindTopLevelAsset(FName(Path.GetPackageName())));
+	ASSERT_NE(Asset, nullptr);
+	EXPECT_EQ(Asset->Value, 173);
+	ASSERT_EQ(Report.CanonicalizationEvidence.size(), 1u);
+	EXPECT_EQ(Report.CanonicalizationEvidence.front().StoredIdentity, "LegacyValue");
+	EXPECT_EQ(Report.CanonicalizationEvidence.front().CurrentIdentity, "Value");
+	ASSERT_EQ(Report.Mutations.size(), 2u);
+	EXPECT_EQ(Report.Mutations[0].HandlerId, "Tests.Deserialize");
+	EXPECT_EQ(Report.Mutations[1].HandlerId, "Tests.PostLoad");
+	const auto After = FFileHelper::LoadFileToArray(File);
+	ASSERT_TRUE(After);
+	EXPECT_EQ(*Before, *After);
+}
+
+TEST(FPackageAssetTests, NestedLegacyFieldsNormalizeForDeltaAndCompleteValues)
+{
+	using namespace Durin;
+	for (auto Mode : {EAssetPackageSaveMode::Delta, EAssetPackageSaveMode::Complete})
+	{
+		InitializeAssetTests();
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/NestedLegacyField", Path));
+		DContainerMigrationAssetForTest* Source = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+		Source->Values = {{11.0f, 0}, {22.0f, 0}};
+		ASSERT_TRUE(SavePackage(Source->GetPackage(), Mode));
+		ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+			for (auto& Schema : Linker.Schemas)
+				if (Schema.QualifiedName == "Tests::FMigratingValue")
+					for (auto& Field : Schema.Fields) if (Field.Name == "Value") Field.Name = "LegacyNestedValue";
+			for (auto& Export : Linker.Exports)
+				for (auto& Property : Export.Properties)
+					if (Property.FieldName == "Values")
+						for (auto& Element : Property.Value.Elements)
+							for (auto& Name : Element.FieldNames) if (Name == "Value") Name = "LegacyNestedValue";
+		}));
+		ShutdownAssetManagerForRestart();
+		FAssetLoadReport Report;
+		const auto Loaded = LoadPackage(Path, &Report);
+		ASSERT_TRUE(Loaded) << Loaded.error().Message;
+		auto* Asset = Cast<DContainerMigrationAssetForTest>((*Loaded)->FindTopLevelAsset(FName(Path.GetPackageName())));
+		ASSERT_NE(Asset, nullptr);
+		ASSERT_EQ(Asset->Values.size(), 2u);
+		EXPECT_FLOAT_EQ(Asset->Values[0].Value, 11.0f);
+		EXPECT_FLOAT_EQ(Asset->Values[1].Value, 22.0f);
+		EXPECT_EQ(Report.DiscardedFieldCount, 0u);
+		EXPECT_TRUE(Report.DeprecatedRouteEvidence.empty());
+		ASSERT_EQ(Report.CanonicalizationEvidence.size(), 1u);
+		EXPECT_EQ(Report.CanonicalizationEvidence.front().StoredIdentity, "LegacyNestedValue");
+	}
+}
+
+TEST(FPackageAssetTests, CanonicalFieldIdentityCollisionsRejectBeforeSkeletonConstruction)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CollidingFieldIdentity", Path));
+	DPackageAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	Source->Value = 7;
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		for (auto& Schema : Linker.Schemas)
+			if (Schema.QualifiedName == "Tests::DPackageAssetForTest")
+			{
+				const auto Field = std::ranges::find(Schema.Fields, "Value", &ObjectPackage::FSerializedField::Name);
+				ASSERT_NE(Field, Schema.Fields.end());
+				auto Alias = *Field;
+				Alias.Name = "LegacyValue";
+				Schema.Fields.push_back(std::move(Alias));
+			}
+	}));
+	ShutdownAssetManagerForRestart();
+	const uint32 Before = GPackageAssetPostLoadCount;
+	const auto Loaded = LoadPackage(Path);
+	ASSERT_FALSE(Loaded);
+	EXPECT_EQ(Loaded.error().Code, EAssetReadError::CorruptFile);
+	EXPECT_EQ(GPackageAssetPostLoadCount, Before);
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+}
+
+TEST(FPackageAssetTests, PreparedLinkerTablesKeepBatchPropertyRoutesIndependentOfInputLifetime)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	std::array<FPackageGraphSource, 2> Sources;
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		auto& Source = Sources[Index];
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/SchemaPlan{}", Index), Source.PackagePath));
+		DContainerMigrationAssetForTest* Live = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source.PackagePath, Live));
+		Live->Values = {{11.0f, 0}, {22.0f, 0}};
+		ASSERT_TRUE(SavePackage(Live->GetPackage()));
+		if (Index == 1)
+			ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Source.PackagePath, [](auto& Linker) {
+				RenameSchemaTestField(Linker, "Tests::FMigratingValue", "Value", "RetiredValue");
+			}));
+		const auto File = Testing::GetTestWorkDirectory() / "Assets" / std::format("SchemaPlan{}.dasset", Index);
+		auto Storage = FPreparedPackageResource::Read(Source.PackagePath, File, 1024 * 1024);
+		ASSERT_TRUE(Storage);
+		Source.Storage = std::move(*Storage);
+		Live->Values[0].Value = 99.0f;
+	}
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DContainerMigrationAssetForTest::StaticClass(), DObject::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	const auto Result = PreparePackageGraphs(Sources, Options, Graphs);
+	ASSERT_TRUE(Result) << FormatPackageGraphPrepareError(Result);
+	Sources = {};
+	CollectGarbage();
+	ASSERT_EQ(Graphs.size(), 2u);
+	for (size_t Index = 0; Index < Graphs.size(); ++Index)
+	{
+		auto* Package = Graphs[Index].GetPackage();
+		auto* Asset = Cast<DContainerMigrationAssetForTest>(Package->FindTopLevelAsset(
+			FName(Package->GetPackagePathIdentity().GetPackageName())));
+		ASSERT_NE(Asset, nullptr);
+		ASSERT_EQ(Asset->Values.size(), 2u);
+		EXPECT_FLOAT_EQ(Asset->Values[0].Value, Index == 0 ? 11.0f : 0.0f);
+		EXPECT_FLOAT_EQ(Asset->Values[1].Value, Index == 0 ? 22.0f : 0.0f);
+		EXPECT_EQ(Graphs[Index].GetReport().DiscardedFieldCount, Index == 0 ? 0u : 2u);
 	}
 }
 
@@ -4112,6 +4273,48 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Prepared.GetMainBytes(), File));
 	Live->ClearDirty(); // End the deliberately dirty fixture before removal admission.
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, AbandonedPreparedSaveReleasesPackagePinAndStagedFiles)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	const bool bOwnScheduler = !IsTaskSchedulerRunning();
+	if (bOwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+	if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+	PackageSavePrivate::SetAsyncSaveAdmission(true);
+	struct FSchedulerScope
+	{
+		bool bOwn;
+		~FSchedulerScope()
+		{
+			(void)DPackage::DrainAsyncSaves();
+			if (bOwn) ShutdownTaskSystem(ETaskShutdownMode::Drain);
+		}
+	} Scheduler{bOwnScheduler};
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AbandonedPreparedSave", Path));
+	auto* Package = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
+	ASSERT_TRUE(Package->InitializePreparedAssetPackage(Path));
+	ASSERT_NE(NewObject<DPackageAssetForTest>(Package, FName(Path.GetPackageName())), nullptr);
+	const TWeakObjectPtr<DPackage> WeakPackage(Package);
+	FAssetWriteResult Admission;
+	auto Save = FPreparedAssetSave::Begin(Package, {.bRollbackOnRegistryFailure = true}, Admission);
+	ASSERT_TRUE(Save) << Admission.Message;
+	Package = nullptr;
+	CollectGarbage();
+	EXPECT_TRUE(WeakPackage.IsValid());
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	ASSERT_TRUE(Save->IsReady());
+	EXPECT_FALSE(FindResidentPackage(Path));
+	EXPECT_FALSE(FindAssetExact(Path));
+	const auto Directory = Testing::GetTestWorkDirectory() / "Assets";
+	EXPECT_FALSE(std::filesystem::exists(Directory / "AbandonedPreparedSave.dasset"));
+	Save.reset();
+	CollectGarbage();
+	EXPECT_FALSE(WeakPackage.IsValid());
+	for (const auto& Entry : std::filesystem::directory_iterator(Directory))
+		EXPECT_FALSE(Entry.path().filename().string().starts_with("AbandonedPreparedSave."));
 }
 
 TEST(FPackageAssetTests, OrdinarySaveSurvivesUnrelatedRegistryScanFailure)
