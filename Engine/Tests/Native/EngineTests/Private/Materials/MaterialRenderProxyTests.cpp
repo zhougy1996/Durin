@@ -9,12 +9,20 @@
 namespace
 {
 	template<typename TName>
-	auto MakeExpandedMaterial(Durin::DObject* Outer, TName&& Name)
+	auto MakeExpandedMaterial(Durin::DObject* Outer, TName&& Name,
+		Durin::EMaterialBlendMode BlendMode = Durin::EMaterialBlendMode::Opaque)
 		-> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(
 			Outer, std::forward<TName>(Name));
-		if (!Material || !Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)) return nullptr;
+		if (!Material) return nullptr;
+		if (BlendMode != Durin::EMaterialBlendMode::Opaque)
+		{
+			auto Properties = Material->GetStaticProperties();
+			Properties.BlendMode = BlendMode;
+			if (!Material->SetStaticProperties(Properties)) return nullptr;
+		}
+		if (!Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
@@ -719,17 +727,15 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongChains)
+TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossMultipleGenerations)
 {
 	FRenderSceneHarness Harness;
 	auto* FirstBase = MakeExpandedMaterial(
-		nullptr, "ProxyChainFirstBase");
-	Durin::FMaterialStaticProperties OpacityProperties = FirstBase->GetStaticProperties();
-	OpacityProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
-	ASSERT_TRUE(FirstBase->SetStaticProperties(OpacityProperties));
+		nullptr, "ProxyChainFirstBase", Durin::EMaterialBlendMode::Translucent);
+	ASSERT_NE(FirstBase, nullptr);
 	auto* SecondBase = MakeExpandedMaterial(
-		nullptr, "ProxyChainSecondBase");
-	ASSERT_TRUE(SecondBase->SetStaticProperties(OpacityProperties));
+		nullptr, "ProxyChainSecondBase", Durin::EMaterialBlendMode::Translucent);
+	ASSERT_NE(SecondBase, nullptr);
 	ASSERT_TRUE(FirstBase->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.1, 0.2, 0.3)));
@@ -737,7 +743,9 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongC
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.7, 0.6, 0.5)));
 
-	constexpr uint32 ChainLength = 32;
+	// Root, intermediate override, and leaf remain distinct generations. Depth
+	// overflow and corrupt cycles have their own maximum-depth contract cases.
+	constexpr uint32 ChainLength = 4;
 	std::vector<Durin::DMaterialInstance*> Chain;
 	Chain.reserve(ChainLength);
 	Durin::DMaterialInterface* Parent = FirstBase;

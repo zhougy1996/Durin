@@ -6773,20 +6773,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ExpectReason(CustomSerializer, Durin::EDStructDefaultReason::CustomSerializer);
 	}
 
-	TEST(FCoreDObjectReflectionTests, TypedStructPropertyCompiledMetadataFootprintIsRecorded)
-	{
-		RecordProperty(
-			"FPropertyParamsBaseBytes",
-			static_cast<int>(sizeof(Durin::DurinCodeGen::FPropertyParamsBase))
-		);
-		RecordProperty(
-			"FStructPropertyParamsBytes",
-			static_cast<int>(sizeof(Durin::DurinCodeGen::FStructPropertyParams))
-		);
-		EXPECT_TRUE((std::is_base_of_v<
-					 Durin::DurinCodeGen::FPropertyParamsBase,
-					 Durin::DurinCodeGen::FStructPropertyParams>));
-	}
+	static_assert(std::is_base_of_v<Durin::DurinCodeGen::FPropertyParamsBase,
+		Durin::DurinCodeGen::FStructPropertyParams>);
 
 	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationSupportsOffsetsAccessorsAndMetadata)
 	{
