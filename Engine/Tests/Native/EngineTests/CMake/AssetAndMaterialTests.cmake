@@ -111,6 +111,20 @@ durin_add_native_test(EditorOperationTests
 		"Exercises reusable DurinEd asynchronous operation orchestration without an application host."
 )
 
+durin_add_native_test(TransactionArrayQualificationTests
+	KIND qualification
+	DOMAINS editor-operation
+	MODULES core-dobject durin-ed
+	STACKS editor
+	SOURCES Private/Editor/TransactionArrayQualificationTests.cpp
+	LIBRARIES Core CoreDObject Engine DurinEd
+	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses the editor transaction participant fixture and transactor."
+	HEAVY_RUNTIME_RATIONALE
+		"Measures allocation and capture/replay cost for large transaction arrays outside ordinary correctness tests."
+)
+
 durin_add_native_test(EditorAssetWorkflowTests
 	KIND feature
 	DOMAINS asset-workflow

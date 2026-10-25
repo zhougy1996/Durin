@@ -1,3 +1,4 @@
+#include "StaticMeshRenderPreparationTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "PSOPrecache.h"
 #include "PSOPrecacheComponent.h"
@@ -67,81 +68,7 @@
 
 namespace
 {
-	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode, bool bTwoSided = false, Durin::EMaterialDepthWritePolicy DepthWrite = Durin::EMaterialDepthWritePolicy::Automatic)
-		-> Durin::FMaterialRenderProxyRef
-	{
-		const char* Name = BlendMode == Durin::EMaterialBlendMode::Masked
-			? "PreparationMaskedMaterial"
-			: (BlendMode == Durin::EMaterialBlendMode::Translucent
-				? "PreparationTranslucentMaterial"
-				: (bTwoSided ? "PreparationTwoSidedMaterial"
-					: "PreparationOpaqueMaterial"));
-		static Durin::FObjectKey RootHandle;
-		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectKey(RootHandle));
-		if (!Durin::IsValid(Root))
-		{
-			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "PreparationVariantRoot");
-			RootHandle = Durin::FObjectKey(Root);
-		}
-		// Earlier cases may have enabled asynchronous compilation. Capture only
-		// accepted material programs, regardless of the case execution order.
-		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Root);
-		auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, Name);
-		Durin::FMaterialPropertyOverrides Overrides;
-		Overrides.bOverrideBlendMode = true;
-		Overrides.bOverrideOpacityMaskThreshold = true;
-		Overrides.bOverrideTwoSided = true;
-		Overrides.bOverrideDepthWritePolicy = true;
-		Overrides.Values.BlendMode = BlendMode;
-		Overrides.Values.bTwoSided = bTwoSided;
-		Overrides.Values.DepthWritePolicy = DepthWrite;
-		Overrides.Values.OpacityMaskThreshold = 0.4f;
-		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
-		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
-		return Material->GetMaterialRenderProxy();
-	}
-
-	auto MakeRenderData() -> std::unique_ptr<Durin::FStaticMeshRenderData>
-	{
-		auto Result = std::make_unique<Durin::FStaticMeshRenderData>();
-		Result->MaterialSlots.resize(4);
-		for (uint32 Index = 0; Index < 4; ++Index)
-		{
-			Result->MaterialSlots[Index].Name = std::format("Section{}", Index);
-			Result->MaterialSlots[Index].SourceMaterialIndex = Index;
-		}
-		Result->LODResources.resize(1);
-		auto& LOD = Result->LODResources[0];
-		const std::vector<Durin::FVector3f> Positions{
-			{-1.0f, -1.0f, 0.0f}, {1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}
-		};
-		LOD.VertexBuffers.PositionVertexBuffer.Init(Positions);
-		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
-			std::vector<Durin::FVector3f>(3, {0.0f, 0.0f, 1.0f}),
-			std::vector<Durin::FVector4f>(3, {1.0f, 0.0f, 0.0f, 1.0f})
-		);
-		std::array<std::vector<Durin::FVector2f>, Durin::MaxStaticMeshUVChannels> TexCoords;
-		for (auto& Channel : TexCoords)
-		{
-			Channel.resize(3);
-		}
-		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(
-			std::move(TexCoords), 3, 1
-		);
-		LOD.VertexBuffers.ColorVertexBuffer.Init(
-			std::vector<Durin::FVector4f>(3, Durin::FVector4f(1.0f)), 3
-		);
-		LOD.IndexBuffer.Init({0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2});
-		for (uint32 SectionIndex = 0; SectionIndex < 4; ++SectionIndex)
-		{
-			LOD.Sections.push_back({.Name = std::format("Section{}", SectionIndex), .FirstIndex = SectionIndex * 3, .IndexCount = 3, .MinVertexIndex = 0, .MaxVertexIndex = 2, .MaterialSlotIndex = SectionIndex, .LocalBounds = Durin::FBox(Durin::FVector3(-1.0, -1.0, static_cast<double>(SectionIndex)), Durin::FVector3(1.0, 1.0, static_cast<double>(SectionIndex)))});
-		}
-		LOD.NumTexCoords = 1;
-		LOD.bHasColorVertexData = true;
-		Result->LODVertexFactories.resize(1);
-		Result->RecalculateBounds();
-		return Result;
-	}
+	using namespace Durin::Tests::Preparation;
 
 	auto MakeMultiLODRenderData()
 		-> std::unique_ptr<Durin::FStaticMeshRenderData>
@@ -216,18 +143,6 @@ namespace
 		bool bTranslucentBlend = false;
 		double FirstViewDistance = 0.0;
 		double SecondViewDistance = 0.0;
-	};
-
-	struct FInitializePreparedStaticMeshResourcesCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "InitializePreparedStaticMeshResources";
-		}
-	};
-	struct FCapturePreparedStaticMeshViewCommand
-	{
-		static constexpr auto GetName() -> const char* { return "CapturePreparedStaticMeshView"; }
 	};
 
 	class FScopedRenderThreadBlocker final
@@ -1250,7 +1165,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 }
 
 TEST(FStaticMeshRenderPreparationVulkanTests,
-	RecordsMixedGeometryPreparationBaseline)
+	PreparesMixedGeometryAcrossRepeatedViews)
 {
 	if (!Durin::GIsGameThreadIdInitialized)
 	{
@@ -1278,7 +1193,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		});
 	Durin::FlushRenderingCommands();
 
-	constexpr size_t PrimitiveCount = 64;
+	constexpr size_t PrimitiveCount = 4;
 	for (size_t Index = 0; Index < PrimitiveCount; ++Index)
 	{
 		std::unique_ptr<Durin::FPrimitiveSceneProxy> Proxy;
@@ -1308,54 +1223,17 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&](Durin::FRHICommandListImmediate& CommandList) {
-			constexpr size_t WarmupFrames = 30;
-			constexpr size_t MeasuredFrames = 120;
-			// This is owned top-level container capacity, not allocator or
-			// transitive material/RHI memory accounting.
-			auto ContainerBytes = [](const Durin::FPreparedStaticMeshView& Prepared) {
-				return Prepared.Primitives.capacity() * sizeof(Durin::FPreparedStaticMeshPrimitive)
-					+ (Prepared.Opaque.capacity() + Prepared.Masked.capacity()
-						+ Prepared.Translucent.capacity()) * sizeof(Durin::FPreparedStaticMeshDraw)
-					+ (Prepared.RequestedLODHistogram.capacity()
-						+ Prepared.SelectedLODHistogram.capacity()) * sizeof(size_t);
-			};
-			RecordProperty("baseline_primitives", std::to_string(PrimitiveCount));
-			RecordProperty("baseline_draws", "256");
-			RecordProperty("baseline_warmup_frames", std::to_string(WarmupFrames));
-			RecordProperty("baseline_measured_frames", std::to_string(MeasuredFrames));
-			RecordProperty("baseline_timing_authority", "diagnostic");
-			for (size_t Run = 0; Run < 3; ++Run)
+			for (size_t Frame = 0; Frame < 2; ++Frame)
 			{
-				std::array<double, MeasuredFrames> Nanoseconds{};
-				size_t PeakContainerBytes = 0;
-				for (size_t Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
-				{
-					const auto Start = std::chrono::steady_clock::now();
-					const auto Prepared = Durin::PrepareStaticMeshView_RenderThread(
-						CommandList, Scene.GetPrimitiveSceneInfos(), Durin::FSceneView{},
-						Durin::ERasterMode::Solid);
-					const auto End = std::chrono::steady_clock::now();
-					ASSERT_EQ(Prepared.Primitives.size(), PrimitiveCount);
-					ASSERT_EQ(Prepared.Opaque.size(), 128u);
-					ASSERT_EQ(Prepared.Masked.size(), 64u);
-					ASSERT_EQ(Prepared.Translucent.size(), 64u);
-					ASSERT_EQ(Prepared.RejectedPrimitives, 0u);
-					ASSERT_EQ(Prepared.PreparedSplinePrimitives, 32u);
-					if (Frame >= WarmupFrames)
-					{
-						Nanoseconds[Frame - WarmupFrames] =
-							std::chrono::duration<double, std::nano>(End - Start).count();
-						PeakContainerBytes = std::max(PeakContainerBytes, ContainerBytes(Prepared));
-					}
-				}
-				std::ranges::sort(Nanoseconds);
-				const double Median = (Nanoseconds[59] + Nanoseconds[60]) / 2.0;
-				const double P95 = Nanoseconds[113]; // Nearest rank: ceil(0.95 * 120).
-				std::cout << std::format("[GeometryPreparationBaseline] run={} median_ns={} p95_ns={} peak_container_bytes={} authority=diagnostic\n",
-					Run + 1, Median, P95, PeakContainerBytes);
-				RecordProperty(std::format("baseline_run_{}_median_ns", Run + 1), std::to_string(Median));
-				RecordProperty(std::format("baseline_run_{}_p95_ns", Run + 1), std::to_string(P95));
-				RecordProperty(std::format("baseline_run_{}_peak_container_bytes", Run + 1), std::to_string(PeakContainerBytes));
+				const auto Prepared = Durin::PrepareStaticMeshView_RenderThread(
+					CommandList, Scene.GetPrimitiveSceneInfos(), Durin::FSceneView{},
+					Durin::ERasterMode::Solid);
+				ASSERT_EQ(Prepared.Primitives.size(), PrimitiveCount);
+				EXPECT_EQ(Prepared.Opaque.size(), 8u);
+				EXPECT_EQ(Prepared.Masked.size(), 4u);
+				EXPECT_EQ(Prepared.Translucent.size(), 4u);
+				EXPECT_EQ(Prepared.RejectedPrimitives, 0u);
+				EXPECT_EQ(Prepared.PreparedSplinePrimitives, 2u);
 			}
 		});
 	Durin::FlushRenderingCommands();
@@ -2620,7 +2498,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 				*Scene, FLightComponentId(901), Light), nullptr);
 		}
 		FlushRenderingCommands();
-		// Exercise command reuse independently of optional timing, including equal-version
+		// Exercise command reuse across equal-version
 		// world snapshots, changed bindings, incompatible schemas and default fallback.
 		auto RenderCollection = [&](FScene* Scene, FByteBuffer& Pixels, bool bExpectedSuccess = true) {
 			FViewRenderTelemetry Observation;
@@ -2682,51 +2560,6 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		GreenWorld->UpdateMaterialParameterCollection(MakeSnapshot(FVector4(0,1,0,0), 1.0f, 1));
 		RenderCollection(GreenWorld.Get(), Repeated);
 		EXPECT_EQ(Repeated, Green);
-		if (const auto* Benchmark = std::getenv("DURIN_MATERIAL_CACHE_BENCHMARK");
-			Benchmark && std::string_view(Benchmark) == "1")
-		{
-			const auto Root = Testing::CreateTestFixtureDirectory("MaterialCollectionBaseline");
-			std::string Csv = "run,sample,render_view_ns,command_hits,command_misses,surface_preparations,binding_batches\n";
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
-				FSceneView View;
-				View.ViewportWidth = 192; View.ViewportHeight = 108;
-				View.Settings.Mode.RenderMode = ERenderMode::Unlit;
-				View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
-				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
-					FRHITextureCreateDesc::Create2D("CollectionBenchmark", 192, 108, EPixelFormat::SRGBA8_UNORM)
-						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
-				ASSERT_TRUE(Target);
-				static FViewRenderTelemetry Telemetry;
-				SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Telemetry = Value; });
-				for (uint32 Run = 0; Run < 3; ++Run)
-				{
-					std::vector<int64> Samples;
-					for (int32 Sample = -30; Sample < 120; ++Sample)
-					{
-						++GRenderFrameCounterRenderThread;
-						GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-						const auto Begin = std::chrono::steady_clock::now();
-						const auto Result = Renderer.RenderView(Commands, RedWorld.Get(), View, Target, false, {});
-						const auto Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count();
-						EXPECT_EQ(Result, ERenderViewResult::Success);
-						GDynamicRHI->RHIEndFrame_RenderThread(Commands);
-						if (Sample < 0) continue;
-						Samples.push_back(Ns);
-						Csv += std::format("{},{},{},{},{},{},{}\n", Run, Sample, Ns,
-							Telemetry.StaticMesh.PersistentCommandHits, Telemetry.StaticMesh.PersistentCommandMisses,
-							Telemetry.StaticMesh.SurfaceMaterialPreparations, Telemetry.StaticMesh.PreparedSurfaceBindingBatches);
-					}
-					std::ranges::sort(Samples);
-					std::cout << "[MaterialCollectionBaseline] run=" << Run << " median_ns=" << Samples[59]
-						<< " p95_ns=" << Samples[113] << '\n';
-				}
-				SetViewRenderTelemetrySink(nullptr);
-			});
-			FlushRenderingCommands();
-			ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "samples.csv"));
-			RecordProperty("authority", "diagnostic-host-build");
-			std::cout << "[MaterialCollectionBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
-		}
 
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 			[&](FRHICommandListImmediate& Commands) {
