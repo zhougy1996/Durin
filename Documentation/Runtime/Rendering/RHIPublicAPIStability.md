@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-25
 
 ## Directory Contract
 
@@ -91,6 +91,10 @@ dependencies. This erased Core handle contains no native result or cancellation
 authority over shared compilation; request cancellation remains an explicit RHI
 operation. The declaration depends on `Threading/Task.h`, while task/event
 composition belongs to the [Core task API](../Core/TaskSystem.md#composition).
+The request publishes its outcome and native result before notifying terminal
+subscribers, including on cancellation. RHI queue readiness reads this domain
+publication; a subscription notification can precede the Core handle's visible
+terminal state and must not be followed by another wait for that notification.
 
 An enum value, resource flag, shader frequency, or feature level is vocabulary,
 not proof that a backend implements the feature. Runtime support requires a

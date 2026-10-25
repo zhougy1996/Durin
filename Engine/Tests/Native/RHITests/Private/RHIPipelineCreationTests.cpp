@@ -47,6 +47,45 @@ namespace Durin
 		}
 	};
 
+	TEST_F(FRHIPipelineCreationTests, TerminalObserversSeePublishedPipelineOutcome)
+	{
+		for (const auto Expected : {ERHIPipelineRequestState::Ready,
+			ERHIPipelineRequestState::Failed, ERHIPipelineRequestState::Canceled})
+		{
+			SCOPED_TRACE(static_cast<int>(Expected));
+			std::promise<void> Release;
+			auto Released = Release.get_future().share();
+			FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) {
+				Released.wait();
+				return Expected == ERHIPipelineRequestState::Failed
+					? FComputePipelineStateRHIRef{} : MakeRefCount<FRHIComputePipelineState>();
+			}));
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			auto Request = Owner.RequestCompute(Initializer, "terminal observation");
+			ASSERT_TRUE(Request.IsAccepted());
+			std::promise<std::pair<ERHIPipelineRequestState, FRHIPipelineCreationResult>> Observation;
+			auto Observed = Observation.get_future();
+			auto Subscription = Tasks::SubscribeTask(Request.GetTaskHandle(),
+				[Request, &Observation](ETaskState) {
+					Observation.set_value({Request.GetState(), Request.GetResult()});
+				});
+			if (Expected == ERHIPipelineRequestState::Canceled) EXPECT_TRUE(Request.Cancel());
+			Release.set_value();
+			const auto Ready = Observed.wait_for(std::chrono::seconds(5));
+			EXPECT_EQ(Ready, std::future_status::ready);
+			if (Ready == std::future_status::ready)
+			{
+				const auto [State, Result] = Observed.get();
+				EXPECT_EQ(State, Expected);
+				EXPECT_EQ(Result.State, Expected);
+				EXPECT_EQ(Result.Compute != nullptr, Expected == ERHIPipelineRequestState::Ready);
+			}
+			Owner.StopAndWait();
+		}
+	}
+
 	TEST_F(FRHIPipelineCreationTests, IdleQueueRejectsReuseAfterSchedulerRestart)
 	{
 		FPipelineCompileQueue Owner(Capabilities(), Backend([](const auto&, const auto&) {

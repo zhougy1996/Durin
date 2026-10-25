@@ -13,6 +13,9 @@
 #include "DObject/DObjectArray.h"
 #include "DynamicRHI.h"
 #include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "Engine/Actor.h"
+#include "Components/StaticMeshComponent.h"
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
@@ -560,6 +563,10 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	{
 		static constexpr auto GetName() -> const char* { return "BeginSceneImportFrame"; }
 	};
+	struct FPrepareSceneImportPreview
+	{
+		static constexpr auto GetName() -> const char* { return "PrepareSceneImportPreview"; }
+	};
 	Durin::EnqueueRenderCommand<FBeginSceneImportFrame>(
 		[](Durin::FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
@@ -611,6 +618,30 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(
 				Mesh, Material, Durin::FTransform()));
+			// A real host advances both renderer PSO work and component publication
+			// before capturing the preview. A render flush alone does neither.
+			auto* PreviewWorld = Pool.GetPreviewScene().GetWorld();
+			auto* PreviewActor = PreviewWorld->FindActorByName("ThumbnailTestMaterialActor");
+			auto* PreviewComponent = PreviewActor
+				? PreviewActor->FindComponentByClass<Durin::DStaticMeshComponent>() : nullptr;
+			if (!PreviewComponent)
+			{
+				ADD_FAILURE() << "The imported mesh preview component is unavailable.";
+				return Pixels;
+			}
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+			do
+			{
+				Durin::EnqueueRenderCommand<FPrepareSceneImportPreview>(
+					[&](Durin::FRHICommandListImmediate& Commands) { Renderer.UpdateScenes_RenderThread(Commands); });
+				Durin::FlushRenderingCommands();
+				Durin::PumpGameThreadDeferredWork();
+				Durin::DPrimitiveComponent::ProcessPSOPrecacheRequests(PreviewWorld);
+				if (PreviewComponent->IsPSOPrecacheReadyForProxyCreation()) break;
+				std::this_thread::yield();
+			} while (std::chrono::steady_clock::now() < Deadline);
+			EXPECT_TRUE(PreviewComponent->IsPSOPrecacheReadyForProxyCreation())
+				<< PreviewComponent->GetPSOPrecacheDiagnostic();
 			EXPECT_TRUE(Pool.BeginCapture(false));
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
