@@ -23,7 +23,7 @@ namespace Durin
 	namespace
 	{
 		std::mutex PreparationMutex;
-		std::vector<std::shared_ptr<FPreparedShaderMapState>> Preparations;
+		std::vector<std::weak_ptr<FPreparedShaderMapState>> Preparations;
 		std::atomic<uint64> PreparationEpoch = 1;
 		std::atomic_bool ForcePreparation = false;
 
@@ -44,8 +44,8 @@ namespace Durin
 		auto FindPreparationLocked(std::span<const FShaderType* const> Types, const FShaderCompileOptions& Options)
 			-> std::shared_ptr<FPreparedShaderMapState>
 		{
-			for (const auto& State : Preparations)
-				if (MatchesPreparation(*State, Types, Options)) return State;
+			for (const auto& Entry : Preparations)
+				if (auto State = Entry.lock(); State && MatchesPreparation(*State, Types, Options)) return State;
 			return {};
 		}
 		auto FindPreparation(std::span<const FShaderType* const> Types, const FShaderCompileOptions& Options)
@@ -62,7 +62,9 @@ namespace Durin
 			bool bSubmit = false;
 			{
 				std::lock_guard Lock(PreparationMutex);
-				std::erase_if(Preparations, [&](const auto& Existing) {
+				std::erase_if(Preparations, [&](const auto& Entry) {
+					const auto Existing = Entry.lock();
+					if (!Existing) return true;
 					if (Existing->Generation == GetShaderReloadGeneration() && Existing->Epoch == PreparationEpoch.load()) return false;
 					Retired.push_back(Existing);
 					return true;
@@ -82,9 +84,12 @@ namespace Durin
 					State->Types.assign(Types.begin(), Types.end());
 					State->Options = Options;
 					State->Handle = FShaderCompilingManager::Get().PrepareJobs(State->Options.VirtualShaderPath,
-						State->Options, {.Priority = Priority}, [State](FShaderCompilerOutput Output) {
-							std::lock_guard ResultLock(State->Mutex);
-							State->Output = std::move(Output);
+						State->Options, {.Priority = Priority}, [Weak = std::weak_ptr(State)](FShaderCompilerOutput Output) {
+							if (const auto Owner = Weak.lock())
+							{
+								std::lock_guard ResultLock(Owner->Mutex);
+								Owner->Output = std::move(Output);
+							}
 						});
 					Preparations.push_back(State);
 					bSubmit = true;
@@ -164,7 +169,11 @@ namespace Durin
 	{
 		InvalidateShaderMapPreparations(false);
 		std::vector<std::shared_ptr<FPreparedShaderMapState>> Retired;
-		{ std::lock_guard Lock(PreparationMutex); Retired.swap(Preparations); }
+		{
+			std::lock_guard Lock(PreparationMutex);
+			for (const auto& Entry : Preparations) if (auto State = Entry.lock()) Retired.push_back(std::move(State));
+			Preparations.clear();
+		}
 		for (const auto& State : Retired) State->Handle.RequestCancel();
 		for (const auto& State : Retired) (void)State->Handle.Wait();
 	}
@@ -201,6 +210,7 @@ namespace Durin
 			: FindPreparation(StableTypes, EffectiveCompileOptions);
 		if (Prepared)
 		{
+			FRenderPipelineRequestScope::RetainPreparation(Prepared);
 			std::lock_guard Lock(Prepared->Mutex);
 			if (Prepared->Output && *Prepared->Output)
 			{

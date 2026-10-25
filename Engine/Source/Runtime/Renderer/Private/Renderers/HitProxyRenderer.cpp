@@ -137,7 +137,18 @@ namespace Durin
 		const auto CacheKey = MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(),
 			Request.Cache && Request.Cache->IsFrameDependent_RenderThread());
 		if (!View.bDiscardHistory && Request.Cache)
-			if (auto Map = Request.Cache->Find_RenderThread(CacheKey)) return Map;
+			if (auto Map = Request.Cache->Find_RenderThread(CacheKey))
+			{
+				Request.Cache->GetPreparations_RenderThread().Reset();
+				return Map;
+			}
+		auto& Preparations = Request.Cache ? Request.Cache->GetPreparations_RenderThread() : *Request.Preparations;
+		FRenderPipelineRequestScope PreparationScope(Preparations, Coordinator.GetGeneration_RenderThread());
+		struct FReleasePreparations
+		{
+			FRenderPipelineRequestScope& Scope;
+			~FReleasePreparations() { if (!Scope.HasPending()) Scope.ReleasePreparations(); }
+		} ReleasePreparations{PreparationScope};
 		FViewRenderTelemetry Telemetry;
 		FSceneVisibilityResult Visibility;
 		if (Request.bSceneGeometry) PrepareSceneVisibility(*Scene, View, Telemetry, Visibility);
@@ -175,7 +186,7 @@ namespace Durin
 				const auto ShaderCompletion = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward), FHitProxyFragmentShader::StaticType(),
 					Factory->GetType(), MaterialMeshPassForward, Identity, Coordinator.GetGeneration_RenderThread(),
 					Draw.Command->Material.CompiledProgram.get(), Options, Item.ShaderMap);
-				if (ShaderCompletion.Status == EShaderBuildStatus::Pending) { FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
+				if (ShaderCompletion.Status == EShaderBuildStatus::Pending) { PreparationScope.MarkPending(); FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
 				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { bReady = false; break; }
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
 				Item.Vertex = Factory->Resolve(Item.ShaderMap, MaterialMeshPassForward);

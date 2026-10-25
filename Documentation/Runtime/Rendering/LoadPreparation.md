@@ -71,6 +71,19 @@ error. Nested slots remain retryable while independent terminal errors stay
 observable. Read-only preparation lookup does not submit, retire or reprioritize
 requests; creation, priority promotion and submission use the request path.
 
+The shared preparation index holds weak references, not completed compiler
+outputs. Explicit `FShaderMapPreparation` observers own their declared capture
+window. Rendering resource slots retain shared preparation only while an attempt
+is pending, then release it on publication, failure, cancellation, reset or
+generation change. Published ShaderMaps retain their own code/resources; the
+ShaderBuild output LRU remains the bounded compilation-output cache. Completion
+callbacks hold weak preparation references, so abandoning the last owner cancels
+unneeded work without a callback/handle ownership cycle. Other owners continue
+sharing the same request. Direct thumbnail captures retain preparation through
+their Preparing retries and release it before readback or on cancellation.
+Hit-proxy queries use their cache or copied request as the owner of their
+transient preparation window.
+
 Material mesh passes share `MeshPipelineDescription`: raster options and the
 effective material identity produce value-only raster/depth/blend state, and
 explicit Forward, hybrid retained, sorted translucency, shadow, GBuffer and

@@ -3411,22 +3411,28 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	bool bSubmitDuplicate = true;
 	std::shared_ptr<const FHitProxyMap> LastMap, DuplicateMap, SameFrameMap;
 	const auto CaptureCenter = [&]() -> uint32 {
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
-			++GRenderFrameCounterRenderThread;
-			GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-			LastMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
-			if (bSubmitDuplicate)
-			{
-				DuplicateMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
-				auto Uncached = Request;
-				Uncached.Cache.reset();
-				SameFrameMap = Renderer.RenderHitProxies(Commands, &Scene, Uncached);
-			}
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		do
+		{
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				LastMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
+				if (bSubmitDuplicate)
+				{
+					DuplicateMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
+					auto Uncached = Request;
+					Uncached.Cache.reset();
+					SameFrameMap = Renderer.RenderHitProxies(Commands, &Scene, Uncached);
+				}
 
-			GDynamicRHI->RHIEndFrame_RenderThread(Commands);
-		});
-		FlushRenderingCommands();
-		if (!LastMap) { ADD_FAILURE() << "Synchronous hit proxy readback failed"; return 0; }
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			});
+			FlushRenderingCommands();
+			if (LastMap && (!bSubmitDuplicate || (DuplicateMap && SameFrameMap))) break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		} while (std::chrono::steady_clock::now() < Deadline);
+		if (!LastMap) { ADD_FAILURE() << "Hit proxy preparation or readback timed out"; return 0; }
 		FHitProxyPixel Center;
 		if (!LastMap->ReadPixel(Request.View.ViewportX + Request.View.ViewportWidth / 2,
 			Request.View.ViewportY + Request.View.ViewportHeight / 2, Center)) { ADD_FAILURE(); return 0; }
