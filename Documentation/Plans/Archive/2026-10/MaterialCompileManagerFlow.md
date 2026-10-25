@@ -4,7 +4,7 @@ Summary: Remove per-build Operation objects and centralize material compilation 
 
 Last reviewed: 2026-10-20
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-20
 
 ## Current Status
@@ -53,7 +53,7 @@ persistent schema or GPU execution changed, so an all-build/GPU gate is not
 required. All native validation used the established unsandboxed MSVC lane.
 Changed-document validation, all-plan validation and final diff/symbol audits
 passed. Lasting ownership and interface rules are recorded in
-[Material System](../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs).
+[Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs).
 
 ## Goal
 
@@ -95,7 +95,7 @@ Depends on Stage 0.
 - [x] Update the runtime contract and validate changed documents, all plans,
   final diff and remaining symbol references.
 
-Use the [build](../Agents/BuildAndRun.md) and
-[test](../Agents/Testing.md) workflows. Inspect affected coverage before execution;
+Use the [build](../../../Agents/BuildAndRun.md) and
+[test](../../../Agents/Testing.md) workflows. Inspect affected coverage before execution;
 no all-build or GPU gate is required unless new evidence broadens the scope.
 Native MSVC validation uses the previously established unsandboxed lane for C1902.

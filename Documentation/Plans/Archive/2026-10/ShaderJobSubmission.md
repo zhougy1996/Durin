@@ -4,7 +4,7 @@ Summary: Separate existing Shader job preparation from submission and remove the
 
 Last reviewed: 2026-10-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-21
 
 ## Current Status
@@ -54,5 +54,5 @@ Depends on Stage 0.
       build non-editor Renderer to cover the public interface without ShaderBuild.
 - [x] Update the runtime contract, validate documentation and commit.
 
-Follow the repository [build](../Agents/BuildAndRun.md) and
-[test](../Agents/Testing.md) workflows. Reports remain under ignored `Build/`.
+Follow the repository [build](../../../Agents/BuildAndRun.md) and
+[test](../../../Agents/Testing.md) workflows. Reports remain under ignored `Build/`.

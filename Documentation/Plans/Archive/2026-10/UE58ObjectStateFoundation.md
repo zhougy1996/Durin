@@ -4,7 +4,7 @@ Summary: Replace transaction-specific object-state and component-recovery paths 
 
 Last reviewed: 2026-10-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-21
 
 ## Current Status
@@ -31,7 +31,7 @@ destruction inside coallocated typed storage. The small name registry resolves
 native cache factories; it supplies no competing property reflection, field
 serialization or struct operation table. Derived archive/copy independence,
 unknown/unregistered type rejection and derived destruction are covered. The
-lasting contracts are in [native construction](../Runtime/World/NativeConstruction.md).
+lasting contracts are in [native construction](../../../Runtime/World/NativeConstruction.md).
 
 Final Win64 Debug DurinEditor acceptance passed 1125 isolated cases in 20 targets:
 EditorOperation (200), World (189), LevelMutation (55), CoreTransactionContract
@@ -82,8 +82,8 @@ component override establishes native ownership; editor instance-presence
 commands explicitly prepare absence before Apply. Hook failure retires the fully
 constructed registered graph for normal virtual GC destruction. Registration,
 initialization and Play remain separate lifecycle transitions. The lasting rules
-are documented in [object initialization](../Runtime/ObjectSystem/GarbageCollection.md#object-initialization)
-and [native construction](../Runtime/World/NativeConstruction.md).
+are documented in [object initialization](../../../Runtime/ObjectSystem/GarbageCollection.md#object-initialization)
+and [native construction](../../../Runtime/World/NativeConstruction.md).
 
 The new virtual interface invalidated the initial Stage 6 ABI evidence. Fresh
 Win64 Debug DurinEditor acceptance passed 1292 isolated cases across 22 targets:
@@ -283,7 +283,7 @@ files inspected for this stage. `stage4-final-consumers.txt` records workspace
 consumers; `stage4-deletion-audit.txt` records zero old Tick-wrapper/Actor-flag
 references across all source/test roots. Native inputs remain unchanged after
 validation; later edits are documentation only. The enduring contract is in
-[Native Actor Construction](../Runtime/World/NativeConstruction.md).
+[Native Actor Construction](../../../Runtime/World/NativeConstruction.md).
 Stages 5-7 remain open; this is not final foundation acceptance.
 
 The completed construction revision on `4389b4220` supersedes Stage 0's keyed desired-set
@@ -332,7 +332,7 @@ before final validation; the added fixture initialization was validated by its o
 complete isolated target. Subsequent edits are documentation only. Consumer and
 zero-obsolete-API audits are in `construction-final-consumers.txt` and
 `construction-deletion-audit.txt`. The enduring contract is documented in
-[Native Actor Construction](../Runtime/World/NativeConstruction.md).
+[Native Actor Construction](../../../Runtime/World/NativeConstruction.md).
 
 That earlier receipt closed only the construction revision task. The lifecycle
 receipt above now closes Stage 4; Stages 5-7 acceptance remains open.
@@ -869,7 +869,7 @@ owner, and tests no longer require an obsolete implementation to remain present.
 Dependency: Stage 6. Outcome: verified foundations are ready for remaining features.
 
 - [x] Run owner contracts and affected consumer targets selected through the
-  [test workflow](../Agents/Testing.md), with serial isolation for state-sensitive
+  [test workflow](../../../Agents/Testing.md), with serial isolation for state-sensitive
   reconstruction, replacement and event cases. Record final relevant inputs.
 - [x] Run the default editor `all` build for the shared CoreDObject/Engine ABI and
   foundational-header changes. Validate bounded Debug DurinGame Core/CoreDObject/
@@ -882,7 +882,7 @@ Dependency: Stage 6. Outcome: verified foundations are ready for remaining featu
   unexpected history growth. Full array range scaling remains transaction Stage 7.
 - [x] Validate changed documents and plan lifecycle, attach concise receipts and
   record remaining transaction stages. Apply the repository
-  [build workflow](../Agents/BuildAndRun.md) and evidence reuse rules throughout.
+  [build workflow](../../../Agents/BuildAndRun.md) and evidence reuse rules throughout.
 
 Completion: foundations have final-input evidence, obsolete implementations are
 removed, and the original transaction plan can complete its remaining acceptance
@@ -927,7 +927,7 @@ Dependency: Stage 10. Outcome: extensible typed copying and archive construction
 - [x] Validate derived data archive/replacement and fail closed for unsupported or
   mismatched types. Keep independent preparation and checked map publication.
 - [x] Run owner contracts and affected workspace consumers using the
-  [test workflow](../Agents/Testing.md). The Actor/header ABI change requires the
+  [test workflow](../../../Agents/Testing.md). The Actor/header ABI change requires the
   editor all build and bounded Game Sandbox/RoadWeaver closures. Exercise actual
   render/physics/reload owners; select GPU correctness only for affected behavior.
 - [x] Update lasting contracts, validate changed documents and all-plan lifecycle,

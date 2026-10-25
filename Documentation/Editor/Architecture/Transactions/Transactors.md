@@ -62,7 +62,7 @@ UE 5.8.0 source, CL 53629095, branch `++UE5+Release-5.8`. Relevant UE files are
 `Engine/Source/Runtime/CoreUObject/Private/UObject/Obj.cpp` (`Modify`) and
 `Property.cpp` (`ShouldSerializeValue`), and
 `Engine/Source/Runtime/Engine/Private/Actor.cpp` (`Modify`). The
-[reference identity and behavior matrix](../../../Plans/UE58TransactionArchitecture.md#reference-identity-and-reproduction)
+[reference identity and behavior matrix](../../../Plans/Archive/2026-10/UE58TransactionArchitecture.md#reference-identity-and-reproduction)
 records source fingerprints and explicitly separates implemented rules from
 future architecture work. This source version's `Cancel(StartIndex)` cancels the entire active recording,
 including cancellation by an inner scope. It does not restore applied edits.
