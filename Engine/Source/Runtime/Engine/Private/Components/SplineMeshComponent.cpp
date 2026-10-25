@@ -3,6 +3,8 @@
 #include "Logging/LogMacros.h"
 
 #include "Components/ComponentMaterialOverride.h"
+#include "CoreGlobals.h"
+#include "Threading/RunnableThread.h"
 
 #include "DObject/DurinPropertyTypes.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -26,6 +28,18 @@ namespace Durin
 			case ESplineMeshAxis::Z: return {Bounds.Min.z, Bounds.Max.z};
 			default: return {Bounds.Min.x, Bounds.Max.x};
 			}
+		}
+
+		auto IsSplineSourceCurrent(const FStaticMeshRenderData* RenderData, const FSplineMeshDerivedState& State) -> bool
+		{
+			if (!RenderData || RenderData->LODResources.empty() || !State.IsValid()) return false;
+			const auto& LOD = RenderData->LODResources.front();
+			if (LOD.VertexBuffers.PositionVertexBuffer.GetPositions().empty() || LOD.IndexBuffer.GetIndices().empty()
+				|| !LOD.LocalBounds.bIsValid || !RenderData->LocalBounds.bIsValid) return false;
+			const auto [Minimum, Maximum] = SourceForwardRange(LOD.LocalBounds, State.Params.ForwardAxis);
+			return State.Params.SourceForwardMin == Minimum && State.Params.SourceForwardMax == Maximum
+				&& State.SourceLocalBounds.Min == RenderData->LocalBounds.Min
+				&& State.SourceLocalBounds.Max == RenderData->LocalBounds.Max;
 		}
 
 		auto DeformSimpleCollision(const DBodySetup& Source, const FSplineMeshParams& Params)
@@ -113,6 +127,7 @@ namespace Durin
 
 	auto DSplineMeshComponent::SetStaticMesh(DStaticMesh* InStaticMesh, bool bUpdateMesh) -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (StaticMesh != InStaticMesh)
 		{
 			StaticMesh = InStaticMesh;
@@ -124,6 +139,7 @@ namespace Durin
 
 	auto DSplineMeshComponent::SetSplineMeshParams(const FSplineMeshParams& InParams, bool bUpdateMesh) -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (SplineMeshParams != InParams)
 		{
 			SplineMeshParams = InParams;
@@ -135,6 +151,7 @@ namespace Durin
 
 	auto DSplineMeshComponent::SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode, bool bUpdateMesh) -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (CollisionMode != InMode)
 		{
 			CollisionMode = InMode;
@@ -146,6 +163,7 @@ namespace Durin
 
 	auto DSplineMeshComponent::UpdateMesh() -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (bUpdatingMesh) return;
 		const bool bRetryDeformation = !MeshUpdateError.empty();
 		if (!IsMeshDirty() && !bRetryDeformation && CollisionBuildError.empty()) return;
@@ -244,13 +262,11 @@ namespace Durin
 	{
 		auto Candidate = std::make_shared<FSplineMeshDerivedState>();
 		Candidate->Params = SplineMeshParams;
-		Candidate->DeformationRevision = DeformationRevision;
 		const auto Fail = [&](ESplineMeshDerivedStateStatus Status, const std::string& Error) -> bool
 		{
 			Candidate->Status = Status;
 			Candidate->Diagnostic = Error;
 			Candidate->ConservativeLocalBounds = {};
-			Candidate->DeformationRevision = ++DeformationRevision;
 			if (OutError) *OutError = Error;
 			std::atomic_store_explicit(&DerivedState,
 				std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
@@ -265,8 +281,6 @@ namespace Durin
 			return true;
 		}
 
-		const FStaticMeshRenderResourceStatus ResourceStatus = StaticMesh->GetRenderResourceStatus();
-		Candidate->SourceRenderResourceRevision = ResourceStatus.Revision;
 		const FStaticMeshRenderData* RenderData = StaticMesh->GetRenderData();
 		if (!RenderData || RenderData->LODResources.empty())
 		{
@@ -277,6 +291,7 @@ namespace Durin
 			return true;
 		}
 
+		Candidate->SourceLocalBounds = RenderData->LocalBounds;
 		const FStaticMeshLODResources& SourceLOD = RenderData->LODResources[0];
 		const auto& Positions = SourceLOD.VertexBuffers.PositionVertexBuffer.GetPositions();
 		const auto& Indices = SourceLOD.IndexBuffer.GetIndices();
@@ -303,10 +318,8 @@ namespace Durin
 			return Fail(ESplineMeshDerivedStateStatus::InvalidDeformation,
 				"SplineMesh deformation produced invalid bounds.");
 		}
-		Candidate->DeformationRevision = DeformationRevision + 1;
 		Candidate->Status = ESplineMeshDerivedStateStatus::Valid;
 		Candidate->Diagnostic.clear();
-		DeformationRevision = Candidate->DeformationRevision;
 		SplineMeshParams = Params;
 		std::atomic_store_explicit(&DerivedState, std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
 		if (OutError) OutError->clear();
@@ -317,8 +330,8 @@ namespace Durin
 	{
 		const auto State = GetDerivedState();
 		return StaticMesh && State && State->IsValid() && (!bSourceDirty || bUpdatingMesh)
+			&& IsSplineSourceCurrent(StaticMesh->GetRenderData(), *State)
 			&& StaticMesh->GetCollisionSourceRevision() == PublishedCollisionSourceRevision
-			&& StaticMesh->GetRenderResourceStatus().Revision == State->SourceRenderResourceRevision
 			&& StaticMesh->ContainsPhysicsTriMeshData();
 	}
 
@@ -391,8 +404,7 @@ namespace Durin
 		}
 		return std::make_unique<FSplineMeshSceneProxy>(RenderData, std::move(MaterialProxies), FSplineMeshRenderDynamicData{
 				.Params = State->Params,
-				.LocalBounds = State->ConservativeLocalBounds,
-				.Revision = State->DeformationRevision});
+				.LocalBounds = State->ConservativeLocalBounds});
 	}
 	auto DSplineMeshComponent::CollectPSOPrecacheData(const FPSOPrecacheParams& Params, FComponentPSOPrecacheParamsList& OutParams) -> void
 	{
@@ -410,9 +422,8 @@ namespace Durin
 	auto DSplineMeshComponent::OnRegister() -> void
 	{
 		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
-		const auto State = GetDerivedState();
-		if (StaticMesh && (!State || !State->IsValid()
-			|| State->SourceRenderResourceRevision != StaticMesh->GetRenderResourceStatus().Revision))
+		// Registration rebuilds from the current source after any detached edits.
+		if (StaticMesh)
 			bSourceDirty = true;
 		UpdateMesh();
 		Super::OnRegister();
@@ -420,14 +431,14 @@ namespace Durin
 
 	auto DSplineMeshComponent::PushDynamicDataToScene() -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!IsRegistered()) return;
 		FSceneInterface* Scene = GetRenderScene();
 		const auto State = GetDerivedState();
 		if (!Scene || !State || !State->IsValid()) return;
 		Scene->UpdateSplineMeshDynamicData(GetPrimitiveComponentId(), FSplineMeshRenderDynamicData{
 			.Params = State->Params,
-			.LocalBounds = State->ConservativeLocalBounds,
-			.Revision = State->DeformationRevision});
+			.LocalBounds = State->ConservativeLocalBounds});
 	}
 
 	auto DSplineMeshComponent::PostLoad() -> void
@@ -507,7 +518,7 @@ namespace Durin
 		if (!ChangedMesh || ChangedMesh != StaticMesh.Get()) return;
 		const bool bHadPendingEdits = IsMeshDirty();
 		const auto State = GetDerivedState();
-		if (!State || State->SourceRenderResourceRevision != ChangedMesh->GetRenderResourceStatus().Revision)
+		if (!State || !IsSplineSourceCurrent(ChangedMesh->GetRenderData(), *State))
 			bSourceDirty = true;
 		bSimpleCollisionDirty |= EnumHasAnyFlags(Changes, EBodySetupChange::SimpleGeometry | EBodySetupChange::SourceRecipe);
 		bComplexCollisionDirty |= EnumHasAnyFlags(Changes, EBodySetupChange::GeneratedGeometry);

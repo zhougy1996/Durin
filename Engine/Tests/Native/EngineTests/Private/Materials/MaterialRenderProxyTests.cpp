@@ -30,9 +30,8 @@ namespace
 	struct FMaterialProxySnapshot
 	{
 		Durin::FMaterialRenderData RenderData;
-		uint64 LocalVersion = 0;
-		uint64 ResolvedVersion = 0;
-		uint64 StalePublicationCount = 0;
+		uint64 PublicationCount = 0;
+		uint64 ResolutionCount = 0;
 	};
 
 	auto CaptureMaterialProxy(
@@ -56,12 +55,10 @@ namespace
 					Snapshot.RenderData =
 						Proxy->Resolve_RenderThread();
 				}
-				Snapshot.LocalVersion =
-					Proxy->GetLocalVersion_RenderThread();
-				Snapshot.ResolvedVersion =
-					Proxy->GetResolvedVersion_RenderThread();
-				Snapshot.StalePublicationCount =
-					Proxy->GetStalePublicationCount_RenderThread();
+				Snapshot.PublicationCount =
+					Proxy->GetPublicationCount_RenderThread();
+				Snapshot.ResolutionCount =
+					Proxy->GetResolutionCount_RenderThread();
 			});
 		WaitForRenderingThread();
 		return Snapshot;
@@ -124,7 +121,7 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 				Layer.CompiledProgram = std::move(Configured);
 			}
 			Layer.Parameters[0].Value = 0.1f * Version;
-			ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, Version}));
+			ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer}));
 			const auto& Actual = Proxy->Resolve_RenderThread().Representation;
 			FMaterialRenderRepresentationBuilder ExpectedBuilder(Program->GetShaderMap().Layout);
 			for (const auto& Parameter : Layer.Parameters) ASSERT_TRUE(ApplyMaterialLocalRenderParameter(ExpectedBuilder, Parameter));
@@ -145,17 +142,17 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		ReplacementArtifact->ActiveParameters.erase(Replacement->GetShaderMap().ActiveParameters.begin());
 		ReplacementArtifact->Layout = CompileMaterialLayout(Replacement->GetShaderMap().ActiveParameters).Layout;
 		Layer.CompiledProgram = Replacement;
-		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, 4}));
+		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer}));
 		const auto& Changed = Proxy->Resolve_RenderThread().Representation;
 		EXPECT_FALSE(Changed.IsError());
 		EXPECT_EQ(Changed.GetLayout().Fields.front().ParameterId, Layer.Parameters[1].Id);
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 2u);
 		Layer.Parameters.erase(Layer.Parameters.begin());
-		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, 5}));
+		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer}));
 		EXPECT_FALSE(Proxy->Resolve_RenderThread().Representation.IsError());
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 3u);
 		Layer.Parameters[0].Value = 0.5f; // An orphan type must not reuse the old vector write.
-		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, 6}));
+		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer}));
 		EXPECT_FALSE(Proxy->Resolve_RenderThread().Representation.IsError());
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 4u);
 		FMaterialRenderValidationDiagnostic Diagnostic;
@@ -187,8 +184,8 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	auto Validation = Base->SetMaterialExpressions({}, {});
 	ASSERT_TRUE(Validation);
 	const auto Dormant = CaptureMaterialProxy(Proxy);
-	EXPECT_GT(Dormant.LocalVersion, Initial.LocalVersion);
-	EXPECT_GT(Dormant.ResolvedVersion, Initial.ResolvedVersion);
+	EXPECT_GT(Dormant.PublicationCount, Initial.PublicationCount);
+	EXPECT_GT(Dormant.ResolutionCount, Initial.ResolutionCount);
 	ExpectRenderDataMatches(Dormant.RenderData, Instance->GetRenderData());
 	EXPECT_FALSE(Instance->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.9)));
@@ -197,7 +194,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	ASSERT_TRUE((Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Base)));
 	const auto Restored = CaptureMaterialProxy(Proxy);
-	EXPECT_GT(Restored.LocalVersion, Dormant.LocalVersion);
+	EXPECT_GT(Restored.PublicationCount, Dormant.PublicationCount);
 	ExpectColorNear(GetMaterialBinding(Restored.RenderData).BaseColor,
 		Durin::FVector4f(0.1f, 0.3f, 0.8f, 1.0f));
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
@@ -207,7 +204,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleState)
+TEST(FMaterialRenderProxyTests, StableIdentityAppliesSnapshotsInCommandOrder)
 {
 	FRenderSceneHarness Harness;
 	auto* Material = MakeExpandedMaterial(
@@ -221,21 +218,21 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 
 	const FMaterialProxySnapshot Initial =
 		CaptureMaterialProxy(Proxy);
-	EXPECT_GT(Initial.LocalVersion, 0);
-	EXPECT_GT(Initial.ResolvedVersion, 0);
+	EXPECT_GT(Initial.PublicationCount, 0);
+	EXPECT_GT(Initial.ResolutionCount, 0);
 	ExpectRenderDataMatches(
 		Initial.RenderData, Material->GetRenderData());
 	const FMaterialProxySnapshot Cached =
 		CaptureMaterialProxy(Proxy);
-	EXPECT_EQ(Cached.ResolvedVersion, Initial.ResolvedVersion);
+	EXPECT_EQ(Cached.ResolutionCount, Initial.ResolutionCount);
 
 	ASSERT_TRUE(Material->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.2, 0.4, 0.7)));
 	const FMaterialProxySnapshot Updated =
 		CaptureMaterialProxy(Proxy);
-	EXPECT_GT(Updated.LocalVersion, Initial.LocalVersion);
-	EXPECT_GT(Updated.ResolvedVersion, Initial.ResolvedVersion);
+	EXPECT_GT(Updated.PublicationCount, Initial.PublicationCount);
+	EXPECT_GT(Updated.ResolutionCount, Initial.ResolutionCount);
 	ExpectRenderDataMatches(
 		Updated.RenderData, Material->GetRenderData());
 
@@ -252,48 +249,26 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	const FMaterialProxySnapshot StaticUpdated =
 		CaptureMaterialProxy(Proxy);
 	EXPECT_GT(
-		StaticUpdated.LocalVersion, Updated.LocalVersion);
+		StaticUpdated.PublicationCount, Updated.PublicationCount);
 	EXPECT_GT(
-		StaticUpdated.ResolvedVersion, Updated.ResolvedVersion);
+		StaticUpdated.ResolutionCount, Updated.ResolutionCount);
 	ExpectRenderDataMatches(
 		StaticUpdated.RenderData, Material->GetRenderData());
 
-	Durin::FMaterialRenderProxyPublication StalePublication;
-	StalePublication.LocalVersion = Updated.LocalVersion;
-	StalePublication.LocalLayer.Parameters.push_back({
+	Durin::FMaterialRenderProxyPublication Publication;
+	Publication.LocalLayer.CompiledProgram = StaticUpdated.RenderData.CompiledProgram;
+	Publication.LocalLayer.StaticProperties = StaticProperties;
+	Publication.LocalLayer.Parameters.push_back({
 		.Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
 		.Value = Durin::FVector3(0.0),
 	});
-	bool bStaleApplied = true;
-	struct FApplyStaleMaterialProxyPublicationCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ApplyStaleMaterialProxyPublication";
-		}
-	};
-	Durin::EnqueueRenderCommand<
-		FApplyStaleMaterialProxyPublicationCommand>(
-		[Proxy, Publication = std::move(StalePublication),
-		 &bStaleApplied](Durin::FRHICommandListImmediate&) mutable {
-			bStaleApplied = Proxy->ApplyPublication_RenderThread(
-				std::move(Publication));
-		});
-	WaitForRenderingThread();
-
-	const FMaterialProxySnapshot AfterStale =
-		CaptureMaterialProxy(Proxy);
-	EXPECT_FALSE(bStaleApplied);
-	EXPECT_EQ(
-		AfterStale.LocalVersion, StaticUpdated.LocalVersion);
-	EXPECT_EQ(
-		AfterStale.StalePublicationCount,
-		StaticUpdated.StalePublicationCount + 1);
-	EXPECT_EQ(
-		AfterStale.ResolvedVersion,
-		StaticUpdated.ResolvedVersion);
-	ExpectRenderDataMatches(
-		AfterStale.RenderData, StaticUpdated.RenderData);
+	ASSERT_TRUE(Proxy->QueuePublication_GameThread(std::move(Publication)));
+	const auto Replaced = CaptureMaterialProxy(Proxy);
+	EXPECT_EQ(Replaced.PublicationCount, StaticUpdated.PublicationCount + 1);
+	EXPECT_EQ(Replaced.ResolutionCount, StaticUpdated.ResolutionCount + 1);
+	EXPECT_EQ(Durin::FVector3f(GetMaterialBinding(Replaced.RenderData).BaseColor), Durin::FVector3f(0.0f));
+	// Previously resolved values remain independent of later proxy updates.
+	ExpectRenderDataMatches(StaticUpdated.RenderData, Material->GetRenderData());
 
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
@@ -607,7 +582,6 @@ TEST(FMaterialRenderProxyTests, NonFinitePublicationUsesGenericValidation)
 	const auto Initial = CaptureMaterialProxy(Proxy);
 	// Bypass the setter's validation to exercise the render boundary's final guard.
 	Durin::FMaterialRenderProxyPublication Publication;
-	Publication.LocalVersion = Initial.LocalVersion + 1;
 	Publication.LocalLayer.CompiledProgram = Instance->GetAcceptedCompiledProgram();
 	Publication.LocalLayer.StaticProperties = Instance->GetRenderableStaticProperties();
 	Publication.LocalLayer.Parameters.push_back({
@@ -773,14 +747,14 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossMulti
 	const FMaterialProxySnapshot BeforeLazyResolve =
 		CaptureMaterialProxy(LeafProxy, false);
 	EXPECT_EQ(
-		BeforeLazyResolve.ResolvedVersion,
-		Initial.ResolvedVersion);
+		BeforeLazyResolve.ResolutionCount,
+		Initial.ResolutionCount);
 
 	const FMaterialProxySnapshot AfterLazyResolve =
 		CaptureMaterialProxy(LeafProxy);
 	EXPECT_GT(
-		AfterLazyResolve.ResolvedVersion,
-		Initial.ResolvedVersion);
+		AfterLazyResolve.ResolutionCount,
+		Initial.ResolutionCount);
 	ExpectRenderDataMatches(
 		AfterLazyResolve.RenderData, Leaf->GetRenderData());
 
@@ -788,8 +762,8 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossMulti
 	const FMaterialProxySnapshot Reparented =
 		CaptureMaterialProxy(LeafProxy);
 	EXPECT_GT(
-		Reparented.ResolvedVersion,
-		AfterLazyResolve.ResolvedVersion);
+		Reparented.ResolutionCount,
+		AfterLazyResolve.ResolutionCount);
 	ExpectRenderDataMatches(
 		Reparented.RenderData, Leaf->GetRenderData());
 
@@ -856,8 +830,8 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 		AfterDestruction.RenderData,
 		BeforeDestruction.RenderData);
 	EXPECT_EQ(
-		AfterDestruction.LocalVersion,
-		BeforeDestruction.LocalVersion);
+		AfterDestruction.PublicationCount,
+		BeforeDestruction.PublicationCount);
 
 	Durin::ReleaseMaterialRenderProxy_GameThread(
 		std::move(DuplicateProxy));
@@ -1062,7 +1036,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 		Durin::FVector4f(0.55f, 0.60f, 0.50f, 1.0f));
 
 	const FMaterialProxySnapshot UpdatedLeaf = CaptureMaterialProxy(LeafProxy);
-	EXPECT_GT(UpdatedLeaf.ResolvedVersion, InitialLeaf.ResolvedVersion);
+	EXPECT_GT(UpdatedLeaf.ResolutionCount, InitialLeaf.ResolutionCount);
 	ExpectColorNear(
 		GetMaterialBinding(UpdatedLeaf.RenderData).BaseColor,
 		Durin::FVector4f(0.50f, 0.55f, 0.60f, 1.0f));
@@ -1083,7 +1057,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 	Durin::CollectGarbage();
 	const FMaterialProxySnapshot AfterQueuedDestruction =
 		CaptureMaterialProxy(QueuedDestructionProxy);
-	EXPECT_GT(AfterQueuedDestruction.ResolvedVersion, 0);
+	EXPECT_GT(AfterQueuedDestruction.ResolutionCount, 0);
 
 	for (Durin::DStaticMeshComponent* Component : Components)
 	{
@@ -1144,14 +1118,14 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		EXPECT_EQ(Owner->GetMaterialCompileDiagnostics().front().Message, "Material compile admission was rejected.");
 
 		const auto Error = CaptureMaterialProxy(Proxy);
-		EXPECT_GT(Error.LocalVersion, Before.LocalVersion);
+		EXPECT_GT(Error.PublicationCount, Before.PublicationCount);
 		ExpectRenderDataMatches(Error.RenderData, Durin::GetErrorMaterialRenderData());
 		ExpectRenderDataMatches(Owner->GetRenderData(), Error.RenderData);
 		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Owner));
 		Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 		ASSERT_TRUE(Owner->GetMaterialCompileStatus().IsCurrent());
 		const auto Recovered = CaptureMaterialProxy(Proxy);
-		EXPECT_GT(Recovered.LocalVersion, Error.LocalVersion);
+		EXPECT_GT(Recovered.PublicationCount, Error.PublicationCount);
 		ExpectRenderDataMatches(Recovered.RenderData, Before.RenderData);
 
 		Durin::MIR::FCompilerInput InvalidInput;

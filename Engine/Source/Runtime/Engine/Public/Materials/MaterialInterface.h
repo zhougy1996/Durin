@@ -253,8 +253,7 @@ namespace Durin
 		mutable std::vector<FMaterialFunctionOwnerStamp> ParameterReachabilityFunctionOwners;
 		mutable std::weak_ptr<const FMaterialCompilerResult> ParameterReachabilityCookedProgram;
 		mutable FMaterialRenderProxyRef MaterialRenderProxy;
-		mutable uint64 MaterialProxyLocalVersion = 0;
-		mutable uint64 LastSubmittedMaterialProxyLocalVersion = 0;
+		mutable bool bMaterialProxyPublicationDirty = true;
 		bool bAcceptingMaterialProxyPublications = true;
 
 	};

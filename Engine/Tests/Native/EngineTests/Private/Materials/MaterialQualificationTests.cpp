@@ -104,7 +104,7 @@ TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 					const auto Begin = std::chrono::steady_clock::now();
 					for (auto& Proxy : Proxies)
 					{
-						EXPECT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, Version}));
+						EXPECT_TRUE(Proxy->ApplyPublication_RenderThread({Layer}));
 						EXPECT_FALSE(Proxy->Resolve_RenderThread().Representation.IsError());
 					}
 					const auto Resolved = std::chrono::steady_clock::now();

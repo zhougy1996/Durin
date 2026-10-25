@@ -4,7 +4,7 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-10-25
 
 Durin represents renderable world residents with Engine-created SceneProxy
 values and Renderer-owned scene entries. Components call only the public
@@ -52,10 +52,11 @@ membership. Kind is diagnostic and does not gate mesh-pass admission.
 render consumers collect batches through `GetProxy`. StaticMesh and SplineMesh proxies own
 family-specific render data and bindings. World bounds are rebuilt from the eight local AABB
 corners whenever a finite transform is attached or updated; an invalid local
-box remains invalid and is not used for culling. A SplineMesh dynamic update
-accepts only a newer non-zero deformation revision and atomically replaces the
-copied parameters and local/world bounds. Stale updates and updates after
-retirement are ignored without reading the component.
+box remains invalid and is not used for culling. SplineMesh dynamic updates transfer owned deformation values on GameThread
+in the same FIFO command stream as proxy add/remove. Each valid update replaces
+the copied parameters and local/world bounds together; invalid bounds and updates
+without scene membership are ignored without reading the component. Updates are
+not detached results and must not be retained for asynchronous replay.
 
 `FLightSceneInfo` owns explicit family, conservative local influence bounds,
 and typed membership. `FLightSceneProxyDesc` copies the stable light identity;

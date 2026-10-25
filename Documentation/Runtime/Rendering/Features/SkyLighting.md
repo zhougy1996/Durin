@@ -4,7 +4,7 @@ Summary: Scene-owned Sky Lights consume ordinary HDR cubes or capture a bounded 
 
 Modules: Engine, Renderer, RenderCore, VulkanRHI, MetalRHI, TextureCompressor, DurinEd, Launch
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-25
 
 ## Authoring and source selection
 
@@ -53,9 +53,12 @@ sample solid angle, roughness=mip/7; mip zero copies radiance. These are
 lighting mips, distinct from ordinary TextureCube mips.
 
 The shared 128-square RGBA16F split-sum BRDF LUT uses 1024 samples and is
-generated once per renderer resource generation. It does not depend on the
+cached per renderer resource generation. It does not depend on the
 source cube. Forward and deferred consumers share the same environment
-equations, complete generation, intensity, rotation, and maximum-mip controls.
+equations, complete generation, intensity, rotation, and maximum-mip controls. Each
+generation retains its selected BRDF LUT. The shared LUT cache admits only a
+GPU-completed candidate; scenes with pending first-use work keep independent
+candidates so cancellation cannot publish an uninitialized shared LUT.
 
 ## Lifetime and recovery
 
@@ -87,7 +90,13 @@ reuse the result. View-only preview scenes can admit through their render path.
 
 An authority change immediately discards the old active set. A same-authority
 creation failure retains the last complete set and retries at the bounded
-refresh interval. Scene removal releases scene ownership; submitted work owns
+refresh interval. An admitted replacement retains the previous set until GPU
+completion. Canceled or failed jobs restore that set when its authority is still
+current, report failure and retry even without an input revision change. Detached
+canceled outputs retire only after a subsequent ordered completion marker; failed
+native outputs remain owned and budgeted until resource/device invalidation.
+Authority retirement also requires a successful marker after the last consumer;
+a canceled marker never authorizes release. Scene removal releases scene ownership; submitted work owns
 its resources through execution. Renderer device invalidation clears all
 registered scene generations, including inactive scenes, and the shared LUT.
 See [Renderer Resource Recovery](../Pipeline/RendererResourceRecovery.md).

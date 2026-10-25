@@ -40,8 +40,8 @@ namespace Durin
 	{
 		FSplineMeshParams Params;
 		FBox ConservativeLocalBounds;
-		uint64 SourceRenderResourceRevision = 0;
-		uint64 DeformationRevision = 0;
+		// CPU inputs used to derive deformation; independent of GPU readiness.
+		FBox SourceLocalBounds;
 		ESplineMeshDerivedStateStatus Status = ESplineMeshDerivedStateStatus::NoStaticMesh;
 		std::string Diagnostic;
 
@@ -63,7 +63,6 @@ namespace Durin
 		// Stores authored parameters; validation and normalization happen during UpdateMesh.
 		ENGINE_API auto SetSplineMeshParams(const FSplineMeshParams& InParams, bool bUpdateMesh = true) -> void;
 		auto GetSplineMeshParams() const -> const FSplineMeshParams& { return SplineMeshParams; }
-		auto GetDeformationRevision() const -> uint64 { return DeformationRevision; }
 		auto GetSplineMeshCollisionMode() const -> ESplineMeshCollisionMode { return CollisionMode; }
 		ENGINE_API auto SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode, bool bUpdateMesh = true) -> void;
 		// Applies pending edits, invalidates failed results, and logs diagnostics internally.
@@ -113,7 +112,6 @@ namespace Durin
 		TObjectPtr<DBodySetup> BodySetup;
 
 		std::shared_ptr<const FSplineMeshDerivedState> DerivedState;
-		uint64 DeformationRevision = 0;
 		bool bSourceDirty = false;
 		bool bDeformationDirty = false;
 		bool bCollisionDirty = false;

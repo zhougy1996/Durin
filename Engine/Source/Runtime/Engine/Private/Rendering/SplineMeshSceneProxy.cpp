@@ -45,7 +45,7 @@ namespace Durin
 		FSplineMeshRenderDynamicData InDynamicData) -> bool
 	{
 		CheckRenderingThread();
-		if (InDynamicData.Revision <= DynamicData.Revision || !InDynamicData.LocalBounds.bIsValid
+		if (!InDynamicData.LocalBounds.bIsValid
 			|| !Math::IsFinite(InDynamicData.LocalBounds.Min)
 			|| !Math::IsFinite(InDynamicData.LocalBounds.Max)) return false;
 		DynamicData = std::move(InDynamicData);

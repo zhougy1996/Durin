@@ -84,16 +84,16 @@ namespace Durin
 			auto InstanceMaterial = MakeRefCount<FMaterialRenderProxy>();
 			EnqueueRenderCommand("InstallCookedSceneResources", [&](FRHICommandListImmediate& Commands) {
 				ASSERT_TRUE(Geometry->InitResources(Commands));
-				ASSERT_TRUE(Material->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = Properties, .CompiledProgram = Program}, .LocalVersion = 1}));
-				ASSERT_TRUE(MaskedMaterial->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = MaskedProperties, .CompiledProgram = MaskedProgram}, .LocalVersion = 1}));
-				ASSERT_TRUE(InstanceMaterial->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = InstanceProperties, .CompiledProgram = InstanceProgram}, .LocalVersion = 1}));
+				ASSERT_TRUE(Material->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = Properties, .CompiledProgram = Program}}));
+				ASSERT_TRUE(MaskedMaterial->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = MaskedProperties, .CompiledProgram = MaskedProgram}}));
+				ASSERT_TRUE(InstanceMaterial->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = InstanceProperties, .CompiledProgram = InstanceProgram}}));
 			});
 			FlushRenderingCommands();
 			ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*static_cast<FScene*>(Scene.get()), FPrimitiveComponentId(40001),
 				std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector<FMaterialRenderProxyRef>{Material}), Math::TranslationMatrix(FVector3{100, 0, 2510})));
 			FlushRenderingCommands();
 			FSplineMeshRenderDynamicData Spline;
-			Spline.Revision = 1; Spline.LocalBounds = LOD.LocalBounds;
+			Spline.LocalBounds = LOD.LocalBounds;
 			Spline.Params.ForwardAxis = ESplineMeshAxis::Y;
 			Spline.Params.SourceForwardMin = -40; Spline.Params.SourceForwardMax = 40;
 			Spline.Params.StartPosition = {0, -40, 0}; Spline.Params.EndPosition = {0, 40, 0};

@@ -62,7 +62,8 @@ namespace Durin
         TShaderMapRef<FSkyLightingShader> Shader;
         FComputePipelineStateRHIRef Pipeline;
         FSamplerRHIRef Sampler;
-        FTextureRHIRef Lut;
+        FTextureRHIRef Lut, PendingLut;
+        FRHIGPUSyncPointRef LutCompletion;
         FRenderResourceGeneration Generation;
     };
     FEnvironmentLightingResources::FEnvironmentLightingResources(FRendererResourceCoordinator& InCoordinator)
@@ -74,6 +75,20 @@ namespace Durin
         CheckRenderingThread();
         const auto Generation=Coordinator.GetGeneration_RenderThread();
         if (State->Generation != Generation) { State=std::make_unique<FState>(); State->Generation=Generation; }
+        if (State->LutCompletion)
+        {
+            const auto Completion = State->LutCompletion.GetState();
+            if (Completion == ERHIGPUSubmissionState::Complete)
+            {
+                State->Lut = std::move(State->PendingLut);
+                State->LutCompletion = nullptr;
+            }
+            else if (Completion != ERHIGPUSubmissionState::Pending && Completion != ERHIGPUSubmissionState::Submitted)
+            {
+                State->PendingLut = nullptr;
+                State->LutCompletion = nullptr;
+            }
+        }
         if (State->Pipeline && State->Sampler) return true;
         if (!GDynamicRHI) return false;
         const auto* Caps=GDynamicRHI->RHIGetCapabilities();
@@ -128,26 +143,18 @@ namespace Durin
         {
             if (S.InFlight && S.InFlight->Resources.Device != Generation.Device)
             {
-                S.Query = nullptr; S.Completion = nullptr; S.InFlight.reset();
+                S = {};
             }
             else
             {
                 const auto Completion = S.Completion.GetState();
                 if (Completion == ERHIGPUSubmissionState::Pending
                     || Completion == ERHIGPUSubmissionState::Submitted) return;
-                const auto Result = S.Query ? GDynamicRHI->RHIGetGPUTimingResult(S.Query) : FRHIGPUTimingResult{};
-                if (Completion == ERHIGPUSubmissionState::Complete
-                    && Light && S.InFlight && HasAuthority(*S.InFlight))
-                {
-                    Light->UpdateStatus->UpdateMilliseconds.store(
-                        Result.State == ERHIGPUTimingResultState::Ready ? double(Result.DurationNanoseconds)/1.e6 : 0.0);
-                    Light->UpdateStatus->CompletedUpdates.fetch_add(1, std::memory_order_release);
-                }
-                S.Query = nullptr;
-                if (S.Completion.IsRetirementEligible()
-                    && (!S.InFlight || HasAuthority(*S.InFlight))) S.Retiring.clear();
-                S.Completion = nullptr;
-                S.InFlight.reset();
+                const auto Result = Completion == ERHIGPUSubmissionState::Complete && S.Query
+                    ? GDynamicRHI->RHIGetGPUTimingResult(S.Query) : FRHIGPUTimingResult{};
+                S.FinishCompletion(S.InFlight && HasAuthority(*S.InFlight),
+                    S.Previous && HasAuthority(*S.Previous), Light ? Light->UpdateStatus : nullptr,
+                    Result.State == ERHIGPUTimingResultState::Ready ? double(Result.DurationNanoseconds)/1.e6 : 0.0);
             }
         }
         const auto MeasureImages=[&]() {
@@ -157,27 +164,28 @@ namespace Durin
             const auto Add=[&](FRHITexture* Texture,uint64& Bytes) {
                 if (Texture && Images.insert(Texture).second) Bytes+=Texture->GetBackendAllocationBytes();
             };
-            Add(State->Lut,LightingBytes);
+            Add(State->Lut,LightingBytes); Add(State->PendingLut,LightingBytes);
             for (const auto& Entry:S.Generations) if (const auto G=Entry.lock())
             {
                 Add(G->Radiance,LightingBytes); Add(G->Irradiance,LightingBytes); Add(G->Prefiltered,LightingBytes);
+                Add(G->BrdfLut,LightingBytes);
                 Add(G->Source,SourceBytes);
             }
             if (Light) Light->UpdateStatus->RetainedImageBytes.store(LightingBytes);
             return std::pair(LightingBytes,SourceBytes);
         };
-        if (!Light || (Captured && !Sky))
+        // A fresh marker follows the last possible consumer of a removed authority.
+        // A canceled/failed marker never authorizes clearing these owners.
+        if (!S.Completion && (!S.Retiring.empty()
+            || std::any_of(S.FailedGenerations.begin(), S.FailedGenerations.end(),
+                [](const auto& Entry) { return Entry.Completion.IsRetirementEligible(); })))
         {
-            // A source removal still needs an ordered retirement marker after
-            // the last view which could have sampled the removed generation.
-            if (!S.Retiring.empty() && !S.Completion)
-            {
-                RecordCompletion();
-            }
+            RecordCompletion();
             return;
         }
+        if (!Light || (Captured && !Sky)) return;
         const double Time=Now();
-        const bool Manual=!S.Active || S.Active->Request!=Light->RequestSerial;
+        const bool Manual=S.bRetry || !S.Active || S.Active->Request!=Light->RequestSerial;
         const bool Changed=Captured && S.Active && S.Active->Revision!=Sky->Revision;
         if (!Manual && !(Light->bAutomaticRefresh && Changed))
         {
@@ -320,11 +328,19 @@ namespace Durin
         // Submit this bounded job before admitting another scene's filtering.
         // This dispatches replay without waiting for GPU completion.
         Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::SubmitToGPU);
-        if (Lut) State->Lut=std::move(Lut);
+        Candidate->BrdfLut=Lut ? Lut : State->Lut;
+        // Share only a completed LUT. Other scenes can build their own candidate
+        // while this one is pending; cancellation cannot poison their outputs.
+        if (Lut && !State->LutCompletion)
+        {
+            State->PendingLut=std::move(Lut);
+            State->LutCompletion=S.Completion;
+        }
         // RDG guarantees every face and mip was recorded. Subsequent consumers use
         // the same ordered RHI timeline; this is not a CPU claim of GPU completion.
         if (!HasAuthority(*Candidate)) return;
-        if (S.Active) S.Retiring.push_back(std::move(S.Active));
+        S.Previous=std::move(S.Active);
+        S.bRetry=false;
         S.Active=Candidate; S.InFlight=Candidate; S.Query=Query;
         S.Generations.push_back(Candidate);
         MeasureImages();
@@ -339,7 +355,10 @@ namespace Durin
     auto FEnvironmentLightingResources::GetPrefiltered_RenderThread() const -> FRHITexture*
     { const auto G=Selected.lock(); return G && G->Resources==Coordinator.GetGeneration_RenderThread() ? G->Prefiltered.GetReference() : nullptr; }
     auto FEnvironmentLightingResources::GetBrdfLut_RenderThread() const -> FRHITexture*
-    { return State->Generation==Coordinator.GetGeneration_RenderThread() ? State->Lut.GetReference() : nullptr; }
+    {
+        const auto G=Selected.lock();
+        return G && G->Resources==Coordinator.GetGeneration_RenderThread() ? G->BrdfLut.GetReference() : nullptr;
+    }
     auto FEnvironmentLightingResources::GetSampler_RenderThread() const -> FRHISampler*
     { return State->Sampler.GetReference(); }
     auto FEnvironmentLightingResources::ReleaseResources_RenderThread() -> void

@@ -50,7 +50,6 @@ namespace Durin
 	struct FMaterialRenderProxyPublication
 	{
 		FMaterialLocalRenderLayer LocalLayer;
-		uint64 LocalVersion = 0;
 	};
 
 	// Reports proxy-owned publication and render-thread resolution work.
@@ -64,7 +63,6 @@ namespace Durin
 		uint64 CopiedMaterialPayloadBytes = 0;
 		uint64 ResolutionCacheHitCount = 0;
 		uint64 ResolutionCacheMissCount = 0;
-		uint64 StalePublicationCount = 0;
 		uint64 BindingUpdateCount = 0;
 		uint64 RepresentationValidationFailureCount = 0;
 		uint64 ParameterBindingBuildCount = 0;
@@ -93,25 +91,24 @@ namespace Durin
 			return ReferenceCount.load(std::memory_order_relaxed);
 		}
 
-		// Applies only strictly newer publications on the rendering thread.
+		// Applies an owned snapshot in render-command order and invalidates resolution.
 		ENGINE_API auto ApplyPublication_RenderThread(
 			FMaterialRenderProxyPublication Publication
 			) -> bool;
 
-		// Queues the newest game-thread publication. At most one render command
+		// Accepts an immediate game-thread snapshot; true means accepted, not executed.
+		// Queues the latest game-thread publication. At most one render command
 		// owns the pending wave for this proxy; later publications replace that
 		// wave until the render thread takes ownership.
 		ENGINE_API auto QueuePublication_GameThread(
 			FMaterialRenderProxyPublication Publication
 			) -> bool;
 
-		// Builds the accepted layout and caches it by publication version.
+		// Builds the accepted layout once after each applied publication.
 		ENGINE_API auto Resolve_RenderThread() -> const FMaterialRenderData&;
 
-		ENGINE_API auto GetLocalVersion_RenderThread() const -> uint64;
-		ENGINE_API auto GetResolvedVersion_RenderThread() const -> uint64;
-		ENGINE_API auto GetStalePublicationCount_RenderThread() const
-			-> uint64;
+		ENGINE_API auto GetPublicationCount_RenderThread() const -> uint64;
+		ENGINE_API auto GetResolutionCount_RenderThread() const -> uint64;
 
 	private:
 		// Bindings retain the exact program and parameter sequence they were built for.
@@ -131,12 +128,11 @@ namespace Durin
 
 		mutable std::atomic<uint32> ReferenceCount = 0;
 		FMaterialLocalRenderLayer LocalLayer;
-		uint64 LocalVersion = 0;
 
 		FMaterialRenderData CachedResolvedData;
-		uint64 CachedLocalVersion = 0;
-		uint64 ResolvedVersion = 0;
-		uint64 StalePublicationCount = 0;
+		// Diagnostic counts never participate in ordering or cache validity.
+		uint64 PublicationCount = 0;
+		uint64 ResolutionCount = 0;
 		bool bHasResolvedData = false;
 
 		// PendingPublication is the game-thread publication wave. It is never

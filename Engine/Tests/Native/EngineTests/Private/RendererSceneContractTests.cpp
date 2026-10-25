@@ -43,6 +43,7 @@
 #include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/RendererRDGAllocator.h"
 #include "Resources/RendererResourceCoordinator.h"
+#include "Resources/EnvironmentLightingResources.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "SceneInfo.h"
@@ -2721,35 +2722,32 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 	Durin::FStaticMeshRenderData RenderData;
 	Durin::FSplineMeshRenderDynamicData First{
 		.Params = {},
-		.LocalBounds = Durin::FBox({0.0, -1.0, -1.0}, {10.0, 1.0, 1.0}),
-		.Revision = 1
+		.LocalBounds = Durin::FBox({0.0, -1.0, -1.0}, {10.0, 1.0, 1.0})
 	};
 	const Durin::FPrimitiveComponentId Id(92);
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FSplineMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, First), Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0)));
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
 	const Durin::FPrimitiveSceneInfo* Info = Scene.GetPrimitiveSceneInfos().front();
-	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 1u);
+	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Params, First.Params);
 	EXPECT_EQ(Info->GetWorldBounds().Min.x, 2.0);
 
 	auto Second = First;
-	Second.Revision = 2;
 	Second.Params.EndPosition = {20.0, 10.0, 0.0};
 	Second.LocalBounds = Durin::FBox({-2.0, -3.0, -1.0}, {23.0, 13.0, 1.0});
 	Scene.UpdateSplineMeshDynamicData(Id, Second);
 	Durin::FlushRenderingCommands();
 	Info = Scene.GetPrimitiveSceneInfos().front();
-	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 2u);
+	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Params, Second.Params);
 	EXPECT_EQ(Info->GetSplineMeshProxy().GetAcceptedDynamicUpdateCount(), 1u);
 	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
 	EXPECT_EQ(Info->GetWorldBounds().Min.x, 0.0);
-	auto Stale = Second;
-	Stale.Revision = 1;
-	Stale.LocalBounds = Durin::FBox(Durin::FVector3(-100.0), Durin::FVector3(100.0));
-	Scene.UpdateSplineMeshDynamicData(Id, Stale);
+	auto Invalid = Second;
+	Invalid.LocalBounds = {};
+	Scene.UpdateSplineMeshDynamicData(Id, Invalid);
 	Durin::FlushRenderingCommands();
 	Info = Scene.GetPrimitiveSceneInfos().front();
-	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 2u);
+	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Params, Second.Params);
 	EXPECT_EQ(Info->GetSplineMeshProxy().GetAcceptedDynamicUpdateCount(), 1u);
 	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
 
@@ -2760,6 +2758,19 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 		Durin::PrepareSceneVisibility(Scene, View, Telemetry);
 	EXPECT_EQ(Visibility.SceneInfos.size(), 1u);
 	EXPECT_EQ(Telemetry.SplineMesh.VisibleSplineMeshCandidates, 1u);
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Id);
+	Scene.UpdateSplineMeshDynamicData(Id, Second); // No membership; cannot affect the replacement.
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FSplineMeshSceneProxy>(&RenderData,
+		std::vector<Durin::FMaterialRenderProxyRef>{}, First), Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
+	EXPECT_EQ(Scene.GetPrimitiveSceneInfos().front()->GetSplineMeshProxy().GetDynamicData().Params, First.Params);
+	Scene.UpdateSplineMeshDynamicData(Id, Second);
+	Scene.UpdateSplineMeshDynamicData(Id, First); // Later submission wins even when its values repeat.
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(Scene.GetPrimitiveSceneInfos().front()->GetSplineMeshProxy().GetDynamicData().Params, First.Params);
+	EXPECT_EQ(Scene.GetPrimitiveSceneInfos().front()->GetSplineMeshProxy().GetAcceptedDynamicUpdateCount(), 2u);
+
 }
 
 TEST(FRendererSceneContractTests, CollectsIndependentGeometrySnapshotsTransactionally)
@@ -4259,3 +4270,85 @@ namespace Durin
 	}
 }
 #endif
+
+TEST(FRendererSceneContractTests, SkyLightingFailureRestoresPreviousAndRetainsFailedOwners)
+{
+	using namespace Durin;
+	for (const auto Failure : {ERHIGPUSubmissionState::Canceled, ERHIGPUSubmissionState::Failed, ERHIGPUSubmissionState::DeviceLost})
+	{
+		FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
+		FSkyLightingSceneState State;
+		auto Previous = std::make_shared<FSkyLightingGeneration>();
+		Previous->Revision = 7;
+		auto Candidate = std::make_shared<FSkyLightingGeneration>();
+		Candidate->Revision = 8;
+		const std::weak_ptr<const FSkyLightingGeneration> FailedOwner = Candidate;
+		State.Previous = Previous;
+		State.Active = Candidate;
+		State.InFlight = std::move(Candidate);
+		State.Completion = Timeline.Reserve();
+		if (Failure == ERHIGPUSubmissionState::Canceled) ASSERT_TRUE(Timeline.Cancel(State.Completion));
+		else Timeline.Fail(Failure == ERHIGPUSubmissionState::DeviceLost);
+		auto Status = std::make_shared<FSkyLightUpdateStatus>();
+		Status->PublishedRevision = 8;
+		Status->State = ESkyLightUpdateState::Ready;
+		State.FinishCompletion(true, true, Status, 0);
+		EXPECT_EQ(State.Active, Previous);
+		EXPECT_FALSE(State.InFlight);
+		EXPECT_FALSE(State.Previous);
+		EXPECT_FALSE(State.Completion);
+		EXPECT_TRUE(State.bRetry);
+		EXPECT_EQ(Status->State.load(), ESkyLightUpdateState::Failed);
+		EXPECT_EQ(Status->PublishedRevision.load(), 7u);
+		EXPECT_EQ(Status->CompletedUpdates.load(), 0u);
+		EXPECT_FALSE(FailedOwner.expired());
+		ASSERT_EQ(State.FailedGenerations.size(), 1u);
+
+		// A later successful marker can retire detached canceled work, never failed native work.
+		FRHIGPUQueueTimeline Recovery(AllocateRHIDeviceGeneration(), {0});
+		State.Completion = Recovery.Reserve();
+		ASSERT_TRUE(Recovery.MarkSubmitted(State.Completion));
+		ASSERT_TRUE(Recovery.ObserveCompleted(State.Completion));
+		State.FinishCompletion(false, false, {}, 0);
+		EXPECT_EQ(FailedOwner.expired(), Failure == ERHIGPUSubmissionState::Canceled);
+		State = {};
+		EXPECT_TRUE(FailedOwner.expired());
+	}
+}
+
+TEST(FRendererSceneContractTests, SkyLightingCompletionRetiresPreviousButProtectsChangedAuthority)
+{
+	using namespace Durin;
+	FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
+	FSkyLightingSceneState State;
+	auto Previous = std::make_shared<FSkyLightingGeneration>();
+	const std::weak_ptr<const FSkyLightingGeneration> OldOwner = Previous;
+	State.Previous = std::move(Previous);
+	State.Active = State.InFlight = std::make_shared<FSkyLightingGeneration>();
+	State.Completion = Timeline.Reserve();
+	ASSERT_TRUE(Timeline.MarkSubmitted(State.Completion));
+	ASSERT_TRUE(Timeline.ObserveCompleted(State.Completion));
+	auto Status = std::make_shared<FSkyLightUpdateStatus>();
+	State.FinishCompletion(true, true, Status, 2.5);
+	EXPECT_TRUE(OldOwner.expired());
+	EXPECT_EQ(Status->CompletedUpdates.load(), 1u);
+	EXPECT_EQ(Status->UpdateMilliseconds.load(), 2.5);
+
+	// A source change can have later consumers than the filtering completion marker.
+	State.InFlight = State.Active;
+	State.Retiring.push_back(std::move(State.Active));
+	State.Completion = Timeline.Reserve();
+	ASSERT_TRUE(Timeline.MarkSubmitted(State.Completion));
+	ASSERT_TRUE(Timeline.ObserveCompleted(State.Completion));
+	State.FinishCompletion(false, false, {}, 0);
+	EXPECT_EQ(State.Retiring.size(), 1u);
+	State.Completion = Timeline.Reserve();
+	ASSERT_TRUE(Timeline.Cancel(State.Completion));
+	State.FinishCompletion(false, false, {}, 0);
+	EXPECT_EQ(State.Retiring.size(), 1u);
+	State.Completion = Timeline.Reserve();
+	ASSERT_TRUE(Timeline.MarkSubmitted(State.Completion));
+	ASSERT_TRUE(Timeline.ObserveCompleted(State.Completion));
+	State.FinishCompletion(false, false, {}, 0);
+	EXPECT_TRUE(State.Retiring.empty());
+}

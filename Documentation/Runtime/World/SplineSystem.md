@@ -218,8 +218,13 @@ object, package state, or published CPU state changes.
 
 Every accepted mesh-resource or deformation change atomically publishes an
 immutable `FSplineMeshDerivedState`. The render snapshot contains normalized
-parameters, conservative all-LOD local bounds, source and deformation revisions,
-and diagnostic status. It retains no deformed CPU geometry, picking acceleration,
+parameters, conservative all-LOD local bounds, source CPU bounds, and diagnostic status.
+GameThread mutations publish owned snapshots in proxy lifecycle order; no
+deformation revision orders render commands. CPU geometry/collision changes
+invalidate derived state through their owning notifications. Source checks compare
+the captured forward interval and CPU bounds, without a resource-status revision. GPU readiness
+transitions do not invalidate CPU deformation or collision. Registration rebuilds
+from the current source after detached edits. It retains no deformed CPU geometry, picking acceleration,
 or physics resource. Missing assets and temporarily unavailable source data are
 explicit diagnostic states. Viewport picking uses the GPU HitProxy pass with
 the same Spline vertex deformation, independently of collision.

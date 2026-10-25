@@ -11,15 +11,14 @@ namespace Durin
 	class FMeshGeometryRecord;
 	class FVertexFactoryInputBinding;
 
-	// Captures revisioned spline deformation state copied for render-thread use.
+	// Captures owned spline deformation state copied for render-thread use.
 	struct FSplineMeshRenderDynamicData
 	{
 		FSplineMeshParams Params;
 		FBox LocalBounds;
-		uint64 Revision = 0;
 	};
 
-	// Couples static-mesh resources with revisioned spline deformation and material state.
+	// Couples static-mesh resources with owned spline deformation and material state.
 	class FSplineMeshSceneProxy final : public FPrimitiveSceneProxy
 	{
 	public:

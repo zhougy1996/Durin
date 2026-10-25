@@ -573,12 +573,7 @@ namespace Durin
 	{
 		CheckMaterialQueryThread();
 		if (IsTemplateObject() || !bAcceptingMaterialProxyPublications) return {};
-		if (MaterialProxyLocalVersion == 0)
-		{
-			MaterialProxyLocalVersion = 1;
-		}
-		if (LastSubmittedMaterialProxyLocalVersion
-			< MaterialProxyLocalVersion)
+		if (bMaterialProxyPublicationDirty)
 		{
 			SubmitMaterialRenderProxyState(BuildMaterialLocalRenderLayer());
 		}
@@ -735,8 +730,7 @@ namespace Durin
 	{
 		CheckMaterialQueryThread();
 		if (!bAcceptingMaterialProxyPublications) return;
-		++MaterialProxyLocalVersion;
-		if (MaterialProxyLocalVersion == 0) ++MaterialProxyLocalVersion;
+		bMaterialProxyPublicationDirty = true;
 		SubmitMaterialRenderProxyState(std::move(LocalLayer));
 	}
 
@@ -751,8 +745,7 @@ namespace Durin
 		FMaterialLocalRenderLayer LocalLayer) const -> void
 	{
 		if (!bAcceptingMaterialProxyPublications
-			|| !MaterialRenderProxy
-			|| MaterialProxyLocalVersion == 0)
+			|| !MaterialRenderProxy)
 		{
 			return;
 		}
@@ -764,19 +757,17 @@ namespace Durin
 
 		FMaterialRenderProxyPublication Publication{
 			.LocalLayer = std::move(LocalLayer),
-			.LocalVersion = MaterialProxyLocalVersion,
 		};
 		std::ranges::sort(
 			Publication.LocalLayer.Parameters,
 			{},
 			&FMaterialLocalRenderParameter::Id);
 
-		const uint64 SubmittedVersion = Publication.LocalVersion;
 		const bool bAccepted = MaterialRenderProxy->QueuePublication_GameThread(
 			std::move(Publication));
 		if (bAccepted)
 		{
-			LastSubmittedMaterialProxyLocalVersion = SubmittedVersion;
+			bMaterialProxyPublicationDirty = false;
 		}
 	}
 

@@ -229,9 +229,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		ASSERT_TRUE(Repeated.Succeeded()) << Durin::FormatCookedMeshLoadError(Repeated.Error);
 		EXPECT_EQ(Repeated.Status.Generation, Loaded.Status.Generation);
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
+		auto* Spline = Durin::NewObject<Durin::DSplineMeshComponent>(nullptr, "GpuReadinessSpline");
+		std::shared_ptr<const Durin::FSplineMeshDerivedState> SplineState;
 		{
 			FScopedRenderThreadBlocker Blocker;
 			Mesh->InitResources();
+			Spline->SetStaticMesh(Mesh);
+			SplineState = Spline->GetDerivedState();
+			ASSERT_TRUE(SplineState->IsValid());
 			const auto Queued = Mesh->GetRenderResourceStatus();
 			const auto WhileQueued = Mesh->EnsureRenderDataLoadedBlocking();
 			EXPECT_TRUE(WhileQueued.Succeeded());
@@ -247,6 +252,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
 		Mesh->InitResources();
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Ready.Revision);
+		EXPECT_EQ(Spline->GetDerivedState(), SplineState);
+		EXPECT_EQ(Spline->ContainsPhysicsTriMeshData(), Mesh->ContainsPhysicsTriMeshData());
+		if (Mesh->ContainsPhysicsTriMeshData()) EXPECT_TRUE(Spline->GetPhysicsTriMeshData().has_value());
+		Durin::MarkAsGarbage(Spline);
 	};
 	CheckCpuOnlyAndGpuInitialization(StaticMesh);
 	Durin::MarkAsGarbage(StaticMesh);
@@ -507,7 +516,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(Original.Binding, After.GetBatches()[0].Binding);
 			EXPECT_EQ(After.GetBatches()[0].GetElement(0).Material.PlanningPassIdentity.ShaderMap.BlendMode, EMaterialBlendMode::Translucent);
 			EXPECT_EQ(Original.GetElement(0).Material.PlanningPassIdentity.ShaderMap.BlendMode, EMaterialBlendMode::Opaque);
-			FSplineMeshRenderDynamicData Dynamic{.LocalBounds = Context.WorldBounds, .Revision = 1};
+			FSplineMeshRenderDynamicData Dynamic{.LocalBounds = Context.WorldBounds};
 			FSplineMeshSceneProxy SplineProxy(RenderData.get(), {Opaque, Masked, Translucent, Opaque}, Dynamic);
 			FMeshBatchCollector SplineBefore(EMeshCollectionPurpose::Receiver);
 			SplineProxy.CollectMeshBatches(Context, SplineBefore);
@@ -518,7 +527,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			SplineProxy.CollectMeshBatches(Context, SplineRepeated);
 			ASSERT_EQ(SplineRepeated.GetBatches().size(), 1u);
 			EXPECT_EQ(OldBinding, SplineRepeated.GetBatches()[0].Binding);
-			Dynamic.Revision = 2;
 			Dynamic.Params.EndPosition = {12.0, 34.0, 56.0};
 			ASSERT_TRUE(SplineProxy.UpdateDynamicData_RenderThread(Dynamic));
 			FMeshBatchCollector SplineAfter(EMeshCollectionPurpose::Shadow);
@@ -529,11 +537,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(Original.GeometryRecord->GetElements().data(), SplineAfter.GetBatches()[0].GeometryRecord->GetElements().data());
 			const auto NewBinding = std::dynamic_pointer_cast<const FSplineMeshBatchBinding>(SplineAfter.GetBatches()[0].Binding);
 			ASSERT_TRUE(NewBinding);
-			EXPECT_EQ(OldBinding->DynamicData.Revision, 1u);
-			EXPECT_EQ(NewBinding->DynamicData.Revision, 2u);
+			EXPECT_EQ(OldBinding->DynamicData.Params.EndPosition, FSplineMeshParams{}.EndPosition);
 			EXPECT_EQ(NewBinding->DynamicData.Params.EndPosition, Dynamic.Params.EndPosition);
 			EXPECT_NE(OldBinding.get(), NewBinding.get());
-			EXPECT_FALSE(SplineProxy.UpdateDynamicData_RenderThread(Dynamic));
+			auto InvalidDynamic = Dynamic;
+			InvalidDynamic.LocalBounds = {};
+			EXPECT_FALSE(SplineProxy.UpdateDynamicData_RenderThread(InvalidDynamic));
 			FMeshBatchCollector SplineRejectedUpdate(EMeshCollectionPurpose::Shadow);
 			SplineProxy.CollectMeshBatches(Context, SplineRejectedUpdate);
 			ASSERT_EQ(SplineRejectedUpdate.GetBatches().size(), 1u);
@@ -554,8 +563,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	auto& SplineScene = static_cast<Durin::FScene&>(*SplineSceneOwner);
 	Durin::FSplineMeshRenderDynamicData SplineDynamic{
 		.Params = {},
-		.LocalBounds = Durin::FBox({-2.0, -2.0, -1.0}, {120.0, 40.0, 20.0}),
-		.Revision = 1};
+		.LocalBounds = Durin::FBox({-2.0, -2.0, -1.0}, {120.0, 40.0, 20.0})};
 	SplineDynamic.Params.EndPosition = {100.0, 30.0, 10.0};
 	SplineDynamic.Params.EndTangent = {80.0, 0.0, 10.0};
 	SplineDynamic.Params.SourceForwardMin = -1.0;
@@ -572,7 +580,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			ASSERT_EQ(Prepared.Primitives.size(), 1u);
 			EXPECT_EQ(Prepared.Primitives[0].VertexDomain,
 				Durin::EVertexDeformationDomain::Spline);
-			EXPECT_EQ(std::dynamic_pointer_cast<const Durin::FSplineMeshBatchBinding>(Prepared.Primitives[0].CollectedBinding)->DynamicData.Revision, 1u);
+			EXPECT_EQ(std::dynamic_pointer_cast<const Durin::FSplineMeshBatchBinding>(Prepared.Primitives[0].CollectedBinding)->DynamicData.Params.EndPosition, Durin::FVector3(100.0, 30.0, 10.0));
 			ASSERT_FALSE(Prepared.Opaque.empty());
 			EXPECT_EQ(Prepared.Opaque[0].Command->PipelineKey.VertexDomain,
 				Durin::EVertexDeformationDomain::Spline);
@@ -1207,8 +1215,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		{
 			Durin::FSplineMeshRenderDynamicData Dynamic{
 				.Params = {},
-				.LocalBounds = Durin::FBox({-2.0, -2.0, -1.0}, {120.0, 40.0, 20.0}),
-				.Revision = 1};
+				.LocalBounds = Durin::FBox({-2.0, -2.0, -1.0}, {120.0, 40.0, 20.0})};
 			Dynamic.Params.EndPosition = {100.0, 30.0, 10.0};
 			Dynamic.Params.EndTangent = {80.0, 0.0, 10.0};
 			Dynamic.Params.SourceForwardMin = -1.0;
@@ -2993,7 +3000,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 					Dynamic.Params.SourceForwardMax = 1.0;
 					Dynamic.Params.StartScale = Dynamic.Params.EndScale = Scale;
 					Dynamic.LocalBounds = Data->LocalBounds;
-					Dynamic.Revision = 1;
 					ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Reference, FPrimitiveComponentId(601),
 						std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector{Material}), StaticTransform));
 					ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Spline, FPrimitiveComponentId(602),
@@ -3065,7 +3071,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 				Dynamic.Params.EndScale = EndScale;
 				Dynamic.Params.Interpolation = Interpolation;
 				Dynamic.LocalBounds = Data->LocalBounds;
-				Dynamic.Revision = 1;
 				FMatrix World = Math::ScaleMatrix(FVector3(0.4));
 				World[3][2] = 0.5;
 				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Reference, FPrimitiveComponentId(601),
@@ -3509,7 +3514,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	FSplineMeshRenderDynamicData Spline;
 	Spline.Params.SourceForwardMax = 5.0;
 	Spline.LocalBounds = Data->LocalBounds;
-	Spline.Revision = 1;
 	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
 		std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}, Spline), FMatrix(1.0));
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
