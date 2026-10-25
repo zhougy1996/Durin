@@ -264,7 +264,7 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 			const auto Completion = InitializeShaderMapFromTypes(*Map, Types, {});
 			if (Completion) return FResult::Success(std::move(Map));
 			return FResult::Failure({.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
-				.Cause = Completion.Diagnostic});
+				.Cause = Completion.Error});
 		}, [&](const FRenderResourceCreateDiagnostic&) { ++Diagnostics; });
 	};
 	{

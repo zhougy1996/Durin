@@ -4,6 +4,7 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderData.h"
 #include "RenderResourceCreation.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -38,6 +39,52 @@ namespace Durin
 					|| State.Options.Macros[Index].Value != Options.Macros[Index].Value) return false;
 			return true;
 		}
+
+		auto FindOrAddPreparation(std::vector<const FShaderType*> Types, FShaderCompileOptions Options,
+			EShaderBuildPriority Priority, bool bCreate) -> std::shared_ptr<FPreparedShaderMapState>
+		{
+			std::vector<std::shared_ptr<FPreparedShaderMapState>> Retired;
+			if (bCreate)
+			{
+				std::lock_guard Lock(PreparationMutex);
+				std::erase_if(Preparations, [&](const auto& State) {
+					if (State->Generation == GetShaderReloadGeneration() && State->Epoch == PreparationEpoch.load()) return false;
+					Retired.push_back(State);
+					return true;
+				});
+			}
+			for (const auto& State : Retired) State->Handle.RequestCancel();
+			std::shared_ptr<FPreparedShaderMapState> State;
+			bool bSubmit = false;
+			{
+				std::lock_guard Lock(PreparationMutex);
+				for (const auto& Existing : Preparations)
+					if (MatchesPreparation(*Existing, Types, Options)) { State = Existing; break; }
+				if (State && Priority < State->Priority)
+				{
+					State->Priority = Priority;
+					State->Handle.SetPriority(Priority);
+				}
+				if (!State && bCreate)
+				{
+					State = std::make_shared<FPreparedShaderMapState>();
+					State->Generation = GetShaderReloadGeneration();
+					State->Epoch = PreparationEpoch.load();
+					State->Priority = Priority;
+					State->Types = std::move(Types);
+					State->Options = std::move(Options);
+					State->Handle = FShaderCompilingManager::Get().PrepareJobs(State->Options.VirtualShaderPath,
+						State->Options, {.Priority = Priority}, [State](FShaderCompilerOutput Output) {
+							std::lock_guard ResultLock(State->Mutex);
+							State->Output = std::move(Output);
+						});
+					Preparations.push_back(State);
+					bSubmit = true;
+				}
+			}
+			if (bSubmit) FShaderCompilingManager::Get().SubmitJobs(State->Handle);
+			return State;
+		}
 	}
 	auto FShaderMapPreparation::Request(std::string_view Owner,
 		std::initializer_list<std::string_view> Programs, EShaderBuildPriority Priority) -> FShaderMapPreparation
@@ -65,16 +112,6 @@ namespace Durin
 		if (GetShaderDataDomain() == EShaderDataDomain::Cooked) return;
 		auto* Module = IShaderBuildModule::Get();
 		if (!Module) { Error = "ShaderBuild is unavailable."; return; }
-		std::vector<std::shared_ptr<FPreparedShaderMapState>> Retired;
-		{
-			std::lock_guard Lock(PreparationMutex);
-			std::erase_if(Preparations, [&](const auto& State) {
-				if (State->Generation == Generation && State->Epoch == Epoch) return false;
-				Retired.push_back(State);
-				return true;
-			});
-		}
-		for (const auto& State : Retired) State->Handle.RequestCancel();
 		for (const auto& [Owner, Program] : Programs)
 		{
 			std::vector<const FShaderType*> Types;
@@ -85,35 +122,11 @@ namespace Durin
 			if (auto Result = BuildShaderMapCompileOptions(Types, nullptr, Options); !Result)
 			{ Error = std::string(Result.error()); return; }
 			Options.bForceRecompile = ForcePreparation.load();
-			std::shared_ptr<FPreparedShaderMapState> State;
-			{
-				std::lock_guard Lock(PreparationMutex);
-				for (const auto& Existing : Preparations)
-					if (MatchesPreparation(*Existing, Types, Options)) { State = Existing; break; }
-				if (State && Priority < State->Priority)
-				{
-					State->Priority = Priority;
-					State->Handle.SetPriority(Priority);
-				}
-				if (!State)
-				{
-					State = std::make_shared<FPreparedShaderMapState>();
-					State->Generation = Generation;
-					State->Epoch = Epoch;
-					State->Priority = Priority;
-					State->Types = std::move(Types);
-					State->Options = std::move(Options);
-					Preparations.push_back(State);
-					auto Submitted = FShaderCompilingManager::Get().PrepareJobs(State->Options.VirtualShaderPath, State->Options, {.Priority = Priority},
-						[State](FShaderCompilerOutput Output) {
-							std::lock_guard ResultLock(State->Mutex);
-							State->Output = std::move(Output);
-						});
-					State->Handle = std::move(Submitted);
-					FShaderCompilingManager::Get().SubmitJobs(State->Handle);
-				}
-			}
-			States.push_back(std::move(State));
+			std::vector<FShaderMacroDefinition> Macros;
+			if (auto Result = NormalizeShaderMacros(Options, Macros); !Result)
+			{ Error = std::string(Result.error()); return; }
+			Options.Macros = std::move(Macros);
+			States.push_back(FindOrAddPreparation(std::move(Types), std::move(Options), Priority, true));
 		}
 	}
 
@@ -164,12 +177,12 @@ namespace Durin
 		std::vector<FShaderMacroDefinition> Macros;
 		if (!(Result = NormalizeShaderMacros(EffectiveCompileOptions, Macros))) return Result;
 		EffectiveCompileOptions.Macros = std::move(Macros);
-		std::shared_ptr<FPreparedShaderMapState> Prepared;
-		{
-			std::lock_guard Lock(PreparationMutex);
-			for (const auto& State : Preparations)
-				if (MatchesPreparation(*State, StableTypes, EffectiveCompileOptions)) { Prepared = State; break; }
-		}
+		const bool bCaptureOnly = FPreparedShaderMapScope::IsActive() && !FPreparedShaderMapScope::AllowsAsyncRequests();
+		const bool bAsyncDemand = IsInRenderingThread() && !bCaptureOnly;
+		if (bAsyncDemand && !IShaderBuildModule::Get())
+			return std::unexpected(std::string("ShaderBuild module is unavailable."));
+		auto Prepared = FindOrAddPreparation(std::move(StableTypes), EffectiveCompileOptions,
+			EShaderBuildPriority::Normal, bAsyncDemand);
 		if (Prepared)
 		{
 			std::lock_guard Lock(Prepared->Mutex);
@@ -189,7 +202,7 @@ namespace Durin
 			}
 			if (Prepared->Output) return {Prepared->Output->Status, FormatShaderCompilerErrors(Prepared->Output->Errors)};
 		}
-		if (FPreparedShaderMapScope::IsActive())
+		if (bCaptureOnly || bAsyncDemand)
 		{
 			FPreparedShaderMapScope::RecordPendingRequest();
 			return std::unexpected(std::string("Shader compilation has not completed."));

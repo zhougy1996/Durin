@@ -76,17 +76,23 @@ namespace Durin
 		uint32 Shaders = 0, Pipelines = 0;
 	};
 	// A thumbnail capture may consume completed outputs, never compile on demand.
+	// Resource preparation may opt into asynchronous demand; nested captures still
+	// forbid new requests. Neither mode permits waiting for compilation.
 	class RENDERCORE_API FPreparedShaderMapScope
 	{
 	public:
 		FPreparedShaderMapScope();
+		explicit FPreparedShaderMapScope(bool bAllowAsyncRequests);
 		~FPreparedShaderMapScope();
 		FPreparedShaderMapScope(const FPreparedShaderMapScope&) = delete;
 		static auto IsActive() -> bool;
+		static auto AllowsAsyncRequests() -> bool;
 		static auto RecordPendingRequest() -> void;
-		// Counts unavailable CPU outputs encountered in the current outer capture.
+		// Counts unavailable CPU outputs encountered in the current outer scope.
 		// Resource attempts compare before/after counts to defer only their own work.
 		static auto GetPendingRequestCount() -> uint64;
+	private:
+		bool bAllowsAsyncRequests = false;
 	};
 
 }

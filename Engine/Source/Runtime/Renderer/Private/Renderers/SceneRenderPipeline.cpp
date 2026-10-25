@@ -77,6 +77,7 @@ namespace Durin
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
 	{
+		FPreparedShaderMapScope ShaderScope(true);
 		if (!FRenderResourcePreparationScope::IsActive() && Service.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++Service.RenderSubmissionSerial;
 		check(IsInRenderingThread());
@@ -185,8 +186,9 @@ namespace Durin
 		for (;;)
 		{
 			FRenderPipelinePreparationBatch Batch;
+			const uint64 PendingShadersBefore = FPreparedShaderMapScope::GetPendingRequestCount();
 			const auto Result = (this->*Stage)(CommandList, Context);
-			if (FPreparedShaderMapScope::GetPendingRequestCount() != 0)
+			if (FPreparedShaderMapScope::GetPendingRequestCount() != PendingShadersBefore)
 				return ERenderViewResult::RendererResourcesPending;
 			if (Batch.GetRequestCount() > FRenderPipelinePreparationBatch::MaximumRequests - JoinedRequests)
 				return ERenderViewResult::RendererResourcesUnavailable;

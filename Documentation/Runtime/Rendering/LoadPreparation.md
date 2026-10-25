@@ -4,7 +4,7 @@ Summary: Prepare cooked material programs and exact scene Shader/PSO resources b
 
 Modules: Engine, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-10-22
+Last reviewed: 2026-10-25
 
 ## Object and program readiness
 
@@ -48,6 +48,19 @@ phases with their normal typed ShaderMaps and exact PSO descriptions. It returns
 before graph authoring, temporal-history Begin/Commit or scene drawing. A pending
 pipeline returns Pending without joining its compile task. Each pump rebuilds a
 local logical snapshot; no borrowed frame/proxy values are sent to workers.
+
+Authored rendering demand shares CPU ShaderMap requests with `FShaderMapPreparation`.
+Missing outputs are submitted asynchronously through `FShaderCompilingManager`,
+and resource attempts remain Pending until a later frame consumes the completed
+output. Rendering-thread demand never falls back to synchronous `CompileMounted`
+or waits for that request. Shader reloads retire stale requests; terminal errors
+and cancellation retain their existing outcomes. Game-thread startup callers
+outside capture retain the synchronous compatibility path.
+
+The default `FPreparedShaderMapScope` remains consumption-only for thumbnail
+capture. Resource resolution opts into asynchronous demand, but a nested capture
+forbids new requests throughout its scope. Pending Shader counts propagate through
+nested resource slots without caching a temporary absence as terminal failure.
 
 Material mesh passes share `MeshPipelineDescription`: raster options and the
 effective material identity produce value-only raster/depth/blend state, and
