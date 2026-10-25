@@ -194,6 +194,43 @@ namespace Durin
 			EXPECT_EQ(Diagnostics, 1u);
 		}
 
+		TEST(FRenderResourceCreationTests, PreparationLeasesAreReleasedOnPublicationFailureCancellationResetAndGenerationChange)
+		{
+			FSlot Slot;
+			std::weak_ptr<const int> Lifetime;
+			auto Report = [](const auto&) {};
+			auto Pend = [&] {
+				Slot.Reset();
+				auto Lease = std::make_shared<const int>(42);
+				Lifetime = Lease;
+				EXPECT_EQ(Slot.Resolve({}, [&] {
+					FRenderPipelineRequestScope::RetainPreparation(Lease);
+					return FResult::Pending();
+				}, Report), nullptr);
+				Lease.reset();
+				EXPECT_FALSE(Lifetime.expired());
+			};
+			Pend();
+			EXPECT_NE(Slot.Resolve({}, [] { return FResult::Success(42); }, Report), nullptr);
+			EXPECT_TRUE(Lifetime.expired());
+			Pend();
+			EXPECT_EQ(Slot.Resolve({}, [] { return FResult::Failure(MakeError()); }, Report), nullptr);
+			EXPECT_TRUE(Lifetime.expired());
+			Pend();
+			EXPECT_EQ(Slot.Resolve({}, [] { return FResult::Canceled(); }, Report), nullptr);
+			EXPECT_TRUE(Lifetime.expired());
+			Pend();
+			Slot.Reset();
+			EXPECT_TRUE(Lifetime.expired());
+			Pend();
+			FRenderResourceGeneration Reloaded;
+			++Reloaded.Shader;
+			EXPECT_EQ(Slot.Resolve(Reloaded, [&] {
+				EXPECT_TRUE(Lifetime.expired());
+				return FResult::Pending();
+			}, Report), nullptr);
+		}
+
 		TEST(FRenderResourceCreationTests, CancellationDoesNotReportFailureOrSuppressRetry)
 		{
 			FSlot Slot;

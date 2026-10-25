@@ -167,6 +167,7 @@ namespace Durin::Editor
 				EThumbnailCaptureState::Idle;
 			FByteBuffer Pixels;
 			std::shared_ptr<FRHITextureReadback> Readback;
+			FShaderMapPreparation Shaders;
 			std::string Error;
 			uint64 Generation = 0;
 		};
@@ -264,6 +265,7 @@ namespace Durin::Editor
 			{
 				std::lock_guard Lock(Capture->Mutex);
 				++Capture->Generation;
+				Capture->Shaders = {};
 				if (Capture->Readback) Capture->Readback->Cancel();
 			}
 			if (GRenderingThread) FlushRenderingCommands();
@@ -427,6 +429,10 @@ namespace Durin::Editor
 		auto Shaders = ImageRenderer
 			? FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"}, EShaderBuildPriority::High)
 			: Renderer ? Renderer->PrepareSceneThumbnailShaders() : FShaderMapPreparation{};
+		{
+			std::lock_guard Lock(Capture->Mutex);
+			Capture->Shaders = Shaders;
+		}
 		const FSceneViewRenderOptions Options{
 			.Environment = Impl->Environment
 		};
@@ -480,6 +486,7 @@ namespace Durin::Editor
 				Capture->Error = std::move(Error);
 				Capture->State = bPending ? EThumbnailCaptureState::Preparing
 					: Capture->Error.empty() ? EThumbnailCaptureState::ReadbackPending : EThumbnailCaptureState::Failed;
+				if (!bPending) Capture->Shaders = {};
 			}
 		);
 		return {};
@@ -536,6 +543,7 @@ namespace Durin::Editor
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			++Impl->Capture->Generation;
+			Impl->Capture->Shaders = {};
 			if (Impl->Capture->Readback) Impl->Capture->Readback->Cancel();
 			Impl->Capture->Readback.reset();
 			Impl->Capture->State = EThumbnailCaptureState::Idle;

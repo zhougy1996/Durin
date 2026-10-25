@@ -47,6 +47,7 @@ namespace Durin
 		struct FEntry { FKey Key; std::shared_ptr<FPipelineState> Pipeline; };
 		FRenderResourceGeneration Generation;
 		std::vector<FEntry> Entries;
+		std::vector<std::shared_ptr<const void>> Preparations;
 		uint64 KeyBytes = 0;
 
 		template<typename T> auto Request(const T& Initializer, FName Name, bool& RetryAdmission)
@@ -117,6 +118,21 @@ namespace Durin
 		Current = this;
 	}
 	FRenderPipelineRequestScope::~FRenderPipelineRequestScope() { Current = Previous; }
+	auto FRenderPipelineRequestScope::RetainPreparation(std::shared_ptr<const void> Preparation) -> void
+	{
+		if (!Current) return;
+		if (!Current->Requests.State)
+		{
+			Current->Requests.State = std::make_shared<FRenderPipelineRequests::FState>();
+			Current->Requests.State->Generation = Current->Generation;
+		}
+		auto& Owners = Current->Requests.State->Preparations;
+		if (!std::ranges::contains(Owners, Preparation)) Owners.push_back(std::move(Preparation));
+	}
+	auto FRenderPipelineRequestScope::ReleasePreparations() -> void
+	{
+		if (Requests.State) Requests.State->Preparations.clear();
+	}
 	auto FRenderPipelineRequestScope::PropagatePending(bool bResourcePending) -> void
 	{
 		if (Previous) Previous->MarkPending();

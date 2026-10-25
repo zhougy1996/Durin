@@ -1325,14 +1325,16 @@ namespace Durin
 		struct FCompletedRequest final : IShaderBuildRequest
 		{
 			uint32* WaitCalls = nullptr;
+			uint32* CancelCalls = nullptr;
 			std::vector<EShaderBuildPriority>* Priorities = nullptr;
-			auto RequestCancel() -> bool override { return false; }
+			auto RequestCancel() -> bool override { if (CancelCalls) ++*CancelCalls; return false; }
 			auto SetPriority(EShaderBuildPriority Priority) -> void override { if (Priorities) Priorities->push_back(Priority); }
 			auto Wait() -> EShaderBuildWaitResult override { if (WaitCalls) ++*WaitCalls; return EShaderBuildWaitResult::Completed; }
 			auto IsComplete() const -> bool override { return true; }
 		};
 		uint32 Compiles = 0;
 		uint32 Waits = 0;
+		uint32 Cancels = 0;
 		std::vector<EShaderBuildPriority> Priorities;
 		bool LastInlineExecution = false;
 		bool Defer = false;
@@ -1346,6 +1348,7 @@ namespace Durin
 		{
 			auto Job = std::make_shared<FCompletedRequest>();
 			Job->WaitCalls = &Waits;
+			Job->CancelCalls = &Cancels;
 			Job->Priorities = &Priorities;
 			LastInlineExecution = Options.bInlineExecution;
 			++Compiles;
@@ -1413,6 +1416,56 @@ namespace Durin
 			Info->Module = std::move(Original); Info->State = State;
 		}
 	};
+
+	TEST_F(FShaderFoundationTests, CompletedPreparationOutputLivesOnlyWhileAnExplicitOwnerNeedsIt)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		ClearShaderMapPreparations();
+		FScopedShaderCompletionStub Backend;
+		struct FPreparationCleanup { ~FPreparationCleanup() { ClearShaderMapPreparations(); } } Cleanup;
+		auto Bytes = std::make_shared<const FByteBuffer>(4096);
+		std::weak_ptr<const FByteBuffer> Lifetime = Bytes;
+		Backend.Stub->Completion.CompiledShaders.front().Code = FSharedByteBuffer::Share(Bytes);
+		FShaderProgramRegistration Registration("PreparationLifetime", "Shader", EShaderRequestEligibility::EditorOnly,
+			{&FGlobalFixtureVertexShader::StaticType()});
+		ASSERT_TRUE(Registration.IsValid());
+		auto First = FShaderMapPreparation::Request("PreparationLifetime", {"Shader"});
+		auto Second = FShaderMapPreparation::Request("PreparationLifetime", {"Shader"});
+		ASSERT_TRUE(First.Poll().value_or(false));
+		ASSERT_TRUE(Second.Poll().value_or(false));
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		Backend.Stub->Completion.CompiledShaders.clear();
+		Bytes.reset();
+		First = {};
+		EXPECT_FALSE(Lifetime.expired());
+		Second = {};
+		EXPECT_TRUE(Lifetime.expired());
+		const FShaderType* Types[] = {&FGlobalFixtureVertexShader::StaticType()};
+		FPreparedShaderMapScope Capture;
+		FShaderMapBase Map;
+		EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, EShaderBuildStatus::Pending);
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+	}
+
+	TEST_F(FShaderFoundationTests, DroppingOnePreparationOwnerKeepsSharedWorkAndDroppingTheLastCancelsIt)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		ClearShaderMapPreparations();
+		FScopedShaderCompletionStub Backend;
+		Backend.Stub->DeferMounted = true;
+		FShaderProgramRegistration Registration("PreparationAbandonment", "Shader", EShaderRequestEligibility::EditorOnly,
+			{&FGlobalFixtureVertexShader::StaticType()});
+		ASSERT_TRUE(Registration.IsValid());
+		auto First = FShaderMapPreparation::Request("PreparationAbandonment", {"Shader"});
+		auto Second = FShaderMapPreparation::Request("PreparationAbandonment", {"Shader"});
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		const auto Cancels = Backend.Stub->Cancels;
+		First = {};
+		EXPECT_EQ(Backend.Stub->Cancels, Cancels);
+		Second = {};
+		EXPECT_GT(Backend.Stub->Cancels, Cancels);
+		EXPECT_EQ(Backend.Stub->Waits, 0u);
+	}
 
 	TEST_F(FShaderFoundationTests, CaptureLookupDoesNotCreateOrReprioritizeSharedPreparations)
 	{

@@ -4,6 +4,7 @@
 
 #include "SceneView.h"
 #include "PixelFormat.h"
+#include "RenderPipelineCreation.h"
 
 namespace Durin
 {
@@ -93,7 +94,8 @@ namespace Durin
 			Entry = FEntry{Key, std::move(Map), bFrameDependent};
 			++RenderCount;
 		}
-		auto Invalidate_RenderThread() -> void { Entry.reset(); }
+		auto Invalidate_RenderThread() -> void { Entry.reset(); Preparations.Reset(); }
+		auto GetPreparations_RenderThread() -> FRenderPipelineRequests& { return Preparations; }
 		auto IsFrameDependent_RenderThread() const -> bool { return Entry && Entry->bFrameDependent; }
 		auto GetStatistics() const -> FHitProxyMapCacheStatistics
 		{ return {RenderCount.load(), ReuseCount.load()}; }
@@ -105,6 +107,7 @@ namespace Durin
 			bool bFrameDependent = false;
 		};
 		std::optional<FEntry> Entry;
+		FRenderPipelineRequests Preparations;
 		std::atomic<uint64> RenderCount = 0;
 		std::atomic<uint64> ReuseCount = 0;
 	};
@@ -117,5 +120,7 @@ namespace Durin
 		std::vector<FHitProxyOverlay> Overlays;
 		bool bSceneGeometry = true;
 		std::shared_ptr<FHitProxyMapCache> Cache;
+		// Copies of an uncached query share its transient preparation window.
+		std::shared_ptr<FRenderPipelineRequests> Preparations = std::make_shared<FRenderPipelineRequests>();
 	};
 }

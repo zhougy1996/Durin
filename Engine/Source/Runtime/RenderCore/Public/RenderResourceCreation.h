@@ -248,6 +248,7 @@ namespace Durin
 				bHasAttempt = false;
 				return nullptr;
 			}
+			PipelineScope.ReleasePreparations();
 			if (Result.IsCanceled()) { PipelineRequests.Reset(); bHasAttempt = false; Failure.reset(); FailureFingerprint.reset(); bFailureReported = false; Availability = ERenderResourceAvailability::Canceled; return nullptr; }
 			bHasAttempt = true;
 			AttemptedGeneration = Generation;
