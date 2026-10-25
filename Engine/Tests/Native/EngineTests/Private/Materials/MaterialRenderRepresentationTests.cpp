@@ -1,3 +1,4 @@
+#include "MaterialResourceTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/MaterialShaderMap.h"
 #include "MaterialRenderRepresentationTestFixture.h"
@@ -115,7 +116,7 @@ TEST(FMaterialProgramIdentityTests,
 		nullptr, "M5FixedPathInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 
-	const Durin::FMaterialRenderData Initial = Base->GetRenderData();
+	const Durin::FMaterialRenderData Initial = Durin::Testing::CaptureMaterialRenderData(*Base);
 	EXPECT_EQ(
 		Initial.PlanningPassIdentity.ShaderMap.RenderLayout,
 		Base->GetAcceptedCompiledProgram()->GetShaderMap().Layout.Identity);
@@ -136,7 +137,7 @@ TEST(FMaterialProgramIdentityTests,
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.2, 0.4, 0.8)));
-	const Durin::FMaterialRenderData Dynamic = Base->GetRenderData();
+	const Durin::FMaterialRenderData Dynamic = Durin::Testing::CaptureMaterialRenderData(*Base);
 	EXPECT_FALSE(std::ranges::equal(
 		Dynamic.Representation.GetUniformPayload(),
 		Initial.Representation.GetUniformPayload()));
@@ -144,7 +145,7 @@ TEST(FMaterialProgramIdentityTests,
 		Dynamic.PlanningPassIdentity,
 		Initial.PlanningPassIdentity);
 	EXPECT_EQ(
-		Instance->GetRenderData().PlanningPassIdentity,
+		Durin::Testing::CaptureMaterialRenderData(*Instance).PlanningPassIdentity,
 		Dynamic.PlanningPassIdentity);
 
 	Durin::FMaterialStaticProperties PipelineOnly =
@@ -153,7 +154,7 @@ TEST(FMaterialProgramIdentityTests,
 	PipelineOnly.DepthWritePolicy =
 		Durin::EMaterialDepthWritePolicy::Disabled;
 	ASSERT_TRUE(Base->SetStaticProperties(PipelineOnly));
-	const Durin::FMaterialRenderData PipelineChanged = Base->GetRenderData();
+	const Durin::FMaterialRenderData PipelineChanged = Durin::Testing::CaptureMaterialRenderData(*Base);
 	EXPECT_EQ(
 		PipelineChanged.PlanningPassIdentity.ShaderMap,
 		Dynamic.PlanningPassIdentity.ShaderMap);
@@ -167,12 +168,12 @@ TEST(FMaterialProgramIdentityTests,
 	ShaderProperties.OpacityMaskThreshold = 0.625f;
 	ASSERT_TRUE(Base->SetStaticProperties(ShaderProperties));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
-	const Durin::FMaterialRenderData ShaderChanged = Base->GetRenderData();
+	const Durin::FMaterialRenderData ShaderChanged = Durin::Testing::CaptureMaterialRenderData(*Base);
 	EXPECT_NE(
 		ShaderChanged.PlanningPassIdentity.ShaderMap,
 		PipelineChanged.PlanningPassIdentity.ShaderMap);
 	EXPECT_EQ(
-		Instance->GetRenderData().PlanningPassIdentity,
+		Durin::Testing::CaptureMaterialRenderData(*Instance).PlanningPassIdentity,
 		ShaderChanged.PlanningPassIdentity);
 
 	const Durin::FMaterialRenderData& Error =
@@ -215,8 +216,8 @@ TEST(FMaterialProgramIdentityTests,
 	ASSERT_NE(Accepted, nullptr);
 	EXPECT_EQ(Accepted->GetShaderMap().Layout.ResourceFieldCount, 5u);
 	EXPECT_EQ(Accepted->GetShaderMap().ActiveParameters.size(), 7u);
-	const auto LightData = LightRust->GetRenderData();
-	const auto HeavyData = HeavyRust->GetRenderData();
+	const auto LightData = Durin::Testing::CaptureMaterialRenderData(*LightRust);
+	const auto HeavyData = Durin::Testing::CaptureMaterialRenderData(*HeavyRust);
 	EXPECT_EQ(LightData.CompiledProgram->ShaderMap, Accepted->ShaderMap);
 	EXPECT_EQ(HeavyData.CompiledProgram->ShaderMap, Accepted->ShaderMap);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(LightData, RustAmountId), 0.1f);
@@ -270,7 +271,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	};
 	Durin::EnqueueRenderCommand<FCaptureDefaultMaterialCommand>(
 		[First, &Resolved](Durin::FRHICommandListImmediate&) {
-			Resolved = First->Resolve_RenderThread();
+			Resolved = First->GetMaterialWithFallback();
 		});
 	WaitForRenderingThread();
 	const auto Binding = GetMaterialBinding(Resolved);
@@ -496,7 +497,7 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 		Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.45f));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.25f));
 
-	const Durin::FMaterialRenderData RenderData = Instance->GetRenderData();
+	const Durin::FMaterialRenderData RenderData = Durin::Testing::CaptureMaterialRenderData(*Instance);
 	const auto Binding = GetMaterialBinding(RenderData);
 	EXPECT_FLOAT_EQ(Binding.BaseColor.r, 0.15f);
 	EXPECT_FLOAT_EQ(Binding.BaseColor.g, 0.25f);
@@ -533,7 +534,7 @@ TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRe
 	Durin::DTexture2D* WrongUsageTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "WrongNormalUsage");
 	ASSERT_TRUE(Material->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::NormalTextureName(), WrongUsageTexture));
 
-	const auto Binding = GetMaterialBinding(Material->GetRenderData());
+	const auto Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Material));
 	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(2.0f, -1.0f, 0.0f, 1.0f));
 	EXPECT_EQ(Binding.Normal, Durin::FVector3f(0.0f));
 	EXPECT_FLOAT_EQ(Binding.Metallic, 2.0f);
@@ -547,8 +548,8 @@ TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRe
 
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(),
 		std::numeric_limits<float>::quiet_NaN()));
-	EXPECT_FLOAT_EQ(GetMaterialBinding(Material->GetRenderData()).Roughness, 2.5f);
-	EXPECT_FALSE(Material->GetRenderData().Representation.IsError());
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Material)).Roughness, 2.5f);
+	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Material).Representation.IsError());
 
 	Durin::MarkAsGarbage(WrongUsageTexture);
 	Durin::MarkAsGarbage(Material);
@@ -643,7 +644,7 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	const auto ChildAccepted = Child->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(ChildAccepted);
 	EXPECT_EQ(ChildAccepted->ShaderMap, Accepted->ShaderMap);
-	auto Binding = GetMaterialBinding(Child->GetRenderData());
+	auto Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
 	ASSERT_EQ(Binding.CompiledSamplers.size(), 1u);
 	EXPECT_EQ(Binding.CompiledSamplers[0], Definition.Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::FlatRGNormal);
@@ -651,15 +652,15 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	Value.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
 	Value.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
 	ASSERT_TRUE(Child->SetParameterValue(Definition.Id, Value));
-	Binding = GetMaterialBinding(Child->GetRenderData());
+	Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
-	EXPECT_EQ(Child->GetRenderData().CompiledProgram, ChildAccepted);
+	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Child).CompiledProgram, ChildAccepted);
 	ASSERT_TRUE(Root->SetParameterValue(Definition.Id, Value));
 	EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Accepted);
-	EXPECT_EQ(Root->GetRenderData().PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->GetShaderMap().ShaderMapId);
+	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Root).PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->GetShaderMap().ShaderMapId);
 	ASSERT_TRUE(Child->ClearParameterValue(Definition.Id));
-	Binding = GetMaterialBinding(Child->GetRenderData());
+	Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
 	MarkAsGarbage(Child); MarkAsGarbage(Root); CollectGarbage();

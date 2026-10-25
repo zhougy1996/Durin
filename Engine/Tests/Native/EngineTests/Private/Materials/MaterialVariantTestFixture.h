@@ -89,13 +89,13 @@ namespace Durin::Testing
 		{
 			Durin::FByteBuffer Payload;
 			ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(*Instance->GetAcceptedCompiledProgram(),
-				Instance->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
+				Instance->GetMaterialResource().GetStaticProperties(), Durin::ECookTargetPlatform::Win64,
 				Durin::ECookTargetProfile::Game, Payload))) << Error.error();
 			InstancePayloadBytes += Payload.size();
 		}
 		Durin::FByteBuffer Bytes;
 		ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(*Root->GetAcceptedCompiledProgram(),
-			Root->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
+			Root->GetMaterialResource().GetStaticProperties(), Durin::ECookTargetPlatform::Win64,
 			Durin::ECookTargetProfile::Game, Bytes))) << Error.error();
 		std::cout << "Variant baseline: owners=" << Instances.size()
 			<< " effective_identities=" << Identities.size()

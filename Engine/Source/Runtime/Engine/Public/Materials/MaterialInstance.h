@@ -63,7 +63,6 @@ namespace Durin
 		ENGINE_API static auto CreateDynamic(DMaterialInterface* InParent,
 			DObject* Outer = nullptr, FName Name = {}) -> DMaterialInstance*;
 		auto IsDynamicInstance() const -> bool override { return bDynamicInstance; }
-		ENGINE_API auto GetRenderableStaticProperties() const -> FMaterialStaticProperties override;
 
 		ENGINE_API auto SetParent(DMaterialInterface* InParent) -> bool;
 		// Validates and applies a related parent/configuration edit with one request.

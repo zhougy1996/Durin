@@ -31,13 +31,42 @@ these limits are not a process RSS bound.
 
 The shared scene operation requests selected Local/Spline mesh CPU/GPU residency
 with at most four requests per advancement and waits for authored compilation
-without joining it. Cooked operations also collect effective mesh-slot materials
-and their parent chains, preparing at most eight programs concurrently. Collections
+without joining it. Both authored and cooked operations collect visible effective
+mesh-slot materials and their parent chains; cooked operations prepare at most
+eight programs concurrently. `DMaterialInterface::IsCompiling` and `IsComplete`
+are nonblocking program queries, independent of textures and component PSOs.
+`GetUsedTextures` replaces its output with deduplicated effective textures from
+the accepted program, including instance overrides. Only effective bindings,
+not overridden parent textures, participate in scene texture readiness. Texture
+CPU compilation and GPU publication use their existing owners; at most four
+new texture loads/uploads are requested per advancement. Cooked texture CPU
+loading retains the existing explicit synchronous lazy-load boundary; upload
+completion is asynchronous and is never joined here. Collections
 are limited to 4,096 owners. Game BeginPlay runs on the candidate before its final
 product collection, so spawned initial resources participate in admission. The
-operation renders a candidate view before commit; actual committed output and
+operation waits for visible registered mesh components' required PSO requests
+and normal proxy publication before rendering its candidate view. Withheld
+proxies cannot make an incomplete candidate appear ready merely by being absent
+from view collection. Required failures terminate the scene operation; optional
+PSO work does not block activation. The operation renders a candidate view before commit; actual committed output and
 primary-window presentation have separate generation-scoped receipts. Later
 streamed products retain their normal component/demand preparation gates.
+
+Preparation uses the effective `FMaterialResource` returned by
+`GetMaterialResource`, following the [material renderer boundary](../Materials/MaterialSystem.md#renderer-boundary).
+`HasValidGameThreadShaderMap` checks program success and ShaderMap presence,
+independently of compilation progress, textures and component PSOs.
+The proxy separates `GetMaterialNoFallback`
+from `GetMaterialWithFallback`. The former returns null when no valid accepted
+material exists; the latter explicitly permits ErrorMaterial. Compilation is
+queried independently through `IsCompiling`. Missing programs while compilation
+is active do not increment invalid-material diagnostics. Mesh collection uses
+the non-fallback query and propagates unresolved compilation into the existing
+resource preparation batch around logical collection. An accepted previous
+program remains usable during edits. PSO collection snapshots that program and
+its effective properties together, without selecting a rendering fallback.
+Unassigned slots still select the authored default material, while invalid
+material data retains the explicit ErrorMaterial path.
 
 The Editor thumbnail pool continues polling and retiring accepted jobs during
 required scene loading, but `EndFrame(false)` defers new optional admissions.

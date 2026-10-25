@@ -114,13 +114,6 @@ namespace Durin
 		return Instance;
 	}
 
-	auto DMaterialInstance::GetRenderableStaticProperties() const -> FMaterialStaticProperties
-	{
-		if (bDynamicInstance) return IsValid(Parent.Get())
-			? Parent->GetRenderableStaticProperties() : FMaterialStaticProperties{};
-		return Super::GetRenderableStaticProperties();
-	}
-
 	auto DMaterialInstance::ValidateParameterStorage(const FPropertyEditProposal* Proposal) const -> std::expected<void, std::string>
 	{
 		std::unordered_set<FGuid> Ids;

@@ -1,3 +1,4 @@
+#include "Materials/MaterialResourceTestSupport.h"
 #include "../../RDGTestAccess.h"
 
 #include "RDG/RDG.h"
@@ -701,7 +702,7 @@ namespace Durin
 		FGBufferRenderer GBuffer(Coordinator);
 		auto* MaterialObject = NewObject<DMaterial>(
 			nullptr, "GBufferRecoveryMaterial");
-		const FMaterialRenderData MaterialData = MaterialObject->GetRenderData();
+		const FMaterialRenderData MaterialData = Testing::CaptureMaterialRenderData(*MaterialObject);
 		ASSERT_TRUE(MaterialData.CompiledProgram);
 		auto RecoveredTargets =
 			std::make_shared<FGBufferRenderer::FTargets>();

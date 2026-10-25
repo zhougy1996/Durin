@@ -444,7 +444,7 @@ namespace
 			ADD_FAILURE() << "Directional-shadow test material compilation failed.";
 			return {};
 		}
-		return Material->GetMaterialRenderProxy();
+		return Material->GetRenderProxy();
 	}
 
 	auto MakeTransform(const FPrimitivePlacement& Placement) -> Durin::FMatrix

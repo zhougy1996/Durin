@@ -124,7 +124,7 @@ namespace
 			Properties.ShadingModel = EMaterialShadingModel::Unlit;
 			Properties.bTwoSided = true;
 			EXPECT_TRUE(Material->SetStaticProperties(Properties));
-			Material->GetMaterialRenderProxy();
+			Material->GetRenderProxy();
 			FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 			return Material;
 		}
@@ -199,7 +199,7 @@ namespace
 					ASSERT_TRUE(Target);
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-					Result = Renderer->RenderView(Commands, Engine->GetMainScene(), View, Target, false, {});
+					Result = Renderer->RenderView(Commands, {Engine->GetMainScene(), View, Target, false, {}});
 					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
 					if (Result == ERenderViewResult::Success)
 						GDynamicRHI->RHIReadTexture2D(Commands, Target, 0, 0, Pixels);

@@ -296,7 +296,7 @@ namespace Durin
 			if (!std::ranges::contains(Programs, Program->GetShaderMap().ShaderMapId))
 				Programs.push_back(Program->GetShaderMap().ShaderMapId);
 			const FMaterialStaticProperties Properties =
-				Owner->GetRenderableStaticProperties();
+				Owner->GetMaterialResource().GetStaticProperties();
 			if (!std::ranges::contains(StaticConfigurations, Properties))
 				StaticConfigurations.push_back(Properties);
 		}
@@ -448,9 +448,11 @@ namespace Durin
 		return GDefaultMaterialStaticProperties;
 	}
 
-	auto DMaterialInterface::GetRenderableStaticProperties() const
+	auto DMaterialInterface::ResolveResourceProperties() const
 		-> FMaterialStaticProperties
 	{
+		if (IsDynamicInstance()) return IsValid(GetParent())
+			? GetParent()->ResolveResourceProperties() : FMaterialStaticProperties{};
 		const auto& Layer = CompilationOwner.RenderLayer;
 		const auto& Authored = GetStaticProperties();
 		FMaterialStaticProperties Result = Layer.CompiledProgram
@@ -479,6 +481,40 @@ namespace Durin
 		return CompilationOwner.RenderLayer.CompiledProgram;
 	}
 
+	auto DMaterialInterface::IsCompiling() const -> bool
+	{
+		CheckMaterialQueryThread();
+		if (IsDynamicInstance()) return IsValid(GetParent()) && GetParent()->IsCompiling();
+		return HasPendingMaterialCompilation(*this);
+	}
+
+	auto DMaterialInterface::IsComplete() const -> bool
+	{
+		CheckMaterialQueryThread();
+		if (IsDynamicInstance()) return IsValid(GetParent()) && GetParent()->IsComplete();
+		return CompilationOwner.RenderLayer.CompiledProgram
+			&& (GetAssetRuntimeConfiguration().RequiresCookedPayload()
+				|| CompilationOwner.MaterialCompileStatus.IsCurrent());
+	}
+
+	auto DMaterialInterface::GetUsedTextures(std::vector<DTexture2D*>& OutTextures) const -> void
+	{
+		CheckMaterialQueryThread();
+		OutTextures.clear();
+		const DMaterialInterface* Owner = this;
+		while (Owner->IsDynamicInstance() && IsValid(Owner->GetParent())) Owner = Owner->GetParent();
+		const auto& Program = Owner->CompilationOwner.RenderLayer.CompiledProgram;
+		if (!Program) return;
+		for (const auto& Parameter : Program->GetShaderMap().ActiveParameters)
+		{
+			if (Parameter.Type != EMaterialParameterType::Texture) continue;
+			FResolvedMaterialParameter Resolved;
+			if (!ResolveParameterValue(Parameter.Id, Resolved) || Resolved.Value.GetType() != EMaterialParameterType::Texture) continue;
+			auto* Texture = Resolved.Value.GetTexture().Texture.Get();
+			if (IsValid(Texture) && std::ranges::find(OutTextures, Texture) == OutTextures.end()) OutTextures.push_back(Texture);
+		}
+	}
+
 	auto DMaterialInterface::AdoptParentRuntimeProgram() -> bool
 	{
 		CompilationOwner.RenderLayer = {};
@@ -486,10 +522,10 @@ namespace Durin
 		auto* Parent = GetParent();
 		const auto Program = Parent ? Parent->GetAcceptedCompiledProgram() : nullptr;
 		if (!Program || CanonicalizeMaterialShaderProperties(GetStaticProperties())
-			!= CanonicalizeMaterialShaderProperties(Parent->GetRenderableStaticProperties())) return false;
+			!= CanonicalizeMaterialShaderProperties(Parent->ResolveResourceProperties())) return false;
 		CompilationOwner.RenderLayer.CompiledProgram = Program;
 		CompilationOwner.RenderLayer.StaticProperties = GetStaticProperties();
-		CompilationOwner.RenderLayer.Parameters = BuildMaterialLocalRenderLayer().Parameters;
+		CompilationOwner.RenderLayer.Parameters = BuildMaterialResource().Parameters;
 		auto& Status = CompilationOwner.MaterialCompileStatus;
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		Status.State = EMaterialCompileState::Ready;
@@ -513,69 +549,14 @@ namespace Durin
 		return false;
 	}
 
-	auto DMaterialInterface::GetRenderData() const -> FMaterialRenderData
-	{
-		FMaterialRenderData Result;
-		Result.CompiledProgram = GetAcceptedCompiledProgram();
-		Result.Representation = FMaterialRenderRepresentation{};
-		FMaterialRenderRepresentationBuilder RepresentationBuilder = Result.CompiledProgram
-			&& Result.CompiledProgram->GetShaderMap().Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
-			&& Result.CompiledProgram->GetShaderMap().Layout.Identity != Result.Representation.GetLayout().Identity
-			? FMaterialRenderRepresentationBuilder(Result.CompiledProgram->GetShaderMap().Layout)
-			: FMaterialRenderRepresentationBuilder(Result.Representation);
-		bool bRepresentationValid = true;
-		if (Result.CompiledProgram)
-			Result.PlanningPassIdentity.ShaderMap.RenderLayout = Result.CompiledProgram->GetShaderMap().Layout.Identity;
-		const auto LocalLayer = BuildMaterialLocalRenderLayer();
-		for (const auto& Parameter : LocalLayer.Parameters)
-		{
-			if (!Result.CompiledProgram) continue;
-			const auto& Parameters = Result.CompiledProgram->GetShaderMap().ActiveParameters;
-			const auto Active = std::ranges::find(Parameters, Parameter.Id,
-				&FMaterialCompilerParameterDeclaration::Id);
-			if (Active == Parameters.end() || Active->Type != Parameter.GetType()) continue;
-			bRepresentationValid = ApplyMaterialLocalRenderParameter(
-				RepresentationBuilder, Parameter)
-				&& bRepresentationValid;
-		}
-		const FMaterialStaticProperties StaticProperties =
-			GetRenderableStaticProperties();
-		Result.PlanningPassIdentity.ShaderMap.BlendMode = StaticProperties.BlendMode;
-		Result.PlanningPassIdentity.ShaderMap.ShadingModel = StaticProperties.ShadingModel;
-		Result.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold = StaticProperties.OpacityMaskThreshold;
-		Result.PlanningPassIdentity.bTwoSided = StaticProperties.bTwoSided;
-		Result.PlanningPassIdentity.DepthWritePolicy = StaticProperties.DepthWritePolicy;
-		if (Result.CompiledProgram)
-			Result.PlanningPassIdentity.ShaderMap.ProgramIdentity =
-				Result.CompiledProgram->GetShaderMap().ShaderMapId;
-
-		FMaterialRenderRepresentation CompiledRepresentation;
-		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
-		const bool bRequiresCompiledProgram = IsA(DMaterial::StaticClass()) || IsA(DMaterialInstance::StaticClass());
-		if ((!bRequiresCompiledProgram || Result.CompiledProgram)
-			&& bRepresentationValid
-			&& RepresentationBuilder.Build(
-				CompiledRepresentation, ValidationDiagnostic))
-		{
-			Result.Representation = std::move(CompiledRepresentation);
-		}
-		else
-		{
-			RecordMaterialFallbackReason(
-				EMaterialFallbackReason::MaterialDataInvalid);
-			Result = GetErrorMaterialRenderData();
-		}
-		return Result;
-	}
-
-	auto DMaterialInterface::GetMaterialRenderProxy() const
+	auto DMaterialInterface::GetRenderProxy() const
 		-> FMaterialRenderProxyRef
 	{
 		CheckMaterialQueryThread();
 		if (IsTemplateObject() || !bAcceptingMaterialProxyPublications) return {};
 		if (bMaterialProxyPublicationDirty)
 		{
-			SubmitMaterialRenderProxyState(BuildMaterialLocalRenderLayer());
+			SubmitMaterialRenderProxyState(BuildMaterialResource());
 		}
 		return MaterialRenderProxy;
 	}
@@ -631,8 +612,8 @@ namespace Durin
 		}
 	}
 
-	auto DMaterialInterface::BuildMaterialLocalRenderLayer() const
-		-> FMaterialLocalRenderLayer
+	auto DMaterialInterface::BuildMaterialResource() const
+		-> FMaterialResource
 	{
 		if (IsDynamicInstance())
 		{
@@ -640,7 +621,7 @@ namespace Durin
 			if (!IsValid(Parent)) return {};
 			// Start from the parent's complete accepted generation, including retained
 			// values while authored declarations or shader configuration are pending.
-			auto Layer = Parent->BuildMaterialLocalRenderLayer();
+			auto Layer = Parent->BuildMaterialResource();
 			const auto* Instance = Cast<DMaterialInstance>(this);
 			for (auto& Parameter : Layer.Parameters)
 			{
@@ -650,9 +631,10 @@ namespace Durin
 			}
 			return Layer;
 		}
-		FMaterialLocalRenderLayer Result;
+		FMaterialResource Result;
 		Result.CompiledProgram = GetAcceptedCompiledProgram();
-		Result.StaticProperties = GetRenderableStaticProperties();
+		Result.StaticProperties = ResolveResourceProperties();
+		Result.bIsCompiling = IsCompiling();
 		if (!Result.CompiledProgram) return Result;
 		// This context lives only for this build. Validate the chain and index the
 		// declarations once, then visit each owner's typed storage once. Calling
@@ -721,11 +703,11 @@ namespace Durin
 		CheckMaterialQueryThread();
 		if (!bAcceptingMaterialProxyPublications) return;
 		PublishMaterialRenderProxyState(MaterialRenderProxy
-			? BuildMaterialLocalRenderLayer() : FMaterialLocalRenderLayer{});
+			? BuildMaterialResource() : FMaterialResource{});
 	}
 
 	auto DMaterialInterface::PublishMaterialRenderProxyState(
-		FMaterialLocalRenderLayer LocalLayer) -> void
+		FMaterialResource LocalLayer) -> void
 	{
 		CheckMaterialQueryThread();
 		if (!bAcceptingMaterialProxyPublications) return;
@@ -741,7 +723,7 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::SubmitMaterialRenderProxyState(
-		FMaterialLocalRenderLayer LocalLayer) const -> void
+		FMaterialResource LocalLayer) const -> void
 	{
 		if (!bAcceptingMaterialProxyPublications
 			|| !MaterialRenderProxy)
@@ -790,7 +772,7 @@ namespace Durin
 			{
 				// Retention and publication must describe the same resolved snapshot.
 				// Update retention even when this owner cannot publish a proxy.
-				auto LocalLayer = Owner.BuildMaterialLocalRenderLayer();
+				auto LocalLayer = Owner.BuildMaterialResource();
 				Owner.CompilationOwner.RenderLayer.Parameters = LocalLayer.Parameters;
 				Owner.CompilationOwner.RenderLayer.StaticProperties = LocalLayer.StaticProperties;
 				Owner.PublishMaterialRenderProxyState(std::move(LocalLayer));

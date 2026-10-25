@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-10-26
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -673,7 +673,7 @@ A material with no accepted result uses ErrorMaterial, including during retries
 after failure; successful admission restores ordinary rendering. Root materials
 and instance variants apply this rule to their own compile requests. Immutable
 compiler cache entries remain reusable after renderable generation retirement.
-The owner stores this contract using the same `FMaterialLocalRenderLayer` value
+The owner stores this contract using the same `FMaterialResource` value
 published to its proxy; shader properties derive from that layer's static
 properties. There is no separate accepted-generation type, compiled authored
 revision or last-known-good display flag. Current readiness requires Ready state
@@ -801,7 +801,7 @@ captured collection identity/schema/layout, and refreshes only the default paylo
 Missing or incompatible collection dependencies reject the cooked program
 deterministically rather than binding a mismatched buffer.
 
-Both material asset kinds publish a complete `FMaterialLocalRenderLayer`:
+Both material asset kinds publish a complete `FMaterialResource`:
 shared immutable compiler result, accepted static properties, and native
 parameter/resource values. Canonical shader properties derive from that layer. Admission validates the entire
 candidate before swapping. Values resolve through the bounded authored chain by
@@ -906,6 +906,17 @@ recreates device-dependent RHI resources from the retained accepted compiler
 result; neither operation reinterprets the authored program.
 
 ## Renderer Boundary
+
+`DMaterialInterface::GetMaterialResource` returns the active configuration's
+effective `FMaterialResource` without fallback. It owns the accepted program,
+compatible properties and selected native parameter values together; PSO and
+thumbnail consumers use that same resource. Asset `GetStaticProperties` describes
+authored configuration, while resource property queries describe the selected
+rendering generation. Effective-property selection is private. Materials expose
+no public `GetRenderData`, `GetRenderableStaticProperties` or `GetRenderSnapshot`.
+`GetRenderProxy` provides the rendering endpoint, and only proxy resolution
+assembles `FMaterialRenderRepresentation`. Render-thread consumers choose
+`GetMaterialNoFallback` or `GetMaterialWithFallback` explicitly.
 
 - `DStaticMesh` owns the ordered material-slot definitions. Each slot has a
   mesh-local user-facing `Name`, exact imported `SourceName`, original

@@ -1,3 +1,4 @@
+#include "MaterialResourceTestSupport.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -185,7 +186,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_EQ(CookedStatistics.GeneratedSourceBytes, 0u);
 	EXPECT_GT(CookedStatistics.CompiledCodeBytes, 0u);
 	EXPECT_EQ(
-		GetMaterialBinding(Cooked->GetRenderData()).BaseColor,
+		GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Cooked)).BaseColor,
 		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	}
 
@@ -311,7 +312,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
 	EXPECT_EQ(
-		GetMaterialBinding(Cooked->GetRenderData()).BaseColor,
+		GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Cooked)).BaseColor,
 		Durin::FVector4f(0.2f, 0.4f, 0.7f, 1.0f));
 	EXPECT_TRUE(std::ranges::none_of(Inspection.Objects, [](const auto& Object) {
 		return Object.FindField("Program") != nullptr;
@@ -342,8 +343,8 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		EXPECT_NE(Variant->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
 		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
-		EXPECT_FALSE(Variant->GetRenderData().Representation.IsError());
-		ExpectColorNear(GetMaterialBinding(Variant->GetRenderData()).BaseColor,
+		EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Variant).Representation.IsError());
+		ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Variant)).BaseColor,
 			Durin::FVector4f(0.8f, 0.3f, 0.1f, 1.0f));
 	}
 
@@ -376,16 +377,16 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		== Durin::ERenderCommandAdmissionState::Stopped;
 	if (bOwnsRenderingThread) Durin::InitRenderingThread();
 	Durin::FMaterialRenderData BaseData, ChildData;
-	auto BaseProxy = Cooked->GetMaterialRenderProxy();
-	auto ChildProxy = Child->GetMaterialRenderProxy();
+	auto BaseProxy = Cooked->GetRenderProxy();
+	auto ChildProxy = Child->GetRenderProxy();
 	struct FCaptureCookedBindingsCommand
 	{
 		static constexpr auto GetName() -> const char* { return "CaptureCookedBindings"; }
 	};
 	Durin::EnqueueRenderCommand<FCaptureCookedBindingsCommand>(
 		[&](Durin::FRHICommandListImmediate&) {
-			BaseData = BaseProxy->Resolve_RenderThread();
-			ChildData = ChildProxy->Resolve_RenderThread();
+			BaseData = BaseProxy->GetMaterialWithFallback();
+			ChildData = ChildProxy->GetMaterialWithFallback();
 		});
 	WaitForRenderingThread();
 	ExpectColorNear(GetMaterialBinding(BaseData).BaseColor,
@@ -396,9 +397,9 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_EQ(GetMaterialBinding(BaseData).Textures[0], Texture->GetTextureReferenceRHI());
 	EXPECT_FLOAT_EQ(GetMaterialBinding(ChildData).Roughness, 0.23f);
 	EXPECT_EQ(ChildData.Representation.GetUniformPayload().size(),
-		Child->GetRenderData().Representation.GetUniformPayload().size());
+		Durin::Testing::CaptureMaterialRenderData(*Child).Representation.GetUniformPayload().size());
 	EXPECT_TRUE(std::ranges::equal(ChildData.Representation.GetUniformPayload(),
-		Child->GetRenderData().Representation.GetUniformPayload()));
+		Durin::Testing::CaptureMaterialRenderData(*Child).Representation.GetUniformPayload()));
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(ChildProxy));
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(BaseProxy));
 	Durin::MarkAsGarbage(Child);
@@ -522,8 +523,8 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		}
 		ASSERT_NE(LoadedInstance, nullptr);
 		EXPECT_FALSE(LoadedInstance->IsParameterValueOrphan(Texture.Id));
-		const auto RootBinding = GetMaterialBinding(Loaded->GetRenderData());
-		const auto InstanceBinding = GetMaterialBinding(LoadedInstance->GetRenderData());
+		const auto RootBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded));
+		const auto InstanceBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*LoadedInstance));
 		EXPECT_EQ(RootBinding.LayoutIdentity, ExpectedLayout.Identity);
 		EXPECT_EQ(InstanceBinding.LayoutIdentity, ExpectedLayout.Identity);
 		ASSERT_EQ(InstanceBinding.CompiledSamplers.size(), 1u);

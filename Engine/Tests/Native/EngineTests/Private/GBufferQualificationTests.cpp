@@ -555,7 +555,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		"GBufferQualificationLit", Durin::EMaterialBlendMode::Opaque,
 		Durin::EMaterialShadingModel::Lit, {0.7, 0.4, 0.2});
 	ASSERT_NE(MaterialObject, nullptr);
-	auto Material = MaterialObject->GetMaterialRenderProxy();
+	auto Material = MaterialObject->GetRenderProxy();
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneTestOwner SceneOwner;
@@ -623,7 +623,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		Durin::EMaterialShadingModel::Lit, {0.7, 0.4, 0.2}, 0.8f, 0.045f);
 	ASSERT_NE(SpecularAAMaterialObject, nullptr);
 	auto SpecularAAMaterial =
-		SpecularAAMaterialObject->GetMaterialRenderProxy();
+		SpecularAAMaterialObject->GetRenderProxy();
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneTestOwner SpecularAASceneOwner;
@@ -1316,7 +1316,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		"GBufferQualificationUnlit", Durin::EMaterialBlendMode::Opaque,
 		Durin::EMaterialShadingModel::Unlit, {0.1, 0.8, 0.3});
 	ASSERT_NE(UnlitMaterialObject, nullptr);
-	auto UnlitMaterial = UnlitMaterialObject->GetMaterialRenderProxy();
+	auto UnlitMaterial = UnlitMaterialObject->GetRenderProxy();
 	auto* TranslucentMaterialObject = MakeMaterial(
 		"GBufferQualificationTranslucent",
 		Durin::EMaterialBlendMode::Translucent,
@@ -1324,7 +1324,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		0.45f);
 	ASSERT_NE(TranslucentMaterialObject, nullptr);
 	auto TranslucentMaterial =
-		TranslucentMaterialObject->GetMaterialRenderProxy();
+		TranslucentMaterialObject->GetRenderProxy();
 	Durin::FlushRenderingCommands();
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(5), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{UnlitMaterial}), Translate(-0.55, -0.45));
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(6), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{TranslucentMaterial}), Translate(-0.35, -0.25));

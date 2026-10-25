@@ -1,3 +1,4 @@
+#include "MaterialResourceTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialProgramTestFixture.h"
@@ -151,14 +152,14 @@ TEST(FMaterialPropertyEditingTests, StaticPropertiesHaveStableDefaultsAndInstanc
 	ASSERT_NE(DefaultMaterial, nullptr)
 		<< "state=" << static_cast<int>(Durin::DMaterial::StaticClass()->GetDefaultObjectState())
 		<< " reason=" << static_cast<int>(Durin::DMaterial::StaticClass()->GetDefaultObjectReason());
-	EXPECT_FALSE(DefaultMaterial->GetMaterialRenderProxy());
+	EXPECT_FALSE(DefaultMaterial->GetRenderProxy());
 	EXPECT_TRUE(Durin::GetLoadedMaterialDependents(DefaultMaterial).empty());
-	EXPECT_TRUE(Base->GetMaterialRenderProxy());
+	EXPECT_TRUE(Base->GetRenderProxy());
 
 	const Durin::FMaterialStaticProperties Defaults;
 	EXPECT_EQ(Base->GetStaticProperties(), Defaults);
 	EXPECT_EQ(Child->GetStaticProperties(), Defaults);
-	const Durin::FMaterialRenderData DefaultRenderData = Base->GetRenderData();
+	const Durin::FMaterialRenderData DefaultRenderData = Durin::Testing::CaptureMaterialRenderData(*Base);
 
 	Durin::FMaterialStaticProperties Properties;
 	Properties.BlendMode = Durin::EMaterialBlendMode::Masked;
@@ -171,8 +172,8 @@ TEST(FMaterialPropertyEditingTests, StaticPropertiesHaveStableDefaultsAndInstanc
 	ASSERT_TRUE(Child->SetParent(Parent));
 	EXPECT_EQ(Parent->GetStaticProperties(), Properties);
 	EXPECT_EQ(Child->GetStaticProperties(), Properties);
-	const Durin::FMaterialRenderData BaseRenderData = Base->GetRenderData();
-	const Durin::FMaterialRenderData ChildRenderData = Child->GetRenderData();
+	const Durin::FMaterialRenderData BaseRenderData = Durin::Testing::CaptureMaterialRenderData(*Base);
+	const Durin::FMaterialRenderData ChildRenderData = Durin::Testing::CaptureMaterialRenderData(*Child);
 	EXPECT_NE(BaseRenderData.PlanningPassIdentity, DefaultRenderData.PlanningPassIdentity);
 	EXPECT_EQ(ChildRenderData.PlanningPassIdentity, BaseRenderData.PlanningPassIdentity);
 	EXPECT_EQ(BaseRenderData.PlanningPassIdentity.ShaderMap.BlendMode, Properties.BlendMode);

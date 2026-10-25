@@ -2,6 +2,7 @@
 #include "StaticMeshTestAccess.h"
 #include "PSOPrecache.h"
 #include "PSOPrecacheComponent.h"
+#include "RenderPipelineCreation.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Materials/MaterialShaderMap.h"
 
@@ -1468,7 +1469,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	std::shared_ptr<const FStaticMeshPreparationInputs> FrozenInput;
 	FPreparedStaticMeshView FrozenExpected;
 	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
-		Materials = {Opaque->Resolve_RenderThread(), Masked->Resolve_RenderThread()};
+		Materials = {Opaque->GetMaterialWithFallback(), Masked->GetMaterialWithFallback()};
 		// Keep the entry-point collision that previously substituted the
 		// generated Local vertex stage for this independent factory's shader.
 		for (const auto& Material : Materials)
@@ -1890,7 +1891,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 		ForwardGeometry = FProceduralGeometry::Create(Commands, 500, true);
 		ForwardGeometry.Binding->bForwardOnly = true;
-		TranslucentData = Translucent->Resolve_RenderThread();
+		TranslucentData = Translucent->GetMaterialWithFallback();
 	});
 	FlushRenderingCommands();
 	FDirectionalLightSceneData ForwardLight;
@@ -2009,7 +2010,7 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 		FMaterialRenderData Data;
 		FTextureReference Reference;
 		std::array<FTextureRHIRef, 2> Textures;
-		const auto MaterialProxy = Material->GetMaterialRenderProxy();
+		const auto MaterialProxy = Material->GetRenderProxy();
 		const FGuid TextureParameterId = Sample->Metadata.Id;
 		const FGuid BrightnessParameterId = Brightness->Metadata.Id;
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
@@ -2027,7 +2028,7 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			}
 			Reference.SetReferencedTexture_RenderThread(Textures[0]);
-			Data = MaterialProxy->Resolve_RenderThread();
+			Data = MaterialProxy->GetMaterialWithFallback();
 			FMaterialRenderRepresentationBuilder Builder(Data.Representation);
 			ASSERT_TRUE(Builder.SetTexture(TextureParameterId, Reference.GetTextureReferenceRHI()));
 			FMaterialRenderValidationDiagnostic Diagnostic;
@@ -2162,10 +2163,10 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 		ASSERT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
 		FSceneTestOwner Owner;
 		auto Proxy = std::make_unique<FProceduralProxy>();
-		const auto MaterialProxy = Material->GetMaterialRenderProxy();
+		const auto MaterialProxy = Material->GetRenderProxy();
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			Proxy->Geometry = FProceduralGeometry::Create(Commands, 1, false);
-			const auto Resolved = MaterialProxy->Resolve_RenderThread();
+			const auto Resolved = MaterialProxy->GetMaterialWithFallback();
 			Proxy->Materials = {Resolved, Resolved};
 			ASSERT_TRUE(Proxy->PublishGeometry());
 		});
@@ -2312,9 +2313,9 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			const float CombinedZ = .02f + OffsetValues[2];
 			ASSERT_TRUE(Dynamics.back()->SetVectorParameterValue("InstanceOffset", FVector4(OffsetValues[0], 0.0, CombinedZ, 0.0)));
 			FSceneInterfaceTestAccess::AddPrimitiveProxy(*Dynamic, FPrimitiveComponentId(2000 + Index),
-				std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector{Dynamics.back()->GetMaterialRenderProxy()}), Instance.LocalToPrimitive);
+				std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector{Dynamics.back()->GetRenderProxy()}), Instance.LocalToPrimitive);
 		}
-		auto Proxy = std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector{Custom->GetMaterialRenderProxy()},
+		auto Proxy = std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector{Custom->GetRenderProxy()},
 			std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
 		ASSERT_TRUE(Proxy->SetCustomPrimitiveData(PrimitiveData));
 		FSceneInterfaceTestAccess::AddPrimitiveProxy(*Instanced, FPrimitiveComponentId(1000), std::move(Proxy), FMatrix(1.0));
@@ -2579,12 +2580,12 @@ TEST(FMaterialParameterCollectionVulkanTests,
 			MakeSnapshot(FVector4(1.0, 0.0, 0.0, 0.0), 1.0f, 1));
 		GreenWorld->UpdateMaterialParameterCollection(
 			MakeSnapshot(FVector4(0.0, 1.0, 0.0, 0.0), 1.0f, 1));
-		const auto MaterialProxy = Material->GetMaterialRenderProxy();
+		const auto MaterialProxy = Material->GetRenderProxy();
 		FProceduralGeometry Geometry;
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 			[&](FRHICommandListImmediate& Commands) {
 				Geometry = FProceduralGeometry::Create(Commands, 901, false);
-				const auto Resolved = MaterialProxy->Resolve_RenderThread();
+				const auto Resolved = MaterialProxy->GetMaterialWithFallback();
 				for (FScene* Scene : {RedWorld.Get(), GreenWorld.Get()})
 				{
 					auto Proxy = std::make_unique<FProceduralProxy>();
@@ -2828,12 +2829,12 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		ASSERT_TRUE(OtherMaterial->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*OtherMaterial);
 		ASSERT_TRUE(OtherMaterial->GetAcceptedCompiledProgram());
-		const auto OtherProxy = OtherMaterial->GetMaterialRenderProxy();
+		const auto OtherProxy = OtherMaterial->GetRenderProxy();
 		FSceneTestOwner MixedWorld;
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
 			auto Proxy = std::make_unique<FProceduralProxy>();
 			Proxy->Geometry = Geometry;
-			Proxy->Materials = {MaterialProxy->Resolve_RenderThread(), OtherProxy->Resolve_RenderThread()};
+			Proxy->Materials = {MaterialProxy->GetMaterialWithFallback(), OtherProxy->GetMaterialWithFallback()};
 			EXPECT_EQ(Proxy->Materials[0].Representation.GetLayout(), Proxy->Materials[1].Representation.GetLayout());
 			ASSERT_TRUE(Proxy->PublishGeometry());
 			FSceneInterfaceTestAccess::AddPrimitiveProxy(*MixedWorld, FPrimitiveComponentId(902), std::move(Proxy), FMatrix(1.0));
@@ -2869,7 +2870,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
 			auto Proxy = std::make_unique<FProceduralProxy>();
 			Proxy->Geometry = Geometry;
-			const auto Primary = MaterialProxy->Resolve_RenderThread();
+			const auto Primary = MaterialProxy->GetMaterialWithFallback();
 			auto Alternate = Primary;
 			auto Program = std::make_shared<FMaterialCompilerResult>(*Primary.CompiledProgram);
 			ASSERT_EQ(Program->ActiveCollections.size(), 1u);
@@ -3018,7 +3019,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 					FVector2(1.0, -1.0), FVector2(-1.0, -1.0)})
 				{
 					SCOPED_TRACE(std::format("two-sided={} world-side={} spline-scale=({}, {})", bTwoSided, WorldSide, Scale.x, Scale.y));
-					const auto Material = (bTwoSided ? TwoSided : SingleSided)->GetMaterialRenderProxy();
+					const auto Material = (bTwoSided ? TwoSided : SingleSided)->GetRenderProxy();
 					FMatrix World = Math::ScaleMatrix(FVector3(0.75, 0.75 * WorldSide, 0.75));
 					World[3][2] = 0.5;
 					const FMatrix StaticTransform = World * Math::ScaleMatrix(FVector3(1.0, Scale.x, Scale.y));
@@ -3104,9 +3105,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 				FMatrix World = Math::ScaleMatrix(FVector3(0.4));
 				World[3][2] = 0.5;
 				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Reference, FPrimitiveComponentId(601),
-					std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{TwoSided->GetMaterialRenderProxy()}, Dynamic), World));
+					std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{TwoSided->GetRenderProxy()}, Dynamic), World));
 				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Spline, FPrimitiveComponentId(602),
-					std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{SingleSided->GetMaterialRenderProxy()}, Dynamic), World));
+					std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{SingleSided->GetRenderProxy()}, Dynamic), World));
 				FlushRenderingCommands();
 				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 					for (const auto Mode : {ERenderPreparationMode::Full, ERenderPreparationMode::ShadowDepth})
@@ -3311,6 +3312,26 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 				EXPECT_TRUE(Request.GetProgress().bRequiredReady) << Request.GetDiagnostic();
 		};
 		Pump(1);
+		// Even an already published proxy must preserve unresolved material demand
+		// through normal logical collection, rather than authorizing an error draw.
+		const auto MaterialProxy = Material->GetRenderProxy();
+		const auto Accepted = Material->GetMaterialResource();
+		FMaterialResource Compiling;
+		Compiling.bIsCompiling = true;
+		MaterialProxy->QueuePublication_GameThread(Compiling);
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EXPECT_EQ(MaterialProxy->GetMaterialNoFallback(), nullptr);
+			EXPECT_TRUE(MaterialProxy->IsCompiling());
+			EXPECT_TRUE(MaterialProxy->GetMaterialWithFallback().Representation.IsError());
+			FRenderPipelinePreparationBatch Batch;
+			FSceneView View;
+			View.ViewportWidth = View.ViewportHeight = 64;
+			(void)PrepareStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), View,
+				ERasterMode::Solid, ERenderPreparationMode::Full);
+			EXPECT_TRUE(FRenderPipelinePreparationBatch::HasPending());
+		});
+		MaterialProxy->QueuePublication_GameThread(Accepted);
+		FlushRenderingCommands();
 		const auto Job = Component->GetPSOPrecacheComponentData().GetLatestJobSet();
 		EXPECT_EQ(DPrimitiveComponent::GetPendingPSOPrecacheComponentCount(), 0u);
 		for (uint32 Frame = 0; Frame < 16; ++Frame)
@@ -3469,8 +3490,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
 	EXPECT_EQ(LastMap, BeforeTexturePublication);
 	EnqueueRenderCommand("RepublishUsedHitProxyMaterial", [&](FRHICommandListImmediate&) {
-		FMaterialLocalRenderLayer Layer;
-		Layer.CompiledProgram = Material->Resolve_RenderThread().CompiledProgram;
+		FMaterialResource Layer;
+		Layer.CompiledProgram = Material->GetMaterialWithFallback().CompiledProgram;
 		FMaterialStaticProperties Properties;
 		Properties.bTwoSided = true;
 		Layer.StaticProperties = Properties;
@@ -3554,7 +3575,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	EXPECT_TRUE(Masked->SetStaticProperties(Properties));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Masked);
 	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
-		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Masked->GetMaterialRenderProxy()}), FMatrix(1.0));
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Masked->GetRenderProxy()}), FMatrix(1.0));
 	EXPECT_EQ(CaptureCenter(), 17u); // Masked-out fragments reveal the far surface.
 	FSplineMeshRenderDynamicData Spline;
 	Spline.Params.SourceForwardMax = 5.0;

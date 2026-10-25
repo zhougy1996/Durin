@@ -758,19 +758,19 @@ namespace Durin
 		FlushRenderingCommands();
 		FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(10001),
 			std::make_unique<FStaticMeshSceneProxy>(Geometry.get(),
-				std::vector<FMaterialRenderProxyRef>{LitMaterial->GetMaterialRenderProxy()}),
+				std::vector<FMaterialRenderProxyRef>{LitMaterial->GetRenderProxy()}),
 			Math::TranslationMatrix(FVector3{100, -35, 2510}));
 		FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(10002),
 			std::make_unique<FStaticMeshSceneProxy>(Geometry.get(),
-				std::vector<FMaterialRenderProxyRef>{UnlitMaterial->GetMaterialRenderProxy()}),
+				std::vector<FMaterialRenderProxyRef>{UnlitMaterial->GetRenderProxy()}),
 			Math::TranslationMatrix(FVector3{100, 35, 2510}));
 		FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(10003),
 			std::make_unique<FStaticMeshSceneProxy>(Geometry.get(),
-				std::vector<FMaterialRenderProxyRef>{MaskedMaterial->GetMaterialRenderProxy()}),
+				std::vector<FMaterialRenderProxyRef>{MaskedMaterial->GetRenderProxy()}),
 			Math::TranslationMatrix(FVector3{95, -35, 2520}));
 		FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(10004),
 			std::make_unique<FStaticMeshSceneProxy>(Geometry.get(),
-				std::vector<FMaterialRenderProxyRef>{TranslucentMaterial->GetMaterialRenderProxy()}),
+				std::vector<FMaterialRenderProxyRef>{TranslucentMaterial->GetRenderProxy()}),
 			Math::TranslationMatrix(FVector3{90, 35, 2510}));
 		FlushRenderingCommands();
 
@@ -859,7 +859,7 @@ namespace Durin
 							bBoundary ? 2510.0 : 2510.0 + (Index / 8) * 2};
 						EXPECT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
 							std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector<FMaterialRenderProxyRef>{
-								(Group == 0 ? LitMaterial : MaskedMaterial)->GetMaterialRenderProxy()}), Math::TranslationMatrix(Position)));
+								(Group == 0 ? LitMaterial : MaskedMaterial)->GetRenderProxy()}), Math::TranslationMatrix(Position)));
 					}
 				FlushRenderingCommands();
 			};

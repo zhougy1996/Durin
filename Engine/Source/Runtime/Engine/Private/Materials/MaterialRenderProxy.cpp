@@ -7,6 +7,10 @@
 
 namespace Durin
 {
+	auto FMaterialResource::HasValidGameThreadShaderMap() const -> bool
+	{
+		return CompiledProgram && *CompiledProgram && CompiledProgram->ShaderMap;
+	}
 	namespace
 	{
 
@@ -26,7 +30,7 @@ namespace Durin
 
 		FMaterialRenderProxyAtomicCounters GMaterialRenderProxyCounters;
 
-		auto GetMaterialPayloadBytes(const FMaterialLocalRenderLayer& Layer) -> uint64
+		auto GetMaterialPayloadBytes(const FMaterialResource& Layer) -> uint64
 		{
 			uint64 Bytes = 0;
 			for (const auto& Parameter : Layer.Parameters)
@@ -114,7 +118,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderProxy::QueuePublication_GameThread(
-		FMaterialLocalRenderLayer Publication
+		FMaterialResource Publication
 	) -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -130,7 +134,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderProxy::ApplyPublication_RenderThread(
-		FMaterialLocalRenderLayer Publication
+		FMaterialResource Publication
 	) -> void
 	{
 		CheckRenderingThread();
@@ -176,6 +180,25 @@ namespace Durin
 		GMaterialRenderProxyCounters.ParameterBindingBuildCount.fetch_add(1);
 	}
 
+	auto FMaterialRenderProxy::IsCompiling() const -> bool
+	{
+		CheckRenderingThread();
+		return LocalLayer.bIsCompiling;
+	}
+
+	auto FMaterialRenderProxy::GetMaterialNoFallback() -> const FMaterialRenderData*
+	{
+		CheckRenderingThread();
+		if (!LocalLayer.CompiledProgram) return nullptr;
+		const auto& Material = Resolve_RenderThread();
+		return Material.CompiledProgram && !Material.Representation.IsError() ? &Material : nullptr;
+	}
+
+	auto FMaterialRenderProxy::GetMaterialWithFallback() -> const FMaterialRenderData&
+	{
+		return Resolve_RenderThread();
+	}
+
 	auto FMaterialRenderProxy::Resolve_RenderThread()
 		-> const FMaterialRenderData&
 	{
@@ -188,6 +211,12 @@ namespace Durin
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.fetch_add(1);
 
 		CachedResolvedData = {};
+		if (!LocalLayer.CompiledProgram && LocalLayer.bIsCompiling)
+		{
+			++ResolutionCount;
+			bHasResolvedData = true;
+			return CachedResolvedData;
+		}
 		CachedResolvedData.Representation = FMaterialRenderRepresentation{};
 		if (LocalLayer.CompiledProgram)
 		{

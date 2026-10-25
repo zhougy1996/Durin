@@ -63,7 +63,7 @@ namespace Durin::Editor::Material
 
 		struct FMaterialThumbnailResource
 		{
-			FMaterialLocalRenderLayer Snapshot;
+			FMaterialResource Snapshot;
 			bool bReady;
 		};
 
@@ -116,7 +116,7 @@ namespace Durin::Editor::Material
 				}
 				if (!Texture->HasUsableResource()) return FMaterialThumbnailResource{{}, false};
 			}
-			return FMaterialThumbnailResource{Material->GetRenderSnapshot(), true};
+			return FMaterialThumbnailResource{Material->GetMaterialResource(), true};
 		}
 
 		auto GetMaterialAssetRevision(
@@ -424,7 +424,7 @@ namespace Durin::Editor::Material
 			DMaterialInterface* Material = nullptr;
 			uint64 AssetRevision = 0;
 			uint64 PreparedSphereResourceRevision = 0;
-			FMaterialLocalRenderLayer PreparedMaterialSnapshot;
+			FMaterialResource PreparedMaterialSnapshot;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			bool bOwnsActor = false;

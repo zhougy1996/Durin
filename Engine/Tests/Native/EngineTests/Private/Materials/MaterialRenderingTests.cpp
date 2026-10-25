@@ -457,8 +457,8 @@ TEST(FMaterialRenderingTests, StaticMeshProxyOrdersBindingChangesAcrossProxyLife
 	Component->SetMaterial(1, Second);
 	const FMaterialSlotsSnapshot Ordered = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Ordered.MaterialProxies.size(), 2u);
-	EXPECT_EQ(Ordered.MaterialProxies[0], Replacement->GetMaterialRenderProxy().GetReference());
-	EXPECT_EQ(Ordered.MaterialProxies[1], Second->GetMaterialRenderProxy().GetReference());
+	EXPECT_EQ(Ordered.MaterialProxies[0], Replacement->GetRenderProxy().GetReference());
+	EXPECT_EQ(Ordered.MaterialProxies[1], Second->GetRenderProxy().GetReference());
 	ExpectColorNear(GetMaterialBinding(Ordered.Materials[0]).BaseColor,
 		Durin::FVector4f(0.9f, 0.8f, 0.7f, 1.0f));
 	ExpectColorNear(GetMaterialBinding(Ordered.Materials[1]).BaseColor,

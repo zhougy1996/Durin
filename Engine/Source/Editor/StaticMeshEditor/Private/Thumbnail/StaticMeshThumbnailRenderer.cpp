@@ -195,7 +195,7 @@ namespace Durin::Editor::StaticMesh
 						Materials.Diagnostic.empty() ? "A material is still compiling." : Materials.Diagnostic));
 				for (const auto& Slot : StaticMesh->GetMaterialSlots())
 					if (auto* Material = Slot.DefaultMaterial.Get())
-						PreparedMaterials.emplace_back(FWeakObjectPtr(Material), Material->GetRenderSnapshot());
+						PreparedMaterials.emplace_back(FWeakObjectPtr(Material), Material->GetMaterialResource());
 				PreparedResourceRevision = StaticMesh ? StaticMesh->GetRenderResourceStatus().Revision : 0;
 				const std::optional<FBox> Bounds = StaticMesh
 					? StaticMesh->GetLOD0LocalBounds()
@@ -297,7 +297,7 @@ namespace Durin::Editor::StaticMesh
 				{
 					const auto* Material = Cast<DMaterialInterface>(Owner.Get());
 					if (!Material || !Material->GetMaterialCompileStatus().IsCurrent()
-						|| !Material->GetAcceptedCompiledProgram() || Material->GetRenderSnapshot() != Snapshot)
+						|| !Material->GetAcceptedCompiledProgram() || Material->GetMaterialResource() != Snapshot)
 						return std::unexpected(QualifyDiagnostic(Input.AssetPath,
 							"A material changed while its thumbnail was being generated."));
 				}
@@ -328,7 +328,7 @@ namespace Durin::Editor::StaticMesh
 			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
 			uint64 AssetRevision = 0;
 			uint64 PreparedResourceRevision = 0;
-			std::vector<std::pair<FWeakObjectPtr, FMaterialLocalRenderLayer>> PreparedMaterials;
+			std::vector<std::pair<FWeakObjectPtr, FMaterialResource>> PreparedMaterials;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;

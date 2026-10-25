@@ -1902,7 +1902,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 			EXPECT_TRUE(Program->GetDebugData().IR.Nodes.empty());
 			EXPECT_TRUE(Program->GetDebugData().GeneratedSource.empty());
 			EXPECT_GT(LoadedMaterial->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
-			EXPECT_FALSE(LoadedMaterial->GetRenderData().Representation.IsError());
+			EXPECT_TRUE(LoadedMaterial->GetMaterialResource().HasValidGameThreadShaderMap());
 		}
 
 		if (Asset->IsA(DTexture::StaticClass()))

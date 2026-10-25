@@ -179,7 +179,7 @@ namespace Durin
 			ASSERT_EQ(FrozenShaders.size(), Program->GetShaderMap().CompiledShaders.size());
 			for (size_t Index = 0; Index < FrozenShaders.size(); ++Index)
 				ASSERT_TRUE(std::ranges::equal(FrozenShaders[Index], Program->GetShaderMap().CompiledShaders[Index].Code.GetBytes()));
-			Life.Proxy = Life.Material->GetMaterialRenderProxy();
+			Life.Proxy = Life.Material->GetRenderProxy();
 			Life.Scene = std::make_unique<FSceneTestOwner>();
 			FSceneInterfaceTestAccess::AddPrimitiveProxy(**Life.Scene, FPrimitiveComponentId(1),
 				std::make_unique<FStaticMeshSceneProxy>(Life.Mesh.get(), std::vector<FMaterialRenderProxyRef>{Life.Proxy}),

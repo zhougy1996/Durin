@@ -1,3 +1,4 @@
+#include "MaterialResourceTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshTestEnvironment.h"
 #include "StaticMeshMaterialTestFixture.h"
@@ -101,8 +102,8 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_TRUE(LoadedTexture->FinishCachePlatformData(10.0));
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
-	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
-	const auto LoadedBinding = GetMaterialBinding(Loaded->GetRenderData());
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
+	const auto LoadedBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded));
 	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.0f);
 	float Retained = 0;
 	ASSERT_TRUE(Loaded->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), Retained));
@@ -114,12 +115,12 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	EXPECT_EQ(LoadedBinding.UVScales[0], Durin::FVector2f(2.0f, -1.0f));
 	EXPECT_EQ(LoadedBinding.UVOffsets[0], Durin::FVector2f(0.25f, 0.5f));
 	EXPECT_EQ(
-		GetMaterialBinding(Loaded->GetRenderData()).Textures[0],
+		GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).Textures[0],
 		LoadedTexture->GetTextureReferenceRHI());
 	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
 	ASSERT_NE(LoadedBase, nullptr);
 	LoadedBase->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));
-	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 1.0f));
 	ASSERT_TRUE(Durin::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::UnloadPackage(
 		BasePath,
