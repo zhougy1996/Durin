@@ -1,5 +1,4 @@
 #include "DObject/PackageFormat.h"
-#include "DObject/PackageWriterInternal.h"
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
@@ -719,31 +718,28 @@ TEST(FPackageWriterContractTests, WriterFailuresPreserveContextAndOutputs)
 
 TEST(FPackageReaderContractTests, CanonicalValidationPreservesOutput)
 {
-	for (const uint32 Version : {2u, Package::DastRegistryVersion})
-	{
-		auto Fixture = MakeFixture();
-		Fixture.Exports.front().Properties.resize(1);
-		Fixture.Schemas.front().Fields.resize(1);
-		Fixture.Exports.front().Properties.front().Type.Kind = Package::EValueKind::I8;
-		Fixture.Schemas.front().Fields.front().Type.Kind = Package::EValueKind::I8;
-		Fixture.Exports.front().Properties.front().Value.Signed = 64;
-		Durin::FByteBuffer Main, Bulk;
-		ASSERT_TRUE(Package::WritePackageForRegistryVersion(Fixture, Version, Main, Bulk));
-		const auto ValuesOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 6 * 48 + 8);
-		// One export and one scalar field: header, identities, provenance, tag, zigzag value.
-		ASSERT_EQ(Main[ValuesOffset + 12], std::byte(uint8(Package::EValueKind::I8) + 1));
-		ASSERT_EQ(Main[ValuesOffset + 13], std::byte{0x80});
-		ASSERT_EQ(Main[ValuesOffset + 14], std::byte{1});
-		Main[ValuesOffset + 14] = std::byte{2}; // 128 is decodable but outside I8 storage.
-		RehashSection(Main, 6);
-		Package::FLinkerTables Output;
-		Output.Summary.PackagePath = PackagePath("/Game/Sentinel");
-		const auto Result = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Output);
-		ASSERT_FALSE(Result);
-		EXPECT_EQ(Result.Reason, Package::EPackageReaderReason::CanonicalWriterRejected);
-		EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
-		Main.clear();
-	}
+	auto Fixture = MakeFixture();
+	Fixture.Exports.front().Properties.resize(1);
+	Fixture.Schemas.front().Fields.resize(1);
+	Fixture.Exports.front().Properties.front().Type.Kind = Package::EValueKind::I8;
+	Fixture.Schemas.front().Fields.front().Type.Kind = Package::EValueKind::I8;
+	Fixture.Exports.front().Properties.front().Value.Signed = 64;
+	Durin::FByteBuffer Main, Bulk;
+	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
+	const auto ValuesOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 6 * 48 + 8);
+	// One export and one scalar field: header, identities, provenance, tag, zigzag value.
+	ASSERT_EQ(Main[ValuesOffset + 12], std::byte(uint8(Package::EValueKind::I8) + 1));
+	ASSERT_EQ(Main[ValuesOffset + 13], std::byte{0x80});
+	ASSERT_EQ(Main[ValuesOffset + 14], std::byte{1});
+	Main[ValuesOffset + 14] = std::byte{2}; // 128 is decodable but outside I8 storage.
+	RehashSection(Main, 6);
+	Package::FLinkerTables Output;
+	Output.Summary.PackagePath = PackagePath("/Game/Sentinel");
+	const auto Result = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Output);
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.Reason, Package::EPackageReaderReason::ValueShape);
+	EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
+	Main.clear();
 }
 
 TEST(FPackageReaderContractTests, EnvelopeAndNestedValueReasonsSurvivePropagation)
@@ -782,20 +778,83 @@ TEST(FPackageFormatContractTests, ResultFormattingAndSuccessHaveNoRetainedError)
 	EXPECT_TRUE(Package::FormatPackageError(Result).empty());
 }
 
-TEST(FPackageReaderContractTests, RegistryV2PreservesCanonicalValidationAndUpgradesOnSave)
+TEST(FPackageReaderContractTests, ResignedMutationsCannotBypassCanonicalValidation)
 {
-	const auto Source = MakeFixture();
-	Durin::FByteBuffer LegacyMain, Bulk;
-	ASSERT_TRUE(Package::WritePackageForRegistryVersion(Source, 2, LegacyMain, Bulk));
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(LegacyMain).ToString(), "9e520a5e489ec8527b730cf0b96b1163");
-	Package::FLinkerTables Decoded;
-	const auto Result = Package::ReadPackage(LegacyMain, Bulk, Source.Summary.PackagePath, Decoded);
-	ASSERT_TRUE(Result) << Package::FormatPackageError(Result);
-	Package::FLinkerTables Metadata;
-	ASSERT_TRUE(Package::ReadPackageMetadata(LegacyMain, Bulk.size(), Source.Summary.PackagePath, Metadata));
-	Durin::FByteBuffer CurrentMain, CurrentBulk;
-	ASSERT_TRUE(Package::WritePackage(Decoded, CurrentMain, CurrentBulk));
-	EXPECT_NE(LegacyMain, CurrentMain);
-	EXPECT_EQ(Bulk, CurrentBulk);
-	ASSERT_TRUE(Package::ReadPackage(CurrentMain, CurrentBulk, Source.Summary.PackagePath, Metadata));
+	std::array Fixtures{MakeFixture(), MakeAllKindsFixture(), MakeReferenceFixture(false)};
+	Fixtures[0].Types.push_back({.Kind = Package::EValueKind::Bool});
+	Fixtures[0].Types.push_back({.Kind = Package::EValueKind::I8});
+	Fixtures[0].Schemas.push_back({.QualifiedName = "Example::A"});
+	Fixtures[0].Schemas.push_back({.QualifiedName = "Example::Z"});
+	Fixtures[0].CustomVersions.push_back({.Guid = {1, 2, 3, 4}, .Version = 1});
+	uint64 AcceptedFull = 0, AcceptedMetadata = 0;
+	for (const auto& Fixture : Fixtures)
+	{
+		Durin::FByteBuffer Main, Bulk;
+		ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
+		for (uint32 Section = 0; Section < 8; ++Section)
+		{
+			const auto Entry = Package::DastDirectoryOffset + uint64(Section) * 48;
+			const auto Offset = Read<uint64>(Main, Entry + 8), Size = Read<uint64>(Main, Entry + 16);
+			for (uint64 Byte = Offset; Byte < Offset + Size; ++Byte)
+				for (uint8 Replacement : {0u, 1u, 0x7fu, 0x80u, 0xffu})
+				{
+					if (Main[Byte] == std::byte{Replacement}) continue;
+					auto Mutated = Main;
+					Mutated[Byte] = std::byte{Replacement};
+					RehashSection(Mutated, Section);
+					SCOPED_TRACE(std::format("section={} byte={} value={}", Section, Byte - Offset, Replacement));
+					Package::FLinkerTables Decoded;
+					Decoded.Summary.PackagePath = PackagePath("/Game/Sentinel");
+					if (Package::ReadPackage(Mutated, Bulk, Fixture.Summary.PackagePath, Decoded))
+					{
+						++AcceptedFull;
+						Durin::FByteBuffer Rewritten, RewrittenBulk;
+						ASSERT_TRUE(Package::WritePackage(Decoded, Rewritten, RewrittenBulk));
+						ASSERT_EQ(Mutated, Rewritten);
+						ASSERT_EQ(Bulk, RewrittenBulk);
+					}
+					else EXPECT_EQ(Decoded.Summary.PackagePath.ToString(), "/Game/Sentinel");
+					Package::FLinkerTables Metadata;
+					Metadata.Summary.PackagePath = PackagePath("/Game/Sentinel");
+					if (Package::ReadPackageMetadata(Mutated, Bulk.size(), Fixture.Summary.PackagePath, Metadata))
+					{
+						++AcceptedMetadata;
+						Package::FPackageRegistryData Registry;
+						ASSERT_TRUE(Package::ReadPackageRegistry(std::span(Mutated).first(Read<uint64>(Mutated, 32)),
+							Mutated.size(), Bulk.size(), Fixture.Summary.PackagePath, Registry));
+						Durin::FByteBuffer Rewritten;
+						ASSERT_TRUE(Package::WritePackageMain(Metadata, Bulk.size(), Registry.ExternalBulkHash, Rewritten));
+						ASSERT_EQ(Mutated, Rewritten);
+					}
+					else EXPECT_EQ(Metadata.Summary.PackagePath.ToString(), "/Game/Sentinel");
+				}
+		}
+	}
+	EXPECT_GT(AcceptedFull, 0u);
+	EXPECT_GE(AcceptedMetadata, AcceptedFull);
+}
+
+TEST(FPackageWriterContractTests, RejectsInvalidProvenanceAndUnknownTypesBeforeEncoding)
+{
+	auto Fixture = MakeFixture();
+	Durin::FByteBuffer Main = Bytes({1}), Bulk = Bytes({2});
+	Fixture.Exports.front().Properties.front().Provenance = static_cast<Package::EPropertyProvenance>(3);
+	EXPECT_FALSE(Package::WritePackage(Fixture, Main, Bulk));
+	EXPECT_EQ(Main, Bytes({1}));
+	EXPECT_EQ(Bulk, Bytes({2}));
+	Fixture = MakeAllKindsFixture();
+	const auto Struct = std::ranges::find_if(Fixture.Exports.front().Properties,
+		[](const auto& Field) { return Field.Type.Kind == Package::EValueKind::Struct; });
+	ASSERT_NE(Struct, Fixture.Exports.front().Properties.end());
+	ASSERT_FALSE(Struct->Value.Elements.empty());
+	Struct->Value.Provenances.assign(Struct->Value.Elements.size(), Package::EPropertyProvenance::Implicit);
+	Struct->Value.Provenances.front() = static_cast<Package::EPropertyProvenance>(3);
+	EXPECT_FALSE(Package::WritePackage(Fixture, Main, Bulk));
+	EXPECT_EQ(Main, Bytes({1}));
+	EXPECT_EQ(Bulk, Bytes({2}));
+	Fixture = MakeFixture();
+	Fixture.Types.push_back({.Kind = static_cast<Package::EValueKind>(255)});
+	EXPECT_FALSE(Package::WritePackage(Fixture, Main, Bulk));
+	EXPECT_EQ(Main, Bytes({1}));
+	EXPECT_EQ(Bulk, Bytes({2}));
 }

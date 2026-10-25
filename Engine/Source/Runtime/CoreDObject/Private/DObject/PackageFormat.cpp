@@ -1,5 +1,5 @@
 #include "PackageDiagnosticInternal.h"
-#include "PackageWriterInternal.h"
+#include "PackageFormatInternal.h"
 #include "DObject/PackageFormat.h"
 
 #include "DObject/CanonicalMapKey.h"
@@ -8,6 +8,7 @@
 
 namespace Durin::ObjectPackage
 {
+	using namespace Private;
 	namespace
 	{
 		constexpr uint64 PreambleBytes = BinaryEnvelopePreambleBytes;
@@ -64,12 +65,6 @@ namespace Durin::ObjectPackage
 			return false;
 		}
 
-		auto BytewiseLess(std::string_view Left, std::string_view Right) -> bool
-		{
-			return std::lexicographical_compare(Left.begin(), Left.end(), Right.begin(), Right.end(),
-				[](char A, char B) { return static_cast<uint8>(A) < static_cast<uint8>(B); });
-		}
-
 		auto CompareIdentity(std::initializer_list<std::pair<std::string_view, std::string_view>> Parts) -> int
 		{
 			for (const auto& [Left, Right] : Parts)
@@ -78,56 +73,6 @@ namespace Durin::ObjectPackage
 				if (BytewiseLess(Right, Left)) return 1;
 			}
 			return 0;
-		}
-
-		auto SignedFits(EValueKind Kind, int64 Value) -> bool
-		{
-			switch (Kind)
-			{
-			case EValueKind::I8: return Value >= std::numeric_limits<int8>::min() && Value <= std::numeric_limits<int8>::max();
-			case EValueKind::I16: return Value >= std::numeric_limits<int16>::min() && Value <= std::numeric_limits<int16>::max();
-			case EValueKind::I32: return Value >= std::numeric_limits<int32>::min() && Value <= std::numeric_limits<int32>::max();
-			case EValueKind::I64: return true;
-			default: return false;
-			}
-		}
-
-		auto UnsignedFits(EValueKind Kind, uint64 Value) -> bool
-		{
-			switch (Kind)
-			{
-			case EValueKind::U8: return Value <= std::numeric_limits<uint8>::max();
-			case EValueKind::U16: return Value <= std::numeric_limits<uint16>::max();
-			case EValueKind::U32: return Value <= std::numeric_limits<uint32>::max();
-			case EValueKind::U64: return true;
-			default: return false;
-			}
-		}
-
-		auto IsValidUtf8(std::string_view Value) -> bool
-		{
-			for (size_t Index = 0; Index < Value.size();)
-			{
-				const uint8 Lead = static_cast<uint8>(Value[Index++]);
-				if (Lead < 0x80) continue;
-				uint32 Code = 0;
-				size_t Continuations = 0;
-				if ((Lead & 0xe0) == 0xc0) { Code = Lead & 0x1f; Continuations = 1; }
-				else if ((Lead & 0xf0) == 0xe0) { Code = Lead & 0x0f; Continuations = 2; }
-				else if ((Lead & 0xf8) == 0xf0) { Code = Lead & 0x07; Continuations = 3; }
-				else return false;
-				if (Index + Continuations > Value.size()) return false;
-				for (size_t Part = 0; Part < Continuations; ++Part)
-				{
-					const uint8 Next = static_cast<uint8>(Value[Index++]);
-					if ((Next & 0xc0) != 0x80) return false;
-					Code = (Code << 6) | (Next & 0x3f);
-				}
-				if ((Continuations == 1 && Code < 0x80) || (Continuations == 2 && Code < 0x800)
-					|| (Continuations == 3 && Code < 0x10000) || Code > 0x10ffff
-					|| (Code >= 0xd800 && Code <= 0xdfff)) return false;
-			}
-			return true;
 		}
 
 		auto AddName(std::vector<std::string>& Names, std::string_view Name,
@@ -177,45 +122,20 @@ namespace Durin::ObjectPackage
 			if (Depth > DastMaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
 					EPackageWriterReason::TypeDepth, std::string(Path));
-			const size_t Children = Type.Children.size();
-			switch (Type.Kind)
+			if (!IsValidTypeShape(Type.Kind, Type.QualifiedName, Type.Parameter, Type.Children.size()))
 			{
-			case EValueKind::Enum:
-				if (Type.QualifiedName.empty() || Children != 0
-					|| Type.Parameter < uint64(EValueKind::I8) || Type.Parameter > uint64(EValueKind::U64))
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						EPackageWriterReason::InvalidEnumType, std::string(Path));
-				break;
-			case EValueKind::Intrinsic:
-				if (Children != 0 || Type.Parameter < 1 || Type.Parameter > 6)
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						EPackageWriterReason::InvalidIntrinsicType, std::string(Path));
-				break;
-			case EValueKind::Struct:
-				if (Type.QualifiedName.empty())
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						EPackageWriterReason::MissingStructName, std::string(Path));
-				break;
-			case EValueKind::FixedArray:
-				if (Children != 1 || Type.Parameter > DastMaximumContainerElements)
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						EPackageWriterReason::InvalidFixedArrayType, std::string(Path));
-				break;
-			case EValueKind::Array:
-				if (Children != 1)
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						EPackageWriterReason::InvalidArrayType, std::string(Path));
-				break;
-			case EValueKind::Map:
-				if (Children != 2)
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						EPackageWriterReason::InvalidMapType, std::string(Path));
-				break;
-			default:
-				if (Children != 0)
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						EPackageWriterReason::ScalarChildren, std::string(Path));
-				break;
+				auto Reason = EPackageWriterReason::ScalarChildren;
+				switch (Type.Kind)
+				{
+				case EValueKind::Enum: Reason = EPackageWriterReason::InvalidEnumType; break;
+				case EValueKind::Intrinsic: Reason = EPackageWriterReason::InvalidIntrinsicType; break;
+				case EValueKind::Struct: Reason = EPackageWriterReason::MissingStructName; break;
+				case EValueKind::FixedArray: Reason = EPackageWriterReason::InvalidFixedArrayType; break;
+				case EValueKind::Array: Reason = EPackageWriterReason::InvalidArrayType; break;
+				case EValueKind::Map: Reason = EPackageWriterReason::InvalidMapType; break;
+				default: break;
+				}
+				return Fail(Diagnostic, EPackageWriterFailure::InvalidType, Reason, std::string(Path));
 			}
 			for (const FSerializedType& Child : Type.Children)
 				if (!ValidateType(Child, Depth + 1, Diagnostic, Path)) return false;
@@ -273,12 +193,6 @@ namespace Durin::ObjectPackage
 					EPackageWriterReason::ExportIndex, std::string(Path));
 			Out = int64(Frozen.ExportRemap[Index.GetTableIndex()] + 1);
 			return true;
-		}
-
-		auto ContainsHardReferenceType(const FSerializedType& Type) -> bool
-		{
-			return Type.Kind == EValueKind::HardReference
-				|| std::ranges::any_of(Type.Children, ContainsHardReferenceType);
 		}
 
 		auto CollectValue(FFrozenPackage& Frozen, const FSerializedType& Type,
@@ -376,6 +290,8 @@ namespace Durin::ObjectPackage
 					for (size_t Position = 0; Position < Order.size(); ++Position)
 					{
 						const size_t Index = Order[Position];
+						if (!Value.Provenances.empty() && Value.Provenances[Index] > EPropertyProvenance::Forced)
+							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::StructDescriptor, Path);
 						if (Position != 0 && Value.FieldNames[Order[Position - 1]] == Value.FieldNames[Index])
 							return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
 								EPackageWriterReason::DuplicateStructField, Path);
@@ -667,6 +583,8 @@ namespace Durin::ObjectPackage
 			{
 				const uint32 OldExport = Frozen.ExportOrder[NewExport];
 				const FPackageExport& Export = Linker.Exports[OldExport];
+				if (Export.Properties.size() > DastMaximumTableEntries)
+					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded, EPackageWriterReason::TableLimit);
 				std::vector<const FPropertyTag*> Properties;
 				for (const FPropertyTag& Property : Export.Properties) Properties.push_back(&Property);
 				std::ranges::sort(Properties, [](const FPropertyTag* A, const FPropertyTag* B)
@@ -676,6 +594,8 @@ namespace Durin::ObjectPackage
 					const FPropertyTag& Property = *Properties[PropertyIndex];
 					const std::string Path = Frozen.ExportPaths[OldExport] + "."
 						+ Property.DeclaringType + "." + Property.FieldName;
+					if (Property.Provenance > EPropertyProvenance::Forced)
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::PropertySchemaMismatch, Path);
 					if (!Property.Payload.empty())
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
 							EPackageWriterReason::OpaqueProperty, Path);
@@ -723,18 +643,6 @@ namespace Durin::ObjectPackage
 			for (const FBulkOccurrence& Bulk : Frozen.BulkValues) Frozen.Manifest.BulkValues.push_back(Bulk.LogicalPath);
 			Out = std::move(Frozen);
 			return true;
-		}
-
-		auto CanonicalFloat32(uint32 Bits) -> uint32
-		{
-			return (Bits & 0x7f800000u) == 0x7f800000u && (Bits & 0x007fffffu) != 0
-				? 0x7fc00000u : Bits;
-		}
-
-		auto CanonicalFloat64(uint64 Bits) -> uint64
-		{
-			return (Bits & 0x7ff0000000000000ull) == 0x7ff0000000000000ull
-				&& (Bits & 0x000fffffffffffffull) != 0 ? 0x7ff8000000000000ull : Bits;
 		}
 
 		auto WriteValue(FBinaryWriter& Writer, const FFrozenPackage& Frozen,
@@ -951,7 +859,7 @@ namespace Durin::ObjectPackage
 
 		auto EncodeSections(const FFrozenPackage& Frozen, std::vector<FSection>& Sections,
 			FByteBuffer* External, uint64 BoundExternalExtent,
-			FXxHash128 BoundExternalHash, uint32 RegistryVersion, FPackageWriterResult* Diagnostic) -> bool
+			FXxHash128 BoundExternalHash, FPackageWriterResult* Diagnostic) -> bool
 		{
 			FByteBuffer Inline;
 			std::vector<FPlacedBulk> Placed;
@@ -976,7 +884,7 @@ namespace Durin::ObjectPackage
 			};
 
 			auto Writer = MakeWriter();
-			Writer->WriteU32(RegistryVersion);
+			Writer->WriteU32(DastRegistryVersion);
 			{
 				Writer->WriteVarUInt(Frozen.ExportOrder.size());
 				std::vector<const FPackageSummary::FTopLevelAsset*> Assets;
@@ -1007,7 +915,7 @@ namespace Durin::ObjectPackage
 			RegistryLists[2] = Frozen.Source->Summary.SearchableNames;
 			for (const auto& Path : Frozen.Source->Summary.BuildPackageDependencies)
 				RegistryLists[3].push_back(Path.ToString());
-			for (size_t ListIndex = 0; ListIndex < (RegistryVersion == 2 ? 3u : 4u); ++ListIndex)
+			for (size_t ListIndex = 0; ListIndex < RegistryLists.size(); ++ListIndex)
 			{
 				const auto& List = RegistryLists[ListIndex];
 				std::vector<uint32> Ids;
@@ -1208,7 +1116,7 @@ namespace Durin::ObjectPackage
 
 	static auto WritePackageInternal(const FLinkerTables& Linker,
 		FByteBuffer& OutPackageBytes,
-		FByteBuffer& OutBulkBytes, uint32 RegistryVersion,
+		FByteBuffer& OutBulkBytes,
 		FPackageWriterResult* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
@@ -1219,7 +1127,7 @@ namespace Durin::ObjectPackage
 		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		FByteBuffer BulkBytes;
-		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, RegistryVersion, OutDiagnostic)) return false;
+		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
 		FByteBuffer PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
 			Linker.FormatVersion, false)) return false;
@@ -1229,7 +1137,7 @@ namespace Durin::ObjectPackage
 	}
 
 	static auto WritePackageMainInternal(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
-		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes, uint32 RegistryVersion,
+		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes,
 		FPackageWriterResult* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
@@ -1241,7 +1149,7 @@ namespace Durin::ObjectPackage
 		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		if (!EncodeSections(Frozen, Sections, nullptr, ExternalBulkBytes,
-			ExternalBulkHash, RegistryVersion, OutDiagnostic)) return false;
+			ExternalBulkHash, OutDiagnostic)) return false;
 		FByteBuffer PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
 			Linker.FormatVersion, false)) return false;
@@ -1257,42 +1165,21 @@ namespace Durin::ObjectPackage
 		return Result;
 	}
 
-	auto WritePackageForRegistryVersion(const FLinkerTables& Linker, uint32 RegistryVersion,
-		FByteBuffer& OutPackageBytes,
-		FByteBuffer& OutBulkBytes) -> FPackageWriterResult
-	{
-		FPackageWriterResult Result;
-		if ((RegistryVersion != 2 && RegistryVersion != DastRegistryVersion)
-			|| (RegistryVersion == 2 && !Linker.Summary.BuildPackageDependencies.empty()))
-			return {EPackageWriterFailure::InvalidValue, "Registry.Version", EPackageWriterReason::IncompleteEncoding};
-		if (!WritePackageInternal(Linker, OutPackageBytes, OutBulkBytes, RegistryVersion, &Result) && Result.Succeeded())
-			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
-		return Result;
-	}
-
-	auto WritePackageMainForRegistryVersion(const FLinkerTables& Linker, uint32 RegistryVersion, uint64 ExternalBulkBytes,
-		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes) -> FPackageWriterResult
-	{
-		FPackageWriterResult Result;
-		if ((RegistryVersion != 2 && RegistryVersion != DastRegistryVersion)
-			|| (RegistryVersion == 2 && !Linker.Summary.BuildPackageDependencies.empty()))
-			return {EPackageWriterFailure::InvalidValue, "Registry.Version", EPackageWriterReason::IncompleteEncoding};
-		if (!WritePackageMainInternal(Linker, ExternalBulkBytes, ExternalBulkHash, OutPackageBytes, RegistryVersion, &Result) && Result.Succeeded())
-			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
-		return Result;
-	}
-
 	auto WritePackage(const FLinkerTables& Linker, FByteBuffer& OutPackageBytes,
 		FByteBuffer& OutBulkBytes) -> FPackageWriterResult
 	{
-		return WritePackageForRegistryVersion(Linker, DastRegistryVersion, OutPackageBytes, OutBulkBytes);
+		FPackageWriterResult Result;
+		if (!WritePackageInternal(Linker, OutPackageBytes, OutBulkBytes, &Result) && Result.Succeeded())
+			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
+		return Result;
 	}
 
 	auto WritePackageMain(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
 		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes) -> FPackageWriterResult
 	{
-		return WritePackageMainForRegistryVersion(Linker, DastRegistryVersion,
-			ExternalBulkBytes, ExternalBulkHash, OutPackageBytes);
+		FPackageWriterResult Result;
+		if (!WritePackageMainInternal(Linker, ExternalBulkBytes, ExternalBulkHash, OutPackageBytes, &Result) && Result.Succeeded())
+			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
+		return Result;
 	}
-
 }

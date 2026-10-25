@@ -502,7 +502,9 @@ TEST_F(FAssetPackageReloadTests, ReloadsEveryTopLevelExportAndRebindsExternalRef
 	Primary->GetPackage()->MarkDirty();
 
 	Editor::FEditableAssetDocumentModel Documents;
-	ASSERT_TRUE(Documents.Discard(Primary));
+	std::string DiscardError;
+	ASSERT_TRUE(Documents.Discard(Primary, {}, {},
+		[&](std::string Message) { DiscardError = std::move(Message); })) << DiscardError;
 	DPackage* Reloaded = FindResidentPackage(Path);
 	ASSERT_NE(Reloaded, nullptr);
 	ASSERT_NE(Reloaded, Primary->GetPackage());

@@ -284,6 +284,10 @@ namespace Durin
 		CORE_API auto GetPathString() const -> std::string;
 		virtual CORE_API auto TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind Kind, const void* Value) -> bool;
 		virtual CORE_API auto TryCaptureLogicalText(EArchiveLogicalTextKind Kind, std::string_view Value) -> bool;
+		// Structured readers handle logical values here; byte archives retain canonical decoding.
+		// A handled read returns true even on failure, so malformed values cannot fall back to bytes.
+		virtual CORE_API auto TryLoadLogicalPrimitive(EArchiveLogicalPrimitiveKind Kind, void* Value) -> bool;
+		virtual CORE_API auto TryLoadLogicalText(EArchiveLogicalTextKind Kind, std::string& Value, uint64 MaximumBytes) -> bool;
 
 	private:
 		CORE_API auto FormatFailure() const -> std::string;

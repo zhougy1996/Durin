@@ -1,5 +1,5 @@
 #include "PackageDiagnosticInternal.h"
-#include "PackageWriterInternal.h"
+#include "PackageFormatInternal.h"
 #include "DObject/PackageFormat.h"
 
 #include "Serialization/BinaryEnvelope.h"
@@ -7,6 +7,7 @@
 
 namespace Durin::ObjectPackage
 {
+	using namespace Private;
 	namespace
 	{
 		struct FDirectoryEntry
@@ -19,9 +20,7 @@ namespace Durin::ObjectPackage
 
 		struct FParsedLayout
 		{
-			FBinaryEnvelopePreamble Preamble;
 			uint32 FormatVersion = 0;
-			bool bRedirect = false;
 			std::array<FDirectoryEntry, DastSectionCount> Entries;
 			FByteView AvailableBytes;
 		};
@@ -55,38 +54,6 @@ namespace Durin::ObjectPackage
 		{
 			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), Reason, std::move(Message), std::move(Subject)};
 			return false;
-		}
-
-		auto BytewiseLess(std::string_view Left, std::string_view Right) -> bool
-		{
-			return std::lexicographical_compare(Left.begin(), Left.end(), Right.begin(), Right.end(),
-				[](char A, char B) { return static_cast<uint8>(A) < static_cast<uint8>(B); });
-		}
-
-		auto IsValidUtf8(std::string_view Value) -> bool
-		{
-			for (size_t Index = 0; Index < Value.size();)
-			{
-				const uint8 Lead = static_cast<uint8>(Value[Index++]);
-				if (Lead < 0x80) continue;
-				uint32 Code = 0;
-				size_t Count = 0;
-				if ((Lead & 0xe0) == 0xc0) { Code = Lead & 0x1f; Count = 1; }
-				else if ((Lead & 0xf0) == 0xe0) { Code = Lead & 0x0f; Count = 2; }
-				else if ((Lead & 0xf8) == 0xf0) { Code = Lead & 0x07; Count = 3; }
-				else return false;
-				if (Index + Count > Value.size()) return false;
-				for (size_t Part = 0; Part < Count; ++Part)
-				{
-					const uint8 Next = static_cast<uint8>(Value[Index++]);
-					if ((Next & 0xc0) != 0x80) return false;
-					Code = (Code << 6) | (Next & 0x3f);
-				}
-				if ((Count == 1 && Code < 0x80) || (Count == 2 && Code < 0x800)
-					|| (Count == 3 && Code < 0x10000) || Code > 0x10ffff
-					|| (Code >= 0xd800 && Code <= 0xdfff)) return false;
-			}
-			return true;
 		}
 
 		template<std::unsigned_integral T>
@@ -163,9 +130,7 @@ namespace Durin::ObjectPackage
 					EPackageReaderReason::FormatHeader);
 
 			FParsedLayout Parsed;
-			Parsed.Preamble = Preamble;
 			Parsed.FormatVersion = FormatVersion;
-			Parsed.bRedirect = PackageKind == 1;
 			Parsed.AvailableBytes = Available;
 			uint64 ExpectedOffset = DastFirstSectionOffset;
 			for (uint32 Index = 0; Index < DastSectionCount; ++Index)
@@ -276,6 +241,8 @@ namespace Durin::ObjectPackage
 						EPackageReaderReason::ImportPath,
 						"Imports[" + std::to_string(Index) + "]");
 				}
+				if (!Imports.empty() && !BytewiseLess(Imports.back().ObjectPath.ToString(), ObjectPath.ToString()))
+					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, "Imports");
 				Imports.push_back({.ObjectPath = std::move(ObjectPath),
 					.ClassName = ClassId ? Names[ClassId - 1] : std::string{},
 					.Outer = OuterIndex});
@@ -289,7 +256,7 @@ namespace Durin::ObjectPackage
 		auto DecodeRegistry(const FParsedLayout& Layout,
 			const std::vector<std::string>& Names, const FPackagePath& PackagePath,
 			uint64 PhysicalBulkBytes, FPackageRegistryData& Out,
-			FPackageReaderResult* Diagnostic, uint32* OutRegistryVersion = nullptr) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			if (!PackagePath.IsValid()
 				|| !std::ranges::binary_search(Names, PackagePath.GetView(), BytewiseLess))
@@ -299,7 +266,7 @@ namespace Durin::ObjectPackage
 			FBinaryReader Reader(Section(Layout, EDastSection::Registry));
 			uint32 Version = 0;
 			uint64 ExportCount = 0, AssetCount = 0;
-			if (!Reader.ReadU32(Version) || (Version != 2 && Version != DastRegistryVersion)
+			if (!Reader.ReadU32(Version) || Version != DastRegistryVersion
 				|| !Reader.ReadVarUInt(ExportCount) || ExportCount > DastMaximumTableEntries
 				|| !Reader.ReadVarUInt(AssetCount) || AssetCount > ExportCount)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
@@ -349,7 +316,7 @@ namespace Durin::ObjectPackage
 					.ClassName = Names[ClassId - 1],
 					.RedirectDestination = std::move(RedirectDestination)});
 			}
-			for (uint32 ListIndex = 0; ListIndex < (Version >= 3 ? 4u : 3u); ++ListIndex)
+			for (uint32 ListIndex = 0; ListIndex < 4u; ++ListIndex)
 			{
 				uint64 Count = 0;
 				if (!Reader.ReadVarUInt(Count) || Count > DastMaximumTableEntries)
@@ -378,10 +345,9 @@ namespace Durin::ObjectPackage
 			if (!Reader.ReadU64(Registry.ExternalBulkBytes)
 				|| !Reader.ReadHash128(Registry.ExternalBulkHash) || !Reader.IsAtEnd()
 				|| Registry.ExternalBulkBytes != PhysicalBulkBytes
-				|| (Registry.ExternalBulkBytes == 0 && !Registry.ExternalBulkHash.IsZero()))
+				|| ((Registry.ExternalBulkBytes == 0) != Registry.ExternalBulkHash.IsZero()))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
 					EPackageReaderReason::RegistryBulk, "Registry.Bulk");
-			if (OutRegistryVersion) *OutRegistryVersion = Version;
 			Out = std::move(Registry);
 			return true;
 		}
@@ -462,36 +428,41 @@ namespace Durin::ObjectPackage
 			if (!Reader.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
 				EPackageReaderReason::TypeTableTrailing, "Types");
 
-			std::vector<std::optional<FSerializedType>> Cache(Raw.size());
-			std::vector<bool> Active(Raw.size());
-			std::function<bool(uint32, FSerializedType&)> Build = [&](uint32 Id, FSerializedType& Result)
+			std::vector<FSerializedType> Types(Raw.size());
+			std::vector<uint8> States(Raw.size());
+			std::vector<uint32> Heights(Raw.size());
+			std::function<bool(uint32, uint32)> Build = [&](uint32 Id, uint32 Depth)
 			{
 				const size_t Index = Id - 1;
-				if (Cache[Index]) { Result = *Cache[Index]; return true; }
-				if (Active[Index]) return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
+				if (Depth > Limits.MaximumValueDepth)
+					return Fail(Diagnostic, EPackageReaderFailure::LimitExceeded, EPackageReaderReason::ValueDepth, "Types");
+				if (States[Index] == 2) return true;
+				if (States[Index] == 1) return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
 					EPackageReaderReason::TypeCycle, "Types[" + std::to_string(Index) + "]");
-				Active[Index] = true;
+				States[Index] = 1;
 				const FRawType& Source = Raw[Index];
-				FSerializedType Type{.Kind = Source.Kind,
-					.QualifiedName = Source.NameId ? Names[Source.NameId - 1] : std::string{},
-					.Parameter = Source.Parameter};
+				FSerializedType& Type = Types[Index];
+				Type.Kind = Source.Kind;
+				Type.QualifiedName = Source.NameId ? Names[Source.NameId - 1] : std::string{};
+				Type.Parameter = Source.Parameter;
+				if (!IsValidTypeShape(Type.Kind, Type.QualifiedName, Type.Parameter, Source.Children.size()))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidType, EPackageReaderReason::TypeRecordHeader, "Types[" + std::to_string(Index) + "]");
 				for (uint32 ChildId : Source.Children)
 				{
-					FSerializedType Child;
-					if (!Build(ChildId, Child)) return false;
-					Type.Children.push_back(std::move(Child));
+					if (!Build(ChildId, Depth + 1)) return false;
+					Heights[Index] = std::max(Heights[Index], Heights[ChildId - 1] + 1);
+					if (Heights[Index] > Limits.MaximumValueDepth)
+						return Fail(Diagnostic, EPackageReaderFailure::LimitExceeded, EPackageReaderReason::ValueDepth, "Types");
+					Type.Children.push_back(Types[ChildId - 1]);
 				}
-				Active[Index] = false;
-				Cache[Index] = Type;
-				Result = std::move(Type);
+				States[Index] = 2;
 				return true;
 			};
-			std::vector<FSerializedType> Types;
 			for (uint32 Id = 1; Id <= Raw.size(); ++Id)
 			{
-				FSerializedType Type;
-				if (!Build(Id, Type)) return false;
-				Types.push_back(std::move(Type));
+				if (!Build(Id, 0)) return false;
+				if (Id > 1 && !(Types[Id - 2] < Types[Id - 1]))
+					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, "Types");
 			}
 			Out = std::move(Types);
 			return true;
@@ -510,7 +481,6 @@ namespace Durin::ObjectPackage
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 					EPackageReaderReason::SchemaSectionHeader, "Schemas");
 			std::vector<FCustomVersion> Versions;
-			std::unordered_set<FGuid> VersionGuids;
 			for (uint64 Index = 0; Index < VersionCount; ++Index)
 			{
 				FCustomVersion Custom;
@@ -518,7 +488,8 @@ namespace Durin::ObjectPackage
 				uint32 Value = 0;
 				if (!Reader.ReadGuid(Custom.Guid) || !Reader.ReadU32(Value)
 					|| !Custom.Guid.IsValid() || Value > static_cast<uint32>(std::numeric_limits<int32>::max())
-					|| !VersionGuids.insert(Custom.Guid).second
+					|| (!Versions.empty() && !(std::tie(Versions.back().Guid.A, Versions.back().Guid.B, Versions.back().Guid.C, Versions.back().Guid.D)
+						< std::tie(Custom.Guid.A, Custom.Guid.B, Custom.Guid.C, Custom.Guid.D)))
 					|| !Reader.ReadU8(Flags) || Flags != 0)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 						EPackageReaderReason::CustomVersionRecord, "CustomVersions");
@@ -540,6 +511,8 @@ namespace Durin::ObjectPackage
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 						EPackageReaderReason::SchemaHeader, "Schemas");
 				FSerializedSchema Schema{.QualifiedName = Names[NameId - 1]};
+				if (!Schemas.empty() && !BytewiseLess(Schemas.back().QualifiedName, Schema.QualifiedName))
+					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, "Schemas");
 				for (uint64 FieldIndex = 0; FieldIndex < FieldCount; ++FieldIndex)
 				{
 					uint32 FieldNameId = 0;
@@ -548,6 +521,8 @@ namespace Durin::ObjectPackage
 						|| TypeId == 0 || TypeId > Types.size() || !Reader.ReadVarUInt(Flags))
 						return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 							EPackageReaderReason::SchemaField, "Schemas");
+					if (!Schema.Fields.empty() && !BytewiseLess(Schema.Fields.back().Name, Names[FieldNameId - 1]))
+						return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, Schema.QualifiedName);
 					Schema.Fields.push_back({Names[FieldNameId - 1], Types[TypeId - 1], Flags});
 				}
 				Schemas.push_back(std::move(Schema));
@@ -559,11 +534,13 @@ namespace Durin::ObjectPackage
 			return true;
 		}
 
-		auto ReadValue(FBinaryReader& Reader, const std::vector<std::string>& Names,
-			const std::vector<FSerializedType>& Types, const FSerializedType& Type,
+		auto ReadValue(FBinaryReader& Reader, const FLinkerTables& Linker, const FSerializedType& Type,
 			const FPackageReaderLimits& Limits, FSerializedValue& Out, uint32 Depth,
-			FPackageReaderResult* Diagnostic, std::string Path) -> bool
+			FPackageReaderResult* Diagnostic, std::string Path,
+			bool bAllowBaseline = false, bool bAllowTypeDefault = false, bool bTypeRelative = false) -> bool
 		{
+			const auto& Names = Linker.Names;
+			const auto& Types = Linker.Types;
 			if (Depth > Limits.MaximumValueDepth) return Fail(Diagnostic,
 				EPackageReaderFailure::LimitExceeded, EPackageReaderReason::ValueDepth, Path);
 			uint8 Tag = 0;
@@ -576,12 +553,17 @@ namespace Durin::ObjectPackage
 			case EValueKind::Bool:
 			{ uint8 V = 0; if (!Reader.ReadU8(V) || V > 1) return false; Value.Bool = V != 0; break; }
 			case EValueKind::I8: case EValueKind::I16: case EValueKind::I32: case EValueKind::I64:
-				if (!Reader.ReadVarInt(Value.Signed)) return false; break;
+				if (!Reader.ReadVarInt(Value.Signed) || !SignedFits(Type.Kind, Value.Signed))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path); break;
 			case EValueKind::U8: case EValueKind::U16: case EValueKind::U32: case EValueKind::U64:
-				if (!Reader.ReadVarUInt(Value.Unsigned)) return false; break;
+				if (!Reader.ReadVarUInt(Value.Unsigned) || !UnsignedFits(Type.Kind, Value.Unsigned))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path); break;
 			case EValueKind::F32:
-			{ uint32 V = 0; if (!Reader.ReadU32(V)) return false; Value.FloatingBits = V; break; }
-			case EValueKind::F64: if (!Reader.ReadU64(Value.FloatingBits)) return false; break;
+			{ uint32 V = 0; if (!Reader.ReadU32(V)) return false;
+				if (V != CanonicalFloat32(V)) return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, Path); Value.FloatingBits = V; break; }
+			case EValueKind::F64:
+				if (!Reader.ReadU64(Value.FloatingBits)) return false;
+				if (Value.FloatingBits != CanonicalFloat64(Value.FloatingBits)) return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, Path); break;
 			case EValueKind::String:
 				if (!Reader.ReadString(Value.Text, Limits.MaximumStringBytes) || !IsValidUtf8(Value.Text)) return false;
 				break;
@@ -596,18 +578,25 @@ namespace Durin::ObjectPackage
 			case EValueKind::Guid: if (!Reader.ReadGuid(Value.Guid)) return false; break;
 			case EValueKind::Enum:
 				if (Type.Parameter >= uint64(EValueKind::I8) && Type.Parameter <= uint64(EValueKind::I64))
-				{ if (!Reader.ReadVarInt(Value.Signed)) return false; }
-				else if (!Reader.ReadVarUInt(Value.Unsigned)) return false;
+				{ if (!Reader.ReadVarInt(Value.Signed) || !SignedFits(static_cast<EValueKind>(Type.Parameter), Value.Signed))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path); }
+				else if (!Reader.ReadVarUInt(Value.Unsigned) || !UnsignedFits(static_cast<EValueKind>(Type.Parameter), Value.Unsigned))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path);
 				break;
 			case EValueKind::Intrinsic:
 			{
 				uint64 Count = 0;
-				if (!Reader.ReadVarUInt(Count) || Count > 10) return false;
+				const uint64 Expected = Type.Parameter == 1 ? 2 : Type.Parameter == 2 ? 3 : Type.Parameter == 5 ? 10 : 4;
+				if (!Reader.ReadVarUInt(Count) || Count != Expected)
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path);
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
 					uint64 Bits = 0;
 					if (Type.Parameter == 6) { uint32 Narrow = 0; if (!Reader.ReadU32(Narrow)) return false; Bits = Narrow; }
 					else if (!Reader.ReadU64(Bits)) return false;
+					if ((Type.Parameter == 6 && Bits != CanonicalFloat32(static_cast<uint32>(Bits)))
+						|| (Type.Parameter != 6 && Bits != CanonicalFloat64(Bits)))
+						return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, Path);
 					Value.ComponentBits.push_back(Bits);
 				}
 				break;
@@ -619,66 +608,92 @@ namespace Durin::ObjectPackage
 				if (!Reader.ReadU8(Baseline) || Baseline > 2)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::StructBaseline, Path);
 				Value.Baseline = static_cast<EArchiveStructBaseline>(Baseline);
-				if (!Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries) return false;
-				struct FField { std::string Name; FSerializedType Type; EPropertyProvenance Provenance{}; FSerializedValue Value; };
-				std::vector<FField> Fields;
+				if ((Value.Baseline == EArchiveStructBaseline::Parent && !bAllowBaseline)
+					|| (Value.Baseline == EArchiveStructBaseline::TypeDefault && !bAllowTypeDefault))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::StructBaseline, Path);
+				bTypeRelative = Value.Baseline == EArchiveStructBaseline::TypeDefault
+					|| (bTypeRelative && Value.Baseline == EArchiveStructBaseline::Parent);
+				const auto Schema = std::ranges::find(Linker.Schemas, Type.QualifiedName, &FSerializedSchema::QualifiedName);
+				if (Schema == Linker.Schemas.end() || !Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries
+					|| (Value.Baseline == EArchiveStructBaseline::Complete && Count != Type.Children.size()))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path);
+				Value.FieldTypes.emplace();
+				uint32 Previous = 0;
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
 					uint32 NameId = 0;
 					uint64 TypeId = 0;
 					uint8 Provenance = 0;
-					if (!ReadNameId(Reader, Names, NameId) || !Reader.ReadVarUInt(TypeId)
+					if (!ReadNameId(Reader, Names, NameId) || NameId <= Previous || !Reader.ReadVarUInt(TypeId)
 						|| TypeId == 0 || TypeId > Types.size() || !Reader.ReadU8(Provenance)
-						|| Provenance > uint8(EPropertyProvenance::Forced)) return false;
+						|| Provenance > uint8(EPropertyProvenance::Forced))
+						return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path);
+					Previous = NameId;
+					const auto Field = std::ranges::find(Schema->Fields, Names[NameId - 1], &FSerializedField::Name);
+					if (Field == Schema->Fields.end() || Field->Type != Types[TypeId - 1])
+						return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path);
 					FSerializedValue Child;
-					if (!ReadValue(Reader, Names, Types, Types[TypeId - 1], Limits, Child, Depth + 1,
-						Diagnostic, Path + "." + Names[NameId - 1])) return false;
-					Fields.push_back({Names[NameId - 1], Types[TypeId - 1],
-						static_cast<EPropertyProvenance>(Provenance), std::move(Child)});
+					const bool bInherited = Value.Baseline != EArchiveStructBaseline::Complete && Provenance != uint8(EPropertyProvenance::Forced);
+					if (!ReadValue(Reader, Linker, Types[TypeId - 1], Limits, Child, Depth + 1,
+						Diagnostic, Path + "." + Names[NameId - 1], bInherited, bAllowTypeDefault && bInherited, bTypeRelative)) return false;
+					Value.FieldNames.push_back(Names[NameId - 1]);
+					Value.FieldTypes->push_back(Types[TypeId - 1]);
+					Value.Provenances.push_back(static_cast<EPropertyProvenance>(Provenance));
+					Value.Elements.push_back(std::move(Child));
 				}
-				Value.FieldTypes.emplace();
-				for (auto& Field : Fields)
-				{
-					Value.FieldNames.push_back(std::move(Field.Name));
-					Value.FieldTypes->push_back(std::move(Field.Type));
-					Value.Provenances.push_back(Field.Provenance);
-					Value.Elements.push_back(std::move(Field.Value));
-				}
+				if (bTypeRelative)
+					for (const auto& Field : Schema->Fields)
+						if (ContainsHardReferenceType(Field.Type) && !std::ranges::contains(Value.FieldNames, Field.Name))
+							return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ValueShape, Path);
 				break;
 			}
 			case EValueKind::FixedArray:
 			case EValueKind::Array:
 			{
 				uint64 Count = 0;
-				if (!Reader.ReadVarUInt(Count) || Count > Limits.MaximumContainerElements) return false;
+				if (!Reader.ReadVarUInt(Count) || Count > Limits.MaximumContainerElements
+					|| (Type.Kind == EValueKind::FixedArray && Count != Type.Parameter)) return false;
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
 					FSerializedValue Child;
-					if (!ReadValue(Reader, Names, Types, Type.Children.front(), Limits, Child, Depth + 1,
-						Diagnostic, Path + "[" + std::to_string(Index) + "]")) return false;
+					if (!ReadValue(Reader, Linker, Type.Children.front(), Limits, Child, Depth + 1,
+						Diagnostic, Path + "[" + std::to_string(Index) + "]", false, bAllowTypeDefault)) return false;
 					Value.Elements.push_back(std::move(Child));
 				}
 				break;
 			}
 			case EValueKind::Map:
 			{
+				FByteBuffer PreviousKey;
 				uint64 Count = 0;
 				if (!Reader.ReadVarUInt(Count) || Count > Limits.MaximumContainerElements) return false;
 				for (uint64 Index = 0; Index < Count; ++Index)
 					for (uint32 Part = 0; Part < 2; ++Part)
 					{
 						FSerializedValue Child;
-						if (!ReadValue(Reader, Names, Types, Type.Children[Part], Limits, Child, Depth + 1,
-							Diagnostic, Path + "[" + std::to_string(Index) + "]")) return false;
+						if (!ReadValue(Reader, Linker, Type.Children[Part], Limits, Child, Depth + 1,
+							Diagnostic, Path + "[" + std::to_string(Index) + "]", false, Part == 1 && bAllowTypeDefault)) return false;
+						if (Part == 0)
+						{
+							FByteBuffer Key;
+							if (!BuildCanonicalMapKeyToken(Type.Children[0], Child, Key)
+								|| (Index != 0 && !(PreviousKey < Key)))
+								return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, Path);
+							PreviousKey = std::move(Key);
+						}
 						Value.Elements.push_back(std::move(Child));
 					}
 				break;
 			}
 			case EValueKind::HardReference:
-			{ int64 Raw = 0; if (!Reader.ReadVarInt(Raw) || !FPackageIndex::TryFromRaw(Raw, Value.Reference)) return false; break; }
+			{ int64 Raw = 0; if (!Reader.ReadVarInt(Raw) || !FPackageIndex::TryFromRaw(Raw, Value.Reference)) return false;
+				if ((Value.Reference.IsExport() && Value.Reference.GetTableIndex() >= Linker.Exports.size())
+					|| (Value.Reference.IsImport() && Value.Reference.GetTableIndex() >= Linker.Imports.size()))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidIndex, EPackageReaderReason::PropertyValue, Path); break; }
 			case EValueKind::SoftReference:
 			{ uint32 NameId = 0; if (!ReadNameId(Reader, Names, NameId, true)) return false;
-				if (NameId) Value.Text = Names[NameId - 1]; break; }
+				if (NameId) { Value.Text = Names[NameId - 1]; FObjectPath ObjectPath;
+					if (!FObjectPath::TryCreate(Value.Text, ObjectPath)) return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::PropertyValue, Path); } break; }
 			case EValueKind::Byte:
 			{ uint8 V = 0; if (!Reader.ReadU8(V)) return false; Value.Unsigned = V; break; }
 			case EValueKind::Bytes:
@@ -697,11 +712,12 @@ namespace Durin::ObjectPackage
 			return true;
 		}
 
-		auto DecodeValues(const FParsedLayout& Layout, const std::vector<std::string>& Names,
-			const std::vector<FSerializedType>& Types, const std::vector<FSerializedSchema>& Schemas,
-			const FPackageReaderLimits& Limits, std::vector<FPackageExport>& Exports,
+		auto DecodeValues(const FParsedLayout& Layout, FLinkerTables& Linker, const FPackageReaderLimits& Limits,
 			FPackageReaderResult* Diagnostic) -> bool
 		{
+			const auto& Types = Linker.Types;
+			const auto& Schemas = Linker.Schemas;
+			auto& Exports = Linker.Exports;
 			FBinaryReader Reader(Section(Layout, EDastSection::Values));
 			uint32 Version = 0;
 			uint64 ExportCount = 0;
@@ -716,6 +732,7 @@ namespace Durin::ObjectPackage
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ExportBaseline, "Values");
 				Exports[ExportIndex].bUseClassDefaults = Baseline != 0;
 				if (!Reader.ReadVarUInt(PropertyCount) || PropertyCount > Limits.MaximumTableEntries) return false;
+				std::pair<uint64, uint64> Previous{};
 				for (uint64 PropertyIndex = 0; PropertyIndex < PropertyCount; ++PropertyIndex)
 				{
 					uint64 SchemaId = 0, FieldId = 0, TypeId = 0;
@@ -724,13 +741,18 @@ namespace Durin::ObjectPackage
 						|| !Reader.ReadVarUInt(FieldId) || FieldId == 0 || FieldId > Schemas[SchemaId - 1].Fields.size()
 						|| !Reader.ReadVarUInt(TypeId) || TypeId == 0 || TypeId > Types.size()
 						|| !Reader.ReadU8(Provenance) || Provenance > uint8(EPropertyProvenance::Forced)) return false;
+					if (std::pair{SchemaId, FieldId} <= Previous)
+						return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, "Values");
+					Previous = {SchemaId, FieldId};
 					const FSerializedSchema& Schema = Schemas[SchemaId - 1];
 					const FSerializedField& Field = Schema.Fields[FieldId - 1];
 					if (Field.Type != Types[TypeId - 1]) return false;
 					FPropertyTag Property{.DeclaringType = Schema.QualifiedName, .FieldName = Field.Name,
 						.Type = Types[TypeId - 1], .Provenance = static_cast<EPropertyProvenance>(Provenance)};
 					const std::string Path = Exports[ExportIndex].ObjectName + "." + Schema.QualifiedName + "." + Field.Name;
-					if (!ReadValue(Reader, Names, Types, Property.Type, Limits, Property.Value, 0, Diagnostic, Path))
+					if (!ReadValue(Reader, Linker, Property.Type, Limits, Property.Value, 0, Diagnostic, Path,
+						Exports[ExportIndex].bUseClassDefaults && Property.Provenance != EPropertyProvenance::Forced,
+						Exports[ExportIndex].bUseClassDefaults && Property.Provenance != EPropertyProvenance::Forced))
 						return Diagnostic && !Diagnostic->Succeeded() ? false
 							: Fail(Diagnostic, EPackageReaderFailure::InvalidValue,
 								EPackageReaderReason::PropertyValue, Path);
@@ -898,19 +920,17 @@ namespace Durin::ObjectPackage
 			FLinkerTables Linker;
 			Linker.FormatVersion = Layout.FormatVersion;
 			FPackageRegistryData Registry;
-			uint32 RegistryVersion = 0;
 			std::vector<FBulkEntry> BulkEntries;
 			if (!DecodeNames(Layout, Limits, Linker.Names, OutDiagnostic)
 				|| !DecodeImports(Layout, Linker.Names, Limits, Linker.Imports, OutDiagnostic)
 				|| !DecodeRegistry(Layout, Linker.Names, PackagePath, PhysicalBulkBytes,
-					Registry, OutDiagnostic, &RegistryVersion)
+					Registry, OutDiagnostic)
 				|| !DecodeExports(Layout, Linker.Names, Limits, Linker.Exports, OutDiagnostic)
 				|| Registry.ExportCount != Linker.Exports.size()
 				|| !DecodeTypes(Layout, Linker.Names, Limits, Linker.Types, OutDiagnostic)
 				|| !DecodeSchemas(Layout, Linker.Names, Linker.Types, Limits,
 					Linker.CustomVersions, Linker.Schemas, OutDiagnostic)
-				|| !DecodeValues(Layout, Linker.Names, Linker.Types, Linker.Schemas, Limits,
-					Linker.Exports, OutDiagnostic)
+				|| !DecodeValues(Layout, Linker, Limits, OutDiagnostic)
 				|| !DecodeBulkDirectory(Layout, Linker.Names, Limits, BulkEntries, OutDiagnostic))
 			{
 				return OutDiagnostic && OutDiagnostic->Failure != EPackageReaderFailure::None ? false
@@ -963,6 +983,7 @@ namespace Durin::ObjectPackage
 			const auto Inline = Section(Layout, EDastSection::InlineBulk);
 			std::array<uint64, 2> Cursors{};
 			size_t UsedBulk = 0;
+			std::string PreviousExportPath;
 			for (uint32 ExportIndex = 0; ExportIndex < Linker.Exports.size(); ++ExportIndex)
 			{
 				FPackageExport& Export = Linker.Exports[ExportIndex];
@@ -971,6 +992,9 @@ namespace Durin::ObjectPackage
 				FPackageIndex::TryExport(ExportIndex, Index);
 				if (const auto Result = Linker.TryResolvePath(Index, ExportPath); !Result) return Fail(OutDiagnostic,
 					EPackageReaderFailure::InvalidTopology, EPackageReaderReason::ExportTopology, "Exports", ToString(Result.error()));
+				if (ExportIndex != 0 && !BytewiseLess(PreviousExportPath, ExportPath))
+					return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, "Exports");
+				PreviousExportPath = ExportPath;
 				for (FPropertyTag& Property : Export.Properties)
 				{
 					const auto SchemaIt = std::ranges::find(Linker.Schemas, Property.DeclaringType,
@@ -992,19 +1016,6 @@ namespace Durin::ObjectPackage
 					EPackageReaderReason::BulkCoverage,
 					"BulkDirectory");
 
-			FByteBuffer CanonicalMain;
-			FByteBuffer CanonicalBulk;
-			const auto WriterDiagnostic = bExternalPayloadAvailable
-				? WritePackageForRegistryVersion(Linker, RegistryVersion, CanonicalMain, CanonicalBulk)
-				: WritePackageMainForRegistryVersion(Linker, RegistryVersion, Registry.ExternalBulkBytes,
-					Registry.ExternalBulkHash, CanonicalMain);
-			if (!WriterDiagnostic)
-				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
-					EPackageReaderReason::CanonicalWriterRejected, WriterDiagnostic.LogicalPath, FormatPackageError(WriterDiagnostic));
-			if (!std::ranges::equal(CanonicalMain, PackageBytes)
-				|| (bExternalPayloadAvailable && !std::ranges::equal(CanonicalBulk, BulkBytes)))
-				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
-					EPackageReaderReason::NonCanonicalBytes);
 			OutLinker = std::move(Linker);
 			return true;
 		}

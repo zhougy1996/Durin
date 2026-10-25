@@ -161,6 +161,12 @@ Archive API and temporarily aliases its prior memory-Archive spellings to the
 object-aware canonical implementations for named migration consumers; it does
 not contain a second primitive serializer.
 
+Structured loading uses Core Archive logical primitive and text read hooks,
+symmetrical with logical capture. Byte archives keep canonical byte decoding;
+a structured reader handles a value or reports a failure without falling back
+to a byte representation. Bounded text reads carry their allocation limit through
+the logical hook. Object, field and container dispatch remains in `FObjectArchive`.
+
 CoreDObject also owns the format-neutral construct-free package-linker
 vocabulary in `DObject/PackageLinker.h`: checked null/import/export indices,
 recursive serialized types, detached logical values, property tags, custom

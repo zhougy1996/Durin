@@ -362,11 +362,14 @@ namespace Durin
 
 	auto FArchive::TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind, const void*) -> bool { return false; }
 	auto FArchive::TryCaptureLogicalText(EArchiveLogicalTextKind, std::string_view) -> bool { return false; }
+	auto FArchive::TryLoadLogicalPrimitive(EArchiveLogicalPrimitiveKind, void*) -> bool { return false; }
+	auto FArchive::TryLoadLogicalText(EArchiveLogicalTextKind, std::string&, uint64) -> bool { return false; }
 
 	auto FArchive::operator<<(bool& Value) -> FArchive&
 	{
 		if (!IsCurrentFieldAvailable()) return *this;
 		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Bool, &Value)) return *this;
+		if (IsLoading() && TryLoadLogicalPrimitive(EArchiveLogicalPrimitiveKind::Bool, &Value)) return *this;
 		uint8 Encoded = IsSaving() && Value ? 1 : 0;
 		SerializeCanonicalInteger(*this, Encoded);
 		if (IsLoading() && !IsError())
@@ -381,6 +384,7 @@ namespace Durin
 	{ \
 		if (!IsCurrentFieldAvailable()) return *this; \
 		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Kind, &Value)) return *this; \
+		if (IsLoading() && TryLoadLogicalPrimitive(EArchiveLogicalPrimitiveKind::Kind, &Value)) return *this; \
 		return SerializeCanonicalInteger(*this, Value); \
 	}
 	DURIN_ARCHIVE_INTEGER(int8, Int8)
@@ -397,12 +401,14 @@ namespace Durin
 	{
 		if (!IsCurrentFieldAvailable()) return *this;
 		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Float32, &Value)) return *this;
+		if (IsLoading() && TryLoadLogicalPrimitive(EArchiveLogicalPrimitiveKind::Float32, &Value)) return *this;
 		return SerializeCanonicalFloat<float, uint32>(*this, Value);
 	}
 	auto FArchive::operator<<(double& Value) -> FArchive&
 	{
 		if (!IsCurrentFieldAvailable()) return *this;
 		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Float64, &Value)) return *this;
+		if (IsLoading() && TryLoadLogicalPrimitive(EArchiveLogicalPrimitiveKind::Float64, &Value)) return *this;
 		return SerializeCanonicalFloat<double, uint64>(*this, Value);
 	}
 	auto FArchive::operator<<(FName& Value) -> FArchive&
@@ -410,6 +416,11 @@ namespace Durin
 		if (!IsCurrentFieldAvailable()) return *this;
 		if (IsSaving() && TryCaptureLogicalText(EArchiveLogicalTextKind::Name, Value.ToString())) return *this;
 		std::string Text = IsSaving() ? Value.ToString() : std::string();
+		if (IsLoading() && TryLoadLogicalText(EArchiveLogicalTextKind::Name, Text, std::numeric_limits<uint64>::max()))
+		{
+			if (!IsError()) Value = FName(Text);
+			return *this;
+		}
 		*this << Text;
 		if (IsLoading() && !IsError()) Value = FName(Text);
 		return *this;
@@ -417,6 +428,7 @@ namespace Durin
 	auto FArchive::operator<<(FGuid& Value) -> FArchive&
 	{
 		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Guid, &Value)) return *this;
+		if (IsLoading() && TryLoadLogicalPrimitive(EArchiveLogicalPrimitiveKind::Guid, &Value)) return *this;
 		return *this << Value.A << Value.B << Value.C << Value.D;
 	}
 	auto FArchive::operator<<(std::string& Value) -> FArchive&
@@ -542,6 +554,7 @@ namespace Durin
 	{
 		if (Ar.IsError() || !Ar.IsCurrentFieldAvailable()) return;
 		if (Ar.IsSaving() && Ar.TryCaptureLogicalText(EArchiveLogicalTextKind::String, Value)) return;
+		if (Ar.IsLoading() && Ar.TryLoadLogicalText(EArchiveLogicalTextKind::String, Value, MaximumBytes)) return;
 		uint64 Size = Ar.IsSaving() ? static_cast<uint64>(Value.size()) : 0;
 		Ar << Size;
 		if (Ar.IsError()) return;

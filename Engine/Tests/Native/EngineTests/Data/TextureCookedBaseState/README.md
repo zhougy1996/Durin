@@ -8,5 +8,8 @@ The 2026-10-11 format cutover removed the producer word and regenerated each
 package through the current DAST writer. Pixel bytes, mip ranges, formats,
 dimensions and concrete-family field identities are unchanged.
 
+Registry metadata was upgraded to section version 3 on 2026-10-25 through the
+construct-free package reader and writer; bulk payload bytes remain identical.
+
 Tests copy these read-only inputs into their process sandbox before loading
 them. Regenerate them only when intentionally changing the cooked wire format.

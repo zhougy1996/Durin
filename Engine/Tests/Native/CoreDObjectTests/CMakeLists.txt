@@ -60,7 +60,6 @@ durin_add_native_test(PackageWriterContractTests
 	DOMAINS reflection
 	MODULES core-dobject
 	SOURCES Private/PackageWriterTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/CoreDObject/Private
 	LIBRARIES Core CoreDObject
 )
 durin_add_native_test(PackagePersistenceTests

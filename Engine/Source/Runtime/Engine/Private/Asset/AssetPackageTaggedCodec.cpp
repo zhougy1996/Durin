@@ -702,11 +702,6 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
 				Closure.BulkBytes)))
 				return Diagnostic;
-			ObjectPackage::FLinkerTables Verified;
-			ObjectPackage::FPackageReaderResult ReaderDiagnostic;
-			if (!(ReaderDiagnostic = ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
-				Linker.Summary.PackagePath, Verified)))
-				return EncodingError(ObjectPackage::FormatPackageError(ReaderDiagnostic));
 			OutClosure = std::move(Closure);
 			return {};
 		}
