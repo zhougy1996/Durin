@@ -30,9 +30,9 @@ namespace
 		{
 			return bMutatesMountedContent;
 		}
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
-			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
 				return {};
 			}

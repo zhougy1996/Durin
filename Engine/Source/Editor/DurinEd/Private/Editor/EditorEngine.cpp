@@ -11,6 +11,7 @@
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
@@ -342,18 +343,27 @@ namespace Durin
 			if (OutError) *OutError = "The current editor level is not available for Play.";
 			return false;
 		}
+		if (!Trans || !Trans->CanTransact())
+		{
+			if (OutError) *OutError = "Play cannot start while transaction history is busy or requires recovery.";
+			return false;
+		}
 
 		PlayState = Editor::EPlayState::Starting;
 		ReleasePlayMouseCapture();
 		ClearGameInputWindow();
-		DWorld* NewPlayWorld = NewObject<DWorld>(this, "PlayWorld");
+		// A dedicated package identifies this graph independently of runtime world type.
+		auto* PlayPackage = NewObject<DPackage>(nullptr, "PlaySession", EObjectFlags::Transient);
+		TStrongObjectPtr<DPackage> PackageGuard(PlayPackage);
+		PlayPackage->SetPlayInEditor(true);
+		DWorld* NewPlayWorld = NewObject<DWorld>(PlayPackage, "PlayWorld");
 		TStrongObjectPtr<DWorld> ConstructionGuard(NewPlayWorld);
 		NewPlayWorld->SetWorldType(EWorldType::PlayInEditor);
 		NewPlayWorld->SetRenderScene(GetMainScene());
-		if (auto Result = NewPlayWorld->InitializeSubsystems(); !Result)
+		if (auto Result = NewPlayWorld->InitializeSubsystems(this); !Result)
 		{
 			NewPlayWorld->Shutdown();
-			MarkObjectHierarchyAsGarbage(NewPlayWorld);
+			MarkObjectHierarchyAsGarbage(PlayPackage);
 			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = Result.Message;
 			return false;
@@ -367,7 +377,7 @@ namespace Durin
 		if (!PlayLevel)
 		{
 			NewPlayWorld->Shutdown();
-			MarkObjectHierarchyAsGarbage(NewPlayWorld);
+			MarkObjectHierarchyAsGarbage(PlayPackage);
 			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = ToString(Duplicated.error());
 			return false;
@@ -384,7 +394,7 @@ namespace Durin
 				{
 					EditorToPlayObjects.clear();
 					NewPlayWorld->Shutdown();
-					MarkObjectHierarchyAsGarbage(NewPlayWorld);
+					MarkObjectHierarchyAsGarbage(PlayPackage);
 					PlayState = Editor::EPlayState::Stopped;
 					if (OutError) *OutError = SettingsResult.Message;
 					return false;
@@ -394,7 +404,7 @@ namespace Durin
 				{
 					EditorToPlayObjects.clear();
 					NewPlayWorld->Shutdown();
-					MarkObjectHierarchyAsGarbage(NewPlayWorld);
+					MarkObjectHierarchyAsGarbage(PlayPackage);
 					PlayState = Editor::EPlayState::Stopped;
 					if (OutError) *OutError = Resolution.Result.Message;
 					return false;
@@ -419,7 +429,7 @@ namespace Durin
 			EditorToPlayObjects.clear();
 			PlayToEditorObjects.clear();
 			NewPlayWorld->Shutdown();
-			MarkObjectHierarchyAsGarbage(NewPlayWorld);
+			MarkObjectHierarchyAsGarbage(PlayPackage);
 			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = "Could not activate the duplicated Play level.";
 			return false;
@@ -456,7 +466,12 @@ namespace Durin
 			SetGameInputWindow(PlayWindow->GetNativeWindow());
 		}
 
-		(void)Trans->Reset();
+		if (const auto Reset = Trans->TryReset(); !Reset)
+		{
+			StopPlaySession();
+			if (OutError) *OutError = Editor::FormatTransactorResult(Reset);
+			return false;
+		}
 		const FWorldPlayResult PlayResult = NewPlayWorld->BeginPlay({
 			.GameModeClass = GameModeClass,
 			.ViewTargetOverride = ViewTargetOverride});
@@ -527,7 +542,7 @@ namespace Durin
 			RetiredPlayLevels.emplace_back(LevelToDestroy);
 			RetiredPlayFences.emplace_back(std::move(RetirementFence));
 		}
-		(void)Trans->Reset();
+		Trans->Reset();
 		PlayState = Editor::EPlayState::Stopped;
 		PlayDestination = Editor::EPlayDestination::EmbeddedViewport;
 		ReleaseRetiredPlaySessions();
@@ -541,7 +556,7 @@ namespace Durin
 		{
 			const FRenderCommandFence* Fence = RetiredPlayFences[Index].get();
 			if (!bReleaseAll && Fence && !Fence->IsFenceComplete()) continue;
-			if (DWorld* World = RetiredPlayWorlds[Index].Get()) MarkObjectHierarchyAsGarbage(World);
+			if (DWorld* World = RetiredPlayWorlds[Index].Get()) MarkObjectHierarchyAsGarbage(World->GetPackage() ? static_cast<DObject*>(World->GetPackage()) : World);
 			RetiredPlayFences.erase(RetiredPlayFences.begin() + Index);
 			RetiredPlayLevels.erase(RetiredPlayLevels.begin() + Index);
 			RetiredPlayWorlds.erase(RetiredPlayWorlds.begin() + Index);
@@ -667,6 +682,11 @@ namespace Durin
 			if (OutError) *OutError = "No Play session is active.";
 			return false;
 		}
+		if (!Trans || !Trans->CanTransact())
+		{
+			if (OutError) *OutError = "Play changes cannot be applied while transaction history is busy or requires recovery.";
+			return false;
+		}
 
 		std::unordered_set<DObject*> SelectedRoots;
 		if (PlayActors.empty())
@@ -695,7 +715,7 @@ namespace Durin
 			{
 				if (bCopiedAny)
 				{
-					(void)Trans->Reset();
+					Trans->Reset();
 					if (DPackage* Package = EditorLevel->GetPackage())
 						Trans->InvalidateSavedState(*Package);
 				}
@@ -712,9 +732,14 @@ namespace Durin
 				EditorActor->MarkPackageDirty();
 			}
 		}
-		(void)Trans->Reset();
+		const auto Reset = Trans->TryReset();
 		if (DPackage* Package = EditorLevel->GetPackage())
 			Trans->InvalidateSavedState(*Package);
+		if (!Reset)
+		{
+			if (OutError) *OutError = Editor::FormatTransactorResult(Reset);
+			return false;
+		}
 		if (OutAppliedActorCount) *OutAppliedActorCount = static_cast<uint32>(SelectedRoots.size());
 		return true;
 	}

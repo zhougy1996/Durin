@@ -32,6 +32,29 @@ namespace Durin::Editor
 			Total += Value;
 			return true;
 		}
+		class FPieCollector final : public FReferenceCollector
+		{
+		public:
+			auto AddReferencedObject(DObject*& Object) -> void override
+			{
+				auto* Package = Cast<DPackage>(Object);
+				if (!Package && Object) Package = Object->GetPackage();
+				bFound |= Package && Package->IsPlayInEditor();
+			}
+			bool bFound = false;
+		};
+		template<typename TSource>
+		auto InspectPieReferences(const TSource& Source) -> std::expected<bool, std::string>
+		{
+			try
+			{
+				FPieCollector Collector;
+				Source.AddReferencedObjects(Collector);
+				return Collector.bFound;
+			}
+			catch (const std::exception& Error) { return std::unexpected(std::format("PIE inspection failed: {}", Error.what())); }
+			catch (...) { return std::unexpected("PIE inspection failed."); }
+		}
 	}
 
 	auto FormatTransactorRejection(const FTransactorRejection& Rejection) -> std::string
@@ -44,6 +67,7 @@ namespace Durin::Editor
 		case ETransactorRejectionReason::MissingCustom: return "The custom transaction change is unavailable.";
 		case ETransactorRejectionReason::UndoState: return "Undo requires an idle transactor.";
 		case ETransactorRejectionReason::UndoHead: return "The expected transaction is not the Undo head.";
+		case ETransactorRejectionReason::UndoBarrier: return "An undo barrier blocks earlier history.";
 		case ETransactorRejectionReason::RedoState: return "Redo requires an idle transactor.";
 		case ETransactorRejectionReason::RedoHead: return "The expected transaction is not the Redo head.";
 		case ETransactorRejectionReason::ResetState: return "Reset requires an idle transactor.";
@@ -395,6 +419,8 @@ namespace Durin::Editor
 	}
 	auto FTransaction::BeginOperation() -> FTransactionCaptureResult
 	{
+		if (bBusy || (RecordingOwner && !RecordingOwner->CanTransact()))
+			return std::unexpected("A transaction callback or capture is in progress.");
 		if (OperationId != 0) return std::unexpected("A transaction operation is already active.");
 		OperationId = AllocateTransactionOperationId();
 		if (OperationId == 0) return std::unexpected("Transaction operation identities are exhausted.");
@@ -448,6 +474,8 @@ namespace Durin::Editor
 			|| RecordingOwner->GetState() != ETransactorState::Recording)))
 			return std::unexpected("Array capture requires an active recording outside callbacks.");
 		if (!Capture.Object || !CanTransactObject(*Capture.Object)) return std::unexpected("Array owner is unavailable.");
+		if (auto* Package = Capture.Object->GetPackage(); Package && Package->IsPlayInEditor())
+			return std::unexpected("Array capture rejects Play-in-Editor owners.");
 		if (!ResolveTransactionArray(Capture)) return std::unexpected("Array capture requires a valid reflected member path.");
 		if (!Capture.Object->HasAnyObjectFlags(EObjectFlags::Transactional)) return {};
 		for (const auto& Record : Records)
@@ -468,7 +496,12 @@ namespace Durin::Editor
 		catch (...) { return std::unexpected("Array capture failed."); }
 	}
 	auto FTransaction::ContainsPieObjects() const -> std::expected<bool, std::string>
-	{ return std::unexpected("PIE package transaction inspection is not implemented yet."); }
+	{
+		if (bBusy) return std::unexpected("Transaction references are already being inspected or changed.");
+		FGarbageCollectionDeferralScope DeferCollection;
+		FTransactionBusyScope BusyScope(bBusy);
+		return InspectPieReferences(*this);
+	}
 
 	auto FTransaction::AddRecord(FTransactionObjectRecord Record) -> uint64
 	{
@@ -662,6 +695,14 @@ namespace Durin::Editor
 			~FOperationScope() { if (bOwn) (void)Transaction.EndOperation(); }
 		} OperationScope{*this, bOwnOperation};
 		FTransactionBusyScope BusyScope(bBusy);
+		auto CheckPieReferences = [&](const auto& Source) -> FTransactionRecordResult {
+			const auto Pie = InspectPieReferences(Source);
+			if (!Pie) return std::unexpected(Pie.error());
+			if (*Pie) return std::unexpected("Transaction replay cannot retain Play-in-Editor references.");
+			return {};
+		};
+		if (auto Pie = CheckPieReferences(*this); !Pie)
+			return std::unexpected(FTransactionApplyError{.Message = Pie.error()});
 		if (auto Result = Validate(); !Result) return Result;
 		std::vector<size_t> Applied;
 		Applied.reserve(Records.size());
@@ -715,6 +756,27 @@ namespace Durin::Editor
 			bool& bRetain;
 			~FPreparedReplayScope() { if (!bRetain) for (auto& Record : Records) Record.ClearPreparedReplay(); }
 		} PreparedReplayScope{Records, bRetainRecoveryState};
+		auto CompleteFailedReplay = [&](FTransactionApplyError Error) -> FTransactionApplyResult {
+			if (auto Failure = NotifyReplayTargets(); !Failure.empty())
+			{
+				Error.Message += Failure;
+				Error.Status = ETransactionApplyFailure::RecoveryRequired;
+			}
+			if (Error.Status != ETransactionApplyFailure::RecoveryRequired)
+			{
+				// A clean rollback no longer needs transient inverses. Inspect the
+				// retained sides after completion, without mistaking the rejected
+				// PIE inverse for a newly tainted history reference.
+				for (auto& Record : Records) Record.ClearPreparedReplay();
+				if (auto Pie = CheckPieReferences(*this); !Pie)
+				{
+					Error.Message += " " + Pie.error();
+					Error.Status = ETransactionApplyFailure::RecoveryRequired;
+				}
+			}
+			bRetainRecoveryState = Error.Status == ETransactionApplyFailure::RecoveryRequired;
+			return std::unexpected(std::move(Error));
+		};
 		for (const auto& Target : ReplayTargets)
 		{
 			++StartedTargets;
@@ -725,8 +787,7 @@ namespace Durin::Editor
 				catch (...) { Failure = "PreEditUndo threw an unknown exception."; }
 			if (!Failure.empty())
 			{
-				Failure += NotifyReplayTargets(); bRetainRecoveryState = true;
-				return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::RecoveryRequired,
+				return CompleteFailedReplay({.Status = ETransactionApplyFailure::RecoveryRequired,
 					.Message = std::move(Failure)});
 			}
 		}
@@ -744,17 +805,29 @@ namespace Durin::Editor
 			if (bOrderedInverse) continue;
 			if (auto Prepared = Records[Index].PrepareReplay(); !Prepared)
 			{
-				auto Failure = NotifyReplayTargets(); bRetainRecoveryState = !Failure.empty();
-				return std::unexpected(FTransactionApplyError{.Status = bRetainRecoveryState
-					? ETransactionApplyFailure::RecoveryRequired : ETransactionApplyFailure::ValidationFailed,
-					.RecordIndex = Index, .Message = Prepared.error() + Failure});
+				return CompleteFailedReplay({.RecordIndex = Index, .Message = Prepared.error()});
 			}
+		}
+		// Prepared whole-object inverses are history data too. Reject them before
+		// loading; ordered array/whole inverses are checked at their actual step.
+		if (auto Pie = CheckPieReferences(*this); !Pie)
+		{
+			return CompleteFailedReplay({.Message = Pie.error()});
 		}
 		for (size_t Step = 0; Step < Records.size(); ++Step)
 		{
 			const size_t Index = bUndo ? Records.size() - 1 - Step : Step;
 			bool bRecordRecoveryRequired = false;
-			if (const auto Application = Records[Index].Apply(bUndo, Origin, &bRecordRecoveryRequired); !Application)
+			auto Application = Records[Index].Apply(bUndo, Origin, &bRecordRecoveryRequired);
+			if (Application)
+			{
+				Applied.push_back(Index);
+				// Only this record gained an ordered inverse: avoid rescanning all
+				// other records at every step (quadratic in transaction size).
+				Application = CheckPieReferences(Records[Index]);
+				if (Application && Step + 1 == Records.size()) Application = CheckPieReferences(*this);
+			}
+			if (!Application)
 			{
 				FTransactionApplyError Error{.Status = ETransactionApplyFailure::Restored,
 					.RecordIndex = Index, .Message = Application.error()};
@@ -767,17 +840,20 @@ namespace Durin::Editor
 				}
 				if (bRecordRecoveryRequired || !Error.RollbackFailures.empty())
 				{ Error.Status = ETransactionApplyFailure::RecoveryRequired; bRetainRecoveryState = true; }
-				if (auto Failure = NotifyReplayTargets(); !Failure.empty())
-				{ Error.Message += Failure; Error.Status = ETransactionApplyFailure::RecoveryRequired; bRetainRecoveryState = true; }
-				return std::unexpected(std::move(Error));
+				return CompleteFailedReplay(std::move(Error));
 			}
-			Applied.push_back(Index);
 		}
 		if (auto Failure = NotifyReplayTargets(); !Failure.empty())
 		{
 			bRetainRecoveryState = true;
 			return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::RecoveryRequired,
 				.Message = std::move(Failure)});
+		}
+		if (auto Pie = CheckPieReferences(*this); !Pie)
+		{
+			bRetainRecoveryState = true;
+			return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::RecoveryRequired,
+				.Message = Pie.error()});
 		}
 		// UE Load flips eagerly because it has no checked failure result. Retain
 		// the same prepared inverse, but publish it only after checked replay and
@@ -789,6 +865,12 @@ namespace Durin::Editor
 				bRetainRecoveryState = true;
 				return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::RecoveryRequired, .Message = Result.error()});
 			}
+		if (auto Pie = CheckPieReferences(*this); !Pie)
+		{
+			bRetainRecoveryState = true;
+			return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::RecoveryRequired,
+				.Message = Pie.error()});
+		}
 		return {};
 	}
 
@@ -1036,12 +1118,12 @@ namespace Durin
 	}
 	auto DTransBuffer::ReleaseRecording() -> void
 	{
-		if (Pending && Pending->GetContext().OperationId != 0) (void)Pending->EndOperation();
+		if (Pending && Pending->OperationId != 0) (void)Pending->EndOperation();
 		if (Pending && GUndo == &*Pending) GUndo = nullptr;
 		ActiveCount = 0;
 	}
 	auto DTransBuffer::SetPrimaryUndoObject(DObject* Object) -> void
-	{ if (Pending) Pending->SetPrimaryObject(Object); }
+	{ if (CanTransact() && Pending) Pending->SetPrimaryObject(Object); }
 	auto DTransBuffer::CaptureObject(DObject* Object) -> bool
 	{
 		CheckThread();
@@ -1083,16 +1165,8 @@ namespace Durin
 		if (!CanTransact()) return LastResult = Reject(ETransactorRejectionReason::ExecuteState);
 		if (!Change) return LastResult = Reject(ETransactorRejectionReason::MissingCustom);
 		const bool bStandalone = !IsActive();
-		if (bStandalone)
-		{
-			// These already-applied writes are represented by the incoming change.
-			auto Acknowledge = [&](DPackage* Package) {
-				if (Package) if (auto* Tracked = FindPackageState(*Package))
-					Tracked->ObservedEditRevision = Package->GetEditRevision();
-			};
-			if (Object) Acknowledge(Object->GetPackage());
-			for (DPackage* Package : Change->GetAffectedPackages()) Acknowledge(Package);
-		}
+		// Already-applied commands cannot prove that intervening package writes
+		// belonged to them. Begin must observe those writes as external edits.
 		if (bStandalone && Begin("CustomChange", Change->GetDescription()) < 0) return LastResult;
 		for (DPackage* Package : Change->GetAffectedPackages())
 			if (IsValid(Package) && Package->IsAssetPackage()) EnsurePackageState(*Package);
@@ -1108,21 +1182,51 @@ namespace Durin
 		if (ActiveCount == 0) return 0;
 		if (State != ETransactorState::Recording || !Pending || Pending->IsBusy()) return 0;
 		if (--ActiveCount > 0) return Result;
-		if (auto Captured = Pending->Finalize(); !Captured)
+		FGarbageCollectionDeferralScope DeferCollection;
+		const auto Id = Pending->GetId();
+		bool bPublicationStarted = false;
+		struct FEndExit
 		{
-			ReleaseRecording();
-			if (Pending->bObserverRecoveryRequired)
+			ETransactorState& State;
+			ITransaction* Recording;
+			~FEndExit()
 			{
-				LastResult = HandleApplyFailure(*Pending, {.Status = ETransactionApplyFailure::RecoveryRequired, .Message = Captured.error()});
-				return Result;
+				if (State == ETransactorState::Finalizing || State == ETransactorState::Recording)
+				{
+					if (GUndo == Recording) GUndo = nullptr;
+					State = ETransactorState::RecoveryRequired;
+				}
 			}
-			LastResult = {.Code = ETransactorResultCode::Failed, .TransactionId = Pending->GetId(),
-				.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = Captured.error()})};
-			QueueEvent(ETransactionEventType::Failed, *Pending, Captured.error());
-			Pending.reset(); State = ETransactorState::Idle;
-			RefreshOutsideEdits();
+		} Exit{State, GUndo};
+		auto FailException = [&](std::string Message) {
+			const bool bRecovery = bPublicationStarted || State == ETransactorState::RecoveryRequired
+				|| (Pending && Pending->bObserverRecoveryRequired);
+			ReleaseRecording(); State = ETransactorState::Finalizing;
+			auto Cause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{
+				.Status = bRecovery ? ETransactionApplyFailure::RecoveryRequired : ETransactionApplyFailure::ValidationFailed,
+				.Message = std::move(Message)});
+			FTransactorResult Failure{.Code = bRecovery ? ETransactorResultCode::RecoveryRequired : ETransactorResultCode::Failed,
+				.TransactionId = Id, .ApplyCause = Cause};
+			LastResult = RejectPendingFinalization(std::move(Failure), Cause->Message, true);
+		};
+		try
+		{
+			const auto Captured = Pending->Finalize();
+			State = ETransactorState::Finalizing;
+			ReleaseRecording();
+			if (!Captured)
+			{
+				const bool bRecovery = Pending->bObserverRecoveryRequired;
+				FTransactorResult Failure{.Code = bRecovery ? ETransactorResultCode::RecoveryRequired : ETransactorResultCode::Failed,
+					.TransactionId = Id, .ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{
+						.Status = bRecovery ? ETransactionApplyFailure::RecoveryRequired : ETransactionApplyFailure::ValidationFailed,
+						.Message = Captured.error()})};
+				LastResult = RejectPendingFinalization(std::move(Failure), Captured.error(), bRecovery);
+			}
+			else LastResult = FinalizePending(bPublicationStarted);
 		}
-		else { ReleaseRecording(); LastResult = FinalizePending(); }
+		catch (const std::exception& Error) { FailException(std::format("Transaction finalization threw: {}", Error.what())); }
+		catch (...) { FailException("Transaction finalization threw an unknown exception."); }
 		return Result;
 	}
 	auto DTransBuffer::Cancel(int32 StartIndex) -> void
@@ -1136,69 +1240,129 @@ namespace Durin
 		RefreshOutsideEdits();
 	}
 
-	auto DTransBuffer::FinalizePending() -> FTransactorResult
+	auto DTransBuffer::RejectPendingFinalization(FTransactorResult Failure, std::string Details, bool bUnknownEffects) -> FTransactorResult
+	{
+		auto Recovery = [&](std::string CleanupMessage) {
+			State = ETransactorState::RecoveryRequired;
+			auto Cause = Failure.ApplyCause ? std::make_shared<FTransactionApplyError>(*Failure.ApplyCause)
+				: std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = Details});
+			Cause->Status = ETransactionApplyFailure::RecoveryRequired;
+			Cause->RollbackFailures.push_back({.Message = std::move(CleanupMessage)});
+			Failure.Code = ETransactorResultCode::RecoveryRequired;
+			Failure.ApplyCause = std::move(Cause);
+			return Failure;
+		};
+		try
+		{
+			if (bUnknownEffects)
+			{
+				for (auto& [Package, Tracked] : PackageStates)
+				{
+					Tracked.SavedRevision = 0; Tracked.bCheckpointValid = false;
+					SynchronizeDirtyState(Tracked);
+				}
+			}
+			else if (Failure.Code == ETransactorResultCode::Failed && Pending)
+			{
+				for (const auto& Transition : Pending->GetPackageTransitions())
+					if (auto* Package = Cast<DPackage>(Transition.Package.Resolve())) InvalidateSavedState(*Package);
+			}
+			std::string Description;
+			if (Pending && Pending->GetId() == Failure.TransactionId) Description = Pending->Context.Description;
+			else if (const auto It = std::ranges::find(History, Failure.TransactionId, &FTransaction::GetId); It != History.end())
+				Description = It->Context.Description;
+			Events.push_back({.Type = Failure.Code == ETransactorResultCode::Discarded ? ETransactionEventType::Discarded : ETransactionEventType::Failed,
+				.Operation = ETransactionOperation::Execute, .Id = Failure.TransactionId, .Description = std::move(Description), .Details = Details});
+			if (Failure.Code == ETransactorResultCode::RecoveryRequired) State = ETransactorState::RecoveryRequired;
+			else
+			{
+				if (Pending) { Pending->bBusy = true; Pending.reset(); }
+				RefreshOutsideEdits();
+				State = ETransactorState::Idle;
+			}
+			return Failure;
+		}
+		catch (const std::exception& Cleanup) { return Recovery(Cleanup.what()); }
+		catch (...) { return Recovery("Finalization cleanup threw an unknown exception."); }
+	}
+
+	auto DTransBuffer::FinalizePending(bool& bPublicationStarted) -> FTransactorResult
 	{
 		const FTransactionId TransactionId = Pending->GetId();
+		const auto Pie = Pending->ContainsPieObjects();
+		if (!Pie || *Pie)
+		{
+			FTransactorResult Failure{.Code = Pie ? ETransactorResultCode::Discarded : ETransactorResultCode::Failed,
+				.TransactionId = TransactionId};
+			const std::string Message = Pie ? "Play-in-Editor references cannot enter persistent editor history." : Pie.error();
+			if (!Pie) Failure.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = Message});
+			return RejectPendingFinalization(std::move(Failure), Message);
+		}
 		Pending->RemoveNoOpRecords();
 		if (Pending->GetRecordCount() == 0)
 		{
 			QueueEvent(ETransactionEventType::Discarded, *Pending, "The transaction contained no records.");
-			Pending.reset();
-			State = ETransactorState::Idle;
-			RefreshOutsideEdits();
+			Pending->bBusy = true; Pending.reset(); RefreshOutsideEdits(); State = ETransactorState::Idle;
 			return {.Code = ETransactorResultCode::NoOp, .TransactionId = TransactionId};
 		}
 		PreparePackageTransitions(*Pending);
-		auto RejectFinalization = [&](FTransactorFailure Cause) -> FTransactorResult
-		{
-			FTransactorResult Result{.Code = ETransactorResultCode::Failed,
-				.TransactionId = TransactionId, .FailureCause = std::move(Cause)};
-
-			for (DPackage* Package : Pending->GetAffectedPackages())
-				if (IsValid(Package) && Package->IsAssetPackage()) InvalidateSavedState(*Package);
-			QueueEvent(ETransactionEventType::Failed, *Pending, FormatTransactorResult(Result));
-			Pending.reset();
-			State = ETransactorState::Idle;
-			RefreshOutsideEdits();
-			return Result;
+		const bool bContentMutation = Pending->MutatesMountedContent();
+		FTransactionEvent Executed{.Type = ETransactionEventType::Executed, .Operation = ETransactionOperation::Execute,
+			.Id = TransactionId, .Description = Pending->Context.Description, .Details = Pending->GetDetails(ETransactionOperation::Execute)};
+		auto RejectAccounting = [&](FTransactorFailure Cause) {
+			FTransactorResult Failure{.Code = ETransactorResultCode::Failed, .TransactionId = TransactionId, .FailureCause = std::move(Cause)};
+			const auto Message = FormatTransactorResult(Failure);
+			return RejectPendingFinalization(std::move(Failure), Message);
 		};
 		size_t EntryBytes = 0;
-		if (!Pending->TryGetOwnedSize(EntryBytes))
-			return RejectFinalization({.Code = ETransactorFailure::EntryAccounting});
-		// Validate retained accounting before replacing the redo branch.
+		if (!Pending->TryGetOwnedSize(EntryBytes)) return RejectAccounting({.Code = ETransactorFailure::EntryAccounting});
+		std::vector<size_t> PrefixBytes; PrefixBytes.reserve(Cursor);
 		size_t RetainedBytes = 0;
 		for (size_t Index = 0; Index < Cursor; ++Index)
 		{
 			size_t Bytes = 0;
-			if (!History[Index].TryGetOwnedSize(Bytes) || RetainedBytes > std::numeric_limits<size_t>::max() - Bytes)
-				return RejectFinalization({.Code = ETransactorFailure::RetainedAccounting, .Actual = RetainedBytes});
-			RetainedBytes += Bytes;
+			if (!History[Index].TryGetOwnedSize(Bytes) || !AddSize(RetainedBytes, Bytes))
+				return RejectAccounting({.Code = ETransactorFailure::RetainedAccounting, .Actual = RetainedBytes});
+			PrefixBytes.push_back(Bytes);
 		}
 		if (RetainedBytes > std::numeric_limits<size_t>::max() - EntryBytes)
-			return RejectFinalization({.Code = ETransactorFailure::RetainedAccounting, .Actual = RetainedBytes});
+			return RejectAccounting({.Code = ETransactorFailure::RetainedAccounting, .Actual = RetainedBytes});
+		size_t RemovalCount = 0;
+		if (Cursor == History.size())
+			while (RemovalCount < Cursor && RetainedBytes >= MemoryBudget) RetainedBytes -= PrefixBytes[RemovalCount++];
+		std::vector<FTransactionEvent> PreparedEvents;
+		for (size_t Index = 0; Index < RemovalCount; ++Index)
+			PreparedEvents.push_back({.Type = ETransactionEventType::Evicted, .Operation = ETransactionOperation::Execute,
+				.Id = History[Index].GetId(), .Description = History[Index].Context.Description});
+		for (size_t Index = Cursor; Index < History.size(); ++Index)
+			PreparedEvents.push_back({.Type = ETransactionEventType::Discarded, .Operation = ETransactionOperation::Execute,
+				.Id = History[Index].GetId(), .Description = History[Index].Context.Description, .Details = "A new commit replaced the redo branch."});
+		PreparedEvents.push_back(std::move(Executed));
+		History.reserve(Cursor + 1);
+		if (PreparedEvents.size() > Events.max_size() - Events.size()) throw std::length_error("Transaction event capacity exceeded.");
+		Events.reserve(Events.size() + PreparedEvents.size());
+		// Prepare metadata callbacks and history/event allocations before changing the old branch.
+		bPublicationStarted = true;
 		if (Cursor < History.size())
 		{
-			for (size_t Index = Cursor; Index < History.size(); ++Index)
-				QueueEvent(ETransactionEventType::Discarded, History[Index], "A new commit replaced the redo branch.");
 			History.erase(History.begin() + Cursor, History.end());
+			for (auto& Barrier : UndoBarriers) Barrier = std::min(Barrier, Cursor);
 		}
-		else
+		if (RemovalCount)
 		{
-			OwnedBytes = RetainedBytes;
-			TrimHistoryToBudget();
+			RemapUndoBarriers(0, RemovalCount);
+			History.erase(History.begin(), History.begin() + RemovalCount);
+			Cursor -= RemovalCount;
 		}
 		Pending->RecordingOwner = nullptr;
-		History.push_back(std::move(*Pending));
-		Pending.reset();
-		Cursor = History.size();
+		History.push_back(std::move(*Pending)); Pending.reset(); Cursor = History.size();
+		OwnedBytes = RetainedBytes + EntryBytes;
 		ApplyPackageTransitions(History.back(), true);
-		if (History.back().MutatesMountedContent()) NotifyMountedContentMutation();
-		QueueEvent(ETransactionEventType::Executed, History.back());
-		RecalculateOwnedBytes();
+		if (bContentMutation) NotifyMountedContentMutation();
+		for (auto& Event : PreparedEvents) Events.push_back(std::move(Event));
 		State = ETransactorState::Idle;
 		return {.Code = ETransactorResultCode::Succeeded, .TransactionId = TransactionId};
 	}
-
 	auto DTransBuffer::Undo(bool bCanRedo) -> bool
 	{
 		LastResult = UndoExpected(0);
@@ -1206,6 +1370,7 @@ namespace Durin
 		{
 			for (size_t Index = Cursor; Index < History.size(); ++Index) QueueEvent(ETransactionEventType::Discarded, History[Index], "Undo without Redo.");
 			History.erase(History.begin() + Cursor, History.end());
+			for (auto& Barrier : UndoBarriers) Barrier = std::min(Barrier, Cursor);
 			(void)RecalculateOwnedBytes();
 		}
 		return LastResult.IsSuccess();
@@ -1216,6 +1381,8 @@ namespace Durin
 		CheckThread();
 		if (State != ETransactorState::Idle || GUndo) return Reject(ETransactorRejectionReason::UndoState, ExpectedId);
 		if (Cursor == 0) return {.Code = ETransactorResultCode::NoOp, .Notice = ETransactorNotice::NothingUndo};
+		if (!UndoBarriers.empty() && Cursor <= UndoBarriers.back())
+			return Reject(ETransactorRejectionReason::UndoBarrier, ExpectedId);
 		RefreshOutsideEdits();
 		FTransaction& Transaction = History[Cursor - 1];
 		if (ExpectedId != 0 && Transaction.GetId() != ExpectedId)
@@ -1299,25 +1466,34 @@ namespace Durin
 		return Failure;
 	}
 
-	auto DTransBuffer::Reset(std::string_view Reason) -> FTransactorResult
+	auto DTransBuffer::TryReset(std::string_view Reason) -> FTransactorResult
 	{
 		CheckThread();
 		if (!CanTransact()) return LastResult = Reject(ETransactorRejectionReason::ResetState);
-		Cancel(); History.clear(); Cursor = 0; OwnedBytes = 0;
-		Events.clear(); PackageStates.clear(); ResetReason = Reason;
+		// Reason may refer to data destroyed below, or be changed by a destructor.
+		std::string SavedReason(Reason);
+		FGarbageCollectionDeferralScope DeferCollection;
+		State = ETransactorState::Resetting;
+		check(HistoryRevision != std::numeric_limits<uint64>::max());
+		++HistoryRevision;
+		ReleaseRecording();
+		if (Pending) Pending->bBusy = true;
+		auto RetiredHistory = std::exchange(History, {});
+		for (auto& Transaction : RetiredHistory) Transaction.bBusy = true;
+		Cursor = 0; OwnedBytes = 0; UndoBarriers.clear();
+		Events.clear();
+		Pending.reset(); RetiredHistory.clear();
+		// Clear after callbacks so busy-save notifications cannot repopulate tracking.
+		PackageStates.clear();
+		ResetReason = std::move(SavedReason);
+		State = ETransactorState::Idle;
 		return LastResult = FTransactorResult{.Code = ETransactorResultCode::Succeeded};
-	}
-
-	auto DTransBuffer::FindTransaction(FTransactionId TransactionId) -> FTransaction*
-	{
-		if (Pending && Pending->GetId() == TransactionId) return &*Pending;
-		const auto It = std::ranges::find(History, TransactionId, &FTransaction::GetId);
-		return It == History.end() ? nullptr : &*It;
 	}
 
 	auto DTransBuffer::FindTransaction(FTransactionId TransactionId) const
 		-> const FTransaction*
 	{
+		if (State == ETransactorState::Resetting || State == ETransactorState::Finalizing) return nullptr;
 		if (Pending && Pending->GetId() == TransactionId) return &*Pending;
 		const auto It = std::ranges::find(History, TransactionId, &FTransaction::GetId);
 		return It == History.end() ? nullptr : &*It;
@@ -1342,6 +1518,10 @@ namespace Durin
 		for (size_t Index = History.size(); Index-- > 0;)
 		{
 			if (!History[Index].IsOwnedByModule(ModuleName)) continue;
+			for (auto* Package : History[Index].GetAffectedPackages())
+				if (IsValid(Package) && Package->IsAssetPackage()) InvalidateSavedState(*Package);
+			QueueEvent(ETransactionEventType::Discarded, History[Index], "Owning module is unloading.");
+			RemapUndoBarriers(Index, 1);
 			History.erase(History.begin() + Index);
 			if (Index < Cursor) --Cursor;
 			++Removed;
@@ -1350,6 +1530,7 @@ namespace Durin
 		{
 			History.clear();
 			Cursor = 0;
+			UndoBarriers.clear();
 			OwnedBytes = 0;
 			return {.Code = ETransactorResultCode::Failed,
 				.FailureCause = FTransactorFailure{.Code = ETransactorFailure::ModuleAccounting, .Module = std::string(ModuleName)}};
@@ -1374,14 +1555,60 @@ namespace Durin
 
 	auto DTransBuffer::CanUndo(std::string* Reason) const -> bool
 	{
-		if (Reason) *Reason = State != ETransactorState::Idle ? "A transaction is active." : Cursor == 0 ? (ResetReason.empty() ? "Nothing to undo." : ResetReason) : "";
-		return State == ETransactorState::Idle && Cursor != 0;
+		const bool bBarrier = !UndoBarriers.empty() && Cursor <= UndoBarriers.back();
+		if (Reason) *Reason = State != ETransactorState::Idle || GUndo ? "A transaction is active." : Cursor == 0 ? (ResetReason.empty() ? "Nothing to undo." : ResetReason) : bBarrier ? "An undo barrier blocks earlier history." : "";
+		return State == ETransactorState::Idle && !GUndo && Cursor != 0 && !bBarrier;
+	}
+
+	auto DTransBuffer::SetUndoBarrier() -> void
+	{
+		CheckThread();
+		if (State == ETransactorState::Idle && !GUndo) { UndoBarriers.push_back(Cursor); ++HistoryRevision; }
+	}
+	auto DTransBuffer::RemoveUndoBarrier() -> void
+	{
+		CheckThread();
+		if (State == ETransactorState::Idle && !GUndo && !UndoBarriers.empty()) { UndoBarriers.pop_back(); ++HistoryRevision; }
+	}
+	auto DTransBuffer::ClearUndoBarriers() -> void
+	{
+		CheckThread();
+		if (State == ETransactorState::Idle && !GUndo && !UndoBarriers.empty()) { UndoBarriers.clear(); ++HistoryRevision; }
+	}
+	auto DTransBuffer::RemapUndoBarriers(size_t First, size_t Count) -> void
+	{
+		for (auto& Barrier : UndoBarriers) if (Barrier > First) Barrier -= std::min(Count, Barrier - First);
+	}
+	auto DTransBuffer::SetMemoryBudget(size_t Bytes) -> bool
+	{
+		CheckThread();
+		if (State != ETransactorState::Idle || GUndo) return false;
+		MemoryBudget = Bytes; ++HistoryRevision; return true;
+	}
+	auto DTransBuffer::TryContainsPieObjects() const -> std::expected<bool, std::string>
+	{
+		CheckThread();
+		if ((State != ETransactorState::Idle && State != ETransactorState::Recording && State != ETransactorState::RecoveryRequired)
+			|| (Pending && Pending->IsBusy()))
+			return std::unexpected("Transaction references are already being inspected or changed.");
+		FGarbageCollectionDeferralScope DeferCollection;
+		struct FStateRestore
+		{
+			ETransactorState& State;
+			ETransactorState Previous;
+			~FStateRestore() { State = Previous; }
+		} Restore{State, State};
+		State = ETransactorState::Inspecting;
+		if (Pending) { auto Result = Pending->ContainsPieObjects(); if (!Result || *Result) return Result; }
+		for (const auto& Transaction : History)
+		{ auto Result = Transaction.ContainsPieObjects(); if (!Result || *Result) return Result; }
+		return false;
 	}
 
 	auto DTransBuffer::CanRedo(std::string* Reason) const -> bool
 	{
-		if (Reason) *Reason = State != ETransactorState::Idle ? "A transaction is active." : Cursor >= History.size() ? "Nothing to redo." : "";
-		return State == ETransactorState::Idle && Cursor < History.size();
+		if (Reason) *Reason = State != ETransactorState::Idle || GUndo ? "A transaction is active." : Cursor >= History.size() ? "Nothing to redo." : "";
+		return State == ETransactorState::Idle && !GUndo && Cursor < History.size();
 	}
 
 	auto DTransBuffer::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -1413,16 +1640,19 @@ namespace Durin
 
 	auto DTransBuffer::GetUndoId() const -> FTransactionId
 	{
+		if (State == ETransactorState::Finalizing) return 0;
 		return Cursor == 0 ? 0 : History[Cursor - 1].GetId();
 	}
 
 	auto DTransBuffer::GetRedoId() const -> FTransactionId
 	{
+		if (State == ETransactorState::Finalizing) return 0;
 		return Cursor >= History.size() ? 0 : History[Cursor].GetId();
 	}
 
 	auto DTransBuffer::GetUndoContext(bool bCheckWhetherUndoPossible) const -> FTransactionContext
 	{
+		if (State == ETransactorState::Finalizing) return {};
 		if (Cursor == 0 || (bCheckWhetherUndoPossible && !CanUndo())) return {};
 		return History[Cursor - 1].GetContext();
 	}
@@ -1572,6 +1802,12 @@ namespace Durin
 
 	auto DTransBuffer::EstablishSavedState(DPackage& Package) -> void
 	{
+		CheckThread();
+		if (State != ETransactorState::Idle || GUndo)
+		{
+			InvalidateSavedState(Package);
+			return;
+		}
 		std::vector<DObject*> Objects{&Package};
 		for (size_t Index = 0; Index < Objects.size(); ++Index)
 		{
@@ -1593,6 +1829,14 @@ namespace Durin
 
 	auto DTransBuffer::MarkSaved(DPackage& Package) -> void
 	{
+		CheckThread();
+		// A busy save can represent an intermediate state, not either retained
+		// endpoint. Like UE's dirty fence, it must not revive a historical clean bit.
+		if (State != ETransactorState::Idle || GUndo)
+		{
+			InvalidateSavedState(Package);
+			return;
+		}
 		RefreshOutsideEdits();
 		FTrackedPackageState& State = EnsurePackageState(Package);
 		State.SavedRevision = State.CurrentRevision;
@@ -1611,6 +1855,7 @@ namespace Durin
 	auto DTransBuffer::GetPackageRevisionState(const DPackage& Package) const
 		-> std::optional<FPackageRevisionState>
 	{
+		if (State == ETransactorState::Resetting) return std::nullopt;
 		const FTrackedPackageState* State = FindPackageState(Package);
 		if (!State) return std::nullopt;
 		return FPackageRevisionState{
@@ -1626,6 +1871,10 @@ namespace Durin
 		for (size_t Index = History.size(); Index-- > 0;)
 		{
 			if (!History[Index].ReferencesPackage(Package)) continue;
+			for (auto* Affected : History[Index].GetAffectedPackages())
+				if (IsValid(Affected) && Affected != &Package && Affected->IsAssetPackage()) InvalidateSavedState(*Affected);
+			QueueEvent(ETransactionEventType::Discarded, History[Index], "Referenced package is being retired.");
+			RemapUndoBarriers(Index, 1);
 			History.erase(History.begin() + Index);
 			if (Index < Cursor) --Cursor;
 		}
@@ -1659,7 +1908,7 @@ namespace Durin
 		};
 		struct FSourceTransaction
 		{
-			Editor::FTransactionId Id = 0;
+			::Durin::FTransactionId Id = 0;
 			FPersistentObjectRef Primary;
 			std::vector<Editor::FTransactionPackageRevisionTransition> Transitions;
 			std::vector<FSourceRecord> Records;
@@ -1881,6 +2130,7 @@ namespace Durin
 				}
 				else AfterHistory.push_back(std::move(Transactor.History[Index]));
 			}
+			for (size_t Index = Keep.size(); Index-- > 0;) if (!Keep[Index]) Transactor.RemapUndoBarriers(Index, 1);
 			Transactor.History.swap(AfterHistory);
 			++Transactor.HistoryRevision;
 			Transactor.PackageStates.swap(AfterPackages);
@@ -1993,26 +2243,6 @@ namespace Durin
 		Participant->Commit();
 		verify(Participant->CanRetire());
 		return {};
-	}
-
-	auto DTransBuffer::TrimHistoryToBudget() -> void
-	{
-		// Only the old history participates; the incoming transaction may exceed the budget.
-		size_t RemovalCount = 0;
-		while (RemovalCount < History.size() && OwnedBytes >= MemoryBudget)
-		{
-			const auto& Transaction = History[RemovalCount];
-			size_t EntryBytes = 0;
-			verify(Transaction.TryGetOwnedSize(EntryBytes));
-			check(EntryBytes <= OwnedBytes);
-			OwnedBytes -= EntryBytes;
-			Events.push_back({.Type = ETransactionEventType::Evicted,
-				.Operation = ETransactionOperation::Execute, .Id = Transaction.GetId(),
-				.Description = Transaction.GetContext().Description});
-			++RemovalCount;
-		}
-		History.erase(History.begin(), History.begin() + RemovalCount);
-		Cursor -= RemovalCount;
 	}
 
 	auto DTransBuffer::QueueEvent(

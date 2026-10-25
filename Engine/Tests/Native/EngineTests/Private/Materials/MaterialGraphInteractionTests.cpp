@@ -59,7 +59,7 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Original);
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Preview);
-		ASSERT_TRUE(Transactions->Reset());
+		ASSERT_TRUE(Transactions->TryReset());
 		Drag();
 		IO.AddKeyEvent(ImGuiKey_Escape, true); Frame({Start.x + 60, Start.y}, true);
 		IO.AddKeyEvent(ImGuiKey_Escape, false); Frame({Start.x + 60, Start.y}, false);
@@ -226,7 +226,7 @@ TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopie
 		EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(Material->GetMaterialGraphPresentation(), After);
-		EXPECT_TRUE(Transactions->Reset());
+		EXPECT_TRUE(Transactions->TryReset());
 	}
 }
 
@@ -305,7 +305,7 @@ TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWi
 	Frame(); Frame();
 	EXPECT_EQ(FMaterialGraphCanvasTestAccess::FirstMenuAction(Canvas), MakeFunctionCreationAction(Callee->GetObjectPath()).Id);
 	Canvas.CancelInteraction(); ImGui::DestroyContext(Context);
-	EXPECT_TRUE(Transactions->Reset()); MarkAsGarbage(Function); CollectGarbage();
+	EXPECT_TRUE(Transactions->TryReset()); MarkAsGarbage(Function); CollectGarbage();
 }
 
 TEST(FMaterialGraphInteractionTests, CanvasGeometryUsesStableMetricsAndZoomHysteresis)
@@ -826,7 +826,7 @@ TEST(FMaterialGraphInteractionTests, FunctionCanvasConnectsAndMovesNodesWithUndo
 	Canvas.SetViewport(0.3f, {40, 40}); Frame(Empty, false);
 	EXPECT_GT(ImGui::GetDrawData()->TotalVtxCount, 0);
 	ImGui::DestroyContext(Context);
-	EXPECT_TRUE(Transactions->Reset()); MarkAsGarbage(Function); CollectGarbage();
+	EXPECT_TRUE(Transactions->TryReset()); MarkAsGarbage(Function); CollectGarbage();
 }
 
 TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefreshesItsInterface)
@@ -1068,7 +1068,7 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	Frame({500, 500}, false);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
 	Canvas.CancelInteraction();
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -1112,7 +1112,7 @@ TEST(FMaterialGraphInteractionTests, NumericNodeDisplayTracksValuesAndUndo)
 	EXPECT_NE(MakeGraphNodeDisplay(*Node, Material).Subtitle, Display.Subtitle);
 	EXPECT_EQ(FormatGraphNumericValue(EMaterialProgramValueType::Float2, {-0.0f, 0.123456f}), "(0, 0.1235)");
 	EXPECT_EQ(FormatGraphNumericValue(EMaterialProgramValueType::Float, {0.000001f}), "1e-06");
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material); CollectGarbage();
 }
 
@@ -1200,7 +1200,7 @@ TEST(FMaterialGraphInteractionTests, CanvasCreationShortcutsRespectGesturesAndUn
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 	EXPECT_EQ(Errors, 0);
 	Canvas.CancelInteraction();
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material); CollectGarbage();
 }
@@ -1263,7 +1263,7 @@ TEST(FMaterialGraphInteractionTests, CanvasMenusDoNotInterruptMoveAndKeepSearchR
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::SearchOrder(Canvas));
 	EXPECT_EQ(Errors, 0);
 	Canvas.CancelInteraction(); ImGui::DestroyContext(Context);
-	EXPECT_TRUE(Transactions->Reset()); MarkAsGarbage(Material); CollectGarbage();
+	EXPECT_TRUE(Transactions->TryReset()); MarkAsGarbage(Material); CollectGarbage();
 }
 
 TEST(FMaterialGraphInteractionTests, FunctionCanvasCacheTracksPositionsAndDependencies)
@@ -1363,7 +1363,7 @@ TEST(FMaterialGraphInteractionTests, CanvasProducesValidDrawDataAcrossZoomAndGra
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable));
 	DrawAtZoom(0.30f);
 
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -1414,7 +1414,7 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions.front()->Id, SampleId);
 		EXPECT_EQ(Material->GetParameterDefinitions().front().Id, ParameterId);
 		ASSERT_TRUE(Transactions->Undo());
-		EXPECT_TRUE(Transactions->Reset());
+		EXPECT_TRUE(Transactions->TryReset());
 	}
 	ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {.Output = EMaterialSurfaceOutput::BaseColor, .X = 0, .Y = 0}, Durin::Editor::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {.Output = EMaterialSurfaceOutput::Normal, .X = 320, .Y = 360}, Durin::Editor::ETransactionMode::NotTransactable));
@@ -1442,7 +1442,7 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		EXPECT_EQ(Errors, 0);
 	}
 	ImGui::DestroyContext(Context);
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -1559,7 +1559,7 @@ TEST(FMaterialGraphInteractionTests, SharedTextureParametersPreserveLocalSamplin
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	ASSERT_TRUE(Transactions->Reset());
+	ASSERT_TRUE(Transactions->TryReset());
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
@@ -1732,7 +1732,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
 	EXPECT_EQ(Errors, 0);
 	Canvas.CancelInteraction();
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Owner); MarkAsGarbage(Dependency); CollectGarbage();
 }
@@ -1784,7 +1784,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SurfaceDetailsCommitImmediatelyAndU
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Edited->AttributeMask, 2);
 	ImGui::DestroyContext(Context);
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Owner); CollectGarbage();
 }
 
@@ -1858,7 +1858,7 @@ TEST(FMaterialGraphInteractionTests, FunctionCreationActionsShareCompatibilityAn
 	EXPECT_TRUE(Function.CanCreate(OutputAction, EMaterialProgramValueType::Float));
 	const auto Input = Function.Create({MakePortCreationAction(false, EMaterialProgramValueType::Float)}, Durin::Editor::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Input);
-	ASSERT_TRUE(Transactions->Reset());
+	ASSERT_TRUE(Transactions->TryReset());
 	const auto Signature = Callee->GetFunctionSignature();
 	const auto Output = Function.Create({OutputAction, 10, 20,
 		FMaterialGraphPinAddress::Output({Input.GeneratedNodeIds[0]})});

@@ -4,7 +4,7 @@ Summary: Define runtime-neutral transaction capture, custom changes, exact objec
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-10-25
 
 ## Core Boundary
 
@@ -39,6 +39,12 @@ Failure and unsupported capability are observable errors. Array requests identif
 an object and reflected member/index/range, never a borrowed live vector address.
 Interface availability alone does not assert a particular recorder supports
 every operation; callers must check its result.
+
+Runtime types are declared directly in `Durin`; editor namespace compatibility
+aliases are removed. `DPackage::IsPlayInEditor` identifies a session package
+explicitly, without inferring it from a world type. The editor recorder implements
+PIE inspection and transient-entry policy as part of the
+[transactor contract](../../Editor/Architecture/Transactions/Transactors.md#undo-barriers-and-pie-references).
 
 `DObject/TransactionArray.h` supplies the explicit typed `EditTransactionArray`
 adapter. It supports insert, remove and equal-length range replacement with

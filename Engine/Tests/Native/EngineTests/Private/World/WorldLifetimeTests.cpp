@@ -290,7 +290,7 @@ TEST(FWorldTests, ComponentReparentUndoRedoRestoresHierarchyTransformsAndLightPu
 		ExpectAttachment(Second, First, ReappliedX + 10.0);
 		ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 		ExpectAttachment(First, Second, 42.0);
-		ASSERT_TRUE(Transactions->Reset());
+		ASSERT_TRUE(Transactions->TryReset());
 		World->SetRenderScene(nullptr);
 		Durin::MarkObjectHierarchyAsGarbage(World);
 		Durin::CollectGarbage();
@@ -328,7 +328,7 @@ TEST(FWorldTests, ComponentDetachUndoRedoRestoresParentAndTransform)
 			Parent->SetWorldLocation({30.0 + Repeat, 0.0, 0.0});
 			EXPECT_EQ(Child->GetWorldLocation(), DetachedLocation);
 		}
-		ASSERT_TRUE(Transactions->Reset());
+		ASSERT_TRUE(Transactions->TryReset());
 		Durin::MarkObjectHierarchyAsGarbage(World);
 		Durin::CollectGarbage();
 	}
@@ -366,7 +366,7 @@ TEST(FWorldTests, ComponentHierarchyUndoRedoHandlesBothRecordOrders)
 		EXPECT_TRUE(Second->GetAttachChildren().empty());
 		First->SetWorldLocation({50.0, 0.0, 0.0});
 		EXPECT_EQ(Second->GetWorldLocation(), Durin::FVector3(49.0, 0.0, 0.0));
-		ASSERT_TRUE(Transactions->Reset());
+		ASSERT_TRUE(Transactions->TryReset());
 		Durin::MarkObjectHierarchyAsGarbage(World);
 		Durin::CollectGarbage();
 	}
@@ -410,7 +410,7 @@ TEST(FWorldTests, UnregisteredComponentAttachmentUndoRedoRestoresRotationAndScal
 	ExpectWorld(BeforeWorld);
 	ASSERT_TRUE(Transactions->Redo());
 	ExpectWorld(AfterWorld);
-	ASSERT_TRUE(Transactions->Reset());
+	ASSERT_TRUE(Transactions->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
@@ -471,7 +471,7 @@ TEST(FWorldTests, ActorVisibilityUndoRedoSynchronizesComponentSceneState)
 		ExpectVisibility(!bInitiallyHidden);
 		ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 		ExpectVisibility(bInitiallyHidden);
-		ASSERT_TRUE(Transactions->Reset());
+		ASSERT_TRUE(Transactions->TryReset());
 		World->SetRenderScene(nullptr);
 		Durin::MarkObjectHierarchyAsGarbage(World);
 		Durin::CollectGarbage();
@@ -509,7 +509,7 @@ TEST(FWorldTests, ReflectedActorVisibilitySynchronizesInteractiveCancelAndHistor
 	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_TRUE(Scene.Lights.empty());
-	ASSERT_TRUE(Transactions->Reset());
+	ASSERT_TRUE(Transactions->TryReset());
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
@@ -681,7 +681,7 @@ TEST(FWorldTests, ActorModifyRecordsTheNativeRootTransform)
 	}
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Actor->GetActorTransform().Translation, FVector3(0.0));
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Actor->GetActorTransform().Translation, FVector3(7.0, 8.0, 9.0));
-	ASSERT_TRUE(Transactions->Reset()); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	ASSERT_TRUE(Transactions->TryReset()); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
 }
 
 TEST(FWorldTests, SceneReplacementPreservesPlayingComponentLifecycleAndBoundTimers)

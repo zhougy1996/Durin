@@ -357,7 +357,7 @@ TEST(FActorMutationTests, RejectionIsAtomicAndHistoryDiscardCollectsInactiveActo
 	ASSERT_TRUE(Added);
 	TWeakObjectPtr<AActor> Weak(Added);
 	ASSERT_TRUE(F.Transactions->Undo());
-	ASSERT_TRUE(F.Transactions->Reset());
+	ASSERT_TRUE(F.Transactions->TryReset());
 	CollectGarbage();
 	EXPECT_EQ(Weak.Get(), nullptr);
 }
@@ -636,7 +636,7 @@ TEST(FComponentMutationTests, RejectionDoesNotPublishAndDiscardedInactiveCompone
 	TWeakObjectPtr<DActorComponent> Weak(Added);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_FALSE(F.Scene.Primitives.contains(static_cast<DPrimitiveComponent*>(Added)));
-	ASSERT_TRUE(F.Transactions->Reset());
+	ASSERT_TRUE(F.Transactions->TryReset());
 	CollectGarbage();
 	EXPECT_EQ(Weak.Get(), nullptr);
 }
@@ -923,7 +923,7 @@ TEST(FComponentMutationTests, SuspendedComponentsStayOutOfPackageCaptureAndPrese
 	EXPECT_EQ(Level->FindActorByName("ActorHistory"), Actor);
 	for (int Step = 0; Step < 4; ++Step) ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_TRUE(Package->IsDirty());
-	ASSERT_TRUE(F.Transactions->Reset());
+	ASSERT_TRUE(F.Transactions->TryReset());
 	MarkObjectHierarchyAsGarbage(Package);
 }
 
@@ -1100,7 +1100,7 @@ TEST(FComponentMutationTests, AdditionHistoryRetainsSubobjectsCreatedAfterPublic
 	EXPECT_EQ(WeakPayload.Get(), Payload);
 	ASSERT_TRUE(F.Transactions->Redo());
 	ASSERT_TRUE(F.Transactions->Undo());
-	ASSERT_TRUE(F.Transactions->Reset());
+	ASSERT_TRUE(F.Transactions->TryReset());
 	CollectGarbage();
 	EXPECT_FALSE(WeakPayload.IsValid());
 }
@@ -1148,7 +1148,7 @@ TEST(FActorMutationTests, UnrecordableStructuralEditRemainsAppliedAndInvalidates
 	EXPECT_TRUE(Level->ContainsActor(Actor));
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_GE(Package->GetEditRevision(), BeforeRevision);
-	ASSERT_TRUE(F.Transactions->Reset());
+	ASSERT_TRUE(F.Transactions->TryReset());
 	MarkObjectHierarchyAsGarbage(Package);
 }
 
@@ -1188,7 +1188,7 @@ TEST(FActorMutationTests, WorldClosingDuringActorRemovalCannotReportSuccess)
 	FComponentFixture F;
 	auto* Setup = F.Editor.GetActorEditor();
 	ASSERT_TRUE(Setup->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false}));
-	ASSERT_TRUE(F.Transactions->Reset());
+	ASSERT_TRUE(F.Transactions->TryReset());
 	auto* RecoveryHistory = F.Transactions.Get();
 	auto* Editor = F.Editor.GetActorEditor();
 	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::UnregisterProbe = {}; } } Reset;

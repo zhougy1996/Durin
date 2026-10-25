@@ -2665,7 +2665,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Transactions->CanUndo());
-	const Durin::Editor::FTransactionId UndoId = Transactions->GetUndoId();
+	const ::Durin::FTransactionId UndoId = Transactions->GetUndoId();
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Transactions->CanTransact());
 	EXPECT_NE(Transactions->GetUndoId(), UndoId);

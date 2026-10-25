@@ -91,6 +91,10 @@ runtime roles and no retained controller, pawn, view target, or semantic input.
 The active workspace receives Save, Undo, and Redo commands from the host.
 Shared reflected-property transactions remain editor-wide across document and
 project transitions and are cleared at explicit PIE lifecycle boundaries.
+Starting Play and applying Play results require transaction admission before
+side effects and check the final Reset result before reporting success. Busy,
+foreign recording and recovery states refuse those operations. Teardown and
+failed-copy cleanup still use best-effort Reset without discarding recovery data.
 
 The Level Editor toolbar resolves editor-interaction and render-settings targets
 separately. Transform, edit-mode, snapping, grid, drag/drop, and editor-camera

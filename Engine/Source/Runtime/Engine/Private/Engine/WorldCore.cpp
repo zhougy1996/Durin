@@ -31,17 +31,20 @@ namespace Durin
 		return true;
 	}
 
-	auto DWorld::InitializeSubsystems() -> FWorldSubsystemResult
+	auto DWorld::InitializeSubsystems(DEngine* Host) -> FWorldSubsystemResult
 	{
 		if (Operation != EOperation::Idle)
 			return {EWorldSubsystemError::InvalidState, "World operation is in progress."};
+		if (Host && HostEngine.IsValid() && HostEngine.Get() != Host)
+			return {EWorldSubsystemError::InvalidState, "World already belongs to another host."};
+		if (!HostEngine.IsValid()) HostEngine = Host ? Host : Cast<DEngine>(GetOuter());
 		TStrongObjectPtr<DWorld> InitializationGuard(this);
 		std::optional<DEngine::FWorldInitializationScope> HostScope;
-		if (auto* Host = Cast<DEngine>(GetOuter())) HostScope.emplace(*Host, *this);
+		if (auto* Owner = HostEngine.Get()) HostScope.emplace(*Owner, *this);
 		FOperationScope OperationScope(*this, EOperation::Initializing);
 		auto Result = Subsystems.Initialize();
 		if (Result && !bShutdownRequested)
-			if (auto* Host = Cast<DEngine>(GetOuter())) Host->RegisterWorldContext(*this);
+			if (auto* Owner = HostEngine.Get()) Owner->RegisterWorldContext(*this);
 		return Result;
 	}
 
@@ -89,7 +92,7 @@ namespace Durin
 		SetCurrentLevelInternal(nullptr, true);
 		Subsystems.Shutdown();
 		RenderScene = nullptr;
-		if (auto* Engine = Cast<DEngine>(GetOuter())) Engine->DestroyWorldContext(this);
+		if (auto* Engine = HostEngine.Get()) Engine->DestroyWorldContext(this);
 	}
 
 	auto DWorld::IsReadyForFinishDestroy() -> bool

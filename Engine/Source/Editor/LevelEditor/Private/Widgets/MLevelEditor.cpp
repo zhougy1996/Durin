@@ -518,7 +518,7 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::CanSaveActiveDocument() const -> bool
 	{
-		return !(GEditor && GEditor->IsPlaying()) && Context && Context->Level && Context->Level->GetPackage();
+		return DocumentController && DocumentController->CanSaveCurrentLevel();
 	}
 
 	auto MLevelEditor::SaveActiveDocument() -> bool

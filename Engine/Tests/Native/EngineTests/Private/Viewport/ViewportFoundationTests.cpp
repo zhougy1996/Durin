@@ -452,10 +452,10 @@ TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
 	EXPECT_TRUE(Manager->CanUndo());
 	EXPECT_EQ(Manager->GetUndoContext(false).Description, "Counting");
-	const Durin::Editor::FTransactionId FirstId = Manager->GetUndoId();
+	const ::Durin::FTransactionId FirstId = Manager->GetUndoId();
 	ASSERT_NE(FirstId, 0);
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
-	const Durin::Editor::FTransactionId SecondId = Manager->GetUndoId();
+	const ::Durin::FTransactionId SecondId = Manager->GetUndoId();
 	ASSERT_NE(SecondId, FirstId);
 
 	EXPECT_FALSE(Manager->UndoExpected(FirstId));
@@ -485,7 +485,7 @@ TEST(FEditorTransactionManagerTests, KeepsTransactionsOnTheirOriginalStackWhenAp
 	FTransactionControl Control;
 	Durin::Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Manager, std::make_unique<FControlledTransaction>(Value, Control)));
-	const Durin::Editor::FTransactionId Id = Manager->GetUndoId();
+	const ::Durin::FTransactionId Id = Manager->GetUndoId();
 	Durin::Tests::CollectTransactionEvents(*Manager);
 
 	Control.bFailUndo = true;
@@ -513,7 +513,7 @@ TEST(FEditorTransactionManagerTests, ClearsRedoBranchAndPendingEventsOnNewCommit
 	Durin::Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
 	EXPECT_EQ(Value, 1);
-	const Durin::Editor::FTransactionId OldId = Manager->GetUndoId();
+	const ::Durin::FTransactionId OldId = Manager->GetUndoId();
 	ASSERT_TRUE(Manager->UndoExpected(OldId));
 	EXPECT_EQ(Value, 0);
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value, 2)));

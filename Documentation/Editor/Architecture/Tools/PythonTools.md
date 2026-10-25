@@ -3,7 +3,7 @@
 Summary: Embed trusted editor scripts with native Toolsets, reflected type/object wrappers and transaction scopes.
 Modules: DurinPython, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-25
 
 ## Ownership and Runtime
 
@@ -270,8 +270,13 @@ signed/unsigned 64-bit values and rejects cycles, non-finite and unsupported val
 
 ## Transactions
 
-`durin.ScopedEditorTransaction(desc)` follows UE 5.3.2's
-[Python scope implementation](https://github.com/chenyong2github/UnrealEngine/blob/c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf/Engine/Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyEditor.cpp).
+`durin.ScopedEditorTransaction(desc)` follows the locally verified UE 5.8.2
+`PyEditor.cpp` scope implementation (`FPyScopedEditorTransaction` and
+`FMethods::EnterScope/ExitScope/Cancel`). Reference identity and the selected
+alignment boundary are recorded in the
+[transaction alignment plan](../../../Plans/UE58TransactionArchitecture.md#current-status);
+the [transactor contract](../Transactions/Transactors.md#transactions-and-scoped-recording)
+owns native recording semantics.
 Construction stores the description; enter begins native recording and returns
 self. Exit ends recording and returns None, including when an exception leaves
 the block. Exceptions propagate. Cancel discards the entire active recording,

@@ -55,6 +55,7 @@ namespace Durin::Editor::Level
 		auto RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
 		auto OpenDefaultLevel() -> bool;
+		auto CanSaveCurrentLevel() const -> bool;
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
 		auto CloseLevel() -> bool;

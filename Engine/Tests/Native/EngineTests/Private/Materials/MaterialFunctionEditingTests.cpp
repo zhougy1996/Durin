@@ -26,7 +26,7 @@ TEST(FMaterialFunctionEditingTests, DuplicateUsesDocumentOffsetsAndRejectsOutOfR
 	EXPECT_EQ(Function->GetFunctionPresentation(), Before);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Function->GetFunctionPresentation(), After);
-	ASSERT_TRUE(Transactions->Reset());
+	ASSERT_TRUE(Transactions->TryReset());
 	const auto Expressions = Function->GetExpressionCollection().Expressions;
 	for (const auto Offset : {std::numeric_limits<int32>::min(), std::numeric_limits<int32>::max()})
 	{

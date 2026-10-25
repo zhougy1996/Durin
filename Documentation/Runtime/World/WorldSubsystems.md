@@ -4,7 +4,7 @@ Summary: Define native per-World service registration, ownership, lifecycle, Tic
 
 Modules: Engine, Core, DurinEd
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-25
 
 ## Registration And Ownership
 
@@ -42,6 +42,12 @@ Hosts select World type and set required host endpoints, then call
 `InitializeSubsystems()` before Level attachment or publication. World type is
 immutable after initialization starts. Empty Worlds and absent render scenes
 are supported. Changing the render scene does not recreate the collection.
+
+Package-owned editor Play worlds pass their Engine explicitly to
+`InitializeSubsystems(Host)`. The World keeps a weak host association for the
+initialization scope, world-context registration and shutdown removal. Ordinary
+Engine-owned Worlds infer the host from Outer; preview Worlds can remain hostless.
+An initialized host association cannot be replaced by another Engine.
 
 The one-shot state progression is `Uninitialized -> Initializing -> Ready`.
 Initialization returns `FWorldSubsystemResult` with a categorized error and

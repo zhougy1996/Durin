@@ -72,7 +72,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			if (Actor) Actor->BeginDestroy();
-			if (Transactor) EXPECT_TRUE(Transactor->Reset());
+			if (Transactor) EXPECT_TRUE(Transactor->TryReset());
 			if (Package)
 			{
 				Package->SetStandaloneResidency(false);

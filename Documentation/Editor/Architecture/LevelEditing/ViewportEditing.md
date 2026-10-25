@@ -219,11 +219,27 @@ Actor storage. A target supplies stable identity, validity, transform,
 parent-relative rotation, affected package, label, and capability mask. A
 target set supplies the current collection and transaction label.
 
-The gizmo snapshots valid targets at drag start, applies preview transforms,
-and commits one generic transaction at completion. Cancel, target invalidation,
-mode exit, and net-zero completion restore starting values and package saved
-state without a history entry. Target capability masks prevent unsupported
-operations before mutation.
+The gizmo snapshots valid targets and package edit revisions at drag start.
+Preview and restoration use package-dirty suppression. Completion uses one
+`StoreUndo(Change)` call; the transactor owns recording and package transitions.
+Suppressed preview revisions let it distinguish the gesture from unrelated writes.
+The document controller owns save admission for both commands and direct calls:
+saving and save-producing rename require an idle transactor and no active gesture
+or unfinished restore.
+Cancel, target invalidation, mode exit and net-zero completion restore starting
+transforms without a history entry. Initial clean flags are restored only if the
+package edit revision did not change; unrelated writes during the gesture remain
+dirty. Target capability masks prevent unsupported operations before mutation.
+
+Each target also retains its last preview value. An outside transform write
+ends ownership of that target; cancellation and release preserve its live value
+and restore the remaining targets. Failed preview writes restore the complete
+selection, including a setter that partially mutates before failing. A failed
+restore stays active for retry and blocks saving and level changes. History
+replay validates every live source transform before writing and compensates the
+complete selection on failure; incomplete compensation requires recovery.
+Restoration verifies the actual values and defers while another recorder owns
+`GUndo`, so it cannot publish a false clean state or join another transaction.
 
 The Actor adapter preserves translation, rotation, scale, shared-pivot,
 hierarchy filtering, local/world axes, snapping, Undo/Redo, and dirty-state

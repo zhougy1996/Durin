@@ -20,6 +20,8 @@ namespace Durin
 		Cpp = 1 << 1,
 		// The live asset package has not completed its first persistent save.
 		NewlyCreated = 1 << 2,
+		// Session-only identity; never inferred from a world type or saved to disk.
+		PlayInEditor = 1 << 3,
 	};
 	ENUM_CLASS_FLAGS(EPackageFlags);
 
@@ -52,6 +54,12 @@ namespace Durin
 		auto GetPackageFlags() const -> EPackageFlags { return PackageFlags; }
 		auto IsAssetPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Asset); }
 		auto IsCppPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Cpp); }
+		auto IsPlayInEditor() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::PlayInEditor); }
+		auto SetPlayInEditor(bool bValue) -> void
+		{
+			if (bValue) PackageFlags |= EPackageFlags::PlayInEditor;
+			else PackageFlags &= ~EPackageFlags::PlayInEditor;
+		}
 		auto IsNewlyCreated() const -> bool
 		{
 			return IsAssetPackage()
