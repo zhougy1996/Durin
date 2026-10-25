@@ -4,7 +4,7 @@ Summary: Centralize semantic program subscriptions and submit material shader st
 
 Last reviewed: 2026-10-20
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-20
 
 ## Current Status
@@ -109,7 +109,7 @@ Depends on Stage 0.
 - [x] Update the owning material/shader documentation, validate changed documents
   and all plans, audit workspace consumers, and commit the validated result.
 
-Follow the [build](../Agents/BuildAndRun.md), [test](../Agents/Testing.md) and
-[qualification](../Development/Build/NativeTestQualification.md) workflows.
+Follow the [build](../../../Agents/BuildAndRun.md), [test](../../../Agents/Testing.md) and
+[qualification](../../../Development/Build/NativeTestQualification.md) workflows.
 Use the established unsandboxed MSVC validation lane. An all-build is unnecessary
 unless public ABI or build-graph changes broaden the affected boundary.

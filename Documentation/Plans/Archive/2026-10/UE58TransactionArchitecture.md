@@ -4,7 +4,7 @@ Summary: Align Durin's object transactions, annotations, change events, reinstan
 
 Last reviewed: 2026-10-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-25
 
 ## Current Status
@@ -172,9 +172,9 @@ Selected Durin extensions retain commit-time trimming and queued idle events,
 standalone StoreUndo for already-applied domain writes, checked compensation and
 RecoveryRequired, saved-revision authority, and declared strong-dependency PIE
 inspection. Module/package retirement conservatively invalidates surviving package
-checkpoints. Implemented rules live in [Transactors](../Editor/Architecture/Transactions/Transactors.md),
-[Runtime Transactions](../Runtime/ObjectSystem/Transactions.md),
-[World Subsystems](../Runtime/World/WorldSubsystems.md) and the Python adapter.
+checkpoints. Implemented rules live in [Transactors](../../../Editor/Architecture/Transactions/Transactors.md),
+[Runtime Transactions](../../../Runtime/ObjectSystem/Transactions.md),
+[World Subsystems](../../../Runtime/World/WorldSubsystems.md) and the Python adapter.
 
 Final Windows/MSVC Debug validation passed 1,310 isolated editor cases across
 24 registry-selected targets, plus 504 selected consumer cases across Viewport,
@@ -209,7 +209,7 @@ SaveArray stub; native spline point edits no longer require an unconditional
 whole-owner Modify. Ordered inverses and delayed flips preserve checked mixed
 record compensation. Element hard edges share the existing persistent-reference
 categories, including recreated default graphs; weak edges retain exact semantics.
-Implemented contracts live in [array operation records](../Editor/Architecture/Transactions/TransactionRecords.md#array-operation-records).
+Implemented contracts live in [array operation records](../../../Editor/Architecture/Transactions/TransactionRecords.md#array-operation-records).
 
 Consumer scope was narrowed to eligible direct array edits after auditing Engine,
 Sandbox and RoadWeaver. Property/RoadNet proposals may normalize or rebuild the
@@ -257,8 +257,8 @@ protections remain intact; arbitrary archetypes and instance propagation remain
 unsupported. Opaque commands retain exact participants and require checked
 replacement or expire before replay. The explicit native hook reuses the existing
 history participant, whole-entry retirement and package checkpoint policy.
-Implemented rules live in [Runtime Transactions](../Runtime/ObjectSystem/Transactions.md)
-and [Transaction Records](../Editor/Architecture/Transactions/TransactionRecords.md).
+Implemented rules live in [Runtime Transactions](../../../Runtime/ObjectSystem/Transactions.md)
+and [Transaction Records](../../../Editor/Architecture/Transactions/TransactionRecords.md).
 
 Windows/MSVC Debug acceptance passed: 1312 isolated editor cases across 21 targets,
 213 shared-process EditorOperationTests cases, and 19 isolated runtime-only
@@ -291,9 +291,9 @@ business admission. Level records own serialized membership/camera fields;
 native presence and attachment adapters complete ownership and registration.
 The consumer audit covers Engine, Sandbox and RoadWeaver and records each
 remaining custom command's domain rationale in
-[Transactors](../Editor/Architecture/Transactions/Transactors.md). Implemented replay rules
-live in [Transaction Records](../Editor/Architecture/Transactions/TransactionRecords.md) and
-[Level System](../Runtime/World/LevelSystem.md).
+[Transactors](../../../Editor/Architecture/Transactions/Transactors.md). Implemented replay rules
+live in [Transaction Records](../../../Editor/Architecture/Transactions/TransactionRecords.md) and
+[Level System](../../../Runtime/World/LevelSystem.md).
 
 UE's Save-all-before-Load order and whole-transaction no-op decision are retained.
 Durin's checked-failure extension publishes inverse history only after successful
@@ -434,7 +434,7 @@ template-aware logical references and explicit array operation records. Custom r
 modified participants separately from GC dependencies; single-object declarations
 bind their target and composites supply summaries, hooks and affected packages.
 
-The existing [transactor contract](../Editor/Architecture/Transactions/Transactors.md) remains
+The existing [transactor contract](../../../Editor/Architecture/Transactions/Transactors.md) remains
 a description of the current implementation during migration. Its scope and
 custom-record rules have now been checked against the pinned UE 5.8 source;
 unimplemented features in this plan are not current production guarantees.
@@ -582,7 +582,7 @@ assertion was removed; functional snapshot coverage owns that behavior.
 ### Stage 1 temporary adapters
 
 These are declarations/adapters around the one recorder, not alternate histories.
-Implemented module rules live in [runtime transaction contracts](../Runtime/ObjectSystem/Transactions.md).
+Implemented module rules live in [runtime transaction contracts](../../../Runtime/ObjectSystem/Transactions.md).
 
 Stage 8 removes the editor namespace aliases after migrating every workspace
 consumer. ContainsPieObjects now inspects explicit PIE packages and declared
@@ -660,19 +660,19 @@ Stage 0 must pin the implementation evidence needed for those details.
 | Buffer policy, barriers, and replacement hooks | [UTransBuffer](https://dev.epicgames.com/documentation/unreal-engine/API/Editor/UnrealEd/UTransBuffer?lang=en-US) |
 
 Primary implementation sites are
-[Core ITransaction](../../Engine/Source/Runtime/Core/Public/Misc/ITransaction.h),
-[DObject](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h),
-[object archives](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h),
-[editor transaction records](../../Engine/Source/Editor/DurinEd/Public/Transactions/TransactionObjectRecord.h),
-[transactor implementation](../../Engine/Source/Editor/DurinEd/Private/Transactions/Transactor.cpp),
-[command admission](../../Engine/Source/Editor/DurinEd/Private/Editor/EditorCommand.cpp),
-and [Actor mutations](../../Engine/Source/Editor/DurinEd/Private/Actors/ActorMutations.cpp).
+[Core ITransaction](../../../../Engine/Source/Runtime/Core/Public/Misc/ITransaction.h),
+[DObject](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h),
+[object archives](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h),
+[editor transaction records](../../../../Engine/Source/Editor/DurinEd/Public/Transactions/TransactionObjectRecord.h),
+[transactor implementation](../../../../Engine/Source/Editor/DurinEd/Private/Transactions/Transactor.cpp),
+[command admission](../../../../Engine/Source/Editor/DurinEd/Private/Editor/EditorCommand.cpp),
+and [Actor mutations](../../../../Engine/Source/Editor/DurinEd/Private/Actors/ActorMutations.cpp).
 
-Follow the existing [record foundation](../Editor/Architecture/Transactions/TransactionRecords.md),
-[property editing](../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md),
-[serialization](../Runtime/ObjectSystem/Serialization.md),
-[GC](../Runtime/ObjectSystem/GarbageCollection.md), and
-[reflection/defaults](../Runtime/ObjectSystem/ReflectionSystem.md) contracts when changing
+Follow the existing [record foundation](../../../Editor/Architecture/Transactions/TransactionRecords.md),
+[property editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md),
+[serialization](../../../Runtime/ObjectSystem/Serialization.md),
+[GC](../../../Runtime/ObjectSystem/GarbageCollection.md), and
+[reflection/defaults](../../../Runtime/ObjectSystem/ReflectionSystem.md) contracts when changing
 their boundaries. Record intentional changes before depending on them.
 
 ## Implementation Stages
@@ -754,7 +754,7 @@ documented alignment boundary, not byte-for-byte UE behavior.
 Characterization is grouped into record, history, object-event, annotation and
 reinstancing sources under `Engine/Tests/Native/EngineTests/Private/Editor`,
 registered in `EditorOperationTests`. Ordinary construction/lifecycle regressions
-are in [ComponentInstanceLifecycleTests.cpp](../../Engine/Tests/Native/EngineTests/Private/World/ComponentInstanceLifecycleTests.cpp)
+are in [ComponentInstanceLifecycleTests.cpp](../../../../Engine/Tests/Native/EngineTests/Private/World/ComponentInstanceLifecycleTests.cpp)
 under `WorldTests`; transfer/diff and exact-reference contracts belong to
 `CoreTransactionContractTests`. Existing GC, compensation, overflow,
 package, filtering, scope and ownership cases are retained; the three named new
@@ -1016,8 +1016,8 @@ required parity claim, untracked migration consumer, or unsupported validation c
 
 ## Validation And Evidence
 
-Follow [build selection](../Agents/BuildAndRun.md) and
-[test selection/result reuse](../Agents/Testing.md). Do not copy or bypass the
+Follow [build selection](../../../Agents/BuildAndRun.md) and
+[test selection/result reuse](../../../Agents/Testing.md). Do not copy or bypass the
 host DevTool launcher. Re-query the registry at execution time; current target
 names below identify existing coverage, not an immutable test inventory.
 

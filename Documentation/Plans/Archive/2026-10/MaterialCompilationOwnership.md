@@ -4,7 +4,7 @@ Summary: Consolidate material build ownership and cache policy while separating 
 
 Last reviewed: 2026-10-20
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-20
 
 ## Current Status
@@ -54,7 +54,7 @@ native validation used the authorized unsandboxed environment.
 
 Changed-document validation, all-plan lifecycle validation and final diff review
 passed. The lasting ownership contract is recorded in
-[Material System](../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs).
+[Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs).
 
 ## Goal
 
@@ -91,9 +91,9 @@ Depends on Stage 0.
 - [x] Add focused regression coverage for shared cache policy and cancellation
   before start, retaining existing cancellation/fanout/shutdown tests.
 - [x] Validate compiler, lifecycle, shutdown, and Cook targets using the
-  [test workflow](../Agents/Testing.md); these cover changed ownership and all
+  [test workflow](../../../Agents/Testing.md); these cover changed ownership and all
   production caller paths. Inspect affected coverage and bound any additional
-  consumer checks using the [build workflow](../Agents/BuildAndRun.md).
+  consumer checks using the [build workflow](../../../Agents/BuildAndRun.md).
 - [x] Build the Engine target with the Debug Game preset: the extracted service
   and changed non-editor operation stubs must not introduce authoring/DDC
   dependencies into Game.

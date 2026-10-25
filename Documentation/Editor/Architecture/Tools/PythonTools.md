@@ -274,7 +274,7 @@ signed/unsigned 64-bit values and rejects cycles, non-finite and unsupported val
 `PyEditor.cpp` scope implementation (`FPyScopedEditorTransaction` and
 `FMethods::EnterScope/ExitScope/Cancel`). Reference identity and the selected
 alignment boundary are recorded in the
-[transaction alignment plan](../../../Plans/UE58TransactionArchitecture.md#current-status);
+[transaction alignment plan](../../../Plans/Archive/2026-10/UE58TransactionArchitecture.md#current-status);
 the [transactor contract](../Transactions/Transactors.md#transactions-and-scoped-recording)
 owns native recording semantics.
 Construction stores the description; enter begins native recording and returns
