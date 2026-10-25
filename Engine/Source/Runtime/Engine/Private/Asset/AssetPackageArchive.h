@@ -6,6 +6,7 @@
 #include "Asset/AssetReadResult.h"
 #include "Asset/PackageResource.h"
 #include "DObject/Archive.h"
+#include "DObject/PackageValueCodec.h"
 #include "DObject/DObjectGlobals.h"
 
 namespace Durin::AssetPrivate
@@ -46,4 +47,14 @@ namespace Durin::AssetPrivate
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions = {},
 		const FArchiveState& Context = {}) -> FAssetReadResult;
+
+	// Byte-tool restoration may resolve external object references. It is a load
+	// operation; construct-free inspection only calls it for explicit typed reads.
+	auto DecodeReferenceByteToolValue(
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		PackagePrivate::FByteReader& Reader,
+		const std::vector<DObject*>& Objects,
+		uint32 SourceVersion) -> FAssetReadResult;
 }

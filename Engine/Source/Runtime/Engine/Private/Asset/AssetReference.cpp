@@ -1,5 +1,6 @@
 #include "AssetMutationReferenceInternal.h"
 #include "AssetPackageCodec.h"
+#include "AssetPackageArchive.h"
 #include "DObject/PackageValueCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 

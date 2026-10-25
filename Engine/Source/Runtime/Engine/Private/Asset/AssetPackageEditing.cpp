@@ -16,6 +16,21 @@ namespace Durin
 		}
 	}
 
+	namespace AssetPrivate
+	{
+		auto ValidateMutationPackageMetadata(const FMutationPackageMetadata& Metadata,
+			uint64 ObjectCount, const FPackagePath* SourcePath) -> FAssetReadResult
+		{
+			const FPackagePath Path = SourcePath ? *SourcePath
+				: (Metadata.TopLevelAssets.empty() ? FPackagePath{}
+					: Metadata.TopLevelAssets.front().AssetPath.GetPackagePath());
+			if (!ArePackageAssetsValid(Metadata.TopLevelAssets, Path, ObjectCount, Metadata.Dependencies))
+				return {EAssetReadError::CorruptFile,
+					"CorruptRedirector: the package contains invalid exact asset metadata."};
+			return {};
+		}
+	}
+
 	auto CheckAssetPackageMutationAllowed() -> FAssetWriteResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard)

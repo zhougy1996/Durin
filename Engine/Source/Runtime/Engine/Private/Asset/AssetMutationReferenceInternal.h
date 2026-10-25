@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DObject/PackageValueCodec.h"
 
 #include "Asset/Mutation.h"
 #include "Asset/PackageEditing.h"
@@ -10,7 +9,6 @@
 
 namespace Durin::AssetPrivate
 {
-	using FByteReader = PackagePrivate::FByteReader;
 	struct FMutationPackageMetadata
 	{
 		uint32 FormatVersion = 0;
@@ -43,11 +41,4 @@ namespace Durin::AssetPrivate
 		DPackage* Package,
 		const FPackagePath& TargetPath,
 		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetReadResult;
-	auto DecodeReferenceByteToolValue(
-		FProperty* Property,
-		void* Container,
-		uint32 ArrayIndex,
-		FByteReader& Reader,
-		const std::vector<DObject*>& Objects,
-		uint32 SourceVersion) -> FAssetReadResult;
 }
