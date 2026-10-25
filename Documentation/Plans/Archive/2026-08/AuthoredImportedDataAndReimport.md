@@ -1059,7 +1059,7 @@ never overlap native build process trees.
 
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)

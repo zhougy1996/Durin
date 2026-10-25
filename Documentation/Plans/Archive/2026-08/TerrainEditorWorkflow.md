@@ -335,10 +335,10 @@ contracts.
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
-- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
-- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
+- [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 
 ## Related Code
 

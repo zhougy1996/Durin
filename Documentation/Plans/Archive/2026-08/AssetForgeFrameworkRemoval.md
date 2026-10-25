@@ -237,7 +237,7 @@ Dependencies: Stage 2 complete.
 ## Related Documentation
 
 - [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
-- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Asset Data Lifecycle And Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Agent Build And Run](../../../Agents/BuildAndRun.md)

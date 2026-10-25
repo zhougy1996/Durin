@@ -125,7 +125,7 @@ generated components without setting Dirty.
 ## Editor history and viewport interaction
 
 Road structural edits use complete validated `Definition` candidates through
-the [editor transactor and property-editing services](../../Editor/Architecture/Transactors.md).
+the [editor transactor and property-editing services](../../Editor/Architecture/Transactions/Transactors.md).
 Undo/Redo and interactive property-session Cancel restore the accepted graph and
 notify bound preview actors, which rebuild their generated geometry from that
 same definition. Rejected candidates leave the asset, preview and package Dirty

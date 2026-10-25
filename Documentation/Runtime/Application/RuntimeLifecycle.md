@@ -250,7 +250,7 @@ Component dispatch, and lifecycle mutation are defined by
 cancellation, ordering, and World admission are defined by
 [Tick Scheduling](../World/TickScheduling.md). Editor-hosted sessions add the
 isolation and restoration rules in
-[Play In Editor Architecture](../../Editor/Architecture/PlayInEditorArchitecture.md).
+[Play In Editor Architecture](../../Editor/Architecture/LevelEditing/PlayInEditorArchitecture.md).
 
 ## Logging Integration
 
@@ -383,7 +383,7 @@ protocol above.
 - [Viewport Rendering](../Rendering/Pipeline/ViewportRendering.md)
 - [Render Resource Lifecycle](../Rendering/Pipeline/RenderResourceLifecycle.md)
 - [RHI Command Execution](../Rendering/RHI/RHICommandExecution.md)
-- [Play In Editor Architecture](../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Play In Editor Architecture](../../Editor/Architecture/LevelEditing/PlayInEditorArchitecture.md)
 - [Build System](../../Development/Build/BuildSystem.md)
 - [Runtime Variants](../../Development/Build/RuntimeVariants.md)
 - [CPU Profiling](../../Development/Build/Profiling.md)

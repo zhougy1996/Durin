@@ -29,7 +29,7 @@ session must be explicitly reparented before retirement.
 ## Session State
 
 Native and Console automation uses DurinEd's `editor.pie` Toolset through the
-per-editor invocation service. See [Console Toolset integration](ConsoleTools.md)
+per-editor invocation service. See [Console Toolset integration](../Tools/ConsoleTools.md)
 for canonical calls, explicit pause state, and queued invocation.
 
 PIE supports Playing and Paused states plus single-frame stepping. Runtime
@@ -72,7 +72,7 @@ mouse-position, mouse-delta, and wheel snapshot. Only the local
 contexts; a derived controller translates the logical action snapshot into
 `FPawnControlIntent`. Pawn and movement code never read raw key identities.
 UI capture blocks action eligibility without dropping physical release events.
-The [input action contract](../../Runtime/Gameplay/InputActions.md) defines
+The [input action contract](../../../Runtime/Gameplay/InputActions.md) defines
 priority, consumption, cancellation, and held-source suppression.
 Standalone games receive the native window input stream. PIE enables that
 stream only while its embedded scene viewport is focused. Focus loss, input
@@ -102,6 +102,6 @@ labels its target as `Play Window`.
 ## Related Documentation
 
 - `Documentation/Editor/Guides/PlayInEditor.md`
-- `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
+- `Documentation/Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`

@@ -178,7 +178,7 @@ contract family remains explicitly deferred.
 
 - [Editor Asset Support Namespace Refactor](EditorAssetSupportNamespaceRefactor.md)
 - [Editor Common Namespace Refactor](EditorCommonNamespaceRefactor.md)
-- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
 - [Skeletal Asset Editor](../../../Editor/Architecture/SkeletalAssetEditor.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 

@@ -10,7 +10,7 @@ Last reviewed: 2026-10-17
 
 `DSubsystem` is the transient native service base. `DEngineSubsystem` belongs to
 one `DEngine`; `DWorldSubsystem` belongs to one World. The editor module adds
-[Editor subsystems](../../Editor/Architecture/EditorSubsystems.md). Select a scope
+[Editor subsystems](../../Editor/Architecture/Framework/EditorSubsystems.md). Select a scope
 by the endpoint lifetime the service needs. Engine services cannot require a
 current World during initialization. World services are recreated for each PIE
 or Preview World; Engine and Editor services survive those World lifetimes.

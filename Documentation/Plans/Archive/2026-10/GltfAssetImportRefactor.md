@@ -347,7 +347,7 @@ obsolete outputs; and all-or-nothing rollback of already committed package saves
 ## Required Contract References
 
 - [Module ownership](../../../Workspace/CodeModules.md)
-- [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Static mesh building](../../../Runtime/Assets/StaticMeshBuilding.md)
 - [Asset packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)

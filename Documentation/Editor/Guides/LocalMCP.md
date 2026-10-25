@@ -95,7 +95,7 @@ asyncio.run(main())
 
 The SDK performs the handshake and sends session/version headers. A generic HTTP
 POST without initialization is not a complete MCP exchange. The matching architecture
-[contract](../Architecture/MCPTools.md) describes errors and limits.
+[contract](../Architecture/Tools/MCPTools.md) describes errors and limits.
 
 ## Available Tools and Cancellation
 
@@ -177,7 +177,7 @@ the status query itself succeeds. Job IDs belong only to the creating MCP sessio
 Session deletion/expiry cancels its work; an HTTP disconnect alone does not.
 Use the cancel tool for admitted jobs, not the completed submit RPC's request ID.
 No automatic retry, hard termination or rollback is provided. See
-[job limits and ownership](../Architecture/MCPTools.md#python-script-jobs).
+[job limits and ownership](../Architecture/Tools/MCPTools.md#python-script-jobs).
 
 After building the editor and installing the existing SDK dependency below, run
 the application acceptance driver with the host Python:

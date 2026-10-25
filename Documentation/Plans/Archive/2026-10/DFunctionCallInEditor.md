@@ -112,9 +112,9 @@ The annotated method must have a callable definition when its module links.
 - [Generated reflection](../../../Runtime/ObjectSystem/ReflectionSystem.md): `DClass`, type
   registration, class defaults, and property ownership. The empty `DFUNCTION`
   macro is not an implemented function-reflection contract.
-- [Reflected property editing](../../../Editor/Architecture/ReflectedPropertyEditing.md):
+- [Reflected property editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md):
   shared layouts, search, customizations, active property edits, and object hooks.
-- [Transactors](../../../Editor/Architecture/Transactors.md): checked recording results,
+- [Transactors](../../../Editor/Architecture/Transactions/Transactors.md): checked recording results,
   scoped capture, history replay, package checkpoints, and cancellation semantics.
 
 ## Authoring Contract

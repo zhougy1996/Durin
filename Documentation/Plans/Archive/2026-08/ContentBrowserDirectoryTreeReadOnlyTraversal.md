@@ -225,7 +225,7 @@ copying `std::filesystem::path` values per node.
   delete confirmation, and tree/item drag-drop on a deeply expanded tree.
 - [x] Repeat the warm-tree allocation profile and compare it with the Stage 0 baseline.
 - [x] Add the directory-tree snapshot publication and stable-entry traversal invariant
-  to `Documentation/Editor/Architecture/ContentBrowser.md`.
+  to `Documentation/Editor/Architecture/Assets/ContentBrowser.md`.
 
 #### Acceptance Gate
 
@@ -277,7 +277,7 @@ Build and test execution must follow
 
 ## Related Documentation
 
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

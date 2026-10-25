@@ -667,7 +667,7 @@ integration behavior requires it.
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

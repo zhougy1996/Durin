@@ -253,7 +253,7 @@ Build and test execution follows
 - `Documentation/Plans/Archive/2026-07/StaticMeshMaterialSlots.md`
 - `Documentation/Runtime/Rendering/Materials/MaterialSystem.md`
 - `Documentation/Runtime/World/LevelSystem.md`
-- `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
+- `Documentation/Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`
 

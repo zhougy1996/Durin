@@ -387,7 +387,7 @@ gated extension of the semantic token payload.
 
 ## Related Documentation
 
-- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
 - [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)

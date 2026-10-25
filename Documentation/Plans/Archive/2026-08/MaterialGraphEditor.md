@@ -19,7 +19,7 @@ last-known-good preview behavior without changing the M5 program or M6 compiler
 lifecycle architecture.
 
 The lasting ownership and interaction contracts now live in
-[Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md).
+[Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md).
 
 ## Goal
 
@@ -400,9 +400,9 @@ scalability remains deliberately evidence-gated in roadmap milestone 8.
 
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
 - [Material Compile Lifecycle and Derived Data](MaterialCompileLifecycleAndDerivedData.md)
-- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 
 ## Related Code

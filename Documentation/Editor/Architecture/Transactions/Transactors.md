@@ -20,7 +20,7 @@ no-op or unsupported behavior. The base retains listener registration, result
 storage and convenience forwarding. ApplyEditorChange is declared only in
 Transactions/Transactor.h; consumers include that header directly.
 
-Core defines the [runtime transaction contracts](../../Runtime/ObjectSystem/Transactions.md),
+Core defines the [runtime transaction contracts](../../../Runtime/ObjectSystem/Transactions.md),
 including custom changes, context, `ITransaction`, and ordinary
 GameThread pointer `GUndo`. Outermost Begin publishes the pending `FTransaction`;
 End, Cancel, owner retirement and destruction clear it before releasing storage.
@@ -62,7 +62,7 @@ UE 5.8.0 source, CL 53629095, branch `++UE5+Release-5.8`. Relevant UE files are
 `Engine/Source/Runtime/CoreUObject/Private/UObject/Obj.cpp` (`Modify`) and
 `Property.cpp` (`ShouldSerializeValue`), and
 `Engine/Source/Runtime/Engine/Private/Actor.cpp` (`Modify`). The
-[reference identity and behavior matrix](../../Plans/UE58TransactionArchitecture.md#reference-identity-and-reproduction)
+[reference identity and behavior matrix](../../../Plans/UE58TransactionArchitecture.md#reference-identity-and-reproduction)
 records source fingerprints and explicitly separates implemented rules from
 future architecture work. This source version's `Cancel(StartIndex)` cancels the entire active recording,
 including cancellation by an inner scope. It does not restore applied edits.
@@ -102,7 +102,7 @@ creation establishes the flag, children inherit it from their Outer, and known
 saved package activation flags its loaded graph. Explicit low-level callers may
 set or clear it. Templates are excluded from ordinary editor property/script
 editing; native default-graph transactions have explicit
-[runtime admission](../../Runtime/ObjectSystem/Transactions.md#coredobject-boundary).
+[runtime admission](../../../Runtime/ObjectSystem/Transactions.md#coredobject-boundary).
 
 `FTransaction` owns first-before capture and deduplicates objects across every
 nested action. Final-after capture happens at outermost End, so 0, outer write 1,
@@ -261,7 +261,7 @@ type, and exact-identity checks. It bypasses new-edit proposal validation and
 normalization. Distinct target objects receive balanced PreEditUndo/PostEditUndo
 around the complete replay. Per-property notifications precede completion;
 domains retain their derived-state synchronization. See
-[reflected property editing](ReflectedPropertyEditing.md#object-notification-contract).
+[reflected property editing](../PropertyEditing/ReflectedPropertyEditing.md#object-notification-contract).
 
 When a replay record fails, completed records are compensated in reverse order.
 Historical flips are published only after all records and native completion
@@ -332,6 +332,6 @@ participants remain until their buffer is retired.
 ## Related Documentation
 
 - [Transaction records](TransactionRecords.md)
-- [Reflected property editing](ReflectedPropertyEditing.md)
-- [Editor function actions](EditorFunctionActions.md)
-- [Editor tools](EditorTools.md)
+- [Reflected property editing](../PropertyEditing/ReflectedPropertyEditing.md)
+- [Editor function actions](../PropertyEditing/EditorFunctionActions.md)
+- [Editor tools](../Tools/EditorTools.md)

@@ -452,11 +452,11 @@ not overlap build process trees.
 ## Related Documentation
 
 - [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build And Run](../../../Agents/BuildAndRun.md)
 - [Agent Testing](../../../Agents/Testing.md)

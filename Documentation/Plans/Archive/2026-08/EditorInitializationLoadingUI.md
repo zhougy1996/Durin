@@ -427,7 +427,7 @@ Dependencies: Stages 1-4.
 ## Related Documentation
 
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
-- [Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Workspace Framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [UI Style](../../../Editor/Design/UIStyle.md)
 - [Launch Process Boundary Refactor](LaunchProcessBoundaryRefactor.md)

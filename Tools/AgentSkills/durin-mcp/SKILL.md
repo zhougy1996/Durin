@@ -40,7 +40,7 @@ for that version. Do not apply the source launcher to a packaged editor.
 The instructions below are self-contained for connecting to an enabled editor.
 Use live discovery for tool availability and schemas. If source documents are
 available, resolve `Documentation/Editor/Guides/LocalMCP.md` and
-`Documentation/Editor/Architecture/MCPTools.md` from the engine checkout root for
+`Documentation/Editor/Architecture/Tools/MCPTools.md` from the engine checkout root for
 the authoritative contract. Do not resolve them relative to this skill's install
 location or require an engine checkout just to operate an existing connection.
 

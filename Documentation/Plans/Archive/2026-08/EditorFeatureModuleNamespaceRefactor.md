@@ -472,14 +472,14 @@ registry rather than duplicated here when ownership spans an aggregate target.
 
 ## Related Documentation
 
-- [Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
-- [Viewport Editing](../../../Editor/Architecture/ViewportEditing.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
-- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
-- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Workspace Framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
+- [Viewport Editing](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
+- [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
+- [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/LevelEditing/PlayInEditorArchitecture.md)
 - [Skeletal Asset Editor](../../../Editor/Architecture/SkeletalAssetEditor.md)
-- [Static Mesh Level Authoring](../../../Editor/Architecture/StaticMeshLevelMutations.md)
+- [Static Mesh Level Authoring](../../../Editor/Architecture/LevelEditing/StaticMeshLevelMutations.md)
 - [Native Graybox Scene Authoring Investigation](../../../Investigations/NativeGrayboxSceneAuthoring.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 

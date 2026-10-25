@@ -406,7 +406,7 @@ applicable to this implementation.
 
 Lasting contracts now live in [scoped material queries](../../../Runtime/Rendering/Materials/MaterialQueries.md),
 [object lifetime](../../../Runtime/ObjectSystem/GarbageCollection.md#pointer-and-handle-semantics),
-and [editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md).
+and [editor lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md).
 The material-system query section links to its new focused owner rather than
 expanding an already long general specification. Transaction, timer and asset
 compilation documents now distinguish object keys from deferred weak access.

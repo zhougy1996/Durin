@@ -148,7 +148,7 @@ For package persistence, dirty state, source metadata stripping, and cooked
 runtime behavior, see
 [Asset Data Lifecycle And Storage](../../Runtime/Assets/AssetDataLifecycle.md).
 For importer ownership and Scene transaction semantics, see
-[Asset Import Architecture](../Architecture/AssetImportFramework.md).
+[Asset Import Architecture](../Architecture/Assets/AssetImportFramework.md).
 
 Repository ownership and Git LFS behavior are documented in
 [Content Version Control](../../Development/VersionControl/ContentVersionControl.md).

@@ -10,12 +10,12 @@ Last reviewed: 2026-10-21
 
 Level Editor owns selection, search state, identity controls, and one shared
 `FPropertyView`. Its `FLevelDetailLayoutBuilder` adapts the
-[shared Details layout](PropertyDetailsViews.md#object-view-customization).
+[shared Details layout](../PropertyEditing/PropertyDetailsViews.md#object-view-customization).
 `FLevelDetailHostContext` supplies scene services and per-layout
 `ComponentDetailsTargets`; these types remain in LevelEditor.
 
 All reflected and custom rows submit edits through the host-owned view and
-transactor. The [property editing pipeline](ReflectedPropertyEditing.md) owns
+transactor. The [property editing pipeline](../PropertyEditing/ReflectedPropertyEditing.md) owns
 validation, snapshots, notifications, and history. Hosts handle owner changes
 before drawing controls that might use the previous target.
 
@@ -107,8 +107,8 @@ Actor Label uses transactional string storage and the ordinary
 Modify/set/property-notification flow. Label-only edits refresh the Outliner
 without reconstruction. Creation and duplication use `SetInitialActorLabel`
 before publication; internal Name and display Label remain independent. See
-[Level naming](../../Runtime/World/LevelSystem.md) and the
-[business-consumer history audit](Transactors.md#structural-history-and-barriers).
+[Level naming](../../../Runtime/World/LevelSystem.md) and the
+[business-consumer history audit](../Transactions/Transactors.md#structural-history-and-barriers).
 
 ## Generated Components
 
@@ -133,11 +133,11 @@ Slot assignment, replacement, and reset snapshot the reflected collection root,
 locate the positional entry in draft storage, and use the fixed-width slot index
 as the logical transaction identity. Clear All edits the same root as a whole.
 Storage validation, dormant entries, and canonical material binding are owned by
-[Material system](../../Runtime/Rendering/Materials/MaterialSystem.md#renderer-boundary).
+[Material system](../../../Runtime/Rendering/Materials/MaterialSystem.md#renderer-boundary).
 
 ## Related Documentation
 
-- [Spline authoring and stable point identity](../../Runtime/World/SplineSystem.md#level-editor-authoring)
+- [Spline authoring and stable point identity](../../../Runtime/World/SplineSystem.md#level-editor-authoring)
 - [Viewport editing](ViewportEditing.md)
 
 ## Related Code

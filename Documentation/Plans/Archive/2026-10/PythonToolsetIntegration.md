@@ -124,7 +124,7 @@ supported shutdown behavior are recorded below.
   `Build/.agent-state/logs/20261016-164524-768145-31964-DurinEditor.log`.
   Stage 4 logs additionally prove traceback presentation and active-script closure.
   Scripts and marker files remain under ignored `Build/Python/`.
-- Lasting behavior is published in the [Python adapter](../../../Editor/Architecture/PythonTools.md)
+- Lasting behavior is published in the [Python adapter](../../../Editor/Architecture/Tools/PythonTools.md)
   and [script guide](../../../Editor/Guides/PythonScripts.md); module ownership and task
   routing are updated. Changed-document, all-plan and diff validation pass.
 - Limitations: trusted scripts, one worker, shared import state, packaged Windows
@@ -139,8 +139,8 @@ invoke Toolsets belonging to one selected editor, receive final native results,
 and report Python exceptions and tool diagnostics without blocking GameThread.
 
 Use the existing [Core tool contracts](../../../Runtime/Core/Tools.md),
-[editor tool service](../../../Editor/Architecture/EditorTools.md), and
-[MCP adapter](../../../Editor/Architecture/MCPTools.md) as authorities for implemented
+[editor tool service](../../../Editor/Architecture/Tools/EditorTools.md), and
+[MCP adapter](../../../Editor/Architecture/Tools/MCPTools.md) as authorities for implemented
 behavior. This document describes proposed additions, not current APIs.
 
 ## Scope and Selected Design

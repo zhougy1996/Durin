@@ -16,7 +16,7 @@ SaveArray stub; native spline point edits no longer require an unconditional
 whole-owner Modify. Ordered inverses and delayed flips preserve checked mixed
 record compensation. Element hard edges share the existing persistent-reference
 categories, including recreated default graphs; weak edges retain exact semantics.
-Implemented contracts live in [array operation records](../Editor/Architecture/TransactionRecords.md#array-operation-records).
+Implemented contracts live in [array operation records](../Editor/Architecture/Transactions/TransactionRecords.md#array-operation-records).
 
 Consumer scope was narrowed to eligible direct array edits after auditing Engine,
 Sandbox and RoadWeaver. Property/RoadNet proposals may normalize or rebuild the
@@ -65,7 +65,7 @@ unsupported. Opaque commands retain exact participants and require checked
 replacement or expire before replay. The explicit native hook reuses the existing
 history participant, whole-entry retirement and package checkpoint policy.
 Implemented rules live in [Runtime Transactions](../Runtime/ObjectSystem/Transactions.md)
-and [Transaction Records](../Editor/Architecture/TransactionRecords.md).
+and [Transaction Records](../Editor/Architecture/Transactions/TransactionRecords.md).
 
 Windows/MSVC Debug acceptance passed: 1312 isolated editor cases across 21 targets,
 213 shared-process EditorOperationTests cases, and 19 isolated runtime-only
@@ -98,8 +98,8 @@ business admission. Level records own serialized membership/camera fields;
 native presence and attachment adapters complete ownership and registration.
 The consumer audit covers Engine, Sandbox and RoadWeaver and records each
 remaining custom command's domain rationale in
-[Transactors](../Editor/Architecture/Transactors.md). Implemented replay rules
-live in [Transaction Records](../Editor/Architecture/TransactionRecords.md) and
+[Transactors](../Editor/Architecture/Transactions/Transactors.md). Implemented replay rules
+live in [Transaction Records](../Editor/Architecture/Transactions/TransactionRecords.md) and
 [Level System](../Runtime/World/LevelSystem.md).
 
 UE's Save-all-before-Load order and whole-transaction no-op decision are retained.
@@ -241,7 +241,7 @@ template-aware logical references and explicit array operation records. Custom r
 modified participants separately from GC dependencies; single-object declarations
 bind their target and composites supply summaries, hooks and affected packages.
 
-The existing [transactor contract](../Editor/Architecture/Transactors.md) remains
+The existing [transactor contract](../Editor/Architecture/Transactions/Transactors.md) remains
 a description of the current implementation during migration. Its scope and
 custom-record rules have now been checked against the pinned UE 5.8 source;
 unimplemented features in this plan are not current production guarantees.
@@ -479,8 +479,8 @@ Primary implementation sites are
 [command admission](../../Engine/Source/Editor/DurinEd/Private/Editor/EditorCommand.cpp),
 and [Actor mutations](../../Engine/Source/Editor/DurinEd/Private/Actors/ActorMutations.cpp).
 
-Follow the existing [record foundation](../Editor/Architecture/TransactionRecords.md),
-[property editing](../Editor/Architecture/ReflectedPropertyEditing.md),
+Follow the existing [record foundation](../Editor/Architecture/Transactions/TransactionRecords.md),
+[property editing](../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md),
 [serialization](../Runtime/ObjectSystem/Serialization.md),
 [GC](../Runtime/ObjectSystem/GarbageCollection.md), and
 [reflection/defaults](../Runtime/ObjectSystem/ReflectionSystem.md) contracts when changing

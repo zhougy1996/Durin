@@ -720,8 +720,8 @@ all-plan, and all-roadmap validation pass.
   compiler, variant, Cook, and renderer contracts.
 - [Material Expression Building](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md)
   owns lasting emitter, MIR, function, and semantic rules.
-- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
-  and [Material Editor Lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)
+- [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
+  and [Material Editor Lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md)
   own editor behavior.
 - Coordinate vertex-factory/pass bindings with
   [Geometry Submission Refactor](../2026-10/GeometrySubmissionRefactor.md); do not add a

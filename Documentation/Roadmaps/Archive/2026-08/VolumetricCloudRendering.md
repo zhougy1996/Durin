@@ -384,7 +384,7 @@ The roadmap is complete when:
 - [RHI resource transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
 - [Minimal GBuffer contract](../../../Runtime/Rendering/Pipeline/GBuffer.md)
 - [Deferred directional lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
-- [Volumetric cloud authoring](../../../Editor/Architecture/VolumetricCloudAuthoring.md)
+- [Volumetric cloud authoring](../../../Editor/Architecture/LevelEditing/VolumetricCloudAuthoring.md)
 - [Volumetric cloud authoring guide](../../../Editor/Guides/VolumetricCloudAuthoring.md)
 - [Viewport rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)

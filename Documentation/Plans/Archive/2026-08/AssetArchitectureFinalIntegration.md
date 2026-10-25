@@ -127,5 +127,5 @@ expanding this task's mutation scope.
 - [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)

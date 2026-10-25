@@ -399,7 +399,7 @@ Dependencies: Stages 1-2 acceptance gates.
 
 - [Viewport Picking Roadmap](../../../Roadmaps/Archive/2026-08/ViewportPicking.md)
 - [Viewport Picking Contract Plan](ViewportPickingContract.md)
-- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)

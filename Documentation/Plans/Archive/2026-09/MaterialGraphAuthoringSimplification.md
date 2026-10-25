@@ -54,7 +54,7 @@ the parameter-panel and nested-instance regressions; the explicit Open Parent
 Material control uses the existing asset workspace navigation.
 
 Implementation contracts are maintained in [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md),
-[Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md) and
+[Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md) and
 [Canonical Resave](../../../Editor/Guides/CanonicalResave.md). This plan preserves the
 instance configuration/publication/Cook lifecycle owned by
 [Material Instance Shader Variants](MaterialInstanceShaderVariants.md).

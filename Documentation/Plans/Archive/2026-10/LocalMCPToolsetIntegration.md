@@ -106,7 +106,7 @@ survive text limits in result metadata. MainFrame's Stage 2 build also passed.
 - Raw evidence: ignored Build/.agent-state/logs, Build/MCP/sdk-native.log, and
   Build/MCP/requirements.txt (the SDK dependency snapshot). Reproduce using the
   checked-in driver and [connection guide](../../../Editor/Guides/LocalMCP.md).
-- Lasting contracts live in the [MCP adapter](../../../Editor/Architecture/MCPTools.md)
+- Lasting contracts live in the [MCP adapter](../../../Editor/Architecture/Tools/MCPTools.md)
   and connection guide, with routing/module ownership and external handoff updated.
   Changed-document validation, all-plan lifecycle validation, and diff checks pass.
 
@@ -186,8 +186,8 @@ introduce a general HTTP/networking module solely for this delivery.
 Authoritative existing contracts:
 
 - [Toolset contracts](../../../Runtime/Core/Tools.md).
-- [Editor tool service and external adapter handoff](../../../Editor/Architecture/EditorTools.md#external-adapter-handoff).
-- [Console integration regression contract](../../../Editor/Architecture/ConsoleTools.md).
+- [Editor tool service and external adapter handoff](../../../Editor/Architecture/Tools/EditorTools.md#external-adapter-handoff).
+- [Console integration regression contract](../../../Editor/Architecture/Tools/ConsoleTools.md).
 
 Out of scope: Resources, Prompts, stdio bridges, legacy HTTP+SSE, remote hosting,
 OAuth infrastructure, multiple simultaneous protocol implementations, general
@@ -202,7 +202,7 @@ support only `2025-06-18`. Use initialize/initialized, bounded HTTP sessions,
 session-scoped notifications/cancelled, and DELETE session termination. A response
 disconnect does not cancel admitted work. Keep six live call streams, 32 retained
 calls, and 16 sessions with ten-minute idle expiry; reserve HTTP workers for
-control traffic. The implemented [adapter contract](../../../Editor/Architecture/MCPTools.md)
+control traffic. The implemented [adapter contract](../../../Editor/Architecture/Tools/MCPTools.md)
 owns current wire semantics, limits, and lifecycle. The sections below preserve
 the original staged design and acceptance history; their superseded protocol
 details are not current implementation requirements.

@@ -9,7 +9,7 @@ Last reviewed: 2026-10-18
 
 DurinMCP owns protocol handling, transport policy, schema/value conversion,
 discovery names, pending MCP calls and script job ownership. It depends privately on DurinEd, DurinPython and
-[HTTPServer](../../Runtime/Networking/HTTPServer.md). HTTPServer owns listeners,
+[HTTPServer](../../../Runtime/Networking/HTTPServer.md). HTTPServer owns listeners,
 socket lifecycle, HTTP routing, and chunked response writes, and privately wraps
 the pinned MIT cpp-httplib dependency. MCP authentication, sessions, SSE message
 formatting, heartbeats, and invocation cancellation remain in DurinMCP. Core's
@@ -33,7 +33,7 @@ EnsureRuntime on GameThread. Python initialization failure omits script tools an
 logs the reason while ordinary MCP remains available. UI and MCP use the same
 interpreter with separate native sessions. The host stops MCP before Python.
 
-See [connection setup](../Guides/LocalMCP.md) and the authoritative
+See [connection setup](../../Guides/LocalMCP.md) and the authoritative
 [editor service contract](EditorTools.md#external-adapter-handoff).
 
 ## Protocol Surface
@@ -86,7 +86,7 @@ Tools/list returns the complete catalog in name order, without pagination or
 continuation cursors. A supplied cursor is rejected with -32602. The response byte
 budget applies to the complete result; excess data fails instead of omitting tools.
 
-The [Core schema vocabulary](../../Runtime/Core/Tools.md) maps to JSON Schema
+The [Core schema vocabulary](../../../Runtime/Core/Tools.md) maps to JSON Schema
 closed objects, required properties, defaults, arrays, enums, and numeric bounds.
 Signed and unsigned integer types retain their natural 64-bit bounds. Native
 string size bounds count UTF-8 bytes, so `x-durin-minUtf8Bytes` and
@@ -242,6 +242,6 @@ cancellation, errors, and teardown. The explicit `DevTool mcp sdk-test` gate use
 the official Python SDK 2.3.0 against the same native host through the checked-in
 `MCPClientSmoke.py` driver. Its host case is disabled in ordinary native runs and
 explicitly enabled by the driver. Missing SDK prerequisites or a host that does
-not execute and pass fail the gate; see [connection setup](../Guides/LocalMCP.md#reproduce-sdk-acceptance)
+not execute and pass fail the gate; see [connection setup](../../Guides/LocalMCP.md#reproduce-sdk-acceptance)
 for macOS and Windows reproduction. No GPU or application-hosted test is required
 for these paths.

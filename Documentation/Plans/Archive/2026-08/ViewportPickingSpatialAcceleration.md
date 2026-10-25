@@ -505,7 +505,7 @@ path was added.
 - [Viewport Picking Roadmap](../../../Roadmaps/Archive/2026-08/ViewportPicking.md)
 - [Viewport Picking Contract Plan](ViewportPickingContract.md)
 - [Skeletal Viewport Picking Plan](SkeletalViewportPicking.md)
-- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)

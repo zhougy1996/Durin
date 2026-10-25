@@ -159,7 +159,7 @@ the destination. AssetForgeBuiltins infers first-import texture settings from
 filename hints and decoded source content. Errors use host notifications;
 successful persistence refreshes and reveals the asset. A failed save exposes
 `Import > Retry Texture Saves` while retaining the complete live asset. See
-[Source File Workflows](../Guides/SourceFileWorkflows.md) for automatic defaults.
+[Source File Workflows](../../Guides/SourceFileWorkflows.md) for automatic defaults.
 
 Assets open through registered asset editors. ContentBrowser's private
 `FContentBrowserOperationService` owns browser mutation orchestration. Panel
@@ -303,7 +303,7 @@ partial asset effects and backup diagnostics; there is no mixed-operation crash
 atomicity guarantee. A committed relocation with pending registry projection
 retains the ordinary moves. Source cleanup only removes empty directories;
 remaining redirectors or cleanup errors produce a warning rather than a false
-move failure. See [asset mutation](../../Runtime/Assets/AssetCatalogAndMutation.md#synchronous-relocation).
+move failure. See [asset mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md#synchronous-relocation).
 
 The Content Browser enumerates and navigates only automatically scanned mounts.
 Filesystem-backed creation and rename operations additionally require the owning
@@ -431,6 +431,6 @@ unrelated global history commands do not steal Content Browser focus.
 
 - [Asset Import Architecture](AssetImportFramework.md)
 - [Asset Thumbnails](AssetThumbnails.md)
-- [Source File Workflows](../Guides/SourceFileWorkflows.md)
-- [Canonical Resave](../Guides/CanonicalResave.md)
-- [StaticMesh Inspector](../Guides/StaticMeshInspector.md)
+- [Source File Workflows](../../Guides/SourceFileWorkflows.md)
+- [Canonical Resave](../../Guides/CanonicalResave.md)
+- [StaticMesh Inspector](../../Guides/StaticMeshInspector.md)

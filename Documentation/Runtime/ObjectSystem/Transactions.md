@@ -12,7 +12,7 @@ Last reviewed: 2026-10-21
 Core forward-declares object and reflected-property types; it does not include
 CoreDObject or an editor module to define a transaction or custom change.
 The editor owns the active recorder and application history, as described in
-[Transactors](../../Editor/Architecture/Transactors.md).
+[Transactors](../../Editor/Architecture/Transactions/Transactors.md).
 
 `Misc/Transaction.h` owns `FCommandChange`, its synchronous Apply/Revert result,
 `ETransactionOperation`, transaction context and operation identity allocation.
@@ -45,7 +45,7 @@ adapter. It supports insert, remove and equal-length range replacement with
 nonthrowing element relocation. Allocation preparation precedes capture; no live
 vector address enters history. A borrowed reflected struct path can locate a
 nested array. Unsupported or callback-driven mutations must select a whole-object
-baseline before editing. See [array operation records](../../Editor/Architecture/TransactionRecords.md#array-operation-records)
+baseline before editing. See [array operation records](../../Editor/Architecture/Transactions/TransactionRecords.md#array-operation-records)
 for replay, fallback and cost boundaries. `FArrayOps` version 3 adds the typed
 Splice callback; it does not add operation semantics to maps.
 

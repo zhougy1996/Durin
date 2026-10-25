@@ -53,7 +53,7 @@ accepted. Invalid JSON/UTF-8, duplicate or unknown fields, incompatible types,
 fractional integer inputs, and integer overflow are rejected. Nonnegative JSON
 integers are converted to the declared signed/unsigned type only after range
 checking, preserving 64-bit values. `FJsonDocument` remains private to this
-adapter; requests contain deep-owned [Core tool values](../../Runtime/Core/Tools.md).
+adapter; requests contain deep-owned [Core tool values](../../../Runtime/Core/Tools.md).
 
 Command text and opened file bytes each have a 1 MiB limit. File size is checked
 before allocation through the bounded Core file reader. Conversion also enforces
@@ -82,7 +82,7 @@ replacement editor.
 LevelEditor registers the module-owned `editor.pie` Toolset at module startup and
 unregisters it before destroying its native bindings. Each handler resolves its
 admitting host through `GetToolEditor(Context)` and calls its
-[`DLevelEditorSubsystem`](EditorSubsystems.md#level-editor-play-controls).
+[`DLevelEditorSubsystem`](../Framework/EditorSubsystems.md#level-editor-play-controls).
 The subsystem owns domain checks and delegates PIE lifetime to `DEditorEngine`;
 handlers retain tool metadata and result conversion. The dispatcher adds no implicit Undo transaction.
 All successful results contain `message` and a `state` field of `stopped`,

@@ -95,7 +95,7 @@ clean.
 Editor viewport picking uses the renderer's HitProxy pass and GPU readback.
 LOD resources retain no dedicated CPU picking hierarchy. Collision acceleration
 belongs to PhysicsCore geometry resources published through BodySetup. See
-[Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+[Viewport Editing Architecture](../../../Editor/Architecture/LevelEditing/ViewportEditing.md)
 for picking behavior.
 
 `IsReadyForRendering()` requires the selected LOD's vertex buffers, index
@@ -178,7 +178,7 @@ StaticMesh exposes nonblocking render-resource status, a nonzero resource
 revision, and validated LOD 0 local bounds to the editor thumbnail provider.
 Provider ownership, framing, material resolution, revision revalidation,
 persistence, failure, and shutdown behavior are owned by
-[Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md).
+[Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md).
 
 ## Vertex Streams and Declaration
 

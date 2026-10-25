@@ -70,6 +70,6 @@ Depends on Stage 1. Outcome: automated evidence covers isolation and lifecycle.
 - [x] Run relevant material/editor tests and build the runnable editor using the
   [build workflow](../../../Agents/BuildAndRun.md) and
   [test workflow](../../../Agents/Testing.md).
-- [x] Update [material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [x] Update [material graph operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
   with the implemented document contract and report any omitted manual UI checks.
 - [x] Validate documentation and complete this plan with evidence.

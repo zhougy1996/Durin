@@ -16,7 +16,7 @@ the SDK before configuring/building the editor:
 
 For macOS native-host verification, an explicit same-version GIL SDK may be
 selected with `./DevTool configure -DDURIN_PYTHON_SDK_ROOT=/absolute/sdk`.
-Its layout and code-signing requirements are in the [runtime contract](../Architecture/PythonTools.md#ownership-and-runtime).
+Its layout and code-signing requirements are in the [runtime contract](../Architecture/Tools/PythonTools.md#ownership-and-runtime).
 This does not install or search the user's system Python.
 
 Then follow [build/run guidance](../../Agents/BuildAndRun.md). Python is optional;
@@ -309,7 +309,7 @@ Use ScopedEditorTransaction when multiple native edits should share one history
 entry. A job alone does not create a transaction. Completed edits remain if a
 later operation fails or the job is cancelled.
 
-See the [adapter contract](../Architecture/PythonTools.md) for ownership,
+See the [adapter contract](../Architecture/Tools/PythonTools.md) for ownership,
 conversion rules, resource limits and shutdown behavior.
 For agent submission, polling and cancellation over authenticated local MCP, see
 the [MCP script workflow](LocalMCP.md#submit-inspect-and-cancel-python-scripts).

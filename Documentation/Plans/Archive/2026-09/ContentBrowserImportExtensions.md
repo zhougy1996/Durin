@@ -403,8 +403,8 @@ Gaps to close:
 
 ## Related Documentation
 
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
-- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
+- [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

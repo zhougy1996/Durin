@@ -46,7 +46,7 @@ auto NormalizeSettings() -> void;
 ```
 
 `CallInEditor` opts into the
-[Details action adapter](../../Editor/Architecture/EditorFunctionActions.md).
+[Details action adapter](../../Editor/Architecture/PropertyEditing/EditorFunctionActions.md).
 Only void/no-argument signatures are eligible for that adapter, including explicit
 layout placement and execution admission. Parameterized or returning functions
 remain reflected even when marked `CallInEditor`, but do not produce buttons.

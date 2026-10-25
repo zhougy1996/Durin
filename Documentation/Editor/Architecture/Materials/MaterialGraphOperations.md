@@ -56,7 +56,7 @@ independent of display order. The output terminal stores `bUseMaterialAttributes
 shows eight pixel property inputs; true shows Material Attributes. The independent
 World Position Offset input remains visible in both modes. Both pixel connection
 sets, the WPO connection and defaults persist across mode changes. WPO uses an
-ordinary terminal input address; [vertex evaluation](../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md)
+ordinary terminal input address; [vertex evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md)
 owns stage rules and the separate Vertex Interpolator expression.
 Connections and edits address those keys. Additional domains must define their
 pin schema and validation/migration policy in Engine; canvas rendering consumes
@@ -236,7 +236,7 @@ legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
 catalog entries.
 
 Engine class-associated descriptions own names, search aliases, input labels and
-authored shapes; see [expression descriptions](../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md#class-associated-authoring-descriptions).
+authored shapes; see [expression descriptions](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md#class-associated-authoring-descriptions).
 `MaterialGraphExpressionRegistry` binds those descriptions to editor category,
 creation kind and palette policy by reflected class. Initialization validates
 unique registrations and complete direct-creation shapes once; class and
@@ -560,7 +560,7 @@ parameter references require one validated publication and compensation boundary
 Sparse GUID-keyed presentation gestures preserve unrelated positions/labels;
 parameter gestures replay through the owner's expression-backed parameter setter.
 These retained custom responsibilities and participants are listed in the
-[transactor consumer audit](Transactors.md#structural-history-and-barriers).
+[transactor consumer audit](../Transactions/Transactors.md#structural-history-and-barriers).
 
 Abandoned or rejected edit scopes restore local writes without revisions or
 notifications. This domain compensation does not change generic `Modify()` or
@@ -722,10 +722,10 @@ Surface movement persist presentation through ordinary transactions.
 
 ## Related documentation
 
-- [Material System](../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Reflected Property Editing](ReflectedPropertyEditing.md)
-- [Workspace Framework](WorkspaceFramework.md)
-- [Asset Catalog and Mutation](../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Reflected Property Editing](../PropertyEditing/ReflectedPropertyEditing.md)
+- [Workspace Framework](../Framework/WorkspaceFramework.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 
 ## Native validation
 

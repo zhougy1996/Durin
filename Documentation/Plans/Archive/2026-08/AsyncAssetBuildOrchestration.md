@@ -25,7 +25,7 @@ the mounted-source and Texture2D adapter. `EditorOperationTests` passes 5/5,
 `EditorAssetWorkflowTests` passes 89 cases with its existing Windows
 directory-symlink privilege skip, and the Debug DurinEditor `all` build passes.
 The lasting ownership and completion contract is recorded in
-`Documentation/Editor/Architecture/AsyncAssetOperations.md` and
+`Documentation/Editor/Architecture/Assets/AsyncAssetOperations.md` and
 `Documentation/Runtime/Assets/AssetDataLifecycle.md`.
 
 ## Goal

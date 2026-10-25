@@ -784,6 +784,6 @@ evidence for those guarantees.
 - [Asset packages](../../../Runtime/Assets/AssetPackages.md)
 - [BulkData](../../../Runtime/Assets/BulkData.md)
 - [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
-- [Transactors](../../../Editor/Architecture/Transactors.md)
+- [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
+- [Transactors](../../../Editor/Architecture/Transactions/Transactors.md)
 - [Render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)

@@ -312,7 +312,7 @@ Same-owner submissions from inside this barrier are rejected. New submissions
 then start with no active predecessor; no latest-wins serial is needed. Storage-only
 source recompression preserves semantic identity and retained read handles.
 Editor save and compensation adapters consume this terminal contract through
-[Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md).
+[Async Asset Operations](../../Editor/Architecture/Assets/AsyncAssetOperations.md).
 
 ## Proven Reuse Boundary
 

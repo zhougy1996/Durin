@@ -187,7 +187,7 @@ wins over both strong pointers and manual roots.
 
 ## Collector-Enumerated Transaction Records
 
-DurinEd's [transaction record foundation](../../Editor/Architecture/TransactionRecords.md)
+DurinEd's [transaction record foundation](../../Editor/Architecture/Transactions/TransactionRecords.md)
 uses the same native-reference boundary without adding a new GC root source.
 CoreDObject's `FPersistentObjectRef` reports references only when its reachable
 owner explicitly traverses the non-reflected record. Ordinary references preserve

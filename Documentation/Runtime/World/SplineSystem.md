@@ -204,7 +204,7 @@ silently select a different logical point.
 
 See [Scene Viewport Navigation](../../Editor/Guides/SceneViewportNavigation.md)
 for the user workflow and
-[Viewport Editing Architecture](../../Editor/Architecture/ViewportEditing.md)
+[Viewport Editing Architecture](../../Editor/Architecture/LevelEditing/ViewportEditing.md)
 for mode, selection, input, and gizmo ownership.
 
 ## Standalone SplineMesh Component

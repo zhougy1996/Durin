@@ -9,7 +9,7 @@ Completed: 2026-09-22
 
 ## Current Status
 
-Implemented unified physical preflight and journaled ordinary-file moves, batched asset relocation, folder rename reuse, and owned path drag payloads for mixed selections. Single-asset payload compatibility is retained. The owning [Content Browser contract](../../../Editor/Architecture/ContentBrowser.md#operations) documents the behavior and failure limits.
+Implemented unified physical preflight and journaled ordinary-file moves, batched asset relocation, folder rename reuse, and owned path drag payloads for mixed selections. Single-asset payload compatibility is retained. The owning [Content Browser contract](../../../Editor/Architecture/Assets/ContentBrowser.md#operations) documents the behavior and failure limits.
 
 Validation on 2026-09-22: `DevTool test affected --report` passed ContentBrowserWorkflowTests, EditorAssetWorkflowTests, StaticMeshThumbnailTests, and ThumbnailTests. `DevTool build --target ContentBrowser` passed. New tests cover mixed relocation, ordinary multi-selection, empty directories, duplicate targets, ownership protection, restoration, failed restoration without overwriting replacement content, committed projection failure, and real ImGui payload production. Two existing symlink cases are skipped because Windows does not grant symlink creation privileges. Native UI tests run without an OS window; an interactive editor smoke test was not run.
 

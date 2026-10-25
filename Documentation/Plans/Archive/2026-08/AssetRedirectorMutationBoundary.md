@@ -460,8 +460,8 @@ now own the implemented boundary, and all documentation validators passed.
 - [Asset Catalog and Load Boundary Plan](AssetCatalogAndLoadBoundary.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

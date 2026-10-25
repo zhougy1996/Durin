@@ -404,7 +404,7 @@ reversed the dependency so AssetTools consumes them.
 
 ## Related Documentation
 
-- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)

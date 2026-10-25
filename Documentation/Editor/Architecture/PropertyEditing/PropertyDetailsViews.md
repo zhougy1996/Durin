@@ -8,7 +8,7 @@ Last reviewed: 2026-10-16
 
 The [property editing pipeline](ReflectedPropertyEditing.md) owns detached
 validation, notifications, sessions, and history submission. This document owns
-presentation and composition; [Level Editor Details](LevelEditorDetails.md)
+presentation and composition; [Level Editor Details](../LevelEditing/LevelEditorDetails.md)
 owns Actor/Component aggregation.
 
 ## View Ownership And Submission
@@ -114,7 +114,7 @@ search, table identity, host context, and empty-state presentation are options.
 
 A host may supply its own `IDetailHostContext` extension or no extension.
 The extension must outlive its layout and row callbacks. Host-specific types
-remain in their owning editor module; see [Level Editor Details](LevelEditorDetails.md).
+remain in their owning editor module; see [Level Editor Details](../LevelEditing/LevelEditorDetails.md).
 
 Details owns only the inspected object, search input, table, and customization
 dispatch. It contains no Actor or static-mesh type branches. Real property rows
@@ -135,7 +135,7 @@ widgets instead of expanding into member rows.
 ## Typed Metadata Presentation
 
 Authoring syntax, applicability, and runtime metadata ownership are defined by
-[Property reflection](../../Runtime/ObjectSystem/PropertyReflection.md#typed-authoring-metadata).
+[Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md#typed-authoring-metadata).
 
 The generic property view reads `FProperty::GetTypedMetadata()` for first-party
 presentation. `DisplayName` replaces the humanized field label, `ToolTip` is
@@ -149,7 +149,7 @@ raw strings.
 
 Hard-bound checks run against the complete detached draft before live mutation
 or session capture. Their applicability and exact numeric behavior are owned by
-[Property reflection](../../Runtime/ObjectSystem/PropertyReflection.md#typed-authoring-metadata).
+[Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md#typed-authoring-metadata).
 
 ## Container Controls
 
@@ -164,7 +164,7 @@ inserting and then renaming a live entry.
 
 The generic weak-reference row reports null, live, expired, or type-mismatched
 state and permits an explicit clear. It does not offer a durable asset picker;
-weak-reference storage and retention follow [Property reflection](../../Runtime/ObjectSystem/PropertyReflection.md#soft-and-weak-references).
+weak-reference storage and retention follow [Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md#soft-and-weak-references).
 
 `LoadSoftObject` returns `FPropertySoftLoadResult` with owned location, path,
 and typed storage/accessor/asset failure context. Failure clears the output

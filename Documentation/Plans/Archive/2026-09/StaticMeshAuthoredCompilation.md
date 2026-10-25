@@ -497,7 +497,7 @@ Use [build workflow](../../../Agents/BuildAndRun.md) and
 [testing workflow](../../../Agents/Testing.md), resolving native targets at execution.
 Contracts: [asset compilation](../../../Runtime/Assets/AssetCompilation.md),
 [asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
-[async editor operations](../../../Editor/Architecture/AsyncAssetOperations.md), and
+[async editor operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md), and
 [StaticMesh rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md).
 
 ## Related Code

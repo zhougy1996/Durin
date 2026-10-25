@@ -25,7 +25,7 @@ the current member, then decodes only into detached reflected storage.
 `EditorOperationTests` (25 tests), and `EditorPropertyTests` (32 tests) passed
 on `MacOS-arm64-Debug-DurinEditor`. The complete registered `all` profile build
 also passed. Lasting contracts are recorded in
-[Transaction Record Foundation](../../../Editor/Architecture/TransactionRecords.md)
+[Transaction Record Foundation](../../../Editor/Architecture/Transactions/TransactionRecords.md)
 and [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md). The active
 `FTransactionManager` remains the only user-visible history; P1 may now begin.
 

@@ -56,7 +56,7 @@ outcomes. Expected does not add retries, rollback, ownership, or durability.
 This plan records migration decisions and validation history. Current API and
 ownership contracts are maintained by their owning domains:
 
-- [Asset import](../../../Editor/Architecture/AssetImportFramework.md): detached values,
+- [Asset import](../../../Editor/Architecture/Assets/AssetImportFramework.md): detached values,
   validation, hints, submission, rebuilds and returned scene reports.
 - [Asset packages](../../../Runtime/Assets/AssetPackages.md): synchronous/async loading,
   soft resolution, caller-owned reports, dependency residency and save effects.

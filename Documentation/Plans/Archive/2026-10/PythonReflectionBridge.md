@@ -914,7 +914,7 @@ loading and the interpreter-unavailable path were exercised; macOS/other-platfor
 SDK and ABI loader behavior were not executed or inferred from these results.
 
 Lasting discovery, declaration generation, copying, error, type and limitation
-contracts are owned by [Python architecture](../../../Editor/Architecture/PythonTools.md)
+contracts are owned by [Python architecture](../../../Editor/Architecture/Tools/PythonTools.md)
 and the [script guide](../../../Editor/Guides/PythonScripts.md). The generation workflow
 writes `Build/PythonStubs/durin/__init__.pyi`; no generated business bindings or
 versioned declaration snapshots are introduced.
@@ -944,11 +944,11 @@ platform gate is introduced by default. Store raw receipts under ignored Build/.
 - [Native function reflection](../../../Runtime/ObjectSystem/FunctionReflection.md)
 - [Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md)
 - [Reflection generation](../../../Development/Tooling/ReflectionGeneration.md)
-- [Python runtime and jobs](../../../Editor/Architecture/PythonTools.md)
+- [Python runtime and jobs](../../../Editor/Architecture/Tools/PythonTools.md)
 - [Python script guide](../../../Editor/Guides/PythonScripts.md)
-- [Editor subsystem and Actor contracts](../../../Editor/Architecture/EditorSubsystems.md)
-- [Reflected property editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Editor transactor](../../../Editor/Architecture/Transactors.md)
+- [Editor subsystem and Actor contracts](../../../Editor/Architecture/Framework/EditorSubsystems.md)
+- [Reflected property editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
+- [Editor transactor](../../../Editor/Architecture/Transactions/Transactors.md)
 - [UE runtime Python API generation](https://dev.epicgames.com/documentation/en-us/unreal-engine/scripting-the-unreal-editor-using-python#abouttheunrealeditorpythonapi)
 - [UE subsystem access](https://dev.epicgames.com/documentation/en-us/unreal-engine/programming-subsystems-in-unreal-engine)
 

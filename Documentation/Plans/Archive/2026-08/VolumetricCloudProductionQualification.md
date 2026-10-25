@@ -185,7 +185,7 @@ new feature or weakening a previously accepted numeric gate.
 - [Volumetric cloud scene contract](../../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)
 - [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/Features/VolumetricCloudTemporalReconstruction.md)
 - [Volumetric cloud lighting and shadows](../../../Runtime/Rendering/Features/VolumetricCloudLightingAndShadows.md)
-- [Volumetric cloud authoring architecture](../../../Editor/Architecture/VolumetricCloudAuthoring.md)
+- [Volumetric cloud authoring architecture](../../../Editor/Architecture/LevelEditing/VolumetricCloudAuthoring.md)
 - [Volumetric cloud authoring guide](../../../Editor/Guides/VolumetricCloudAuthoring.md)
 - [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
 - [Build and run workflow](../../../Agents/BuildAndRun.md)

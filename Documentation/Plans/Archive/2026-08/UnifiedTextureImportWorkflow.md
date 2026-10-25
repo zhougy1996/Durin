@@ -262,8 +262,8 @@ type.
 
 ## Related Documentation
 
-- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Texture Cube Workflow](../../../Editor/Guides/TextureCubeWorkflow.md)
 - [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)

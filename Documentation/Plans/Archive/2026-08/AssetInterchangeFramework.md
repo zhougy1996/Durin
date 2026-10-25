@@ -577,8 +577,8 @@ the editor publication boundary.
 
 ## Related Documentation
 
-- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
-- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
+- [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Modular Features and Module Retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
