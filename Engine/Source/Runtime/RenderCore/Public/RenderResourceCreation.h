@@ -167,38 +167,26 @@ namespace Durin
 	template <typename PayloadType>
 	class TRenderResourceCreateResult
 	{
+		struct FPending {};
+		struct FCanceled {};
+		struct FPayload { PayloadType Value; };
+		struct FFailure { FRenderResourceCreateError Value; };
+		using FState = std::variant<FPending, FCanceled, FPayload, FFailure>;
 	public:
 		static auto Success(PayloadType Payload) -> TRenderResourceCreateResult
-		{
-			TRenderResourceCreateResult Result;
-			Result.Payload.emplace(std::move(Payload));
-			return Result;
-		}
-
-		static auto Failure(FRenderResourceCreateError Error)
-			-> TRenderResourceCreateResult
-		{
-			TRenderResourceCreateResult Result;
-			Result.Error.emplace(std::move(Error));
-			return Result;
-		}
-
-		static auto Canceled() -> TRenderResourceCreateResult { TRenderResourceCreateResult Result; Result.bCanceled = true; return Result; }
-		static auto Pending() -> TRenderResourceCreateResult { TRenderResourceCreateResult Result; Result.bPending = true; return Result; }
-		auto IsPending() const -> bool { return bPending; }
-		auto IsCanceled() const -> bool { return bCanceled; }
-		auto HasPayload() const -> bool { return Payload.has_value(); }
-		auto TakePayload() -> PayloadType { return std::move(*Payload); }
-		auto TakeError() -> FRenderResourceCreateError
-		{
-			return std::move(*Error);
-		}
-
+		{ return TRenderResourceCreateResult(FPayload{std::move(Payload)}); }
+		static auto Failure(FRenderResourceCreateError Error) -> TRenderResourceCreateResult
+		{ return TRenderResourceCreateResult(FFailure{std::move(Error)}); }
+		static auto Canceled() -> TRenderResourceCreateResult { return TRenderResourceCreateResult(FCanceled{}); }
+		static auto Pending() -> TRenderResourceCreateResult { return TRenderResourceCreateResult(FPending{}); }
+		auto IsPending() const -> bool { return std::holds_alternative<FPending>(State); }
+		auto IsCanceled() const -> bool { return std::holds_alternative<FCanceled>(State); }
+		auto HasPayload() const -> bool { return std::holds_alternative<FPayload>(State); }
+		auto TakePayload() -> PayloadType { return std::move(std::get<FPayload>(State).Value); }
+		auto TakeError() -> FRenderResourceCreateError { return std::move(std::get<FFailure>(State).Value); }
 	private:
-		bool bCanceled = false;
-		bool bPending = false;
-		std::optional<PayloadType> Payload;
-		std::optional<FRenderResourceCreateError> Error;
+		explicit TRenderResourceCreateResult(FState InState) : State(std::move(InState)) {}
+		FState State;
 	};
 
 	// Owns one complete renderer payload and its generation-scoped attempt state.
@@ -245,12 +233,10 @@ namespace Durin
 			if (Result.IsPending() || PipelineScope.HasPending())
 			{
 				PipelineScope.PropagatePending(Result.IsPending());
-				bHasAttempt = false;
 				return nullptr;
 			}
 			PipelineScope.ReleasePreparations();
-			if (Result.IsCanceled()) { PipelineRequests.Reset(); bHasAttempt = false; Failure.reset(); FailureFingerprint.reset(); bFailureReported = false; Availability = ERenderResourceAvailability::Canceled; return nullptr; }
-			bHasAttempt = true;
+			if (Result.IsCanceled()) { PipelineRequests.Reset(); Failure.reset(); FailureFingerprint.reset(); bFailureReported = false; Availability = ERenderResourceAvailability::Canceled; return nullptr; }
 			AttemptedGeneration = Generation;
 			if (Result.HasPayload())
 			{
@@ -343,9 +329,7 @@ namespace Durin
 			FailureFingerprint.reset();
 			PayloadGeneration = {};
 			AttemptedGeneration = {};
-			ObservedDeviceGeneration = 0;
-			bHasObservedDeviceGeneration = false;
-			bHasAttempt = false;
+			ObservedDeviceGeneration.reset();
 			bResolving = false;
 			bFailureReported = false;
 			Availability = ERenderResourceAvailability::Uninitialized;
@@ -361,10 +345,9 @@ namespace Durin
 			{
 				return;
 			}
-			if (!bHasObservedDeviceGeneration)
+			if (!ObservedDeviceGeneration)
 			{
 				ObservedDeviceGeneration = Generation.Device;
-				bHasObservedDeviceGeneration = true;
 				return;
 			}
 			if (ObservedDeviceGeneration == Generation.Device)
@@ -378,7 +361,6 @@ namespace Durin
 			PayloadGeneration = {};
 			AttemptedGeneration = {};
 			ObservedDeviceGeneration = Generation.Device;
-			bHasAttempt = false;
 			bFailureReported = false;
 			Availability = ERenderResourceAvailability::Uninitialized;
 		}
@@ -391,7 +373,7 @@ namespace Durin
 				|| Failure->Reason == ERenderResourceCreateErrorReason::ShaderCreationFailed
 				|| Failure->Reason == ERenderResourceCreateErrorReason::SamplerCreationFailed))
 				return false;
-			if (!bHasAttempt)
+			if (Availability != ERenderResourceAvailability::Ready && Availability != ERenderResourceAvailability::Failed)
 			{
 				return false;
 			}
@@ -412,9 +394,7 @@ namespace Durin
 		std::optional<size_t> FailureFingerprint;
 		FRenderResourceGeneration PayloadGeneration;
 		FRenderResourceGeneration AttemptedGeneration;
-		uint64 ObservedDeviceGeneration = 0;
-		bool bHasObservedDeviceGeneration = false;
-		bool bHasAttempt = false;
+		std::optional<uint64> ObservedDeviceGeneration;
 		bool bResolving = false;
 		bool bFailureReported = false;
 		ERenderResourceAvailability Availability =

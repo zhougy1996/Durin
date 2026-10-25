@@ -318,6 +318,7 @@ namespace Durin
 		const bool bRequiresDeferredOpaque =
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
+		ResolvedSceneResources.Receiver.StaticMeshes.Environment = Service.EnvironmentLighting.GetSceneBinding_RenderThread(Context.Logical.Scene);
 		FStaticMeshSectionResourceContext SectionResources;
 		const FGeometryResolutionResult GeometryResolution =
 			Service.StaticMeshRenderer.PrepareResources_RenderThread(CommandList, PreparedView.Receiver.StaticMeshes,

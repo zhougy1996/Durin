@@ -51,7 +51,6 @@ namespace Durin
 		// Called by engine/world owner ticks, including editor and paused worlds.
 		ENGINE_API static auto ProcessPSOPrecacheRequests(DWorld* World = nullptr) -> void;
 		ENGINE_API static auto GetPendingPSOPrecacheComponentCount() -> size_t;
-		ENGINE_API static auto InvalidatePSOPrecacheRequests() -> void;
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;

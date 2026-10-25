@@ -84,9 +84,9 @@ namespace Durin
 			auto InstanceMaterial = MakeRefCount<FMaterialRenderProxy>();
 			EnqueueRenderCommand("InstallCookedSceneResources", [&](FRHICommandListImmediate& Commands) {
 				ASSERT_TRUE(Geometry->InitResources(Commands));
-				ASSERT_TRUE(Material->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = Properties, .CompiledProgram = Program}}));
-				ASSERT_TRUE(MaskedMaterial->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = MaskedProperties, .CompiledProgram = MaskedProgram}}));
-				ASSERT_TRUE(InstanceMaterial->ApplyPublication_RenderThread({.LocalLayer = {.StaticProperties = InstanceProperties, .CompiledProgram = InstanceProgram}}));
+				Material->ApplyPublication_RenderThread({.StaticProperties = Properties, .CompiledProgram = Program});
+				MaskedMaterial->ApplyPublication_RenderThread({.StaticProperties = MaskedProperties, .CompiledProgram = MaskedProgram});
+				InstanceMaterial->ApplyPublication_RenderThread({.StaticProperties = InstanceProperties, .CompiledProgram = InstanceProgram});
 			});
 			FlushRenderingCommands();
 			ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*static_cast<FScene*>(Scene.get()), FPrimitiveComponentId(40001),
@@ -125,7 +125,7 @@ namespace Durin
 				const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
 				const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 				do {
-					Renderer.PrepareViewResources(Commands, Scene.get(), View, Output, false, {}, Preparation);
+					Renderer.PrepareViewResources(Commands, {Scene.get(), View, Output, false, {}}, Preparation);
 					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 					std::this_thread::yield();
 				} while (Preparation.GetProgress().State == ERenderResourcePreparationState::Pending && std::chrono::steady_clock::now() < Deadline);
@@ -137,14 +137,14 @@ namespace Durin
 				EXPECT_EQ(Prepared.SourceCompileAttempts, Initial.SourceCompileAttempts);
 				FRenderResourcePreparationUseScope Use(Preparation);
 				FSceneViewStatistics Statistics;
-				EXPECT_EQ(Renderer.RenderView(Commands, Scene.get(), View, Output, false, {}, &Statistics), ERenderViewResult::Success);
+				EXPECT_EQ(Renderer.RenderView(Commands, {Scene.get(), View, Output, false, {}, &Statistics}), ERenderViewResult::Success);
 				EXPECT_GT(Statistics.Summary.DrawCalls, 0u);
 				EXPECT_GT(Statistics.StaticMesh.DrawCalls, 0u);
 				EXPECT_GT(Statistics.SplineMesh.Primitives, 0u);
-				Renderer.PrepareViewResources(Commands, Scene.get(), View, Output, false, {}, Peer);
+				Renderer.PrepareViewResources(Commands, {Scene.get(), View, Output, false, {}}, Peer);
 				EXPECT_EQ(Peer.GetProgress().State, ERenderResourcePreparationState::Ready);
 				Preparation.RequestCancel();
-				Renderer.PrepareViewResources(Commands, Scene.get(), View, Output, false, {}, Peer);
+				Renderer.PrepareViewResources(Commands, {Scene.get(), View, Output, false, {}}, Peer);
 				EXPECT_EQ(Preparation.GetProgress().RetainedObjects, 0u);
 				EXPECT_EQ(Peer.GetProgress().State, ERenderResourcePreparationState::Ready);
 				const auto Drawn = GetMetalShaderCreationStatistics();
@@ -160,7 +160,7 @@ namespace Durin
 				GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, PreparedPixels);
 				Commands.PollTextureReadbacks(); Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-				EXPECT_EQ(Renderer.RenderView(Commands, Scene.get(), View, Output, false, {}), ERenderViewResult::Success);
+				EXPECT_EQ(Renderer.RenderView(Commands, {Scene.get(), View, Output, false, {}}), ERenderViewResult::Success);
 				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, DemandPixels);
@@ -174,7 +174,7 @@ namespace Durin
 			EnqueueRenderCommand("InvalidatePreparedShaderGeneration", [&](FRHICommandListImmediate& Commands) {
 				AdvanceShaderReloadGeneration();
 				EXPECT_EQ(Peer.GetProgress().State, ERenderResourcePreparationState::Stale);
-				Renderer.UpdateScenes_RenderThread(Commands);
+				Renderer.BeginFrame_RenderThread(Commands);
 				EXPECT_EQ(Peer.GetProgress().RetainedObjects, 0u);
 			});
 			FlushRenderingCommands();

@@ -57,12 +57,12 @@ namespace Durin::Tests
 			auto Desc = FRHIBufferCreateDesc::Create("IndependentGeometry", sizeof(Data), sizeof(FVertex), EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static);
 			Desc.InitialData = {Data.data(), sizeof(Data)};
 			FProceduralGeometry Result;
-			Result.Vertices = {GDynamicRHI->RHICreateBuffer(CommandList, Desc), {sizeof(Data), 0, sizeof(FVertex), sizeof(FVector3f)}, Generation, Generation};
+			Result.Vertices = {GDynamicRHI->RHICreateBuffer(CommandList, Desc), {sizeof(Data), 0, sizeof(FVertex), sizeof(FVector3f)}, Generation};
 			const std::array<uint32, 3> IndexData{0, 1, 2};
 			auto IndexDesc = FRHIBufferCreateDesc::CreateIndex("IndependentIndices", sizeof(IndexData), sizeof(uint32));
 			IndexDesc.Usage |= EBufferUsageFlags::Static;
 			IndexDesc.InitialData = {IndexData.data(), sizeof(IndexData)};
-			Result.Indices = {GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc), {sizeof(IndexData), 0, sizeof(uint32), sizeof(uint32)}, Generation, Generation};
+			Result.Indices = {GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc), {sizeof(IndexData), 0, sizeof(uint32), sizeof(uint32)}, Generation};
 			Result.Binding = std::make_shared<FProceduralBinding>();
 			auto& Binding = *Result.Binding;
 			Binding.bCustom = bCustom;
@@ -79,7 +79,7 @@ namespace Durin::Tests
 				const std::array<FVector4f, 4> InstanceData{{{0.5f,0,0,0}, {0.5f,0,0,0}, {0,0,0,0}, {0,0,0,0}}};
 				auto InstanceDesc = FRHIBufferCreateDesc::Create("IndependentInstances", sizeof(InstanceData), sizeof(FVector4f), EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static);
 				InstanceDesc.InitialData = {InstanceData.data(), sizeof(InstanceData)};
-				Result.Instances = {GDynamicRHI->RHICreateBuffer(CommandList, InstanceDesc), {sizeof(InstanceData), 0, sizeof(FVector4f), sizeof(FVector4f)}, Generation, Generation};
+				Result.Instances = {GDynamicRHI->RHICreateBuffer(CommandList, InstanceDesc), {sizeof(InstanceData), 0, sizeof(FVector4f), sizeof(FVector4f)}, Generation};
 				Binding.Streams.push_back({1, Result.Instances.Buffer, 0, sizeof(FVector4f)});
 				Elements[8] = FVertexElement(1, 0, EVertexElementType::Float4, 8, sizeof(FVector4f), FRHIVertexElementIdentity::EInputRate::Instance);
 			}

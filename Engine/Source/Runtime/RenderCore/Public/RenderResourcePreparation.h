@@ -62,7 +62,7 @@ namespace Durin
 		RENDERCORE_API explicit FRenderResourcePreparationScope(const FRenderResourcePreparation& Preparation);
 		RENDERCORE_API ~FRenderResourcePreparationScope();
 		FRenderResourcePreparationScope(const FRenderResourcePreparationScope&) = delete;
-		RENDERCORE_API auto Complete(bool Ready, bool Failed = false) -> void;
+		RENDERCORE_API auto Complete(ERenderResourcePreparationState Result) -> void;
 		RENDERCORE_API static auto IsActive() -> bool;
 		RENDERCORE_API static auto BeforeShader() -> void;
 		RENDERCORE_API static auto BeforePipeline() -> void;

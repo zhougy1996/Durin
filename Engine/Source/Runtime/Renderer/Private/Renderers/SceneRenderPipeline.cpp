@@ -200,7 +200,6 @@ namespace Durin
 			// environment fallback set instead.
 			if (Scene && Scene->SkyLighting->WorldUpdateFrame!=GRenderFrameCounterRenderThread)
 				Service.UpdateSkyLighting_RenderThread(CommandList, *Scene);
-			EnvironmentLighting.SelectScene_RenderThread(Scene);
 			// Sky resources include a static index upload, so initialize them before
 			// entering the Scene Color render pass.
 			const bool bSkyBoxResourcesReady =

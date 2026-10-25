@@ -57,7 +57,7 @@ namespace Durin
 			ENQUEUE_RENDER_COMMAND(BeginFrame)(
 				[LogicFrameCounter, RenderFrameCounter, Renderer](FRHICommandListImmediate& CommandList) {
 					BeginFrameRenderThread(CommandList, LogicFrameCounter, RenderFrameCounter);
-					if (Renderer) Renderer->UpdateScenes_RenderThread(CommandList);
+					if (Renderer) Renderer->BeginFrame_RenderThread(CommandList);
 				});
 
 			const double UIFrameBuildStarted = FTime::Seconds();

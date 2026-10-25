@@ -24,6 +24,15 @@ defined by [Persistent view state](../Scene/PersistentViewState.md).
 neutral `IViewportDisplaySource`; native windows are connected directly to an
 Engine scene viewport by the runtime or editor composition owner.
 
+The renderer's `BeginFrame_RenderThread` runs inside the active RHI frame before
+views, even when no scene requires an update. It advances shared retirement and
+preparation maintenance as well as world-driven sky work. Both
+`PrepareViewResources` and `RenderView` consume `FSceneViewRenderRequest`, carrying
+the same scene, view, output, presentation policy and options. SceneViewport
+passes that request unchanged through preparation and drawing. Scene/output and
+optional observation pointers are borrowed for the synchronous render-thread
+call; recorded work retains its own resource references.
+
 ## Ownership
 
 `MViewport` stores a weak pointer to `IViewportDisplaySource`. It is a UI

@@ -1051,7 +1051,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				View.Settings.DirectionalShadow.MaxDistance = Fixture.ShadowDistance;
 				// Contact-shadow supplement stays off for the shadow-map-only baseline.
 				View.Settings.DirectionalShadow.bEnableContactShadows = false;
-				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
+				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, {}}), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels
 				));
@@ -1396,8 +1396,7 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 						Durin::EDirectionalShadowFilterQuality::Medium;
 					View.Settings.DirectionalShadow.bEnableContactShadows = false;
 					const auto SubmissionStart = std::chrono::steady_clock::now();
-					ASSERT_EQ(Renderer.RenderView(
-						CommandList, &Scene, View, Target, false, {}),
+					ASSERT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, {}}),
 						Durin::ERenderViewResult::Success);
 					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					if (Frame >= WarmupFrames)
@@ -1709,7 +1708,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 					.bEnableDeferredDirectional = bEnableDeferredDirectional,
 					.bForceFragmentContactVisibility =
 						bForceFragmentContactVisibility});
-				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, RenderOptions), Durin::ERenderViewResult::Success);
+				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, RenderOptions}), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels
 				));

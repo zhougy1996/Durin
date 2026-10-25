@@ -582,8 +582,7 @@ namespace Durin
 
 	auto DMaterialInterface::BeginDestroy() -> void
 	{
-		if (PSOPrecacheRevision) ++*PSOPrecacheRevision;
-		DPrimitiveComponent::InvalidatePSOPrecacheRequests();
+		PSOPrecacheOwner.Invalidate();
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		FObjectCacheContext Context;
@@ -755,20 +754,9 @@ namespace Durin
 		checkf(Admission == ERenderCommandAdmissionState::Running,
 			"Material publication must finish before render-command shutdown.");
 
-		FMaterialRenderProxyPublication Publication{
-			.LocalLayer = std::move(LocalLayer),
-		};
-		std::ranges::sort(
-			Publication.LocalLayer.Parameters,
-			{},
-			&FMaterialLocalRenderParameter::Id);
-
-		const bool bAccepted = MaterialRenderProxy->QueuePublication_GameThread(
-			std::move(Publication));
-		if (bAccepted)
-		{
-			bMaterialProxyPublicationDirty = false;
-		}
+		std::ranges::sort(LocalLayer.Parameters, {}, &FMaterialLocalRenderParameter::Id);
+		MaterialRenderProxy->QueuePublication_GameThread(std::move(LocalLayer));
+		bMaterialProxyPublicationDirty = false;
 	}
 
 	auto DMaterialInterface::NotifyParameterChanges() -> void
@@ -793,11 +781,11 @@ namespace Durin
 	{
 		if (DirtyFlags == EMaterialRenderDirtyFlags::None) return;
 		auto Publish = [DirtyFlags](DMaterialInterface& Owner) {
-			if (Owner.PSOPrecacheRevision && EnumHasAnyFlags(DirtyFlags,
+			if (EnumHasAnyFlags(DirtyFlags,
 				EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState | EMaterialRenderDirtyFlags::ParentChain))
-				++*Owner.PSOPrecacheRevision;
-			++Owner.RenderStateVersion;
-			if (Owner.RenderStateVersion == 0) ++Owner.RenderStateVersion;
+				Owner.PSOPrecacheOwner.Invalidate();
+			++Owner.RenderChangeCount;
+			if (Owner.RenderChangeCount == 0) ++Owner.RenderChangeCount;
 			if (Owner.CompilationOwner.RenderLayer.CompiledProgram)
 			{
 				// Retention and publication must describe the same resolved snapshot.
@@ -818,9 +806,6 @@ namespace Durin
 		if (IsDynamicInstance())
 		{
 			Publish(*this);
-			if (EnumHasAnyFlags(DirtyFlags, EMaterialRenderDirtyFlags::ShaderMap
-				| EMaterialRenderDirtyFlags::PipelineState | EMaterialRenderDirtyFlags::ParentChain))
-				DPrimitiveComponent::InvalidatePSOPrecacheRequests();
 			if (bNotifyParameterChanges) ParameterChanges.Broadcast();
 			return;
 		}
@@ -832,9 +817,6 @@ namespace Durin
 		{
 			if (IsValid(Owner) && Owner != this) Publish(*Owner);
 		}
-		if (EnumHasAnyFlags(DirtyFlags, EMaterialRenderDirtyFlags::ShaderMap
-			| EMaterialRenderDirtyFlags::PipelineState | EMaterialRenderDirtyFlags::ParentChain))
-			DPrimitiveComponent::InvalidatePSOPrecacheRequests();
 		if (bNotifyParameterChanges)
 		{
 			Context->EndDiscovery();

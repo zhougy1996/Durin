@@ -149,8 +149,10 @@ no duplicate source list is needed. Other platform admission guards remain
 explicit at the call site. Unknown requirements and environments are errors.
 
 `ENVIRONMENTS authored-shaders` adds the shared ShaderBuild initialization and
-shutdown environment, plus its dependencies, in editor configurations. It has
-no work in runtime-only configurations. Linking Renderer alone does not select
+shutdown environment, plus its dependencies, in editor configurations. Its
+registration source is compiled once as an object library and linked into each
+requesting executable, preserving the global initializer without target-specific
+generated copies or filenames. It has no work in runtime-only configurations. Linking Renderer alone does not select
 this environment. There are no target-name exceptions or implicit editor
 include directories in the declaration helper.
 

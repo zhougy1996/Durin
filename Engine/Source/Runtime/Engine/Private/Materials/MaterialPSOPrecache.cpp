@@ -1,4 +1,6 @@
 #include "Materials/MaterialPSOPrecache.h"
+#include "CoreGlobals.h"
+#include "RenderingThread.h"
 
 #include "Shader/ShaderCompilerCore.h"
 #include "Materials/MaterialShaderMap.h"
@@ -6,7 +8,6 @@
 namespace Durin
 {
 	static std::atomic<uint64> NextMaterialPSORequestId = 1;
-	static std::atomic<uint64> MaterialPSOInvalidationSerial = 0;
 	static auto AllocateMaterialPSORequestId() -> uint64
 	{
 		auto Current = NextMaterialPSORequestId.load();
@@ -14,6 +15,7 @@ namespace Durin
 			if (NextMaterialPSORequestId.compare_exchange_weak(Current, Current + 1)) return Current;
 		return 0;
 	}
+	enum class EPSOPhase : uint8 { Queued, Collecting, Compiling, Completed, Retired };
 	struct FMaterialPSOPrecacheWork
 	{
 		uint64 Id = 0, ShaderGeneration = 0;
@@ -21,28 +23,104 @@ namespace Durin
 		FMaterialPSOPrecacheParams Params;
 		FVertexDeclarationElementList Elements{};
 		FMaterialPSOPrecacheCollection Collection;
-		bool Collected = false;
-		bool Started = false;
-		std::atomic<EMaterialPSOPrecacheState> Status = EMaterialPSOPrecacheState::Pending;
+		std::atomic<EPSOPhase> Phase = EPSOPhase::Queued;
+		std::mutex ObserversMutex;
+		std::vector<std::weak_ptr<FMaterialPSOPrecacheObserver>> Observers;
+		auto Notify() -> void;
+		using FResult = std::expected<void, std::string>;
+		std::atomic<std::shared_ptr<const FResult>> Result;
+		auto GetState() const -> EMaterialPSOPrecacheState
+		{
+			const auto CurrentPhase = Phase.load();
+			const auto Completed = Result.load();
+			if (Completed && !*Completed) return EMaterialPSOPrecacheState::Failed;
+			if (CurrentPhase == EPSOPhase::Retired) return EMaterialPSOPrecacheState::Stale;
+			if (CurrentPhase == EPSOPhase::Completed) return EMaterialPSOPrecacheState::Ready;
+			return EMaterialPSOPrecacheState::Pending;
+		}
+		auto GetProgress() const -> FMaterialPSOPrecacheProgress
+		{ return {GetState(), Pipelines.load(), Pending.load(), RequiredPending.load(), Failed.load(), RequiredReady.load()}; }
 		std::atomic<uint32> Pipelines = 0, Pending = 0, RequiredPending = 0, Failed = 0;
 		std::atomic<bool> RequiredReady = false;
 		std::atomic<EPSOPrecachePriority> Priority = EPSOPrecachePriority::Medium;
 		EPSOPrecachePriority ScheduledPriority = EPSOPrecachePriority::Medium;
-		std::mutex DiagnosticMutex;
-		std::string Diagnostic;
+		auto Retire() -> void
+		{
+			RequiredReady = false;
+			Phase = EPSOPhase::Retired;
+			Collection = {};
+			Params.CompiledProgram.reset();
+		}
 		auto Fail(std::string Error) -> void
 		{
-			{ std::lock_guard Lock(DiagnosticMutex); Diagnostic = std::move(Error); }
-			Status = EMaterialPSOPrecacheState::Failed;
+			Result = std::make_shared<const FResult>(std::unexpected(std::move(Error)));
+			Phase = EPSOPhase::Completed;
 		}
 	};
 	struct FMaterialPSOPrecacheObserver
 	{
 		std::shared_ptr<FMaterialPSOPrecacheWork> Work;
-		std::atomic<bool> Canceled = false;
-		std::shared_ptr<std::atomic<uint64>> Revision;
-		uint64 ExpectedRevision = 0;
+		std::atomic<EMaterialPSOPrecacheState> Override = EMaterialPSOPrecacheState::Pending;
+		std::mutex Mutex;
+		std::vector<std::weak_ptr<const FMaterialPSOPrecacheNotification>> Notifications;
+		auto Notify() -> void;
 	};
+	struct FMaterialPSOPrecacheNotification { std::function<void()> Changed; };
+	auto FMaterialPSOPrecacheObserver::Notify() -> void
+	{
+		std::vector<FMaterialPSOPrecacheSubscription> Active;
+		{
+			std::lock_guard Lock(Mutex);
+			std::erase_if(Notifications, [&](const auto& Weak) {
+				if (auto Item = Weak.lock()) { Active.push_back(std::move(Item)); return false; }
+				return true;
+			});
+		}
+		for (const auto& Item : Active) if (Item->Changed) Item->Changed();
+	}
+	auto FMaterialPSOPrecacheWork::Notify() -> void
+	{
+		std::vector<std::shared_ptr<FMaterialPSOPrecacheObserver>> Active;
+		{
+			std::lock_guard Lock(ObserversMutex);
+			std::erase_if(Observers, [&](const auto& Weak) {
+				if (auto Item = Weak.lock()) { Active.push_back(std::move(Item)); return false; }
+				return true;
+			});
+		}
+		for (const auto& Item : Active) Item->Notify();
+	}
+	static auto AttachWork(const std::shared_ptr<FMaterialPSOPrecacheObserver>& Observer,
+		std::shared_ptr<FMaterialPSOPrecacheWork> Work) -> void
+	{
+		Observer->Work = std::move(Work);
+		std::lock_guard Lock(Observer->Work->ObserversMutex);
+		Observer->Work->Observers.push_back(Observer);
+	}
+	struct FMaterialPSOPrecacheOwner::FState { std::vector<std::weak_ptr<FMaterialPSOPrecacheObserver>> Observers; };
+	FMaterialPSOPrecacheOwner::FMaterialPSOPrecacheOwner() : State(std::make_unique<FState>()) {}
+	FMaterialPSOPrecacheOwner::~FMaterialPSOPrecacheOwner() { Invalidate(); }
+	auto FMaterialPSOPrecacheOwner::Observe(const FMaterialPSOPrecacheRequestID& Request) -> FMaterialPSOPrecacheRequestID
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!Request.Observer) return {};
+		FMaterialPSOPrecacheRequestID Result;
+		Result.Observer = std::make_shared<FMaterialPSOPrecacheObserver>();
+		AttachWork(Result.Observer, Request.Observer->Work);
+		std::erase_if(State->Observers, [](const auto& Weak) { return Weak.expired(); });
+		State->Observers.push_back(Result.Observer);
+		return Result;
+	}
+	auto FMaterialPSOPrecacheOwner::Invalidate() -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		auto Observers = std::exchange(State->Observers, {});
+		for (const auto& Weak : Observers) if (auto Observer = Weak.lock())
+		{
+			auto Expected = EMaterialPSOPrecacheState::Pending;
+			if (Observer->Override.compare_exchange_strong(Expected, EMaterialPSOPrecacheState::Stale)) Observer->Notify();
+		}
+	}
 	struct FMaterialPSORequestManager::FState
 	{
 		std::mutex Mutex;
@@ -55,31 +133,39 @@ namespace Durin
 	{
 		FMaterialPSOPrecacheRequestID Result;
 		Result.Observer = std::make_shared<FMaterialPSOPrecacheObserver>();
-		Result.Observer->Work = std::make_shared<FMaterialPSOPrecacheWork>();
+		AttachWork(Result.Observer, std::make_shared<FMaterialPSOPrecacheWork>());
 		Result.Observer->Work->Fail(std::move(Error));
 		return Result;
 	}
 	auto FMaterialPSOPrecacheRequestID::GetValue() const -> uint64 { return Observer ? Observer->Work->Id : 0; }
+	auto FMaterialPSOPrecacheRequestID::IsCurrent() const -> bool
+	{
+		return Observer && Observer->Override == EMaterialPSOPrecacheState::Pending
+			&& Observer->Work->Phase != EPSOPhase::Retired
+			&& (!Observer->Work->Id || Observer->Work->ShaderGeneration == GetShaderReloadGeneration());
+	}
 	auto FMaterialPSOPrecacheRequestID::GetProgress() const -> FMaterialPSOPrecacheProgress
 	{
 		if (!Observer) return {};
 		const auto& Work = *Observer->Work;
-		auto Status = Work.Status.load();
-		if (Observer->Canceled) Status = EMaterialPSOPrecacheState::Canceled;
-		else if ((Observer->Revision && Observer->Revision->load() != Observer->ExpectedRevision)
-			|| (Work.Id && Work.ShaderGeneration != GetShaderReloadGeneration())) Status = EMaterialPSOPrecacheState::Stale;
+		auto Status = Work.GetState();
+		if (Status != EMaterialPSOPrecacheState::Failed)
+		{
+			if (const auto Override = Observer->Override.load(); Override != EMaterialPSOPrecacheState::Pending) Status = Override;
+			else if (Work.Id && Work.ShaderGeneration != GetShaderReloadGeneration()) Status = EMaterialPSOPrecacheState::Stale;
+		}
 		return {Status, Work.Pipelines.load(), Work.Pending.load(), Work.RequiredPending.load(), Work.Failed.load(),
-			Status != EMaterialPSOPrecacheState::Stale && Status != EMaterialPSOPrecacheState::Canceled && Work.RequiredReady.load()};
+			IsCurrent() && Work.RequiredReady.load()};
 	}
 	auto FMaterialPSOPrecacheRequestID::GetDiagnostic() const -> std::string
 	{
 		if (!Observer) return "No material PSO request.";
-		std::lock_guard Lock(Observer->Work->DiagnosticMutex);
-		return Observer->Work->Diagnostic;
+		const auto Result = Observer->Work->Result.load();
+		return Result && !*Result ? Result->error() : std::string{};
 	}
 	auto FMaterialPSOPrecacheRequestID::Cancel() const -> void
 	{
-		if (Observer && !Observer->Canceled.exchange(true)) ++MaterialPSOInvalidationSerial;
+		if (Observer && Observer->Override.exchange(EMaterialPSOPrecacheState::Canceled) != EMaterialPSOPrecacheState::Canceled) Observer->Notify();
 	}
 	auto FMaterialPSOPrecacheRequestID::GetPriority() const -> EPSOPrecachePriority
 	{ return Observer ? Observer->Work->Priority.load() : EPSOPrecachePriority::NotSet; }
@@ -90,15 +176,14 @@ namespace Durin
 		auto Current = Observer->Work->Priority.load();
 		while (Current < Priority && !Observer->Work->Priority.compare_exchange_weak(Current, Priority)) {}
 	}
-	auto FMaterialPSOPrecacheRequestID::WithOwnerRevision(const std::shared_ptr<std::atomic<uint64>>& Revision) const -> FMaterialPSOPrecacheRequestID
+	auto FMaterialPSOPrecacheRequestID::Subscribe(std::function<void()> Changed) const -> FMaterialPSOPrecacheSubscription
 	{
-		if (!Observer) return {};
-		FMaterialPSOPrecacheRequestID Result;
-		Result.Observer = std::make_shared<FMaterialPSOPrecacheObserver>();
-		Result.Observer->Work = Observer->Work;
-		Result.Observer->Revision = Revision;
-		Result.Observer->ExpectedRevision = Revision ? Revision->load() : 0;
-		return Result;
+		if (!Observer || !Changed) return {};
+		auto Subscription = std::make_shared<FMaterialPSOPrecacheNotification>(std::move(Changed));
+		{ std::lock_guard Lock(Observer->Mutex); Observer->Notifications.push_back(Subscription); }
+		// Subscription races with completion are covered by an immediate observation.
+		Subscription->Changed();
+		return Subscription;
 	}
 
 	FMaterialPSORequestManager::FMaterialPSORequestManager() : State(std::make_unique<FState>()) {}
@@ -135,13 +220,13 @@ namespace Durin
 		std::erase_if(State->Entries, [](const auto& Entry) { return Entry.expired(); });
 		const auto Target = Params.CompiledProgram ? std::optional{Params.CompiledProgram->GetShaderMap().Target} : std::nullopt;
 		for (const auto& Weak : State->Entries)
-			if (const auto Entry = Weak.lock(); Entry && Entry->Status != EMaterialPSOPrecacheState::Stale && Entry->ShaderGeneration == Generation
+			if (const auto Entry = Weak.lock(); Entry && Entry->Phase != EPSOPhase::Retired && Entry->ShaderGeneration == Generation
 				&& Entry->Params.Material == Params.Material && Entry->Params.PrecachePSOParams == Options
 				&& Entry->Params.VertexFactoryData.VertexFactoryType == Params.VertexFactoryData.VertexFactoryType
 				&& Entry->Target == Target
 				&& Entry->Elements == *Elements)
 			{
-				Result.Observer->Work = Entry;
+				AttachWork(Result.Observer, Entry);
 				Result.BoostPriority(Params.Priority);
 				return Result;
 			}
@@ -153,7 +238,7 @@ namespace Durin
 		Work->Params = std::move(Params); Work->Elements = *Elements;
 		State->Entries.push_back(Work);
 		State->Pending.push_back(Work);
-		Result.Observer->Work = std::move(Work);
+		AttachWork(Result.Observer, std::move(Work));
 		return Result;
 	}
 	auto FMaterialPSORequestManager::Pump(const FMaterialPSOCollector& Collector) -> void
@@ -168,34 +253,38 @@ namespace Durin
 		std::stable_sort(Entries.begin(), Entries.end(), [](const auto& A, const auto& B) {
 			return A->ScheduledPriority > B->ScheduledPriority;
 		});
-		size_t Active = std::ranges::count_if(Entries, [](const auto& Work) { return Work->Started; });
+		size_t Active = std::ranges::count_if(Entries, [](const auto& Work) { return Work->Phase == EPSOPhase::Collecting || Work->Phase == EPSOPhase::Compiling; });
 		for (auto& Work : Entries)
 		{
+			struct FNotifyProgress
+			{
+				FMaterialPSOPrecacheWork& Work;
+				FMaterialPSOPrecacheProgress Before;
+				~FNotifyProgress() { if (Before != Work.GetProgress()) Work.Notify(); }
+			} Notify{*Work, Work->GetProgress()};
 			if (Work->ShaderGeneration != GetShaderReloadGeneration())
 			{
-				std::lock_guard Lock(State->Mutex);
-				Work->RequiredReady = false; Work->Status = EMaterialPSOPrecacheState::Stale;
-				Work->Collection = {}; Work->Params.CompiledProgram.reset();
+				Work->Retire();
 				continue;
 			}
-			if (Work->Status != EMaterialPSOPrecacheState::Pending) continue;
-			if (!Work->Started)
+			if (Work->GetState() != EMaterialPSOPrecacheState::Pending) continue;
+			if (Work->Phase == EPSOPhase::Queued)
 			{
 				if (Active >= MaximumActiveCollections) continue;
-				Work->Started = true; ++Active;
+				Work->Phase = EPSOPhase::Collecting; ++Active;
 			}
-			if (!Work->Collected)
+			if (Work->Phase == EPSOPhase::Collecting)
 			{
 				try
 				{
 					const auto Result = Collector(Work->Params, Work->Collection);
-					if (Work->Status != EMaterialPSOPrecacheState::Pending) { Work->Collection = {}; continue; }
+					if (Work->GetState() != EMaterialPSOPrecacheState::Pending) { Work->Collection = {}; continue; }
 					if (!Result) { Work->Fail(Result.error()); continue; }
 					if (*Result && Work->Collection.Pipelines.empty())
 					{ Work->Fail("Material PSO collector completed without covering a pipeline."); continue; }
 					if (Work->Collection.Pipelines.size() > MaximumPipelinesPerRequest)
 					{ Work->Fail("Material PSO collector exceeded its pipeline capacity."); Work->Collection = {}; continue; }
-					Work->Collected = *Result;
+					if (*Result) Work->Phase = EPSOPhase::Compiling;
 				}
 				catch (const std::exception& Error) { Work->Fail(Error.what()); continue; }
 			}
@@ -214,23 +303,26 @@ namespace Durin
 			}
 			Work->Pipelines = uint32(Work->Collection.Pipelines.size());
 			Work->Pending = Pending; Work->RequiredPending = RequiredPending; Work->Failed = Failed;
-			Work->RequiredReady = Work->Collected && !RequiredPending && !RequiredFailed;
-			if (Work->Collected && !Pending)
+			Work->RequiredReady = Work->Phase == EPSOPhase::Compiling && !RequiredPending && !RequiredFailed;
+			if (Work->Phase == EPSOPhase::Compiling && !Pending)
 			{
 				if (Failed) Work->Fail("One or more material PSO requests failed.");
-				else Work->Status = EMaterialPSOPrecacheState::Ready;
+				else
+				{
+					Work->Result = std::make_shared<const FMaterialPSOPrecacheWork::FResult>();
+					Work->Phase = EPSOPhase::Completed;
+				}
 			}
 		}
 		// Terminal observations retain only identity and progress, never native PSOs
 		// or shader preparation resources. Release on the resource-owning thread.
 		std::lock_guard Lock(State->Mutex);
 		std::erase_if(State->Pending, [](auto& Work) {
-			if (Work->Status == EMaterialPSOPrecacheState::Pending) return false;
+			if (Work->GetState() == EMaterialPSOPrecacheState::Pending) return false;
 			Work->Collection = {}; Work->Params.CompiledProgram.reset();
 			return true;
 		});
 	}
-	auto FMaterialPSORequestManager::GetInvalidationSerial() -> uint64 { return MaterialPSOInvalidationSerial.load(); }
 	auto FMaterialPSORequestManager::GetPendingRequestCount() const -> size_t
 	{
 		std::lock_guard Lock(State->Mutex);
@@ -238,17 +330,15 @@ namespace Durin
 	}
 	auto FMaterialPSORequestManager::Invalidate() -> void
 	{
-		std::lock_guard Lock(State->Mutex);
-		for (auto& Weak : State->Entries)
+		std::vector<std::shared_ptr<FMaterialPSOPrecacheWork>> Retired;
 		{
-			const auto Entry = Weak.lock();
-			if (!Entry) continue;
-			Entry->RequiredReady = false; Entry->Status = EMaterialPSOPrecacheState::Stale;
-			Entry->Collection = {}; Entry->Params.CompiledProgram.reset();
+			std::lock_guard Lock(State->Mutex);
+			for (const auto& Weak : State->Entries) if (auto Entry = Weak.lock()) Retired.push_back(std::move(Entry));
+			State->Entries.clear(); State->Pending.clear();
 		}
-		State->Entries.clear(); State->Pending.clear();
-		++MaterialPSOInvalidationSerial;
+		for (const auto& Entry : Retired) { Entry->Retire(); Entry->Notify(); }
 	}
+
 	auto FMaterialPSORequestManager::Close() -> void
 	{
 		{ std::lock_guard Lock(State->Mutex); State->Closed = true; }

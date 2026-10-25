@@ -5,6 +5,18 @@
 
 namespace Durin
 {
+	namespace
+	{
+		std::mutex GOwnerNotificationsMutex;
+		std::vector<std::function<void()>> GOwnerNotifications;
+	}
+	auto FPSOPrecacheComponentData::DispatchOwnerNotifications() -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		std::vector<std::function<void()>> Pending;
+		{ std::lock_guard Lock(GOwnerNotificationsMutex); Pending.swap(GOwnerNotifications); }
+		for (auto& Notify : Pending) Notify();
+	}
 	static auto CheckPrecacheOwnerThread() -> void { if (GIsGameThreadIdInitialized) CheckGameThread(); }
 	FPSOPrecacheComponentData::~FPSOPrecacheComponentData() { if (CompletionEpoch) ++*CompletionEpoch; }
 	auto FPSOPrecacheComponentData::Reset() -> void
@@ -13,16 +25,36 @@ namespace Durin
 		require(LatestPSOPrecacheJobSet != std::numeric_limits<uint64>::max());
 		++LatestPSOPrecacheJobSet;
 		if (CompletionEpoch) *CompletionEpoch = LatestPSOPrecacheJobSet;
-		Called = false; Completion = {}; MaterialPSOPrecacheRequestIDs.clear();
+		Called = false; Completion = {}; Subscriptions.clear(); MaterialPSOPrecacheRequestIDs.clear();
 	}
 	auto FPSOPrecacheComponentData::SetMaterialPSOPrecacheData(std::vector<FMaterialPSOPrecacheRequestID> Requests,
-		std::function<void()> Finished) -> bool
+		std::function<void()> Finished, std::function<void()> Changed) -> bool
 	{
 		CheckPrecacheOwnerThread();
 		if (Requests.size() > MaximumRequests) return false;
 		if (!CompletionEpoch) CompletionEpoch = std::make_shared<std::atomic<uint64>>(0);
 		Reset(); Called = true;
 		MaterialPSOPrecacheRequestIDs = std::move(Requests); Completion = std::move(Finished);
+		if (Changed)
+		{
+			const std::weak_ptr<std::atomic<uint64>> Epoch = CompletionEpoch;
+			const auto JobSet = LatestPSOPrecacheJobSet;
+			auto Queued = std::make_shared<std::atomic_bool>(false);
+			for (const auto& Request : MaterialPSOPrecacheRequestIDs)
+				Subscriptions.push_back(Request.Subscribe([Epoch, JobSet, Queued, Changed] {
+					if (GIsGameThreadIdInitialized && IsInGameThread())
+					{
+						if (const auto Current = Epoch.lock(); Current && Current->load() == JobSet) Changed();
+						return;
+					}
+					if (Queued->exchange(true)) return;
+					std::lock_guard Lock(GOwnerNotificationsMutex);
+					GOwnerNotifications.emplace_back([Epoch, JobSet, Queued, Changed] {
+						Queued->store(false);
+						if (const auto Current = Epoch.lock(); Current && Current->load() == JobSet) Changed();
+					});
+				}));
+		}
 		return true;
 	}
 	auto FPSOPrecacheComponentData::GetState() const -> EMaterialPSOPrecacheState

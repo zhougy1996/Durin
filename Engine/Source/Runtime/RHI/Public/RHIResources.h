@@ -745,7 +745,6 @@ namespace Durin
 	class FRHITextureReference : public FRHITexture
 	{
 	public:
-		RHI_API static auto GetPublicationRevision() -> uint64;
 
 		auto GetReferencedTexture_RenderThread() const -> FRHITexture*
 		{

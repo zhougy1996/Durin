@@ -28,6 +28,17 @@ namespace Durin
 		RendererResourcesPending
 	};
 
+	struct FSceneViewRenderRequest
+	{
+		FSceneInterface* Scene = nullptr;
+		FSceneView View;
+		FRHITexture* OutputTarget = nullptr;
+		bool bPresentOutput = false;
+		FSceneViewRenderOptions Options;
+		FSceneViewStatistics* Statistics = nullptr;
+		FRDGCapture* Capture = nullptr;
+	};
+
 	// Defines scene ownership and frame rendering services exposed by the renderer module.
 	class IRendererModule : public IModuleInterface
 	{
@@ -39,7 +50,7 @@ namespace Durin
 		// Starts CPU-only built-in shader work for the lit scene-thumbnail profile.
 		virtual auto PrepareSceneThumbnailShaders() -> FShaderMapPreparation { return {}; }
 		// Called inside an active RHI frame, independently of viewport submission.
-		virtual auto UpdateScenes_RenderThread(FRHICommandListImmediate&) -> void {}
+		virtual auto BeginFrame_RenderThread(FRHICommandListImmediate&) -> void {}
 		// Opt-in GPU graph timing. Set/clear on the render thread; the sink owns
 		// each query until its nonblocking completion. Empty disables all overhead.
 		virtual auto SetViewGPUTimingSink_RenderThread(std::function<void(FGPUTimingQueryRHIRef)> Sink) -> void {}
@@ -50,19 +61,10 @@ namespace Durin
 		// A non-null capture output requests one owning graph snapshot for this view.
 		// Pump on the render thread with the actual upcoming scene/view/output.
 		// Pending never joins PSOs or draws; callers retain the handle through activation.
-		virtual auto PrepareViewResources(
-			FRHICommandListImmediate& CommandList, FSceneInterface* Scene,
-			const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
-			const FSceneViewRenderOptions& Options, const FRenderResourcePreparation& Preparation) -> void { Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed); }
-		virtual auto RenderView(
-			FRHICommandListImmediate& CommandList,
-			FSceneInterface* Scene,
-			const FSceneView& View,
-			FRHITexture* OutputTarget,
-			bool bPresentOutput,
-			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics = nullptr,
-			FRDGCapture* OutRenderGraphCapture = nullptr
-		) -> ERenderViewResult = 0;
+		virtual auto PrepareViewResources(FRHICommandListImmediate& CommandList,
+			const FSceneViewRenderRequest& Request, const FRenderResourcePreparation& Preparation) -> FRenderResourcePreparationProgress
+		{ Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed); return Preparation.GetProgress(); }
+		virtual auto RenderView(FRHICommandListImmediate& CommandList,
+			const FSceneViewRenderRequest& Request) -> ERenderViewResult = 0;
 	};
 }

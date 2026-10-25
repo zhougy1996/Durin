@@ -7,6 +7,7 @@
 #include "PSOPrecache.h"
 #include "PSOPrecacheComponent.h"
 #include "Materials/MaterialPSOPrecache.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "RHICapabilities.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -1200,16 +1201,17 @@ namespace
 		}
 		auto InvalidateViewState(Durin::FSceneViewStateId) -> void override {}
 		auto InvalidateAllViewStates() -> void override {}
-		auto RenderView(
-			Durin::FRHICommandListImmediate&,
-			Durin::FSceneInterface*,
-			const Durin::FSceneView&,
-			Durin::FRHITexture*,
-			bool,
-			const Durin::FSceneViewRenderOptions&,
-			Durin::FSceneViewStatistics*,
-			Durin::FRDGCapture*
-		) -> Durin::ERenderViewResult override
+		auto PrepareViewResources(Durin::FRHICommandListImmediate&, const Durin::FSceneViewRenderRequest& Request,
+			const Durin::FRenderResourcePreparation& Preparation) -> Durin::FRenderResourcePreparationProgress override
+		{
+			++PrepareCount;
+			Durin::FRenderResourcePreparationScope Scope(Preparation);
+			Scope.Complete(Request.View.ViewportWidth == 64 ? Durin::ERenderResourcePreparationState::Ready
+				: Durin::ERenderResourcePreparationState::Pending);
+			return Preparation.GetProgress();
+		}
+		uint32 PrepareCount = 0;
+		auto RenderView(Durin::FRHICommandListImmediate&, const Durin::FSceneViewRenderRequest&) -> Durin::ERenderViewResult override
 		{
 			return Durin::ERenderViewResult::RendererResourcesUnavailable;
 		}
@@ -1499,7 +1501,7 @@ TEST(FRendererSceneContractTests, ViewStateTransactionsPreserveLastSuccessfulFit
 {
 	FRenderingThreadScope RenderingThread;
 	auto Result = std::make_shared<std::vector<Durin::FSceneViewTemporalContext>>();
-	auto ProbeRevisions = std::make_shared<std::vector<uint64>>();
+	auto HistoryPolicies = std::make_shared<std::vector<uint64>>();
 	struct FExerciseViewStateTransactionsCommand
 	{
 		static constexpr auto GetName() -> const char*
@@ -1508,7 +1510,7 @@ TEST(FRendererSceneContractTests, ViewStateTransactionsPreserveLastSuccessfulFit
 		}
 	};
 	Durin::EnqueueRenderCommand<FExerciseViewStateTransactionsCommand>(
-		[Result, ProbeRevisions](Durin::FRHICommandListImmediate&) {
+		[Result, HistoryPolicies](Durin::FRHICommandListImmediate&) {
 			Durin::FSceneViewStateRegistry Registry;
 			const Durin::FSceneViewStateId FirstId =
 				Durin::FSceneViewStateIdAccess::Make(101);
@@ -1528,32 +1530,32 @@ TEST(FRendererSceneContractTests, ViewStateTransactionsPreserveLastSuccessfulFit
 					View, nullptr, 640, 360
 				);
 			Result->push_back(State->Begin(First, 1, false));
-			State->GetHistoryProbe().PendingRevision = 11;
+			State->GetVolumetricCloudHistory().SetPendingClear(11, 1);
 			State->Commit();
-			ProbeRevisions->push_back(
-				State->GetHistoryProbe().CommittedRevision
+			HistoryPolicies->push_back(
+				State->GetVolumetricCloudHistory().CommittedPolicyKey
 			);
 
 			Durin::FSceneViewTemporalMetadata Moved = First;
 			Moved.ViewLocation = {5.0, 6.0, 7.0};
 			Result->push_back(State->Begin(Moved, 2, false));
-			State->GetHistoryProbe().PendingRevision = 22;
+			State->GetVolumetricCloudHistory().SetPendingClear(22, 1);
 			State->Abort();
-			ProbeRevisions->push_back(
-				State->GetHistoryProbe().CommittedRevision
+			HistoryPolicies->push_back(
+				State->GetVolumetricCloudHistory().CommittedPolicyKey
 			);
 
 			Result->push_back(State->Begin(Moved, 3, false));
-			State->GetHistoryProbe().PendingRevision = 33;
+			State->GetVolumetricCloudHistory().SetPendingClear(33, 1);
 			State->Commit();
-			ProbeRevisions->push_back(
-				State->GetHistoryProbe().CommittedRevision
+			HistoryPolicies->push_back(
+				State->GetVolumetricCloudHistory().CommittedPolicyKey
 			);
 
 			(void)State->Begin(Moved, 4, false);
 			State->Commit();
-			ProbeRevisions->push_back(
-				State->GetHistoryProbe().CommittedRevision
+			HistoryPolicies->push_back(
+				State->GetVolumetricCloudHistory().CommittedPolicyKey
 			);
 
 			Durin::FSceneViewTemporalMetadata ProjectionChanged = Moved;
@@ -1606,11 +1608,11 @@ TEST(FRendererSceneContractTests, ViewStateTransactionsPreserveLastSuccessfulFit
 		(*Result)[5].Discontinuities,
 		Durin::ESceneViewDiscontinuity::InactiveGapExpiry
 	));
-	ASSERT_EQ(ProbeRevisions->size(), 4u);
-	EXPECT_EQ((*ProbeRevisions)[0], 11u);
-	EXPECT_EQ((*ProbeRevisions)[1], 11u);
-	EXPECT_EQ((*ProbeRevisions)[2], 33u);
-	EXPECT_EQ((*ProbeRevisions)[3], 33u);
+	ASSERT_EQ(HistoryPolicies->size(), 4u);
+	EXPECT_EQ((*HistoryPolicies)[0], 11u);
+	EXPECT_EQ((*HistoryPolicies)[1], 11u);
+	EXPECT_EQ((*HistoryPolicies)[2], 33u);
+	EXPECT_EQ((*HistoryPolicies)[3], 33u);
 }
 
 TEST(FRendererSceneContractTests, VolumetricCloudHistoryPolicyFollowsOuterViewTransactions)
@@ -3887,6 +3889,88 @@ namespace
 	}
 }
 
+TEST(FRendererSceneContractTests, MaterialPSONotificationsAreOwnerDirectedAndReentrant)
+{
+    using namespace Durin;
+    FMaterialPSORequestManager Manager;
+    auto Shared = Manager.PrecachePSOs(MaterialPSOTestParams());
+    FMaterialPSOPrecacheOwner FirstOwner, SecondOwner;
+    auto First = FirstOwner.Observe(Shared), Second = SecondOwner.Observe(Shared);
+    uint32 FirstChanges = 0, SecondChanges = 0;
+    auto A = First.Subscribe([&] { ++FirstChanges; (void)Manager.GetPendingRequestCount(); });
+    auto B = Second.Subscribe([&] { ++SecondChanges; (void)Manager.GetPendingRequestCount(); });
+    EXPECT_EQ(FirstChanges, 1u); EXPECT_EQ(SecondChanges, 1u);
+    FirstOwner.Invalidate();
+    EXPECT_EQ(FirstChanges, 2u); EXPECT_EQ(SecondChanges, 1u);
+    EXPECT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Stale);
+    EXPECT_EQ(Second.GetProgress().State, EMaterialPSOPrecacheState::Pending);
+    First.Cancel();
+    EXPECT_EQ(SecondChanges, 1u);
+    Manager.Invalidate();
+    EXPECT_EQ(SecondChanges, 2u);
+    EXPECT_EQ(Second.GetProgress().State, EMaterialPSOPrecacheState::Stale);
+}
+
+TEST(FRendererSceneContractTests, FailedOptionalPSODiagnosticsDoNotAuthorizeAnInvalidatedOwner)
+{
+    using namespace Durin;
+    FMaterialPSOTestPipelines Pipelines;
+    auto Ready = Pipelines.Request(false), Failed = Pipelines.Request(false, true);
+    ASSERT_TRUE(Ready->Wait());
+    EXPECT_FALSE(Failed->Wait());
+    FMaterialPSORequestManager Manager;
+    auto Shared = Manager.PrecachePSOs(MaterialPSOTestParams());
+    FMaterialPSOPrecacheOwner Owner;
+    auto Request = Owner.Observe(Shared);
+    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+        Out.Pipelines = {{Ready, true}, {Failed, false}};
+        return true;
+    });
+    EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+    EXPECT_TRUE(Request.GetProgress().bRequiredReady);
+    EXPECT_TRUE(Request.IsCurrent());
+    Owner.Invalidate();
+    EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+    EXPECT_FALSE(Request.IsCurrent());
+    EXPECT_FALSE(Request.GetProgress().bRequiredReady);
+    EXPECT_TRUE(Shared.IsCurrent());
+    EXPECT_TRUE(Shared.GetProgress().bRequiredReady);
+    Manager.Invalidate();
+    EXPECT_EQ(Shared.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+    EXPECT_FALSE(Shared.IsCurrent());
+    EXPECT_FALSE(Shared.GetProgress().bRequiredReady);
+}
+
+TEST(FRendererSceneContractTests, ComponentPSONotificationsIgnoreReplacedAndDestroyedJobSets)
+{
+    using namespace Durin;
+    FMaterialPSORequestManager Manager;
+    auto First = Manager.PrecachePSOs(MaterialPSOTestParams());
+    auto Params = MaterialPSOTestParams(); Params.PrecachePSOParams.bWireframe = true;
+    auto Second = Manager.PrecachePSOs(Params);
+    FPSOPrecacheComponentData Component;
+    uint32 OldChanges = 0, NewChanges = 0, DestroyedChanges = 0;
+    ASSERT_TRUE(Component.SetMaterialPSOPrecacheData({First}, {}, [&] { ++OldChanges; }));
+    FPSOPrecacheComponentData::DispatchOwnerNotifications();
+    const auto OldBefore = OldChanges;
+    std::thread CancelOld([&] { First.Cancel(); }); CancelOld.join();
+    Component.Reset();
+    ASSERT_TRUE(Component.SetMaterialPSOPrecacheData({Second}, {}, [&] { ++NewChanges; }));
+    FPSOPrecacheComponentData::DispatchOwnerNotifications();
+    EXPECT_EQ(OldChanges, OldBefore);
+    EXPECT_EQ(NewChanges, 1u);
+    {
+        FPSOPrecacheComponentData Destroyed;
+        ASSERT_TRUE(Destroyed.SetMaterialPSOPrecacheData({Second}, {}, [&] { ++DestroyedChanges; }));
+        FPSOPrecacheComponentData::DispatchOwnerNotifications();
+        std::thread CancelCurrent([&] { Second.Cancel(); }); CancelCurrent.join();
+    }
+    const auto BeforeDestroyDispatch = DestroyedChanges;
+    FPSOPrecacheComponentData::DispatchOwnerNotifications();
+    EXPECT_EQ(DestroyedChanges, BeforeDestroyDispatch);
+    EXPECT_EQ(NewChanges, 2u);
+}
+
 TEST(FRendererSceneContractTests, MaterialPSORequestsShareWorkWithoutSharingCancellationOrOwnerStaleness)
 {
 	using namespace Durin;
@@ -3900,8 +3984,8 @@ TEST(FRendererSceneContractTests, MaterialPSORequestsShareWorkWithoutSharingCanc
 	auto Peer = Manager.PrecachePSOs(Params);
 	ASSERT_NE(First.GetValue(), 0u);
 	EXPECT_EQ(First.GetValue(), Peer.GetValue());
-	auto Revision = std::make_shared<std::atomic<uint64>>(1);
-	auto Owner = Peer.WithOwnerRevision(Revision);
+	FMaterialPSOPrecacheOwner OwnerScope;
+	auto Owner = OwnerScope.Observe(Peer);
 	First.Cancel();
 	EXPECT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Canceled);
 	uint32 Collections = 0;
@@ -3910,7 +3994,7 @@ TEST(FRendererSceneContractTests, MaterialPSORequestsShareWorkWithoutSharingCanc
 	});
 	EXPECT_EQ(Collections, 1u);
 	EXPECT_EQ(Peer.GetProgress().State, EMaterialPSOPrecacheState::Ready);
-	++*Revision;
+	OwnerScope.Invalidate();
 	EXPECT_EQ(Owner.GetProgress().State, EMaterialPSOPrecacheState::Stale);
 	EXPECT_FALSE(Owner.GetProgress().bRequiredReady);
 	EXPECT_EQ(Peer.GetProgress().State, EMaterialPSOPrecacheState::Ready);
@@ -4138,6 +4222,17 @@ TEST(FRendererSceneContractTests, MaterialPSOResumesAfterNativeCapacityWithoutRe
 	EXPECT_TRUE(Prefix.expired());
 }
 
+TEST(FRendererSceneContractTests, MaterialPSOFailureSurvivesObserverCancellationAndOwnerInvalidation)
+{
+    using namespace Durin;
+    FMaterialPSOPrecacheOwner OwnerScope;
+    const auto Request = OwnerScope.Observe(FMaterialPSOPrecacheRequestID::Rejected("failed collection"));
+    Request.Cancel();
+    OwnerScope.Invalidate();
+    EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+    EXPECT_EQ(Request.GetDiagnostic(), "failed collection");
+}
+
 TEST(FRendererSceneContractTests, MaterialPSOCollectionCannotPublishEmptyOrInvalidatedSuccess)
 {
 	using namespace Durin;
@@ -4146,6 +4241,7 @@ TEST(FRendererSceneContractTests, MaterialPSOCollectionCannotPublishEmptyOrInval
 	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { return true; });
 	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	Manager.Invalidate();
+	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	Request = Manager.PrecachePSOs(MaterialPSOTestParams());
 	Manager.Pump([&](const auto&, auto&) -> std::expected<bool, std::string> { Manager.Invalidate(); return true; });
 	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Stale);
@@ -4271,84 +4367,244 @@ namespace Durin
 }
 #endif
 
-TEST(FRendererSceneContractTests, SkyLightingFailureRestoresPreviousAndRetainsFailedOwners)
+TEST(FRendererSceneContractTests, SkyLightingPublishesOnlyCompletedJobs)
 {
-	using namespace Durin;
-	for (const auto Failure : {ERHIGPUSubmissionState::Canceled, ERHIGPUSubmissionState::Failed, ERHIGPUSubmissionState::DeviceLost})
-	{
-		FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
-		FSkyLightingSceneState State;
-		auto Previous = std::make_shared<FSkyLightingGeneration>();
-		Previous->Revision = 7;
-		auto Candidate = std::make_shared<FSkyLightingGeneration>();
-		Candidate->Revision = 8;
-		const std::weak_ptr<const FSkyLightingGeneration> FailedOwner = Candidate;
-		State.Previous = Previous;
-		State.Active = Candidate;
-		State.InFlight = std::move(Candidate);
-		State.Completion = Timeline.Reserve();
-		if (Failure == ERHIGPUSubmissionState::Canceled) ASSERT_TRUE(Timeline.Cancel(State.Completion));
-		else Timeline.Fail(Failure == ERHIGPUSubmissionState::DeviceLost);
-		auto Status = std::make_shared<FSkyLightUpdateStatus>();
-		Status->PublishedRevision = 8;
-		Status->State = ESkyLightUpdateState::Ready;
-		State.FinishCompletion(true, true, Status, 0);
-		EXPECT_EQ(State.Active, Previous);
-		EXPECT_FALSE(State.InFlight);
-		EXPECT_FALSE(State.Previous);
-		EXPECT_FALSE(State.Completion);
-		EXPECT_TRUE(State.bRetry);
-		EXPECT_EQ(Status->State.load(), ESkyLightUpdateState::Failed);
-		EXPECT_EQ(Status->PublishedRevision.load(), 7u);
-		EXPECT_EQ(Status->CompletedUpdates.load(), 0u);
-		EXPECT_FALSE(FailedOwner.expired());
-		ASSERT_EQ(State.FailedGenerations.size(), 1u);
-
-		// A later successful marker can retire detached canceled work, never failed native work.
-		FRHIGPUQueueTimeline Recovery(AllocateRHIDeviceGeneration(), {0});
-		State.Completion = Recovery.Reserve();
-		ASSERT_TRUE(Recovery.MarkSubmitted(State.Completion));
-		ASSERT_TRUE(Recovery.ObserveCompleted(State.Completion));
-		State.FinishCompletion(false, false, {}, 0);
-		EXPECT_EQ(FailedOwner.expired(), Failure == ERHIGPUSubmissionState::Canceled);
-		State = {};
-		EXPECT_TRUE(FailedOwner.expired());
-	}
+    using namespace Durin;
+    const auto Device = AllocateRHIDeviceGeneration();
+    FRHIGPUQueueTimeline Timeline(Device, {0});
+    FSkyLightingSceneState Scene;
+    auto Previous = std::make_shared<FSkyLightingGeneration>();
+    Previous->Revision = 7;
+    Scene.Published = Previous;
+    auto Candidate = std::make_shared<FSkyLightingGeneration>();
+    Candidate->Resources.Device = Device;
+    Candidate->Revision = 8;
+    auto Completion = Timeline.Reserve();
+    Scene.Job = FSkyLightingJob{Candidate, Completion, {}};
+    auto Status = std::make_shared<FSkyLightUpdateStatus>();
+    EXPECT_FALSE(Scene.PollJob(true, Status, 1));
+    EXPECT_EQ(Scene.Published, Previous);
+    ASSERT_TRUE(Timeline.MarkSubmitted(Completion));
+    EXPECT_FALSE(Scene.PollJob(true, Status, 1));
+    EXPECT_EQ(Scene.Published, Previous);
+    ASSERT_TRUE(Timeline.ObserveCompleted(Completion));
+    auto Finished = Scene.PollJob(true, Status, 2.5);
+    ASSERT_TRUE(Finished);
+    EXPECT_FALSE(Scene.Job);
+    EXPECT_TRUE(Finished->Completion.IsRetirementEligible());
+    EXPECT_EQ(Scene.Published, Candidate);
+    EXPECT_EQ(Status->PublishedRevision.load(), 8u);
+    EXPECT_EQ(Status->CompletedUpdates.load(), 1u);
+    EXPECT_EQ(Status->UpdateMilliseconds.load(), 2.5);
+    EXPECT_EQ(Status->State.load(), ESkyLightUpdateState::Ready);
+    EXPECT_FALSE(Scene.PollJob(true, Status, 0));
+    EXPECT_EQ(Status->CompletedUpdates.load(), 1u);
 }
 
-TEST(FRendererSceneContractTests, SkyLightingCompletionRetiresPreviousButProtectsChangedAuthority)
+TEST(FRendererSceneContractTests, SkyLightingFailuresReleaseSchedulingButPreserveResultAndRetirementLease)
 {
-	using namespace Durin;
-	FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
-	FSkyLightingSceneState State;
-	auto Previous = std::make_shared<FSkyLightingGeneration>();
-	const std::weak_ptr<const FSkyLightingGeneration> OldOwner = Previous;
-	State.Previous = std::move(Previous);
-	State.Active = State.InFlight = std::make_shared<FSkyLightingGeneration>();
-	State.Completion = Timeline.Reserve();
-	ASSERT_TRUE(Timeline.MarkSubmitted(State.Completion));
-	ASSERT_TRUE(Timeline.ObserveCompleted(State.Completion));
-	auto Status = std::make_shared<FSkyLightUpdateStatus>();
-	State.FinishCompletion(true, true, Status, 2.5);
-	EXPECT_TRUE(OldOwner.expired());
-	EXPECT_EQ(Status->CompletedUpdates.load(), 1u);
-	EXPECT_EQ(Status->UpdateMilliseconds.load(), 2.5);
+    using namespace Durin;
+    for (const auto Failure : {ERHIGPUSubmissionState::Canceled, ERHIGPUSubmissionState::Failed, ERHIGPUSubmissionState::DeviceLost})
+    {
+        const auto Device = AllocateRHIDeviceGeneration();
+        FRHIGPUQueueTimeline Timeline(Device, {0});
+        FSkyLightingSceneState Scene;
+        auto Previous = std::make_shared<FSkyLightingGeneration>();
+        Previous->Revision = 7;
+        Scene.Published = Previous;
+        auto Candidate = std::make_shared<FSkyLightingGeneration>();
+        Candidate->Resources.Device = Device;
+        const std::weak_ptr<const FSkyLightingGeneration> Lease = Candidate;
+        auto Completion = Timeline.Reserve();
+        Scene.Job = FSkyLightingJob{std::move(Candidate), Completion, {}};
+        auto Status = std::make_shared<FSkyLightUpdateStatus>();
+        Status->PublishedRevision = 7;
+        if (Failure == ERHIGPUSubmissionState::Canceled) ASSERT_TRUE(Timeline.Cancel(Completion));
+        else Timeline.Fail(Failure == ERHIGPUSubmissionState::DeviceLost);
+        auto Finished = Scene.PollJob(true, Status, 0);
+        ASSERT_TRUE(Finished);
+        EXPECT_FALSE(Scene.Job);
+        EXPECT_EQ(Scene.Published, Previous);
+        EXPECT_EQ(Status->PublishedRevision.load(), 7u);
+        EXPECT_EQ(Status->State.load(), ESkyLightUpdateState::Failed);
+        EXPECT_EQ(Status->CompletedUpdates.load(), 0u);
+        EXPECT_FALSE(Lease.expired());
+        EXPECT_EQ(Finished->Completion.IsRetirementEligible(), Failure == ERHIGPUSubmissionState::Canceled);
+        Finished.reset();
+        EXPECT_TRUE(Lease.expired());
+    }
+}
 
-	// A source change can have later consumers than the filtering completion marker.
-	State.InFlight = State.Active;
-	State.Retiring.push_back(std::move(State.Active));
-	State.Completion = Timeline.Reserve();
-	ASSERT_TRUE(Timeline.MarkSubmitted(State.Completion));
-	ASSERT_TRUE(Timeline.ObserveCompleted(State.Completion));
-	State.FinishCompletion(false, false, {}, 0);
-	EXPECT_EQ(State.Retiring.size(), 1u);
-	State.Completion = Timeline.Reserve();
-	ASSERT_TRUE(Timeline.Cancel(State.Completion));
-	State.FinishCompletion(false, false, {}, 0);
-	EXPECT_EQ(State.Retiring.size(), 1u);
-	State.Completion = Timeline.Reserve();
-	ASSERT_TRUE(Timeline.MarkSubmitted(State.Completion));
-	ASSERT_TRUE(Timeline.ObserveCompleted(State.Completion));
-	State.FinishCompletion(false, false, {}, 0);
-	EXPECT_TRUE(State.Retiring.empty());
+TEST(FRendererSceneContractTests, SkyLightingChangedAuthorityNeverPublishesCompletedOldJob)
+{
+    using namespace Durin;
+    FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
+    FSkyLightingSceneState Scene;
+    const auto Completion = Timeline.Reserve();
+    Scene.Job = FSkyLightingJob{std::make_shared<FSkyLightingGeneration>(), Completion, {}};
+    ASSERT_TRUE(Timeline.MarkSubmitted(Completion));
+    ASSERT_TRUE(Timeline.ObserveCompleted(Completion));
+    auto Status = std::make_shared<FSkyLightUpdateStatus>();
+    Status->State = ESkyLightUpdateState::Pending;
+    EXPECT_TRUE(Scene.PollJob(false, Status, 0));
+    EXPECT_FALSE(Scene.Job);
+    EXPECT_FALSE(Scene.Published);
+    EXPECT_EQ(Status->CompletedUpdates.load(), 0u);
+    EXPECT_EQ(Status->State.load(), ESkyLightUpdateState::Pending);
+}
+
+TEST(FRendererSceneContractTests, RetirementPreservesPhysicalLeasesAcrossLogicalInvalidation)
+{
+    using namespace Durin;
+    const auto Device = AllocateRHIDeviceGeneration();
+    FRHIGPUQueueTimeline Timeline(Device, {0});
+    FRendererResourceRetirementQueue Retirement;
+    FRHIQueueCapabilities Physical;
+    Physical.DeviceGeneration = Device;
+    auto Resource = std::make_shared<int>(7);
+    const std::weak_ptr<int> Lease = Resource;
+    auto Pending = Timeline.Reserve();
+    Retirement.Retire(std::move(Resource), Pending, Device);
+    FRenderResourceGeneration Logical;
+    Logical.Advance(ERenderResourceGenerationDependency::Device);
+    Retirement.Collect(Physical);
+    EXPECT_FALSE(Lease.expired());
+    Timeline.Fail(true);
+    Retirement.Collect(Physical);
+    EXPECT_FALSE(Lease.expired());
+    // Only replacement of the actual RHI device permits abandoning failed native work.
+    Physical.DeviceGeneration = AllocateRHIDeviceGeneration();
+    Retirement.Collect(Physical);
+    EXPECT_TRUE(Lease.expired());
+}
+
+TEST(FRendererSceneContractTests, HitProxyCacheRetainsTextureIdentityUntilInvalidation)
+{
+    using namespace Durin;
+    FRenderingThreadScope RenderingThread;
+    EnqueueRenderCommand("RetainHitProxyTextureIdentity", [](FRHICommandListImmediate&) {
+        class FTrackedTexture final : public FRHITexture
+        {
+        public:
+            explicit FTrackedTexture(bool& InDestroyed)
+                : FRHITexture(FRHITextureCreateDesc::Create2D("CachedIdentity", 1, 1, EPixelFormat::RGBA8_UNORM)), Destroyed(InDestroyed) {}
+            ~FTrackedTexture() override { Destroyed = true; }
+        private:
+            bool& Destroyed;
+        };
+        bool bDestroyed = false;
+        FHitProxyMapCache Cache;
+        FTextureRHIRef Texture = MakeRefCount<FTrackedTexture>(bDestroyed);
+        auto* Identity = Texture.GetReference();
+        Cache.Publish_RenderThread({}, FHitProxyMap::Create(1, 1, FByteBuffer(sizeof(FHitProxyPixel))), false, {Texture});
+        Texture = nullptr;
+        EXPECT_EQ(Identity->GetRefCount(), 1u);
+        EXPECT_FALSE(bDestroyed);
+        Cache.Invalidate_RenderThread();
+        RHIFlushDeferredResources();
+        EXPECT_TRUE(bDestroyed);
+    });
+    FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, ViewportRechecksReadyPreparationForTheCurrentConfiguration)
+{
+    using namespace Durin;
+    FRenderingThreadScope RenderingThread;
+    auto Viewport = FSceneViewport::CreateOffscreen(nullptr);
+    Viewport->RequestResourcePreparation();
+    EnqueueRenderCommand("RecheckViewportPreparation", [&](FRHICommandListImmediate& Commands) {
+        FTestViewStateRenderer Renderer;
+        FSceneViewRenderRequest Request;
+        Request.View.ViewportWidth = 64;
+        EXPECT_TRUE(Viewport->PrepareResources_RenderThread(Renderer, Commands, Request));
+        Request.View.ViewportWidth = 128;
+        EXPECT_FALSE(Viewport->PrepareResources_RenderThread(Renderer, Commands, Request));
+        EXPECT_EQ(Renderer.PrepareCount, 2u);
+        Request.View.ViewportWidth = 64;
+        EXPECT_TRUE(Viewport->PrepareResources_RenderThread(Renderer, Commands, Request));
+    });
+    FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, RetirementShutdownDrainsDeviceBeforeReleasingFailedLeases)
+{
+    using namespace Durin;
+    const auto Device = AllocateRHIDeviceGeneration();
+    FRHIGPUQueueTimeline Timeline(Device, {0});
+    FRendererResourceRetirementQueue Retirement;
+    const auto Completion = Timeline.Reserve();
+    auto Resource = std::make_shared<int>(7);
+    const std::weak_ptr<int> Lease = Resource;
+    Retirement.Retire(std::move(Resource), Completion, Device);
+    Timeline.Fail(true);
+    bool bDrained = false;
+    Retirement.Drain([&] { EXPECT_FALSE(Lease.expired()); bDrained = true; });
+    EXPECT_TRUE(bDrained);
+    EXPECT_TRUE(Lease.expired());
+    Retirement.Drain([] { ADD_FAILURE() << "Empty retirement queue must not wait for the GPU."; });
+}
+
+TEST(FRendererSceneContractTests, RetirementNeedsNeitherSceneNorNewWorkAndHonorsCanceledPrefix)
+{
+    using namespace Durin;
+    const auto Device = AllocateRHIDeviceGeneration();
+    FRHIGPUQueueTimeline Timeline(Device, {0});
+    FRHIQueueCapabilities Physical;
+    Physical.DeviceGeneration = Device;
+    FRendererResourceRetirementQueue Retirement;
+    const auto Prior = Timeline.Reserve();
+    const auto Canceled = Timeline.Reserve();
+    ASSERT_TRUE(Timeline.MarkSubmitted(Prior));
+    ASSERT_TRUE(Timeline.Cancel(Canceled));
+    std::weak_ptr<int> Lease;
+    {
+        auto SceneOwned = std::make_shared<int>(42);
+        Lease = SceneOwned;
+        Retirement.Retire(SceneOwned, Canceled, Device);
+    }
+    Retirement.Collect(Physical);
+    EXPECT_FALSE(Lease.expired());
+    ASSERT_TRUE(Timeline.ObserveCompleted(Prior));
+    Retirement.Collect(Physical);
+    EXPECT_TRUE(Lease.expired());
+}
+
+TEST(FRendererSceneContractTests, CollectionSnapshotsDoNotMergeAcrossConsumersOrRemoval)
+{
+    using namespace Durin;
+    FRenderingThreadScope RenderingThread;
+    FSceneTestOwner SceneOwner;
+    auto& Scene = *SceneOwner;
+    const FGuid Id(5, 6, 7, 8);
+    auto First = std::make_shared<FMaterialParameterCollectionSnapshot>();
+    First->Layout.CollectionId = Id; First->Version = 1;
+    auto Second = std::make_shared<FMaterialParameterCollectionSnapshot>(*First);
+    Second->Version = 2;
+    std::promise<void> Started, Release;
+    auto StartedEvent = Started.get_future();
+    auto ReleaseEvent = Release.get_future().share();
+    EnqueueRenderCommand("BlockCollectionPublication", [&](FRHICommandListImmediate&) {
+        Started.set_value(); ReleaseEvent.wait();
+    });
+    StartedEvent.wait();
+    Scene.UpdateMaterialParameterCollection(First);
+    std::shared_ptr<const FMaterialParameterCollectionSnapshot> Between, Removed, Final;
+    EnqueueRenderCommand("ReadFirstCollection", [&](FRHICommandListImmediate&) {
+        Between = Scene.GetMaterialParameterCollection_RenderThread(Id);
+    });
+    Scene.UpdateMaterialParameterCollection(Second);
+    Scene.RemoveMaterialParameterCollection(Id);
+    EnqueueRenderCommand("ReadRemovedCollection", [&](FRHICommandListImmediate&) {
+        Removed = Scene.GetMaterialParameterCollection_RenderThread(Id);
+    });
+    Scene.UpdateMaterialParameterCollection(First);
+    EnqueueRenderCommand("ReadRepublishedCollection", [&](FRHICommandListImmediate&) {
+        Final = Scene.GetMaterialParameterCollection_RenderThread(Id);
+    });
+    Release.set_value();
+    FlushRenderingCommands();
+    EXPECT_EQ(Between, First);
+    EXPECT_FALSE(Removed);
+    EXPECT_EQ(Final, First);
 }

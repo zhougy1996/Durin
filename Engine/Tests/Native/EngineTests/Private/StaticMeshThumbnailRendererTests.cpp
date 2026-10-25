@@ -16,7 +16,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "NativeTestSupport.h"
-#include "Misc/FileHelper.h"
+#include "Image/ImageEncoder.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -123,14 +123,14 @@ namespace
 			});
 	}
 
-	auto LoadThumbnailPngBytes() -> Durin::FByteBuffer
+	auto MakeThumbnailPngBytes(uint32 Width, uint32 Height) -> Durin::FByteBuffer
 	{
-		Durin::FByteBuffer Bytes;
-		auto BytesRead = Durin::FFileHelper::LoadFileToArray(std::filesystem::path(Durin::FPaths::EngineContentDir())
-				/ "Editor/Branding/DurinEditorLogoUI.png");
-		EXPECT_TRUE(BytesRead) << BytesRead.error().ToString();
-		if (BytesRead) Bytes = std::move(*BytesRead);
-		return Bytes;
+		// Cache-hit coverage owns a valid image matching the requested output,
+		// independently of optional materialization of repository branding assets.
+		Durin::FByteBuffer Pixels(static_cast<size_t>(Width) * Height * 4, std::byte{128});
+		Durin::FByteBuffer Encoded;
+		EXPECT_TRUE(Durin::Image::EncodeRgba8Png(Pixels, Width, Height, Encoded));
+		return Encoded;
 	}
 
 	auto MakeCacheRoot(std::string_view Name) -> std::filesystem::path
@@ -491,7 +491,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::Editor::FThumbnailObjectStore Store({
 			.CacheRoot = CacheRoot,
 			.ObjectExtension = ".png"});
-		ASSERT_TRUE(Store.Store(CacheKey, LoadThumbnailPngBytes()));
+		ASSERT_TRUE(Store.Store(CacheKey, MakeThumbnailPngBytes(GenerationRequest.KeyInput.Output.Width, GenerationRequest.KeyInput.Output.Height)));
 	}
 	ASSERT_TRUE(Durin::UnloadPackage(StaticMeshPath));
 	ASSERT_EQ(Durin::FindResidentPackage(StaticMeshPath), nullptr);

@@ -105,8 +105,7 @@ namespace Durin
 						++GRenderFrameCounterRenderThread;
 						GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 						EXPECT_EQ(
-							Renderer.RenderView(
-								CommandList, nullptr, View, Target, false, {}),
+							Renderer.RenderView(CommandList, {nullptr, View, Target, false, {}}),
 							ERenderViewResult::Success);
 						GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					}

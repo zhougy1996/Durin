@@ -89,19 +89,6 @@ namespace Durin
 		bool bHistoryValid = false;
 	};
 
-	// Demonstrates the private strongly typed extension pattern used by future histories.
-	struct FSceneViewHistoryProbe
-	{
-		uint64 CommittedRevision = 0;
-		uint64 PendingRevision = 0;
-		FTextureRHIRef CommittedTexture;
-		FTextureRHIRef PendingTexture;
-
-		RENDERER_API auto Commit() -> void;
-		RENDERER_API auto Abort() -> void;
-		RENDERER_API auto Reset() -> void;
-	};
-
 	// Private per-view cloud history. Candidate publication follows the outer
 	// view transaction; aborted candidates become reusable scratch storage.
 	struct FVolumetricCloudViewHistory
@@ -140,7 +127,6 @@ namespace Durin
 		RENDERER_API auto Commit() -> void;
 		RENDERER_API auto Abort() -> void;
 		RENDERER_API auto Invalidate(ESceneViewDiscontinuity Cause) -> void;
-		auto GetHistoryProbe() -> FSceneViewHistoryProbe& { return HistoryProbe; }
 		auto GetVolumetricCloudHistory() -> FVolumetricCloudViewHistory&
 		{
 			return VolumetricCloudHistory;
@@ -157,7 +143,6 @@ namespace Durin
 		ESceneViewDiscontinuity PendingInvalidation =
 			ESceneViewDiscontinuity::None;
 		bool bSubmissionActive = false;
-		FSceneViewHistoryProbe HistoryProbe;
 		FVolumetricCloudViewHistory VolumetricCloudHistory;
 	};
 

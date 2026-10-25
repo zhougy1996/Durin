@@ -17,8 +17,8 @@ namespace Durin
 	FSceneRenderingService::FSceneRenderingService()
 		: RDGAllocator(Coordinator)
 		, DefaultTextures(Coordinator)
-		, EnvironmentLighting(Coordinator)
-		, SurfaceMaterials(Coordinator, DefaultTextures, EnvironmentLighting)
+		, EnvironmentLighting(Coordinator, Retirement)
+		, SurfaceMaterials(Coordinator, DefaultTextures)
 		, DirectionalShadowRenderer(Coordinator)
 		, GBufferRenderer(Coordinator)
 		, GBufferDebugRenderer(Coordinator, FullscreenGeometry)
@@ -36,10 +36,11 @@ namespace Durin
 
 	FSceneRenderingService::~FSceneRenderingService() = default;
 
-    auto FSceneRenderingService::UpdatePendingScenes_RenderThread(FRHICommandListImmediate& Commands) -> void
+    auto FSceneRenderingService::BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void
     {
         CheckRenderingThread();
         PrunePreparations_RenderThread();
+        if (GDynamicRHI) Retirement.Collect(GDynamicRHI->RHIGetQueueCapabilities());
 		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection) {
 			return RendererPrivate::CollectMaterialPSOs(Params, Collection, Coordinator.GetGeneration_RenderThread());
 		});
@@ -56,6 +57,12 @@ namespace Durin
 		FPreparedShaderMapScope ShaderScope(true);
         EnvironmentLighting.UpdateScene_RenderThread(Commands, Scene, RDGAllocator, DefaultTextures.GetCube_RenderThread());
     }
+
+	auto FSceneRenderingService::ReleaseSceneResources_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void
+	{
+		RetirePreparations_RenderThread(&Scene);
+		EnvironmentLighting.ReleaseScene_RenderThread(Commands, Scene);
+	}
 
 	auto FSceneRenderingService::Start(
 		FConsoleCommandRegistry& Registry
@@ -86,6 +93,10 @@ namespace Durin
 	{
 		MaterialPSORequests.Close();
 		ReleaseDeviceResources_RenderThread();
+		Retirement.Drain([] {
+			require(GDynamicRHI != nullptr);
+			FRHICommandListImmediate::Get().BlockUntilGPUIdle();
+		});
 		Coordinator.ReleaseResources_RenderThread();
 		VisibilityScratch = {};
 	}
@@ -96,7 +107,7 @@ namespace Durin
 		MaterialPSORequests.Invalidate();
 		RetirePreparations_RenderThread();
 		DefaultTextures.ReleaseResources_RenderThread();
-		EnvironmentLighting.ReleaseResources_RenderThread();
+		EnvironmentLighting.ReleaseResources_RenderThread(FRHICommandListImmediate::Get());
 		SurfaceMaterials.ReleaseResources_RenderThread();
 		StaticMeshRenderer.ReleaseResources_RenderThread();
 		MeshCommandCache.Reset();
@@ -204,9 +215,9 @@ namespace Durin
 		std::erase_if(Preparations, [](const auto& Owner) {
 			const auto State = Owner.Preparation.GetProgress().State;
 			if (Owner.Preparation.HasOtherOwners() && State != ERenderResourcePreparationState::Canceled
-				&& State != ERenderResourcePreparationState::Stale) return false;
-			Owner.Preparation.Retire_RenderThread(State == ERenderResourcePreparationState::Stale
-				? State : ERenderResourcePreparationState::Canceled);
+				&& State != ERenderResourcePreparationState::Stale && State != ERenderResourcePreparationState::Failed) return false;
+			Owner.Preparation.Retire_RenderThread(State == ERenderResourcePreparationState::Ready || State == ERenderResourcePreparationState::Pending
+				? ERenderResourcePreparationState::Canceled : State);
 			return true;
 		});
 	}
@@ -247,12 +258,14 @@ namespace Durin
 		{
 			const auto Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, View,
 				OutputTarget, bPresentOutput, Options, nullptr, nullptr);
-			Scope.Complete(Result == ERenderViewResult::Success, Result != ERenderViewResult::Success
-				&& Result != ERenderViewResult::RendererResourcesPending);
+			Scope.Complete(Result == ERenderViewResult::Success ? ERenderResourcePreparationState::Ready
+				: Result == ERenderViewResult::RendererResourcesPending ? ERenderResourcePreparationState::Pending
+				: ERenderResourcePreparationState::Failed);
 		}
-		catch (const FRenderResourcePreparationYield&) { Scope.Complete(false); }
-		catch (const FRenderResourcePreparationCapacityExceeded&) { Scope.Complete(false, true); }
-		catch (const std::bad_alloc&) { Scope.Complete(false, true); }
+		catch (const FRenderResourcePreparationYield&) { Scope.Complete(ERenderResourcePreparationState::Pending); }
+		catch (const FRenderResourcePreparationCapacityExceeded&) { Scope.Complete(ERenderResourcePreparationState::Failed); }
+		catch (const std::bad_alloc&) { Scope.Complete(ERenderResourcePreparationState::Failed); }
+		PrunePreparations_RenderThread();
 	}
 
 	auto FSceneRenderingService::RenderView_RenderThread(

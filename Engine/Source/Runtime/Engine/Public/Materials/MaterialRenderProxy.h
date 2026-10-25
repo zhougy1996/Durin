@@ -16,6 +16,7 @@ namespace Durin
 		FRHITextureReferenceRef Texture;
 		FMaterialSamplerState SamplerState;
 		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
+		auto operator==(const FMaterialLocalTextureValue&) const -> bool = default;
 	};
 
 	// The selected alternative is the only type authority; no live objects cross this boundary.
@@ -24,6 +25,7 @@ namespace Durin
 		FGuid Id;
 		std::variant<float, FVector2, FVector3, FVector4, FMaterialLocalTextureValue> Value = 0.0f;
 		ENGINE_API auto GetType() const -> EMaterialParameterType;
+		auto operator==(const FMaterialLocalRenderParameter&) const -> bool = default;
 	};
 
 	// Publishes a complete accepted contract for either material asset kind.
@@ -32,6 +34,7 @@ namespace Durin
 		std::vector<FMaterialLocalRenderParameter> Parameters;
 		std::optional<FMaterialStaticProperties> StaticProperties;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
+		auto operator==(const FMaterialLocalRenderLayer&) const -> bool = default;
 	};
 
 	class FMaterialRenderProxy;
@@ -47,18 +50,11 @@ namespace Durin
 
 	};
 
-	struct FMaterialRenderProxyPublication
-	{
-		FMaterialLocalRenderLayer LocalLayer;
-	};
-
 	// Reports proxy-owned publication and render-thread resolution work.
 	struct FMaterialRenderProxyCounters
 	{
 		uint64 QueuedPublicationCount = 0;
-		uint64 QueuedPublicationWaveCount = 0;
 		uint64 PublicationCount = 0;
-		uint64 CoalescedPublicationCount = 0;
 		uint64 PendingPublicationCount = 0;
 		uint64 CopiedMaterialPayloadBytes = 0;
 		uint64 ResolutionCacheHitCount = 0;
@@ -68,9 +64,6 @@ namespace Durin
 		uint64 ParameterBindingBuildCount = 0;
 		uint64 IndexedParameterWriteCount = 0;
 	};
-
-	// Monotonic accepted-publication epoch; independent of resettable diagnostics.
-	ENGINE_API auto GetMaterialRenderProxyPublicationRevision() -> uint64;
 
 	ENGINE_API auto GetMaterialRenderProxyCounters()
 		-> FMaterialRenderProxyCounters;
@@ -93,16 +86,13 @@ namespace Durin
 
 		// Applies an owned snapshot in render-command order and invalidates resolution.
 		ENGINE_API auto ApplyPublication_RenderThread(
-			FMaterialRenderProxyPublication Publication
-			) -> bool;
+			FMaterialLocalRenderLayer Publication
+			) -> void;
 
-		// Accepts an immediate game-thread snapshot; true means accepted, not executed.
-		// Queues the latest game-thread publication. At most one render command
-		// owns the pending wave for this proxy; later publications replace that
-		// wave until the render thread takes ownership.
+		// Every command owns an immutable layer; consumers observe command order.
 		ENGINE_API auto QueuePublication_GameThread(
-			FMaterialRenderProxyPublication Publication
-			) -> bool;
+			FMaterialLocalRenderLayer Publication
+			) -> void;
 
 		// Builds the accepted layout once after each applied publication.
 		ENGINE_API auto Resolve_RenderThread() -> const FMaterialRenderData&;
@@ -122,7 +112,6 @@ namespace Durin
 		auto UpdateParameterBindings() -> void;
 		std::shared_ptr<const FMaterialShaderMap> BindingArtifact;
 		std::vector<FParameterBinding> ParameterBindings;
-		ENGINE_API auto ApplyPendingPublication_RenderThread() -> bool;
 
 		~FMaterialRenderProxy() = default;
 
@@ -135,12 +124,6 @@ namespace Durin
 		uint64 ResolutionCount = 0;
 		bool bHasResolvedData = false;
 
-		// PendingPublication is the game-thread publication wave. It is never
-		// read by render code without taking this mutex; the render-thread state
-		// above remains owned exclusively by the rendering thread.
-		mutable std::mutex PublicationMutex;
-		std::optional<FMaterialRenderProxyPublication> PendingPublication;
-		bool bPublicationCommandQueued = false;
 	};
 
 	// Converts one selected value to its counted render-safe representation without

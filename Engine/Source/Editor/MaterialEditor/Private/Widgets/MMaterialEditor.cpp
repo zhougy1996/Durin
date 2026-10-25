@@ -863,9 +863,8 @@ namespace Durin::Editor::Material
 				static_cast<unsigned long long>(Compilation.AcceptedRequests),
 				static_cast<unsigned long long>(Compilation.CompletedRequests),
 				static_cast<unsigned long long>(Compilation.FailedRequests));
-			ImGui::Text("Process proxy work: %llu publications, %llu coalesced, %llu resolves",
+			ImGui::Text("Process proxy work: %llu publications, %llu resolves",
 				static_cast<unsigned long long>(Proxies.PublicationCount),
-				static_cast<unsigned long long>(Proxies.CoalescedPublicationCount),
 				static_cast<unsigned long long>(Proxies.ResolutionCacheMissCount));
 		}
 		if (const auto* Session = FindEditingSession(Material); Session && Session->GetSourceMaterial())

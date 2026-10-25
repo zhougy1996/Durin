@@ -133,9 +133,6 @@ namespace Durin
 		std::unordered_map<const FSkyLightSceneProxy*, std::shared_ptr<const FSkyLightSceneProxy>> SkyLights;
 		std::unordered_map<const FProceduralSkySceneProxy*, std::shared_ptr<const FProceduralSkySceneProxy>> ProceduralSkies;
 		std::unordered_map<FGuid, std::shared_ptr<const FMaterialParameterCollectionSnapshot>> MaterialParameterCollections;
-		std::mutex MaterialParameterCollectionPublicationMutex;
-		std::unordered_map<FGuid, std::shared_ptr<const FMaterialParameterCollectionSnapshot>> PendingMaterialParameterCollections;
-		bool bMaterialParameterCollectionCommandQueued = false;
 		FSkyBoxSceneProxy* PublishedSkyBoxProxy = nullptr;
 		std::atomic<ELifecycleState> LifecycleState{ELifecycleState::Active};
 

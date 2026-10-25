@@ -58,12 +58,10 @@ function(durin_add_native_test target_name)
 	foreach(_environment IN LISTS TEST_ENVIRONMENTS)
 		# This environment has work only in authored/editor configurations.
 		if(_environment STREQUAL "authored-shaders" AND DURIN_WITH_EDITOR)
-			set(_source "${CMAKE_CURRENT_BINARY_DIR}/Generated/AuthoredShaderTestEnvironment-${target_name}.cpp")
-			configure_file(
-				"${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../Engine/Tests/NativeTestSupport/Private/AuthoredShaderTestEnvironment.cpp.in"
-				"${_source}" COPYONLY)
-			target_sources(${target_name} PRIVATE "${_source}")
-			target_link_libraries(${target_name} PRIVATE DerivedDataCache ShaderBuild Slang_Imported)
+			# Object-library linkage retains the environment's registration initializer
+			# without generating and recompiling a target-specific copy.
+			target_link_libraries(${target_name} PRIVATE
+				AuthoredShaderTestEnvironment DerivedDataCache ShaderBuild Slang_Imported)
 		endif()
 	endforeach()
 	foreach(_property IN ITEMS HEAVY_RUNTIME_RATIONALE TARGET_LOCK_RATIONALE RESOURCE_LOCKS LABELS)

@@ -121,6 +121,21 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_NE(ProgramPreparation.GetProgram(), nullptr);
 	EXPECT_EQ(ProgramPreparation.GetProgram(), Cooked->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
+	// Keep all terminal observations alive: admission bounds work, not diagnostic handles.
+	std::vector<Durin::FMaterialProgramPreparation> CompletedPreparations;
+	for (uint32 Index = 0; Index < 24; ++Index)
+	{
+		auto Next = Durin::FMaterialProgramPreparation::Request(*Cooked);
+		const auto NextDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+		while (Next.Poll() == Durin::EMaterialProgramPreparationState::Pending
+			&& std::chrono::steady_clock::now() < NextDeadline) std::this_thread::yield();
+		ASSERT_EQ(Next.Poll(), Durin::EMaterialProgramPreparationState::Ready) << Next.GetDiagnostic();
+		Next.Cancel();
+		EXPECT_EQ(Next.Poll(), Durin::EMaterialProgramPreparationState::Ready);
+		CompletedPreparations.push_back(std::move(Next));
+	}
+	FailedPreparation.Cancel();
+	EXPECT_EQ(FailedPreparation.Poll(), Durin::EMaterialProgramPreparationState::Failed);
 	auto StalePreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
 	const auto OriginalQuality = Durin::GetMaterialQualityLevel();
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality == Durin::EMaterialQualityLevel::High
@@ -136,14 +151,14 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		EXPECT_TRUE(Durin::ShaderFormat::ValidateShaderCode(Shader));
 	}
 	auto ReplacedPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
-	const auto VersionBeforeReplace = Cooked->GetRenderStateVersion();
+	const auto VersionBeforeReplace = Cooked->GetRenderChangeCount();
 	// Deliberately replace identical inline storage without a material edit event.
 	auto& Storage = const_cast<Durin::FBulkData&>(Cooked->GetCookedProgramData());
 	Durin::FBulkData StorageSnapshot = Storage;
 	const auto SizeBeforeReplace = Storage.GetMetadata().LogicalSize;
 	Storage = StorageSnapshot;
 	EXPECT_EQ(Storage.GetMetadata().LogicalSize, SizeBeforeReplace);
-	EXPECT_EQ(Cooked->GetRenderStateVersion(), VersionBeforeReplace);
+	EXPECT_EQ(Cooked->GetRenderChangeCount(), VersionBeforeReplace);
 	EXPECT_EQ(ReplacedPreparation.Poll(), Durin::EMaterialProgramPreparationState::Stale);
 	const auto ProgramBeforeCanceledResave = Cooked->GetAcceptedCompiledProgram();
 	const Durin::FAssetBuildTaskContext CanceledControl{.Cancellation = Durin::FCancellationToken([] { return true; })};
@@ -339,8 +354,14 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_FALSE(Durin::RequestMaterialRecompile(*Child));
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "CookedDynamicTexture");
 	ASSERT_TRUE(Texture->GetTextureReferenceRHI());
+	auto ParameterPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
 	ASSERT_TRUE(Cooked->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
+	const auto ParameterDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	while (ParameterPreparation.Poll() == Durin::EMaterialProgramPreparationState::Pending
+		&& std::chrono::steady_clock::now() < ParameterDeadline) std::this_thread::yield();
+	ASSERT_EQ(ParameterPreparation.Poll(), Durin::EMaterialProgramPreparationState::Ready)
+		<< ParameterPreparation.GetDiagnostic();
 	Instance->GetPackage()->ClearDirty();
 	ASSERT_TRUE(Child->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));

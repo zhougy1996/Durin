@@ -52,7 +52,7 @@ namespace Durin::RendererPrivate
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareSurfaceMaterial");
 		if (MaterialBinding == nullptr || !SurfaceMaterials.Resolve_RenderThread(
-			*MaterialBinding, Pass,
+			*MaterialBinding, Pass, Environment,
 			DirectionalShadowTexture, DirectionalShadowSampler,
 			OutMaterial.Surface))
 		{

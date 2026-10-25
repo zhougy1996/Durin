@@ -185,7 +185,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 			++GRenderFrameCounterRenderThread;
 			GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
 			auto View = MakeSceneCloudView(96, 64);
-			Result = Renderer.RenderView(Commands, Scene, View, Output, false, {});
+			Result = Renderer.RenderView(Commands, {Scene, View, Output, false, {}});
 			GDynamicRHI->RHIEndFrame_RenderThread(Commands);
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 			EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, Pixels));

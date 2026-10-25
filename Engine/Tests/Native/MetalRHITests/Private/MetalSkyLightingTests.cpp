@@ -85,9 +85,9 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
             });
             World->Tick({.DeltaSeconds = 0.02f});
             EnqueueRenderCommand("EndMetalSkyFrame", [&](FRHICommandListImmediate& Cmd) {
-                Renderer.UpdateScenes_RenderThread(Cmd);
-                Ready = bool(Scene.SkyLighting->Active);
-                Request = Ready ? Scene.SkyLighting->Active->Request : 0;
+                Renderer.BeginFrame_RenderThread(Cmd);
+                Ready = bool(Scene.SkyLighting->Published);
+                Request = Ready ? Scene.SkyLighting->Published->Request : 0;
                 GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
             });
             FlushRenderingCommands();
@@ -103,8 +103,8 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         };
         const auto CheckEnergy = [&](const FVector3f& Radiance, bool Captured) {
             EnqueueRenderCommand("ReadMetalSkyEnergy", [&](FRHICommandListImmediate& Cmd) {
-                ASSERT_TRUE(Scene.SkyLighting->Active);
-                const auto& G = *Scene.SkyLighting->Active;
+                ASSERT_TRUE(Scene.SkyLighting->Published);
+                const auto& G = *Scene.SkyLighting->Published;
                 EXPECT_EQ(bool(G.Radiance), Captured);
                 EXPECT_EQ(G.Prefiltered->GetNumMips(), 8u);
                 const auto Check = [&](FRHITexture* Texture, uint32 Mip, uint32 Face, float Scale) {
@@ -183,12 +183,12 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         }
         EXPECT_NE(Request,ConstantRequest);
         EnqueueRenderCommand("CheckMetalSkyOrientation",[&](FRHICommandListImmediate& Cmd) {
-            ASSERT_TRUE(Scene.SkyLighting->Active);
+            ASSERT_TRUE(Scene.SkyLighting->Published);
             const std::array<FVector3f,2> Expected{FVector3f{4,2,1},FVector3f{0.125f,0.25f,0.5f}};
             for(uint32 Index=0;Index<2;++Index)
             {
                 FByteBuffer Pixels;
-                ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,Scene.SkyLighting->Active->Radiance,0,4+Index,Pixels));
+                ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,Scene.SkyLighting->Published->Radiance,0,4+Index,Pixels));
                 ASSERT_EQ(Pixels.size(),128u*128u*8u);
                 for(uint32 Channel=0;Channel<3;++Channel)
                 {
@@ -241,7 +241,7 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         Pump();
         EnqueueRenderCommand("CheckMetalSkyRetired", [&](FRHICommandListImmediate&) {
             EXPECT_TRUE(Scene.SkyLighting->Retiring.empty());
-            EXPECT_FALSE(Scene.SkyLighting->InFlight);
+            EXPECT_FALSE(Scene.SkyLighting->Job);
         });
         FlushRenderingCommands();
         EXPECT_TRUE(World->SetCurrentLevel(nullptr));

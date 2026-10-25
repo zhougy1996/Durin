@@ -120,8 +120,11 @@ payload is published; duplicate, missing, nonfinite or type-invalid records reje
 the whole update. Changed, no-op and rejected commits have exact counters. Values
 fall back to asset defaults, and authored default edits refresh instantiated world
 states without material compilation. Worlds retain independent immutable
-snapshots, and scene publication coalesces superseded snapshots without mutating
-the collection asset, dirtying material packages or publishing material proxies.
+snapshots. Each scene publication owns its snapshot in the ordered command
+stream, including across consumers, removal and later republication. Snapshot
+versions identify uniform-cache content; they do not reject queued publications.
+Collection updates do not mutate the asset, dirty material packages or publish
+material proxies.
 
 ### Parameter values and declarations
 
@@ -948,23 +951,22 @@ result; neither operation reinterprets the authored program.
 - Dirty flags classify the publication that a material mutation produces:
   dynamic parameters and compatible static properties publish complete immutable
   layers. GameThread uses the loaded-dependent query to refresh affected owners;
-  the render thread builds only that owner's layout. Applying a publication
-  invalidates its resolved cache; diagnostic publication/resolution counts do not
-  participate in ordering or cache validity.
+  the render thread builds only that owner's layout and explicitly invalidates
+  its resolved cache when a new layer is applied.
   It retains no parent proxy and performs no material-object traversal.
-- A material publication owns one pending wave per proxy. Repeated edits before
-  the render command is consumed replace that pending wave, so only the newest
-  immutable state is applied. The command stream preserves publication order
-  before later rendering commands consume the proxy. Publication accepts an
-  immediate GameThread snapshot, not an independently ordered asynchronous
-  result. Acceptance does not promise application of every intermediate edit.
-  If a material is edited before render-command admission starts, no publication
-  command is submitted.
-  The next proxy request after the rendering thread starts builds and submits
-  the current state before a preview or scene-proxy consumer uses it.
+- Each material publication command owns its complete layer. The game thread
+  never overwrites a mailbox belonging to an earlier command: a consumer between
+  publications A and B observes A regardless of render-thread scheduling.
+  Queue/apply interfaces accept the layer directly and return void. Resolution
+  remains lazy, so consecutive publications without a consumer rebuild the
+  resolved representation only when it is needed. There is no publication
+  version, coalescing mailbox, stale-update rejection or compatibility entry point.
+  Publication/resolution counts are diagnostics only. A dirty flag retains
+  pre-start demand until admission opens; the next proxy request submits the
+  current state before a preview or scene-proxy consumer uses it.
 - Component material assignment is a binding update, not material-content
-  invalidation. Slot bindings execute in the same GameThread-produced FIFO
-  stream as proxy add/remove, without a component-wide ordering revision.
+  invalidation. Immediate game-thread binding snapshots share the ordered command
+  stream with proxy creation and removal.
 - The static mesh shader implements Cook-Torrance GGX direct lighting and
   split-sum image-based environment lighting, plus an unlit viewport mode.
   Direct evaluation clamps perceptual roughness to `[0.045, 1]`; that positive
@@ -1059,7 +1061,7 @@ search of the active declaration or layout field arrays.
 
 `FMaterialRenderProxy` resolves parent and local layers into a copied builder,
 publishes only a complete representation, and keeps the existing cache,
-coalescing, ordered-update, startup-replay, and counted-resource contracts.
+ordered-publication, lazy-resolution, startup-replay, and counted-resource contracts.
 
 ## Renderer Surface Execution
 
@@ -1118,7 +1120,7 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   scan and select components whose current mesh assignment equals the changed
   mesh. Rebuilding render state then resolves current slot definitions,
   defaults, and positional overrides directly from canonical storage.
-- Proxy diagnostics expose queued publications/waves, applied/coalesced/pending
+- Proxy diagnostics expose queued, applied and pending
   publications, copied logical payload bytes, resolution-cache hit/miss,
   and binding-update counts; these are fixed process aggregates, not a dependency
   index. Dynamic-instance diagnostics separately count submitted records, changed,

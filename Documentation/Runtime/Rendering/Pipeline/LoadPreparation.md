@@ -11,8 +11,8 @@ Last reviewed: 2026-10-25
 Async asset completion retains its existing object-readiness meaning. A loading
 owner may independently call `FMaterialProgramPreparation::Request` on the game
 thread before accepted-program demand. The request snapshots the bounded cooked
-bulk range/content revision and quality, feature level, backend and render-state
-revision. A same-sized inline replacement or admitted write invalidates a pending
+bulk range/content revision and quality, feature level and backend. Parameter-only
+material publications do not invalidate immutable cooked program decoding. A same-sized inline replacement or admitted write invalidates a pending
 request even when its range metadata and material edit version are unchanged. Package
 I/O and family decode run without dereferencing live objects. `Poll` admits only
 a current result on the game thread, through the same declaration, collection,
@@ -22,9 +22,11 @@ Program preparation reports Pending, Ready, Failed, Canceled or Stale. Ready
 retains the immutable accepted program; failure does not become asset-load
 failure. Cancellation withdraws one request. Copies alias that request. Separate
 requests do not cancel each other. Unload, retired package storage, changed
-configuration or changed material revision prevents pending publication. At most
-16 program owners are admitted, each with the existing 8 MiB encoded family
-limit. Decoded products and package-task storage have additional allocation cost;
+configuration or replaced cooked content prevents pending publication. At most
+16 read/decode continuations are admitted; each releases its admission on exit,
+including cancellation and failure. Retaining terminal handles consumes no work
+admission. Terminal results remain observable after cancellation. Each request
+has the existing 8 MiB encoded family limit. Decoded products and package-task storage have additional allocation cost;
 these limits are not a process RSS bound.
 
 Cooked Game startup explicitly requests the default level’s selected Local/Spline
@@ -46,7 +48,9 @@ resident routes selected by those inputs, not every future scene combination.
 Preparation runs normal logical, view-resource, scene-resource and feature-resource
 phases with their normal typed ShaderMaps and exact PSO descriptions. It returns
 before graph authoring, temporal-history Begin/Commit or scene drawing. A pending
-pipeline returns Pending without joining its compile task. Each pump rebuilds a
+pipeline returns Pending without joining its compile task. Rendering pipeline
+requests require both an owning request scope and a running task scheduler;
+missing host state never falls back to direct native PSO creation. Each pump rebuilds a
 local logical snapshot; no borrowed frame/proxy values are sent to workers.
 Each resource stage runs once per pump. Pipeline-batch capacity exhaustion is
 reported as unavailable through a nonblocking check before Pending is returned.
@@ -133,7 +137,12 @@ payload allocations, driver allocations and process RSS are not measured by it.
 
 Copies alias one preparation observer. Separate owners share normal ShaderMap and
 pipeline caches. Canceling one observer does not cancel shared compilation.
-Renderer prunes released/canceled owners on its render thread. Scene release and
+Renderer prunes released, canceled and failed owners on its render thread.
+Failed/canceled attempts immediately release preparation-only references and
+accounted bytes; keeping a diagnostic handle does not keep an active service
+slot. Failed remains the observable terminal result after cancellation, reload
+or scene retirement. Pending and Ready observers still become Stale on
+invalidation. Scene release and
 renderer Shader/device invalidation retire matching ownership as Stale, clear
 retained resources and prevent reuse of that readiness result. The caller must
 create a new request after invalidation.
@@ -141,8 +150,12 @@ create a new request after invalidation.
 ## Activation and uncovered work
 
 `FSceneViewport::RequestResourcePreparation` enables an explicit drawing barrier.
-The viewport pumps preparation until Ready and retains its handle through normal
-drawing. Failed preparation remains observable and does not draw a falsely ready
+The viewport pumps the actual request before every covered draw, including after
+Ready, and retains its handle through activation. `PrepareViewResources` returns
+the progress directly. A Ready handle describes the most recent pump; changes to
+view/output/features are rechecked before activation. Repumping Ready replaces
+its retained resource window; Pending pumps retain their partial progress.
+Failed preparation remains observable and does not draw a falsely ready
 scene. Cooked default-level startup and the Level Editor's main and camera-preview
 viewports enable this barrier. Restoring a level in the editor requests a fresh
 preparation for both viewports. The editor continues submitting UI frames while
@@ -151,7 +164,7 @@ scene's pipeline compilation on the rendering thread. Device invalidation
 restarts a stale viewport preparation. Later scene/configuration changes and
 streamed mesh components additionally use the component PSO gate below. Other
 uses retain the ordinary resource-phase fallback unless their owner explicitly
-requests another preparation. Activated viewports observe newly
+requests preparation. Activated viewports observe newly
 required Shader and pipeline admissions separately as uncovered work in the
 preparation progress. Those counts are independent of Failed; a shared cache can
 satisfy an uncovered pipeline admission without new native compilation.
@@ -178,9 +191,18 @@ alias that observer. Canceling one observer does not cancel another's native
 compilation. Failed collections remain observable rather than retrying each
 frame. Shader reload, device/resource invalidation and Renderer shutdown retire
 matching work as Stale and release collected resources on the render thread.
-Material-owned revision stamps additionally retire that material's observers on
+Material-owned observation scopes additionally retire that material's observers on
 ShaderMap, pipeline, parent-chain changes and destruction, without invalidating
 other materials sharing the same work. Dynamic parameter changes preserve them.
+`IsCurrent` qualifies observer reuse independently of the work outcome: failed
+diagnostics remain Failed after invalidation, but cannot authorize an old owner
+even when its required PSOs completed before an optional PSO failed.
+
+PSO work has one phase: Queued, Collecting, Compiling, Completed or Retired.
+Completed work publishes one immutable success/error result; retirement revokes
+reuse without erasing failure diagnostics. The first three phases map to public
+Pending. Required readiness remains separate from all-work completion; priority
+sorting uses a stable per-pump snapshot.
 
 The Renderer permits up to eight active material collections across updates,
 including their outstanding native compilation, independently of scene visibility.
@@ -250,23 +272,23 @@ set. An unavailable default retains the existing ErrorMaterial fallback path;
 that path and global/GPU-culling PSOs are outside this component coverage.
 
 The default `EPSOPrecacheProxyCreationStrategy::DelayUntilPSOPrecached` withholds
-the proxy until every required request is ready. Failed work remains withheld
-and observable. `AlwaysCreate` explicitly permits ordinary rendering while
+the proxy until every required request is ready. Failed required work remains withheld
+and observable; optional failures do not revoke current required readiness. `AlwaysCreate` explicitly permits ordinary rendering while
 preparation continues. Custom scenes without a PSO Renderer retain their existing
 publication contract. Material ShaderMap/pipeline/parent changes immediately
 withdraw affected gated proxies; dynamic numeric parameters preserve them.
 Shader/device stale observations are resubmitted on the next owner tick.
 
 Engine and world ticks call `ProcessPSOPrecacheRequests`, including paused and
-editor worlds. Only pending components enter the tick worklist; completed and
-failed sets leave it. A separate hash registry retains weak identities for explicit
-material invalidation and changes to Shader/device invalidation generations, with
-no full component traversal on unchanged frames. The queue holds weak component identities, with no worker callback
-holding a raw component. Unregister and teardown reset the set; old completions
-cannot recreate an unregistered component. The current ready set publishes at
-most one proxy through the existing scene command boundary. Unregister and teardown
-remove both registry and pending entries; material invalidation also wakes completed
-components without a proxy and unregistered PostLoad observers.
+editor worlds. Unsubmitted material/RHI demand is retried by its owner. Accepted
+requests subscribe to their shared work and material-owner scope; progress,
+required readiness, cancellation and invalidation wake only the subscribed
+components. There is no global invalidation serial, shader-generation polling
+or all-component registry scan. Render-thread notifications enter a coalesced
+mailbox and are delivered on GameThread. GameThread material changes withdraw
+affected gated proxies immediately. Each delivery checks the weak job-set identity,
+so reset, replacement, destruction and unregister reject old notifications.
+Neither subscriptions nor worker callbacks retain live component pointers.
 
 `CheckPSOPrecachingAndBoostPriority` exists on both the component and its request
 set. `DMaterialInterface::PrecachePSOs` also accepts `EPSOPrecachePriority`.

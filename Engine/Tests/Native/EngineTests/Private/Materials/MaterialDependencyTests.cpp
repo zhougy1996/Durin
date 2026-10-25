@@ -309,14 +309,14 @@ TEST(FMaterialDependencyTests, InstancePropertyEditPublishesDependentsOnce)
 	ASSERT_TRUE(Child->SetParent(Instance));
 
 	auto ExpectSingleNotification = [&](Durin::FProperty* Property, uint64 ExpectedQueries) {
-		const auto InstanceVersion = Instance->GetRenderStateVersion();
-		const auto ChildVersion = Child->GetRenderStateVersion();
-		const auto BaseVersion = Base->GetRenderStateVersion();
+		const auto InstanceVersion = Instance->GetRenderChangeCount();
+		const auto ChildVersion = Child->GetRenderChangeCount();
+		const auto BaseVersion = Base->GetRenderChangeCount();
 		Durin::ResetMaterialLoadedQueryDiagnostics();
 		Instance->PostEditChangeProperty({.MemberProperty = Property});
-		EXPECT_EQ(Instance->GetRenderStateVersion(), InstanceVersion + 1);
-		EXPECT_EQ(Child->GetRenderStateVersion(), ChildVersion + 1);
-		EXPECT_EQ(Base->GetRenderStateVersion(), BaseVersion);
+		EXPECT_EQ(Instance->GetRenderChangeCount(), InstanceVersion + 1);
+		EXPECT_EQ(Child->GetRenderChangeCount(), ChildVersion + 1);
+		EXPECT_EQ(Base->GetRenderChangeCount(), BaseVersion);
 		const auto Diagnostics = Durin::GetMaterialLoadedQueryDiagnostics();
 		EXPECT_EQ(Diagnostics.QueryCount, ExpectedQueries);
 		EXPECT_EQ(Diagnostics.SnapshotCount, 1u);
@@ -362,14 +362,14 @@ TEST(FMaterialDependencyTests, ParameterNotificationsFollowCompleteDependentPubl
 	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "NotificationOrderChild");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Child->SetParent(Instance));
-	const auto InstanceVersion = Instance->GetRenderStateVersion();
-	const auto ChildVersion = Child->GetRenderStateVersion();
-	const auto BaseVersion = Base->GetRenderStateVersion();
+	const auto InstanceVersion = Instance->GetRenderChangeCount();
+	const auto ChildVersion = Child->GetRenderChangeCount();
+	const auto BaseVersion = Base->GetRenderChangeCount();
 	uint32 InstanceNotifications = 0, ChildNotifications = 0, BaseNotifications = 0;
 	auto CheckPublished = [&] {
-		EXPECT_EQ(Instance->GetRenderStateVersion(), InstanceVersion + 1);
-		EXPECT_EQ(Child->GetRenderStateVersion(), ChildVersion + 1);
-		EXPECT_EQ(Base->GetRenderStateVersion(), BaseVersion);
+		EXPECT_EQ(Instance->GetRenderChangeCount(), InstanceVersion + 1);
+		EXPECT_EQ(Child->GetRenderChangeCount(), ChildVersion + 1);
+		EXPECT_EQ(Base->GetRenderChangeCount(), BaseVersion);
 	};
 	const auto InstanceHandle = Instance->GetParameterChanges().AddLambda([&] {
 		++InstanceNotifications;
@@ -440,14 +440,14 @@ TEST(FMaterialDependencyTests, ReentrantParentEditUsesFreshBatchAndCompletesSync
 	auto* Leaf = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "ReentrantLeaf");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Leaf->SetParent(Instance));
-	const auto Before = Leaf->GetRenderStateVersion();
+	const auto Before = Leaf->GetRenderChangeCount();
 	uint32 LeafNotifications = 0;
 	const auto LeafListener = Leaf->GetParameterChanges().AddLambda([&] { ++LeafNotifications; });
 	const auto Listener = Instance->GetParameterChanges().AddLambda([&] {
-		EXPECT_EQ(Leaf->GetRenderStateVersion(), Before + 1);
+		EXPECT_EQ(Leaf->GetRenderChangeCount(), Before + 1);
 		EXPECT_TRUE(Leaf->SetParent(Other));
 		EXPECT_EQ(Leaf->GetParent(), Other);
-		EXPECT_EQ(Leaf->GetRenderStateVersion(), Before + 2);
+		EXPECT_EQ(Leaf->GetRenderChangeCount(), Before + 2);
 		Durin::CollectGarbage();
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(Leaf));
 	});

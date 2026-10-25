@@ -1469,7 +1469,7 @@ namespace Durin
 		EXPECT_EQ(RHI.ComputeCreations, 2u);
 	}
 
-	TEST(FRHICommandListTests, DescriptorPipelineHelpersRetainPrecacheIdentityAndResolveBeforeReplay)
+	TEST(FRHICommandListTests, RecordedPipelineRequestsRetainPrecacheIdentityAndResolveBeforeReplay)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
@@ -1497,7 +1497,9 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
 		Commands.SwitchPipeline(ERHIPipeline::Graphics);
-		SetGraphicsPipelineState(Commands, Graphics, "draw");
+		auto DrawPipeline = PipelineStateCache::GetAndOrCreateGraphicsPipelineState(Graphics, "draw");
+		EXPECT_TRUE(DrawPipeline);
+		if (DrawPipeline) Commands.SetGraphicsPipelineState(*DrawPipeline);
 		std::weak_ptr<FGraphicsPipelineState> Identity;
 		if (Precached) Identity = *Precached;
 		Precached = std::unexpected(ERHIPipelineRequestRejection::Unsupported);
@@ -1506,7 +1508,9 @@ namespace Durin
 		EXPECT_TRUE(Hit);
 		if (Hit) EXPECT_EQ(*Hit, Identity.lock());
 		Commands.SwitchPipeline(ERHIPipeline::Compute);
-		SetComputePipelineState(Commands, Compute, "dispatch");
+		auto DispatchPipeline = PipelineStateCache::GetAndOrCreateComputePipelineState(Compute, "dispatch");
+		EXPECT_TRUE(DispatchPipeline);
+		if (DispatchPipeline) Commands.SetComputePipelineState(*DispatchPipeline);
 		Commands.Dispatch(1, 1, 1);
 		EXPECT_TRUE(Context.Operations.empty());
 		Release.Trigger();
@@ -1516,7 +1520,7 @@ namespace Durin
 		EXPECT_EQ(RHI.ComputeCreations, 1u);
 	}
 
-	TEST(FRHICommandListTests, DescriptorPipelineHelpersUseCompleteNativeFactoriesWithoutCore)
+	TEST(FRHICommandListTests, AbsentSchedulerRejectsRequestsWhileExplicitNativeFactoriesRemainAvailable)
 	{
 		ASSERT_FALSE(IsTaskSchedulerRunning());
 		struct FResourceGuard { ~FResourceGuard() { RHIFlushDeferredResources(); } } ResourceGuard;
@@ -1526,9 +1530,17 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
 		Commands.SwitchPipeline(ERHIPipeline::Graphics);
-		SetGraphicsPipelineState(Commands, {}, "startup graphics");
+		EXPECT_EQ(PipelineStateCache::GetAndOrCreateGraphicsPipelineState({}, "unsupported").error(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_EQ(RHI.GraphicsCreations, 0u);
+		auto Graphics = GDynamicRHI->RHICreateGraphicsPipelineState("startup graphics", {});
+		ASSERT_TRUE(Graphics);
+		Commands.SetGraphicsPipelineState(*Graphics);
 		Commands.SwitchPipeline(ERHIPipeline::Compute);
-		SetComputePipelineState(Commands, {}, "startup compute");
+		EXPECT_EQ(PipelineStateCache::GetAndOrCreateComputePipelineState({}, "unsupported").error(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_EQ(RHI.ComputeCreations, 0u);
+		auto Compute = GDynamicRHI->RHICreateComputePipelineState("startup compute", {});
+		ASSERT_TRUE(Compute);
+		Commands.SetComputePipelineState(*Compute);
 		Executor.Submit({}, ERHISubmitFlags::None);
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{"PipelineState", "ComputePipelineState"}));
 		EXPECT_EQ(RHI.GraphicsCreations, 1u);

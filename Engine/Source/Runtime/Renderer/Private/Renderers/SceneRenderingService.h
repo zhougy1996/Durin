@@ -22,6 +22,7 @@
 #include "Renderers/SceneRenderGraphWarnings.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
+#include "Resources/RendererResourceRetirement.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Renderers/SurfaceMaterial.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -50,10 +51,11 @@ namespace Durin
 		auto operator=(const FSceneRenderingService&) -> FSceneRenderingService& = delete;
 
 		auto UpdateSkyLighting_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void;
+		auto ReleaseSceneResources_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void;
 		FMaterialPSORequestManager MaterialPSORequests;
 		std::unordered_set<FScene*> PendingSkyScenes;
 		std::function<void(FGPUTimingQueryRHIRef)> ViewGPUTimingSink;
-        auto UpdatePendingScenes_RenderThread(FRHICommandListImmediate& Commands) -> void;
+        auto BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void;
         auto Start(FConsoleCommandRegistry& Registry) -> bool;
 		auto Stop() -> void;
 		auto InitializeStartupResources_RenderThread(
@@ -110,6 +112,7 @@ namespace Durin
 		FRendererResourceCoordinator Coordinator;
 		FRendererRDGAllocator RDGAllocator;
 		FDefaultTextureResources DefaultTextures;
+		FRendererResourceRetirementQueue Retirement;
 		FEnvironmentLightingResources EnvironmentLighting;
 		RendererPrivate::FSurfaceMaterialResources SurfaceMaterials;
 		FFullscreenGeometryResources FullscreenGeometry;

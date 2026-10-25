@@ -352,6 +352,24 @@ namespace Durin
 			EXPECT_EQ(RHI.Creations, 2u);
 		}
 
+		TEST(FRenderResourceCreationTests, PipelineRequestsNeverFallBackToDirectCreation)
+		{
+			ASSERT_EQ(GDynamicRHI, nullptr);
+			ASSERT_FALSE(IsTaskSchedulerRunning());
+			FPipelineSlotTestRHI RHI;
+			GDynamicRHI = &RHI;
+			struct FReset { ~FReset() { GDynamicRHI = nullptr; RHIFlushDeferredResources(); } } Reset;
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Compute;
+			Compute.ComputeShader = Shader;
+			EXPECT_FALSE(FRenderPipelineRequestScope::Compute("no scope", Compute));
+			FRenderPipelineRequests Requests;
+			FRenderPipelineRequestScope Scope(Requests, {});
+			EXPECT_FALSE(FRenderPipelineRequestScope::Compute("no scheduler", Compute));
+			EXPECT_FALSE(FRenderPipelineRequestScope::Graphics("no scheduler", {}));
+			EXPECT_EQ(RHI.Creations, 0u);
+		}
+
 		TEST(FRenderResourceCreationTests, AsyncPipelineFailureHasNoBackendCause)
 		{
 			ASSERT_EQ(GDynamicRHI, nullptr);
@@ -795,12 +813,12 @@ namespace Durin
 						try { for (; Admitted < 100; ++Admitted) FRenderResourcePreparationScope::BeforeShader(); }
 						catch (const FRenderResourcePreparationYield&) {}
 						EXPECT_GE(Admitted, 1u); EXPECT_LE(Admitted, 8u);
-						Scope.Complete(false);
+						Scope.Complete(ERenderResourcePreparationState::Pending);
 					}
 					{
 						FRenderResourcePreparationScope Scope(Other);
 						FRenderResourcePreparationScope::Retain(Resource, 4);
-						Scope.Complete(true);
+						Scope.Complete(ERenderResourcePreparationState::Ready);
 					}
 					{
 						FRenderResourcePreparationUseScope Use(Other);
@@ -824,20 +842,35 @@ namespace Durin
 					{
 						FRenderResourcePreparationScope Scope(Cached);
 						EXPECT_EQ(*Slot.GetPayload(), 42);
-						Scope.Complete(true);
+						Scope.Complete(ERenderResourcePreparationState::Ready);
 					}
 					Slot.Reset();
 					EXPECT_EQ(Cached.GetProgress().RetainedObjects, 1u);
 					{
 						FRenderResourcePreparationScope Scope(Cached);
+						EXPECT_EQ(Cached.GetProgress().RetainedObjects, 0u);
 						EXPECT_THROW(FRenderResourcePreparationScope::Retain(std::make_shared<int>(),
 							257ull * 1024 * 1024), FRenderResourcePreparationCapacityExceeded);
 					}
 					auto Reloaded = FRenderResourcePreparation::Create();
 					{
 						FRenderResourcePreparationScope Scope(Reloaded);
-						Scope.Complete(true);
+						Scope.Complete(ERenderResourcePreparationState::Ready);
 					}
+					auto Failed = FRenderResourcePreparation::Create();
+					std::weak_ptr<int> FailedResource;
+					{
+						FRenderResourcePreparationScope Scope(Failed);
+						auto Resource = std::make_shared<int>(42);
+						FailedResource = Resource;
+						FRenderResourcePreparationScope::Retain(std::move(Resource), 4);
+						Scope.Complete(ERenderResourcePreparationState::Failed);
+					}
+					EXPECT_TRUE(FailedResource.expired());
+					EXPECT_EQ(Failed.GetProgress().RetainedObjects, 0u);
+					Failed.RequestCancel();
+					Failed.Retire_RenderThread(ERenderResourcePreparationState::Stale);
+					EXPECT_EQ(Failed.GetProgress().State, ERenderResourcePreparationState::Failed);
 					AdvanceShaderReloadGeneration();
 					EXPECT_EQ(Reloaded.GetProgress().State, ERenderResourcePreparationState::Stale);
 					Cached.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
@@ -883,7 +916,7 @@ namespace Durin
 						FRenderResourcePreparationScope Scope(Preparation);
 						FRenderPipelinePreparationBatch Batch;
 						PreparedSlot.Resolve({}, Factory, [](const auto&) {});
-						Scope.Complete(PreparedSlot.GetPayload() != nullptr);
+						Scope.Complete(PreparedSlot.GetPayload() ? ERenderResourcePreparationState::Ready : ERenderResourcePreparationState::Pending);
 						std::this_thread::yield();
 					}
 					EXPECT_EQ(Preparation.GetProgress().State, ERenderResourcePreparationState::Ready);

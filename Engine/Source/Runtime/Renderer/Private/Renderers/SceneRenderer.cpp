@@ -286,14 +286,15 @@ namespace Durin
 			"Scene.Default.ShadowArray", Service.DefaultTextures.GetArray_RenderThread());
 		if (bWantsDeferredInputs)
 		{
+			const auto& Environment = Resolved.Scene.Receiver.StaticMeshes.Environment;
 			FRHITexture* Irradiance =
-				Service.EnvironmentLighting.GetIrradiance_RenderThread();
+				(Environment ? Environment->Irradiance.GetReference() : nullptr);
 			FRHITexture* Prefiltered =
-				Service.EnvironmentLighting.GetPrefiltered_RenderThread();
+				(Environment ? Environment->Prefiltered.GetReference() : nullptr);
 			FRHITexture* BrdfLut =
-				Service.EnvironmentLighting.GetBrdfLut_RenderThread();
+				(Environment ? Environment->BrdfLut.GetReference() : nullptr);
 			GraphResources.Environment.Sampler =
-				Service.EnvironmentLighting.GetSampler_RenderThread();
+				(Environment ? Environment->Sampler.GetReference() : nullptr);
 			if (Irradiance == nullptr || Prefiltered == nullptr
 				|| BrdfLut == nullptr || GraphResources.Environment.Sampler == nullptr)
 			{

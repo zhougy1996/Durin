@@ -9,14 +9,11 @@ namespace Durin
 {
 	namespace
 	{
-		std::atomic<uint64> GMaterialPublicationRevision = 1;
 
 		struct FMaterialRenderProxyAtomicCounters
 		{
 			std::atomic<uint64> QueuedPublicationCount = 0;
-			std::atomic<uint64> QueuedPublicationWaveCount = 0;
 			std::atomic<uint64> PublicationCount = 0;
-			std::atomic<uint64> CoalescedPublicationCount = 0;
 			std::atomic<uint64> PendingPublicationCount = 0;
 			std::atomic<uint64> CopiedMaterialPayloadBytes = 0;
 			std::atomic<uint64> ResolutionCacheHitCount = 0;
@@ -57,15 +54,12 @@ namespace Durin
 		}
 	}
 
-	auto GetMaterialRenderProxyPublicationRevision() -> uint64 { return GMaterialPublicationRevision.load(); }
 
 	auto GetMaterialRenderProxyCounters() -> FMaterialRenderProxyCounters
 	{
 		return {
 			.QueuedPublicationCount = GMaterialRenderProxyCounters.QueuedPublicationCount.load(),
-			.QueuedPublicationWaveCount = GMaterialRenderProxyCounters.QueuedPublicationWaveCount.load(),
 			.PublicationCount = GMaterialRenderProxyCounters.PublicationCount.load(),
-			.CoalescedPublicationCount = GMaterialRenderProxyCounters.CoalescedPublicationCount.load(),
 			.PendingPublicationCount = GMaterialRenderProxyCounters.PendingPublicationCount.load(),
 			.CopiedMaterialPayloadBytes = GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.load(),
 			.ResolutionCacheHitCount = GMaterialRenderProxyCounters.ResolutionCacheHitCount.load(),
@@ -81,9 +75,7 @@ namespace Durin
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		GMaterialRenderProxyCounters.QueuedPublicationCount.store(0);
-		GMaterialRenderProxyCounters.QueuedPublicationWaveCount.store(0);
 		GMaterialRenderProxyCounters.PublicationCount.store(0);
-		GMaterialRenderProxyCounters.CoalescedPublicationCount.store(0);
 		GMaterialRenderProxyCounters.PendingPublicationCount.store(0);
 		GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.store(0);
 		GMaterialRenderProxyCounters.ResolutionCacheHitCount.store(0);
@@ -122,84 +114,35 @@ namespace Durin
 	}
 
 	auto FMaterialRenderProxy::QueuePublication_GameThread(
-		FMaterialRenderProxyPublication Publication
-	) -> bool
+		FMaterialLocalRenderLayer Publication
+	) -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 
-		bool bNeedsRenderCommand = false;
-		uint64 PayloadBytes = 0;
-		{
-			std::lock_guard Lock(PublicationMutex);
-			PayloadBytes = GetMaterialPayloadBytes(Publication.LocalLayer);
-			if (PendingPublication.has_value())
-				GMaterialRenderProxyCounters.CoalescedPublicationCount.fetch_add(1);
-			PendingPublication = std::move(Publication);
-			GMaterialRenderProxyCounters.QueuedPublicationCount.fetch_add(1);
-			GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.fetch_add(PayloadBytes);
-			if (!bPublicationCommandQueued)
-			{
-				GMaterialRenderProxyCounters.PendingPublicationCount.fetch_add(1);
-				bPublicationCommandQueued = true;
-				bNeedsRenderCommand = true;
-			}
-		}
-
-		if (!bNeedsRenderCommand) return true;
-		GMaterialRenderProxyCounters.QueuedPublicationWaveCount.fetch_add(1);
-
-		struct FApplyPendingMaterialRenderProxyCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ApplyPendingMaterialRenderProxy";
-			}
-		};
-		FMaterialRenderProxyRef Proxy(this);
-		FRenderThreadCommandPipe::Enqueue<
-				FApplyPendingMaterialRenderProxyCommand>(
-				[Proxy = std::move(Proxy)](
-					FRHICommandListImmediate&) mutable {
-					Proxy->ApplyPendingPublication_RenderThread();
-				});
-		return true;
-	}
-
-	auto FMaterialRenderProxy::ApplyPendingPublication_RenderThread() -> bool
-	{
-		CheckRenderingThread();
-		FMaterialRenderProxyPublication Publication;
-		{
-			std::lock_guard Lock(PublicationMutex);
-			if (!PendingPublication.has_value())
-			{
-				bPublicationCommandQueued = false;
-				return false;
-			}
-			Publication = std::move(*PendingPublication);
-			PendingPublication.reset();
-			GMaterialRenderProxyCounters.PendingPublicationCount.fetch_sub(1);
-			bPublicationCommandQueued = false;
-		}
-		return ApplyPublication_RenderThread(std::move(Publication));
+		GMaterialRenderProxyCounters.QueuedPublicationCount.fetch_add(1);
+		GMaterialRenderProxyCounters.PendingPublicationCount.fetch_add(1);
+		GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.fetch_add(GetMaterialPayloadBytes(Publication));
+		EnqueueRenderCommand("PublishMaterialLayer",
+			[Proxy = FMaterialRenderProxyRef(this), Layer = std::move(Publication)](FRHICommandListImmediate&) mutable {
+				GMaterialRenderProxyCounters.PendingPublicationCount.fetch_sub(1);
+				Proxy->ApplyPublication_RenderThread(std::move(Layer));
+			});
 	}
 
 	auto FMaterialRenderProxy::ApplyPublication_RenderThread(
-		FMaterialRenderProxyPublication Publication
-	) -> bool
+		FMaterialLocalRenderLayer Publication
+	) -> void
 	{
 		CheckRenderingThread();
 
 		check(std::ranges::is_sorted(
-			Publication.LocalLayer.Parameters,
+			Publication.Parameters,
 			{},
 			&FMaterialLocalRenderParameter::Id));
-		LocalLayer = std::move(Publication.LocalLayer);
+		LocalLayer = std::move(Publication);
 		bHasResolvedData = false;
 		++PublicationCount;
-		GMaterialPublicationRevision.fetch_add(1);
 		GMaterialRenderProxyCounters.PublicationCount.fetch_add(1);
-		return true;
 	}
 
 	auto FMaterialRenderProxy::UpdateParameterBindings() -> void
