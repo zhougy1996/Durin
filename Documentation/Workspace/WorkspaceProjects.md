@@ -25,6 +25,15 @@ Typical workspace contents:
 
 ## Projects And Modules
 
+Editor automatic restore uses the separately persisted `RestoreProjectFile` and
+`AutoRestoreEnabled` policy in `ProjectHistory.yaml`, rather than assuming the
+first recent entry is the restore target. Legacy histories initialize that target
+from their first entry once. Removing the target leaves Browser startup instead
+of silently selecting another recent project. Explicit project arguments take
+precedence; an unavailable requested target is an admission failure. Automated
+bounded-tick and startup-command launches do not record interactive project
+history. Interactive history is recorded after workspace admission succeeds.
+
 Projects are top-level owners such as `Engine` or `Sandbox`. They typically own `.dproject`, `Source/`, `Configs/`, `Intermediate/`, and `Binaries/`.
 
 At runtime, launch a specific project with

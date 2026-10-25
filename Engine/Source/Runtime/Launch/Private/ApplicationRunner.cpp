@@ -91,6 +91,7 @@ namespace Durin
 		}
 
 		FEngineLoop EngineLoop;
+		Request.Host.bRecordInteractiveHistory = !Request.Automation.ExitAfterTicks && !StartupCommand.Name;
 		if (!EngineLoop.PreInit(Request.Host) || !EngineLoop.Init())
 		{
 			const int InitResult = EngineLoop.WasInitializationCancelled() ? 0 : 1;
@@ -103,11 +104,22 @@ namespace Durin
 		uint64 CompletedTicks = 0;
 		while (!IsEngineExitRequested())
 		{
+			const auto BeforeTick = EngineLoop.GetCompletedRunningTicks();
 			EngineLoop.Tick();
+			const auto StartupState = EngineLoop.GetStartupState();
+			if (StartupState == EHostStartupState::Failed
+				&& (!DURIN_WITH_EDITOR || Request.Automation.ExitAfterTicks || StartupCommand.Name))
+			{
+				DURIN_ERROR("Requested host startup failed: {}", EngineLoop.GetStartupError());
+				ProcessResult = 1;
+				RequestEngineExit();
+			}
+			if (IsEngineExitRequested() || StartupState != EHostStartupState::Ready
+				|| EngineLoop.GetCompletedRunningTicks() == BeforeTick) continue;
 			++CompletedTicks;
 			if (HasPendingStartupCommand())
 			{
-				const auto Result = DispatchStartupCommand(CompletedTicks >= 120);
+				const auto Result = DispatchStartupCommand(true);
 				if (!Result)
 				{
 					ProcessResult = 2;
@@ -128,6 +140,8 @@ namespace Durin
 			}
 		}
 
+		if (EngineLoop.GetStartupState() != EHostStartupState::Ready && ProcessResult == 0
+			&& (Request.Automation.ExitAfterTicks || StartupCommand.Name)) ProcessResult = 1;
 		EngineLoop.Exit();
 		std::string RelaunchError;
 		const auto LaunchPendingEditorRelaunchResult = LaunchPendingEditorRelaunch();

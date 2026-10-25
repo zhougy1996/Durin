@@ -17,6 +17,7 @@
 #include "Engine/Engine.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/CookedMeshLoadManager.h"
+#include "Components/PrimitiveComponent.h"
 #include "Shader/ShaderData.h"
 
 #include "RenderingThread.h"
@@ -36,6 +37,8 @@
 #include "EngineFramePhases.h"
 #include "RuntimeStorage.h"
 #include "ProcessCrashServices.h"
+#include "Widgets/MWindow.h"
+#include "Window/GenericWindow.h"
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
@@ -81,8 +84,10 @@ namespace Durin
 		std::string ProjectError;
 		const auto InitializeCurrentProjectResult = InitializeCurrentProject({
 			.bOpenProjectBrowser = Params.bOpenProjectBrowser,
-			.RequestedProjectFile = Params.ProjectFile.value_or("")});
+			.RequestedProjectFile = Params.ProjectFile.value_or(""),
+			.bRecordInteractiveHistory = Params.bRecordInteractiveHistory});
 		ProjectError = InitializeCurrentProjectResult ? std::string{} : InitializeCurrentProjectResult.error().ToString();
+		ProjectAdmissionError = ProjectError;
 		if (!InitializeCurrentProjectResult.has_value() && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
 #if DURIN_WITH_EDITOR
 		const auto AcquireProjectEditOwnershipResult = AcquireProjectEditOwnership();
@@ -91,7 +96,10 @@ namespace Durin
 			&& !AcquireProjectEditOwnershipResult.has_value())
 		{
 			DURIN_ERROR("Editor project ownership failed: {}", ProjectError);
-			return false;
+			ProjectAdmissionError = ProjectError;
+			ReleaseProjectEditOwnership();
+			(void)InitializeCurrentProject({.bOpenProjectBrowser = true});
+			(void)FPaths::SetProjectFile({});
 		}
 #endif
 		DURIN_PROFILE_PROGRAM_IDENTITY(
@@ -262,19 +270,7 @@ namespace Durin
 
 		FEngineInitContext EngineInitContext;
 		EngineInitContext.StartupWindow = StartupWindow;
-		EngineInitContext.PumpStartupFrame = []() {
-			constexpr double StartupWaitSeconds = 1.0 / 60.0;
-			auto& Application = Mona::FMonaApplication::Get();
-			Application.Tick();
-			if (IsEngineExitRequested()) return false;
-			if (Application.AreAllWindowsMinimized())
-			{
-				Application.WaitForEvents(StartupWaitSeconds);
-				return !IsEngineExitRequested();
-			}
-			RenderEngineStartupFrame();
-			return !IsEngineExitRequested();
-		};
+		EngineInitContext.ProjectAdmissionError = ProjectAdmissionError;
 		if (!GEngine->Init(EngineInitContext))
 		{
 			bInitializationCancelled = IsEngineExitRequested();
@@ -311,26 +307,66 @@ namespace Durin
 			[]() { return GIsRequestingExit; });
 	}
 
-	auto FEngineLoop::TickPostEventFrame(bool bAllowMinimizedWait) -> void
+	auto FEngineLoop::GetStartupState() const -> EHostStartupState
 	{
-		constexpr double MinimizedTickIntervalSeconds = 1.0 / 20.0;
+		return GEngine ? GEngine->GetStartupState() : EHostStartupState::Failed;
+	}
+
+	auto FEngineLoop::GetStartupError() const -> std::string
+	{
+		return GEngine ? GEngine->GetStartupError() : "The engine host is unavailable.";
+	}
+
+	auto FEngineLoop::TickPostEventFrame(bool bAllowMinimizedWait, bool bAdvanceHost) -> void
+	{
 		const double CurrentTime = FTime::Seconds();
+		auto& Application = Mona::FMonaApplication::Get();
+		if (CurrentTime < NextFrameTime)
+		{
+			if (bAllowMinimizedWait) Application.WaitForEvents(NextFrameTime - CurrentTime);
+			return;
+		}
 		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
 		LastTickTime = CurrentTime;
+		if (GetStartupState() == EHostStartupState::Pending || GEngine->HasPendingSceneLoad())
+		{
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
+			const auto Deferred = PumpGameThreadDeferredWork({.MaxCallbacks = 63, .MaxSeconds = 0.001});
+			PackageSavePrivate::PollAsyncSaves();
+			const double Remaining = std::chrono::duration<double, std::milli>(Deadline - std::chrono::steady_clock::now()).count();
+			if (Remaining > 0) ProcessAsyncLoading(Remaining, 1);
+			if (std::chrono::steady_clock::now() < Deadline)
+				FAssetCompilingManager::Get().ProcessAsyncTasks({64 - Deferred.ExecutedCallbacks - 1, Deadline});
+		}
+		else
+		{
+			PumpGameThreadDeferredWork();
+			PackageSavePrivate::PollAsyncSaves();
+			ProcessAsyncLoading();
+			FAssetCompilingManager::Get().ProcessAsyncTasks(true);
+		}
+		if (bAdvanceHost && !GIsRequestingExit)
+		{
+			GEngine->AdvanceSceneLoads();
+			GEngine->AdvanceStartup();
+		}
+		if (GIsRequestingExit) return;
 		const double EngineTickStarted = FTime::Seconds();
+		if (bAdvanceHost && GetStartupState() == EHostStartupState::Ready)
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
 			GEngine->Tick(DeltaSeconds, false);
+			++CompletedRunningTicks;
+		}
+		else
+		{
+			PumpCookedMeshLoadManager();
+			DPrimitiveComponent::ProcessPSOPrecacheRequests();
 		}
 		const float EngineTickMilliseconds = static_cast<float>(
 			(FTime::Seconds() - EngineTickStarted) * 1000.0);
-		PumpGameThreadDeferredWork();
-		PackageSavePrivate::PollAsyncSaves();
-		ProcessAsyncLoading();
-		FAssetCompilingManager::Get().ProcessAsyncTasks(true);
 		GFrameCounter++;
 
-		auto& Application = Mona::FMonaApplication::Get();
 		RecordEngineFrameTickTiming(EngineTickMilliseconds);
 		if (GIsRequestingExit) return;
 
@@ -346,11 +382,17 @@ namespace Durin
 		}
 
 		CalculateFPSTimings();
-		if (bAllWindowsMinimized && bAllowMinimizedWait)
+		const bool bAnyWindowFocused = std::ranges::any_of(Application.GetWindows(), [](const auto& Window) {
+			return Window && Window->GetNativeWindow() && Window->GetNativeWindow()->IsFocused();
+		});
+		NextFrameTime = CurrentTime + GetHostFrameInterval(GetStartupState() == EHostStartupState::Ready,
+			DURIN_WITH_EDITOR != 0, bAllWindowsMinimized, bAnyWindowFocused);
+		const double RemainingFrameTime = NextFrameTime - FTime::Seconds();
+		if (RemainingFrameTime > 0.0 && bAllowMinimizedWait)
 		{
-			// Present normally paces the loop. Once every window is minimized there is
-			// no present, so wait for events while retaining a low-frequency engine tick.
-			Application.WaitForEvents(MinimizedTickIntervalSeconds);
+			// Native input wakes this wait. The next outer event pump services it;
+			// the deadline above prevents an input storm from bypassing render pacing.
+			Application.WaitForEvents(RemainingFrameTime);
 		}
 		PublishTaskSchedulerProfilerPlots();
 		DURIN_PROFILE_FRAME_MARK();
@@ -363,7 +405,7 @@ namespace Durin
 			FrameState,
 			State == EEngineLoopState::Running && !GIsRequestingExit,
 			[this]() {
-				TickPostEventFrame(false);
+				TickPostEventFrame(false, false);
 				// Keep resize and draw commands inside the current native callback.
 				// Windows cannot advance the surface extent until this callback returns.
 				FFrameSync::Sync(FFrameSync::EFlushMode::Threads);

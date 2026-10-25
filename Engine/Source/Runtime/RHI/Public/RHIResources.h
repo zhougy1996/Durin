@@ -786,6 +786,12 @@ namespace Durin
 		RHI_API virtual auto RequestPresentationPolicy(EViewportPresentationPolicy Policy) -> void {}
 		// Thread-safe snapshot; unavailable includes unsupported diagnostics.
 		RHI_API virtual auto GetPresentMode() const -> EViewportPresentMode { return EViewportPresentMode::Unavailable; }
+		// Successful presentation admission for this exact viewport generation.
+		// This is runtime state, independent of profiling and monitor scanout.
+		auto GetPresentationSerial() const -> uint64 { return PresentationSerial.load(std::memory_order_acquire); }
+		auto RecordSuccessfulPresentation() -> void { PresentationSerial.fetch_add(1, std::memory_order_release); }
+	private:
+		std::atomic<uint64> PresentationSerial{0};
 	};
 
 	// Defines how an attachment's previous contents are treated at pass start.

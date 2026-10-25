@@ -1,4 +1,5 @@
 #include "Engine/GameEngine.h"
+#include "Engine/SceneLoadOperation.h"
 
 #include "Asset/Asset.h"
 #include "Asset/CookedMeshLoadManager.h"
@@ -28,63 +29,8 @@ namespace Durin
 {
 	struct FGameStartupPreparation
 	{
-		TStrongObjectPtr<DLevel> Level;
-		DClass* GameMode = nullptr;
-		std::vector<FWeakObjectPtr> Meshes, ActiveMeshes;
-		size_t NextMesh = 0;
-		bool MeshesCollected = false;
-		std::vector<FWeakObjectPtr> Materials;
-		std::vector<FMaterialProgramPreparation> Active;
-		size_t Next = 0;
-		bool Collected = false;
+		std::shared_ptr<FSceneLoadOperation> Scene;
 	};
-
-	// Request initial geometry before registration; an empty manager alone does
-	// not mean metadata-only meshes have become resident.
-	static auto PumpStartupGeometry(FGameStartupPreparation& Loading) -> std::expected<bool, std::string>
-	{
-		if (!Loading.MeshesCollected)
-		{
-			std::unordered_set<DStaticMesh*> Seen;
-			for (const auto& Actor : Loading.Level->GetActors())
-				if (IsValid(Actor.Get()))
-					for (const auto* Component : Actor->FindComponentsByClass<DMeshComponent>())
-					{
-						auto* Mesh = [&]() -> DStaticMesh* {
-							if (const auto* Static = Cast<DStaticMeshComponent>(Component)) return Static->GetStaticMesh();
-							if (const auto* Spline = Cast<DSplineMeshComponent>(Component)) return Spline->GetStaticMesh();
-							return nullptr;
-						}();
-						if (IsValid(Mesh) && Seen.insert(Mesh).second) Loading.Meshes.emplace_back(Mesh);
-					}
-			Loading.MeshesCollected = true;
-			if (Loading.Meshes.size() > 4096) return std::unexpected("Default level geometry preparation exceeds 4096 owners.");
-		}
-		bool Failed = false;
-		std::erase_if(Loading.ActiveMeshes, [&](const auto& Owner) {
-			auto* Mesh = Cast<DStaticMesh>(Owner.Get());
-			if (!IsValid(Mesh)) { Failed = true; return true; }
-			const auto Status = Mesh->GetRenderDataLoadStatus();
-			if (Status.CpuPhase == ECookedMeshCpuPhase::Failed || Status.CpuPhase == ECookedMeshCpuPhase::Cancelled
-				|| Status.GpuPhase == ECookedMeshGpuPhase::Failed) { Failed = true; return true; }
-			return Status.CpuPhase == ECookedMeshCpuPhase::CpuReady && Status.GpuPhase == ECookedMeshGpuPhase::Ready;
-		});
-		if (Failed) return std::unexpected("Default level geometry preparation failed or was unloaded.");
-		while (Loading.ActiveMeshes.size() < 4 && Loading.NextMesh < Loading.Meshes.size())
-		{
-			if (const auto* Manager = GetCookedMeshLoadManager())
-			{
-				const auto Pending = Manager->GetDiagnostics();
-				if (Pending.InFlightCount + Pending.PendingRequestCount >= 8) break;
-			}
-			auto* Mesh = Cast<DStaticMesh>(Loading.Meshes[Loading.NextMesh++].Get());
-			if (!IsValid(Mesh)) return std::unexpected("Default level geometry was unloaded during preparation.");
-			(void)Mesh->RequestRenderDataAndResources();
-			Loading.ActiveMeshes.emplace_back(Mesh);
-		}
-		return Loading.NextMesh == Loading.Meshes.size() && Loading.ActiveMeshes.empty();
-	}
-
 	DGameEngine::DGameEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -96,6 +42,11 @@ namespace Durin
 		if (!DEngine::Init(Context))
 			return false;
 		StartupError.clear();
+		if (!Context.ProjectAdmissionError.empty())
+		{
+			StartupError = Context.ProjectAdmissionError;
+			return true;
+		}
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
 			for (const std::string& ModuleName : Project->EnabledRootModules)
@@ -106,6 +57,11 @@ namespace Durin
 				}
 		}
 
+		if (const auto Content = InitializeProjectContent(); !Content)
+		{
+			StartupError = Content.error();
+			return true;
+		}
 		std::shared_ptr<MWindow> GameWindow = Context.StartupWindow;
 		if (!GameWindow || !GameWindow->GetNativeWindow())
 		{
@@ -124,7 +80,7 @@ namespace Durin
 		SetMainSceneViewport(SceneViewport);
 		const std::shared_ptr<FGenericWindow> NativeWindow = GameWindow->GetNativeWindow();
 		SetGameInputWindow(NativeWindow);
-		RequestGameMouseCapture(NativeWindow);
+
 
 		if (const FProjectInfo* CurrentProject = GetCurrentProject())
 		{
@@ -148,111 +104,54 @@ namespace Durin
 			{
 				FPackagePath PackagePath;
 				FObjectPath LevelPath;
-				DLevel* Level = nullptr;
 				const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, PackagePath);
-				if (PathValidation)
-				{
-					auto Result =
-						ResolveLevelPackage(PackagePath, LevelPath);
-					if (Result)
-					{
-						auto Loaded = LoadObject<DLevel>(LevelPath);
-						if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
-						else Level = *Loaded;
-					}
-					if (Result && GetAssetRuntimeConfiguration().RequiresCookedPayload())
-					{
-						StartupPreparation = std::make_shared<FGameStartupPreparation>();
-						StartupPreparation->Level = Level;
-						StartupPreparation->GameMode = GameMode.GameModeClass;
-						return true;
-					}
-					if (Result && GetWorld()->SetCurrentLevel(Level))
-					{
-						const FWorldPlayResult PlayResult = GetWorld()->BeginPlay({.GameModeClass = GameMode.GameModeClass});
-						if (!PlayResult)
-						{
-							StartupError = PlayResult.Message;
-							DURIN_ERROR("Could not start default level '{}' with native gameplay: {}", Settings.DefaultLevel, StartupError);
-						}
-					}
-					else
-					{
-						StartupError = Result.Message.empty() ? "Could not activate the default level." : Result.Message;
-						DURIN_WARN("Could not start default level '{}': {}", Settings.DefaultLevel, StartupError);
-					}
-				}
+				if (!PathValidation)
+					StartupError = std::format("Invalid Game.DefaultLevel '{}': {}", Settings.DefaultLevel, ToString(PathValidation.error()));
+				else if (const auto Resolution = ResolveLevelPackage(PackagePath, LevelPath); !Resolution)
+					StartupError = Resolution.Message;
 				else
 				{
-					StartupError = std::format(
-						"Project Game.DefaultLevel '{}' is not a valid package path: {}",
-						Settings.DefaultLevel, ToString(PathValidation.error()));
-					DURIN_WARN("{}", StartupError);
+					StartupPreparation = std::make_shared<FGameStartupPreparation>();
+					StartupPreparation->Scene = CreateSceneLoad({.Path = LevelPath, .GameMode = GameMode.GameModeClass});
 				}
 			}
 		}
+		if (!StartupPreparation && StartupError.empty()) RequestGameMouseCapture(NativeWindow);
 		return true;
 	}
-
+	auto DGameEngine::ShouldDrawStartupScene() const -> bool { return StartupPreparation && ActiveSceneLoad; }
+	auto DGameEngine::AdvanceStartup() -> void
+	{
+		if (bShutdownRequested) { StartupPreparation.reset(); return; }
+		if (!StartupPreparation) return;
+		FHostOperationScope Operation(*this);
+		if (ActiveSceneLoad)
+		{
+			const auto& Viewport = GetMainSceneViewport();
+			if (Viewport->HasRenderFailed()) { StartupError = "The committed game scene could not render for presentation."; StartupPreparation.reset(); return; }
+			if (!Viewport->GetOutputReceipt()->IsPresented(GetSceneGeneration(), Viewport->GetRHIViewport().GetReference())) return;
+			StartupPreparation.reset();
+			if (const auto Window = GameInputWindow.lock()) RequestGameMouseCapture(Window);
+			return;
+		}
+		auto Loading = StartupPreparation->Scene;
+		const auto Progress = Loading->GetProgress();
+		if (Progress.Phase == ESceneLoadPhase::Ready)
+		{
+			if (!Loading->Commit()) { StartupError = "Prepared game scene could not commit."; StartupPreparation.reset(); return; }
+			ActiveSceneLoad = std::move(Loading);
+			GetMainSceneViewport()->RequestResourcePreparation();
+		}
+		else if (Progress.Phase == ESceneLoadPhase::Failed || Progress.Phase == ESceneLoadPhase::Canceled)
+		{
+			StartupError = Progress.Diagnostic.empty() ? "Game scene opening was canceled." : Progress.Diagnostic;
+			StartupPreparation.reset();
+		}
+	}
 	auto DGameEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		if (bShutdownRequested) { StartupPreparation.reset(); return Super::Tick(DeltaSeconds, bIdleMode); }
-		if (StartupPreparation)
-		{
-			FHostOperationScope Operation(*this);
-			const auto Pending = StartupPreparation;
-			PumpCookedMeshLoadManager();
-			if (bShutdownRequested) return;
-			auto& Loading = *Pending;
-			const auto Geometry = PumpStartupGeometry(Loading);
-			if (!Geometry) { StartupError = Geometry.error(); StartupPreparation.reset(); DURIN_ERROR("{}", StartupError); return; }
-			if (!*Geometry) return;
-			if (!Loading.Collected)
-			{
-				std::unordered_set<DMaterialInterface*> Seen;
-				for (const auto& Actor : Loading.Level->GetActors())
-					if (IsValid(Actor.Get()))
-						for (const auto* Mesh : Actor->FindComponentsByClass<DMeshComponent>())
-							for (uint32 Slot = 0; Slot < Mesh->GetNumMaterials(); ++Slot)
-								for (auto* Material = Mesh->GetMaterial(Slot); IsValid(Material) && Seen.insert(Material).second; Material = Material->GetParent())
-									if (!Material->IsDynamicInstance()) Loading.Materials.emplace_back(Material);
-				Loading.Collected = true;
-				if (Loading.Materials.size() > 4096)
-				{
-					StartupError = "Default level material preparation exceeds 4096 owners.";
-					StartupPreparation.reset(); return;
-				}
-			}
-			bool Failed = false;
-			std::erase_if(Loading.Active, [&](auto& Program) {
-				const auto State = Program.Poll();
-				if (State == EMaterialProgramPreparationState::Pending) return false;
-				if (State != EMaterialProgramPreparationState::Ready)
-				{
-					Failed = true;
-					StartupError = "Default level material preparation failed: " + Program.GetDiagnostic();
-				}
-				return true;
-			});
-			if (bShutdownRequested) { StartupPreparation.reset(); return; }
-			if (Failed) { StartupPreparation.reset(); DURIN_ERROR("{}", StartupError); return; }
-			while (Loading.Active.size() < 8 && Loading.Next < Loading.Materials.size())
-			{
-				auto* Material = Cast<DMaterialInterface>(Loading.Materials[Loading.Next++].Get());
-				if (!IsValid(Material)) { StartupError = "Default level material was unloaded during preparation."; StartupPreparation.reset(); return; }
-				Loading.Active.push_back(FMaterialProgramPreparation::Request(*Material));
-			}
-			if (!Loading.Active.empty() || Loading.Next < Loading.Materials.size()) return;
-			DURIN_DEBUG("Cooked startup material programs prepared: {}", Loading.Materials.size());
-			auto Level = Loading.Level;
-			auto* GameMode = Loading.GameMode;
-			StartupPreparation.reset();
-			if (!GetWorld()->SetCurrentLevel(Level.Get())) { StartupError = "Prepared default level could not activate."; return; }
-			if (GetMainSceneViewport()) GetMainSceneViewport()->RequestResourcePreparation();
-			const auto Play = GetWorld()->BeginPlay({.GameModeClass = GameMode});
-			if (!Play) { StartupError = Play.Message; DURIN_ERROR("{}", StartupError); return; }
-		}
-		Super::Tick(DeltaSeconds, bIdleMode);
+		if (GetStartupState() == EHostStartupState::Ready) Super::Tick(DeltaSeconds, bIdleMode);
 	}
 
 	auto DGameEngine::CloseSubsystemWork() -> void
@@ -270,7 +169,7 @@ namespace Durin
 
 	auto DGameEngine::RequestGameMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool
 	{
-		if (!Window || !Window->IsFocused()) return false;
+		if (!Window || !Window->IsFocused() || GetStartupState() != EHostStartupState::Ready) return false;
 		if (GameInputWindow.lock() != Window) SetGameInputWindow(Window);
 		if (CapturedMouseWindow.lock() == Window) return true;
 		ReleaseGameMouseCapture();

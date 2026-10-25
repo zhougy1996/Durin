@@ -2,6 +2,18 @@
 
 #include <gtest/gtest.h>
 
+TEST(FEngineFramePhaseTests, VisibleEditorAndPendingHostsHaveWorkBudgetsWithoutVSync)
+{
+	using namespace Durin;
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false), 1.0 / 30.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false), 1.0 / 30.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false), 1.0 / 60.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, true), 1.0 / 5.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, false), 1.0 / 10.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false, false), 1.0 / 10.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, false, false), 0.0);
+}
+
 TEST(FEngineFramePhaseTests, PumpsInputBeforeGameAndTicksUIAfterGame)
 {
 	std::vector<std::string> Phases;

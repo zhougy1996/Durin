@@ -1,4 +1,5 @@
 #include "MainFrameModule.h"
+#include "Rendering/ViewportDisplaySource.h"
 #include "DurinMCPModule.h"
 #include "DurinPythonModule.h"
 #include "Panels/PythonScriptPanel.h"
@@ -82,6 +83,8 @@ namespace Durin::Editor::MainFrame
 		std::string FailureMessage;
 		std::shared_ptr<FHostSettings> HostSettings;
 		std::shared_ptr<MWindow> RootWindow;
+		TRefCountPtr<FRHIViewport> ShellViewport;
+		uint64 ShellPresentationBaseline = 0;
 		std::shared_ptr<Editor::FWorkspaceManager> WorkspaceManager;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		std::shared_ptr<FProjectBrowser> ProjectBrowser;
@@ -395,7 +398,8 @@ namespace Durin::Editor::MainFrame
 					"Could not initialize the editor workspaces.");
 				return false;
 			}
-			Context.ProjectBrowser->RecordCurrentProject();
+			if (const auto* Project = GetCurrentProject(); Project && Project->bRecordInteractiveHistory)
+				Context.ProjectBrowser->RecordCurrentProject();
 			Profiling::RecordStartupMilestone(
 				Profiling::EStartupMilestone::DefaultWorkspaceReady);
 			return true;
@@ -480,8 +484,18 @@ namespace Durin::Editor::MainFrame
 				Message = "Preparing editor...";
 			else if (Context.State == EBootstrapState::LoadingDefaultDocument)
 				Message = "Opening default level...";
-			const uint8 PhaseIndex = GetBootstrapPhaseIndex(Context.State);
-			constexpr uint8 PhaseCount = 3;
+			std::string SceneStatus;
+			if (GEditor && Context.State == EBootstrapState::LoadingDefaultDocument)
+			{
+				if (const auto Progress = GEditor->GetSceneLoadProgress())
+				{
+					SceneStatus = Progress->bProductsKnown
+						? std::format("{} - {} meshes, {} materials ({:.1f} s elapsed)", GetSceneLoadPhaseLabel(Progress->Phase), Progress->Meshes, Progress->Materials, Progress->ElapsedSeconds)
+						: std::format("{} ({:.1f} s elapsed)", GetSceneLoadPhaseLabel(Progress->Phase), Progress->ElapsedSeconds);
+				}
+				else if (GEditor->GetSceneGeneration() != 0) SceneStatus = "Waiting for the scene's first presentation";
+			}
+			if (!SceneStatus.empty()) Message = SceneStatus.c_str();
 			const ImVec2 MessageSize = ImGui::CalcTextSize(Message);
 			const ImVec2 ContentOrigin = ImGui::GetCursorPos();
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
@@ -498,11 +512,11 @@ namespace Durin::Editor::MainFrame
 			ImGui::Spacing();
 			ImGui::SetCursorPosX(ContentLeft);
 			ImGui::ProgressBar(
-				static_cast<float>(PhaseIndex) / PhaseCount,
+				-1.0f - static_cast<float>(ImGui::GetTime()),
 				{ContentWidth, MonaImGui::ScaleUI(8.0f)}, "");
 			ImGui::SetCursorPosX(
 				ContentLeft + ContentWidth - MonaImGui::ScaleUI(70.0f));
-			ImGui::TextDisabled("Phase %u/%u", PhaseIndex, PhaseCount);
+			ImGui::TextDisabled("Phase %u/3", GetBootstrapPhaseIndex(Context.State));
 			ImGui::End();
 		}
 
@@ -1085,7 +1099,7 @@ namespace Durin::Editor::MainFrame
 
 			bool bBrowserSubmitted = false;
 			bool bConsoleSubmitted = false;
-			const bool bAllowAssetMutation = !GEditor || !GEditor->IsPlaying();
+			const bool bAllowAssetMutation = !GEditor || (!GEditor->IsPlaying() && GEditor->CanTransact());
 			if (ViewState.bContentBrowserOpen)
 			{
 				const bool bVisible = ImGui::Begin(
@@ -1257,7 +1271,7 @@ namespace Durin
 	}
 
 	auto FMainFrameModule::CreateEditorHost(
-		DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void
+		DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow, std::string InitialProjectError) -> void
 	{
 		check(BootstrapContext == nullptr);
 		check(StartupWindow != nullptr);
@@ -1280,6 +1294,8 @@ namespace Durin
 		check(Context.AssetEditors.IsValid());
 		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>(Context.AssetEditors.Get());
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
+		Context.FailureMessage = std::move(InitialProjectError);
+		if (!Context.FailureMessage.empty()) Context.ProjectBrowser->SetError(Context.FailureMessage);
 		Context.BrandTexture = std::make_unique<FEditorBrandTexture>();
 		std::string BrandTextureError;
 		if (!Context.BrandTexture->Load(BrandTextureError))
@@ -1369,7 +1385,8 @@ namespace Durin
 				if (!Context) return;
 				ObserveHostWindowState(
 					*Context->HostSettings, *Context->RootWindow);
-				const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
+				const bool bReadyWorkspace = (Context->State == EBootstrapState::Ready
+					|| (Context->State == EBootstrapState::LoadingDefaultDocument && Host->GetSceneGeneration() != 0))
 					&& Context->bHasProject && Context->LevelEditorModule
 					&& Context->MaterialEditorModule && Context->TextureEditorModule
 					&& Context->StaticMeshEditorModule
@@ -1400,7 +1417,7 @@ namespace Durin
 						*Context->Console,
 						*Context->PythonScripts,
 						*Context->Activity);
-					ThumbnailPool.EndFrame();
+					ThumbnailPool.EndFrame(Host->GetStartupState() == EHostStartupState::Ready && !Host->HasPendingSceneLoad());
 					DrawExitConfirmation(*Context);
 					return;
 				}
@@ -1431,6 +1448,8 @@ namespace Durin
 				Context.RootWindow);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::NativeViewportReady);
+		Context.ShellViewport = Mona::FMonaApplication::Get().GetRenderer()->PrepareViewportForDraw(*Context.RootWindow);
+		Context.ShellPresentationBaseline = Context.ShellViewport ? Context.ShellViewport->GetPresentationSerial() : 0;
 		Profiling::ArmEditorShellFirstPresent();
 		Context.RootWindow->ShowWindow();
 		TransitionBootstrap(
@@ -1447,72 +1466,51 @@ namespace Durin
 		BootstrapContext.reset();
 	}
 
-	auto FMainFrameModule::AdvanceBootstrap(
-		bool bFirstPresentAvailable) -> EBootstrapStepStatus
+	auto FMainFrameModule::IsScenePresented(const FViewportOutputReceipt& Receipt, uint64 Generation) const -> bool
 	{
-		if (!BootstrapContext)
+		if (BootstrapContext && GFrameCounter % 60 == 0)
 		{
-			DURIN_ERROR("The editor main frame is unavailable.");
-			return EBootstrapStepStatus::Failed;
+			const auto [Presented, Viewport] = Receipt.GetPresentation();
+			DURIN_DEBUG("Scene presentation pending: generation={}, produced={}, presented={}, viewport={}, primary={}",
+				Generation, Receipt.GetProduced(), Presented, static_cast<const void*>(Viewport.GetReference()),
+				static_cast<const void*>(BootstrapContext->ShellViewport.GetReference()));
 		}
-		FBootstrapContext& Context = *BootstrapContext;
-		if (Context.State == EBootstrapState::Ready
-			|| Context.State == EBootstrapState::Failed)
-			return GetBootstrapStepStatus(Context.State);
-		if (Context.State == EBootstrapState::WaitingForFirstPresent)
-		{
-			if (!bFirstPresentAvailable)
-				return GetBootstrapStepStatus(Context.State);
-			if (!Context.bHasProject)
-			{
-				Profiling::RecordStartupMilestone(
-					Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
-				Profiling::RecordStartupMilestone(
-					Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
-				Profiling::RecordStartupMilestone(
-					Profiling::EStartupMilestone::DefaultWorkspaceReady);
-				TransitionBootstrap(Context, EBootstrapState::Ready);
-				Profiling::TryLogStartupTimingSummary();
-				return GetBootstrapStepStatus(Context.State);
-			}
-			TransitionBootstrap(
-				Context, EBootstrapState::LoadingWorkspace);
-			return GetBootstrapStepStatus(Context.State);
-		}
-		if (Context.State == EBootstrapState::LoadingWorkspace)
-		{
-			TransitionBootstrap(
-				Context,
-				ActivateEditorWorkspaces(Context)
-					? EBootstrapState::WorkspaceReady
-					: EBootstrapState::Failed);
-			if (Context.State == EBootstrapState::Failed)
-			{
-				Context.FailureMessage = "Could not initialize the editor workspaces.";
-				DURIN_ERROR("{}", Context.FailureMessage);
-			}
-			return GetBootstrapStepStatus(Context.State);
-		}
-		if (Context.State == EBootstrapState::WorkspaceReady)
-		{
-			TransitionBootstrap(
-				Context, EBootstrapState::LoadingDefaultDocument);
-			return GetBootstrapStepStatus(Context.State);
-		}
-		if (Context.State != EBootstrapState::LoadingDefaultDocument)
-			return GetBootstrapStepStatus(Context.State);
+		return BootstrapContext && Receipt.IsPresented(Generation, BootstrapContext->ShellViewport.GetReference());
+	}
 
-		if (Context.LevelEditorModule && Context.LevelEditorModule->OpenDefaultDocument())
-			TransitionBootstrap(Context, EBootstrapState::Ready);
-		else
-		{
-			Context.FailureMessage = "Could not open the configured default Level document.";
-			DURIN_ERROR("{}", Context.FailureMessage);
-			Context.ProjectBrowser->SetError(Context.FailureMessage);
-			TransitionBootstrap(Context, EBootstrapState::Failed);
-		}
-		Profiling::TryLogStartupTimingSummary();
-		return GetBootstrapStepStatus(Context.State);
+	auto FMainFrameModule::IsShellPresented() const -> bool
+	{
+		return BootstrapContext && BootstrapContext->ShellViewport
+			&& BootstrapContext->ShellViewport->GetPresentationSerial() > BootstrapContext->ShellPresentationBaseline;
+	}
+
+	auto FMainFrameModule::PublishBootstrapState(EBootstrapState State, std::string Error) -> void
+	{
+		if (!BootstrapContext) return;
+		auto& Context = *BootstrapContext;
+		Context.FailureMessage = std::move(Error);
+		if (!Context.FailureMessage.empty()) Context.ProjectBrowser->SetError(Context.FailureMessage);
+		if (Context.State != State) TransitionBootstrap(Context, State);
+	}
+
+	auto FMainFrameModule::ActivateWorkspaces(std::string& OutError) -> bool
+	{
+		if (BootstrapContext && ActivateEditorWorkspaces(*BootstrapContext)) return true;
+		OutError = "Could not initialize the editor workspaces.";
+		return false;
+	}
+
+	auto FMainFrameModule::AdvanceDocumentOperations() -> void
+	{
+		if (BootstrapContext && BootstrapContext->LevelEditorModule) BootstrapContext->LevelEditorModule->AdvancePendingDocument();
+	}
+
+	auto FMainFrameModule::OpenDefaultDocument(std::string& OutError) -> EHostStartupState
+	{
+		if (BootstrapContext && BootstrapContext->LevelEditorModule)
+			return BootstrapContext->LevelEditorModule->OpenDefaultDocument(OutError);
+		OutError = "The Level Editor workspace is unavailable.";
+		return EHostStartupState::Failed;
 	}
 
 } // namespace Durin

@@ -4061,6 +4061,113 @@ TEST(FPackageAssetTests, StructuredLoadHonorsTextBoundsAndRejectsRawLogicalReads
 	EXPECT_EQ(Field.Value.Text, "structured");
 }
 
+TEST(FPackageAssetTests, StructuredLoadPreservesEnumBitsAndValidatesNativeBooleans)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	using K = ObjectPackage::EValueKind;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/StructuredEnumBits", Path));
+	DAuthoredArchiveAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	struct FCleanup
+	{
+		DPackage* Package;
+		~FCleanup() { GCookedLoadProbe = {}; MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+	} Cleanup{Asset->GetPackage()};
+	ObjectPackage::FPropertyTag Field{.DeclaringType = "Tests::DAuthoredArchiveAssetForTest", .FieldName = "Probe"};
+	ObjectPackage::FLinkerTables Linker;
+	FArchiveState Context;
+	Context.bCooking = Context.bFilterEditorOnly = true;
+	Context.Target.Platform = "Win64";
+	Context.Target.Profile = "Game";
+	DObject* Objects[] = {Asset};
+	auto Read = [&] {
+		Linker.Schemas = {{Field.DeclaringType, {{Field.FieldName, Field.Type}}}};
+		return LoadPackageObject(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context);
+	};
+	auto CheckEnum = [&]<typename T>(K Storage) {
+		Field.Type = {.Kind = K::Enum, .QualifiedName = "Tests::ELogicalEnum", .Parameter = static_cast<uint64>(Storage)};
+		Field.Value = {.Unsigned = std::numeric_limits<std::make_unsigned_t<T>>::max()};
+		T Value = 0;
+		GCookedLoadProbe = [&](FArchive& Ar) {
+			auto Scope = EnterArchiveField(Ar, {FName(Field.DeclaringType), FName(Field.FieldName),
+				FArchiveLogicalTypeDescriptor::Enum(FName(Field.Type.QualifiedName), std::is_signed_v<T>, sizeof(T) * 8)});
+			Ar << Value;
+		};
+		EXPECT_TRUE(Read());
+		EXPECT_EQ(Value, std::bit_cast<T>(std::numeric_limits<std::make_unsigned_t<T>>::max()));
+		if constexpr (sizeof(T) != 8)
+		{
+			Field.Type.Parameter = static_cast<uint64>(K::U64);
+			Value = 0;
+			EXPECT_FALSE(Read());
+			EXPECT_EQ(Value, 0);
+		}
+	};
+	CheckEnum.operator()<int8>(K::U8); CheckEnum.operator()<uint8>(K::U8);
+	CheckEnum.operator()<int16>(K::U16); CheckEnum.operator()<uint16>(K::U16);
+	CheckEnum.operator()<int32>(K::U32); CheckEnum.operator()<uint32>(K::U32);
+	CheckEnum.operator()<int64>(K::U64); CheckEnum.operator()<uint64>(K::U64);
+	Field.Type = {.Kind = K::U8};
+	bool Value = false;
+	GCookedLoadProbe = [&](FArchive& Ar) {
+		auto Scope = EnterArchiveField(Ar, {FName(Field.DeclaringType), FName(Field.FieldName),
+			FArchiveLogicalTypeDescriptor::Scalar(false, 8)});
+		Ar << Value;
+	};
+	for (uint64 Encoded : {0u, 1u, 2u, 255u})
+	{
+		Field.Value = {.Unsigned = Encoded}; Value = false;
+		const auto Result = Read();
+		EXPECT_EQ(static_cast<bool>(Result), Encoded <= 1);
+		EXPECT_EQ(Value, Encoded == 1);
+	}
+}
+
+TEST(FPackageAssetTests, FailedGenerationCanRetryBeforeDeferredCollection)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DeferredLoadRetry", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	DPackage* Failed = nullptr;
+	DPackage* Replacement = nullptr;
+	struct FReset { ~FReset() { GAuthoredLoadProbe = {}; } } Reset;
+	{
+		FGarbageCollectionDeferralScope Deferred;
+		GAuthoredLoadProbe = [&](DObject& Object, FArchive& Ar) {
+			Failed = Object.GetPackage();
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Rejected deferred generation");
+		};
+		const auto Rejected = LoadPackage(Path);
+		ASSERT_FALSE(Rejected);
+		EXPECT_NE(Rejected.error().Message.find("Rejected deferred generation"), std::string::npos);
+		ASSERT_NE(Failed, nullptr);
+		EXPECT_TRUE(Failed->IsGarbage());
+		EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
+		EXPECT_EQ(FindResidentPackage(Path), nullptr);
+		GAuthoredLoadProbe = {};
+		const auto Retried = LoadPackage(Path);
+		ASSERT_TRUE(Retried) << Retried.error().Message;
+		Replacement = *Retried;
+		EXPECT_NE(Replacement, Failed);
+		EXPECT_EQ(FindPackage(Path.GetView()), Replacement);
+		// A stale generation cannot withdraw the replacement's path registration.
+		Failed->RetireFailedLoadRegistration();
+		EXPECT_EQ(FindPackage(Path.GetView()), Replacement);
+	}
+	CollectGarbage();
+	EXPECT_FALSE(GDObjectArray.Contains(Failed));
+	EXPECT_EQ(FindPackage(Path.GetView()), Replacement);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
 TEST(FPackageAssetTests, PackageLoadFailureCleansUpAndAllowsRetry)
 {
 	using namespace Durin;

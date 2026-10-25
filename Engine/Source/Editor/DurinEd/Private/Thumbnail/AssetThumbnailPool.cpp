@@ -868,7 +868,7 @@ namespace Durin::Editor
 		++It->second.Serial;
 	}
 
-	auto FAssetThumbnailPool::EndFrame() -> void
+	auto FAssetThumbnailPool::EndFrame(bool bAllowNewAdmissions) -> void
 	{
 		const auto StartTime = std::chrono::steady_clock::now();
 		if (Impl->PreparingJob)
@@ -876,7 +876,7 @@ namespace Durin::Editor
 		Impl->PollParkedJobs();
 		if (!Impl->PreparingJob)
 			Impl->ActivateReadyParkedJob();
-		for (uint32 Admission = 0; Admission < Impl->Budgets.MaximumAdmissionsPerFrame; ++Admission)
+		for (uint32 Admission = 0; bAllowNewAdmissions && Admission < Impl->Budgets.MaximumAdmissionsPerFrame; ++Admission)
 		{
 			if (std::chrono::duration<double>(std::chrono::steady_clock::now() - StartTime).count()
 				>= Impl->Budgets.FrameTimeAllowanceSeconds) break;

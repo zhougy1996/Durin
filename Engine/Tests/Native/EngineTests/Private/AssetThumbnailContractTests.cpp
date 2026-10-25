@@ -827,6 +827,24 @@ namespace Durin
 		EXPECT_GT(Registry.Find("DFakeRenderedAsset").Generation, FirstGeneration);
 	}
 
+	TEST(FAssetThumbnailContractTests, RequiredSceneCanDeferOptionalAdmissionsWithoutLosingRequests)
+	{
+		Editor::DThumbnailManager Manager;
+		auto State = std::make_shared<FFakeThumbnailRendererState>();
+		auto Registration = Manager.RegisterScoped(std::make_unique<FFakeThumbnailRenderer>(State));
+		ASSERT_TRUE(Registration) << Registration.error();
+		Editor::FAssetThumbnailPool Pool(Manager, {}, {.CacheRoot = MakeObjectStoreRoot("DeferredSceneAdmission")});
+		const auto Request = MakeThumbnailRequest("/ThumbnailTests/ScenePriority/Deferred", "DFakeRenderedAsset", 1);
+		Pool.BeginFrame();
+		Pool.Request(Request.Asset, Request.Priority);
+		Pool.EndFrame(false);
+		EXPECT_EQ(Pool.GetStats().QueuedJobs, 1u);
+		EXPECT_EQ(State->Captures, 0u);
+		EXPECT_FALSE(Pool.GetStats().bHasActiveJob);
+		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return State->Captures != 0; }));
+		EXPECT_EQ(State->Captures, 1u);
+	}
+
 	TEST(FAssetThumbnailContractTests, AssetThumbnailReferencesCoalesceAndReleasePoolPins)
 	{
 		Editor::DThumbnailManager Manager;

@@ -5,6 +5,7 @@
 #include "DurinEdAPI.h"
 #include "Engine/Engine.h"
 #include "Editor/EditorSubsystem.h"
+#include "Editor/EditorHost.h"
 #include "Transactions/Transactor.h"
 
 #include "EditorEngine.gen.h"
@@ -17,7 +18,6 @@ namespace Durin
 namespace Durin::Editor
 {
 	class FNotificationManager;
-	class FPreviewMeshResources;
 
 	// Tracks the lifecycle transition of a play-in-editor session.
 	enum class EPlayState : uint8
@@ -92,6 +92,9 @@ namespace Durin
 		DURINED_API auto Init(const FEngineInitContext& Context)
 			-> bool override;
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
+		DURINED_API auto AdvanceStartup() -> void override;
+		auto GetStartupState() const -> EHostStartupState override { return StartupState; }
+		auto GetStartupError() const -> const std::string& override { return StartupError; }
 		DURINED_API auto PrepareForShutdown() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
 		auto GetTransactor() const -> DTransactor* { return Trans.Get(); }
@@ -129,6 +132,8 @@ namespace Durin
 		auto IsPlaying() const -> bool { return PlayState != Editor::EPlayState::Stopped; }
 		auto IsPlaySessionPaused() const -> bool { return PlayState == Editor::EPlayState::Paused; }
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
+		auto ShouldDrawStartupScene() const -> bool override
+		{ return StartupPhase == Editor::Host::EBootstrapState::LoadingDefaultDocument && GetSceneGeneration() != 0; }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
 		DURINED_API auto GetEditorWorldContext() const -> const FWorldContext&;
 		DURINED_API auto GetPIEWorldContext() const -> const FWorldContext*;
@@ -137,6 +142,7 @@ namespace Durin
 		auto IsPlayMouseCaptured() const -> bool { return MouseCaptureState == Editor::EMouseCaptureState::Captured; }
 
 	protected:
+		DURINED_API auto AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void override;
 		DURINED_API auto HandleGameInputWindowFocus(const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void override;
 		DURINED_API auto HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void override;
 		DURINED_API auto HandleGameInputKeyDown(const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat) -> bool override;
@@ -157,9 +163,11 @@ namespace Durin
 		DURINED_API auto CloseSubsystemWork() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;
 		FEditorSubsystemCollection EditorSubsystems;
-		// Retained across preview windows and thumbnail jobs; retired after the shell.
-		std::unique_ptr<Editor::FPreviewMeshResources> PreviewMeshResources;
 		bool bEditorInitStarted = false;
+		EHostStartupState StartupState = EHostStartupState::Ready;
+		std::string StartupError;
+		bool bProjectContentReady = false;
+		Editor::Host::EBootstrapState StartupPhase = Editor::Host::EBootstrapState::WaitingForFirstPresent;
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> FSubsystemResult;
 	private:

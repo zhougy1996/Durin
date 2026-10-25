@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/HostStartup.h"
 
 #include "LevelEditorAPI.h"
 #include "LevelEditorContentBrowserCallbacks.h"
@@ -45,7 +46,8 @@ namespace Durin::Editor::Level
 			std::function<void()> InOpenProjectBrowser);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
-		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
+		LEVELEDITOR_API auto OpenDefaultDocument(std::string& OutError) -> EHostStartupState;
+		LEVELEDITOR_API auto AdvancePendingDocument() -> void;
 		LEVELEDITOR_API auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
 		LEVELEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
 		LEVELEDITOR_API auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
@@ -115,6 +117,9 @@ namespace Durin::Editor::Level
 		TSoftObjectPtr<DLevel> DefaultLevel;
 		TSoftObjectPtr<DLevel> PendingDefaultLevel;
 		std::string EditorError;
+		bool bProjectSettingsValid = true;
+		bool bDefaultDocumentStarted = false;
+		bool bDefaultDocumentPrepared = false;
 		::Durin::Editor::FDocumentId DeferredOpenDocumentId;
 	};
 } // namespace Durin::Editor::Level

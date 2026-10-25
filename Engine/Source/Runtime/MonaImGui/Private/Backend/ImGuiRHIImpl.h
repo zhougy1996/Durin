@@ -5,6 +5,7 @@
 #include "ImGui/ImGuiCommon.h"
 
 #include "RHIResources.h"
+#include "Rendering/ViewportDisplaySource.h"
 
 struct ImDrawData;
 struct ImGuiViewport;
@@ -33,6 +34,7 @@ namespace Durin::MonaImGui
 	auto ImGuiRHIImpl_RetireUnregisteredTextures() -> void;
 
 	auto ImGuiRHIImpl_RegisterTexture(const FTextureRHIRef& Texture) -> void;
+	auto ImGuiRHIImpl_ObserveTexturePresentation(const FRHITexture*, std::shared_ptr<FViewportOutputReceipt>) -> void;
 
 	auto ImGuiRHIImpl_UnregisterTexture(FRHITexture* InRHITexture) -> void;
 

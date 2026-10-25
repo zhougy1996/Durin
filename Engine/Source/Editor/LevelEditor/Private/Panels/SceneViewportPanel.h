@@ -23,6 +23,7 @@ namespace Durin
 	class AActor;
 	class DLevel;
 	struct FSceneViewportStatisticsSnapshot;
+	struct FSceneView;
 	struct FSceneViewportRenderGraphSnapshot;
 }
 
@@ -48,6 +49,8 @@ namespace Durin::Editor::Level
 		auto IsViewportFocused() const -> bool { return bViewportFocused; }
 		auto CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool;
 		auto RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void;
+		auto CreateInitialViewBuilder() const -> std::function<bool(DLevel*, const FLevelViewportCameraState*, FSceneView&)>;
+		auto RequestInitialPresentation() -> void { SetOpen(true); bInitialPresentationRequested = true; }
 		auto PrepareForLevelChange(FLevelEditorContext& Context) -> bool;
 		auto FinalizeViewportFrame(FLevelEditorContext& Context) -> void;
 		auto SetPreferredPlayMode(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void;
@@ -87,6 +90,7 @@ namespace Durin::Editor::Level
 		std::unique_ptr<FViewportToolbar> ViewportToolbar;
 		FLevelViewportEditModeManager EditModeManager;
 		bool bViewportHovered = false;
+		bool bInitialPresentationRequested = false;
 		bool bViewportFocused = false;
 		bool bShowStatistics = false;
 		std::function<void()> OpenRenderingDiagnostics;

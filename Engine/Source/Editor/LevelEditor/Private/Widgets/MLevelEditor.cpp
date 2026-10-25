@@ -131,7 +131,7 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::InitializeSession() -> void
 	{
 		SessionSettings.PruneInvalidViewportStates();
-		LoadProjectSettings();
+		bProjectSettingsValid = LoadProjectSettings();
 		SessionSettings.Save(nullptr);
 	}
 
@@ -239,16 +239,37 @@ namespace Durin::Editor::Level
 		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 	}
 
-	auto MLevelEditor::OpenDefaultDocument() -> bool
+	auto MLevelEditor::AdvancePendingDocument() -> void
 	{
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
-		bool bOpened = false;
+		if (DocumentController) DocumentController->AdvancePendingOpen();
+	}
+
+	auto MLevelEditor::OpenDefaultDocument(std::string& OutError) -> EHostStartupState
+	{
+		if (!bProjectSettingsValid)
+		{
+			OutError = EditorError.empty() ? "Project startup settings could not be loaded." : EditorError;
+			return EHostStartupState::Failed;
+		}
+		if (!bDefaultDocumentStarted)
+		{
+			bDefaultDocumentStarted = true;
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
+		}
+		EHostStartupState State;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument");
-			bOpened = DocumentController->OpenDefaultLevel();
+			State = DocumentController->OpenDefaultLevel();
 		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
-		return bOpened;
+		if (State != EHostStartupState::Pending)
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
+		OutError = State == EHostStartupState::Failed ? EditorError : std::string{};
+		if (State == EHostStartupState::Ready && !std::exchange(bDefaultDocumentPrepared, true))
+		{
+			RootWindow.RequestFocus();
+			SceneViewportPanel->RequestInitialPresentation();
+		}
+		return State;
 	}
 
 	auto MLevelEditor::LoadProjectSettings() -> bool
@@ -261,7 +282,7 @@ namespace Durin::Editor::Level
 			FProjectGameSettingsStore::ForProject(*Project).Load(Settings);
 		if (!Result)
 		{
-			DURIN_WARN("Failed to load project game settings: {}", Result.Message);
+			SetError(std::format("Failed to load project game settings: {}", Result.Message));
 			return false;
 		}
 		if (!Settings.DefaultLevel.empty())
@@ -272,7 +293,7 @@ namespace Durin::Editor::Level
 					Settings.DefaultLevel, PackagePath); !PathValidation)
 			{
 				PathError = ToString(PathValidation.error());
-				DURIN_WARN("Project default level '{}' is invalid: {}", Settings.DefaultLevel, PathError);
+				SetError(std::format("Project default level '{}' is invalid: {}", Settings.DefaultLevel, PathError));
 				return false;
 			}
 			FObjectPath LevelPath;
@@ -280,8 +301,8 @@ namespace Durin::Editor::Level
 				ResolveLevelPackage(PackagePath, LevelPath);
 			if (!ResolveResult)
 			{
-				DURIN_WARN("Project default level '{}' is invalid: {}",
-					Settings.DefaultLevel, ResolveResult.Message);
+				SetError(std::format("Project default level '{}' is invalid: {}",
+					Settings.DefaultLevel, ResolveResult.Message));
 				return false;
 			}
 			DefaultLevel.SetPath(std::move(LevelPath));
@@ -455,7 +476,8 @@ namespace Durin::Editor::Level
 		}
 
 		bool bPlaying = GEditor && GEditor->IsPlaying();
-		Context->bReadOnly = bPlaying;
+		Context->bReadOnly = bPlaying || DocumentController->IsOpening()
+			|| (GEditor && GEditor->GetStartupState() != EHostStartupState::Ready);
 		Context->Synchronize(GEditor != nullptr
 			? (bPlaying ? GEditor->GetPlayWorld() : GEditor->GetEditorWorld())
 			: (GEngine != nullptr ? GEngine->GetWorld() : nullptr));

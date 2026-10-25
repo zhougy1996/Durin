@@ -29,7 +29,8 @@ views, even when no scene requires an update. It advances shared retirement and
 preparation maintenance as well as world-driven sky work. Both
 `PrepareViewResources` and `RenderView` consume `FSceneViewRenderRequest`, carrying
 the same scene, view, output, presentation policy and options. SceneViewport
-passes that request unchanged through preparation and drawing. Scene/output and
+passes its preparation observer through one `RenderView` call, which prepares
+and draws the current view without a second complete traversal. Scene/output and
 optional observation pointers are borrowed for the synchronous render-thread
 call; recorded work retains its own resource references.
 
@@ -38,6 +39,19 @@ call; recorded work retains its own resource references.
 `MViewport` stores a weak pointer to `IViewportDisplaySource`. It is a UI
 consumer, not the lifetime owner of the Engine producer. It owns only the UI
 backend registration for the currently published texture.
+
+A visible image submission signals `OnDisplaySubmitted`. The Engine consumes
+that demand once when submitting an offscreen scene. Hidden or clipped panels
+retain their texture without continuously rendering a full scene. Window-backed
+Game output and explicit candidate operations have their own submission owners.
+
+Successful scene output records its operation generation in a neutral
+`FViewportOutputReceipt`. UI submission snapshots observers without retaining an
+Engine/World, and records only textures consumed by actual unclipped draw commands.
+`EndDrawingViewportWithReceipts` observes the native presentation serial during
+RHI command replay, on either side of Present. Recording EndDrawingViewport on
+the render thread is not presentation success. A startup gate matches both the
+operation generation and the retained primary RHI viewport identity.
 
 `FSceneViewport` is held by the engine through `DEngine::MainSceneViewport`. This keeps the scene viewport alive independently of transient widget references.
 
@@ -73,6 +87,13 @@ GPU coordinate ownership is defined by [Camera relative rendering](../Scene/Came
 ## Output Policies
 
 Window-backed viewports render directly to the native window backbuffer. Render-target-backed viewports render into an offscreen texture that can later be shown by UI code.
+
+`FRHIViewport::GetPresentationSerial()` is a thread-safe successful-presentation
+counter belonging to one viewport generation. Vulkan advances it only for a
+successful present outcome; Metal advances it after committing a drawable
+presentation. A retained viewport and baseline can prove a later presentation
+without depending on profiling state. It does not prove physical scanout, GPU
+idle, or that a particular scene generation was included in the composed frame.
 
 On Vulkan, `EViewportPresentationPolicy::FramePaced` selects FIFO; `BestEffort` prefers
 Mailbox, then Immediate, then FIFO and bounds acquisition waits. `Unsynchronized`

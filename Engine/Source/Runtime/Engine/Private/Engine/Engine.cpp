@@ -1,4 +1,6 @@
 #include "Engine/Engine.h"
+#include "Engine/SceneLoadOperation.h"
+#include "Rendering/ViewportPresentation.h"
 
 #include "Asset/CookedMeshLoadManager.h"
 #include "Rendering/PrimitiveDrawInterface.h"
@@ -203,31 +205,6 @@ namespace Durin
 			DURIN_ERROR("Cooked mesh load manager could not start.");
 			return false;
 		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
-			const FAssetCatalogRefreshResult Refresh =
-				RefreshAssetRegistry(
-					EAssetRegistryScanMode::Incremental
-				);
-			if (!Refresh)
-			{
-				DURIN_ERROR(
-					"Asset catalog refresh retained revision {} with {} error(s).",
-					Refresh.ResultingRevision, Refresh.Errors.size());
-				for (const FAssetRegistryResult& Error : Refresh.Errors)
-				{
-					DURIN_ERROR("Asset catalog refresh error: {}", FormatAssetRegistryError(Error));
-				}
-			}
-		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialBegin);
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultMaterial");
-			InitializeDefaultMaterialService();
-		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialReady);
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RendererInitialization");
@@ -240,24 +217,40 @@ namespace Durin
 					Viewport->InitializeViewState(RendererModule);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererReady);
-		if (auto Result = InitializeEngineSubsystems(); !Result)
+		Mona::FMonaApplication::Get().SetGameEventHandler(std::make_unique<FEngineInputEventHandler>());
+		return true;
+	}
+
+	auto DEngine::InitializeProjectContent() -> std::expected<void, std::string>
+	{
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
+		const auto Refresh = RefreshAssetRegistry(EAssetRegistryScanMode::Incremental);
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
+		if (!Refresh)
 		{
-			DURIN_ERROR("{}", Result.Message);
-			return false;
+			std::string Error = "Initial project asset catalog could not be admitted.";
+			for (const auto& Cause : Refresh.Errors) Error += "\n" + FormatAssetRegistryError(Cause);
+			return std::unexpected(std::move(Error));
 		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialBegin);
+		// The service owns its explicit ErrorMaterial fallback policy.
+		(void)InitializeDefaultMaterialService();
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialReady);
+		// Project modules may add providers after the minimal shell's services.
+		// The first World must capture the complete admitted provider set.
+		if (const auto Services = InitializeEngineSubsystems(); !Services)
+			return std::unexpected(Services.Message);
 		auto* World = NewObject<DWorld>(this, "MainWorld");
 		World->SetWorldType(GetInitialWorldType());
 		World->SetRenderScene(MainScene.get());
-		if (auto Result = World->InitializeSubsystems(); !Result)
+		if (const auto Services = World->InitializeSubsystems(); !Services)
 		{
 			World->Shutdown();
 			MarkObjectHierarchyAsGarbage(World);
-			DURIN_ERROR("{}", Result.Message);
-			return false;
+			return std::unexpected(Services.Message);
 		}
 		SetWorld(World);
-		Mona::FMonaApplication::Get().SetGameEventHandler(std::make_unique<FEngineInputEventHandler>());
-		return true;
+		return {};
 	}
 
 	auto DEngine::BeginDestroy() -> void
@@ -296,6 +289,12 @@ namespace Durin
 		Super::FinishDestroy();
 	}
 
+	auto DEngine::GetStartupError() const -> const std::string&
+	{
+		static const std::string Empty;
+		return Empty;
+	}
+
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		if (bShutdownRequested) { PrepareForShutdown(); return; }
@@ -326,6 +325,9 @@ namespace Durin
 
 	auto DEngine::CloseSubsystemWork() -> void
 	{
+		const auto Loads = SceneLoads;
+		for (const auto& Owner : Loads) if (const auto Loading = Owner.lock()) Loading->Cancel();
+		SceneLoads.clear();
 		EngineSubsystems.CloseWork();
 		const auto Contexts = WorldContexts;
 		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->RequestShutdown();
@@ -351,8 +353,11 @@ namespace Durin
 
 	auto DEngine::RedrawViewports() -> void
 	{
+		SubmitPendingScenes();
+		if (bShutdownRequested || (GetStartupState() != EHostStartupState::Ready && !ShouldDrawStartupScene())) return;
 		auto RenderTargetViewport = [this](const std::shared_ptr<FSceneViewport>& SceneViewport, bool bAllowCameraFallback) {
 			if (SceneViewport == nullptr || SceneViewport->IsWindowBacked()) return;
+			if (!SceneViewport->ConsumeDisplayRequest()) return;
 			const FVector2f DesiredSize = SceneViewport->GetDesiredSize();
 			const uint32 ViewWidth = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.x)));
 			const uint32 ViewHeight = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.y)));
@@ -366,7 +371,7 @@ namespace Durin
 				SceneViewport->ConsumeRenderGraphCaptureRequest();
 			FSceneInterface* Scene = SceneViewport->GetRenderScene() != nullptr ? SceneViewport->GetRenderScene() : MainScene.get();
 			ENQUEUE_RENDER_COMMAND(RenderSceneRenderTarget)(
-				[RenderTargetRHI, View, Scene, SceneViewport,
+				[RenderTargetRHI, View, Scene, SceneViewport, Generation = SceneViewport->GetSceneGeneration(), Receipt = SceneViewport->GetOutputReceipt(),
 				 RendererModule = RendererModule,
 				 bCaptureRenderGraph](FRHICommandListImmediate& CommandList) {
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
@@ -378,13 +383,13 @@ namespace Durin
 					{
 						const FSceneViewRenderOptions Options{};
 						const FSceneViewRenderRequest Request{Scene, View, RenderTargetRHI, false, Options, &Statistics, RenderGraphCapture.get()};
-						if (!SceneViewport->PrepareResources_RenderThread(*RendererModule, CommandList, Request)) return;
-						FRenderResourcePreparationUseScope PreparedUse(SceneViewport->GetResourcePreparation_RenderThread());
-						Result = RendererModule->RenderView(CommandList, Request);
+						Result = SceneViewport->RenderView_RenderThread(*RendererModule, CommandList, Request);
 					}
 					SceneViewport->PublishRenderStatistics_RenderThread(
 						Statistics, Result == ERenderViewResult::Success
 					);
+					SceneViewport->PublishRenderOutcome_RenderThread(Result);
+					Receipt->RecordProduced(Result == ERenderViewResult::Success ? Generation : 0);
 					if (bCaptureRenderGraph)
 						SceneViewport->PublishRenderGraphCapture_RenderThread(
 							std::move(RenderGraphCapture),
@@ -414,6 +419,7 @@ namespace Durin
 						SceneViewport->ConsumeRenderGraphCaptureRequest();
 					ENQUEUE_RENDER_COMMAND(RenderMainSceneViewport)(
 						[ViewportRHI, View, SceneViewport, Scene = MainScene.get(),
+						 Generation = SceneViewport->GetSceneGeneration(), Receipt = SceneViewport->GetOutputReceipt(),
 						 RendererModule = RendererModule,
 						 bCaptureRenderGraph](FRHICommandListImmediate& CommandList) {
 							CommandList.SwitchPipeline(ERHIPipeline::Graphics);
@@ -438,13 +444,7 @@ namespace Durin
 							{
 								const FSceneViewRenderOptions Options{};
 								const FSceneViewRenderRequest Request{Scene, View, BackBuffer, true, Options, &Statistics, RenderGraphCapture.get()};
-								if (!SceneViewport->PrepareResources_RenderThread(*RendererModule, CommandList, Request))
-								{
-									CommandList.EndDrawingViewport(ViewportRHI, false, false);
-									return;
-								}
-								FRenderResourcePreparationUseScope PreparedUse(SceneViewport->GetResourcePreparation_RenderThread());
-								Result = RendererModule->RenderView(CommandList, Request);
+								Result = SceneViewport->RenderView_RenderThread(*RendererModule, CommandList, Request);
 							}
 							SceneViewport->PublishRenderStatistics_RenderThread(
 								Statistics, Result == ERenderViewResult::Success
@@ -454,7 +454,10 @@ namespace Durin
 									std::move(RenderGraphCapture),
 									Result == ERenderViewResult::Success);
 
-							CommandList.EndDrawingViewport(ViewportRHI, true, false);
+							SceneViewport->PublishRenderOutcome_RenderThread(Result);
+							Receipt->RecordProduced(Result == ERenderViewResult::Success ? Generation : 0);
+							EndDrawingViewportWithReceipts(CommandList, ViewportRHI,
+								Result == ERenderViewResult::Success, {{Receipt, Generation}});
 						}
 					);
 				}
@@ -495,6 +498,65 @@ namespace Durin
 		});
 	}
 
+	auto DEngine::CreateSceneLoad(FSceneLoadRequest Request) -> std::shared_ptr<FSceneLoadOperation>
+	{
+		CheckGameThread();
+		auto Loading = std::shared_ptr<FSceneLoadOperation>(new FSceneLoadOperation(*this, std::move(Request), !bShutdownRequested));
+		SceneLoads.emplace_back(Loading);
+		return Loading;
+	}
+	auto DEngine::SubmitPendingScenes() -> void
+	{
+		if (bShutdownRequested) return;
+		FHostOperationScope Operation(*this);
+		std::erase_if(SceneLoads, [](const auto& Owner) { return Owner.expired(); });
+		const auto Loads = SceneLoads;
+		for (const auto& Owner : Loads) if (const auto Loading = Owner.lock()) Loading->SubmitView();
+	}
+	auto DEngine::HasPendingSceneLoad() const -> bool
+	{
+		for (const auto& Owner : SceneLoads) if (const auto Loading = Owner.lock())
+		{
+			const auto Phase = Loading->GetProgress().Phase;
+			if (Phase != ESceneLoadPhase::Committed && Phase != ESceneLoadPhase::Canceled && Phase != ESceneLoadPhase::Failed) return true;
+		}
+		return false;
+	}
+	auto DEngine::GetSceneLoadProgress() const -> std::optional<FSceneLoadProgress>
+	{
+		CheckGameThread();
+		for (const auto& Owner : SceneLoads) if (const auto Loading = Owner.lock())
+		{
+			const auto Progress = Loading->GetProgress();
+			if (Progress.Phase != ESceneLoadPhase::Committed && Progress.Phase != ESceneLoadPhase::Canceled && Progress.Phase != ESceneLoadPhase::Failed)
+				return Progress;
+		}
+		return {};
+	}
+	// Only the ordinary frame advances operations; modal and UI callbacks observe them.
+	auto DEngine::AdvanceSceneLoads() -> void
+	{
+		if (bShutdownRequested) return;
+		FHostOperationScope Operation(*this);
+		std::erase_if(SceneLoads, [](const auto& Owner) { return Owner.expired(); });
+		const auto Loads = SceneLoads;
+		for (const auto& Owner : Loads) if (const auto Loading = Owner.lock()) Loading->Advance();
+	}
+	auto DEngine::AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void
+	{
+		CheckGameThread();
+		check(World && Scene && !bShutdownRequested);
+		FHostOperationScope Operation(*this);
+		TStrongObjectPtr<DWorld> Previous(MainWorld.Get());
+		if (Previous) Previous->SetRenderScene(nullptr);
+		if (MainScene) { MainScene->Release(); MainScene.reset(); }
+		MainScene = std::move(Scene);
+		SceneGeneration = Generation;
+		if (MainSceneViewport) MainSceneViewport->SetSceneGeneration(Generation);
+		for (const auto& Viewport : AuxiliarySceneViewports) if (Viewport) Viewport->SetSceneGeneration(Generation);
+		SetWorld(World);
+		if (Previous && Previous.Get() != World) Previous->Shutdown();
+	}
 	auto DEngine::SetWorld(DWorld* InWorld) -> void
 	{
 		if (InWorld) RegisterWorldContext(*InWorld);
@@ -558,27 +620,49 @@ namespace Durin
 		GameInputState.ResetMouseTracking();
 	}
 
-	auto DEngine::GetActiveCameraComponent() const -> DCameraComponent*
+	static auto GetWorldCamera(const DWorld* World) -> DCameraComponent*
 	{
-		if (MainWorld && MainWorld->GetCurrentLevel())
+		if (World && World->GetCurrentLevel())
 		{
-			if (APlayerController* Controller = MainWorld->GetLocalPlayerController(); Controller
-																					   && MainWorld->ContainsActor(Controller))
+			if (APlayerController* Controller = World->GetLocalPlayerController(); Controller
+																					   && World->ContainsActor(Controller))
 			{
 				AActor* Target = Controller->GetViewTarget();
 				if (Target
 					&& !Target->IsPendingKill()
 					&& !Target->IsBeingDestroyed()
-					&& MainWorld->ContainsActor(Target))
+					&& World->ContainsActor(Target))
 				{
 					if (DCameraComponent* Camera = Target->FindComponentByClass<DCameraComponent>()) return Camera;
 				}
 			}
-			if (ACameraActor* Camera = MainWorld->GetCurrentLevel()->GetPrimaryCameraActor()) return Camera->GetCameraComponent();
+			if (ACameraActor* Camera = World->GetCurrentLevel()->GetPrimaryCameraActor()) return Camera->GetCameraComponent();
 		}
 		return nullptr;
 	}
 
+	auto DEngine::GetActiveCameraComponent() const -> DCameraComponent* { return GetWorldCamera(MainWorld.Get()); }
+
+	auto DEngine::BuildWorldSceneView(const DWorld& World, uint32 Width, uint32 Height) const -> FSceneView
+	{
+		FSceneView View;
+		View.ViewportWidth = Width; View.ViewportHeight = Height;
+		if (const auto* Camera = GetWorldCamera(&World))
+		{
+			const float AspectRatio = ApplyCameraAspectRatio(*Camera, Width, Height, View);
+			View.ViewMatrix = Camera->GetViewMatrix();
+			View.ProjectionMatrix = Camera->GetProjectionMatrix(AspectRatio);
+			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+			View.ViewLocation = Camera->GetWorldLocation();
+			View.DepthConvention = ESceneDepthConvention::ReversedZ;
+			View.NearClipDistance = Camera->GetNearClip();
+			View.FarClipDistance = Camera->GetFarClip();
+			const auto& Distance = Camera->GetViewDistance();
+			SceneViewProjection::ClampViewDistances(View.FarClipDistance, Distance.FadeStart, Distance.RenderDistance, View.ViewFadeStart, View.ViewRenderDistance);
+		}
+		FViewPrimitiveDrawInterface(View).Seal();
+		return View;
+	}
 	auto DEngine::BuildMainSceneView(uint32 Width, uint32 Height) const -> FSceneView
 	{
 		FSceneView View;

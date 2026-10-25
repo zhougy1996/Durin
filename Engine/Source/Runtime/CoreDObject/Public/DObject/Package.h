@@ -68,6 +68,9 @@ namespace Durin
 
 		// Initialization is one-shot and requires an unparented package with no existing kind.
 		COREDOBJECT_API auto InitializeAssetPackage(const FPackagePath& InPath) -> void;
+		// Withdraw a failed, garbage-marked asset generation before physical GC.
+		// Keeps its diagnostic identity; later destruction cannot remove a replacement.
+		COREDOBJECT_API auto RetireFailedLoadRegistration() -> void;
 		// Creates an isolated graph identity without claiming its live registry entry.
 		// The caller owns this graph until a replacement coordinator accepts it.
 		COREDOBJECT_API auto InitializePreparedAssetPackage(const FPackagePath& InPath) -> bool;

@@ -232,32 +232,46 @@ namespace Durin
 		});
 	}
 
+	auto FSceneRenderingService::AdmitPreparation_RenderThread(FScene* Scene, FRHITexture* OutputTarget,
+		const FRenderResourcePreparation& Preparation) -> bool
+	{
+		CheckRenderingThread();
+		PrunePreparations_RenderThread();
+		if (!Preparation.IsValid()) return false;
+		const auto Status = Preparation.GetProgress().State;
+		if (Status == ERenderResourcePreparationState::Stale || Status == ERenderResourcePreparationState::Canceled
+			|| Status == ERenderResourcePreparationState::Failed) return false;
+		const auto Existing = std::ranges::find_if(Preparations, [&](const auto& Owner) {
+			return Owner.Preparation.IsSameRequest(Preparation);
+		});
+		if (!Scene || !OutputTarget || !GDynamicRHI || (Existing != Preparations.end() && Existing->Scene != Scene))
+		{
+			Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
+			return false;
+		}
+		if (Existing == Preparations.end())
+		{
+			if (Preparations.size() >= 4)
+			{
+				Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
+				return false;
+			}
+			Preparations.push_back({Scene, Preparation});
+		}
+		return true;
+	}
+
 	auto FSceneRenderingService::PrepareViewResources_RenderThread(
 		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
 		const FRenderResourcePreparation& Preparation) -> void
 	{
-		CheckRenderingThread();
-		PrunePreparations_RenderThread();
-		if (!Preparation.IsValid()) return;
-		const auto Status = Preparation.GetProgress().State;
-		if (Status == ERenderResourcePreparationState::Stale || Status == ERenderResourcePreparationState::Canceled
-			|| Status == ERenderResourcePreparationState::Failed) return;
-		const auto Existing = std::ranges::find_if(Preparations, [&](const auto& Owner) {
-			return Owner.Preparation.IsSameRequest(Preparation);
-		});
-		if (!Scene || !OutputTarget || !GDynamicRHI || (Existing != Preparations.end() && Existing->Scene != Scene))
-			return Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
-		if (Existing == Preparations.end())
-		{
-			if (Preparations.size() >= 4) return Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
-			Preparations.push_back({Scene, Preparation});
-		}
+		if (!AdmitPreparation_RenderThread(Scene, OutputTarget, Preparation)) return;
 		FRenderResourcePreparationScope Scope(Preparation);
 		try
 		{
 			const auto Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, View,
-				OutputTarget, bPresentOutput, Options, nullptr, nullptr);
+				OutputTarget, bPresentOutput, Options, nullptr, nullptr, true);
 			Scope.Complete(Result == ERenderViewResult::Success ? ERenderResourcePreparationState::Ready
 				: Result == ERenderViewResult::RendererResourcesPending ? ERenderResourcePreparationState::Pending
 				: ERenderResourcePreparationState::Failed);
@@ -276,12 +290,33 @@ namespace Durin
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics,
-		FRDGCapture* OutRenderGraphCapture
+		FRDGCapture* OutRenderGraphCapture,
+		const FRenderResourcePreparation* Preparation
 	) -> ERenderViewResult
 	{
 		auto TimedView = View;
 		if (!std::isfinite(TimedView.MaterialTimeSeconds) || TimedView.MaterialTimeSeconds < 0.0)
 			TimedView.MaterialTimeSeconds = FTime::Seconds() - GStartTime;
+		if (Preparation)
+		{
+			if (!AdmitPreparation_RenderThread(Scene, OutputTarget, *Preparation))
+				return ERenderViewResult::RendererResourcesUnavailable;
+			FRenderResourcePreparationScope Scope(*Preparation);
+			ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
+			try
+			{
+				Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, TimedView,
+					OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture);
+			}
+			catch (const FRenderResourcePreparationYield&) { Result = ERenderViewResult::RendererResourcesPending; }
+			catch (const FRenderResourcePreparationCapacityExceeded&) {}
+			catch (const std::bad_alloc&) {}
+			Scope.Complete(Result == ERenderViewResult::Success ? ERenderResourcePreparationState::Ready
+				: Result == ERenderViewResult::RendererResourcesPending ? ERenderResourcePreparationState::Pending
+				: ERenderResourcePreparationState::Failed);
+			PrunePreparations_RenderThread();
+			return Result;
+		}
 		return FSceneRenderPipeline(*this).Execute_RenderThread(
 			CommandList, Scene, TimedView, OutputTarget, bPresentOutput,
 			Options, OutStatistics, OutRenderGraphCapture

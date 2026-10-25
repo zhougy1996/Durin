@@ -19,6 +19,7 @@ namespace Durin
 	class FViewportClient;
 	class IRendererModule;
 	struct FSceneViewRenderRequest;
+	enum class ERenderViewResult : uint8;
 	class FSceneInterface;
 	class MWindow;
 
@@ -68,11 +69,19 @@ namespace Durin
 
 		// Explicit loading barrier; later streamed combinations use demand preparation.
 		auto RequestResourcePreparation() -> void { bResourcePreparationRequested = true; }
-		ENGINE_API auto PrepareResources_RenderThread(IRendererModule& Renderer, FRHICommandListImmediate& Commands,
-			const FSceneViewRenderRequest& Request) -> bool;
+		ENGINE_API auto RenderView_RenderThread(IRendererModule& Renderer, FRHICommandListImmediate& Commands,
+			FSceneViewRenderRequest Request) -> ERenderViewResult;
 		auto GetResourcePreparation_RenderThread() const -> const FRenderResourcePreparation& { return ResourcePreparation; }
 		auto GetResourcePreparationProgress_RenderThread() const -> FRenderResourcePreparationProgress
 		{ return ResourcePreparation.GetProgress(); }
+		auto SetSceneGeneration(uint64 Generation) -> void
+		{ SceneGeneration = Generation; OutputReceipt = std::make_shared<FViewportOutputReceipt>(); bRenderFailed = false; }
+		auto GetSceneGeneration() const -> uint64 { return SceneGeneration; }
+		auto GetOutputReceipt() const -> std::shared_ptr<FViewportOutputReceipt> override { return OutputReceipt; }
+		auto OnDisplaySubmitted() -> void override { bDisplayRequested = true; }
+		auto ConsumeDisplayRequest() -> bool { return std::exchange(bDisplayRequested, false); }
+		auto HasRenderFailed() const -> bool { return bRenderFailed.load(); }
+		ENGINE_API auto PublishRenderOutcome_RenderThread(ERenderViewResult Result) -> void;
 
 		ENGINE_API auto PrepareDisplay(const FVector2f& DesiredSize) -> void override;
 		ENGINE_API auto GetDisplayTexture() const -> const FTextureRHIRef& override;
@@ -112,6 +121,10 @@ namespace Durin
 		static auto SanitizeDisplayExtent(const FVector2f& DesiredSize) -> FVector2f;
 
 		std::atomic_bool bResourcePreparationRequested = false;
+		uint64 SceneGeneration = 0;
+		std::shared_ptr<FViewportOutputReceipt> OutputReceipt = std::make_shared<FViewportOutputReceipt>();
+		std::atomic_bool bRenderFailed = false;
+		bool bDisplayRequested = false;
 		FRenderResourcePreparation ResourcePreparation;
 		EOutputPolicy OutputPolicy = EOutputPolicy::Window;
 		std::weak_ptr<MWindow> Window;

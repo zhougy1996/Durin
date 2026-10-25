@@ -194,6 +194,20 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
+	auto FSceneViewportPanel::CreateInitialViewBuilder() const -> std::function<bool(DLevel*, const FLevelViewportCameraState*, FSceneView&)>
+	{
+		if (!SceneViewport || !ViewportClient) return {};
+		uint32 Width = 0, Height = 0;
+		if (!FLevelEditorViewportClient::ResolveViewportExtent(SceneViewport->GetDesiredSize(), Width, Height)) return {};
+		return [Width, Height, Settings = ViewportClient->GetViewSettings()](DLevel* Level, const FLevelViewportCameraState* State, FSceneView& OutView) {
+			FLevelEditorViewportClient CandidateClient;
+			CandidateClient.InitializeForLevel(Level, State);
+			if (!CandidateClient.BuildViewMatrices(Width, Height, OutView)) return false;
+			OutView.Settings = Settings;
+			return true;
+		};
+	}
+
 	auto FSceneViewportPanel::RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void
 	{
 		if (ViewportClient != nullptr) ViewportClient->InitializeForLevel(Level, State);
@@ -265,6 +279,12 @@ namespace Durin::Editor::Level
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.SceneViewport");
+		if (std::exchange(bInitialPresentationRequested, false))
+		{
+			ImGui::SetNextWindowFocus();
+			ImGui::SetNextWindowCollapsed(false, ImGuiCond_Always);
+			ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+		}
 		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));

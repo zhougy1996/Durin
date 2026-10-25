@@ -78,6 +78,15 @@ namespace Durin
 		RegisterPackage(this, RegisteredPath);
 	}
 
+	auto DPackage::RetireFailedLoadRegistration() -> void
+	{
+		require(IsAssetPackage() && IsGarbage());
+		auto It = GetPackageRegistry().find(RegisteredPath);
+		if (It != GetPackageRegistry().end() && It->second == this) GetPackageRegistry().erase(It);
+		bGraphPrivate = true;
+		InvalidateSoftObjectCaches();
+	}
+
 	auto DPackage::RelocateAssetPackage(const FPackagePath& InPath) -> bool
 	{
 		if (!IsAssetPackage() || bGraphPrivate) return false;

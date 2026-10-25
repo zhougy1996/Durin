@@ -61,7 +61,9 @@ namespace Durin
 			return;
 		}
 
+		RegisteredBackend->ObserveTexturePresentation(DisplayTexture, DisplaySourcePtr->GetOutputReceipt());
 		bLastDrawSucceeded = RegisteredBackend->DrawImage(DisplayTexture, DesiredSize);
+		if (bLastDrawSucceeded) DisplaySourcePtr->OnDisplaySubmitted();
 	}
 
 	auto MViewport::SynchronizeRegisteredTexture(const FTextureRHIRef& DisplayTexture) -> void

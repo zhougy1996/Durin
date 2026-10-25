@@ -132,7 +132,7 @@ namespace Durin
 			FProjectHistory History = MakeDefaultProjectHistory();
 			if (const auto Loaded = History.Load(); !Loaded)
 				return std::unexpected(Loaded.error());
-			Requested = History.GetMostRecentProjectFile();
+			Requested = History.GetRestoreProjectFile();
 		}
 		if (Requested.empty()) return {};
 		const std::string Normalized = Normalize(Requested);
@@ -161,6 +161,7 @@ namespace Durin
 		Info.ProjectDir = std::filesystem::path(Normalized).parent_path().generic_string() + "/";
 		Info.ContentDir = Info.ProjectDir + "Content/";
 		Info.MountRoot = FMountPaths::ProjectContentMountRoot;
+		Info.bRecordInteractiveHistory = Params.bRecordInteractiveHistory;
 		if (!ReadEnabledRootModules(Root, Info.EnabledRootModules, &PathError))
 		{
 			FPaths::SetProjectFile({});

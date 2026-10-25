@@ -49,6 +49,8 @@ namespace
 		}
 
 		Durin::FTextureRHIRef Texture;
+		auto OnDisplaySubmitted() -> void override { ++SubmittedCount; }
+		uint32 SubmittedCount = 0;
 		Durin::FVector2f LastDesiredSize = {};
 		mutable std::vector<std::string> Events;
 	};
@@ -95,6 +97,44 @@ namespace
 		uint32 RenderCount = 0;
 	};
 
+}
+
+TEST(FViewportPresentationTests, ReceiptsBelongToOneViewportGeneration)
+{
+	auto Primary = Durin::MakeRefCount<FTestPresentationViewport>();
+	auto Auxiliary = Durin::MakeRefCount<FTestPresentationViewport>();
+	const uint64 Baseline = Primary->GetPresentationSerial();
+	Auxiliary->RecordSuccessfulPresentation();
+	EXPECT_EQ(Primary->GetPresentationSerial(), Baseline);
+	Primary->RecordSuccessfulPresentation();
+	EXPECT_GT(Primary->GetPresentationSerial(), Baseline);
+	const uint64 NextBaseline = Primary->GetPresentationSerial();
+	EXPECT_EQ(Primary->GetPresentationSerial(), NextBaseline);
+	auto Replacement = Durin::MakeRefCount<FTestPresentationViewport>();
+	EXPECT_EQ(Replacement->GetPresentationSerial(), 0u);
+	Primary->RecordSuccessfulPresentation();
+	EXPECT_EQ(Replacement->GetPresentationSerial(), 0u);
+}
+
+TEST(FViewportPresentationTests, SceneOutputRequiresMatchingGenerationAndPresentingViewport)
+{
+	using namespace Durin;
+	const FViewportRHIRef Primary = new FTestPresentationViewport();
+	const FViewportRHIRef Auxiliary = new FTestPresentationViewport();
+	FViewportOutputReceipt Receipt;
+	Receipt.RecordProduced(17);
+	EXPECT_FALSE(Receipt.IsPresented(17, Primary.GetReference()));
+	Receipt.RecordPresented(Receipt.GetProduced(), Auxiliary);
+	EXPECT_FALSE(Receipt.IsPresented(17, Primary.GetReference()));
+	EXPECT_TRUE(Receipt.IsPresented(17, Auxiliary.GetReference()));
+	Receipt.RecordPresented(17, Primary);
+	EXPECT_TRUE(Receipt.IsPresented(17, Primary.GetReference()));
+	EXPECT_FALSE(Receipt.IsPresented(18, Primary.GetReference()));
+	Receipt.RecordPresented(0, Primary);
+	EXPECT_FALSE(Receipt.IsPresented(0, Primary.GetReference()));
+	// A replacement producer has no receipt, even when it reuses the same texture.
+	FViewportOutputReceipt Replacement;
+	EXPECT_FALSE(Replacement.IsPresented(17, Primary.GetReference()));
 }
 
 TEST(FViewportDisplaySourceTests, BackendAbsentFramesAreNoOpsAndInstalledFramesForwardOnce)
@@ -213,6 +253,25 @@ TEST(FViewportDisplaySourceTests, UsesCurrentWindowPixelDensityWithoutChangingLa
 	EXPECT_EQ(Source->LastDesiredSize, Durin::FVector2f(480.375f, 361.0f));
 	EXPECT_EQ(Backend.LastDrawSize, Widget.GetDesiredSize());
 	EXPECT_EQ(Backend.Registered.size(), 1u);
+}
+
+TEST(FViewportDisplaySourceTests, OnlyVisibleImageSubmissionRequestsSceneWork)
+{
+	FTestUIBackend Backend;
+	Durin::Tests::FScopedActiveUIBackend BackendScope(Backend);
+	auto Source = std::make_shared<FTestDisplaySource>();
+	Source->Texture = new FTestTexture();
+	Durin::MViewport Widget;
+	Widget.SetDisplaySource(Source);
+	Widget.Draw();
+	EXPECT_EQ(Source->SubmittedCount, 1u);
+	Backend.bDrawSucceeds = false;
+	Widget.Draw();
+	EXPECT_EQ(Source->SubmittedCount, 1u);
+	Source->Texture = nullptr;
+	Backend.bDrawSucceeds = true;
+	Widget.Draw();
+	EXPECT_EQ(Source->SubmittedCount, 1u);
 }
 
 TEST(FViewportDisplaySourceTests, RegistersStableTextureOnceAndReplacesItExactly)
