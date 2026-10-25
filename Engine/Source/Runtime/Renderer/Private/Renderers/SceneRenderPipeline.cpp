@@ -176,41 +176,13 @@ namespace Durin
 		FRHICommandListImmediate& CommandList, FSceneFrameContext& Context,
 		FResourcePreparationStage Stage) -> ERenderViewResult
 	{
-		// Keep logical preparation and earlier stages. Only the unresolved resource
-		// phase is revisited to publish completed slot candidates and bindings.
-		const auto InitialResolved = Context.Resolved;
-		const auto InitialFeatures = Context.Features;
-		const auto InitialTelemetry = Context.Observation.Telemetry;
-		const auto InitialEditorAssistance = Context.Logical.EditorAssistance;
-		size_t JoinedRequests = 0;
-		for (;;)
-		{
-			FRenderPipelinePreparationBatch Batch;
-			const uint64 PendingShadersBefore = FPreparedShaderMapScope::GetPendingRequestCount();
-			const auto Result = (this->*Stage)(CommandList, Context);
-			if (FPreparedShaderMapScope::GetPendingRequestCount() != PendingShadersBefore)
-				return ERenderViewResult::RendererResourcesPending;
-			if (Batch.GetRequestCount() > FRenderPipelinePreparationBatch::MaximumRequests - JoinedRequests)
-				return ERenderViewResult::RendererResourcesUnavailable;
-			ERenderPipelinePreparationWait WaitResult;
-			if ((FPreparedShaderMapScope::IsActive() || FRenderResourcePreparationScope::IsActive()) && Batch.GetRequestCount() != 0)
-				return ERenderViewResult::RendererResourcesPending;
-			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.WaitForPreparedPipelines");
-				WaitResult = Batch.Wait();
-			}
-			if (WaitResult == ERenderPipelinePreparationWait::Empty) return Result;
-			if (WaitResult == ERenderPipelinePreparationWait::WaitUnavailable
-				|| WaitResult == ERenderPipelinePreparationWait::CapacityExceeded)
-				return ERenderViewResult::RendererResourcesUnavailable;
-			JoinedRequests += Batch.GetRequestCount();
-			// Resolve failed requests too: resource slots own diagnostics and optional
-			// fallbacks. A terminal failure alone never authorizes another PSO request.
-			Context.Resolved = InitialResolved;
-			Context.Features = InitialFeatures;
-			Context.Observation.Telemetry = InitialTelemetry;
-			Context.Logical.EditorAssistance = InitialEditorAssistance;
-		}
+		FRenderPipelinePreparationBatch Batch;
+		const uint64 PendingShadersBefore = FPreparedShaderMapScope::GetPendingRequestCount();
+		const auto Result = (this->*Stage)(CommandList, Context);
+		if (Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
+		if (FPreparedShaderMapScope::GetPendingRequestCount() != PendingShadersBefore || Batch.GetRequestCount() != 0)
+			return ERenderViewResult::RendererResourcesPending;
+		return Result;
 	}
 
 	auto FSceneRenderPipeline::PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult

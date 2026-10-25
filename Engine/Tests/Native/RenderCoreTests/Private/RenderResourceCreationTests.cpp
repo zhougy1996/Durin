@@ -214,6 +214,37 @@ namespace Durin
 				GlobalShaderUnavailable.GetFingerprint());
 		}
 
+		TEST(FRenderResourceCreationTests, PreparationBatchReportsCapacityWithoutWaitingAndKeepsNestedStateIndependent)
+		{
+			class FUnsubmittedPipeline final : public FPipelineState
+			{
+			public:
+				FUnsubmittedPipeline() : FPipelineState({}, {}) {}
+			};
+			FRenderPipelinePreparationBatch Batch;
+			EXPECT_FALSE(Batch.HasCapacityExceeded());
+			std::shared_ptr<FPipelineState> Last;
+			for (size_t Index = 0; Index < FRenderPipelinePreparationBatch::MaximumRequests; ++Index)
+			{
+				Last = std::make_shared<FUnsubmittedPipeline>();
+				FRenderPipelinePreparationBatch::Add(Last);
+			}
+			EXPECT_FALSE(Batch.HasCapacityExceeded());
+			FRenderPipelinePreparationBatch::Add(Last);
+			EXPECT_FALSE(Batch.HasCapacityExceeded());
+			EXPECT_EQ(Batch.GetRequestCount(), FRenderPipelinePreparationBatch::MaximumRequests);
+			FRenderPipelinePreparationBatch::Add(std::make_shared<FUnsubmittedPipeline>());
+			EXPECT_TRUE(Batch.HasCapacityExceeded());
+			EXPECT_EQ(Batch.GetRequestCount(), FRenderPipelinePreparationBatch::MaximumRequests);
+			{
+				FRenderPipelinePreparationBatch Nested;
+				EXPECT_FALSE(Nested.HasCapacityExceeded());
+				EXPECT_EQ(Nested.GetRequestCount(), 0u);
+			}
+			EXPECT_TRUE(Batch.HasCapacityExceeded());
+			EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::CapacityExceeded);
+		}
+
 		TEST(FRenderResourceCreationTests, PreparationBatchReportsTerminalResultsAndJoinsAllRequests)
 		{
 			ASSERT_EQ(GDynamicRHI, nullptr);

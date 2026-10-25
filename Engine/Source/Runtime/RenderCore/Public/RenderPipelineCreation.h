@@ -24,6 +24,7 @@ namespace Durin
 		FRenderPipelinePreparationBatch(const FRenderPipelinePreparationBatch&) = delete;
 		auto Wait() -> ERenderPipelinePreparationWait;
 		auto GetRequestCount() const -> size_t { return Requests.size(); }
+		auto HasCapacityExceeded() const -> bool { return bCapacityExceeded; }
 		static constexpr size_t MaximumRequests = 4096;
 		static auto HasPending() -> bool;
 		static auto Add(const std::shared_ptr<FPipelineState>& Pipeline) -> void;

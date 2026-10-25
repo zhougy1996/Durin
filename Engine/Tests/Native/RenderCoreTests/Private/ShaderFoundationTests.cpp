@@ -1411,6 +1411,39 @@ namespace Durin
 		}
 	};
 
+	TEST_F(FShaderFoundationTests, AppendingPreparedProgramsKeepsExistingRequestsUntilInvalidation)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		ClearShaderMapPreparations();
+		FScopedShaderCompletionStub Backend;
+		struct FPreparationCleanup { ~FPreparationCleanup() { ClearShaderMapPreparations(); } } Cleanup;
+		Backend.Stub->Completion = {.Status = EShaderBuildStatus::Ok};
+		auto First = std::make_unique<FShaderProgramRegistration>("IncrementalPreparation", "First",
+			EShaderRequestEligibility::EditorOnly, std::initializer_list<const FShaderType*>{&FGlobalFixtureVertexShader::StaticType()});
+		FShaderProgramRegistration Second("IncrementalPreparation", "Second", EShaderRequestEligibility::EditorOnly,
+			{&FGlobalFixtureFragmentShader::StaticType()});
+		ASSERT_TRUE(First->IsValid());
+		ASSERT_TRUE(Second.IsValid());
+		auto Preparation = FShaderMapPreparation::Request("IncrementalPreparation", {"First"});
+		ASSERT_TRUE(Preparation.Poll().value_or(false));
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		// Removing registration makes any unintended re-resolution observable.
+		First.reset();
+		Preparation.Add("IncrementalPreparation", {"Second"});
+		EXPECT_TRUE(Preparation.Poll().value_or(false));
+		EXPECT_EQ(Backend.Stub->Compiles, 2u);
+		EXPECT_EQ(Backend.Stub->Waits, 0u);
+		InvalidateShaderMapPreparations(false);
+		EXPECT_FALSE(Preparation.Poll().has_value());
+		EXPECT_EQ(Backend.Stub->Compiles, 2u);
+		First = std::make_unique<FShaderProgramRegistration>("IncrementalPreparation", "First",
+			EShaderRequestEligibility::EditorOnly, std::initializer_list<const FShaderType*>{&FGlobalFixtureVertexShader::StaticType()});
+		// A prior resolution error is retried in full, including both old entries.
+		Preparation.Add("IncrementalPreparation", {});
+		EXPECT_TRUE(Preparation.Poll().value_or(false));
+		EXPECT_EQ(Backend.Stub->Compiles, 4u);
+	}
+
 	TEST_F(FShaderFoundationTests, RenderDemandSharesAsyncPreparationAndPreservesCaptureAndFailureSemantics)
 	{
 		ASSERT_TRUE(InitializeGlobalShaderFixture());

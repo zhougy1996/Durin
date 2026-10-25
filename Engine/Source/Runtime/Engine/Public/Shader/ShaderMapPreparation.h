@@ -22,6 +22,7 @@ namespace Durin
 			std::initializer_list<std::string_view> Programs,
 			EShaderBuildPriority Priority = EShaderBuildPriority::Normal) -> FShaderMapPreparation;
 		ENGINE_API auto Poll() -> std::expected<bool, std::string>;
+		// Resolve only appended programs; invalidation refreshes the complete list.
 		ENGINE_API auto Add(std::string_view Owner,
 			std::initializer_list<std::string_view> Programs) -> void;
 	private:
@@ -31,7 +32,7 @@ namespace Durin
 		uint64 Generation = 0;
 		uint64 Epoch = 0;
 		EShaderBuildPriority Priority = EShaderBuildPriority::Normal;
-		auto Refresh() -> void;
+		auto Refresh(size_t FirstProgram = 0) -> void;
 	};
 
 
