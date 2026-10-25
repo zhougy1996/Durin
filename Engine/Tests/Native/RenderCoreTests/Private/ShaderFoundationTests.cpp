@@ -12,6 +12,10 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "MetalShaderFormat.h"
 #include "ShaderBuild/ShaderPaths.h"
+#include "Shader/ShaderMapPreparation.h"
+#include "RenderResourceCreation.h"
+#include "Threading/Runnable.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -1320,22 +1324,30 @@ namespace Durin
 	public:
 		struct FCompletedRequest final : IShaderBuildRequest
 		{
+			uint32* WaitCalls = nullptr;
 			auto RequestCancel() -> bool override { return false; }
 			auto SetPriority(EShaderBuildPriority) -> void override {}
-			auto Wait() -> EShaderBuildWaitResult override { return EShaderBuildWaitResult::Completed; }
+			auto Wait() -> EShaderBuildWaitResult override { if (WaitCalls) ++*WaitCalls; return EShaderBuildWaitResult::Completed; }
 			auto IsComplete() const -> bool override { return true; }
 		};
 		uint32 Compiles = 0;
+		uint32 Waits = 0;
+		bool LastInlineExecution = false;
 		bool Defer = false;
+		bool DeferMounted = false;
 		std::vector<std::function<void()>> Pending;
 		FShaderCompilerOutput Completion{.Status = EShaderBuildStatus::Canceled};
 		auto GetBuildVersion() const -> uint64 override { return 1; }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override { return {}; }
-		auto CompileMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
+		auto CompileMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions Options, FShaderBuildCompletion Callback)
 			-> FShaderBuildHandle override
 		{
 			auto Job = std::make_shared<FCompletedRequest>();
-			++Compiles; Callback(Completion);
+			Job->WaitCalls = &Waits;
+			LastInlineExecution = Options.bInlineExecution;
+			++Compiles;
+			auto Deliver = [Callback = std::move(Callback), Output = Completion]() mutable { Callback(std::move(Output)); };
+			if (DeferMounted) Pending.push_back(std::move(Deliver)); else Deliver();
 			return FShaderBuildHandle(std::move(Job));
 		}
 		auto CompileGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions, FShaderBuildCompletion Callback)
@@ -1398,6 +1410,88 @@ namespace Durin
 			Info->Module = std::move(Original); Info->State = State;
 		}
 	};
+
+	TEST_F(FShaderFoundationTests, RenderDemandSharesAsyncPreparationAndPreservesCaptureAndFailureSemantics)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		ClearShaderMapPreparations();
+		FScopedShaderCompletionStub Backend;
+		struct FPreparationCleanup
+		{
+			FCompletionShaderStub& Stub;
+			~FPreparationCleanup()
+			{
+				for (auto& Pending : Stub.Pending) if (auto Callback = std::move(Pending)) Callback();
+				ClearShaderMapPreparations();
+			}
+		} Cleanup{*Backend.Stub};
+		Backend.Stub->DeferMounted = true;
+		Backend.Stub->Completion = FShaderCompilerOutput::Failure("Expected asynchronous shader failure.");
+		class FRenderInvocation final : public FRunnable
+		{
+		public:
+			std::function<void()> Function;
+			auto Run() -> uint32 override { Function(); return 0; }
+		};
+		auto OnRenderThread = [](std::function<void()> Function) {
+			FRenderInvocation Invocation;
+			Invocation.Function = std::move(Function);
+			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Invocation, "ShaderDemandContract", 0,
+				EThreadPriority::Normal, EThreadRole::RenderingThread));
+			require(Thread != nullptr);
+			Thread->WaitForCompletion();
+		};
+		const FShaderType* Types[] = {&FGlobalFixtureVertexShader::StaticType()};
+		TRenderResourceCreationSlot<int> Slot;
+		FRenderResourceGeneration Generation;
+		uint32 Diagnostics = 0;
+		auto Resolve = [&] {
+			return Slot.Resolve(Generation, [&] {
+				FShaderMapBase Map;
+				const auto Completion = InitializeShaderMapFromTypes(Map, Types, {});
+				EXPECT_FALSE(Completion);
+				return TRenderResourceCreateResult<int>::Failure({.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
+					.Cause = Completion.Error});
+			}, [&](const FRenderResourceCreateDiagnostic&) { ++Diagnostics; });
+		};
+		OnRenderThread([&] {
+			FPreparedShaderMapScope Capture;
+			EXPECT_EQ(Resolve(), nullptr);
+			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
+			EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 1u);
+		});
+		EXPECT_EQ(Backend.Stub->Compiles, 0u);
+		OnRenderThread([&] {
+			EXPECT_EQ(Resolve(), nullptr);
+			EXPECT_EQ(Resolve(), nullptr);
+			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
+			EXPECT_FALSE(Slot.GetFailure());
+		});
+		EXPECT_EQ(Diagnostics, 0u);
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		EXPECT_EQ(Backend.Stub->Waits, 0u);
+		EXPECT_FALSE(Backend.Stub->LastInlineExecution);
+		ASSERT_EQ(Backend.Stub->Pending.size(), 1u);
+		auto Complete = std::move(Backend.Stub->Pending.front());
+		Complete();
+		OnRenderThread([&] {
+			EXPECT_EQ(Resolve(), nullptr);
+			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Failed);
+			EXPECT_EQ(Resolve(), nullptr);
+		});
+		EXPECT_EQ(Diagnostics, 1u);
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		EXPECT_EQ(Backend.Stub->Waits, 0u);
+		InvalidateShaderMapPreparations(false);
+		Backend.Stub->DeferMounted = false;
+		Backend.Stub->Completion = {.Status = EShaderBuildStatus::Canceled};
+		OnRenderThread([&] {
+			FShaderMapBase Map;
+			EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, EShaderBuildStatus::Canceled);
+		});
+		EXPECT_EQ(Backend.Stub->Compiles, 2u);
+		EXPECT_EQ(Backend.Stub->Waits, 0u);
+	}
 
 	TEST_F(FShaderFoundationTests, ShaderJobGroupsPreserveSubmissionOrderAcrossOutOfOrderCompletion)
 	{

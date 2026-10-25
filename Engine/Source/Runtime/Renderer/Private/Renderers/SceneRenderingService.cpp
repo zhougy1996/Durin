@@ -53,6 +53,7 @@ namespace Durin
 
     auto FSceneRenderingService::UpdateSkyLighting_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void
     {
+		FPreparedShaderMapScope ShaderScope(true);
         EnvironmentLighting.UpdateScene_RenderThread(Commands, Scene, RDGAllocator, DefaultTextures.GetCube_RenderThread());
     }
 

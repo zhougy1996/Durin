@@ -235,6 +235,7 @@ namespace Durin
 			Payload.reset();
 			PayloadGeneration = {};
 			Availability = ERenderResourceAvailability::Pending;
+			FPreparedShaderMapScope ShaderScope(true);
 			FRenderPipelineRequestScope PipelineScope(PipelineRequests, Generation);
 			const uint64 PendingShadersBefore = FPreparedShaderMapScope::GetPendingRequestCount();
 			auto Result = std::forward<FactoryType>(Factory)();

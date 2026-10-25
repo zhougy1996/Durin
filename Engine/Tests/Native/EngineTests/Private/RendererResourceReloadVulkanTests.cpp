@@ -369,7 +369,7 @@ float4 FragmentMain() : SV_Target
 			ERenderResourceAvailability Availability =
 				ERenderResourceAvailability::Uninitialized;
 		};
-		auto Resolve = [&]() {
+		auto ResolveOnce = [&]() {
 			auto Observation = std::make_shared<FResolveObservation>();
 			struct FResolveReloadValidationResource
 			{
@@ -389,9 +389,6 @@ float4 FragmentMain() : SV_Target
 						Observation->Snapshot.Generation,
 						[&Attempts, &ForceFlags,
 						 Snapshot = Observation->Snapshot]() -> FResult {
-							++Attempts;
-							ForceFlags.push_back(
-								Snapshot.bForceShaderRecompile);
 							FShaderCompileOptions CompileOptions;
 							CompileOptions.bForceRecompile =
 								Snapshot.bForceShaderRecompile;
@@ -406,7 +403,13 @@ float4 FragmentMain() : SV_Target
 							auto ShaderMap =
 								std::make_shared<FShaderMapBase>();
 							FShaderCompletion ErrorMessage;
+							const uint64 PendingBefore = FPreparedShaderMapScope::GetPendingRequestCount();
 							ErrorMessage = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions);
+							if (FPreparedShaderMapScope::GetPendingRequestCount() == PendingBefore)
+							{
+								++Attempts;
+								ForceFlags.push_back(Snapshot.bForceShaderRecompile);
+							}
 							if (ErrorMessage.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 							if (!ErrorMessage)
 							{
@@ -486,6 +489,18 @@ float4 FragmentMain() : SV_Target
 						Slot.GetAvailability();
 				});
 			FlushRenderingCommands();
+			return Observation;
+		};
+		// Pump from the test host; the render command never joins CPU compilation.
+		auto Resolve = [&] {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+			auto Observation = ResolveOnce();
+			while (Observation->Availability == ERenderResourceAvailability::Pending
+				&& std::chrono::steady_clock::now() < Deadline)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				Observation = ResolveOnce();
+			}
 			return Observation;
 		};
 		auto RenderPipeline =

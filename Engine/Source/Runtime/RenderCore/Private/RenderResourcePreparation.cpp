@@ -102,13 +102,22 @@ namespace Durin
 		State.Bytes += Bytes;
 	}
 	static thread_local uint32 PreparedScopeDepth = 0;
+	static thread_local uint32 CaptureOnlyDepth = 0;
 	static thread_local uint64 PendingPreparedRequests = 0;
-	FPreparedShaderMapScope::FPreparedShaderMapScope()
+	FPreparedShaderMapScope::FPreparedShaderMapScope() : FPreparedShaderMapScope(false) {}
+	FPreparedShaderMapScope::FPreparedShaderMapScope(bool bAllowAsyncRequests)
+		: bAllowsAsyncRequests(bAllowAsyncRequests)
 	{
 		if (PreparedScopeDepth++ == 0) PendingPreparedRequests = 0;
+		if (!bAllowsAsyncRequests) ++CaptureOnlyDepth;
 	}
-	FPreparedShaderMapScope::~FPreparedShaderMapScope() { --PreparedScopeDepth; }
+	FPreparedShaderMapScope::~FPreparedShaderMapScope()
+	{
+		if (!bAllowsAsyncRequests) --CaptureOnlyDepth;
+		--PreparedScopeDepth;
+	}
 	auto FPreparedShaderMapScope::IsActive() -> bool { return PreparedScopeDepth != 0; }
+	auto FPreparedShaderMapScope::AllowsAsyncRequests() -> bool { return IsActive() && CaptureOnlyDepth == 0; }
 	auto FPreparedShaderMapScope::GetPendingRequestCount() -> uint64
 	{
 		return IsActive() ? PendingPreparedRequests : 0;
