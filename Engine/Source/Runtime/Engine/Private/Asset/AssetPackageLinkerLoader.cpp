@@ -3,7 +3,6 @@
 #include "AssetLiveLoadGuard.h"
 
 #include "AssetPackageArchive.h"
-#include "DObject/PackageValueCodec.h"
 #include "Asset/Load.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetRegistry/Publication.h"
@@ -17,13 +16,10 @@
 #include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Threading/RunnableThread.h"
-#include "Serialization/BinaryFormat.h"
 
 namespace Durin::AssetPrivate
 {
 	using LinkerSchema::EPropertyLoadRoute;
-	using LinkerSchema::TypeWidth;
-	using LinkerSchema::IntrinsicName;
 
 	namespace
 	{
@@ -41,211 +37,6 @@ namespace Durin::AssetPrivate
 			if (Diagnostic.Error == EAssetReadError::None)
 				Diagnostic = {Error, std::move(Path), std::string(Message)};
 			return false;
-		}
-
-		template<typename T>
-		auto WriteInteger(Durin::PackagePrivate::FByteWriter& Writer, uint64 Value) -> void
-		{
-			Writer.Write(static_cast<T>(Value));
-		}
-
-		auto WriteProjectedField(Durin::PackagePrivate::FByteWriter& Writer, std::string_view Owner,
-			std::string_view Name, DurinCodeGen::EPropertyGenFlags Kind,
-			std::string Signature, FByteBuffer Payload) -> void
-		{
-			Writer.WriteString(Owner); Writer.WriteString(Name); Writer.Write(uint8(Kind));
-			Writer.WriteString(Signature); Writer.Write(uint64(Payload.size())); Writer.WriteBytes(Payload);
-		}
-
-		auto EncodeIntrinsicLoadValue(uint64 Layout, std::span<const uint64> Components,
-			Durin::PackagePrivate::FByteWriter& Writer, FLinkerApplyDiagnostic& Diagnostic) -> bool
-		{
-			const std::string Owner(IntrinsicName(Layout));
-			if (Owner.empty()) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Intrinsic layout is invalid.");
-			Writer.WriteString(Owner);
-			if (Layout == 5)
-			{
-				if (Components.size() != 10) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Transform component count is invalid.");
-				Writer.Write(uint64(3));
-				for (const auto [Name, ChildLayout, Offset, Count] : {
-					std::tuple<std::string_view, uint64, size_t, size_t>{"Rotation", 4, 0, 4},
-					{"Translation", 2, 4, 3}, {"Scale3D", 2, 7, 3}})
-				{
-					Durin::PackagePrivate::FByteWriter Payload;
-					if (!EncodeIntrinsicLoadValue(ChildLayout, Components.subspan(Offset, Count), Payload, Diagnostic)) return false;
-					WriteProjectedField(Writer, Owner, Name, DurinCodeGen::EPropertyGenFlags::Struct,
-						std::format("Struct<{}>", IntrinsicName(ChildLayout)), std::move(Payload.Bytes));
-				}
-				return true;
-			}
-			const std::array<std::string_view, 4> Lower = {"x", "y", "z", "w"};
-			const std::array<std::string_view, 4> Color = {"R", "G", "B", "A"};
-			const uint64 Count = Layout == 1 ? 2 : Layout == 2 ? 3 : 4;
-			if (Components.size() != Count) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Intrinsic component count is invalid.");
-			Writer.Write(Count);
-			for (uint64 Index = 0; Index < Count; ++Index)
-			{
-				Durin::PackagePrivate::FByteWriter Payload;
-				if (Layout == 6) Payload.Write(uint32(Components[Index])); else Payload.Write(Components[Index]);
-				const std::string_view Name = Layout == 6 ? Color[Index]
-					: Layout == 4 ? Lower[(Index + 3) % 4] : Lower[Index];
-				const auto Kind = Layout == 6 ? DurinCodeGen::EPropertyGenFlags::Float
-					: DurinCodeGen::EPropertyGenFlags::Double;
-				WriteProjectedField(Writer, Owner, Name, Kind,
-					std::format("{}:{}", uint32(Kind), Layout == 6 ? 4 : 8), std::move(Payload.Bytes));
-			}
-			return true;
-		}
-
-		auto MakeBulkDescriptor(const ObjectPackage::FSerializedValue& Value,
-			uint64 FieldIndex) -> FByteBuffer
-		{
-			const uint64 StoredSize = Value.bBulkPayloadAvailable
-				? Value.Bytes.size() : Value.BulkStoredSize;
-			const FXxHash128 Hash = Value.bBulkPayloadAvailable
-				? FXxHash128::HashBuffer(Value.Bytes) : Value.BulkContentHash;
-			FGuid PayloadId{
-				static_cast<uint32>(Hash.HashLow),
-				static_cast<uint32>(Hash.HashLow >> 32),
-				static_cast<uint32>(Hash.HashHigh),
-				static_cast<uint32>(Hash.HashHigh >> 32)};
-			if (!PayloadId.IsValid()) PayloadId.A = 1;
-			FBinaryWriter Writer;
-			Writer.WriteU64(FieldIndex);
-			const bool bExternal = Value.BulkStorage == ObjectPackage::EBulkStorageKind::External;
-			Writer.WriteU8(bExternal ? 1 : 0);
-			Writer.WriteU8(0);
-			Writer.WriteU16(static_cast<uint16>(Value.BulkAlignment));
-			Writer.WriteU32(1);
-			Writer.WriteGuid(PayloadId);
-			Writer.WriteHash128(Hash);
-			Writer.WriteU64(StoredSize);
-			Writer.WriteU64(StoredSize);
-			Writer.WriteU64(bExternal ? Value.BulkOffset : 0);
-			if (!bExternal) Writer.WriteBytes(Value.Bytes);
-			return Writer.TakeBytes();
-		}
-
-		auto EncodeLoadArchiveValue(const ObjectPackage::FSerializedType& Type,
-			const ObjectPackage::FSerializedValue& Value,
-			const ObjectPackage::FLinkerTables& Linker, Durin::PackagePrivate::FByteWriter& Writer,
-			uint64& BulkFieldIndex, FLinkerApplyDiagnostic& Diagnostic,
-			std::string Path, bool bDiscardRemovedFields) -> bool
-		{
-			using K = ObjectPackage::EValueKind;
-			switch (Type.Kind)
-			{
-			case K::Bool: Writer.Write(uint8(Value.Bool)); return true;
-			case K::I8: Writer.Write(int8(Value.Signed)); return true;
-			case K::I16: Writer.Write(int16(Value.Signed)); return true;
-			case K::I32: Writer.Write(int32(Value.Signed)); return true;
-			case K::I64: Writer.Write(Value.Signed); return true;
-			case K::U8: case K::Byte: Writer.Write(uint8(Value.Unsigned)); return true;
-			case K::U16: Writer.Write(uint16(Value.Unsigned)); return true;
-			case K::U32: Writer.Write(uint32(Value.Unsigned)); return true;
-			case K::U64: Writer.Write(Value.Unsigned); return true;
-			case K::F32: Writer.Write(uint32(Value.FloatingBits)); return true;
-			case K::F64: Writer.Write(Value.FloatingBits); return true;
-			case K::String: case K::Name: Writer.WriteString(Value.Text); return true;
-			case K::Guid:
-				Writer.Write(Value.Guid.A); Writer.Write(Value.Guid.B); Writer.Write(Value.Guid.C); Writer.Write(Value.Guid.D); return true;
-			case K::Enum:
-			{
-				const auto Storage = static_cast<K>(Type.Parameter);
-				const uint64 Bits = Storage >= K::I8 && Storage <= K::I64
-					? static_cast<uint64>(Value.Signed) : Value.Unsigned;
-				switch (TypeWidth(Storage))
-				{
-				case 1: WriteInteger<uint8>(Writer, Bits); return true;
-				case 2: WriteInteger<uint16>(Writer, Bits); return true;
-				case 4: WriteInteger<uint32>(Writer, Bits); return true;
-				case 8: Writer.Write(Bits); return true;
-				default: return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Enum storage width is invalid.", 0, std::move(Path));
-				}
-			}
-			case K::Intrinsic:
-				return EncodeIntrinsicLoadValue(Type.Parameter, Value.ComponentBits, Writer, Diagnostic);
-			case K::Struct:
-			{
-				const auto* Schema = LinkerSchema::FindSchema(Linker, Type.QualifiedName);
-				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
-					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
-					return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct load projection is invalid.", 0, std::move(Path));
-				uint64 FieldCount = 0;
-				std::vector<LinkerSchema::FPropertyLoadInfo> StructFields;
-				StructFields.reserve(Value.FieldNames.size());
-				for (size_t Index = 0; Index < Value.FieldNames.size(); ++Index)
-				{
-					auto Field = LinkerSchema::FindPropertyByName(*Schema, Value.FieldNames[Index]);
-					if (!Field || Field->Descriptor->Type != ObjectPackage::StructFieldTypes(Type, Value)[Index])
-						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
-							"Struct field does not match its declared schema.", 0, Path);
-					if (!bDiscardRemovedFields || Field->Match.Route != EPropertyLoadRoute::Removed) ++FieldCount;
-					StructFields.push_back(std::move(*Field));
-				}
-				Writer.Write(uint8(Value.Baseline));
-				Writer.WriteString(Type.QualifiedName); Writer.Write(FieldCount);
-				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-				{
-					const auto& Field = StructFields[Index];
-					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
-					if (bDiscardRemovedFields && Field.Match.Route
-						== EPropertyLoadRoute::Removed) continue;
-					Durin::PackagePrivate::FByteWriter Payload;
-					if (!EncodeLoadArchiveValue(ChildType, Value.Elements[Index], Linker, Payload,
-						BulkFieldIndex, Diagnostic,
-						std::format("{}::{}", Schema->QualifiedName, Field.Descriptor->Name), bDiscardRemovedFields)) return false;
-					Writer.WriteString(Schema->QualifiedName); Writer.WriteString(Field.Descriptor->Name);
-					Writer.Write(uint8(Field.Kind)); Writer.WriteString(Field.Signature);
-					Writer.Write(uint64(Payload.Bytes.size())); Writer.WriteBytes(Payload.Bytes);
-				}
-				return true;
-			}
-			case K::FixedArray: case K::Array:
-			{
-				if (Type.Children.size() != 1) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Array element type is invalid.", 0, std::move(Path));
-				if (Type.Kind == K::Array) Writer.Write(uint64(Value.Elements.size()));
-				for (const auto& Item : Value.Elements)
-					if (!EncodeLoadArchiveValue(Type.Children[0], Item, Linker, Writer,
-						BulkFieldIndex, Diagnostic, Path, bDiscardRemovedFields)) return false;
-				return true;
-			}
-			case K::Map:
-			{
-				if (Type.Children.size() != 2 || Value.Elements.size() % 2 != 0)
-					return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Map projection is invalid.", 0, std::move(Path));
-				Writer.Write(uint64(Value.Elements.size() / 2));
-				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
-					if (!EncodeLoadArchiveValue(Type.Children[0], Value.Elements[Index], Linker, Writer,
-						BulkFieldIndex, Diagnostic, Path, bDiscardRemovedFields)
-						|| !EncodeLoadArchiveValue(Type.Children[1], Value.Elements[Index + 1], Linker, Writer,
-							BulkFieldIndex, Diagnostic, Path, bDiscardRemovedFields)) return false;
-				return true;
-			}
-			case K::HardReference:
-				if (Value.Reference.IsNull()) Writer.Write(uint8{0});
-				else if (Value.Reference.IsExport())
-				{
-					Writer.Write(uint8{1}); Writer.Write(uint64(Value.Reference.GetTableIndex() + 1));
-				}
-				else
-				{
-					const ObjectPackage::FPackageImport* Import = nullptr;
-					if (!Linker.TryGetImport(Value.Reference, Import) || !Import)
-						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Hard-reference import is invalid.", 0, std::move(Path));
-					Writer.Write(uint8{2}); Writer.WriteString(Import->ObjectPath.ToString());
-				}
-				return true;
-			case K::SoftReference:
-				Writer.Write(Value.Text.empty() ? uint8{0} : uint8{1});
-				if (!Value.Text.empty()) Writer.WriteString(Value.Text);
-				return true;
-			case K::Bytes:
-				Writer.WriteBytes(Value.Bytes); return true;
-			case K::BulkData:
-				Writer.WriteBytes(MakeBulkDescriptor(Value, ++BulkFieldIndex)); return true;
-			}
-			return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Unsupported load value.", 0, std::move(Path));
 		}
 
 		auto ShouldFail(const FLinkerLoadOptions& Options, ELinkerLoadPhase Phase, uint64 Index) -> bool
@@ -682,15 +473,12 @@ namespace Durin::AssetPrivate
 						}
 				}
 			}
-			std::vector<FArchiveCustomVersion> CustomVersions;
 			std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
 			for (const ObjectPackage::FCustomVersion& Version : Linker.CustomVersions)
 			{
-				CustomVersions.push_back({Version.Guid, Version.Version});
 				LoadedCustomVersions.emplace_back(Version.Guid, Version.Version);
 			}
 			for (DObject* Object : Objects) Object->SetLoadedCustomVersions(LoadedCustomVersions);
-			uint64 BulkFieldIndex = 0;
 			for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
 				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
 				{
@@ -708,35 +496,12 @@ namespace Durin::AssetPrivate
 					LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Injected value application failure.");
 					return {EAssetReadError::CorruptFile, Diagnostic.Message};
 				}
-				std::vector<FAuthoredPackageFieldRecord> Fields;
-				struct FKnownProperty
-				{
-					const ObjectPackage::FPropertyTag* Tag;
-					LinkerSchema::FPropertyLoadBinding Binding;
-				};
-				std::vector<FKnownProperty> KnownProperties;
-				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
-				{
-					const auto Field = LinkerSchema::FindPropertyByName(
-						*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
-					if (!Options.bCooked && Field->Match.Route == EPropertyLoadRoute::Removed) continue;
-					Durin::PackagePrivate::FByteWriter Payload;
-					if (!EncodeLoadArchiveValue(Property.Type, Property.Value, Linker, Payload,
-						BulkFieldIndex, Diagnostic,
-						std::format("{}::{}", Property.DeclaringType, Property.FieldName), !Options.bCooked))
-					{
-						return {EAssetReadError::CorruptFile, Diagnostic.Message};
-					}
-					Fields.push_back({Property.DeclaringType, Property.FieldName, Field->Kind,
-						Field->Signature, std::move(Payload.Bytes)});
-					KnownProperties.push_back({&Property, Field->Match});
-				}
 				FArchiveState LoadContext;
 				LoadContext.bCooking = Options.bCooked;
 				LoadContext.bFilterEditorOnly = Options.bCooked;
 				LoadContext.Target = Options.Target;
-				auto Loaded = LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
-					Bindings, Linker.FormatVersion, CustomVersions, LoadContext);
+				auto Loaded = LoadPackageObject(*Objects[ObjectIndex], Exports[ObjectIndex].Export->Properties, Linker, Objects,
+					Bindings, LoadContext);
 				if (!Loaded)
 				{
 					LinkerApplyFail(Diagnostic, Loaded.Error, Loaded.Message, 0, Exports[ObjectIndex].Path);
@@ -745,12 +510,14 @@ namespace Durin::AssetPrivate
 				if (Options.bCooked) continue;
 				std::vector<FAuthoredOverrideEntry> LedgerEntries;
 				std::vector<FName> LoadedDeprecatedProperties;
-				for (size_t PropertyIndex = 0; PropertyIndex < KnownProperties.size(); ++PropertyIndex)
+				size_t PropertyIndex = 0;
+				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
 				{
-					const auto& Known = KnownProperties[PropertyIndex];
-					const auto& Property = *Known.Tag;
-					const auto& Binding = Known.Binding;
-					if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, PropertyIndex + 1))
+					const auto Field = LinkerSchema::FindPropertyByName(
+						*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
+					const auto& Binding = Field->Match;
+					if (Binding.Route == EPropertyLoadRoute::Removed) continue;
+					if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, ++PropertyIndex))
 					{
 						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Injected ledger restoration failure.");
 						return {EAssetReadError::CorruptFile, Diagnostic.Message};

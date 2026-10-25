@@ -183,8 +183,8 @@ namespace Durin::ObjectPackage
 		case EPackageReaderReason::ExternalBulkHash: return "The external DAST v10 bulk segment binding does not match.";
 		case EPackageReaderReason::ExportTopology: return "The DAST v10 export topology is invalid.";
 		case EPackageReaderReason::BulkCoverage: return "DAST v10 bulk entries do not consume their exact inline/external segments.";
-		case EPackageReaderReason::CanonicalWriterRejected: return "Decoded DAST v10 data violates the canonical linker contract.";
-		case EPackageReaderReason::NonCanonicalBytes: return "DAST v10 bytes are logically valid but not in canonical writer form.";
+		case EPackageReaderReason::ValueShape: return "A DAST value violates its declared type, schema or baseline context.";
+		case EPackageReaderReason::NonCanonicalBytes: return "DAST bytes violate canonical ordering or value representation.";
 		case EPackageReaderReason::EnvelopeRejected:
 			return "Binary envelope validation failed.";
 		}

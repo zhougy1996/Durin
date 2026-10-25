@@ -893,6 +893,7 @@ namespace
 	uint64 GAuthoredLoadSerializeCount = 0;
 	uint64 GCookedSerializeCount = 0;
 	bool GRejectAuthoredLoad = false;
+	std::function<void(Durin::FArchive&)> GCookedLoadProbe;
 
 	const Durin::FGuid ArchiveCustomVersionGuid{0xac057, 1, 2, 3};
 	const Durin::FCustomVersionRegistration ArchiveCustomVersionRegistration{
@@ -1020,6 +1021,7 @@ namespace
 				return;
 			}
 			DObject::Serialize(Ar);
+			if (Ar.IsLoading() && GCookedLoadProbe) GCookedLoadProbe(Ar);
 			const Durin::FName DeclaringType("Tests::DAuthoredArchiveAssetForTest");
 			{
 				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType,
@@ -3844,22 +3846,22 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	InitializeAssetTests();
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrivateArchive", Path));
-	DAuthoredArchiveAssetForTest* Live = nullptr;
+	DPackageAssetForTest* Live = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Live));
-	Live->NativeValue = 73;
+	Live->Value = 73;
 	ASSERT_TRUE(SavePackage(Live->GetPackage()));
 	Live->GetPackage()->MarkDirty();
 	const auto Revision = Live->GetPackage()->GetEditRevision();
 	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
 	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
-	auto* Candidate = NewObject<DAuthoredArchiveAssetForTest>(Private, Live->GetFName());
+	auto* Candidate = NewObject<DPackageAssetForTest>(Private, Live->GetFName());
 	const auto PathToResolve = Testing::MakePackageLeafAssetObjectPathForTests(Path);
-	Durin::PackagePrivate::FByteWriter Payload;
-	Payload.Write(uint8{2});
-	Payload.WriteString(PathToResolve.ToString());
-	const auto Type = FArchiveLogicalTypeDescriptor::Object(DObject::StaticClass()->GetQualifiedName());
-	FAuthoredPackageFieldRecord Field{"Tests::DAuthoredArchiveAssetForTest", "HardReference",
-		Durin::PackagePrivate::GetNativeKind(Type), Durin::PackagePrivate::GetNativeTypeSignature(Type), std::move(Payload.Bytes)};
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Imports.push_back({.ObjectPath = PathToResolve});
+	ObjectPackage::FPropertyTag Field{.DeclaringType = "Tests::DPackageAssetForTest", .FieldName = "ExternalReference",
+		.Type = {.Kind = ObjectPackage::EValueKind::HardReference, .QualifiedName = DObject::StaticClass()->GetQualifiedName().ToString()}};
+	ASSERT_TRUE(ObjectPackage::FPackageIndex::TryImport(0, Field.Value.Reference));
+	Linker.Schemas.push_back({Field.DeclaringType, {{Field.FieldName, Field.Type}}});
 	DObject* Objects[] = {Candidate};
 	const auto Count = GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size();
 	FPackageLoadBindings Bindings;
@@ -3871,16 +3873,15 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 		return {};
 	};
 	auto Read = [&] {
-		return LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
-			Bindings, ObjectPackage::DastV10FormatVersion);
+		return LoadPackageObject(*Candidate, std::span{&Field, 1}, Linker, Objects, Bindings);
 	};
 	ASSERT_TRUE(Read());
-	EXPECT_EQ(Candidate->HardReference.Get(), Candidate);
+	EXPECT_EQ(Candidate->ExternalReference.Get(), Candidate);
 	EXPECT_EQ(ResolveCount, 1u);
-	Candidate->HardReference = nullptr;
+	Candidate->ExternalReference = nullptr;
 	Bindings.ResolveExternalObject = {};
 	EXPECT_EQ(Read().Error, EAssetReadError::MissingDependency);
-	EXPECT_EQ(Candidate->HardReference.Get(), nullptr);
+	EXPECT_EQ(Candidate->ExternalReference.Get(), nullptr);
 	Bindings.ResolveExternalObject = [](const FObjectPath&, DObject*&) -> FAssetReadResult { return {}; };
 	const auto EmptyResolution = Read();
 	EXPECT_EQ(EmptyResolution.Error, EAssetReadError::MissingDependency);
@@ -3895,17 +3896,14 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	EXPECT_NE(Rejected.Message.find("Rejected private dependency."), std::string::npos);
 	// Internal references use the supplied skeleton table even without a resolver.
 	Bindings = {};
-	Durin::PackagePrivate::FByteWriter Internal;
-	Internal.Write(uint8{1});
-	Internal.Write(uint64{1});
-	Field.Payload = std::move(Internal.Bytes);
+	ASSERT_TRUE(ObjectPackage::FPackageIndex::TryExport(0, Field.Value.Reference));
 	ASSERT_TRUE(Read());
-	EXPECT_EQ(Candidate->HardReference.Get(), Candidate);
-	Field.Payload = {std::byte{0}};
+	EXPECT_EQ(Candidate->ExternalReference.Get(), Candidate);
+	Field.Value.Reference = ObjectPackage::FPackageIndex::Null();
 	ASSERT_TRUE(Read());
-	EXPECT_EQ(Candidate->HardReference.Get(), nullptr);
+	EXPECT_EQ(Candidate->ExternalReference.Get(), nullptr);
 	EXPECT_EQ(FindPackage(Path.GetView()), Live->GetPackage());
-	EXPECT_EQ(Live->NativeValue, 73);
+	EXPECT_EQ(Live->Value, 73);
 	EXPECT_TRUE(Live->GetPackage()->IsDirty());
 	EXPECT_EQ(Live->GetPackage()->GetEditRevision(), Revision);
 	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size(), Count);
@@ -3916,43 +3914,151 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
-TEST(FPackageAssetTests, PackageFieldLoadClassifiesInvalidPathsAndPayloads)
+TEST(FPackageAssetTests, StructuredLoadRejectsMalformedContainerConsumption)
 {
 	using namespace Durin;
 	using namespace Durin::AssetPrivate;
 	InitializeAssetTests();
 	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FieldErrors", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/StructuredConsumption", Path));
 	DAuthoredArchiveAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	struct FCleanup
 	{
 		DPackage* Package;
-		~FCleanup() { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+		~FCleanup() { GCookedLoadProbe = {}; MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
 	} Cleanup{Asset->GetPackage()};
-	const auto Type = FArchiveLogicalTypeDescriptor::SoftObject(DObject::StaticClass()->GetQualifiedName());
-	FAuthoredPackageFieldRecord Field{"Tests::DAuthoredArchiveAssetForTest", "SoftReference",
-		PackagePrivate::GetNativeKind(Type), PackagePrivate::GetNativeTypeSignature(Type)};
-	const std::string InvalidPath = "/TestAssets//Broken.Asset";
-	PackagePrivate::FByteWriter Payload;
-	Payload.Write(uint8{1});
-	Payload.WriteString(InvalidPath);
-	Field.Payload = std::move(Payload.Bytes);
+	ObjectPackage::FPropertyTag Field{.DeclaringType = "Tests::DAuthoredArchiveAssetForTest", .FieldName = "Probe",
+		.Type = {.Kind = ObjectPackage::EValueKind::Array, .Children = {{.Kind = ObjectPackage::EValueKind::I32}}}};
+	Field.Value.Elements = {{.Signed = 17}, {.Signed = 29}};
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Schemas.push_back({Field.DeclaringType, {{Field.FieldName, Field.Type}}});
+	FArchiveState Context;
+	Context.bCooking = Context.bFilterEditorOnly = true;
+	Context.Target.Platform = "Win64";
+	Context.Target.Profile = "Game";
 	DObject* Objects[] = {Asset};
-	auto Read = [&] {
-		return LoadAuthoredObject(*Asset, std::span{&Field, 1}, Objects, {}, ObjectPackage::DastV10FormatVersion);
+	uint32 Mode = 0;
+	std::vector<int32> Values;
+	GCookedLoadProbe = [&](FArchive& Ar) {
+		auto Scope = EnterArchiveField(Ar, {FName(Field.DeclaringType), FName("Probe"),
+			FArchiveLogicalTypeDescriptor::Array(FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
+		uint64 Count = 0;
+		if (Mode == 1) { uint32 WrongCount = 0; Ar << WrongCount; return; }
+		if (Mode != 3) Ar << Count;
+		for (uint64 Index = 0; Index < (Mode == 3 ? 1 : Count) && !Ar.IsError(); ++Index)
+		{
+			if (Mode == 4 && Index == 1) break;
+			auto Element = EnterArchiveArrayElement(Ar, Mode == 2 ? 0 : Mode == 7 ? Count : Index);
+			if (Mode == 5) { int64 WrongValue = 0; Ar << WrongValue; }
+			else if (Mode != 6) { int32 Value = 0; Ar << Value; if (!Ar.IsError()) Values.push_back(Value); }
+		}
 	};
-	const auto Invalid = Read();
-	EXPECT_EQ(Invalid.Error, EAssetReadError::InvalidPath);
-	Field.Payload.clear();
-	const auto Truncated = Read();
-	EXPECT_EQ(Truncated.Error, EAssetReadError::CorruptFile);
-	Field.Payload = {std::byte{0}};
-	EXPECT_TRUE(Read());
-	EXPECT_EQ(Invalid.Error, EAssetReadError::InvalidPath);
-	Field.Payload.push_back(std::byte{7});
-	const auto Trailing = Read();
-	EXPECT_EQ(Trailing.Error, EAssetReadError::CorruptFile);
+	auto Read = [&] { return LoadPackageObject(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context); };
+	const auto Before = Field;
+	ASSERT_TRUE(Read());
+	EXPECT_EQ(Values, (std::vector<int32>{17, 29}));
+	for (Mode = 1; Mode <= 7; ++Mode)
+		EXPECT_FALSE(Read()) << "Malformed traversal mode " << Mode;
+	EXPECT_EQ(Field, Before);
+	Mode = 0;
+	Values.clear();
+	ASSERT_TRUE(Read());
+	EXPECT_EQ(Values, (std::vector<int32>{17, 29}));
+}
+
+TEST(FPackageAssetTests, StructuredLoadKeepsDeprecatedEvidenceInItsOwningScope)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	(void)GetMigratingValueStruct();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ScopedDeprecatedEvidence", Path));
+	DAuthoredArchiveAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	struct FCleanup
+	{
+		DPackage* Package;
+		~FCleanup() { GCookedLoadProbe = {}; MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+	} Cleanup{Asset->GetPackage()};
+	const std::string Owner = "Tests::FMigratingValue";
+	const ObjectPackage::FSerializedType StructType{.Kind = ObjectPackage::EValueKind::Struct, .QualifiedName = Owner};
+	const ObjectPackage::FSerializedType IntType{.Kind = ObjectPackage::EValueKind::I32};
+	ObjectPackage::FPropertyTag Field{.DeclaringType = "Tests::DAuthoredArchiveAssetForTest", .FieldName = "Probe", .Type = StructType};
+	Field.Value.FieldNames = {"Value", "Nested"};
+	Field.Value.FieldTypes = std::vector{IntType, StructType};
+	Field.Value.Elements = {{.Signed = 17}, {}};
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Schemas.push_back({Field.DeclaringType, {{Field.FieldName, Field.Type}}});
+	Linker.Schemas.push_back({Owner, {{"Value", IntType}, {"Nested", StructType}}});
+	FArchiveState Context;
+	Context.bCooking = Context.bFilterEditorOnly = true;
+	Context.Target.Platform = "Win64";
+	Context.Target.Profile = "Game";
+	GCookedLoadProbe = [&](FArchive& Ar) {
+		auto Scope = EnterArchiveField(Ar, {FName(Field.DeclaringType), FName("Probe"), FArchiveLogicalTypeDescriptor::Struct(FName(Owner))});
+		{
+			auto Deprecated = EnterArchiveField(Ar, {FName(Owner), FName("Value_DEPRECATED"), FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
+			int32 Value = 0;
+			Ar << Value;
+			EXPECT_EQ(Value, 17);
+		}
+		EXPECT_TRUE(std::ranges::contains(Ar.GetLoadedDeprecatedProperties(FName(Owner)), FName("Value_DEPRECATED")));
+		{
+			auto Nested = EnterArchiveField(Ar, {FName(Owner), FName("Nested"), FArchiveLogicalTypeDescriptor::Struct(FName(Owner))});
+			EXPECT_TRUE(Ar.GetLoadedDeprecatedProperties(FName(Owner)).empty());
+		}
+		EXPECT_TRUE(std::ranges::contains(Ar.GetLoadedDeprecatedProperties(FName(Owner)), FName("Value_DEPRECATED")));
+	};
+	DObject* Objects[] = {Asset};
+	const auto Before = Field;
+	const auto Result = LoadPackageObject(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context);
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_EQ(Field, Before);
+}
+
+TEST(FPackageAssetTests, StructuredLoadHonorsTextBoundsAndRejectsRawLogicalReads)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/StructuredText", Path));
+	DAuthoredArchiveAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	struct FCleanup
+	{
+		DPackage* Package;
+		~FCleanup() { GCookedLoadProbe = {}; MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+	} Cleanup{Asset->GetPackage()};
+	ObjectPackage::FPropertyTag Field{.DeclaringType = "Tests::DAuthoredArchiveAssetForTest", .FieldName = "Probe",
+		.Type = {.Kind = ObjectPackage::EValueKind::String}, .Value = {.Text = "structured"}};
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Schemas.push_back({Field.DeclaringType, {{Field.FieldName, Field.Type}}});
+	FArchiveState Context;
+	Context.bCooking = Context.bFilterEditorOnly = true;
+	Context.Target.Platform = "Win64";
+	Context.Target.Profile = "Game";
+	DObject* Objects[] = {Asset};
+	uint64 Limit = 32;
+	bool bRaw = false;
+	std::string Text = "unchanged";
+	GCookedLoadProbe = [&](FArchive& Ar) {
+		auto Scope = EnterArchiveField(Ar, {FName(Field.DeclaringType), FName("Probe"), FArchiveLogicalTypeDescriptor::String()});
+		if (bRaw) { uint64 Bytes = 0; Ar.Serialize(&Bytes, sizeof(Bytes)); }
+		else SerializeBoundedString(Ar, Text, Limit);
+	};
+	auto Read = [&] { return LoadPackageObject(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context); };
+	ASSERT_TRUE(Read());
+	EXPECT_EQ(Text, "structured");
+	Text = "unchanged";
+	Limit = 3;
+	EXPECT_FALSE(Read());
+	EXPECT_EQ(Text, "unchanged");
+	bRaw = true;
+	EXPECT_FALSE(Read());
+	EXPECT_EQ(Field.Value.Text, "structured");
 }
 
 TEST(FPackageAssetTests, PackageLoadFailureCleansUpAndAllowsRetry)
@@ -4165,30 +4271,25 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	ASSERT_NE(StoredField, nullptr);
 	FPackageBulkStorageDescriptor Storage;
 	ASSERT_TRUE(StoredField->TryReadEditorBulkDataStorageDescriptor(Storage));
-	Durin::PackagePrivate::FByteWriter Payload;
-	Payload.Write(uint64{1});
-	Payload.Write(uint8{1});
-	Payload.Write(uint8{0});
-	Payload.Write(static_cast<uint16>(Storage.Alignment));
-	Payload.Write(EditorBulkDataContentIdVersion);
-	Payload.Write(Storage.PayloadId);
-	Payload.Write(Storage.ContentHash.HashLow);
-	Payload.Write(Storage.ContentHash.HashHigh);
-	Payload.Write(Storage.LogicalByteCount);
-	Payload.Write(Storage.StoredByteCount);
-	Payload.Write(Storage.SegmentOffset);
-	FAuthoredPackageFieldRecord Field{StoredField->DeclaringClass, StoredField->Name,
-		StoredField->Kind, StoredField->TypeSignature, std::move(Payload.Bytes)};
+	ObjectPackage::FLinkerTables Linker;
+	ObjectPackage::FPropertyTag Field{.DeclaringType = StoredField->DeclaringClass, .FieldName = StoredField->Name,
+		.Type = {.Kind = ObjectPackage::EValueKind::BulkData}};
+	Field.Value.BulkElementSize = 1;
+	Field.Value.BulkAlignment = Storage.Alignment;
+	Field.Value.BulkOffset = Storage.SegmentOffset;
+	Field.Value.BulkStoredSize = Storage.StoredByteCount;
+	Field.Value.BulkContentHash = Storage.ContentHash;
+	Field.Value.BulkStorage = ObjectPackage::EBulkStorageKind::External;
+	Field.Value.bBulkPayloadAvailable = false;
+	Linker.Schemas.push_back({Field.DeclaringType, {{Field.FieldName, Field.Type}}});
 	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
 	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
 	auto* Candidate = NewObject<DBulkPackageAssetForTest>(Private, Live->GetFName());
 	DObject* Objects[] = {Candidate};
 	// A live resource exists at the same path, but cannot satisfy a missing binding.
-	EXPECT_EQ(LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
-		{}, ObjectPackage::DastV10FormatVersion).Error, EAssetReadError::CorruptFile);
+	EXPECT_EQ(LoadPackageObject(*Candidate, std::span{&Field, 1}, Linker, Objects, {}).Error, EAssetReadError::CorruptFile);
 	FPackageLoadBindings Bindings{.BulkResource = Prepared.GetBulkResource()};
-	ASSERT_TRUE(LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
-		Bindings, ObjectPackage::DastV10FormatVersion));
+	ASSERT_TRUE(LoadPackageObject(*Candidate, std::span{&Field, 1}, Linker, Objects, Bindings));
 	EXPECT_FALSE(Candidate->Payload.IsMemoryResident());
 	EXPECT_EQ(Candidate->Payload.GetPayloadId(), Storage.ContentHash);
 	Bindings = {};

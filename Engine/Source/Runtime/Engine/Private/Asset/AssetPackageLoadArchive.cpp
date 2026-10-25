@@ -1,8 +1,6 @@
 #include "AssetPackageArchive.h"
 #include "AssetPropertyKindTraits.h"
 #include "AssetRuntimeStateInternal.h"
-#include "Asset/PackageVersionPolicy.h"
-#include "AssetPackageLinker.h"
 #include "AssetPackageLinkerSchema.h"
 #include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -24,39 +22,15 @@ namespace Durin::AssetPrivate
 		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
 		{ return {Code, std::move(Message)}; }
 
-		auto FindReflectedProperty(const FArchiveFieldDescriptor& Descriptor) -> FProperty*
-		{
-			if (Descriptor.DeclaringType.IsNone() || Descriptor.Name.IsNone()) return nullptr;
-			DStruct* Struct = FindStructByQualifiedName(Descriptor.DeclaringType);
-			return Struct ? Struct->FindPropertyByName(Descriptor.Name, false) : nullptr;
-		}
-
-		auto FindObjectProperty(DObject* Object, FName Name) -> FProperty*
-		{
-			if (!Object || !Object->GetClass() || Name.IsNone()) return nullptr;
-			FProperty* Result = nullptr;
-			Object->GetClass()->ForEachProperty([&](FProperty* Property) {
-				if (!Result && Property && Property->NamePrivate == Name) Result = Property;
-			}, true);
-			return Result;
-		}
-
-		auto FindDeclaringStruct(FName QualifiedName) -> DStructBase*
-		{
-			if (DClass* Class = FindClassByQualifiedName(QualifiedName)) return Class;
-			return FindStructByQualifiedName(QualifiedName);
-		}
-
-		class FAuthoredLoadArchive final : public FObjectArchive
+		class FPackageLoadArchive final : public FObjectArchive
 		{
 		public:
-			FAuthoredLoadArchive(
+			FPackageLoadArchive(
 				DObject& InObject,
-				std::span<const FAuthoredPackageFieldRecord> InFields,
+				std::span<const ObjectPackage::FPropertyTag> InFields,
+				const ObjectPackage::FLinkerTables& InLinker,
 				std::span<DObject* const> InObjects,
 				const FPackageLoadBindings& InBindings,
-				uint32 SourceVersion,
-				std::span<const FArchiveCustomVersion> CustomVersions,
 				const FArchiveState& Context)
 				: FObjectArchive({EArchiveDirection::Load,
 					Context.bCooking ? EArchivePurpose::CookedPackage : EArchivePurpose::AuthoredPackage,
@@ -67,20 +41,17 @@ namespace Durin::AssetPrivate
 					true, Context.bCooking, Context.bFilterEditorOnly,
 					EArchiveBulkDataPolicy::External, Context.Target},
 					FArchiveVersionContext{
-						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), SourceVersion}},
-						std::vector<FArchiveCustomVersion>(CustomVersions.begin(), CustomVersions.end())})
-				, Object(InObject), Fields(InFields), Objects(InObjects), Bindings(InBindings),
+						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), InLinker.FormatVersion}},
+						InLinker.CustomVersions})
+				, Object(InObject), Fields(InFields), Linker(InLinker), Objects(InObjects), Bindings(InBindings),
 				  Consumed(InFields.size(), 0)
 			{
 			}
 
 			auto GetStructBaseline() -> EArchiveStructBaseline override
 			{
-				uint8 Baseline = 0;
-				if (!Read(Baseline) || Baseline > 2)
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::CorruptFile, std::format("Invalid struct baseline {}; expected 0..2.", Baseline)});
-				return static_cast<EArchiveStructBaseline>(Baseline);
+				if (!IsCurrentFieldAvailable()) return EArchiveStructBaseline::Complete;
+				return Scopes.back().Value->Baseline;
 			}
 
 			auto GetResult() const -> FAssetReadResult
@@ -113,522 +84,385 @@ namespace Durin::AssetPrivate
 						Object.GetObjectPath(), Failure->Path, static_cast<uint32>(Failure->Code), Reason)};
 				}
 				for (size_t Index = 0; Index < Fields.size(); ++Index)
-					if (!Consumed[Index]) return {EAssetReadError::UnsupportedProperty,
-						std::format("Object '{}' has an unconsumed field '{}::{}' of type '{}'.",
-							Object.GetObjectPath(), Fields[Index].DeclaringClass, Fields[Index].Name,
-							Fields[Index].TypeSignature)};
+				{
+					if (Consumed[Index]) continue;
+					const auto& Tag = Fields[Index];
+					const auto* Schema = LinkerSchema::FindSchema(Linker, Tag.DeclaringType);
+					const auto Field = Schema ? LinkerSchema::FindPropertyByName(*Schema, Tag.FieldName) : std::nullopt;
+					if (!IsCooking() && Field && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Removed) continue;
+					return {EAssetReadError::UnsupportedProperty,
+						std::format("Object '{}' has an unconsumed field '{}::{}' of kind '{}'.",
+							Object.GetObjectPath(), Tag.DeclaringType, Tag.FieldName, static_cast<uint32>(Tag.Type.Kind))};
+				}
 				return {};
 			}
 
 			auto GetLoadedDeprecatedProperties(FName DeclaringType) const
 				-> std::span<const FName> override
 			{
-				const auto It = LoadedDeprecatedProperties.find(DeclaringType.ToString());
-				return It == LoadedDeprecatedProperties.end()
-					? std::span<const FName>{} : std::span<const FName>(It->second);
+				if (!IsCurrentFieldAvailable()) return {};
+				const auto& Scope = Scopes.back();
+				return Scope.Type->Kind == K::Struct && Scope.Type->QualifiedName == DeclaringType.ToString()
+					? std::span<const FName>(Scope.DeprecatedProperties) : std::span<const FName>{};
 			}
 
 			auto SerializeRawBytes(FMutableByteView Bytes) -> void override
 			{
 				if (IsError() || !IsCurrentFieldAvailable()) return;
-				FLoadScope& Scope = Stack.back();
-				if (Bytes.size() > Scope.Record->Payload.size() - Scope.Offset)
+				auto& Scope = Scopes.back();
+				if (Scope.Type->Kind == K::Byte)
 				{
-					FailLoad(EArchiveFailureCode::TruncatedPayload,
-						{EAssetReadError::CorruptFile, std::format("Truncated payload: requested {} bytes, remaining {}, offset {}, total {}.", Bytes.size(), Scope.Record->Payload.size() - Scope.Offset, Scope.Offset, Scope.Record->Payload.size())});
+					if (Bytes.size() != 1 || !TakeAtomic(Scope)) { Invalid("Byte fields require one byte transfer."); return; }
+					Bytes[0] = static_cast<std::byte>(Scope.Value->Unsigned);
 					return;
 				}
-				if (!Bytes.empty())
-					std::memcpy(Bytes.data(), Scope.Record->Payload.data() + Scope.Offset, Bytes.size());
-				Scope.Offset += Bytes.size();
+				if (Scope.Type->Kind != K::Bytes)
+				{ Invalid("Raw byte reads require an opaque Bytes field."); return; }
+				if (Bytes.size() > Scope.Value->Bytes.size() - Scope.Cursor)
+				{
+					FailLoad(EArchiveFailureCode::TruncatedPayload, {EAssetReadError::CorruptFile, "Opaque byte field is truncated."});
+					return;
+				}
+				if (!Bytes.empty()) std::memcpy(Bytes.data(), Scope.Value->Bytes.data() + Scope.Cursor, Bytes.size());
+				Scope.Cursor += Bytes.size();
 			}
 
-				auto SerializeBulkData(
-				FArchiveBulkDataValue& Value,
-				const FArchiveBulkDataParameters& Parameters) -> void override
+			auto SerializeBulkData(FArchiveBulkDataValue& Value, const FArchiveBulkDataParameters& Parameters) -> void override
 			{
-				(void)Parameters;
 				if (IsError() || !IsCurrentFieldAvailable()) return;
-				const FArchiveFormatVersion* DastVersion =
-					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || !ObjectPackage::IsSupportedPackageReaderVersion(DastVersion->Version))
+				auto& Scope = Scopes.back();
+				if (Scope.Type->Kind != K::BulkData || !TakeAtomic(Scope)) { Invalid("Expected one BulkData value."); return; }
+				const auto& Source = *Scope.Value;
+				const bool bExternal = Source.BulkStorage == ObjectPackage::EBulkStorageKind::External;
+				const uint64 Size = Source.bBulkPayloadAvailable ? Source.Bytes.size() : Source.BulkStoredSize;
+				const auto Hash = Source.bBulkPayloadAvailable ? FXxHash128::HashBuffer(Source.Bytes) : Source.BulkContentHash;
+				if (Parameters.ElementSize == 0 || Source.BulkElementSize != Parameters.ElementSize
+					|| Size % Parameters.ElementSize != 0 || Size > MaximumAuthoredBulkBytes || Hash.IsZero()
+					|| (Source.BulkStorage != ObjectPackage::EBulkStorageKind::Inline && !bExternal)
+					|| (!bExternal && (!Source.bBulkPayloadAvailable || Source.BulkAlignment != 1))
+					|| (bExternal && (Source.BulkAlignment != EditorBulkDataExternalAlignment
+						|| Source.BulkOffset % Source.BulkAlignment != 0)))
+				{ Invalid("Invalid bulk descriptor metadata or element size."); return; }
+				FGuid Id{static_cast<uint32>(Hash.HashLow), static_cast<uint32>(Hash.HashLow >> 32),
+					static_cast<uint32>(Hash.HashHigh), static_cast<uint32>(Hash.HashHigh >> 32)};
+				if (!Id.IsValid()) Id.A = 1;
+				FArchiveBulkDataValue Loaded{.PayloadId = Id, .LogicalSize = Size, .StoredSize = Size,
+					.ContentHash = Hash, .StorageKind = bExternal ? EArchiveBulkDataStorageKind::External : EArchiveBulkDataStorageKind::Inline,
+					.SegmentOffset = bExternal ? Source.BulkOffset : 0, .Alignment = Source.BulkAlignment};
+				if (bExternal)
 				{
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::UnsupportedVersion, std::format("Unsupported DAST bulk version {}.", DastVersion ? DastVersion->Version : 0)});
-					return;
+					if (!Bindings.BulkResource) { Invalid("External bulk payload requires a resource binding."); return; }
+					Loaded.PackageResource = Bindings.BulkResource;
 				}
-				uint64 FieldIndex = 0;
-				uint8 Placement = 0;
-				uint8 StorageFlags = 0;
-				uint16 Alignment = 0;
-				uint32 ContentIdVersion = 0;
-				FGuid InstanceId;
-				uint64 HashLow = 0, HashHigh = 0;
-				uint64 LogicalSize = 0, StoredSize = 0, SegmentOffset = 0;
-				*this << FieldIndex << Placement << StorageFlags << Alignment
-					<< ContentIdVersion << InstanceId << HashLow << HashHigh
-					<< LogicalSize << StoredSize << SegmentOffset;
-				if (IsError()) return;
-				if (FieldIndex == 0 || Placement > 1 || StorageFlags != 0
-					|| ContentIdVersion != EditorBulkDataContentIdVersion
-					|| !InstanceId.IsValid() || FXxHash128{HashLow, HashHigh}.IsZero()
-					|| LogicalSize != StoredSize || LogicalSize > MaximumAuthoredBulkBytes
-					|| (Placement == 0 && (Alignment != 1 || SegmentOffset != 0))
-					|| (Placement == 1 && (Alignment != EditorBulkDataExternalAlignment
-						|| SegmentOffset % Alignment != 0)))
-				{
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::CorruptFile, "Invalid bulk descriptor metadata."});
-					return;
-				}
-				Value = {.PayloadId = InstanceId,
-					.LogicalSize = LogicalSize,
-					.StoredSize = StoredSize,
-					.ContentHash = {HashLow, HashHigh},
-					.StorageKind = Placement == 0 ? EArchiveBulkDataStorageKind::Inline
-						: EArchiveBulkDataStorageKind::External,
-					.SegmentOffset = SegmentOffset,
-					.Alignment = Alignment};
-				if (Placement == 0)
-				{
-					FByteBuffer Bytes(static_cast<size_t>(StoredSize));
-					ReadBytes(Bytes);
-					if (IsError()) return;
-					if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
-					{
-						FailLoad(EArchiveFailureCode::InvalidData,
-							{EAssetReadError::CorruptFile, "Inline bulk payload content hash mismatch."});
-						return;
-					}
-					Value.Buffer = FSharedByteBuffer::Take(std::move(Bytes));
-				}
-				else
-				{
-					Value.PackageResource = Bindings.BulkResource;
-					if (!Value.PackageResource)
-						FailLoad(EArchiveFailureCode::InvalidData,
-							{EAssetReadError::CorruptFile, "External bulk payload requires a resource binding."});
-				}
+				else Loaded.Buffer = FSharedByteBuffer::Copy(Source.Bytes);
+				Value = std::move(Loaded);
 			}
 
 			auto SerializeObjectReference(DObject*& Value) -> void override
 			{
 				if (IsError() || !IsCurrentFieldAvailable()) return;
-				uint8 Kind = 0;
-				if (!Read(Kind)) return;
-				Value = nullptr;
-				if (Kind == 1)
+				auto& Scope = Scopes.back();
+				if (Scope.Type->Kind != K::HardReference || !TakeAtomic(Scope)) { Invalid("Expected one hard reference."); return; }
+				const auto Reference = Scope.Value->Reference;
+				DObject* Loaded = nullptr;
+				if (Reference.IsExport())
 				{
-					uint64 Id = 0;
-					if (!Read(Id)) return;
-					if (Id == 0 || Id > Objects.size())
-					{
-						FailLoad(EArchiveFailureCode::InvalidObjectReference,
-							{EAssetReadError::InvalidObjectGraph, std::format("Invalid object export index {}; export count {}.", Id, Objects.size())});
-						return;
-					}
-					Value = Objects[static_cast<size_t>(Id - 1)];
+					if (Reference.GetTableIndex() >= Objects.size())
+					{ FailLoad(EArchiveFailureCode::InvalidObjectReference, {EAssetReadError::InvalidObjectGraph, "Invalid object export index."}); return; }
+					Loaded = Objects[Reference.GetTableIndex()];
 				}
-				else if (Kind == 2)
+				else if (Reference.IsImport())
 				{
-					std::string PathString;
-					if (!ReadString(PathString)) return;
-					FObjectPath Path;
-					if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !Validation)
-					{
-						FailLoad(EArchiveFailureCode::InvalidPath,
-							{EAssetReadError::InvalidPath, std::format("Invalid dependency path '{}': {}", PathString, ToString(Validation.error()))});
-						return;
-					}
+					const ObjectPackage::FPackageImport* Import = nullptr;
+					if (!Linker.TryGetImport(Reference, Import) || !Import) { Invalid("Invalid hard-reference import."); return; }
 					if (!Bindings.ResolveExternalObject)
-					{
-						FailLoad(EArchiveFailureCode::InvalidObjectReference,
-							{EAssetReadError::MissingDependency, std::format("No resolver for dependency '{}'.", PathString)});
-						return;
-					}
-					auto Result = Bindings.ResolveExternalObject(Path, Value);
-					if (!Result || !Value)
-					{
-						FailLoad(EArchiveFailureCode::InvalidObjectReference,
-							{Result ? EAssetReadError::MissingDependency : Result.Error, std::format("Dependency '{}': {}", PathString, Result ? "Resolver returned no object." : Result.Message)});
-						return;
-					}
+					{ FailLoad(EArchiveFailureCode::InvalidObjectReference, {EAssetReadError::MissingDependency, "No resolver for package dependency."}); return; }
+					const auto Result = Bindings.ResolveExternalObject(Import->ObjectPath, Loaded);
+					if (!Result || !Loaded)
+					{ FailLoad(EArchiveFailureCode::InvalidObjectReference, {Result ? EAssetReadError::MissingDependency : Result.Error,
+						std::format("Dependency '{}': {}", Import->ObjectPath.ToString(), Result ? "Resolver returned no object." : Result.Message)}); return; }
 				}
-				else if (Kind != 0)
+				if (Loaded && !Scope.Type->QualifiedName.empty())
 				{
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::CorruptFile, std::format("Invalid hard reference kind {}; expected 0..2.", Kind)});
-					return;
+					DClass* Expected = FindClassByQualifiedName(FName(Scope.Type->QualifiedName));
+					if (Expected && !Loaded->IsA(Expected))
+					{ FailLoad(EArchiveFailureCode::InvalidData, {EAssetReadError::TypeMismatch, "Resolved object has an incompatible class."}); return; }
 				}
-
-				const FArchiveLogicalTypeDescriptor& Type = Durin::PackagePrivate::UnwrapFixed(GetCurrentLogicalType());
-				if (Value && !Type.QualifiedType.IsNone())
-				{
-					DClass* Expected = FindClassByQualifiedName(Type.QualifiedType.ToString());
-					if (Expected && !Value->IsA(Expected))
-						FailLoad(EArchiveFailureCode::InvalidData,
-							{EAssetReadError::TypeMismatch, std::format("Object '{}': expected type '{}', actual '{}'.", Value->GetObjectPath(), Expected->GetQualifiedName().ToString(), Value->GetClass()->GetQualifiedName().ToString())});
-				}
+				Value = Loaded;
 			}
 
 			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
 			{
 				if (IsError() || !IsCurrentFieldAvailable()) return;
-				uint8 Kind = 0;
-				if (!Read(Kind)) return;
-				if (Kind == 0) { Value = {}; return; }
-				if (Kind != 1)
-				{
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::CorruptFile, std::format("Invalid soft reference kind {}; expected 0..1.", Kind)});
-					return;
-				}
-				std::string PathString;
-				if (!ReadString(PathString)) return;
-				if (PathString.empty())
-				{
-					FailLoad(EArchiveFailureCode::InvalidPath,
-						{EAssetReadError::CorruptFile, "Soft reference path is empty."});
-					return;
-				}
+				auto& Scope = Scopes.back();
+				if (Scope.Type->Kind != K::SoftReference || !TakeAtomic(Scope)) { Invalid("Expected one soft reference."); return; }
+				if (Scope.Value->Text.empty()) { Value = {}; return; }
 				FObjectPath Loaded;
-				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Loaded); !PathValidation)
-				{
-					FailLoad(EArchiveFailureCode::InvalidPath,
-						{EAssetReadError::InvalidPath, std::format("Invalid soft reference '{}': {}", PathString, ToString(PathValidation.error()))});
-					return;
-				}
+				if (auto Result = FObjectPath::TryCreateWithDiagnostic(Scope.Value->Text, Loaded); !Result)
+				{ FailLoad(EArchiveFailureCode::InvalidPath, {EAssetReadError::InvalidPath, ToString(Result.error())}); return; }
 				Value = std::move(Loaded);
 			}
 
 			auto GetRemainingPayloadBytes() const -> uint64 override
 			{
-				if (!IsCurrentFieldAvailable()) return std::numeric_limits<uint64>::max();
-				const FLoadScope& Scope = Stack.back();
-				return static_cast<uint64>(Scope.Record->Payload.size() - Scope.Offset);
+				if (IsCurrentFieldAvailable() && Scopes.back().Type->Kind == K::Bytes)
+					return Scopes.back().Value->Bytes.size() - Scopes.back().Cursor;
+				return std::numeric_limits<uint64>::max();
 			}
 
 			auto IsCurrentFieldAvailable() const -> bool override
-			{
-				return Stack.empty() || Stack.back().Record != nullptr;
-			}
+			{ return !Scopes.empty() && Scopes.back().Value != nullptr; }
 
 		protected:
+			auto TryLoadLogicalPrimitive(EArchiveLogicalPrimitiveKind Kind, void* Out) -> bool override
+			{
+				if (IsError() || !IsCurrentFieldAvailable()) return true;
+				auto& Scope = Scopes.back();
+				if (Scope.Type->Kind == K::Bytes) return false; // Opaque native data retains its authored byte representation.
+				using P = EArchiveLogicalPrimitiveKind;
+				K StoredKind = Scope.Type->Kind;
+				if (StoredKind == K::Array || StoredKind == K::Map)
+				{
+					if (Kind != P::UInt64 || Scope.Cursor != 0) { Invalid("Containers require one unsigned 64-bit count read."); return true; }
+					*static_cast<uint64*>(Out) = Scope.Value->Elements.size() / (StoredKind == K::Map ? 2 : 1);
+					++Scope.Cursor;
+					return true;
+				}
+				if (StoredKind == K::Enum) StoredKind = static_cast<K>(Scope.Type->Parameter);
+				if (Scope.IsIntrinsicComponent()) StoredKind = Scope.Type->Parameter == 6 ? K::F32 : K::F64;
+				if (StoredKind == K::Byte) StoredKind = K::U8;
+				const auto& V = *Scope.Value;
+				auto Load = [&]<typename T>(K Expected, T Value) {
+					if (StoredKind != Expected || !TakeAtomic(Scope))
+						Invalid("Primitive read does not match the stored logical value.");
+					else *static_cast<T*>(Out) = Value;
+				};
+				const uint64 Bits = Scope.IsIntrinsicComponent() ? V.ComponentBits[Scope.ComponentOffset] : V.FloatingBits;
+				switch (Kind)
+				{
+				case P::Bool: Load(K::Bool, V.Bool); break;
+				case P::Int8: Load(K::I8, static_cast<int8>(V.Signed)); break;
+				case P::Int16: Load(K::I16, static_cast<int16>(V.Signed)); break;
+				case P::Int32: Load(K::I32, static_cast<int32>(V.Signed)); break;
+				case P::Int64: Load(K::I64, V.Signed); break;
+				case P::UInt8: Load(K::U8, static_cast<uint8>(V.Unsigned)); break;
+				case P::UInt16: Load(K::U16, static_cast<uint16>(V.Unsigned)); break;
+				case P::UInt32: Load(K::U32, static_cast<uint32>(V.Unsigned)); break;
+				case P::UInt64: Load(K::U64, V.Unsigned); break;
+				case P::Float32: Load(K::F32, std::bit_cast<float>(static_cast<uint32>(Bits))); break;
+				case P::Float64: Load(K::F64, std::bit_cast<double>(Bits)); break;
+				case P::Guid: Load(K::Guid, V.Guid); break;
+				}
+				return true;
+			}
+
+			auto TryLoadLogicalText(EArchiveLogicalTextKind Kind, std::string& Out, uint64 MaximumBytes) -> bool override
+			{
+				if (IsError() || !IsCurrentFieldAvailable()) return true;
+				auto& Scope = Scopes.back();
+				if (Scope.Type->Kind == K::Bytes) return false;
+				const auto Expected = Kind == EArchiveLogicalTextKind::Name ? K::Name : K::String;
+				if (Scope.Type->Kind != Expected || !TakeAtomic(Scope)) { Invalid("Text read does not match the stored logical value."); return true; }
+				if (Scope.Value->Text.size() > MaximumBytes)
+				{ FailLoad(EArchiveFailureCode::LimitExceeded, {EAssetReadError::CorruptFile, "String exceeds its serialization limit."}); return true; }
+				Out = Scope.Value->Text;
+				return true;
+			}
+
 			auto OnEnterObject(DObject& EnteredObject) -> void override
 			{
 				if (&EnteredObject != &Object)
-					FailLoad(EArchiveFailureCode::InvalidObjectReference,
-						{EAssetReadError::InvalidObjectGraph, std::format("Serializer entered another object '{}'.", EnteredObject.GetObjectPath())});
+					FailLoad(EArchiveFailureCode::InvalidObjectReference, {EAssetReadError::InvalidObjectGraph, "Serializer entered another object."});
 			}
 
 			auto OnEnterField(const FArchiveFieldDescriptor& Descriptor) -> void override
 			{
-				if (IsError()) { Stack.emplace_back(); return; }
-				std::span<const FAuthoredPackageFieldRecord> Candidates;
-				std::span<uint8> CandidateConsumed;
-				const bool bTopLevel = Stack.empty();
-				if (bTopLevel)
+				if (IsError() || (!Scopes.empty() && !IsCurrentFieldAvailable())) { Scopes.emplace_back(); return; }
+				if (!Scopes.empty() && Scopes.back().Layout != 0)
+				{ EnterIntrinsicField(Descriptor); return; }
+				const bool bTopLevel = Scopes.empty();
+				FLoadScope* Parent = bTopLevel ? nullptr : &Scopes.back();
+				if (Parent && Parent->Type->Kind != K::Struct) { Invalid("Nested fields require a struct value."); Scopes.emplace_back(); return; }
+				DStructBase* DeclaringStruct = FindClassByQualifiedName(Descriptor.DeclaringType);
+				if (!DeclaringStruct) DeclaringStruct = FindStructByQualifiedName(Descriptor.DeclaringType);
+				FProperty* Property = DeclaringStruct ? DeclaringStruct->FindPropertyByName(Descriptor.Name, false) : nullptr;
+				const bool bByteStorage = Property && (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Byte || Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Blob);
+				const auto ExpectedKind = Property && !bByteStorage ? Property->GetKind() : PackagePrivate::GetNativeKind(Descriptor.LogicalType);
+				const auto ExpectedSignature = Property && !bByteStorage ? PackagePrivate::GetSerializedTypeSignature(Property) : PackagePrivate::GetNativeTypeSignature(Descriptor.LogicalType);
+				const auto* Deprecation = Property ? Property->GetDeprecation() : nullptr;
+				const std::string Name = Deprecation ? Deprecation->HistoricalName.ToString() : Descriptor.Name.ToString();
+				const std::string Owner = Descriptor.DeclaringType.ToString();
+				const auto* Schema = LinkerSchema::FindSchema(Linker, Owner);
+				if (Parent && (Parent->Type->QualifiedName != Owner || Parent->Value->FieldNames.size() != Parent->Value->Elements.size()
+					|| ObjectPackage::StructFieldTypes(*Parent->Type, *Parent->Value).size() != Parent->Value->Elements.size()))
+				{ Invalid("Struct value does not match its field descriptors."); Scopes.emplace_back(); return; }
+				auto& Used = bTopLevel ? Consumed : Parent->Consumed;
+				const size_t Count = bTopLevel ? Fields.size() : Parent->Value->Elements.size();
+				if (Used.empty()) Used.resize(Count, 0);
+				for (size_t Index = 0; Index < Count; ++Index)
 				{
-					Candidates = Fields;
-					CandidateConsumed = Consumed;
-				}
-				else
-				{
-					FLoadScope& Parent = Stack.back();
-					if (!Parent.Record) { Stack.emplace_back(); return; }
-					FStructState* StructState = &Parent.Struct;
-					if (!PathTypes.empty() && PathTypes.back().FieldDepth == Stack.size())
-						StructState = &PathTypes.back().Struct;
-					if (!PrepareStruct(*StructState, GetCurrentLogicalType())) { Stack.emplace_back(); return; }
-					Candidates = StructState->Fields;
-					CandidateConsumed = StructState->Consumed;
-				}
-
-				FProperty* Property = bTopLevel
-					? FindObjectProperty(&Object, Descriptor.Name)
-					: FindReflectedProperty(Descriptor);
-				const bool bByteStorageProperty = Property
-					&& (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Byte
-						|| Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Blob);
-				const auto ExpectedKind = Property && !bByteStorageProperty ? Property->GetKind()
-					: Durin::PackagePrivate::GetNativeKind(Descriptor.LogicalType);
-				const std::string ExpectedSignature = Property && !bByteStorageProperty
-					? Durin::PackagePrivate::GetSerializedTypeSignature(Property)
-					: Durin::PackagePrivate::GetNativeTypeSignature(Descriptor.LogicalType);
-				const std::string DeclaringType = Descriptor.DeclaringType.ToString();
-				const FPropertyDeprecation* Deprecation = Property ? Property->GetDeprecation() : nullptr;
-				const std::string Name = Deprecation
-					? Deprecation->HistoricalName.ToString() : Descriptor.Name.ToString();
-				DStructBase* DeclaringStruct = FindDeclaringStruct(Descriptor.DeclaringType);
-				bool bFoundIdentity = false;
-				bool bReservedForDeprecatedRoute = false;
-				DurinCodeGen::EPropertyGenFlags FoundKind = DurinCodeGen::EPropertyGenFlags::None;
-				std::string FoundSignature;
-				for (size_t Index = 0; Index < Candidates.size(); ++Index)
-				{
-					const auto& Candidate = Candidates[Index];
-					if (CandidateConsumed[Index]
-						|| Candidate.DeclaringClass != DeclaringType || Candidate.Name != Name) continue;
-					bFoundIdentity = true;
-					FoundKind = Candidate.Kind;
-					FoundSignature = Candidate.TypeSignature;
-					if (!Deprecation && LinkerSchema::ResolvePropertyForLoad(DeclaringStruct, Candidate.Name,
-						Candidate.Kind, Candidate.TypeSignature).Route == LinkerSchema::EPropertyLoadRoute::Deprecated)
-					{
-						bReservedForDeprecatedRoute = true;
-						continue;
-					}
-					if (Candidate.Kind != ExpectedKind
-						|| Candidate.TypeSignature != ExpectedSignature) continue;
-					CandidateConsumed[Index] = 1;
-					if (Deprecation)
-						LoadedDeprecatedProperties[DeclaringType].push_back(Property->NamePrivate);
-					FLoadScope Scope;
-					Scope.Record = &Candidate;
-					Scope.Type = Descriptor.LogicalType;
-					Stack.push_back(std::move(Scope));
+					const std::string& StoredName = bTopLevel ? Fields[Index].FieldName : Parent->Value->FieldNames[Index];
+					if (Used[Index] || StoredName != Name || (bTopLevel && Fields[Index].DeclaringType != Owner)) continue;
+					const auto Field = Schema ? LinkerSchema::FindPropertyByName(*Schema, StoredName) : std::nullopt;
+					if (!Field) { Invalid("Stored field is missing from its schema."); break; }
+					const auto& Type = bTopLevel ? Fields[Index].Type : ObjectPackage::StructFieldTypes(*Parent->Type, *Parent->Value)[Index];
+					if (Type != Field->Descriptor->Type) { Invalid("Stored field type differs from its schema."); break; }
+					if (!IsCooking() && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Removed) continue;
+					if (!Deprecation && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Deprecated) continue;
+					if (Field->Kind != ExpectedKind || Field->Signature != ExpectedSignature) continue;
+					Used[Index] = 1;
+					if (Deprecation && Parent) Parent->DeprecatedProperties.push_back(Property->NamePrivate);
+					PushValue(Type, bTopLevel ? Fields[Index].Value : Parent->Value->Elements[Index]);
 					return;
 				}
-				if (!bTopLevel && bFoundIdentity && !bReservedForDeprecatedRoute)
-				{
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::TypeMismatch, std::format("Field '{}::{}': expected '{}' (kind {}), actual '{}' (kind {}).", DeclaringType, Name, ExpectedSignature, static_cast<uint32>(ExpectedKind), FoundSignature, static_cast<uint32>(FoundKind))});
-				}
-				Stack.emplace_back();
+				Scopes.emplace_back();
 			}
 
-			auto OnEnterFixedArrayElement(uint64) -> void override
-			{
-				if (!IsCurrentFieldAvailable()) { PushUnavailablePath(); return; }
-				const auto& Type = GetCurrentLogicalType();
-				PushPathType(Type.ElementType);
-			}
-
-			auto OnEnterArrayElement(uint64) -> void override
-			{
-				if (!IsCurrentFieldAvailable()) { PushUnavailablePath(); return; }
-				const auto& Type = GetCurrentLogicalType();
-				PushPathType(Type.ElementType);
-			}
-
-			auto OnEnterMapKey(uint64) -> void override
-			{
-				if (!IsCurrentFieldAvailable()) { PushUnavailablePath(); return; }
-				const auto& Type = GetCurrentLogicalType();
-				PushPathType(Type.KeyType);
-			}
-
-			auto OnEnterMapValue(uint64) -> void override
-			{
-				if (!IsCurrentFieldAvailable()) { PushUnavailablePath(); return; }
-				const auto& Type = GetCurrentLogicalType();
-				PushPathType(Type.ValueType);
-			}
-
-			auto OnLeavePath() -> void override
-			{
-				if (PathTypes.empty()) return;
-				FPathType& Path = PathTypes.back();
-				if (!IsError() && !Stack.empty() && Stack.back().Record
-					&& Path.Type.Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
-					PrepareStruct(Path.Struct, Path.Type);
-				PathTypes.pop_back();
-			}
-
-			auto OnLeaveField() -> void override
-			{
-				if (Stack.empty()) return;
-				FLoadScope& Scope = Stack.back();
-				if (!IsError() && Scope.Record)
-				{
-					if (Scope.Type.Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
-						PrepareStruct(Scope.Struct, Scope.Type);
-					if (!IsError() && Scope.Offset != Scope.Record->Payload.size())
-						FailLoad(EArchiveFailureCode::TrailingData,
-							{EAssetReadError::CorruptFile, std::format("Trailing payload: {} bytes at offset {} of {}.", Scope.Record->Payload.size() - Scope.Offset, Scope.Offset, Scope.Record->Payload.size())});
-				}
-				Stack.pop_back();
-			}
+			auto OnEnterFixedArrayElement(uint64 Index) -> void override { EnterElement(K::FixedArray, Index, 0); }
+			auto OnEnterArrayElement(uint64 Index) -> void override { EnterElement(K::Array, Index, 0); }
+			auto OnEnterMapKey(uint64 Index) -> void override { EnterElement(K::Map, Index, 0); }
+			auto OnEnterMapValue(uint64 Index) -> void override { EnterElement(K::Map, Index, 1); }
+			auto OnLeavePath() -> void override { LeaveValue(); }
+			auto OnLeaveField() -> void override { LeaveValue(); }
 
 		private:
-			struct FStructState
-			{
-				bool bPrepared = false;
-				std::vector<FAuthoredPackageFieldRecord> Fields;
-				std::vector<uint8> Consumed;
-			};
-
+			using K = ObjectPackage::EValueKind;
+			// Only traversal state is owned here. Types, values and component storage belong to Linker.
 			struct FLoadScope
 			{
-				FLoadScope() = default;
-				FLoadScope(const FLoadScope&) = delete;
-				auto operator=(const FLoadScope&) -> FLoadScope& = delete;
-				FLoadScope(FLoadScope&&) noexcept = default;
-				auto operator=(FLoadScope&&) noexcept -> FLoadScope& = default;
-				const FAuthoredPackageFieldRecord* Record = nullptr;
-				FArchiveLogicalTypeDescriptor Type;
-				size_t Offset = 0;
-				FStructState Struct;
-			};
+				const ObjectPackage::FSerializedType* Type = nullptr;
+				const ObjectPackage::FSerializedValue* Value = nullptr;
+				size_t Cursor = 0;
+				std::vector<uint8> Consumed;
+				uint64 Layout = 0;
+				size_t ComponentOffset = 0;
+				std::vector<FName> DeprecatedProperties;
 
-			struct FPathType
-			{
-				FPathType() = default;
-				FPathType(const FPathType&) = delete;
-				auto operator=(const FPathType&) -> FPathType& = delete;
-				FPathType(FPathType&&) noexcept = default;
-				auto operator=(FPathType&&) noexcept -> FPathType& = default;
-				size_t FieldDepth = 0;
-				FArchiveLogicalTypeDescriptor Type;
-				FStructState Struct;
+				auto IsIntrinsicComponent() const -> bool
+				{ return Type && Type->Kind == K::Intrinsic && Layout == 0; }
 			};
 
 			auto FailLoad(EArchiveFailureCode Code, FAssetReadResult Error) -> void
+			{ if (!IsError()) { LoadError = Error.Error; Fail(Code, std::move(Error.Message)); } }
+			auto Invalid(std::string_view Message) -> void
+			{ FailLoad(EArchiveFailureCode::InvalidData, {EAssetReadError::CorruptFile, std::string(Message)}); }
+			auto TakeAtomic(FLoadScope& Scope) -> bool
+			{ if (Scope.Cursor != 0) return false; ++Scope.Cursor; return true; }
+			auto PushValue(const ObjectPackage::FSerializedType& Type, const ObjectPackage::FSerializedValue& Value) -> void
 			{
-				if (IsError()) return;
-				LoadError = Error.Error;
-				Fail(Code, std::move(Error.Message));
+				FLoadScope Scope{.Type = &Type, .Value = &Value};
+				if (Type.Kind == K::Intrinsic) Scope.Layout = Type.Parameter;
+				Scopes.push_back(std::move(Scope));
 			}
 
-			auto GetCurrentLogicalType() const -> const FArchiveLogicalTypeDescriptor&
+			auto EnterElement(K Kind, uint64 Index, size_t Side) -> void
 			{
-				if (!PathTypes.empty() && PathTypes.back().FieldDepth == Stack.size())
-					return PathTypes.back().Type;
-				return Stack.back().Type;
+				if (IsError() || !IsCurrentFieldAvailable()) { Scopes.emplace_back(); return; }
+				auto& Parent = Scopes.back();
+				const size_t Arity = Kind == K::Map ? 2 : 1;
+				if (Parent.Type->Kind != Kind || Parent.Type->Children.size() != Arity
+					|| Index >= Parent.Value->Elements.size() / Arity || (Kind != K::FixedArray && Parent.Cursor != 1))
+				{ Invalid("Invalid container element scope or missing count read."); Scopes.emplace_back(); return; }
+				if (Parent.Consumed.empty()) Parent.Consumed.resize(Parent.Value->Elements.size(), 0);
+				const size_t Position = static_cast<size_t>(Index) * Arity + Side;
+				if (Parent.Consumed[Position]) { Invalid("Container element was consumed twice."); Scopes.emplace_back(); return; }
+				Parent.Consumed[Position] = 1;
+				PushValue(Parent.Type->Children[Side], Parent.Value->Elements[Position]);
 			}
 
-			auto PushPathType(const std::shared_ptr<FArchiveLogicalTypeDescriptor>& Type) -> void
+			auto EnterIntrinsicField(const FArchiveFieldDescriptor& Descriptor) -> void
 			{
-				if (!Type)
+				auto& Parent = Scopes.back();
+				if (Descriptor.DeclaringType.ToString() != LinkerSchema::IntrinsicName(Parent.Layout))
+				{ Invalid("Intrinsic field has an incompatible owner."); Scopes.emplace_back(); return; }
+				const std::array<std::string_view, 4> Lower{"x", "y", "z", "w"};
+				const std::array<std::string_view, 4> Color{"R", "G", "B", "A"};
+				const std::array<std::string_view, 3> Transform{"Rotation", "Translation", "Scale3D"};
+				const size_t Count = Parent.Layout == 5 ? 3 : Parent.Layout == 1 ? 2 : Parent.Layout == 2 ? 3 : 4;
+				if (Parent.Consumed.empty()) Parent.Consumed.resize(Count, 0);
+				const auto Name = Descriptor.Name.ToString();
+				for (size_t Index = 0; Index < Count; ++Index)
 				{
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::CorruptFile, "Missing nested logical type descriptor."});
+					const auto Expected = Parent.Layout == 5 ? Transform[Index] : Parent.Layout == 6 ? Color[Index]
+						: Parent.Layout == 4 ? Lower[(Index + 3) % 4] : Lower[Index];
+					if (Name != Expected) continue;
+					if (Parent.Consumed[Index]) { Invalid("Intrinsic field was consumed twice."); break; }
+					Parent.Consumed[Index] = 1;
+					FLoadScope Child{.Type = Parent.Type, .Value = Parent.Value,
+						.ComponentOffset = Parent.ComponentOffset};
+					if (Parent.Layout == 5)
+					{
+						Child.Layout = Index == 0 ? 4 : 2;
+						Child.ComponentOffset += Index == 0 ? 0 : Index == 1 ? 4 : 7;
+					}
+					else Child.ComponentOffset += Index;
+					if (Child.ComponentOffset >= Child.Value->ComponentBits.size()) { Invalid("Intrinsic component storage is truncated."); break; }
+					Scopes.push_back(std::move(Child));
 					return;
 				}
-				FPathType Path;
-				Path.FieldDepth = Stack.size();
-				Path.Type = *Type;
-				PathTypes.push_back(std::move(Path));
+				Scopes.emplace_back();
 			}
 
-			auto PushUnavailablePath() -> void
+			auto LeaveValue() -> void
 			{
-				FPathType Path;
-				Path.FieldDepth = Stack.size();
-				PathTypes.push_back(std::move(Path));
-			}
-
-			template<typename T> auto Read(T& Value) -> bool
-			{
-				if (Stack.empty() || !Stack.back().Record) return true;
-				FLoadScope& Scope = Stack.back();
-				if (sizeof(T) > Scope.Record->Payload.size() - Scope.Offset)
+				if (Scopes.empty()) return;
+				auto& Scope = Scopes.back();
+				if (!IsError() && Scope.Value)
 				{
-					FailLoad(EArchiveFailureCode::TruncatedPayload,
-						{EAssetReadError::CorruptFile, std::format("Truncated payload: requested {} bytes, remaining {}, offset {}, total {}.", sizeof(T), Scope.Record->Payload.size() - Scope.Offset, Scope.Offset, Scope.Record->Payload.size())});
-					return false;
-				}
-				std::memcpy(&Value, Scope.Record->Payload.data() + Scope.Offset, sizeof(T));
-				Scope.Offset += sizeof(T);
-				return true;
-			}
-
-			auto ReadString(std::string& Value) -> bool
-			{
-				uint64 Size = 0;
-				if (!Read(Size)) return false;
-				if (Size > Durin::PackagePrivate::MaximumPackageStringBytes || Size > GetRemainingPayloadBytes())
-				{
-					FailLoad(EArchiveFailureCode::TruncatedPayload,
-						{EAssetReadError::CorruptFile, std::format("Truncated string: requested {} bytes, available limit {}.", Size, std::min<uint64>(Durin::PackagePrivate::MaximumPackageStringBytes, GetRemainingPayloadBytes()))});
-					return false;
-				}
-				FLoadScope& Scope = Stack.back();
-				Value.assign(reinterpret_cast<const char*>(Scope.Record->Payload.data() + Scope.Offset),
-					static_cast<size_t>(Size));
-				Scope.Offset += static_cast<size_t>(Size);
-				return true;
-			}
-
-			auto PrepareStruct(FStructState& State,
-				const FArchiveLogicalTypeDescriptor& InputType) -> bool
-			{
-				if (State.bPrepared) return !IsError();
-				State.bPrepared = true;
-				const auto& Type = Durin::PackagePrivate::UnwrapFixed(InputType);
-				if (Type.Kind != FArchiveLogicalTypeDescriptor::EKind::Struct)
-				{
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::CorruptFile, "Expected a struct logical type."});
-					return false;
-				}
-
-				std::string StructName;
-				uint64 FieldCount = 0;
-				if (!ReadString(StructName) || !Read(FieldCount) || FieldCount > 100000)
-				{
-					if (!IsError()) FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::CorruptFile, std::format("Struct field count {} exceeds limit 100000.", FieldCount)});
-					return false;
-				}
-				if (!Type.QualifiedType.IsNone() && StructName != Type.QualifiedType.ToString())
-				{
-					FailLoad(EArchiveFailureCode::InvalidData,
-						{EAssetReadError::CorruptFile, std::format("Expected struct '{}', actual '{}'.", Type.QualifiedType.ToString(), StructName)});
-					return false;
-				}
-				LoadedDeprecatedProperties[StructName].clear();
-				State.Fields.reserve(static_cast<size_t>(FieldCount));
-				for (uint64 Index = 0; Index < FieldCount; ++Index)
-				{
-					FAuthoredPackageFieldRecord Field;
-					uint8 Kind = 0;
-					uint64 PayloadSize = 0;
-					if (!ReadString(Field.DeclaringClass) || !ReadString(Field.Name)
-						|| !Read(Kind) || !ReadString(Field.TypeSignature)
-						|| !Read(PayloadSize) || PayloadSize > GetRemainingPayloadBytes())
+					const auto Kind = Scope.Type->Kind;
+					if (Scope.IsIntrinsicComponent() || (Kind != K::Struct && Kind != K::Intrinsic && Kind != K::FixedArray
+						&& Kind != K::Array && Kind != K::Map && Kind != K::Bytes))
 					{
-						if (!IsError()) FailLoad(EArchiveFailureCode::TruncatedPayload,
-							{EAssetReadError::CorruptFile, std::format("Truncated field '{}': requested {} bytes, remaining {}.", Field.Name, PayloadSize, GetRemainingPayloadBytes())});
-						return false;
+						if (Scope.Cursor != 1) Invalid("Stored value was not consumed exactly once.");
 					}
-					Field.Kind = static_cast<DurinCodeGen::EPropertyGenFlags>(Kind);
-					Field.Payload.resize(static_cast<size_t>(PayloadSize));
-					if (PayloadSize != 0)
+					else if (Kind == K::Bytes)
 					{
-						SerializeRawBytes(Field.Payload);
-						if (IsError()) return false;
+						if (Scope.Cursor != Scope.Value->Bytes.size()) Invalid("Opaque byte field has trailing payload.");
 					}
-					State.Fields.push_back(std::move(Field));
+					else
+					{
+						const size_t Count = Scope.Layout != 0 ? (Scope.Layout == 5 ? 3 : Scope.Layout == 1 ? 2 : Scope.Layout == 2 ? 3 : 4)
+							: Scope.Value->Elements.size();
+						if ((Kind == K::Array || Kind == K::Map) && Scope.Cursor != 1) Invalid("Container count was not consumed.");
+						for (size_t Index = 0; Index < Count && !IsError(); ++Index)
+						{
+							if (Index < Scope.Consumed.size() && Scope.Consumed[Index]) continue;
+							if (Kind == K::Struct && !IsCooking())
+							{
+								const auto* Schema = LinkerSchema::FindSchema(Linker, Scope.Type->QualifiedName);
+								const auto Field = Schema && Index < Scope.Value->FieldNames.size()
+									? LinkerSchema::FindPropertyByName(*Schema, Scope.Value->FieldNames[Index]) : std::nullopt;
+								if (Field && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Removed) continue;
+							}
+							FailLoad(EArchiveFailureCode::MalformedSerializer, {EAssetReadError::UnsupportedProperty, "Stored field or container element was not consumed."});
+						}
+					}
 				}
-				State.Consumed.assign(State.Fields.size(), 0);
-				return true;
+				Scopes.pop_back();
 			}
 
 			DObject& Object;
-			std::span<const FAuthoredPackageFieldRecord> Fields;
+			std::span<const ObjectPackage::FPropertyTag> Fields;
+			const ObjectPackage::FLinkerTables& Linker;
 			std::span<DObject* const> Objects;
 			const FPackageLoadBindings& Bindings;
 			std::vector<uint8> Consumed;
-			std::vector<FLoadScope> Stack;
-			std::vector<FPathType> PathTypes;
-			std::unordered_map<std::string, std::vector<FName>> LoadedDeprecatedProperties;
+			std::vector<FLoadScope> Scopes;
 			EAssetReadError LoadError = EAssetReadError::None;
 		};
 
 	}
 
-	auto LoadAuthoredObject(
+	auto LoadPackageObject(
 		DObject& Object,
-		std::span<const FAuthoredPackageFieldRecord> Fields,
+		std::span<const ObjectPackage::FPropertyTag> Fields,
+		const ObjectPackage::FLinkerTables& Linker,
 		std::span<DObject* const> Objects,
 		const FPackageLoadBindings& Bindings,
-		uint32 SourceVersion,
-		std::span<const FArchiveCustomVersion> CustomVersions,
 		const FArchiveState& Context) -> FAssetReadResult
 	{
-		FAuthoredLoadArchive Archive(
-			Object, Fields, Objects, Bindings, SourceVersion, CustomVersions, Context);
+		FPackageLoadArchive Archive(
+			Object, Fields, Linker, Objects, Bindings, Context);
 		{
 			auto Scope = Archive.EnterObject(Object);
 			if (Context.bCooking) Object.SerializeCooked(Archive);

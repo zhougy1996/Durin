@@ -294,7 +294,7 @@ namespace Durin::ObjectPackage
 		ExternalBulkHash,
 		ExportTopology,
 		BulkCoverage,
-		CanonicalWriterRejected,
+		ValueShape,
 		NonCanonicalBytes,
 		EnvelopeRejected,
 	};

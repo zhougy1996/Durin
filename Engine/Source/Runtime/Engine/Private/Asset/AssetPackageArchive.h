@@ -6,20 +6,12 @@
 #include "Asset/AssetReadResult.h"
 #include "Asset/PackageResource.h"
 #include "DObject/Archive.h"
+#include "DObject/PackageLinker.h"
 #include "DObject/PackageValueCodec.h"
 #include "DObject/DObjectGlobals.h"
 
 namespace Durin::AssetPrivate
 {
-	struct FAuthoredPackageFieldRecord
-	{
-		std::string DeclaringClass;
-		std::string Name;
-		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
-		std::string TypeSignature;
-		FByteBuffer Payload;
-	};
-
 	struct FAuthoredPackageSummary
 	{
 		std::string AssetClassName;
@@ -39,13 +31,13 @@ namespace Durin::AssetPrivate
 
 	// Applies fields only; this does not construct a graph, invoke PostLoad, or
 	// roll back serializer writes. Callers preparing a replacement must own the target.
-	ENGINE_API auto LoadAuthoredObject(
+	// Fields and Linker are borrowed unchanged for the synchronous Serialize call.
+	ENGINE_API auto LoadPackageObject(
 		DObject& Object,
-		std::span<const FAuthoredPackageFieldRecord> Fields,
+		std::span<const ObjectPackage::FPropertyTag> Fields,
+		const ObjectPackage::FLinkerTables& Linker,
 		std::span<DObject* const> Objects,
 		const FPackageLoadBindings& Bindings,
-		uint32 SourceVersion,
-		std::span<const FArchiveCustomVersion> CustomVersions = {},
 		const FArchiveState& Context = {}) -> FAssetReadResult;
 
 	// Byte-tool restoration may resolve external object references. It is a load
