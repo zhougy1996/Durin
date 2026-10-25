@@ -135,7 +135,7 @@ widgets instead of expanding into member rows.
 ## Typed Metadata Presentation
 
 Authoring syntax, applicability, and runtime metadata ownership are defined by
-[Property reflection](../../Runtime/Core/PropertyReflection.md#typed-authoring-metadata).
+[Property reflection](../../Runtime/ObjectSystem/PropertyReflection.md#typed-authoring-metadata).
 
 The generic property view reads `FProperty::GetTypedMetadata()` for first-party
 presentation. `DisplayName` replaces the humanized field label, `ToolTip` is
@@ -149,7 +149,7 @@ raw strings.
 
 Hard-bound checks run against the complete detached draft before live mutation
 or session capture. Their applicability and exact numeric behavior are owned by
-[Property reflection](../../Runtime/Core/PropertyReflection.md#typed-authoring-metadata).
+[Property reflection](../../Runtime/ObjectSystem/PropertyReflection.md#typed-authoring-metadata).
 
 ## Container Controls
 
@@ -164,7 +164,7 @@ inserting and then renaming a live entry.
 
 The generic weak-reference row reports null, live, expired, or type-mismatched
 state and permits an explicit clear. It does not offer a durable asset picker;
-weak-reference storage and retention follow [Property reflection](../../Runtime/Core/PropertyReflection.md#soft-and-weak-references).
+weak-reference storage and retention follow [Property reflection](../../Runtime/ObjectSystem/PropertyReflection.md#soft-and-weak-references).
 
 `LoadSoftObject` returns `FPropertySoftLoadResult` with owned location, path,
 and typed storage/accessor/asset failure context. Failure clears the output

@@ -157,8 +157,8 @@ Repository build and test commands must follow [Build And Run](../../../Developm
 
 ## Related Documentation
 
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)

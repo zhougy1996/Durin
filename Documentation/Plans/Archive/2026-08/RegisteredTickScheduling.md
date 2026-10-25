@@ -435,7 +435,7 @@ Build and test commands must follow
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)

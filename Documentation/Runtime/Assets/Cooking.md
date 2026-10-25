@@ -168,7 +168,7 @@ package build edges separately from hard/soft runtime references in Registry v3.
 Other declaration kinds are Cook-only. Metadata aids scheduling; current Cook
 object declarations own direct/transitive semantics, and metadata-only build
 inputs observe source/bulk directly. Registry v2 remains readable. See
-[package persistence](../Core/PackagePersistence.md) and
+[package persistence](../ObjectSystem/PackagePersistence.md) and
 [package format](AssetPackages.md#defaults-and-version-policy).
 
 ## Dependency discovery and reuse

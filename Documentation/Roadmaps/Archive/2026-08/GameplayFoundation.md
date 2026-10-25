@@ -311,9 +311,9 @@ not activated when this roadmap completes.
 
 ## Related Documentation
 
-- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)

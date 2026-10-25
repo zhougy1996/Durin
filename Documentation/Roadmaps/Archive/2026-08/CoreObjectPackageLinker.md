@@ -203,7 +203,7 @@ editor launch during earlier milestones.
 
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Testing Workflow](../../../Agents/Testing.md)

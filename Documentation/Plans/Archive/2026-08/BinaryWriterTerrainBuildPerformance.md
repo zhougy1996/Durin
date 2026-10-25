@@ -114,7 +114,7 @@ determinism, Cook, and corruption coverage.
 
 ## Related Documentation
 
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Terrain World Data](../../../Runtime/Terrain/TerrainWorldData.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

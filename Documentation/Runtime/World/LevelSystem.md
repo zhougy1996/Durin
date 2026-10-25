@@ -155,7 +155,7 @@ Spawn path. Spawn is rejected before allocation while the World is ending.
 Repeated or recursive World BeginPlay and EndPlay calls are idempotent.
 
 Process placement of World Tick and the GameThread completion pumps is defined
-by [Runtime Lifecycle](../Core/RuntimeLifecycle.md).
+by [Runtime Lifecycle](../Application/RuntimeLifecycle.md).
 
 ## World Operation Boundaries
 
@@ -192,7 +192,7 @@ Leaving an operation never runs collection; it only permits the existing host
 GC safe point or a later explicit collector call to service the retained request.
 Explicit garbage marking still invalidates objects immediately. The deferral
 protects storage, not permission to keep dispatching to retired objects. The
-[Runtime Lifecycle](../Core/RuntimeLifecycle.md) owns the process GC boundary.
+[Runtime Lifecycle](../Application/RuntimeLifecycle.md) owns the process GC boundary.
 
 ## Native Gameplay Session
 

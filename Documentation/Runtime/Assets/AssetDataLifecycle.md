@@ -168,7 +168,7 @@ buffer or BulkData lease until synchronous decoding finishes and publish only
 after exact payload completion. StaticMesh cooked products keep joint render
 and collision publication at the product boundary, including metadata checks.
 The ordinary family serializer does not own rollback or resource updates; see
-[Serialization](../Core/Serialization.md) for the in-place payload contract.
+[Serialization](../ObjectSystem/Serialization.md) for the in-place payload contract.
 
 Import translates captured physical sources into canonical authored inputs;
 build transforms detached inputs into derived products; compilation schedules

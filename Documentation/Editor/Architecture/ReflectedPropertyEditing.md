@@ -19,7 +19,7 @@ still use their own setters; `DObject` does not own editor history.
 | Actor/Component targets and aggregation | [Level Editor Details](LevelEditorDetails.md) |
 | Payload encoding, exact object identity, and record retention | [Transaction records](TransactionRecords.md) |
 | Scoped recording, Undo/Redo ordering, package revisions, and dirty checkpoints | [Transactors](Transactors.md) |
-| Property kinds, metadata, and value operations | [Property reflection](../../Runtime/Core/PropertyReflection.md) |
+| Property kinds, metadata, and value operations | [Property reflection](../../Runtime/ObjectSystem/PropertyReflection.md) |
 
 A host owns `FPropertyView`, which owns one `FPropertyEditSession`. A live session
 temporarily roots its exact preview target and releases that root on commit,

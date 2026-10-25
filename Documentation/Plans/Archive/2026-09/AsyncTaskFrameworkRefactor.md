@@ -1374,7 +1374,7 @@ preserve its owner registration and retirement boundary.
 ## Related Documentation
 
 - [CPU task system](../../../Runtime/Core/TaskSystem.md)
-- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
 - [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
 

@@ -14,12 +14,12 @@ requires; do not read unrelated topics or scan an entire directory.
 | Configuring, building, running, or recovering for task validation | [Agent build and run workflow](Agents/BuildAndRun.md) |
 | Changing build/run workflows, output layout, setup, or recovery behavior | [Build and run](Development/Build/BuildAndRun.md) |
 | AI-assisted local toolchain configuration or setup checks | [DevTool setup configuration](Development/Tooling/DevToolSetup.md) |
-| Reflected type identity, registration, class defaults, or enum metadata | [Reflection system](Runtime/Core/ReflectionSystem.md) |
-| Runtime transaction capture, custom-change participants, or transaction object contracts | [Runtime transactions](Runtime/Core/Transactions.md) |
-| DPROPERTY types, typed metadata, containers, or serialized field compatibility | [Property reflection](Runtime/Core/PropertyReflection.md) |
-| DSTRUCT value capabilities, detached storage, logical comparison, or type defaults | [Reflected struct operations](Runtime/Core/StructOperations.md) |
+| Reflected type identity, registration, class defaults, or enum metadata | [Reflection system](Runtime/ObjectSystem/ReflectionSystem.md) |
+| Runtime transaction capture, custom-change participants, or transaction object contracts | [Runtime transactions](Runtime/ObjectSystem/Transactions.md) |
+| DPROPERTY types, typed metadata, containers, or serialized field compatibility | [Property reflection](Runtime/ObjectSystem/PropertyReflection.md) |
+| DSTRUCT value capabilities, detached storage, logical comparison, or type defaults | [Reflected struct operations](Runtime/ObjectSystem/StructOperations.md) |
 | DHT parsing, reflected symbol exports, or generated C++ | [Reflection generation](Development/Tooling/ReflectionGeneration.md) |
-| DFUNCTION native invocation, inherited CallInEditor buttons, or action transactions | [Native function reflection](Runtime/Core/FunctionReflection.md), [Editor function actions](Editor/Architecture/EditorFunctionActions.md) |
+| DFUNCTION native invocation, inherited CallInEditor buttons, or action transactions | [Native function reflection](Runtime/ObjectSystem/FunctionReflection.md), [Editor function actions](Editor/Architecture/EditorFunctionActions.md) |
 | CMake metadata, target generation, or module binaries | [Build system](Development/Build/BuildSystem.md) |
 | Runtime variants or build presets | [Runtime variants](Development/Build/RuntimeVariants.md) |
 | Tracy or CPU profiling | [CPU profiling](Development/Build/Profiling.md) |
@@ -53,16 +53,16 @@ requires; do not read unrelated topics or scan an entire directory.
 | Async asset compilation domains, aggregate progress, selected finish/cancel, or provider registration | [Asset compilation](Runtime/Assets/AssetCompilation.md) |
 | Sky Light sources, procedural capture, Studio migration, or GPU environment filtering | [Sky lighting](Runtime/Rendering/SkyLighting.md) |
 | Volume texture source, build, payload, cook, or GPU resource contract | [Volume textures](Runtime/Assets/VolumeTextures.md) |
-| Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
+| Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Application/RuntimeLifecycle.md) |
 | Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/AsyncAssetOperations.md) |
 | Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |
-| Engine-free package saves, async completion, or staged package persistence | [Package persistence](Runtime/Core/PackagePersistence.md) |
-| Canonical archives, object serialization, duplication, defaults, or authored override intent | [Serialization](Runtime/Core/Serialization.md) |
-| Window decoration modes, custom title bars, or native hit testing | [Window frames](Runtime/Core/WindowFrames.md) |
+| Engine-free package saves, async completion, or staged package persistence | [Package persistence](Runtime/ObjectSystem/PackagePersistence.md) |
+| Canonical archives, object serialization, duplication, defaults, or authored override intent | [Serialization](Runtime/ObjectSystem/Serialization.md) |
+| Window decoration modes, custom title bars, or native hit testing | [Window frames](Runtime/Application/WindowFrames.md) |
 | Image decoding, Radiance HDR, or grayscale16 PNG | [Core image codec](Runtime/Core/ImageCodec.md) |
 | Actor or Component Tick registration, groups, ordering, or mutation | [Tick scheduling](Runtime/World/TickScheduling.md) |
 | Gameplay delay, looping callbacks, next-frame scheduling, or World time scale | [World timers](Runtime/World/WorldTimers.md) |
-| Common subsystem lifecycle, Engine services, or scope selection | [Subsystems](Runtime/Core/Subsystems.md) |
+| Common subsystem lifecycle, Engine services, or scope selection | [Subsystems](Runtime/Engine/Subsystems.md) |
 | Editor subsystem services, Actor/Component structural editing, or notification lifetime | [Editor subsystems](Editor/Architecture/EditorSubsystems.md) |
 | World subsystem registration, per-World services, or subsystem retirement | [World subsystems](Runtime/World/WorldSubsystems.md) |
 | Level ownership, World play state, gameplay session, lifecycle mutation, or Actor iteration | [Level system](Runtime/World/LevelSystem.md) |

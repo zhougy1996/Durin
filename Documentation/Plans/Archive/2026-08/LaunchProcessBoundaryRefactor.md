@@ -583,7 +583,7 @@ Dependencies: Stages 1-5.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Native Crash Diagnostics](../../../Runtime/Core/NativeCrashDiagnostics.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Code Modules](../../../Workspace/CodeModules.md)

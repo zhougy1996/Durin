@@ -486,7 +486,7 @@ Dependencies: Stage 4 complete.
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Build System](../../../Development/Build/BuildSystem.md)
 - [Texture Build Object Boundary Completion](TextureBuildObjectBoundaryCompletion.md)

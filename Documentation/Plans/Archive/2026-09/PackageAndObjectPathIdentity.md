@@ -405,7 +405,7 @@ and the plan contains an evidence-backed handoff.
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

@@ -144,7 +144,7 @@ partial writer.
 
 ## Related Documentation
 
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

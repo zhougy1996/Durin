@@ -42,7 +42,7 @@ work plus `51c0e690e`, `dde344e8b`, and `e4c546cb9`. At that baseline, ordinary
 saves entered `SavePackagesAtomically` and a stateless Engine singleton forwarded
 registry publication, metadata updates and recovery snapshots.
 
-Lasting contracts are published in [Package Persistence](../../../Runtime/Core/PackagePersistence.md),
+Lasting contracts are published in [Package Persistence](../../../Runtime/ObjectSystem/PackagePersistence.md),
 [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md), and
 [Code Modules](../../../Workspace/CodeModules.md). DAST v10 and existing transaction,
 revision, dependency identity, dirty-state and projection-pending boundaries are

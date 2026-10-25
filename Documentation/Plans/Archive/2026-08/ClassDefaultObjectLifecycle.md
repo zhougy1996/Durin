@@ -721,9 +721,9 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 ## Related Documentation
 
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
-- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
+- [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 - [Unified Archive Serialization Plan](UnifiedArchiveSerialization.md)

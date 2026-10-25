@@ -461,7 +461,7 @@ running, or recovering targets, follow
 ## Related Documentation
 
 - [Parent roadmap](../../../Roadmaps/Archive/2026-08/ModularFeatureAndDllUnloadSafety.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)

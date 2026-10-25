@@ -857,7 +857,7 @@ profile-specific commands.
 ## Related Documentation
 
 - [Engine Termination Lifecycle](../2026-07/EngineTerminationLifecycle.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

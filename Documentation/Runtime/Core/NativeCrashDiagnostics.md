@@ -109,6 +109,6 @@ sensitive before sharing it.
 
 ## Related documentation
 
-- [Runtime Lifecycle](RuntimeLifecycle.md)
+- [Runtime Lifecycle](../Application/RuntimeLifecycle.md)
 - [Build and Run](../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../Development/Build/NativeTests.md)

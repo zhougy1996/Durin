@@ -276,9 +276,9 @@ unblocked.
 
 - [Package And Object Path Identity](../2026-09/PackageAndObjectPathIdentity.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

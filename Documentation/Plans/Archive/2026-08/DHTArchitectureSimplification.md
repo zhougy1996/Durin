@@ -487,7 +487,7 @@ Dependencies: Stages 1-4 and every focused acceptance gate.
 
 ## Related Documentation
 
-- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build System](../../../Development/Build/BuildSystem.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
 - [DHT And Ninja Parallelism Coordination](../../../Investigations/DHTNinjaParallelismCoordination.md)

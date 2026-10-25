@@ -26,7 +26,7 @@ the current member, then decodes only into detached reflected storage.
 on `MacOS-arm64-Debug-DurinEditor`. The complete registered `all` profile build
 also passed. Lasting contracts are recorded in
 [Transaction Record Foundation](../../../Editor/Architecture/TransactionRecords.md)
-and [Garbage Collection](../../../Runtime/Core/GarbageCollection.md). The active
+and [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md). The active
 `FTransactionManager` remains the only user-visible history; P1 may now begin.
 
 ## Goal
@@ -200,7 +200,7 @@ the transaction foundation.
 
 ### Stage 3: Qualification And Lasting Contracts
 
-- [x] Update [Garbage Collection](../../../Runtime/Core/GarbageCollection.md) with the
+- [x] Update [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md) with the
   exact collector-enumerated transaction-reference boundary and update or add
   the owning editor architecture contract for the landed foundation.
 - [x] Run `CoreObjectTests`, `CorePropertyValueSnapshotTests`, and the focused

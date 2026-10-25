@@ -182,7 +182,7 @@ modules compile, no Engine runtime ran, and P2 has frozen bytes to read.
 - [Core binary envelope](../../../../Engine/Source/Runtime/Core/Public/Serialization/BinaryEnvelope.h)
 - Temporary v7 writer (retired by the single-package-IR cutover)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)

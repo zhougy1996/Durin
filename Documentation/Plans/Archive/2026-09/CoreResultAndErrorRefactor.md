@@ -186,8 +186,8 @@ successful images from typed failures; relevant malformed-input tests pass.
 Dependency: Stages 1–4. Each earlier batch must also pass its applicable gates.
 
 - [x] Update implemented contracts in their owning Runtime documents, including
-  [Serialization](../../../Runtime/Core/Serialization.md) and
-  [Package persistence](../../../Runtime/Core/PackagePersistence.md).
+  [Serialization](../../../Runtime/ObjectSystem/Serialization.md) and
+  [Package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md).
 - [x] Search all workspace source/test roots for stale selected API names,
   result-member access, and premature formatting.
 - [x] Complete the shared Engine API `all` build and affected project targets.

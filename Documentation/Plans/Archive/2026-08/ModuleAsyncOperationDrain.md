@@ -176,7 +176,7 @@ accounting so module shutdown can prove quiescence before native release.
 - [Parent roadmap](../../../Roadmaps/Archive/2026-08/ModularFeatureAndDllUnloadSafety.md)
 - [Modular feature and retirement contract](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 

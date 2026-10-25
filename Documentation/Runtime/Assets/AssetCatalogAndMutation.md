@@ -184,7 +184,7 @@ only admission and exposes no task handle. For persistence confirmation use
 participant validation and Registry publication; the CoreDObject file-only
 context cannot substitute for it in editor workflows. Shared lifetime, capacity,
 wait and shutdown rules are defined by
-[Package persistence](../Core/PackagePersistence.md#operation-lifetime-and-completion).
+[Package persistence](../ObjectSystem/PackagePersistence.md#operation-lifetime-and-completion).
 
 Protected tasks capture on GameThread, stage detached output on BlockingIO and
 complete after GameThread validation, commit, Registry publication and finalization

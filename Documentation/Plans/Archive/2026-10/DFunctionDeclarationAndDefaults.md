@@ -55,7 +55,7 @@ reflected function per name, exact native signatures, inherited function slot
 identity, synchronous invocation, and existing parameter lifetime/GC rules.
 
 Authoritative implemented contracts remain in
-[Native Function Reflection](../../../Runtime/Core/FunctionReflection.md) and
+[Native Function Reflection](../../../Runtime/ObjectSystem/FunctionReflection.md) and
 [Reflection Generation](../../../Development/Tooling/ReflectionGeneration.md).
 This plan selects future behavior; update those documents as stages land.
 

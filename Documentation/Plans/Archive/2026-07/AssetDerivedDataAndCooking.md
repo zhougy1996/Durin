@@ -1212,7 +1212,7 @@ material-preview, and final-handoff stages are superseded by integrated Stages
 - `Documentation/Runtime/Assets/AssetDataLifecycle.md`
 - `Documentation/Runtime/World/LevelSystem.md`
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/TextureSystem.md`
 - `Documentation/Runtime/Rendering/CubeTextures.md`
 - `Documentation/Development/VersionControl/ContentVersionControl.md`

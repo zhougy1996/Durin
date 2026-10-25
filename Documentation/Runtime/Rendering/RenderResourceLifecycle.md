@@ -110,7 +110,7 @@ releases backend RHI ownership, and flushes newly queued release work before
 module shutdown returns.
 
 Process-level consumer detachment and module ordering are defined by
-[Runtime Lifecycle](../Core/RuntimeLifecycle.md). Module-owned callable and DLL
+[Runtime Lifecycle](../Application/RuntimeLifecycle.md). Module-owned callable and DLL
 retirement rules are defined by
 [Modular Features And Module Retirement](../Core/ModularFeaturesAndModuleRetirement.md).
 
@@ -130,7 +130,7 @@ terminal backend marker, and thread-stop diagnostics are defined by
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../Application/RuntimeLifecycle.md)
 - [RHI Command Execution](RHICommandExecution.md)
 - [Texture System](TextureSystem.md)
 - [Renderer Resource Recovery](RendererResourceRecovery.md)

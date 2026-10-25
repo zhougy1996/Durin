@@ -900,7 +900,7 @@ repository handoff rules.
 ## Related Documentation
 
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Unreal Engine Tasks System](https://dev.epicgames.com/documentation/unreal-engine/tasks-systems-in-unreal-engine)
 - [Unreal Engine `FPipe`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/FPipe)

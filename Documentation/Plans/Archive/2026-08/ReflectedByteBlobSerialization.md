@@ -324,8 +324,8 @@ reliable without weakening general Array semantics or planner safety limits.
 
 ## Related Documentation
 
-- [Serialization](../../../Runtime/Core/Serialization.md)
-- [Generated reflection system](../../../Runtime/Core/ReflectionSystem.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
+- [Generated reflection system](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Asset packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Volume textures](../../../Runtime/Assets/VolumeTextures.md)

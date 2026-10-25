@@ -398,7 +398,7 @@ This roadmap is complete when:
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

@@ -318,7 +318,7 @@ fully stateless fallback.
 
 ## Related Documentation
 
-- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
 - [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)

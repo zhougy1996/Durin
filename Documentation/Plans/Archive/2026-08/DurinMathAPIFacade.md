@@ -734,7 +734,7 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 - [Core Math](../../../Runtime/Core/Math.md)
 - [Reflected Struct Operations](ReflectedStructOperations.md)
 - [Typed Struct Property Registration](TypedStructPropertyRegistration.md)
-- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

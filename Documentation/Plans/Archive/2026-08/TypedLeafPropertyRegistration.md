@@ -499,7 +499,7 @@ Object distinction.
 - Baseline commit: plan baseline `9bc4afad`; delivered in the squashed
   implementation commit.
 - Working set: intrinsic math registration, CoreDObject/AssetCore/editor native
-  fixtures, and `Documentation/Runtime/Core/ReflectionSystem.md`.
+  fixtures, and `Documentation/Runtime/ObjectSystem/ReflectionSystem.md`.
 - Key symbols and decisions: GLM-backed components use typed paired accessors;
   offset-backed colors and all supported fixtures use typed records; direct
   Object test nodes supply logical callbacks; Generic is used only by its
@@ -539,7 +539,7 @@ Object distinction.
 - Working set: validation artifacts under the configured Agent Build Profile
   and this completion record.
 - Key symbols and decisions: no contract changes after Stage 3; lasting rules
-  are owned by `Documentation/Runtime/Core/ReflectionSystem.md`.
+  are owned by `Documentation/Runtime/ObjectSystem/ReflectionSystem.md`.
 - Open questions: None.
 - Validation: purged-cache DHT generation reported `hits=0` and
   `reasons=not-found` for CoreDObject (2 headers), AssetCore (3),
@@ -600,7 +600,7 @@ Configure, build, and native-test execution follows
 
 ## Related Documentation
 
-- [`Documentation/Runtime/Core/ReflectionSystem.md`](../../../Runtime/Core/ReflectionSystem.md)
+- [`Documentation/Runtime/ObjectSystem/ReflectionSystem.md`](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [`Documentation/Development/Build/BuildAndRun.md`](../../../Development/Build/BuildAndRun.md)
 - [`Documentation/Plans/Archive/2026-08/TypedStructPropertyRegistration.md`](TypedStructPropertyRegistration.md)
 - [`Documentation/Plans/Archive/2026-08/ReflectedStructOperations.md`](ReflectedStructOperations.md)

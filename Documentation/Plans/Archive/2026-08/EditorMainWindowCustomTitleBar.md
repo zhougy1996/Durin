@@ -603,7 +603,7 @@ matrix cells as passing evidence.
 ## Related Documentation
 
 - [Editor UI Style](../../../Editor/Design/UIStyle.md)
-- [Window Frame Contract](../../../Runtime/Core/WindowFrames.md)
+- [Window Frame Contract](../../../Runtime/Application/WindowFrames.md)
 - [Windows Native Window Modal-Loop Ticking](WindowsNativeWindowModalLoopTick.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

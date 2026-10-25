@@ -96,4 +96,4 @@ so no failed frame advances or silently erases continuity.
 - [Viewport rendering](ViewportRendering.md)
 - [Render resource lifecycle](RenderResourceLifecycle.md)
 - [Renderer resource recovery](RendererResourceRecovery.md)
-- [Runtime lifecycle](../Core/RuntimeLifecycle.md)
+- [Runtime lifecycle](../Application/RuntimeLifecycle.md)

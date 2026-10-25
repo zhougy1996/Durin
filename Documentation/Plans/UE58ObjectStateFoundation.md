@@ -82,7 +82,7 @@ component override establishes native ownership; editor instance-presence
 commands explicitly prepare absence before Apply. Hook failure retires the fully
 constructed registered graph for normal virtual GC destruction. Registration,
 initialization and Play remain separate lifecycle transitions. The lasting rules
-are documented in [object initialization](../Runtime/Core/GarbageCollection.md#object-initialization)
+are documented in [object initialization](../Runtime/ObjectSystem/GarbageCollection.md#object-initialization)
 and [native construction](../Runtime/World/NativeConstruction.md).
 
 The new virtual interface invalidated the initial Stage 6 ABI evidence. Fresh

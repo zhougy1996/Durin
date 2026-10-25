@@ -447,7 +447,7 @@ visible whether it precedes or races a wait. Destroying or restarting the fence
 does not invalidate queued event/receipt captures. RHI submission or execution
 failure is terminal rather than a successful flush. Task-event admission remains
 open until rendering and RHI have stopped; render-producing task owners must
-close admission and join before render teardown. See [runtime shutdown](../Core/RuntimeLifecycle.md).
+close admission and join before render teardown. See [runtime shutdown](../Application/RuntimeLifecycle.md).
 
 Render shutdown closes render-command admission, drains every accepted command,
 flushes the immediate timeline and deferred deletion, then verifies all of the
@@ -477,7 +477,7 @@ queue sizing; they are not GPU timing measurements.
 ## Related Documentation
 
 - [RHI public API stability](RHIPublicAPIStability.md)
-- [Runtime lifecycle](../Core/RuntimeLifecycle.md)
+- [Runtime lifecycle](../Application/RuntimeLifecycle.md)
 - [Render resource lifecycle](RenderResourceLifecycle.md)
 - [Viewport rendering](ViewportRendering.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)

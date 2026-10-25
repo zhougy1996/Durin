@@ -258,7 +258,7 @@ targets, fixtures, failure injection, budgets, and evidence.
 
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [File I/O](../../../Runtime/Core/FileIO.md)
 - [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Workspace and Projects](../../../Workspace/WorkspaceProjects.md)

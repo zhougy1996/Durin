@@ -240,7 +240,7 @@ acceptance evidence for this plan.
 - `Engine/Source/Editor/TextureEditor/Private/`
 - `Engine/Tests/Native/EngineTests/Private/Texture/`
 - `Engine/Tests/Native/EngineTests/Private/TextureCubeTests.cpp`
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)

@@ -182,7 +182,7 @@ inherit another authority's placement, fallback, or failure policy.
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)
 - [Testing](../../../Agents/Testing.md)
 

@@ -285,7 +285,7 @@ The required roadmap is complete when:
 ## Related Documentation
 
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Implementation Plan Rules](../../../Plans/AGENTS.md)
 - [Task Continuations and Thread Dispatch](../../../Plans/Archive/2026-08/TaskContinuationsAndThreadDispatch.md)

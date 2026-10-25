@@ -120,7 +120,7 @@ reparsing their headers. CMake stamps and byproducts, persistent DHT phase
 state, parser-worker scheduling, cache invalidation, output repair, and logging
 are build-system responsibilities defined by
 [Build System](../Build/BuildSystem.md). They do not alter the
-runtime [reflection contracts](../../Runtime/Core/ReflectionSystem.md).
+runtime [reflection contracts](../../Runtime/ObjectSystem/ReflectionSystem.md).
 
 `GENERATED_BODY()` identities include source line numbers, so any reflected
 header edit remains a direct generation input even when its public export is
@@ -209,7 +209,7 @@ a descendant header's incremental dependency snapshot. The hermetic synthetic
 prelude exposes supported ancestor method declarations; ordinary includes and
 method bodies remain outside extraction. Generated invokers live inside the
 existing friended class statics helper and call selected typed member pointers. See
-[Native function reflection](../../Runtime/Core/FunctionReflection.md) for the
+[Native function reflection](../../Runtime/ObjectSystem/FunctionReflection.md) for the
 supported signatures, metadata, and runtime registration contract. Generated
 function statics emit `TNativePropertyParams<T>` records, an ordered property record
 array, and `FFunctionLayoutParams` with target-compiler aggregate layout and
@@ -255,7 +255,7 @@ Generated sparse default tables use typed immutable value factories, while
 parameter aggregates keep value initialization. The target compiler checks
 literal conversions, escape decoding, enum entries and exact selected member
 types. Reflected defaults are explicitly applied by owned parameter buffers;
-see the [runtime default contract](../../Runtime/Core/FunctionReflection.md#parameter-defaults).
+see the [runtime default contract](../../Runtime/ObjectSystem/FunctionReflection.md#parameter-defaults).
 
 Export files should only change when the exported reflected-symbol contract changes. Whitespace-only edits in a reflected header may force the owning module's export command to run, but should not rewrite the public `.export` file if the symbol index is unchanged. This keeps downstream modules from regenerating purely because an upstream header timestamp changed.
 
@@ -342,7 +342,7 @@ target-compiler offset; array dimensions and element strides keep their existing
 16-bit limits. Native function aggregate size retains its 65535-byte limit.
 
 Generated struct fields use the shared
-[struct property registration contract](../../Runtime/Core/PropertyReflection.md#struct-property-registration).
+[struct property registration contract](../../Runtime/ObjectSystem/PropertyReflection.md#struct-property-registration).
 The resolved `DStruct` owns value layout and operations for direct, fixed-array,
 and nested container descriptors.
 
@@ -367,5 +367,5 @@ preserve non-owning GC behavior.
 
 ## Related documentation
 
-- [Runtime reflection](../../Runtime/Core/ReflectionSystem.md)
+- [Runtime reflection](../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build system](../Build/BuildSystem.md)

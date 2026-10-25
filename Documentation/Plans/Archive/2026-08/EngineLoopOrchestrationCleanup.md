@@ -322,7 +322,7 @@ Dependencies: Stages 1-4.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)

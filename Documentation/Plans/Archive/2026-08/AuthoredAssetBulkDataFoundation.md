@@ -334,8 +334,8 @@ Cook, or runtime texture results.
 ## Related Documentation
 
 - [Large Asset Payload Architecture Roadmap](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
-- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
+- [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)

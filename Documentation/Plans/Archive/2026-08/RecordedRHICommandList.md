@@ -583,7 +583,7 @@ the full validation level specified there before this plan can complete.
 
 - [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
 

@@ -82,7 +82,7 @@ repository-search evidence.
 | Concern | Owning documentation |
 | --- | --- |
 | Package identity, v8 sections, live save/load, construct-free validation, offline converter boundary | `Runtime/Assets/AssetPackages.md` |
-| Format-neutral linker tables, tagged values, Archive capture/application, canonical value semantics | `Runtime/Core/Serialization.md` |
+| Format-neutral linker tables, tagged values, Archive capture/application, canonical value semantics | `Runtime/ObjectSystem/Serialization.md` |
 | Inline/external field state, v8 bulk directory, raw `.dbulk` binding and resource ranges | `Runtime/Assets/BulkData.md` |
 | Main/bulk atomic publication and rollback | `Runtime/Core/FileIO.md` |
 | Front-matter discovery, package-level dependencies, transient exact occurrences, mutation transactions | `Runtime/Assets/AssetCatalogAndMutation.md` |
@@ -186,6 +186,6 @@ Completed on 2026-08-31 without launching an application:
 - [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Bulk Data](../../../Runtime/Assets/BulkData.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Testing Workflow](../../../Agents/Testing.md)

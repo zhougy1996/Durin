@@ -37,7 +37,7 @@ process Cook consumers. Exact receipts and compatibility anchors are below.
 Documentation validation and all-plan lifecycle validation passed. No GPU
 performance or allocation-free decoding claim is made.
 
-Lasting contracts are published in [Serialization](../../../Runtime/Core/Serialization.md),
+Lasting contracts are published in [Serialization](../../../Runtime/ObjectSystem/Serialization.md),
 [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
 [BulkData](../../../Runtime/Assets/BulkData.md),
 [Volume Textures](../../../Runtime/Assets/VolumeTextures.md), and
@@ -67,7 +67,7 @@ replacement guarantees.
   ownership of package reload transactions or reference replacement.
 
 Existing contracts remain authoritative until their owning implementation stage
-updates them: [Serialization](../../../Runtime/Core/Serialization.md),
+updates them: [Serialization](../../../Runtime/ObjectSystem/Serialization.md),
 [Package Bulk Data](../../../Runtime/Assets/BulkData.md), and
 [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md).
 

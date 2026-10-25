@@ -484,7 +484,7 @@ gates. No Package Trailer Foundation plan is created by this result.
 - [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [File IO](../../../Runtime/Core/FileIO.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 - [Domain-Owned Large Asset Payload Architecture](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)

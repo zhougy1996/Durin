@@ -106,7 +106,7 @@ replacements remain complete, stable, validated, and serializable.
   NoDelta, old forced tags, malformed paths, copy, reload, and material graphs.
 - [x] Run focused and affected native tests plus an all build, following
   [testing](../../../Agents/Testing.md) and [build guidance](../../../Agents/BuildAndRun.md).
-- [x] Update [Serialization](../../../Runtime/Core/Serialization.md), validate changed
+- [x] Update [Serialization](../../../Runtime/ObjectSystem/Serialization.md), validate changed
   documentation and all plans, and record exact results before completion.
 
 ## Validation Findings

@@ -266,7 +266,7 @@ At each stage:
 
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
 - [Engine Asset Compiling Manager](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetCompilingManager.cpp)
 - [Texture2D Asset Type](../../../../Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h)

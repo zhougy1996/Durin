@@ -353,4 +353,4 @@ not enforce these machine-load-sensitive timing ceilings.
 - [Asset Packages](AssetPackages.md)
 - [Asset Data Lifecycle](AssetDataLifecycle.md)
 - [File I/O](../Core/FileIO.md)
-- [Serialization](../Core/Serialization.md)
+- [Serialization](../ObjectSystem/Serialization.md)

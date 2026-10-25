@@ -405,7 +405,7 @@ added. The conditional indexing and switch-over tasks are therefore not
 applicable to this implementation.
 
 Lasting contracts now live in [scoped material queries](../../../Runtime/Rendering/MaterialQueries.md),
-[object lifetime](../../../Runtime/Core/GarbageCollection.md#pointer-and-handle-semantics),
+[object lifetime](../../../Runtime/ObjectSystem/GarbageCollection.md#pointer-and-handle-semantics),
 and [editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md).
 The material-system query section links to its new focused owner rather than
 expanding an already long general specification. Transaction, timer and asset

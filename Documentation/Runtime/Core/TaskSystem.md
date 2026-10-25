@@ -570,7 +570,7 @@ Pending requests not yet launched remain in the owner queue.
 
 ## Shutdown And Diagnostics
 
-Engine startup/exit placement is defined by [Runtime Lifecycle](RuntimeLifecycle.md).
+Engine startup/exit placement is defined by [Runtime Lifecycle](../Application/RuntimeLifecycle.md).
 Normal operation has one process scheduler lifetime. Fully stopped schedulers
 may restart for isolated tests/tools; old terminal handles remain observable
 but cannot become direct task prerequisites in the new lifetime. Events remain

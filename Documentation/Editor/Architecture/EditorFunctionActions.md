@@ -91,7 +91,7 @@ no automatic retry or promise of atomic rollback.
 
 ## Related Documentation
 
-- [Native function reflection](../../Runtime/Core/FunctionReflection.md)
+- [Native function reflection](../../Runtime/ObjectSystem/FunctionReflection.md)
 - [Reflected property editing](ReflectedPropertyEditing.md)
 - [Property Details views](PropertyDetailsViews.md)
 - [Transactors](Transactors.md)

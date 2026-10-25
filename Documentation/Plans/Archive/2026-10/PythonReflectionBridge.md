@@ -941,8 +941,8 @@ platform gate is introduced by default. Store raw receipts under ignored Build/.
 
 ## Required References
 
-- [Native function reflection](../../../Runtime/Core/FunctionReflection.md)
-- [Property reflection](../../../Runtime/Core/PropertyReflection.md)
+- [Native function reflection](../../../Runtime/ObjectSystem/FunctionReflection.md)
+- [Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md)
 - [Reflection generation](../../../Development/Tooling/ReflectionGeneration.md)
 - [Python runtime and jobs](../../../Editor/Architecture/PythonTools.md)
 - [Python script guide](../../../Editor/Guides/PythonScripts.md)

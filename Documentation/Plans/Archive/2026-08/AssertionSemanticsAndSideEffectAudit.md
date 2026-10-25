@@ -342,7 +342,7 @@ Dependencies: Stage 3 repairs.
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 
 ## Related Code
 

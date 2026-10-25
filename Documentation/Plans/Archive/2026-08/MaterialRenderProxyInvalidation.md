@@ -651,7 +651,7 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 - `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
-- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 
 ## Related Code

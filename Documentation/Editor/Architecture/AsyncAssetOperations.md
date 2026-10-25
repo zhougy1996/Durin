@@ -111,7 +111,7 @@ AssetTools saves consume `DPackage::SaveAsync` with an explicit
 Registry disposition. Editor `FAssetSaveOperation::Complete` converts that result
 and emits notifications once; it never initiates publication. Normal host ticks
 advance the GameThread continuation. Headless hosts explicitly drain saves as
-specified by [Package persistence](../../Runtime/Core/PackagePersistence.md#operation-lifetime-and-completion).
+specified by [Package persistence](../../Runtime/ObjectSystem/PackagePersistence.md#operation-lifetime-and-completion).
 Do not replace confirmation-dependent import saves with admission-only
 `SAVE_Async`; accepted direct I/O cannot justify an editor Persisted result.
 

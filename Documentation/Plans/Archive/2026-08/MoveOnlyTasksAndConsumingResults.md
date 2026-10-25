@@ -919,7 +919,7 @@ and validation outcome.
 
 - [Task System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/TaskSystemEvolution.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Task Continuations and Thread Dispatch](TaskContinuationsAndThreadDispatch.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

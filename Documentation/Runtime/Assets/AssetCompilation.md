@@ -349,7 +349,7 @@ are known.
 ## Related Documentation
 
 - [Asset Data Lifecycle and Storage](AssetDataLifecycle.md)
-- [Runtime Lifecycle](../Core/RuntimeLifecycle.md)
+- [Runtime Lifecycle](../Application/RuntimeLifecycle.md)
 - [Texture System](../Rendering/TextureSystem.md)
 - [Material System](../Rendering/MaterialSystem.md)
 - [Modular Features And Module Retirement](../Core/ModularFeaturesAndModuleRetirement.md)
