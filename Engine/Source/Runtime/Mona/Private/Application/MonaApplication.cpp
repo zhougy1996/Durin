@@ -412,8 +412,6 @@ namespace Durin::Mona
 
 		NewWindow->Initialize(Definition);
 		InMonaWindow->SetNativeWindow(NewWindow);
-		InMonaWindow->SetCachedScreenPosition(DesiredScreenPosition);
-		InMonaWindow->SetCachedSize(DesiredSize);
 
 		if (bInShowImmediately)
 		{

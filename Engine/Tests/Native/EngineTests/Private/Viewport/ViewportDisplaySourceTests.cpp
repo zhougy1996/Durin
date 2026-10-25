@@ -11,6 +11,16 @@
 
 namespace
 {
+	class FTestClientAreaWindow final : public Durin::FGenericWindow
+	{
+	public:
+		auto ReshapeWindow(int32, int32, int32, int32) -> void override {}
+		auto ResizeWindow(int32, int32) -> void override {}
+		auto GetWindowPosition() const -> Durin::FIntPoint override { return {100, 150}; }
+		auto GetWindowSize() const -> Durin::FIntPoint override { return {1624, 1064}; }
+		auto GetViewportSize() const -> Durin::FIntPoint override { return {3248, 2128}; }
+	};
+
 	class FTestTexture final : public Durin::FRHITexture
 	{
 	public:
@@ -97,6 +107,39 @@ namespace
 		uint32 RenderCount = 0;
 	};
 
+}
+
+TEST(FMonaWindowGeometryTests, BindsActualClientGeometryBeforeTheFirstResizeEvent)
+{
+	Durin::MWindow Window;
+	Window.SetCachedScreenPosition({0.0f, 0.0f});
+	Window.SetCachedSize({1600.0f, 1000.0f});
+	Window.SetNativeWindow(std::make_shared<FTestClientAreaWindow>());
+
+	EXPECT_EQ(Window.GetScreenPosition(), Durin::FVector2f(100.0f, 150.0f));
+	EXPECT_EQ(Window.GetWindowSize(), Durin::FVector2f(1624.0f, 1064.0f));
+	EXPECT_EQ(Window.GetViewportSize(), Durin::FVector2f(3248.0f, 2128.0f));
+}
+
+TEST(FMonaWindowGeometryTests, KeepsActualClientGeometryAfterStartupReshape)
+{
+	Durin::MWindow Window;
+	Window.SetNativeWindow(std::make_shared<FTestClientAreaWindow>());
+	Window.ReshapeWindow({80.0f, 120.0f}, {1600.0f, 1000.0f});
+
+	EXPECT_EQ(Window.GetScreenPosition(), Durin::FVector2f(100.0f, 150.0f));
+	EXPECT_EQ(Window.GetWindowSize(), Durin::FVector2f(1624.0f, 1064.0f));
+	EXPECT_EQ(Window.GetViewportSize(), Durin::FVector2f(3248.0f, 2128.0f));
+}
+
+TEST(FMonaWindowGeometryTests, KeepsActualClientSizeAfterResize)
+{
+	Durin::MWindow Window;
+	Window.SetNativeWindow(std::make_shared<FTestClientAreaWindow>());
+	Window.ResizeWindow({1600.0f, 1000.0f});
+
+	EXPECT_EQ(Window.GetWindowSize(), Durin::FVector2f(1624.0f, 1064.0f));
+	EXPECT_EQ(Window.GetViewportSize(), Durin::FVector2f(3248.0f, 2128.0f));
 }
 
 TEST(FViewportPresentationTests, ReceiptsBelongToOneViewportGeneration)
