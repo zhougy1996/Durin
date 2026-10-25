@@ -99,9 +99,9 @@ Depends on Stage 1.
 ## Required References
 
 - [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
-- [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 - [Package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md)
-- [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset catalog and mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
 - [Task system](../../../Runtime/Core/TaskSystem.md)
 - [Build workflow](../../../Agents/BuildAndRun.md)
 - [Test workflow](../../../Agents/Testing.md)

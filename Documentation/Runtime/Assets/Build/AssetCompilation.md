@@ -103,7 +103,7 @@ from future snapshots, stops admission, finishes accepted work, invokes compiler
 shutdown, and releases the registered provider. Registration and reset run on
 GameThread outside compiler callbacks. Owners release remaining provider and
 callback copies before DLL unload under the
-[explicit module unload contract](../Core/ModularFeaturesAndModuleRetirement.md).
+[explicit module unload contract](../../Core/ModularFeaturesAndModuleRetirement.md).
 Typed-feature retirement does not suppress these cleanup calls.
 
 Concrete managers retain their own task handles, cancellation sources,
@@ -241,7 +241,7 @@ If Core task scheduling has already stopped, processing cancels queued requests
 instead of attempting a new dispatch. Normal shutdown still drains owners before Core.
 
 Build operations, DDC ownership, and typed build application are defined by
-[Asset Data Lifecycle](AssetDataLifecycle.md#serialization-and-production-ownership).
+[Asset Data Lifecycle](../Packages/AssetDataLifecycle.md#serialization-and-production-ownership).
 The texture manager routes `DTexture`, sharing its queue and limits between
 Texture2D and TextureCube. VolumeTexture currently builds synchronously and has
 no outstanding compilation to finish. Authored PostLoad submits detached source
@@ -312,7 +312,7 @@ Same-owner submissions from inside this barrier are rejected. New submissions
 then start with no active predecessor; no latest-wins serial is needed. Storage-only
 source recompression preserves semantic identity and retained read handles.
 Editor save and compensation adapters consume this terminal contract through
-[Async Asset Operations](../../Editor/Architecture/Assets/AsyncAssetOperations.md).
+[Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md).
 
 ## Proven Reuse Boundary
 
@@ -348,11 +348,11 @@ are known.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](AssetDataLifecycle.md)
-- [Runtime Lifecycle](../Application/RuntimeLifecycle.md)
-- [Texture System](TextureSystem.md)
-- [Material System](../Rendering/Materials/MaterialSystem.md)
-- [Modular Features And Module Retirement](../Core/ModularFeaturesAndModuleRetirement.md)
+- [Asset Data Lifecycle and Storage](../Packages/AssetDataLifecycle.md)
+- [Runtime Lifecycle](../../Application/RuntimeLifecycle.md)
+- [Texture System](../Families/TextureSystem.md)
+- [Material System](../../Rendering/Materials/MaterialSystem.md)
+- [Modular Features And Module Retirement](../../Core/ModularFeaturesAndModuleRetirement.md)
 
 ## StaticMesh Completion
 

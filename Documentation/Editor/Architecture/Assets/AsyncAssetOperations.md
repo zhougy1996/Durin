@@ -23,7 +23,7 @@ values; `FSceneImportSession` remains a compatibility alias. It does not introdu
 
 Texture2D imports commit authored Source/settings/import metadata on the
 GameThread and then start independent DDC work. Compiler completion follows
-[Asset Compilation](../../../Runtime/Assets/AssetCompilation.md#texture2d-completion).
+[Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md#texture2d-completion).
 Request identity and cancellation remain compilation concerns. Texture requests
 are serialized per object: a mutation cancels and finishes its predecessor before
 changing source/settings. That mutation boundary may block; detached preparation
@@ -189,6 +189,6 @@ multi-output transaction retains its separate prepared publication contract.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 - [Source File Workflows](../../Guides/SourceFileWorkflows.md)

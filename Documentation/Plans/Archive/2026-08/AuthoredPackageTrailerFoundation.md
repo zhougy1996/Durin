@@ -224,7 +224,7 @@ size disagreement, or any noncanonical order fails.
 - [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [Authored Package Storage Strategic Activation](AuthoredPackageStorageStrategicActivation.md)
 - [Authored Package Trailer Qualification](AuthoredPackageTrailerQualification.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [File IO](../../../Runtime/Core/FileIO.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

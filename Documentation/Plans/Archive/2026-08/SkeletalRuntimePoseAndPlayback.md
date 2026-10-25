@@ -556,7 +556,7 @@ used.
 - [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/Archive/2026-08/SkeletalMeshAndAnimation.md)
 - [Skeletal Asset and Import Foundation](SkeletalAssetAndImportFoundation.md)
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Core Math](../../../Runtime/Core/Math.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)

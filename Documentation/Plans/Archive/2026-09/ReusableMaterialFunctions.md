@@ -1017,8 +1017,8 @@ and Editor documents only after implementation.
 
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
 - [UE Material Functions](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-material-functions-overview): typed texture inputs and reusable function assets.
 - [UE Material Attributes](https://dev.epicgames.com/documentation/unreal-engine/material-attributes-expressions-in-unreal-engine): grouped Surface output and selective attribute access.
 

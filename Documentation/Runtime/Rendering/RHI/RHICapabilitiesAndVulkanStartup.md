@@ -330,7 +330,7 @@ the current native-test framework and are not part of this contract.
 - [RHI command execution](RHICommandExecution.md)
 - [RHI diagnostics and conformance](RHIDiagnosticsAndConformance.md)
 - [Viewport rendering](../Pipeline/ViewportRendering.md)
-- [Texture system](../../Assets/TextureSystem.md)
+- [Texture system](../../Assets/Families/TextureSystem.md)
 - [RHI and Vulkan backend evolution](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
 - [Native tests](../../../Development/Build/NativeTests.md)

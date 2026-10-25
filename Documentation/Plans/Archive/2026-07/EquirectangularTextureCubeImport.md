@@ -116,7 +116,7 @@ panorama after save, reload, move, and reimport.
   Bilinear taps follow the same rules and never read outside the decoded image.
 - Cube-face pixel centers convert to directions through one shared inverse of
   the authoritative direction-to-face convention in
-  `Documentation/Runtime/Assets/CubeTextures.md`. Import code must not carry
+  `Documentation/Runtime/Assets/Families/CubeTextures.md`. Import code must not carry
   a second undocumented axis or flip table.
 - The derived default face dimension is `panorama width / 4`, matching the
   panorama's equatorial angular texel density. An explicit override is a
@@ -388,7 +388,7 @@ expanding into native HDR or IBL.
 ## Related Documentation
 
 - [Documentation Guide](../../../README.md)
-- [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
+- [Cube Textures](../../../Runtime/Assets/Families/CubeTextures.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

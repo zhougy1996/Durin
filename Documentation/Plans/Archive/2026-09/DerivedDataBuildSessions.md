@@ -44,7 +44,7 @@ rules remain useful. The earlier plan also records the deferred Windows Game
 build/startup validation; neither plan claims completion evidence for it. Its
 restrictions against a function registry and separate definition/action
 identities have been superseded by the implemented stages.
-[Derived Data Build Protocol](../../../Runtime/Assets/DerivedDataBuild.md) records the
+[Derived Data Build Protocol](../../../Runtime/Assets/Build/DerivedDataBuild.md) records the
 implemented contract.
 
 ## Goal

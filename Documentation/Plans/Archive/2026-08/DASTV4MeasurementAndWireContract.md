@@ -21,7 +21,7 @@ Completed: 2026-08-08
   `5955D6A8C777870C` are exact goldens. Modeled parse/allocation inputs fall from
   v3's 5,020/3,948 to 136/133 without compression or unowned bytes.
 - The lasting qualified layout now resides in
-  [Asset Packages](../../../Runtime/Assets/AssetPackages.md#frozen-dast-v4-wire-contract),
+  [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md#frozen-dast-v4-wire-contract),
   and the [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
   records this milestone complete and Default-relative reflection ready to
   activate. AssetCore still reads and writes DAST v3 exclusively; no production
@@ -783,7 +783,7 @@ no open wire or feasibility question remains.
 #### Stage 4 Evidence and Final Handoff
 
 Stage 4 began from `0d4f6b56`. Its modified working set is this plan,
-[Asset Packages](../../../Runtime/Assets/AssetPackages.md), and the
+[Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md), and the
 [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md);
 the Stage 0 through 3 package fixtures remain the executable evidence. Key
 symbols are `MeasureDastV3`, `BuildFeasibilityPackageFromV3`,
@@ -875,8 +875,8 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 - [Class Default Object Lifecycle Plan](ClassDefaultObjectLifecycle.md)
 - [Unified Archive Serialization Plan](UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](ReflectedStructOperations.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

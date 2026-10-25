@@ -326,9 +326,9 @@ reliable without weakening general Array semantics or planner safety limits.
 
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Generated reflection system](../../../Runtime/ObjectSystem/ReflectionSystem.md)
-- [Asset packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Asset packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Volume textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Volume Texture Import and Cloud Diagnostics plan](VolumeTextureImportAndCloudDiagnostics.md)
 - [Testing](../../../Agents/Testing.md)
 - [Build and run](../../../Agents/BuildAndRun.md)

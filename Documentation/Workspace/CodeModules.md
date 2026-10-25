@@ -99,9 +99,9 @@ declared native-test roots, even when the implementation belongs to Engine.
 
 | Task language | Start with | Expand only when needed |
 | --- | --- | --- |
-| explicit build target/profile, immutable capabilities or Cook target settings | `TargetPlatform` | Core for stable identities; [target policy](../Runtime/Assets/TargetPlatforms.md) for family projections and detached preparation; Engine owns assets and Cook publication |
+| explicit build target/profile, immutable capabilities or Cook target settings | `TargetPlatform` | Core for stable identities; [target policy](../Runtime/Assets/Build/TargetPlatforms.md) for family projections and detached preparation; Engine owns assets and Cook publication |
 | generic DDC bucket/key get or put | `DerivedDataCache` | Engine owns asset policy and orchestration; pure recipe modules own transformations |
-| canonical build definition, input binding validation, or shared resolve/build/cache protocol | `DerivedDataCache` | [Build protocol](../Runtime/Assets/DerivedDataBuild.md): registered functions own explicit inputs, shared outputs and validation; consumers own typed assembly and error translation; compiling managers retain scheduling and application |
+| canonical build definition, input binding validation, or shared resolve/build/cache protocol | `DerivedDataCache` | [Build protocol](../Runtime/Assets/Build/DerivedDataBuild.md): registered functions own explicit inputs, shared outputs and validation; consumers own typed assembly and error translation; compiling managers retain scheduling and application |
 | asset catalog, registry scan/cache, dependency or referencer query | `AssetRegistry` | `Engine` only for loading, mutation, package writing, or Cook |
 | package linker tables, serialized type identity, canonical Map-key tokens, DAST v9 codec | `CoreDObject` | `AssetRegistry` for bounded metadata projection; `Engine` only for asset preparation/publication and graph application |
 | asset package, redirector, loading, mutation, cook | `Engine` | `AssetRegistry` for persistent metadata; `CoreDObject` for package/object link identity; editor modules for UI |

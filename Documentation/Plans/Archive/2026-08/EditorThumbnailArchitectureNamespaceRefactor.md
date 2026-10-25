@@ -312,7 +312,7 @@ compatibility facade, or forwarding alias.
 - [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
 - [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Skeletal Asset Editor](../../../Editor/Architecture/SkeletalAssetEditor.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code

@@ -463,9 +463,9 @@ trailing bytes all reject before returning opaque payload spans.
 ## Related Documentation
 
 - [Durin Binary Envelope and DAST v6](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)

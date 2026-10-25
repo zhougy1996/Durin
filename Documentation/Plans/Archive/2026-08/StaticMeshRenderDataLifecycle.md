@@ -858,8 +858,8 @@ profile-specific commands.
 
 - [Engine Termination Lifecycle](../2026-07/EngineTerminationLifecycle.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
-- [Texture System](../../../Runtime/Assets/TextureSystem.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Texture System](../../../Runtime/Assets/Families/TextureSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Static Mesh LOD Resources Refactor](StaticMeshLODResourcesRefactor.md)
 

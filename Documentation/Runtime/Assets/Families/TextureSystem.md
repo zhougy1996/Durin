@@ -139,7 +139,7 @@ file path or byte offset. Owner-selected texture payload schema 3 uses an
 dimension, mip and slice counts, target platform/profile, and XXH3-128
 checksums. Texture2D has exactly one slice and TextureCube has six ordered
 slices. The selected cross-asset storage and cooked companion contract is documented in
-[Asset Data Lifecycle and Storage](AssetDataLifecycle.md).
+[Asset Data Lifecycle and Storage](../Packages/AssetDataLifecycle.md).
 
 ## Cooking and Runtime Loading
 
@@ -190,14 +190,14 @@ validation/save causes. Import metadata publication has no diagnostic output.
 Pending edit/import contracts format with `FormatTexture2DCompilationError`.
 
 Engine registers `DTexture` to the `Durin.Texture` manager in its
-[asset-compilation aggregate](AssetCompilation.md). Editor-enabled
+[asset-compilation aggregate](../Build/AssetCompilation.md). Editor-enabled
 Engine captures definitions and immutable inputs, then executes the texture-family
 shared-output session. DDC owns record lookup, integrity validation, fallback,
 and best-effort persistence; Engine owns typed output assembly and application.
 Registered Engine functions invoke TextureCompressor's pure synchronous module on a
 cache miss. TextureCompressor stays resident until editor shutdown; consumers drain
 work before module unload. See the
-[shared build protocol](DerivedDataBuild.md#family-boundaries).
+[shared build protocol](../Build/DerivedDataBuild.md#family-boundaries).
 `FTextureCompilingManager` directly owns two
 worker admissions and a conservative 1 GiB estimated in-flight byte
 budget. Requests are FIFO within background and interactive classes. At most
@@ -267,7 +267,7 @@ larger requests serialize. These are allocation bounds, not wall-clock promises;
 the full 16K high-quality matrix is not a routine gate.
 
 Historical synchronous stalls and scheduling calibration remain in
-[Asynchronous Texture2D Build and Readiness](../../Plans/Archive/2026-08/AsynchronousTexture2DBuildAndReadiness.md).
+[Asynchronous Texture2D Build and Readiness](../../../Plans/Archive/2026-08/AsynchronousTexture2DBuildAndReadiness.md).
 
 ## Transactional Build-Setting Edits
 
@@ -376,7 +376,7 @@ use that state for generic failure and explicit update retry, with details in
 the log. Missing platform data rejects before admission and records `Failed`.
 Usable CPU data survives GPU upload failure so `UpdateResource()` can retry. The exact descriptor
 support check precedes allocation; see
-[RHI Capabilities and Vulkan Startup](../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
+[RHI Capabilities and Vulkan Startup](../../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
 
 Ordinary replacement is asynchronous. `BeginDestroy` stops admission, cancels
 the deferred handoff, discards the retained successor, and closes the active operation
@@ -508,12 +508,12 @@ content identity and never inspect a physical source.
   contract owns ordinary editor DDC misses, retries, direct reimports, and
   build-setting changes.
 - Material role validation, UV transforms, opacity, and mask coverage follow
-  [Material System](../Rendering/Materials/MaterialSystem.md); Texture assets do not define pass policy.
+  [Material System](../../Rendering/Materials/MaterialSystem.md); Texture assets do not define pass policy.
 
 ## Related Documentation
 
-- [Render Resource Lifecycle](../Rendering/Pipeline/RenderResourceLifecycle.md)
-- [Asset Data Lifecycle And Storage](AssetDataLifecycle.md)
+- [Render Resource Lifecycle](../../Rendering/Pipeline/RenderResourceLifecycle.md)
+- [Asset Data Lifecycle And Storage](../Packages/AssetDataLifecycle.md)
 
 ## Related Code
 

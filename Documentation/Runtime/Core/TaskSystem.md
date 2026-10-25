@@ -27,7 +27,7 @@ reads use this form when dispatching file work to BlockingIO.
 Domain queues own their admission policy. External completion tasks retain
 their scheduler participation until their producers acknowledge completion.
 Asset compilation uses explicit operation completion dependencies as
-defined in [Derived Data Build](../Assets/DerivedDataBuild.md).
+defined in [Derived Data Build](../Assets/Build/DerivedDataBuild.md).
 Launching a child with `LaunchTask` does not add a
 parent completion dependency. Use `AddNested` when parent completion must include
 that child.
@@ -46,7 +46,7 @@ Options carry debug name, priority, cancellation, attribution,
 prerequisites, and deferred generation/coalescing identity. Ordinary callers do
 not declare scheduler capture/result byte budgets. Actual domain payload limits
 and producer throttling belong to resource owners; see
-[Asset Compilation](../Assets/AssetCompilation.md).
+[Asset Compilation](../Assets/Build/AssetCompilation.md).
 
 Invalid dependencies/executors and submission after
 closure are programming/lifetime violations. Ordinary construction uses the

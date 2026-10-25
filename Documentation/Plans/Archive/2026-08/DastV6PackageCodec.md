@@ -249,8 +249,8 @@ and a detached codec proving every AssetCore capability before cutover.
 
 - [Durin Binary Envelope and DAST v6](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
 - [Durin Binary Envelope Foundation](DurinBinaryEnvelopeFoundation.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Testing Workflow](../../../Agents/Testing.md)

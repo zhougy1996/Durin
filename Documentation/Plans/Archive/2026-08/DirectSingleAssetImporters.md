@@ -229,7 +229,7 @@ Dependencies: Stage 3 complete.
 - [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
 - [AssetForge Simplification Foundation](AssetForgeSimplificationFoundation.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Agent Build And Run](../../../Agents/BuildAndRun.md)
 - [Agent Testing](../../../Agents/Testing.md)
 

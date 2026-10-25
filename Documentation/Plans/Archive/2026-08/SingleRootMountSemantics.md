@@ -586,8 +586,8 @@ machine-local commands.
 ## Related Documentation
 
 - [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)

@@ -48,7 +48,7 @@ The selected direction follows the useful Unreal Engine ownership split without 
 - TextureBuild owns the texture build implementation, DDC interaction, codecs, and deterministic producer identity.
 - A synchronous, value-only provider contract connects the Engine-owned worker to TextureBuild while a module invocation gate protects the entire call.
 
-The long-lived [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md) contract now records the smallest proven reuse boundary and explicitly rejects collapsing orthogonal asset states.
+The long-lived [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md) contract now records the smallest proven reuse boundary and explicitly rejects collapsing orthogonal asset states.
 
 ## Goal
 
@@ -264,8 +264,8 @@ At each stage:
 
 ## Related Documentation and Code
 
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Engine Asset Compiling Manager](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetCompilingManager.cpp)

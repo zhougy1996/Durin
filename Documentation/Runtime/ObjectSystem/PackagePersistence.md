@@ -13,7 +13,7 @@ Last reviewed: 2026-10-16
 ordinary reflected package files without Engine or an initialized asset registry.
 They do not admit assets, prepare texture payloads, validate catalog dependencies,
 or publish asset metadata. Asset callers continue through the
-[Engine save orchestration](../Assets/AssetCatalogAndMutation.md#asynchronous-save-staging).
+[Engine save orchestration](../Assets/Packages/AssetCatalogAndMutation.md#asynchronous-save-staging).
 CoreDObject depends only on lower layers for these operations.
 
 `FPackageSaveOptions::Destination` supplies an explicit physical `.dasset` path.
@@ -84,7 +84,7 @@ Engine-supplied filter. Valid policy-stripped hard targets serialize null withou
 changing the live pointer. An arbitrary caller filter or explicit save omission
 is not proof of target-policy stripping and retains its existing failure contract.
 Byte-producing capture still requires exports; the Engine Cook entrypoint reports
-omitted packages before invoking it. See [Cooking](../Assets/Cooking.md).
+omitted packages before invoking it. See [Cooking](../Assets/Build/Cooking.md).
 
 Capture and live-object access run on GameThread. Internally owned BlockingIO
 work stages detached bytes and paths. A registered GameThread continuation

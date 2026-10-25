@@ -179,7 +179,7 @@ ordering, and activate exactly one bounded Package Trailer Foundation plan.
 
 - [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [Authored Package Trailer Qualification](AuthoredPackageTrailerQualification.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code

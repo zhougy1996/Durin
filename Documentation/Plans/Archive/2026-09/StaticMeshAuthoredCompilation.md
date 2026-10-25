@@ -495,8 +495,8 @@ zero, and optional products remain unavailable until observed.
 
 Use [build workflow](../../../Agents/BuildAndRun.md) and
 [testing workflow](../../../Agents/Testing.md), resolving native targets at execution.
-Contracts: [asset compilation](../../../Runtime/Assets/AssetCompilation.md),
-[asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
+Contracts: [asset compilation](../../../Runtime/Assets/Build/AssetCompilation.md),
+[asset lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md),
 [async editor operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md), and
 [StaticMesh rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md).
 

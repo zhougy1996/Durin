@@ -468,7 +468,7 @@ visibility should not be one child plan. Activate bounded plans independently:
 - [Skeletal Mesh and Animation Roadmap](SkeletalMeshAndAnimation.md)
 - [Skeletal Mesh Rendering Plan](../../../Plans/Archive/2026-08/SkeletalMeshRendering.md)
 - [Renderer Light Scene Contract Plan](../../../Plans/Archive/2026-08/RendererLightSceneContract.md)
-- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/Families/TextureSystem.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [PBR Pipeline Production Gaps](../../../Investigations/PBRPipelineProductionGaps.md)

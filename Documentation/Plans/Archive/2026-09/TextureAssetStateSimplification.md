@@ -477,8 +477,8 @@ Stage 5 evidence (2026-09-03):
 
 ## Related Documentation
 
-- [Texture System](../../../Runtime/Assets/TextureSystem.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Texture System](../../../Runtime/Assets/Families/TextureSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
 - [Texture Build Object Boundary Completion Plan](TextureBuildObjectBoundaryCompletion.md)

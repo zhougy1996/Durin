@@ -406,8 +406,8 @@ reversed the dependency so AssetTools consumes them.
 
 - [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
 - [Agent Build and Run](../../../Agents/BuildAndRun.md)

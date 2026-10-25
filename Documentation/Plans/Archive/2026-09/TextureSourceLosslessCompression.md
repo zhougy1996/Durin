@@ -210,8 +210,8 @@ content is preserved, repeat application is stable and validation passes.
 - `Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp`
 - `Engine/CMake/ThirdParty/CMakeLists.txt`
 - `Tools/DurinDevTool/durin_dev_tool/bootstrap/manifests.py`
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Package bulk data](../../../Runtime/Assets/BulkData.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Package bulk data](../../../Runtime/ObjectSystem/BulkData.md)
 - [Canonical resave](../../../Editor/Guides/CanonicalResave.md)
 - [Build instructions](../../../Agents/BuildAndRun.md)
 - [Test instructions](../../../Agents/Testing.md)

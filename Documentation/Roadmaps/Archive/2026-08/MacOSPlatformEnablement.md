@@ -276,7 +276,7 @@ embedding command recipes in child plans.
 - [Third-Party Dependency Preparation](../../../Development/Build/ThirdPartyBootstrap.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
-- [Asset Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 
 ## Related Code
 

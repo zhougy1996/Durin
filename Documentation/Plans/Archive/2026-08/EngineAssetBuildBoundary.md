@@ -1021,9 +1021,9 @@ not module count or API compatibility:
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
 - [Build System](../../../Development/Build/BuildSystem.md)

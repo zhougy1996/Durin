@@ -152,7 +152,7 @@ test, project, and runtime-variant ownership.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Code Modules](../../../Workspace/CodeModules.md)

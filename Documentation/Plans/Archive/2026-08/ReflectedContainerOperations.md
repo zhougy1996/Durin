@@ -35,7 +35,7 @@ Completed: 2026-08-06
   are independent of unordered insertion and bucket history, and DAST v2
   remains backward-readable without a version change.
 - The lasting contract now lives in `Runtime/ObjectSystem/ReflectionSystem.md` and
-  `Runtime/Assets/AssetPackages.md`. DHT passes 173/173, CoreObjectTests 66/66,
+  `Runtime/Assets/Packages/AssetPackages.md`. DHT passes 173/173, CoreObjectTests 66/66,
   AssetPackageTests 40/40, EditorPropertyTests 25/25, the complete native-test
   aggregate, and the full `all` build.
 
@@ -1044,7 +1044,7 @@ Dependencies: Stage 4 consumer migration.
   `Documentation/Runtime/ObjectSystem/ReflectionSystem.md` for typed registration,
   capabilities, traversal, detached commit, adapter restrictions, and
   canonical-key support, and in
-  `Documentation/Runtime/Assets/AssetPackages.md` for DAST v2 canonical save,
+  `Documentation/Runtime/Assets/Packages/AssetPackages.md` for DAST v2 canonical save,
   historical reads, bounded transactions, duplicate rejection, and rollback.
   Compact DAST v3 encoding remains deferred to its separate roadmap.
 - Validation: DHT tests pass 173/173; CoreObjectTests pass 66/66;

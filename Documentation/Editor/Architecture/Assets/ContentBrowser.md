@@ -303,7 +303,7 @@ partial asset effects and backup diagnostics; there is no mixed-operation crash
 atomicity guarantee. A committed relocation with pending registry projection
 retains the ordinary moves. Source cleanup only removes empty directories;
 remaining redirectors or cleanup errors produce a warning rather than a false
-move failure. See [asset mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md#synchronous-relocation).
+move failure. See [asset mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#synchronous-relocation).
 
 The Content Browser enumerates and navigates only automatically scanned mounts.
 Filesystem-backed creation and rename operations additionally require the owning

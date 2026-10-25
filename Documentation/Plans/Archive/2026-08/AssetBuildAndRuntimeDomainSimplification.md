@@ -252,8 +252,8 @@ all required documentation validators pass in the final M5 handoff.
 ## Related Documentation
 
 - [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

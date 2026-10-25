@@ -296,9 +296,9 @@ Depends on Stages 1-3.
 
 - [Unified BulkData API](UnifiedBulkDataAPI.md)
 - [Large Asset Payload Architecture Roadmap](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Canonical Resave](../../../Editor/Guides/CanonicalResave.md)

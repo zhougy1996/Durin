@@ -305,6 +305,6 @@ stages.
 - `Engine/Source/Editor/TextureEditor/Private/Thumbnail/TextureCubeThumbnailRenderer.cpp`
 - `Engine/Source/Editor/MaterialEditor/Private/Thumbnail/MaterialThumbnailRenderer.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Texture/TextureFailureTests.cpp`
-- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/Families/TextureSystem.md)
 - [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
 - [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)

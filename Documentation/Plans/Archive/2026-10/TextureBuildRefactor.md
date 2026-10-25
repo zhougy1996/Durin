@@ -37,7 +37,7 @@ Final validation on Win64-Debug-DurinEditor:
   not required because GPU behavior is unchanged.
 - Changed-document and all-plan validation passed; final completion metadata is
   checked again before commit. Lasting recipe boundaries are documented in the
-  [build protocol](../../../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
+  [build protocol](../../../Runtime/Assets/Build/DerivedDataBuild.md#family-boundaries).
 
 Consumer inventory: TextureBuild's 2D and LDR Cube entrypoints, TextureTests,
 TextureCompressionQualificationTests, and Vulkan texture sampling fixtures call
@@ -86,7 +86,7 @@ of typed family entrypoints and share algorithms where their semantics match.
 - Keep `TextureBuild`, its module registration, dependency direction, and
   editor-lifetime `ITextureBuildModule` contract. A future rename is separate work.
 - Preserve the ownership boundary in the
-  [derived data build protocol](../../../Runtime/Assets/DerivedDataBuild.md#ownership):
+  [derived data build protocol](../../../Runtime/Assets/Build/DerivedDataBuild.md#ownership):
   Engine owns DDC, scheduling policy, input identity, codecs, and application;
   TextureBuild owns detached CPU recipes and uses the existing Core task system.
 - Treat the module as a texture processing pipeline. Mip generation, Cube
@@ -209,7 +209,7 @@ Dependency: Stages 1-3.
   Do not bump recipe versions for an output-preserving structural refactor.
   Any intended output change requires a recorded plan revision and invalidation policy.
 - [x] Update lasting ownership or recipe contracts in their authoritative
-  documentation, including [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
+  documentation, including [Volume textures](../../../Runtime/Assets/Families/VolumeTextures.md)
   only where its implemented contract changes.
 - [x] Record validation evidence and update lifecycle metadata/checklists through
   completion, following [plan lifecycle rules](../../AGENTS.md#status-maintenance).

@@ -458,8 +458,8 @@ now own the implemented boundary, and all documentation validators passed.
 
 - [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
 - [Asset Catalog and Load Boundary Plan](AssetCatalogAndLoadBoundary.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

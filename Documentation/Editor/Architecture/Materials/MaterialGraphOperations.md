@@ -725,7 +725,7 @@ Surface movement persist presentation through ordinary transactions.
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Reflected Property Editing](../PropertyEditing/ReflectedPropertyEditing.md)
 - [Workspace Framework](../Framework/WorkspaceFramework.md)
-- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
 
 ## Native validation
 

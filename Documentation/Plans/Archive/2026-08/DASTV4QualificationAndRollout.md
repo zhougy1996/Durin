@@ -338,8 +338,8 @@ migration manifests, staged/rollback files, and recovery locators.
 #### Stage 4 Handoff
 
 - Baseline: `5991a0b9` (`feat(asset): activate DAST v4 package saves`).
-- Working set: `Documentation/Runtime/Assets/AssetPackages.md`,
-  `Documentation/Runtime/Assets/Versioning.md`, the compact asset serialization
+- Working set: `Documentation/Runtime/Assets/Packages/AssetPackages.md`,
+  `Documentation/Runtime/ObjectSystem/Versioning.md`, the compact asset serialization
   roadmap, and this plan. No production code or tracked package bytes changed.
 - Lasting contracts: DAST v4 is the sole authored reader, ordinary writer, and
   repository baseline. Ordinary and bundle saves use no-delta v4; unsupported
@@ -383,8 +383,8 @@ migration manifests, staged/rollback files, and recovery locators.
 ## Related Documentation
 
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

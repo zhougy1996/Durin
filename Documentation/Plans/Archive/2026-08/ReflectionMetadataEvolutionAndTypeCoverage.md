@@ -522,7 +522,7 @@ distinction between hard, weak, and soft object ownership.
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
 - [Core Math](../../../Runtime/Core/Math.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
 
 ## Related Code

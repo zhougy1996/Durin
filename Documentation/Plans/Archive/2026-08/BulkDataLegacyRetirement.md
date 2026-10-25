@@ -126,8 +126,8 @@ segments remain, and the full registered test matrix passes.
 ## Related Documentation
 
 - [Package Bulk Data System roadmap](../../../Roadmaps/Archive/2026-08/PackageBulkDataSystem.md)
-- [Package bulk data](../../../Runtime/Assets/BulkData.md)
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Package bulk data](../../../Runtime/ObjectSystem/BulkData.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 
 ## Related Code
 

@@ -32,8 +32,8 @@ object publication, and Cook transactions. Fail unsupported combinations before
 expensive production or output publication, while allowing valid cached products
 to be used without an available local producer.
 
-Required references: [build protocol](../../../Runtime/Assets/DerivedDataBuild.md),
-[Cook contract](../../../Runtime/Assets/Cooking.md),
+Required references: [build protocol](../../../Runtime/Assets/Build/DerivedDataBuild.md),
+[Cook contract](../../../Runtime/Assets/Build/Cooking.md),
 [material lifecycle](../../../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs),
 [module ownership](../../../Workspace/CodeModules.md),
 [build workflow](../../../Agents/BuildAndRun.md), and
@@ -250,7 +250,7 @@ of unprepared serialization, selected-variant decoding, cancelled preparation,
 corruption/repair and transactional rollback, cooked-only loading, and generic
 cache-only positive/negative/schema validation without local build.
 
-Lasting contracts are in [target policy](../../../Runtime/Assets/TargetPlatforms.md),
+Lasting contracts are in [target policy](../../../Runtime/Assets/Build/TargetPlatforms.md),
 the linked Cook/build/material/physics contracts, StaticMesh building, and module
 ownership. No native macOS collision reader or GPU qualification was claimed.
 
@@ -484,7 +484,7 @@ Dependencies: Stage 4; existing contributor and detached-product infrastructure.
   capturing live authored inputs or initiating producers. Keep bounded lifetime,
   cancellation and memory admission in family/Cook execution owners.
 - [x] Update lasting ownership/behavior in `Workspace/CodeModules.md`,
-  `Runtime/Assets/DerivedDataBuild.md`, `Runtime/Assets/Cooking.md`, material and
+  `Runtime/Assets/Build/DerivedDataBuild.md`, `Runtime/Assets/Build/Cooking.md`, material and
   physics contracts. Add documentation routing only for a distinct new topic.
 
 Compatibility: preparation refactoring alone preserves final bytes for equivalent

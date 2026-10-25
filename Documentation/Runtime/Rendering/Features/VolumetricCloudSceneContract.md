@@ -116,7 +116,7 @@ presentation and volume previews are defined by
 ## Related documents
 
 - [Volumetric cloud spatial rendering](VolumetricCloudSpatialRendering.md)
-- [Volume textures](../../Assets/VolumeTextures.md)
+- [Volume textures](../../Assets/Families/VolumeTextures.md)
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
 
 ## Related Code

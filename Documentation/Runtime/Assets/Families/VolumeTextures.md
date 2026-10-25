@@ -110,7 +110,7 @@ Win64/Game target identity. It excludes source hints and physical files. A
 validated cache hit and a rebuild apply the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
 the asset's last-known-good CPU or GPU result. Engine supplies a definition and typed adapter to the
-[shared build protocol](DerivedDataBuild.md). Requests retain a torn-off source;
+[shared build protocol](../Build/DerivedDataBuild.md). Requests retain a torn-off source;
 PostLoad queries from metadata before acquiring voxels. A valid hit reads no
 source payload. Only misses invoke the volume recipe, with best-effort persistence
 and GameThread result application. TextureCompressor never receives cache policy or mutates a
@@ -167,7 +167,7 @@ non-overlapping, checksummed with XXH3-128, bounded, and validated across all
 three axes before allocation.
 
 The private volume algorithm revision is part of its opaque module build identity;
-see [texture build identities](DerivedDataBuild.md#family-boundaries). TXPL compatibility
+see [texture build identities](../Build/DerivedDataBuild.md#family-boundaries). TXPL compatibility
 depends on schema 3, with no producer word. Older payload schemas require recook. The primary cooked payload ID is
 `672b164e-4e19-4871-a7b8-41dfe3208b15`. Cook accepts Win64/Game and MacOS/Game and emits
 one uncompressed field value. Cooked loading requires valid field metadata and
@@ -222,10 +222,10 @@ for every exact format and usage combination.
 
 ## Related Documentation
 
-- [Asset data lifecycle](AssetDataLifecycle.md)
+- [Asset data lifecycle](../Packages/AssetDataLifecycle.md)
 - [Texture system](TextureSystem.md)
-- [RHI capabilities and Vulkan startup](../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
-- [Render resource lifecycle](../Rendering/Pipeline/RenderResourceLifecycle.md)
+- [RHI capabilities and Vulkan startup](../../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [Render resource lifecycle](../../Rendering/Pipeline/RenderResourceLifecycle.md)
 
 ## Related Code
 

@@ -204,8 +204,8 @@ Dependencies: Stage 3. Outcome: validated migration and authoritative documentat
 - [x] Complete the required `all` build for this shared Engine API migration and
   affected project validation under [Build And Run](../../../Agents/BuildAndRun.md).
 - [x] Update [Package Persistence](../../../Runtime/ObjectSystem/PackagePersistence.md),
-  [Asset Packages](../../../Runtime/Assets/AssetPackages.md),
-  [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md), and
+  [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md),
+  [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md), and
   [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md).
   Update [Task System](../../../Runtime/Core/TaskSystem.md) only if its contract changes.
 - [x] Record exact passed validation and any outstanding gates, validate the plan

@@ -54,8 +54,8 @@ the all build, with GPU execution omitted. `affected --explain` selects broad
 Engine/GPU targets through shared headers, so explicit owning-module and CPU
 consumer selections provide the task-specific coverage.
 
-Lasting rules live in the [build protocol](../../../Runtime/Assets/DerivedDataBuild.md)
-and [cache storage contract](../../../Runtime/Assets/DerivedDataCacheStorage.md). The
+Lasting rules live in the [build protocol](../../../Runtime/Assets/Build/DerivedDataBuild.md)
+and [cache storage contract](../../../Runtime/Assets/Build/DerivedDataCacheStorage.md). The
 storage contract was split at the build document's growth boundary because
 manifest/codec/query work has a distinct task trigger. Historical Stage 2/3
 namespace descriptions and measurements below describe their validated format;
@@ -158,7 +158,7 @@ confirmed the sandbox's MSVC PDB service restriction.
 
 Align with modern UE DDC capabilities, without promising UE wire compatibility:
 independent cache records, content-addressed compressed values, selective queries,
-and bounded asynchronous I/O. Preserve the [build protocol](../../../Runtime/Assets/DerivedDataBuild.md)
+and bounded asynchronous I/O. Preserve the [build protocol](../../../Runtime/Assets/Build/DerivedDataBuild.md)
 ownership boundaries and complete typed build results.
 
 ## Selected Decisions

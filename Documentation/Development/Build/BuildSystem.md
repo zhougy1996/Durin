@@ -267,7 +267,7 @@ precedence, and no `DurinDeveloper` runtime variant exists.
 
 ## Related Docs
 
-- `Documentation/Runtime/Assets/Versioning.md`
+- `Documentation/Runtime/ObjectSystem/Versioning.md`
 - `Documentation/Runtime/ObjectSystem/ReflectionSystem.md`
 - `Documentation/Runtime/ObjectSystem/GarbageCollection.md`
 - `Documentation/Development/Build/BuildAndRun.md`

@@ -667,8 +667,8 @@ Dependencies: Stage 5 complete.
 
 - [Texture Build DDC Decoupling](TextureBuildDdcDecoupling.md)
 - [Texture Asset State Simplification](TextureAssetStateSimplification.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)

@@ -1202,7 +1202,7 @@ Dependencies: Stage 5 complete authoring workflow.
 ## Related Documentation
 
 - [Documentation entry point](../../../README.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)

@@ -433,8 +433,8 @@ characterization constraints rather than migration targets.
 
 - [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
-- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [AssetCore Engine Consolidation](AssetCoreEngineConsolidation.md)
 - [Build And Run Workflow](../../../Agents/BuildAndRun.md)

@@ -15,7 +15,7 @@ Completed: 2026-08-06
   and default-level contracts.
 - The lasting soft-pointer value and serialization semantics remain implemented;
   current registry, relocation, Fix Up, owner, deletion, editor, and Cook
-  behavior is documented in [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+  behavior is documented in [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
   and must not be inferred from the superseded stages below.
 
 ## Goal

@@ -425,10 +425,10 @@ correctness gate here, not a performance qualification.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
-- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Volume Textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 

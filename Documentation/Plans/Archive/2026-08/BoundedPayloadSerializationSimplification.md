@@ -318,7 +318,7 @@ documentation validation accepts both the lasting contract and completed plan.
 ## Related Documentation
 
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

@@ -149,7 +149,7 @@ identities, module-retirement safety, and existing Runtime publication behavior.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Terrain World Data](../../../Runtime/Terrain/TerrainWorldData.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
 - [Code Modules](../../../Workspace/CodeModules.md)

@@ -1057,12 +1057,12 @@ never overlap native build process trees.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
+- [Volume Textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build And Run](../../../Agents/BuildAndRun.md)

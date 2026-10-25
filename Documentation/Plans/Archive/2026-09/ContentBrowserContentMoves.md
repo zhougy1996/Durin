@@ -21,7 +21,7 @@ Provide one browser operation for moving content items, preserving asset relocat
 
 The operation preflights the whole selection, collapses selected descendants, rejects destination collisions, mount roots, read-only mounts, reparse points, unknown packages, independently selected owned companions, and moves into a source subtree. Folder moves preserve empty directories and relocate registered packages in one asset batch. Ordinary content stays within the same scanned writable mount; cross-device copying and clipboard UI are outside this change.
 
-Ordinary file moves are journaled and reversed on failure. Asset relocation retains its existing partial-effect and backup diagnostics; this work does not promise crash atomicity or invent asset rollback. Cleanup after committed asset relocation can leave redirectors or source directories and reports a warning. See [asset mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md#synchronous-relocation).
+Ordinary file moves are journaled and reversed on failure. Asset relocation retains its existing partial-effect and backup diagnostics; this work does not promise crash atomicity or invent asset rollback. Cleanup after committed asset relocation can leave redirectors or source directories and reports a warning. See [asset mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#synchronous-relocation).
 
 ## Implementation Stages
 

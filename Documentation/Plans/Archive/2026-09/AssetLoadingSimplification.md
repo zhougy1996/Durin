@@ -384,7 +384,7 @@ success; PostLoad ordering/reentrancy; exception-safe cleanup; resource retireme
 normal unload of retained dependencies; and failed replacement preserving the
 old live graph. Test semantics rather than the shape of diagnostic wrappers.
 
-Update [asset packages](../../../Runtime/Assets/AssetPackages.md),
+Update [asset packages](../../../Runtime/Assets/Packages/AssetPackages.md),
 [serialization](../../../Runtime/ObjectSystem/Serialization.md), and other affected owning
 contracts only as behavior is implemented. Update this plan in the same commit
 as each validated implementation batch, using its exact Plan and Stage trailers.

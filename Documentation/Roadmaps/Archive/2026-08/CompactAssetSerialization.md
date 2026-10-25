@@ -27,7 +27,7 @@ audit.
   `5955D6A8C777870C`. That is 5,515 bytes below the 16-KiB gate and 9,790 bytes
   below the same-content-v2-relative gate; modeled parse/allocation inputs fall
   from 5,020/3,948 to 136/133 without compression. The lasting
-  [frozen DAST v4 wire contract](../../../Runtime/Assets/AssetPackages.md#frozen-dast-v4-wire-contract)
+  [frozen DAST v4 wire contract](../../../Runtime/Assets/Packages/AssetPackages.md#frozen-dast-v4-wire-contract)
   now owns the qualified layout and semantics. AssetCore still reads and writes
   only DAST v3, all 17 activation hashes remain unchanged, and the repository
   baseline rejects every other package format or incompatible schema.
@@ -369,9 +369,9 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 - [Unified Archive Serialization Plan](../../../Plans/Archive/2026-08/UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](../../../Plans/Archive/2026-08/ReflectedStructOperations.md)
 - [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

@@ -384,9 +384,9 @@ Dependencies: Stages 3 and 4.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Package Bulk Data](../../../Runtime/Assets/BulkData.md)
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Package Bulk Data](../../../Runtime/ObjectSystem/BulkData.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
 - [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

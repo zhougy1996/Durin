@@ -185,7 +185,7 @@ reading. It consumes detached `FLinkerTables` without constructing `DObject` or
 depending on AssetRegistry/Engine. BulkData placement is explicit detached input.
 Canonical values, freeze validation, front-matter reads, complete closure reads,
 and failure publication follow
-[Asset package linker tables](../Assets/AssetPackages.md#linker-tables-and-canonical-values).
+[Asset package linker tables](../Assets/Packages/AssetPackages.md#linker-tables-and-canonical-values).
 `WritePackage(...)` returns detached main and raw external-bulk buffers and
 replaces neither caller output on failure.
 
@@ -481,7 +481,7 @@ framework has no Engine dependency. Formatting is explicit at presentation or
 pending Archive adapters. A failure retires the entire constructed graph. The
 format is process-local engine plumbing and has no v1 reader or migration path;
 long-lived content uses the independently versioned, field-tagged `.dasset`
-contract documented in [Asset Packages](../Assets/AssetPackages.md).
+contract documented in [Asset Packages](../Assets/Packages/AssetPackages.md).
 
 `DuplicateObject(...)` returns `std::expected<T*, FObjectGraphError>` (with
 `DObject*` for the untyped overload). Success contains the non-null duplicate. Failures retain Archive/property causes, authored override
@@ -578,5 +578,5 @@ it does not retain a resolver operation or require a recursive result hierarchy.
 - [Package persistence](PackagePersistence.md): reflected capture, save operations and staged commit.
 
 - [Reflection system](ReflectionSystem.md)
-- [Asset Packages](../Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md)
+- [Asset Packages](../Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../Assets/Packages/AssetDataLifecycle.md)

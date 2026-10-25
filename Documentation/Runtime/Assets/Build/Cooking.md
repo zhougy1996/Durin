@@ -76,7 +76,7 @@ prevents nor guarantees diagnostics for such edits.
 
 The host rejects overlapping output destinations after resolving existing
 filesystem aliases. DDC, shader intermediates and logs use separate writable
-locations; see the [tool workflow](../../Development/Tooling/DurinDevTool.md).
+locations; see the [tool workflow](../../../Development/Tooling/DurinDevTool.md).
 Cook never saves or repairs authored inputs. Shutdown joins compilation and tasks,
 releases assets/resources, then releases the Renderer inventory library.
 
@@ -168,8 +168,8 @@ package build edges separately from hard/soft runtime references in Registry v3.
 Other declaration kinds are Cook-only. Metadata aids scheduling; current Cook
 object declarations own direct/transitive semantics, and metadata-only build
 inputs observe source/bulk directly. Registry v2 remains readable. See
-[package persistence](../ObjectSystem/PackagePersistence.md) and
-[package format](AssetPackages.md#defaults-and-version-policy).
+[package persistence](../../ObjectSystem/PackagePersistence.md) and
+[package format](../Packages/AssetPackages.md#defaults-and-version-policy).
 
 ## Dependency discovery and reuse
 
@@ -432,5 +432,5 @@ manifest be removed; unowned files are never cleanup candidates.
 
 ## Related documentation
 
-- [Asset data lifecycle](AssetDataLifecycle.md)
-- [Cook command workflow](../../Development/Tooling/DurinDevTool.md#project-cook)
+- [Asset data lifecycle](../Packages/AssetDataLifecycle.md)
+- [Cook command workflow](../../../Development/Tooling/DurinDevTool.md#project-cook)

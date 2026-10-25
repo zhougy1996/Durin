@@ -16,7 +16,7 @@ cancellation and dropped-dispatch readiness remain supported. Shared held-cache,
 bounded-wait and drain helpers replace repeated lifecycle fixtures. Callback-referenced local state
 now outlives the drain guards on both normal and early scope exit, including
 terminal shutdown. Lasting metric semantics are recorded in
-[Asset Compilation](../../../Runtime/Assets/AssetCompilation.md).
+[Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md).
 
 Validation on `Win64-Debug-DurinEditor`:
 

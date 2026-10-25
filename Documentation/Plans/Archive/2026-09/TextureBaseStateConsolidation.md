@@ -241,9 +241,9 @@ acceptance evidence for this plan.
 - `Engine/Tests/Native/EngineTests/Private/Texture/`
 - `Engine/Tests/Native/EngineTests/Private/TextureCubeTests.cpp`
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
-- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
+- [Volume Textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 
 UE reference: [UTexture](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UTexture)
 owns Source and AssetImportData. This informs the ownership choice; Durin's

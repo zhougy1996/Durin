@@ -262,7 +262,7 @@ Build and test execution follow
 
 ## Related Documentation
 
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Project Asset Compatibility Audit](../2026-08/ProjectAssetCompatibilityAudit.md)
 - [Asset Structure Upgrade](AssetStructureUpgrade.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)

@@ -379,8 +379,8 @@ targets, fixtures, profiles, budgets, and final evidence.
 - [Reflected Property Editing](../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
 - [Material Graph Operations](../Editor/Architecture/Materials/MaterialGraphOperations.md)
 - [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle](../Runtime/Assets/Packages/AssetDataLifecycle.md)
 
 ## Related Code
 

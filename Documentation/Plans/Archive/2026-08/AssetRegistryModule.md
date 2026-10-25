@@ -663,9 +663,9 @@ integration behavior requires it.
 
 ## Related Documentation
 
-- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

@@ -473,8 +473,8 @@ and interactive preview features are listed under Deferred Follow-ups.
 - [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
 - [Resource Dependency Updates](ResourceDependencyUpdates.md)
 - [Material System Runtime Contract](../../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Cube Textures](../../../Runtime/Assets/Families/CubeTextures.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

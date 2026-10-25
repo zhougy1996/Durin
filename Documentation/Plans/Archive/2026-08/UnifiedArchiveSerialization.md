@@ -1040,8 +1040,8 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

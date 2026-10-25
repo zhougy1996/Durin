@@ -172,9 +172,9 @@ authoring-only third-party dependency for a runtime target to shed.
 
 ## Related Documentation
 
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 
 ## Related Code

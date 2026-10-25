@@ -78,7 +78,7 @@ platform compilation remain deferred platform coverage; no result is inferred
 for those hosts.
 
 The implemented contract remains the
-[Derived Data Build Protocol](../../../Runtime/Assets/DerivedDataBuild.md) until each
+[Derived Data Build Protocol](../../../Runtime/Assets/Build/DerivedDataBuild.md) until each
 stage migrates its consumers. This plan supersedes the unimplemented Derived
 Data Outcome and Diagnostics plan and follows the completed
 [Unified Derived Data Build Architecture](UnifiedDerivedDataBuildArchitecture.md)

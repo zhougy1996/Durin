@@ -269,9 +269,9 @@ the implemented code; and the repository has one format-neutral package IR.
 
 ## Related Documentation
 
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
-- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
 - [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
 - [Core Object Package Linker Foundation plan](../2026-08/CoreObjectPackageLinkerFoundation.md)
 - [Build and Run workflow](../../../Agents/BuildAndRun.md)

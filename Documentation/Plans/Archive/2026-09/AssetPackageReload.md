@@ -555,7 +555,7 @@ preserves existing outputs. The owner marks only this request's private hierarch
 as garbage; it does not invoke global GC, global load-difference release, or disk
 writes. Package/object count limits, latched cancellation, reentrant Busy, and a
 whole-batch disk-digest recheck at the end are connected. See
-[Asset Packages](../../../Runtime/Assets/AssetPackages.md) for the lasting boundary.
+[Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md) for the lasting boundary.
 
 Four new real-saved-file tests cover two-package cycles and subobjects, default-inner
 uniqueness, saved scalar/Array/Map values, Forced provenance, unchanged live dirty/
@@ -587,7 +587,7 @@ the live load service or resource registry itself. The ordinary linker explicitl
 supplies the existing resource and ordinary resolver; candidate callers may supply
 private skeletons and immutable snapshots. Missing bindings, resolver rejection,
 or a successful resolver that returns null all fail without falling back to the
-currently resident graph. See [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+currently resident graph. See [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 for the lasting boundary.
 
 The interface was narrowed to `FPackageLoadBindings` so its name does not imply
@@ -626,7 +626,7 @@ and retains external bulk snapshots; `Revalidate` recomputes complete main/bulk
 digests. Preparation does not register resources, construct objects, restore backups,
 or write to disk, and failure preserves existing output. Lazy ranges share snapshots,
 so payload owners can still read the original bytes after disk replacement/deletion
-and after the preparation owner exits. See [BulkData](../../../Runtime/Assets/BulkData.md)
+and after the preparation owner exits. See [BulkData](../../../Runtime/ObjectSystem/BulkData.md)
 for lasting rules.
 
 This budget covers only retained main/bulk bytes, not parser scratch space, decoded
@@ -781,9 +781,9 @@ evidence for those guarantees.
 
 ## Related Contracts
 
-- [Asset packages](../../../Runtime/Assets/AssetPackages.md)
-- [BulkData](../../../Runtime/Assets/BulkData.md)
-- [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [BulkData](../../../Runtime/ObjectSystem/BulkData.md)
+- [Asset compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 - [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Transactors](../../../Editor/Architecture/Transactions/Transactors.md)
 - [Render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)

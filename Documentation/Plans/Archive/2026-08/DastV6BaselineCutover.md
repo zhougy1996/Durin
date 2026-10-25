@@ -189,9 +189,9 @@ replacement, complete project qualification, and legacy deletion.
 
 - [Durin Binary Envelope and DAST v6](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
 - [DAST v6 Package Codec](DastV6PackageCodec.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code

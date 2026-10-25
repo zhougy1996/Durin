@@ -267,7 +267,7 @@ A complete, valid report returns 0; corruption/missing/unsupported content, acti
 ownership, limits, or incomplete operations return nonzero. Native report failures
 are retained in JSON output; invalid options/process failures use normal DevTool
 errors. Ctrl-C stops the current process; OS locks recover without deleting a lock
-file. See [cache storage](../../Runtime/Assets/DerivedDataCacheStorage.md#offline-ownership-and-maintenance)
+file. See [cache storage](../../Runtime/Assets/Build/DerivedDataCacheStorage.md#offline-ownership-and-maintenance)
 for containment, clearing order, cancellation, and verification contracts.
 
 ## Repository Locations
@@ -300,7 +300,7 @@ explicit:
 ```powershell
 .\DevTool.bat doc list --under Documentation\Runtime
 .\DevTool.bat doc find "asset package" --kind contract
-.\DevTool.bat doc refs Documentation\Runtime\Assets\AssetPackages.md
+.\DevTool.bat doc refs Documentation\Runtime\Assets\Packages\AssetPackages.md
 .\DevTool.bat doc plan context ComputeRendererIntegration
 .\DevTool.bat doc validate --scope changed
 ```

@@ -507,9 +507,9 @@ request followed by a query-disabled build only after source decode.
 ## Related Documentation
 
 - [Local Derived Data Build Requests Plan](LocalDerivedDataBuildRequests.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
-- [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
+- [Cube Textures](../../../Runtime/Assets/Families/CubeTextures.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)

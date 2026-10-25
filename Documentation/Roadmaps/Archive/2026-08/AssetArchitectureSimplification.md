@@ -321,9 +321,9 @@ into this roadmap.
 
 ## Related Documentation
 
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
 - [Asset Redirectors Refactor Plan](../../../Plans/Archive/2026-08/AssetRedirectors.md)

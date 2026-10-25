@@ -344,8 +344,8 @@ Dependencies: Stages 2 and 3.
 
 ## Related Documentation
 
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Texture Build Object Boundary Completion](TextureBuildObjectBoundaryCompletion.md)
 - [Non-Texture Asset Build DDC Decoupling](NonTextureAssetBuildDdcDecoupling.md)

@@ -282,7 +282,7 @@ Cook reports, parsed counters, inventories, and verification are retained as
 Raw workload logs are
 `Build/Stage5/SandboxCook/Logs/Durin-Durin-20261018-171011-84943.log` and
 `Build/Stage5/SandboxCook/Logs/Durin-Durin-20261018-171200-85145.log`.
-The [storage contract](../../../Runtime/Assets/DerivedDataCacheStorage.md#bounded-diagnostics)
+The [storage contract](../../../Runtime/Assets/Build/DerivedDataCacheStorage.md#bounded-diagnostics)
 owns implemented counters, ownership, maintenance limits and baseline procedure;
 the [DevTool interface](../../../Development/Tooling/DurinDevTool.md#offline-local-cache-maintenance)
 owns commands and exit/report behavior.
@@ -312,8 +312,8 @@ miss, deterministic negative caching, and successful local results on store fail
   still tracked by its owner.
 
 Implemented contracts remain authoritative in
-[build protocol](../../../Runtime/Assets/DerivedDataBuild.md) and
-[cache storage](../../../Runtime/Assets/DerivedDataCacheStorage.md). Update those contracts
+[build protocol](../../../Runtime/Assets/Build/DerivedDataBuild.md) and
+[cache storage](../../../Runtime/Assets/Build/DerivedDataCacheStorage.md). Update those contracts
 when each stage lands; this plan does not specify already implemented behavior.
 
 ## Implementation Stages

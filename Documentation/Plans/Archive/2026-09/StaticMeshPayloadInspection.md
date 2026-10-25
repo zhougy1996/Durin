@@ -188,8 +188,8 @@ Completion: read-only behavior, module boundaries, UI, and documentation agree.
 Use [build workflow](../../../Agents/BuildAndRun.md) and
 [testing workflow](../../../Agents/Testing.md) for implementation validation.
 Contracts: [StaticMesh Inspector](../../../Editor/Guides/StaticMeshInspector.md),
-[asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md), and
-[package bulk data](../../../Runtime/Assets/BulkData.md).
+[asset lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md), and
+[package bulk data](../../../Runtime/ObjectSystem/BulkData.md).
 
 ## Related Code
 
