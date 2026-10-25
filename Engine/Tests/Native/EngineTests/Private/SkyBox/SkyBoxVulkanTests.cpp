@@ -8,6 +8,7 @@
 #include "Components/SkyLightComponent.h"
 #include <glm/gtc/packing.hpp>
 #include "Threading/Task.h"
+#include "RenderResourcePreparation.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "VulkanEngineTestSupport.h"
@@ -32,6 +33,65 @@ namespace
 	) -> void
 	{
 		GHybridSkyTelemetry = Telemetry;
+	}
+
+	class FSkyValidationFrame final
+	{
+	public:
+		explicit FSkyValidationFrame(Durin::FRHICommandListImmediate& InCommands) : Commands(InCommands)
+		{
+			++Durin::GRenderFrameCounterRenderThread;
+			Commands.SwitchPipeline(Durin::ERHIPipeline::Graphics);
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+		}
+		~FSkyValidationFrame()
+		{
+			Durin::SetViewRenderTelemetrySink(nullptr);
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+		}
+	private:
+		Durin::FRHICommandListImmediate& Commands;
+	};
+
+	// The host pumps loading frames; render commands never wait for shader compilation.
+	auto RenderPreparedSkyView(Durin::FRendererModule& Renderer, Durin::FScene& Scene,
+		const Durin::FSceneView& View, const Durin::FTextureRHIRef& Color,
+		const Durin::FSceneViewRenderOptions& Options, Durin::FSceneViewStatistics* Statistics,
+		const std::function<void(Durin::FRHICommandListImmediate&)>& AfterDraw,
+		bool bCaptureTelemetry = false) -> Durin::ERenderViewResult
+	{
+		using namespace Durin;
+		const auto Preparation = FRenderResourcePreparation::Create();
+		auto Result = ERenderViewResult::RendererResourcesPending;
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+		do
+		{
+			EnqueueRenderCommand("PrepareSkyValidationView", [&](FRHICommandListImmediate& Commands) {
+				FSkyValidationFrame Frame(Commands);
+				const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
+				Renderer.PrepareViewResources(Commands, &Scene, View, Color, false, Options, Preparation);
+				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), DrawsBefore);
+				const auto State = Preparation.GetProgress().State;
+				if (State == ERenderResourcePreparationState::Pending) return;
+				if (State != ERenderResourcePreparationState::Ready)
+				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
+				if (bCaptureTelemetry) SetViewRenderTelemetrySink(CaptureHybridSkyTelemetry);
+				Result = Renderer.RenderView(Commands, &Scene, View, Color, false, Options, Statistics);
+				if (Result == ERenderViewResult::Success) AfterDraw(Commands);
+			});
+			FlushRenderingCommands();
+			if (Result != ERenderViewResult::RendererResourcesPending || testing::Test::HasFatalFailure()) break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		} while (std::chrono::steady_clock::now() < Deadline);
+		if (Result == ERenderViewResult::RendererResourcesPending)
+		{
+			Preparation.RequestCancel();
+			EnqueueRenderCommand("RetireSkyValidationPreparation", [&](FRHICommandListImmediate&) {
+				Preparation.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
+			});
+			FlushRenderingCommands();
+		}
+		return Result;
 	}
 
 	auto ProjectPanoramaFixture(
@@ -293,23 +353,15 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		bool bTypedHistoryResetReleased = false;
 	};
 	auto Result = std::make_shared<FValidationResult>();
+	Durin::FTextureRHIRef Color;
 
 	struct FRenderSkyBoxValidationFrame
 	{
 		static constexpr auto GetName() -> const char* { return "RenderSkyBoxValidationFrame"; }
 	};
 	Durin::EnqueueRenderCommand<FRenderSkyBoxValidationFrame>(
-		[&Renderer, &Scene, CubeReference, PlatformData, ViewStateId,
-			StaleViewStateId,
-		 HdrCubeReference, HdrPlatformData, Result, OcclusionProxy,
-		 SkyBoxToken](Durin::FRHICommandListImmediate& CommandList) mutable {
-			Durin::GRenderFrameCounterRenderThread++;
-			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-			struct FEndFrameGuard
-			{
-				Durin::FRHICommandListImmediate& CommandList;
-				~FEndFrameGuard() { Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList); }
-			} EndFrameGuard{CommandList};
+		[&Color, CubeReference, PlatformData, HdrCubeReference, HdrPlatformData, Result](Durin::FRHICommandListImmediate& CommandList) mutable {
+			FSkyValidationFrame Frame(CommandList);
 
 			Durin::FRHITexture* CubeTexture =
 				CubeReference->GetReferencedTexture_RenderThread();
@@ -368,7 +420,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 														 "SkyBoxValidationColor", 17, 17, Durin::EPixelFormat::SRGBA8_UNORM
 			)
 														 .SetFlags(Durin::ETextureCreateFlags::RenderTargetable | Durin::ETextureCreateFlags::ShaderResource | Durin::ETextureCreateFlags::CPUReadback);
-			Durin::FTextureRHIRef Color = Durin::GDynamicRHI->RHICreateTexture(CommandList, ColorDesc);
+			Color = Durin::GDynamicRHI->RHICreateTexture(CommandList, ColorDesc);
 			if (Color == nullptr)
 			{
 				Result->bSucceeded = false;
@@ -394,88 +446,89 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				HistoryProbe.CommittedRevision == 0
 				&& HistoryProbe.CommittedTexture == nullptr;
 
-			auto RenderWithOptions = [&](const Durin::FSceneView& View,
-										 Durin::FByteBuffer& OutPixels,
-										 const Durin::FSceneViewRenderOptions& Options,
-										 Durin::ERenderMode RenderMode = Durin::ERenderMode::Unlit) {
-				Durin::FSceneView RenderView = View;
-				RenderView.Settings.Mode.RenderMode = RenderMode;
-				Durin::FSceneViewStatistics Statistics;
-				if (Renderer.RenderView(
-						CommandList, &Scene, RenderView, Color, false, Options,
-						&Statistics
-					)
-					!= Durin::ERenderViewResult::Success)
-				{
-					Result->bSucceeded = false;
-					Result->Error = "The validation view did not render successfully.";
-					return false;
-				}
-				if (!Result->bCapturedFirstViewStatistics)
-				{
-					Result->FirstViewStatistics = Statistics;
-					Result->bCapturedFirstViewStatistics = true;
-				}
-				if (!Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Color, 0, 0, OutPixels))
-				{
-					Result->bSucceeded = false;
-					Result->Error = "Failed to read the validation render target.";
-					return false;
-				}
-				return true;
-			};
-			auto Render = [&](const Durin::FSceneView& View,
-							  Durin::FByteBuffer& OutPixels) {
-				return RenderWithOptions(View, OutPixels, {});
-			};
-
-			constexpr std::array<Durin::FVector3, Durin::TextureCubeFaceCount> Directions = {
-				Durin::FVector3(1.0, 0.0, 0.0),
-				Durin::FVector3(-1.0, 0.0, 0.0),
-				Durin::FVector3(0.0, 1.0, 0.0),
-				Durin::FVector3(0.0, -1.0, 0.0),
-				Durin::FVector3(0.0, 0.0, 1.0),
-				Durin::FVector3(0.0, 0.0, -1.0)
-			};
-			for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
+		});
+	Durin::FlushRenderingCommands();
+	auto ValidateViews = [&]() {
+		if (!Result->bSucceeded) return;
+		auto RenderWithOptions = [&](const Durin::FSceneView& View, Durin::FByteBuffer& OutPixels,
+			const Durin::FSceneViewRenderOptions& Options,
+			Durin::ERenderMode RenderMode = Durin::ERenderMode::Unlit, bool bCaptureTelemetry = false) {
+			Durin::FSceneView RenderView = View;
+			RenderView.Settings.Mode.RenderMode = RenderMode;
+			Durin::FSceneViewStatistics Statistics;
+			bool bReadback = false;
+			const auto Outcome = RenderPreparedSkyView(Renderer, Scene, RenderView, Color, Options, &Statistics,
+				[&](Durin::FRHICommandListImmediate& Commands) {
+					if (bCaptureTelemetry) Result->HybridSkyTelemetry = GHybridSkyTelemetry;
+					bReadback = Durin::GDynamicRHI->RHIReadTexture2D(Commands, Color, 0, 0, OutPixels);
+				}, bCaptureTelemetry);
+			if (Outcome != Durin::ERenderViewResult::Success || !bReadback)
 			{
-				if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->PrincipalAxes[FaceIndex])) return;
+				Result->bSucceeded = false;
+				Result->Error = std::format("Validation view failed: result={}, readback={}", uint8(Outcome), bReadback);
+				return false;
 			}
-			Durin::FSceneView StatefulView =
-				MakePrincipalAxisView(Directions[0], {}, 17, 17);
-			StatefulView.ViewStateId = ViewStateId;
-			if (!Render(StatefulView, Result->StatefulNoConsumer)) return;
-			Durin::FSceneView StaleStateView =
-				MakePrincipalAxisView(Directions[0], {}, 17, 17);
-			StaleStateView.ViewStateId = StaleViewStateId;
-			if (!Render(StaleStateView, Result->StaleStateNoConsumer)) return;
-			constexpr double EdgeOffset = 0.02;
-			if (!Render(MakePrincipalAxisView({-1.0, EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[0])) return;
-			if (!Render(MakePrincipalAxisView({-1.0, -EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[1])) return;
-			if (!Render(MakePrincipalAxisView({1.0, 1.0 - EdgeOffset, 0.0}, {}, 17, 17), Result->FaceBoundary[0])) return;
-			if (!Render(MakePrincipalAxisView({1.0 - EdgeOffset, 1.0, 0.0}, {}, 17, 17), Result->FaceBoundary[1])) return;
-			if (!Render(MakePrincipalAxisView(Directions[0], {19.0, -7.0, 4.0}, 17, 17), Result->Translated)) return;
+			if (!Result->bCapturedFirstViewStatistics)
+			{
+				Result->FirstViewStatistics = Statistics;
+				Result->bCapturedFirstViewStatistics = true;
+			}
+			return true;
+		};
+		auto Render = [&](const Durin::FSceneView& View,
+						  Durin::FByteBuffer& OutPixels) {
+			return RenderWithOptions(View, OutPixels, {});
+		};
 
-			Durin::FSkyBoxSceneData RotatedSky;
-			RotatedSky.TextureReference = CubeReference;
-			RotatedSky.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
-			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-			SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
-			if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
+		constexpr std::array<Durin::FVector3, Durin::TextureCubeFaceCount> Directions = {
+			Durin::FVector3(1.0, 0.0, 0.0),
+			Durin::FVector3(-1.0, 0.0, 0.0),
+			Durin::FVector3(0.0, 1.0, 0.0),
+			Durin::FVector3(0.0, -1.0, 0.0),
+			Durin::FVector3(0.0, 0.0, 1.0),
+			Durin::FVector3(0.0, 0.0, -1.0)
+		};
+		for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
+		{
+			if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->PrincipalAxes[FaceIndex])) return;
+		}
+		Durin::FSceneView StatefulView =
+			MakePrincipalAxisView(Directions[0], {}, 17, 17);
+		StatefulView.ViewStateId = ViewStateId;
+		if (!Render(StatefulView, Result->StatefulNoConsumer)) return;
+		Durin::FSceneView StaleStateView =
+			MakePrincipalAxisView(Directions[0], {}, 17, 17);
+		StaleStateView.ViewStateId = StaleViewStateId;
+		if (!Render(StaleStateView, Result->StaleStateNoConsumer)) return;
+		constexpr double EdgeOffset = 0.02;
+		if (!Render(MakePrincipalAxisView({-1.0, EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[0])) return;
+		if (!Render(MakePrincipalAxisView({-1.0, -EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[1])) return;
+		if (!Render(MakePrincipalAxisView({1.0, 1.0 - EdgeOffset, 0.0}, {}, 17, 17), Result->FaceBoundary[0])) return;
+		if (!Render(MakePrincipalAxisView({1.0 - EdgeOffset, 1.0, 0.0}, {}, 17, 17), Result->FaceBoundary[1])) return;
+		if (!Render(MakePrincipalAxisView(Directions[0], {19.0, -7.0, 4.0}, 17, 17), Result->Translated)) return;
 
-			RotatedSky.TextureReference = HdrCubeReference;
-			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-			SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
-			Durin::FSceneViewRenderOptions OverrideOptions;
-			OverrideOptions.Environment = Durin::FViewEnvironmentOverride{
-				.TextureReference = CubeReference
-			};
-			if (!RenderWithOptions(
-					MakePrincipalAxisView(Directions[0], {}, 17, 17),
-					Result->ExplicitOverride,
-					OverrideOptions
-				)) return;
+		Durin::FSkyBoxSceneData RotatedSky;
+		RotatedSky.TextureReference = CubeReference;
+		RotatedSky.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
+		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
+		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
+		if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
+
+		RotatedSky.TextureReference = HdrCubeReference;
+		RotatedSky.Rotation = glm::identity<Durin::FQuat>();
+		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
+		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
+		Durin::FSceneViewRenderOptions OverrideOptions;
+		OverrideOptions.Environment = Durin::FViewEnvironmentOverride{
+			.TextureReference = CubeReference
+		};
+		if (!RenderWithOptions(
+				MakePrincipalAxisView(Directions[0], {}, 17, 17),
+				Result->ExplicitOverride,
+				OverrideOptions
+			)) return;
+		Durin::EnqueueRenderCommand("ValidateRejectedSkyViews", [&](Durin::FRHICommandListImmediate& CommandList) {
+			FSkyValidationFrame Frame(CommandList);
 			Result->InvalidViewStatistics.Summary.Triangles = 999;
 			Result->InvalidViewStatistics.Summary.DrawCalls = 999;
 			Result->InvalidOutputResult = Renderer.RenderView(
@@ -497,49 +550,49 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				false,
 				MissingEnvironment
 			);
-			for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
-			{
-				if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->HdrPrincipalAxes[FaceIndex])) return;
-			}
-
-			RotatedSky.TextureReference = CubeReference;
-			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-			SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
-			Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
-			LetterboxView.AspectRatioConstraint = 0.5f;
-			if (!Render(LetterboxView, Result->Letterboxed)) return;
-			LetterboxView.ViewStateId = ViewStateId;
-			if (!Render(
-					LetterboxView,
-					Result->StatefulLetterboxedNoConsumer)) return;
-
-			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-			SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
-			const Durin::FSceneView HybridSkyView =
-				MakePrincipalAxisView(Directions[4], {}, 17, 17);
-			if (!RenderWithOptions(HybridSkyView, Result->ForwardLitSky, {}, Durin::ERenderMode::Lit)) return;
-			Durin::FSceneView StatefulHybridSkyView = HybridSkyView;
-			StatefulHybridSkyView.ViewStateId = ViewStateId;
-			if (!RenderWithOptions(
-					StatefulHybridSkyView, Result->StatefulLitNoConsumer,
-					{}, Durin::ERenderMode::Lit)) return;
-			Durin::FSceneViewRenderOptions HybridSkyOptions;
-			Durin::SetViewRenderTelemetrySink(CaptureHybridSkyTelemetry);
-			const bool bRenderedHybridSky = RenderWithOptions(HybridSkyView, Result->HybridLitSky, HybridSkyOptions, Durin::ERenderMode::Lit);
-			Result->HybridSkyTelemetry = GHybridSkyTelemetry;
-			Durin::SetViewRenderTelemetrySink(nullptr);
-			if (!bRenderedHybridSky) return;
-			Durin::FMatrix OccluderTransform = glm::translate(
-				Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5)
-			);
-			OccluderTransform = glm::rotate(
-				OccluderTransform, glm::pi<double>(), Durin::FVectorConstants::Right
-			);
-			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::move(*OcclusionProxy), OccluderTransform);
-			Render(MakePrincipalAxisView(Directions[4], {}, 17, 17), Result->Occluded);
+		});
+		Durin::FlushRenderingCommands();
+		for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
+		{
+			if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->HdrPrincipalAxes[FaceIndex])) return;
 		}
-	);
+
+		RotatedSky.TextureReference = CubeReference;
+		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
+		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
+		Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
+		LetterboxView.AspectRatioConstraint = 0.5f;
+		if (!Render(LetterboxView, Result->Letterboxed)) return;
+		LetterboxView.ViewStateId = ViewStateId;
+		if (!Render(
+				LetterboxView,
+				Result->StatefulLetterboxedNoConsumer)) return;
+
+		RotatedSky.Rotation = glm::identity<Durin::FQuat>();
+		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
+		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
+		const Durin::FSceneView HybridSkyView =
+			MakePrincipalAxisView(Directions[4], {}, 17, 17);
+		if (!RenderWithOptions(HybridSkyView, Result->ForwardLitSky, {}, Durin::ERenderMode::Lit)) return;
+		Durin::FSceneView StatefulHybridSkyView = HybridSkyView;
+		StatefulHybridSkyView.ViewStateId = ViewStateId;
+		if (!RenderWithOptions(
+				StatefulHybridSkyView, Result->StatefulLitNoConsumer,
+				{}, Durin::ERenderMode::Lit)) return;
+		Durin::FSceneViewRenderOptions HybridSkyOptions;
+		const bool bRenderedHybridSky = RenderWithOptions(HybridSkyView, Result->HybridLitSky, HybridSkyOptions, Durin::ERenderMode::Lit, true);
+		if (!bRenderedHybridSky) return;
+		Durin::FMatrix OccluderTransform = glm::translate(
+			Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5)
+		);
+		OccluderTransform = glm::rotate(
+			OccluderTransform, glm::pi<double>(), Durin::FVectorConstants::Right
+		);
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::move(*OcclusionProxy), OccluderTransform);
+		Render(MakePrincipalAxisView(Directions[4], {}, 17, 17), Result->Occluded);
+	};
+	ValidateViews();
+	Durin::EnqueueRenderCommand("ReleaseSkyValidationColor", [&Color](Durin::FRHICommandListImmediate&) { Color = {}; });
 	Durin::FlushRenderingCommands();
 	ViewStateOwner.Reset();
 	Durin::FlushRenderingCommands();
@@ -747,17 +800,34 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
             EXPECT_GT(Peaks[2],Peaks[4]);
             EXPECT_GT(Peaks[4],Peaks[7]);
             EXPECT_LT(Peaks[7],3.f);
-            // Visible sky uses the same radiance, then display mapping.
-            auto Color=GDynamicRHI->RHICreateTexture(Cmd,FRHITextureCreateDesc::Create2D("VisibleAnalyticSky",17,17,EPixelFormat::SRGBA8_UNORM)
-                .SetFlags(ETextureCreateFlags::RenderTargetable|ETextureCreateFlags::ShaderResource|ETextureCreateFlags::CPUReadback));
-            EXPECT_EQ(Renderer.RenderView(Cmd,&Scene,MakePrincipalAxisView({0,0,1},{},17,17),Color,false,{}),ERenderViewResult::Success);
-            EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,Color,0,0,Pixels));
-            const auto Mapped=DisplayMapping::MapSceneLinearToDisplayLinear({16,8,4},0);
-            std::array<uint8,4> Expected{0,0,0,255};
-            for(uint32 C=0;C<3;++C) Expected[C]=uint8(std::lround((1.055f*std::pow(Mapped[C],1.f/2.4f)-0.055f)*255));
-            ExpectRgbNear(Pixels,17,8,8,Expected,4);
             GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
         });
+        FlushRenderingCommands();
+        // Visible sky uses the same radiance, then display mapping. Prepare on the host
+        // before reading a target, since a Pending draw has not initialized it.
+        FTextureRHIRef VisibleColor;
+        EnqueueRenderCommand("CreateVisibleSkyTarget", [&](FRHICommandListImmediate& Cmd) {
+            FSkyValidationFrame Frame(Cmd);
+            VisibleColor=GDynamicRHI->RHICreateTexture(Cmd,FRHITextureCreateDesc::Create2D("VisibleAnalyticSky",17,17,EPixelFormat::SRGBA8_UNORM)
+                .SetFlags(ETextureCreateFlags::RenderTargetable|ETextureCreateFlags::ShaderResource|ETextureCreateFlags::CPUReadback));
+        });
+        FlushRenderingCommands();
+        EXPECT_TRUE(VisibleColor);
+        if (VisibleColor)
+        {
+            const auto Outcome=RenderPreparedSkyView(Renderer,Scene,MakePrincipalAxisView({0,0,1},{},17,17),VisibleColor,{},nullptr,
+                [&](FRHICommandListImmediate& Cmd) {
+                    FByteBuffer Pixels;
+                    if (!GDynamicRHI->RHIReadTexture2D(Cmd,VisibleColor,0,0,Pixels))
+                    { ADD_FAILURE() << "Failed to read the prepared dynamic sky view."; return; }
+                    const auto Mapped=DisplayMapping::MapSceneLinearToDisplayLinear({16,8,4},0);
+                    std::array<uint8,4> Expected{0,0,0,255};
+                    for(uint32 C=0;C<3;++C) Expected[C]=uint8(std::lround((1.055f*std::pow(Mapped[C],1.f/2.4f)-0.055f)*255));
+                    ExpectRgbNear(Pixels,17,8,8,Expected,4);
+                });
+            EXPECT_EQ(Outcome,ERenderViewResult::Success);
+        }
+        EnqueueRenderCommand("ReleaseVisibleSkyTarget", [&](FRHICommandListImmediate&) { VisibleColor={}; });
         FlushRenderingCommands();
         Sky->SetRadianceColors({2,4,8},{2,4,8},{2,4,8},{0,0,0});
         const uint64 PreviousRevision=Revision;
