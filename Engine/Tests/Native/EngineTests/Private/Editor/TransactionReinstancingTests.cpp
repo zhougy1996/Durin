@@ -51,7 +51,7 @@ TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecrea
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Replacement->Value, 81);
 	EXPECT_EQ(Owner->Value, 5);
-	ASSERT_TRUE(Buffer->Reset());
+	ASSERT_TRUE(Buffer->TryReset());
 	Replacement->Value = Original;
 }
 
@@ -92,7 +92,7 @@ TEST(FTransactionTemplateTests, DefaultSubobjectHistoryResolvesRecreatedGraphWit
 	EXPECT_EQ(Component->GetRelativeLocation().x, 29.0);
 	EXPECT_FALSE(Component->IsRegistered());
 	EXPECT_FALSE(Component->HasBegunPlay());
-	ASSERT_TRUE(Buffer->Reset());
+	ASSERT_TRUE(Buffer->TryReset());
 	Component->SetRelativeTransform(Before);
 	Component->ClearFlags(EObjectFlags::Transactional);
 }
@@ -200,7 +200,7 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	Default->Value = 93;
 	EXPECT_FALSE(Buffer->Undo());
 	EXPECT_EQ(Default->Value, 93);
-	ASSERT_TRUE(Buffer->Reset());
+	ASSERT_TRUE(Buffer->TryReset());
 	Default->Value = Original;
 	CollectGarbage();
 }
@@ -429,6 +429,36 @@ TEST_F(FTransactionReinstancingTests, CanceledRecordingAfterPreparationInvalidat
 	(void)Tests::CollectTransactionEvents(*Buffer);
 	EXPECT_FALSE(Operation.TryCommit());
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Old);
+}
+
+TEST_F(FTransactionReinstancingTests, BarrierChangeAfterPreparationRejectsPublication)
+{
+	Record(12);
+	ASSERT_TRUE(Prepare());
+	Buffer->SetUndoBarrier();
+	EXPECT_FALSE(Operation.TryCommit());
+	EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1u);
+	EXPECT_FALSE(Buffer->Undo());
+}
+
+TEST_F(FTransactionReinstancingTests, ResetOfEmptyHistoryInvalidatesPreparedPublication)
+{
+	Buffer->Reset();
+	ASSERT_TRUE(Prepare());
+	Buffer->Reset("Reset after preparation");
+	EXPECT_FALSE(Operation.TryCommit());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+}
+
+TEST_F(FTransactionReinstancingTests, ReinstancingPreservesBarrierAtRetainedCursor)
+{
+	Record(12);
+	Buffer->SetUndoBarrier();
+	ASSERT_TRUE(Prepare()); ASSERT_TRUE(Operation.TryCommit());
+	EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1u);
+	EXPECT_FALSE(Buffer->Undo());
+	Buffer->RemoveUndoBarrier(); ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(New->Value, 0);
 }
 
 TEST_F(FTransactionReinstancingTests, ComponentAnnotationRebindsExactTargetWithoutLifecycleCallbacks)

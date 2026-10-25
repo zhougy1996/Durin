@@ -15,7 +15,6 @@ namespace Durin::Editor
 	// Explicit editor admission policy; unrecorded edits cannot join a live recording.
 	enum class ETransactionMode : uint8 { Record, NotTransactable };
 
-	using ::Durin::FTransactionId;
 	using FRevisionId = uint64;
 
 	// Identifies the history transition reported by a transaction event.
@@ -29,7 +28,6 @@ namespace Durin::Editor
 		Evicted,
 	};
 
-	using ::Durin::ETransactionOperation;
 	// Carries one user-visible transaction history event.
 	struct FTransactionEvent
 	{
@@ -41,10 +39,6 @@ namespace Durin::Editor
 		auto operator==(const FTransactionEvent&) const -> bool = default;
 	};
 
-	using ::Durin::FCommandChange;
-	using ::Durin::FCommandChangeError;
-	using ::Durin::FCommandChangeResult;
-	using ::Durin::FTransactionContext;
 
 	// Describes one package's editor-session revision state.
 	struct FPackageRevisionState

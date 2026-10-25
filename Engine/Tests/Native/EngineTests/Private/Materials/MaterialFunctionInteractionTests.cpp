@@ -102,5 +102,5 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port, Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	EXPECT_TRUE(Second.ConsumeRefreshRequest());
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 }

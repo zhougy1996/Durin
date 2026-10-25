@@ -718,7 +718,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	EXPECT_EQ(Object.SoftValues[1].GetPath(), First);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object.SoftValues[1].GetPath(), Second);
-	ASSERT_TRUE(Transactions.Get()->Reset());
+	ASSERT_TRUE(Transactions.Get()->TryReset());
 
 	const Durin::Editor::FPropertyEditTarget ArrayTarget =
 		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.ArrayProperty)
@@ -729,7 +729,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	EXPECT_EQ(Object.SoftArray[0].GetPath(), First);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object.SoftArray[0].GetPath(), Third);
-	ASSERT_TRUE(Transactions.Get()->Reset());
+	ASSERT_TRUE(Transactions.Get()->TryReset());
 
 	const std::string Alpha = "Alpha";
 	Durin::FPropertyValueSnapshot KeySnapshot;

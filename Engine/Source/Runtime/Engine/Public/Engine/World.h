@@ -4,6 +4,7 @@
 
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Engine/Level.h"
 #include "Engine/WorldSubsystem.h"
 #include "Engine/TimerManager.h"
@@ -20,6 +21,7 @@ namespace Durin
 	class APlayerController;
 	class FSceneInterface;
 	class FGameInputState;
+	class DEngine;
 
 	// Distinguishes editor, play-session, and standalone game world behavior.
 	enum class EWorldType : uint8
@@ -118,7 +120,8 @@ namespace Durin
 		ENGINE_API explicit DWorld(const FObjectInitializer& ObjectInitializer);
 		~DWorld() override = default;
 		// Call after host context/type selection and before attaching a Level. Never creates on lookup.
-		ENGINE_API auto InitializeSubsystems() -> FWorldSubsystemResult;
+		// Explicit host supports package-owned PIE worlds; ordinary worlds infer it from Outer.
+		ENGINE_API auto InitializeSubsystems(DEngine* Host = nullptr) -> FWorldSubsystemResult;
 		// During an operation, closes work admission immediately and defers teardown until it exits.
 		// Closes admission without cleaning consumers until a World or host operation boundary.
 		ENGINE_API auto RequestShutdown() -> void;
@@ -204,6 +207,7 @@ namespace Durin
 			const FCollisionResponseParams& ResponseParams = {}) const -> bool;
 
 	private:
+		TWeakObjectPtr<DEngine> HostEngine;
 		struct FNativeGameplaySession
 		{
 			TObjectPtr<AGameMode> GameMode;

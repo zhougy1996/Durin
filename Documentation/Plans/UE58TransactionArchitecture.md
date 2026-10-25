@@ -2,13 +2,206 @@
 
 Summary: Align Durin's object transactions, annotations, change events, reinstancing, and editor consumers with a pinned UE 5.8 baseline.
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-10-25
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-25
 
 ## Current Status
 
+The End exception audit on `6d0fedf95` moves throwing metadata/event preparation
+and history capacity reservation before branch replacement, uses cached byte
+totals for publication, and removes callback-based post-publication recounting.
+Pre-publication callback failures leave the old Redo branch intact and return a
+checked failure; publication/cleanup faults lock recovery, and an exit guard
+prevents leaked Finalizing/GUndo state. Failure cleanup does not re-enumerate
+broken metadata. PIE inspection failures retain their cause, and accounting
+failure results retain their typed cause and candidate ID. Tests exercise
+candidate/retained accounting, details, package and content callbacks, unknown
+exceptions, nested rejection during cleanup and scope-destructor finalization.
+Final Windows/MSVC Debug validation passed all 262 isolated transaction cases,
+the 17-target affected selection and editor `all`. Final input hashes,
+failed-before reports and receipts use `end-review-` under
+`Build/UE58TransactionArchitecture/`. Runtime/Game inputs remain unchanged;
+GUI smoke remains explicitly waived.
+
+The follow-up on `afb3cb05b` retains the shared PIE query and single package-map
+cleanup, while closing two callback boundaries exposed by the review. A
+Finalizing phase and GC deferral now span the check, accounting and final
+publication/discard; callbacks cannot reenter the buffer or inspect an entry
+being destroyed. Reset package queries hide retiring checkpoints before and
+after busy-save notifications, without clearing the tracking map twice. Three
+regression cases failed before these fixes, covering reset visibility, PIE/error
+discard destructors and metadata callbacks after the final query.
+The guard is owned by End so capture failure cleanup has the same protection.
+Its failure result is retained locally until cleanup finishes, preventing nested
+rejection diagnostics from replacing the original error and transaction ID.
+Final Windows/MSVC Debug validation passed all 259 isolated transaction cases,
+the 17-target affected selection and editor `all`. Final input hashes, failed-before
+reports and receipts use `cleanup-review-` under
+`Build/UE58TransactionArchitecture/`. Only documentation changed after the final
+native input hashes; runtime/Game inputs remain unchanged. GUI smoke remains
+explicitly waived.
+
+The redundancy pass on `df1d9000e` removes the unused mutable history lookup,
+reuses the guarded transaction PIE query at finalization, exchanges retired
+history into one local owner, and clears package tracking once after destructor
+callbacks. Tests use an in-place optional scope and fatal callback admission
+assertions instead of heap ownership and repeated guard conditions; inspection
+callbacks are cleared before assertions that can end a test. Buffer phase states,
+transaction busy flags, and Play admission plus final checked Reset remain
+necessary because they protect different entry points and callback intervals.
+Final Windows/MSVC Debug validation passed the 17-target affected selection,
+five isolated Reset/PIE/reinstancing cases and editor `all`. No test cases were
+removed. Final input hashes and reports use `cleanup-` under
+`Build/UE58TransactionArchitecture/`; runtime/Game inputs remain unchanged and
+GUI smoke remains waived.
+
+The interface audit on `65517443f` plus this patch rechecks UE 5.8 Reset,
+ContainsPieObjects and Undo Barrier implementations. Reset retains UE's complete
+recording purge without reverting edits. It now snapshots its reason, guards
+destructor reentry and invalidates prepared publication even for empty history.
+PIE query traversal now defers GC and blocks mutation/recursive inspection while
+preserving checked errors and the conservative bool facade. Barrier stack,
+zero-cursor and absent `-1` semantics remain unchanged; query callbacks cannot
+alter the stack. Critical Play startup/apply callers now check Reset refusal.
+Redundant double PIE traversals in tests are replaced by single checked reads or
+ordinary bool queries, and the API fixture now exercises active-scope cleanup.
+Two boundary regressions were reproduced before the fixes. Final Windows/MSVC
+Debug validation passed the 17-target affected selection (including all 257
+EditorOperationTests in one process), four isolated management/reinstancing
+cases, the isolated native Play lifecycle case and editor `all`. The earlier
+257-case isolated run preceded the last reset-cleanup refinements; final shared
+and focused receipts cover those final inputs. Source/UE hashes, failed-before
+reports and final receipts use `api-audit-` under
+`Build/UE58TransactionArchitecture/`. Only documentation changed after the final
+native input hashes. Runtime/Game inputs remain unchanged and GUI smoke remains
+explicitly waived.
+
+The management API follow-up on `efb2798fd` aligns the ordinary editor surface
+with the local UE 5.8 declarations: void Reset, bool ContainsPieObjects,
+GetUndoSize on the base transactor, and `-1` for an absent Undo Barrier.
+TryReset and TryContainsPieObjects retain checked failure diagnostics; bool
+inspection fails conservatively. Existing checked callers across workspace
+projects are migrated, while everyday scope/Modify/Undo/Redo calls stay unchanged.
+Runtime capture and replay retain their checked contracts and safety extensions.
+Windows/MSVC Debug validation passed the final 22-target affected selection,
+two isolated interface cases, and editor `all` after the virtual interface change.
+The initial 25-target run also passed; final ordinary-reset fixture cleanup is
+covered by the final build and affected run. Reports and final source/reference
+hashes use `api-` under `Build/UE58TransactionArchitecture/`. The two new cases
+check the public return types, refused reset during replay, reset cleanup, and
+conservative bool behavior when reference inspection fails. Runtime/Game inputs
+remain unchanged, and GUI smoke remains waived.
+
+A second audit on `de9901ae9` plus this patch closes gesture failure and replay
+completion boundaries. Gizmo preview failures compensate every target; failed
+cancellation remains retryable, dirty, and blocks save/rename/level switching.
+Outside transform writes are preserved and rejected by historical replay source
+validation. Foreign recordings defer restoration instead of absorbing its writes.
+Actual restored transforms are verified even when setters report success.
+The gesture commit now uses one standalone `StoreUndo(Change)` call: suppressed
+preview revisions let the buffer detect unrelated writes, so a client-owned scope
+and manual dirty publication are unnecessary. Save admission has one owner in the
+document controller. PIE inverse rejection is covered with mixed arrays, custom
+records and annotations; retained references are rechecked after compensation
+completion and final observers, with taint requiring recovery.
+
+Second-audit Windows/MSVC Debug validation passed the 17-target consumer set,
+253 isolated EditorOperationTests, 116 isolated ViewportTests, 69 isolated
+SplineTests, eight isolated RoadEditorIntegrationTests, and the editor `all`
+build. Twelve new cases include eight failures reproduced before fixes and
+mixed-record compensation coverage that already passed. The final SplineTests
+and ViewportTests receipts replace earlier runs after gesture-only refinements;
+the other consumer inputs were unchanged. Raw reports and final source/UE hashes
+use the `recheck-` prefix under `Build/UE58TransactionArchitecture/`. A selector
+that unexpectedly included unrelated GPU targets was stopped and recovered;
+its partial run is excluded from acceptance. Runtime/Game inputs are unchanged,
+so prior receipts remain valid. GUI smoke remains explicitly waived.
+
+The preceding source audit on `5afeab8f3`, committed as `de9901ae9`, rechecked
+UE 5.8.2 EditorTransaction.cpp's CanUndo/barrier stack, ContainsPieObject and
+package dirty fence (SavePackage/Apply and package-save notifications). Its hash
+still matches the pinned source. Seven regressions failed before the fix:
+busy save/activation could revive a clean checkpoint, standalone StoreUndo could
+acknowledge outside edits even on rejection, history queries disagreed with global
+admission, and fresh whole-object/range inverses could introduce PIE references.
+The fixes preserve the documented cursor-remapping extension and remove those
+unsafe paths. Standalone writes now retain conservative external-edit semantics;
+only idle saves establish a clean checkpoint. Replay checks prepared inverses,
+compensates ordered-range rejection, and requires recovery for native completion
+that taints retained references. Reference traversal remains linear by record.
+Nine review cases cover those boundaries. That audit introduced suppressed gizmo
+preview revisions and revision-aware cancellation; the second audit above refines
+commit and failure handling. The document checkpoint fixture opens its scope
+before mutation and retains its Undo-to-clean assertion.
+
+The preceding Windows/MSVC Debug validation passed 978 cases across 16 consumer targets,
+all 250 EditorOperationTests cases in isolation and a shared process, 107 isolated
+ViewportTests cases, eight RoadEditorIntegrationTests cases, and the editor all
+build: 1,093 distinct editor cases, with no final failures or skips. The final
+shared-process consumer run rebuilt against the final gizmo layout and replaces
+the earlier consumer failures, which remain retained as diagnostic evidence.
+Runtime/Game inputs did not change, so their existing receipts remain applicable.
+Source/UE hashes, reports, failed-before receipts and the final native input list
+use the review- prefix under Build/UE58TransactionArchitecture/. Only documentation
+changed after those final native hashes; documentation and all-plan validation
+complete the audit. The original GUI waiver remains in effect and the completed
+feature scope is unchanged.
+
+Stages 8 and 9 are accepted on `1636476793eb` plus this patch. The user explicitly
+waived the final editor GUI smoke on 2026-10-25 ("这个先跳过吧，完成该计划").
+That gate is waived, not passed; this plan is Completed within that revised scope.
+
+The current reference installation is `D:/Programs/UE_5.8`: Build.version reports
+5.8.2, CL 56702186, CompatibleChangelist 55116800. EditorTransaction.cpp,
+TransBuffer.h, Transactor.h and ScopedTransaction.cpp match the pinned 5.8.0
+SHA-256 values exactly. BeginInternal, End/Cancel, StoreUndo, PIE target/reference
+table inspection and cursor barriers were rechecked locally. Python's
+FPyScopedEditorTransaction EnterScope/ExitScope/Cancel were checked in 5.8.2
+PyEditor.cpp (SHA-256 `240edeebe692adafef75bb1b47c6e72cf63be3dd52ab7695912690185840daca`).
+No UE executable parity probe is claimed.
+
+The final buffer implements cursor barrier controls and explicit package-based
+PIE inspection, discards PIE entries without replacing Redo, and remaps barriers
+when history is trimmed or retired. Runtime namespace compatibility aliases are
+removed across workspace source/test roots. Real editor Play graphs have dedicated
+PIE packages and an explicit weak Engine host for subsystem initialization/context
+shutdown; ordinary runtime Worlds retain their default Outer-host behavior.
+Selected Durin extensions retain commit-time trimming and queued idle events,
+standalone StoreUndo for already-applied domain writes, checked compensation and
+RecoveryRequired, saved-revision authority, and declared strong-dependency PIE
+inspection. Module/package retirement conservatively invalidates surviving package
+checkpoints. Implemented rules live in [Transactors](../Editor/Architecture/Transactions/Transactors.md),
+[Runtime Transactions](../Runtime/ObjectSystem/Transactions.md),
+[World Subsystems](../Runtime/World/WorldSubsystems.md) and the Python adapter.
+
+Final Windows/MSVC Debug validation passed 1,310 isolated editor cases across
+24 registry-selected targets, plus 504 selected consumer cases across Viewport,
+Spline, SkyBox, RoadEditorIntegration, RoadSceneIntegration, Texture,
+ContentBrowserWorkflow and SandboxGameplay (502 passed; two unrelated symlink
+cases skipped because Windows denied symlink privileges). EditorOperationTests
+also passed all 241 cases in one shared process, and the Core/CoreDObject-only
+DurinGame contract target passed 19 isolated cases. The editor `all` build and
+bounded RoadWeaver/Sandbox DurinGame builds passed; the latter include the required
+Core/CoreDObject/Engine closure. Every Stage 0 row now has final test evidence below.
+
+The temporary TransactionSmoke editor initialized Vulkan, rendered normal startup,
+and exited successfully after 36,000 ticks. Windows automation twice returned
+`failed to activate captured window`, so Label/drag/cancel/multi-edit/save and
+example interaction were not completed in the GUI. These remain represented by
+native behavioral regressions, without claiming that they replace the waived GUI
+smoke. No graphics/resource contract changed, so no extra GPU qualification was
+selected. The user's existing untracked Sandbox Level was left untouched.
+
+Reports, build logs, UE/source fingerprints, symbol audit and summary use the
+`stage8-` prefix under ignored `Build/UE58TransactionArchitecture/`;
+`stage8-final-inputs.json` binds all 25 native inputs. The first failed test report
+is retained as `stage8-initial-editor-operation.xml`; the corrected final source
+is covered by `stage8-broad.xml` and `stage8-EditorOperationTests.xml`.
+The startup log and GUI waiver receipt use the `stage9-` prefix. All native input
+hashes still match; subsequent changes are documentation only. Changed-document
+and all-plan validation complete the handoff.
 Stage 7 is accepted against UE 5.8.0 CL 53629095 on `a2237ed10` plus this patch. Source
 comparison covers EditorTransaction.cpp's SaveArray/SerializeContents and
 TransArray.h's mutation adapters. Typed range records replace the unsupported
@@ -391,15 +584,11 @@ assertion was removed; functional snapshot coverage owns that behavior.
 These are declarations/adapters around the one recorder, not alternate histories.
 Implemented module rules live in [runtime transaction contracts](../Runtime/ObjectSystem/Transactions.md).
 
-| Adapter | Owner | Required removal/replacement |
-| --- | --- | --- |
-| Editor namespace aliases for Core custom/context types and CoreDObject exact references | DurinEd | Stage 8 removes compatibility aliases after consumer migration; no duplicate definitions remain. |
-| ContainsPieObjects explicitly returns an unsupported error rather than false | DurinEd | Stage 8 supplies PIE package identification and inspection policy. |
-
-`RuntimeBoundaryPreservesOperationContextAndRejectsInvalidRequests` checks invalid
-array descriptors and the remaining explicit PIE error. Array behavior is covered
-by functional `FTransactionArrayTests`; Stage 8 must replace the PIE expectation
-when that implementation lands.
+Stage 8 removes the editor namespace aliases after migrating every workspace
+consumer. ContainsPieObjects now inspects explicit PIE packages and declared
+strong history edges; it no longer reports unsupported. The runtime-boundary
+test checks successful negative inspection and invalid array descriptors;
+FTransactionArrayTests and FTransBufferTests cover the implemented policies.
 
 Context primary-object pointers are borrowed values at the Core API boundary;
 the editor retains and resolves the CoreDObject exact identity. Newly created
@@ -531,34 +720,34 @@ line offsets alone, define reproduction. A source-verified outcome is a target
 contract, not a claim that Durin already implements it. Stage 9 must attach
 implementation and test evidence to every row.
 
-| Behavior | Verified UE outcome and source location | Selected Durin outcome / implementation gate |
-| --- | --- | --- |
-| Nested Begin/End | **S** `TransBuffer.h::BeginInternal`, `EditorTransaction.cpp::UTransBuffer::End`: Begin returns prior depth; End returns prior depth and only depth 1 finalizes. | Preserve one outer recording, context and final capture; existing `NestedModifyPreservesOutermostFinalState` and `NativeBeginEndAndInnerCancelUseUEActiveCounts` characterize it. |
-| Cancel | **S** `UTransBuffer::Cancel`: any nonzero index is normalized to zero; drops the entire active recording, restores displaced history, does not call Apply. | Cancel is discard without rollback, including inner scopes; property gesture rollback is a separate domain action. Stage 8 preserves this distinction. |
-| Disabled scope | **S** `ScopedTransaction.cpp::Construct`: disabled helpers never Begin; they do not suspend GUndo. | An outer recording still captures Modify inside a disabled helper. `DisabledScopeLeavesOuterCaptureAndLifetimeIntact` covers depth and cleanup. Exact stale-helper protection remains **D**. |
-| First/final capture and replay | **S** `SaveObject`, record constructor, `Finalize`, `Save`, `Load`: first capture calls virtual Serialize; final state is serialized; replay captures current state before loading and swapping the two sides. | The foundation's canonical record uses whole-object states with live inverse capture. Before/final/inverse/snapshot storage shares one representation with no duplicate capture metadata. Prepare every inverse before mutation; compensation/recovery is **D**. No parallel focused-property replay remains. |
-| Custom before Modify | **A/S** `ITransaction::StoreUndo`, `SaveObject`: custom adds an object record; later SaveObject sees an existing record and adds no serialized snapshot. | Preserve this exclusive object-owner rule. Commands needing generic capture for unrelated authored fields must use serialized participants or distinct declared participants rather than claiming the whole object. Stage 1 migrates callers. |
-| Modify before custom | **S** `SaveObject`, `StoreUndo`, `Apply`: the earlier serialized record remains; Undo reverses record order, Redo follows record order. | Retain order, with no implicit deletion of the earlier snapshot. `ModifyBeforeCustomPreservesOrderedReplay` characterizes it. Domain callers must avoid duplicate ownership of a field; ordinary edits migrate to generic records. |
-| Focused capture | **S**, UE SaveObject has no focused-history overload; SnapshotObject is observation, not focused undo storage. | Foundation Stage 1 removes focused history, promotion and member locators. Property editing captures a whole object before mutation; domain commands retain only their own required property payloads. |
-| Array operations | **A/S** `SaveArray`, `SerializeContents`: owner-bound range records; operation +1 removes on load, -1 inserts on load, 0 restores values; replay reverses the operation sign. Array Finalize skips diffing; a bare array record without annotation does not itself set HasChanges. Raw array addresses are UE-specific. | Stage 7 uses reflected owner/member identity and typed adapters, retains no live vector address, bounds insert/remove payload by changed elements, and falls back explicitly for unsupported containers. Reliable standalone array change detection is **D**; test it without requiring a duplicate whole-container snapshot. |
-| No-op and transient entries | **S** `FObjectRecord::HasChanges`, `FTransaction::IsTransient`, `UTransBuffer::End`: serialized byte/name/reference changes, custom records or annotations retain history; no-op/PIE entries restore displaced history after finalization. | Stage 2 compares serialized state, not only property diffs. Annotation-only changes retain history. `NoOpAndCanceledRecordingPreserveRedoBranch` characterizes branch preservation; annotation and PIE cases arrive in Stages 3/8. |
-| Property filtering | **S** `Property.cpp::ShouldSerializeValue`, `Transactor.h::FReader/FWriter`: transaction archives are nonpersistent; Transient alone is included, NonTransactional and ordinary Deprecated fields excluded. | Preserve current transaction-purpose filtering, including nested structs. Stage 2 must not accidentally reuse persistence filtering. Existing filtering tests remain valid. |
-| IDs and operation lifetime | **A/S** `ITransaction.h::FTransactionContext`, `BeginOperation`, `EndOperation`, buffer Begin/End/Undo/Redo: stable transaction ID, fresh nonzero operation ID per recording or replay, cleared after completion/cancellation. | Stage 1 places context in Core; Stage 4 supplies operation IDs to synchronous object hooks. Monotonic session IDs instead of GUID layout remain **D**. |
-| Snapshot events | **S** record `Snapshot`, transaction `SnapshotObject`: only existing noncustom object records; selected property sets accumulate, an unfiltered request stays unfiltered; compares last snapshot (first uses initial state); does not replace undo before-state. | Stage 4 emits synchronous Snapshot events with the live operation ID; no new history entry. Custom/array/finalized/uncaptured records do not acquire synthetic snapshots. |
-| Finalization events | **S** transaction `Finalize`, buffer `End`: component completion precedes Actor completion; changed serialized state/diff or annotation triggers PostTransacted; object Finalized occurs before operation closes and GUndo clears. | Stage 4 keeps object hooks synchronous in live context; queued idle history listeners remain separate **D**. No-op without annotation emits no object change. Cancel emits no Finalized object event. |
-| Undo/Redo event order | **S** `Apply`, buffer `Undo/Redo`: distinct targets get PreEditUndo, all records save/load, component PostEditUndo before Actor, then each object's PostTransacted; operation remains live. Custom-only records get completion hooks but no synthetic serialized delta event. | Stages 3/4 preserve ordering and declare modified participants explicitly. Recoverable failures and compensation emit no misleading successful completion; balanced cleanup/recovery dispositions are **D** and need trace tests. |
-| Annotation capture/lifetime | **A/S** `FSerializedObject::SetObject`, record `Snapshot/Finalize/Save/Load/AddReferencedObjects`: annotation captured before serialization, at finalization/snapshot and inverse capture; both serialized sides enumerate references; replay uses restored side's annotation. | Stage 3 puts annotation ownership/hooks in CoreDObject, additional object changes in event contracts; checked owned-byte accounting is **D**. Default object annotation is absent. |
-| Actor reconstruction | **S** `Actor.cpp::Modify`, `ActorEditor.cpp::FactoryTransactionAnnotation/CreateIfRequired/PreEditUndo/PostEditUndo`: native root capture, conditional instance/root/attachment data; lifecycle work accompanies state restore. | Foundation Stages 3-5 use Engine-owned destruction/recreation, instance caches, root/attachment data and shared lifecycle/Tick owners. No Blueprint subsystem is required. Actor/Component annotations adapt these owners; they do not schedule a second lifecycle implementation. Full editor consumer acceptance remains Stage 5 below. |
-| Package state | **S** `SavePackage`, `Apply`, dirty-fence counter, `Obj.cpp::Modify`, `UObjectGlobals.cpp::SaveToTransactionBuffer`: package state is independent of object fields; replay updates dirty state before loading; saves fence historical clean state. Modify can dirty without retaining history. | Keep Durin saved-revision/checkpoint authority **D**, including external writes, retirement and branch changes; do not replay dirty as a serialized member. Existing checkpoint/uncaptured dirty tests remain valid. |
-| Undo barriers | **A/S** `SetUndoBarrier/RemoveUndoBarrier/ClearUndoBarriers/GetCurrentUndoBarrier/CanUndo`: stack stores queue cursor; only top barrier limits further Undo; empty query is invalid index; Reset clears stack. | Stage 8 implements cursor barriers with tests for push/pop/clear, Redo, reset and trimmed history; retirement must preserve a valid bound. |
-| PIE inspection | **A/S** `ContainsPieObject/ContainsPieObjects/IsTransient`, `SaveArray`: checks target and serialized references on both sides; any PIE makes entry transient; array capture rejects PIE owner. Custom/annotation traversal is not a blanket PIE scan in this implementation. | Stage 8 makes PIE support explicit at package boundary; stronger declared-participant/dependency inspection is **D**. No implicit equivalence between runtime world and PIE package. |
-| History budget/branching | **S** `BeginInternal`, `End`, `Cancel`, `DataSize`: Begin temporarily removes Redo or oldest prefix at size >= budget; cancel/no-op restores it; successful entry can exceed budget; DataSize counts serialized side plus custom bytes. | Preserve final history outcomes; commit-time trimming is **D** (pending entry is not exposed as retained history). Checked native allocations, both owned sides and overflow rejection remain **D**; transitive GC graph size is not claimed. Stage 8 documents observable event differences. |
-| Exact/logical identity | **S** `TransactionCommon.cpp::FPersistentObjectRef` and `OnObjectsReinstanced`: ordinary root pointer, CDO/default-subobject owner/name chain, explicit replacement collector. | Foundation Stage 5 implements exact ordinary handles and explicit checked maps for payloads, caches, annotations and retained history. Generated component matching belongs to Engine instance-source info. Stage 6 adds checked CDO/default-subobject chains, native default-graph admission and an explicit reinstancing hook using the same history participant. Class/owner/property compatibility and atomic publication are stricter **D**; same-name objects never revive exact references. |
-| Expiry and destruction | **S** `HasExpired`, buffer `Undo/Redo`: expired custom transactions may be skipped. UE replay also changes garbage state for recorded pending-kill transitions. | Preserve irreversible garbage exclusion **D**; reversible editor absence uses lifecycle records/annotations. Unsupported replacement/module unload retires whole entries atomically. Stage 6/8 must not silently skip partially incompatible entries. |
+| Behavior | Verified UE outcome and source location | Selected Durin outcome / implementation gate | Final implementation/test evidence |
+| --- | --- | --- | --- |
+| Nested Begin/End | **S** `TransBuffer.h::BeginInternal`, `EditorTransaction.cpp::UTransBuffer::End`: Begin returns prior depth; End returns prior depth and only depth 1 finalizes. | Preserve one outer recording, context and final capture; existing `NestedModifyPreservesOutermostFinalState` and `NativeBeginEndAndInnerCancelUseUEActiveCounts` characterize it. | `FTransBufferTests.NativeBeginEndAndInnerCancelUseUEActiveCounts` |
+| Cancel | **S** `UTransBuffer::Cancel`: any nonzero index is normalized to zero; drops the entire active recording, restores displaced history, does not call Apply. | Cancel is discard without rollback, including inner scopes; property gesture rollback is a separate domain action. Stage 8 preserves this distinction. | `FTransBufferTests.CancelingJoinedChangeDiscardsRecordingWithoutRevertingEdits`; Python scope regressions |
+| Disabled scope | **S** `ScopedTransaction.cpp::Construct`: disabled helpers never Begin; they do not suspend GUndo. | An outer recording still captures Modify inside a disabled helper. `DisabledScopeLeavesOuterCaptureAndLifetimeIntact` covers depth and cleanup. Exact stale-helper protection remains **D**. | `FTransBufferTests.DisabledScopeLeavesOuterCaptureAndLifetimeIntact` |
+| First/final capture and replay | **S** `SaveObject`, record constructor, `Finalize`, `Save`, `Load`: first capture calls virtual Serialize; final state is serialized; replay captures current state before loading and swapping the two sides. | The foundation's canonical record uses whole-object states with live inverse capture. Before/final/inverse/snapshot storage shares one representation with no duplicate capture metadata. Prepare every inverse before mutation; compensation/recovery is **D**. No parallel focused-property replay remains. | `FTransBufferTests.ModifyUsesVirtualSerializationAndOneRecordPerObject`, `ExplicitRecordsAndModifyShareFirstBeforeAndFinalAfter`; compensation regressions |
+| Custom before Modify | **A/S** `ITransaction::StoreUndo`, `SaveObject`: custom adds an object record; later SaveObject sees an existing record and adds no serialized snapshot. | Preserve this exclusive object-owner rule. Commands needing generic capture for unrelated authored fields must use serialized participants or distinct declared participants rather than claiming the whole object. Stage 1 migrates callers. | `FTransBufferTests.CustomOwnerSuppressesLaterModifySnapshot`; standalone StoreUndo regression |
+| Modify before custom | **S** `SaveObject`, `StoreUndo`, `Apply`: the earlier serialized record remains; Undo reverses record order, Redo follows record order. | Retain order, with no implicit deletion of the earlier snapshot. `ModifyBeforeCustomPreservesOrderedReplay` characterizes it. Domain callers must avoid duplicate ownership of a field; ordinary edits migrate to generic records. | `FTransBufferTests.ModifyBeforeCustomPreservesOrderedReplay` |
+| Focused capture | **S**, UE SaveObject has no focused-history overload; SnapshotObject is observation, not focused undo storage. | Foundation Stage 1 removes focused history, promotion and member locators. Property editing captures a whole object before mutation; domain commands retain only their own required property payloads. | Whole-object API and namespace symbol audit; EditorPropertyTests and MaterialGraphEditingTests |
+| Array operations | **A/S** `SaveArray`, `SerializeContents`: owner-bound range records; operation +1 removes on load, -1 inserts on load, 0 restores values; replay reverses the operation sign. Array Finalize skips diffing; a bare array record without annotation does not itself set HasChanges. Raw array addresses are UE-specific. | Stage 7 uses reflected owner/member identity and typed adapters, retains no live vector address, bounds insert/remove payload by changed elements, and falls back explicitly for unsupported containers. Reliable standalone array change detection is **D**; test it without requiring a duplicate whole-container snapshot. | `FTransactionArrayTests` including relocation, mixed replay, bounded storage and PIE-owner rejection |
+| No-op and transient entries | **S** `FObjectRecord::HasChanges`, `FTransaction::IsTransient`, `UTransBuffer::End`: serialized byte/name/reference changes, custom records or annotations retain history; no-op/PIE entries restore displaced history after finalization. | Stage 2 compares serialized state, not only property diffs. Annotation-only changes retain history. `NoOpAndCanceledRecordingPreserveRedoBranch` characterizes branch preservation; annotation and PIE cases arrive in Stages 3/8. | `FTransBufferTests.NoOpAndCanceledRecordingPreserveRedoBranch`, `PieOwnerAndBothSerializedSidesAreInspectedAndPreserveRedo`; annotation-only history |
+| Property filtering | **S** `Property.cpp::ShouldSerializeValue`, `Transactor.h::FReader/FWriter`: transaction archives are nonpersistent; Transient alone is included, NonTransactional and ordinary Deprecated fields excluded. | Preserve current transaction-purpose filtering, including nested structs. Stage 2 must not accidentally reuse persistence filtering. Existing filtering tests remain valid. | `FTransBufferTests.TransientAndNonTransactionalFiltersAreIndependent`, `TransactionFiltersApplyInsideReflectedStructs`; CoreTransactionContractTests |
+| IDs and operation lifetime | **A/S** `ITransaction.h::FTransactionContext`, `BeginOperation`, `EndOperation`, buffer Begin/End/Undo/Redo: stable transaction ID, fresh nonzero operation ID per recording or replay, cleared after completion/cancellation. | Stage 1 places context in Core; Stage 4 supplies operation IDs to synchronous object hooks. Monotonic session IDs instead of GUID layout remain **D**. | `FTransBufferTests.RuntimeBoundaryPreservesOperationContextAndRejectsInvalidRequests`; synchronous context and stale-scope regressions |
+| Snapshot events | **S** record `Snapshot`, transaction `SnapshotObject`: only existing noncustom object records; selected property sets accumulate, an unfiltered request stays unfiltered; compares last snapshot (first uses initial state); does not replace undo before-state. | Stage 4 emits synchronous Snapshot events with the live operation ID; no new history entry. Custom/array/finalized/uncaptured records do not acquire synthetic snapshots. | `FTransactionObjectEventTests.SnapshotsAccumulateSelectionWithoutReplacingUndoBaseline`, `WholeObjectSnapshotsObserveNativeDataAndKeepOriginalUndo` |
+| Finalization events | **S** transaction `Finalize`, buffer `End`: component completion precedes Actor completion; changed serialized state/diff or annotation triggers PostTransacted; object Finalized occurs before operation closes and GUndo clears. | Stage 4 keeps object hooks synchronous in live context; queued idle history listeners remain separate **D**. No-op without annotation emits no object change. Cancel emits no Finalized object event. | `FTransactionObjectEventTests.FinalizedClosesLastSnapshotEvenWhenHistoryReturnsToNoOp`; engine annotation events |
+| Undo/Redo event order | **S** `Apply`, buffer `Undo/Redo`: distinct targets get PreEditUndo, all records save/load, component PostEditUndo before Actor, then each object's PostTransacted; operation remains live. Custom-only records get completion hooks but no synthetic serialized delta event. | Stages 3/4 preserve ordering and declare modified participants explicitly. Recoverable failures and compensation emit no misleading successful completion; balanced cleanup/recovery dispositions are **D** and need trace tests. | `FTransactionObjectEventTests.MultipleTargetsCompleteBeforeRecordAndAnnotationEvents`, `CompensatedFailureEmitsNoSuccessfulReplayEvent`; WorldTests |
+| Annotation capture/lifetime | **A/S** `FSerializedObject::SetObject`, record `Snapshot/Finalize/Save/Load/AddReferencedObjects`: annotation captured before serialization, at finalization/snapshot and inverse capture; both serialized sides enumerate references; replay uses restored side's annotation. | Stage 3 puts annotation ownership/hooks in CoreDObject, additional object changes in event contracts; checked owned-byte accounting is **D**. Default object annotation is absent. | `FTransBufferTests.AnnotationReferencesSurviveCallbackCollectionAndReleaseWithHistory`, `LaterRecordFailurePreservesOriginalAnnotationForRetry` |
+| Actor reconstruction | **S** `Actor.cpp::Modify`, `ActorEditor.cpp::FactoryTransactionAnnotation/CreateIfRequired/PreEditUndo/PostEditUndo`: native root capture, conditional instance/root/attachment data; lifecycle work accompanies state restore. | Foundation Stages 3-5 use Engine-owned destruction/recreation, instance caches, root/attachment data and shared lifecycle/Tick owners. No Blueprint subsystem is required. Actor/Component annotations adapt these owners; they do not schedule a second lifecycle implementation. Full editor consumer acceptance remains Stage 5 below. | `FEngineTransactionAnnotationTests`; WorldTests, LevelMutationTests, SplineTests |
+| Package state | **S** `SavePackage`, `Apply`, dirty-fence counter, `Obj.cpp::Modify`, `UObjectGlobals.cpp::SaveToTransactionBuffer`: package state is independent of object fields; replay updates dirty state before loading; saves fence historical clean state. Modify can dirty without retaining history. | Keep Durin saved-revision/checkpoint authority **D**, including external writes, retirement and branch changes; do not replay dirty as a serialized member. Existing checkpoint/uncaptured dirty tests remain valid. | `FTransBufferTests.UnrecordedAndCanceledModifyCannotClearDirtyOnUndo`, `ModuleRetirementCannotResurrectAnEarlierCleanCheckpoint`, `ForgetPackageRemapsBarriersAndInvalidatesSurvivingParticipants`; AssetPackageReloadTests |
+| Undo barriers | **A/S** `SetUndoBarrier/RemoveUndoBarrier/ClearUndoBarriers/GetCurrentUndoBarrier/CanUndo`: stack stores queue cursor; only top barrier limits further Undo; empty query is invalid index; Reset clears stack. | Stage 8 implements cursor barriers with tests for push/pop/clear, Redo, reset and trimmed history; retirement must preserve a valid bound. | `FTransBufferTests.UndoBarrierStackUsesOnlyTheTopCursorAndNeverBlocksRedo`, budget/retirement/branch tests; `FTransactionReinstancingTests` barrier publication regressions |
+| PIE inspection | **A/S** `ContainsPieObject/ContainsPieObjects/IsTransient`, `SaveArray`: checks target and serialized references on both sides; any PIE makes entry transient; array capture rejects PIE owner. Custom/annotation traversal is not a blanket PIE scan in this implementation. | Stage 8 makes PIE support explicit at package boundary; stronger declared-participant/dependency inspection is **D**. No implicit equivalence between runtime world and PIE package. | `FTransBufferTests.PieOwnerAndBothSerializedSidesAreInspectedAndPreserveRedo`, custom/annotation/weak-edge tests; `FTransactionArrayTests.PieOwnerIsRejectedBeforeMutation`; real Play package lifetime in WorldTests |
+| History budget/branching | **S** `BeginInternal`, `End`, `Cancel`, `DataSize`: Begin temporarily removes Redo or oldest prefix at size >= budget; cancel/no-op restores it; successful entry can exceed budget; DataSize counts serialized side plus custom bytes. | Preserve final history outcomes; commit-time trimming is **D** (pending entry is not exposed as retained history). Checked native allocations, both owned sides and overflow rejection remain **D**; transitive GC graph size is not claimed. Stage 8 documents observable event differences. | `FTransBufferTests.BudgetChangesWaitForCommitAndRemapBarrierAfterPrefixEviction`, `RedoBranchReplacementDoesNotAlsoTrimTheUndoPrefix`; overflow and idle listener tests |
+| Exact/logical identity | **S** `TransactionCommon.cpp::FPersistentObjectRef` and `OnObjectsReinstanced`: ordinary root pointer, CDO/default-subobject owner/name chain, explicit replacement collector. | Foundation Stage 5 implements exact ordinary handles and explicit checked maps for payloads, caches, annotations and retained history. Generated component matching belongs to Engine instance-source info. Stage 6 adds checked CDO/default-subobject chains, native default-graph admission and an explicit reinstancing hook using the same history participant. Class/owner/property compatibility and atomic publication are stricter **D**; same-name objects never revive exact references. | `FTransactionTemplateTests`, `FTransactionReinstancingTests`; CoreObjectReplacementTests and CoreTransactionContractTests |
+| Expiry and destruction | **S** `HasExpired`, buffer `Undo/Redo`: expired custom transactions may be skipped. UE replay also changes garbage state for recorded pending-kill transitions. | Preserve irreversible garbage exclusion **D**; reversible editor absence uses lifecycle records/annotations. Unsupported replacement/module unload retires whole entries atomically. Stage 6/8 must not silently skip partially incompatible entries. | `FTransBufferTests.CustomReferencesAndModuleDrainReleaseHistory`, GC/recovery/module-reentry tests; unsupported replacement retirement regressions |
 
 The inspected source resolves the required baseline questions without a UE
 executable probe. Product tests for snapshots, annotations, arrays, replacement,
-PIE and barriers remain implementation work, not unresolved reference evidence.
+PIE and barriers are implemented and validated by the final receipts above.
 Durin differences above are selected deliberately; the final claim is the
 documented alignment boundary, not byte-for-byte UE behavior.
 
@@ -779,18 +968,18 @@ fallback behavior and remaining full-container costs are documented honestly.
 Dependency: Stages 4, 6, and 7. Outcome: buffer controls and recording semantics
 follow the verified UE 5.8 baseline with named, tested Durin extensions.
 
-- [ ] Complete verified Begin/End/Cancel, scope lifetime, primary-object/context,
+- [x] Complete verified Begin/End/Cancel, scope lifetime, primary-object/context,
   operation scope, no-op/transient entry, and custom StoreUndo semantics. Resolve
   the current implicit standalone StoreUndo extension explicitly.
-- [ ] Implement Undo Barrier stack behavior and PIE-reference inspection/policy.
+- [x] Implement Undo Barrier stack behavior and PIE-reference inspection/policy.
   Map each control to a real editor caller or a native contract test.
-- [ ] Align buffer budget configuration, eviction timing, branch replacement,
+- [x] Align buffer budget configuration, eviction timing, branch replacement,
   reset reasons, and observable buffer events. Preserve checked accounting and
   distinguish native record bytes from the transitive retained object graph.
-- [ ] Reconcile package dirty/checkpoint handling, external writes, module unload,
+- [x] Reconcile package dirty/checkpoint handling, external writes, module unload,
   reload retirement, exceptions, and RecoveryRequired with the new object records.
   Cancel behavior and replay failure compensation remain separate concepts.
-- [ ] Remove superseded adapters and old UE 5.3.2 normative assumptions from active
+- [x] Remove superseded adapters and old UE 5.3.2 normative assumptions from active
   contracts. Keep historical archive documents as history, not current authority.
 
 Completion: buffer semantics have reference-backed tests; retained deviations have
@@ -801,25 +990,25 @@ an explicit reason, owner, and observable behavior rather than an accidental fal
 Dependency: Stages 0-8. Outcome: the final implementation, consumers, evidence, and
 documentation agree on the pinned UE 5.8 alignment boundary.
 
-- [ ] Close every row of the Stage 0 matrix with implementation/test evidence or an
+- [x] Close every row of the Stage 0 matrix with implementation/test evidence or an
   explicitly selected Durin extension. Required unresolved rows prevent completion.
-- [ ] Run final default-editor `all` integration coverage for the final ABI, reflected
+- [x] Run final default-editor `all` integration coverage for the final ABI, reflected
   metadata, and consumers across Engine, Sandbox, and RoadWeaver. Reuse valid
   receipts only when the relevant inputs and environment satisfy the test workflow.
-- [ ] Validate the final runtime boundary in the registered Debug DurinGame preset:
+- [x] Validate the final runtime boundary in the registered Debug DurinGame preset:
   a bounded Core/CoreDObject/Engine/project consumer build proves that moving
   transaction contracts did not introduce an editor dependency. Stage 0 selects
   the exact target closure. No extra Release/Shipping or graphics preset is implied.
-- [ ] Run the required native acceptance matrix below, with registry-based selection
+- [x] Run the required native acceptance matrix below, with registry-based selection
   and isolated runs for state-sensitive new cases. Resolve failures and account for
   any uncovered consumer before claiming parity.
-- [ ] Complete an editor smoke covering Label rename, transform drag and cancel,
+- [x] Waive the editor GUI smoke by explicit user instruction on 2026-10-25. The original gate covered Label rename, transform drag and cancel,
   multi-object edit, structural undo, save/Undo/Redo dirty state, and the Python
   example's create/Undo/rerun/duplicate rejection. Application-hosted automation,
   when used for this gate, follows its documented host admission workflow.
-- [ ] Update the owning Core/Runtime/Editor contracts, script guides, API examples,
+- [x] Update the owning Core/Runtime/Editor contracts, script guides, API examples,
   and test registry. The plan must not remain the only source of implemented rules.
-- [ ] Record final evidence applicability, remove temporary adapters, validate docs
+- [x] Record final evidence applicability, remove temporary adapters, validate docs
   and plan lifecycle, then mark the plan Completed only after every required gate.
 
 Completion: a clean final handoff has no hidden legacy capture path, unresolved

@@ -84,8 +84,8 @@ TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObse
 	ASSERT_EQ(Buffer->Begin("test", "Bounded capture"), 0); ASSERT_TRUE(Target->Modify());
 	Target->Value = 1; Target->Numbers[0] = 1;
 	EXPECT_EQ(Buffer->End(), 1);
-	const auto OrdinaryBytes = Buffer->GetOwnedBytes(); ASSERT_GT(OrdinaryBytes, 0u);
-	ASSERT_TRUE(Buffer->Reset()); Target->Value = 0; Target->Numbers[0] = 0;
+	const auto OrdinaryBytes = Buffer->GetUndoSize(); ASSERT_GT(OrdinaryBytes, 0u);
+	ASSERT_TRUE(Buffer->TryReset()); Target->Value = 0; Target->Numbers[0] = 0;
 	const auto Saves = Target->SerializationSaves;
 	ASSERT_EQ(Buffer->Begin("test", "Bounded capture"), 0); ASSERT_TRUE(Target->Modify());
 	auto* Transaction = static_cast<FTransaction*>(GUndo);
@@ -101,18 +101,18 @@ TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObse
 		EXPECT_EQ(Target->SerializationSaves, Saves + 1 + Index);
 	}
 	EXPECT_EQ(Buffer->End(), 1);
-	const auto FinalBytes = Buffer->GetOwnedBytes();
+	const auto FinalBytes = Buffer->GetUndoSize();
 	EXPECT_EQ(FinalBytes, OrdinaryBytes); ASSERT_LT(FinalBytes, PeakBytes);
 	EXPECT_GE(PeakBytes - FinalBytes, Target->Numbers.size() * sizeof(int32));
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 1u);
 	for (uint32 Index = 0; Index < 8; ++Index)
 	{
 		ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->Numbers[0], 0);
-		EXPECT_EQ(Buffer->GetOwnedBytes(), FinalBytes);
+		EXPECT_EQ(Buffer->GetUndoSize(), FinalBytes);
 		ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 32); EXPECT_EQ(Target->Numbers[0], 32);
-		EXPECT_EQ(Buffer->GetOwnedBytes(), FinalBytes); EXPECT_EQ(Buffer->GetQueueLength(), 1u);
+		EXPECT_EQ(Buffer->GetUndoSize(), FinalBytes); EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	}
-	ASSERT_TRUE(Buffer->Reset()); EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
+	ASSERT_TRUE(Buffer->TryReset()); EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 	RecordProperty("ordinary_history_bytes", std::to_string(OrdinaryBytes));
 	RecordProperty("snapshot_peak_bytes", std::to_string(PeakBytes));
 	RecordProperty("final_history_bytes", std::to_string(FinalBytes));

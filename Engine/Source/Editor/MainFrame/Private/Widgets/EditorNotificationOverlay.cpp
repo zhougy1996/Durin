@@ -86,13 +86,13 @@ namespace Durin::Editor::MainFrame
 			ImGui::PopStyleColor(4);
 		}
 
-		auto FailureOperation(::Durin::Editor::ETransactionOperation Operation) -> std::string_view
+		auto FailureOperation(::Durin::ETransactionOperation Operation) -> std::string_view
 		{
 			switch (Operation)
 			{
-			case ::Durin::Editor::ETransactionOperation::Undo: return "undo";
-			case ::Durin::Editor::ETransactionOperation::Redo: return "redo";
-			case ::Durin::Editor::ETransactionOperation::Execute:
+			case ::Durin::ETransactionOperation::Undo: return "undo";
+			case ::Durin::ETransactionOperation::Redo: return "redo";
+			case ::Durin::ETransactionOperation::Execute:
 			default: return "execute";
 			}
 		}
@@ -502,7 +502,7 @@ namespace Durin::Editor::MainFrame
 				return;
 			}
 
-			const ::Durin::Editor::FTransactionId Id = Event.Id;
+			const ::Durin::FTransactionId Id = Event.Id;
 			::Durin::Editor::FNotificationAction Action;
 			Action.Label = bOffersRedo ? "Redo" : "Undo";
 			Action.IsEnabled = [&Transactions, Id, bOffersRedo] {

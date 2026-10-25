@@ -751,7 +751,7 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     ASSERT_TRUE(Transactions->Redo());
     EXPECT_EQ(Light->GetSourceMode(),ESkyLightSourceMode::CapturedSky);
     EXPECT_EQ(Light->GetIntensity(),3);
-    ASSERT_TRUE(Transactions->Reset()); Root.Reset();
+    ASSERT_TRUE(Transactions->TryReset()); Root.Reset();
     ASSERT_TRUE(SavePackage(Actor->GetPackage()));
     ASSERT_TRUE(UnloadPackage(Path));
     ASkyLightActor* Reopened=nullptr;

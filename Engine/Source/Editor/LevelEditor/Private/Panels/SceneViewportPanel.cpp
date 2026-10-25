@@ -176,17 +176,22 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FSceneViewportPanel::PrepareForLevelChange(FLevelEditorContext& Context) -> void
+	auto FSceneViewportPanel::PrepareForLevelChange(FLevelEditorContext& Context) -> bool
 	{
 		// End edits while their original world and target policies are still valid.
 		EditModeManager.Shutdown(&Context);
 		if (ViewportClient)
 		{
-			ViewportClient->GetTransformGizmo().CancelDrag();
+			if (!ViewportClient->GetTransformGizmo().CancelDrag())
+			{
+				Context.SetError("Unable to restore the transform gesture before changing levels.");
+				return false;
+			}
 			ViewportClient->SetSelectedActors({}, nullptr);
 			ViewportClient->SetSelectedComponent(nullptr, {});
 		}
 		if (CameraPreviewViewportClient) CameraPreviewViewportClient->SetCamera(nullptr);
+		return true;
 	}
 
 	auto FSceneViewportPanel::RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void

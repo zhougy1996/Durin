@@ -4,7 +4,7 @@ Summary: Define UE-shaped native recording, synchronous Undo/Redo, package check
 
 Modules: Core, CoreDObject, Engine, DurinEd
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-10-25
 
 ## Service Ownership
 
@@ -78,6 +78,13 @@ The explicit-transactor overload supports native composition and independent
 low-level buffer tests; it cannot open a competing concurrent recording.
 Cancel(), IsOutstanding() and optional End are retained, and destruction ends
 an outstanding action.
+The editor management surface follows UE's ordinary call shapes: `Reset(Reason)`
+returns void, `ContainsPieObjects()` returns bool, and `GetUndoSize()` reports
+owned history bytes through `DTransactor`. `TryReset` and
+`TryContainsPieObjects` retain Durin's checked diagnostics when a caller needs
+them. A failed bool PIE inspection conservatively returns true. Runtime
+`ITransaction` capture/inspection remains checked so recording and replay never
+mistake a failed traversal for an empty reference set.
 Scope helpers retain a GC-visible exact transactor reference and its existing
 active transaction ID. End, Cancel, IsOutstanding and destruction first validate
 that same live recording. Cancel/End followed by a replacement Begin makes old
@@ -156,9 +163,82 @@ replacement/reset. The transactor has no separate description-query interface.
 
 Idle and Recording accept ordinary composition through `CanTransact()` outside
 object capture and synchronous transaction callbacks.
-Undoing, Redoing, RecoveryRequired, and Destroying reject it. Undo/Redo cannot
-reenter recording. Ordinary scopes provide neither caller isolation nor an
+Undoing, Redoing, RecoveryRequired, Destroying, Resetting, Inspecting and
+Finalizing reject it. Undo/Redo cannot reenter recording. Ordinary scopes provide
+neither caller isolation nor an
 all-or-nothing execution contract.
+
+Reset cancels the complete active recording and purges history, barriers, queued
+events and package tracking without reverting applied edits or clearing package
+dirty flags. It snapshots the reason before invoking record destructors and
+blocks reentrant recording, reset and inspection throughout cleanup. Package
+revision queries hide retiring checkpoint data until cleanup completes. Existing
+scopes become inert. Even an empty reset invalidates prepared history publication.
+Refusal during replay or recovery preserves the retained graph; it is not a
+recovery operation.
+
+### Undo Barriers And PIE References
+
+SetUndoBarrier pushes the committed cursor, RemoveUndoBarrier pops one bound,
+and ClearUndoBarriers removes all bounds. Only the top bound restricts Undo;
+Redo is unrestricted. GetCurrentUndoBarrier returns `-1` without a
+barrier. CanUndo, Undo, UndoExpected and checked context queries all honor the
+same bound. Controls require Idle with no global recording, preventing replay
+callbacks from changing admission. Reset clears the stack. Prefix eviction,
+branch removal, package/module retirement and checked reinstancing remap every
+bound by the removed queue positions; a bound never points beyond retained data.
+Barrier and budget changes invalidate a prepared replacement operation.
+Barrier refusal has its own rejection reason, separate from an unexpected head
+ID. CanTransact, CanUndo and CanRedo all reject another buffer's live GUndo;
+unavailable history queries return a nonempty explanation.
+
+DPackage::IsPlayInEditor is an explicit session flag, independent of world type,
+asset persistence and object Transient flags. Editor Play creates a dedicated
+transient package for its copied world graph and retires that package after the
+render fence. Ordinary runtime worlds do not implicitly become PIE packages.
+Initialize asset packages before applying the session flag; the flag is not saved.
+
+FTransaction::ContainsPieObjects inspects targets and both serialized sides.
+Durin deliberately extends UE's record/reference-table check to every declared
+strong history edge: primary context, custom participants and dependencies,
+annotations, array values and package transitions. It does not recursively scan
+the live DObject graph or promote weak/soft edges. Queries inspect captured history
+sides; uncaptured live edits enter inspection at finalization. A buffer query
+includes pending,
+Undo and Redo entries. Checked inspection reports callback exceptions as errors;
+the ordinary buffer bool query reports possible PIE references on failure.
+Public queries defer GC and guard both the buffer and each inspected transaction
+against mutation and recursive inspection. Pending, Undo and Redo references are
+inspected in stable states; a busy traversal returns a checked error (true through
+the bool facade). The previous recording/recovery state is restored on every
+exit. Finalization reuses the guarded transaction query and keeps its own
+non-reentrant, GC-deferred phase through accounting, publication or discard.
+Entry and head queries are unavailable during that phase, including from record
+destructors. Replay checks remain inside their replay phase guards.
+End prepares command metadata, event payloads, validated byte totals and vector
+capacity before replacing Redo or evicting history. Publication reuses those
+values without a second metadata traversal. A callback exception before that
+boundary discards only the candidate, retains the old branch and original
+diagnostic, and exits to Idle. Unknown effects invalidate checkpoints
+conservatively. Publication or cleanup faults require recovery and retain the
+remaining graph; an exit guard prevents a stranded Finalizing/global recorder.
+Failure cleanup uses captured transitions and plain event data rather than
+calling failed metadata again. PIE inspection errors retain their checked cause.
+Finalization discards PIE entries after synchronous object events, preserves the
+existing Redo branch and budget, and leaves already-applied edits intact. An
+inspection error fails storage without replacing history. Typed array capture
+rejects PIE owners before the adapter mutates the array.
+
+Checked replay also inspects existing data and newly prepared inverses before
+publishing them. Whole-object inverses reject PIE before loading; ordered range
+inverses are inspected at their actual step and compensated on rejection. The
+current record is inspected per step, with complete checks at phase boundaries,
+so traversal stays linear in retained reference slots rather than quadratic in
+record count. After clean compensation, transient inverses are cleared and
+retained references are checked again after balanced native completion. Taint
+from that completion or the final synchronous UndoRedo observers requires
+recovery; it does not publish a successful cursor transition.
+This is Durin's explicit safety extension beyond UE's recording-end PIE filter.
 
 ### Synchronous Object Events
 
@@ -202,7 +282,13 @@ convenience and must declare modified objects through `GetModifiedObjects()`.
 One declared object automatically binds a single-object command; multiple
 participants remain a composite record. Participant references are frozen
 separately from collector-only dependencies.
-Durin additionally opens a standalone scope for StoreUndo without active recording.
+Durin deliberately retains standalone StoreUndo as an editor-owned extension for
+already-applied domain writes. Without an active recording it opens a CustomChange
+scope and finalizes one entry. It cannot prove ownership of preceding package
+edit revisions: those remain outside writes and can invalidate the checkpoint.
+Use a scope before mutation to preserve an undoable clean baseline. Standalone
+submission does not execute the change or roll back a failed history submission;
+callers inspect the result. Within a live scope it joins the outer recording.
 StoreUndo never invokes Apply and accepts nested recording without an opt-in flag.
 
 Editor business entrypoints use `RecordObjectForEdit` when an ordinary serialized
@@ -284,12 +370,24 @@ applies before/after session revisions; a valid saved checkpoint clears dirty
 state when Undo reaches the saved revision and marks it dirty when Redo leaves.
 Saving at a history position preserves redo. A replacement branch receives fresh
 revision identities. Invalid checkpoints remain conservative until save/activation.
+Durin publishes revision/dirty transitions after checked native completion, so
+failed replay can preserve its prior revision instead of borrowing UE's eager
+dirty-bit update before loads. Completion callbacks do not establish checkpoints.
 
 Package edit revisions detect modifications outside retained history before the
 next recording/replay/save transition. Unchanged or canceled Modify and unrecorded
 writes cannot later clear dirty state merely because Undo reaches an old saved
 revision. Callers publishing persistent changes outside history should continue
 to invalidate the saved checkpoint explicitly. Checkpoint metadata is session-only.
+
+MarkSaved and EstablishSavedState establish clean checkpoints only while Idle
+with no global recording. Notifications during recording, replay or recovery
+invalidate the checkpoint and keep the package dirty. A save inside an operation
+may represent an intermediate state, so neither retained endpoint is inferred to
+match disk. Save again at an idle boundary to establish a clean checkpoint.
+This conservative rule serves the same safety purpose as UE's package dirty
+fence without borrowing its dirty-bit replay model. Rejected standalone recording
+does not acknowledge external package revisions or alter the saved baseline.
 
 Saved package reload prepares only while Idle and retires every whole history
 entry whose collector-visible data retains a replaced graph. Unrelated entries
@@ -303,7 +401,7 @@ commit/Undo/Redo. Ordinary in-memory property edits do not request registry scan
 ## Bounds And Accounting
 
 The production soft budget is 64 MiB of owned native transaction data, without
-an entry cap or dynamic limit API. Accounting includes context, record storage,
+an entry cap. SetMemoryBudget changes the limit while Idle; it takes effect at the next successful commit. Zero evicts the old prefix on the next successful commit without a Redo branch. Accounting includes context, record storage,
 payloads/reference tables, capture metadata, and reported custom allocations;
 it excludes the transitive retained DObject graph. Aggregation checks overflow.
 
@@ -313,6 +411,13 @@ even when oversized. Redo replacement skips additional prefix trimming. Canceled
 empty, and failed submissions preserve the existing history. Undo/Redo do not trim.
 Compared with UE's Begin-time trimming, Durin delays destructive trimming until
 successful finalization so no removed-transaction restoration machinery is needed.
+Pending entries are absent from GetQueueLength and owned-byte queries; Redo data
+remains visible until a successful commit. Executed, Discarded and Evicted buffer
+events are queued for idle dispatch, with eviction preceding the incoming Executed
+event. This differs from UE Begin-time buffer-change broadcasts. Object Finalized
+events still run synchronously before GUndo clears. Reset clears queued history
+events and retains its explicit unavailability reason; it emits no synthetic
+record event.
 
 ## Collector And Shutdown Contract
 
@@ -325,9 +430,11 @@ objects are not rescued. See [transaction records](TransactionRecords.md).
 Cancellation, branch replacement, eviction, Reset, module retirement, destruction,
 and editor shutdown erase the corresponding record data and collector edges.
 Module history retirement requires Idle, so callbacks cannot erase a record
-currently replaying. A module cannot unload while retained custom executable
-code requires it; recovery
-participants remain until their buffer is retired.
+currently replaying. Retirement discards the entire mixed entry, publishes a
+Discarded event, remaps barriers, and invalidates saved checkpoints for its affected
+asset packages. Package forgetting applies the same conservative rule to surviving
+affected packages. A module cannot unload while retained custom executable code
+requires it; recovery participants remain until their buffer is retired.
 
 ## Related Documentation
 

@@ -105,9 +105,9 @@ namespace Durin::Editor
 		return bAttaching ? "Attach actors" : "Detach actors";
 	}
 
-	auto FActorAttachmentTransaction::GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string
+	auto FActorAttachmentTransaction::GetDetails(::Durin::ETransactionOperation Operation) const -> std::string
 	{
-		if (Operation == ::Durin::Editor::ETransactionOperation::Undo)
+		if (Operation == ::Durin::ETransactionOperation::Undo)
 			return std::format("Restore hierarchy for {} actor(s)", Entries.size());
 		return std::format("{} {} actor(s)", bAttaching ? "Attach" : "Detach", Entries.size());
 	}

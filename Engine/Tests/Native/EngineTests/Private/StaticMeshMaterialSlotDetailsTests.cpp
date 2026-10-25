@@ -169,7 +169,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
 	EXPECT_TRUE(Error.empty());
 
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	Durin::DStaticMesh* CurrentMesh = Component->GetStaticMesh();
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(CurrentMesh);
@@ -226,7 +226,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	EXPECT_EQ(Component->GetMaterialOverride(0), Material);
 	EXPECT_TRUE(Component->GetPackage()->IsDirty());
 
-	EXPECT_TRUE(Transactions->Reset());
+	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Mesh);
 	ASSERT_TRUE(Durin::UnloadPackage(Component->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));

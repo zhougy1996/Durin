@@ -40,7 +40,8 @@ namespace Durin::Editor::Level
 					return true;
 				}
 				const FTransformGizmoTargetSet Targets = GetGizmoTargets(Context);
-				Client.GetTransformGizmo().Update(Targets, View, Input, Transactions);
+				if (!Client.GetTransformGizmo().Update(Targets, View, Input, Transactions))
+					Context.SetError("Unable to apply or restore the transform gesture.");
 				if (Client.GetTransformGizmo().IsHovered() || Client.GetTransformGizmo().IsDragging())
 				{
 					return true;

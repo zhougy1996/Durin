@@ -403,10 +403,10 @@ namespace Durin::Tests::ObjectState
 	struct FRecordingStart
 	{
 		int32 Index = -1;
-		Durin::Editor::FTransactionId TransactionId = 0;
+		::Durin::FTransactionId TransactionId = 0;
 		explicit operator bool() const { return Index >= 0; }
 	};
-	inline auto BeginRecording(Durin::DTransactor& Buffer, Durin::Editor::FTransactionContext Context = {}) -> FRecordingStart
+	inline auto BeginRecording(Durin::DTransactor& Buffer, ::Durin::FTransactionContext Context = {}) -> FRecordingStart
 	{
 		const auto Index = Buffer.Begin(Context.Name, Context.Description);
 		Buffer.SetPrimaryUndoObject(Context.PrimaryObject);
@@ -443,14 +443,14 @@ namespace Durin::Tests::ObjectState
 		}
 
 		auto GetDescription() const -> std::string_view override { return "Test custom change"; }
-		auto GetDetails(Durin::Editor::ETransactionOperation) const -> std::string override
+		auto GetDetails(::Durin::ETransactionOperation) const -> std::string override
 		{
 			return Details;
 		}
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
 			if (ReplayProbe) ReplayProbe();
-			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
 				if (bFailUndo) { return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}}; }
 				Value = Before;
@@ -531,9 +531,9 @@ namespace Durin::Tests::ObjectState
 			: Owner(InOwner), Child(InChild), HistoryOuter(InHistoryOuter) {}
 
 		auto GetDescription() const -> std::string_view override { return "Detach owned child"; }
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
-			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
 				Child->SetOuterPrivate(Owner);
 				Owner->Hard = Child;

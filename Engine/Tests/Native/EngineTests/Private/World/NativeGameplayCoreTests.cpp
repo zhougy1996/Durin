@@ -1,7 +1,9 @@
 #include "WorldTestSupport.h"
 
 #include "DObject/Class.h"
+#include "DObject/Package.h"
 #include "Editor/EditorEngineTestSupport.h"
+#include "Transactions/Transactor.h"
 #include "Client/ViewportClient.h"
 #include "Engine/GameEngine.h"
 #include "Gameplay/PawnControlIntent.h"
@@ -963,6 +965,7 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 {
 	InitializeDObjectSystem();
 	auto* Engine = Durin::NewObject<Durin::DEditorEngine>(nullptr, "NativeGameplayPIETestEngine");
+	Durin::TStrongObjectPtr<Durin::DEditorEngine> EngineRoot(Engine);
 	auto* EditorWorld = Durin::NewObject<Durin::DWorld>(Engine, "EditorWorld");
 	EditorWorld->SetWorldType(Durin::EWorldType::Editor);
 	EXPECT_TRUE(EditorWorld->InitializeSubsystems());
@@ -976,10 +979,28 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	Durin::Editor::FPlayRequest Request;
 	Request.SourceLevel = EditorLevel;
 	std::string Error;
+	Durin::TStrongObjectPtr<Durin::DTransBuffer> Foreign(Durin::NewObject<Durin::DTransBuffer>(nullptr, "ForeignPlayRecording"));
+	{
+		Durin::Editor::FScopedTransaction Scope(Foreign.Get(), {.Description = "Foreign recording"});
+		EXPECT_FALSE(Durin::FEditorEngineTestAccess::StartPlaySession(*Engine, Request, Durin::AGameMode::StaticClass(), &Error));
+		EXPECT_FALSE(Error.empty()); EXPECT_EQ(Engine->GetPlayWorld(), nullptr);
+		EXPECT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Stopped);
+		if (Engine->IsPlaying()) Engine->StopPlaySession();
+	}
 	ASSERT_TRUE(Durin::FEditorEngineTestAccess::StartPlaySession(
 		*Engine, Request, Durin::AGameMode::StaticClass(), &Error)) << Error;
 	ASSERT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Playing);
 	ASSERT_NE(Engine->GetPlayWorld(), nullptr);
+	ASSERT_NE(Engine->GetPlayWorld()->GetPackage(), nullptr);
+	EXPECT_TRUE(Engine->GetPlayWorld()->GetPackage()->IsPlayInEditor());
+	{
+		Durin::Editor::FScopedTransaction Scope(Foreign.Get(), {.Description = "Foreign apply recording"});
+		uint32 Applied = 42;
+		EXPECT_FALSE(Engine->ApplyPlaySessionChanges({}, &Applied, &Error));
+		EXPECT_EQ(Applied, 0u); EXPECT_FALSE(Error.empty()); EXPECT_TRUE(Scope.IsOutstanding());
+	}
+	EXPECT_NE(Engine->GetPIEWorldContext(), nullptr);
+	const Durin::FObjectKey PlayPackageKey(Engine->GetPlayWorld()->GetPackage());
 	ASSERT_NE(Engine->GetPlayWorld()->GetLocalPlayerController(), nullptr);
 	ASSERT_NE(Engine->GetPlayWorld()->GetDefaultPawn(), nullptr);
 	EXPECT_EQ(
@@ -996,6 +1017,9 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	Engine->Tick(1.0f / 60.0f, false);
 	ASSERT_TRUE(Engine->GetPlayWorld()->RestartPlayer());
 	Engine->StopPlaySession();
+	EXPECT_EQ(Engine->GetPIEWorldContext(), nullptr);
+	Durin::CollectGarbage();
+	EXPECT_EQ(Durin::ResolveObjectKey(PlayPackageKey), nullptr);
 	EXPECT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Stopped);
 	EXPECT_EQ(Engine->GetWorld(), EditorWorld);
 	EXPECT_EQ(EditorWorld->GetCurrentLevel(), EditorLevel);

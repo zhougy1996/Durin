@@ -64,13 +64,13 @@ namespace
 
 		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
 		auto GetDescription() const -> std::string_view override { return "Counting"; }
-		auto GetDetails(Durin::Editor::ETransactionOperation Operation) const -> std::string override
+		auto GetDetails(::Durin::ETransactionOperation Operation) const -> std::string override
 		{
-			return Operation == Durin::Editor::ETransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
+			return Operation == ::Durin::ETransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
 		}
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
-			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
 				Value -= Delta; return {};
 			}
@@ -96,9 +96,9 @@ namespace
 
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
 		auto GetDescription() const -> std::string_view override { return "Controlled"; }
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
-			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
 				if (Control.bFailUndo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
 				--Value;
@@ -137,9 +137,9 @@ namespace
 
 		auto GetDescription() const -> std::string_view override { return "Package Counting"; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
-			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
 				if (Control && Control->bFailUndo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
 				Value -= Delta;

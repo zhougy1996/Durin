@@ -55,10 +55,11 @@ namespace Durin::Editor::Level
 	class FTransformGizmo
 	{
 	public:
-		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> void;
-		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> void;
+		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool;
+		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool;
 		auto AppendOverlayPrimitives(FSceneView& View) const -> void;
-		auto CancelDrag() -> void;
+		// False retains an unfinished restore for retry and keeps saving blocked.
+		auto CancelDrag() -> bool;
 		auto IsDragging() const -> bool { return ActiveHandle != ETransformGizmoHandle::None; }
 		auto IsHovered() const -> bool { return HoveredHandle != ETransformGizmoHandle::None; }
 		auto GetMode() const -> ETransformGizmoMode { return Mode; }
@@ -77,6 +78,9 @@ namespace Durin::Editor::Level
 			std::shared_ptr<ITransformGizmoTarget> Target;
 			const void* Identity = nullptr;
 			FTransform Initial;
+			FTransform Preview;
+			TObjectPtr<DPackage> Package;
+			bool bOwnsPreview = true;
 		};
 
 		// Restores each affected package's pre-drag dirty state when cancelled.
@@ -84,17 +88,22 @@ namespace Durin::Editor::Level
 		{
 			TObjectPtr<DPackage> Package;
 			bool bWasDirty = false;
+			uint64 EditRevision = 0;
 		};
 		auto RebuildState(const FTransformGizmoTargetSet& Targets, const FSceneView& View) -> bool;
 		auto HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle;
 		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
-		auto UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> void;
-		auto FinishDrag(::Durin::DTransactor* Transactions) -> void;
-		auto RestoreSnapshots() -> void;
+		auto UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
+		auto FinishDrag(::Durin::DTransactor* Transactions) -> bool;
+		auto RestoreSnapshots() -> bool;
+		auto CheckPreviewOwnership() -> bool;
+		auto CapturePreviewValues() -> bool;
+		auto MarkPackagesDirty() -> void;
+		auto ClearDrag() -> void;
 		auto RestoreInitialDirtyState() -> void;
-		auto ApplyTranslation(const FVector3& Delta) -> void;
-		auto ApplyRotation(double Radians) -> void;
-		auto ApplyScale(const FVector3& Factors) -> void;
+		auto ApplyTranslation(const FVector3& Delta) -> bool;
+		auto ApplyRotation(double Radians) -> bool;
+		auto ApplyScale(const FVector3& Factors) -> bool;
 
 		ETransformGizmoMode Mode = ETransformGizmoMode::Translate;
 		ETransformGizmoSpace Space = ETransformGizmoSpace::World;
@@ -115,6 +124,6 @@ namespace Durin::Editor::Level
 		FVector3 DragStartPoint{0.0};
 		FVector3 DragStartVector{0.0};
 		float DragStartMouseY = 0.0f;
-		bool bDragChanged = false;
+		bool bRestorePending = false;
 	};
 }

@@ -14,6 +14,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
+#include "Viewport/TransformGizmo.h"
 #include "Profiling/Profiling.h"
 
 namespace Durin::Editor::Level
@@ -233,9 +234,22 @@ namespace Durin::Editor::Level
 		CompleteDeferredOpen(bSucceeded);
 	}
 
+	auto FLevelDocumentController::CanSaveCurrentLevel() const -> bool
+	{
+		const auto* Gizmo = SceneViewportPanel.GetTransformGizmo();
+		const auto* Transactions = GetLevelTransactions();
+		return Context.Level && Context.Level->GetPackage() && !(GEditor && GEditor->IsPlaying())
+			&& !(Gizmo && Gizmo->IsDragging()) && (!Transactions || (Transactions->CanTransact() && !Transactions->IsActive()));
+	}
+
 	auto FLevelDocumentController::SaveCurrentLevel() -> bool
 	{
 		if (ClearError) ClearError();
+		if (!CanSaveCurrentLevel())
+		{
+			SetError("Saving requires an idle document with no unfinished edit or recovery.");
+			return false;
+		}
 		if (!Context.Level || !Context.Level->GetPackage())
 		{
 			SetError("The current level is transient and cannot be saved.");
@@ -258,6 +272,11 @@ namespace Durin::Editor::Level
 	auto FLevelDocumentController::RenameCurrentLevel(std::string_view NewName) -> bool
 	{
 		if (ClearError) ClearError();
+		if (!CanSaveCurrentLevel())
+		{
+			SetError("Renaming requires an idle document with no unfinished edit or recovery.");
+			return false;
+		}
 		if (!Context.Level)
 		{
 			SetError("No level is open.");
@@ -344,7 +363,7 @@ namespace Durin::Editor::Level
 			Package = World->GetCurrentLevel()->GetPackage();
 			SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 			SessionSettings.Save(&SceneViewportPanel);
-			SceneViewportPanel.PrepareForLevelChange(Context);
+			if (!SceneViewportPanel.PrepareForLevelChange(Context)) return false;
 			if (!World->SetCurrentLevel(nullptr)) return false;
 			FLevelDocumentRevisionState::Activate(GetLevelTransactions(), Package, nullptr);
 			Context.Synchronize(World);
@@ -369,7 +388,7 @@ namespace Durin::Editor::Level
 		SessionSettings.Save(&SceneViewportPanel);
 		DLevel* Previous = Context.World->GetCurrentLevel();
 		DPackage* PreviousPackage = Previous ? Previous->GetPackage() : nullptr;
-		if (Previous != Level) SceneViewportPanel.PrepareForLevelChange(Context);
+		if (Previous != Level && !SceneViewportPanel.PrepareForLevelChange(Context)) return false;
 		if (!Context.World->SetCurrentLevel(Level))
 		{
 			SetError("The level is already active in another world.");

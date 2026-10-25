@@ -69,9 +69,9 @@ namespace
 		{
 			return Package;
 		}
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
-			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
 				return {};
 			}
@@ -224,7 +224,7 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);
 	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Destroying);
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
+	EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 }
 
 TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
@@ -261,9 +261,12 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	ASSERT_TRUE(OpenRevision.has_value());
 	EXPECT_EQ(OpenRevision->CurrentRevision, OpenRevision->SavedRevision);
 
-	Package->MarkDirty();
-	ASSERT_TRUE(Transactions.StoreUndo(
-		std::make_unique<FAppliedPackageEdit>(*Package)));
+	{
+		Durin::Editor::FScopedTransaction Recording(&Transactions, {.Description = "Edit Asset"});
+		Package->MarkDirty();
+		ASSERT_TRUE(Transactions.StoreUndo(
+			std::make_unique<FAppliedPackageEdit>(*Package)));
+	}
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Documents.Undo());
 	EXPECT_FALSE(Package->IsDirty());
@@ -271,7 +274,7 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	EXPECT_TRUE(Package->IsDirty());
 	const auto UndoLabel = Documents.GetUndoDescription();
 	EXPECT_EQ(UndoLabel, "Edit Asset");
-	ASSERT_TRUE(Transactions.Reset());
+	ASSERT_TRUE(Transactions.TryReset());
 	EXPECT_TRUE(Documents.GetUndoDescription().empty());
 	EXPECT_EQ(UndoLabel, "Edit Asset");
 

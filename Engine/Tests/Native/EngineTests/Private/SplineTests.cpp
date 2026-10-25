@@ -567,5 +567,5 @@ TEST(FSplineMeshActorEditingTests, ActorModifyRestoresInputsAfterGeneratedCompon
 	ASSERT_TRUE(Transactions->Redo()) << FormatTransactorResult(Transactions->GetLastResult());
 	EXPECT_EQ(Actor->GetSplineComponent()->GetNumSplinePoints(), 2u);
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 1u);
-	ASSERT_TRUE(Transactions->Reset()); MarkObjectHierarchyAsGarbage(Level); Root.Reset(); CollectGarbage();
+	ASSERT_TRUE(Transactions->TryReset()); MarkObjectHierarchyAsGarbage(Level); Root.Reset(); CollectGarbage();
 }

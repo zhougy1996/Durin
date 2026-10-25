@@ -255,7 +255,8 @@ namespace Durin::Editor::Level
 			}
 			auto Exit(FLevelEditorContext& Context, bool) -> void override
 			{
-				if (LastClient) LastClient->GetTransformGizmo().CancelDrag();
+				if (LastClient && !LastClient->GetTransformGizmo().CancelDrag())
+					Context.SetError("Unable to restore the transform gesture.");
 				if (Context.GetSelectedComponent() == LastSpline.Get()) Context.ClearSubElementSelection();
 				LastClient = nullptr;
 				LastSpline = nullptr;
@@ -272,7 +273,8 @@ namespace Durin::Editor::Level
 				RepairSelection(Context, *Spline);
 				const FTransformGizmoTargetSet Targets = GetGizmoTargets(Context);
 				const bool bWasDragging = Client.GetTransformGizmo().IsDragging();
-				Client.GetTransformGizmo().Update(Targets, View, Input, Transactions);
+				if (!Client.GetTransformGizmo().Update(Targets, View, Input, Transactions))
+					Context.SetError("Unable to apply or restore the transform gesture.");
 				if (Input.bCancel)
 				{
 					if (bWasDragging) return true;

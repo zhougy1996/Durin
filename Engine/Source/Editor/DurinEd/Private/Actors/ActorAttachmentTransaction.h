@@ -34,7 +34,7 @@ namespace Durin::Editor
 		auto GetDescription() const -> std::string_view override;
 		auto GetModifiedObjects() const -> std::vector<DObject*> override;
 		auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
-		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override;
+		auto GetDetails(::Durin::ETransactionOperation Operation) const -> std::string override;
 		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 		auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
 		{ return Apply(Operation != ETransactionOperation::Undo); }

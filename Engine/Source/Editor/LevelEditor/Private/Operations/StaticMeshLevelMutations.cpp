@@ -227,7 +227,7 @@ namespace Durin::Editor::Level
 					bRestored = It->Actor->SetActorTransform(It->Previous.Transform) && bRestored;
 					It->Actor->SetActorHiddenInGame(It->Previous.bHidden);
 				}
-				const auto Reverse = bAfter ? ::Durin::Editor::ETransactionOperation::Undo : ::Durin::Editor::ETransactionOperation::Redo;
+				const auto Reverse = bAfter ? ::Durin::ETransactionOperation::Undo : ::Durin::ETransactionOperation::Redo;
 				for (auto It = Created.rbegin(); It != Created.rend(); ++It)
 					bRestored = static_cast<bool>(Presence[*It]->Replay(Reverse)) && bRestored;
 				for (auto It = Renames.rbegin(); It != Renames.rend(); ++It)
@@ -320,7 +320,7 @@ namespace Durin::Editor::Level
 				{
 					AActor* Actor = Sources[Index];
 					if (!Presence[Index]) Presence[Index] = MakeActorPresenceChange(Level, {&Actor, 1}, true, "Remove static mesh actor");
-					if (const auto Result = Presence[Index]->Replay(bAfter ? ::Durin::Editor::ETransactionOperation::Redo : ::Durin::Editor::ETransactionOperation::Undo); !Result)
+					if (const auto Result = Presence[Index]->Replay(bAfter ? ::Durin::ETransactionOperation::Redo : ::Durin::ETransactionOperation::Undo); !Result)
 						return FailAfterMutation(Result.Error);
 					Removed.push_back(Index);
 					#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
@@ -357,7 +357,7 @@ namespace Durin::Editor::Level
 						Presence[Index] = MakeActorPresenceChange(Level, {&BaseActor, 1}, false, "Create static mesh actor");
 						Actor->SetTransient(true);
 					}
-					if (const auto Result = Presence[Index]->Replay(bAfter ? ::Durin::Editor::ETransactionOperation::Redo : ::Durin::Editor::ETransactionOperation::Undo); !Result)
+					if (const auto Result = Presence[Index]->Replay(bAfter ? ::Durin::ETransactionOperation::Redo : ::Durin::ETransactionOperation::Undo); !Result)
 						return FailAfterMutation(Result.Error);
 					Created.push_back(Index);
 					#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
@@ -431,13 +431,13 @@ namespace Durin::Editor::Level
 				return Bytes;
 			}
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
-			auto GetDetails(::Durin::Editor::ETransactionOperation) const -> std::string override
+			auto GetDetails(::Durin::ETransactionOperation) const -> std::string override
 			{
 				return std::format("Edit {} static mesh actor(s)", Deltas.size());
 			}
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FActorChangeResult override
-			{ return Apply(Operation != ::Durin::Editor::ETransactionOperation::Undo); }
+			auto Replay(::Durin::ETransactionOperation Operation) -> ::Durin::Editor::FActorChangeResult override
+			{ return Apply(Operation != ::Durin::ETransactionOperation::Undo); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
 				DObject* Object = Level.Get();
@@ -678,7 +678,7 @@ namespace Durin::Editor::Level
 		}
 		else
 		{
-			auto Applied = Transaction->Replay(::Durin::Editor::ETransactionOperation::Redo);
+			auto Applied = Transaction->Replay(::Durin::ETransactionOperation::Redo);
 			if (!Applied)
 			{
 				Result.Error = EStaticMeshLevelMutationError::ExecutionFailed;

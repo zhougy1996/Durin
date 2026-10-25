@@ -33,14 +33,14 @@ TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsA
 	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
 	ASSERT_EQ(Events.size(), 4u); EXPECT_EQ(Events.back().Operation, ETransactionOperation::Redo);
 	EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(12.0, 0.0, 0.0));
-	const auto Bytes = Buffer->GetOwnedBytes();
+	const auto Bytes = Buffer->GetUndoSize();
 	for (int32 Index = 0; Index < 3; ++Index)
 	{
 		ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
-		EXPECT_EQ(Buffer->GetOwnedBytes(), Bytes);
+		EXPECT_EQ(Buffer->GetUndoSize(), Bytes);
 	}
 	Actor->GeneratedTransactionObserver = {}; Scene()->TransactionObserver = {};
-	ASSERT_TRUE(Buffer->Reset()); EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
+	ASSERT_TRUE(Buffer->TryReset()); EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 }
 
 TEST(FEngineTransactionAnnotationTests, GeneratedComponentFinalEventClosesLastSnapshotAtOriginalValue)
@@ -133,7 +133,7 @@ TEST(FTransBufferTests, AnnotationReferencesSurviveCallbackCollectionAndReleaseW
 	{ FScopedTransaction Scope(Buffer.Get(), {"test", "Annotation GC"}); ASSERT_TRUE(Target->Modify()); Target->SupplementalValue = 3; }
 	Target->AnnotationReference = nullptr; CollectGarbage(); EXPECT_NE(ResolveObjectKey(Key), nullptr);
 	ASSERT_TRUE(Buffer->Undo()); CollectGarbage(); EXPECT_NE(ResolveObjectKey(Key), nullptr);
-	ASSERT_TRUE(Buffer->Reset()); CollectGarbage(); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
+	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
 TEST(FTransBufferTests, CompensatedLoadCompletesWithPreOperationAnnotation)

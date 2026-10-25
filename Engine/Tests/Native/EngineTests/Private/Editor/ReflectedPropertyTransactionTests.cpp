@@ -65,7 +65,7 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoRunsOncePerObjectAfterAllFi
 	EXPECT_EQ(Second->PostUndoCount, 2u);
 	EXPECT_EQ(First->PreUndoCount, 2u);
 	EXPECT_EQ(Second->PreUndoCount, 2u);
-	ASSERT_TRUE(Transactions.Get()->Reset());
+	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
 	Durin::CollectGarbage();
@@ -100,7 +100,7 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoSeesRestoredStateDespiteNew
 	EXPECT_EQ(Second->PostUndoCount, 1u);
 	ExpectRestored();
 	EXPECT_TRUE(Transactions.Get()->CanRedo());
-	ASSERT_TRUE(Transactions.Get()->Reset());
+	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
 	Durin::CollectGarbage();
@@ -139,7 +139,7 @@ TEST(FReflectedPropertyEditSessionTests, ReplayBypassesProposalValidationForEver
 	EXPECT_EQ(Second->Value, 0);
 	EXPECT_EQ(First->PreUndoCount, 3u);
 	EXPECT_EQ(First->PostUndoCount, 3u);
-	ASSERT_TRUE(Transactions.Get()->Reset());
+	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
 	Durin::CollectGarbage();
@@ -356,7 +356,7 @@ TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsTargetAlive)
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Object));
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 4);
-	ASSERT_TRUE(Transactions.Get()->Reset());
+	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Durin::CollectGarbage();
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Object));
 }
@@ -388,7 +388,7 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Owner->ObjectValue.Get(), After);
 
-	ASSERT_TRUE(Transactions.Get()->Reset());
+	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Owner->ObjectValue = nullptr;
 	Proposed = {};
 	Durin::CollectGarbage();

@@ -458,7 +458,7 @@ TEST(FActorComponentDetailsTests, CuratedActorTransformAndVisibilityPreserveUndo
 	EXPECT_TRUE(*Visible->ContainerPtrToValuePtr<bool>(Component));
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_FALSE(*Visible->ContainerPtrToValuePtr<bool>(Component));
-	ASSERT_TRUE(Transactions->Reset());
+	ASSERT_TRUE(Transactions->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
 }
@@ -1140,7 +1140,7 @@ TEST(FObjectPropertyViewCustomizationTests, CameraViewDistanceSearchAndUndoUseOr
 	EXPECT_EQ(Settings->RenderDistance, Before);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Settings->RenderDistance, 300000.0f);
-	ASSERT_TRUE(Transactions->Reset());
+	ASSERT_TRUE(Transactions->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(Camera);
 	Durin::CollectGarbage();
 }

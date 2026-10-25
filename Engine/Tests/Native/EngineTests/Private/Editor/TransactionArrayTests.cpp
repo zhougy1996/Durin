@@ -16,6 +16,18 @@ namespace
 	}
 }
 
+TEST(FTransactionArrayTests, PieOwnerIsRejectedBeforeMutation)
+{
+	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "PieArray"));
+	Package->SetPlayInEditor(true);
+	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(Package.Get(), "Owner"));
+	Object->Numbers = {1, 2, 3};
+	{ FScopedTransaction Scope(Buffer.Get(), {.Description = "PIE array"}); EXPECT_FALSE(EditNumbers(*Object, 0, 1, {})); }
+	EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2, 3}));
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+}
+
 TEST(FTransactionArrayTests, ReplaysOrderedOverlappingOperationsAcrossRelocation)
 {
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
@@ -168,10 +180,10 @@ TEST(FTransactionArrayTests, CancellationAndBoundedEvictionReleaseRangeOwners)
 	}
 	EXPECT_LT(Buffer->GetQueueLength(), 12u);
 	size_t EntryBytes = 0; ASSERT_TRUE(Buffer->GetTransaction(Buffer->GetQueueLength() - 1)->TryGetOwnedSize(EntryBytes));
-	EXPECT_LT(Buffer->GetOwnedBytes(), Buffer->GetMemoryBudget() + EntryBytes);
+	EXPECT_LT(Buffer->GetUndoSize(), Buffer->GetMemoryBudget() + EntryBytes);
 	const FObjectKey OwnerKey(Object.Get()); Object = nullptr;
 	CollectGarbage(); EXPECT_NE(ResolveObjectKey(OwnerKey), nullptr);
-	ASSERT_TRUE(Buffer->Reset()); CollectGarbage(); EXPECT_EQ(ResolveObjectKey(OwnerKey), nullptr);
+	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(); EXPECT_EQ(ResolveObjectKey(OwnerKey), nullptr);
 }
 
 TEST(FTransactionArrayTests, ArrayAnnotationsAndEventsUseTheCompletedSideOncePerOwner)
@@ -287,7 +299,7 @@ TEST(FTransactionArrayTests, PostSpliceObserverFailureRequiresRecovery)
 	Object->bThrowPropertyNotification = true;
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
 	EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2}));
-	Object->bThrowPropertyNotification = false; EXPECT_FALSE(Buffer->Reset());
+	Object->bThrowPropertyNotification = false; EXPECT_FALSE(Buffer->TryReset());
 }
 
 TEST(FTransactionArrayTests, ExpiredOwnersRejectReplayBeforeHooks)
@@ -332,4 +344,79 @@ TEST(FTransactionArrayTests, FixedRangeStorageAndReplayDoNotDependOnContainerLen
 			EXPECT_EQ(Object->Numbers, Edited);
 		}
 	}
+}
+
+TEST(FTransactionArrayTests, ReviewPieArrayInverseCompensatesWithoutRetainingPlayObjects)
+{
+	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "PieArrayInverse")); Package->SetPlayInEditor(true);
+	TStrongObjectPtr<DObject> Pie(NewObject<DObject>(Package.Get(), "Dependency"));
+	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "RangeOwner"));
+	Object->NestedArray.resize(1); Object->NestedArray[0].Count = 7;
+	const auto* Member = Object->GetClass()->FindPropertyByName("NestedArray");
+	{ FScopedTransaction Scope(Buffer.Get(), {.Description = "Replace range"}); FRecordNestedValue Value; Value.Count = 42;
+		ASSERT_TRUE(EditTransactionArray(*Object, Member, Object->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Value, 1))); }
+	for (const bool bUndo : {true, false})
+	{
+		const auto Head = bUndo ? Buffer->GetUndoId() : Buffer->GetRedoId(); const auto Count = Object->NestedArray[0].Count;
+		Object->NestedArray[0].HardReference = Pie.Get();
+		EXPECT_FALSE(bUndo ? Buffer->Undo() : Buffer->Redo());
+		ASSERT_EQ(Object->NestedArray.size(), 1u); EXPECT_EQ(Object->NestedArray[0].Count, Count);
+		EXPECT_EQ(Object->NestedArray[0].HardReference.Get(), Pie.Get());
+		EXPECT_EQ(bUndo ? Buffer->GetUndoId() : Buffer->GetRedoId(), Head);
+		EXPECT_FALSE(Buffer->ContainsPieObjects());
+		Object->NestedArray[0].HardReference = nullptr;
+		ASSERT_TRUE(bUndo ? Buffer->Undo() : Buffer->Redo());
+	}
+}
+TEST(FTransactionArrayTests, PieInverseRejectionRestoresMixedRecordsAndAnnotations)
+{
+	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DPackage> PiePackage(NewObject<DPackage>(nullptr, "MixedPieInverse")); PiePackage->SetPlayInEditor(true);
+	TStrongObjectPtr<DObject> Pie(NewObject<DObject>(PiePackage.Get(), "Dependency"));
+	TStrongObjectPtr<DTransactionRecordParticipant> First(NewObject<DTransactionRecordParticipant>(nullptr, "FirstRange"));
+	TStrongObjectPtr<DTransactionRecordParticipant> Second(NewObject<DTransactionRecordParticipant>(nullptr, "SecondRange"));
+	First->NestedArray.resize(1); First->NestedArray[0].Count = 7;
+	First->bAnnotationEnabled = Second->bAnnotationEnabled = true;
+	First->SupplementalValue = 10; Second->SupplementalValue = 30; Second->Numbers = {1};
+	const auto* Member = First->GetClass()->FindPropertyByName("NestedArray"); int Counter = 5;
+	{
+		FScopedTransaction Scope(Buffer.Get(), {.Description = "Mixed inverse rejection"});
+		FRecordNestedValue Value; Value.Count = 42;
+		ASSERT_TRUE(EditTransactionArray(*First, Member, First->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Value, 1)));
+		First->SupplementalValue = 20;
+		ASSERT_TRUE(EditNumbers(*Second, 0, 1, {9})); Second->SupplementalValue = 40;
+		ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Counter, 0, 5)));
+	}
+	First->NestedArray[0].HardReference = Pie.Get(); const auto Head = Buffer->GetUndoId();
+	int Events = 0; First->TransactionObserver = Second->TransactionObserver = [&](const auto&) { ++Events; };
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
+	EXPECT_EQ(Buffer->GetUndoId(), Head); EXPECT_EQ(Counter, 5); EXPECT_EQ(Second->Numbers, (std::vector<int32>{9}));
+	EXPECT_EQ(First->NestedArray[0].Count, 42); EXPECT_EQ(First->NestedArray[0].HardReference.Get(), Pie.Get());
+	EXPECT_EQ(First->SupplementalValue, 20); EXPECT_EQ(Second->SupplementalValue, 40); EXPECT_EQ(Events, 0);
+	EXPECT_EQ(First->UndoBegins, 1); EXPECT_EQ(First->UndoCompletions, 1);
+	EXPECT_EQ(Second->UndoBegins, 1); EXPECT_EQ(Second->UndoCompletions, 1);
+	EXPECT_FALSE(Buffer->ContainsPieObjects());
+	First->NestedArray[0].HardReference = nullptr; ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
+}
+
+TEST(FTransactionArrayTests, CompensationCompletionTaintRequiresRecovery)
+{
+	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DPackage> OrdinaryPackage(NewObject<DPackage>(nullptr, "CompensationTaint"));
+	TStrongObjectPtr<DObject> Ordinary(NewObject<DObject>(OrdinaryPackage.Get(), "Retained"));
+	TStrongObjectPtr<DPackage> PiePackage(NewObject<DPackage>(nullptr, "RejectedInverse")); PiePackage->SetPlayInEditor(true);
+	TStrongObjectPtr<DObject> Pie(NewObject<DObject>(PiePackage.Get(), "Dependency"));
+	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "Owner"));
+	Object->NestedArray.resize(1); Object->NestedArray[0].HardReference = Ordinary.Get();
+	const auto* Member = Object->GetClass()->FindPropertyByName("NestedArray");
+	{
+		FScopedTransaction Scope(Buffer.Get(), {.Description = "Tainted compensation"});
+		auto Value = Object->NestedArray[0]; Value.Count = 42;
+		ASSERT_TRUE(EditTransactionArray(*Object, Member, Object->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Value, 1)));
+	}
+	Object->NestedArray[0].HardReference = Pie.Get();
+	Object->Trace = [&](std::string_view Event) { if (Event == "post") OrdinaryPackage->SetPlayInEditor(true); };
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
+	EXPECT_FALSE(Buffer->CanTransact()); EXPECT_EQ(Object->NestedArray[0].HardReference.Get(), Pie.Get());
 }

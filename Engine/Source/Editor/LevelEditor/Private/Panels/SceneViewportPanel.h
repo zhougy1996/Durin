@@ -48,7 +48,7 @@ namespace Durin::Editor::Level
 		auto IsViewportFocused() const -> bool { return bViewportFocused; }
 		auto CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool;
 		auto RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void;
-		auto PrepareForLevelChange(FLevelEditorContext& Context) -> void;
+		auto PrepareForLevelChange(FLevelEditorContext& Context) -> bool;
 		auto FinalizeViewportFrame(FLevelEditorContext& Context) -> void;
 		auto SetPreferredPlayMode(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
