@@ -372,7 +372,7 @@ editor's first-presentation gate.
 
 Launch rejects `--hidden-window`, `--headless`, and dedicated lifecycle/runtime
 smoke options. Use the native test registry for qualification targets.
-[RHI Headless initialization](../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#device-and-queue-publication)
+[RHI Headless initialization](../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md#device-and-queue-publication)
 remains available for GPU tests without a presentation target.
 
 An interactive `DurinDevTool run` can be stopped with Ctrl+C; DurinDevTool

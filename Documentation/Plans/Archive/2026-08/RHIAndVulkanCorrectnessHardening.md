@@ -396,12 +396,12 @@ Dependencies: Stages 1-3 acceptance gates.
 
 ## Related Documentation
 
-- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [Vulkan Memory and GPU Completion](../../../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
-- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+- [Vulkan Memory and GPU Completion](../../../Runtime/Rendering/RHI/VulkanMemoryAndGPUCompletion.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

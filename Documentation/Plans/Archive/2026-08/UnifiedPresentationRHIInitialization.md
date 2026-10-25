@@ -418,7 +418,7 @@ observable from types, state, diagnostics, and tests.
 ## Related Documentation
 
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Test Execution](../../../Development/Build/NativeTests.md)
 

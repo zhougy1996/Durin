@@ -302,10 +302,10 @@ implementation stage.
 
 Authoritative local contracts:
 
-- [Material expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md)
+- [Material expression building](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md)
 - [Material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
 - [Material editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)
-- [Material compatibility boundary](../../../Runtime/Rendering/MaterialSystem.md#compatibility-boundary)
+- [Material compatibility boundary](../../../Runtime/Rendering/Materials/MaterialSystem.md#compatibility-boundary)
 
 UE design references are official API documentation, not a claim that Durin must
 copy UE implementation or historical compilation paths:

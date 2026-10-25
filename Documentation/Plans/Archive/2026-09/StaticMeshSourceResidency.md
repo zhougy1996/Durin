@@ -149,7 +149,7 @@ StaticMeshPayloadCodecTests, StaticMesh collision tests, package/import tests,
 and cook tests; resolve current registered targets at execution time.
 Contracts: [asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
 [bulk data](../../../Runtime/Assets/BulkData.md), and
-[StaticMesh rendering](../../../Runtime/Rendering/StaticMeshRendering.md).
+[StaticMesh rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md).
 
 ## Related Code
 

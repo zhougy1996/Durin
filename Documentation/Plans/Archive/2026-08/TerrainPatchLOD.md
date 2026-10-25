@@ -444,8 +444,8 @@ Dependencies: Stages 1-3 complete end-to-end rendering.
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

@@ -383,12 +383,12 @@ visibility, matrices, or extent.
 ## Related Documentation
 
 - [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/Pipeline/HDRSceneColorAndDisplayMapping.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

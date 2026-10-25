@@ -10,7 +10,7 @@ Completed: 2026-08-15
 ## Current Status
 
 M2 completed on 2026-08-15. The published
-[Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md) deterministically
+[Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md) deterministically
 encodes every eligible opaque/masked StaticMesh, SplineMesh, SkeletalMesh, and
 Terrain surface in four 16-byte-per-pixel attachments plus existing D32. CPU
 and Slang share decode and analytic position reconstruction. Debug, readback,
@@ -91,7 +91,7 @@ isolated deferred directional is `200,896/201,952 ns`, and their sum is
 `107,827,200` bytes. Focused owners, `fast-all`, the ordinary native aggregate,
 full build, native-window Present/resize, injected lifecycle/recovery fixtures,
 and an 8-second validation-clean hidden-editor smoke pass. The lasting
-[Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+[Deferred Directional Lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
 contract is published. M3 did not change the default opaque owner; the active
 [Hybrid Renderer Production Rollout](HybridRendererProductionRollout.md) plan
 now owns M4 from a fresh Stage 0 contract and budget freeze.
@@ -422,11 +422,11 @@ become the qualified opaque-lighting foundation for M4.
 ## Related Documentation
 
 - [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
-- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
-- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
+- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/Pipeline/HDRSceneColorAndDisplayMapping.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
 - [Minimal GBuffer and Geometry Pass](MinimalGBufferAndGeometryPass.md)
 - [Hybrid Renderer Production Rollout](HybridRendererProductionRollout.md)
 

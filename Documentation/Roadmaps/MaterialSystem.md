@@ -20,7 +20,7 @@ On 2026-10-01 the
 WPO and explicit vertex-to-pixel interpolation through the existing Surface
 passes. Material, renderer and Cook coverage and the shared API all build passed;
 visual GPU execution remains unverified. The lasting contracts are documented in
-[Material Vertex Evaluation](../Runtime/Rendering/MaterialVertexEvaluation.md).
+[Material Vertex Evaluation](../Runtime/Rendering/Materials/MaterialVertexEvaluation.md).
 
 On 2026-09-30 M12 completed through the
 [Material Expression Semantics and Language plan](../Plans/Archive/2026-09/MaterialExpressionSemanticsAndLanguage.md).
@@ -371,10 +371,10 @@ targets, fixtures, profiles, budgets, and final evidence.
 
 ## Related Documentation
 
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System](../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Shader Cache](../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Shader Parameters](../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [Static Mesh Rendering](../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)

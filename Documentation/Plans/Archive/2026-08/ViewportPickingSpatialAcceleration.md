@@ -506,8 +506,8 @@ path was added.
 - [Viewport Picking Contract Plan](ViewportPickingContract.md)
 - [Skeletal Viewport Picking Plan](SkeletalViewportPicking.md)
 - [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

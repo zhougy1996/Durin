@@ -49,7 +49,7 @@ Those sessions recorded 14,257-14,259 commands, 555,145-555,305 payload bytes,
 replay. For this workload that is approximately 238 commands, 9.25 KB of owned
 payload, 2.2 submission groups, and 1.18 ms of inline replay per tick. The
 lasting behavior is now owned by
-[RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md). This
+[RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md). This
 completed plan is the required predecessor of
 [Dedicated RHI Thread](DedicatedRHIThread.md) and an upstream dependency of the
 compute-pipeline roadmap. The dedicated-thread plan has now consumed the same
@@ -582,9 +582,9 @@ the full validation level specified there before this plan can complete.
 ## Related Documentation
 
 - [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
-- [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [RHI command execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
-- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

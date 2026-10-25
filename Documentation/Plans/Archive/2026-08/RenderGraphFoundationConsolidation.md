@@ -357,10 +357,10 @@ explain every inter-pass edge before any graph pass records commands.
 ## Related Documentation
 
 - [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
 - [Testing](../../../Agents/Testing.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)
 

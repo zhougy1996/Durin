@@ -608,7 +608,7 @@ The following behavior remains compatible:
 
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)

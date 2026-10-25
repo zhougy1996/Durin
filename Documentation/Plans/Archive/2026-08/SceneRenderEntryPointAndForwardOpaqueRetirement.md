@@ -360,11 +360,11 @@ or stale attachments.
 
 - [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
 - [Hybrid Renderer Production Rollout](HybridRendererProductionRollout.md)
-- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
-- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md)
+- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/Features/GroundTruthAmbientOcclusion.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

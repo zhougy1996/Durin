@@ -353,7 +353,7 @@ Dependencies: Stage 3 acceptance gate.
 
 ## Related Documentation
 
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Sandbox Gameplay](../../../Runtime/Gameplay/SandboxGameplay.md)
 - [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
 - [Native Gameplay Core](NativeGameplayCore.md)

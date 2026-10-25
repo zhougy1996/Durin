@@ -620,7 +620,7 @@ Material plan working set.
 - [x] Confirm `NewMaterial.dasset` remains deleted, `NewLevel.dasset` has no
   stale reference, all Engine models use the new slot schema, and every
   checked-in package is current under the project compatibility audit.
-- [x] Update `Documentation/Runtime/Rendering/MaterialSystem.md` with dual-name
+- [x] Update `Documentation/Runtime/Rendering/Materials/MaterialSystem.md` with dual-name
   slot ownership, stable reimport indices, positional override resolution,
   mesh-switch behavior, dormant entries, and index-only render boundaries.
 - [x] Update
@@ -736,8 +736,8 @@ commands that may become stale.
 
 ## Related Documentation
 
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

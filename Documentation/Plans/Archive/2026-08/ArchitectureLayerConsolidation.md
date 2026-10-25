@@ -393,11 +393,11 @@ stage-local success cannot hide a later cross-domain regression.
 ## Related Documentation
 
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
 - [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
 - [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
 - [Testing](../../../Agents/Testing.md)
 - [Build And Run](../../../Agents/BuildAndRun.md)

@@ -339,12 +339,12 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 
 ## Related Documentation
 
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

@@ -171,5 +171,5 @@ keep independent customized copies outside the destination. Existing immutable
 parents and outputs removed from the source are retained for references. The
 material-functions command inspects the shipped reusable functions and initializes
 DefaultMaterial; it does not rebuild scene-specific parents. Already-current
-content needs no destructive reconstruction solely for a new structural recipe. See [Material System](../../Runtime/Rendering/MaterialSystem.md)
+content needs no destructive reconstruction solely for a new structural recipe. See [Material System](../../Runtime/Rendering/Materials/MaterialSystem.md)
 for ownership and normal sampling contracts.

@@ -277,7 +277,7 @@ manager. Update these authorities only with the corresponding implementation:
   for typed manager, freshness, scheduling and module lifetime boundaries.
 - [Static mesh building](../../../Runtime/Assets/StaticMeshBuilding.md),
   [Volume textures](../../../Runtime/Assets/VolumeTextures.md), and
-  [Shader cache](../../../Runtime/Rendering/ShaderCache.md) for family behavior.
+  [Shader cache](../../../Runtime/Rendering/Shaders/ShaderCache.md) for family behavior.
 - [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md) and
   [Cooking](../../../Runtime/Assets/Cooking.md) for transactions and publication.
 - [Code modules](../../../Workspace/CodeModules.md) for the expanded `DerivedDataCache`

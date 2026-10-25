@@ -646,7 +646,7 @@ Dependencies: Stage 5 end-to-end behavior and reconciled diagnostics.
 - [Physics Geometry And Narrowphase Plan](PhysicsGeometryAndNarrowphase.md)
 - [Physics Scene Query Acceleration Plan](PhysicsSceneQueryAcceleration.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [StaticMesh Inspector](../../../Editor/Guides/StaticMeshInspector.md)
 - [Asset Derived Data and Cooking Plan](../2026-07/AssetDerivedDataAndCooking.md)

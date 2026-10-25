@@ -139,7 +139,7 @@ The initial working set is:
 - `Engine/Source/Runtime/Renderer/Private/EditorGridRendering.cpp`
 - `Engine/Source/Runtime/RenderCore/Public/SceneView.h`
 - focused Renderer and Engine test files selected in Stage 0
-- `Documentation/Runtime/Rendering/ViewportRendering.md`
+- `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`
 
 Expand this working set only when Stage 0 identifies a direct renderer-resource
 lifecycle dependency, an RHI test seam, or build metadata that does not discover
@@ -489,7 +489,7 @@ each `FSceneView`:
 - [x] Perform the focused visual matrix for Grid, solid/wire Gizmos, Lines, and
   Icons with depth occlusion, X-Ray/Visible ordering, FXAA on/off, constrained
   viewport scissor, and an auxiliary camera preview.
-- [x] Update `Documentation/Runtime/Rendering/ViewportRendering.md` with the
+- [x] Update `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md` with the
   demand, ownership, pass-elision, and failure-isolation contracts.
 - [x] Update this plan's status and evidence, and keep the Editor Icon Atlas
   plan independent.
@@ -558,7 +558,7 @@ each `FSceneView`:
 
 ## Related Documentation
 
-- `Documentation/Runtime/Rendering/ViewportRendering.md`
+- `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`
 - `Documentation/Investigations/EditorIconAtlas.md`
 - `Documentation/Plans/Archive/2026-07/RecoverableRendererResourceCreation.md`
 - `Documentation/Plans/Archive/2026-07/ScenePostProcessEditorAssistanceBoundary.md`

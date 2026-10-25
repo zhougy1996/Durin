@@ -612,14 +612,14 @@ budget.
 
 ## Related Documentation
 
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
-- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Persistent View State](../../../Runtime/Rendering/Scene/PersistentViewState.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
 - [PSO Cache for Render-Graph Expansion](../../../Investigations/PSOCacheForRenderGraphExpansion.md)
 - [Renderer Modularization Plan](../2026-07/RendererModularization.md)
 - [RHI and Vulkan Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)

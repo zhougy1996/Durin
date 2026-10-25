@@ -76,10 +76,10 @@ retain Durin's existing rendering behavior and failure contracts. Do not introdu
 
 ## Required References and Coordination
 
-- [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md):
+- [Renderer frame preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md):
   ownership, frame schedule, typed results, transaction publication, and capture.
-- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-  and [Render Graph](../../../Runtime/Rendering/RenderGraph.md): failure/retry,
+- [Renderer resource recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+  and [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md): failure/retry,
   execution lifetime, extraction, and recording boundaries.
 - [Build workflow](../../../Agents/BuildAndRun.md),
   [test workflow](../../../Agents/Testing.md), and

@@ -326,9 +326,9 @@ completion of an implementation stage.
 - [Scene graph capture](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRendererProfiling.cpp)
 - [RDG tests](../../../../Engine/Tests/Native/RenderCoreTests/Private/RDGTests.cpp)
 - [Vulkan transition tests](../../../../Engine/Tests/Native/VulkanRHITests/Private/VulkanResourceTransitionTests.cpp)
-- [Render Graph contract](../../../Runtime/Rendering/RenderGraph.md)
-- [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Graph contract](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Renderer frame preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
 
 UE reference: Epic's [FRDGBuilder API](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/RenderCore/FRDGBuilder)
 describes compilation and execution inside Execute; its

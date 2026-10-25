@@ -372,7 +372,7 @@ selected backend and remain below Engine.
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 - [Viewport Picking Roadmap](ViewportPicking.md)
 - [Physics Scene And Character Collision Plan](../../../Plans/Archive/2026-08/PhysicsSceneAndCharacterCollision.md)

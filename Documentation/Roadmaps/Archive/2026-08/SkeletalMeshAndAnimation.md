@@ -328,8 +328,8 @@ contract.
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Core Math](../../../Runtime/Core/Math.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

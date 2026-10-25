@@ -43,17 +43,17 @@ renderers consume authoritative typed views without whole-scene RTTI scans.
 M1 is complete through the
 [Renderer Scene Proxy and Info Contract Plan](../../../Plans/Archive/2026-08/RendererSceneProxyAndInfoContract.md).
 The lasting contract is recorded in
-[Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md).
+[Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md).
 M2 is complete through the
 [Material Render Pass Policies Plan](../../../Plans/Archive/2026-08/MaterialRenderPassPolicies.md),
 with lasting contracts recorded in
-[Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md) and
-[Material System](../../../Runtime/Rendering/MaterialSystem.md).
+[Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md) and
+[Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md).
 
 M3 is complete through the
 [Per-View Visibility and LOD Plan](../../../Plans/Archive/2026-08/PerViewVisibilityAndLOD.md), with
 lasting contracts recorded in
-[Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md).
+[Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md).
 Production views now default to authored visibility, conservative frustum
 culling, and deterministic projected-size LOD selection while retaining an
 immutable culling-disabled/forced-LOD-0 comparison seam. This opens the shared
@@ -90,7 +90,7 @@ fixture measured a 0.031 ms combined median increment against the 2.0 ms gate.
 Perspective/orthographic fitting, off-camera casters, masked coverage,
 deformation, sequential views, recovery, Vulkan validation, Debug/Shipping
 builds, Cook, and editor smoke passed. Lasting behavior is recorded in
-[Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md).
+[Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md).
 All conditional feature and scalable-frame branches below remain explicitly
 deferred behind their recorded product/profile activation evidence; none was
 required to close the bounded forward-rendering program.
@@ -459,17 +459,17 @@ visibility should not be one child plan. Activate bounded plans independently:
 
 ## Related Documentation
 
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Renderer Scene Proxy and Info Contract Plan](../../../Plans/Archive/2026-08/RendererSceneProxyAndInfoContract.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Material System Roadmap](../../MaterialSystem.md)
 - [Compute Shader Pipeline Roadmap](ComputeShaderPipeline.md)
 - [Skeletal Mesh and Animation Roadmap](SkeletalMeshAndAnimation.md)
 - [Skeletal Mesh Rendering Plan](../../../Plans/Archive/2026-08/SkeletalMeshRendering.md)
 - [Renderer Light Scene Contract Plan](../../../Plans/Archive/2026-08/RendererLightSceneContract.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [PBR Pipeline Production Gaps](../../../Investigations/PBRPipelineProductionGaps.md)
 

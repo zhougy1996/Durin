@@ -237,7 +237,7 @@ The initial working set is:
 - `Engine/Source/Editor/TextureEditor/Private/Widgets/TexturePreview.cpp`
 - focused tests under `Engine/Tests/Native/RenderCoreTests/` and
   `Engine/Tests/Native/EngineTests/`
-- `Documentation/Runtime/Rendering/ViewportRendering.md`
+- `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`
 
 Expand this working set only when Stage 0 identifies a direct console-command,
 module-lifecycle, RHI invalidation, editor-assistance extraction, or test-build
@@ -750,8 +750,8 @@ resource:
 ## Related Documentation
 
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
-- `Documentation/Runtime/Rendering/ViewportRendering.md`
-- `Documentation/Runtime/Rendering/ShaderCache.md`
+- `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`
+- `Documentation/Runtime/Rendering/Shaders/ShaderCache.md`
 - `Documentation/Plans/Archive/2026-07/DemandDrivenEditorAssistanceRenderer.md`
 - `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/ShaderCacheHardening.md`

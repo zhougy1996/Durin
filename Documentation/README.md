@@ -51,7 +51,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Persistent DDC manifests, value attachments, identity versions, selective queries, codec budgets, diagnostics, or offline cache maintenance | [Derived data cache storage](Runtime/Assets/DerivedDataCacheStorage.md) |
 | Field-level BulkData, package-resource ranges, DAST Bulk Directory, or raw `.dbulk` | [Package bulk data](Runtime/Assets/BulkData.md) |
 | Async asset compilation domains, aggregate progress, selected finish/cancel, or provider registration | [Asset compilation](Runtime/Assets/AssetCompilation.md) |
-| Sky Light sources, procedural capture, Studio migration, or GPU environment filtering | [Sky lighting](Runtime/Rendering/SkyLighting.md) |
+| Sky Light sources, procedural capture, Studio migration, or GPU environment filtering | [Sky lighting](Runtime/Rendering/Features/SkyLighting.md) |
 | Volume texture source, build, payload, cook, or GPU resource contract | [Volume textures](Runtime/Assets/VolumeTextures.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Application/RuntimeLifecycle.md) |
 | Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/AsyncAssetOperations.md) |
@@ -72,28 +72,28 @@ requires; do not read unrelated topics or scan an entire directory.
 | Collision shapes, body setup/instance, physics scene, traces, sweeps, or overlaps | [Runtime collision](Runtime/Physics/Collision.md) |
 | Physics-framework long-term scaling, broadphase/narrowphase, cooked collision, dynamics, or backend evolution | [Physics evolution roadmap](Roadmaps/Archive/2026-08/PhysicsEvolution.md) |
 | CPU tasks, dependencies, cancellation, waiting, or worker-thread ownership | [CPU task system](Runtime/Core/TaskSystem.md) |
-| Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
-| Persistent view identity, previous-frame metadata, temporal discontinuity, or history lifetime | [Persistent view state](Runtime/Rendering/PersistentViewState.md) |
-| Render-resource state, deferred C++ cleanup, producer teardown, or registry auditing | [Render resource lifecycle](Runtime/Rendering/RenderResourceLifecycle.md) |
-| Loading-time material program, native Shader/PSO preparation, or scene activation readiness | [Load preparation](Runtime/Rendering/LoadPreparation.md) |
-| Renderer resource creation failure, retry, fallback, or device invalidation | [Renderer resource recovery](Runtime/Rendering/RendererResourceRecovery.md) |
-| Fixed non-Material shader registration, typed global lookup, atomic shader sets, or shader/pipeline generation coupling | [Global shaders](Runtime/Rendering/GlobalShaders.md) |
-| Render Graph, RDG, pass declarations, dependencies, barriers, or graph captures | [Render Graph](Runtime/Rendering/RenderGraph.md) |
-| RHI public API stability, experimental headers, backend-only interfaces, deprecation, or compatibility | [RHI public API stability](Runtime/Rendering/RHIPublicAPIStability.md) |
-| Production frame preparation, feature ordering, transient allocation, or output transactions | [Renderer frame preparation](Runtime/Rendering/RendererFramePreparation.md) |
+| Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/Pipeline/ViewportRendering.md) |
+| Persistent view identity, previous-frame metadata, temporal discontinuity, or history lifetime | [Persistent view state](Runtime/Rendering/Scene/PersistentViewState.md) |
+| Render-resource state, deferred C++ cleanup, producer teardown, or registry auditing | [Render resource lifecycle](Runtime/Rendering/Pipeline/RenderResourceLifecycle.md) |
+| Loading-time material program, native Shader/PSO preparation, or scene activation readiness | [Load preparation](Runtime/Rendering/Pipeline/LoadPreparation.md) |
+| Renderer resource creation failure, retry, fallback, or device invalidation | [Renderer resource recovery](Runtime/Rendering/Pipeline/RendererResourceRecovery.md) |
+| Fixed non-Material shader registration, typed global lookup, atomic shader sets, or shader/pipeline generation coupling | [Global shaders](Runtime/Rendering/Shaders/GlobalShaders.md) |
+| Render Graph, RDG, pass declarations, dependencies, barriers, or graph captures | [Render Graph](Runtime/Rendering/Pipeline/RenderGraph.md) |
+| RHI public API stability, experimental headers, backend-only interfaces, deprecation, or compatibility | [RHI public API stability](Runtime/Rendering/RHI/RHIPublicAPIStability.md) |
+| Production frame preparation, feature ordering, transient allocation, or output transactions | [Renderer frame preparation](Runtime/Rendering/Pipeline/RendererFramePreparation.md) |
 | Rendering statistics overlay, diagnostics panel, or sampled graph inspection UI | [Viewport rendering diagnostics](Editor/Architecture/ViewportRenderingDiagnostics.md) |
-| GBuffer encoding, reconstruction, diagnostics, memory, or lifecycle | [Minimal GBuffer contract](Runtime/Rendering/GBuffer.md) |
-| Deferred directional lighting, parity, diagnostics, memory, or qualification | [Deferred directional lighting](Runtime/Rendering/DeferredDirectionalLighting.md) |
-| Volumetric-cloud components, eligibility, scene selection, or texture-reference recovery | [Volumetric cloud scene contract](Runtime/Rendering/VolumetricCloudSceneContract.md) |
-| Volumetric-cloud spatial inputs, compute/fragment fallback, composition order, target budget, or recovery | [Volumetric cloud spatial rendering](Runtime/Rendering/VolumetricCloudSpatialRendering.md) |
-| Volumetric-cloud quality tiers, low-resolution reconstruction, per-view history, invalidation, temporal diagnostics, or 4K budgets | [Volumetric cloud temporal reconstruction](Runtime/Rendering/VolumetricCloudTemporalReconstruction.md) |
-| StaticMesh retained batch inputs, publication invalidation, or capture lifetime | [Retained StaticMesh batch inputs](Runtime/Rendering/StaticMeshBatchPublication.md) |
-| Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/DirectionalShadows.md) |
-| Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/MaterialQueries.md) |
-| Material geometry/Pass usage, required shader stages, or vertex/pixel artifact reuse | [Shader stage selection and sharing](Runtime/Rendering/MaterialShaderStages.md) |
-| Material vertex roots, World Position Offset, or vertex-to-pixel interpolation | [Material vertex evaluation](Runtime/Rendering/MaterialVertexEvaluation.md) |
-| Primitive or Instance custom numeric channels, stable render instances, or material variation without separate instances | [Primitive and Instance material data](Runtime/Rendering/MaterialCustomData.md) |
-| Material expression emission, output registration, graph traversal, or function invocation caches | [Material expression building](Runtime/Rendering/MaterialExpressionBuilding.md) |
+| GBuffer encoding, reconstruction, diagnostics, memory, or lifecycle | [Minimal GBuffer contract](Runtime/Rendering/Pipeline/GBuffer.md) |
+| Deferred directional lighting, parity, diagnostics, memory, or qualification | [Deferred directional lighting](Runtime/Rendering/Features/DeferredDirectionalLighting.md) |
+| Volumetric-cloud components, eligibility, scene selection, or texture-reference recovery | [Volumetric cloud scene contract](Runtime/Rendering/Features/VolumetricCloudSceneContract.md) |
+| Volumetric-cloud spatial inputs, compute/fragment fallback, composition order, target budget, or recovery | [Volumetric cloud spatial rendering](Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md) |
+| Volumetric-cloud quality tiers, low-resolution reconstruction, per-view history, invalidation, temporal diagnostics, or 4K budgets | [Volumetric cloud temporal reconstruction](Runtime/Rendering/Features/VolumetricCloudTemporalReconstruction.md) |
+| StaticMesh retained batch inputs, publication invalidation, or capture lifetime | [Retained StaticMesh batch inputs](Runtime/Rendering/Scene/StaticMeshBatchPublication.md) |
+| Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/Features/DirectionalShadows.md) |
+| Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/Materials/MaterialQueries.md) |
+| Material geometry/Pass usage, required shader stages, or vertex/pixel artifact reuse | [Shader stage selection and sharing](Runtime/Rendering/Materials/MaterialShaderStages.md) |
+| Material vertex roots, World Position Offset, or vertex-to-pixel interpolation | [Material vertex evaluation](Runtime/Rendering/Materials/MaterialVertexEvaluation.md) |
+| Primitive or Instance custom numeric channels, stable render instances, or material variation without separate instances | [Primitive and Instance material data](Runtime/Rendering/Materials/MaterialCustomData.md) |
+| Material expression emission, output registration, graph traversal, or function invocation caches | [Material expression building](Runtime/Rendering/Materials/MaterialExpressionBuilding.md) |
 | Material graph commands, function authoring, UV inputs, transactions, or clipboard | [Material graph operations](Editor/Architecture/MaterialGraphOperations.md) |
 | Material editor panels, canvas geometry, node menus, or graph diagnostics | [Material graph canvas](Editor/Architecture/MaterialGraphCanvas.md) |
 | Material preview resources, Compile/Apply/Save, document lifecycle, or instance overrides | [Material editor lifecycle](Editor/Architecture/MaterialEditorLifecycle.md) |

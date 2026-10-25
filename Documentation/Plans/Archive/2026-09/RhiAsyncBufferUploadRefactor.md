@@ -14,8 +14,8 @@ binding pages now allocate on demand without fixed upload admission quotas.
 Ordinary create/update/write/upload APIs enforce preconditions and return
 resources or void; memory counters remain observational. The dated admission
 checkpoints below describe the original implementation. Current semantics are
-owned by [resource views](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-and [Vulkan memory](../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md).
+owned by [resource views](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+and [Vulkan memory](../../../Runtime/Rendering/RHI/VulkanMemoryAndGPUCompletion.md).
 
 Completion decision (2026-09-29): the operator accepted the delivered
 implementation and local correctness qualification without the Windows-only
@@ -954,10 +954,10 @@ native validation and does not renew earlier runtime evidence.
 
 Current authorities:
 
-- [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Vulkan memory and GPU completion](../../../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
-- [RHI resource views and transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [RHI command execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [Vulkan memory and GPU completion](../../../Runtime/Rendering/RHI/VulkanMemoryAndGPUCompletion.md)
+- [RHI resource views and transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
 
 UE provides interface inspiration, not a verified implementation template for
 a specific Vulkan backend version. Public references support usage declarations,

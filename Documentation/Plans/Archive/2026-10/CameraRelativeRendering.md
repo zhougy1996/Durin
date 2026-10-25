@@ -27,7 +27,7 @@ Validation receipts on the macOS arm64 Debug DurinEditor profile:
 The first affected CPU run exposed that sky rendering accepts standalone
 ViewProjectionMatrix inputs. Its existing double-precision translation removal
 was retained; the final affected run passed. The permanent contract is
-[Camera relative rendering](../../../Runtime/Rendering/CameraRelativeRendering.md).
+[Camera relative rendering](../../../Runtime/Rendering/Scene/CameraRelativeRendering.md).
 
 ## Goal
 

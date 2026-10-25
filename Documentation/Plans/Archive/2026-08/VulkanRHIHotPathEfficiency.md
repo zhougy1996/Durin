@@ -330,11 +330,11 @@ without broadening rendering behavior.
 
 ## Related Documentation
 
-- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [Vulkan Memory and GPU Completion](../../../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
-- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+- [Vulkan Memory and GPU Completion](../../../Runtime/Rendering/RHI/VulkanMemoryAndGPUCompletion.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md)
 - [RHI and Vulkan Correctness Hardening Plan](RHIAndVulkanCorrectnessHardening.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

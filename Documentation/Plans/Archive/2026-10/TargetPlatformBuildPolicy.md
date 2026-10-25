@@ -34,7 +34,7 @@ to be used without an available local producer.
 
 Required references: [build protocol](../../../Runtime/Assets/DerivedDataBuild.md),
 [Cook contract](../../../Runtime/Assets/Cooking.md),
-[material lifecycle](../../../Runtime/Rendering/MaterialSystem.md#compile-lifecycle-and-cooked-programs),
+[material lifecycle](../../../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs),
 [module ownership](../../../Workspace/CodeModules.md),
 [build workflow](../../../Agents/BuildAndRun.md), and
 [test workflow](../../../Agents/Testing.md).

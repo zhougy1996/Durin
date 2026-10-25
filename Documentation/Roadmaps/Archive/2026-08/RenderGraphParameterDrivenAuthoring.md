@@ -330,12 +330,12 @@ this roadmap before the next proposed plan is created.
 
 ## Related Documentation
 
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
 - [Testing](../../../Agents/Testing.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)
 

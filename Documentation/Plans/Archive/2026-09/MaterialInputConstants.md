@@ -13,7 +13,7 @@ Stages 1–4 are complete. Numeric expressions, terminal Surface properties, UVs
 and individual Surface overrides use reflected grouped inputs. Runtime definition
 fallbacks replace catalog-initialized defaults, and editor commands preserve the
 connection, flag and retained value through reset, graph edits and transactions.
-The lasting contracts are documented in [expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md#numeric-input-ownership)
+The lasting contracts are documented in [expression building](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md#numeric-input-ownership)
 and [graph operations](../../../Editor/Architecture/MaterialGraphOperations.md#compact-input-and-texture-authoring).
 
 The two materials and three standard functions were converted through exact-package
@@ -258,7 +258,7 @@ and disagreement between authored Surface defaults and compiler snapshots.
 
 ## Required References
 
-- [Material expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md)
+- [Material expression building](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md)
 - [Material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
 - [Reflection system](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Material system roadmap](../../../Roadmaps/MaterialSystem.md)

@@ -309,11 +309,11 @@ Vulkan calls or a whole-device idle dependency.
 ## Related Documentation
 
 - [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

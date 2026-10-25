@@ -498,7 +498,7 @@ Use [build workflow](../../../Agents/BuildAndRun.md) and
 Contracts: [asset compilation](../../../Runtime/Assets/AssetCompilation.md),
 [asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
 [async editor operations](../../../Editor/Architecture/AsyncAssetOperations.md), and
-[StaticMesh rendering](../../../Runtime/Rendering/StaticMeshRendering.md).
+[StaticMesh rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md).
 
 ## Related Code
 

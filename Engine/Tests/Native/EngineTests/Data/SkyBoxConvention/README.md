@@ -2,7 +2,7 @@
 
 The six PNG files form one 128 x 128 RGBA8 cubemap using the face and
 top-left-origin orientation documented in
-`Documentation/Runtime/Rendering/CubeTextures.md`.
+`Documentation/Runtime/Assets/CubeTextures.md`.
 
 Each face has a unique center color and labels its center face plus the world
 direction reached at its top, right, bottom, and left edges. The files are

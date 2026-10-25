@@ -322,12 +322,12 @@ gates passed.
 ## Related Documentation
 
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
-- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
-- [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Deferred directional lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Directional shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md)
+- [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/Features/VolumetricCloudTemporalReconstruction.md)
+- [Volumetric cloud scene contract](../../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)
+- [Deferred directional lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
+- [Directional shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
 - [Implementation plan rules](../../AGENTS.md)
 - [Build and run workflow](../../../Agents/BuildAndRun.md)
 - [Testing workflow](../../../Agents/Testing.md)

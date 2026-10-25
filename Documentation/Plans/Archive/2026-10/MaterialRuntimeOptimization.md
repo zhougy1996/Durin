@@ -11,7 +11,7 @@ Completed: 2026-10-16
 
 Stage 5 is complete on production base `1b80f6c0f`. Stages 0-5 are complete;
 stages 6-8 remain deferred. The implementation and boundaries are documented in
-[shader stage selection and sharing](../../../Runtime/Rendering/MaterialShaderStages.md).
+[shader stage selection and sharing](../../../Runtime/Rendering/Materials/MaterialShaderStages.md).
 The diagnostic lane remains Win64-Debug-DurinEditor, MSVC 14.44.35207 and Tracy.
 
 All three new stage tests passed together and separately in isolated processes.
@@ -84,7 +84,7 @@ Each primitive/instance GPU record grows from 256 to 512 bytes. The existing
 frame-time speedup is claimed. Instance updates copy/validate bounded snapshots;
 incremental GPU-scene updates, serialized component defaults and instanced
 physics remain outside the executed runtime scope. These tradeoffs and the
-implemented API are documented in [the runtime contract](../../../Runtime/Rendering/MaterialCustomData.md).
+implemented API are documented in [the runtime contract](../../../Runtime/Rendering/Materials/MaterialCustomData.md).
 
 Stage 4 receipts are under `Build/MaterialRuntimeOptimization/`:
 `stage4-mesh.{xml,log}`, `stage4-custom-gpu.{xml,log}`,

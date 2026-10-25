@@ -110,7 +110,7 @@ reported as passes. Full-barrier/shared-queue fallbacks pass; the separate
 multi-queue plan retains its hardware gate. Shadows remain an independent
 direct consumer; this pilot does not introduce an indirect shadow-output gate.
 Lasting grouping, ABI, telemetry, fallback and opt-in rules live in the
-[GBuffer contract](../../../Runtime/Rendering/GBuffer.md#compatible-instance-culling)
+[GBuffer contract](../../../Runtime/Rendering/Pipeline/GBuffer.md#compatible-instance-culling)
 and [performance baseline](../../../Development/Build/RenderingPerformanceBaseline.md).
 
 ## Goal
@@ -219,7 +219,7 @@ multiple-command indirect draw, and the maximum admitted command count when
 applicable.
 
 Stage 0 selects the public-header boundary under the rules in
-[RHI public API stability](../../../Runtime/Rendering/RHIPublicAPIStability.md). A
+[RHI public API stability](../../../Runtime/Rendering/RHI/RHIPublicAPIStability.md). A
 stable additive family must land atomically with validation, Vulkan execution,
 fallback semantics, and owning Runtime documentation. If staged exposure is
 required, use one coherent `Public/Experimental/` family and do not scatter
@@ -599,16 +599,16 @@ and the exact stage title as the `Stage` trailer.
 
 ## Related Documentation
 
-- [RHI public API stability](../../../Runtime/Rendering/RHIPublicAPIStability.md)
-- [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [RHI resource transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI resource views and transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [Graphics state and bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Synchronous compute pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md)
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Static mesh rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [RHI public API stability](../../../Runtime/Rendering/RHI/RHIPublicAPIStability.md)
+- [RHI command execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [RHI resource transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI resource views and transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+- [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [Graphics state and bindings](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
+- [Synchronous compute pipelines](../../../Runtime/Rendering/RHI/SynchronousComputePipelines.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Static mesh rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Renderer frame preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
 - [RDG and RHI multi-queue execution plan](RdgRhiMultiQueueExecution.md)
 - [Geometry submission refactor plan](GeometrySubmissionRefactor.md)
 - [Rendering performance baseline](../../../Development/Build/RenderingPerformanceBaseline.md)

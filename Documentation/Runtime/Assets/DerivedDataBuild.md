@@ -599,4 +599,4 @@ textures serialize mutation against their active request, while other families
 retain their own generation rules. Game uses cooked values and runtime codecs without authoring build
 services. See [Asset Data Lifecycle](AssetDataLifecycle.md),
 [Asset Compilation](AssetCompilation.md), [Static Mesh Building](StaticMeshBuilding.md),
-and [Shader Cache](../Rendering/ShaderCache.md).
+and [Shader Cache](../Rendering/Shaders/ShaderCache.md).

@@ -30,7 +30,7 @@ Relevant implementation and architecture:
   `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS` setting;
 - [Vulkan device and descriptor implementation](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanDevice.cpp);
 - [Vulkan RHI macOS test environment](../../Engine/Tests/Native/VulkanRHITests/Private/VulkanRHITestEnvironment.cpp);
-- [viewport rendering](../Runtime/Rendering/ViewportRendering.md), including
+- [viewport rendering](../Runtime/Rendering/Pipeline/ViewportRendering.md), including
   the macOS Metal-layer and presentation path;
 - [macOS platform enablement plan](../Plans/Archive/2026-08/MacOSPlatformRuntime.md).
 

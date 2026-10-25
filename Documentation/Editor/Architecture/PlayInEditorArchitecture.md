@@ -104,4 +104,4 @@ labels its target as `Play Window`.
 - `Documentation/Editor/Guides/PlayInEditor.md`
 - `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
-- `Documentation/Runtime/Rendering/ViewportRendering.md`
+- `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`

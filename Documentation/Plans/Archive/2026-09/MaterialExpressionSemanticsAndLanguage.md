@@ -716,9 +716,9 @@ all-plan, and all-roadmap validation pass.
 
 - Follow [Build and Run](../../../Agents/BuildAndRun.md), [Testing](../../../Agents/Testing.md),
   and [Documentation](../../../Agents/Documentation.md) workflows.
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md) owns lasting asset,
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md) owns lasting asset,
   compiler, variant, Cook, and renderer contracts.
-- [Material Expression Building](../../../Runtime/Rendering/MaterialExpressionBuilding.md)
+- [Material Expression Building](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md)
   owns lasting emitter, MIR, function, and semantic rules.
 - [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
   and [Material Editor Lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)

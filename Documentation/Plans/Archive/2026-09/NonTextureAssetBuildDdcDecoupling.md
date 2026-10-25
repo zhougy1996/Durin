@@ -669,7 +669,7 @@ Dependencies: Stage 5 complete.
 - [Texture Asset State Simplification](TextureAssetStateSimplification.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)

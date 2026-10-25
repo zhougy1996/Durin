@@ -253,7 +253,7 @@ quality and performance comparison.
 
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
 - [Persistent View State Foundation](PersistentViewStateFoundation.md)
-- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md)
 - [Agent build and run workflow](../../../Agents/BuildAndRun.md)
 - [Agent testing workflow](../../../Agents/Testing.md)
 

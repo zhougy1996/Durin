@@ -38,7 +38,7 @@ Formal timing qualification still requires an exclusive quiet lane; the recorded
 CPU comparisons are diagnostic evidence, not a GPU/FPS acceptance claim.
 
 The existing implementation contract remains
-[retained StaticMesh batch inputs](../Runtime/Rendering/StaticMeshBatchPublication.md).
+[retained StaticMesh batch inputs](../Runtime/Rendering/Scene/StaticMeshBatchPublication.md).
 The previous work already reuses stable Section descriptions and command-local
 admission/transform facts. This plan first extends reuse into the subsequent
 resource-preparation path.
@@ -268,7 +268,7 @@ exact retained run. The first unretained A/B qualification run was excluded from
 timing evidence; the saver now requires CSVs from the run named in its test log.
 Temporary comparison tests, controls and counters were removed before final
 regression. The implemented contract lives in
-[command-local Section resources](../Runtime/Rendering/StaticMeshBatchPublication.md#command-local-section-resources).
+[command-local Section resources](../Runtime/Rendering/Scene/StaticMeshBatchPublication.md#command-local-section-resources).
 
 Final validation used `3e9c43a5b` plus this implementation and the independent
 fixture fix `1dceb941b`. Final relevant source hashes and capture comparisons

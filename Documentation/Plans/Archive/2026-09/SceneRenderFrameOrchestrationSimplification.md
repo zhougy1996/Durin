@@ -416,8 +416,8 @@ continue to observe actual command-recording results.
   names and that feature input fields express capabilities rather than copied
   policy facts.
 - [x] Update the lasting
-  [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
-  and [Render Graph](../../../Runtime/Rendering/RenderGraph.md) contracts to describe
+  [Renderer Frame Preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+  and [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md) contracts to describe
   the final frame owner, feature plan, Composer boundary, and feature-owned
   setup/execute split.
 - [x] Run changed/all documentation validation and all-plan lifecycle
@@ -447,11 +447,11 @@ continue to observe actual command-recording results.
 
 ## Related Documentation
 
-- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Volumetric Cloud Spatial Rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Persistent View State](../../../Runtime/Rendering/Scene/PersistentViewState.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Volumetric Cloud Spatial Rendering](../../../Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md)
 - [RDG Compatibility Retirement and Allocator Simplification Plan](RDGCompatibilityRetirementAndAllocatorSimplification.md)
 
 ## Related Code

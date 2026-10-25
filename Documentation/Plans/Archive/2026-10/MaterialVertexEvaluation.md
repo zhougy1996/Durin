@@ -31,7 +31,7 @@ fixed shader entry called another shader entry. All fixed entries now call an
 ordinary shared geometry function; subsequent full material Cook and shader
 Cook integration passed. Visual GPU execution remains unverified as recorded
 below. Lasting contracts live in
-[Material Vertex Evaluation](../../../Runtime/Rendering/MaterialVertexEvaluation.md).
+[Material Vertex Evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md).
 
 ## Goal
 

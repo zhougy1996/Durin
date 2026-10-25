@@ -409,8 +409,8 @@ Completed stages: 0-4.
 - [x] Run the verified editor from the same Agent Build Profile; smoke Static
   Mesh, Sky Box, Post Process, editor-assistance variants, shader reload
   changed/all, failed refresh, corrected refresh, resize, and orderly shutdown.
-- [x] Update [Shader Cache](../../../Runtime/Rendering/ShaderCache.md) and
-  [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md) to state that
+- [x] Update [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md) and
+  [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md) to state that
   Renderer slots own logical PSOs, names are diagnostic-only, and the RHI
   publishes complete-or-null candidates.
 - [x] Update the [Compute Shader Pipeline](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
@@ -494,9 +494,9 @@ Completed stages: 0-4.
 ## Related Documentation
 
 - [Recoverable RHI Creation Failures](RecoverableRHICreationFailures.md)
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
 - [Compute Shader Pipeline](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 

@@ -248,7 +248,7 @@ dependency propagation, and render-thread snapshots.
 
 - `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/ReflectedPropertyEditing.md`
-- `Documentation/Runtime/Rendering/MaterialSystem.md`
+- `Documentation/Runtime/Rendering/Materials/MaterialSystem.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
 
 ## Related Code

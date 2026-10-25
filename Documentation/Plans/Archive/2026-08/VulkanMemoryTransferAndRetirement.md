@@ -578,7 +578,7 @@ any cap change with a new like-for-like capture before changing these values.
   Its final log contained no error, Vulkan validation/VUID, or assertion match.
 - The verified editor executable is
   `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
-- [Vulkan Memory and GPU Completion](../../../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
+- [Vulkan Memory and GPU Completion](../../../Runtime/Rendering/RHI/VulkanMemoryAndGPUCompletion.md)
   owns the lasting contract, and the roadmap records M4 complete with M5 ready.
 
 ## Validation Matrix
@@ -642,12 +642,12 @@ lock; token-order and failure paths retain headless coverage where possible.
 ## Related Documentation
 
 - [RHI and Vulkan Backend Evolution roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
-- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Asynchronous Texture2D Build and Readiness](AsynchronousTexture2DBuildAndReadiness.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

@@ -860,11 +860,11 @@ Test-only host-policy follow-up (2026-10-08):
 
 ## Permanent Contract Owners
 
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md): instance declaration,
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md): instance declaration,
   normalization, validation, dependency, content, and managed escape-hatch rules.
-- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md):
+- [Renderer Frame Preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md):
   route authoring, local binding construction, results, telemetry and publication.
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md): attachment
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md): attachment
   recording/replay authority and any changed shared binding execution contracts.
 - [Rendering Performance Baseline](../../../Development/Build/RenderingPerformanceBaseline.md):
   selection and comparison protocol; store new evidence in its prescribed form.

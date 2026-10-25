@@ -35,7 +35,7 @@ culling-disabled and forced-LOD-0 comparison settings remain qualified without
 process-global policy. Visibility classification is discarded after typed
 family preparation and before the first scene pass; execution consumes only
 complete selected-LOD prepared draws. The lasting contract is recorded in
-[Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md), and the
+[Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md), and the
 roadmap records M3 complete with its M4/M6 preparation dependency open.
 
 ## Goal
@@ -1021,11 +1021,11 @@ submission, and authored threshold UX already listed below.
 ## Related Documentation
 
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Renderer Scene Proxy and Info Contract Plan](RendererSceneProxyAndInfoContract.md)
 - [Material Render Pass Policies Plan](MaterialRenderPassPolicies.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

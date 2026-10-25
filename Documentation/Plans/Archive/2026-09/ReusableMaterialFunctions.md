@@ -1015,7 +1015,7 @@ and Editor documents only after implementation.
 
 ## References
 
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)

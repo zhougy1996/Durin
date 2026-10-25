@@ -93,7 +93,7 @@ passed. SceneImportTests passed all 10 integration cases.
 
 ## Goal
 
-Apply the operation-boundary principles of [RHI diagnostics](../../../Runtime/Rendering/RHICommandExecution.md#results-and-diagnostics)
+Apply the operation-boundary principles of [RHI diagnostics](../../../Runtime/Rendering/RHI/RHICommandExecution.md#results-and-diagnostics)
 without copying its implementation layout. Declare errors and `ToString`
 overloads near their owning interfaces and implement them in the respective
 existing `.cpp` files. Do not introduce module-wide error string files.

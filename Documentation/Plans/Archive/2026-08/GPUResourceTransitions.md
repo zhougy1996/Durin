@@ -15,7 +15,7 @@ lifetimes and inline/threaded replay parity. Vulkan maps the portable access
 contract through synchronization2 or its legacy fallback and keeps one range
 authority across explicit transitions, render passes, buffer writes, texture
 upload/readback, and presentation. The lasting contract is published in
-[RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md).
+[RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md).
 
 Qualification used Agent Build Profile `windows-msvc-x64`, preset
 `Win64-Debug-DurinEditor-Tests`. Focused RHI transition validation passed 6/6,
@@ -554,7 +554,7 @@ transitions, and repeated resource lifecycle paths.
   can consume the public transition API without Vulkan-specific knowledge.
 
 Stage 5 handoff: baseline `4bea0d07`; working set
-`Documentation/Runtime/Rendering/RHIResourceTransitions.md`, this plan, and
+`Documentation/Runtime/Rendering/RHI/RHIResourceTransitions.md`, this plan, and
 the Compute Shader Pipeline and RHI/Vulkan Backend Evolution roadmaps; key
 contracts `ERHIAccess`, `FRHIBufferTransition`, `FRHITextureTransition`,
 `FRHICommandListBase::TransitionBuffers`,
@@ -618,11 +618,11 @@ used.
 
 - [Compute Shader Pipeline Roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
-- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

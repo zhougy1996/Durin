@@ -905,10 +905,10 @@ Follow [build guidance](../../../Agents/BuildAndRun.md) and
 validation. Use the [rendering performance protocol](../../../Development/Build/RenderingPerformanceBaseline.md)
 for authoritative timing; no universal percentage improvement is promised.
 
-Update the [RHI public API contract](../../../Runtime/Rendering/RHIPublicAPIStability.md),
-[graphics binding contract](../../../Runtime/Rendering/GraphicsStateAndBindings.md),
-[compute pipeline contract](../../../Runtime/Rendering/SynchronousComputePipelines.md),
-[global shader contract](../../../Runtime/Rendering/GlobalShaders.md), and
+Update the [RHI public API contract](../../../Runtime/Rendering/RHI/RHIPublicAPIStability.md),
+[graphics binding contract](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md),
+[compute pipeline contract](../../../Runtime/Rendering/RHI/SynchronousComputePipelines.md),
+[global shader contract](../../../Runtime/Rendering/Shaders/GlobalShaders.md), and
 [module ownership](../../../Workspace/CodeModules.md) as behavior lands, not in advance.
 
 The design borrows explicit logical layouts and backend preparation from

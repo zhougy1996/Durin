@@ -458,7 +458,7 @@ The reconciliation fixtures establish these expected identity results:
   inputs with an explicit removal condition.
 - [x] Remove obsolete generic-array material-slot tests and replace them with
   fixed-row and GUID-override coverage.
-- [x] Update `Documentation/Runtime/Rendering/MaterialSystem.md` with mesh slot
+- [x] Update `Documentation/Runtime/Rendering/Materials/MaterialSystem.md` with mesh slot
   ownership, identity, reconciliation, resolution, orphan, dependency, and
   renderer-boundary rules.
 - [x] Update `Documentation/Editor/Architecture/ReflectedPropertyEditing.md` to
@@ -537,7 +537,7 @@ All build, test, and smoke operations must use the root workflow documented in
 
 ## Related Documentation
 
-- `Documentation/Runtime/Rendering/MaterialSystem.md`
+- `Documentation/Runtime/Rendering/Materials/MaterialSystem.md`
 - `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
 - `Documentation/Runtime/World/LevelSystem.md`
 - `Documentation/Roadmaps/MaterialSystem.md`

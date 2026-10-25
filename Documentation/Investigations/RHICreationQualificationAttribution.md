@@ -31,7 +31,7 @@ issues, not one asynchronous-creation regression:
 These results do not waive the original performance budgets. Diagnostic-off
 measurements are attribution controls, not replacement acceptance baselines.
 The implemented ownership contract remains in
-[Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md).
+[Renderer Resource Recovery](../Runtime/Rendering/Pipeline/RendererResourceRecovery.md).
 
 ## Verified Findings
 

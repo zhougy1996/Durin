@@ -57,7 +57,7 @@ The 36/36 shader-contract and 63/63 Vulkan
 RHI integration targets, `fast-all`, the complete Debug Editor build, and a
 120-tick hidden-window Debug Editor startup/render/clean-shutdown smoke also
 pass on the available RTX 3090 host. Stage 4 is complete. Lasting contracts are published in
-`Documentation/Runtime/Rendering/VolumetricCloudSpatialRendering.md`.
+`Documentation/Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md`.
 
 On 2026-08-21 the user explicitly replaced the unavailable GTX 1060 6GB /
 Vulkan 1.3.280 qualification identity with the available RTX 3090 / Vulkan
@@ -402,12 +402,12 @@ for the P2 scene/component plan.
 ## Related Documentation
 
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
-- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Synchronous Compute Pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
-- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md)
+- [Synchronous Compute Pipelines](../../../Runtime/Rendering/RHI/SynchronousComputePipelines.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Persistent View State](../../../Runtime/Rendering/Scene/PersistentViewState.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
 - [Build and run](../../../Agents/BuildAndRun.md)
 - [Testing](../../../Agents/Testing.md)
 

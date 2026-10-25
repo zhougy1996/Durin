@@ -389,9 +389,9 @@ gated extension of the semantic token payload.
 
 - [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
 - [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
 - [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)

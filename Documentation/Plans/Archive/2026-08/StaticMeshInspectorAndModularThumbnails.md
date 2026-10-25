@@ -546,7 +546,7 @@ Dependencies: Stages 2-4.
 - `Documentation/Editor/Architecture/WorkspaceFramework.md`
 - `Documentation/Editor/Architecture/AssetThumbnails.md`
 - `Documentation/Editor/Architecture/ContentBrowser.md`
-- `Documentation/Runtime/Rendering/StaticMeshRendering.md`
+- `Documentation/Runtime/Rendering/Scene/StaticMeshRendering.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 
 ## Related Code

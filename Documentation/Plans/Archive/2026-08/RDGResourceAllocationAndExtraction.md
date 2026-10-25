@@ -406,9 +406,9 @@ physical compatibility, output, or failure outcome.
 
 ## Related Documentation
 
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
 - [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
 
 ## Related Code

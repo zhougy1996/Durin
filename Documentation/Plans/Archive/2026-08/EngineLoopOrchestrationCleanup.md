@@ -324,7 +324,7 @@ Dependencies: Stages 1-4.
 
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 - [Asynchronous Texture2D Build and Readiness](AsynchronousTexture2DBuildAndReadiness.md)
 - [Engine Termination Lifecycle](../2026-07/EngineTerminationLifecycle.md)

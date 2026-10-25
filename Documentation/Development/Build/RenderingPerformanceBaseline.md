@@ -86,7 +86,7 @@ Retain work with `DURIN_TEST_KEEP_WORK=1` and record the exact revision, command
 build/Tracy settings and log/XML alongside each CSV. Debug or nonexclusive runs
 are diagnostic; these fixtures impose no device-independent timing threshold.
 
-The compatible-instance [GBuffer culling path](../../Runtime/Rendering/GBuffer.md#compatible-instance-culling)
+The compatible-instance [GBuffer culling path](../../Runtime/Rendering/Pipeline/GBuffer.md#compatible-instance-culling)
 remains explicitly opt-in. Its 64-candidate admission floor is not an automatic
 activation threshold. The 2026-10-18 plan closeout waived complex timing
 qualification and makes no speedup, crossover, independent-queue overlap or
@@ -189,6 +189,6 @@ target inventory or quietly redefine authority.
 - [Native Test Execution](NativeTests.md)
 - [Native Test Authoring](NativeTestAuthoring.md)
 - [CPU Profiling](Profiling.md)
-- [RHI Diagnostics and Conformance](../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
-- [Render Graph](../../Runtime/Rendering/RenderGraph.md)
+- [RHI Diagnostics and Conformance](../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md)
+- [Render Graph](../../Runtime/Rendering/Pipeline/RenderGraph.md)
 - [2026-09-29 Apple M4 diagnostic receipt](RenderingPerformanceBaselineReceipt20260929.md)

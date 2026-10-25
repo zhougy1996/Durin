@@ -836,15 +836,15 @@ and any environment-dependent measurements rather than embedding commands here.
 ## Related Documentation
 
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 

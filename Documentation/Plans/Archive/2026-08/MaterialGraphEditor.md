@@ -399,7 +399,7 @@ scalability remains deliberately evidence-gated in roadmap milestone 8.
 ## Related Documentation
 
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
 - [Material Compile Lifecycle and Derived Data](MaterialCompileLifecycleAndDerivedData.md)
 - [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)

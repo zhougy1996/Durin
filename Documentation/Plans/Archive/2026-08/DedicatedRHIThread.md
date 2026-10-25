@@ -18,7 +18,7 @@ immutable batches, serials, fences, owned payloads, retained resources, and
 declared synchronous operations consumed by both modes.
 
 The implemented producer/consumer contract is now owned by
-[RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md). This plan
+[RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md). This plan
 must move that consumer without changing batch representation or payload
 ownership. The inline baseline exposes cumulative commands, payload bytes,
 batches, submission groups, replay nanoseconds, waits, rejections, and pending
@@ -955,10 +955,10 @@ defined there.
 ## Related Documentation
 
 - [Recorded RHI Command List](RecordedRHICommandList.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
-- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

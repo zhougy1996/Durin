@@ -212,7 +212,7 @@ The comparison is semantic rather than pixel-identical: expected differences sho
 ## Related Documentation
 
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
-- `Documentation/Runtime/Rendering/ViewportRendering.md`
+- `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`
 - `Documentation/Plans/Archive/2026-07/EditorWorldGridV2.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`

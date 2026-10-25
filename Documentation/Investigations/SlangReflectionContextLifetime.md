@@ -13,7 +13,7 @@ the compiler call's lexical scope. A project-side session-pool identity defect
 was reproduced separately and repaired, but its causal relationship to this
 specific crash remains unproven. Do not treat a passing rerun as resolution.
 
-The [shader cache lifecycle contract](../Runtime/Rendering/ShaderCache.md#concurrency-and-lifecycle)
+The [shader cache lifecycle contract](../Runtime/Rendering/Shaders/ShaderCache.md#concurrency-and-lifecycle)
 owns session leasing. The separate dyld startup failure is addressed through
 [explicit profiler process lifetime](../Development/Build/Profiling.md#runtime-ownership).
 

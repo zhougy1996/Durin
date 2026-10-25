@@ -28,7 +28,7 @@ Validation passed on 2026-08-21: `RenderContractTests` (40 tests),
 stateless output byte-for-byte in forward, deferred, and constrained offscreen
 paths; window-backed persistent rendering passed resize and present coverage.
 The lasting contract is published in
-[Persistent view state](../../../Runtime/Rendering/PersistentViewState.md).
+[Persistent view state](../../../Runtime/Rendering/Scene/PersistentViewState.md).
 
 ## Goal
 
@@ -319,9 +319,9 @@ fully stateless fallback.
 ## Related Documentation
 
 - [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
-- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Viewport rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
 - [Volume texture foundation plan](VolumeTextureFoundation.md)
 - [Agent build and run workflow](../../../Agents/BuildAndRun.md)
 - [Agent testing workflow](../../../Agents/Testing.md)

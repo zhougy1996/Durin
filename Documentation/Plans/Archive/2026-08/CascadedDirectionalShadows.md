@@ -361,7 +361,7 @@ fully lit fallback.
   driver, and Vulkan version.
 - [x] Publish lasting cascade ownership, resource, split, fit, selection,
   blending, diagnostic, counter, ABI, view, failure, fallback, and measurement
-  behavior in [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md).
+  behavior in [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md).
 - [x] Update the Shadow System Evolution roadmap with the Q2 result and
   disposition every conditional branch from recorded activation evidence.
 
@@ -434,13 +434,13 @@ fully lit fallback.
 - [Shadow System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
 - [Directional Shadow PCF Quality Tiers Plan](DirectionalShadowPCFQualityTiers.md)
 - [Directional Shadow Diagnostics And Bias Plan](DirectionalShadowDiagnosticsAndBias.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
-- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

@@ -318,13 +318,13 @@ activate the migration, aliasing, and queue plans together.
 
 ## Related Documentation
 
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Persistent View State](../../../Runtime/Rendering/Scene/PersistentViewState.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [PSO Cache for Render-Graph Expansion](../../../Investigations/PSOCacheForRenderGraphExpansion.md)
 - [Testing](../../../Agents/Testing.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)

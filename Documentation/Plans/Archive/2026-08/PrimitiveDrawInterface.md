@@ -397,11 +397,11 @@ interface.
 
 ## Related Documentation
 
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Editor Grid](../../../Runtime/Rendering/EditorGrid.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Editor Grid](../../../Runtime/Rendering/Features/EditorGrid.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

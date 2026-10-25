@@ -463,11 +463,11 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 - [Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Rendering Capability Expansion](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 

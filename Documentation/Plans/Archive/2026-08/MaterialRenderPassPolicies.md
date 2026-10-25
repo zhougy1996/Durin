@@ -649,12 +649,12 @@ focused target failed. Open questions: none.
 
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

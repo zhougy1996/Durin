@@ -786,4 +786,4 @@ evidence for those guarantees.
 - [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
 - [Transactors](../../../Editor/Architecture/Transactors.md)
-- [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)

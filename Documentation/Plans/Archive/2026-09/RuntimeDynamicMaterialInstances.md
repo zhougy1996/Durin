@@ -11,7 +11,7 @@ Completed: 2026-09-18
 
 Completed the bounded lifecycle/API slice after the user waived the remaining M13
 qualification gates. Existing asset serialization and editor APIs remain compatible.
-The runtime contract is published in [Material System](../../../Runtime/Rendering/MaterialSystem.md#persistent-and-dynamic-instance-lifetimes).
+The runtime contract is published in [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md#persistent-and-dynamic-instance-lifetimes).
 M8 remains open for atomic batches and measured scalability; this plan does not
 claim those deliverables.
 

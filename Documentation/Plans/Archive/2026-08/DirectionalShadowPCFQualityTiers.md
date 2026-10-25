@@ -83,7 +83,7 @@ two-sided, multi-view, invalidation, reload, and lifetime targets pass under the
 selected default. The directional-shadow and Terrain qualifications,
 `fast-all`, full Debug `all` build, documentation validation, and an editor
 startup smoke pass complete the exit gate. Lasting behavior is published in
-[Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md), and the
+[Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md), and the
 roadmap records the Q2 cascade entry evidence.
 
 ## Goal
@@ -347,7 +347,7 @@ destabilizing motion, or changing the established fully lit fallback.
   retries, hardware, driver, and Vulkan version.
 - [x] Publish lasting tier, kernel, guard, sampling, diagnostic, default,
   fallback, ABI, view, failure, and measurement behavior in
-  [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md).
+  [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md).
 - [x] Update the Shadow System Evolution roadmap with Q1 completion and exact
   Q2 entry evidence; do not activate cascades until the selected filter's
   footprint, guard, bias interaction, bytes, and timing are frozen.
@@ -414,13 +414,13 @@ destabilizing motion, or changing the established fully lit fallback.
 
 - [Shadow System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
 - [Directional Shadow Diagnostics And Bias Plan](DirectionalShadowDiagnosticsAndBias.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
-- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

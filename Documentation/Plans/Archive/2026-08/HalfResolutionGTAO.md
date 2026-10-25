@@ -415,10 +415,10 @@ directional shadow -> GBuffer/D32
 
 ## Related Documentation
 
-- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
-- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/Features/GroundTruthAmbientOcclusion.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Original Ground Truth Ambient Occlusion Plan](GroundTruthAmbientOcclusion.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 

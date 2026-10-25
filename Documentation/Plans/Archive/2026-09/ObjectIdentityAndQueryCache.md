@@ -404,7 +404,7 @@ No typed lookup, registration hook or persistent material relationship index was
 added. The conditional indexing and switch-over tasks are therefore not
 applicable to this implementation.
 
-Lasting contracts now live in [scoped material queries](../../../Runtime/Rendering/MaterialQueries.md),
+Lasting contracts now live in [scoped material queries](../../../Runtime/Rendering/Materials/MaterialQueries.md),
 [object lifetime](../../../Runtime/ObjectSystem/GarbageCollection.md#pointer-and-handle-semantics),
 and [editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md).
 The material-system query section links to its new focused owner rather than

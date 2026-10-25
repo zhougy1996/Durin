@@ -77,7 +77,7 @@ LOD, initializes all LOD buffers before vertex factories, and releases vertex
 factories before LOD buffers. The renderer obtains declarations and vertex
 streams from `FLocalVertexFactory`, while index-buffer selection remains
 separate. These contracts and the shader-module boundary are recorded in
-[Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md) and the
+[Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md) and the
 associated LOD-resources plan. Stage 4 remains open because the lifecycle
 plan's current-HEAD validation, editor smoke workflows, performance evidence,
 final resource audits, and complete lifecycle documentation had not yet been
@@ -858,7 +858,7 @@ profile-specific commands.
 
 - [Engine Termination Lifecycle](../2026-07/EngineTerminationLifecycle.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Static Mesh LOD Resources Refactor](StaticMeshLODResourcesRefactor.md)

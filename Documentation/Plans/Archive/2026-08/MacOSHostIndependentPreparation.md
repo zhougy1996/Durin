@@ -432,8 +432,8 @@ duplicating command recipes.
 - [macOS Platform Enablement Roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md)
 - [Build System](../../../Development/Build/BuildSystem.md)
 - [Third-Party Dependency Preparation](../../../Development/Build/ThirdPartyBootstrap.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
 - [Asset Versioning](../../../Runtime/Assets/Versioning.md)
 
 ## Related Code

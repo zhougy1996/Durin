@@ -223,9 +223,9 @@ for every exact format and usage combination.
 ## Related Documentation
 
 - [Asset data lifecycle](AssetDataLifecycle.md)
-- [Texture system](../Rendering/TextureSystem.md)
-- [RHI capabilities and Vulkan startup](../Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [Render resource lifecycle](../Rendering/RenderResourceLifecycle.md)
+- [Texture system](TextureSystem.md)
+- [RHI capabilities and Vulkan startup](../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [Render resource lifecycle](../Rendering/Pipeline/RenderResourceLifecycle.md)
 
 ## Related Code
 

@@ -61,7 +61,7 @@ Implemented ownership and completion contracts live in
 [StaticMesh building](../../../Runtime/Assets/StaticMeshBuilding.md),
 [asset compilation](../../../Runtime/Assets/AssetCompilation.md#staticmesh-completion),
 [collision](../../../Runtime/Physics/Collision.md#assets-and-components) and
-[rendering](../../../Runtime/Rendering/StaticMeshRendering.md#asset-lifecycle).
+[rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md#asset-lifecycle).
 The collision input remains a per-request value snapshot; no shared geometry
 handle, per-generation snapshot cache or separate generic scheduler was introduced.
 
@@ -219,7 +219,7 @@ Dependency: Stage 3. Outcome: verified behavior and updated long-lived contracts
 - [x] Update [StaticMesh building](../../../Runtime/Assets/StaticMeshBuilding.md),
   [asset compilation](../../../Runtime/Assets/AssetCompilation.md),
   [collision](../../../Runtime/Physics/Collision.md) and
-  [rendering](../../../Runtime/Rendering/StaticMeshRendering.md) with implemented
+  [rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md) with implemented
   ownership, completion, invalidation and publication behavior.
 - [x] Validate changed documentation and plan lifecycle metadata; record concrete
   evidence and mark the plan complete only after all required gates pass.

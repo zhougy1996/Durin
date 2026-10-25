@@ -139,7 +139,7 @@ their objects and LFS pointers can be audited without touching project history.
 | Every tracked package and companion | Current corpus | Mounted Engine and Sandbox package snapshot plus Git-tracked `.dasset`/`.dabulk` enumeration |
 | `synthetic-mixed-v1` | Synthetic only | Seed 841592647; 128 packages; repeated 0 B through 64 MiB distribution; 0%, 1%, 25%, and 100% edit fractions |
 | VolumeTexture source | Named future consumer | Atomic tightly packed voxel payload owned by [Volume Textures](../../../Runtime/Assets/VolumeTextures.md) |
-| Texture source | Named future consumer | Domain-owned Texture2D/TextureCube source payload boundary in [Texture System](../../../Runtime/Rendering/TextureSystem.md); no projected count is reported as corpus fact |
+| Texture source | Named future consumer | Domain-owned Texture2D/TextureCube source payload boundary in [Texture System](../../../Runtime/Assets/TextureSystem.md); no projected count is reported as corpus fact |
 
 | Metric | Unit and collection | Samples | Frozen gate or revisit trigger |
 | --- | --- | --- | --- |

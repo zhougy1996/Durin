@@ -799,13 +799,13 @@ selected.
 
 ## Related Documentation
 
-- [Renderer Frame Preparation and Fixed Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
-- [Volumetric Cloud Spatial Rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Renderer Frame Preparation and Fixed Execution](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Persistent View State](../../../Runtime/Rendering/Scene/PersistentViewState.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md)
+- [Volumetric Cloud Spatial Rendering](../../../Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md)
 - [Renderer Frame Preparation Refactor Plan](RendererFramePreparationRefactor.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

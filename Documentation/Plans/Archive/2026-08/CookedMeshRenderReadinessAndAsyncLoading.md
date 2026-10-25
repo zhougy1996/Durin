@@ -388,7 +388,7 @@ Dependencies: Stages 3 and 4.
 - [Package Bulk Data](../../../Runtime/Assets/BulkData.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
-- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

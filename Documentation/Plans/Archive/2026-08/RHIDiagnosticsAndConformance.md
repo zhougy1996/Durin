@@ -145,7 +145,7 @@ transition 6/6, view 3/3, and transfer 4/4. The full Debug Editor build and
 diagnostic-on/off 120-tick hidden runs passed without warning, error, or VUID.
 
 Stage 6 completed on 2026-08-11. The lasting contract is now
-[RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md),
+[RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md),
 with related startup, execution, memory/completion, viewport, and roadmap
 contracts updated. On the `windows-msvc-x64` / `Win64-Debug-DurinEditor`
 profile and NVIDIA GeForce RTX 3090, the final focused results were Vulkan
@@ -835,13 +835,13 @@ build, runtime, and recovery operations follow the root
 
 - [RHI and Vulkan Backend Evolution roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 - [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
-- [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [RHI resource transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI resource views and transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [Graphics state and bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Vulkan memory and GPU completion](../../../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
-- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [RHI command execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [RHI resource transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI resource views and transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+- [Graphics state and bindings](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
+- [Vulkan memory and GPU completion](../../../Runtime/Rendering/RHI/VulkanMemoryAndGPUCompletion.md)
+- [Viewport rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
 - [Native tests](../../../Development/Build/NativeTests.md)
 

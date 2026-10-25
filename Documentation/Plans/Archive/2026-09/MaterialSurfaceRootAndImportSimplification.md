@@ -671,7 +671,7 @@ visual/Cook acceptance and Stage 5 integration/documentation remain separate gat
 
 ## Execution References
 
-- [Material system](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material system](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
 - [Asset reconstruction](../../../Editor/Guides/CanonicalResave.md)
 - [Build and run guidance](../../../Agents/BuildAndRun.md)

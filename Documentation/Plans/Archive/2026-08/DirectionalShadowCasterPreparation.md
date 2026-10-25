@@ -429,7 +429,7 @@ scenes with overlapping cascade casters.
 
 ## Related Documentation
 
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
 - [Shadow System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
 - [Cascaded Directional Shadows Plan](CascadedDirectionalShadows.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
