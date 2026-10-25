@@ -271,8 +271,37 @@ namespace
     TEST_F(FMCPPythonJobTests, EvictsOldCompletedHandlesWithoutBlockingNewJobs)
     {
         auto First = Submit("pass"); EXPECT_EQ("succeeded", DataString(Wait(First, false), "state"));
-        for (int I = 0; I < 65; ++I) EXPECT_EQ("succeeded", DataString(Wait(Submit("pass"), false), "state"));
+        // Retention is global to the runtime. Fill its other 63 slots directly;
+        // exercise the HTTP handle before and after admission crosses the limit.
+        auto Filler = Runtime->CreateSession(Tools->GetService()); ASSERT_TRUE(Filler);
+        for (int Batch = 0; Batch < 63; Batch += 16)
+        {
+            // Stay within the outstanding-job limit without a polling sleep per job.
+            std::vector<uint64> Jobs;
+            for (int I = Batch; I < std::min(Batch + 16, 63); ++I)
+            {
+                auto Job = Runtime->RunString(*Filler, "pass"); ASSERT_TRUE(Job); Jobs.push_back(*Job);
+            }
+            const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+            for (const auto Job : Jobs)
+            {
+                auto Result = Runtime->GetJobResult(Job);
+                while (Result && (Result->State == EPythonJobState::Queued || Result->State == EPythonJobState::Running)
+                    && std::chrono::steady_clock::now() < Deadline)
+                {
+                    Tools->TickScripts();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    Result = Runtime->GetJobResult(Job);
+                }
+                ASSERT_TRUE(Result); ASSERT_EQ(EPythonJobState::Succeeded, Result->State) << Result->Error;
+            }
+        }
+        EXPECT_EQ("succeeded", DataString(Call(Session, "editor.python.status", {{"job_id", First}}), "state"));
+        auto Newest = Submit("pass"); EXPECT_EQ("succeeded", DataString(Wait(Newest, false), "state"));
         EXPECT_TRUE(IsError(Call(Session, "editor.python.status", {{"job_id", First}})));
+        EXPECT_TRUE(IsError(Call(Session, "editor.python.cancel", {{"job_id", First}})));
+        EXPECT_EQ("succeeded", DataString(Call(Session, "editor.python.status", {{"job_id", Newest}}), "state"));
+        Runtime->CloseSession(*Filler);
     }
     TEST_F(FMCPPythonJobTests, EnforcesOutstandingJobLimitAndReleasesQueuedWork)
     {

@@ -40,13 +40,27 @@ namespace
 		mutable FThreadEvent ReleaseWrites;
 		bool bHoldWrites = false;
 		bool bRetainRecords = false;
+		bool bReleaseReadsOnCancel = false;
+		mutable std::atomic<uint32> CancellationReleasedReads = 0;
 		mutable std::mutex RecordMutex;
 		mutable std::unordered_map<std::string, DerivedData::FCacheRecord> Records;
 		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override
 		{
 			++Reads;
-			// Model an uninterruptible physical read; cancellation must retain its owner.
-			Release.WaitFor(10.0);
+			if (bReleaseReadsOnCancel)
+			{
+				const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+				while (!Release.WaitFor(0.001))
+				{
+					if (Request.ShouldCancel && Request.ShouldCancel()) { ++CancellationReleasedReads; break; }
+					if (std::chrono::steady_clock::now() >= Deadline) { ADD_FAILURE() << "Cache read was not cancelled or released."; break; }
+				}
+			}
+			else
+			{
+				// Otherwise model an uninterruptible physical read: cancellation must retain its owner.
+				EXPECT_TRUE(Release.WaitFor(10.0));
+			}
 			std::lock_guard Lock(RecordMutex);
 			if (const auto It = Records.find(Request.Key.ToString()); It != Records.end()) return std::optional{It->second};
 			return std::optional<DerivedData::FCacheRecord>{};
@@ -330,11 +344,18 @@ namespace
 		EXPECT_EQ(2u, Cache->Writes.load());
 		EXPECT_EQ(1u, HDRProbe->GetReadStats().RequestCount);
 		Cache->Release.Reset();
+		// Mutation drains the cancelled request before returning. Let this read
+		// observe cancellation rather than waiting for a later game-thread release.
+		Cache->bReleaseReadsOnCancel = true;
 		Cubes[1]->SetSource(Cubes[1]->GetSource().CopyTornOff());
 		Cubes[1]->BeginCachePlatformData();
 		ASSERT_TRUE(WaitUntil([&] { return Cache->Reads.load() >= 5; }, std::chrono::seconds(5)));
 		ASSERT_EQ(5u, Cache->Reads.load());
 		Cubes[1]->SetBuildSettings(ETextureCubeSourceLayout::EquirectangularPanorama, 4, 0.0f, 8, 4, false, ETextureCubeOutput::HDR);
+		EXPECT_EQ(1u, Cache->CancellationReleasedReads.load());
+		EXPECT_TRUE(Cubes[1]->IsAsyncCacheComplete());
+		EXPECT_FALSE(Cubes[1]->HasPlatformData());
+		Cache->bReleaseReadsOnCancel = false;
 		Cubes[1]->BeginCachePlatformData();
 		ASSERT_TRUE(WaitUntil([&] { return Cache->Reads.load() >= 6; }, std::chrono::seconds(5)));
 		ASSERT_EQ(6u, Cache->Reads.load());
