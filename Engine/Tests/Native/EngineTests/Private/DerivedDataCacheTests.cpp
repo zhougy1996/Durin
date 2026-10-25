@@ -1700,29 +1700,6 @@ TEST(FAsyncCacheTests, ReadSharingCapacityFallsBackWithoutRetainingOverflowKeys)
 	EXPECT_TRUE(Nested(0)); EXPECT_EQ(Coalescer.GetPendingReadCount(), 0u);
 }
 
-TEST(FCacheTests, MeasuresRepeatedBlobWork)
-{
-	FScopedCacheDirectory Directory("BlobWorkMeasurement");
-	const auto Key = MakeKey(FCacheBucket::FromString("Measurement"), 'a');
-	const auto Block = FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{4}));
-	FBuildOutputBuilder Builder("Fixture.Output", 1);
-	for (uint32 Index = 0; Index < 64; ++Index)
-		ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Block").MakeIndexed(Index), Block));
-	const auto Record = FCacheRecord::FromOutput(Key, std::move(Builder).Build().value()).value();
-	FCacheStoreStats Cold, Warm; FCacheQueryStats Read;
-	ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Cold}));
-	ASSERT_TRUE(GetCache().Get({.Key = Key, .Stats = &Read}));
-	ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Warm}));
-	std::cout << "[BlobWorkMeasurement] values=64 raw_each=8192 read_bytes=" << Read.ReadBytes
-		<< " decoded_bytes=" << Read.DecodedBytes << " physical_reads=" << Read.ValuesRead
-		<< " read_peak=" << Read.PeakWorkingSetBytes << " read_ns=" << Read.DurationNanoseconds
-		<< " cold_codec_calls=" << Cold.BlobsCompressed << " cold_blob_writes=" << Cold.BlobsWritten
-		<< " cold_write_bytes=" << Cold.WrittenBytes << " cold_peak=" << Cold.PeakWorkingSetBytes
-		<< " warm_read_bytes=" << Warm.ReadBytes << " warm_codec_calls=" << Warm.BlobsCompressed
-		<< " warm_blob_writes=" << Warm.BlobsWritten << " warm_write_bytes=" << Warm.WrittenBytes
-		<< " warm_peak=" << Warm.PeakWorkingSetBytes << '\n';
-}
-
 TEST(FAsyncCacheTests, CanceledReadLeaderStillPublishesSharedReadToItsWaiter)
 {
 	FCacheReadCoalescer Coalescer; std::latch Entered(1), Release(1); std::atomic_bool Cancel = false;

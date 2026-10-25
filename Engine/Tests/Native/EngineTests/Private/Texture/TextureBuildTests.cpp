@@ -2287,42 +2287,49 @@ TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
 {
 	InitializeDObjectSystem();
 	using namespace Durin;
-	FByteBuffer Pixels(257 * 259 * 4);
-	uint32 Random = 12345;
-	for (auto& Byte : Pixels)
-	{
-		Random = Random * 1664525u + 1013904223u;
-		Byte = static_cast<std::byte>(Random >> 24);
-	}
-	auto ImageResult28 = Image::FImage::TryCreate({.Width = 257, .Height = 259,
-		.Format = Image::ERawImageFormat::RGBA8}, Pixels);
-	ASSERT_TRUE(ImageResult28);
-	auto Source = std::move(*ImageResult28);
-	for (auto Usage : {ETextureUsage::Color, ETextureUsage::Normal, ETextureUsage::DataMask})
-	for (bool Transparent : {false, true})
 	for (auto Quality : {ETextureCompressionQuality::Low, ETextureCompressionQuality::Normal,
 		ETextureCompressionQuality::High})
 	{
-		if (Transparent && Usage != ETextureUsage::Color) continue;
-		FTexturePlatformData Serial, Parallel;
-		const TextureMipBuilder::FBuildExecutionOptions Control{.bParallelCompression = false};
-		const TextureMipBuilder::FBuildTextureMipsRequest Request{
-			.SourceMips = std::span(&Source, 1), .Settings = {.Usage = Usage, .CompressionQuality = Quality, .bSRGB = false},
-			.PixelFormat = TextureMipBuilder::SelectPixelFormat(Usage, false, Transparent)};
-		auto SerialResult = TextureMipBuilder::BuildTextureMips(Request, &Control);
-		auto ParallelResult = TextureMipBuilder::BuildTextureMips(Request);
-		ASSERT_TRUE(SerialResult);
-		ASSERT_TRUE(ParallelResult);
-		Serial = std::move(SerialResult->PlatformData);
-		Parallel = std::move(ParallelResult->PlatformData);
-		ASSERT_EQ(Serial.PixelFormat, Parallel.PixelFormat);
-		ASSERT_EQ(Serial.Mips.size(), Parallel.Mips.size());
-		for (size_t Index = 0; Index < Serial.Mips.size(); ++Index)
+		// Normal quality crosses the encoder's 4096-block parallel batching threshold.
+		// Low/high exercise the same block writers and NPOT tails with bounded inputs.
+		const uint32 Width = Quality == ETextureCompressionQuality::Normal ? 257 : 9;
+		const uint32 Height = Quality == ETextureCompressionQuality::Normal ? 259 : 11;
+		SCOPED_TRACE(static_cast<int>(Quality));
+		FByteBuffer Pixels(Width * Height * 4);
+		uint32 Random = 12345;
+		for (auto& Byte : Pixels)
 		{
-			EXPECT_EQ(Serial.Mips[Index].Width, Parallel.Mips[Index].Width);
-			EXPECT_EQ(Serial.Mips[Index].Height, Parallel.Mips[Index].Height);
-			EXPECT_EQ(Serial.Mips[Index].RowPitch, Parallel.Mips[Index].RowPitch);
-			EXPECT_TRUE(std::ranges::equal(Serial.Mips[Index].Pixels, Parallel.Mips[Index].Pixels));
+			Random = Random * 1664525u + 1013904223u;
+			Byte = static_cast<std::byte>(Random >> 24);
+		}
+		auto ImageResult = Image::FImage::TryCreate({.Width = Width, .Height = Height,
+			.Format = Image::ERawImageFormat::RGBA8}, Pixels);
+		ASSERT_TRUE(ImageResult);
+		auto Source = std::move(*ImageResult);
+		for (auto Usage : {ETextureUsage::Color, ETextureUsage::Normal, ETextureUsage::DataMask})
+		for (bool Transparent : {false, true})
+		{
+			if (Transparent && Usage != ETextureUsage::Color) continue;
+			FTexturePlatformData Serial, Parallel;
+			const TextureMipBuilder::FBuildExecutionOptions Control{.bParallelCompression = false};
+			const TextureMipBuilder::FBuildTextureMipsRequest Request{
+				.SourceMips = std::span(&Source, 1), .Settings = {.Usage = Usage, .CompressionQuality = Quality, .bSRGB = false},
+				.PixelFormat = TextureMipBuilder::SelectPixelFormat(Usage, false, Transparent)};
+			auto SerialResult = TextureMipBuilder::BuildTextureMips(Request, &Control);
+			auto ParallelResult = TextureMipBuilder::BuildTextureMips(Request);
+			ASSERT_TRUE(SerialResult);
+			ASSERT_TRUE(ParallelResult);
+			Serial = std::move(SerialResult->PlatformData);
+			Parallel = std::move(ParallelResult->PlatformData);
+			ASSERT_EQ(Serial.PixelFormat, Parallel.PixelFormat);
+			ASSERT_EQ(Serial.Mips.size(), Parallel.Mips.size());
+			for (size_t Index = 0; Index < Serial.Mips.size(); ++Index)
+			{
+				EXPECT_EQ(Serial.Mips[Index].Width, Parallel.Mips[Index].Width);
+				EXPECT_EQ(Serial.Mips[Index].Height, Parallel.Mips[Index].Height);
+				EXPECT_EQ(Serial.Mips[Index].RowPitch, Parallel.Mips[Index].RowPitch);
+				EXPECT_TRUE(std::ranges::equal(Serial.Mips[Index].Pixels, Parallel.Mips[Index].Pixels));
+			}
 		}
 	}
 }

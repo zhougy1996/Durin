@@ -35,7 +35,7 @@ namespace
 	};
 }
 
-TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndMeasuresQueryCosts)
+TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndAvoidsUnselectedBlobs)
 {
 	using namespace Durin; using namespace Durin::DerivedData;
 	FScopedSelectedTextureCache Directory;
@@ -62,15 +62,10 @@ TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndMeasuresQueryC
 		EXPECT_TRUE((**Selected).Mips[I].Data.IsValid(Product.PixelFormat));
 	}
 	const std::array Ids{FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(2)};
-	FCacheQueryStats FullStats, SelectedStats; uint64 FullTime = 0, SelectedTime = 0;
-	// Warm file-system cache, then collect comparative observations without timing assertions.
-	for (uint32 Iteration = 0; Iteration < 33; ++Iteration)
-	{
-		auto Full = GetCache().Get({.Key = Key, .Stats = &FullStats}); ASSERT_TRUE(Full && *Full);
-		auto Partial = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids, .Stats = &SelectedStats});
-		ASSERT_TRUE(Partial && *Partial);
-		if (Iteration) { FullTime += FullStats.DurationNanoseconds; SelectedTime += SelectedStats.DurationNanoseconds; }
-	}
+	FCacheQueryStats FullStats, SelectedStats;
+	auto Full = GetCache().Get({.Key = Key, .Stats = &FullStats}); ASSERT_TRUE(Full && *Full);
+	auto Partial = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids, .Stats = &SelectedStats});
+	ASSERT_TRUE(Partial && *Partial);
 	EXPECT_EQ(FullStats.ValuesRead, 10u); EXPECT_EQ(SelectedStats.ValuesRead, 1u);
 	EXPECT_EQ(SelectedStats.DecodedBytes, Product.Mips[2].Pixels.GetSize());
 	EXPECT_LT(SelectedStats.ReadBytes, FullStats.ReadBytes);
@@ -81,8 +76,6 @@ TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndMeasuresQueryC
 	RecordProperty("selected_decoded_bytes", std::to_string(SelectedStats.DecodedBytes));
 	RecordProperty("full_peak_payload_codec_bytes", std::to_string(FullStats.PeakWorkingSetBytes));
 	RecordProperty("selected_peak_payload_codec_bytes", std::to_string(SelectedStats.PeakWorkingSetBytes));
-	RecordProperty("full_mean_ns", std::to_string(FullTime / 32));
-	RecordProperty("selected_mean_ns", std::to_string(SelectedTime / 32));
 	// Removing every unselected blob proves the asset consumer has no hidden full read.
 	for (const auto& Value : Record->GetValues())
 	{

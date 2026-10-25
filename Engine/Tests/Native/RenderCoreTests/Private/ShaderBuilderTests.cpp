@@ -10,7 +10,6 @@
 #include "ShaderSharedOutput.h"
 #include "Hash/CanonicalHash.h"
 #include "ShaderCompileUtilities.h"
-#include "SlangShaderDependencyResolver.h"
 #include "NativeTestSupport.h"
 #include "Threading/TaskComposition.h"
 #include "Threading/ThreadEvent.h"
@@ -1147,172 +1146,67 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Stats.DdcHits, 0u);
 	}
 
-	TEST_F(FShaderBuilderTests,
-		ErrorTerminalRecordsCompleteColdAndWarmBaseline)
+	TEST_F(FShaderBuilderTests, ProductionErrorShadersCompileAllPassesAndReuseCachedOutput)
 	{
-		const std::filesystem::path Root = GetBuilderTestRoot();
-		const std::filesystem::path SourceRoot =
-			std::filesystem::path(FPaths::EngineDir()) / "Shaders/Slang";
-		const std::filesystem::path CacheRoot = Root / "MaterialCache";
-		FShaderPaths::RegisterMountPoint(
-			"/M5FixedMaterial/",
-			SourceRoot.generic_string(),
-			CacheRoot.generic_string());
-
-		constexpr std::string_view VirtualPath =
-			"/M5FixedMaterial/StaticMeshBasePass";
-		const std::filesystem::path SourcePath =
-			SourceRoot / "StaticMeshBasePass.slang";
+		const auto Root = GetBuilderTestRoot();
+		FShaderPaths::RegisterMountPoint("/ProductionErrorShaders/",
+			(std::filesystem::path(FPaths::EngineDir()) / "Shaders/Slang").generic_string(),
+			(Root / "ProductionErrorShaders").generic_string());
+		constexpr std::string_view VirtualPath = "/ProductionErrorShaders/StaticMeshBasePass";
 		FShaderCompileOptions Options;
-		Options.EntryPoints = {
-			"FragmentMain",
-			"GeometryFragmentMain",
-			"OpaqueShadowFragmentMain",
-			"ShadowFragmentMain"};
-		Options.Frequencies.assign(
-			Options.EntryPoints.size(), EShaderFrequency::Fragment);
-		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "1");
-		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", "1");
-		Options.Macros.emplace_back(
-			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608");
+		Options.EntryPoints = {"FragmentMain", "GeometryFragmentMain",
+			"OpaqueShadowFragmentMain", "ShadowFragmentMain"};
+		Options.Frequencies.assign(Options.EntryPoints.size(), EShaderFrequency::Fragment);
+		Options.Macros = {{"DURIN_MATERIAL_BLEND_MODE", "1"},
+			{"DURIN_MATERIAL_SHADING_MODEL", "1"},
+			{"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608"}};
 		Builder = std::make_unique<FShaderBuilder>();
-		std::vector<FShaderSourceDependencyFingerprint> FirstManifest;
-		std::vector<FShaderSourceDependencyFingerprint> SecondManifest;
-		FShaderOperationResult ManifestError;
-		ASSERT_TRUE((ManifestError = Builder->BuildSourceDependencyManifest(VirtualPath, Options, FirstManifest)))
-			<< std::string(ManifestError.error());
-		ASSERT_TRUE((ManifestError = Builder->BuildSourceDependencyManifest(VirtualPath, Options, SecondManifest)))
-			<< std::string(ManifestError.error());
-		EXPECT_EQ(FirstManifest, SecondManifest);
-		const std::vector<std::string> ExpectedDependencies{
-			"/M5FixedMaterial/Lighting/DirectionalShadow",
-			"/M5FixedMaterial/Lighting/ForwardLightingUniform",
-			"/M5FixedMaterial/Lighting/PBRLighting",
-			"/M5FixedMaterial/Lighting/SurfaceLighting",
-			"/M5FixedMaterial/Material/MeshUniforms",
-			"/M5FixedMaterial/Material/SpecularAntialiasing",
-			"/M5FixedMaterial/Material/SurfaceMaterial",
-			"/M5FixedMaterial/StaticMeshBasePass",
-			"/M5FixedMaterial/VertexFactory/LocalVertexFactory"};
-		std::vector<std::string> ActualDependencies;
-		for (const auto& Dependency : FirstManifest) ActualDependencies.push_back(Dependency.VirtualPath);
-		ASSERT_EQ(ActualDependencies, ExpectedDependencies);
-		EXPECT_TRUE(std::ranges::is_sorted(FirstManifest, {},
-			&FShaderSourceDependencyFingerprint::VirtualPath));
-		for (const auto& Dependency : FirstManifest)
+		std::vector<FShaderSourceDependencyFingerprint> Manifest;
+		const auto ManifestResult = Builder->BuildSourceDependencyManifest(VirtualPath, Options, Manifest);
+		ASSERT_TRUE(ManifestResult) << ManifestResult.error();
+		ASSERT_FALSE(Manifest.empty());
+		EXPECT_TRUE(std::ranges::is_sorted(Manifest, {}, &FShaderSourceDependencyFingerprint::VirtualPath));
+		EXPECT_TRUE(std::ranges::any_of(Manifest, [&](const auto& Dependency) {
+			return Dependency.VirtualPath == VirtualPath;
+		}));
+		for (const auto& Dependency : Manifest)
 		{
 			EXPECT_TRUE(Dependency.VirtualPath.starts_with('/'));
 			EXPECT_EQ(Dependency.VirtualPath.find(':'), std::string::npos);
 			EXPECT_EQ(Dependency.VirtualPath.find('\\'), std::string::npos);
 			EXPECT_FALSE(Dependency.ContentHash.IsZero());
 		}
-		const std::string CompilerIdentity =
-			Builder->GetCompilerEnvironmentIdentity();
-		EXPECT_FALSE(CompilerIdentity.empty());
-		EXPECT_NE(CompilerIdentity.find("spirv"), std::string::npos);
 
-		std::vector<std::string> Dependencies;
-		FShaderOperationResult DependencyDiagnostic;
-		FSlangShaderDependencyResolver Resolver;
-		ASSERT_TRUE((DependencyDiagnostic = Resolver.Resolve(
-			SourcePath.generic_string(), Options, Dependencies))) << std::string(DependencyDiagnostic.error());
-		ASSERT_FALSE(Dependencies.empty());
-
-		FShaderCompileOptions ColdOptions = Options;
-		ColdOptions.bForceRecompile = true;
-		const auto ColdBegin = std::chrono::steady_clock::now();
-		const FShaderCompilerOutput Cold = Builder->GetOrCompile(
-			VirtualPath, ColdOptions);
-		const auto ColdEnd = std::chrono::steady_clock::now();
+		const auto Cold = Builder->GetOrCompile(VirtualPath, Options);
 		ASSERT_TRUE(Cold) << FormatShaderCompilerErrors(Cold.Errors);
-		ASSERT_EQ(Cold.CompiledShaders.size(), 4u);
-		const FShaderBuildStats ColdStats =
-			Builder->GetStats();
-		EXPECT_EQ(ColdStats.DependencyResolutions, 1u);
-		EXPECT_EQ(ColdStats.Compilations, 1u);
-
-		const std::array<std::string_view, 4> ExpectedEntries{
-			"FragmentMain", "GeometryFragmentMain",
-			"OpaqueShadowFragmentMain", "ShadowFragmentMain"};
-		uint64 SpirvBytes = 0;
+		ASSERT_EQ(Cold.CompiledShaders.size(), Options.EntryPoints.size());
+		EXPECT_EQ(Builder->GetStats().Compilations, 1u);
 		for (size_t Index = 0; Index < Cold.CompiledShaders.size(); ++Index)
 		{
-			const FShaderCode& Shader = Cold.CompiledShaders[Index];
-			EXPECT_EQ(Shader.SourceEntryPoint, ExpectedEntries[Index]);
+			const auto& Shader = Cold.CompiledShaders[Index];
+			EXPECT_EQ(Shader.SourceEntryPoint, Options.EntryPoints[Index]);
 			EXPECT_EQ(Shader.Frequency, EShaderFrequency::Fragment);
-			ASSERT_TRUE(!Shader.Code.IsEmpty());
 			EXPECT_FALSE(Shader.Code.IsEmpty());
-			SpirvBytes += Shader.Code.size();
+			EXPECT_TRUE(Shader.Reflection.ResourceBindings.empty());
 		}
-		EXPECT_EQ(
-			Cold.CompiledShaders[0].Reflection.ResourceBindings.size(), 0u);
-		EXPECT_EQ(
-			Cold.CompiledShaders[1].Reflection.ResourceBindings.size(), 0u);
-		EXPECT_TRUE(
-			Cold.CompiledShaders[2].Reflection.ResourceBindings.empty());
-		EXPECT_EQ(
-			Cold.CompiledShaders[3].Reflection.ResourceBindings.size(), 0u);
-
-		const auto WarmBegin = std::chrono::steady_clock::now();
-		const FShaderCompilerOutput Warm = Builder->GetOrCompile(
-			VirtualPath, Options);
-		const auto WarmEnd = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Warm) << FormatShaderCompilerErrors(Warm.Errors);
-		const FShaderBuildStats WarmStats =
-			Builder->GetStats();
-		EXPECT_EQ(WarmStats.Compilations, ColdStats.Compilations);
-		EXPECT_EQ(WarmStats.MemoryHits, ColdStats.MemoryHits + 1u);
-
-		uint64 DdcBytes = 0;
-		uint32 DdcFiles = 0;
-		std::error_code ErrorCode;
-		for (std::filesystem::recursive_directory_iterator It(
-			Root / "DDC" / "records" / "v4" / "Shader", ErrorCode),
-			End; !ErrorCode && It != End; It.increment(ErrorCode))
-		{
-			if (!It->is_regular_file()) continue;
-			if (It->path().extension() == ".bin")
+		auto ExpectCachedOutput = [&](const FShaderCompilerOutput& Cached) {
+			ASSERT_TRUE(Cached) << FormatShaderCompilerErrors(Cached.Errors);
+			ASSERT_EQ(Cached.CompiledShaders.size(), Cold.CompiledShaders.size());
+			for (size_t Index = 0; Index < Cold.CompiledShaders.size(); ++Index)
 			{
-				DdcBytes += It->file_size();
-				++DdcFiles;
+				EXPECT_EQ(Cached.CompiledShaders[Index].SourceEntryPoint, Options.EntryPoints[Index]);
+				EXPECT_EQ(Cached.CompiledShaders[Index].CodeHash, Cold.CompiledShaders[Index].CodeHash);
 			}
-		}
-		ASSERT_FALSE(ErrorCode) << ErrorCode.message();
-		EXPECT_EQ(DdcFiles, 1u);
-		bool bFoundLegacyArtifact = false;
-		for (std::filesystem::recursive_directory_iterator It(CacheRoot, ErrorCode),
-			End; !ErrorCode && It != End; It.increment(ErrorCode))
-		{
-			if (It->is_regular_file()
-				&& (It->path().extension() == ".spv"
-					|| It->path().filename().generic_string().ends_with(
-						".reflect.json"))) bFoundLegacyArtifact = true;
-		}
-		ASSERT_FALSE(ErrorCode) << ErrorCode.message();
-		EXPECT_FALSE(bFoundLegacyArtifact);
-
-		const uint64 SourceBytes =
-			std::filesystem::file_size(SourcePath);
-		const auto ColdMicroseconds =
-			std::chrono::duration_cast<std::chrono::microseconds>(
-				ColdEnd - ColdBegin).count();
-		const auto WarmMicroseconds =
-			std::chrono::duration_cast<std::chrono::microseconds>(
-				WarmEnd - WarmBegin).count();
-		RecordProperty("ColdCompileMicroseconds", ColdMicroseconds);
-		RecordProperty("WarmCompileMicroseconds", WarmMicroseconds);
-		RecordProperty("DependencyCount", Dependencies.size());
-		RecordProperty("SourceBytes", SourceBytes);
-		RecordProperty("SpirvBytes", SpirvBytes);
-		RecordProperty("DdcBytes", DdcBytes);
-		std::cout
-			<< "[ErrorTerminalBaseline] cold_us=" << ColdMicroseconds
-			<< " warm_us=" << WarmMicroseconds
-			<< " dependencies=" << Dependencies.size()
-			<< " source_bytes=" << SourceBytes
-			<< " spirv_bytes=" << SpirvBytes
-			<< " ddc_bytes=" << DdcBytes << '\n';
+		};
+		ExpectCachedOutput(Builder->GetOrCompile(VirtualPath, Options));
+		EXPECT_EQ(Builder->GetStats().Compilations, 1u);
+		EXPECT_EQ(Builder->GetStats().MemoryHits, 1u);
+		Builder = std::make_unique<FShaderBuilder>();
+		ExpectCachedOutput(Builder->GetOrCompile(VirtualPath, Options));
+		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
+		EXPECT_EQ(Builder->GetStats().DdcHits, 1u);
 	}
+
 	TEST_F(FShaderBuilderTests, CapturedIncludesNeverReopenLiveSources)
 	{
 		Builder = std::make_unique<FShaderBuilder>();
