@@ -247,9 +247,13 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 }
 )";
 		FSlangShaderCompiler Compiler;
-		std::barrier Start(6);
+		// Exceed the pool's four idle slots, then repeat to cover warm reuse
+		// across resolver destruction without turning this into a stress benchmark.
+		constexpr uint32 WorkerCount = 6;
+		constexpr uint32 IterationCount = 3;
+		std::barrier Start(WorkerCount);
 		std::vector<std::future<std::string>> Workers;
-		for (uint32 Worker = 0; Worker < 6; ++Worker)
+		for (uint32 Worker = 0; Worker < WorkerCount; ++Worker)
 			Workers.push_back(std::async(std::launch::async, [&] {
 				FShaderCompileOptions Options;
 				Options.Target = VulkanShaderTarget;
@@ -257,7 +261,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 				Options.EntryPoints = {"ComputeMain"};
 				Options.Frequencies = {EShaderFrequency::Compute};
 				Start.arrive_and_wait();
-				for (uint32 Iteration = 0; Iteration < 16; ++Iteration)
+				for (uint32 Iteration = 0; Iteration < IterationCount; ++Iteration)
 				{
 					{
 						FSlangShaderDependencyResolver Resolver;
