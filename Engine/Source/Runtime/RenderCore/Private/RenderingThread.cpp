@@ -312,12 +312,17 @@ namespace Durin
 
 		for (FCommand& Command : CommandsToExecute)
 		{
+			const auto Started = std::chrono::steady_clock::now();
 			Command.Function(FRHICommandListImmediate::Get());
 			// A completed command must release its captured payload before the
 			// next command can complete a fence. Keeping every lambda alive until
 			// the whole batch is cleared makes fence-visible lifetime depend on
 			// whether adjacent commands happened to land in the same batch.
 			Command.Function = {};
+			const double Milliseconds = std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - Started).count();
+			if (Milliseconds >= 100.0)
+				DURIN_DEBUG("Slow render command: name={}, elapsed_ms={:.3f}", Command.Name, Milliseconds);
 		}
 
 		CommandsToExecute.clear();

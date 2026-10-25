@@ -217,10 +217,23 @@ namespace Durin
 	}
 	auto FShaderCompilingManager::CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
 	{
+		const auto Started = std::chrono::steady_clock::now();
 		FShaderCompilerOutput Output;
 		auto Submitted = PrepareJobs(Path, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
+		const auto PreparedAt = std::chrono::steady_clock::now();
 		SubmitJobs(Submitted);
-		require(FinishCompilation(Submitted) == EShaderBuildWaitResult::Completed); return Output;
+		const auto SubmittedAt = std::chrono::steady_clock::now();
+		require(FinishCompilation(Submitted) == EShaderBuildWaitResult::Completed);
+		const auto CompletedAt = std::chrono::steady_clock::now();
+		const auto Milliseconds = [](auto Duration) {
+			return std::chrono::duration<double, std::milli>(Duration).count();
+		};
+		const double TotalMilliseconds = Milliseconds(CompletedAt - Started);
+		if (TotalMilliseconds >= 100.0)
+			DURIN_DEBUG("Slow synchronous mounted shader compile: path={}, total_ms={:.3f}, prepare_ms={:.3f}, submit_ms={:.3f}, finish_ms={:.3f}",
+				Path, TotalMilliseconds, Milliseconds(PreparedAt - Started),
+				Milliseconds(SubmittedAt - PreparedAt), Milliseconds(CompletedAt - SubmittedAt));
+		return Output;
 	}
 	auto FShaderCompilingManager::FinishCompilation(const FShaderBuildHandle& Handle) -> EShaderBuildWaitResult
 	{ Handle.SetPriority(EShaderBuildPriority::High); return Handle.Wait(); }
