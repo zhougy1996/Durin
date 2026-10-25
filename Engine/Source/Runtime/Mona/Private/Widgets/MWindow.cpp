@@ -48,6 +48,9 @@ namespace Durin
 	{
 		NativeWindow = std::move(InNativeWindow);
 		NativeWindow->SetTitleBarDarkMode(bTitleBarDarkMode);
+		// Custom frame setup can expand the client area before resize callbacks are bound.
+		ScreenPosition = NativeWindow->GetWindowPosition();
+		Size = NativeWindow->GetWindowSize();
 		ViewportSize = NativeWindow->GetViewportSize();
 	}
 
@@ -220,8 +223,10 @@ namespace Durin
 
 			NativeWindow->ReshapeWindow(NewPositionTruncated.x, NewPositionTruncated.y, NewSizeTruncated.x, NewSizeTruncated.y);
 
-			SetCachedSize(NewSize);
-			ScreenPosition = NewScreenPosition;
+			// Native frame adjustments can make the client geometry differ from the request.
+			SetCachedSize(NativeWindow->GetWindowSize());
+			SetCachedScreenPosition(NativeWindow->GetWindowPosition());
+			SetCachedViewportSize(NativeWindow->GetViewportSize());
 		}
 		else
 		{
@@ -237,13 +242,14 @@ namespace Durin
 		if (NativeWindow)
 		{
 			NativeWindow->ResizeWindow(NewIntSize.x, NewIntSize.y);
+			SetCachedSize(NativeWindow->GetWindowSize());
+			SetCachedViewportSize(NativeWindow->GetViewportSize());
 		}
 		else
 		{
 			InitialDesiredSize = NewSize;
+			SetCachedSize(NewSize);
 		}
-
-		SetCachedSize(NewSize);
 	}
 
 	auto MWindow::GetScreenPosition() const -> FVector2f
