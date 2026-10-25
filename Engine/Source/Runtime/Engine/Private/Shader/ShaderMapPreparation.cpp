@@ -98,22 +98,28 @@ namespace Durin
 	auto FShaderMapPreparation::Add(std::string_view Owner,
 		std::initializer_list<std::string_view> Names) -> void
 	{
+		const size_t FirstProgram = Programs.size();
 		for (auto Name : Names) Programs.emplace_back(Owner, Name);
-		Refresh();
+		Refresh(Generation != GetShaderReloadGeneration() || Epoch != PreparationEpoch.load() || !Error.empty()
+			? 0 : FirstProgram);
 	}
 
-	auto FShaderMapPreparation::Refresh() -> void
+	auto FShaderMapPreparation::Refresh(size_t FirstProgram) -> void
 	{
-		States.clear();
-		Error.clear();
-		Generation = GetShaderReloadGeneration();
-		Epoch = PreparationEpoch.load();
+		if (FirstProgram == 0)
+		{
+			States.clear();
+			Error.clear();
+			Generation = GetShaderReloadGeneration();
+			Epoch = PreparationEpoch.load();
+		}
 		if (Programs.empty()) return;
 		if (GetShaderDataDomain() == EShaderDataDomain::Cooked) return;
 		auto* Module = IShaderBuildModule::Get();
 		if (!Module) { Error = "ShaderBuild is unavailable."; return; }
-		for (const auto& [Owner, Program] : Programs)
+		for (size_t Index = FirstProgram; Index < Programs.size(); ++Index)
 		{
+			const auto& [Owner, Program] = Programs[Index];
 			std::vector<const FShaderType*> Types;
 			if (auto Result = GetShaderRuntimeRequestBuildTypes({.Owner = Owner, .Name = Program}, Types); !Result)
 			{ Error = std::string(Result.error()); return; }

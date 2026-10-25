@@ -48,6 +48,8 @@ phases with their normal typed ShaderMaps and exact PSO descriptions. It returns
 before graph authoring, temporal-history Begin/Commit or scene drawing. A pending
 pipeline returns Pending without joining its compile task. Each pump rebuilds a
 local logical snapshot; no borrowed frame/proxy values are sent to workers.
+Each resource stage runs once per pump. Pipeline-batch capacity exhaustion is
+reported as unavailable through a nonblocking check before Pending is returned.
 
 Authored rendering demand shares CPU ShaderMap requests with `FShaderMapPreparation`.
 Missing outputs are submitted asynchronously through `FShaderCompilingManager`,
@@ -56,6 +58,8 @@ output. Rendering-thread demand never falls back to synchronous `CompileMounted`
 or waits for that request. Shader reloads retire stale requests; terminal errors
 and cancellation retain their existing outcomes. Game-thread startup callers
 outside capture retain the synchronous compatibility path.
+Appending programs to `FShaderMapPreparation` resolves only the new entries;
+invalidation or retrying a prior resolution error refreshes the complete list.
 
 The default `FPreparedShaderMapScope` remains consumption-only for thumbnail
 capture. Resource resolution opts into asynchronous demand, but a nested capture
