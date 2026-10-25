@@ -41,7 +41,7 @@ namespace Durin::Tests::Preparation
 		Overrides.Values.OpacityMaskThreshold = 0.4f;
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
-		return Material->GetMaterialRenderProxy();
+		return Material->GetRenderProxy();
 	}
 
 	inline auto MakeRenderData() -> std::unique_ptr<Durin::FStaticMeshRenderData>

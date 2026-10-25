@@ -1,3 +1,4 @@
+#include "MaterialResourceTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Components/PropertyEditValidation.h"
@@ -290,9 +291,9 @@ TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwn
 	float Original = 0;
 	ASSERT_TRUE(Base->GetScalarParameterValue(MaterialParameters::RoughnessName(), Original));
 	ASSERT_TRUE(First->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.23f));
-	EXPECT_FLOAT_EQ(GetMaterialBinding(First->GetRenderData()).Roughness, 0.23f);
-	EXPECT_FLOAT_EQ(GetMaterialBinding(Second->GetRenderData()).Roughness, Original);
-	EXPECT_FLOAT_EQ(GetMaterialBinding(Base->GetRenderData()).Roughness, Original);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*First)).Roughness, 0.23f);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Roughness, Original);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Base)).Roughness, Original);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Program);
 	EXPECT_EQ(Base->GetMaterialCompileStatus().RequestGeneration, ParentGeneration);
 	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration, 0u);
@@ -308,7 +309,7 @@ TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwn
 	EXPECT_FALSE(First->PreEditChangeProperty(Proposal));
 	EXPECT_FALSE(DuplicateObject(First, nullptr, "ForbiddenDynamicCopy"));
 	ASSERT_TRUE(First->ClearScalarParameterValue(MaterialParameters::RoughnessName()));
-	EXPECT_FLOAT_EQ(GetMaterialBinding(First->GetRenderData()).Roughness, Original);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*First)).Roughness, Original);
 	EXPECT_FALSE(Base->GetPackage()->IsDirty());
 	// Transient children do not enter the saved asset's object graph.
 	const auto Saved = SavePackage(Base->GetPackage());
@@ -343,7 +344,7 @@ TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndPr
 	Overrides.Values.BlendMode = EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Asset->SetPropertyOverrides(Overrides));
 	EXPECT_EQ(Dynamic->GetAcceptedCompiledProgram(), Initial.Material.CompiledProgram);
-	EXPECT_EQ(Dynamic->GetRenderData().PlanningPassIdentity, Initial.Material.PlanningPassIdentity);
+	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Dynamic).PlanningPassIdentity, Initial.Material.PlanningPassIdentity);
 	ASSERT_TRUE(Dynamic->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.37f));
 	const auto Pending = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Pending.Proxy, Initial.Proxy);
@@ -546,11 +547,11 @@ TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParent
 	Component->SetMaterial(Instance);
 	Component->RegisterComponent();
 
-	auto PipelineOnly = Base->GetRenderableStaticProperties();
+	auto PipelineOnly = Base->GetMaterialResource().GetStaticProperties();
 	PipelineOnly.bTwoSided = true;
 	ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, PipelineOnly}));
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram()->ShaderMap, ParentProgram->ShaderMap);
-	EXPECT_FALSE(Instance->GetRenderData().Representation.IsError());
+	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Instance).Representation.IsError());
 	EXPECT_FALSE(CaptureScene(Harness.Scene).Material.Representation.IsError());
 
 	auto Incompatible = PipelineOnly;
@@ -558,7 +559,7 @@ TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParent
 	ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, Incompatible}));
 	ASSERT_TRUE(Instance->GetAcceptedCompiledProgram());
 	EXPECT_NE(Instance->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ParentProgram->GetShaderMap().ShaderMapId);
-	EXPECT_FALSE(Instance->GetRenderData().Representation.IsError());
+	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Instance).Representation.IsError());
 	const auto Scene = CaptureScene(Harness.Scene);
 	EXPECT_FALSE(Scene.Material.Representation.IsError());
 	EXPECT_EQ(Scene.Material.PlanningPassIdentity.ShaderMap.BlendMode, Durin::EMaterialBlendMode::Masked);
@@ -828,11 +829,11 @@ TEST(FMaterialInstanceTests, InstancesInheritOverrideAndRejectParentCycles)
 	Base->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
 	ASSERT_TRUE(First->SetParent(Base));
 	ASSERT_TRUE(Second->SetParent(First));
-	ExpectColorNear(GetMaterialBinding(Second->GetRenderData()).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 
 	First->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.4f);
 	Second->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.7, 0.6));
-	ExpectColorNear(GetMaterialBinding(Second->GetRenderData()).BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 0.4f));
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 0.4f));
 	EXPECT_FALSE(First->SetParent(Second));
 	EXPECT_EQ(First->GetParent(), Base);
 
@@ -870,7 +871,7 @@ TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBu
 	Stale.ParameterId = FGuid{0x12345678, 0x11223344, 0x55667788, 0x99aabbcc};
 	Records.push_back(Stale);
 	const auto CheckLayer = [&](float Opacity, const FVector3& Color) {
-		const auto Data = Child->GetRenderData();
+		const auto Data = Durin::Testing::CaptureMaterialRenderData(*Child);
 		ASSERT_NE(Data.CompiledProgram, nullptr);
 		ASSERT_FALSE(Data.Representation.IsError());
 		ExpectColorNear(GetMaterialBinding(Data).BaseColor,
@@ -939,11 +940,11 @@ TEST(FMaterialInstanceTests, ParentRemovalPreservesOrphansAndExcludesThemFromRen
 	EXPECT_TRUE(Instance->IsParameterValueOrphan(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	Durin::FResolvedMaterialParameter Resolved;
 	EXPECT_FALSE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value, Resolved));
-	EXPECT_TRUE(Instance->GetRenderData().Representation.IsError());
+	EXPECT_TRUE(Durin::Testing::CaptureMaterialRenderData(*Instance).Representation.IsError());
 
 	ASSERT_TRUE(Instance->SetParent(Base));
 	EXPECT_FALSE(Instance->IsParameterValueOrphan(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	ExpectColorNear(GetMaterialBinding(Instance->GetRenderData()).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Instance)).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 	ASSERT_TRUE(Instance->ClearParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	EXPECT_TRUE(Instance->GetLocalParameterValueCount() == 0);
 
@@ -1035,16 +1036,16 @@ TEST(FMaterialInstanceTests, TextureParametersInheritOverrideAndPreserveExplicit
 	Base->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), BaseTexture);
 	ASSERT_TRUE(First->SetParent(Base));
 	ASSERT_TRUE(Second->SetParent(First));
-	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).Textures[0], BaseTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], BaseTexture->GetTextureReferenceRHI());
 
 	First->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), OverrideTexture);
-	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).Textures[0], OverrideTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], OverrideTexture->GetTextureReferenceRHI());
 	Second->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), nullptr);
-	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).Textures[0], nullptr);
+	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], nullptr);
 	EXPECT_TRUE(Second->ClearTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
-	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).Textures[0], OverrideTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], OverrideTexture->GetTextureReferenceRHI());
 	EXPECT_TRUE(First->ClearTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
-	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).Textures[0], BaseTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], BaseTexture->GetTextureReferenceRHI());
 
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
@@ -1137,21 +1138,21 @@ TEST(FMaterialInstanceTests, RenderSnapshotsTrackEffectiveContentWithoutRevision
     ASSERT_NE(Base, nullptr);
     auto* Child = NewObject<DMaterialInstance>(nullptr, "SnapshotChild");
     ASSERT_TRUE(Child->SetParent(Base));
-    const auto Before = Child->GetRenderSnapshot();
-    EXPECT_EQ(Before, Child->GetRenderSnapshot());
+    const auto Before = Child->GetMaterialResource();
+    EXPECT_EQ(Before, Child->GetMaterialResource());
     ASSERT_TRUE(Base->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.11f));
-    EXPECT_NE(Before, Child->GetRenderSnapshot());
+    EXPECT_NE(Before, Child->GetMaterialResource());
     ASSERT_TRUE(Child->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.71f));
-    const auto Override = Child->GetRenderSnapshot();
+    const auto Override = Child->GetMaterialResource();
     ASSERT_TRUE(Base->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.22f));
-    EXPECT_EQ(Override, Child->GetRenderSnapshot());
+    EXPECT_EQ(Override, Child->GetMaterialResource());
     FMaterialPropertyOverrides Overrides;
     Overrides.bOverrideTwoSided = true;
     Overrides.Values.bTwoSided = true;
     ASSERT_TRUE(Child->SetPropertyOverrides(Overrides));
-    EXPECT_NE(Override, Child->GetRenderSnapshot());
-    const auto Current = Child->GetRenderSnapshot();
-    EXPECT_EQ(Current, Child->GetRenderSnapshot());
+    EXPECT_NE(Override, Child->GetMaterialResource());
+    const auto Current = Child->GetMaterialResource();
+    EXPECT_EQ(Current, Child->GetMaterialResource());
     ASSERT_TRUE(Child->SetPropertyOverrides(Overrides));
-    EXPECT_EQ(Current, Child->GetRenderSnapshot());
+    EXPECT_EQ(Current, Child->GetMaterialResource());
 }

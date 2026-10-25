@@ -113,8 +113,15 @@ namespace Durin
 		Context.Logical.bPresentOutput = bPresentOutput;
 		Context.Logical.RenderView = FitSceneViewToOutput(
 			View, Width, Height);
-		FSceneRenderPreparationResult Preparation = PrepareView_RenderThread(
-			CommandList, Context);
+		FSceneRenderPreparationResult Preparation;
+		{
+			// Material resolution belongs to logical collection, before the resource
+			// stages. Preserve its pending result with the same preparation batch.
+			FRenderPipelinePreparationBatch Batch;
+			Preparation = PrepareView_RenderThread(CommandList, Context);
+			if (Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
+			if (FRenderPipelinePreparationBatch::HasPending()) return ERenderViewResult::RendererResourcesPending;
+		}
 		if (!Preparation.IsSuccess()) return Preparation.Result;
 		Context.Logical.PreparedView = std::move(*Preparation.Plan);
 		const FSceneRenderPlan& PreparedView = *Context.Logical.PreparedView;

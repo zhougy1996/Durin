@@ -80,7 +80,7 @@ namespace Durin
 			return false;
 		}
 
-		FMaterialRenderProxyRef Proxy = Material->GetMaterialRenderProxy();
+		FMaterialRenderProxyRef Proxy = Material->GetRenderProxy();
 		if (!Proxy)
 		{
 			RecordMaterialFallbackReason(

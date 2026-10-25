@@ -23,15 +23,16 @@ namespace Durin
 			if (!Material) Material = Durin::GetDefaultMaterial();
 			// An unavailable default uses the existing explicit ErrorMaterial path.
 			if (!Material) continue;
-			const auto Data = Material->GetRenderData();
+			const auto Resource = Material->GetMaterialResource();
+			const auto Properties = Resource.GetStaticProperties();
 			auto Options = Params;
 			Options.Passes = EMaterialPSOPrecachePass::Forward | EMaterialPSOPrecachePass::HybridRetainedForward | EMaterialPSOPrecachePass::HitProxy;
-			if (Data.PlanningPassIdentity.ShaderMap.BlendMode == EMaterialBlendMode::Translucent)
+			if (Resource.GetBlendMode() == EMaterialBlendMode::Translucent)
 				Options.Passes |= EMaterialPSOPrecachePass::SortedTranslucency;
 			else
 			{
 				Options.Passes |= EMaterialPSOPrecachePass::ShadowDepth;
-				if (Data.PlanningPassIdentity.ShaderMap.ShadingModel == EMaterialShadingModel::Lit)
+				if (Properties.ShadingModel == EMaterialShadingModel::Lit)
 					Options.Passes |= EMaterialPSOPrecachePass::GBuffer;
 			}
 			Options.RequiredPasses = Options.Passes;

@@ -121,12 +121,12 @@ TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBa
 			MakeSnapshot(FVector4(1.0, 0.0, 0.0, 0.0), 1.0f, 1));
 		GreenWorld->UpdateMaterialParameterCollection(
 			MakeSnapshot(FVector4(0.0, 1.0, 0.0, 0.0), 1.0f, 1));
-		const auto MaterialProxy = Material->GetMaterialRenderProxy();
+		const auto MaterialProxy = Material->GetRenderProxy();
 		FProceduralGeometry Geometry;
 		EnqueueRenderCommand<FCaptureMaterialCollectionViewCommand>(
 			[&](FRHICommandListImmediate& Commands) {
 				Geometry = FProceduralGeometry::Create(Commands, 901, false);
-				const auto Resolved = MaterialProxy->Resolve_RenderThread();
+				const auto Resolved = MaterialProxy->GetMaterialWithFallback();
 				for (FScene* Scene : {RedWorld.Get(), GreenWorld.Get()})
 				{
 					auto Proxy = std::make_unique<FProceduralProxy>();

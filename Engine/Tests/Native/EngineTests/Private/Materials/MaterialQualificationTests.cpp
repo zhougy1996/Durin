@@ -79,7 +79,7 @@ TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 		auto Program = std::make_shared<FMaterialCompilerResult>();
 		auto Artifact = std::make_shared<FMaterialShaderMap>();
 		Program->ShaderMap = Artifact;
-		FMaterialLocalRenderLayer Layer;
+		FMaterialResource Layer;
 		for (uint32 Index = 0; Index < Count; ++Index)
 		{
 			const FGuid Id{Index + 1, 0, 0, 1};
@@ -105,10 +105,10 @@ TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 					for (auto& Proxy : Proxies)
 					{
 						Proxy->ApplyPublication_RenderThread(Layer);
-						EXPECT_FALSE(Proxy->Resolve_RenderThread().Representation.IsError());
+						EXPECT_FALSE(Proxy->GetMaterialWithFallback().Representation.IsError());
 					}
 					const auto Resolved = std::chrono::steady_clock::now();
-					for (auto& Proxy : Proxies) (void)Proxy->Resolve_RenderThread();
+					for (auto& Proxy : Proxies) (void)Proxy->GetMaterialWithFallback();
 					const auto End = std::chrono::steady_clock::now();
 					if (Sample < 0) continue;
 					const auto Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Resolved - Begin).count();

@@ -207,7 +207,7 @@ namespace Durin
 					&& Result.CompiledProgram->GetShaderMap().ShaderMapId == Result.ProgramIdentity
 					&& ValidateMaterialCompilerResult(*Result.CompiledProgram))
 				{
-					FMaterialLocalRenderLayer Candidate;
+					FMaterialResource Candidate;
 					Candidate.CompiledProgram = Result.CompiledProgram;
 					if (!Candidate.CompiledProgram->ActiveCollections.empty())
 					{
@@ -417,7 +417,7 @@ namespace Durin
 				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 				{
 					const FMaterialRenderProxyRef Proxy =
-						Material->GetMaterialRenderProxy();
+						Material->GetRenderProxy();
 					if (Proxy && Proxy->GetRefCount() > 2)
 						RequestMaterialRecompile(*Material, ReloadMode > 1);
 				}

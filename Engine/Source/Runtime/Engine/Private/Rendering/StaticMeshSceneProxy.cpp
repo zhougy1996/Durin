@@ -3,6 +3,7 @@
 
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
+#include "RenderPipelineCreation.h"
 
 namespace Durin
 {
@@ -52,7 +53,12 @@ namespace Durin
 		uint32 SlotIndex) const -> const FMaterialRenderData&
 	{
 		const FMaterialRenderProxyRef& MaterialProxy = GetMaterialRenderProxy(SlotIndex);
-		if (MaterialProxy) return MaterialProxy->Resolve_RenderThread();
+		if (MaterialProxy)
+		{
+			if (const auto* Material = MaterialProxy->GetMaterialNoFallback()) return *Material;
+			if (MaterialProxy->IsCompiling()) FRenderPipelinePreparationBatch::MarkResourcePending();
+			return MaterialProxy->GetMaterialWithFallback();
+		}
 		RecordMaterialFallbackReason(EMaterialFallbackReason::MissingProxy);
 		return GetErrorMaterialRenderData();
 	}
@@ -81,7 +87,9 @@ namespace Durin
 		const auto Key = Proxy.GetReference();
 		if (const auto Found = Materials.find(Key); Found != Materials.end()) return Found->second;
 		if (!Proxy) RecordMaterialFallbackReason(EMaterialFallbackReason::MissingProxy);
-		return Materials.emplace(Key, Proxy ? Proxy->Resolve_RenderThread() : GetErrorMaterialRenderData()).first->second;
+		if (Proxy && !Proxy->GetMaterialNoFallback() && Proxy->IsCompiling())
+			FRenderPipelinePreparationBatch::MarkResourcePending();
+		return Materials.emplace(Key, Proxy ? Proxy->GetMaterialWithFallback() : GetErrorMaterialRenderData()).first->second;
 	}
 
 	auto FStaticMeshSceneProxy::CaptureStaticMeshBatches_RenderThread(FStaticMeshBatchCaptureContext& Context) const

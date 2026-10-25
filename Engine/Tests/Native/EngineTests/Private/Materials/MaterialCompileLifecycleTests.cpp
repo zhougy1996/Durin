@@ -1,3 +1,4 @@
+#include "MaterialResourceTestSupport.h"
 #include "MetalShaderFormat.h"
 #include "Materials/MaterialShaderMap.h"
 #include "ShaderBuildTestSupport.h"
@@ -215,10 +216,16 @@ auto QualifyEditScheduling() -> void
 	std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Scheduled);
+	EXPECT_TRUE(Root->IsCompiling());
+	EXPECT_FALSE(Root->IsComplete());
+	// Pending edits retain the accepted generation rather than an error material.
+	EXPECT_TRUE(Root->GetMaterialResource().HasValidGameThreadShaderMap());
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 1);
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 2);
+	EXPECT_FALSE(Root->IsCompiling());
+	EXPECT_TRUE(Root->IsComplete());
 
 	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.01f));
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
@@ -367,6 +374,37 @@ namespace
 	};
 }
 
+TEST_F(FMaterialAsyncCompileTests, InitialCompilationQueriesDoNotSelectAnInvalidMaterial)
+{
+	using namespace Durin;
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	auto* Material = MakeObject<DMaterial>("InitialReadiness");
+	struct FGate final : DerivedData::ICache {
+		mutable FThreadEvent Entered, Release;
+		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCache().Get(Request); }
+		auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override { Entered.Trigger(); Release.WaitFor(10); return DerivedData::GetCache().Put(Request); }
+	};
+	auto Cache = std::make_shared<FGate>();
+	ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});
+	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); } } Restore{Cache};
+	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
+	auto Snapshot = SnapshotMaterialCompilerInput(*Material, Environment); ASSERT_TRUE(Snapshot);
+	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*Material, Snapshot.Snapshot->Input, true));
+	ASSERT_TRUE(Cache->Entered.WaitFor(5));
+	const auto Before = GetMaterialFallbackDiagnosticsSnapshot();
+	EXPECT_TRUE(Material->IsCompiling());
+	EXPECT_FALSE(Material->IsComplete());
+	const auto Resource = Material->GetMaterialResource();
+	EXPECT_FALSE(Resource.HasValidGameThreadShaderMap());
+	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
+		Before.Get(EMaterialFallbackReason::MaterialDataInvalid));
+	Cache->Release.Trigger();
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_FALSE(Material->IsCompiling());
+	EXPECT_TRUE(Material->IsComplete());
+	EXPECT_TRUE(Material->GetMaterialResource().HasValidGameThreadShaderMap());
+}
+
 TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnSharedCompilation)
 {
 	using namespace Durin;
@@ -491,7 +529,7 @@ TEST_F(FMaterialAsyncCompileTests, SingleFlightRetainedHitsAndDemandedReload)
 	EXPECT_EQ(First->GetMaterialCompileStatus().CacheOutcome,
 		Durin::EMaterialCompileCacheOutcome::RetainedHit);
 	const Durin::FMaterialRenderProxyRef DemandedProxy =
-		First->GetMaterialRenderProxy();
+		First->GetRenderProxy();
 	const uint64 DemandedGeneration =
 		First->GetMaterialCompileStatus().RequestGeneration;
 	const uint64 UnusedGeneration =
@@ -591,7 +629,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_EQ(First->GetMaterialCompileDiagnostics().size(), 1u);
 	EXPECT_EQ(First->GetMaterialCompileDiagnostics().front(), FailureDiagnostic);
-	ExpectColorNear(GetMaterialBinding(First->GetRenderData()).BaseColor,
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*First)).BaseColor,
 		GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
 
 	Durin::FMaterialCompileResult Stale{
@@ -684,8 +722,8 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilF
 			})));
 		ASSERT_TRUE(Started.WaitFor(2.0));
 		ASSERT_TRUE(Graph.Apply(*Root));
-		EXPECT_FLOAT_EQ(GetMaterialBinding(Root->GetRenderData()).Metallic, 0.65f);
-		EXPECT_FLOAT_EQ(GetMaterialBinding(Instance->GetRenderData()).Metallic, 0.9f);
+		EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Root)).Metallic, 0.65f);
+		EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Instance)).Metallic, 0.9f);
 		const auto Pending = Root->GetMaterialCompileStatus();
 		Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
 		Durin::FMaterialCompileResult Failed{
@@ -699,7 +737,7 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilF
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Root, std::move(Failed)));
 	}
 	EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
-	ExpectColorNear(GetMaterialBinding(Root->GetRenderData()).BaseColor,
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Root)).BaseColor,
 		GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
 	// Each variant owns its result: the child's successful compilation can still publish.
 	ASSERT_TRUE(WaitForMaterialCompile(*Instance));

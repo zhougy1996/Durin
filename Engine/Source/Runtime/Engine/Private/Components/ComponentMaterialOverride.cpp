@@ -61,7 +61,7 @@ namespace Durin::ComponentMaterialOverride
 
 	auto ResolveRenderProxy(DMaterialInterface* Material) -> FMaterialRenderProxyRef
 	{
-		if (Material) return Material->GetMaterialRenderProxy();
+		if (Material) return Material->GetRenderProxy();
 		RecordMaterialFallbackReason(EMaterialFallbackReason::UnassignedDefault);
 		return GetDefaultMaterialRenderProxy();
 	}

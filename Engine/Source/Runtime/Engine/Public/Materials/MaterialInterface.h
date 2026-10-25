@@ -93,7 +93,7 @@ namespace Durin
 	struct FMaterialCompilationOwnerState
 	{
 		// The render-safe contract remains available while a replacement compiles.
-		FMaterialLocalRenderLayer RenderLayer;
+		FMaterialResource RenderLayer;
 		// Last scheduled or submitted schema, used to classify reflected dynamic edits.
 		FMaterialStaticProperties LastObservedShaderProperties;
 		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
@@ -139,10 +139,14 @@ namespace Durin
 		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
 		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;
 		ENGINE_API virtual auto GetStaticProperties() const -> const FMaterialStaticProperties&;
-		ENGINE_API virtual auto GetRenderableStaticProperties() const
-			-> FMaterialStaticProperties;
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult>;
+		// Nonblocking GameThread queries. Completeness covers the current material
+		// program, independently of texture residency and component PSOs.
+		ENGINE_API virtual auto IsCompiling() const -> bool;
+		ENGINE_API virtual auto IsComplete() const -> bool;
+		// Effective textures of the accepted program; replaces OutTextures.
+		ENGINE_API virtual auto GetUsedTextures(std::vector<DTexture2D*>& OutTextures) const -> void;
 		// Editor preview only: selects an explicit quality and a feature level no
 		// greater than the initialized RHI capability.
 		ENGINE_API auto RequestPreviewProgramCompile(
@@ -180,7 +184,6 @@ namespace Durin
 
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;
-		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
 		ENGINE_API auto PrecachePSOs(std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
 			const FPSOPrecacheParams& PrecacheParams, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs)
 			-> std::expected<void, std::string>;
@@ -193,14 +196,16 @@ namespace Durin
 		ENGINE_API auto PrecachePSOs(IRendererModule& Renderer, std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
 			const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
 			std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
-		ENGINE_API auto GetMaterialRenderProxy() const
+		ENGINE_API auto GetRenderProxy() const
 			-> FMaterialRenderProxyRef;
 		// Refreshes native texture bindings after a referenced texture package was
 		// atomically replaced. Authored material state and dirty flags are unchanged.
 		ENGINE_API auto RefreshReloadedAssetBindings() -> void;
 		// Includes inherited changes; callbacks should invalidate snapshots, not edit owners.
 		auto GetParameterChanges() -> FMaterialParameterChangedEvent& { return ParameterChanges; }
-		auto GetRenderSnapshot() const -> FMaterialLocalRenderLayer { return BuildMaterialLocalRenderLayer(); }
+		// GameThread only. The active configuration's effective resource, without
+		// fallback. Its accepted program and properties belong to the same generation.
+		auto GetMaterialResource() const -> FMaterialResource { return BuildMaterialResource(); }
 		// Diagnostic change count; never used for cache validity or request lifetimes.
 		auto GetRenderChangeCount() const -> uint64 { return RenderChangeCount; }
 		ENGINE_API auto BeginDestroy() -> void override;
@@ -224,8 +229,8 @@ namespace Durin
 			bool bOnlyIfShaderChanged = false, FObjectCacheContext* Context = nullptr) -> void;
 		FMaterialCompilationOwnerState CompilationOwner;
 
-		ENGINE_API virtual auto BuildMaterialLocalRenderLayer() const
-			-> FMaterialLocalRenderLayer;
+		ENGINE_API virtual auto BuildMaterialResource() const
+			-> FMaterialResource;
 		ENGINE_API auto PublishMaterialRenderProxyState() -> void;
 		ENGINE_API auto NotifyParameterChanges() -> void;
 		// Optional parameter notifications reuse the publication snapshot and run
@@ -234,6 +239,7 @@ namespace Durin
 			bool bNotifyParameterChanges = false, FObjectCacheContext* Context = nullptr) -> void;
 
 	private:
+		auto ResolveResourceProperties() const -> FMaterialStaticProperties;
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 	private:
 		friend class FMaterialProgramPreparation;
@@ -244,8 +250,8 @@ namespace Durin
 #endif
 		// Retires the failed owner's complete renderable generation and publishes ErrorMaterial.
 		auto RetireFailedMaterialGeneration(FObjectCacheContext* Context = nullptr) -> void;
-		auto PublishMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) -> void;
-		auto SubmitMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) const -> void;
+		auto PublishMaterialRenderProxyState(FMaterialResource LocalLayer) -> void;
+		auto SubmitMaterialRenderProxyState(FMaterialResource LocalLayer) const -> void;
 
 		FMaterialParameterChangedEvent ParameterChanges;
 		uint64 RenderChangeCount = 1;

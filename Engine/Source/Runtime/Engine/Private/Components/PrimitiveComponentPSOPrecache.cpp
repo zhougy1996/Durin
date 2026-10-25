@@ -79,8 +79,21 @@ namespace Durin
 		for (const auto& Param : Params)
 		{
 			if (!Renderer || !GDynamicRHI || !GDynamicRHI->RHIGetCapabilities()
-				|| !Param.MaterialInterface || !Param.MaterialInterface->GetRenderData().CompiledProgram)
+				|| !Param.MaterialInterface || !Param.MaterialInterface->GetAcceptedCompiledProgram())
 			{
+				auto* StatusOwner = Param.MaterialInterface;
+				while (StatusOwner && StatusOwner->IsDynamicInstance() && StatusOwner->GetParent()) StatusOwner = StatusOwner->GetParent();
+				const auto State = StatusOwner ? StatusOwner->GetMaterialCompileStatus().State : EMaterialCompileState::NeverRequested;
+				const bool Failed = State == EMaterialCompileState::Failed || State == EMaterialCompileState::Rejected
+					|| State == EMaterialCompileState::Canceled;
+				if (Renderer && GDynamicRHI && Param.MaterialInterface
+					&& (Failed || (StatusOwner && !StatusOwner->GetMaterialCookDiagnostic().empty())))
+				{
+					PSOPrecacheDiagnostic = std::format("Material '{}' has no accepted program: {}",
+						Param.MaterialInterface->GetObjectPath(), Param.MaterialInterface->GetMaterialCookDiagnostic());
+					SetRequests({FMaterialPSOPrecacheRequestID::Rejected(PSOPrecacheDiagnostic)});
+					return;
+				}
 				bPSOPrecacheSubmissionPending = true;
 				PSOPrecacheDiagnostic = "Waiting for Renderer, RHI and accepted material programs.";
 				return;

@@ -3,6 +3,7 @@
 
 #include "Math/Operations.h"
 #include "Threading/RunnableThread.h"
+#include "RenderPipelineCreation.h"
 
 namespace Durin
 {
@@ -26,7 +27,12 @@ namespace Durin
 		-> const FMaterialRenderData&
 	{
 		const FMaterialRenderProxyRef& Proxy = GetMaterialRenderProxy(SlotIndex);
-		if (Proxy) return Proxy->Resolve_RenderThread();
+		if (Proxy)
+		{
+			if (const auto* Material = Proxy->GetMaterialNoFallback()) return *Material;
+			if (Proxy->IsCompiling()) FRenderPipelinePreparationBatch::MarkResourcePending();
+			return Proxy->GetMaterialWithFallback();
+		}
 		RecordMaterialFallbackReason(EMaterialFallbackReason::MissingProxy);
 		return GetErrorMaterialRenderData();
 	}

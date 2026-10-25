@@ -28,13 +28,21 @@ namespace Durin
 		auto operator==(const FMaterialLocalRenderParameter&) const -> bool = default;
 	};
 
-	// Publishes a complete accepted contract for either material asset kind.
-	struct FMaterialLocalRenderLayer
+	// Effective resource for the selected material configuration. Publication and
+	// PSO collection consume this same program/property/parameter snapshot.
+	struct FMaterialResource
 	{
 		std::vector<FMaterialLocalRenderParameter> Parameters;
 		std::optional<FMaterialStaticProperties> StaticProperties;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
-		auto operator==(const FMaterialLocalRenderLayer&) const -> bool = default;
+		// Only meaningful without an accepted program; retained programs stay usable.
+		bool bIsCompiling = false;
+		ENGINE_API auto HasValidGameThreadShaderMap() const -> bool;
+		auto GetStaticProperties() const -> FMaterialStaticProperties
+		{ return StaticProperties.value_or(FMaterialStaticProperties{}); }
+		auto GetBlendMode() const -> EMaterialBlendMode { return GetStaticProperties().BlendMode; }
+		auto IsTwoSided() const -> bool { return GetStaticProperties().bTwoSided; }
+		auto operator==(const FMaterialResource&) const -> bool = default;
 	};
 
 	class FMaterialRenderProxy;
@@ -86,21 +94,25 @@ namespace Durin
 
 		// Applies an owned snapshot in render-command order and invalidates resolution.
 		ENGINE_API auto ApplyPublication_RenderThread(
-			FMaterialLocalRenderLayer Publication
+			FMaterialResource Publication
 			) -> void;
 
 		// Every command owns an immutable layer; consumers observe command order.
 		ENGINE_API auto QueuePublication_GameThread(
-			FMaterialLocalRenderLayer Publication
+			FMaterialResource Publication
 			) -> void;
 
-		// Builds the accepted layout once after each applied publication.
-		ENGINE_API auto Resolve_RenderThread() -> const FMaterialRenderData&;
+		// RenderThread only. A missing/invalid program returns null without selecting a fallback.
+		ENGINE_API auto GetMaterialNoFallback() -> const FMaterialRenderData*;
+		// RenderThread only. Returns the accepted material or the explicit error material.
+		ENGINE_API auto GetMaterialWithFallback() -> const FMaterialRenderData&;
+		ENGINE_API auto IsCompiling() const -> bool;
 
 		ENGINE_API auto GetPublicationCount_RenderThread() const -> uint64;
 		ENGINE_API auto GetResolutionCount_RenderThread() const -> uint64;
 
 	private:
+		auto Resolve_RenderThread() -> const FMaterialRenderData&;
 		// Bindings retain the exact program and parameter sequence they were built for.
 		struct FParameterBinding
 		{
@@ -116,7 +128,7 @@ namespace Durin
 		~FMaterialRenderProxy() = default;
 
 		mutable std::atomic<uint32> ReferenceCount = 0;
-		FMaterialLocalRenderLayer LocalLayer;
+		FMaterialResource LocalLayer;
 
 		FMaterialRenderData CachedResolvedData;
 		// Diagnostic counts never participate in ordering or cache validity.

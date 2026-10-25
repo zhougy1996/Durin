@@ -16,6 +16,8 @@
 #include "Asset/CookedMeshLoadManager.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialProgramPreparation.h"
+#include "Materials/DefaultMaterialService.h"
+#include "Texture/Texture2D.h"
 #include "IRendererModule.h"
 #include "Rendering/SceneInterface.h"
 #include "RHICommandList.h"
@@ -34,12 +36,13 @@ namespace Durin
 		std::shared_ptr<FAsyncLoadHandle> Assets;
 		TStrongObjectPtr<DWorld> World;
 		FScenePtr Scene;
-		std::vector<FWeakObjectPtr> Meshes, Materials;
+		std::vector<FWeakObjectPtr> Meshes, Materials, MaterialBindings;
 		std::vector<FMaterialProgramPreparation> Programs;
 		size_t NextMaterial = 0;
 		bool bCollected = false;
 		bool bAdvancing = false, bCancelRequested = false;
 		bool bPlayRequested = false, bWorldRegistered = false;
+		bool bComponentsReady = false;
 		DClass* GameMode = nullptr;
 		std::function<std::expected<FSceneView, std::string>(const DWorld&)> BuildInitialView;
 		std::optional<FSceneView> InitialView;
@@ -76,17 +79,23 @@ namespace Durin
 			{
 				std::unordered_set<DStaticMesh*> SeenMeshes;
 				std::unordered_set<DMaterialInterface*> SeenMaterials;
+				std::unordered_set<DMaterialInterface*> SeenBindings;
 				for (const auto& Actor : Level.GetActors())
 					if (IsValid(Actor.Get())) for (auto* Component : Actor->FindComponentsByClass<DMeshComponent>())
 					{
+						if (!Component->IsVisible() || Actor->IsHidden()) continue;
 						DStaticMesh* Mesh = nullptr;
 						if (auto* Static = Cast<DStaticMeshComponent>(Component)) Mesh = Static->GetStaticMesh();
 						if (auto* Spline = Cast<DSplineMeshComponent>(Component)) Mesh = Spline->GetStaticMesh();
 						if (IsValid(Mesh) && SeenMeshes.insert(Mesh).second) Meshes.emplace_back(Mesh);
-						if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
-							for (uint32 Slot = 0; Slot < Component->GetNumMaterials(); ++Slot)
-								for (auto* Material = Component->GetMaterial(Slot); IsValid(Material) && SeenMaterials.insert(Material).second; Material = Material->GetParent())
-									if (!Material->IsDynamicInstance()) Materials.emplace_back(Material);
+						for (uint32 Slot = 0; Slot < Component->GetNumMaterials(); ++Slot)
+						{
+							auto* EffectiveMaterial = Component->GetMaterial(Slot);
+							if (!EffectiveMaterial) EffectiveMaterial = GetDefaultMaterial();
+							if (IsValid(EffectiveMaterial) && SeenBindings.insert(EffectiveMaterial).second) MaterialBindings.emplace_back(EffectiveMaterial);
+							for (auto* Material = EffectiveMaterial; IsValid(Material) && SeenMaterials.insert(Material).second; Material = Material->GetParent())
+								Materials.emplace_back(Material);
+						}
 					}
 				bCollected = true;
 				if (Meshes.size() > 4096 || Materials.size() > 4096) return std::unexpected("required product owners exceed 4096.");
@@ -128,9 +137,70 @@ namespace Durin
 			{
 				auto* Material = Cast<DMaterialInterface>(Materials[NextMaterial++].Get());
 				if (!IsValid(Material)) return std::unexpected("required material was unloaded.");
-				Programs.push_back(FMaterialProgramPreparation::Request(*Material));
+				if (GetAssetRuntimeConfiguration().RequiresCookedPayload() && !Material->IsDynamicInstance() && !Material->IsComplete())
+					Programs.push_back(FMaterialProgramPreparation::Request(*Material));
 			}
-			return !Pending && Programs.empty() && NextMaterial == Materials.size();
+			if (!Programs.empty() || NextMaterial != Materials.size()) return false;
+			std::unordered_set<DTexture2D*> Textures;
+			std::vector<DTexture2D*> UsedTextures;
+			for (const auto& Owner : Materials)
+			{
+				auto* Material = Cast<DMaterialInterface>(Owner.Get());
+				if (!IsValid(Material)) return std::unexpected("required material was unloaded.");
+				if (Material->IsCompiling()) { Pending = true; continue; }
+				if (!Material->IsComplete())
+					return std::unexpected(std::format("required material '{}' has no complete program (state {}): {}",
+						Material->GetObjectPath(), static_cast<uint32>(Material->GetMaterialCompileStatus().State), Material->GetMaterialCookDiagnostic()));
+			}
+			if (Pending) return false;
+			for (const auto& Owner : MaterialBindings)
+			{
+				auto* Material = Cast<DMaterialInterface>(Owner.Get());
+				if (!IsValid(Material)) return std::unexpected("required material binding was unloaded.");
+				Material->GetUsedTextures(UsedTextures);
+				Textures.insert(UsedTextures.begin(), UsedTextures.end());
+				if (Textures.size() > 4096) return std::unexpected("required textures exceed 4096.");
+			}
+			uint32 TextureRequests = 0;
+			for (auto* Texture : Textures)
+			{
+				if (Texture->HasUsableResource()) continue;
+				if (!Texture->IsAsyncCacheComplete() || Texture->IsResourceUpdatePending()) { Pending = true; continue; }
+				const auto State = Texture->GetResourceUpdateState();
+				if (State == ETextureResourceUpdateState::Failed || State == ETextureResourceUpdateState::Closed)
+					return std::unexpected(std::format("required texture '{}': {}", Texture->GetObjectPath(), Texture->GetResourceUpdateError()));
+				if (++TextureRequests > 4) { Pending = true; continue; }
+				if (!Texture->HasPlatformData())
+				{
+					if (!GetAssetRuntimeConfiguration().RequiresCookedPayload() || !Texture->EnsurePlatformDataLoadedBlocking())
+						return std::unexpected(std::format("required texture '{}' has no platform data.", Texture->GetObjectPath()));
+				}
+				else Texture->UpdateResource();
+				Pending = true;
+			}
+			return !Pending;
+		}
+
+		auto PrepareComponents() -> std::expected<bool, std::string>
+		{
+			DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
+			bool Ready = true;
+			for (const auto& Actor : World->GetCurrentLevel()->GetActors())
+				if (IsValid(Actor.Get()) && !Actor->IsHidden())
+					for (auto* Component : Actor->FindComponentsByClass<DMeshComponent>())
+					{
+						if (!Component->IsRegistered() || !Component->IsVisible()) continue;
+						if (Component->IsPSOPrecacheReadyForProxyCreation()) continue;
+						for (const auto& Request : Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs())
+						{
+							const auto Progress = Request.GetProgress();
+							if (Request.IsCurrent() && Progress.bRequiredReady) continue;
+							if (Progress.State == EMaterialPSOPrecacheState::Failed || Progress.State == EMaterialPSOPrecacheState::Canceled)
+								return std::unexpected(std::format("required component '{}': {}", Component->GetObjectPath(), Request.GetDiagnostic()));
+						}
+						Ready = false;
+					}
+			return Ready;
 		}
 	};
 
@@ -229,7 +299,7 @@ namespace Durin
 				if (Loading.bCancelRequested) return;
 				// BeginPlay may spawn required geometry/materials. Admit the final
 				// stopped-in-time scene before enabling input or simulation.
-				Loading.Meshes.clear(); Loading.Materials.clear();
+				Loading.Meshes.clear(); Loading.Materials.clear(); Loading.MaterialBindings.clear();
 				Loading.NextMaterial = 0; Loading.bCollected = false;
 				Loading.SetPhase(ESceneLoadPhase::PreparingProducts);
 				return;
@@ -237,6 +307,22 @@ namespace Durin
 			Loading.SetPhase(ESceneLoadPhase::PreparingView);
 			return;
 		case ESceneLoadPhase::PreparingView:
+		{
+			const auto Components = Loading.PrepareComponents();
+			if (!Components) return Loading.Fail(Components.error());
+			if (!*Components)
+			{
+				Loading.bComponentsReady = false;
+				return;
+			}
+			if (!Loading.bComponentsReady)
+			{
+				// A view completed before component invalidation cannot authorize the
+				// replacement set. Retire its receipt after its command has finished.
+				if (Loading.ViewResult->InFlight.load(std::memory_order_acquire)) return;
+				Loading.ViewResult->Result = ERenderViewResult::RendererResourcesPending;
+				Loading.bComponentsReady = true;
+			}
 			if (!Loading.InitialView)
 			{
 				if (Loading.BuildInitialView)
@@ -264,6 +350,7 @@ namespace Durin
 			if (Loading.ViewResult->Result == ERenderViewResult::Success) Loading.SetPhase(ESceneLoadPhase::Ready);
 			else if (Loading.ViewResult->Result != ERenderViewResult::RendererResourcesPending) Loading.Fail("required initial view resources failed.");
 			return;
+		}
 		default: return;
 		}
 		}
@@ -274,7 +361,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		auto& Loading = *Impl;
-		if (Loading.Phase != ESceneLoadPhase::PreparingView || !Loading.InitialView || Loading.ViewResult->InFlight.exchange(true)) return;
+		if (Loading.Phase != ESceneLoadPhase::PreparingView || !Loading.bComponentsReady || !Loading.InitialView || Loading.ViewResult->InFlight.exchange(true)) return;
 		try
 		{
 		if (!Loading.Output)
