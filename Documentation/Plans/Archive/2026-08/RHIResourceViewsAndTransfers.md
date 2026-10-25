@@ -97,7 +97,7 @@ run completed 10 ticks and normal shutdown in 3.04 seconds with no Vulkan
 validation error. The smoke audit also made ImGui upload and scene-viewport
 sampling usage explicit, removing their dependency on the backend's former
 implicit sampled image usage. Lasting behavior now lives in
-[RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md),
+[RHI Resource Views and Transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md),
 and the RHI/Vulkan roadmap records M2 complete without activating M3 or M4.
 
 ## Goal
@@ -443,11 +443,11 @@ the exact profile, commands, filters, and observed outcomes.
 ## Related Documentation
 
 - [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

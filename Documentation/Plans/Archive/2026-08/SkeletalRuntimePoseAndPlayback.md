@@ -559,7 +559,7 @@ used.
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
 - [Core Math](../../../Runtime/Core/Math.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

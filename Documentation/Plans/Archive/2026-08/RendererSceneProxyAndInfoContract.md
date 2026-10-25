@@ -17,7 +17,7 @@ component pointer, the SkyBox revision map is gone, and feature renderers no
 longer rediscover primitive families through whole-scene RTTI scans.
 
 The lasting contract is documented in
-[Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md).
+[Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md).
 Focused scene-contract, StaticMesh, SkyBox, TextureCube thumbnail, material,
 and editor-rendering suites pass, as do SkyBox and scene-import Vulkan
 integration. All-plan validation and a full `all` build pass under
@@ -384,7 +384,7 @@ ownership out of the existing feature renderers.
 ### Stage 4
 
 - Baseline: `cd14bdd3`; lasting contract:
-  [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md).
+  [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md).
 - Working set and key decisions are unchanged from Stages 1-3.
 - Validation: `RendererSceneContractTests` 2/2, `StaticMeshTests` 49/49,
   `SkyBoxTests` 10/10, `TextureThumbnailTests` 6/6, `MaterialTests` 78/78,
@@ -443,9 +443,9 @@ ownership out of the existing feature renderers.
 ## Related Documentation
 
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

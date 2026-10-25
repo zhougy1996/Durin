@@ -481,9 +481,9 @@ Dependencies: Stage 3.
 
 ## Related Documentation
 
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)

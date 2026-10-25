@@ -139,10 +139,10 @@ and sequenced feature methods imperatively in the former fixed executor.
 ## Related Documentation
 
 - [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Persistent View State](../../../Runtime/Rendering/Scene/PersistentViewState.md)
 - [Testing](../../../Agents/Testing.md)
 
 ## Related Code

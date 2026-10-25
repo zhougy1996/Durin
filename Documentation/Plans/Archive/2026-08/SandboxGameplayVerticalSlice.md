@@ -268,7 +268,7 @@ Dependencies: Stages 1-2.
 - [Level System](../../../Runtime/World/LevelSystem.md)
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
 - [Play In Editor Guide](../../../Editor/Guides/PlayInEditor.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)

@@ -86,8 +86,8 @@ before editor services are retired.
 
 - [Volumetric cloud authoring guide](../Guides/VolumetricCloudAuthoring.md)
 - [Volume textures](../../Runtime/Assets/VolumeTextures.md)
-- [Volumetric cloud scene contract](../../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Volumetric cloud temporal reconstruction](../../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
+- [Volumetric cloud scene contract](../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)
+- [Volumetric cloud temporal reconstruction](../../Runtime/Rendering/Features/VolumetricCloudTemporalReconstruction.md)
 
 ## Related code
 

@@ -181,10 +181,10 @@ new feature or weakening a previously accepted numeric gate.
 ## Related Documentation
 
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
-- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
-- [Volumetric cloud lighting and shadows](../../../Runtime/Rendering/VolumetricCloudLightingAndShadows.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md)
+- [Volumetric cloud scene contract](../../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)
+- [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/Features/VolumetricCloudTemporalReconstruction.md)
+- [Volumetric cloud lighting and shadows](../../../Runtime/Rendering/Features/VolumetricCloudLightingAndShadows.md)
 - [Volumetric cloud authoring architecture](../../../Editor/Architecture/VolumetricCloudAuthoring.md)
 - [Volumetric cloud authoring guide](../../../Editor/Guides/VolumetricCloudAuthoring.md)
 - [Volume textures](../../../Runtime/Assets/VolumeTextures.md)

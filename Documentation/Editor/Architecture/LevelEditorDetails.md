@@ -133,7 +133,7 @@ Slot assignment, replacement, and reset snapshot the reflected collection root,
 locate the positional entry in draft storage, and use the fixed-width slot index
 as the logical transaction identity. Clear All edits the same root as a whole.
 Storage validation, dormant entries, and canonical material binding are owned by
-[Material system](../../Runtime/Rendering/MaterialSystem.md#renderer-boundary).
+[Material system](../../Runtime/Rendering/Materials/MaterialSystem.md#renderer-boundary).
 
 ## Related Documentation
 

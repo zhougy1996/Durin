@@ -50,7 +50,7 @@ pass; and the Sandbox editor completes a hidden-window 120-tick smoke run.
 The obsolete packed-vertex type, legacy raw RHI fields, and duplicate
 static-mesh declaration builder are absent from engine source. The lasting
 ownership, per-LOD lifecycle, vertex-stream, and shader-module contracts are
-published in `Documentation/Runtime/Rendering/StaticMeshRendering.md`, and the
+published in `Documentation/Runtime/Rendering/Scene/StaticMeshRendering.md`, and the
 Material System plan records the landed vertex-factory dependency.
 
 ## Goal
@@ -751,8 +751,8 @@ contracts are documented.
 - Working set:
   `Engine/Tests/Native/AssetCoreTests/CMakeLists.txt`,
   `Engine/Tests/Native/EngineTests/CMakeLists.txt`,
-  `Documentation/Runtime/Rendering/StaticMeshRendering.md`,
-  `Documentation/Runtime/Rendering/MaterialSystem.md`,
+  `Documentation/Runtime/Rendering/Scene/StaticMeshRendering.md`,
+  `Documentation/Runtime/Rendering/Materials/MaterialSystem.md`,
   `Documentation/Roadmaps/MaterialSystem.md`, and this plan.
 - Key symbols: `FLocalVertexFactory`, `FStaticMeshVertexFactories`,
   `FStaticMeshLODResources`, `FStaticMeshVertexBuffers`,
@@ -828,9 +828,9 @@ profiles defined in [Build and Run](../../../Development/Build/BuildAndRun.md).
 
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Static Mesh Render-Data Lifecycle](StaticMeshRenderDataLifecycle.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

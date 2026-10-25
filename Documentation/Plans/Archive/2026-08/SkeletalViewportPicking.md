@@ -402,8 +402,8 @@ Dependencies: Stages 1-2 acceptance gates.
 - [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code

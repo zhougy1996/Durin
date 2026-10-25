@@ -403,7 +403,7 @@ new imports work, and old disposable assets are not required by any shipped path
   execution remains an outstanding gate rather than a pass.
 - [x] Complete an `all` build for all workspace projects after the final shared
   API change and verify no current declaration-table mutation path remains.
-- [x] Update [Material System](../../../Runtime/Rendering/MaterialSystem.md),
+- [x] Update [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md),
   [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
   and [Canonical Resave](../../../Editor/Guides/CanonicalResave.md), then record completion.
 

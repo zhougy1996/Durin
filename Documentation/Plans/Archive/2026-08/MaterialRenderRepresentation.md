@@ -641,11 +641,11 @@ Dependencies: Stage 3.
 ## Related Documentation
 
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

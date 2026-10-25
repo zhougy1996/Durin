@@ -306,8 +306,8 @@ current command-recording and failure boundaries.
 
 ## Related Documentation
 
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
 - [CPU Profiling](../../../Development/Build/Profiling.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

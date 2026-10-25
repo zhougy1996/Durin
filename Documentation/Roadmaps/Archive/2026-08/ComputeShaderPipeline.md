@@ -12,9 +12,9 @@ Completed: 2026-08-21
 Recorded command replay, the dedicated RHI thread, M1 resource transitions, and
 M2 synchronous compute are complete through their linked plans in the milestone
 table. Their lasting contracts are owned by
-[RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md),
-[RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md), and
-[Synchronous Compute Pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md).
+[RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md),
+[RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md), and
+[Synchronous Compute Pipelines](../../../Runtime/Rendering/RHI/SynchronousComputePipelines.md).
 
 [Compute Renderer Integration](../../../Plans/Archive/2026-08/ComputeRendererIntegration.md)
 completed M3 on 2026-08-21. Its production directional-contact workload passed
@@ -152,7 +152,7 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| M1: Resource transitions | Required; completed | [GPUResourceTransitions](../../../Plans/Archive/2026-08/GPUResourceTransitions.md) and [lasting contract](../../../Runtime/Rendering/RHIResourceTransitions.md) | Met on 2026-08-10: recorded replay is stable, synchronization2 availability is published, and render-pass/upload/readback/subresource mutation paths have a bounded audit. | Met on 2026-08-10: exact buffer/image transitions, inline/threaded replay, Vulkan mappings, implicit-path reconciliation, focused/native/full-build qualification, and runtime smoke passed without divergent state or new global idle waits. |
+| M1: Resource transitions | Required; completed | [GPUResourceTransitions](../../../Plans/Archive/2026-08/GPUResourceTransitions.md) and [lasting contract](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md) | Met on 2026-08-10: recorded replay is stable, synchronization2 availability is published, and render-pass/upload/readback/subresource mutation paths have a bounded audit. | Met on 2026-08-10: exact buffer/image transitions, inline/threaded replay, Vulkan mappings, implicit-path reconciliation, focused/native/full-build qualification, and runtime smoke passed without divergent state or new global idle waits. |
 | M2: Synchronous compute core | Required; completed 2026-08-12 | [Synchronous Compute Pipeline](../../../Plans/Archive/2026-08/SynchronousComputePipeline.md) | Met; activated on 2026-08-12 after confirming M1 compute-intent mappings, recorded replay/lifetime, the shared compute-capable immediate queue, reflected storage bindings, and the raw Vulkan dispatch proof. | Met on 2026-08-12: canonical complete-or-null PSOs, reflected binding/push constants, direct dispatch, buffer/image results, compute/graphics/copy handoffs, both executors, aggregate/full build, and runtime smoke passed. |
 | M3: Renderer integration | Required; completed 2026-08-21 | [Compute Renderer Integration](../../../Plans/Archive/2026-08/ComputeRendererIntegration.md) | Met on 2026-08-12; M2 vertical slice and public-RHI interop validation pass. Revised on 2026-08-18 after the deferred renderer qualified: the plan selects directional contact visibility, its existing fragment fallback, and a predeclared measurement gate. | Met on 2026-08-21: compute is the normal eligible route; deferred lighting consumes it without a Vulkan escape hatch or copy; exact pixels, fallback, refresh, timing, main/auxiliary runtime, Present/resize, validation, and clean shutdown passed. |
 | M4: Indirect dispatch | Conditional | `ComputeDispatchExtensions` | A concrete GPU-driven workload requires indirect dispatch and M2 is complete. | Indirect argument creation, transitions, bounds validation, and `DispatchIndirect` pass focused and runtime tests. |
@@ -255,8 +255,8 @@ The required roadmap is complete when:
 - [Recorded RHI Command List](../../../Plans/Archive/2026-08/RecordedRHICommandList.md)
 - [Dedicated RHI Thread](../../../Plans/Archive/2026-08/DedicatedRHIThread.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
-- [Shader parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [Texture system](../../../Runtime/Rendering/TextureSystem.md)
+- [Shader parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [Texture system](../../../Runtime/Assets/TextureSystem.md)
 
 ## Related Code
 

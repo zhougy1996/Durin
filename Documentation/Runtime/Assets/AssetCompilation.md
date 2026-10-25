@@ -350,8 +350,8 @@ are known.
 
 - [Asset Data Lifecycle and Storage](AssetDataLifecycle.md)
 - [Runtime Lifecycle](../Application/RuntimeLifecycle.md)
-- [Texture System](../Rendering/TextureSystem.md)
-- [Material System](../Rendering/MaterialSystem.md)
+- [Texture System](TextureSystem.md)
+- [Material System](../Rendering/Materials/MaterialSystem.md)
 - [Modular Features And Module Retirement](../Core/ModularFeaturesAndModuleRetirement.md)
 
 ## StaticMesh Completion

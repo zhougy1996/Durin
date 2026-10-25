@@ -44,7 +44,7 @@ Validation completed on the `windows-msvc-x64` Debug DurinEditor profile:
   entries.
 
 The lasting ownership, metric, auxiliary-view, and interaction contracts now
-live in [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md).
+live in [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md).
 
 Stage 4 replaced the originally listed ad-hoc pointer-driven scenario pass with
 repeatable `ViewportTests`, viewport qualification, Vulkan render integration,
@@ -356,7 +356,7 @@ and never include a camera-preview or unrelated auxiliary viewport.
 
 ## Related Documentation
 
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

@@ -53,7 +53,7 @@ persistent schema or GPU execution changed, so an all-build/GPU gate is not
 required. All native validation used the established unsandboxed MSVC lane.
 Changed-document validation, all-plan validation and final diff/symbol audits
 passed. Lasting ownership and interface rules are recorded in
-[Material System](../Runtime/Rendering/MaterialSystem.md#compile-lifecycle-and-cooked-programs).
+[Material System](../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs).
 
 ## Goal
 

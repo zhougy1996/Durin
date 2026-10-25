@@ -598,10 +598,10 @@ Dependencies: Stages 0-4.
 ## Related Documentation
 
 - [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
-- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Static Mesh Render Data Lifecycle](StaticMeshRenderDataLifecycle.md)
 - [Static Mesh LOD Resources Refactor](StaticMeshLODResourcesRefactor.md)
 - [Renderer SceneProxy and SceneInfo Contract](RendererSceneProxyAndInfoContract.md)

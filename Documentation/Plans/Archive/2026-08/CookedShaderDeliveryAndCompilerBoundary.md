@@ -546,9 +546,9 @@ its package-local program bytes.
 
 ## Related Documentation
 
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Global Shaders](../../../Runtime/Rendering/GlobalShaders.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Global Shaders](../../../Runtime/Rendering/Shaders/GlobalShaders.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)

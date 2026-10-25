@@ -30,7 +30,7 @@ The earlier investigation restored its experimental source changes, leaving the
 default three-drawable pool and the original symptom intact. The subsequent
 production repair fixes `maximumDrawableCount=2` for every policy while preserving
 `opaque=true`. VSync continues to change only `displaySyncEnabled`. The lasting
-contract is in [viewport output policies](../Runtime/Rendering/ViewportRendering.md#output-policies);
+contract is in [viewport output policies](../Runtime/Rendering/Pipeline/ViewportRendering.md#output-policies);
 this investigation retains the evidence and unresolved native policy boundary.
 
 The [UE 5.8.3 source comparison](#ue-583-source-comparison-on-2026-10-18)
@@ -38,7 +38,7 @@ finds no VSync-dependent drawable-pool reduction. Its macOS native-present path
 retains the default pool capacity of three and additionally forces layer
 synchronization outside the running-game/fullscreen case.
 
-Relevant contracts: [viewport rendering](../Runtime/Rendering/ViewportRendering.md)
+Relevant contracts: [viewport rendering](../Runtime/Rendering/Pipeline/ViewportRendering.md)
 and [performance measurement authority](../Development/Build/RenderingPerformanceBaseline.md).
 Source: [viewport policy](../../Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalViewport.h),
 [presentation](../../Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalCommandContext.cpp),

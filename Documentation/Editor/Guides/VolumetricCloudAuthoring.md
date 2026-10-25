@@ -69,4 +69,4 @@ for timing evidence.
 
 - [Volumetric cloud authoring architecture](../Architecture/VolumetricCloudAuthoring.md)
 - [Volume textures](../../Runtime/Assets/VolumeTextures.md)
-- [Volumetric cloud scene contract](../../Runtime/Rendering/VolumetricCloudSceneContract.md)
+- [Volumetric cloud scene contract](../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)

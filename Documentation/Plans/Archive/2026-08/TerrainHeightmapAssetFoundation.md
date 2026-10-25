@@ -429,7 +429,7 @@ inventing their own height authority.
 ## Related Documentation
 
 - [Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Versioning](../../../Runtime/Assets/Versioning.md)

@@ -673,15 +673,15 @@ itself invalidate unchanged runtime evidence.
 
 ## Required References
 
-- [Material compilation and cooked programs](../Runtime/Rendering/MaterialSystem.md#compile-lifecycle-and-cooked-programs)
-- [Material stage selection and sharing](../Runtime/Rendering/MaterialShaderStages.md)
-- [Shader cache](../Runtime/Rendering/ShaderCache.md)
-- [Global and fixed shaders](../Runtime/Rendering/GlobalShaders.md)
+- [Material compilation and cooked programs](../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs)
+- [Material stage selection and sharing](../Runtime/Rendering/Materials/MaterialShaderStages.md)
+- [Shader cache](../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Global and fixed shaders](../Runtime/Rendering/Shaders/GlobalShaders.md)
 - [Target platform policy](../Runtime/Assets/TargetPlatforms.md)
 - [Cook lifecycle and publication](../Runtime/Assets/Cooking.md)
 - [Asset packages and loading](../Runtime/Assets/AssetPackages.md)
-- [Renderer frame preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Graphics state and bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [RHI public API stability](../Runtime/Rendering/RHIPublicAPIStability.md)
+- [Renderer frame preparation](../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [Graphics state and bindings](../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
+- [RHI public API stability](../Runtime/Rendering/RHI/RHIPublicAPIStability.md)
 - [Apple: Precompile source into a shader library](https://developer.apple.com/documentation/metal/building-a-shader-library-by-precompiling-source-files)
 - [Apple: Metal binary archives](https://developer.apple.com/documentation/metal/metal-binary-archives)

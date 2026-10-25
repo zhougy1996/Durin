@@ -140,7 +140,7 @@ and explicit CPU regression telemetry.
 ## Related Documentation
 
 - `Documentation/Roadmaps/Archive/2026-08/RenderGraphArchitecture.md`
-- `Documentation/Runtime/Rendering/RenderGraph.md`
+- `Documentation/Runtime/Rendering/Pipeline/RenderGraph.md`
 
 ## Related Code
 

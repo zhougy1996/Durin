@@ -54,6 +54,9 @@ from related domains rather than duplicating it.
   native windows, and application-host integration.
 - `Runtime/Engine`: Engine-level services and shared subsystem host/lifetime
   contracts. World-specific services remain under `Runtime/World`.
+- `Runtime/Rendering`: GPU abstraction, shaders, materials, scene publication,
+  frame execution, and rendering features. Follow the
+  [Rendering domain rules](Runtime/Rendering/AGENTS.md) for placement.
 
 Keep asset construction, loading, cooking, and publication under `Runtime/Assets`;
 the object and package substrate belongs to `Runtime/ObjectSystem`.

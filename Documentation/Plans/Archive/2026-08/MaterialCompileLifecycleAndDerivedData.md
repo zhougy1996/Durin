@@ -675,11 +675,11 @@ and any environment-dependent qualification values.
 ## Related Documentation
 
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)

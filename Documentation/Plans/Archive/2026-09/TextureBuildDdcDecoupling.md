@@ -483,8 +483,8 @@ Dependencies: Stage 4 complete.
 ## Related Documentation
 
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
-- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)

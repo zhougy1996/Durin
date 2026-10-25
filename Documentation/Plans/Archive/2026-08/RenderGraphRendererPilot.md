@@ -133,9 +133,9 @@ shader read. These are the pilot edges to migrate.
 ## Related Documentation
 
 - [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
 - [Testing](../../../Agents/Testing.md)
 
 ## Related Code

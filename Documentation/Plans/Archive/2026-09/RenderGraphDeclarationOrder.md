@@ -238,7 +238,7 @@ commit, with exact Plan and Stage trailers under the repository handoff rules.
 
 ## Related Code and Contract
 
-- [Render Graph contract](../../../Runtime/Rendering/RenderGraph.md)
+- [Render Graph contract](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
 - [RDG public API](../../../../Engine/Source/Runtime/RenderCore/Public/RDG.h)
 - [RDG compiler](../../../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp)
 - [RDG native tests](../../../../Engine/Tests/Native/RenderCoreTests/Private/RDGTests.cpp)

@@ -388,8 +388,8 @@ and coordinate envelopes.
 ## Related Documentation
 
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Editor Grid](../../../Runtime/Rendering/EditorGrid.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Editor Grid](../../../Runtime/Rendering/Features/EditorGrid.md)
 - [Terrain Patch LOD Plan](TerrainPatchLOD.md)
 - [Terrain Draw Submission Scalability Plan](TerrainDrawSubmissionScalability.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

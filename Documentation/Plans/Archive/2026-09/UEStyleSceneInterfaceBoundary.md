@@ -153,5 +153,5 @@ proxy APIs or ordinary lifecycle flushes.
 - [`SceneInterface.h`](../../../../Engine/Source/Runtime/Engine/Public/SceneInterface.h)
 - [`SceneOwnership.h`](../../../../Engine/Source/Runtime/RenderCore/Public/SceneOwnership.h)
 - [`Scene.cpp`](../../../../Engine/Source/Runtime/Renderer/Private/Scene.cpp)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
 - [Completed Proxy Lifecycle Plan](UEStyleSceneProxyLifecycle.md)

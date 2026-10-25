@@ -390,7 +390,7 @@ The caller-facing contract is an owning `FRHIGPUSyncPointRef` with stable
 logical identity and thread-safe Pending/Submitted/Complete/Canceled/Failed/
 DeviceLost observation. Native coordinates are backend-only metadata with
 RHI-owned device generations. No caller resolves a second handle. See the
-[RHI completion contract](../../../Runtime/Rendering/RHICommandExecution.md) for
+[RHI completion contract](../../../Runtime/Rendering/RHI/RHICommandExecution.md) for
 storage, bounded waits and shutdown behavior. Retained observers hold no native
 fence or backend pointer and require no unbounded completed-signal registry.
 
@@ -434,8 +434,8 @@ retained sync points remain terminal and cannot address a replacement device.
 
 These selected API boundaries record the plan's intended shape, updated for
 sync-point ownership. Exact implemented signatures and readiness semantics are
-owned by [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
-and [Render Graph](../../../Runtime/Rendering/RenderGraph.md); verify their headers
+owned by [RHI command execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+and [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md); verify their headers
 before an API migration rather than treating this inventory as a second contract.
 
 ```cpp
@@ -766,9 +766,9 @@ its relevant code, configuration, or environment.
   and [implementation](../../../../Engine/Source/Runtime/RHI/Private/RHICommandList.cpp).
 - [Vulkan completion](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanCompletion.h)
   and [submission payloads](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanSubmission.h).
-- [Render Graph contract](../../../Runtime/Rendering/RenderGraph.md),
-  [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md),
-  and [render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md).
+- [Render Graph contract](../../../Runtime/Rendering/Pipeline/RenderGraph.md),
+  [Renderer frame preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md),
+  and [render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md).
 - [UE barrier batches](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/RenderCore/FRDGBarrierBatchBegin)
   provide reference boundaries for transition creation and submission.
 - [UE transient allocation fences](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/RHI/FRHITransientAllocationFences)

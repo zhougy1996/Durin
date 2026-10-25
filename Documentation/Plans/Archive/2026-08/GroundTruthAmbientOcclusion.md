@@ -29,7 +29,7 @@ the frozen `75,000 ns` median gate. `EditorRenderingTests`, the Vulkan renderer
 integration set, `fast-all`, the ordinary native aggregate, full `all` build,
 HDR/native-window qualification matrix, and the 30-tick hidden DurinEditor
 startup/runtime/shutdown smoke pass. Lasting behavior is published in
-[Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md).
+[Ground Truth Ambient Occlusion](../../../Runtime/Rendering/Features/GroundTruthAmbientOcclusion.md).
 
 M6 candidates remain unselected: no measured product scene exceeds the
 qualified `1 + 4` light tier, no selected decal requirement exists, and the
@@ -383,11 +383,11 @@ forward, display, and editor-assistance semantics.
 ## Related Documentation
 
 - [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
-- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
 - [Directional Contact Shadows](DirectionalContactShadows.md)
-- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
+- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/Pipeline/HDRSceneColorAndDisplayMapping.md)
 
 ## Related Code
 

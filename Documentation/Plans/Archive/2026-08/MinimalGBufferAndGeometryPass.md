@@ -77,7 +77,7 @@ and an 8-second hidden-editor startup/shutdown smoke pass. The first aggregate
 run had one transient parallel `VulkanRHIIntegrationTests` process crash; its
 58 tests passed in isolation and the unchanged aggregate passed on immediate
 rerun. The lasting
-[Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md) now owns encoding,
+[Minimal GBuffer Contract](../../../Runtime/Rendering/Pipeline/GBuffer.md) now owns encoding,
 reconstruction, resource, failure, memory, diagnostics, and the M3 input seam.
 Production forward rendering remains unchanged. M3 is activated through
 [Deferred Directional Lighting](DeferredDirectionalLighting.md), whose Stage 0
@@ -392,9 +392,9 @@ material or lighting model.
 
 - [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
 - [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 
 ## Related Code
 

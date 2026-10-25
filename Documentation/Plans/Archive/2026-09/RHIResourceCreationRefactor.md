@@ -222,7 +222,7 @@ signed-zero normalization. Its capacity and native-creation assertions also
 depend on caching. `StaticMeshRenderer.cpp` publishes complete candidates by
 slot identity without requiring a unique pointer from each creation call;
 fixed Renderer callers also retain PSO references. The
-[recovery contract](../../../Runtime/Rendering/RendererResourceRecovery.md) is corrected.
+[recovery contract](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md) is corrected.
 
 **Execution-domain inventory.** Production has nine common-wrapper calls, all
 in `FVulkanDynamicRHI::RHICreate*` implementations; tests also call it directly
@@ -1179,5 +1179,5 @@ repository rules with this plan's path and exact stage title as Plan/Stage trail
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanShader.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp`
-- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)

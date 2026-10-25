@@ -152,7 +152,7 @@ Requests never scan or evict entries. ShaderBuild registers its compiler functio
 using the same sessions to store shared SPIR-V and reflection blocks in
 `Shader`. RenderCore owns the payload codec and runtime values.
 Machine-local dependency manifests do not enter portable values; see
-[Shader Cache](../Rendering/ShaderCache.md).
+[Shader Cache](../Rendering/Shaders/ShaderCache.md).
 
 MeshBuilder and TextureCompressor expose explicit build module interfaces.
 Build implementations own algorithm metrics and opaque build identities; Engine
@@ -402,8 +402,8 @@ without recapturing a physical source. Failed builds preserve previously accepte
 data; an asset without accepted data remains unavailable to resource consumers.
 Family-specific construction and publication follow
 [Static Mesh Building](StaticMeshBuilding.md),
-[Texture System](../Rendering/TextureSystem.md),
-[Cube Textures](../Rendering/CubeTextures.md), and [Volume Textures](VolumeTextures.md).
+[Texture System](TextureSystem.md),
+[Cube Textures](CubeTextures.md), and [Volume Textures](VolumeTextures.md).
 
 ## Cooked Packages and Bulk Fields
 
@@ -486,7 +486,7 @@ SceneProxy creation, or renderer preparation. Explicit calls to
 repeat CPU loading; `InitResources()` also retries failed GPU initialization.
 Ordinary `RequestRenderDataAndResources()` calls retain terminal failures and
 cancellations, so polling does not repeatedly submit failed work. See
-[Render Resource Lifecycle](../Rendering/RenderResourceLifecycle.md#cooked-mesh-readiness).
+[Render Resource Lifecycle](../Rendering/Pipeline/RenderResourceLifecycle.md#cooked-mesh-readiness).
 
 Manager shutdown stops admission, cancels reads and decode work, reports a
 current cancellation terminal to live assets without publishing CPU or GPU
@@ -574,5 +574,5 @@ recook, publication, cleanup, or deletion.
 - [Package Bulk Data](BulkData.md)
 - [Asset Compilation](AssetCompilation.md)
 - [Versioning](Versioning.md)
-- [Texture System](../Rendering/TextureSystem.md)
+- [Texture System](TextureSystem.md)
 - [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)

@@ -329,5 +329,5 @@ does not authorize marking any implementation stage complete.
 - [Vulkan submission](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanSubmission.h)
 - [Vulkan completion tracking](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanCompletion.h)
 - [RDG execution](../../../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp)
-- [Render Graph contract](../../../Runtime/Rendering/RenderGraph.md)
-- [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Render Graph contract](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)

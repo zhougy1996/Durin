@@ -341,9 +341,9 @@ world reopen.
 ## Related Documentation
 
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
-- [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
-- [Volumetric cloud lighting and shadows](../../../Runtime/Rendering/VolumetricCloudLightingAndShadows.md)
+- [Volumetric cloud scene contract](../../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)
+- [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/Features/VolumetricCloudTemporalReconstruction.md)
+- [Volumetric cloud lighting and shadows](../../../Runtime/Rendering/Features/VolumetricCloudLightingAndShadows.md)
 - [Volumetric cloud authoring architecture](../../../Editor/Architecture/VolumetricCloudAuthoring.md)
 - [Volumetric cloud authoring guide](../../../Editor/Guides/VolumetricCloudAuthoring.md)
 - [Volume texture import and cloud diagnostics](VolumeTextureImportAndCloudDiagnostics.md)

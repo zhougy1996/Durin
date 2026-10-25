@@ -607,13 +607,13 @@ selected storage path without introducing speculative hierarchy.
 
 ## Related Documentation
 
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Global Shaders](../../../Runtime/Rendering/GlobalShaders.md)
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Global Shaders](../../../Runtime/Rendering/Shaders/GlobalShaders.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

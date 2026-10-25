@@ -115,7 +115,7 @@ or artifact classification.
 
 The completed
 [Directional Shadow Pipeline Plan](DirectionalShadowPipeline.md)
-and lasting [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+and lasting [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
 contract remain the baseline. This plan may change the production bias only
 after diagnostic views distinguish missing caster depth, receiver-comparison
 failure, excessive displacement, filter footprint, and authored geometry.
@@ -417,7 +417,7 @@ retains the existing complete fully lit fallback.
   logical/backend bytes, GPU-time deltas, failures/retries, and target hardware.
 - [x] Publish lasting diagnostic, bias, ownership, ABI, view, failure, and
   measurement behavior in
-  [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md).
+  [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md).
 - [x] Update the Shadow System Evolution roadmap with Q0 completion and the Q1
   entry evidence; do not activate wider PCF until coverage, geometry, and bias
   defects have been separated by Q0 results.
@@ -489,13 +489,13 @@ retains the existing complete fully lit fallback.
 
 - [Shadow System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
 - [Directional Shadow Pipeline Plan](DirectionalShadowPipeline.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
-- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 

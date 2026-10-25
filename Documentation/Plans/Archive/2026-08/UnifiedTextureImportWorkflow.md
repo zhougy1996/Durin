@@ -265,7 +265,7 @@ type.
 - [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
 - [Texture Cube Workflow](../../../Editor/Guides/TextureCubeWorkflow.md)
-- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
 - [Agent build and run workflow](../../../Agents/BuildAndRun.md)
 - [Agent testing workflow](../../../Agents/Testing.md)

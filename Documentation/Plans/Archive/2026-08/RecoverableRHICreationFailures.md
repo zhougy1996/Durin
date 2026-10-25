@@ -333,8 +333,8 @@ The executor seam is `ExecuteFallibleSynchronousOperation`: tests inject standar
 
 ## Related Documentation
 
-- `Documentation/Runtime/Rendering/RHICommandExecution.md`
-- `Documentation/Runtime/Rendering/ViewportRendering.md`
+- `Documentation/Runtime/Rendering/RHI/RHICommandExecution.md`
+- `Documentation/Runtime/Rendering/Pipeline/ViewportRendering.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
 - `Documentation/Plans/Archive/2026-07/RecoverableRendererResourceCreation.md`
 - `Documentation/Plans/Archive/2026-08/DedicatedRHIThread.md`

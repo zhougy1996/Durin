@@ -117,7 +117,7 @@ did the native aggregate, Debug full `all` build, three Debug hidden-editor
 startup/shutdown runs, explicit diagnostic-off Debug/Release/Shipping startup,
 and the plan-gated Release Editor and Shipping Game full builds. The lasting
 contract is now
-[RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md),
+[RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md),
 and downstream M1/M2 work can consume the immutable snapshot and exact texture
 support boundary without reopening M0 startup policy.
 
@@ -728,9 +728,9 @@ Later stages add these exact boundaries rather than replacing the baseline:
 
 - [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 - [Compute Shader Pipeline Roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Dedicated RHI Thread](DedicatedRHIThread.md)
 - [Recorded RHI Command List](RecordedRHICommandList.md)

@@ -249,13 +249,13 @@ commands here.
 ## Related Documentation
 
 - [PBR Pipeline Production Gaps](../../../Investigations/PBRPipelineProductionGaps.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
 - [Material System Roadmap](../../MaterialSystem.md)
 - [Compute Shader Pipeline Roadmap](ComputeShaderPipeline.md)
-- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
+- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/Features/GroundTruthAmbientOcclusion.md)
 
 ## Related Code
 

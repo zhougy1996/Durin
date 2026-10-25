@@ -17,7 +17,7 @@ Relevant owners are the [test environment](../../Engine/Tests/Native/VulkanRHITe
 [RHI startup and shutdown](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanDynamicRHI.cpp),
 [device lifecycle](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanDevice.cpp),
 and [driver pipeline cache](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanPipeline.cpp).
-The implemented startup contract is [RHI capabilities and Vulkan startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md).
+The implemented startup contract is [RHI capabilities and Vulkan startup](../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
 
 ## Verified Findings
 

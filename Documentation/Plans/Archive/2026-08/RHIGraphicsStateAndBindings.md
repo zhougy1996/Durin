@@ -73,7 +73,7 @@ to the descriptor-array, blend, wireframe, non-indexed, indexed, and instanced
 coverage.
 
 Stage 6 published the lasting
-[Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
+[Graphics State and Bindings](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
 contract and recorded the M3 handoff in the RHI/Vulkan roadmap. Final
 qualification passed the complete native aggregate and full
 `Win64-Debug-DurinEditor` `all` build. The Sandbox hidden-window runtime ran
@@ -539,13 +539,13 @@ and observed outcomes.
 ## Related Documentation
 
 - [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
-- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Compute Shader Pipeline Roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

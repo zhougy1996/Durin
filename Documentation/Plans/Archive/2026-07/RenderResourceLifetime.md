@@ -622,8 +622,8 @@ resource replacement independent of consumer binding:
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
-- `Documentation/Runtime/Rendering/TextureSystem.md`
-- `Documentation/Runtime/Rendering/CubeTextures.md`
+- `Documentation/Runtime/Assets/TextureSystem.md`
+- `Documentation/Runtime/Assets/CubeTextures.md`
 
 ## Related Code
 

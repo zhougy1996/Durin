@@ -385,8 +385,8 @@ extend without weakening the single-parent-graph architecture:
 
 ## Related Documentation
 
-- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Render Graph](../../../Runtime/Rendering/Pipeline/RenderGraph.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
 - [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
 - [Render Graph Foundation Consolidation Plan](RenderGraphFoundationConsolidation.md)
 

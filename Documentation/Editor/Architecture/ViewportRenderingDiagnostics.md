@@ -10,8 +10,8 @@ Last reviewed: 2026-10-18
 
 The Level Editor presents per-viewport policy and immutable completed results.
 Statistics publication, viewport isolation, capture revisions, and failure
-availability belong to [Viewport Rendering](../../Runtime/Rendering/ViewportRendering.md#viewport-rendering-statistics).
-Graph capture contents belong to [Render Graph](../../Runtime/Rendering/RenderGraph.md#diagnostics-and-budgets).
+availability belong to [Viewport Rendering](../../Runtime/Rendering/Pipeline/ViewportRendering.md#viewport-rendering-statistics).
+Graph capture contents belong to [Render Graph](../../Runtime/Rendering/Pipeline/RenderGraph.md#diagnostics-and-budgets).
 The UI never changes rendering from telemetry or waits for GPU completion.
 
 ## Render Controls
@@ -62,7 +62,7 @@ instead of implying that the requested mode was selected. Changes apply at the
 next window drawing boundary without replacing the RHI viewport object or
 changing scene settings. Vulkan recreates its swapchain. Metal changes only
 `displaySyncEnabled`, retaining an opaque layer and a fixed two-drawable pool;
-see the [viewport presentation contract](../../Runtime/Rendering/ViewportRendering.md#output-policies).
+see the [viewport presentation contract](../../Runtime/Rendering/Pipeline/ViewportRendering.md#output-policies).
 
 Overview reports the smoothed wall-clock frame interval and directly measured
 main-thread elapsed times for four non-overlapping call ranges:

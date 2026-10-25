@@ -41,7 +41,7 @@ Lasting contracts are published in [Serialization](../../../Runtime/ObjectSystem
 [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
 [BulkData](../../../Runtime/Assets/BulkData.md),
 [Volume Textures](../../../Runtime/Assets/VolumeTextures.md), and
-[Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md).
+[Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md).
 
 ## Goal
 

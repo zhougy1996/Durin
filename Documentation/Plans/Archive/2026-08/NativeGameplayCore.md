@@ -524,7 +524,7 @@ Dependencies: Stages 1-4.
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)

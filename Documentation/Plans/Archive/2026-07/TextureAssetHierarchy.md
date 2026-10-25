@@ -514,8 +514,8 @@ command lines or profile selection.
 
 ## Related Documentation
 
-- `Documentation/Runtime/Rendering/TextureSystem.md`
-- `Documentation/Runtime/Rendering/CubeTextures.md`
+- `Documentation/Runtime/Assets/TextureSystem.md`
+- `Documentation/Runtime/Assets/CubeTextures.md`
 - `Documentation/Runtime/Assets/AssetDataLifecycle.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Roadmaps/MaterialSystem.md`

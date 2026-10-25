@@ -42,4 +42,4 @@ A level with multiple visible Sky Box actors is invalid and must be reduced to
 one before placement can continue.
 
 Face orientation, panorama projection, build, and rendering contracts are
-defined by [Cube Textures](../../Runtime/Rendering/CubeTextures.md).
+defined by [Cube Textures](../../Runtime/Assets/CubeTextures.md).

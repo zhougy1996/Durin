@@ -384,7 +384,7 @@ Gaps to close:
 
 ## Related Documentation
 
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
 - [Play In Editor](../../../Editor/Guides/PlayInEditor.md)
 - [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)

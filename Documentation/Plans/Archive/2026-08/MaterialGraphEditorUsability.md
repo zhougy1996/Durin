@@ -535,7 +535,7 @@ rendered qualification additionally checks 125% UI scale.
 
 - [Material Graph Editor Plan](MaterialGraphEditor.md)
 - [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Agent Documentation Workflow](../../../Agents/Documentation.md)

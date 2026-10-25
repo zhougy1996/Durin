@@ -394,10 +394,10 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
 
 - [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
 - [PBR Pipeline Production Gaps](../../../Investigations/PBRPipelineProductionGaps.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
 - [Compute Renderer Integration](ComputeRendererIntegration.md)
 - [Directional Contact Shadows](DirectionalContactShadows.md)
 

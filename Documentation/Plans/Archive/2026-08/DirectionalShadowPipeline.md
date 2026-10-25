@@ -93,7 +93,7 @@ both 16,777,216 bytes. Focused RHI, shader ABI, scene/view, light, material,
 StaticMesh/SplineMesh, SkeletalMesh, Terrain, resource reload, Cook, and Vulkan
 tests passed; the 53-target `fast-all` set, Debug `all`, Shipping DurinGame
 `all`, all-plan validation, and the final editor smoke passed. Lasting behavior
-is documented in [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md).
+is documented in [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md).
 
 ## Goal
 
@@ -589,14 +589,14 @@ lighting result without a whole-device idle wait.
 ## Related Documentation
 
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
-- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Renderer Light Scene Contract Plan](RendererLightSceneContract.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

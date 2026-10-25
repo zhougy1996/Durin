@@ -607,7 +607,7 @@ matrix cells as passing evidence.
 - [Windows Native Window Modal-Loop Ticking](WindowsNativeWindowModalLoopTick.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 
 ## Related Code
 

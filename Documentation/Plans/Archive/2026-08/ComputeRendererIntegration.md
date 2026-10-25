@@ -472,13 +472,13 @@ recorded pixel, lifecycle, command, and GPU-timing evidence.
 ## Related Documentation
 
 - [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
-- [Synchronous Compute Pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md)
-- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Synchronous Compute Pipelines](../../../Runtime/Rendering/RHI/SynchronousComputePipelines.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/Features/DeferredDirectionalLighting.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

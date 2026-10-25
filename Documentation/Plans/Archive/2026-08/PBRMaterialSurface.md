@@ -898,11 +898,11 @@ Dependencies: Stage 4.
 
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Material Render Representation Plan](MaterialRenderRepresentation.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

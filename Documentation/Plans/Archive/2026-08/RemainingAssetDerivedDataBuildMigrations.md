@@ -509,7 +509,7 @@ request followed by a query-disabled build only after source decode.
 - [Local Derived Data Build Requests Plan](LocalDerivedDataBuildRequests.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
-- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)

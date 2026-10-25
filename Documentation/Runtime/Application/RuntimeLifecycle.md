@@ -113,9 +113,9 @@ resize, and RHI presentation, while its UI `NewFrame` and `Render` calls are
 explicit no-ops.
 
 Primary-window, platform-surface, and first-viewport ownership is defined by
-[Viewport Rendering](../Rendering/ViewportRendering.md). Vulkan instance,
+[Viewport Rendering](../Rendering/Pipeline/ViewportRendering.md). Vulkan instance,
 device, queue, portability, and presentation admission are defined by
-[RHI Capabilities And Vulkan Startup](../Rendering/RHICapabilitiesAndVulkanStartup.md).
+[RHI Capabilities And Vulkan Startup](../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
 
 Current engine selection is semantic:
 
@@ -148,7 +148,7 @@ payloads. Each step still yields to the startup pump before the next phase.
 `DEngine::Init()` places the default-material service after Engine Content,
 Engine, RHI, and render-command admission but before scene proxies can be
 created. Material loading, fallback, and render-proxy semantics are defined by
-[Material System](../Rendering/MaterialSystem.md).
+[Material System](../Rendering/Materials/MaterialSystem.md).
 
 `DGameEngine` first loads every project root module enabled for the Game runtime,
 so project-owned reflected classes are available when loading the default level.
@@ -277,9 +277,9 @@ backend participate in the startup and exit order defined here. Launch, rather
 than Mona, owns concrete backend selection. Standalone runtime
 window ownership belongs to `DGameEngine`; editor host and workspace ownership
 belongs to editor systems. Viewport composition is defined by
-[Viewport Rendering](../Rendering/ViewportRendering.md), and render/RHI command
+[Viewport Rendering](../Rendering/Pipeline/ViewportRendering.md), and render/RHI command
 recording, replay, flush, and completion are defined by
-[RHI Command Execution](../Rendering/RHICommandExecution.md).
+[RHI Command Execution](../Rendering/RHI/RHICommandExecution.md).
 
 ## Engine Exit Protocol
 
@@ -355,10 +355,10 @@ opting in. `FModuleManager` does not supply that protocol.
 
 Generic RenderCore resource state, deferred C++ cleanup, producer teardown, and
 registry auditing are defined by
-[Render Resource Lifecycle](../Rendering/RenderResourceLifecycle.md).
+[Render Resource Lifecycle](../Rendering/Pipeline/RenderResourceLifecycle.md).
 Render-command admission, accepted-work drain, RHI deferred deletion, the
 terminal backend marker, and render/RHI thread shutdown are defined by
-[RHI Command Execution](../Rendering/RHICommandExecution.md). This document
+[RHI Command Execution](../Rendering/RHI/RHICommandExecution.md). This document
 owns their placement relative to object and module teardown through the exit
 protocol above.
 
@@ -380,9 +380,9 @@ protocol above.
 - [CPU Task System](../Core/TaskSystem.md)
 - [Modular Features And Module Retirement](../Core/ModularFeaturesAndModuleRetirement.md)
 - [Level System](../World/LevelSystem.md)
-- [Viewport Rendering](../Rendering/ViewportRendering.md)
-- [Render Resource Lifecycle](../Rendering/RenderResourceLifecycle.md)
-- [RHI Command Execution](../Rendering/RHICommandExecution.md)
+- [Viewport Rendering](../Rendering/Pipeline/ViewportRendering.md)
+- [Render Resource Lifecycle](../Rendering/Pipeline/RenderResourceLifecycle.md)
+- [RHI Command Execution](../Rendering/RHI/RHICommandExecution.md)
 - [Play In Editor Architecture](../../Editor/Architecture/PlayInEditorArchitecture.md)
 - [Build System](../../Development/Build/BuildSystem.md)
 - [Runtime Variants](../../Development/Build/RuntimeVariants.md)

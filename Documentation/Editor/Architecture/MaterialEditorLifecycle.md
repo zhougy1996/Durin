@@ -25,7 +25,7 @@ Preview framing fits the selected mesh to both viewport axes with a margin and
 adapts to panel aspect-ratio changes. Mouse-wheel zoom is relative to that framing;
 Fit and mesh changes restore the fitted view.
 
-Preview rendering follows [Material System](../../Runtime/Rendering/MaterialSystem.md).
+Preview rendering follows [Material System](../../Runtime/Rendering/Materials/MaterialSystem.md).
 Each preview document owns explicit Low/High quality and ES3_1/SM5/SM6 feature
 selectors. Changing either requests the matching ordinary material variant and
 does not alter the asset, global game quality, or RHI capability. Unsupported
@@ -145,7 +145,7 @@ release the working copy with its canvas and preview. Material-instance document
 continue editing their own overrides live and see base edits only after Apply.
 Material callbacks remain synchronous. Runtime discovery is sealed before
 notifications, and edits performed by listeners use fresh batches; see
-[scoped material queries](../../Runtime/Rendering/MaterialQueries.md#external-notifications-and-reentrancy).
+[scoped material queries](../../Runtime/Rendering/Materials/MaterialQueries.md#external-notifications-and-reentrancy).
 
 Canvas maps use document IDs, so selection cannot leak across materials or
 instances. User-scoped material-editor session settings retain the left, right,

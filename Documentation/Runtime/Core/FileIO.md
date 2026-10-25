@@ -193,4 +193,4 @@ failure, not a reason for runtime code to modify the registry or Group Policy.
 - [Build and Run](../../Development/Build/BuildAndRun.md)
 - [Build System](../../Development/Build/BuildSystem.md)
 - [Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md)
-- [Shader Cache](../Rendering/ShaderCache.md)
+- [Shader Cache](../Rendering/Shaders/ShaderCache.md)

@@ -432,7 +432,7 @@ Stage 1 handoff (2026-09-10):
   `test affected --explain` expands to unrelated Engine domains and was not run.
   GPU and cold Game instance-load gates remain outstanding for later stages.
 - Lasting implemented property/migration rules are documented in
-  [Material System](../../../Runtime/Rendering/MaterialSystem.md). The broad wrapper,
+  [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md). The broad wrapper,
   base-only compile state and parent-layout inheritance remain explicit future
   work. The user supplied the continuation on 2026-09-10; Stage 2 now proceeds.
 
@@ -613,10 +613,10 @@ the gate is reuse and bounded lifetime, not an invented timing threshold.
 ## Related Documentation and Code
 
 - [Material System roadmap](../../../Roadmaps/MaterialSystem.md)
-- [Material System contract](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material System contract](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Geometry Submission Refactor](../2026-10/GeometrySubmissionRefactor.md): consume its current
   accepted interface; this plan adds no geometry dispatch mechanism.

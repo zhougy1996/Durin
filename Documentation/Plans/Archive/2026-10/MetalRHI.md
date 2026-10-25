@@ -102,7 +102,7 @@ The 2026-10-18 presentation repair fixes every Metal viewport's drawable capacit
 at two while retaining `opaque=true`; VSync changes only `displaySyncEnabled`.
 This supersedes the earlier experimental-only status of the drawable workaround.
 The implemented policy is owned by
-[viewport output policies](../../../Runtime/Rendering/ViewportRendering.md#output-policies).
+[viewport output policies](../../../Runtime/Rendering/Pipeline/ViewportRendering.md#output-policies).
 The bounded Stage 1/4 receipt below does not close the broader lifecycle,
 image-parity, cooked-game, or Release performance gates.
 
@@ -132,7 +132,7 @@ the original opt-in rollout assumption; it does not waive acceptance gates.
 [Metal-cpp migration](MetalCppMigration.md) is completed, including native
 resource, pipeline, submission, completion and viewport RAII. The authoritative
 startup/ownership contract is in
-[RHI capabilities and startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#startup-presentation-ownership).
+[RHI capabilities and startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md#startup-presentation-ownership).
 
 | Stage | Closeout assessment on 2026-10-05 |
 | --- | --- |
@@ -188,7 +188,7 @@ ordering regression, on the same M4/macOS/Xcode Debug/Tracy host:
   failure receipts are retained under ignored
   `Build/.agent-state/imgui-resize-20261018/`. Temporary Editor/ImGui probes are
   removed from the final source. The owning contract is
-  [viewport resize ordering](../../../Runtime/Rendering/ViewportRendering.md#output-policies).
+  [viewport resize ordering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md#output-policies).
 
 2026-10-18 bounded Stage 1/4 receipt, base `d33a3634d` plus the fixed-capacity
 viewport/test change, Apple M4, macOS 27.0.1 (26A434), Xcode 26.6 (17F113), macOS
@@ -669,7 +669,7 @@ These are acceptance thresholds for future paired captures, not claims that
 Metal images already match Vulkan. Both paths must report unsupported features
 explicitly; a skipped pass cannot be counted as a matching image.
 
-The [RHI public API stability contract](../../../Runtime/Rendering/RHIPublicAPIStability.md)
+The [RHI public API stability contract](../../../Runtime/Rendering/RHI/RHIPublicAPIStability.md)
 provides the caller-facing boundary. The active
 [multi-queue plan](RdgRhiMultiQueueExecution.md) retains open native split-barrier
 and transient-aliasing gates. Metal baseline work need not wait for those
@@ -928,14 +928,14 @@ another platform's hardware remains an explicit qualification gap.
 
 ## Required Contract References
 
-- [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [RHI resource transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI resource views and transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [RHI diagnostics and conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
-- [Graphics state and bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Synchronous compute pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md)
-- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
+- [RHI command execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
+- [RHI resource transitions](../../../Runtime/Rendering/RHI/RHIResourceTransitions.md)
+- [RHI resource views and transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
+- [RHI diagnostics and conformance](../../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md)
+- [Graphics state and bindings](../../../Runtime/Rendering/RHI/GraphicsStateAndBindings.md)
+- [Synchronous compute pipelines](../../../Runtime/Rendering/RHI/SynchronousComputePipelines.md)
+- [Viewport rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 
 ## External Qualification References
 

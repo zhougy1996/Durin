@@ -80,7 +80,7 @@ plan.
 
 ## Related Documentation
 
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Rendering Capability Expansion Roadmap](../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 
 ## Related Code

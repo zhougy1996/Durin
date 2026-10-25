@@ -456,7 +456,7 @@ Implementation commit: `e17ea057` (`feat(skeletal-editor): add production asset 
 - [StaticMesh Inspector](../../../Editor/Guides/StaticMeshInspector.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

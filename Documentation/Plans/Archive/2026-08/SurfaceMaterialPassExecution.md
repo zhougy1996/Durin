@@ -396,11 +396,11 @@ guides rather than being duplicated here.
 
 ## Related Documentation
 
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
-- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Directional Shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Directional Shadow Caster Preparation Plan](DirectionalShadowCasterPreparation.md)
 - [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)

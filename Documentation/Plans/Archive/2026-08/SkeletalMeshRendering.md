@@ -649,12 +649,12 @@ Dependencies: Stages 0-5 and their handoffs.
 - [Per-View Visibility and LOD](PerViewVisibilityAndLOD.md)
 - [Material Render Pass Policies](MaterialRenderPassPolicies.md)
 - [RHI Graphics State and Bindings](RHIGraphicsStateAndBindings.md)
-- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

@@ -1,0 +1,386 @@
+# Directional Shadows
+
+Summary: Defines the selected three-cascade directional-light shadow path, deterministic PCF tiers, diagnostics, failure fallback, and qualification evidence.
+
+Modules: RenderCore, Renderer, Engine, VulkanRHI
+
+Last reviewed: 2026-10-19
+
+## Ownership and selection
+
+`FDirectionalShadowRenderer` is a private `FSceneRenderingService` feature owner. The
+first directional light selected by `FPreparedLightView` may own one shadow for
+the current view when its detached `bCastShadows` value is enabled. The light
+component, proxy, SceneInfo, and prepared-light path copy this value; render
+code never reads a component. Missing, invalid, disabled, or failed shadow
+state leaves the existing directional light fully unshadowed.
+
+The selected representation is one reusable three-layer square D32
+`Texture2DArray`, one sampled array view, three exact single-layer 2D depth
+views, and one linear clamp-to-border opaque-white `LessOrEqual` comparison
+sampler. Creation publishes only a complete target/view/sampler aggregate.
+`FSceneViewSettings.DirectionalShadow.Resolution` sets the common layer size,
+defaulting to 2048. Zero restores that default; other values clamp to 256–4096.
+Changing the resolved size replaces the complete resource aggregate through
+ordinary RHI retirement, without a device wait. Fitting, texel snapping, caster
+LOD, raster viewport, forward filter metadata, and valid-region guards use the
+same resolved size. Logical storage is `3 * Resolution * Resolution * 4` bytes;
+the default is 50,331,648 bytes, matching measured RTX 3090 backend storage. Each
+enabled view regenerates all of its prepared layers before Scene Color; target
+dimensions do not follow viewport resize. `SingleMap` remains a bounded
+per-view comparison candidate and uses layer zero of the same complete array.
+
+## Fitting and caster preparation
+
+The fitted `FSceneView` supplies eight zero-to-one Vulkan clip corners. Receiver
+depth is limited to the nearer camera far extent or the view's
+`DirectionalShadow.MaxDistance`, defaulting to 256 world units. Non-finite or
+non-positive values restore the default; finite positive values clamp to
+1–4096 world units. Perspective
+views use three practical split intervals with lambda 0.65; orthographic views
+use three uniform intervals. Invalid, non-finite, inverted, or zero-width
+intervals disable the shadow for that view. The
+normalized light direction is the light-space forward axis; world +Z is the
+preferred up reference and world +Y is the parallel fallback. Receiver XY is
+expanded by the selected filter's guard and its center is snapped to whole
+shadow texels. Low and Medium use two guard texels; High uses three. The
+expansion is cascade- and tier-local, so one cascade or quality tier cannot
+move another. Each slice independently fits and snaps its center to its own
+whole-texel grid.
+The caster volume shares that XY interval and extrudes 256 units opposite light
+travel. Invalid inversion, basis, extents, or matrices disables the shadow.
+
+Caster discovery starts from authoritative `FScene` primitive collections, not
+camera visibility. One frame-local table evaluates hidden state and supported
+kind once, then classifies every retained caster against every enabled cascade
+and stores the result in a bounded membership mask. Cascade-local reserved
+family reference lists are materialized from that table without another scene
+walk. World-AABB centers and half-extents are projected once per distinct enabled
+cascade basis and reused across matching cascades. Each axis uses the projected
+center plus/minus the dot product of the absolute basis axis and world
+half-extents. The existing scale-relative contact tolerance is retained; boxes
+within the arithmetic rounding guard of a classification threshold use the
+original eight-corner calculation to preserve boundary decisions. Disabled
+culling bypasses projection. Different bases keep independent projections, and
+non-finite projection results use the conservative invalid-bounds fallback.
+Boundary contact and invalid finite bounds are included conservatively
+and counted per cascade. Static/Spline LOD selection is evaluated against
+the resolved shadow-view resolution.
+The camera's prepared visibility and LOD values are not mutated.
+Ordinary StaticMesh receiver and cascade collection share
+[retained batch inputs](../Scene/StaticMeshBatchPublication.md); each cascade still
+captures its own instance overlay and LOD selection.
+
+## Pass and material contract
+
+Opaque and Masked StaticMesh and SplineMesh draws cast;
+Translucent draws do not. Shadow-depth preparation filters translucent
+materials before final draw-list sorting and counter accumulation; it does not
+construct and later erase translucent shadow buckets. Shadow preparation reuses normal material snapshots,
+strict opacity-mask threshold behavior, vertex factories, spline deformation,
+two-sided state, and mirrored winding.
+
+Three ordered depth-only passes have no color attachment. Each binds and clears
+only its exact layer view to 1.0, writes with `Less`, and leaves the array ready
+for `GraphicsShaderRead` before Scene Color. They force filled
+rasterization even for Wireframe camera views. For shadow texel world size
+`t = max(texel.x, texel.y)`, raster constant/slope/clamp bias is
+`clamp(1+2t,1,1.5)`, `clamp(1.25+t,1.25,2)`, and
+`clamp(2+8t,2,4)` respectively before light-specific strength multipliers. Non-finite input retains the bounded
+1.25/1.75/4.0 fallback. Vulkan enables `depthBiasClamp` when the physical
+device exposes it. Opaque casters use a no-output depth fragment entry point,
+while Masked casters use a depth-only fragment entry point that performs
+opacity-mask rejection without declaring a color output. All shaders, PSOs,
+samplers, material resources,
+geometry bindings, height resources, and palette ranges are prepared before
+the pass begins.
+
+## Filter tiers and forward sampling
+
+`FSceneViewSettings` selects one immutable deterministic filter tier. Medium is
+the production default. Low is numeric zero and remains the invalid-identity,
+resource-failure, and optional-tier fallback.
+
+- Low performs one linearly filtered comparison at offset `(0,0)`, has an
+  effective radius of 0.5 texels, and uses a two-texel guard.
+- Medium performs the Cartesian 3x3 offsets `{-1,0,1}` with per-axis tent
+  weights `[1,2,1]`, nine comparison operations, row-major accumulation, exact
+  `1/16` normalization, a 1.5-texel radius, and a two-texel guard.
+- High performs the Cartesian 5x5 offsets `{-2,-1,0,1,2}` with per-axis weights
+  `[1,2,3,2,1]`, 25 comparison operations, row-major accumulation, exact
+  `1/81` normalization, a 2.5-texel radius, and a three-texel guard. High remains
+  an optional tier. Medium retains the qualified default; the
+  original motion-based selection and later bias-fix evidence are linked below.
+
+Offsets derive at runtime from `Texture2DArray.GetDimensions`; viewport size,
+nominal resolution constants, and world scale do not determine the sampling
+step. Every hardware-linear tap is accepted only when its complete half-texel
+footprint is valid. Invalid tap weight and an invalid receiver projection
+contribute fully lit output rather than clamping inward.
+
+The reflected forward-lighting ABI is 768 bytes. Its aligned 448-byte shadow
+block starts at offset 64, carries control, view-depth transform, four split
+boundaries, light/transition data, and three 128-byte cascade records. Each
+cascade record contains one matrix plus texel/bias, raster-bias, filter, and
+valid-region vectors. Local lights begin at offset 512.
+C++ size/offset assertions and Slang compilation/reflection tests own this
+packing.
+
+One shared Slang helper consumes production world position and the geometric
+normal; the mapped shading normal remains exclusive to BRDF evaluation.
+The directional-light component exposes serialized `Depth Bias`, `Slope Bias`,
+and `Normal Bias` properties in its `Shadows` category. Depth and slope are
+strength multipliers with defaults of `1`; normal bias defaults to `0`.
+Each strength is clamped to `[0,4]`, and non-finite values restore its default.
+Edits publish a detached light snapshot through the ordinary render-state update.
+Depth scales both raster constant bias and the normalized-depth `0.00005`
+receiver comparison bias; slope scales raster slope bias. Raster clamp remains
+automatic. Receiver-world displacement stays disabled (`R=0`). Normal strength
+requests `t * strength` world units, bounded by `min(0.75*t, 0.08)` per cascade.
+The shared shader further scales this offset by `sqrt(1-cosine*cosine)` using
+the absolute geometric-normal/light cosine, projects the displaced receiver,
+and then applies comparison bias. Normal maps do not affect this displacement.
+The existing cascade `TexelBias` vector stores texel world size in XY,
+normalized comparison bias in Z, and bounded normal world offset in W;
+uniform sizes and descriptor layouts remain unchanged. Default settings retain
+the previous production bias and disable normal displacement. With forward-depth
+`LessOrEqual`, invalid or outside projection remains fully lit. Only the
+selected directional direct-light term is attenuated. Local lights,
+environment/ambient, emissive, rim assistance, and Unlit output are unchanged.
+
+## Screen-space contact supplement
+
+The optional contact-shadow pass is a deferred visibility producer for valid
+standard-Lit opaque and masked GBuffer receivers. It runs after the GBuffer is
+complete and before deferred lighting, writes one on-demand `R8_UNORM` scalar
+target, and never reads or writes Scene Color. Eligible views normally use an
+`8x8x1` synchronous compute dispatch over the complete owning target. The
+existing fullscreen fragment pass remains an independently owned same-feature
+fallback; if neither route is available, deferred lighting samples the white
+factor-one texture. Deferred lighting multiplies
+only the selected directional term after cascade attenuation by this factor;
+local lights, environment lighting, emissive output, retained-forward Unlit
+and translucent surfaces, and already-shadowed contributions are unchanged.
+
+The pass is an opt-in detail trace rather than a default shadow tier. It
+decodes GBuffer material flags and geometric normals, reconstructs receiver
+positions from D32 scene depth, and traces toward the selected light. The ray
+ends at 0.20 world units. Its projected path is bounded to 48 pixels from the
+biased ray origin and clipped to the owning viewport and homogeneous depth
+range before division. Contribution fades with the actual intersection's world
+distance and across the final 25% of the screen-distance budget. Off-screen
+geometry is not represented.
+
+A screen-space grid traversal visits every depth texel intersected by a
+positive-length portion of the projected ray. Each cell owns precisely that
+ray interval; perspective-correct interpolation maps its entry and exit back
+to world positions. Simultaneous grid-corner crossings advance both axes,
+without adding zero-length corner blockers. A ray with no projected displacement
+still tests its full world interval in the owning cell. The loop has a
+conservative `2 * ceil(screen budget) + 3` bound (99 iterations at 48 pixels);
+it does not stop after 16 world steps. This prevents thin visible edges from
+being missed between fixed sample endpoints.
+
+A sampled depth texel represents its geometric-normal plane restricted to that
+pixel's projected footprint. A hit requires the current cell interval to cross
+the plane. The interval itself enforces finite coverage, including foreshortened
+walls; no constant-depth world-space disk or tangent-sweep dilation approximates
+that footprint. First-hit attenuation uses the plane intersection rather than
+an arbitrary march endpoint. Only `GBufferStandardLitFlag` receivers
+participate. Backfacing receivers resolve fully visible. Front-facing receivers
+do not apply a second grazing-angle fade because the directional BRDF already
+contains its `N·L` response.
+
+The ray origin moves along the receiver geometric normal by half its 1.5-scaled
+constant-depth pixel radius, with a 0.0005 minimum and a bound of 5% of the trace
+distance. This radius controls receiver bias only; it does not constrain blocker
+coverage. Parallel sampled planes are classified as the receiver only when their
+plane separation is within the greater of the minimum bias or 5% of the receiver
+radius; close but independently separated parallel surfaces remain valid
+blockers. Depth and normals are fetched with exact texel loads. Linear depth
+filtering and one-sided unbounded device-depth tests are forbidden because they
+create intermediate silhouette depths and detached false occlusion. The pass
+does not add temporal history, spatial blur, surface-normal thickness, or binary
+hit refinement. Rasterized depth and normal precision remain screen-space
+limitations, but skipped visible texels are not an accepted quality tradeoff.
+
+Contact shadows default off in `FSceneViewSettings` and are enabled explicitly
+by the viewport control or a caller-owned view setting. The compute route
+transitions all five GBuffer/depth inputs from graphics read to compute read,
+transitions its discarded output to compute read/write, dispatches outside a
+render pass, then restores every input and publishes the output as graphics
+read before deferred lighting. There is no copy pass, device-idle dependency,
+backend handle, second queue, or queue-family transfer. Every in-bounds target
+pixel is overwritten; pixels outside a constrained viewport are exactly one,
+matching fragment clear-plus-scissor behavior.
+
+Compute and fragment shader/PSO slots publish transactionally and invalidate
+independently. Their transient targets follow
+[frame resource lifetimes](../Pipeline/RendererFramePreparation.md#resource-lifetime-classes).
+Compute declares sampled/storage `R8_UNORM` with canonical views; fragment
+declares the render-targetable equivalent. Missing compute payload or target
+capability rejection selects fragment before graph compilation. Missing fragment
+resources, invalid light or matrix input, or total
+persistent-payload failure binds the complete white fallback and continues the
+same deferred path. Shared graph allocation failure follows the frame abort
+contract. A view with no successful deferred receiver draw records no target
+or pass. Editor controls follow [Viewport Rendering Diagnostics](../../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+Per-view counters
+distinguish compute, fragment, and factor-one routes; exact dispatch/draw
+counts, bounded route reasons, and
+active/retained bytes are reported separately. An optional route-tagged GPU
+timing sink measures producer transitions and work through output handoff
+without including deferred consumption. The method
+remains screen-space: off-screen casters are not
+represented and contact shadows do not replace cascade coverage.
+
+## Causal diagnostics
+
+`EDirectionalShadowDiagnosticMode` is copied from `FSceneViewSettings` into the
+immutable prepared shadow value. `Lit` is zero and follows ordinary production
+output. Development modes visualize stored depth/coverage, unbiased receiver
+comparison, receiver-bias comparison, final normal-offset comparison, texel
+grid and guard, normalized bias contributions, or final classification.
+Missing coverage, outside/invalid coordinates, failed comparison, recovered
+comparison, excessive clamped displacement, lit, and shadowed results use
+distinct frozen colors recorded by the Q0 fixture package.
+
+Diagnostics execute only in the existing Scene Color fragment path and add no
+global mutable camera/light state, render target, pass, descriptor, or device
+wait. Disabled/failed shadows and Unlit views ignore diagnostic requests and
+match their Lit references exactly. Per-view counters report selected mode and
+prepared bias fallback/clamp state; exact diagnostic image statistics own
+fragment-level comparison and classification evidence without GPU atomics.
+
+Q1 adds three filter modes. `FilterFootprint` encodes bounded tier identity,
+effective radius, and normalized valid comparison weight. `FilterTapValidity`
+encodes invalid weight in red and valid weight in green. `FilterDifference`
+compares the selected candidate against exact Low in the same fragment: red is
+darker, blue is lighter, and green is unchanged. Only the difference diagnostic
+performs the additional Low comparison; diagnostic-disabled production uses
+only the selected tier's nominal 1, 9, or 25 comparisons.
+
+Production forward and deferred lighting skip cascade sampling when the BRDF's
+mapped shading normal has no positive light cosine. Geometric normals remain
+the bias input; diagnostic modes bypass this lighting shortcut. Exact depth
+loads for coverage and direct-comparison diagnostics execute only in the modes
+that consume them, after the production filtered result has been computed.
+
+Q2 adds `CascadeIndex`, `CascadeTransition`, `CascadeCoverage`, and
+`CascadeDifference`. Index uses fixed red/green/blue layer colors; transition
+is a grayscale adjacent-layer weight; coverage reuses the selected layers'
+coverage evidence; difference shows the signed attenuation difference between
+neighboring cascade results. Candidate-versus-single comparisons remain an
+offline qualification operation, avoiding a second production target solely
+for a live diagnostic.
+
+Receiver selection uses positive view-space depth. Outside a transition it
+samples one layer; in the final 10% before an interior split it samples exactly
+the two neighboring layers and blends their independently validated results.
+Medium therefore has nine nominal comparisons outside overlap and 18 inside.
+Invalid projections and taps contribute fully lit and never clamp into another
+layer.
+
+Target/view/sampler or draw-resource failure disables the feature for that view
+and continues Scene Color unshadowed. Renderer release, device invalidation,
+manual retry, and shader reload use the existing resource coordinator; the
+feature introduces no `WaitIdle` or whole-device flush. Counters report light
+and receiver selection, caster outcomes by family, resource outcomes, draws,
+logical/backend target bytes, and preparation failure. Optional GPU timing
+sinks expose Shadow Depth and Scene Color independently.
+
+An optional view-counter sink publishes render-thread preparation evidence.
+The total logical shadow duration includes cascade fitting, authoritative
+discovery/membership, and Static/Spline family
+preparation. The reported
+sorting/batching duration is nested within those family timings and is not an
+additional total component. Shadow resource preparation is measured afterward
+as a disjoint duration. Structural counters distinguish unique submitted and
+eligible casters, per-cascade aggregate submissions, conservative
+classification tests, membership-mask popcount, one scene traversal, and
+frame-local temporary capacity. Family diagnostics also report primitive,
+selected-LOD, and section fact builds/reuses. A build means the current cascade preparation performed
+that logical work; a reuse means a selected frame-local shared owner supplied
+it. Zero reuse is therefore meaningful and does not imply a missing sample.
+
+Resource counters also distinguish primitive uniform uploads/reuses and
+persistent mesh command hits/misses. They sum cascade draw membership, not
+unique scene primitives. Pass projection/view data remains cascade-local while
+stable primitive and material bindings can be reused across all cascades and
+subsequent frames.
+
+## Qualification and Decision Evidence
+
+`DirectionalShadowBaselineVulkanTests` owns disabled/Unlit parity,
+Masked/Opaque controls, motion, filter diagnostics, contact visibility, and
+caster-preparation observations. Contact qualification includes an almost
+edge-on wall with continuous receiver coverage under subpixel camera movement,
+for orthographic/perspective cameras, forward/reversed depth, and
+compute/fragment route parity. Interior shadow samples must stay continuous and
+change by at most four 8-bit display levels between the subpixel camera frames.
+Captures and image hashes remain diagnostic
+artifacts; fixed historical image hashes are not acceptance gates for lighting
+tuning. CPU contracts own split ordering, overlap,
+selection, and degenerate inputs; RHI/Vulkan coverage owns array/layer views,
+transitions, comparison sampling, creation failure, release, and retry.
+
+`ProfilesFiveBoxesWithPersistentDrawCommands` measures five actual cube meshes
+at 1920x1080 with 30 warmup and 120 measured frames per shadow candidate. It
+reports disjoint CPU resource preparation, CPU submission recording, and GPU
+Shadow Depth durations. `DURIN_MESH_DRAW_CACHE=off` disables the runtime command
+and uniform caches for a same-binary comparison; logical description caching
+remains enabled. Timings are diagnostic, not FPS acceptance gates. Hot cached
+frames require zero primitive uploads and complete command hits for their
+shadow draw membership.
+
+A 2026-10-19 diagnostic comparison of the center/half-extent projection against
+the previous eight-corner path used Win64 Debug, Tracy, Vulkan validation, and
+the same GTX 1060. Each revision had three runs with 30 warm-up and 120 measured
+frames per candidate. The median of run medians was:
+
+| ThreeCascades CPU duration | Before | After |
+| --- | ---: | ---: |
+| Discovery/membership, 5 boxes | 0.0718 ms | 0.0411 ms |
+| Total logical preparation, 5 boxes | 0.9542 ms | 0.9299 ms |
+| Discovery/membership, 128 high-overlap casters | 1.2185 ms | 0.4791 ms |
+| Total logical preparation, 128 high-overlap casters | 21.0559 ms | 19.5185 ms |
+
+These Debug, nonexclusive observations do not establish Release timing gates or
+editor FPS. Raw per-frame samples, reports, and image comparisons are retained
+locally under ignored `Build/ShadowCasterProjection/`. All 97 baseline captures
+were byte-identical. A temporary reference check also matched 30,000 deterministic
+classifications across contact-threshold neighbors, degenerate extents, rotated
+bases, and large coordinates, plus membership and invalid-bounds masks for shared
+and distinct bases, disabled cascades, and disabled culling.
+
+An isolated same-binary run on 2026-10-12 (Win64 Debug, Vulkan validation,
+GeForce GTX 1060 6GB) measured the following ThreeCascades medians:
+
+| Duration | Cache off | Cache on |
+| --- | ---: | ---: |
+| CPU shadow resource preparation | 0.729 ms | 0.508 ms |
+| CPU whole-view submission recording | 5.597 ms | 5.127 ms |
+| GPU Shadow Depth | 0.081 ms | 0.081 ms |
+
+The five boxes had ten cascade draw memberships. Hot cached frames reported
+ten command hits, zero misses, and zero primitive uploads. These are fixture
+diagnostics; they do not measure the editor scene's FPS or isolate every CPU
+cost of removing a mesh.
+
+Production timing gates are listed in
+[Deferred Directional Lighting](DeferredDirectionalLighting.md#memory-and-qualification).
+
+The selected preparation shares caster membership while keeping mesh logical
+draws cascade-local. Deeper fact caches did not
+meet the measured benefit thresholds; the detailed candidates and CPU results
+remain in [Directional Shadow Caster Preparation](../../../Plans/Archive/2026-08/DirectionalShadowCasterPreparation.md).
+
+Historical bias, filter selection, per-stage budgets, image packages, and runs
+are preserved by the completed plans:
+
+- [Bias and causal diagnostics](../../../Plans/Archive/2026-08/DirectionalShadowDiagnosticsAndBias.md)
+- [PCF quality tiers](../../../Plans/Archive/2026-08/DirectionalShadowPCFQualityTiers.md)
+- [Three-cascade selection](../../../Plans/Archive/2026-08/CascadedDirectionalShadows.md)
+
+These records explain the selected Medium/ThreeCascades defaults; they do not
+redefine current target ownership or production timing gates.

@@ -380,12 +380,12 @@ runtime boundary already exists.
 
 ## Related Documentation
 
-- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
 - [File I/O](../../../Runtime/Core/FileIO.md)
-- [Global Shaders](../../../Runtime/Rendering/GlobalShaders.md)
+- [Global Shaders](../../../Runtime/Rendering/Shaders/GlobalShaders.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code

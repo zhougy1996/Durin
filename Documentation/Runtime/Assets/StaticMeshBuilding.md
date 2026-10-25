@@ -448,6 +448,6 @@ retains CPU positions by default for CPU consumers and resource recreation.
 
 ## Related documentation
 
-- [Static mesh rendering](../Rendering/StaticMeshRendering.md)
+- [Static mesh rendering](../Rendering/Scene/StaticMeshRendering.md)
 - [Asset data lifecycle](AssetDataLifecycle.md)
 - [Asset compilation](AssetCompilation.md#staticmesh-completion)

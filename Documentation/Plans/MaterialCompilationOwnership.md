@@ -54,7 +54,7 @@ native validation used the authorized unsandboxed environment.
 
 Changed-document validation, all-plan lifecycle validation and final diff review
 passed. The lasting ownership contract is recorded in
-[Material System](../Runtime/Rendering/MaterialSystem.md#compile-lifecycle-and-cooked-programs).
+[Material System](../Runtime/Rendering/Materials/MaterialSystem.md#compile-lifecycle-and-cooked-programs).
 
 ## Goal
 

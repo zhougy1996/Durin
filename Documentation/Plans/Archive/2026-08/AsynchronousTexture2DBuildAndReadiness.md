@@ -10,7 +10,7 @@ Completed: 2026-08-10
 ## Current Status
 
 The synchronous Texture2D pipeline is complete and documented in
-[Texture System](../../../Runtime/Rendering/TextureSystem.md). Imports, source
+[Texture System](../../../Runtime/Assets/TextureSystem.md). Imports, source
 provenance, usage-aware mip generation, BC compression, DDC persistence,
 cooked loading, render-thread upload, material fallback, and Texture Editor
 diagnostics are already production foundations rather than work remaining in
@@ -27,7 +27,7 @@ Transactional setting proposals, including Undo and Redo, keep their reflected
 value and history cursor unpublished until asynchronous validation succeeds.
 Cancellation, failure, supersession, unload, document close, and shutdown do
 not publish stale candidates. The landed contract and characterization now live
-in [Texture System](../../../Runtime/Rendering/TextureSystem.md).
+in [Texture System](../../../Runtime/Assets/TextureSystem.md).
 
 ## Completion Evidence
 
@@ -321,12 +321,12 @@ Dependencies: Stage 3.
 
 ## Related Documentation
 
-- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/TextureSystem.md)
 - [Task System](../../../Runtime/Core/TaskSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
-- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+- [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHI/RHIResourceViewsAndTransfers.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 
