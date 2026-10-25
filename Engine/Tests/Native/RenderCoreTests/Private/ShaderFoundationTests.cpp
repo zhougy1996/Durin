@@ -1417,6 +1417,63 @@ namespace Durin
 		}
 	};
 
+	TEST_F(FShaderFoundationTests, ExplicitSyncIsHostOnlyAndRenderWaitsNeverBlock)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		ClearShaderMapPreparations();
+		FScopedShaderCompletionStub Backend;
+		Backend.Stub->Completion = FShaderCompilerOutput::Failure("explicit sync diagnostic");
+		const FShaderType* Types[] = {&FGlobalFixtureVertexShader::StaticType()};
+		FShaderMapBase Map;
+		const auto Sync = InitializeShaderMapFromTypesSync(Map, Types, {});
+		EXPECT_EQ(Sync.Error, "explicit sync diagnostic");
+		EXPECT_TRUE(Backend.Stub->LastInlineExecution);
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		{
+			FPreparedShaderMapScope Capture;
+			EXPECT_EQ(InitializeShaderMapFromTypesSync(Map, Types, {}).Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		}
+		Backend.Stub->DeferMounted = true;
+		// A host-side ordinary demand must remain nonblocking too.
+		EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, EShaderBuildStatus::Pending);
+		EXPECT_FALSE(Backend.Stub->LastInlineExecution);
+		EXPECT_EQ(Backend.Stub->Waits, 1u);
+		auto& Manager = FShaderCompilingManager::Get();
+		auto Unsubmitted = Manager.PrepareJobs("/Engine/Gizmo", {}, {}, [](auto) {});
+		class FRenderInvocation final : public FRunnable
+		{
+		public:
+			std::function<void()> Function;
+			auto Run() -> uint32 override { Function(); return 0; }
+		} Invocation;
+		Invocation.Function = [&] {
+			EXPECT_EQ(Manager.CompileMountedSync("/Engine/Gizmo", {}).Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(Manager.CompileGeneratedSync({}).Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(InitializeShaderMapFromTypesSync(Map, Types, {}).Status, EShaderBuildStatus::Error);
+			FMeshMaterialShaderMap MaterialMap;
+			EXPECT_EQ(FMeshMaterialShaderMap::TryCompileSync({}, MaterialMap).Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(Unsubmitted.Wait(), EShaderBuildWaitResult::WouldBlock);
+			EXPECT_EQ(Manager.FinishCompilation(Unsubmitted), EShaderBuildWaitResult::WouldBlock);
+			uint32 Delivered = 0;
+			auto Inline = Manager.PrepareJobs("/Engine/Gizmo", {}, {.bInlineExecution = true}, [&](auto Output) {
+				EXPECT_EQ(Output.Status, EShaderBuildStatus::Error);
+				EXPECT_NE(FormatShaderCompilerErrors(Output.Errors).find("rendering thread"), std::string::npos);
+				++Delivered;
+			});
+			Manager.SubmitJobs(Inline);
+			EXPECT_EQ(Delivered, 1u);
+			EXPECT_EQ(Backend.Stub->Compiles, 2u);
+		};
+		std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Invocation, "ShaderSyncContract", 0,
+			EThreadPriority::Normal, EThreadRole::RenderingThread));
+		ASSERT_NE(Thread, nullptr);
+		Thread->WaitForCompletion();
+		Unsubmitted.RequestCancel();
+		for (auto& Pending : Backend.Stub->Pending) if (auto Callback = std::move(Pending)) Callback();
+		ClearShaderMapPreparations();
+	}
+
 	TEST_F(FShaderFoundationTests, CompletedPreparationOutputLivesOnlyWhileAnExplicitOwnerNeedsIt)
 	{
 		ASSERT_TRUE(InitializeGlobalShaderFixture());
@@ -1750,6 +1807,13 @@ namespace Durin
 		const std::array<const FGlobalShaderType*, 2> Types = {
 			&FGlobalFixtureFragmentShader::StaticType(),
 			&FGlobalFixtureVertexShader::StaticType()};
+		const std::array<const FShaderType*, 2> BaseTypes{Types[0], Types[1]};
+		FShaderMapBase Prepared;
+		ASSERT_TRUE(InitializeShaderMapFromTypesSync(Prepared, BaseTypes, {}));
+		FScopedShaderCompletionStub Backend;
+		Backend.Stub->Completion = {.Status = EShaderBuildStatus::Ok};
+		for (const auto* Type : BaseTypes)
+			Backend.Stub->Completion.CompiledShaders.push_back(Prepared.GetCode()->GetCompiledShader(*Prepared.FindShaderIndex(Type)));
 		const auto Completion = Map.ResolveShaderSet(
 			"Tests.GlobalFixture", Types, false);
 		ASSERT_TRUE(Completion) << Completion.Error;

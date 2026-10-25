@@ -1,4 +1,5 @@
 #include "ShaderBuilder.h"
+#include "Threading/RunnableThread.h"
 #include "ShaderBuildVersion.h"
 #include "Hash/CanonicalHash.h"
 
@@ -290,6 +291,8 @@ namespace Durin
 
 	auto FShaderBuilder::GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
 	{
+		if (IsInRenderingThread())
+			return FShaderCompilerOutput::Failure("Synchronous shader compilation is forbidden on the rendering thread.");
 		if (VirtualShaderPath.empty()) return FShaderCompilerOutput::Failure(std::string(std::string("Shader type virtual shader path must not be empty")));
 		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return FShaderCompilerOutput::Failure(std::string(std::string("Shader entry-point request is invalid.")));
 		FShaderCompilerOutput Output;

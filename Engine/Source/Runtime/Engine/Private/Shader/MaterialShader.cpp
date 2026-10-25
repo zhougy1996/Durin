@@ -1,5 +1,6 @@
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/MaterialShader.h"
+#include "Threading/RunnableThread.h"
 #include "Shader/ShaderData.h"
 
 namespace Durin
@@ -247,9 +248,10 @@ namespace Durin
 		return {};
 	}
 
-	auto FMeshMaterialShaderMap::TryCompile(
+	static auto CompileMeshMaterialShaderMap(
 		FMeshMaterialShaderMapCompileInput Input,
-		FMeshMaterialShaderMap& OutMap) -> FShaderCompletion
+		FMeshMaterialShaderMap& OutMap,
+		FShaderCompletion (*Initialize)(FShaderMapBase&, std::span<const FShaderType* const>, const FShaderCompileOptions&)) -> FShaderCompletion
 	{
 		FShaderOperationResult Result;
 		OutMap = {};
@@ -318,7 +320,7 @@ namespace Durin
 					return CookedError;
 				if (!(Result = Map->Initialize(Group, Output, Options))) return Result;
 			}
-			else if (auto Completion = InitializeShaderMapFromTypes(*Map, Group, Options); !Completion) return Completion;
+			else if (auto Completion = Initialize(*Map, Group, Options); !Completion) return Completion;
 			FixedMaps.push_back(std::move(Map));
 		}
 
@@ -342,7 +344,7 @@ namespace Durin
 				(*FoundMap)->GetCode()->GetCompiledShader(*(*FoundMap)->FindShaderIndex(Type)));
 		}
 
-		return TryCreate({
+		return FMeshMaterialShaderMap::TryCreate({
 			.Identity = Input.Identity,
 			.Generation = Input.Generation,
 			.Target = std::move(Input.Target),
@@ -357,6 +359,18 @@ namespace Durin
 			.CompiledProgramIdentity = Input.CompiledProgramIdentity,
 			.CompiledTarget = std::move(Input.CompiledTarget),
 			.bCreateRHIShaders = Input.bCreateRHIShaders}, OutMap);
+	}
+
+	auto FMeshMaterialShaderMap::TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion
+	{
+		return CompileMeshMaterialShaderMap(std::move(Input), OutMap, InitializeShaderMapFromTypes);
+	}
+
+	auto FMeshMaterialShaderMap::TryCompileSync(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion
+	{
+		if (IsInRenderingThread())
+			return FShaderCompletion::Failure("Synchronous shader compilation is forbidden on the rendering thread.");
+		return CompileMeshMaterialShaderMap(std::move(Input), OutMap, InitializeShaderMapFromTypesSync);
 	}
 
 	auto FMeshMaterialShaderMap::GetIdentity() const

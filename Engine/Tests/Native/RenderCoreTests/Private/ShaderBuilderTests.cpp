@@ -14,6 +14,8 @@
 #include "NativeTestSupport.h"
 #include "Threading/TaskComposition.h"
 #include "Threading/ThreadEvent.h"
+#include "Threading/RunnableThread.h"
+#include "Threading/Runnable.h"
 
 #include "gtest/gtest.h"
 
@@ -457,6 +459,40 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(SecondCallbacks, 1u);
 		EXPECT_EQ(Builder->GetStats().Compilations, 1u);
 		Builder->Close();
+	}
+
+	TEST_F(FShaderBuilderTests, RenderingThreadRejectsInlineCompilationAndWaits)
+	{
+		Builder = std::make_unique<FShaderBuilder>();
+		class FRenderInvocation final : public FRunnable
+		{
+		public:
+			std::function<void()> Function;
+			auto Run() -> uint32 override { Function(); return 0; }
+		} Invocation;
+		FShaderBuildHandle Mounted, Generated;
+		uint32 Calls = 0;
+		Invocation.Function = [&] {
+			auto Complete = [&](auto Output) {
+				EXPECT_EQ(Output.Status, EShaderBuildStatus::Error);
+				EXPECT_NE(FormatShaderCompilerErrors(Output.Errors).find("rendering thread"), std::string::npos);
+				++Calls;
+			};
+			Mounted = Builder->CompileMounted("/ShaderBuilderTests/Simple", MakeCompileOptions(), {.bInlineExecution = true}, Complete);
+			Generated = Builder->CompileGenerated({}, {.bInlineExecution = true}, Complete);
+			EXPECT_EQ(Mounted.Wait(), EShaderBuildWaitResult::WouldBlock);
+			EXPECT_EQ(Generated.Wait(), EShaderBuildWaitResult::WouldBlock);
+			EXPECT_EQ(Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()).Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(Builder->GetOrCompileGenerated({}).Status, EShaderBuildStatus::Error);
+		};
+		std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Invocation, "ShaderBackendSyncContract", 0,
+			EThreadPriority::Normal, EThreadRole::RenderingThread));
+		ASSERT_NE(Thread, nullptr);
+		Thread->WaitForCompletion();
+		EXPECT_EQ(Calls, 2u);
+		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
+		EXPECT_EQ(Mounted.Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(Generated.Wait(), EShaderBuildWaitResult::Completed);
 	}
 
 	TEST_F(FShaderBuilderTests, InlineReentryAndDispatchFailureCompleteThroughOutputs)

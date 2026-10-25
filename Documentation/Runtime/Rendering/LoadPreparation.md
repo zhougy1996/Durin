@@ -54,10 +54,14 @@ reported as unavailable through a nonblocking check before Pending is returned.
 Authored rendering demand shares CPU ShaderMap requests with `FShaderMapPreparation`.
 Missing outputs are submitted asynchronously through `FShaderCompilingManager`,
 and resource attempts remain Pending until a later frame consumes the completed
-output. Rendering-thread demand never falls back to synchronous `CompileMounted`
-or waits for that request. Shader reloads retire stale requests; terminal errors
-and cancellation retain their existing outcomes. Game-thread startup callers
-outside capture retain the synchronous compatibility path.
+output. `InitializeShaderMapFromTypes` never compiles inline or waits, on any thread.
+Shader reloads retire stale requests; terminal errors and cancellation retain
+their existing outcomes. Startup and tools explicitly use
+`InitializeShaderMapFromTypesSync`, `TryCompileSync`, or the manager's
+`CompileMountedSync` / `CompileGeneratedSync` interfaces. These interfaces reject
+rendering-thread calls; consumption-only capture also rejects synchronous map
+initialization. Inline submissions are rejected by both the manager and backend
+on the rendering thread, where shader request waits return WouldBlock.
 Appending programs to `FShaderMapPreparation` resolves only the new entries;
 invalidation or retrying a prior resolution error refreshes the complete list.
 

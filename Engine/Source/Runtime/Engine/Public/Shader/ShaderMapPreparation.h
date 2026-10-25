@@ -10,7 +10,12 @@ namespace Durin
 	class FShaderMapBase;
 	class FShaderType;
 	struct FPreparedShaderMapState;
+	// Nonblocking: request shared preparation, or consume only inside capture.
 	ENGINE_API auto InitializeShaderMapFromTypes(FShaderMapBase& Map, std::span<const FShaderType* const> Types,
+		const FShaderCompileOptions& Options) -> FShaderCompletion;
+
+	// Startup/tools only. Rejects rendering-thread and consumption-only capture calls.
+	ENGINE_API auto InitializeShaderMapFromTypesSync(FShaderMapBase& Map, std::span<const FShaderType* const> Types,
 		const FShaderCompileOptions& Options) -> FShaderCompletion;
 
 	// Retains exact registered programs while ShaderBuild prepares CPU outputs.

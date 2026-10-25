@@ -1135,7 +1135,7 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 	FShaderCompilerOutput Output{.Status = EShaderBuildStatus::Ok};
 	for (const auto& StageRequest : MakeMaterialShaderStageRequests(Translation, false))
 	{
-		auto Stage = FShaderCompilingManager::Get().CompileGenerated(StageRequest);
+		auto Stage = FShaderCompilingManager::Get().CompileGeneratedSync(StageRequest);
 		ASSERT_TRUE(Stage) << FormatShaderCompilerErrors(Stage.Errors);
 		for (auto& Code : Stage.CompiledShaders) Output.CompiledShaders.push_back(std::move(Code));
 	}

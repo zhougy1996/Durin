@@ -62,7 +62,7 @@ namespace Durin
 			Options.bForceRecompile = true;
 			Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", Pass == 2 ? "1" : "0");
 			Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(0.4f)));
-			ASSERT_TRUE((ShaderResult = InitializeShaderMapFromTypes(Compiled, std::span(&FragmentTypes[Pass], 1), Options))) << ShaderResult.Error;
+			ASSERT_TRUE((ShaderResult = InitializeShaderMapFromTypesSync(Compiled, std::span(&FragmentTypes[Pass], 1), Options))) << ShaderResult.Error;
 			MaterialStages[Pass].push_back(Compiled.GetCode()->GetCompiledShader(0));
 		}
 
@@ -114,7 +114,7 @@ namespace Durin
 				});
 				ASSERT_NE(Factory, Factories.end());
 				FMeshMaterialShaderMap Map;
-				ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompile({
+				ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompileSync({
 					.Identity = {.ProgramIdentity = {.Digest = {.HashLow = 17, .HashHigh = 23}}},
 					.Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
 					.VertexFactoryType = *Factory,
@@ -128,7 +128,7 @@ namespace Durin
 				const size_t FragmentPass = Pass == 3 ? 1 : Pass;
 				const std::array<const FShaderType*, 2> ComposedTypes{
 					RuntimeTypes.front(), FragmentTypes[FragmentPass]};
-				ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompile({
+				ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompileSync({
 					.Identity = {.ProgramIdentity = Program}, .Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
 					.VertexFactoryType = *Factory, .MeshPassKey = static_cast<uint32>(Pass),
 					.ShaderTypes = ComposedTypes, .FixedShaderRuntimeRequest = Request.Name,
@@ -137,7 +137,7 @@ namespace Durin
 				if (Pass == 2)
 				{
 					const std::array<const FShaderType*, 2> OpaqueTypes{RuntimeTypes.front(), FragmentTypes[3]};
-					ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompile({
+					ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompileSync({
 						.Identity = {.ProgramIdentity = Program}, .Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
 						.VertexFactoryType = *Factory, .MeshPassKey = 2,
 						.ShaderTypes = OpaqueTypes, .FixedShaderRuntimeRequest = Request.Name,

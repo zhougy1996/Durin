@@ -124,15 +124,16 @@ namespace Durin::VulkanRHI
 
 	TEST_P(FVulkanQueueQualificationTests, NativeSplitMatchesFullComputeBufferAndImage)
 	{
+		FShaderCompileOptions Options;
+		Options.Target = VulkanShaderTarget;
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		const auto Code = FShaderCompilingManager::Get().CompileMountedSync("/Engine/Qualification/QueueProducer", Options);
+		ASSERT_TRUE(Code) << FormatShaderCompilerErrors(Code.Errors);
 		Testing::RunOnRHIRenderingThreadForTests([&] {
 			ASSERT_TRUE(GDynamicRHI->RHIGetQueueCapabilities().bSplitBarriers)
 				<< "Native event qualification requires a supporting ICD; fallback is a different gate.";
-			FShaderCompileOptions Options;
-			Options.Target = VulkanShaderTarget;
-			Options.EntryPoints = {"ComputeMain"};
-			Options.Frequencies = {EShaderFrequency::Compute};
-			const auto Code = FShaderCompilingManager::Get().CompileMounted("/Engine/Qualification/QueueProducer", Options);
-			ASSERT_TRUE(Code) << Code.Diagnostic;
+
 			auto Shader = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(Code.CompiledShaders[0]));
 			ASSERT_TRUE(Shader);
 			FComputePipelineStateInitializer Initializer;

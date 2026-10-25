@@ -21,8 +21,9 @@ namespace Durin
 			-> FShaderBuildHandle;
 		// Accepts a job group prepared by this manager; repeated submission is inert.
 		auto SubmitJobs(const FShaderBuildHandle& Jobs) -> void;
-		auto CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput;
-		auto CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
+		// Explicit blocking startup/tool operations; rendering-thread calls fail.
+		auto CompileGeneratedSync(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput;
+		auto CompileMountedSync(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 		auto FinishCompilation(const FShaderBuildHandle& Handle) -> EShaderBuildWaitResult;
 		auto CancelAllCompilation() -> void;
 		auto GetPeakJobStats() const -> std::pair<uint64, uint64>;
