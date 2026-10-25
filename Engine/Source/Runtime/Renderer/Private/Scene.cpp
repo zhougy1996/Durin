@@ -590,9 +590,9 @@ namespace Durin
 		FSplineMeshRenderDynamicData DynamicData
 	) -> void
 	{
+		requiref(IsInGameThread(), "Spline dynamic data must be submitted on the game thread.");
 		RequireActive("UpdateSplineMeshDynamicData");
-		if (PrimitiveId == InvalidPrimitiveComponentId || DynamicData.Revision == 0
-			|| !DynamicData.LocalBounds.bIsValid) return;
+		if (PrimitiveId == InvalidPrimitiveComponentId || !DynamicData.LocalBounds.bIsValid) return;
 		EnqueueRenderCommand("UpdateSplineMeshDynamicData", [this, PrimitiveId, DynamicData = std::move(DynamicData)](FRHICommandListImmediate&) mutable {
 			++HitProxyRevision;
 			CheckRenderingThread();

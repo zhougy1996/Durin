@@ -57,8 +57,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests,
 		{
 			Durin::FSplineMeshRenderDynamicData Dynamic{
 				.Params = {},
-				.LocalBounds = Durin::FBox({-2.0, -2.0, -1.0}, {120.0, 40.0, 20.0}),
-				.Revision = 1};
+				.LocalBounds = Durin::FBox({-2.0, -2.0, -1.0}, {120.0, 40.0, 20.0})};
 			Dynamic.Params.EndPosition = {100.0, 30.0, 10.0};
 			Dynamic.Params.EndTangent = {80.0, 0.0, 10.0};
 			Dynamic.Params.SourceForwardMin = -1.0;

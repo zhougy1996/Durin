@@ -67,6 +67,7 @@ namespace Durin
 		virtual auto UpdatePrimitiveCustomData(FPrimitiveComponentId Id, FPrimitiveCustomData Data) -> void = 0;
 		virtual auto UpdateStaticMeshRenderInstances(FPrimitiveComponentId Id, FStaticMeshRenderInstances Instances) -> void = 0;
 		virtual auto RemoveMaterialParameterCollection(FGuid CollectionId) -> void = 0;
+		// Immediate GameThread snapshot, ordered with proxy add/remove; not replayable async work.
 		virtual auto UpdateSplineMeshDynamicData(
 			FPrimitiveComponentId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData

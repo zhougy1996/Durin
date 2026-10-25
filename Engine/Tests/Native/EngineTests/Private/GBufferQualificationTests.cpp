@@ -567,8 +567,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}), Translate(-1.0, -1.0));
 	Durin::FSplineMeshRenderDynamicData SplineData{
 		.Params = {},
-		.LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0}),
-		.Revision = 1
+		.LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0})
 	};
 	SplineData.Params.EndPosition = {1.0, 0.0, 0.0};
 	SplineData.Params.StartTangent = {1.0, 0.0, 0.0};

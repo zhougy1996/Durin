@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-25
 
 ## Ownership Boundary
 
@@ -138,7 +138,7 @@ the same publication API; view-dependent providers retain dynamic validation.
 
 Spline proxies retain at most one publication per LOD, keyed by geometry record ID
 and the accepted deformation state. Accepted deformation updates clear those
-bindings; rejected revisions leave them intact. Material updates do not invalidate
+bindings; invalid deformation snapshots leave them intact. Material updates do not invalidate
 geometry. A binding revision shares the original immutable geometry span and its
 geometry ID while assigning a new record ID and validating the new inputs once.
 These caches are render-thread-only and are not worker-safe mutable state.

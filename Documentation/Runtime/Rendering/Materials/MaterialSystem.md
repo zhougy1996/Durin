@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-10-25
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -948,18 +948,23 @@ result; neither operation reinterprets the authored program.
 - Dirty flags classify the publication that a material mutation produces:
   dynamic parameters and compatible static properties publish complete immutable
   layers. GameThread uses the loaded-dependent query to refresh affected owners;
-  the render thread builds only that owner's layout and caches by local version.
+  the render thread builds only that owner's layout. Applying a publication
+  invalidates its resolved cache; diagnostic publication/resolution counts do not
+  participate in ordering or cache validity.
   It retains no parent proxy and performs no material-object traversal.
 - A material publication owns one pending wave per proxy. Repeated edits before
   the render command is consumed replace that pending wave, so only the newest
   immutable state is applied. The command stream preserves publication order
-  before later rendering commands consume the proxy. If a material is edited
-  before render-command admission starts, no publication command is submitted.
+  before later rendering commands consume the proxy. Publication accepts an
+  immediate GameThread snapshot, not an independently ordered asynchronous
+  result. Acceptance does not promise application of every intermediate edit.
+  If a material is edited before render-command admission starts, no publication
+  command is submitted.
   The next proxy request after the rendering thread starts builds and submits
   the current state before a preview or scene-proxy consumer uses it.
 - Component material assignment is a binding update, not material-content
-  invalidation. A component-wide revision orders rapid changes across
-  independent slots and rejects stale render commands.
+  invalidation. Slot bindings execute in the same GameThread-produced FIFO
+  stream as proxy add/remove, without a component-wide ordering revision.
 - The static mesh shader implements Cook-Torrance GGX direct lighting and
   split-sum image-based environment lighting, plus an unlit viewport mode.
   Direct evaluation clamps perceptual roughness to `[0.045, 1]`; that positive
@@ -1054,7 +1059,7 @@ search of the active declaration or layout field arrays.
 
 `FMaterialRenderProxy` resolves parent and local layers into a copied builder,
 publishes only a complete representation, and keeps the existing cache,
-coalescing, stale-update, startup-replay, and counted-resource contracts.
+coalescing, ordered-update, startup-replay, and counted-resource contracts.
 
 ## Renderer Surface Execution
 
@@ -1113,8 +1118,8 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   scan and select components whose current mesh assignment equals the changed
   mesh. Rebuilding render state then resolves current slot definitions,
   defaults, and positional overrides directly from canonical storage.
-- Proxy diagnostics expose queued publications/waves, applied/coalesced/pending/
-  stale publications, copied logical payload bytes, resolution-cache hit/miss,
+- Proxy diagnostics expose queued publications/waves, applied/coalesced/pending
+  publications, copied logical payload bytes, resolution-cache hit/miss,
   and binding-update counts; these are fixed process aggregates, not a dependency
   index. Dynamic-instance diagnostics separately count submitted records, changed,
   no-op and rejected commits, and owner publications. Reset is GameThread-only and

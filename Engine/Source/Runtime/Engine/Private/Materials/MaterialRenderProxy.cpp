@@ -21,7 +21,6 @@ namespace Durin
 			std::atomic<uint64> CopiedMaterialPayloadBytes = 0;
 			std::atomic<uint64> ResolutionCacheHitCount = 0;
 			std::atomic<uint64> ResolutionCacheMissCount = 0;
-			std::atomic<uint64> StalePublicationCount = 0;
 			std::atomic<uint64> BindingUpdateCount = 0;
 			std::atomic<uint64> RepresentationValidationFailureCount = 0;
 			std::atomic<uint64> ParameterBindingBuildCount = 0;
@@ -71,7 +70,6 @@ namespace Durin
 			.CopiedMaterialPayloadBytes = GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.load(),
 			.ResolutionCacheHitCount = GMaterialRenderProxyCounters.ResolutionCacheHitCount.load(),
 			.ResolutionCacheMissCount = GMaterialRenderProxyCounters.ResolutionCacheMissCount.load(),
-			.StalePublicationCount = GMaterialRenderProxyCounters.StalePublicationCount.load(),
 			.BindingUpdateCount = GMaterialRenderProxyCounters.BindingUpdateCount.load(),
 			.RepresentationValidationFailureCount = GMaterialRenderProxyCounters.RepresentationValidationFailureCount.load(),
 			.ParameterBindingBuildCount = GMaterialRenderProxyCounters.ParameterBindingBuildCount.load(),
@@ -90,7 +88,6 @@ namespace Durin
 		GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.store(0);
 		GMaterialRenderProxyCounters.ResolutionCacheHitCount.store(0);
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.store(0);
-		GMaterialRenderProxyCounters.StalePublicationCount.store(0);
 		GMaterialRenderProxyCounters.BindingUpdateCount.store(0);
 		GMaterialRenderProxyCounters.RepresentationValidationFailureCount.store(0);
 		GMaterialRenderProxyCounters.ParameterBindingBuildCount.store(0);
@@ -129,35 +126,22 @@ namespace Durin
 	) -> bool
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (Publication.LocalVersion == 0) return false;
 
 		bool bNeedsRenderCommand = false;
 		uint64 PayloadBytes = 0;
 		{
 			std::lock_guard Lock(PublicationMutex);
-			if (PendingPublication.has_value()
-				&& Publication.LocalVersion <= PendingPublication->LocalVersion)
+			PayloadBytes = GetMaterialPayloadBytes(Publication.LocalLayer);
+			if (PendingPublication.has_value())
+				GMaterialRenderProxyCounters.CoalescedPublicationCount.fetch_add(1);
+			PendingPublication = std::move(Publication);
+			GMaterialRenderProxyCounters.QueuedPublicationCount.fetch_add(1);
+			GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.fetch_add(PayloadBytes);
+			if (!bPublicationCommandQueued)
 			{
-				if (bPublicationCommandQueued) return false;
+				GMaterialRenderProxyCounters.PendingPublicationCount.fetch_add(1);
 				bPublicationCommandQueued = true;
 				bNeedsRenderCommand = true;
-			}
-			else
-			{
-				PayloadBytes = GetMaterialPayloadBytes(Publication.LocalLayer);
-				if (PendingPublication.has_value())
-				{
-					GMaterialRenderProxyCounters.CoalescedPublicationCount.fetch_add(1);
-				}
-				PendingPublication = std::move(Publication);
-				GMaterialRenderProxyCounters.QueuedPublicationCount.fetch_add(1);
-				GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.fetch_add(PayloadBytes);
-				if (!bPublicationCommandQueued)
-				{
-					GMaterialRenderProxyCounters.PendingPublicationCount.fetch_add(1);
-					bPublicationCommandQueued = true;
-					bNeedsRenderCommand = true;
-				}
 			}
 		}
 
@@ -205,20 +189,14 @@ namespace Durin
 	) -> bool
 	{
 		CheckRenderingThread();
-		if (Publication.LocalVersion == 0
-			|| Publication.LocalVersion <= LocalVersion)
-		{
-			++StalePublicationCount;
-			GMaterialRenderProxyCounters.StalePublicationCount.fetch_add(1);
-			return false;
-		}
 
 		check(std::ranges::is_sorted(
 			Publication.LocalLayer.Parameters,
 			{},
 			&FMaterialLocalRenderParameter::Id));
 		LocalLayer = std::move(Publication.LocalLayer);
-		LocalVersion = Publication.LocalVersion;
+		bHasResolvedData = false;
+		++PublicationCount;
 		GMaterialPublicationRevision.fetch_add(1);
 		GMaterialRenderProxyCounters.PublicationCount.fetch_add(1);
 		return true;
@@ -259,8 +237,7 @@ namespace Durin
 		-> const FMaterialRenderData&
 	{
 		CheckRenderingThread();
-		if (bHasResolvedData
-			&& CachedLocalVersion == LocalVersion)
+		if (bHasResolvedData)
 		{
 			GMaterialRenderProxyCounters.ResolutionCacheHitCount.fetch_add(1);
 			return CachedResolvedData;
@@ -320,32 +297,23 @@ namespace Durin
 			CachedResolvedData.Representation = std::move(CompiledRepresentation);
 		}
 
-		CachedLocalVersion = LocalVersion;
-		++ResolvedVersion;
-		if (ResolvedVersion == 0) ++ResolvedVersion;
+		++ResolutionCount;
 		bHasResolvedData = true;
 		return CachedResolvedData;
 	}
 
-	auto FMaterialRenderProxy::GetLocalVersion_RenderThread() const
+	auto FMaterialRenderProxy::GetPublicationCount_RenderThread() const
 		-> uint64
 	{
 		CheckRenderingThread();
-		return LocalVersion;
+		return PublicationCount;
 	}
 
-	auto FMaterialRenderProxy::GetResolvedVersion_RenderThread() const
+	auto FMaterialRenderProxy::GetResolutionCount_RenderThread() const
 		-> uint64
 	{
 		CheckRenderingThread();
-		return ResolvedVersion;
-	}
-
-	auto FMaterialRenderProxy::GetStalePublicationCount_RenderThread() const
-		-> uint64
-	{
-		CheckRenderingThread();
-		return StalePublicationCount;
+		return ResolutionCount;
 	}
 
 	auto FMaterialLocalRenderParameter::GetType() const -> EMaterialParameterType
