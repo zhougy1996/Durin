@@ -3,6 +3,7 @@
 #include "RDG/RDG.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 
 #include "CoreGlobals.h"
 #include "Console/ConsoleCommand.h"
@@ -40,6 +41,17 @@
 
 namespace Durin
 {
+	class FEditorGridVulkanTests : public testing::Test
+	{
+	public:
+		static auto SetUpTestSuite() -> void
+		{
+			Testing::InitializeDObjectSystemForTests();
+			// Engine owns the global shader-map release hook for each RHI lifetime.
+			FModuleManager::Get().LoadModuleChecked("Engine");
+		}
+	};
+
 	namespace
 	{
 		std::vector<FGPUTimingQueryRHIRef>* GPostProcessTimingQueries = nullptr;
@@ -254,7 +266,7 @@ namespace Durin
 		}
 	} // namespace
 
-	TEST(FEditorGridVulkanTests, ReversedZGridRemainsStableAcrossCoplanarRotatedViews)
+	TEST_F(FEditorGridVulkanTests, ReversedZGridRemainsStableAcrossCoplanarRotatedViews)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -500,7 +512,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, RDGAllocatorDetachesExportsAndReusesTransientDescriptors)
+	TEST_F(FEditorGridVulkanTests, RDGAllocatorDetachesExportsAndReusesTransientDescriptors)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -618,7 +630,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, GBufferTargetsCreateAndRecreateAcrossInvalidation)
+	TEST_F(FEditorGridVulkanTests, GBufferTargetsCreateAndRecreateAcrossInvalidation)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -771,7 +783,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, GroundTruthAmbientOcclusionTargetsRecreateAcrossInvalidation)
+	TEST_F(FEditorGridVulkanTests, GroundTruthAmbientOcclusionTargetsRecreateAcrossInvalidation)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -910,7 +922,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, ContactVisibilityTargetsRecreateAcrossInvalidation)
+	TEST_F(FEditorGridVulkanTests, ContactVisibilityTargetsRecreateAcrossInvalidation)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -1066,7 +1078,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, DeferredDirectionalResourcesRecreateAcrossGenerationChanges)
+	TEST_F(FEditorGridVulkanTests, DeferredDirectionalResourcesRecreateAcrossGenerationChanges)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -1178,7 +1190,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, WindowBackedPresentPreservesDisplaySettingsAcrossResizeAndToggles)
+	TEST_F(FEditorGridVulkanTests, WindowBackedPresentPreservesDisplaySettingsAcrossResizeAndToggles)
 	{
 		class FTestApplication final : public FGenericApplication
 		{

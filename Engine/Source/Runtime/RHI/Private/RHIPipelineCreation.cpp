@@ -115,17 +115,27 @@ namespace Durin
 		auto Publish(const FPublished& Publication) -> void
 		{
 			std::lock_guard Lock(Lifetime->WaitMutex);
-			if (Lifetime->Closed.load()) Source.TrySetCanceled();
+			if (Outcome.load() != ERHIPipelineRequestState::Pending) return;
+			if (Lifetime->Closed.load())
+			{
+				Outcome.store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
+				Source.TrySetCanceled();
+			}
 			else
 			{
 				Published.Store(Publication);
-				if (!Source.TrySetValue()) Published.Store(FPublished{});
+				// Terminal subscriptions run before the Core task publishes its
+				// terminal state. Publish domain readiness before they wake RHI.
+				Outcome.store(Publication->Result.State, std::memory_order_release);
+				Source.TrySetValue();
 			}
 			Lifetime->Changed.notify_all();
 		}
 		auto Cancel() -> bool
 		{
 			std::lock_guard Lock(Lifetime->WaitMutex);
+			if (Outcome.load() != ERHIPipelineRequestState::Pending) return false;
+			Outcome.store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
 			const bool Canceled = Source.TrySetCanceled();
 			Lifetime->Changed.notify_all();
 			return Canceled;
@@ -139,6 +149,7 @@ namespace Durin
 		Tasks::TCompletionSource<void> Source;
 		Tasks::TTask<void> Task;
 		TAtomicSharedPtr<FPipelinePublication> Published;
+		std::atomic<ERHIPipelineRequestState> Outcome = ERHIPipelineRequestState::Pending;
 		// Accessed only under the compile queue mutex, and cleared at publication.
 		std::shared_ptr<const FKey> PendingKey;
 		std::shared_ptr<const FKey> Identity;
@@ -156,11 +167,7 @@ namespace Durin
 		if (!State) return ERHIPipelineRequestState::Failed;
 		if (State->Lifetime->Failed.load()) return ERHIPipelineRequestState::Failed;
 		if (State->Lifetime->Retired.load()) return ERHIPipelineRequestState::Canceled;
-		if (State->Task.GetState() == ETaskState::Succeeded)
-			if (const auto Value = State->Published.Load()) return Value->Result.State;
-		if (State->Task.GetState() == ETaskState::Canceled) return ERHIPipelineRequestState::Canceled;
-		if (State->Task.GetState() == ETaskState::Failed) return ERHIPipelineRequestState::Failed;
-		return ERHIPipelineRequestState::Pending;
+		return State->Outcome.load(std::memory_order_acquire);
 	}
 	auto FRHIPipelineCreationRequest::GetResult() const -> FRHIPipelineCreationResult
 	{
@@ -168,12 +175,10 @@ namespace Durin
 		if (State->Lifetime->Failed.load())
 			std::rethrow_exception(State->Lifetime->TerminalFailure);
 		if (State->Lifetime->Retired.load()) return {.State = ERHIPipelineRequestState::Canceled};
-		if (State->Task.GetState() == ETaskState::Succeeded)
+		const auto Outcome = State->Outcome.load(std::memory_order_acquire);
+		if (Outcome == ERHIPipelineRequestState::Ready || Outcome == ERHIPipelineRequestState::Failed)
 			if (const auto Value = State->Published.Load()) return Value->Snapshot();
-		if (State->Task.GetState() == ETaskState::Canceled) return {.State = ERHIPipelineRequestState::Canceled};
-		if (State->Task.GetState() == ETaskState::Failed)
-			return {.State = ERHIPipelineRequestState::Failed};
-		return {};
+		return {.State = Outcome};
 	}
 	auto FRHIPipelineCreationRequest::GetTaskHandle() const -> Durin::Tasks::FTask
 	{
