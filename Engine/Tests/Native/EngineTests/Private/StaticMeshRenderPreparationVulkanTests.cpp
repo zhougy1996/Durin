@@ -2955,32 +2955,28 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 			FByteBuffer Pixels, Normals, Depth;
 		};
 		auto Render = [&](FScene* Scene, ERenderMode Mode, FObservation& Observation) {
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
-				FSceneView View;
-				View.ViewportWidth = View.ViewportHeight = 96;
-				View.Settings.Mode.RenderMode = Mode;
-				View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
-				static FObservation* Capture = nullptr;
-				Capture = &Observation;
-				if (Mode == ERenderMode::Lit)
-					SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture*, FRHITexture* Normals,
-						FRHITexture*, FRHITexture*, FRHITexture* Depth) {
-						ReadGeometryTexture(C, Normals, Capture->Normals);
-						ReadGeometryTexture(C, Depth, Capture->Depth, true);
-					});
-				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
-					FRHITextureCreateDesc::Create2D("SplineMirrorRegression", 96, 96, EPixelFormat::SRGBA8_UNORM)
-						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
-				++GRenderFrameCounterRenderThread;
-				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-				const auto Result = Renderer.RenderView(Commands, Scene, View, Target, false, {});
-				SetGBufferCaptureSink(nullptr);
-				Capture = nullptr;
-				EXPECT_EQ(Result, ERenderViewResult::Success);
-				ReadGeometryTexture(Commands, Target, Observation.Pixels);
-				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
-			});
-			FlushRenderingCommands();
+			FSceneView View;
+			View.ViewportWidth = View.ViewportHeight = 96;
+			View.Settings.Mode.RenderMode = Mode;
+			View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+			static FObservation* Capture = nullptr;
+			const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View,
+				FRHITextureCreateDesc::Create2D("SplineMirrorRegression", 96, 96, EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy),
+				[&] {
+					Capture = &Observation;
+					if (Mode == ERenderMode::Lit)
+						SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture*, FRHITexture* Normals,
+							FRHITexture*, FRHITexture*, FRHITexture* Depth) {
+							ReadGeometryTexture(C, Normals, Capture->Normals);
+							ReadGeometryTexture(C, Depth, Capture->Depth, true);
+						});
+				},
+				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) {
+					ReadGeometryTexture(Commands, Target, Observation.Pixels);
+				});
+			Capture = nullptr;
+			EXPECT_EQ(Result, ERenderViewResult::Success);
 		};
 		for (const bool bTwoSided : {false, true})
 			for (const double WorldSide : {1.0, -1.0})
