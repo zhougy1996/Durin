@@ -483,7 +483,7 @@ overlap build process trees.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
 - [Build System](../../../Development/Build/BuildSystem.md)

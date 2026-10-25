@@ -31,7 +31,7 @@ The reflected `FStaticMeshSource` retains `Geometry: FEditorBulkData`,
 `MaterialSlotCount: uint32`, aggregate section `MeshCount: uint32`, and
 `LODCount: uint32` (default 1).
 The owning `DStaticMesh::Source` remains EditorOnly. Authored packages use
-`FStaticMeshSourceVersion`; see [source versioning](Versioning.md#static-mesh-source-versions).
+`FStaticMeshSourceVersion`; see [source versioning](../../ObjectSystem/Versioning.md#static-mesh-source-versions).
 The independent geometry bulk codec uses `StaticMeshSourceGeometryPayloadVersion`.
 Compact descriptions retain version-1 canonical bytes, XXH3-128 hashing and source
 identity. Version 2 appends the explicit instance mapping to each section; readers
@@ -42,7 +42,7 @@ collision maps triangle instances back to geometric vertices. Render borrows
 section attributes and indices, allocating only expanded positions before
 constructing output streams. Both use all source
 positions for identical normalization. Derived keys use the
-[shared build-action schema](DerivedDataBuild.md); render and collision have
+[shared build-action schema](../Build/DerivedDataBuild.md); render and collision have
 independent identities and separate registered shared-output sessions. Collision
 capture owns prepared arrays and computes identity before metadata-only lookup;
 PhysicsCore cooking completes immutable arrays before geometry publication.
@@ -154,7 +154,7 @@ and existing direct Engine package-save APIs install preparation automatically.
 Cook render and collision preparation query and persist shared DDC results, so a
 later Cook can reuse construction even when its package output must be regenerated.
 Cache persistence does not publish live editor resources or save authored assets.
-See [target platform policy](TargetPlatforms.md) for the tool/runtime boundary
+See [target platform policy](../Build/TargetPlatforms.md) for the tool/runtime boundary
 and the explicitly unsupported MacOS collision representation.
 Cooked decoding validates both existing payloads and prepares bounds/ray data
 before installing them within one consumer refresh boundary, without editor construction.
@@ -167,7 +167,7 @@ while authored compilation is active, then requests resources through the
 independent GPU path. Inspector and material preview report pending work without
 a build barrier. Closing an Inspector does not cancel background compilation.
 The manager's bounded read-only observations are documented in
-[Asset Compilation](AssetCompilation.md#staticmesh-completion).
+[Asset Compilation](../Build/AssetCompilation.md#staticmesh-completion).
 
 Assets release decoded residency at
 publication; operation-owned copies expire at operation completion. Explicit
@@ -305,7 +305,7 @@ Optional independent complex collision input is resolved by StaticMesh using
 the primary source's normalization, while convex/simple input stays on the
 primary source. The resolved CPU triangles are persisted for runtime deformation;
 the editor proxy reference contributes a direct Cook source-package dependency.
-See [collision sources](../Physics/Collision.md#assets-and-components) for the
+See [collision sources](../../Physics/Collision.md#assets-and-components) for the
 coordinate, one-hop selection, and invalidation contracts.
 Shared DDC render output owns CPU geometry and the section-to-slot mapping.
 Asset slot definitions remain inputs and are not persisted in that output. `IMeshBuilderModule` is an Engine-declared
@@ -448,6 +448,6 @@ retains CPU positions by default for CPU consumers and resource recreation.
 
 ## Related documentation
 
-- [Static mesh rendering](../Rendering/Scene/StaticMeshRendering.md)
-- [Asset data lifecycle](AssetDataLifecycle.md)
-- [Asset compilation](AssetCompilation.md#staticmesh-completion)
+- [Static mesh rendering](../../Rendering/Scene/StaticMeshRendering.md)
+- [Asset data lifecycle](../Packages/AssetDataLifecycle.md)
+- [Asset compilation](../Build/AssetCompilation.md#staticmesh-completion)

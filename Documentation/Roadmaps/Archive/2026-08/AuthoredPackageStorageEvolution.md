@@ -412,8 +412,8 @@ rollback gate. Measurements from a non-reference computer remain diagnostic.
 
 ## Related Documentation
 
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [File IO](../../../Runtime/Core/FileIO.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)

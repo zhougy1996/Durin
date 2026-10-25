@@ -750,7 +750,7 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

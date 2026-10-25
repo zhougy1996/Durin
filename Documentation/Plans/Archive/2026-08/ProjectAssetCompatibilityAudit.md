@@ -569,7 +569,7 @@ Dependencies: Stages 0 through 3.
 
 ## Related Documentation
 
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Workspace Framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)

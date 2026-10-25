@@ -212,5 +212,5 @@ processes exit. For Cook, reuse one output directory and use `--no-incremental`
 when measuring DDC rather than skipping package preparation through Cook hits.
 Do not clear an existing user cache for measurement: use a fresh output/cache root.
 Summed DDC/queue times can overlap and must not be treated as wall-clock speedup.
-See [command interface](../../Development/Tooling/DurinDevTool.md#offline-local-cache-maintenance)
+See [command interface](../../../Development/Tooling/DurinDevTool.md#offline-local-cache-maintenance)
 for invocation and report status.

@@ -13,8 +13,8 @@ All stages are complete. Texture2D owner dispatch releases workers during cache
 I/O while retaining admission budgets through build callback retirement. Source
 validation and shared-output assembly are common to synchronous and asynchronous
 consumers. Lasting behavior is documented in
-[Asset Compilation](../../../Runtime/Assets/AssetCompilation.md#initial-compiling-managers)
-and [Derived Data Build](../../../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
+[Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md#initial-compiling-managers)
+and [Derived Data Build](../../../Runtime/Assets/Build/DerivedDataBuild.md#family-boundaries).
 
 Validation on `Win64-Debug-DurinEditor`:
 

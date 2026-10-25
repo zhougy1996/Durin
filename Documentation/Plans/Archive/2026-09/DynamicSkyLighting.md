@@ -172,7 +172,7 @@ lighting until a provider becomes eligible.
 
 ### Radiance and sampling conventions
 
-- Reuse [Cube Textures](../../../Runtime/Assets/CubeTextures.md) exactly: world
+- Reuse [Cube Textures](../../../Runtime/Assets/Families/CubeTextures.md) exactly: world
   `+X/+Y/+Z` is forward/right/up, layer order is `+X/-X/+Y/-Y/+Z/-Z`, rows are
   top-to-bottom and samples use pixel centers. Share the existing face-direction
   equations with capture. Longitude wraps and latitude clamps; filter samples
@@ -388,7 +388,7 @@ panorama. Standard reimport preserves output settings. Builder/projection versio
 are 4/3; TXPL adds stable format 13 without changing schema 2 record layout.
 The import dialog exposes the output choice; viewport and thumbnail display
 mapping remain after sampling. The implemented contract is in
-[Cube Textures](../../../Runtime/Assets/CubeTextures.md).
+[Cube Textures](../../../Runtime/Assets/Families/CubeTextures.md).
 
 Validation on Win64-Debug-DurinEditor:
 
@@ -658,9 +658,9 @@ its gate, not merely code compilation.
 - `Engine/Source/Runtime/Engine/Public/Components/SkyBoxComponent.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp`
-- [Cube textures](../../../Runtime/Assets/CubeTextures.md)
+- [Cube textures](../../../Runtime/Assets/Families/CubeTextures.md)
 - [Forward lighting](../../../Runtime/Rendering/Features/ForwardLighting.md)
-- [Package bulk data](../../../Runtime/Assets/BulkData.md)
+- [Package bulk data](../../../Runtime/ObjectSystem/BulkData.md)
 - [Renderer frame preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
 - [Renderer resource recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)
 - [Volumetric cloud scene contract](../../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)

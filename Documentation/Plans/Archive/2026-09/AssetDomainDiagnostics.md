@@ -88,4 +88,4 @@ packages, Cook, editor workflows, and downstream runtime consumers.
 - [`CoreDObject package format`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
 - [`AssetRegistry public headers`](../../../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry)
 - [`Engine asset public headers`](../../../../Engine/Source/Runtime/Engine/Public/Asset)
-- [`Asset catalog and mutation contract`](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [`Asset catalog and mutation contract`](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)

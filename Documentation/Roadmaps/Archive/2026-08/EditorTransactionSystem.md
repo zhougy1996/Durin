@@ -258,4 +258,4 @@ documents.
 - [Transaction Record Foundation](../../../Editor/Architecture/Transactions/TransactionRecords.md)
 - [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
 - [Editor Workspace Framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
-- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)

@@ -26,7 +26,7 @@ the mounted-source and Texture2D adapter. `EditorOperationTests` passes 5/5,
 directory-symlink privilege skip, and the Debug DurinEditor `all` build passes.
 The lasting ownership and completion contract is recorded in
 `Documentation/Editor/Architecture/Assets/AsyncAssetOperations.md` and
-`Documentation/Runtime/Assets/AssetDataLifecycle.md`.
+`Documentation/Runtime/Assets/Packages/AssetDataLifecycle.md`.
 
 ## Goal
 
@@ -195,7 +195,7 @@ mounted-source, or Widget policy into the infrastructure.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 - [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

@@ -82,7 +82,7 @@ ordinary `SavePackage` behavior.
   duplicate, cyclic, unsupported, noncanonical, out-of-range, or mismatched
   input fails before destination publication.
 - Canonical ordering and ids follow the lasting
-  [Asset Packages](../../../Runtime/Assets/AssetPackages.md#frozen-dast-v4-wire-contract)
+  [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md#frozen-dast-v4-wire-contract)
   contract. The executable test-only codec remains an independent oracle until
   production byte parity is complete.
 - The writer operates on temporary owned bytes and publishes atomically only
@@ -208,7 +208,7 @@ and there is no low-level production v4 writer API.
 ## Related Documentation
 
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 

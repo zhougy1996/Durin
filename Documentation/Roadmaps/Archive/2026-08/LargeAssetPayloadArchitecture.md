@@ -338,9 +338,9 @@ checkout telemetry demonstrating material virtualization savings for Milestone
 
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Testing](../../../Agents/Testing.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)
 

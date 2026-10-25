@@ -730,7 +730,7 @@ Later stages add these exact boundaries rather than replacing the baseline:
 - [Compute Shader Pipeline Roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHI/RHICommandExecution.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
-- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/Families/TextureSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Dedicated RHI Thread](DedicatedRHIThread.md)
 - [Recorded RHI Command List](RecordedRHICommandList.md)

@@ -236,7 +236,7 @@ final stage; no lasting source-compatibility promise is made.
 - `Engine/Source/Runtime/Core/Private/Misc/Project.cpp`
 - `Engine/Tests/Native/CoreTests/Private/LexicalPathTests.cpp`
 - `Engine/Tests/Native/AssetTests/Private/PackageTests.cpp`
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

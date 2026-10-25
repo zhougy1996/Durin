@@ -1215,7 +1215,7 @@ transactions, plus Vulkan material/import coverage. Recompute exact registered
 targets from the changed ownership rather than copying historical test counts.
 
 Use [Serialization](../../../Runtime/ObjectSystem/Serialization.md),
-[Asset Packages](../../../Runtime/Assets/AssetPackages.md), and
+[Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md), and
 [Transaction Records](../../../Editor/Architecture/Transactions/TransactionRecords.md) as current
 infrastructure contracts. This plan replaces the value-node authoring boundary
 in Material Graph Operations as implementation lands, while preserving the

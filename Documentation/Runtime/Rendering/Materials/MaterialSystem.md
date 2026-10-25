@@ -566,7 +566,7 @@ result byte budgets conservatively charge shared backing storage in full.
 usage declarations, editor/Game stage sets and reusable stage cache identities.
 
 Engine registers `DMaterial` and `DMaterialInstance` with its
-[asset-compilation aggregate](../../Assets/AssetCompilation.md) between task-system
+[asset-compilation aggregate](../../Assets/Build/AssetCompilation.md) between task-system
 startup and shutdown. `DMaterialInterface` owns non-reflected compilation state.
 Engine's `FShaderCompilingManager` directly implements `IAssetCompilingManager`.
 The asset framework registers it once as `Durin.Shader`, routing material classes
@@ -756,7 +756,7 @@ installed compiler. Each selected stage retains its reflection and Metal binding
 metadata alongside its binary code. Older MacOS source-profile Game programs
 require recooking. Preparation runs before package Archive discovery/emission; serialization
 consumes the qualified prepared bulk. The explicit target is independent of the
-active RHI device. [Target policy](../../Assets/TargetPlatforms.md) owns platform
+active RHI device. [Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
 dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
 DMAT v13 family per material or instance in the

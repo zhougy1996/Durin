@@ -597,6 +597,6 @@ Cache success never means an asset is current, applied, GPU-ready, or
 physics-ready. Family freshness and object application checks remain authoritative;
 textures serialize mutation against their active request, while other families
 retain their own generation rules. Game uses cooked values and runtime codecs without authoring build
-services. See [Asset Data Lifecycle](AssetDataLifecycle.md),
-[Asset Compilation](AssetCompilation.md), [Static Mesh Building](StaticMeshBuilding.md),
-and [Shader Cache](../Rendering/Shaders/ShaderCache.md).
+services. See [Asset Data Lifecycle](../Packages/AssetDataLifecycle.md),
+[Asset Compilation](AssetCompilation.md), [Static Mesh Building](../Families/StaticMeshBuilding.md),
+and [Shader Cache](../../Rendering/Shaders/ShaderCache.md).

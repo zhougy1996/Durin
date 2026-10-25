@@ -256,7 +256,7 @@ The required roadmap is complete when:
 - [Dedicated RHI Thread](../../../Plans/Archive/2026-08/DedicatedRHIThread.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)
 - [Shader parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md)
-- [Texture system](../../../Runtime/Assets/TextureSystem.md)
+- [Texture system](../../../Runtime/Assets/Families/TextureSystem.md)
 
 ## Related Code
 

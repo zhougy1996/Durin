@@ -275,7 +275,7 @@ unblocked.
 ## Related Documentation
 
 - [Package And Object Path Identity](../2026-09/PackageAndObjectPathIdentity.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
 - [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)

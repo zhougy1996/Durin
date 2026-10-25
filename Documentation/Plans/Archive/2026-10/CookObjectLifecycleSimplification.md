@@ -464,7 +464,7 @@ Game has no TargetPlatform module dependency.
 Dependencies: Stages 0-4.
 
 Files: stage-owned tests and codecs above, plus
-`Documentation/Runtime/Assets/TargetPlatforms.md`, `Cooking.md`,
+`Documentation/Runtime/Assets/Build/TargetPlatforms.md`, `Cooking.md`,
 `DerivedDataBuild.md`, and this plan's status/evidence.
 
 - [x] Prove cold, warm DDC, CookState reuse and forced rebuild paths. A CookHit

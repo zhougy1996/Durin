@@ -33,7 +33,7 @@ Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
   production DAST v10 read/write, generic live graph capture, package persistence,
-  and bounded validation. See [Package Persistence](../ObjectSystem/PackagePersistence.md).
+  and bounded validation. See [Package Persistence](../../ObjectSystem/PackagePersistence.md).
 - `AssetRegistry` owns canonical mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
 - `Engine` prepares asset-specific capture inputs, applies validated linker
@@ -278,7 +278,7 @@ DAST has permanent format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56`, diagnostic name
 `Durin.BinaryFormat.DAST`. The current wire version, supported readers, and
 corpus-transition policy are defined by
-[Versioning](Versioning.md#authored-package-policy).
+[Versioning](../../ObjectSystem/Versioning.md#authored-package-policy).
 
 `CoreDObject`'s `DObject/PackageFormat.h` is the sole code authority for the
 DAST magic, identity, format and object-stream versions, supported-reader set,
@@ -335,7 +335,7 @@ values. A failed delta plan reports its reason without silently changing modes.
 
 Baseline tags, inherited Struct defaults, whole-container replacement, Forced
 intent, and explicit hard references follow
-[Default-relative logical planning](../ObjectSystem/Serialization.md#default-relative-logical-planning).
+[Default-relative logical planning](../../ObjectSystem/Serialization.md#default-relative-logical-planning).
 The loader initializes unpublished delta objects from reflected defaults and
 remaps template references; explicit complete exports skip that initialization.
 Missing or incompatible constructor-created default children reject delta saves,
@@ -404,7 +404,7 @@ adapters format explicitly while their outer result contracts remain separate.
 Bulk Directory binds each `BulkData` value to an Inline Bulk or external raw
 `.dbulk` range; Registry binds the complete external segment. Placement,
 alignment, padding, and digest rules are defined by
-[Package Bulk Data](BulkData.md#dast-v10-authored-placement).
+[Package Bulk Data](../../ObjectSystem/BulkData.md#dast-v10-authored-placement).
 Payload bytes remain opaque to the package format; asset families own their
 schemas, interpretation, and [data lifecycle](AssetDataLifecycle.md).
 
@@ -429,7 +429,7 @@ source, import provenance, material graphs/presentation, and source reconciliati
 members are additionally guarded by `DURIN_WITH_EDITORONLY_DATA`. Game builds
 omit their storage and reflection registration; Editor builds retain them for
 authoring and Cook. Cooked runtime properties and payload readers remain intact.
-See [editor behavior and data](../../Development/Build/RuntimeVariants.md#editor-behavior-and-data)
+See [editor behavior and data](../../../Development/Build/RuntimeVariants.md#editor-behavior-and-data)
 for the build and HeaderTool contract. Diagnostic retention cannot restore
 fields that were compiled out of a variant.
 
@@ -458,7 +458,7 @@ Their boolean conversion alone does not describe the resulting content:
 | Later batch member fails | `SavedPackages`, `FailedPackage`, and `Result` | Earlier members stay committed. The failed member can itself have a nonempty `Effect` and need not appear in `SavedPackages`. |
 
 Physical writer reports retain recovery/affected paths as described in
-[writer outcome reports](../ObjectSystem/PackagePersistence.md#writer-outcome-reports).
+[writer outcome reports](../../ObjectSystem/PackagePersistence.md#writer-outcome-reports).
 The existing Engine adapter appends recovery paths to the message and logs
 failed affected-file paths; it does not expose those vectors as asset fields.
 A Registry failure combined with finalization failure keeps projection-pending
@@ -673,11 +673,11 @@ display path, or legacy value cache exists.
 
 Relocation, asset rename, Fix Up, and deletion policy belong to
 [Asset Catalog And Mutation](AssetCatalogAndMutation.md). Cook reachability and
-publication belong to [Asset Cooking and Publication](Cooking.md).
+publication belong to [Asset Cooking and Publication](../Build/Cooking.md).
 
 ## Compatibility And Canonical Resave
 
-Schema evolution follows the [Archive version policy](Versioning.md#archive-version-context)
+Schema evolution follows the [Archive version policy](../../ObjectSystem/Versioning.md#archive-version-context)
 and the load rules above. Wire validation checks the entire package before
 applying that policy; malformed bytes are not excused by an unknown field name.
 
@@ -707,14 +707,14 @@ failure restores the prior closure and Registry state. Project batches stop at
 cancellation but do not claim project-wide atomicity.
 
 User-facing resave steps are in
-[Canonical Resave](../../Editor/Guides/CanonicalResave.md).
+[Canonical Resave](../../../Editor/Guides/CanonicalResave.md).
 
 ## Related Documentation
 
 - [Asset Catalog And Mutation](AssetCatalogAndMutation.md)
 - [Asset Data Lifecycle](AssetDataLifecycle.md)
-- [Package Bulk Data](BulkData.md)
-- [Versioning](Versioning.md)
-- [Serialization](../ObjectSystem/Serialization.md)
-- [File I/O](../Core/FileIO.md)
-- [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)
+- [Package Bulk Data](../../ObjectSystem/BulkData.md)
+- [Versioning](../../ObjectSystem/Versioning.md)
+- [Serialization](../../ObjectSystem/Serialization.md)
+- [File I/O](../../Core/FileIO.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)

@@ -869,8 +869,8 @@ Dependencies: Stages 0-4.
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Core Math](../../../Runtime/Core/Math.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 

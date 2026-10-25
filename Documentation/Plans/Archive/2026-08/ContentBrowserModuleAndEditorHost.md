@@ -494,7 +494,7 @@ Build and native-test selection/execution follow the repository workflows in
 
 - [Editor Workspace Framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md)
 - [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
-- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
 - [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)

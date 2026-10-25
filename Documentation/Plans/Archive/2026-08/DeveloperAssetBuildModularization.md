@@ -851,7 +851,7 @@ selection, lifecycle and exportability rules are recorded in the owning docs.
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 

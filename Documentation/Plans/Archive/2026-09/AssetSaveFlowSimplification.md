@@ -43,7 +43,7 @@ saves entered `SavePackagesAtomically` and a stateless Engine singleton forwarde
 registry publication, metadata updates and recovery snapshots.
 
 Lasting contracts are published in [Package Persistence](../../../Runtime/ObjectSystem/PackagePersistence.md),
-[Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md), and
+[Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md), and
 [Code Modules](../../../Workspace/CodeModules.md). DAST v10 and existing transaction,
 revision, dependency identity, dirty-state and projection-pending boundaries are
 preserved. File switching remains in-process rollback, not crash atomicity.

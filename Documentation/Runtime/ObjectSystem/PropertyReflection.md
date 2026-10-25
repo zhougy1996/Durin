@@ -29,7 +29,7 @@ class, enum, struct, or nested element descriptors. `DObject/Property.h` owns
 the common base and value access helpers; `DObject/DurinPropertyTypes.h` owns
 concrete typed accessors. Byte, Blob, and BulkData use dedicated kind and value
 operations rather than numeric or ordinary Array semantics. The resource and
-persistence contract for BulkData belongs to [Package bulk data](../Assets/BulkData.md).
+persistence contract for BulkData belongs to [Package bulk data](BulkData.md).
 
 `DPROPERTY(AlwaysSerialize)` marks a required wire field. Default-delta planning
 emits its complete value even when equal to the paired default. This flag is

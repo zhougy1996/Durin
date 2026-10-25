@@ -390,5 +390,5 @@ validation with stage commits, and the registered native gates for runtime chang
 - `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp`
 - `Engine/Source/Runtime/Engine/Private/Asset/EngineCookContributors.cpp`
 - `Engine/Source/Runtime/Engine/Public/Asset/Cook.h`
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset catalog and mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)

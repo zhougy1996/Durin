@@ -11,7 +11,7 @@ Last reviewed: 2026-10-19
 Add a Sky Light actor independently of a Sky Box or Procedural Sky actor.
 Specified Cube accepts a linear RGBA32F ordinary TextureCube, at most 512 pixels
 per face. Import a panorama with HDR output using the normal cube importer;
-reimport, retained source, ordinary mips, and Cook follow [Cube Textures](../../Assets/CubeTextures.md).
+reimport, retained source, ordinary mips, and Cook follow [Cube Textures](../../Assets/Families/CubeTextures.md).
 Captured Sky requires an enabled Procedural Sky actor in the same World.
 It captures only that analytic infinite sky: no meshes, clouds, fog, atmosphere,
 sun disc, or Sky Box textures. Directional lights still supply direct sunlight.

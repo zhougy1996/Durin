@@ -1208,13 +1208,13 @@ material-preview, and final-handoff stages are superseded by integrated Stages
 
 ## Related Documentation
 
-- `Documentation/Runtime/Assets/AssetPackages.md`
-- `Documentation/Runtime/Assets/AssetDataLifecycle.md`
+- `Documentation/Runtime/Assets/Packages/AssetPackages.md`
+- `Documentation/Runtime/Assets/Packages/AssetDataLifecycle.md`
 - `Documentation/Runtime/World/LevelSystem.md`
 - `Documentation/Runtime/Rendering/Materials/MaterialSystem.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
-- `Documentation/Runtime/Assets/TextureSystem.md`
-- `Documentation/Runtime/Assets/CubeTextures.md`
+- `Documentation/Runtime/Assets/Families/TextureSystem.md`
+- `Documentation/Runtime/Assets/Families/CubeTextures.md`
 - `Documentation/Development/VersionControl/ContentVersionControl.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`

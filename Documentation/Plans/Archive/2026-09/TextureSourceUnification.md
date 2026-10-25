@@ -268,9 +268,9 @@ capabilities are distinguishable from implemented support.
 ## References
 
 - [Core image codec](../../../Runtime/Core/ImageCodec.md)
-- [Package bulk data](../../../Runtime/Assets/BulkData.md)
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Package bulk data](../../../Runtime/ObjectSystem/BulkData.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Volume textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [UE FTextureSource API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FTextureSource)
 
 ## Related Code

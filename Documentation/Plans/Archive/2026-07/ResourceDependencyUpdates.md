@@ -546,7 +546,7 @@ Build and test commands come from
 
 ## Related Documentation
 
-- `Documentation/Runtime/Assets/AssetPackages.md`
+- `Documentation/Runtime/Assets/Packages/AssetPackages.md`
 - `Documentation/Runtime/ObjectSystem/GarbageCollection.md`
 - `Documentation/Runtime/Rendering/Materials/MaterialSystem.md`
 - `Documentation/Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md`

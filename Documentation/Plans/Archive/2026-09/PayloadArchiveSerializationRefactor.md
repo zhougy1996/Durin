@@ -38,9 +38,9 @@ Documentation validation and all-plan lifecycle validation passed. No GPU
 performance or allocation-free decoding claim is made.
 
 Lasting contracts are published in [Serialization](../../../Runtime/ObjectSystem/Serialization.md),
-[Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
-[BulkData](../../../Runtime/Assets/BulkData.md),
-[Volume Textures](../../../Runtime/Assets/VolumeTextures.md), and
+[Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md),
+[BulkData](../../../Runtime/ObjectSystem/BulkData.md),
+[Volume Textures](../../../Runtime/Assets/Families/VolumeTextures.md), and
 [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md).
 
 ## Goal
@@ -68,8 +68,8 @@ replacement guarantees.
 
 Existing contracts remain authoritative until their owning implementation stage
 updates them: [Serialization](../../../Runtime/ObjectSystem/Serialization.md),
-[Package Bulk Data](../../../Runtime/Assets/BulkData.md), and
-[Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md).
+[Package Bulk Data](../../../Runtime/ObjectSystem/BulkData.md), and
+[Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md).
 
 ## Selected Design
 

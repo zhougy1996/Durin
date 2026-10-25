@@ -13,7 +13,7 @@ Subsequent simplification (2026-09-08): Texture now owns pending-request trackin
 compute-result polling and GameThread delivery directly. The Core owner-operation
 queue/ticket abstraction and separate retained-result byte budget were removed.
 The stage receipts below describe the completed original implementation; current
-behavior is authoritative in [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
+behavior is authoritative in [Asset compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 and [Task system](../../../Runtime/Core/TaskSystem.md).
 
 Stages 0 through 5 are implemented and qualified. Package reads use bounded
@@ -1376,7 +1376,7 @@ preserve its owner registration and retirement boundary.
 - [CPU task system](../../../Runtime/Core/TaskSystem.md)
 - [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
-- [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 
 ## Related Code
 

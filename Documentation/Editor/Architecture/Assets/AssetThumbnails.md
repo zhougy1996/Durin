@@ -149,7 +149,7 @@ load handles until the session is reset.
 
 EngineLoop owns the async-load pump. Standalone thumbnail hosts and tests must
 also call `ProcessAsyncLoading`; polling a session or pool alone does not advance
-package loading. The [async asset loading boundary](../../../Runtime/Assets/AssetPackages.md#runtime-lifetime)
+package loading. The [async asset loading boundary](../../../Runtime/Assets/Packages/AssetPackages.md#runtime-lifetime)
 still performs object construction, bulk validation and PostLoad on GameThread,
 so this integration removes synchronous thumbnail load calls without promising
 that those remaining stages cannot produce a long frame.
@@ -333,6 +333,6 @@ read results cannot publish into a replacement request.
 ## Related Documentation
 
 - [Content Browser](ContentBrowser.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Core Task System](../../../Runtime/Core/TaskSystem.md)
 - [Modular Features And Module Retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)

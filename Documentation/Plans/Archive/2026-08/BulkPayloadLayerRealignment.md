@@ -172,9 +172,9 @@ descriptors, loading, publication, and failure behavior.
 ## Related Documentation
 
 - [Large Asset Payload Architecture](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Volume Textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Generated Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)

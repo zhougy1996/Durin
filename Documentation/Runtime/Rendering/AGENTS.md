@@ -27,7 +27,7 @@ Place topic documents in the following domains rather than at the Rendering root
   workflows belong under `Editor`.
 
 Texture source, import/build, derived payload, cooking, and loading contracts
-belong under `Runtime/Assets`, alongside VolumeTextures. Keep shared Material
-contracts in `Materials` because they also own expression and render behavior.
+belong under `Runtime/Assets/Families`, alongside VolumeTextures. Keep shared
+Material contracts in `Materials` because they also own expression and render behavior.
 Link across domains rather than duplicating shared contracts or splitting a
 cohesive cross-module contract solely to match directory or module boundaries.

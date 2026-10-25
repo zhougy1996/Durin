@@ -30,8 +30,8 @@ The intended dependency direction is:
   dialogs, decoder selection, or source mutation workflows.
 - Family build modules own detached recipes and producer identity. Engine owns
   derived-data keys, cache policy, typed application, and compilation; see
-  [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md#serialization-and-production-ownership)
-  and [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md).
+  [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md#serialization-and-production-ownership)
+  and [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md).
 - `DurinEd` owns the generic `DFactory` descriptor/discovery contract and the
   self-registering `FReimportHandler` / `FReimportManager` capability, routing,
   priority, result, and optional persistence policy.
@@ -504,7 +504,7 @@ verification run on the scheduler's BlockingIO pool. The presenter reports
 teardown drains and abandons the staged save before discarding the candidate.
 Snapshot conflicts retain the dirty asset for retry. Explicit Retry Texture
 Saves and ordinary synchronous callers continue to use the existing save path.
-See [asynchronous save staging](../../../Runtime/Assets/AssetCatalogAndMutation.md#asynchronous-save-staging)
+See [asynchronous save staging](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#asynchronous-save-staging)
 for ownership and transaction boundaries.
 
 Each texture compresses independent block rows through the CPU task scheduler,
@@ -569,13 +569,13 @@ nor DDC fallback.
 
 Standalone family import data uses concrete schema 2 with no legacy reader or
 dual-write route. Package baseline and future migration policy are defined by
-[Versioning](../../../Runtime/Assets/Versioning.md#authored-package-policy).
+[Versioning](../../../Runtime/ObjectSystem/Versioning.md#authored-package-policy).
 
 ## Related Documentation
 
 - [Source File Workflows](../../Guides/SourceFileWorkflows.md)
-- [Asset Data Lifecycle And Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle And Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 - [Async Asset Operations](AsyncAssetOperations.md)
 
 ## Related Code

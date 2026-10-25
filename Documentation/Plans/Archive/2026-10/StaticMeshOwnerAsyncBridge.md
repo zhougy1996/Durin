@@ -13,8 +13,8 @@ All stages are complete. The plan was saved and validated before source changes.
 Render owners use asynchronous DDC dispatch and retain their reservation across
 I/O. The owner pump schedules CPU consumption only after callback retirement;
 publication and explicit finish retain owner-thread reconciliation. Lasting
-behavior is recorded in [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md#staticmesh-completion)
-and [Derived Data Build](../../../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
+behavior is recorded in [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md#staticmesh-completion)
+and [Derived Data Build](../../../Runtime/Assets/Build/DerivedDataBuild.md#family-boundaries).
 
 Validation on `Win64-Debug-DurinEditor`:
 

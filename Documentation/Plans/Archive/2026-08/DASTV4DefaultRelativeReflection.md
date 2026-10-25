@@ -788,7 +788,7 @@ begins or a focused test points to that direct dependency.
 - [DAST V4 Measurement and Wire Contract Plan](DASTV4MeasurementAndWireContract.md)
 - [Class Default Object Lifecycle Plan](ClassDefaultObjectLifecycle.md)
 - [Reflection System](../../../Runtime/ObjectSystem/ReflectionSystem.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

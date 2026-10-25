@@ -81,13 +81,13 @@ repository-search evidence.
 
 | Concern | Owning documentation |
 | --- | --- |
-| Package identity, v8 sections, live save/load, construct-free validation, offline converter boundary | `Runtime/Assets/AssetPackages.md` |
+| Package identity, v8 sections, live save/load, construct-free validation, offline converter boundary | `Runtime/Assets/Packages/AssetPackages.md` |
 | Format-neutral linker tables, tagged values, Archive capture/application, canonical value semantics | `Runtime/ObjectSystem/Serialization.md` |
-| Inline/external field state, v8 bulk directory, raw `.dbulk` binding and resource ranges | `Runtime/Assets/BulkData.md` |
+| Inline/external field state, v8 bulk directory, raw `.dbulk` binding and resource ranges | `Runtime/ObjectSystem/BulkData.md` |
 | Main/bulk atomic publication and rollback | `Runtime/Core/FileIO.md` |
-| Front-matter discovery, package-level dependencies, transient exact occurrences, mutation transactions | `Runtime/Assets/AssetCatalogAndMutation.md` |
-| Authored/Cook storage policy and family payload ownership | `Runtime/Assets/AssetDataLifecycle.md` plus family contracts |
-| Current version policy and offline v7 input | `Runtime/Assets/Versioning.md` |
+| Front-matter discovery, package-level dependencies, transient exact occurrences, mutation transactions | `Runtime/Assets/Packages/AssetCatalogAndMutation.md` |
+| Authored/Cook storage policy and family payload ownership | `Runtime/Assets/Packages/AssetDataLifecycle.md` plus family contracts |
+| Current version policy and offline v7 input | `Runtime/ObjectSystem/Versioning.md` |
 | User/tool/source-control workflows | `Editor/Guides/CanonicalResave.md`, `Editor/Guides/SourceFileWorkflows.md`, `Development/Tooling/DurinDevTool.md`, and `Development/VersionControl/ContentVersionControl.md` |
 | Cross-module implementation ownership | `Workspace/CodeModules.md` |
 
@@ -182,10 +182,10 @@ Completed on 2026-08-31 without launching an application:
 ## Related Code and Documentation
 
 - [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Bulk Data](../../../Runtime/Assets/BulkData.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Bulk Data](../../../Runtime/ObjectSystem/BulkData.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Testing Workflow](../../../Agents/Testing.md)

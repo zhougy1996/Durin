@@ -124,7 +124,7 @@ $env:DURIN_RHI_EXECUTION='threaded'
 - [Volumetric cloud scene contract](VolumetricCloudSceneContract.md)
 - [Volumetric cloud temporal reconstruction](VolumetricCloudTemporalReconstruction.md)
 - [Volumetric cloud lighting and shadows](VolumetricCloudLightingAndShadows.md)
-- [Volume textures](../../Assets/VolumeTextures.md)
+- [Volume textures](../../Assets/Families/VolumeTextures.md)
 - [Synchronous compute pipelines](../RHI/SynchronousComputePipelines.md)
 - [RHI resource transitions](../RHI/RHIResourceTransitions.md)
 - [Render resource lifecycle](../Pipeline/RenderResourceLifecycle.md)

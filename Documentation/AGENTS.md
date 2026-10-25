@@ -49,7 +49,8 @@ from related domains rather than duplicating it.
 - `Runtime/Core`: low-level platform, file I/O, logging, math, task scheduling,
   module mechanisms, image codecs, and transport-independent Toolset contracts.
 - `Runtime/ObjectSystem`: reflection, managed-object lifetime, object and value
-  serialization, runtime transaction contracts, and Engine-free package persistence.
+  serialization, runtime transaction contracts, Engine-free package persistence,
+  package bulk-data substrate, and cross-layer version compatibility.
   Shared byte-archive rules remain with the serialization contract.
 - `Runtime/Application`: process startup, frame entry, shutdown orchestration,
   native windows, and application-host integration.
@@ -58,6 +59,9 @@ from related domains rather than duplicating it.
 - `Runtime/Rendering`: GPU abstraction, shaders, materials, scene publication,
   frame execution, and rendering features. Follow the
   [Rendering domain rules](Runtime/Rendering/AGENTS.md) for placement.
+- `Runtime/Assets`: asset packages and data lifecycles, asset-production services,
+  and concrete asset-family contracts. Follow the
+  [Asset domain rules](Runtime/Assets/AGENTS.md) for placement.
 
 Keep asset construction, loading, cooking, and publication under `Runtime/Assets`;
 the object and package substrate belongs to `Runtime/ObjectSystem`.

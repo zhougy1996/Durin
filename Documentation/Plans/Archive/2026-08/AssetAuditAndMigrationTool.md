@@ -559,9 +559,9 @@ rules.
 ## Related Documentation
 
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [File I/O](../../../Runtime/Core/FileIO.md)
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 

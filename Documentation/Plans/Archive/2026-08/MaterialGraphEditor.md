@@ -403,7 +403,7 @@ scalability remains deliberately evidence-gated in roadmap milestone 8.
 - [Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
 - [Material Compile Lifecycle and Derived Data](MaterialCompileLifecycleAndDerivedData.md)
 - [Reflected Property Editing](../../../Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md)
-- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 
 ## Related Code
 

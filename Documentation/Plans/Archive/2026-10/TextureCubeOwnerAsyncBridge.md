@@ -13,8 +13,8 @@ All stages are complete. Cube platform-cache dispatch uses the shared asynchrono
 texture session and owner mailbox. Canonical and normalized panorama paths share
 source definition validation and output assembly with synchronous consumers.
 Lasting behavior is recorded in
-[Asset Compilation](../../../Runtime/Assets/AssetCompilation.md#initial-compiling-managers)
-and [Derived Data Build](../../../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
+[Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md#initial-compiling-managers)
+and [Derived Data Build](../../../Runtime/Assets/Build/DerivedDataBuild.md#family-boundaries).
 
 Validation on `Win64-Debug-DurinEditor`:
 

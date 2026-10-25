@@ -453,7 +453,7 @@ StaticMesh builds publish a complete detached render and collision products
 on the owner thread. Render consumers retain the accepted mesh until publication;
 bounds queries and scene preparation do not finish authored work. Source ownership,
 payload validation, cancellation, and schema compatibility are defined in
-[Static mesh source and building](../../Assets/StaticMeshBuilding.md).
+[Static mesh source and building](../../Assets/Families/StaticMeshBuilding.md).
 
 ## Related Documentation
 

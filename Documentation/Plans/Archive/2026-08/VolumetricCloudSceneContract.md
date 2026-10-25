@@ -328,7 +328,7 @@ Revision)` from the old endpoint before publishing to the new one.
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
 - [Volumetric cloud scene contract](../../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)
 - [Volumetric cloud spatial rendering](../../../Runtime/Rendering/Features/VolumetricCloudSpatialRendering.md)
-- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Volume textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Build and run](../../../Agents/BuildAndRun.md)
 - [Testing](../../../Agents/Testing.md)
 

@@ -299,7 +299,7 @@ content hashing and full package/reference validation.
 
 ## Related Documentation
 
-- `Documentation/Runtime/Assets/AssetPackages.md`
+- `Documentation/Runtime/Assets/Packages/AssetPackages.md`
 - `Documentation/Runtime/Core/TaskSystem.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`

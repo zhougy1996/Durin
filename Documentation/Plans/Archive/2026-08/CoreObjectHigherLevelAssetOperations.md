@@ -175,6 +175,6 @@ complete output is recorded in
 
 - [CoreDObject Engine Cutover](CoreDObjectEngineCutover.md)
 - [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
 - [Testing Workflow](../../../Agents/Testing.md)

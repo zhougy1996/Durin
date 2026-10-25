@@ -228,7 +228,7 @@ transient allocation, and later queue scheduling is owned by the
 - [RHI command execution](RHICommandExecution.md)
 - [RHI resource views and transfers](RHIResourceViewsAndTransfers.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
-- [Texture system](../../Assets/TextureSystem.md)
+- [Texture system](../../Assets/Families/TextureSystem.md)
 - [Viewport rendering](../Pipeline/ViewportRendering.md)
 - [Compute shader pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI and Vulkan backend evolution roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)

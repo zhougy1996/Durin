@@ -148,9 +148,9 @@ closure.
 ## Related Documentation
 
 - [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code

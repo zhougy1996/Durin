@@ -64,7 +64,7 @@ candidate; terminal exceptions retain the same rollback before propagation.
 Input descriptions with raw resource fields require a live
 caller-owned reference until the factory has copied and retained them.
 
-Texture assets use the owned update protocol in [Texture System](../../Assets/TextureSystem.md).
+Texture assets use the owned update protocol in [Texture System](../../Assets/Families/TextureSystem.md).
 An explicit `UpdateResource()` retries installed immutable input. Availability
 remains true after failed replacement when a prior successful allocation exists;
 retiring an old resource cannot unbind its replacement. Failure

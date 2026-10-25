@@ -280,13 +280,13 @@ It consumes rather than redefines asset, Renderer, and Physics contracts.
 
 - [Rendering Capability Expansion](RenderingCapabilityExpansion.md)
 - [Physics Evolution](PhysicsEvolution.md)
-- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/Families/TextureSystem.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/Scene/SceneRepresentation.md)
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 
 ## Related Code
 

@@ -58,8 +58,8 @@ cook still requires both outputs. This removes cross-product import transactions
 without relaxing stale-result rejection or component-body invalidation.
 
 Implemented ownership and completion contracts live in
-[StaticMesh building](../../../Runtime/Assets/StaticMeshBuilding.md),
-[asset compilation](../../../Runtime/Assets/AssetCompilation.md#staticmesh-completion),
+[StaticMesh building](../../../Runtime/Assets/Families/StaticMeshBuilding.md),
+[asset compilation](../../../Runtime/Assets/Build/AssetCompilation.md#staticmesh-completion),
 [collision](../../../Runtime/Physics/Collision.md#assets-and-components) and
 [rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md#asset-lifecycle).
 The collision input remains a per-request value snapshot; no shared geometry
@@ -216,8 +216,8 @@ Dependency: Stage 3. Outcome: verified behavior and updated long-lived contracts
   [build workflow](../../../Agents/BuildAndRun.md). Compile affected qualification
   fixtures; execute GPU/performance qualification only when its documented gate
   applies, and record execution omissions explicitly.
-- [x] Update [StaticMesh building](../../../Runtime/Assets/StaticMeshBuilding.md),
-  [asset compilation](../../../Runtime/Assets/AssetCompilation.md),
+- [x] Update [StaticMesh building](../../../Runtime/Assets/Families/StaticMeshBuilding.md),
+  [asset compilation](../../../Runtime/Assets/Build/AssetCompilation.md),
   [collision](../../../Runtime/Physics/Collision.md) and
   [rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md) with implemented
   ownership, completion, invalidation and publication behavior.

@@ -48,4 +48,4 @@ the stripped source domain. In-memory copies remain independent of package versi
 
 Follow [build guidance](../../../Agents/BuildAndRun.md) and
 [test guidance](../../../Agents/Testing.md). The lasting version contract belongs in
-[Versioning](../../../Runtime/Assets/Versioning.md).
+[Versioning](../../../Runtime/ObjectSystem/Versioning.md).

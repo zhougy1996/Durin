@@ -17,9 +17,9 @@ Texture2D, VolumeTexture, and TextureCube recipes without transferring task,
 PostLoad, object, or publication ownership. Launch
 pumps the aggregate while dependent objects are alive and shuts it down before
 build sessions, objects, modules, and tasks are torn down. Detailed aggregation and
-module lifetime are defined by [Asset Compilation](../Assets/AssetCompilation.md),
+module lifetime are defined by [Asset Compilation](../Assets/Build/AssetCompilation.md),
 while payload ownership remains in
-[Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md).
+[Asset Data Lifecycle and Storage](../Assets/Packages/AssetDataLifecycle.md).
 `DEngine::PrepareForShutdown()` remains the generic consumer-detachment hook;
 Launch does not name an import or build module.
 

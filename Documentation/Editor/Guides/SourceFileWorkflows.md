@@ -146,7 +146,7 @@ identities; they never redirect source hints.
 
 For package persistence, dirty state, source metadata stripping, and cooked
 runtime behavior, see
-[Asset Data Lifecycle And Storage](../../Runtime/Assets/AssetDataLifecycle.md).
+[Asset Data Lifecycle And Storage](../../Runtime/Assets/Packages/AssetDataLifecycle.md).
 For importer ownership and Scene transaction semantics, see
 [Asset Import Architecture](../Architecture/Assets/AssetImportFramework.md).
 

@@ -46,7 +46,7 @@ does not authorize immediate C++ destruction.
 
 Texture assets apply this rule to their stable `FTextureReference` and concrete
 `FTextureResource` ownership. Their publication, replacement, invalidation, and
-asset diagnostics are defined by [Texture System](../../Assets/TextureSystem.md). Texture
+asset diagnostics are defined by [Texture System](../../Assets/Families/TextureSystem.md). Texture
 replacement retires the previous resource only after successful publication;
 failed candidates leave it usable. Texture close synchronizes with publication
 and joins CPU initialization before queuing concrete/reference cleanup, including
@@ -132,7 +132,7 @@ terminal backend marker, and thread-stop diagnostics are defined by
 
 - [Runtime Lifecycle](../../Application/RuntimeLifecycle.md)
 - [RHI Command Execution](../RHI/RHICommandExecution.md)
-- [Texture System](../../Assets/TextureSystem.md)
+- [Texture System](../../Assets/Families/TextureSystem.md)
 - [Renderer Resource Recovery](RendererResourceRecovery.md)
 
 ## Related Code

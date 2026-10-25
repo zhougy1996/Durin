@@ -124,7 +124,7 @@ The existing compile service already separates path resolution, dependency disco
 ## Related Documentation
 
 - [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code

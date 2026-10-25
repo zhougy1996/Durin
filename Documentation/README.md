@@ -41,18 +41,20 @@ requires; do not read unrelated topics or scan an entire directory.
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
 | Native dynamic libraries, loader diagnostics, reference lifetime, or Unicode library paths | [Platform libraries](Runtime/Core/PlatformLibraries.md) |
 | Child process arguments, working directories, or environment overrides | [Platform processes](Runtime/Core/PlatformProcesses.md) |
-| Asset paths, package format, references, residency, loading, or compatibility | [Asset packages](Runtime/Assets/AssetPackages.md) |
-| StaticMesh source ownership, detached building, or payload compatibility | [Static mesh building](Runtime/Assets/StaticMeshBuilding.md) |
-| Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/AssetCatalogAndMutation.md) |
-| Offline Cook dependency discovery, reuse, or transactional output publication | [Asset cooking](Runtime/Assets/Cooking.md) |
-| Target/profile parsing, immutable build policy, or family target capabilities | [Target platform build policy](Runtime/Assets/TargetPlatforms.md) |
-| Authored sources, derived data, cooking, bulk payloads, or runtime data domains | [Asset data lifecycle](Runtime/Assets/AssetDataLifecycle.md) |
-| Build definitions, captured input identity, typed recipe adapters, or shared DDC execution | [Derived data build protocol](Runtime/Assets/DerivedDataBuild.md) |
-| Persistent DDC manifests, value attachments, identity versions, selective queries, codec budgets, diagnostics, or offline cache maintenance | [Derived data cache storage](Runtime/Assets/DerivedDataCacheStorage.md) |
-| Field-level BulkData, package-resource ranges, DAST Bulk Directory, or raw `.dbulk` | [Package bulk data](Runtime/Assets/BulkData.md) |
-| Async asset compilation domains, aggregate progress, selected finish/cancel, or provider registration | [Asset compilation](Runtime/Assets/AssetCompilation.md) |
+| Asset architecture domain ownership or contract placement | [Asset domain rules](Runtime/Assets/AGENTS.md) |
+| Asset paths, package format, references, residency, loading, or compatibility | [Asset packages](Runtime/Assets/Packages/AssetPackages.md) |
+| StaticMesh source ownership, detached building, or payload compatibility | [Static mesh building](Runtime/Assets/Families/StaticMeshBuilding.md) |
+| Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/Packages/AssetCatalogAndMutation.md) |
+| Offline Cook dependency discovery, reuse, or transactional output publication | [Asset cooking](Runtime/Assets/Build/Cooking.md) |
+| Target/profile parsing, immutable build policy, or family target capabilities | [Target platform build policy](Runtime/Assets/Build/TargetPlatforms.md) |
+| Authored sources, derived data, cooking, bulk payloads, or runtime data domains | [Asset data lifecycle](Runtime/Assets/Packages/AssetDataLifecycle.md) |
+| Build definitions, captured input identity, typed recipe adapters, or shared DDC execution | [Derived data build protocol](Runtime/Assets/Build/DerivedDataBuild.md) |
+| Persistent DDC manifests, value attachments, identity versions, selective queries, codec budgets, diagnostics, or offline cache maintenance | [Derived data cache storage](Runtime/Assets/Build/DerivedDataCacheStorage.md) |
+| Field-level BulkData, package-resource ranges, DAST Bulk Directory, or raw `.dbulk` | [Package bulk data](Runtime/ObjectSystem/BulkData.md) |
+| Engine release, Archive/custom versions, or package compatibility policy | [Versioning](Runtime/ObjectSystem/Versioning.md) |
+| Async asset compilation domains, aggregate progress, selected finish/cancel, or provider registration | [Asset compilation](Runtime/Assets/Build/AssetCompilation.md) |
 | Sky Light sources, procedural capture, Studio migration, or GPU environment filtering | [Sky lighting](Runtime/Rendering/Features/SkyLighting.md) |
-| Volume texture source, build, payload, cook, or GPU resource contract | [Volume textures](Runtime/Assets/VolumeTextures.md) |
+| Volume texture source, build, payload, cook, or GPU resource contract | [Volume textures](Runtime/Assets/Families/VolumeTextures.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Application/RuntimeLifecycle.md) |
 | Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/Assets/AsyncAssetOperations.md) |
 | Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |

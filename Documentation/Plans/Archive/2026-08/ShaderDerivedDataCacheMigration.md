@@ -381,7 +381,7 @@ runtime boundary already exists.
 ## Related Documentation
 
 - [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
 - [File I/O](../../../Runtime/Core/FileIO.md)

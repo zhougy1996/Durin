@@ -1300,11 +1300,11 @@ Dependencies: Stage 6.
 
 ## Related Documentation
 
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Texture System](../../../Runtime/Assets/Families/TextureSystem.md)
 - [Multithreading V1 Plan](MultithreadingV1.md)
 - [Archived Ready-to-Use Static Model Import](ReadyToUseStaticModelImport.md)
 - [Archived Source Library References](../2026-07/SourceLibraryReferences.md)

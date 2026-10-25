@@ -182,8 +182,8 @@ their checks, and current documentation describes the reduced engine accurately.
 Follow [agent build/run](../../../Agents/BuildAndRun.md),
 [agent testing](../../../Agents/Testing.md), and
 [agent documentation](../../../Agents/Documentation.md) workflows. Before asset edits,
-read [asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
-and [asset packages](../../../Runtime/Assets/AssetPackages.md).
+read [asset catalog and mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
+and [asset packages](../../../Runtime/Assets/Packages/AssetPackages.md).
 
 Use one checkout writer, with no overlapping build process trees. Terrain removal
 and skeletal removal touch shared renderer/import/test files: execute sequentially

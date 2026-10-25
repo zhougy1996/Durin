@@ -175,7 +175,7 @@ load at 56.471 ms, compatibility at 0.00083 ms, and activation at 1.037 ms.
 Lasting MainFrame bootstrap ownership now lives in
 `Documentation/Editor/Architecture/Framework/WorkspaceFramework.md`; the one-read package
 load and bounded report counter contract lives in
-`Documentation/Runtime/Assets/AssetPackages.md`.
+`Documentation/Runtime/Assets/Packages/AssetPackages.md`.
 
 The final window matrix also exercised both persisted display modes. With no
 host-settings file, maximized startup created exactly one 3,840x2,019 swapchain.

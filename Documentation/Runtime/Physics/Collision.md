@@ -78,7 +78,7 @@ cooperative cancellation does not promise a hard wall-clock deadline.
 
 ## Assets and components
 
-Tool [target policy](../Assets/TargetPlatforms.md) is separate from runtime
+Tool [target policy](../Assets/Build/TargetPlatforms.md) is separate from runtime
 collision ownership. Physics capture owns an explicit payload target, and action
 assembly preserves the existing Win64 identity. MacOS collision payloads remain
 unsupported and fail before StaticMesh render/collision production. Cook prepares

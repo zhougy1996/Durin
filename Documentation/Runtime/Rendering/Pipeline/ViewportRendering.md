@@ -368,7 +368,7 @@ post-process, and editor-assistance contracts. Fixed-aspect views constrain
 those operations to the fitted content rectangle and leave cleared bars
 untouched. Detailed ownership is defined by
 [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md),
-[Material System](../Materials/MaterialSystem.md), [Cube Textures](../../Assets/CubeTextures.md),
+[Material System](../Materials/MaterialSystem.md), [Cube Textures](../../Assets/Families/CubeTextures.md),
 [Editor Grid](../Features/EditorGrid.md), and
 [Renderer Resource Recovery](RendererResourceRecovery.md).
 

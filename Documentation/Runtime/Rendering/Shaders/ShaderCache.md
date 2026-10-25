@@ -17,7 +17,7 @@ shared lookup/resolve/build/validate/cache protocol. Its public cache boundary
 uses structured `FCacheRecord` values; encoding, compression, validation, and byte
 storage remain private. Sessions accept inline or Core task scheduler adapters.
 ShaderBuild registers its compiler function under the
-[shared protocol](../../Assets/DerivedDataBuild.md) and retains Shader policy,
+[shared protocol](../../Assets/Build/DerivedDataBuild.md) and retains Shader policy,
 compiler scheduling, and single-flight ownership.
 
 ## Results and diagnostics
@@ -376,6 +376,6 @@ Loading owners can retain the same ShaderMap and pipeline resources through
 ## Related Documentation
 
 - [Global Shaders](GlobalShaders.md)
-- [Asset Data Lifecycle](../../Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle](../../Assets/Packages/AssetDataLifecycle.md)
 - [File I/O](../../Core/FileIO.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)

@@ -126,7 +126,7 @@ Struct elements while retaining their complete membership and ordering.
 
 - [Serialization contract](../../../Runtime/ObjectSystem/Serialization.md#default-relative-logical-planning)
 - [Authored override intent](../../../Runtime/ObjectSystem/Serialization.md#authored-override-intent)
-- [Asset package defaults and versions](../../../Runtime/Assets/AssetPackages.md#defaults-and-version-policy)
+- [Asset package defaults and versions](../../../Runtime/Assets/Packages/AssetPackages.md#defaults-and-version-policy)
 - [Default delta planner API](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/DefaultDeltaPlan.h)
 - [Default delta planner implementation](../../../../Engine/Source/Runtime/CoreDObject/Private/DObject/DefaultDeltaPlan.cpp)
 - [Build workflow](../../../Agents/BuildAndRun.md)

@@ -33,7 +33,7 @@ final long-range result on 2026-08-18.
 The plan is complete. A named cooked-game motion capture and formal image-
 difference report are explicitly deferred because complete project discovery,
 Editor or DurinDevTool packaging commands, and installable-build orchestration
-are not yet connected, as recorded in [Asset Packages](../../../Runtime/Assets/AssetPackages.md).
+are not yet connected, as recorded in [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md).
 That project-level Cook/Packaging work is not a Terrain rendering defect or a
 remaining gate for this plan. The runtime-facing settings, serialization,
 payload, projection, and rendering contracts remain implemented and covered by

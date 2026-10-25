@@ -458,7 +458,7 @@ and do not overlap build process trees.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Asset Build And Runtime Domain Simplification Plan](AssetBuildAndRuntimeDomainSimplification.md)
 - [Agent Build And Run](../../../Agents/BuildAndRun.md)

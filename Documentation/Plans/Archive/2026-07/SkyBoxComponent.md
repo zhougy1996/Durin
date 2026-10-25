@@ -282,7 +282,7 @@ The following items require separate design and scheduling after this plan is co
 
 - [Implementation Plan Documentation Guide](../../AGENTS.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
-- [Cube Textures](../../../Runtime/Assets/CubeTextures.md)
+- [Cube Textures](../../../Runtime/Assets/Families/CubeTextures.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)

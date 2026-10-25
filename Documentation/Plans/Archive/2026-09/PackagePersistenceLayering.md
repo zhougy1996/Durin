@@ -25,7 +25,7 @@ The committed async staging implementation in `63b7b16f9` was the behavioral
 baseline, while the checked-out canonical writer is DAST v10. The previously
 discarded facade was not restored. Lasting contracts are documented in
 [Package Persistence](../../../Runtime/ObjectSystem/PackagePersistence.md) and
-[Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md#asynchronous-save-staging).
+[Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#asynchronous-save-staging).
 
 Validation evidence (2026-09-16, `MacOS-arm64-Debug-DurinEditor`):
 

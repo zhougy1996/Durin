@@ -33,7 +33,7 @@ refactor. Editor/game configuration, deployment inspection, and source-symbol
 audits confirm Engine has no new Developer/Editor dependency and DurinGame does
 not deploy TextureBuild, AssetBuildCore, or DerivedDataCache.
 
-The lasting contract is published in [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+The lasting contract is published in [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 and routed from the runtime lifecycle, asset lifecycle, material, texture, and
 workspace module documents.
 
@@ -606,9 +606,9 @@ The following behavior remains compatible:
 
 ## Related Documentation
 
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Texture System](../../../Runtime/Assets/TextureSystem.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Texture System](../../../Runtime/Assets/Families/TextureSystem.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)

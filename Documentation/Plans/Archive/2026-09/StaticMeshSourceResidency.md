@@ -147,8 +147,8 @@ Follow [build workflow](../../../Agents/BuildAndRun.md) before target operations
 Relevant existing coverage includes StaticMeshDerivedDataContractTests,
 StaticMeshPayloadCodecTests, StaticMesh collision tests, package/import tests,
 and cook tests; resolve current registered targets at execution time.
-Contracts: [asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
-[bulk data](../../../Runtime/Assets/BulkData.md), and
+Contracts: [asset lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md),
+[bulk data](../../../Runtime/ObjectSystem/BulkData.md), and
 [StaticMesh rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md).
 
 ## Related Code

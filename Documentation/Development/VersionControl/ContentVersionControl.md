@@ -17,7 +17,7 @@ Durin keeps authored content reproducible alongside the source revision that con
 `Cooked` is reproducible and therefore not source-controlled, but its contents
 are required distribution artifacts for a particular staged build. They must
 not be treated like disposable DDC entries while that build is installed or
-running. See [Asset Data Lifecycle and Storage](../../Runtime/Assets/AssetDataLifecycle.md)
+running. See [Asset Data Lifecycle and Storage](../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 for the `.dasset`, DDC `.bin`, and cooked `.dbulk` boundaries.
 
 Standalone imported assets retain their canonical rebuild inputs in the
@@ -162,7 +162,7 @@ transaction state and must never be submitted. Revisit
 `.dasset` LFS only if a separately qualified route begins embedding large
 render data.
 
-Validated [Registry and Bulk Directory facts](../../Runtime/Assets/BulkData.md#publication-and-companion-ownership)
+Validated [Registry and Bulk Directory facts](../../Runtime/ObjectSystem/BulkData.md#publication-and-companion-ownership)
 select the canonical closure. Review migration or resave reports and submit the `.dasset`
 and its LFS-backed `.dbulk` together whenever either changes. Never submit only
 one side of a closure that still references the other.

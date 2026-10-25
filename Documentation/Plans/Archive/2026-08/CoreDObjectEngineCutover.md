@@ -198,7 +198,7 @@ ordinary save/load, v8 codec/mutation, and external BulkData cases passed.
 
 - [CoreDObject package format](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
 - [Engine package operations](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
 - [Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Testing Workflow](../../../Agents/Testing.md)

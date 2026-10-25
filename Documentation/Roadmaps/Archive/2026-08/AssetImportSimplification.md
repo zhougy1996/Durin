@@ -211,8 +211,8 @@ generic `Recover` import mode.
 
 - [Asset Import Architecture](../../../Editor/Architecture/Assets/AssetImportFramework.md)
 - [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
 - [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Agent Build And Run](../../../Agents/BuildAndRun.md)

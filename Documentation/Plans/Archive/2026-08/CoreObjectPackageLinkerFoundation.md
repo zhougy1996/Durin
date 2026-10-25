@@ -239,7 +239,7 @@ a permanent wrapper around `FDecodedPackage`.
 - AssetRegistry object-stream reader (retired by the single-package-IR cutover)
 - [Engine direct linker application](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp)
 - [Asset reference records](../../../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/References.h)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)

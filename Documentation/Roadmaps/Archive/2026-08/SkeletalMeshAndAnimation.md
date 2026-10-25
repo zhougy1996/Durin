@@ -227,7 +227,7 @@ Scene-provider peer outputs, DSKM/DANM version-1 codecs and DDC keys, asset-leve
 cook publication, and transactional runtime-only loading. Repository-authored
 data-URI `.gltf`, external-buffer `.gltf`, `.glb`, static-projection, and
 malformed fixtures supply reproducible source evidence. Lasting contracts now
-live in [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+live in [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 and [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md).
 
 The S2 entry gate was re-inspected on 2026-08-10. Current world ticking
@@ -325,8 +325,8 @@ contract.
 - [Skeletal Editor Workflow and Production Qualification Plan](../../../Plans/Archive/2026-08/SkeletalEditorWorkflowAndProductionQualification.md)
 - [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
 - [Asset Import Framework](../../../Editor/Architecture/Assets/AssetImportFramework.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Core Math](../../../Runtime/Core/Math.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/Scene/StaticMeshRendering.md)
 - [Viewport Rendering](../../../Runtime/Rendering/Pipeline/ViewportRendering.md)

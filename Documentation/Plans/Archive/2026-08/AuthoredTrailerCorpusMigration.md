@@ -179,8 +179,8 @@ only after reversible corpus and compatibility evidence passes.
 
 - [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [VolumeTexture Trailer Migration](VolumeTextureTrailerMigration.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code

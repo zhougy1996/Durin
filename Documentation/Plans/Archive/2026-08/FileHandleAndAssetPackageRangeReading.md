@@ -220,8 +220,8 @@ Depends on Stages 1-3.
   targets selected through the native-test registry; run broader coverage only
   if shared-reader changes cross those targets.
 - [x] Update [File I/O](../../../Runtime/Core/FileIO.md),
-  [Asset Packages](../../../Runtime/Assets/AssetPackages.md), and, only where the
-  ownership boundary changes, [Package Bulk Data](../../../Runtime/Assets/BulkData.md).
+  [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md), and, only where the
+  ownership boundary changes, [Package Bulk Data](../../../Runtime/ObjectSystem/BulkData.md).
 - [x] Remove obsolete compatibility-local streaming helpers after every caller
   uses the Core handle.
 

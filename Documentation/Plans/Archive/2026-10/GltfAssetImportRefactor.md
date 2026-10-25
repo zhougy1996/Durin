@@ -348,6 +348,6 @@ obsolete outputs; and all-or-nothing rollback of already committed package saves
 
 - [Module ownership](../../../Workspace/CodeModules.md)
 - [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
-- [Static mesh building](../../../Runtime/Assets/StaticMeshBuilding.md)
-- [Asset packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Static mesh building](../../../Runtime/Assets/Families/StaticMeshBuilding.md)
+- [Asset packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)

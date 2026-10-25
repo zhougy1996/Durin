@@ -329,7 +329,7 @@ not a separate Cook registration. `DClass::AppendCookSchema` invokes distinct
 inherited hooks root-to-leaf without constructing a CDO, including abstract and
 `NoClassDefaultObject` types. Static schema implementations do not call `Super`
 explicitly; ordinary virtual object lifecycle overrides still chain their parent
-as required. See [Cooking](../../Runtime/Assets/Cooking.md#object-lifecycle-and-selection).
+as required. See [Cooking](../../Runtime/Assets/Build/Cooking.md#object-lifecycle-and-selection).
 
 Generated code uses fully qualified C++ type names and absolute qualified
 cross-namespace helper references. File-only compiled-in registration

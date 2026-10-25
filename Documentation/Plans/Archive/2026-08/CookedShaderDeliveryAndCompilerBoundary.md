@@ -549,7 +549,7 @@ its package-local program bytes.
 - [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
 - [Global Shaders](../../../Runtime/Rendering/Shaders/GlobalShaders.md)
 - [Material System](../../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
 - [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
 - [Code Modules](../../../Workspace/CodeModules.md)

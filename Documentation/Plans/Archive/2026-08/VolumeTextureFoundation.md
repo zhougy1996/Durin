@@ -14,7 +14,7 @@ non-array sampled/storage/copy 3D textures, including recorded uploads and
 reflected shader bindings. Engine owns a package-backed, cookable
 `DVolumeTexture`; TextureBuild owns deterministic three-axis mip construction,
 TXPL/DDC production, and the uncooked post-load policy. The lasting contracts
-are published in [Volume textures](../../../Runtime/Assets/VolumeTextures.md) and
+are published in [Volume textures](../../../Runtime/Assets/Families/VolumeTextures.md) and
 [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
 
 ## Goal
@@ -310,8 +310,8 @@ resource-lifecycle contracts as existing texture assets.
 
 ## Related Documentation
 
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
+- [Asset packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHI/RHICapabilitiesAndVulkanStartup.md)
 - [Render resource lifecycle](../../../Runtime/Rendering/Pipeline/RenderResourceLifecycle.md)
 - [Renderer resource recovery](../../../Runtime/Rendering/Pipeline/RendererResourceRecovery.md)

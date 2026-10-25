@@ -402,9 +402,9 @@ and the plan contains an evidence-backed handoff.
 ## Related Documentation
 
 - [Compact Object Paths And Soft Object Pointers](../2026-08/CompactObjectPathsAndSoftObjectPointers.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

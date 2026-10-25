@@ -309,9 +309,9 @@ is not eligible to render.
 ## Related Documentation
 
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
-- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Volume textures](../../../Runtime/Assets/Families/VolumeTextures.md)
 - [Volumetric cloud scene contract](../../../Runtime/Rendering/Features/VolumetricCloudSceneContract.md)
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [Build and run](../../../Agents/BuildAndRun.md)
 - [Testing](../../../Agents/Testing.md)
 

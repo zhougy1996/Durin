@@ -37,7 +37,7 @@ Validation on Win64-Debug-DurinEditor passed:
 The affected-test resolver selected all tests because the changed program consumer
 is outside a registered module. The explicit suite selection above instead covers
 texture behavior, import consumers, lifecycle, editor reimport, and publication.
-Lasting contracts are recorded in [asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md#optional-asset-operation-boundaries)
+Lasting contracts are recorded in [asset lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md#optional-asset-operation-boundaries)
 and [asset import](../../../Editor/Architecture/Assets/AssetImportFramework.md#standalone-batch-admission).
 
 ## Goal

@@ -361,8 +361,8 @@ The implementation gaps are concrete:
 
 ## Related Documentation
 
-- [Versioning](../../../Runtime/Assets/Versioning.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Versioning](../../../Runtime/ObjectSystem/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [DAST V4 Mixed-Version Migration](DASTV4MixedVersionMigration.md)
 - [DAST V4 Qualification and Rollout](DASTV4QualificationAndRollout.md)

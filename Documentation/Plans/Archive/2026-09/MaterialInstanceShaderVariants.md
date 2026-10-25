@@ -614,8 +614,8 @@ the gate is reuse and bounded lifetime, not an invented timing threshold.
 
 - [Material System roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Material System contract](../../../Runtime/Rendering/Materials/MaterialSystem.md)
-- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
-- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Compilation](../../../Runtime/Assets/Build/AssetCompilation.md)
+- [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md)
 - [Shader Cache](../../../Runtime/Rendering/Shaders/ShaderCache.md)
 - [Serialization](../../../Runtime/ObjectSystem/Serialization.md)
 - [Geometry Submission Refactor](../2026-10/GeometrySubmissionRefactor.md): consume its current

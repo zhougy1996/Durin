@@ -16,7 +16,7 @@ For texture source data, the bulk content digest and logical size describe the
 stored bytes (possibly Zstd-compressed), while `FTextureSource`'s canonical hash
 and decoded size describe exact pixels. BulkData remains opaque; source codecs
 do not add a package compression layer or change DAST v10. See
-[texture source storage](AssetDataLifecycle.md#texture-source-storage-compression).
+[texture source storage](../Assets/Packages/AssetDataLifecycle.md#texture-source-storage-compression).
 
 ## Runtime Field State
 
@@ -109,7 +109,7 @@ StaticMesh decoded residency is family-owned and separate from `FEditorBulkData`
 Releasing a geometry handle/cache never discards canonical memory-backed source
 bytes. The persistent source retains its original reflected type and four wire
 fields; moving their C++ declarations does not rename package declaring identity.
-See [StaticMesh source ownership](StaticMeshBuilding.md).
+See [StaticMesh source ownership](../Assets/Families/StaticMeshBuilding.md).
 
 The three Editor Bulk storage-inspection APIs return expected owned vectors of
 `FPackageBulkStorageDescriptor` or `FFilePath`, with `FEditorBulkDataStorageError`.
@@ -161,7 +161,7 @@ can instead pass an owned resource. Missing resources fail graph loading rather
 than fall back to current files or registrations. The caller must supply the
 resource validated for that metadata generation. Nested object resolution and
 rollback follow the optional dependency load policy described in
-[Asset Packages](AssetPackages.md); ordinary loading uses the live loader.
+[Asset Packages](../Assets/Packages/AssetPackages.md); ordinary loading uses the live loader.
 
 A read is admitted only while the resource is Active and its checked range is
 inside the validated extent. Retirement enters Retiring, rejects new requests,
@@ -307,12 +307,12 @@ reader or misidentified as a `.dbulk` closure.
 ## Publication And Companion Ownership
 
 Authored save snapshots all payloads into the detached closure and follows
-[package publication](AssetPackages.md#production-save-and-load), including the
+[package publication](../Assets/Packages/AssetPackages.md#production-save-and-load), including the
 distinction between pre-commit rollback and post-commit Registry reconciliation.
 The prior stable segment remains recoverable until the new closure commits.
 Inline-only saves publish no empty segment and remove a stale prior companion
 only after the new main package is committed. Cook publication and rollback
-follow [Asset Cooking and Publication](Cooking.md).
+follow [Asset Cooking and Publication](../Assets/Build/Cooking.md).
 
 Move, duplicate, inventory, orphan detection, source-control closure,
 and canonical resave derive companion ownership from validated v10 Registry and
@@ -350,7 +350,7 @@ not enforce these machine-load-sensitive timing ceilings.
 
 ## Related Documentation
 
-- [Asset Packages](AssetPackages.md)
-- [Asset Data Lifecycle](AssetDataLifecycle.md)
+- [Asset Packages](../Assets/Packages/AssetPackages.md)
+- [Asset Data Lifecycle](../Assets/Packages/AssetDataLifecycle.md)
 - [File I/O](../Core/FileIO.md)
-- [Serialization](../ObjectSystem/Serialization.md)
+- [Serialization](Serialization.md)

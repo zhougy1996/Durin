@@ -139,7 +139,7 @@ alias packages, and terminates cycles through a visited set. Runtime loading and
 unload guards continue to use package-header hard dependencies. Cook discovers aliases and final participants from a workflow-stable source tree
 in a dedicated process; unrelated Registry revisions do not invalidate reuse. Build dependencies are separately declared and
 persisted, and build-only inputs do not extend runtime reachability. See
-[Cook and publication rules](Cooking.md)
+[Cook and publication rules](../Build/Cooking.md)
 for the standalone host, ordinary loading, and dependency responsibilities.
 
 ## Duplication
@@ -184,7 +184,7 @@ only admission and exposes no task handle. For persistence confirmation use
 participant validation and Registry publication; the CoreDObject file-only
 context cannot substitute for it in editor workflows. Shared lifetime, capacity,
 wait and shutdown rules are defined by
-[Package persistence](../ObjectSystem/PackagePersistence.md#operation-lifetime-and-completion).
+[Package persistence](../../ObjectSystem/PackagePersistence.md#operation-lifetime-and-completion).
 
 Protected tasks capture on GameThread, stage detached output on BlockingIO and
 complete after GameThread validation, commit, Registry publication and finalization
@@ -292,7 +292,7 @@ v9 package contributes its validated raw `.dbulk` only when Registry and Bulk
 Directory bind a nonempty external segment. Relocation, duplication, and Save publish that companion with the `.dasset`. Atomic
 temporaries and transaction backups end in `.tmp` and are never authored
 mutation participants. Legacy backup siblings are neither restored nor removed
-by readers; see [bulk publication ownership](BulkData.md#publication-and-companion-ownership).
+by readers; see [bulk publication ownership](../../ObjectSystem/BulkData.md#publication-and-companion-ownership).
 
 Stale participants, read-only participants, collisions, and preparation failures leave
 authority unchanged. Failures after publication report the affected files and
@@ -431,5 +431,5 @@ unloading provider code.
 
 - [Asset Packages](AssetPackages.md)
 - [Asset Data Lifecycle and Storage](AssetDataLifecycle.md)
-- [Content Browser](../../Editor/Architecture/Assets/ContentBrowser.md)
-- [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)
+- [Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)

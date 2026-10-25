@@ -164,7 +164,7 @@ picking mutation observer or spatial index is attached to `DLevel`. See the
 - [Renderer Frame Preparation and Render Graph Execution](../Pipeline/RendererFramePreparation.md)
 - [Viewport Rendering](../Pipeline/ViewportRendering.md)
 - [Static Mesh Rendering](StaticMeshRendering.md)
-- [Cube Textures](../../Assets/CubeTextures.md)
+- [Cube Textures](../../Assets/Families/CubeTextures.md)
 - [Asset Thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
 - [RHI Command Execution](../RHI/RHICommandExecution.md)
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)

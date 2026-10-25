@@ -440,7 +440,7 @@ Override the project with `--project <descriptor>`; add `--format json` for auto
 
 For scope selection, command examples, and safe rewrite procedures, use
 [Canonical Resave](../../Editor/Guides/CanonicalResave.md). Compatibility belongs
-to [Asset Packages](../../Runtime/Assets/AssetPackages.md).
+to [Asset Packages](../../Runtime/Assets/Packages/AssetPackages.md).
 The lower-level `DurinAssetTool storage-inventory --project=<project.dproject>`
 reports current DAST package and `.dbulk` storage; it does not select a new format.
 

@@ -461,8 +461,8 @@ inspect selection; it is not validation evidence. The completed stages supersede
 
 ## References
 
-- [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset catalog and mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
+- [Asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md)
 - [UE temporary Registry state API](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/AssetRegistry/AssetRegistry/IAssetRegistry/InitializeTempor-?application_version=5.5)
 - [UE Cook development reference](https://dev.epicgames.com/documentation/unreal-engine/cplusplus-cooking-development-reference)
 
