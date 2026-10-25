@@ -16,6 +16,17 @@ set_target_properties(NativeTestSupport PROPERTIES
 	FOLDER "Tests/Infrastructure"
 )
 
+# Shared registration object: a static library could discard its initializer
+# because test executables reference no symbols from this translation unit.
+if(DURIN_WITH_EDITOR)
+	add_library(AuthoredShaderTestEnvironment OBJECT
+		Private/AuthoredShaderTestEnvironment.cpp
+	)
+	durin_target_apply_common_definitions(AuthoredShaderTestEnvironment AuthoredShaderTestEnvironment)
+	target_link_libraries(AuthoredShaderTestEnvironment PRIVATE Core GTest::gtest)
+	set_target_properties(AuthoredShaderTestEnvironment PROPERTIES FOLDER "Tests/Infrastructure")
+endif()
+
 if(APPLE AND DURIN_ENABLE_APPLICATION_TESTS)
 	add_library(DurinNativeTestApplicationProtocol STATIC
 		Private/MacOS/NativeTestApplicationProtocol.cpp

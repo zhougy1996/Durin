@@ -16,7 +16,7 @@ namespace Durin
 	namespace
 	{
 		auto MakeHitProxyMapKey(FScene* Scene, const FHitProxyRenderRequest& Request, const FRenderResourceGeneration& RendererGeneration,
-			bool bFrameDependent) -> FXxHash128
+			bool bFrameDependent, FXxHash128 Materials) -> FXxHash128
 		{
 			FXxHash128Builder Hash;
 			const auto Add = [&]<typename T>(const T& Value) { Hash.UpdateValue(Value); };
@@ -26,8 +26,7 @@ namespace Durin
 			};
 			Add(reinterpret_cast<uintptr_t>(Scene));
 			Add(Scene ? Scene->GetHitProxyRevision_RenderThread() : 0);
-			Add(GetMaterialRenderProxyPublicationRevision());
-			Add(FRHITextureReference::GetPublicationRevision());
+			Add(Materials);
 			Add(RendererGeneration.Shader); Add(RendererGeneration.Device); Add(RendererGeneration.Manual);
 			Add(bFrameDependent);
 			if (bFrameDependent) Add(GRenderFrameCounterRenderThread);
@@ -134,14 +133,6 @@ namespace Durin
 		const uint64 Width = uint64(View.ViewportX) + View.ViewportWidth;
 		const uint64 Height = uint64(View.ViewportY) + View.ViewportHeight;
 		if ((Request.bSceneGeometry && !Scene) || !View.ViewportWidth || !View.ViewportHeight || !FHitProxyMap::IsValidExtent(Width, Height) || Commands.IsInsideRenderPass()) { return {}; }
-		const auto CacheKey = MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(),
-			Request.Cache && Request.Cache->IsFrameDependent_RenderThread());
-		if (!View.bDiscardHistory && Request.Cache)
-			if (auto Map = Request.Cache->Find_RenderThread(CacheKey))
-			{
-				Request.Cache->GetPreparations_RenderThread().Reset();
-				return Map;
-			}
 		auto& Preparations = Request.Cache ? Request.Cache->GetPreparations_RenderThread() : *Request.Preparations;
 		FRenderPipelineRequestScope PreparationScope(Preparations, Coordinator.GetGeneration_RenderThread());
 		struct FReleasePreparations
@@ -154,6 +145,30 @@ namespace Durin
 		if (Request.bSceneGeometry) PrepareSceneVisibility(*Scene, View, Telemetry, Visibility);
 		const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Visibility.SceneInfos, View, ERasterMode::Solid);
 		if (Prepared.bResourceFailure) { return {}; }
+		FXxHash128Builder MaterialHash;
+		std::vector<FTextureRHIRef> TextureLeases;
+		ForEachBasePassBucket(Prepared, [&](const auto& Bucket, EMeshBasePass) {
+			for (const auto& Draw : Bucket)
+			{
+				const auto& Representation = Draw.Command->Material.Representation;
+				MaterialHash.UpdateValue(Representation.GetRecordId());
+				for (const auto& Reference : Representation.GetResources())
+				{
+					FTextureRHIRef Texture = Reference ? Reference->GetReferencedTexture_RenderThread() : nullptr;
+					MaterialHash.UpdateValue(reinterpret_cast<uintptr_t>(Texture.GetReference()));
+					if (Texture) TextureLeases.push_back(std::move(Texture));
+				}
+			}
+		});
+		const auto MaterialKey = MaterialHash.Finalize();
+		const auto CacheKey = MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(),
+			Request.Cache && Request.Cache->IsFrameDependent_RenderThread(), MaterialKey);
+		if (!View.bDiscardHistory && Request.Cache)
+			if (auto Map = Request.Cache->Find_RenderThread(CacheKey))
+			{
+				Request.Cache->GetPreparations_RenderThread().Reset();
+				return Map;
+			}
 		std::unordered_map<uint64, uint32> Ids;
 		for (const auto& Entry : Request.Primitives)
 		{
@@ -193,7 +208,7 @@ namespace Durin
 				Item.Fragment = TMaterialShaderRef<FHitProxyFragmentShader>(Item.ShaderMap);
 				if (!Item.Vertex || !Item.Vertex->GetRHIShader(false) || !Item.Fragment.GetRHIShader(false)) { bReady = false; break; }
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
-					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding)
+					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding, {})
 						.Prepare(ESurfaceMaterialPass::MaskedShadow, nullptr, nullptr, Item.Material)) { bReady = false; break; }
 				const auto Description = DescribeMeshPipeline(EMeshPipelinePass::HitProxy,
 					{Draw.Command->PipelineKey.Rasterizer, {}, {}}, Draw.Command->PipelineKey.Topology,
@@ -339,7 +354,7 @@ namespace Durin
 		const auto Map = FHitProxyMap::Create(uint32(Width), uint32(Height), std::move(Pixels));
 		if (!Map) return {};
 		if (Request.Cache)
-			Request.Cache->Publish_RenderThread(MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(), bFrameDependent), Map, bFrameDependent);
+			Request.Cache->Publish_RenderThread(MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(), bFrameDependent, MaterialKey), Map, bFrameDependent, std::move(TextureLeases));
 		return Map;
 	}
 }

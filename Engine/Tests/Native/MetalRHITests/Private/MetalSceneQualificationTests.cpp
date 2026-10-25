@@ -51,7 +51,7 @@ namespace Durin
 	TEST_P(FMetalSceneQualificationTests, PreparedSceneFirstDrawReusesNativeShadersAndPipelines)
 	{
 		FMetalShaderCreationStatistics Before;
-		QualifySceneRenderRoutes(false, false, false, true, [&](bool Starting) {
+		QualifySceneRenderRoutes(false, false, false, [&](bool Starting) {
 			if (std::string_view(GetParam().Backend) != "metal") return;
 			if (Starting) { Before = GetMetalShaderCreationStatistics(); return; }
 			const auto After = GetMetalShaderCreationStatistics();

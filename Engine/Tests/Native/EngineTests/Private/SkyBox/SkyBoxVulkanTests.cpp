@@ -69,14 +69,14 @@ namespace
 			EnqueueRenderCommand("PrepareSkyValidationView", [&](FRHICommandListImmediate& Commands) {
 				FSkyValidationFrame Frame(Commands);
 				const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
-				Renderer.PrepareViewResources(Commands, &Scene, View, Color, false, Options, Preparation);
+				Renderer.PrepareViewResources(Commands, {&Scene, View, Color, false, Options}, Preparation);
 				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), DrawsBefore);
 				const auto State = Preparation.GetProgress().State;
 				if (State == ERenderResourcePreparationState::Pending) return;
 				if (State != ERenderResourcePreparationState::Ready)
 				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
 				if (bCaptureTelemetry) SetViewRenderTelemetrySink(CaptureHybridSkyTelemetry);
-				Result = Renderer.RenderView(Commands, &Scene, View, Color, false, Options, Statistics);
+				Result = Renderer.RenderView(Commands, {&Scene, View, Color, false, Options, Statistics});
 				if (Result == ERenderViewResult::Success) AfterDraw(Commands);
 			});
 			FlushRenderingCommands();
@@ -427,24 +427,22 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				Result->Error = "Failed to create the validation output target.";
 				return;
 			}
-			Durin::FSceneViewHistoryProbe HistoryProbe;
-			HistoryProbe.PendingRevision = 1;
-			HistoryProbe.PendingTexture = Color;
-			HistoryProbe.Commit();
+			Durin::FVolumetricCloudViewHistory History;
+			History.SetPending(Color, 1, 1);
+			History.Commit();
 			Result->bTypedHistoryCandidateCommitted =
-				HistoryProbe.CommittedRevision == 1
-				&& HistoryProbe.CommittedTexture == Color;
-			HistoryProbe.PendingRevision = 2;
-			HistoryProbe.PendingTexture = Color;
-			HistoryProbe.Abort();
+				History.CommittedPolicyKey == 1
+				&& History.CommittedTexture == Color;
+			History.SetPending(Color, 2, 1);
+			History.Abort();
 			Result->bTypedHistoryAbortRetainedCommitted =
-				HistoryProbe.CommittedRevision == 1
-				&& HistoryProbe.CommittedTexture == Color
-				&& HistoryProbe.PendingTexture == nullptr;
-			HistoryProbe.Reset();
+				History.CommittedPolicyKey == 1
+				&& History.CommittedTexture == Color
+				&& History.PendingTexture == nullptr;
+			History.Reset();
 			Result->bTypedHistoryResetReleased =
-				HistoryProbe.CommittedRevision == 0
-				&& HistoryProbe.CommittedTexture == nullptr;
+				History.CommittedPolicyKey == 0
+				&& History.CommittedTexture == nullptr;
 
 		});
 	Durin::FlushRenderingCommands();
@@ -531,25 +529,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			FSkyValidationFrame Frame(CommandList);
 			Result->InvalidViewStatistics.Summary.Triangles = 999;
 			Result->InvalidViewStatistics.Summary.DrawCalls = 999;
-			Result->InvalidOutputResult = Renderer.RenderView(
-				CommandList,
-				&Scene,
-				MakePrincipalAxisView(Directions[0], {}, 17, 17),
-				nullptr,
-				false,
-				{},
-				&Result->InvalidViewStatistics
-			);
+			Result->InvalidOutputResult = Renderer.RenderView(CommandList, {&Scene, MakePrincipalAxisView(Directions[0], {}, 17, 17), nullptr, false, {}, &Result->InvalidViewStatistics});
 			Durin::FSceneViewRenderOptions MissingEnvironment;
 			MissingEnvironment.Environment = Durin::FViewEnvironmentOverride{};
-			Result->MissingEnvironmentResult = Renderer.RenderView(
-				CommandList,
-				&Scene,
-				MakePrincipalAxisView(Directions[0], {}, 17, 17),
-				Color,
-				false,
-				MissingEnvironment
-			);
+			Result->MissingEnvironmentResult = Renderer.RenderView(CommandList, {&Scene, MakePrincipalAxisView(Directions[0], {}, 17, 17), Color, false, MissingEnvironment});
 		});
 		Durin::FlushRenderingCommands();
 		for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
@@ -743,11 +726,11 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         World->Tick({.DeltaSeconds=0.02f});
         OtherWorld->Tick({.DeltaSeconds=0.02f});
         EnqueueRenderCommand("EndSkyTick",[&](FRHICommandListImmediate& Cmd) {
-            Renderer.UpdateScenes_RenderThread(Cmd);
-            Ready=bool(Scene.SkyLighting->Active);
+            Renderer.BeginFrame_RenderThread(Cmd);
+            Ready=bool(Scene.SkyLighting->Published);
             if (Ready)
             {
-                const auto& G=*Scene.SkyLighting->Active;
+                const auto& G=*Scene.SkyLighting->Published;
                 Revision=G.Revision;
                 PublishedRequest=G.Request;
                 EXPECT_EQ(G.Radiance->GetNumMips(),8u);
@@ -784,7 +767,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         EXPECT_GT(Revision,HotspotRevision);
         EnqueueRenderCommand("ValidateSkyHotspot",[&](FRHICommandListImmediate& Cmd) {
             GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
-            const auto& G=*Scene.SkyLighting->Active;
+            const auto& G=*Scene.SkyLighting->Published;
             FByteBuffer Pixels;
             EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,G.Irradiance,0,4,Pixels));
             // Analytic hemisphere integral of 16*cos(theta)^16*cos(theta).
@@ -835,15 +818,15 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         EXPECT_GT(Revision,PreviousRevision);
         EnqueueRenderCommand("ValidateSkyEnergy",[&](FRHICommandListImmediate& Cmd) {
             GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
-            EXPECT_TRUE(OtherScene.SkyLighting->Active);
-            if (OtherScene.SkyLighting->Active)
+            EXPECT_TRUE(OtherScene.SkyLighting->Published);
+            if (OtherScene.SkyLighting->Published)
             {
                 FByteBuffer OtherPixels;
-                EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,OtherScene.SkyLighting->Active->Irradiance,0,4,OtherPixels));
+                EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,OtherScene.SkyLighting->Published->Irradiance,0,4,OtherPixels));
                 EXPECT_NEAR(Half(OtherPixels,(8*16+8)*4),3.14159265f,0.01f);
-                EXPECT_NE(OtherScene.SkyLighting->Active->Owner,Scene.SkyLighting->Active->Owner);
+                EXPECT_NE(OtherScene.SkyLighting->Published->Owner,Scene.SkyLighting->Published->Owner);
             }
-            const auto& G=*Scene.SkyLighting->Active;
+            const auto& G=*Scene.SkyLighting->Published;
             for(uint32 Face=0;Face<6;++Face)
             {
                 FByteBuffer Pixels;
@@ -868,7 +851,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         for(int Attempt=0;Attempt<8 && !Backpressured;++Attempt)
         {
             const uint64 BeforeRecapture=PublishedRequest;
-            EnqueueRenderCommand("RetainSkyConsumer",[&](FRHICommandListImmediate&) { Retained.push_back(Scene.SkyLighting->Active); });
+            EnqueueRenderCommand("RetainSkyConsumer",[&](FRHICommandListImmediate&) { Retained.push_back(Scene.SkyLighting->Published); });
             FlushRenderingCommands();
             Light->Recapture();
             std::this_thread::sleep_for(std::chrono::milliseconds(270));
@@ -884,7 +867,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         }
         EXPECT_TRUE(Backpressured);
         EnqueueRenderCommand("CheckLastGoodSky",[&](FRHICommandListImmediate&) {
-            EXPECT_EQ(Scene.SkyLighting->Active,Retained.back());
+            EXPECT_EQ(Scene.SkyLighting->Published,Retained.back());
             Retained.clear();
         });
         FlushRenderingCommands();
@@ -911,9 +894,9 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         // without waiting for another world tick or view submission.
         EXPECT_TRUE(Renderer.RequestResourceInvalidation(ERendererResourceInvalidationCause::Device).bSuccess);
         EnqueueRenderCommand("CheckSkyInvalidation",[&](FRHICommandListImmediate&) {
-            EXPECT_FALSE(Scene.SkyLighting->Active);
-            EXPECT_FALSE(Scene.SkyLighting->InFlight);
-            EXPECT_FALSE(OtherScene.SkyLighting->Active);
+            EXPECT_FALSE(Scene.SkyLighting->Published);
+            EXPECT_FALSE(Scene.SkyLighting->Job);
+            EXPECT_FALSE(OtherScene.SkyLighting->Published);
         });
         FlushRenderingCommands();
         Ready=false;
@@ -933,6 +916,12 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         Pump(false);
         EXPECT_FALSE(Ready);
     }
+    std::weak_ptr<const FSkyLightingGeneration> LastSceneLease;
+    EnqueueRenderCommand("ObserveLastSkyLease", [&](FRHICommandListImmediate&) {
+        LastSceneLease = OtherScene.SkyLighting->Job ? OtherScene.SkyLighting->Job->Output : OtherScene.SkyLighting->Published;
+    });
+    FlushRenderingCommands();
+    EXPECT_FALSE(LastSceneLease.expired());
     // Detach the second world directly after admitting a manual refresh.
     OtherLight->Recapture(); Pump(false);
     EXPECT_TRUE(OtherWorld->SetCurrentLevel(nullptr)); OtherWorld->SetRenderScene(nullptr);
@@ -945,5 +934,17 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     MarkObjectHierarchyAsGarbage(World);
     CollectGarbage();
     FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
+    for (int Poll=0; Poll<150 && !LastSceneLease.expired(); ++Poll)
+    {
+        EnqueueRenderCommand("RetireWithoutScenes", [&](FRHICommandListImmediate& Cmd) {
+            ++GRenderFrameCounterRenderThread;
+            GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
+            Renderer.BeginFrame_RenderThread(Cmd);
+            GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
+        });
+        FlushRenderingCommands();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_TRUE(LastSceneLease.expired());
     FlushRenderingCommands();
 }

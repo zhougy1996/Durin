@@ -141,11 +141,8 @@ namespace Durin
 	auto FRenderPipelineRequestScope::Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer)
 		-> FGraphicsPipelineStateRHIRef
 	{
-		if (!Current || !IsTaskSchedulerRunning())
-		{
-			FRenderResourcePreparationScope::BeforePipeline();
-			return GDynamicRHI->RHICreateGraphicsPipelineState(Name, Initializer);
-		}
+		// Rendering requests never change execution mode when the host is unavailable.
+		if (!Current || !IsTaskSchedulerRunning() || !GDynamicRHI) return nullptr;
 		if (!Current->Requests.State)
 		{
 			Current->Requests.State = std::make_shared<FRenderPipelineRequests::FState>();
@@ -167,11 +164,8 @@ namespace Durin
 	auto FRenderPipelineRequestScope::Compute(FName Name, const FComputePipelineStateInitializer& Initializer)
 		-> FComputePipelineStateRHIRef
 	{
-		if (!Current || !IsTaskSchedulerRunning())
-		{
-			FRenderResourcePreparationScope::BeforePipeline();
-			return GDynamicRHI->RHICreateComputePipelineState(Name, Initializer);
-		}
+		// Rendering requests never change execution mode when the host is unavailable.
+		if (!Current || !IsTaskSchedulerRunning() || !GDynamicRHI) return nullptr;
 		if (!Current->Requests.State)
 		{
 			Current->Requests.State = std::make_shared<FRenderPipelineRequests::FState>();

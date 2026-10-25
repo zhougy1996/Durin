@@ -465,9 +465,7 @@ namespace Durin::Editor
 				{
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					FSceneViewStatistics Statistics;
-					const ERenderViewResult RenderResult = Renderer->RenderView(
-						CommandList, Scene, View, RenderTarget, false, Options,
-						&Statistics);
+					const ERenderViewResult RenderResult = Renderer->RenderView(CommandList, {Scene, View, RenderTarget, false, Options, &Statistics});
 					bPending = RenderResult == ERenderViewResult::RendererResourcesPending;
 					if (!bPending && RenderResult != ERenderViewResult::Success)
 						Error = GetRenderFailureDiagnostic(RenderResult);

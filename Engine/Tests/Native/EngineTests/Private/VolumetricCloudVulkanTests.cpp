@@ -10,6 +10,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Threading/Task.h"
 #include "Renderers/SceneViewState.h"
 #include "RendererFeatureTargetTestFixture.h"
 #include "Renderers/VolumetricCloudRenderer.h"
@@ -107,6 +108,9 @@ namespace Durin
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 			GIsGameThreadIdInitialized = true;
 		}
+		const bool OwnScheduler = !IsTaskSchedulerRunning();
+		if (OwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FStopScheduler { bool Owned; ~FStopScheduler() { if (Owned) ShutdownTaskScheduler(); } } Stop{OwnScheduler};
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
 		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -119,6 +123,35 @@ namespace Durin
 			Coordinator, FullscreenGeometry);
 		FVolumetricCloudShadowRenderer CloudShadows(
 			Coordinator, FullscreenGeometry);
+		EnqueueRenderCommand("BeginCloudPreparation", [&](FRHICommandListImmediate&) {
+			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
+		});
+		bool Prepared = false;
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+		do
+		{
+			EnqueueRenderCommand("PrepareCloudRoutes", [&](FRHICommandListImmediate& Cmd) {
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
+				FSceneView View;
+				View.ViewportWidth=64; View.ViewportHeight=32;
+				FVolumetricCloudRenderer::FRenderInput Input;
+				Input.bRequested=true; Input.View=&View; Input.Width=64; Input.Height=32;
+				Input.QualityTier=FVolumetricCloudRenderer::EQualityTier::Reference;
+				FVolumetricCloudShadowRenderer::FRenderInput Shadow;
+				Shadow.bRequested=true; Shadow.View=&View; Shadow.Width=64; Shadow.Height=32;
+				Prepared = Clouds.PrepareRoute_RenderThread(Cmd, Input, true, false).Route == FVolumetricCloudRenderer::ERoute::Fragment;
+				Prepared &= Clouds.PrepareRoute_RenderThread(Cmd, Input, true, true).Route == FVolumetricCloudRenderer::ERoute::Compute;
+				Prepared &= CloudShadows.PrepareRoute_RenderThread(Cmd, Shadow, true, false).Route == FVolumetricCloudShadowRenderer::ERoute::Fragment;
+				Prepared &= CloudShadows.PrepareRoute_RenderThread(Cmd, Shadow, true, true).Route == FVolumetricCloudShadowRenderer::ERoute::Compute;
+				Prepared &= Clouds.EnsureTemporalResources_RenderThread(Cmd);
+				Prepared &= Clouds.EnsureCompositeResources_RenderThread(Cmd);
+				GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
+			});
+			FlushRenderingCommands();
+			if (!Prepared) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		} while (!Prepared && std::chrono::steady_clock::now() < Deadline);
+		EXPECT_TRUE(Prepared) << "The host must prepare asynchronous shader and pipeline resources before route validation.";
 		auto Results = std::make_shared<std::array<bool, 39>>();
 		EnqueueRenderCommand<FVolumetricCloudTargetLifecycle>(
 			[&Coordinator, &Clouds, &CloudShadows,
@@ -127,10 +160,6 @@ namespace Durin
 			) {
 				(*Results)[0] = Tests::FRendererFeatureTargetFixture::
 					CreateCloudFragment(64, 32).has_value();
-				Coordinator.Apply_RenderThread(
-					ERendererResourceInvalidationCause::ManualRetry,
-					FRendererResourceInvalidationTargets{}
-				);
 				auto FragmentTargets = Tests::FRendererFeatureTargetFixture::
 					CreateCloudFragment(64, 32);
 				(*Results)[1] = FragmentTargets && FragmentTargets->Cloud

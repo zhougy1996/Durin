@@ -37,14 +37,12 @@ namespace Durin
 		}
 	};
 
-	// Retains the resource through execution; generation identifies replacement,
-	// while content revision identifies updates that need not create a new PSO.
+	// Retains the resource through execution; generation identifies replacement.
 	struct FGeometryBufferView
 	{
 		FBufferRHIRef Buffer;
 		FGeometryStreamRange Range;
 		uint64 ResourceGeneration = 0;
-		uint64 ContentRevision = 0;
 
 		auto IsValid() const -> bool
 		{

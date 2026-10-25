@@ -91,10 +91,4 @@ namespace Durin
 			FName Name = {}) -> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>;
 	}
 
-	// Recording does not wait for native creation. Core-free startup uses the
-	// synchronous native factory; request rejection is an explicit contract error.
-	RHI_API auto SetGraphicsPipelineState(FRHICommandListBase& Commands,
-		const FGraphicsPipelineStateInitializer& Initializer, FName Name = {}) -> void;
-	RHI_API auto SetComputePipelineState(FRHICommandListBase& Commands,
-		const FComputePipelineStateInitializer& Initializer, FName Name = {}) -> void;
 }

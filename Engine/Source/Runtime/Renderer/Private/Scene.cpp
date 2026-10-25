@@ -271,37 +271,12 @@ namespace Durin
 		requiref(IsInGameThread(), "Collection publication must execute on the game thread.");
 		RequireActive("UpdateMaterialParameterCollection");
 		require(Snapshot && Snapshot->Layout.CollectionId.IsValid());
-		bool bQueueCommand = false;
-		{
-			std::scoped_lock Lock(MaterialParameterCollectionPublicationMutex);
-			auto& Pending = PendingMaterialParameterCollections[
-				Snapshot->Layout.CollectionId];
-			if (!Pending || Pending->Version < Snapshot->Version)
-				Pending = std::move(Snapshot);
-			if (!bMaterialParameterCollectionCommandQueued)
-			{
-				bMaterialParameterCollectionCommandQueued = true;
-				bQueueCommand = true;
-			}
-		}
-		if (!bQueueCommand) return;
-		EnqueueRenderCommand("UpdateMaterialParameterCollections",
-			[this](FRHICommandListImmediate&) {
-				++HitProxyRevision;
+		EnqueueRenderCommand("PublishMaterialParameterCollection",
+			[this, Snapshot = std::move(Snapshot)](FRHICommandListImmediate&) mutable {
 				CheckRenderingThread();
-				decltype(PendingMaterialParameterCollections) Pending;
-				{
-					std::scoped_lock Lock(
-						MaterialParameterCollectionPublicationMutex);
-					Pending.swap(PendingMaterialParameterCollections);
-					bMaterialParameterCollectionCommandQueued = false;
-				}
-				for (auto& [Id, Snapshot] : Pending)
-				{
-					auto& Current = MaterialParameterCollections[Id];
-					if (!Current || Current->Version < Snapshot->Version)
-						Current = std::move(Snapshot);
-				}
+				++HitProxyRevision;
+				const auto Id = Snapshot->Layout.CollectionId;
+				MaterialParameterCollections.insert_or_assign(Id, std::move(Snapshot));
 			});
 	}
 
@@ -309,10 +284,6 @@ namespace Durin
 	{
 		requiref(IsInGameThread(), "Collection removal must execute on the game thread.");
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active) return;
-		{
-			std::scoped_lock Lock(MaterialParameterCollectionPublicationMutex);
-			PendingMaterialParameterCollections.erase(CollectionId);
-		}
 		EnqueueRenderCommand("RemoveMaterialParameterCollection",
 			[this, CollectionId](FRHICommandListImmediate&) {
 				++HitProxyRevision;
@@ -340,10 +311,10 @@ namespace Durin
 		ELifecycleState Expected = ELifecycleState::Active;
 		requiref(LifecycleState.compare_exchange_strong(Expected, ELifecycleState::Releasing, std::memory_order_acq_rel), "FScene::Release is a single-use operation.");
 		PublishedSkyBoxProxy = nullptr;
-		EnqueueRenderCommand("ReleaseScene", [this](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("ReleaseScene", [this](FRHICommandListImmediate& Commands) {
 			++HitProxyRevision;
 			CheckRenderingThread();
-			if (Renderer) Renderer->RetirePreparations_RenderThread(this);
+			if (Renderer) Renderer->ReleaseSceneResources_RenderThread(Commands, *this);
 			Clear_RenderThread();
 			LifecycleState.store(ELifecycleState::Released, std::memory_order_release);
 		});

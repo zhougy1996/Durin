@@ -610,8 +610,7 @@ namespace
 		auto CreateViewState() -> Durin::FSceneViewStateOwner override { return {}; }
 		auto InvalidateViewState(Durin::FSceneViewStateId) -> void override {}
 		auto InvalidateAllViewStates() -> void override {}
-		auto RenderView(Durin::FRHICommandListImmediate&, Durin::FSceneInterface*, const Durin::FSceneView&,
-			Durin::FRHITexture*, bool, const Durin::FSceneViewRenderOptions&, Durin::FSceneViewStatistics*, Durin::FRDGCapture*) -> Durin::ERenderViewResult override
+		auto RenderView(Durin::FRHICommandListImmediate&, const Durin::FSceneViewRenderRequest&) -> Durin::ERenderViewResult override
 		{
 			return Durin::ERenderViewResult::Success;
 		}

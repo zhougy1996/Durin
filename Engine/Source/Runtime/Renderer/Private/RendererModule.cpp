@@ -74,8 +74,8 @@ namespace Durin
 		Preparation.Add("SurfaceMaterial", {"Surface.OpaqueShadow"});
 		return Preparation;
 	}
-    auto FRendererModule::UpdateScenes_RenderThread(FRHICommandListImmediate& Commands) -> void
-    { if (RenderingService) RenderingService->UpdatePendingScenes_RenderThread(Commands); }
+    auto FRendererModule::BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void
+    { if (RenderingService) RenderingService->BeginFrame_RenderThread(Commands); }
     auto FRendererModule::SetViewGPUTimingSink_RenderThread(std::function<void(FGPUTimingQueryRHIRef)> Sink) -> void
     { CheckRenderingThread(); if (RenderingService) RenderingService->ViewGPUTimingSink=std::move(Sink); }
 
@@ -256,27 +256,29 @@ namespace Durin
 		return RenderingService->RenderHitProxies_RenderThread(Commands, static_cast<FScene*>(Scene), Request);
 	}
 
-	auto FRendererModule::PrepareViewResources(
-		FRHICommandListImmediate& CommandList, FSceneInterface* Scene,
-		const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
-		const FSceneViewRenderOptions& Options, const FRenderResourcePreparation& Preparation) -> void
+	auto FRendererModule::PrepareViewResources(FRHICommandListImmediate& CommandList,
+		const FSceneViewRenderRequest& Request, const FRenderResourcePreparation& Preparation) -> FRenderResourcePreparationProgress
 	{
-		if (!RenderingService) return Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
-		RenderingService->PrepareViewResources_RenderThread(CommandList, dynamic_cast<FScene*>(Scene),
-			View, OutputTarget, bPresentOutput, Options, Preparation);
+		if (!RenderingService)
+		{
+			Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
+			return Preparation.GetProgress();
+		}
+		RenderingService->PrepareViewResources_RenderThread(CommandList, dynamic_cast<FScene*>(Request.Scene),
+			Request.View, Request.OutputTarget, Request.bPresentOutput, Request.Options, Preparation);
+		return Preparation.GetProgress();
 	}
 
-	auto FRendererModule::RenderView(
-		FRHICommandListImmediate& CommandList,
-		FSceneInterface* Scene,
-		const FSceneView& View,
-		FRHITexture* OutputTarget,
-		bool bPresentOutput,
-		const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics,
-		FRDGCapture* OutRenderGraphCapture
-	) -> ERenderViewResult
+	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList,
+		const FSceneViewRenderRequest& Request) -> ERenderViewResult
 	{
+		auto* Scene = Request.Scene;
+		const auto& View = Request.View;
+		auto* OutputTarget = Request.OutputTarget;
+		const bool bPresentOutput = Request.bPresentOutput;
+		const auto& Options = Request.Options;
+		auto* OutStatistics = Request.Statistics;
+		auto* OutRenderGraphCapture = Request.Capture;
 		if (OutStatistics != nullptr) *OutStatistics = {};
 		if (OutRenderGraphCapture != nullptr)
 			*OutRenderGraphCapture = FRDGCapture{};

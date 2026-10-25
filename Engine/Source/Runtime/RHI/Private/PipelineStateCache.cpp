@@ -246,34 +246,4 @@ namespace Durin
 		{ return GetAndOrCreateComputePipelineState(Initializer, Name); }
 	}
 
-	auto SetGraphicsPipelineState(FRHICommandListBase& Commands,
-		const FGraphicsPipelineStateInitializer& Initializer, FName Name) -> void
-	{
-		require(GDynamicRHI);
-		if (!IsTaskSchedulerRunning())
-		{
-			auto Native = GDynamicRHI->RHICreateGraphicsPipelineState(Name, Initializer);
-			requiref(Native, "Synchronous graphics pipeline creation failed.");
-			Commands.SetGraphicsPipelineState(*Native);
-			return;
-		}
-		auto Pipeline = PipelineStateCache::GetAndOrCreateGraphicsPipelineState(Initializer, Name);
-		requiref(Pipeline.has_value(), "Graphics pipeline cache admission failed.");
-		Commands.SetGraphicsPipelineState(*Pipeline);
-	}
-	auto SetComputePipelineState(FRHICommandListBase& Commands,
-		const FComputePipelineStateInitializer& Initializer, FName Name) -> void
-	{
-		require(GDynamicRHI);
-		if (!IsTaskSchedulerRunning())
-		{
-			auto Native = GDynamicRHI->RHICreateComputePipelineState(Name, Initializer);
-			requiref(Native, "Synchronous compute pipeline creation failed.");
-			Commands.SetComputePipelineState(*Native);
-			return;
-		}
-		auto Pipeline = PipelineStateCache::GetAndOrCreateComputePipelineState(Initializer, Name);
-		requiref(Pipeline.has_value(), "Compute pipeline cache admission failed.");
-		Commands.SetComputePipelineState(*Pipeline);
-	}
 }

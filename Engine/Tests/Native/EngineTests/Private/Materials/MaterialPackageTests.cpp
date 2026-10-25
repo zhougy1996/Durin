@@ -75,11 +75,11 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, BasePath), InstanceData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, TexturePath), InstanceData->Dependencies.end());
 	ASSERT_FALSE(Instance->GetPackage()->IsDirty());
-	const uint64 SavedVersion = Instance->GetRenderStateVersion();
+	const uint64 SavedVersion = Instance->GetRenderChangeCount();
 	EXPECT_FALSE(Instance->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.2f));
 	EXPECT_FALSE(Instance->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Durin::FVector3(0.2)));
 	EXPECT_FALSE(Instance->GetPackage()->IsDirty());
-	EXPECT_EQ(Instance->GetRenderStateVersion(), SavedVersion);
+	EXPECT_EQ(Instance->GetRenderChangeCount(), SavedVersion);
 	ASSERT_TRUE(Durin::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::UnloadPackage(BasePath));
 	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));

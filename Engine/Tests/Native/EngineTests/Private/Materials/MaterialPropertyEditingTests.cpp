@@ -187,14 +187,14 @@ TEST(FMaterialPropertyEditingTests, StaticPropertiesHaveStableDefaultsAndInstanc
 
 	Durin::FMaterialStaticProperties Invalid = Properties;
 	Invalid.OpacityMaskThreshold = 1.1f;
-	const uint64 InitialVersion = Base->GetRenderStateVersion();
+	const uint64 InitialVersion = Base->GetRenderChangeCount();
 	const auto RejectedProperties = Base->SetStaticProperties(Invalid);
 	ASSERT_FALSE(RejectedProperties);
 	EXPECT_EQ(RejectedProperties.error(), Durin::ValidateMaterialStaticProperties(Invalid).error());
 	EXPECT_EQ(Base->GetStaticProperties(), Properties);
-	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
+	EXPECT_EQ(Base->GetRenderChangeCount(), InitialVersion);
 	ASSERT_TRUE(Base->SetStaticProperties(Properties));
-	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
+	EXPECT_EQ(Base->GetRenderChangeCount(), InitialVersion);
 	EXPECT_FALSE(RejectedProperties.error().empty());
 
 	std::expected<void, std::string> Error;
@@ -494,7 +494,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedParameterEditCoalescesAndInvalidate
 	Durin::Editor::FPropertyViewContext Context{
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
-	const uint64 BeforeVersion = Material->GetRenderStateVersion();
+	const uint64 BeforeVersion = Material->GetRenderChangeCount();
 	EXPECT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
 		[](Durin::FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.6f;
@@ -503,7 +503,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedParameterEditCoalescesAndInvalidate
 		[](Durin::FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.4f;
 		}, true));
-	EXPECT_GT(Material->GetRenderStateVersion(), BeforeVersion);
+	EXPECT_GT(Material->GetRenderChangeCount(), BeforeVersion);
 	PropertyView.FinishActiveEdit(&Context, false);
 	EXPECT_TRUE(Error.empty());
 	float Opacity = 0.0f;
@@ -611,13 +611,13 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyOverridesValidateAndRestore
 	Tests::FTestEditorTransactorOwner Transactions;
 	Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Instance, Property), "Edit Rendering Overrides", *Transactions.Get()));
-	const auto Before = Instance->GetRenderStateVersion();
+	const auto Before = Instance->GetRenderChangeCount();
 	std::string Error;
 	const auto EditResult3 = Session.Apply(Proposed);
 	Error = EditResult3.Message;
 	EXPECT_EQ(EditResult3.GetStatus(), Editor::EPropertyEditResult::Changed) << Error;
 	EXPECT_EQ(Session.Commit().GetStatus(), Editor::EPropertyEditResult::Changed);
-	EXPECT_GT(Instance->GetRenderStateVersion(), Before);
+	EXPECT_GT(Instance->GetRenderChangeCount(), Before);
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Instance->GetPropertyOverrides().HasAnyOverride());
@@ -648,10 +648,10 @@ TEST(FMaterialPropertyEditingTests, UnknownAndMismatchedSettersDoNotInvalidateRe
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "RejectedSetterMaterial");
-	const uint64 Version = Material->GetRenderStateVersion();
+	const uint64 Version = Material->GetRenderChangeCount();
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.25f));
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), 0.25f));
-	EXPECT_EQ(Material->GetRenderStateVersion(), Version);
+	EXPECT_EQ(Material->GetRenderChangeCount(), Version);
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }

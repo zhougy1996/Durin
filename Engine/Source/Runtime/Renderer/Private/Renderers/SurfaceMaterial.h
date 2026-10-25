@@ -12,7 +12,7 @@
 namespace Durin
 {
 	class FDefaultTextureResources;
-	class FEnvironmentLightingResources;
+	struct FSkyLightingGeneration;
 	class FGBufferRenderer;
 	class FRendererResourceCoordinator;
 
@@ -185,8 +185,7 @@ namespace Durin
 		public:
 			FSurfaceMaterialResources(
 				FRendererResourceCoordinator& InCoordinator,
-				FDefaultTextureResources& InDefaultTextures,
-				FEnvironmentLightingResources& InEnvironmentLighting);
+				FDefaultTextureResources& InDefaultTextures);
 			~FSurfaceMaterialResources();
 
 			FSurfaceMaterialResources(const FSurfaceMaterialResources&) = delete;
@@ -199,12 +198,14 @@ namespace Durin
 			auto Resolve_RenderThread(
 				const FMaterialRenderBinding& Binding,
 				ESurfaceMaterialPass Pass,
+				const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 				FRHITexture* DirectionalShadowTexture,
 				FRHISampler* DirectionalShadowSampler,
 				FResolvedSurfaceMaterial& OutMaterial) const -> bool;
 			auto ReleaseResources_RenderThread() -> void;
 			auto AreStableResourcesCurrent_RenderThread(const FResolvedSurfaceMaterial& Material) const -> bool;
 			auto RefreshPassResources_RenderThread(ESurfaceMaterialPass Pass,
+				const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
 				FResolvedSurfaceMaterial& Material) const -> bool;
 			auto GetSamplerSlotCount_RenderThread() const -> size_t;
@@ -216,7 +217,6 @@ namespace Durin
 			struct FState;
 			FRendererResourceCoordinator& Coordinator;
 			FDefaultTextureResources& DefaultTextures;
-			FEnvironmentLightingResources& EnvironmentLighting;
 			std::unique_ptr<FState> State;
 		};
 

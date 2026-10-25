@@ -10,18 +10,16 @@
 namespace Durin
 {
 	auto FSceneViewport::PrepareResources_RenderThread(IRendererModule& Renderer, FRHICommandListImmediate& Commands,
-		FSceneInterface* Scene, const FSceneView& View, FRHITexture* Output, bool bPresent,
-		const FSceneViewRenderOptions& Options) -> bool
+		const FSceneViewRenderRequest& Request) -> bool
 	{
 		CheckRenderingThread();
 		if (bResourcePreparationRequested.exchange(false)
 			|| ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Stale)
 			ResourcePreparation = FRenderResourcePreparation::Create();
 		if (!ResourcePreparation.IsValid()) return true;
-		if (ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Ready) return true;
-		Renderer.PrepareViewResources(Commands, Scene, View, Output, bPresent, Options, ResourcePreparation);
-		const auto Progress = ResourcePreparation.GetProgress();
-		if (Progress.State == ERenderResourcePreparationState::Ready)
+		const bool bWasReady = ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Ready;
+		const auto Progress = Renderer.PrepareViewResources(Commands, Request, ResourcePreparation);
+		if (!bWasReady && Progress.State == ERenderResourcePreparationState::Ready)
 			DURIN_DEBUG("Scene resources prepared: shaders={}, pipelines={}, objects={}, accounted-bytes={}",
 				Progress.ShaderAdmissions, Progress.PipelineAdmissions, Progress.RetainedObjects, Progress.AccountedBytes);
 		return Progress.State == ERenderResourcePreparationState::Ready;

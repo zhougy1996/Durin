@@ -122,8 +122,10 @@ GPU completion. The limit is 8,388,608 pixels / 64 MiB, with dimensions no large
 than 8192; requests exceeding it fail.
 Each viewport backend retains one full-map cache. Ordered render-thread lookup
 checks view/projection and pixel extent, scene publication revision, accepted
-material and texture-reference publication epochs, renderer generation, numeric
-ID mapping, and overlay geometry/priority. A valid map shares an immutable CPU
+visible material record identities and their actual native textures, renderer
+generation, numeric ID mapping, and overlay geometry/priority. Native texture
+leases prevent address reuse while a cache entry is retained; unrelated material
+or texture publications do not invalidate it. A valid map shares an immutable CPU
 pixel allocation; another query does not render or read back that map again.
 Only successful reads enter the cache, and failed requests can be retried.
 Scene changes retire the reusable map without altering previously returned CPU

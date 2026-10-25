@@ -136,8 +136,13 @@ StaticMesh sessions also wait for every assigned default material's current
 compiled program before declaring readiness or leasing the capture scene.
 Pending, running, deferred and scheduled material requests remain parked;
 terminal material failures report a qualified diagnostic. Scene preparation
-captures weak material identities and render-state revisions, and later
-validation rejects changed or no-longer-current materials before publication.
+captures weak material identities and owned effective material snapshots. These
+contain the accepted program, static properties and flattened parameter values,
+including counted texture references and sampler state. Validation compares
+current effective content and compilation readiness, rather than parent-chain
+revision hashes or diagnostic counters. Inherited changes invalidate preparation;
+changes hidden by an override preserve it. Geometry residency and package-edit
+identities keep their separate existing checks.
 
 Sessions retain successful load handles through capture validation. Reset and
 destruction cancel unfinished requests and release those handles. Removing the

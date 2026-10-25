@@ -88,10 +88,10 @@ namespace Durin
 			++ReuseCount;
 			return Entry->Map;
 		}
-		auto Publish_RenderThread(FXxHash128 Key, std::shared_ptr<const FHitProxyMap> Map, bool bFrameDependent) -> void
+		auto Publish_RenderThread(FXxHash128 Key, std::shared_ptr<const FHitProxyMap> Map, bool bFrameDependent, std::vector<FTextureRHIRef> TextureLeases) -> void
 		{
 			check(Map);
-			Entry = FEntry{Key, std::move(Map), bFrameDependent};
+			Entry = FEntry{Key, std::move(Map), bFrameDependent, std::move(TextureLeases)};
 			++RenderCount;
 		}
 		auto Invalidate_RenderThread() -> void { Entry.reset(); Preparations.Reset(); }
@@ -105,6 +105,8 @@ namespace Durin
 			FXxHash128 Key;
 			std::shared_ptr<const FHitProxyMap> Map;
 			bool bFrameDependent = false;
+			// Keep cached native identities alive, preventing pointer reuse before invalidation.
+			std::vector<FTextureRHIRef> TextureLeases;
 		};
 		std::optional<FEntry> Entry;
 		FRenderPipelineRequests Preparations;

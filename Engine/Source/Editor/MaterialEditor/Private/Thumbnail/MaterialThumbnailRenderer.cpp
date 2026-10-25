@@ -63,25 +63,22 @@ namespace Durin::Editor::Material
 
 		struct FMaterialThumbnailResource
 		{
-			uint64 Revision;
+			FMaterialLocalRenderLayer Snapshot;
 			bool bReady;
 		};
 
-		auto GetMaterialResourceRevision(
+		auto GetMaterialResourceSnapshot(
 			DMaterialInterface* Material) -> std::expected<FMaterialThumbnailResource, std::string>
 		{
 			if (Material == nullptr)
 			{
 				return std::unexpected("The material asset is unavailable.");
 			}
-			uint64 Revision = 0;
 			DMaterialInterface* Current = Material;
 			DMaterial* BaseMaterial = nullptr;
 			std::unordered_set<DMaterialInterface*> Visited;
 			while (Current != nullptr && Visited.insert(Current).second)
 			{
-				Revision ^= Current->GetRenderStateVersion() + 0x9e3779b97f4a7c15ull
-					+ (Revision << 6) + (Revision >> 2);
 				if ((BaseMaterial = Cast<DMaterial>(Current)) != nullptr) break;
 				Current = Current->GetParent();
 			}
@@ -98,7 +95,7 @@ namespace Durin::Editor::Material
 			{
 				if (CompileStatus.State == EMaterialCompileState::Deferred
 					|| CompileStatus.State == EMaterialCompileState::Running)
-					return FMaterialThumbnailResource{Revision == 0 ? 1 : Revision, false};
+					return FMaterialThumbnailResource{{}, false};
 				const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
 				return std::unexpected(!Diagnostics.empty() && !Diagnostics.front().Message.empty()
 					? Diagnostics.front().Message
@@ -106,20 +103,20 @@ namespace Durin::Editor::Material
 			}
 			for (DTexture2D* Texture : GetTextureDependencies(*Material))
 			{
-				if (!Texture->IsAsyncCacheComplete()) return FMaterialThumbnailResource{Revision, false};
+				if (!Texture->IsAsyncCacheComplete()) return FMaterialThumbnailResource{{}, false};
 				if (!Texture->HasPlatformData())
 				{
 					return std::unexpected("A referenced material texture is not built.");
 				}
-				if (Texture->IsResourceUpdatePending()) return FMaterialThumbnailResource{Revision, false};
+				if (Texture->IsResourceUpdatePending()) return FMaterialThumbnailResource{{}, false};
 				if (Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed
 					&& !Texture->HasUsableResource())
 				{
 					return std::unexpected("A referenced material texture render resource failed.");
 				}
-				if (!Texture->HasUsableResource()) return FMaterialThumbnailResource{Revision, false};
+				if (!Texture->HasUsableResource()) return FMaterialThumbnailResource{{}, false};
 			}
-			return FMaterialThumbnailResource{Revision == 0 ? 1 : Revision, true};
+			return FMaterialThumbnailResource{Material->GetRenderSnapshot(), true};
 		}
 
 		auto GetMaterialAssetRevision(
@@ -131,15 +128,6 @@ namespace Durin::Editor::Material
 				return std::unexpected("The material asset package is unavailable.");
 			}
 			return Package->GetEditRevision();
-		}
-
-		auto CombineResourceRevision(uint64 MaterialRevision, uint64 MeshRevision)
-			-> uint64
-		{
-			uint64 Revision = MaterialRevision;
-			Revision ^= MeshRevision + 0x9e3779b97f4a7c15ull
-				+ (Revision << 6) + (Revision >> 2);
-			return Revision == 0 ? 1 : Revision;
 		}
 
 		auto MakeMaterialPreviewView() -> ::Durin::Editor::FThumbnailPreviewView
@@ -263,7 +251,7 @@ namespace Durin::Editor::Material
 					Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
 					bShadersRequested = true;
 				}
-				auto Resource = GetMaterialResourceRevision(Material);
+				auto Resource = GetMaterialResourceSnapshot(Material);
 				if (!Resource)
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
@@ -313,10 +301,11 @@ namespace Durin::Editor::Material
 			{
 				ResetScenePreview();
 				if (!Material) { return std::unexpected("The material is unavailable."); }
-				auto Resource = GetMaterialResourceRevision(Material);
+				auto Resource = GetMaterialResourceSnapshot(Material);
 				if (!Resource) return std::unexpected(std::move(Resource.error()));
 				if (!Resource->bReady || !Sphere) return std::unexpected("The material preview resources are not ready.");
-				PreparedResourceRevision = CombineResourceRevision(Resource->Revision, Sphere->GetRenderResourceStatus().Revision);
+				PreparedMaterialSnapshot = std::move(Resource->Snapshot);
+				PreparedSphereResourceRevision = Sphere->GetRenderResourceStatus().Revision;
 				DependencySnapshots.clear();
 				for (DTexture2D* Texture : GetTextureDependencies(*Material))
 				{
@@ -366,17 +355,16 @@ namespace Durin::Editor::Material
 				}
 				auto MaterialAssetRevision = GetMaterialAssetRevision(Material);
 				if (!MaterialAssetRevision) return std::unexpected(std::move(MaterialAssetRevision.error()));
-				auto Resource = GetMaterialResourceRevision(Material);
+				auto Resource = GetMaterialResourceSnapshot(Material);
 				if (!Resource) return std::unexpected(std::move(Resource.error()));
 				const FStaticMeshRenderResourceStatus SphereStatus = Sphere
 					? Sphere->GetRenderResourceStatus()
 					: FStaticMeshRenderResourceStatus{};
-				const uint64 Revision = CombineResourceRevision(
-					Resource->Revision, SphereStatus.Revision);
 				if (!Resource->bReady || Material == nullptr
 					|| SphereStatus.Readiness != EStaticMeshRenderResourceReadiness::Ready
 					|| *MaterialAssetRevision != AssetRevision
-					|| Revision != PreparedResourceRevision)
+					|| Resource->Snapshot != PreparedMaterialSnapshot
+					|| SphereStatus.Revision != PreparedSphereResourceRevision)
 				{
 					return std::unexpected("The material changed while its thumbnail was being generated.");
 				}
@@ -387,6 +375,7 @@ namespace Durin::Editor::Material
 			{
 				ResetScenePreview();
 				DependencySnapshots.clear();
+				PreparedMaterialSnapshot = {};
 				Sphere = nullptr;
 				Material = nullptr;
 				bAssetsLoaded = false;
@@ -434,7 +423,8 @@ namespace Durin::Editor::Material
 			std::string AssetClassName;
 			DMaterialInterface* Material = nullptr;
 			uint64 AssetRevision = 0;
-			uint64 PreparedResourceRevision = 0;
+			uint64 PreparedSphereResourceRevision = 0;
+			FMaterialLocalRenderLayer PreparedMaterialSnapshot;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			bool bOwnsActor = false;

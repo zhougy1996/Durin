@@ -66,11 +66,9 @@ namespace Durin::RendererPrivate
 
 	FSurfaceMaterialResources::FSurfaceMaterialResources(
 		FRendererResourceCoordinator& InCoordinator,
-		FDefaultTextureResources& InDefaultTextures,
-		FEnvironmentLightingResources& InEnvironmentLighting)
+		FDefaultTextureResources& InDefaultTextures)
 		: Coordinator(InCoordinator)
 		, DefaultTextures(InDefaultTextures)
-		, EnvironmentLighting(InEnvironmentLighting)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -119,6 +117,7 @@ namespace Durin::RendererPrivate
 	auto FSurfaceMaterialResources::Resolve_RenderThread(
 		const FMaterialRenderBinding& Binding,
 		ESurfaceMaterialPass Pass,
+		const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 		FRHITexture* DirectionalShadowTexture,
 		FRHISampler* DirectionalShadowSampler,
 		FResolvedSurfaceMaterial& OutMaterial) const -> bool
@@ -161,7 +160,7 @@ namespace Durin::RendererPrivate
 		}
 		else return false;
 
-		return RefreshPassResources_RenderThread(Pass, DirectionalShadowTexture,
+		return RefreshPassResources_RenderThread(Pass, Environment, DirectionalShadowTexture,
 			DirectionalShadowSampler, OutMaterial);
 	}
 
@@ -200,7 +199,7 @@ namespace Durin::RendererPrivate
 	}
 
 	auto FSurfaceMaterialResources::RefreshPassResources_RenderThread(
-		ESurfaceMaterialPass Pass, FRHITexture* DirectionalShadowTexture,
+		ESurfaceMaterialPass Pass, const std::shared_ptr<const FSkyLightingGeneration>& Environment, FRHITexture* DirectionalShadowTexture,
 		FRHISampler* DirectionalShadowSampler, FResolvedSurfaceMaterial& OutMaterial) const -> bool
 	{
 		check(IsInRenderingThread());
@@ -214,10 +213,10 @@ namespace Durin::RendererPrivate
 				Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()) return false;
 			FallbackSampler = Entry->Slot.GetPayload()->GetReference();
 		}
-		FRHITexture* Irradiance = EnvironmentLighting.GetIrradiance_RenderThread();
-		FRHITexture* Prefiltered = EnvironmentLighting.GetPrefiltered_RenderThread();
-		FRHITexture* Brdf = EnvironmentLighting.GetBrdfLut_RenderThread();
-		FRHISampler* EnvironmentSampler = EnvironmentLighting.GetSampler_RenderThread();
+		FRHITexture* Irradiance = (Environment ? Environment->Irradiance.GetReference() : nullptr);
+		FRHITexture* Prefiltered = (Environment ? Environment->Prefiltered.GetReference() : nullptr);
+		FRHITexture* Brdf = (Environment ? Environment->BrdfLut.GetReference() : nullptr);
+		FRHISampler* EnvironmentSampler = (Environment ? Environment->Sampler.GetReference() : nullptr);
 		const bool bCompleteEnvironment = Irradiance != nullptr
 			&& Prefiltered != nullptr && Brdf != nullptr
 			&& EnvironmentSampler != nullptr;

@@ -104,7 +104,7 @@ TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 					const auto Begin = std::chrono::steady_clock::now();
 					for (auto& Proxy : Proxies)
 					{
-						EXPECT_TRUE(Proxy->ApplyPublication_RenderThread({Layer}));
+						Proxy->ApplyPublication_RenderThread(Layer);
 						EXPECT_FALSE(Proxy->Resolve_RenderThread().Representation.IsError());
 					}
 					const auto Resolved = std::chrono::steady_clock::now();
@@ -894,8 +894,8 @@ TEST(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 				<< " rejected_p95_us=" << Rejected.second
 				<< " individual_commits=" << IndividualCommits.ChangedCommitCount
 				<< " batch_commits=" << BatchCommits.ChangedCommitCount
-				<< " individual_waves=" << IndividualProxy.QueuedPublicationWaveCount
-				<< " batch_waves=" << BatchProxy.QueuedPublicationWaveCount
+				<< " individual_publications=" << IndividualProxy.QueuedPublicationCount
+				<< " batch_publications=" << BatchProxy.QueuedPublicationCount
 				<< " individual_payload_bytes=" << IndividualProxy.CopiedMaterialPayloadBytes
 				<< " batch_payload_bytes=" << BatchProxy.CopiedMaterialPayloadBytes
 				<< " individual_peak_allocation_increase="

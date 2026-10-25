@@ -1350,7 +1350,7 @@ namespace
 				if (!Target) Target = GDynamicRHI->RHICreateTexture(Commands, TargetDesc);
 				if (!Target) { Result = ERenderViewResult::RendererResourcesUnavailable; return; }
 				const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
-				Renderer.PrepareViewResources(Commands, &Scene, View, Target, false, Options, Preparation);
+				Renderer.PrepareViewResources(Commands, {&Scene, View, Target, false, Options}, Preparation);
 				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), DrawsBefore);
 				const auto State = Preparation.GetProgress().State;
 				if (State == ERenderResourcePreparationState::Pending) return;
@@ -1359,7 +1359,7 @@ namespace
 				if (BeforeDraw) BeforeDraw();
 				if (testing::Test::HasFatalFailure())
 				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
-				Result = Renderer.RenderView(Commands, &Scene, View, Target, false, Options);
+				Result = Renderer.RenderView(Commands, {&Scene, View, Target, false, Options});
 				if (Result == ERenderViewResult::Success && AfterDraw) AfterDraw(Commands, Target);
 			});
 			FlushRenderingCommands();
@@ -2096,7 +2096,7 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
 				SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Telemetry = Value; });
 				FGeometryQualificationFrame FrameScope(Commands);
-				const auto Result = Renderer.RenderView(Commands, &*Owner, View, Target, false, {});
+				const auto Result = Renderer.RenderView(Commands, {&*Owner, View, Target, false, {}});
 				SetViewRenderTelemetrySink(nullptr);
 				ASSERT_EQ(Result, ERenderViewResult::Success);
 				ReadGeometryTexture(Commands, Target, Pixels[Frame]);
@@ -2208,7 +2208,7 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 				if (Frame == 0) First = Prepared;
 				else for (size_t Draw = 0; Draw < First.Opaque.size(); ++Draw)
 					EXPECT_EQ(First.Opaque[Draw].Command, Prepared.Opaque[Draw].Command);
-				ASSERT_EQ(Renderer.RenderView(Commands, &*Owner, View, Target, false, {}), ERenderViewResult::Success);
+				ASSERT_EQ(Renderer.RenderView(Commands, {&*Owner, View, Target, false, {}}), ERenderViewResult::Success);
 				ReadGeometryTexture(Commands, Target, Pixels[Frame]);
 			}
 			ASSERT_EQ(Pixels[0].size(), 192u * 108u * 4u);
@@ -2634,7 +2634,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 				Sink = &Observation;
 				SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { *Sink = Value; });
 				FGeometryQualificationFrame FrameScope(Commands);
-				const auto Result = Renderer.RenderView(Commands, Scene, View, Target, false, {});
+				const auto Result = Renderer.RenderView(Commands, {Scene, View, Target, false, {}});
 				SetViewRenderTelemetrySink(nullptr); Sink = nullptr;
 				EXPECT_EQ(Result == ERenderViewResult::Success, bExpectedSuccess);
 				if (Result == ERenderViewResult::Success) ReadGeometryTexture(Commands, Target, Pixels);
@@ -2707,9 +2707,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 								| ETextureCreateFlags::ShaderResource
 								| ETextureCreateFlags::SourceCopy));
 					FGeometryQualificationFrame FrameScope(Commands);
-					ASSERT_EQ(Renderer.RenderView(Commands,
-						I == 0 ? RedWorld.Get() : GreenWorld.Get(), View,
-						Target, false, {}), ERenderViewResult::Success);
+					ASSERT_EQ(Renderer.RenderView(Commands, {I == 0 ? RedWorld.Get() : GreenWorld.Get(), View, Target, false, {}}), ERenderViewResult::Success);
 					ReadGeometryTexture(Commands, Target, ForwardPixels[I]);
 				}
 				size_t RedDominant = 0, GreenDominant = 0;
@@ -2754,9 +2752,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 						ReadGeometryTexture(LocalCommands, Depth, *ShadowCapture, true);
 					});
 					FGeometryQualificationFrame FrameScope(Commands);
-					ASSERT_EQ(Renderer.RenderView(Commands,
-						I == 0 ? RedWorld.Get() : GreenWorld.Get(), View,
-						Target, false, {}), ERenderViewResult::Success);
+					ASSERT_EQ(Renderer.RenderView(Commands, {I == 0 ? RedWorld.Get() : GreenWorld.Get(), View, Target, false, {}}), ERenderViewResult::Success);
 					SetGBufferCaptureSink(nullptr);
 					SetShadowDepthCaptureSink(nullptr);
 					SetViewRenderTelemetrySink(nullptr);
@@ -2806,8 +2802,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 					ReadGeometryTexture(LocalCommands, Depth, *ShadowCapture, true);
 				});
 				FGeometryQualificationFrame FrameScope(Commands);
-				ASSERT_EQ(Renderer.RenderView(Commands, GreenWorld.Get(), View,
-					Target, false, {}), ERenderViewResult::Success);
+				ASSERT_EQ(Renderer.RenderView(Commands, {GreenWorld.Get(), View, Target, false, {}}), ERenderViewResult::Success);
 				SetShadowDepthCaptureSink(nullptr);
 				ShadowCapture = nullptr;
 				size_t Covered = 0;
@@ -3202,7 +3197,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 			while (std::ranges::any_of(Requests, [](const auto& Id) { return Id.GetProgress().State == EMaterialPSOPrecacheState::Pending; })
 				&& std::chrono::steady_clock::now() < Deadline)
 			{
-				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Renderer.UpdateScenes_RenderThread(Commands); });
+				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Renderer.BeginFrame_RenderThread(Commands); });
 				FlushRenderingCommands();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
@@ -3306,7 +3301,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		auto Pump = [&](size_t Expected) {
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 			do {
-				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Renderer.UpdateScenes_RenderThread(Commands); });
+				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Renderer.BeginFrame_RenderThread(Commands); });
 				FlushRenderingCommands(); DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
 				if (Count() == Expected) break;
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3457,7 +3452,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	EXPECT_EQ(LastMap, InitialMap);
 	EXPECT_EQ(Request.Cache->GetStatistics().RenderCount, RenderCount);
 	EXPECT_EQ(Request.Cache->GetStatistics().ReuseCount, ReuseCount + 1);
-	// Publication occurs through RenderCore/RHI, while the cache reads the epoch in Renderer.
+	// An unrelated texture publication must not invalidate this scene's picking map.
 	const auto BeforeTexturePublication = LastMap;
 	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([](FRHICommandListImmediate&) {
 		FTextureReference Reference;
@@ -3465,6 +3460,21 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 			.SetFlags(ETextureCreateFlags::ShaderResource));
 		ASSERT_TRUE(Texture);
 		Reference.SetReferencedTexture_RenderThread(Texture);
+	});
+	FlushRenderingCommands();
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_EQ(LastMap, BeforeTexturePublication);
+	const auto UnrelatedMaterial = MakeMaterial(EMaterialBlendMode::Opaque);
+	FlushRenderingCommands();
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_EQ(LastMap, BeforeTexturePublication);
+	EnqueueRenderCommand("RepublishUsedHitProxyMaterial", [&](FRHICommandListImmediate&) {
+		FMaterialLocalRenderLayer Layer;
+		Layer.CompiledProgram = Material->Resolve_RenderThread().CompiledProgram;
+		FMaterialStaticProperties Properties;
+		Properties.bTwoSided = true;
+		Layer.StaticProperties = Properties;
+		Material->ApplyPublication_RenderThread(std::move(Layer));
 	});
 	FlushRenderingCommands();
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);

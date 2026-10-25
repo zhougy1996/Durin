@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, explicit readine
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-10-25
 
 ## Complete-Or-Null Construction
 
@@ -228,17 +228,19 @@ completion. Closing cache admission joins this thread before closing the creatio
 scope. Cache closure then joins its private queue; native results retire through
 the existing two-phase shutdown boundary.
 
-Drawing uses `SetGraphicsPipelineState(Commands, Initializer, Name)` or its compute
-counterpart. These helpers acquire the cache identity and record its binding and
-completion dependency automatically. Admission rejection is a contract error;
-resource preparation should use the `expected` cache/precache API to apply
-retry or fallback policy. Without Core, binding helpers use the complete-or-null
-synchronous native factories, while cache/precache acquisition returns
-Unsupported. Command-list overloads accept typed cache references or complete
-native RHI objects, never creation requests. A Pending identity is not an
-unfinished native resource. Recording never waits for native compilation.
+Drawing binds an explicit typed cache request through the command-list overload,
+which records its completion dependency. Cache/precache acquisition returns
+`expected` so the resource owner chooses retry or failure policy. There is no
+initializer-binding helper or scheduler-dependent synchronous fallback. Without
+Core, cache/precache acquisition returns Unsupported; startup tools that require
+native creation must call the complete-or-null RHI factories explicitly.
+Command-list overloads accept typed cache references or complete native RHI
+objects. Recording never waits for native compilation.
 
 ## Transactional Resource Slots
+
+Resource factories return exactly one owned result: Pending, Canceled, payload or
+error. A tagged union prevents empty or contradictory result combinations.
 
 With Core running, production fixed graphics/compute and static-mesh PSO
 factories use `FRenderPipelineRequestScope` inside their owning slot. Logical

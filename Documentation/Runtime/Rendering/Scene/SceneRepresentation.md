@@ -131,7 +131,11 @@ The render-thread scene supplies visibility and prepared mesh batches to the
 on-demand Hit Proxy pass. `FHitProxyRenderRequest` carries request-local numeric
 IDs and detached overlay triangles. The editor retains weak Actor/component
 identities and resolves the asynchronous ID readback on the game thread. No
-picking mutation observer or spatial index is attached to `DLevel`. See the
+picking mutation observer or spatial index is attached to `DLevel`. Picking cache
+keys use the visible prepared material records and their actual referenced
+textures, rather than process-wide material/texture publication clocks. Cached
+entries retain the native texture identities until replacement to prevent
+address reuse. Unrelated publications do not invalidate the map. See the
 [semantic picking contract](../../../Editor/Architecture/LevelEditing/ViewportEditing.md#semantic-picking-contract).
 
 ## Failure and Thread Contracts

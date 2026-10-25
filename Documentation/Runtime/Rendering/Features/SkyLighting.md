@@ -70,36 +70,52 @@ or managed asset pointers. Ownership/source epochs are distinct from animated
 provider revisions. An admitted job is allowed to complete while animation
 coalesces into the latest pending state; animation cannot starve publication.
 
-Each Scene admits at most one GPU job. A weak generation inventory counts
-exported images still owned by active, candidate, or external consumers;
-retired active sets stay strongly owned through an ordered GPU retirement
-marker. Admission reserves a conservative 4 MiB for the fixed output envelope
-and waits if lighting images would exceed 16 MiB or retained sources plus
-lighting would exceed 64 MiB. RDG pool counters exclude exports and are not
-used as this budget. Backpressure is a distinct Details diagnostic. An ordered
-GPU completion marker gates the next job. GPU timing queries are optional
-diagnostics on backends that support timestamps. RDG declares every face/mip
-access and extracts the complete irradiance/prefilter set together. Each filter
-pass batches all faces of one mip and binds exact writable 2D face views. Each
-complete job dispatches an asynchronous GPU submission before another scene is
-admitted, bounding unsubmitted Metal command-buffer use. Publication means all commands were recorded
-on the ordered RHI timeline, not that CPU code observed GPU completion.
-Normal runtime updates perform no synchronous CPU readback.
-World-driven scenes admit once at frame start; later views in that frame
-reuse the result. View-only preview scenes can admit through their render path.
+Each Scene admits at most one GPU job. The job owns its input, candidate
+irradiance/prefilter/radiance textures, BRDF LUT and completion point. `Published`
+is an immutable, successfully completed result; submitting a candidate never
+replaces it. The render thread polls completion without waiting. Success publishes
+the complete output set and updates diagnostics; failure or cancellation leaves
+the previous result intact, reports Failed and releases the scheduling slot.
+Requests continue coalescing in the current scene snapshots. Animated content
+changes do not invalidate a running job from the same source authority.
 
-An authority change immediately discards the old active set. A same-authority
-creation failure retains the last complete set and retries at the bounded
-refresh interval. An admitted replacement retains the previous set until GPU
-completion. Canceled or failed jobs restore that set when its authority is still
-current, report failure and retry even without an input revision change. Detached
-canceled outputs retire only after a subsequent ordered completion marker; failed
-native outputs remain owned and budgeted until resource/device invalidation.
-Authority retirement also requires a successful marker after the last consumer;
-a canceled marker never authorizes release. Scene removal releases scene ownership; submitted work owns
-its resources through execution. Renderer device invalidation clears all
-registered scene generations, including inactive scenes, and the shared LUT.
-See [Renderer Resource Recovery](../Pipeline/RendererResourceRecovery.md).
+A weak generation inventory counts images retained by jobs, published results,
+retirement leases and external consumers. Admission reserves a conservative
+4 MiB for the fixed output envelope and waits if lighting images would exceed
+16 MiB or retained sources plus lighting would exceed 64 MiB. RDG pool counters
+exclude exports and are not used as this budget. Backpressure is a distinct
+Details diagnostic. Each job dispatches an asynchronous GPU submission before
+another scene is admitted; normal updates perform no synchronous CPU readback.
+Optional GPU timing queries do not control admission or publication.
+
+Published generations replaced or removed by an authority change enter the
+renderer's retirement collection with a new ordered marker covering all prior
+views. Terminal failed jobs enter that same collection with their original
+completion point. Job failure is not permission to reclaim native resources:
+leases remain until RHI retirement eligibility or replacement of the actual
+physical RHI device. Renderer shutdown explicitly drains the physical GPU
+before releasing the remaining retirement leases, including failed submissions.
+An empty collection does not require a GPU wait. Renderer shader/device/manual generations express logical
+validity only and never authorize physical retirement. Logical invalidation
+moves old jobs and results into the same retirement queue and keeps their weak
+image inventory, so resources still count against admission while retained.
+`BeginFrame_RenderThread` collects that renderer-owned queue independently of
+pending scenes, new filtering jobs or viewport submission. Scene removal also
+transfers its outstanding jobs/results to this queue.
+The shared LUT cache adopts only successfully completed job output; every
+published generation retains its own LUT, so another scene cannot change its
+resource set. Rendering captures one counted scene lighting binding, including
+its sampler, and passes it through forward/deferred preparation; there is no
+mutable selected-scene context or sequence of unrelated resource getters.
+Shader/PSO preparation preserves Pending versus Failed outcomes.
+Creation failures retry at the bounded refresh interval.
+
+World-driven scenes admit once at frame start; later views in that frame reuse
+the published result. View-only preview scenes can admit through their render
+path. An authority change immediately removes the old published set from
+selection. Scene removal releases scene ownership; submitted work retains native
+resources through execution. Renderer invalidation detaches registered scene jobs/results into retirement
+and clears the logical shared cache. See [Renderer Resource Recovery](../Pipeline/RendererResourceRecovery.md).
 
 The supported path requires linear filtering of RGBA32F/RGBA16F,
 RGBA16F storage images, 8x8 compute groups, and 512-face cubes. Vulkan and

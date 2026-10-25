@@ -40,10 +40,14 @@ namespace Durin
 		EMaterialPSOPrecacheState State = EMaterialPSOPrecacheState::Failed;
 		uint32 Pipelines = 0, Pending = 0, RequiredPending = 0, Failed = 0;
 		bool bRequiredReady = false;
+		auto operator==(const FMaterialPSOPrecacheProgress&) const -> bool = default;
 	};
 	struct FMaterialPSOPrecacheWork;
 	struct FMaterialPSOPrecacheObserver;
 	class FMaterialPSORequestManager;
+	struct FMaterialPSOPrecacheNotification;
+	using FMaterialPSOPrecacheSubscription = std::shared_ptr<const FMaterialPSOPrecacheNotification>;
+	class FMaterialPSOPrecacheOwner;
 
 	// Copies alias one observer. Separate requests share work but cancel independently.
 	class FMaterialPSOPrecacheRequestID
@@ -52,15 +56,34 @@ namespace Durin
 		ENGINE_API static auto Rejected(std::string Error) -> FMaterialPSOPrecacheRequestID;
 		ENGINE_API auto GetValue() const -> uint64;
 		auto IsValid() const -> bool { return GetValue() != 0; }
+		// Outcome diagnostics survive invalidation; currentness controls reuse.
+		ENGINE_API auto IsCurrent() const -> bool;
 		ENGINE_API auto GetProgress() const -> FMaterialPSOPrecacheProgress;
 		ENGINE_API auto GetDiagnostic() const -> std::string;
 		ENGINE_API auto Cancel() const -> void;
 		ENGINE_API auto BoostPriority(EPSOPrecachePriority Priority) const -> void;
 		ENGINE_API auto GetPriority() const -> EPSOPrecachePriority;
-		ENGINE_API auto WithOwnerRevision(const std::shared_ptr<std::atomic<uint64>>& Revision) const -> FMaterialPSOPrecacheRequestID;
+		// Callbacks may run on the resource thread; subscriptions never own a component.
+		ENGINE_API auto Subscribe(std::function<void()> Changed) const -> FMaterialPSOPrecacheSubscription;
 	private:
 		std::shared_ptr<FMaterialPSOPrecacheObserver> Observer;
 		friend class FMaterialPSORequestManager;
+		friend class FMaterialPSOPrecacheOwner;
+	};
+
+	// GameThread owner. Invalidates only its observations, preserving shared work.
+	class FMaterialPSOPrecacheOwner
+	{
+	public:
+		ENGINE_API FMaterialPSOPrecacheOwner();
+		ENGINE_API ~FMaterialPSOPrecacheOwner();
+		FMaterialPSOPrecacheOwner(const FMaterialPSOPrecacheOwner&) = delete;
+		auto operator=(const FMaterialPSOPrecacheOwner&) -> FMaterialPSOPrecacheOwner& = delete;
+		ENGINE_API auto Observe(const FMaterialPSOPrecacheRequestID& Request) -> FMaterialPSOPrecacheRequestID;
+		ENGINE_API auto Invalidate() -> void;
+	private:
+		struct FState;
+		std::unique_ptr<FState> State;
 	};
 
 	struct FMaterialPSOPrecachePipeline
@@ -92,7 +115,6 @@ namespace Durin
 		ENGINE_API auto Invalidate() -> void;
 		// Close before backend/module shutdown, on the resource-owning thread.
 		ENGINE_API auto Close() -> void;
-		ENGINE_API static auto GetInvalidationSerial() -> uint64;
 		ENGINE_API auto GetPendingRequestCount() const -> size_t;
 		static constexpr size_t MaximumActiveCollections = 8;
 		static constexpr size_t MaximumPipelinesPerRequest = 64;

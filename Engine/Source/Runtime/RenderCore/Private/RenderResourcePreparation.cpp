@@ -32,8 +32,10 @@ namespace Durin
 	auto FRenderResourcePreparation::GetProgress() const -> FRenderResourcePreparationProgress
 	{
 		if (!State) return {.State = ERenderResourcePreparationState::Failed};
-		return {State->Canceled ? ERenderResourcePreparationState::Canceled
-			: State->ShaderGeneration != GetShaderReloadGeneration() ? ERenderResourcePreparationState::Stale : State->Status.load(), State->Objects.load(), State->Bytes.load(), State->Shaders.load(), State->Pipelines.load(), State->UncoveredShaders.load(), State->UncoveredPipelines.load()};
+		const auto Status = State->Status.load();
+		const bool Terminal = Status == ERenderResourcePreparationState::Failed || Status == ERenderResourcePreparationState::Canceled;
+		return {Terminal ? Status : State->Canceled ? ERenderResourcePreparationState::Canceled
+			: State->ShaderGeneration != GetShaderReloadGeneration() ? ERenderResourcePreparationState::Stale : Status, State->Objects.load(), State->Bytes.load(), State->Shaders.load(), State->Pipelines.load(), State->UncoveredShaders.load(), State->UncoveredPipelines.load()};
 	}
 	auto FRenderResourcePreparation::RequestCancel() const -> void
 	{
@@ -45,23 +47,36 @@ namespace Durin
 		if (!State) return;
 		State->Resources.clear();
 		State->Objects = 0; State->Bytes = 0;
-		State->Status = Reason;
+		const auto Current = State->Status.load();
+		if (Current != ERenderResourcePreparationState::Failed && Current != ERenderResourcePreparationState::Canceled)
+			State->Status = Reason;
 	}
 	FRenderResourcePreparationScope::FRenderResourcePreparationScope(const FRenderResourcePreparation& Preparation)
 		: State(Preparation.State), Previous(CurrentPreparation), Start(std::chrono::steady_clock::now())
 	{
 		CheckRenderingThread();
 		require(State != nullptr);
+		if (State->Status == ERenderResourcePreparationState::Ready)
+		{
+			State->Resources.clear();
+			State->Objects = 0; State->Bytes = 0;
+		}
 		State->Status = ERenderResourcePreparationState::Pending;
 		CurrentPreparation = this;
 	}
 	FRenderResourcePreparationScope::~FRenderResourcePreparationScope() { CurrentPreparation = Previous; }
 	auto FRenderResourcePreparationScope::IsActive() -> bool { return CurrentPreparation != nullptr; }
-	auto FRenderResourcePreparationScope::Complete(bool Ready, bool Failed) -> void
+	auto FRenderResourcePreparationScope::Complete(ERenderResourcePreparationState Result) -> void
 	{
-		if (State->Canceled) State->Status = ERenderResourcePreparationState::Canceled;
-		else State->Status = Failed ? ERenderResourcePreparationState::Failed
-			: Ready ? ERenderResourcePreparationState::Ready : ERenderResourcePreparationState::Pending;
+		require(Result == ERenderResourcePreparationState::Pending || Result == ERenderResourcePreparationState::Ready
+			|| Result == ERenderResourcePreparationState::Failed);
+		if (State->Canceled) Result = ERenderResourcePreparationState::Canceled;
+		if (Result == ERenderResourcePreparationState::Failed || Result == ERenderResourcePreparationState::Canceled)
+		{
+			State->Resources.clear();
+			State->Objects = 0; State->Bytes = 0;
+		}
+		State->Status = Result;
 	}
 	auto FRenderResourcePreparationScope::Admit(bool Shader) -> void
 	{

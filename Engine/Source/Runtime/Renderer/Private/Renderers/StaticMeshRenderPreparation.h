@@ -322,8 +322,10 @@ namespace Durin
 	};
 
 	// Owns fallible bindings without mutating logical draws.
+	struct FSkyLightingGeneration;
 	struct FResolvedStaticMeshView
 	{
+		std::shared_ptr<const FSkyLightingGeneration> Environment;
 		struct FMaterialUniform
 		{
 			RendererPrivate::FResolvedSurfaceMaterial Surface;

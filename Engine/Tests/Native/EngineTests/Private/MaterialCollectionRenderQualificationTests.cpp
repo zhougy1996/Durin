@@ -171,7 +171,7 @@ TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBa
 						++GRenderFrameCounterRenderThread;
 						GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
 						const auto Begin = std::chrono::steady_clock::now();
-						const auto Result = Renderer.RenderView(Commands, RedWorld.Get(), View, Target, false, {});
+						const auto Result = Renderer.RenderView(Commands, {RedWorld.Get(), View, Target, false, {}});
 						const auto Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count();
 						EXPECT_EQ(Result, ERenderViewResult::Success);
 						GDynamicRHI->RHIEndFrame_RenderThread(Commands);

@@ -678,7 +678,7 @@ namespace Durin
 				Material = Cached.Materials[Pass];
 				Material->CollectionUniforms = CurrentCollections;
 				if (!SurfaceMaterials.RefreshPassResources_RenderThread(
-					Pass == 0 ? ESurfaceMaterialPass::Forward : ESurfaceMaterialPass::GBuffer,
+					Pass == 0 ? ESurfaceMaterialPass::Forward : ESurfaceMaterialPass::GBuffer, ResolvedView.Environment,
 					ResolvedView.DirectionalShadowTexture, ResolvedView.DirectionalShadowSampler, Material->Surface)) return false;
 			}
 			Existing->second.LastUsed = ++State->CacheSerial;
@@ -749,7 +749,7 @@ namespace Durin
 				if (!Requests[Group][Pass] || ResolvedView.MaterialUniforms[Group][Pass]) continue;
 				FPreparedStaticMeshSurfaceMaterial Material;
 				++ResolvedView.Observations.SurfaceMaterialPreparations;
-				if (!FStaticMeshSurfaceMaterialPreparer(CommandList, SurfaceMaterials, Binding)
+				if (!FStaticMeshSurfaceMaterialPreparer(CommandList, SurfaceMaterials, Binding, ResolvedView.Environment)
 					.Prepare(Pass == 0 ? ESurfaceMaterialPass::Forward : Pass == 1 ? ESurfaceMaterialPass::GBuffer : ESurfaceMaterialPass::MaskedShadow,
 						Pass == 0 ? ResolvedView.DirectionalShadowTexture : nullptr,
 						Pass == 0 ? ResolvedView.DirectionalShadowSampler : nullptr, Material, SharedMaterialUniform)) return false;

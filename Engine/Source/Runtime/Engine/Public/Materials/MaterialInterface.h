@@ -200,7 +200,9 @@ namespace Durin
 		ENGINE_API auto RefreshReloadedAssetBindings() -> void;
 		// Includes inherited changes; callbacks should invalidate snapshots, not edit owners.
 		auto GetParameterChanges() -> FMaterialParameterChangedEvent& { return ParameterChanges; }
-		auto GetRenderStateVersion() const -> uint64 { return RenderStateVersion; }
+		auto GetRenderSnapshot() const -> FMaterialLocalRenderLayer { return BuildMaterialLocalRenderLayer(); }
+		// Diagnostic change count; never used for cache validity or request lifetimes.
+		auto GetRenderChangeCount() const -> uint64 { return RenderChangeCount; }
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
@@ -246,8 +248,8 @@ namespace Durin
 		auto SubmitMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) const -> void;
 
 		FMaterialParameterChangedEvent ParameterChanges;
-		uint64 RenderStateVersion = 1;
-		std::shared_ptr<std::atomic<uint64>> PSOPrecacheRevision;
+		uint64 RenderChangeCount = 1;
+		FMaterialPSOPrecacheOwner PSOPrecacheOwner;
 		mutable std::shared_ptr<const FMaterialParameterReachability> ParameterReachability;
 		mutable uint64 ParameterReachabilityProgramRevision = 0;
 		mutable std::vector<FMaterialFunctionOwnerStamp> ParameterReachabilityFunctionOwners;

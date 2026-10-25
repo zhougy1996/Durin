@@ -446,9 +446,15 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	{
 		static constexpr auto GetName() -> const char* { return "ValidateCookedTextureUpload"; }
 	};
+	const auto Preparation = Durin::FRenderResourcePreparation::Create();
+	bool Pending = false;
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+	do
+	{
 	Durin::EnqueueRenderCommand<FValidateCookedTextureUpload>(
-		[&Renderer, &Scene, TextureReference, ExpectedPlatformData, UploadResult, SampleProxy](
+		[&Renderer, &Scene, TextureReference, ExpectedPlatformData, UploadResult, SampleProxy, Preparation, &Pending](
 			Durin::FRHICommandListImmediate& CommandList) {
+			++Durin::GRenderFrameCounterRenderThread;
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 			struct FEndFrameGuard
 			{
@@ -473,6 +479,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 				return;
 			}
 
+			if (*SampleProxy)
 			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
 				Durin::FPrimitiveComponentId(1), std::move(*SampleProxy), Durin::FMatrix(1.0));
 			Durin::FRHITextureCreateDesc ColorDesc =
@@ -489,24 +496,11 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 			View.ViewLocation = {0.0, 0.0, -1.0};
 			View.ViewportWidth = 17;
 			View.ViewportHeight = 17;
-			// A cold cooked host prepares native view resources before its first draw.
-			auto Preparation = Durin::FRenderResourcePreparation::Create();
-			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-			do
-			{
-				Renderer.PrepareViewResources(CommandList, &Scene, View, Color, false, {}, Preparation);
-				CommandList.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread);
-				std::this_thread::yield();
-			} while (Preparation.GetProgress().State == Durin::ERenderResourcePreparationState::Pending
-				&& std::chrono::steady_clock::now() < Deadline);
-			if (Preparation.GetProgress().State != Durin::ERenderResourcePreparationState::Ready)
-			{
-				UploadResult->bSucceeded = false;
-				UploadResult->Error = "Cooked Texture2D sample view resources were not ready.";
-				return;
-			}
-			if (Renderer.RenderView(
-					CommandList, &Scene, View, Color, false, {})
+			Renderer.BeginFrame_RenderThread(CommandList);
+			Renderer.PrepareViewResources(CommandList, {&Scene, View, Color, false, {}}, Preparation);
+			Pending = Preparation.GetProgress().State == Durin::ERenderResourcePreparationState::Pending;
+			if (Pending) return;
+			if (Renderer.RenderView(CommandList, {&Scene, View, Color, false, {}})
 				!= Durin::ERenderViewResult::Success)
 			{
 				UploadResult->bSucceeded = false;
@@ -522,6 +516,10 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 			}
 		});
 	Durin::FlushRenderingCommands();
+		if (!Pending) break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	} while (std::chrono::steady_clock::now() < Deadline);
+	if (Pending) { UploadResult->bSucceeded=false; UploadResult->Error="Cooked texture view preparation timed out."; }
 	EXPECT_TRUE(UploadResult->bSucceeded) << UploadResult->Error;
 	if (UploadResult->bSucceeded)
 	{

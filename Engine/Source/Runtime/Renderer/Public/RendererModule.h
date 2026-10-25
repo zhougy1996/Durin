@@ -24,7 +24,7 @@ namespace Durin
 		RENDERER_API auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap> override;
 		RENDERER_API auto CreateScene() -> FScenePtr override;
 		RENDERER_API auto PrepareSceneThumbnailShaders() -> FShaderMapPreparation override;
-		RENDERER_API auto UpdateScenes_RenderThread(FRHICommandListImmediate& Commands) -> void override;
+		RENDERER_API auto BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void override;
 		RENDERER_API auto SetViewGPUTimingSink_RenderThread(std::function<void(FGPUTimingQueryRHIRef)> Sink) -> void override;
 		RENDERER_API auto CreateViewState() -> FSceneViewStateOwner override;
 		RENDERER_API auto InvalidateViewState(FSceneViewStateId Id) -> void override;
@@ -35,20 +35,10 @@ namespace Durin
 			-> FRendererResourceInvalidationSnapshot;
 		// Pump on the render thread with the actual upcoming scene/view/output.
 		// Pending never joins PSOs or draws; callers retain the handle through activation.
-		RENDERER_API auto PrepareViewResources(
-			FRHICommandListImmediate& CommandList, FSceneInterface* Scene,
-			const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
-			const FSceneViewRenderOptions& Options, const FRenderResourcePreparation& Preparation) -> void override;
-		RENDERER_API auto RenderView(
-			FRHICommandListImmediate& CommandList,
-			FSceneInterface* Scene,
-			const FSceneView& View,
-			FRHITexture* OutputTarget,
-			bool bPresentOutput,
-			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics = nullptr,
-			FRDGCapture* OutRenderGraphCapture = nullptr
-		) -> ERenderViewResult override;
+		RENDERER_API auto PrepareViewResources(FRHICommandListImmediate& CommandList,
+			const FSceneViewRenderRequest& Request, const FRenderResourcePreparation& Preparation) -> FRenderResourcePreparationProgress override;
+		RENDERER_API auto RenderView(FRHICommandListImmediate& CommandList,
+			const FSceneViewRenderRequest& Request) -> ERenderViewResult override;
 
 	private:
 		static auto ReleaseViewState(FSceneViewStateId Id) -> void;

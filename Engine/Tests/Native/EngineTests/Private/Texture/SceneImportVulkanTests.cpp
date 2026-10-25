@@ -633,7 +633,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			do
 			{
 				Durin::EnqueueRenderCommand<FPrepareSceneImportPreview>(
-					[&](Durin::FRHICommandListImmediate& Commands) { Renderer.UpdateScenes_RenderThread(Commands); });
+					[&](Durin::FRHICommandListImmediate& Commands) { Renderer.BeginFrame_RenderThread(Commands); });
 				Durin::FlushRenderingCommands();
 				Durin::PumpGameThreadDeferredWork();
 				Durin::DPrimitiveComponent::ProcessPSOPrecacheRequests(PreviewWorld);

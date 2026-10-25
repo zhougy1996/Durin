@@ -39,13 +39,12 @@ namespace Durin
 		const auto Material = GetRenderData();
 		if (!Material.CompiledProgram || !*Material.CompiledProgram)
 			return std::unexpected(std::string("Material PSO precache requires an accepted material program."));
-		if (!PSOPrecacheRevision) PSOPrecacheRevision = std::make_shared<std::atomic<uint64>>(1);
 		std::vector<FMaterialPSOPrecacheRequestID> Requests;
 		for (const auto& Factory : VertexFactoryDataList)
 		{
 			auto Request = Renderer.PrecacheMaterialPSOs({Material.PlanningPassIdentity, Material.CompiledProgram, Factory, PrecacheParams, Priority});
 			if (!Request.GetValue()) return std::unexpected(Request.GetDiagnostic());
-			Requests.push_back(Request.WithOwnerRevision(PSOPrecacheRevision));
+			Requests.push_back(PSOPrecacheOwner.Observe(Request));
 		}
 		OutMaterialPSORequestIDs = std::move(Requests);
 		return {};

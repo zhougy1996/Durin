@@ -18,6 +18,7 @@ namespace Durin
 	struct FSceneViewRenderOptions;
 	class FViewportClient;
 	class IRendererModule;
+	struct FSceneViewRenderRequest;
 	class FSceneInterface;
 	class MWindow;
 
@@ -68,8 +69,7 @@ namespace Durin
 		// Explicit loading barrier; later streamed combinations use demand preparation.
 		auto RequestResourcePreparation() -> void { bResourcePreparationRequested = true; }
 		ENGINE_API auto PrepareResources_RenderThread(IRendererModule& Renderer, FRHICommandListImmediate& Commands,
-			FSceneInterface* Scene, const FSceneView& View, FRHITexture* Output, bool bPresent,
-			const FSceneViewRenderOptions& Options) -> bool;
+			const FSceneViewRenderRequest& Request) -> bool;
 		auto GetResourcePreparation_RenderThread() const -> const FRenderResourcePreparation& { return ResourcePreparation; }
 		auto GetResourcePreparationProgress_RenderThread() const -> FRenderResourcePreparationProgress
 		{ return ResourcePreparation.GetProgress(); }

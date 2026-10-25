@@ -1,3 +1,5 @@
+#include "CoreMinimal.h"
+
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"

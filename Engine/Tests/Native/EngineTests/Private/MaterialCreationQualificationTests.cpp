@@ -206,7 +206,7 @@ namespace Durin
 					View.ViewportWidth = CaptureSize; View.ViewportHeight = CaptureSize;
 					View.Settings.Mode.RenderMode = ERenderMode::Unlit;
 					View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
-					EXPECT_EQ(Life.Renderer.RenderView(Cmd, Life.Scene->Get(), View, Life.Target, false, {}), ERenderViewResult::Success);
+					EXPECT_EQ(Life.Renderer.RenderView(Cmd, {Life.Scene->Get(), View, Life.Target, false, {}}), ERenderViewResult::Success);
 					GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
 					RenderTimes[1] = VulkanCreationTimestamp();
 					Cmd.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);

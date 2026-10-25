@@ -2,6 +2,7 @@
 #include "RDG/RDG.h"
 
 #include "Resources/RendererResourceCoordinator.h"
+#include "Resources/RendererResourceRetirement.h"
 #include "Renderers/RendererRDGAllocator.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Rendering/ProceduralSkySceneProxy.h"
@@ -62,50 +63,77 @@ namespace Durin
         TShaderMapRef<FSkyLightingShader> Shader;
         FComputePipelineStateRHIRef Pipeline;
         FSamplerRHIRef Sampler;
-        FTextureRHIRef Lut, PendingLut;
-        FRHIGPUSyncPointRef LutCompletion;
+        FTextureRHIRef Lut;
         FRenderResourceGeneration Generation;
+        FRenderPipelineRequests Requests;
     };
-    FEnvironmentLightingResources::FEnvironmentLightingResources(FRendererResourceCoordinator& InCoordinator)
-        : State(std::make_unique<FState>()), Coordinator(InCoordinator) {}
+    FEnvironmentLightingResources::FEnvironmentLightingResources(FRendererResourceCoordinator& InCoordinator, FRendererResourceRetirementQueue& InRetirement)
+        : Retirement(InRetirement), State(std::make_unique<FState>()), Coordinator(InCoordinator) {}
     FEnvironmentLightingResources::~FEnvironmentLightingResources() = default;
 
-    auto FEnvironmentLightingResources::EnsureResources_RenderThread(FRHICommandListImmediate&) -> bool
+    auto FSkyLightingSceneState::PollJob(bool bCurrentAuthority,
+        const std::shared_ptr<FSkyLightUpdateStatus>& Status, double Milliseconds)
+        -> std::optional<FSkyLightingJob>
+    {
+        if (!Job) return {};
+        const auto Completion = Job->Completion.GetState();
+        if (Completion == ERHIGPUSubmissionState::Pending || Completion == ERHIGPUSubmissionState::Submitted)
+            return {};
+        if (bCurrentAuthority)
+        {
+            if (Completion == ERHIGPUSubmissionState::Complete)
+            {
+                Published = Job->Output;
+                if (Status)
+                {
+                    Status->PublishedRevision = Published->Revision;
+                    Status->CaptureTime = Published->CaptureTime;
+                    Status->UpdateMilliseconds = Milliseconds;
+                    Status->CompletedUpdates.fetch_add(1, std::memory_order_release);
+                    Status->State = ESkyLightUpdateState::Ready;
+                }
+            }
+            else if (Status) Status->State = ESkyLightUpdateState::Failed;
+        }
+        return std::exchange(Job, std::nullopt);
+    }
+
+    auto FEnvironmentLightingResources::PrepareResources_RenderThread() -> ERenderResourceAvailability
     {
         CheckRenderingThread();
         const auto Generation=Coordinator.GetGeneration_RenderThread();
         if (State->Generation != Generation) { State=std::make_unique<FState>(); State->Generation=Generation; }
-        if (State->LutCompletion)
-        {
-            const auto Completion = State->LutCompletion.GetState();
-            if (Completion == ERHIGPUSubmissionState::Complete)
-            {
-                State->Lut = std::move(State->PendingLut);
-                State->LutCompletion = nullptr;
-            }
-            else if (Completion != ERHIGPUSubmissionState::Pending && Completion != ERHIGPUSubmissionState::Submitted)
-            {
-                State->PendingLut = nullptr;
-                State->LutCompletion = nullptr;
-            }
-        }
-        if (State->Pipeline && State->Sampler) return true;
-        if (!GDynamicRHI) return false;
-        const auto* Caps=GDynamicRHI->RHIGetCapabilities();
-        if (!Caps || !Caps->bSupportsSkyLighting) return false;
+        if (State->Pipeline && State->Sampler) return ERenderResourceAvailability::Ready;
+        if (!GDynamicRHI) return ERenderResourceAvailability::Failed;
+        FRenderPipelineRequestScope Requests(State->Requests, Generation);
         const std::array<const FGlobalShaderType*,1> Types{&FSkyLightingShader::StaticType()};
         const auto Completion=GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute",Types,true,ReportRendererResourceCreateDiagnostic);
         State->ShaderSet=Completion.Value.value_or(FGlobalShaderSetRef{});
-        if (!State->ShaderSet) return false;
+        if (!State->ShaderSet)
+            return Completion.Status == EShaderBuildStatus::Pending ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
         State->Shader=TShaderMapRef<FSkyLightingShader>(State->ShaderSet);
         auto* Shader=State->Shader.GetRHIShader(false);
-        if (!Shader) return false;
+        if (!Shader) return ERenderResourceAvailability::Failed;
         FComputePipelineStateInitializer Initializer;
         Initializer.ComputeShader=Shader;
         Initializer.PipelineLayout=State->ShaderSet.GetPipelineLayout();
         State->Pipeline=FRenderPipelineRequestScope::Compute("SkyLightingCompute",Initializer);
+        if (!State->Pipeline)
+            return Requests.HasPending() ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
         State->Sampler=RHICreateSampler(FRHISamplerDesc::LinearClamp());
-        return State->Pipeline && State->Sampler;
+        return State->Sampler ? ERenderResourceAvailability::Ready : ERenderResourceAvailability::Failed;
+    }
+
+    auto FEnvironmentLightingResources::RetirePublished_RenderThread(FRHICommandListImmediate& Commands,
+        std::shared_ptr<const FSkyLightingGeneration> Generation) -> void
+    {
+        if (!Generation) return;
+        // Cover every prior consumer, including views recorded after the filter job.
+        auto Completion = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+        Commands.EndGPUSubmission();
+        const auto Device = Generation->RHIDeviceGeneration;
+        Retirement.Retire(std::move(Generation), std::move(Completion), Device);
+        Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::SubmitToGPU);
     }
 
     auto FEnvironmentLightingResources::UpdateScene_RenderThread(FRHICommandListImmediate& Commands,
@@ -127,35 +155,26 @@ namespace Durin
             return Light && (!Captured || Sky) && G.Owner==Light->InstanceId && G.SourceEpoch==Light->SourceEpoch
                 && G.Provider==Provider && (Captured || G.Source.GetReference()==Source) && G.Resources==Generation;
         };
-        if (S.Active && !HasAuthority(*S.Active))
+        if (S.Published && !HasAuthority(*S.Published))
         {
-            S.Retiring.push_back(std::move(S.Active));
-            S.LastAttempt=-60;
+            RetirePublished_RenderThread(Commands, std::move(S.Published));
+            S.LastRequest.reset();
         }
-        const auto RecordCompletion = [&]() {
-            // All sky passes use the ordered graphics queue. This marker also
-            // covers earlier views when a removed authority needs retirement.
-            S.Completion = Commands.BeginGPUSubmission(
-                {.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
-            Commands.EndGPUSubmission();
-        };
-        if (S.Completion)
+        if (S.Job)
         {
-            if (S.InFlight && S.InFlight->Resources.Device != Generation.Device)
+            const bool Current = HasAuthority(*S.Job->Output);
+            const auto Timing = S.Job->Query && S.Job->Completion.IsComplete()
+                ? GDynamicRHI->RHIGetGPUTimingResult(S.Job->Query) : FRHIGPUTimingResult{};
+            auto Previous = S.Published;
+            if (auto Finished = S.PollJob(Current, Light ? Light->UpdateStatus : nullptr,
+                Timing.State == ERHIGPUTimingResultState::Ready ? double(Timing.DurationNanoseconds)/1.e6 : 0.0))
             {
-                S = {};
+                if (S.Published != Previous) RetirePublished_RenderThread(Commands, std::move(Previous));
+                if (Finished->Completion.IsComplete() && Finished->Output->Resources == Generation)
+                    State->Lut = Finished->Output->BrdfLut;
+                Retirement.Retire(Finished->Output, Finished->Completion, Finished->Output->RHIDeviceGeneration);
             }
-            else
-            {
-                const auto Completion = S.Completion.GetState();
-                if (Completion == ERHIGPUSubmissionState::Pending
-                    || Completion == ERHIGPUSubmissionState::Submitted) return;
-                const auto Result = Completion == ERHIGPUSubmissionState::Complete && S.Query
-                    ? GDynamicRHI->RHIGetGPUTimingResult(S.Query) : FRHIGPUTimingResult{};
-                S.FinishCompletion(S.InFlight && HasAuthority(*S.InFlight),
-                    S.Previous && HasAuthority(*S.Previous), Light ? Light->UpdateStatus : nullptr,
-                    Result.State == ERHIGPUTimingResultState::Ready ? double(Result.DurationNanoseconds)/1.e6 : 0.0);
-            }
+            if (S.Job) return;
         }
         const auto MeasureImages=[&]() {
             std::erase_if(S.Generations,[](const auto& Entry) { return Entry.expired(); });
@@ -164,45 +183,33 @@ namespace Durin
             const auto Add=[&](FRHITexture* Texture,uint64& Bytes) {
                 if (Texture && Images.insert(Texture).second) Bytes+=Texture->GetBackendAllocationBytes();
             };
-            Add(State->Lut,LightingBytes); Add(State->PendingLut,LightingBytes);
+            Add(State->Lut,LightingBytes);
             for (const auto& Entry:S.Generations) if (const auto G=Entry.lock())
             {
-                Add(G->Radiance,LightingBytes); Add(G->Irradiance,LightingBytes); Add(G->Prefiltered,LightingBytes);
-                Add(G->BrdfLut,LightingBytes);
+                Add(G->Radiance,LightingBytes); Add(G->Irradiance,LightingBytes); Add(G->Prefiltered,LightingBytes); Add(G->BrdfLut,LightingBytes);
                 Add(G->Source,SourceBytes);
             }
             if (Light) Light->UpdateStatus->RetainedImageBytes.store(LightingBytes);
             return std::pair(LightingBytes,SourceBytes);
         };
-        // A fresh marker follows the last possible consumer of a removed authority.
-        // A canceled/failed marker never authorizes clearing these owners.
-        if (!S.Completion && (!S.Retiring.empty()
-            || std::any_of(S.FailedGenerations.begin(), S.FailedGenerations.end(),
-                [](const auto& Entry) { return Entry.Completion.IsRetirementEligible(); })))
-        {
-            RecordCompletion();
-            return;
-        }
         if (!Light || (Captured && !Sky)) return;
         const double Time=Now();
-        const bool Manual=S.bRetry || !S.Active || S.Active->Request!=Light->RequestSerial;
-        const bool Changed=Captured && S.Active && S.Active->Revision!=Sky->Revision;
+        const bool Manual=!S.Published || S.Published->Request!=Light->RequestSerial;
+        const bool Changed=Captured && S.Published && S.Published->Revision!=Sky->Revision;
         if (!Manual && !(Light->bAutomaticRefresh && Changed))
         {
             Light->UpdateStatus->SteadyCPUMilliseconds.store((Now()-CPUStart)*1000);
             return;
         }
         // Retry creation failures at the same bounded interval as animated updates.
-        const bool NewRequest=S.AttemptOwner!=Light->InstanceId || S.AttemptEpoch!=Light->SourceEpoch
-            || S.AttemptProvider!=Provider || S.AttemptRequest!=Light->RequestSerial;
-        if (!NewRequest && Time-S.LastAttempt < Light->RefreshInterval)
+        const FSkyLightingRequestKey Request{Light->InstanceId, Light->SourceEpoch, Provider, Light->RequestSerial};
+        if (S.LastRequest == Request && Time-S.LastAttempt < Light->RefreshInterval)
         {
             Light->UpdateStatus->SteadyCPUMilliseconds.store((Now()-CPUStart)*1000);
             return;
         }
         S.LastAttempt=Time;
-        S.AttemptOwner=Light->InstanceId; S.AttemptEpoch=Light->SourceEpoch;
-        S.AttemptProvider=Provider; S.AttemptRequest=Light->RequestSerial;
+        S.LastRequest=Request;
         // Reserve a conservative 4 MiB including alignment for the fixed output
         // envelope before allocation. Count exports and consumers, not RDG pool entries.
         const auto [LightingBytes,SourceBytes]=MeasureImages();
@@ -214,22 +221,26 @@ namespace Durin
             || LightingBytes+SourceBytes+NewSourceBytes+4ull*1024*1024>64ull*1024*1024)
         {
             Light->UpdateStatus->State.store(ESkyLightUpdateState::Backpressure);
-            if (!S.Active && !S.Retiring.empty())
-            {
-                RecordCompletion();
-            }
             return;
         }
         Light->UpdateStatus->State.store(ESkyLightUpdateState::Pending);
-        if (!EnsureResources_RenderThread(Commands) || !FallbackCube)
+        const auto* Caps=GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+        if (!Caps || !Caps->bSupportsSkyLighting)
         {
-            const auto* Caps=GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
-            Light->UpdateStatus->State.store(Caps && Caps->bSupportsSkyLighting
-                ? ESkyLightUpdateState::Pending : ESkyLightUpdateState::Unsupported);
+            Light->UpdateStatus->State = ESkyLightUpdateState::Unsupported;
+            return;
+        }
+        const auto Availability = PrepareResources_RenderThread();
+        if (Availability != ERenderResourceAvailability::Ready || !FallbackCube)
+        {
+            Light->UpdateStatus->State = Availability == ERenderResourceAvailability::Pending
+                ? ESkyLightUpdateState::Pending : ESkyLightUpdateState::Failed;
             return;
         }
         auto Candidate=std::make_shared<FSkyLightingGeneration>();
         Candidate->Resources=Generation; Candidate->Owner=Light->InstanceId;
+        Candidate->RHIDeviceGeneration=GDynamicRHI->RHIGetQueueCapabilities().DeviceGeneration;
+        Candidate->Sampler=State->Sampler;
         Candidate->SourceEpoch=Light->SourceEpoch; Candidate->Provider=Provider;
         Candidate->Revision=Captured ? Sky->Revision : 0; Candidate->Request=Light->RequestSerial;
         Candidate->Source=Captured ? nullptr : Source; Candidate->CaptureTime=Time;
@@ -324,49 +335,48 @@ namespace Durin
         if (Query) Commands.EndGPUTimingQuery(Query);
         Commands.SwitchPipeline(ERHIPipeline::Graphics);
         if (!Result.has_value()) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }
-        RecordCompletion();
-        // Submit this bounded job before admitting another scene's filtering.
-        // This dispatches replay without waiting for GPU completion.
-        Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::SubmitToGPU);
-        Candidate->BrdfLut=Lut ? Lut : State->Lut;
-        // Share only a completed LUT. Other scenes can build their own candidate
-        // while this one is pending; cancellation cannot poison their outputs.
-        if (Lut && !State->LutCompletion)
-        {
-            State->PendingLut=std::move(Lut);
-            State->LutCompletion=S.Completion;
-        }
-        // RDG guarantees every face and mip was recorded. Subsequent consumers use
-        // the same ordered RHI timeline; this is not a CPU claim of GPU completion.
-        if (!HasAuthority(*Candidate)) return;
-        S.Previous=std::move(S.Active);
-        S.bRetry=false;
-        S.Active=Candidate; S.InFlight=Candidate; S.Query=Query;
+        auto Completion = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+        Commands.EndGPUSubmission();
+        Candidate->BrdfLut = Lut ? std::move(Lut) : State->Lut;
+        S.Job = FSkyLightingJob{Candidate, std::move(Completion), std::move(Query)};
         S.Generations.push_back(Candidate);
         MeasureImages();
-        Light->UpdateStatus->PublishedRevision.store(Candidate->Revision);
-        Light->UpdateStatus->CaptureTime.store(Time);
-        Light->UpdateStatus->State.store(ESkyLightUpdateState::Ready);
+        Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::SubmitToGPU);
     }
-    auto FEnvironmentLightingResources::SelectScene_RenderThread(const FScene* Scene) -> void
-    { Selected=Scene ? Scene->SkyLighting->Active : nullptr; }
-    auto FEnvironmentLightingResources::GetIrradiance_RenderThread() const -> FRHITexture*
-    { const auto G=Selected.lock(); return G && G->Resources==Coordinator.GetGeneration_RenderThread() ? G->Irradiance.GetReference() : nullptr; }
-    auto FEnvironmentLightingResources::GetPrefiltered_RenderThread() const -> FRHITexture*
-    { const auto G=Selected.lock(); return G && G->Resources==Coordinator.GetGeneration_RenderThread() ? G->Prefiltered.GetReference() : nullptr; }
-    auto FEnvironmentLightingResources::GetBrdfLut_RenderThread() const -> FRHITexture*
+    auto FEnvironmentLightingResources::GetSceneBinding_RenderThread(const FScene* Scene) const
+        -> std::shared_ptr<const FSkyLightingGeneration>
     {
-        const auto G=Selected.lock();
-        return G && G->Resources==Coordinator.GetGeneration_RenderThread() ? G->BrdfLut.GetReference() : nullptr;
+        CheckRenderingThread();
+        const auto Result = Scene ? Scene->SkyLighting->Published : nullptr;
+        return Result && Result->Resources == Coordinator.GetGeneration_RenderThread() ? Result : nullptr;
     }
-    auto FEnvironmentLightingResources::GetSampler_RenderThread() const -> FRHISampler*
-    { return State->Sampler.GetReference(); }
-    auto FEnvironmentLightingResources::ReleaseResources_RenderThread() -> void
+    auto FEnvironmentLightingResources::ReleaseScene_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void
+    {
+        CheckRenderingThread();
+        auto& S = *Scene.SkyLighting;
+        RetirePublished_RenderThread(Commands, std::move(S.Published));
+        if (S.Job)
+        {
+            Retirement.Retire(S.Job->Output, S.Job->Completion, S.Job->Output->RHIDeviceGeneration);
+            S.Job.reset();
+        }
+        S.LastRequest.reset();
+        // Keep the weak inventory across logical invalidation: physical leases still count.
+    }
+    auto FEnvironmentLightingResources::ReleaseResources_RenderThread(FRHICommandListImmediate& Commands) -> void
     {
         CheckRenderingThread();
         for (auto& Entry : Scenes)
-            if (auto Scene = Entry.lock()) *Scene = {};
-        Scenes.clear();
-        State=std::make_unique<FState>(); Selected.reset();
+            if (auto State = Entry.lock())
+            {
+                RetirePublished_RenderThread(Commands, std::move(State->Published));
+                if (State->Job)
+                {
+                    Retirement.Retire(State->Job->Output, State->Job->Completion, State->Job->Output->RHIDeviceGeneration);
+                    State->Job.reset();
+                }
+                State->LastRequest.reset();
+            }
+        State=std::make_unique<FState>();
     }
 }

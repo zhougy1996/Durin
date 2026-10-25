@@ -109,33 +109,6 @@ namespace Durin
 		return Bytes(CommittedTexture) + Bytes(PendingTexture) + Bytes(SpareTexture);
 	}
 
-	auto FSceneViewHistoryProbe::Commit() -> void
-	{
-		// A disabled consumer publishes no candidate and retains last-known-good
-		// history until an explicit discontinuity or device reset.
-		if (PendingRevision != 0 || PendingTexture != nullptr)
-		{
-			CommittedRevision = PendingRevision;
-			CommittedTexture = std::move(PendingTexture);
-		}
-		PendingRevision = 0;
-		PendingTexture = nullptr;
-	}
-
-	auto FSceneViewHistoryProbe::Abort() -> void
-	{
-		PendingRevision = 0;
-		PendingTexture = nullptr;
-	}
-
-	auto FSceneViewHistoryProbe::Reset() -> void
-	{
-		CommittedRevision = 0;
-		PendingRevision = 0;
-		CommittedTexture = nullptr;
-		PendingTexture = nullptr;
-	}
-
 	auto FSceneViewState::Begin(
 		const FSceneViewTemporalMetadata& Current,
 		uint64 SubmissionSerial,
@@ -202,7 +175,6 @@ namespace Durin
 								&& !IsHistoryInvalidating(Context.Discontinuities);
 		if (!Context.bHistoryValid)
 		{
-			HistoryProbe.Reset();
 			// View-local discontinuities participate in the outer transaction.
 			// A later render failure must be able to abort this clear and retain
 			// the last committed cloud texture. A successful cloud reconstruction
@@ -223,7 +195,6 @@ namespace Durin
 		PendingInvalidation = ESceneViewDiscontinuity::None;
 		if (SuccessfulSequence != std::numeric_limits<uint64>::max())
 			++SuccessfulSequence;
-		HistoryProbe.Commit();
 		VolumetricCloudHistory.Commit();
 		bSubmissionActive = false;
 	}
@@ -235,7 +206,6 @@ namespace Durin
 			return;
 		Pending.reset();
 		PendingSubmissionSerial = 0;
-		HistoryProbe.Abort();
 		VolumetricCloudHistory.Abort();
 		bSubmissionActive = false;
 	}
@@ -244,7 +214,6 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		PendingInvalidation |= Cause;
-		HistoryProbe.Reset();
 		VolumetricCloudHistory.Reset();
 	}
 
