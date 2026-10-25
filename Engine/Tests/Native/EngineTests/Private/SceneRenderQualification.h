@@ -804,8 +804,8 @@ namespace Durin
 			DepthOptions.Target = std::string_view(Backend ? Backend : "") == "metal" ? MetalShaderTarget : VulkanShaderTarget;
 			DepthOptions.EntryPoints = {"ComputeMain"};
 			DepthOptions.Frequencies = {EShaderFrequency::Compute};
-			const auto CullCode = FShaderCompilingManager::Get().CompileMounted("/Engine/GBufferGPUCulling", [&] { auto C = DepthOptions; C.EntryPoints = {"CullMain"}; return C; }());
-			ASSERT_TRUE(CullCode) << CullCode.Diagnostic;
+			const auto CullCode = FShaderCompilingManager::Get().CompileMountedSync("/Engine/GBufferGPUCulling", [&] { auto C = DepthOptions; C.EntryPoints = {"CullMain"}; return C; }());
+			ASSERT_TRUE(CullCode) << FormatShaderCompilerErrors(CullCode.Errors);
 			{
 				std::ofstream Output(GSceneCloudEvidenceRoot / "culling-native-code.bin", std::ios::binary);
 				const auto Bytes = CullCode.CompiledShaders[0].Code.GetBytes();
@@ -814,14 +814,14 @@ namespace Durin
 			{
 				auto Options = DepthOptions; Options.EntryPoints = {"GPUCullingVertexMain"}; Options.Frequencies = {EShaderFrequency::Vertex};
 				Options.Macros = {{"DURIN_GPU_CULLING", "1"}};
-				const auto Code = FShaderCompilingManager::Get().CompileMounted("/Engine/StaticMeshBasePass", Options);
-				ASSERT_TRUE(Code) << Code.Diagnostic;
+				const auto Code = FShaderCompilingManager::Get().CompileMountedSync("/Engine/StaticMeshBasePass", Options);
+				ASSERT_TRUE(Code) << FormatShaderCompilerErrors(Code.Errors);
 				std::ofstream Output(GSceneCloudEvidenceRoot / "culling-vertex-native.bin", std::ios::binary);
 				const auto Bytes = Code.CompiledShaders[0].Code.GetBytes();
 				Output.write(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
 			}
-			const auto DepthCode = FShaderCompilingManager::Get().CompileMounted("/Engine/Qualification/DepthObservation", DepthOptions);
-			ASSERT_TRUE(DepthCode) << DepthCode.Diagnostic;
+			const auto DepthCode = FShaderCompilingManager::Get().CompileMountedSync("/Engine/Qualification/DepthObservation", DepthOptions);
+			ASSERT_TRUE(DepthCode) << FormatShaderCompilerErrors(DepthCode.Errors);
 			EnqueueRenderCommand<FSceneCloudRender>([&](FRHICommandListImmediate&) {
 				GCullingDepthShader = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(DepthCode.CompiledShaders[0]));
 				ASSERT_NE(GCullingDepthShader, nullptr);

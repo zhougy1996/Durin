@@ -202,10 +202,9 @@ namespace Durin
 		if (!(Result = NormalizeShaderMacros(EffectiveCompileOptions, Macros))) return Result;
 		EffectiveCompileOptions.Macros = std::move(Macros);
 		const bool bCaptureOnly = FPreparedShaderMapScope::IsActive() && !FPreparedShaderMapScope::AllowsAsyncRequests();
-		const bool bAsyncDemand = IsInRenderingThread() && !bCaptureOnly;
-		if (bAsyncDemand && !IShaderBuildModule::Get())
+		if (!bCaptureOnly && !IShaderBuildModule::Get())
 			return std::unexpected(std::string("ShaderBuild module is unavailable."));
-		std::shared_ptr<const FPreparedShaderMapState> Prepared = bAsyncDemand
+		std::shared_ptr<const FPreparedShaderMapState> Prepared = !bCaptureOnly
 			? RequestPreparation(StableTypes, EffectiveCompileOptions, EShaderBuildPriority::Normal)
 			: FindPreparation(StableTypes, EffectiveCompileOptions);
 		if (Prepared)
@@ -228,17 +227,33 @@ namespace Durin
 			}
 			if (Prepared->Output) return {Prepared->Output->Status, FormatShaderCompilerErrors(Prepared->Output->Errors)};
 		}
-		if (bCaptureOnly || bAsyncDemand)
+		return FShaderCompletion::Pending();
+	}
+
+	auto InitializeShaderMapFromTypesSync(FShaderMapBase& Map,
+		std::span<const FShaderType* const> ShaderTypes,
+		const FShaderCompileOptions& CompileOptions) -> FShaderCompletion
+	{
+		if (IsInRenderingThread())
+			return FShaderCompletion::Failure("Synchronous shader compilation is forbidden on the rendering thread.");
+		if (FPreparedShaderMapScope::IsActive() && !FPreparedShaderMapScope::AllowsAsyncRequests())
+			return FShaderCompletion::Failure("Synchronous shader compilation is forbidden during shader capture.");
+		FShaderCompileOptions EffectiveCompileOptions;
+		if (auto Result = BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions); !Result)
 		{
-			return FShaderCompletion::Pending();
+			Map.Reset();
+			return Result;
 		}
+		std::vector<FShaderMacroDefinition> Macros;
+		if (auto Result = NormalizeShaderMacros(EffectiveCompileOptions, Macros); !Result) return Result;
+		EffectiveCompileOptions.Macros = std::move(Macros);
 		auto* Module = IShaderBuildModule::Get();
 		if (!Module)
 		{
 			Map.Reset();
 			return std::unexpected(std::string("ShaderBuild module is unavailable."));
 		}
-		FShaderCompilerOutput Output = FShaderCompilingManager::Get().CompileMounted(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
+		FShaderCompilerOutput Output = FShaderCompilingManager::Get().CompileMountedSync(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
 		if (!Output)
 		{
 			Map.Reset();

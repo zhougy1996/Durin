@@ -1,4 +1,5 @@
 #include "ShaderBuilder.h"
+#include "Threading/RunnableThread.h"
 #include "MetalLibraryBuild.h"
 #include "MetalShaderFormat.h"
 #include "ShaderSharedOutput.h"
@@ -333,7 +334,7 @@ namespace Durin
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::Wait() -> EShaderBuildWaitResult
 	{
-		if (ShaderCallbackDepth) return EShaderBuildWaitResult::WouldBlock;
+		if (ShaderCallbackDepth || IsInRenderingThread()) return EShaderBuildWaitResult::WouldBlock;
 		Tasks::FTask Task;
 		{ std::unique_lock Lock(Mutex); Condition.wait(Lock, [&] { return Published; }); Task = Preparation; }
 		if (Task.IsValid() && WaitTask(Task).WaitStatus != ETaskWaitStatus::Completed) return EShaderBuildWaitResult::WouldBlock;
@@ -381,6 +382,8 @@ namespace Durin
 			return Complete(FShaderCompilerOutput::Failure("Shader native producer options are invalid."));
 		if (BinaryMetal && Request->MaximumOutputBytes > ShaderCompiledOutput::MaximumValueBytes)
 			return Complete(FShaderCompilerOutput::Failure("Shader output exceeds the supported byte limit."));
+		if (Options.bInlineExecution && IsInRenderingThread())
+			return Complete(FShaderCompilerOutput::Failure("Synchronous shader compilation is forbidden on the rendering thread."));
 		if (!Options.bInlineExecution && !IsTaskSchedulerRunning())
 			return Complete(FShaderCompilerOutput::Failure("Shader preparation task scheduler is unavailable."));
 		std::vector<std::shared_ptr<FSubscriber>> Retired;
@@ -421,6 +424,8 @@ namespace Durin
 	{ return CompileRequest(std::move(Request), std::move(Options), std::move(Completion), ESourceKind::Generated); }
 	auto FShaderBuilder::GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
 	{
+		if (IsInRenderingThread())
+			return FShaderCompilerOutput::Failure("Synchronous shader compilation is forbidden on the rendering thread.");
 		FShaderCompilerOutput Output;
 		auto Job = CompileGenerated(Request, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
 		require(Job.Wait() == EShaderBuildWaitResult::Completed);

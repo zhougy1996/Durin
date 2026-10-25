@@ -201,6 +201,8 @@ namespace Durin
 
 		ENGINE_API static auto TryCreate(FMeshMaterialShaderMapBuildInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult;
 		ENGINE_API static auto TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;
+		// Startup/tool assembly with explicit synchronous fixed-stage compilation.
+		ENGINE_API static auto TryCompileSync(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;
 
 		ENGINE_API auto GetIdentity() const
 			-> const FMeshMaterialShaderMapIdentity&;

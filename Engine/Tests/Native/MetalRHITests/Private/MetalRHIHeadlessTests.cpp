@@ -77,12 +77,12 @@ static auto QualifyImGuiShaderBuild(const Durin::FShaderTargetIdentity& MetalTar
 	Options.EntryPoints = {"VertexMain", "FragmentMain"};
 	Options.Frequencies = {Durin::EShaderFrequency::Vertex,
 		Durin::EShaderFrequency::Fragment};
-	const auto MetalCompiled = Durin::FShaderCompilingManager::Get().CompileMounted("/Engine/ImGui", Options);
-	ASSERT_TRUE(MetalCompiled) << MetalCompiled.Diagnostic;
+	const auto MetalCompiled = Durin::FShaderCompilingManager::Get().CompileMountedSync("/Engine/ImGui", Options);
+	ASSERT_TRUE(MetalCompiled) << Durin::FormatShaderCompilerErrors(MetalCompiled.Errors);
 	ASSERT_EQ(MetalCompiled.CompiledShaders.size(), 2u);
 	Options.Target = Durin::VulkanShaderTarget;
-	const auto VulkanCompiled = Durin::FShaderCompilingManager::Get().CompileMounted("/Engine/ImGui", Options);
-	ASSERT_TRUE(VulkanCompiled) << VulkanCompiled.Diagnostic;
+	const auto VulkanCompiled = Durin::FShaderCompilingManager::Get().CompileMountedSync("/Engine/ImGui", Options);
+	ASSERT_TRUE(VulkanCompiled) << Durin::FormatShaderCompilerErrors(VulkanCompiled.Errors);
 	ASSERT_EQ(VulkanCompiled.CompiledShaders.size(), 2u);
 	std::array<Durin::FByteBuffer, 2> MetalPixels;
 	for (const char* BackendName : {"metal", "vulkan"})
@@ -298,8 +298,8 @@ TEST(FMetalRHIHeadlessTests, BinaryComputeWritesStorageInBothExecutionModes)
 	Request.VirtualPath = "/Generated/MetalBinaryComputeQualification";
 	Request.Source = "[[vk::binding(0,0)]] RWStructuredBuffer<uint> Result; [shader(\"compute\")][numthreads(1,1,1)] void ComputeMain(uint3 id : SV_DispatchThreadID) { Result[id.x] = 0x12345678u; }";
 	Request.EntryPoints = {"ComputeMain"}; Request.Frequencies = {EShaderFrequency::Compute};
-	const auto Built = Durin::FShaderCompilingManager::Get().CompileGenerated(Request);
-	ASSERT_TRUE(Built) << Built.Diagnostic;
+	const auto Built = Durin::FShaderCompilingManager::Get().CompileGeneratedSync(Request);
+	ASSERT_TRUE(Built) << Durin::FormatShaderCompilerErrors(Built.Errors);
 	ASSERT_EQ(Built.CompiledShaders.size(), 1u);
 	for (const char* Mode : {"inline", "threaded"})
 	{
@@ -359,12 +359,12 @@ TEST(FMetalRHIHeadlessTests, AuthoredHitProxyIdsMatchVulkanThroughProductionRHI)
 	Options.EntryPoints = {"VertexMain", "FragmentMain"};
 	Options.Frequencies = {Durin::EShaderFrequency::Vertex,
 		Durin::EShaderFrequency::Fragment};
-	const auto MetalCompiled = Durin::FShaderCompilingManager::Get().CompileMounted("/Engine/HitProxyOverlay", Options);
-	ASSERT_TRUE(MetalCompiled) << MetalCompiled.Diagnostic;
+	const auto MetalCompiled = Durin::FShaderCompilingManager::Get().CompileMountedSync("/Engine/HitProxyOverlay", Options);
+	ASSERT_TRUE(MetalCompiled) << Durin::FormatShaderCompilerErrors(MetalCompiled.Errors);
 	ASSERT_EQ(MetalCompiled.CompiledShaders.size(), 2u);
 	Options.Target = Durin::VulkanShaderTarget;
-	const auto VulkanCompiled = Durin::FShaderCompilingManager::Get().CompileMounted("/Engine/HitProxyOverlay", Options);
-	ASSERT_TRUE(VulkanCompiled) << VulkanCompiled.Diagnostic;
+	const auto VulkanCompiled = Durin::FShaderCompilingManager::Get().CompileMountedSync("/Engine/HitProxyOverlay", Options);
+	ASSERT_TRUE(VulkanCompiled) << Durin::FormatShaderCompilerErrors(VulkanCompiled.Errors);
 	ASSERT_EQ(VulkanCompiled.CompiledShaders.size(), 2u);
 	std::array<Durin::FByteBuffer, 2> MetalPixels;
 	for (const char* BackendName : {"metal", "vulkan"})

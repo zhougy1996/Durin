@@ -1,5 +1,6 @@
 #include "Shader/ShaderCompilingManager.h"
 #include "Shader/IShaderBuildModule.h"
+#include "Threading/RunnableThread.h"
 #include "Materials/MaterialPreparedProgram.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #if DURIN_WITH_EDITOR
@@ -75,7 +76,7 @@ namespace Durin
 		}
 		auto Wait() -> EShaderBuildWaitResult override
 		{
-			if (ShaderGroupCallbackDepth) return EShaderBuildWaitResult::WouldBlock;
+			if (ShaderGroupCallbackDepth || IsInRenderingThread()) return EShaderBuildWaitResult::WouldBlock;
 			size_t Joined = 0;
 			for (;;) {
 				std::vector<std::shared_ptr<FShaderBuildHandle>> Pending;
@@ -180,10 +181,13 @@ namespace Durin
 			std::erase_if(Groups, [&](const auto& Item) { const auto Existing = Item.lock(); return !Existing || std::ranges::contains(Retired, Existing); });
 			Groups.push_back(Group);
 		}
-		if (!Group->Backend || !Group->MaximumBytes || Group->Outputs.empty() || Group->Outputs.size() > 128
+		const bool ForbiddenInline = Group->Options.bInlineExecution && IsInRenderingThread();
+		if (ForbiddenInline || !Group->Backend || !Group->MaximumBytes || Group->Outputs.empty() || Group->Outputs.size() > 128
 			|| (Group->MountedPath.empty() && Group->Jobs.empty())) {
 			Group->Jobs.clear(); Group->Outputs.clear();
-			Group->Outputs.emplace_back(FShaderCompilerOutput::Failure("Shader job input or compiler backend is unavailable."));
+			Group->Outputs.emplace_back(FShaderCompilerOutput::Failure(ForbiddenInline
+				? "Synchronous shader compilation is forbidden on the rendering thread."
+				: "Shader job input or compiler backend is unavailable."));
 			Group->Next = 1;
 		}
 		Group->Drive();
@@ -208,15 +212,19 @@ namespace Durin
 		require(Group->Completion);
 		return FShaderBuildHandle(std::move(Group));
 	}
-	auto FShaderCompilingManager::CompileGenerated(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput
+	auto FShaderCompilingManager::CompileGeneratedSync(const FGeneratedShaderCompileRequest& Job) -> FShaderCompilerOutput
 	{
+		if (IsInRenderingThread())
+			return FShaderCompilerOutput::Failure("Synchronous shader compilation is forbidden on the rendering thread.");
 		FShaderCompilerOutput Output;
 		auto Submitted = PrepareJobs(std::vector{Job}, Job.MaximumOutputBytes, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
 		SubmitJobs(Submitted);
 		require(FinishCompilation(Submitted) == EShaderBuildWaitResult::Completed); return Output;
 	}
-	auto FShaderCompilingManager::CompileMounted(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
+	auto FShaderCompilingManager::CompileMountedSync(std::string_view Path, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
 	{
+		if (IsInRenderingThread())
+			return FShaderCompilerOutput::Failure("Synchronous shader compilation is forbidden on the rendering thread.");
 		const auto Started = std::chrono::steady_clock::now();
 		FShaderCompilerOutput Output;
 		auto Submitted = PrepareJobs(Path, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });

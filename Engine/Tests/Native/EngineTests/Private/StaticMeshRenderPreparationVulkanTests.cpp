@@ -1395,15 +1395,68 @@ namespace Durin::Tests
 			ASSERT_TRUE(RendererPrivate::RegisterMeshVertexFactory(std::make_shared<FQualificationFactory>()));
 			ASSERT_TRUE(RendererPrivate::RegisterMeshVertexFactory(std::make_shared<FQualificationFactory>(true)));
 			FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+			ASSERT_TRUE(PrepareGeometryDepthCaptureShadersSync());
 		}
 		auto TearDown() -> void override
 		{
 			// Per-case shutdown would make later cases attempt a forbidden restart.
+			GeometryDepthCaptureOutputs = {};
 			ShutdownAssetCompilingManager();
 			FModuleManager::Get().ShutdownModule("ShaderBuild");
 		}
 	};
 	[[maybe_unused]] const auto GeometryEnvironment = testing::AddGlobalTestEnvironment(new FGeometryQualificationEnvironment());
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, DepthReadbackConsumesHostPreparedShaders)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	ASSERT_EQ(GDynamicRHI, nullptr);
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([](FRHICommandListImmediate& Commands) {
+		++GRenderFrameCounterRenderThread;
+		GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+		for (bool Array : {false, true})
+		{
+			auto Desc = Array ? FRHITextureCreateDesc::Create2DArray("PreparedShadowInput")
+				: FRHITextureCreateDesc::Create2D("PreparedDepthInput");
+			Desc.SetExtent(8, 8).SetFormat(EPixelFormat::R32_FLOAT).SetArraySize(Array ? 2 : 1)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
+			const auto Source = GDynamicRHI->RHICreateTexture(Commands, Desc);
+			auto ViewDesc = MakeDefaultTextureViewDesc(*Source, ERHITextureViewUsage::ColorAttachment);
+			ViewDesc.Range.NumArrayLayers = 1;
+			const auto View = GDynamicRHI->RHICreateTextureView(Source, ViewDesc);
+			FRHIRenderPassInfo Pass;
+			Pass.RenderTargetLayout = RenderTargetLayouts::MakeGBufferDebugOutput();
+			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::R32_FLOAT;
+			Pass.ColorRenderTargets[0] = Source;
+			Pass.ColorRenderTargetViews[0] = View;
+			Pass.ColorClearValues[0] = FClearValueBinding(0.25f, 0.0f, 0.0f);
+			Commands.BeginRenderPass(Pass, "PreparedDepthInput");
+			Commands.EndRenderPass();
+			FByteBuffer Pixels;
+			{
+				FPreparedShaderMapScope Capture;
+				ReadGeometryTexture(Commands, Source, Pixels, true);
+			}
+			EXPECT_EQ(Pixels.size(), 8u * 8u * sizeof(float));
+			for (size_t Offset = 0; Offset + sizeof(float) <= Pixels.size(); Offset += sizeof(float))
+			{
+				float Value;
+				std::memcpy(&Value, Pixels.data() + Offset, sizeof(Value));
+				EXPECT_FLOAT_EQ(Value, 0.25f);
+			}
+		}
+		GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+	});
+	FlushRenderingCommands();
+	ShutdownRenderingThread();
+	FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+	RHIExit();
 }
 
 TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeometryAndFactory)

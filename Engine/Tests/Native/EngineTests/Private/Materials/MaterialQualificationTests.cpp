@@ -193,7 +193,7 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 					auto Translation = TranslatePreparedMaterialProgram(Prepared);
 					ASSERT_TRUE(Translation);
 					const auto GenerationUs = Micros(GenerationBegin);
-					auto Output = FShaderCompilingManager::Get().CompileGenerated(MakeMaterialShaderCompileRequest(Translation, false));
+					auto Output = FShaderCompilingManager::Get().CompileGeneratedSync(MakeMaterialShaderCompileRequest(Translation, false));
 					ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 					auto Candidate = FMaterialShaderMap::FinalizeContent(std::move(Translation), std::move(Output));
 					ASSERT_TRUE(Candidate);

@@ -1,7 +1,8 @@
-#include "Shader/ShaderMapPreparation.h"
 #pragma once
 
 #include "CoreMinimal.h"
+
+#include "Shader/ShaderMapPreparation.h"
 
 #include "Shader/GlobalShader.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -51,6 +52,22 @@ float ShadowMain(float4 p : SV_Position) : SV_Target0 {
  return ShadowDepth.Load(int4(int2(p.xy), 0, 0));
 }
 )SLANG";
+	// CPU outputs belong to the test environment; render readback only consumes them.
+	inline std::array<FShaderCompilerOutput, 2> GeometryDepthCaptureOutputs;
+	inline auto PrepareGeometryDepthCaptureShadersSync() -> FShaderCompletion
+	{
+		for (size_t Index = 0; Index < GeometryDepthCaptureOutputs.size(); ++Index)
+		{
+			const std::array<const FShaderType*, 2> Types{&FDepthCaptureVertexShader::StaticType(), Index
+				? static_cast<const FShaderType*>(&FShadowCaptureFragmentShader::StaticType()) : &FDepthCaptureFragmentShader::StaticType()};
+			FShaderMapBase Map;
+			if (auto Result = InitializeShaderMapFromTypesSync(Map, Types, {}); !Result) return Result;
+			auto& Output = GeometryDepthCaptureOutputs[Index];
+			Output = {.Status = EShaderBuildStatus::Ok};
+			for (const auto* Type : Types) Output.CompiledShaders.push_back(Map.GetCode()->GetCompiledShader(*Map.FindShaderIndex(Type)));
+		}
+		return {};
+	}
 	inline auto ReadGeometryTexture(FRHICommandListImmediate& CommandList, FRHITexture* Source, FByteBuffer& Pixels, bool bDepth = false, uint32 ArrayLayer = 0) -> void
 	{
 		if (bDepth)
@@ -58,7 +75,7 @@ float ShadowMain(float4 p : SV_Position) : SV_Target0 {
 			FShaderMapBase Map;
 			const std::array<const FShaderType*, 2> Types{&FDepthCaptureVertexShader::StaticType(), Source->GetArraySize() > 1 ? static_cast<const FShaderType*>(&FShadowCaptureFragmentShader::StaticType()) : &FDepthCaptureFragmentShader::StaticType()};
 			FShaderCompletion Error;
-			check((Error = InitializeShaderMapFromTypes(Map, Types, {})));
+			check((Error = Map.Initialize(Types, GeometryDepthCaptureOutputs[Source->GetArraySize() > 1])));
 			const auto FloatTexture = GDynamicRHI->RHICreateTexture(CommandList,
 				FRHITextureCreateDesc::Create2D("GeometryDepthReadback", Source->GetSizeX(), Source->GetSizeY(), EPixelFormat::R32_FLOAT)
 					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::CPUReadback | ETextureCreateFlags::ShaderResource));
