@@ -140,17 +140,18 @@ namespace Durin
 			auto Report = [&](const FRenderResourceCreateDiagnostic&) { ++Diagnostics; };
 			{
 				FPreparedShaderMapScope Scope;
-				EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 0u);
 				EXPECT_EQ(Slot.Resolve(Generation, [&] {
 					FShaderMapBase Map;
 					const auto Completion = InitializeShaderMapFromTypes(Map, Types, {});
 					EXPECT_FALSE(Completion);
+					EXPECT_EQ(Completion.Status, EShaderBuildStatus::Pending);
+					EXPECT_TRUE(Completion.Error.empty());
+					if (Completion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 					return FResult::Failure(MakeError());
 				}, Report), nullptr);
 				EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
 				EXPECT_FALSE(Slot.GetFailure());
 				EXPECT_EQ(Diagnostics, 0u);
-				EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 1u);
 				// An earlier pending shader must not hide an independent terminal error.
 				FSlot FailedSlot;
 				EXPECT_EQ(FailedSlot.Resolve(Generation, [] { return FResult::Failure(MakeError()); }, Report), nullptr);
@@ -158,11 +159,38 @@ namespace Durin
 				EXPECT_EQ(Diagnostics, 1u);
 			}
 			FPreparedShaderMapScope NextCapture;
-			EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 0u);
 			const auto* Product = Slot.Resolve(Generation, [] { return FResult::Success(42); }, Report);
 			ASSERT_NE(Product, nullptr);
 			EXPECT_EQ(*Product, 42);
 			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Ready);
+			EXPECT_EQ(Diagnostics, 1u);
+		}
+
+		TEST(FRenderResourceCreationTests, ExplicitPendingPropagatesThroughNestedSlotsWithoutHidingSiblingFailure)
+		{
+			FSlot Parent, Child, FailedSibling;
+			uint32 Diagnostics = 0;
+			auto Report = [&](const auto&) { ++Diagnostics; };
+			{
+				FRenderPipelinePreparationBatch Batch;
+				EXPECT_EQ(Parent.Resolve({}, [&] {
+					EXPECT_EQ(Child.Resolve({}, [] { return FResult::Pending(); }, Report), nullptr);
+					return FResult::Failure(MakeError());
+				}, Report), nullptr);
+				EXPECT_EQ(Parent.GetAvailability(), ERenderResourceAvailability::Pending);
+				EXPECT_FALSE(Parent.GetFailure());
+				EXPECT_TRUE(FRenderPipelinePreparationBatch::HasPending());
+				EXPECT_EQ(Batch.GetRequestCount(), 0u);
+				EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::WaitUnavailable);
+				EXPECT_EQ(Diagnostics, 0u);
+				EXPECT_EQ(FailedSibling.Resolve({}, [] { return FResult::Failure(MakeError()); }, Report), nullptr);
+				EXPECT_EQ(FailedSibling.GetAvailability(), ERenderResourceAvailability::Failed);
+				EXPECT_EQ(Diagnostics, 1u);
+			}
+			FRenderPipelinePreparationBatch NextBatch;
+			EXPECT_FALSE(FRenderPipelinePreparationBatch::HasPending());
+			EXPECT_NE(Parent.Resolve({}, [] { return FResult::Success(42); }, Report), nullptr);
+			EXPECT_EQ(Parent.GetAvailability(), ERenderResourceAvailability::Ready);
 			EXPECT_EQ(Diagnostics, 1u);
 		}
 

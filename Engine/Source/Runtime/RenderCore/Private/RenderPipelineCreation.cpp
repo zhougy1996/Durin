@@ -8,7 +8,11 @@ namespace Durin
 	static thread_local FRenderPipelinePreparationBatch* Preparation = nullptr;
 	FRenderPipelinePreparationBatch::FRenderPipelinePreparationBatch() : Previous(Preparation) { Preparation = this; }
 	FRenderPipelinePreparationBatch::~FRenderPipelinePreparationBatch() { Preparation = Previous; }
-	auto FRenderPipelinePreparationBatch::HasPending() -> bool { return Preparation && !Preparation->Requests.empty(); }
+	auto FRenderPipelinePreparationBatch::HasPending() -> bool
+	{
+		return Preparation && (Preparation->bResourcePending || !Preparation->Requests.empty());
+	}
+	auto FRenderPipelinePreparationBatch::MarkResourcePending() -> void { if (Preparation) Preparation->bResourcePending = true; }
 	auto FRenderPipelinePreparationBatch::Add(const std::shared_ptr<FPipelineState>& Pipeline) -> void
 	{
 		if (!Preparation || std::ranges::contains(Preparation->Requests, Pipeline)) return;
@@ -22,6 +26,7 @@ namespace Durin
 	auto FRenderPipelinePreparationBatch::Wait() -> ERenderPipelinePreparationWait
 	{
 		if (bCapacityExceeded) return ERenderPipelinePreparationWait::CapacityExceeded;
+		if (bResourcePending) return ERenderPipelinePreparationWait::WaitUnavailable;
 		if (Requests.empty()) return ERenderPipelinePreparationWait::Empty;
 		for (const auto& Request : Requests)
 			if (!Request->CanWait()) return ERenderPipelinePreparationWait::WaitUnavailable;
@@ -112,6 +117,11 @@ namespace Durin
 		Current = this;
 	}
 	FRenderPipelineRequestScope::~FRenderPipelineRequestScope() { Current = Previous; }
+	auto FRenderPipelineRequestScope::PropagatePending(bool bResourcePending) -> void
+	{
+		if (Previous) Previous->MarkPending();
+		if (bResourcePending) FRenderPipelinePreparationBatch::MarkResourcePending();
+	}
 	auto FRenderPipelineRequestScope::Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer)
 		-> FGraphicsPipelineStateRHIRef
 	{

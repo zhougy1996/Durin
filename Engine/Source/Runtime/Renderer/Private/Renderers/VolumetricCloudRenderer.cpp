@@ -260,6 +260,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"VolumetricCloud.Temporal", Types, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FCreateResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FCreateResult::Canceled();
 				if (!ShaderSetCompletion)
 				{
@@ -334,6 +335,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"VolumetricCloud.Composite", Types, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudComposite",
@@ -442,6 +444,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"VolumetricCloud.Compute", Types, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
@@ -483,6 +486,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"VolumetricCloud.Fragment", Types, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudFragment",

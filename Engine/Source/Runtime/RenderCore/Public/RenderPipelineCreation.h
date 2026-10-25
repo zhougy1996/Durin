@@ -14,8 +14,8 @@ namespace Durin
 		Empty, Ready, Failed, WaitUnavailable, CapacityExceeded
 	};
 
-	// A consuming preparation boundary joins required Pending candidates, including
-	// replacements, in batches before authoring a graph.
+	// Collects unresolved resource attempts and native pipeline requests before
+	// graph authoring. Explicit synchronous callers may join pipeline-only batches.
 	class RENDERCORE_API FRenderPipelinePreparationBatch
 	{
 	public:
@@ -27,10 +27,12 @@ namespace Durin
 		auto HasCapacityExceeded() const -> bool { return bCapacityExceeded; }
 		static constexpr size_t MaximumRequests = 4096;
 		static auto HasPending() -> bool;
+		static auto MarkResourcePending() -> void;
 		static auto Add(const std::shared_ptr<FPipelineState>& Pipeline) -> void;
 	private:
 		FRenderPipelinePreparationBatch* Previous;
 		bool bCapacityExceeded = false;
+		bool bResourcePending = false;
 		std::vector<std::shared_ptr<FPipelineState>> Requests;
 	};
 
@@ -60,6 +62,7 @@ namespace Durin
 		FRenderPipelineRequestScope(const FRenderPipelineRequestScope&) = delete;
 		auto HasPending() const -> bool { return bPending; }
 		auto MarkPending() -> void { bPending = true; }
+		auto PropagatePending(bool bResourcePending) -> void;
 		static auto Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRHIRef;
 		static auto Compute(FName Name, const FComputePipelineStateInitializer& Initializer) -> FComputePipelineStateRHIRef;
 	private:

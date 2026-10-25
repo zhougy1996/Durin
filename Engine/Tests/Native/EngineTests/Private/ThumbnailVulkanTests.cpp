@@ -262,6 +262,7 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 			using FResult = TRenderResourceCreateResult<std::shared_ptr<FShaderMapBase>>;
 			auto Map = std::make_shared<FShaderMapBase>();
 			const auto Completion = InitializeShaderMapFromTypes(*Map, Types, {});
+			if (Completion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 			if (Completion) return FResult::Success(std::move(Map));
 			return FResult::Failure({.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
 				.Cause = Completion.Error});
@@ -290,7 +291,6 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 		const auto* Map = Resolve();
 		ASSERT_NE(Map, nullptr);
 		for (const auto* Type : Types) EXPECT_NE((*Map)->GetShader(Type), nullptr);
-		EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 0u);
 		EXPECT_EQ(Diagnostics, 0u);
 	}
 	EXPECT_EQ(GetShaderBuildStats().DependencyResolutions, Prepared.DependencyResolutions);

@@ -315,6 +315,7 @@ namespace Durin
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"EditorAssistance.Gizmo", ShaderTypes, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FBaseResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FBaseResult::Canceled();
 				if (!ShaderSetCompletion)
 				{

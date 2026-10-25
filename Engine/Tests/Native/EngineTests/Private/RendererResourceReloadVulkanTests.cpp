@@ -403,13 +403,10 @@ float4 FragmentMain() : SV_Target
 							auto ShaderMap =
 								std::make_shared<FShaderMapBase>();
 							FShaderCompletion ErrorMessage;
-							const uint64 PendingBefore = FPreparedShaderMapScope::GetPendingRequestCount();
 							ErrorMessage = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions);
-							if (FPreparedShaderMapScope::GetPendingRequestCount() == PendingBefore)
-							{
-								++Attempts;
-								ForceFlags.push_back(Snapshot.bForceShaderRecompile);
-							}
+							if (ErrorMessage.Status == EShaderBuildStatus::Pending) return FResult::Pending();
+							++Attempts;
+							ForceFlags.push_back(Snapshot.bForceShaderRecompile);
 							if (ErrorMessage.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 							if (!ErrorMessage)
 							{

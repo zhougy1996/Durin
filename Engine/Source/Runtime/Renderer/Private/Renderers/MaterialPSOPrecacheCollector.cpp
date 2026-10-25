@@ -99,7 +99,7 @@ namespace Durin::RendererPrivate
 			FMeshMaterialShaderMap Map;
 			const auto Completion = InitializeMaterialShaderMap(*VertexType, *Fragment.Type, Factory->GetType(), MeshPass,
 				Params.Material.ShaderMap, Generation, Params.CompiledProgram.get(), {}, Map);
-			if (FPreparedShaderMapScope::GetPendingRequestCount()) return false;
+			if (Completion.Status == EShaderBuildStatus::Pending) return false;
 			if (!Completion) return std::unexpected(Completion.Error.empty()
 				? std::string("Material shader collection was canceled.") : std::string(Completion.Error));
 			const auto Vertex = Factory->Resolve(Map, MeshPass);

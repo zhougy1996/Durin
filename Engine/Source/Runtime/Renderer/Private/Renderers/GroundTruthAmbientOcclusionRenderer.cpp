@@ -200,6 +200,7 @@ namespace Durin
 				const auto RawShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"GroundTruthAmbientOcclusion.Raw", RawTypes, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (RawShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (RawShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!RawShaderSetCompletion)
 				{
@@ -214,6 +215,7 @@ namespace Durin
 				const auto FilterShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"GroundTruthAmbientOcclusion.Filter", FilterTypes, true,
 					ReportRendererResourceCreateDiagnostic);
+				if (FilterShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (FilterShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!FilterShaderSetCompletion)
 				{

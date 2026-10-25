@@ -205,6 +205,7 @@ namespace Durin
 					const auto LineShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 						"EditorAssistance.SimpleElement.Line", LineTypes, true,
 						ReportRendererResourceCreateDiagnostic);
+					if (LineShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FBaseResult::Pending();
 					if (LineShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FBaseResult::Canceled();
 					if (LineShaderSetCompletion)
 					{
@@ -220,6 +221,7 @@ namespace Durin
 					const auto SpriteShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 						"EditorAssistance.SimpleElement.Sprite", SpriteTypes, true,
 						ReportRendererResourceCreateDiagnostic);
+					if (SpriteShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FBaseResult::Pending();
 					if (SpriteShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FBaseResult::Canceled();
 					if (SpriteShaderSetCompletion)
 					{

@@ -1325,13 +1325,15 @@ namespace Durin
 		struct FCompletedRequest final : IShaderBuildRequest
 		{
 			uint32* WaitCalls = nullptr;
+			std::vector<EShaderBuildPriority>* Priorities = nullptr;
 			auto RequestCancel() -> bool override { return false; }
-			auto SetPriority(EShaderBuildPriority) -> void override {}
+			auto SetPriority(EShaderBuildPriority Priority) -> void override { if (Priorities) Priorities->push_back(Priority); }
 			auto Wait() -> EShaderBuildWaitResult override { if (WaitCalls) ++*WaitCalls; return EShaderBuildWaitResult::Completed; }
 			auto IsComplete() const -> bool override { return true; }
 		};
 		uint32 Compiles = 0;
 		uint32 Waits = 0;
+		std::vector<EShaderBuildPriority> Priorities;
 		bool LastInlineExecution = false;
 		bool Defer = false;
 		bool DeferMounted = false;
@@ -1344,6 +1346,7 @@ namespace Durin
 		{
 			auto Job = std::make_shared<FCompletedRequest>();
 			Job->WaitCalls = &Waits;
+			Job->Priorities = &Priorities;
 			LastInlineExecution = Options.bInlineExecution;
 			++Compiles;
 			auto Deliver = [Callback = std::move(Callback), Output = Completion]() mutable { Callback(std::move(Output)); };
@@ -1410,6 +1413,51 @@ namespace Durin
 			Info->Module = std::move(Original); Info->State = State;
 		}
 	};
+
+	TEST_F(FShaderFoundationTests, CaptureLookupDoesNotCreateOrReprioritizeSharedPreparations)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		ClearShaderMapPreparations();
+		FScopedShaderCompletionStub Backend;
+		struct FPreparationCleanup
+		{
+			FCompletionShaderStub& Stub;
+			~FPreparationCleanup()
+			{
+				for (auto& Pending : Stub.Pending) if (auto Callback = std::move(Pending)) Callback();
+				ClearShaderMapPreparations();
+			}
+		} Cleanup{*Backend.Stub};
+		Backend.Stub->DeferMounted = true;
+		Backend.Stub->Completion = {.Status = EShaderBuildStatus::Canceled};
+		FShaderProgramRegistration Registration("ReadOnlyPreparation", "Shader", EShaderRequestEligibility::EditorOnly,
+			{&FGlobalFixtureVertexShader::StaticType()});
+		ASSERT_TRUE(Registration.IsValid());
+		auto Preparation = FShaderMapPreparation::Request("ReadOnlyPreparation", {"Shader"}, EShaderBuildPriority::Low);
+		const auto PrioritiesBefore = Backend.Stub->Priorities;
+		const FShaderType* Types[] = {&FGlobalFixtureVertexShader::StaticType()};
+		{
+			FPreparedShaderMapScope Capture;
+			FShaderMapBase Map;
+			const auto Result = InitializeShaderMapFromTypes(Map, Types, {});
+			EXPECT_EQ(Result.Status, EShaderBuildStatus::Pending);
+			EXPECT_TRUE(Result.Error.empty());
+		}
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		EXPECT_EQ(Backend.Stub->Waits, 0u);
+		EXPECT_EQ(Backend.Stub->Priorities, PrioritiesBefore);
+		auto HighPriority = FShaderMapPreparation::Request("ReadOnlyPreparation", {"Shader"}, EShaderBuildPriority::High);
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		ASSERT_FALSE(Backend.Stub->Priorities.empty());
+		EXPECT_EQ(Backend.Stub->Priorities.back(), EShaderBuildPriority::High);
+		InvalidateShaderMapPreparations(false);
+		{
+			FPreparedShaderMapScope Capture;
+			FShaderMapBase Map;
+			EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, EShaderBuildStatus::Pending);
+		}
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+	}
 
 	TEST_F(FShaderFoundationTests, AppendingPreparedProgramsKeepsExistingRequestsUntilInvalidation)
 	{
@@ -1483,6 +1531,7 @@ namespace Durin
 				FShaderMapBase Map;
 				const auto Completion = InitializeShaderMapFromTypes(Map, Types, {});
 				EXPECT_FALSE(Completion);
+				if (Completion.Status == EShaderBuildStatus::Pending) return TRenderResourceCreateResult<int>::Pending();
 				return TRenderResourceCreateResult<int>::Failure({.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
 					.Cause = Completion.Error});
 			}, [&](const FRenderResourceCreateDiagnostic&) { ++Diagnostics; });
@@ -1491,7 +1540,6 @@ namespace Durin
 			FPreparedShaderMapScope Capture;
 			EXPECT_EQ(Resolve(), nullptr);
 			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
-			EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 1u);
 		});
 		EXPECT_EQ(Backend.Stub->Compiles, 0u);
 		OnRenderThread([&] {

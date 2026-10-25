@@ -445,8 +445,7 @@ namespace Durin::Editor
 					FRenderPipelinePreparationBatch Batch;
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					auto Image = ImageRenderer(CommandList, Output.Width, Output.Height);
-					bPending = Batch.GetRequestCount() != 0
-						|| FPreparedShaderMapScope::GetPendingRequestCount() != 0;
+					bPending = FRenderPipelinePreparationBatch::HasPending();
 					if (Image && Image->GetSizeX() == Output.Width && Image->GetSizeY() == Output.Height
 						&& Image->GetFormat() == EPixelFormat::SRGBA8_UNORM)
 						Readback = CommandList.EnqueueTextureReadback(Image);

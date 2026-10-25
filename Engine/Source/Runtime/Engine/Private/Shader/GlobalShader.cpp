@@ -194,6 +194,7 @@ namespace Durin
 						ForceRecompileShaderGeneration == Generation.Shader;
 					bInitialized = (ShaderResult = InitializeShaderMapFromTypes(*Candidate->ShaderMap, BaseTypes, Options)).Status == EShaderBuildStatus::Ok;
 				}
+				if (ShaderResult.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderResult.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!bInitialized)
 				{
@@ -239,6 +240,7 @@ namespace Durin
 				if (ReportDiagnostic) ReportDiagnostic(Diagnostic);
 			});
 		if (Published) return FGlobalShaderSetRef(*Published);
+		if (Entry.Slot.GetAvailability() == ERenderResourceAvailability::Pending) return FShaderCompletion::Pending();
 		if (Entry.Slot.GetAvailability() == ERenderResourceAvailability::Canceled) return FShaderCompletion::Canceled();
 		return FShaderCompletion::Failure(Entry.Slot.GetFailure()
 			? FormatRenderResourceCreateError(*Entry.Slot.GetFailure()) : "Global shader set is unavailable.");

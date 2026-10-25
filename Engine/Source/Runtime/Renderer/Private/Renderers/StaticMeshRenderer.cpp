@@ -418,6 +418,7 @@ namespace Durin
 						Coordinator.GetGeneration_RenderThread(),
 						Material.CompiledProgram.get(),
 						CompileOptions, ShaderMap);
+					if (ShaderResult.Status == EShaderBuildStatus::Pending) return FShaderMapResult::Pending();
 					if (ShaderResult.Status == EShaderBuildStatus::Canceled) return FShaderMapResult::Canceled();
 				if (!ShaderResult)
 					{

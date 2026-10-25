@@ -63,8 +63,13 @@ invalidation or retrying a prior resolution error refreshes the complete list.
 
 The default `FPreparedShaderMapScope` remains consumption-only for thumbnail
 capture. Resource resolution opts into asynchronous demand, but a nested capture
-forbids new requests throughout its scope. Pending Shader counts propagate through
-nested resource slots without caching a temporary absence as terminal failure.
+forbids new requests throughout its scope. ShaderMap resolution returns explicit
+Pending, success, failure or cancellation. Resource factories return Pending to
+their slots, and the existing resource/pipeline preparation batch aggregates
+unresolved slots without a Shader-specific thread-local counter or a fabricated
+error. Nested slots remain retryable while independent terminal errors stay
+observable. Read-only preparation lookup does not submit, retire or reprioritize
+requests; creation, priority promotion and submission use the request path.
 
 Material mesh passes share `MeshPipelineDescription`: raster options and the
 effective material identity produce value-only raster/depth/blend state, and
