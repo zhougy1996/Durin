@@ -1374,10 +1374,6 @@ namespace Durin
 			try
 			{
 				if (bReportOverload) DURIN_WARN("Task executor {} crossed its storage threshold; valid work remains queued.", static_cast<uint32>(Target));
-				Profiling::TaskEnqueued(State->GetTaskId(),
-					Private::FTaskAttributionAccess::GetOwnerId(State->GetAttribution()),
-					Private::FTaskAttributionAccess::GetCategoryId(State->GetAttribution()),
-					static_cast<uint8>(State->GetTarget()));
 				if (State->IsExternal())
 				{
 					const bool bStarted = State->TryMarkRunning();
@@ -1466,12 +1462,7 @@ namespace Durin
 			}
 			OnTaskStarted(State->GetAccountingSnapshot());
 			if (bWorkerExecution) OnWorkerStarted();
-			DURIN_PROFILE_TASK_EXECUTION_ZONE(
-				State->GetDebugName(),
-				State->GetTaskId(),
-				Private::FTaskAttributionAccess::GetOwnerId(State->GetAttribution()),
-				Private::FTaskAttributionAccess::GetCategoryId(State->GetAttribution()),
-				static_cast<uint8>(State->GetTarget()));
+			DURIN_PROFILE_CPU_ZONE_NAMED("Task.Execute");
 
 			FTaskStateData* PreviousTaskState = GCurrentTaskState;
 			FTaskScheduler* PreviousTaskScheduler = GCurrentTaskScheduler;
@@ -1608,12 +1599,6 @@ namespace Durin
 			{
 				Aggregate.Record(ETaskAggregateHistogram::Execution, Task.ExecutionNanoseconds);
 			}
-			Profiling::TaskTerminal(
-				State->GetTaskId(),
-				Private::FTaskAttributionAccess::GetOwnerId(Task.Attribution),
-				Private::FTaskAttributionAccess::GetCategoryId(Task.Attribution),
-				static_cast<uint8>(State->GetTarget()),
-				static_cast<uint8>(Task.TerminalReason));
 
 			std::lock_guard Lock(Mutex);
 			if (State->GetTarget() == ETaskTarget::BlockingIO) { require(BlockingIOTrackedTasks > 0); --BlockingIOTrackedTasks; }
@@ -2907,9 +2892,15 @@ namespace Durin
 
 	auto PublishTaskSchedulerProfilerPlots() -> void
 	{
+		if (!Profiling::GetConnectionState().bConnected) return;
 		std::shared_ptr<FTaskScheduler> Scheduler;
 		{
 			std::lock_guard Lock(GTaskSchedulerMutex);
+			// Bound snapshot collection itself, not just publication of the plots.
+			static auto NextSampleTime = std::chrono::steady_clock::time_point{};
+			const auto Now = std::chrono::steady_clock::now();
+			if (Now < NextSampleTime) return;
+			NextSampleTime = Now + std::chrono::milliseconds(100);
 			Scheduler = GTaskScheduler;
 		}
 		if (Scheduler) Scheduler->PublishProfilerPlots();

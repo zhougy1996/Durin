@@ -606,9 +606,10 @@ Use task snapshots, aggregate counters and Tracy execution zones to inspect
 normal activity. Text logs retain executor lifecycle summaries, rejected/invalid
 operations, exceptions, overload transitions and long waits.
 
-Diagnostic reads do not emit profiler work. EngineLoop publishes fixed
-attribution plots once per frame through PublishTaskSchedulerProfilerPlots;
-Tracy-disabled execution remains a no-op after bounded aggregate traversal.
+Diagnostic reads do not emit profiler work. EngineLoop requests fixed
+attribution plots through PublishTaskSchedulerProfilerPlots. Collection runs
+only while Tracy is connected and at most ten times per second; disconnected
+and Tracy-disabled execution skip registry copying and aggregate traversal.
 See [CPU Profiling](../../Development/Build/Profiling.md).
 
 ## Related Code

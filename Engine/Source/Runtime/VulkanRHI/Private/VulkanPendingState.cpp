@@ -12,7 +12,7 @@
 #include "VulkanTexture.h"
 #include "VulkanView.h"
 #include "Backend/RHIShaderParameterValidationInternal.h"
-#include "VulkanProfiling.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -239,7 +239,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingComputeState::ResolveUniformBuffers() -> void
 	{
-		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.ResolveUniformBuffers");
 		const auto Resolved = UniformBindings.Resolve(Device);
 		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
 	}
@@ -247,7 +246,6 @@ namespace Durin::VulkanRHI
 	auto FVulkanPendingComputeState::PrepareDescriptors(
 		FVulkanCommandListContext& InContext) -> void
 	{
-		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Compute.PrepareDescriptors");
 		check(CurrentPipelineState);
 		UniformBindings.PrepareForUse(InContext, ERHIPipeline::Compute);
 		const uint64 Generation = Device.GetGlobalDescriptorPool().GetGeneration();
@@ -354,7 +352,6 @@ namespace Durin::VulkanRHI
 		if (!CachedDescriptorSets.empty())
 		{
 			InContext.GetCommandBuffer();
-			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Compute.BindDescriptorSets");
 			InContext.RetainAllocation(Device.GetGlobalDescriptorPool().GetAllocationOwner());
 			InContext.GetCommandBuffer()->BindDescriptorSets(
 				vk::PipelineBindPoint::eCompute,
@@ -367,7 +364,6 @@ namespace Durin::VulkanRHI
 		uint32 GroupCountX, uint32 GroupCountY, uint32 GroupCountZ) -> void
 	{
 		PrepareDescriptors(InContext);
-		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Compute.DispatchNative");
 		InContext.GetCommandBuffer()->GetHandle().dispatch(
 			GroupCountX, GroupCountY, GroupCountZ);
 	}
@@ -377,7 +373,6 @@ namespace Durin::VulkanRHI
 		uint64 Offset) -> void
 	{
 		PrepareDescriptors(InContext);
-		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Compute.DispatchIndirectNative");
 		InContext.GetCommandBuffer()->GetHandle().dispatchIndirect(
 			ArgumentBuffer, Offset);
 	}
@@ -496,7 +491,6 @@ namespace Durin::VulkanRHI
 	auto FVulkanGraphicsPipelineDescriptorState::ResolveUniformBuffers(
 		FVulkanDevice& Device) -> void
 	{
-		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.ResolveUniformBuffers");
 		const auto Resolved = UniformBindings.Resolve(Device);
 		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
 	}
@@ -509,7 +503,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingGraphicsState::PrepareForDraw(FVulkanCommandListContext& InContext) -> void
 	{
-		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.Prepare");
 		check(CurrentPipelineState);
 		check(CurrentDescriptorState);
 		CurrentDescriptorState->UniformBindings.PrepareForUse(InContext, ERHIPipeline::Graphics);
@@ -527,7 +520,6 @@ namespace Durin::VulkanRHI
 		FVulkanGraphicsPipelineDescriptorState::FDescriptorSetsForDraw DescriptorSetsForDraw = CurrentDescriptorState->GetOrCreateDescriptorSetsForDraw(Device, *CurrentPipelineState);
 		if (DescriptorSetsForDraw.DescriptorSets && !DescriptorSetsForDraw.DescriptorSets->empty())
 		{
-			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.BindDescriptorSets");
 			InContext.RetainAllocation(Device.GetGlobalDescriptorPool().GetAllocationOwner());
 			CmdBuffer->BindDescriptorSets(
 				vk::PipelineBindPoint::eGraphics,
@@ -617,7 +609,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGraphicsPipelineDescriptorState::GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> FDescriptorSetsForDraw
 	{
-		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Descriptors.ForDraw");
 		const FVulkanDescriptorSetsLayout& DescriptorSetsLayout = PipelineState.GetDescriptorSetsLayout();
 		const std::vector<vk::DescriptorSetLayout>& LayoutHandles = DescriptorSetsLayout.GetLayoutHandles();
 		if (LayoutHandles.empty())
@@ -722,7 +713,6 @@ namespace Durin::VulkanRHI
 			auto Entry = Set.Selected.lock();
 			if (Entry)
 			{
-				DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Descriptors.ReuseSelected");
 				++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Hits;
 				Owner.TouchDescriptorCacheEntry(*Entry);
 			}
@@ -746,10 +736,8 @@ namespace Durin::VulkanRHI
 		std::span<const FRHIShaderParameterResource> Resources,
 		const FVulkanDescriptorRequirements& Requirements, uint32 SetIndex) -> std::shared_ptr<FDescriptorEntry>
 	{
-		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Descriptors.ResolveCache");
 		uint64 Hash = 0;
 		auto Entry = [&]() -> std::shared_ptr<FDescriptorEntry> {
-			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Descriptors.Lookup");
 			FXxHash64Builder HashBuilder;
 			HashBuilder.UpdateValue(Layout);
 			for (const auto& Resource : Resources)
@@ -781,7 +769,6 @@ namespace Durin::VulkanRHI
 		}();
 		if (Entry)
 		{
-			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Descriptors.CacheHit");
 			++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Hits;
 			TouchDescriptorCacheEntry(*Entry);
 			return Entry;
