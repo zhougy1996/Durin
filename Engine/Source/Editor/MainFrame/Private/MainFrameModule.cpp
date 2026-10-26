@@ -1283,6 +1283,7 @@ namespace Durin
 		Context.bHasProject = HasCurrentProject();
 		Context.HostSettings = std::make_shared<FHostSettings>();
 		Context.HostSettings->Load();
+		Editor.SetFrameRateLimit(Context.HostSettings->GetFrameRateLimit());
 		if (auto* Renderer = Mona::FMonaApplication::Get().GetRenderer())
 			Renderer->SetPresentationPolicyOverride(Context.HostSettings->IsVSyncEnabled()
 				? EViewportPresentationPolicy::FramePaced : EViewportPresentationPolicy::Unsynchronized);

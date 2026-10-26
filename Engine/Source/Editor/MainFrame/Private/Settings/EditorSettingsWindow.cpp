@@ -3,6 +3,7 @@
 #include "Settings/EditorSettings.h"
 #include "Settings/HostSettings.h"
 #include "Mona.h"
+#include "Engine/Engine.h"
 #include "Rendering/MonaRenderer.h"
 #include "Widgets/MWindow.h"
 
@@ -65,15 +66,36 @@ namespace Durin::Editor::MainFrame
 					ApplyAppearance(Settings, RootWindow);
 					return true;
 				}, {}},
-			{"editor.display", "Display", "performance vsync vertical synchronization", "Presentation settings for editor windows. Changes take effect immediately.", false,
+			{"editor.display", "Display", "performance vsync vertical synchronization fps frame rate limit unlimited", "Presentation settings for editor windows. Changes take effect immediately.", false,
 				[&](std::string& OutError) {
 					bool bVSync = Settings.IsVSyncEnabled();
 					ImGui::SeparatorText("Presentation");
-					if (!ImGui::Checkbox("Vertical synchronization (VSync)", &bVSync)) return;
+					bool bChanged = ImGui::Checkbox("Vertical synchronization (VSync)", &bVSync);
+					ImGui::TextDisabled("VSync can limit presentation to the display refresh rate.");
+					int32 FrameRateLimit = Settings.GetFrameRateLimit();
+					bool bLimitFrameRate = FrameRateLimit > 0;
+					if (ImGui::Checkbox("Limit frame rate", &bLimitFrameRate))
+					{
+						FrameRateLimit = bLimitFrameRate ? 60 : 0;
+						bChanged = true;
+					}
+					if (bLimitFrameRate)
+					{
+						ImGui::SetNextItemWidth(MonaImGui::ScaleUI(200.0f));
+						if (ImGui::InputInt("Maximum FPS", &FrameRateLimit))
+						{
+							FrameRateLimit = std::max(1, FrameRateLimit);
+							bChanged = true;
+						}
+					}
+					else ImGui::TextDisabled("Unlimited foreground frame rate");
+					if (!bChanged) return;
 					FHostSettings Next = Settings;
 					Next.SetVSyncEnabled(bVSync);
+					Next.SetFrameRateLimit(FrameRateLimit);
 					if (!Next.Save()) { OutError = "Could not save display settings."; return; }
 					Settings = Next;
+					if (GEngine) GEngine->SetFrameRateLimit(Settings.GetFrameRateLimit());
 					if (auto* Renderer = Mona::FMonaApplication::Get().GetRenderer())
 						Renderer->SetPresentationPolicyOverride(bVSync ? EViewportPresentationPolicy::FramePaced : EViewportPresentationPolicy::Unsynchronized);
 					OutError.clear();
@@ -81,8 +103,10 @@ namespace Durin::Editor::MainFrame
 				[&] {
 					FHostSettings Next = Settings;
 					Next.SetVSyncEnabled(true);
+					Next.SetFrameRateLimit(0);
 					if (!Next.Save()) return false;
 					Settings = Next;
+					if (GEngine) GEngine->SetFrameRateLimit(Settings.GetFrameRateLimit());
 					if (auto* Renderer = Mona::FMonaApplication::Get().GetRenderer())
 						Renderer->SetPresentationPolicyOverride(EViewportPresentationPolicy::FramePaced);
 					return true;

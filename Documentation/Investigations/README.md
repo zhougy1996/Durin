@@ -1,5 +1,9 @@
 # Engineering Investigations
 
+- [Native Vulkan presentation pacing on Windows](NativeVulkanPresentationPacing.md) —
+  readiness, completion and UE-style synchronization probes retain native desktop
+  stalls or reduce window presentation throughput; uncapped offscreen rendering
+  alone does not establish an uncapped native presentation repair.
 - [Slang reflection context lifetime](SlangReflectionContextLifetime.md) —
   a recycled-thread session-pool defect is repaired; the original SDK reflection
   crash's ownership and causal relationship to that defect remain unproven.

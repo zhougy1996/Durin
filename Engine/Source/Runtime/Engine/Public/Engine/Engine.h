@@ -60,6 +60,10 @@ namespace Durin
 		ENGINE_API explicit DEngine(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DEngine() override;
 
+		// Zero disables the foreground frame cap; lifecycle throttles remain independent.
+		auto GetFrameRateLimit() const -> int32 { return FrameRateLimit; }
+		auto SetFrameRateLimit(int32 FPS) -> void { FrameRateLimit = std::max(0, FPS); }
+
 		virtual auto GetInitialWorldType() const -> EWorldType { return EWorldType::Game; }
 		// Logs initialization errors locally; Launch owns cancellation and process teardown.
 		ENGINE_API virtual auto Init(const FEngineInitContext& Context)
@@ -162,6 +166,7 @@ namespace Durin
 		ENGINE_API auto DestroyWorldContext(DWorld* World) -> void;
 		friend class DWorld;
 		auto InitInternal(const FEngineInitContext& Context) -> bool;
+		int32 FrameRateLimit = 0;
 		uint32 HostOperationDepth = 0;
 		bool bPreparingShutdown = false;
 		bool bInitStarted = false;

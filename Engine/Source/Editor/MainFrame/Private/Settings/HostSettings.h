@@ -18,6 +18,8 @@ namespace Durin::Editor::MainFrame
 		auto GetUIScale() const -> float { return UIScale; }
 		auto GetColorTheme() const -> MonaImGui::EColorTheme { return ColorTheme; }
 		auto IsWindowMaximized() const -> bool { return bWindowMaximized; }
+		auto GetFrameRateLimit() const -> int32 { return FrameRateLimit; }
+		auto SetFrameRateLimit(int32 FPS) -> void { FrameRateLimit = std::max(0, FPS); }
 		auto IsVSyncEnabled() const -> bool { return bVSyncEnabled; }
 		auto SetVSyncEnabled(bool bEnabled) -> void { bVSyncEnabled = bEnabled; }
 
@@ -28,6 +30,7 @@ namespace Durin::Editor::MainFrame
 	private:
 		bool bWindowMaximized = true;
 		bool bVSyncEnabled = true;
+		int32 FrameRateLimit = 0;
 		int32 WindowWidth = 1280;
 		int32 WindowHeight = 800;
 		float UIScale = 1.0f;

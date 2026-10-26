@@ -20,6 +20,7 @@ namespace Durin::Editor::MainFrame
 			Settings.SetColorTheme(Display.GetView("ColorTheme").GetString("Dark") == "Light"
 				? MonaImGui::EColorTheme::Light : MonaImGui::EColorTheme::Dark);
 			Settings.SetWindowMaximized(Display.GetView("WindowMaximized").GetBool(true));
+			Settings.SetFrameRateLimit(static_cast<int32>(std::clamp<int64>(Display.GetView("FrameRateLimit").GetInt(0), 0, std::numeric_limits<int32>::max())));
 			Settings.SetVSyncEnabled(Display.GetView("VSyncEnabled").GetBool(true));
 		}
 	}
@@ -57,6 +58,7 @@ namespace Durin::Editor::MainFrame
 		Display.SetChildValue("ColorTheme", ColorTheme == MonaImGui::EColorTheme::Light ? "Light" : "Dark");
 		Display.SetChildValue("WindowMaximized", bWindowMaximized);
 		Display.SetChildValue("VSyncEnabled", bVSyncEnabled);
+		Display.SetChildValue("FrameRateLimit", FrameRateLimit);
 		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + HostSettingsFileName))
 		{
 			DURIN_WARN("Failed to save editor host settings.");
