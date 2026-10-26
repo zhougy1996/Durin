@@ -386,7 +386,7 @@ namespace Durin
 			return Window && Window->GetNativeWindow() && Window->GetNativeWindow()->IsFocused();
 		});
 		NextFrameTime = CurrentTime + GetHostFrameInterval(GetStartupState() == EHostStartupState::Ready,
-			DURIN_WITH_EDITOR != 0, bAllWindowsMinimized, bAnyWindowFocused);
+			DURIN_WITH_EDITOR != 0, bAllWindowsMinimized, bAnyWindowFocused, GEngine ? GEngine->GetFrameRateLimit() : 0);
 		const double RemainingFrameTime = NextFrameTime - FTime::Seconds();
 		if (RemainingFrameTime > 0.0 && bAllowMinimizedWait)
 		{

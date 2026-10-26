@@ -2,12 +2,19 @@
 
 #include <gtest/gtest.h>
 
-TEST(FEngineFramePhaseTests, VisibleEditorAndPendingHostsHaveWorkBudgetsWithoutVSync)
+TEST(FEngineFramePhaseTests, ForegroundFrameCapIsOptionalAndLifecycleThrottlesRemain)
 {
 	using namespace Durin;
 	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false), 1.0 / 30.0);
 	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false), 1.0 / 30.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false), 1.0 / 60.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false), 0.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, true, 60), 1.0 / 60.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, true, 144), 1.0 / 144.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, true, -1), 0.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, true, true, 144), 1.0 / 5.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, false, 144), 1.0 / 10.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false, true, 144), 1.0 / 30.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, false, false, true, 120), 1.0 / 120.0);
 	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, true), 1.0 / 5.0);
 	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, false), 1.0 / 10.0);
 	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false, false), 1.0 / 10.0);

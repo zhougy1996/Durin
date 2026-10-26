@@ -210,7 +210,10 @@ distinct from an intentionally empty default-Level setting.
 ## Frame Lifecycle
 
 VSync does not provide a work budget for an unsynchronized swapchain. The Editor
-limits visible focused running frames to 60 Hz, startup/error frames to 30 Hz,
+leaves visible focused running frames uncapped by default. Editor Settings >
+Display offers an optional maximum FPS, persisted in `EditorHostSettings.yaml`
+as `Display.FrameRateLimit` (zero means unlimited), applied immediately and
+independently of VSync. Lifecycle throttles still limit startup/error frames to 30 Hz,
 unfocused frames to 10 Hz and minimized service frames to 5 Hz. Game running
 frames retain their presentation policy; Game startup uses 30 Hz and minimized
 frames use 20 Hz. Event waits wake for native input, while the monotonic deadline

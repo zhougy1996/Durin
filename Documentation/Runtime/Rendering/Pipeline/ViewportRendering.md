@@ -107,6 +107,11 @@ policy override covers existing and future windows; it leaves per-window default
 in effect when unset. The editor control is defined by
 [Viewport Rendering Diagnostics](../../../Editor/Architecture/LevelEditing/ViewportRenderingDiagnostics.md).
 
+VulkanRHI does not modify persistent GPU driver preferences. Windows/NVIDIA
+native presentation can exhibit desktop input stalls; the evidence and optional
+manual workaround are recorded in the
+[native presentation investigation](../../../Investigations/NativeVulkanPresentationPacing.md).
+
 Metal sets `CAMetalLayer.maximumDrawableCount=2` once at viewport creation and
 preserves ApplicationCore's `opaque=true` layer contract for every presentation
 policy. `FramePaced` sets `displaySyncEnabled=true` and publishes FIFO;

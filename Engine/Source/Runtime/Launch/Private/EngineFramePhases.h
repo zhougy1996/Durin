@@ -6,13 +6,14 @@
 
 namespace Durin
 {
-	// VSync is a presentation policy, not a CPU/GPU work budget. Editor UI and
-	// startup remain paced even when the swapchain is unsynchronized.
-	constexpr auto GetHostFrameInterval(bool bStartupReady, bool bEditor, bool bMinimized, bool bFocused = true) -> double
+	// VSync and the optional foreground cap are independent of lifecycle throttles.
+	constexpr auto GetHostFrameInterval(bool bStartupReady, bool bEditor, bool bMinimized, bool bFocused = true, int32 FrameRateLimit = 0) -> double
 	{
 		if (bEditor && bMinimized) return 1.0 / 5.0;
 		if (bEditor && !bFocused) return 1.0 / 10.0;
-		return bMinimized ? 1.0 / 20.0 : !bStartupReady ? 1.0 / 30.0 : bEditor ? 1.0 / 60.0 : 0.0;
+		if (bMinimized) return 1.0 / 20.0;
+		if (!bStartupReady) return 1.0 / 30.0;
+		return FrameRateLimit > 0 ? 1.0 / FrameRateLimit : 0.0;
 	}
 	// Identifies the game-thread frame boundary used to reject recursive continuations.
 	enum class EInteractiveFrameState : uint8
