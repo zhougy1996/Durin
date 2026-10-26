@@ -97,7 +97,10 @@ idle, or that a particular scene generation was included in the composed frame.
 
 On Vulkan, `EViewportPresentationPolicy::FramePaced` selects FIFO; `BestEffort` prefers
 Mailbox, then Immediate, then FIFO and bounds acquisition waits. `Unsynchronized`
-prefers Immediate, then Mailbox, then FIFO while retaining blocking acquisition.
+uses Mailbox with FIFO fallback on Windows, avoiding Immediate for the editor's
+VSync-off path. Other Vulkan platforms prefer Immediate, then Mailbox, then FIFO.
+Blocking acquisition is retained in either case. Mailbox requests three swapchain
+images, subject to surface limits; it does not add an engine FPS cap.
 `FRHIViewport::RequestPresentationPolicy()` accepts a thread-safe request which
 Vulkan applies at the next window drawing boundary using normal swapchain
 recreation. `GetPresentMode()` publishes a thread-safe snapshot of the actual

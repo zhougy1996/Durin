@@ -17,7 +17,12 @@ namespace Durin::VulkanRHI
 			case EViewportPresentationPolicy::BestEffort:
 				return {vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo};
 			case EViewportPresentationPolicy::Unsynchronized:
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+				// Prefer latest-frame presentation for uncapped Windows viewports.
+				return {vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifo};
+#else
 				return {vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifo};
+#endif
 			case EViewportPresentationPolicy::FramePaced:
 			default:
 				return {vk::PresentModeKHR::eFifo};

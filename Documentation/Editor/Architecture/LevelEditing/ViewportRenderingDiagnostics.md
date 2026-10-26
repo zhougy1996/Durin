@@ -56,8 +56,9 @@ Overview's Display and Frame Rate section reports vertical synchronization and
 links to Settings > Editor > Display, which controls the policy for all
 editor-host windows, including newly created detached windows. The setting
 defaults on and persists as `Display.VSyncEnabled` in `EditorHostSettings.yaml`.
-Turning it off requests immediate presentation; unsupported platforms fall back
-to Mailbox or FIFO. A per-window actual-mode readout exposes synchronized fallback
+Turning it off selects the throughput-oriented policy: Windows Vulkan prefers
+Mailbox with FIFO fallback; other backends follow their native policy mapping.
+A per-window actual-mode readout exposes the selected mode and synchronized fallback
 instead of implying that the requested mode was selected. Changes apply at the
 next window drawing boundary without replacing the RHI viewport object or
 changing scene settings. Vulkan recreates its swapchain. Metal changes only
