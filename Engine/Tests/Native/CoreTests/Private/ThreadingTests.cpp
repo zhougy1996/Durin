@@ -17,9 +17,6 @@ namespace Durin
 	static_assert(std::is_trivially_copyable_v<FTaskAttribution>);
 	static_assert(std::is_standard_layout_v<FTaskAttribution>);
 	static_assert(std::equality_comparable<FTaskAttribution>);
-	static_assert(noexcept(Profiling::TaskEnqueued(1, 2, 2, 0)));
-	static_assert(noexcept(Profiling::TaskExecution(1, 2, 2, 0)));
-	static_assert(noexcept(Profiling::TaskTerminal(1, 2, 2, 0, 0)));
 	static_assert(noexcept(Profiling::TaskAggregatePlots(2, 2, 0, 0, 0, 0)));
 
 	namespace

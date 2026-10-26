@@ -16,39 +16,6 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
-#if DURIN_WITH_TRACY
-		struct FDynamicBufferWriteProfile final
-		{
-			std::atomic<uint64> MappedLocks = 0, PoolBusyFallbacks = 0, NoPoolFallbacks = 0;
-			std::atomic<uint64> RequestedBytes = 0, CommittedMappedBytes = 0;
-			std::atomic<uint64> MappedReservedBytes = 0, FallbackReservedBytes = 0, LiveMappedPages = 0;
-		};
-		FDynamicBufferWriteProfile GDynamicBufferWriteProfile;
-
-		auto PublishDynamicBufferWriteProfile() -> void
-		{
-			if (!TracyIsConnected) return;
-			const auto Mapped = GDynamicBufferWriteProfile.MappedLocks.load(std::memory_order_relaxed);
-			const auto Busy = GDynamicBufferWriteProfile.PoolBusyFallbacks.load(std::memory_order_relaxed);
-			const auto NoPool = GDynamicBufferWriteProfile.NoPoolFallbacks.load(std::memory_order_relaxed);
-			TracyPlot("Vulkan.DynamicBuffer.MappedLocks", static_cast<int64>(Mapped));
-			TracyPlot("Vulkan.DynamicBuffer.PoolBusyFallbacks", static_cast<int64>(Busy));
-			TracyPlot("Vulkan.DynamicBuffer.NoPoolFallbacks", static_cast<int64>(NoPool));
-			TracyPlot("Vulkan.DynamicBuffer.MappingHitPercent", Mapped + Busy + NoPool
-				? 100.0 * static_cast<double>(Mapped) / static_cast<double>(Mapped + Busy + NoPool) : 0.0);
-			TracyPlot("Vulkan.DynamicBuffer.RequestedBytes",
-				static_cast<int64>(GDynamicBufferWriteProfile.RequestedBytes.load(std::memory_order_relaxed)));
-			TracyPlot("Vulkan.DynamicBuffer.CommittedMappedBytes",
-				static_cast<int64>(GDynamicBufferWriteProfile.CommittedMappedBytes.load(std::memory_order_relaxed)));
-			TracyPlot("Vulkan.DynamicBuffer.MappedReservedBytes",
-				static_cast<int64>(GDynamicBufferWriteProfile.MappedReservedBytes.load(std::memory_order_relaxed)));
-			TracyPlot("Vulkan.DynamicBuffer.FallbackReservedBytes",
-				static_cast<int64>(GDynamicBufferWriteProfile.FallbackReservedBytes.load(std::memory_order_relaxed)));
-			TracyPlot("Vulkan.DynamicBuffer.LiveMappedPages",
-				static_cast<int64>(GDynamicBufferWriteProfile.LiveMappedPages.load(std::memory_order_relaxed)));
-		}
-#endif
-
 		auto GetCanonicalBufferAccess(EBufferUsageFlags Usage) -> ERHIAccess
 		{
 			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::UnorderedAccess))
@@ -139,16 +106,6 @@ namespace Durin::VulkanRHI
 		require(PageBuffer && MappedSize && MappedSize <= InDesc.Size && uint64(Offset) + MappedSize <= PageBuffer->GetSize());
 	}
 
-	auto FVulkanBuffer::MarkMappedPage() -> void
-	{
-#if DURIN_WITH_TRACY
-		bMappedWriteBacking = true;
-		GDynamicBufferWriteProfile.MappedReservedBytes.fetch_add(GetSize(), std::memory_order_relaxed);
-		GDynamicBufferWriteProfile.LiveMappedPages.fetch_add(1, std::memory_order_relaxed);
-		PublishDynamicBufferWriteProfile();
-#endif
-	}
-
 	namespace
 	{
 		using FMappedBufferOwner = TRefCountPtr<FVulkanBuffer>;
@@ -190,45 +147,16 @@ namespace Durin::VulkanRHI
 			|| !EnumHasAnyFlags(GetUsage(), EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::IndexBuffer)
 			|| !GetMappedPointer()) return;
 		bSupportsMappedWrites = true;
-#if DURIN_WITH_TRACY
-		bDiscardWriteFallbackBacking = true;
-		GDynamicBufferWriteProfile.FallbackReservedBytes.fetch_add(GetSize(), std::memory_order_relaxed);
-#endif
 		Device.GetDynamicBufferPool().EnsureInitialPage();
-#if DURIN_WITH_TRACY
-		PublishDynamicBufferWriteProfile();
-#endif
 	}
 
 	auto FVulkanBuffer::TryAcquireMappedWrite(uint32 Offset, uint32 Size)
 		-> std::shared_ptr<FRHIBufferMappedWrite>
 	{
 		require(Size && Offset <= GetSize() && Size <= GetSize() - Offset);
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Buffer.TryMappedWrite");
-		FRHIDynamicBufferWritePoolSnapshot Snapshot;
-		FRHIDynamicBufferWritePoolSnapshot* DiagnosticSnapshot = nullptr;
-#if DURIN_WITH_TRACY
-		if (TracyIsConnected) DiagnosticSnapshot = &Snapshot;
-#endif
 		auto Range = bSupportsMappedWrites
-			? Device.GetDynamicBufferPool().TryAcquire(Offset + Size, DiagnosticSnapshot)
+			? Device.GetDynamicBufferPool().TryAcquire(Offset + Size, nullptr)
 			: std::shared_ptr<FRHIDynamicBufferWriteRange>{};
-#if DURIN_WITH_TRACY
-		if (DiagnosticSnapshot)
-		{
-			auto& Count = Range ? GDynamicBufferWriteProfile.MappedLocks
-				: Snapshot.PageCount ? GDynamicBufferWriteProfile.PoolBusyFallbacks : GDynamicBufferWriteProfile.NoPoolFallbacks;
-			Count.fetch_add(1, std::memory_order_relaxed);
-			GDynamicBufferWriteProfile.RequestedBytes.fetch_add(Size, std::memory_order_relaxed);
-			TracyPlot("Vulkan.DynamicBuffer.SampledPoolLiveRanges", static_cast<int64>(Snapshot.RangeCount));
-			TracyPlot("Vulkan.DynamicBuffer.SampledPoolFreeBytes", static_cast<int64>(Snapshot.FreeBytes));
-			DURIN_PROFILE_CPU_ZONE_TEXT(std::format(
-				"buffer={} bytes={} mapped={} liveRanges={} retained={} awaitingRetirement={} pages={} freeBytes={}",
-				DebugName, Size, static_cast<bool>(Range), Snapshot.RangeCount, Snapshot.RetainedRangeCount,
-				Snapshot.AwaitingRetirementRangeCount, Snapshot.PageCount, Snapshot.FreeBytes));
-			PublishDynamicBufferWriteProfile();
-		}
-#endif
 		if (Range)
 		{
 			auto Desc = FRHIBufferCreateDesc::Create(DebugName.c_str(), GetDesc());
@@ -253,18 +181,10 @@ namespace Durin::VulkanRHI
 	auto FVulkanBuffer::CommitMappedWrite(FVulkanCommandListContext& Context,
 		std::shared_ptr<FRHIDynamicBufferWriteRange> Range, uint32 Offset, uint32 Size) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Buffer.CommitMappedWrite");
 		CheckRHIExecutionThread();
 		ActiveWriteRange = std::move(Range);
 		auto* Backing = GetBackingBuffer();
 		Backing->FlushMappedMemory(Offset, Size);
-#if DURIN_WITH_TRACY
-		if (TracyIsConnected)
-		{
-			GDynamicBufferWriteProfile.CommittedMappedBytes.fetch_add(Size, std::memory_order_relaxed);
-			PublishDynamicBufferWriteProfile();
-		}
-#endif
 		Backing->StateTracker.Apply(Offset, Size, ERHIAccess::HostWrite);
 		Context.RetainWriteRange(ActiveWriteRange);
 		const std::array Transition{FRHIBufferTransition{
@@ -286,16 +206,6 @@ namespace Durin::VulkanRHI
 	FVulkanBuffer::~FVulkanBuffer()
 	{
 		CheckRHIExecutionThread();
-#if DURIN_WITH_TRACY
-		if (bMappedWriteBacking)
-		{
-			GDynamicBufferWriteProfile.MappedReservedBytes.fetch_sub(GetSize(), std::memory_order_relaxed);
-			GDynamicBufferWriteProfile.LiveMappedPages.fetch_sub(1, std::memory_order_relaxed);
-		}
-		if (bDiscardWriteFallbackBacking)
-			GDynamicBufferWriteProfile.FallbackReservedBytes.fetch_sub(GetSize(), std::memory_order_relaxed);
-		if (bMappedWriteBacking || bDiscardWriteFallbackBacking) PublishDynamicBufferWriteProfile();
-#endif
 		if (Buffer && AliasOwner)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer);

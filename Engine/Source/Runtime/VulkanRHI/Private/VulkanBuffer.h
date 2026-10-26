@@ -41,7 +41,6 @@ namespace Durin::VulkanRHI
 		// CPU-only logical slice; no native allocation or mapping calls.
 		VULKANRHI_API FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& Desc,
 			TRefCountPtr<FVulkanBuffer> Page, uint32 Offset, uint32 MappedSize);
-		auto MarkMappedPage() -> void;
 
 		auto GetHandle() const -> vk::Buffer
 		{ const auto* Backing = GetBackingBuffer(); return Backing->PageBuffer ? Backing->PageBuffer->GetHandle() : Backing->Buffer; }
@@ -93,8 +92,6 @@ namespace Durin::VulkanRHI
 		FVulkanBufferStateTracker StateTracker;
 		std::string DebugName;
 		bool bUniformBacking = false;
-		bool bMappedWriteBacking = false;
-		bool bDiscardWriteFallbackBacking = false;
 		bool bSupportsMappedWrites = false;
 		TRefCountPtr<FVulkanBuffer> PageBuffer;
 		uint32 PageOffset = 0;

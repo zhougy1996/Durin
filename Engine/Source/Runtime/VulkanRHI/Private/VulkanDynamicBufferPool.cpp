@@ -46,7 +46,6 @@ namespace Durin::VulkanRHI
 		void* Mapped = (*Owner)->GetMappedPointer();
 		if (Mapped && Pool.AddPage(Owner, Mapped, Desc.Size))
 		{
-			(*Owner)->MarkMappedPage();
 			NextPageSize = static_cast<uint32>(std::min<uint64>(Capacity * 2, MaxBytes));
 		}
 	}

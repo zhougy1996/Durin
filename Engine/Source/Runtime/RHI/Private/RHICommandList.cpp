@@ -1235,15 +1235,6 @@ namespace Durin
 				auto& Context = GetReplayContext(ReplayContext).GetOperationContext("WriteBuffer");
 				if (bDiscard) Buffer->PrepareDiscardWrite(Context);
 				Context.RHIWriteBuffer(Buffer.GetReference(), Offset, Data->GetData());
-#if DURIN_WITH_TRACY
-				if (bDiscard && TracyIsConnected)
-				{
-					static std::atomic<uint64> CommittedTemporaryBytes = 0;
-					const uint64 Total = CommittedTemporaryBytes.fetch_add(Data->GetData().size(), std::memory_order_relaxed)
-						+ Data->GetData().size();
-					TracyPlot("RHI.DynamicBuffer.CommittedTemporaryBytes", static_cast<int64>(Total));
-				}
-#endif
 			}
 			auto GetOwnedPayloadBytes() const -> size_t { return Data->GetOwnedPayloadBytes(); }
 		};

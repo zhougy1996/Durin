@@ -219,33 +219,16 @@ limit. Each in-flight buffer retains its capacity without automatic shrinking.
 Only required bytes are uploaded; grow-zone text reports required and allocated
 capacity bytes.
 
-Dynamic discard writes expose `Vulkan.DynamicBuffer.*` plots. `MappedLocks`,
-`PoolBusyFallbacks`, `NoPoolFallbacks`, `RequestedBytes`, and
-`CommittedMappedBytes` accumulate only while Tracy is connected;
-`MappingHitPercent` is the cumulative hit ratio over those observed locks.
-`RHI.DynamicBuffer.CommittedTemporaryBytes` counts replayed discard fallback
-uploads across backends, also only while connected. Compare counter deltas for
-a selected steady interval. Acquired bytes and committed bytes can differ
-because recording precedes replay or is canceled.
-`MappedReservedBytes`, `FallbackReservedBytes`, and `LiveMappedPages` track
-live backend allocations even before connection, until buffer destruction
-queues native deletion; VMA diagnostics remain the authority for native bytes
-still awaiting deferred deletion. Lock counters cover all Vulkan discard
-requests; reservation gauges cover opted-in allocations, not only ImGui.
-
-`SampledPoolLiveRanges` and `SampledPoolFreeBytes` describe the shared device
-pool before acquisition. `PoolBusyFallbacks` includes lack of a fitting span,
-fragmentation and capacity limits. `Vulkan.Buffer.TryMappedWrite` text identifies the
-buffer, requested bytes, mapping result, retained ranges (CPU, recording,
-binding or payload ownership), unretained ranges awaiting GPU retirement, and
-page count and free bytes. Detailed diagnostic counts run only while connected;
-reclamation still checks reference ownership and GPU metadata on every acquisition.
+Dynamic discard writes do not collect per-write profiling snapshots, format
+per-write text, or publish cumulative upload plots. Pool diagnostic APIs remain
+available for explicit inspection; normal acquisition still checks reference
+ownership and GPU retirement metadata.
 
 `MonaImGui.RHI.SampledViewportRingCapacityBytes` and
 `SampledViewportRequestedBytes` describe the last viewport invocation;
 `RenderViewport` text adds viewport identity, frame-slot count, and vertex/index
 byte counts. Ring capacity is the logical sum across ImGui's two frame slots;
-the shared Vulkan page capacity is counted separately above. With both slots
+this excludes the shared Vulkan page capacity. With both slots
 allocated at minimum capacity, a viewport retains approximately 160 KiB of
 original fallback buffers; the device initially adds one shared 64 KiB page,
 then grows it on demand within the page-count and byte limits. Page capacity
@@ -268,51 +251,39 @@ allocation and updates remain visible; cache-hit counts use the existing
 backend statistics instead of per-hit zones.
 
 Per-draw, binding, uniform-update and descriptor-cache lookup/hit zones are
-disabled by default. Enable them for a focused investigation:
+not permanent instrumentation. Add narrowly scoped temporary probes for a
+specific investigation and remove them afterward; there is no backend detail
+build switch. Record the instrumentation used when comparing captures because
+event volume and overhead change with probe granularity. These zones measure
+CPU recording work, not GPU execution time.
 
-```powershell
-.\DevTool.bat configure -DDURIN_VULKAN_DETAILED_PROFILING=ON
-.\DevTool.bat build VulkanRHI
-```
+### Task Execution And Owner Plots
 
-Restore ordinary capture detail with
-`.\DevTool.bat configure -DDURIN_VULKAN_DETAILED_PROFILING=OFF` and rebuild
-`VulkanRHI`. The option is private to the Vulkan backend and still requires
-Tracy instrumentation to produce events. Keep its value identical when
-comparing captures; historical detailed captures have different overhead and
-zone counts. These zones measure CPU recording work, not GPU execution time.
+A winning task start opens the stable `Task.Execute` CPU zone. Routine task
+admission and completion do not emit Tracy messages, and execution does not
+format per-task identity text. Use task diagnostics for bounded attribution
+and temporary probes when individual task correlation is needed.
 
-### Task Correlation And Owner Plots
-
-Profiling builds correlate task phases with the same process-unique nonzero task
-id and bounded attribution exposed by task diagnostics. Admission emits an
-`enqueue` message after aggregate charging. A winning start opens the stable
-`Task.Execute` CPU zone and attaches one zone-text record containing phase, task
-id, owner, category, target, terminal reason, and the bounded task
-debug name. The winning terminal transition emits one `terminal` message after
-aggregate accounting. The pinned Tracy API has no native cross-thread flow
-primitive, so task ids are correlation values; Durin does not retain
-task history to draw synthetic arrows.
-
-The engine frame boundary publishes four fixed plots per registered pair:
+While connected, the engine frame boundary publishes at most ten samples per
+second of four fixed plots per registered pair:
 `QueueDepth`, `Running`, `Rejected`, and `PayloadBytes`, under
 `Tasks.<Owner>.<Category>.<Measurement>`. Plot names are built once from the
 bounded attribution registry. Dynamic task names, asset paths, ids, and request
 values never create plots or source locations. Scope ids likewise never create
 dynamic zones, plots, source locations, or registry slots.
 
-`FEngineLoop::Tick()` explicitly publishes those fixed aggregates immediately
-before its CPU frame mark. Task and scheduler diagnostic getters never publish
+`FEngineLoop::Tick()` requests those fixed aggregates immediately before its
+CPU frame mark. Connection and interval checks happen before registry copying
+or aggregate traversal. Task and scheduler diagnostic getters never publish
 plots, so observation frequency cannot change profiler output or scheduling
 contention.
 
 The adapter has 1,024 fixed slots matching the task attribution bound. With
 Tracy disabled its entry points are inline no-ops accepting only fixed-width
 values; they perform no label resolution, formatting, allocation, or Tracy
-call. Profiler instrumentation runs only after winning state transitions and
-outside task-state, scheduler, and executor queue locks. High-frequency task
-message formatting and aggregate plot preparation are skipped while disconnected;
-execution-zone text is formatted only for an active zone. Attribution registration
+call. Execution zones run only after winning state transitions and outside
+task-state, scheduler, and executor queue locks. Aggregate plot preparation is
+skipped while disconnected or compiled without Tracy. Attribution registration
 remains available for later connections. Capture connection
 or failure cannot control scheduling.
 
