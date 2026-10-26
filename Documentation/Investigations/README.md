@@ -4,6 +4,11 @@
   readiness, completion and UE-style synchronization probes retain native desktop
   stalls or reduce window presentation throughput; uncapped offscreen rendering
   alone does not establish an uncapped native presentation repair.
+- [Windows uncapped presentation responsiveness](WindowsUncappedPresentationResponsiveness.md) —
+  non-pumping owner-thread waits expose a Win32 WSI wait-cycle hazard;
+  a bounded A/B reproduces desktop stutter with continued engine frame progress
+  and isolates a presentation/composition correlation; scheduling attribution
+  remains unresolved.
 - [Slang reflection context lifetime](SlangReflectionContextLifetime.md) —
   a recycled-thread session-pool defect is repaired; the original SDK reflection
   crash's ownership and causal relationship to that defect remain unproven.
