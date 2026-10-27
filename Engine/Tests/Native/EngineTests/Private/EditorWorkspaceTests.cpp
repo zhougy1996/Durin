@@ -1,4 +1,5 @@
 #include "Asset/Asset.h"
+#include "Documents/DocumentDialogPresenters.h"
 #include "Asset/PackageRemoval.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Actors/ActorChange.h"
@@ -1080,4 +1081,76 @@ TEST(FAssetPickerTests, FiltersCandidatesByPathPrefix)
 	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/Levels/"));
 	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Engine/Levels/Default", "/Game/"));
 	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Gameplay/Levels/Default", "/Game/"));
+}
+
+// Exercise real ImGui modal lifetime across host frames, including cancellation.
+TEST(FLevelLoadingDialogTests, ShowsProgressBlocksInputAndClosesBeforeTheNextLoad)
+{
+	using namespace Durin;
+	ImGuiContext* Context = ImGui::CreateContext();
+	struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	Editor::Level::FLevelLoadingDialogPresenter Presenter;
+	std::optional<FSceneLoadProgress> Progress = FSceneLoadProgress{};
+	ImVec2 CancelPosition;
+	auto Frame = [&]() {
+		ImGui::NewFrame();
+		ImGui::Begin("LoadingDialogHost");
+		const bool bCancel = Presenter.Draw("/Sandbox/Levels/Target.Target", Progress);
+		if (Progress)
+		{
+			EXPECT_NE(ImGui::GetTopMostPopupModal(), nullptr);
+			const ImGuiWindow* Modal = ImGui::GetTopMostPopupModal();
+			const ImVec2 ButtonSize(ImGui::CalcTextSize("Cancel").x + ImGui::GetStyle().FramePadding.x * 2.0f,
+				ImGui::GetFrameHeight());
+			CancelPosition = ImVec2(Modal->DC.CursorPosPrevLine.x - ButtonSize.x * 0.5f,
+				Modal->DC.CursorPosPrevLine.y + ButtonSize.y * 0.5f);
+		}
+		else
+			EXPECT_EQ(ImGui::GetTopMostPopupModal(), nullptr);
+		ImGui::End();
+		ImGui::Render();
+		return bCancel;
+	};
+	EXPECT_FALSE(Frame());
+	Progress->Phase = ESceneLoadPhase::PreparingProducts;
+	Progress->bProductsKnown = true;
+	Progress->Meshes = 42;
+	EXPECT_FALSE(Frame());
+	EXPECT_FALSE(Frame());
+	EXPECT_TRUE(IO.WantCaptureMouse);
+	IO.AddMousePosEvent(CancelPosition.x, CancelPosition.y);
+	EXPECT_FALSE(Frame());
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	EXPECT_FALSE(Frame());
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	EXPECT_TRUE(Frame());
+	Progress.reset();
+	EXPECT_FALSE(Frame());
+	Progress = FSceneLoadProgress{.Id = 2};
+	EXPECT_FALSE(Frame());
+	Progress.reset();
+	EXPECT_FALSE(Frame());
+}
+
+TEST(FLevelLoadingDialogTests, IdlePresenterDoesNotOpenAModal)
+{
+	ImGuiContext* Context = ImGui::CreateContext();
+	struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	ImGui::NewFrame();
+	ImGui::Begin("LoadingDialogHost");
+	Durin::Editor::Level::FLevelLoadingDialogPresenter Presenter;
+	EXPECT_FALSE(Presenter.Draw({}, std::nullopt));
+	EXPECT_EQ(ImGui::GetTopMostPopupModal(), nullptr);
+	ImGui::End();
+	ImGui::Render();
 }

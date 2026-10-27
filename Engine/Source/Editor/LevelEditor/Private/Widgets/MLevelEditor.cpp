@@ -370,10 +370,11 @@ namespace Durin::Editor::Level
 	{
 		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Opened;
 		if (!DocumentController) return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		switch (DocumentController->RequestOpenLevel(Document.ResourceId))
+		switch (DocumentController->OpenLevel(Document.ResourceId))
 		{
 		case ELevelDocumentOpenResult::Opened: return ::Durin::Editor::EDocumentOpenResult::Opened;
-		case ELevelDocumentOpenResult::Deferred:
+		case ELevelDocumentOpenResult::AwaitingConfirmation:
+		case ELevelDocumentOpenResult::Loading:
 			DeferredOpenDocumentId = Document.Id;
 			return ::Durin::Editor::EDocumentOpenResult::Deferred;
 		case ELevelDocumentOpenResult::Rejected: return ::Durin::Editor::EDocumentOpenResult::Rejected;
@@ -484,7 +485,7 @@ namespace Durin::Editor::Level
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (bActive || RootWindowState.bFocused)
 		{
-			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false) && GEditor)
+			if (!DocumentController->IsOpening() && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false) && GEditor)
 			{
 				if (GEditor->IsPlaying()) GEditor->StopPlaySession();
 				else
@@ -498,7 +499,8 @@ namespace Durin::Editor::Level
 		if (GEditor && bPlaying != GEditor->IsPlaying())
 		{
 			bPlaying = GEditor->IsPlaying();
-			Context->bReadOnly = bPlaying;
+			Context->bReadOnly = bPlaying || DocumentController->IsOpening()
+				|| GEditor->GetStartupState() != EHostStartupState::Ready;
 			Context->Synchronize(bPlaying ? GEditor->GetPlayWorld() : GEditor->GetEditorWorld());
 		}
 		ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
@@ -551,13 +553,15 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::CanUndo() const -> bool
 	{
 		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanUndo();
+		return !(DocumentController && DocumentController->IsOpening())
+			&& !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanUndo();
 	}
 
 	auto MLevelEditor::CanRedo() const -> bool
 	{
 		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanRedo();
+		return !(DocumentController && DocumentController->IsOpening())
+			&& !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanRedo();
 	}
 
 	auto MLevelEditor::GetUndoDescription() const -> std::string
@@ -736,6 +740,7 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::StartPlay(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void
 	{
+		if (DocumentController && DocumentController->IsOpening()) return;
 		if (!GEditor || !Context || !Context->Level) return;
 		if (!RequestDeactivate()) return;
 		if (SceneViewportPanel) SceneViewportPanel->SetPreferredPlayMode(StartLocation, Destination);

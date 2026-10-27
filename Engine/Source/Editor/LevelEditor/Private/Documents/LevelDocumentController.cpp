@@ -53,6 +53,11 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::RequestOpenProject(std::string ProjectFile) -> void
 	{
+		if (IsOpening())
+		{
+			SetError("A level transition is already in progress.");
+			return;
+		}
 		PendingLevelPath.clear();
 		bPendingDocumentOpen = false;
 		PendingProjectFile = std::move(ProjectFile);
@@ -65,26 +70,39 @@ namespace Durin::Editor::Level
 		ExecutePendingAction();
 	}
 
-	auto FLevelDocumentController::RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult
+	auto FLevelDocumentController::OpenLevel(std::string Path) -> ELevelDocumentOpenResult
 	{
+		if (IsOpening())
+		{
+			SetError("A level transition is already in progress.");
+			return ELevelDocumentOpenResult::Rejected;
+		}
+		if (!Context.EditorHost || Context.EditorHost->IsPlaying()) return ELevelDocumentOpenResult::Rejected;
 		PendingProjectFile.clear();
 		FObjectPath AssetPath;
-		if (!FObjectPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
+		if (!FObjectPath::TryCreate(Path, AssetPath))
+		{
+			SetError("Invalid level asset path.");
+			return ELevelDocumentOpenResult::Rejected;
+		}
 		const FObjectPathResolveResult Resolution =
 			ResolveAssetObjectPathForOperation(
 				AssetPath, {.ExpectedClass = DLevel::StaticClass()});
 		if (!Resolution)
+		{
+			SetError("The level asset could not be resolved.");
 			return ELevelDocumentOpenResult::Rejected;
+		}
 		PendingLevelPath = std::move(Path);
 		PendingAction = ELevelDocumentAction::OpenLevel;
 		bPendingDocumentOpen = true;
 		if (Context.Level && Context.Level->GetPackage() && Context.Level->GetPackage()->IsDirty())
 		{
 			QueuedPopup = EQueuedPopup::UnsavedLevel;
-			return ELevelDocumentOpenResult::Deferred;
+			return ELevelDocumentOpenResult::AwaitingConfirmation;
 		}
-		const ELevelDocumentOpenResult Result = OpenLevel(PendingLevelPath);
-		if (Result != ELevelDocumentOpenResult::Deferred)
+		const ELevelDocumentOpenResult Result = LoadLevel(PendingLevelPath);
+		if (Result != ELevelDocumentOpenResult::Loading)
 		{
 			PendingLevelPath.clear();
 			PendingAction = ELevelDocumentAction::None;
@@ -99,8 +117,8 @@ namespace Durin::Editor::Level
 		{
 			if (!PendingLevelPath.empty())
 			{
-				const ELevelDocumentOpenResult Result = OpenLevel(PendingLevelPath);
-				if (Result != ELevelDocumentOpenResult::Deferred)
+				const ELevelDocumentOpenResult Result = LoadLevel(PendingLevelPath);
+				if (Result != ELevelDocumentOpenResult::Loading)
 				{
 					PendingLevelPath.clear();
 					PendingAction = ELevelDocumentAction::None;
@@ -140,6 +158,9 @@ namespace Durin::Editor::Level
 			[this](EUnsavedLevelDialogDecision Decision) {
 				return ResolveUnsavedLevelDialog(Decision);
 			});
+		const auto Progress = bShowLoadingProgress && PendingSceneLoad
+			? std::optional(PendingSceneLoad->GetProgress()) : std::nullopt;
+		if (LoadingDialog.Draw(LoadingLevelPath, Progress) && PendingSceneLoad) PendingSceneLoad->Cancel();
 	}
 
 	auto FLevelDocumentController::ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool
@@ -160,7 +181,7 @@ namespace Durin::Editor::Level
 			return false;
 		const bool bCompletesDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
 		const ELevelDocumentOpenResult Result = ExecutePendingAction();
-		if (bCompletesDeferredOpen && Result != ELevelDocumentOpenResult::Deferred)
+		if (bCompletesDeferredOpen && Result != ELevelDocumentOpenResult::Loading)
 			CompletePendingDocumentOpen(Result == ELevelDocumentOpenResult::Opened);
 		return true;
 	}
@@ -178,7 +199,7 @@ namespace Durin::Editor::Level
 				return DefaultOpenState = EHostStartupState::Failed;
 			}
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
-			if (OpenLevel(DefaultLevel.GetPath().ToString()) == ELevelDocumentOpenResult::Rejected)
+			if (LoadLevel(DefaultLevel.GetPath().ToString(), false) == ELevelDocumentOpenResult::Rejected)
 				return DefaultOpenState = EHostStartupState::Failed;
 		}
 		if (DefaultOpenState != EHostStartupState::Pending) return DefaultOpenState;
@@ -186,7 +207,7 @@ namespace Durin::Editor::Level
 		return DefaultOpenState;
 	}
 
-	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> ELevelDocumentOpenResult
+	auto FLevelDocumentController::LoadLevel(std::string_view PathString, bool bShowProgress) -> ELevelDocumentOpenResult
 	{
 		if (ClearError) ClearError();
 		if (!Context.EditorHost || Context.EditorHost->IsPlaying()) return ELevelDocumentOpenResult::Rejected;
@@ -196,9 +217,17 @@ namespace Durin::Editor::Level
 			SetError(Durin::ToString(Validation.error()));
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		if (PendingSceneLoad) PendingSceneLoad->Cancel();
+		if (PendingSceneLoad) return ELevelDocumentOpenResult::Rejected;
+		LoadingLevelPath = std::string(PathString);
+		bShowLoadingProgress = bShowProgress;
 		PendingSceneLoad = Context.EditorHost->CreateSceneLoad({.Path = Path, .BuildInitialView = SessionSettings.CreateInitialViewBuilder(SceneViewportPanel)});
-		return ELevelDocumentOpenResult::Deferred;
+		if (!PendingSceneLoad)
+		{
+			SetError("Unable to start loading the level.");
+			return ELevelDocumentOpenResult::Rejected;
+		}
+		Context.bReadOnly = true;
+		return ELevelDocumentOpenResult::Loading;
 	}
 
 	auto FLevelDocumentController::AdvanceOpening() -> EHostStartupState
@@ -213,6 +242,8 @@ namespace Durin::Editor::Level
 			{
 				Loading->Cancel();
 				PendingSceneLoad.reset();
+				PendingAction = ELevelDocumentAction::None;
+				PendingLevelPath.clear();
 				CompletePendingDocumentOpen(true);
 				return EHostStartupState::Ready;
 			}
@@ -234,7 +265,8 @@ namespace Durin::Editor::Level
 		}
 		else if (Progress.Phase != ESceneLoadPhase::Failed && Progress.Phase != ESceneLoadPhase::Canceled)
 			return EHostStartupState::Pending;
-		if (!Progress.Diagnostic.empty()) SetError(Progress.Diagnostic);
+		if (Progress.Phase == ESceneLoadPhase::Failed)
+			SetError(Progress.Diagnostic.empty() ? "Failed to load the level." : Progress.Diagnostic);
 		PendingSceneLoad.reset();
 		PendingAction = ELevelDocumentAction::None;
 		PendingLevelPath.clear();
@@ -243,6 +275,10 @@ namespace Durin::Editor::Level
 	}
 	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded) -> void
 	{
+		bShowLoadingProgress = false;
+		LoadingLevelPath.clear();
+		Context.bReadOnly = Context.EditorHost && (Context.EditorHost->IsPlaying()
+			|| Context.EditorHost->GetStartupState() != EHostStartupState::Ready);
 		if (!std::exchange(bPendingDocumentOpen, false) || !CompleteDeferredOpen) return;
 		CompleteDeferredOpen(bSucceeded);
 	}
@@ -367,7 +403,12 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::CloseLevel() -> bool
 	{
-		if (PendingSceneLoad) { PendingSceneLoad->Cancel(); PendingSceneLoad.reset(); CompletePendingDocumentOpen(false); }
+		if (PendingSceneLoad) { PendingSceneLoad->Cancel(); PendingSceneLoad.reset(); }
+		PendingAction = ELevelDocumentAction::None;
+		QueuedPopup = EQueuedPopup::None;
+		PendingLevelPath.clear();
+		PendingProjectFile.clear();
+		CompletePendingDocumentOpen(false);
 		if (DocumentWorld.IsValid() && GEditor && GEditor->IsPlaying()) return false;
 		DWorld* World = DocumentWorld.Get();
 		DPackage* Package = DocumentPackage.Get();
