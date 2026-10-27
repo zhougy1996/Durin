@@ -59,7 +59,6 @@
 #include "Threading/Task.h"
 #include "DObject/PackageValueCodec.h"
 
-
 namespace AssetStructTest
 {
 	inline uint64 CodecSerializeLoadCount = 0;
@@ -701,7 +700,6 @@ namespace
 		Durin::TObjectPtr<Durin::DObject> DefaultChild;
 		Durin::TObjectPtr<Durin::DObject> ExternalReference;
 	};
-
 
     struct FScopedPackageCookHooks {
         FScopedPackageCookHooks() { DPackageAssetForTest::CookSchemaHook={}; DPackageAssetForTest::CookInstanceHook={}; DPackageAssetForTest::CookPrepareHook={}; DPackageAssetForTest::CookVersion=1; }
@@ -2166,7 +2164,7 @@ TEST(FPackageAssetTests, RemovedAuthoredFieldsDoNotLoadDependenciesOrRewriteSour
 	FAssetLoadReport Report;
 	const auto Result = LoadPackage(Path, &Report);
 	Loaded = Result.value_or(nullptr);
-	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
+	ASSERT_TRUE(Result) << Result.error().Message;
 	auto* Asset = Cast<DPackageAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetPackageName())));
 	ASSERT_NE(Asset, nullptr);
 	EXPECT_EQ(Asset->Value, 0);
@@ -2222,7 +2220,7 @@ TEST(FPackageAssetTests, RemovedNestedFieldsInStructArraysAreOmittedFromAuthored
 	FAssetLoadReport Report;
 	const auto Result = LoadPackage(Path, &Report);
 	Loaded = Result.value_or(nullptr);
-	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
+	ASSERT_TRUE(Result) << Result.error().Message;
 	auto* Asset = Cast<DContainerMigrationAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetPackageName())));
 	ASSERT_NE(Asset, nullptr);
 	ASSERT_EQ(Asset->Values.size(), 2u);
@@ -2311,7 +2309,7 @@ TEST(FPackageAssetTests, HistoricalRoutesStillConvertAndRejectIncompatibleStored
 			EXPECT_EQ(Loaded, nullptr);
 			continue;
 		}
-		ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
+		ASSERT_TRUE(Result) << Result.error().Message;
 		auto* Asset = Cast<DSchemaMigrationAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetPackageName())));
 		ASSERT_NE(Asset, nullptr);
 		EXPECT_EQ(Asset->Anchor, 19);
@@ -3200,7 +3198,7 @@ TEST(FPackageAssetTests, TypeDefaultContainersEvolveAndForcedSnapshotsRemainComp
 		WriteTestBytes(File, Encoded->PackageBytes);
 		const auto Loaded = LoadObject<DMathStructAssetForTest>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Asset = Loaded.value_or(nullptr);
-		ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
+		ASSERT_TRUE(Loaded) << Loaded.error().Message;
 		const bool bPinned = Encoded != &Sparse;
 		EXPECT_EQ(Asset->Vectors, (std::vector<FVector3>{bPinned ? FVector3(3.0, 4.0, 5.0) : *TypeDefault,
 			bPinned ? FVector3(8.0, 4.0, 5.0) : FVector3(8.0, 7.0, 9.0),
@@ -4462,19 +4460,17 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	const auto BudgetFailure = FPreparedPackageResource::Read(Path, File, 1);
 	if (BudgetFailure) { Prepared = std::move(*BudgetFailure); }
 	EXPECT_EQ(BudgetFailure.error().Code, EPreparedPackageResourceError::BudgetExceeded);
-	EXPECT_EQ(BudgetFailure.error().Reason, EPreparedPackageResourceReason::MainBudget);
-	EXPECT_EQ(BudgetFailure.error().MaximumBytes, 1u);
-	EXPECT_EQ(BudgetFailure.error().MainBytes, Prepared.GetMainBytes().size());
+	EXPECT_TRUE(BudgetFailure.error().Message.contains("main file exceeds"));
+	EXPECT_TRUE(BudgetFailure.error().Message.contains("MaximumBytes: 1"));
+	EXPECT_TRUE(BudgetFailure.error().Message.contains(std::format("MainBytes: {}", Prepared.GetMainBytes().size())));
 	FByteBuffer Damaged(Prepared.GetMainBytes().begin(), Prepared.GetMainBytes().end());
 	Damaged.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Damaged, File));
 	const auto InvalidMain = FPreparedPackageResource::Read(Path, File, 1024 * 1024);
 	if (InvalidMain) { Prepared = std::move(*InvalidMain); }
 	EXPECT_EQ(InvalidMain.error().Code, EPreparedPackageResourceError::InvalidClosure);
-	const auto* Cause = std::get_if<std::shared_ptr<const FAssetReadError>>(&InvalidMain.error().Cause);
-	ASSERT_TRUE(Cause && *Cause);
-	EXPECT_NE((*Cause)->Code, EAssetReadError::None);
-	EXPECT_EQ(InvalidMain.error().Path, File);
+	EXPECT_FALSE(InvalidMain.error().Message.empty());
+	EXPECT_TRUE(InvalidMain.error().Message.contains(File.generic_string()));
 	EXPECT_EQ(Prepared.GetBulkResource(), OriginalResource);
 	EXPECT_EQ(FindPackage(Path.GetView()), Live);
 	EXPECT_EQ(Live->GetEditRevision(), Revision);
@@ -5001,7 +4997,7 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	const auto ReloadBulkResult =
 		Durin::LoadObject<DBulkPackageAssetForTest>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		ReloadedBulk = ReloadBulkResult.value_or(nullptr);
-	ASSERT_TRUE(ReloadBulkResult) << (ReloadBulkResult ? std::string{} : ReloadBulkResult.error().Message);
+	ASSERT_TRUE(ReloadBulkResult) << ReloadBulkResult.error().Message;
 	ASSERT_NE(ReloadedBulk, nullptr);
 	EXPECT_FALSE(ReloadedBulk->Payload.IsMemoryResident());
 	const Durin::FPackageResourceReadResult ReloadedPayload =
@@ -6455,7 +6451,7 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 	DAuthoredArchiveAssetForTest* Loaded = nullptr;
 	const auto LoadResult = Durin::LoadObject<DAuthoredArchiveAssetForTest>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Loaded = LoadResult.value_or(nullptr);
-	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+	ASSERT_TRUE(LoadResult) << LoadResult.error().Message;
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->CookedBulk.GetState(), Durin::EBulkDataState::Attached);
 	const Durin::FPackageResourceHandle Resource =
@@ -6463,12 +6459,12 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 	ASSERT_NE(Resource, nullptr);
 	ASSERT_TRUE(Loaded->CookedBulk.ReloadAsync().Wait()) << Error;
 	Durin::FByteView LoadedBytes;
-	Durin::FBulkDataReadResult LoadedBytesLease;
-	LoadedBytesLease = Loaded->CookedBulk.AcquireRead();
-	ASSERT_TRUE(LoadedBytesLease) << Durin::FormatPackageResourceReadError(LoadedBytesLease.Error);
-	LoadedBytes = LoadedBytesLease.Lock.GetBytes();
+
+	auto LoadedBytesLease = Loaded->CookedBulk.AcquireRead();
+	ASSERT_TRUE(LoadedBytesLease) << LoadedBytesLease.error().Message;
+	LoadedBytes = LoadedBytesLease->GetBytes();
 	EXPECT_TRUE(std::ranges::equal(LoadedBytes, BulkBytes));
-	LoadedBytesLease.Lock.Reset();
+	LoadedBytesLease->Reset();
 	EXPECT_EQ(Loaded->CookedBulk.GetState(), Durin::EBulkDataState::Resident);
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
@@ -6563,16 +6559,16 @@ TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
 	DAuthoredArchiveAssetForTest* Loaded = nullptr;
 	const auto LoadResult = Durin::LoadObject<DAuthoredArchiveAssetForTest>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Loaded = LoadResult.value_or(nullptr);
-	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+	ASSERT_TRUE(LoadResult) << LoadResult.error().Message;
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->CookedBulk.GetState(), Durin::EBulkDataState::Detached);
 	Durin::FByteView LoadedBytes;
-	Durin::FBulkDataReadResult LoadedBytesLease;
-	LoadedBytesLease = Loaded->CookedBulk.AcquireRead();
-	ASSERT_TRUE(LoadedBytesLease) << Durin::FormatPackageResourceReadError(LoadedBytesLease.Error);
-	LoadedBytes = LoadedBytesLease.Lock.GetBytes();
+
+	auto LoadedBytesLease = Loaded->CookedBulk.AcquireRead();
+	ASSERT_TRUE(LoadedBytesLease) << LoadedBytesLease.error().Message;
+	LoadedBytes = LoadedBytesLease->GetBytes();
 	EXPECT_TRUE(std::ranges::equal(LoadedBytes, InlineBytes));
-	LoadedBytesLease.Lock.Reset();
+	LoadedBytesLease->Reset();
 	EXPECT_EQ(Durin::GetPackageResourceManager().FindPackage(Path.ToString()), nullptr);
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
@@ -6804,7 +6800,7 @@ TEST(FPackageAssetTests, PackageAndExactObjectLoadsSelectMultipleTopLevelAssets)
 	const auto OwnerLoadResult =
 		Durin::LoadObject<DPackageAssetForTest>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(OwnerPath));
 		LoadedOwner = OwnerLoadResult.value_or(nullptr);
-	ASSERT_TRUE(OwnerLoadResult) << (OwnerLoadResult ? std::string{} : OwnerLoadResult.error().Message);
+	ASSERT_TRUE(OwnerLoadResult) << OwnerLoadResult.error().Message;
 	ASSERT_NE(LoadedOwner->ExternalReference.Get(), nullptr);
 	EXPECT_EQ(LoadedOwner->ExternalReference->GetObjectPath(),
 		"/TestAssets/MultiTopLevelLoad.Secondary:DefaultChild");
@@ -8677,7 +8673,7 @@ namespace
 		const auto ReloadResult =
 			Durin::LoadObject<DSoftPackageAssetForTest>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(OwnerPath));
 			ReloadedOwner = ReloadResult.value_or(nullptr);
-		ASSERT_TRUE(ReloadResult) << (ReloadResult ? std::string{} : ReloadResult.error().Message);
+		ASSERT_TRUE(ReloadResult) << ReloadResult.error().Message;
 		EXPECT_EQ(ReloadedOwner->Direct.GetPath().GetPackagePath(), NewPath);
 		EXPECT_EQ(ReloadedOwner->ExternalReference.Get(), Target);
 	}
@@ -9041,7 +9037,7 @@ TEST(FPackageAssetTests, PrecisionSpecificMathStructsRoundTripThroughPackageLink
 	DMathStructAssetForTest* Loaded = nullptr;
 	const auto LoadResult = Durin::LoadObject<DMathStructAssetForTest>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Loaded = LoadResult.value_or(nullptr);
-	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+	ASSERT_TRUE(LoadResult) << LoadResult.error().Message;
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->FloatQuat, Durin::FQuatf(0.5f, 0.25f, -0.5f, 0.75f));
 	EXPECT_EQ(Loaded->FloatMatrix, ExpectedMatrix);

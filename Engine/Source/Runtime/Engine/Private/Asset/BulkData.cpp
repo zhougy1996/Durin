@@ -225,22 +225,24 @@ namespace Durin
 			auto Result = Metadata.Range.Resource->ReadRange(Metadata.Range.SegmentOffset, Metadata.Range.StoredSize);
 			Guard.lock();
 			if (Result && Result->GetSize() != Metadata.LogicalSize)
-				Result = std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::TruncatedSegment, .Reason = EPackageResourceReadReason::LogicalSizeMismatch, .Actual = Result->GetSize(), .Expected = Metadata.LogicalSize});
+				Result = std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::TruncatedSegment, .Message = std::format("Bulk data logical size mismatch: actual {}, expected {}.", Result->GetSize(), Metadata.LogicalSize)});
 			if (!Result)
 			{
 				State->State = Result.error().Status == EPackageResourceReadStatus::Retired ? EBulkDataState::Retired : EBulkDataState::Failed;
-				return {.Status = State->State == EBulkDataState::Retired ? EBulkReadStatus::Retired : EBulkReadStatus::ReadFailed, .Error = std::move(Result)};
+				return std::unexpected(FBulkReadError{State->State == EBulkDataState::Retired ? EBulkReadError::Retired
+					: Result.error().Status == EPackageResourceReadStatus::Cancelled ? EBulkReadError::Cancelled : EBulkReadError::ReadFailed,
+					FormatPackageResourceReadError(Result.error())});
 			}
 			State->Allocation = std::make_shared<FByteBuffer>(Result->GetBytes().begin(), Result->GetBytes().end());
 			State->State = EBulkDataState::Resident;
 		}
 		if (State->State == EBulkDataState::Retired)
-			return {.Status = EBulkReadStatus::Retired, .Error = std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::Retired, .Reason = EPackageResourceReadReason::Retired})};
+			return std::unexpected(FBulkReadError{EBulkReadError::Retired, "Bulk data is retired."});
 		if (State->State != EBulkDataState::Resident && State->State != EBulkDataState::ReadLocked && State->State != EBulkDataState::Detached)
-			return {.Status = State->State == EBulkDataState::Empty ? EBulkReadStatus::Empty : EBulkReadStatus::Busy, .Error = std::unexpected(FPackageResourceReadError{.Reason = EPackageResourceReadReason::BulkUnavailable, .BulkState = State->State})};
+			return std::unexpected(FBulkReadError{State->State == EBulkDataState::Empty ? EBulkReadError::Empty : EBulkReadError::Busy, "Bulk data is empty, loading, or write locked."});
 		++State->ReadLocks;
 		State->State = EBulkDataState::ReadLocked;
-		return {.Status = EBulkReadStatus::Acquired, .Lock = FBulkDataReadScope(State)};
+		return FBulkDataReadScope(State);
 	}
 
 	auto FBulkData::AcquireWrite() -> FBulkDataWriteScope
@@ -282,7 +284,7 @@ namespace Durin
 				|| !State->Metadata.Range.Resource)
 				return FPackageResourceRequest::Completed(std::unexpected(FPackageResourceReadError{
 					.Status = EPackageResourceReadStatus::InvalidRange,
-					.Reason = EPackageResourceReadReason::ReloadUnavailable, .BulkState = State->State}));
+					.Message = "Bulk data cannot reload in its current state."}));
 			Metadata = State->Metadata;
 			State->State = EBulkDataState::Loading;
 		}

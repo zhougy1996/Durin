@@ -122,11 +122,11 @@ namespace
 			EXPECT_EQ(Texture->GetPlatformData(), Installed);
 			// A failed decoder must release its lock so the payload can be retried.
 			Durin::FByteView LockedBytes;
-			Durin::FBulkDataReadResult LockedBytesLease;
-			LockedBytesLease = Bulk.AcquireRead();
-			ASSERT_TRUE(LockedBytesLease) << Durin::FormatPackageResourceReadError(LockedBytesLease.Error);
-			LockedBytes = LockedBytesLease.Lock.GetBytes();
-			LockedBytesLease.Lock.Reset();
+
+			auto LockedBytesLease = Bulk.AcquireRead();
+			ASSERT_TRUE(LockedBytesLease) << LockedBytesLease.error().Message;
+			LockedBytes = LockedBytesLease->GetBytes();
+			LockedBytesLease->Reset();
 		}
 		{
 			auto ValueResult = FBulkData::TryCreateDetached(ValidBytes);

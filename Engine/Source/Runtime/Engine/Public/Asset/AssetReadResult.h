@@ -3,11 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
-#include "Asset/PackageResourceError.h"
-#include "Asset/EditorBulkDataStorageError.h"
-#include "DObject/ObjectValidation.h"
-#include "AssetRegistry/RegistryResult.h"
-#include "DObject/SoftObjectPtr.h"
 #include "DObject/SoftObjectPtr.h"
 
 namespace Durin
@@ -44,8 +39,6 @@ namespace Durin
 		FObjectPath ResolvedPath;
 		bool bRedirected = false;
 		std::optional<FSoftObjectError> ObjectCause;
-		std::optional<FPackageResourceRegistrationError> ResourceCause;
-		std::optional<FEditorBulkDataStorageError> StorageCause;
 	};
 
 	// Codec and pending graph status; not a completed object-load value.
@@ -53,8 +46,6 @@ namespace Durin
 	{
 		EAssetReadError Error = EAssetReadError::None;
 		std::string Message;
-		std::optional<FPackageResourceRegistrationError> ResourceCause;
-		std::optional<FEditorBulkDataStorageError> StorageCause;
 
 		auto Succeeded() const -> bool { return Error == EAssetReadError::None; }
 		explicit operator bool() const { return Succeeded(); }
@@ -63,13 +54,11 @@ namespace Durin
 	[[nodiscard]] inline auto AssetReadErrorFromResult(const FAssetReadResult& Result) -> FAssetReadError
 	{
 		check(!Result);
-		return {.Code = Result.Error, .Message = Result.Message,
-			.ResourceCause = Result.ResourceCause, .StorageCause = Result.StorageCause};
+		return {.Code = Result.Error, .Message = Result.Message};
 	}
 
 	[[nodiscard]] inline auto AssetReadResultFromError(const FAssetReadError& Error) -> FAssetReadResult
 	{
-		return {.Error = Error.Code, .Message = Error.Message,
-			.ResourceCause = Error.ResourceCause, .StorageCause = Error.StorageCause};
+		return {.Error = Error.Code, .Message = Error.Message};
 	}
 }

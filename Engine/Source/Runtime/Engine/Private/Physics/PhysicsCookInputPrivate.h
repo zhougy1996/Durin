@@ -11,12 +11,20 @@ namespace Durin::DerivedData { class ICache; }
 
 namespace Durin::PhysicsPrivate
 {
+	inline auto CookCancelled() -> std::unexpected<FPhysicsCookError>
+	{
+		return std::unexpected(FPhysicsCookError{EPhysicsCookError::Cancelled, "Cook: Physics cooking was cancelled."});
+	}
+	inline auto CookFailure(std::string_view Message) -> std::unexpected<FPhysicsCookError>
+	{
+		return std::unexpected(FPhysicsCookError{EPhysicsCookError::Failed, MakeAssetBuildDiagnostic(Message)});
+	}
 #if DURIN_WITH_EDITOR
 	ENGINE_API auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void;
 	auto DispatchCookBuild(const FPhysicsCookInput& Input, DerivedData::IRequestOwner& Owner,
-		const FAssetBuildTaskContext& Control, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>;
+		const FAssetBuildTaskContext& Control, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, FPhysicsCookError>;
 	auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode,
-		DerivedData::FBuildCompleteParams Completion, const FAssetBuildTaskContext& Control) -> std::expected<FPhysicsCookResult, std::string>;
+		DerivedData::FBuildCompleteParams Completion, const FAssetBuildTaskContext& Control) -> std::expected<FPhysicsCookResult, FPhysicsCookError>;
 #endif
 
 	inline auto HashInput(FByteView Positions, FByteView Indices, const std::function<bool()>& Cancel)

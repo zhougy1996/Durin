@@ -736,7 +736,7 @@ namespace Durin
 				if (!Result) return Result;
 				std::vector<FPackageBulkStorageDescriptor> Descriptors;
 				if (auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection); !Storage)
-					return {.Error = EAssetReadError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.error()), .StorageCause = Storage.error()};
+					return {.Error = EAssetReadError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.error())};
 				else { Descriptors = std::move(*Storage); }
 				std::vector<FPackageBulkDataEntry> Entries;
 				Entries.reserve(Descriptors.size());
@@ -764,7 +764,7 @@ namespace Durin
 				{
 					const EAssetReadError Code = Registration.error().Code == EPackageResourceRegistrationError::ShuttingDown
 						? EAssetReadError::ShuttingDown : EAssetReadError::CorruptFile;
-					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.error()), .ResourceCause = Registration.error()};
+					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.error())};
 				}
 				Record.bOwnResource = true;
 				ReadContext.BulkResource = std::move((*Registration));

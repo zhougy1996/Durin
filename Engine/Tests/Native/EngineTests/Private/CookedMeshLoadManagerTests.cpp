@@ -33,7 +33,7 @@ namespace
 			Gate.acquire();
 			if (bCancelled.load(std::memory_order_acquire))
 				return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::Cancelled,
-					.Reason = EPackageResourceReadReason::Cancelled});
+					.Message = "Fixture read was cancelled."});
 			return FSharedByteBuffer::Take(Durin::FByteBuffer(static_cast<size_t>(Size), std::byte{0x2a}));
 		}
 
@@ -527,17 +527,9 @@ TEST(FCookedMeshLoadManagerTests, TerminalRetainsWorkerAndPublisherCauses)
 	EXPECT_EQ(ReadError.Owner, OwnerKey);
 	EXPECT_EQ(ReadError.Code, ECookedMeshLoadError::Read);
 	EXPECT_EQ(ReadError.Index, 0u);
-	ASSERT_NE(ReadError.ReadCause, nullptr);
-	ASSERT_FALSE(*ReadError.ReadCause);
-	EXPECT_EQ(ReadError.ReadCause->error().Status, EPackageResourceReadStatus::Cancelled);
-	const auto& Cause = ReadError.ReadCause->error();
-	EXPECT_TRUE(Cause.Reason == EPackageResourceReadReason::Cancelled
-		|| Cause.Reason == EPackageResourceReadReason::TaskCancelled);
-	if (Cause.Reason == EPackageResourceReadReason::TaskCancelled)
-	{
-		ASSERT_TRUE(Cause.TaskState.has_value());
-		EXPECT_EQ(*Cause.TaskState, ETaskState::Canceled);
-	}
+	ASSERT_TRUE(ReadError.ReadCause);
+	EXPECT_EQ(ReadError.ReadCause->Status, EPackageResourceReadStatus::Cancelled);
+	EXPECT_FALSE(FormatPackageResourceReadError(*ReadError.ReadCause).empty());
 	if (bOwnsScheduler) ShutdownTaskScheduler(true);
 }
 

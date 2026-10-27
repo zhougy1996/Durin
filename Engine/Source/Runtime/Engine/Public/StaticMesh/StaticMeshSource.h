@@ -47,7 +47,7 @@ namespace Durin
 		FVector3f Position = FVector3f(0);
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		std::string ArchivePath;
-		std::optional<FPackageResourceReadResult> ReadCause;
+		std::optional<FPackageResourceReadError> ReadCause;
 		std::optional<FEditorBulkDataError> BulkCause;
 	};
 

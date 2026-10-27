@@ -407,7 +407,7 @@ namespace Durin
 							? ECookedMeshTerminalState::Cancelled
 							: ECookedMeshTerminalState::Failed;
 						ReadError = {.Code = ECookedMeshLoadError::Read, .Index = Buffers.size(),
-							.ReadCause = std::make_shared<FPackageResourceReadResult>(std::move(Result))};
+							.ReadCause = std::move(Result.error())};
 						break;
 					}
 					Buffers.push_back(std::move(*Result));

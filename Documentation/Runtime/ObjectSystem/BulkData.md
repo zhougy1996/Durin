@@ -116,8 +116,8 @@ The three Editor Bulk storage-inspection APIs return expected owned vectors of
 Their errors own object identity, nested field names, depth/version and count/size bounds,
 Archive code/path and filesystem path/error as applicable. Descriptor inspection
 exposes a vector only on success; partially collected descriptors and paths
-are not returned on failure. Pending asset and prepared-resource results retain `BulkStorageCause`; UI and command adapters
-format explicitly.
+are not returned on failure. Asset and prepared-resource boundaries format storage
+failures into owned diagnostic text rather than retaining storage-layer causes.
 
 ## Package-Resource Ownership
 
@@ -170,30 +170,33 @@ request, then becomes Retired. Package unload retires the resource before
 withdrawing object publication; Engine shutdown retires all resources before
 filesystem and task services stop.
 
-`RegisterLoosePackage` returns expected `FPackageResourceHandle` or a registration
-failure with its validation/shutdown stage and typed error, without a Message field.
-Generation errors own their physical path and file-I/O or Bulk validation cause,
-including extent, digest, field and exact padding-offset facts. Registration keeps
-the primary generation failure. Registration never restores or deletes sibling
-files, including legacy `.durin-backup` files. Asset results retain this context
-as `ResourceRegistrationCause`, with explicit formatting at pending boundaries. Empty logical package identity is
-an internal contract violation; invalid disk metadata remains a normal failure.
-The registration and read mechanisms do not log each propagated error; asset
-operation boundaries decide presentation and recovery.
+`RegisterLoosePackage` returns an expected `FPackageResourceHandle` or a registration
+error containing a stable domain code and owned diagnostic text. Generation validation
+formats physical paths and file/Bulk validation details where the failure originates;
+no generation variant or backend cause graph crosses the public boundary. Registration
+never restores or deletes sibling files, including legacy `.durin-backup` files.
+Asset loading translates registration/storage failures into `FAssetReadError` categories
+and messages. Empty logical package identity is an internal contract violation;
+invalid disk metadata remains a normal failure. Mechanisms do not log every propagated
+error; operation boundaries decide presentation and recovery.
 
-`FPackageResourceReadResult` retains `Pending` separately from terminal outcomes;
-readiness and cancellation belong to its request. `FBulkDataReadResult` retains
-admission state and the move-only read lease. Neither result is an error-only
-wrapper, and neither is replaced with expected void.
+`FPackageResourceReadResult` is an expected byte buffer or completed read error;
+readiness and cancellation belong to its request. `FBulkData::AcquireRead` returns
+`expected<FBulkDataReadScope, FBulkReadError>`: only success carries a move-only read
+lease. Empty, Busy, Retired, Cancelled, and ReadFailed are failure codes, with owned
+diagnostic text. There is no parallel success flag or byte-bearing error field.
+The lease cannot be default constructed. Moving transfers lock ownership;
+resetting or destruction releases the lock.
 
 The backend reports InvalidRange, MissingSegment, TruncatedSegment,
 SegmentDigestMismatch, Cancelled, Retired, and IoError distinctly. A range read
 checks before/after physical size and rejects a changed segment rather than
-returning a mixed generation. Read results retain typed reasons and owned range,
-size, digest, filesystem/stream and task/wait context without a Message field.
-Rejected waits remain caller-local errors and preserve the live request outcome.
-Runtime/editor Bulk adapters retain read causes; pending serialization, mesh
-loading and source-validation contracts format explicitly.
+returning a mixed generation. Public read errors contain only a domain status and
+owned diagnostic text. Range, size, digest, filesystem/stream and task/wait details
+are formatted at their originating boundary, without exposing backend enums or
+retaining task state. Rejected waits remain caller-local errors and preserve the
+live request outcome. Runtime/editor Bulk adapters translate failures into their own
+domain; mesh/source adapters retain only the failed read error, never its full result.
 
 Package range roots use `Tasks::LaunchTask` on the blocking-I/O executor, with bounded active
 threads and accepted pending work.
@@ -221,12 +224,10 @@ validates the captured external bytes against the directory and segment digest.
 it is a storage primitive and does not validate the main schema itself.
 Neither entry point constructs objects, registers resources, recovers backups,
 or writes files. Each returns an expected owned closure; failure has no value.
-Revalidation returns expected void. Errors own budget, extent,
-digest, physical path and file-I/O/filesystem context. They retain Bulk storage,
-Bulk validation and underlying asset-codec results as causes. Pending graph
-preparation and reload results keep `ResourceCause`; their diagnostic adapters
-format explicitly. The asset-codec cause follows the `FAssetReadResult`
-contract and is retained whole rather than flattened during preparation.
+Revalidation returns expected void. Errors contain only the preparation domain code
+and owned diagnostic text. Budget, extent, digest, physical path and file-I/O context
+are formatted locally, including storage and codec failures; no lower-layer result
+or cause graph is retained in the public preparation error.
 
 The prepared resource serves shared immutable ranges from retained memory, so
 deleting or replacing a disk file cannot change a later lazy payload read.

@@ -69,8 +69,8 @@ namespace Durin::TexturePrivate
 			return false;
 		};
 		auto Read = CookedData.AcquireRead();
-		if (!Read) return FailCooked(Durin::FormatPackageResourceReadError(Read.Error));
-		const FByteView Bytes = Read.Lock.GetBytes();
+		if (!Read) return FailCooked(Read.error().Message);
+		const FByteView Bytes = Read->GetBytes();
 		auto Candidate = std::make_unique<TPlatformData>();
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload,
 			{.Target = AssetPrivate::CookedArchiveTarget(GetAssetRuntimeConfiguration())});
@@ -79,7 +79,7 @@ namespace Durin::TexturePrivate
 		{
 			return FailCooked(std::string(Ar.GetError()));
 		}
-		Read.Lock.Reset();
+		Read->Reset();
 		Texture.SetPlatformData(std::move(Candidate));
 		Texture.UpdateResource();
 		return true;

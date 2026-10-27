@@ -61,7 +61,7 @@ namespace Durin::StaticMeshPrivate
 				auto Payload = Geometry.GetPayload().Wait();
 				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
 				if (!Payload) return std::unexpected(Error(FormatStaticMeshSourceError(
-					{.Code = EStaticMeshSourceError::Read, .ReadCause = Payload})));
+					{.Code = EStaticMeshSourceError::Read, .ReadCause = Payload.error()})));
 				if (Payload->GetSize() != Geometry.GetPayloadSize() || Payload->GetSize() > MaximumStaticMeshSourceBytes
 					|| BuildSourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Payload->GetBytes()), LODCount) != SourceHash)
 					return std::unexpected(Error("StaticMesh source bytes do not match captured identity."));

@@ -806,9 +806,9 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	ASSERT_TRUE(Read);
 	FMaterialStaticProperties Properties;
 	std::shared_ptr<const FMaterialCompilerResult> Program;
-	EXPECT_TRUE(DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), ECookTargetPlatform::Win64,
+	EXPECT_TRUE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, EMaterialQualityLevel::High, ERHIFeatureLevel::SM5, {}, Properties, Program));
-	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), ECookTargetPlatform::Win64,
+	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5, {}, Properties, Program));
 	FAssetBuildTaskContext Cancelled;
 	Cancelled.Cancellation.Cancel();
@@ -1491,9 +1491,9 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	ASSERT_TRUE(Read);
 	FMaterialStaticProperties Properties;
 	std::shared_ptr<const FMaterialCompilerResult> Program;
-	EXPECT_TRUE(DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), ECookTargetPlatform::Win64,
+	EXPECT_TRUE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, Low.Quality, Low.FeatureLevel, {}, Properties, Program));
-	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), ECookTargetPlatform::Win64,
+	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, High.Quality, High.FeatureLevel, {}, Properties, Program));
 	auto Same = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Request.MaterialConfigurations);
 	ASSERT_TRUE(Same) << Same.Error;
@@ -1502,7 +1502,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	auto OriginalRead = Original.AcquireRead();
 	ASSERT_TRUE(SameRead);
 	ASSERT_TRUE(OriginalRead);
-	EXPECT_TRUE(std::ranges::equal(SameRead.Lock.GetBytes(), OriginalRead.Lock.GetBytes()));
+	EXPECT_TRUE(std::ranges::equal(SameRead->GetBytes(), OriginalRead->GetBytes()));
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
 	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
 }

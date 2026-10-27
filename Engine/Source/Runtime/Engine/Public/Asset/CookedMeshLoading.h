@@ -59,9 +59,9 @@ namespace Durin
 		uint64 Expected = 0;
 		uint64 Reserved = 0;
 		std::optional<ETaskState> TaskState;
-		std::shared_ptr<const FPackageResourceReadResult> ReadCause;
+		std::optional<FPackageResourceReadError> ReadCause;
 		std::shared_ptr<const FCookedMeshProductError> ProductCause;
-		std::string PublicationDiagnostic;
+		std::string Diagnostic;
 		std::shared_ptr<const FCookedMeshAdmissionError> AdmissionCause;
 	};
 	struct FCookedMeshLoadResult

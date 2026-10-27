@@ -4,14 +4,11 @@
 
 #include "EngineAPI.h"
 #include "Asset/PackageResourceError.h"
-#include "Asset/EditorBulkDataStorageError.h"
 #include "Asset/PackageBulkData.h"
 
 namespace Durin
 {
 	class FPackagePath;
-
-	ENGINE_API auto FormatPackageResourceReadError(const FPackageResourceReadResult& Result) -> std::string;
 
 	struct FPackageResourceReadStats
 	{

@@ -155,8 +155,9 @@ synchronous attempt-and-report contract below.
 The optional caller-owned `FAssetLoadReport*` remains available on either branch,
 including mutation and canonicalization evidence emitted before a root failure.
 Existing resident-hit and early-rejection report behavior is unchanged. Read
-errors retain their category, diagnostic text, and available resource/storage or
-soft-object validation causes. Inspect `error()` only after testing failure.
+errors retain their category, diagnostic text, and available soft-object validation
+context. Resource registration and storage failures are translated at the asset
+boundary; their backend error types are not exposed by completed-load errors. Inspect `error()` only after testing failure.
 Codec status and pending-component dependency bindings remain separate from these
 completed-load values because bindings may expose incomplete package skeletons.
 
