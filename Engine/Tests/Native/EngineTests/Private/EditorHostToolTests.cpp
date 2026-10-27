@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 
 #include "Workspace/WorkspaceUI.h"
+#include "AssetCompatibilityWindow.h"
+#include "Widgets/EditorNotificationOverlay.h"
+#include "Notifications/Notification.h"
+#include "Editor/AssetCompatibilityAuditTestSupport.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanelLayout.h"
 #include "Settings/EditorSettings.h"
@@ -168,3 +172,150 @@ namespace Durin::Editor::MainFrame
 		ImGui::DestroyContext(Context);
 	}
 } // namespace Durin::Editor::MainFrame
+
+namespace Durin::Editor::MainFrame
+{
+	class FCanonicalResaveFeedbackTests : public FAssetCompatibilityAuditFixture {};
+
+	struct FAssetCompatibilityWindowTestAccess
+	{
+		static auto Begin(FAssetCompatibilityWindow& Window, bool bHasPackage) -> void
+		{
+			FAssetCanonicalResavePlan Plan;
+			Plan.RegistryRevision = GetAssetCatalogRevision();
+			if (bHasPackage)
+			{
+				FAssetCanonicalResavePackagePlan Package;
+				EXPECT_TRUE(FPackagePath::TryCreate("/AuditTests/Missing", Package.PackagePath));
+				Package.Status = EAssetCanonicalResavePackageStatus::Ready;
+				Plan.Packages.push_back(std::move(Package));
+			}
+			Window.PreviewMaintenancePlan = std::move(Plan);
+			Window.BeginCanonicalResave();
+		}
+		static auto Cancel(FAssetCompatibilityWindow& Window) -> void
+		{
+			Window.bCancelMaintenance = true;
+		}
+		static auto Tick(FAssetCompatibilityWindow& Window) -> void { Window.TickCanonicalResave(); }
+		static auto CancellationRequested(const FAssetCompatibilityWindow& Window) -> bool { return Window.bCancelMaintenance; }
+		static auto IsPending(const FAssetCompatibilityWindow& Window) -> bool { return Window.PendingMaintenancePlan.has_value(); }
+		static auto Message(const FAssetCompatibilityWindow& Window) -> const std::string& { return Window.MaintenanceMessage; }
+	};
+
+	TEST_F(FCanonicalResaveFeedbackTests, CancelStopsBeforeTheNextPackageIsApplied)
+	{
+		FAssetCompatibilityWindow Window;
+		FAssetCompatibilityWindowTestAccess::Begin(Window, true);
+		ASSERT_TRUE(FAssetCompatibilityWindowTestAccess::IsPending(Window));
+		FAssetCompatibilityWindowTestAccess::Cancel(Window);
+		FAssetCompatibilityWindowTestAccess::Tick(Window);
+		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::IsPending(Window));
+		EXPECT_NE(FAssetCompatibilityWindowTestAccess::Message(Window).find("cancelled after 0"), std::string::npos);
+	}
+
+	TEST_F(FCanonicalResaveFeedbackTests, FailedRevalidationAndEmptyCompletionReportBusinessOutcomes)
+	{
+		FAssetCompatibilityWindow Window;
+		FAssetCompatibilityWindowTestAccess::Begin(Window, true);
+		FAssetCompatibilityWindowTestAccess::Tick(Window);
+		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::IsPending(Window));
+		EXPECT_NE(FAssetCompatibilityWindowTestAccess::Message(Window).find("stopped after 0"), std::string::npos);
+		FAssetCompatibilityWindowTestAccess::Begin(Window, false);
+		FAssetCompatibilityWindowTestAccess::Tick(Window);
+		EXPECT_NE(FAssetCompatibilityWindowTestAccess::Message(Window).find("completed: 0"), std::string::npos);
+		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::IsPending(Window));
+	}
+
+	TEST_F(FCanonicalResaveFeedbackTests, ProjectChangeClearsPendingBatchAndCancellation)
+	{
+		FAssetCompatibilityWindow Window;
+		FAssetCompatibilityWindowTestAccess::Begin(Window, true);
+		FAssetCompatibilityWindowTestAccess::Cancel(Window);
+		Window.ProjectChanged();
+		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::IsPending(Window));
+		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::CancellationRequested(Window));
+	}
+}
+
+namespace Durin::Editor::MainFrame
+{
+	TEST(FNotificationPresentationTests, UnknownProgressHasNoFabricatedPercentage)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+		auto& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(1000, 700);
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.Fonts->Build();
+		FNotificationManager Manager;
+		const auto Id = Manager.BeginProgress({.Message = "Loading"});
+		Manager.Tick(0);
+		FEditorNotificationOverlay Overlay;
+		auto Frame = [&]() {
+			ImGui::NewFrame();
+			Context->LogBuffer.clear();
+			ImGui::LogToBuffer();
+			Overlay.DrawToasts(Manager);
+			const std::string Text = Context->LogBuffer.c_str();
+			ImGui::LogFinish();
+			ImGui::Render();
+			return Text;
+		};
+		Frame();
+		EXPECT_EQ(Frame().find('%'), std::string::npos);
+		Manager.UpdateProgress(Id, 0.42f);
+		Manager.Tick(0);
+		EXPECT_NE(Frame().find("42%"), std::string::npos);
+	}
+
+	TEST(FNotificationPresentationTests, StatusBarExposesProgressCancellationWithoutAnAction)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+		auto& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(1200, 700);
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.Fonts->Build();
+		FNotificationManager Manager;
+		int Cancellations = 0;
+		Manager.BeginProgress({.Message = "Importing textures", .Cancel = [&] { ++Cancellations; },
+			.Presentation = ENotificationPresentation::StatusBar});
+		Manager.Tick(0);
+		FEditorNotificationOverlay Overlay;
+		ImVec2 CancelPosition;
+		auto Frame = [&]() {
+			ImGui::NewFrame();
+			ImGui::SetNextWindowSize(ImVec2(1100, 100));
+			ImGui::Begin("StatusHost");
+			Overlay.DrawStatusBar(Manager, EEditorStatusBarAction::None, 0);
+			bool bFound = false;
+			for (int Index = 0; Index < Context->Tables.GetMapSize(); ++Index)
+			{
+				const auto* Table = Context->Tables.GetByIndex(Index);
+				if (!Table || Table->ColumnsCount != 5) continue;
+				bFound = true;
+				EXPECT_GT(Table->Columns[3].WidthGiven, 0);
+				CancelPosition = ImVec2((Table->Columns[3].WorkMinX + Table->Columns[3].WorkMaxX) * 0.5f,
+					Table->OuterRect.Min.y + ImGui::GetFrameHeight() * 0.5f);
+			}
+			EXPECT_TRUE(bFound);
+			ImGui::End();
+			ImGui::Render();
+		};
+		Frame(); Frame();
+		IO.AddMousePosEvent(CancelPosition.x, CancelPosition.y);
+		Frame();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+		Frame();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		Frame();
+		EXPECT_EQ(Cancellations, 1);
+		ASSERT_TRUE(Manager.GetStatusNotification());
+		EXPECT_TRUE(Manager.GetStatusNotification()->bCancelRequested);
+		Frame();
+		EXPECT_EQ(Cancellations, 1);
+	}
+}

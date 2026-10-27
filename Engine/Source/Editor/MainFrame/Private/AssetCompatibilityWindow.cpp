@@ -1,4 +1,5 @@
 #include "AssetCompatibilityWindow.h"
+#include "Feedback/SlowTaskWidget.h"
 #include "AssetRegistry/Scan.h"
 
 #include "MonaImGui.h"
@@ -165,11 +166,14 @@ namespace Durin::Editor::MainFrame
 		ImGui::Text("Canonical resave recommended %zu", CanonicalDebt);
 		if (PendingMaintenancePlan)
 		{
-			const size_t Total = CountCanonicalResaveStatus(*PendingMaintenancePlan,
-				EAssetCanonicalResavePackageStatus::Ready) + MaintenanceCompleted;
-			ImGui::Text("Canonical resave progress: %zu / %zu", MaintenanceCompleted, Total);
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Cancel Canonical Resave")) bCancelMaintenance = true;
+			const size_t Total = MaintenanceCompleted + CountCanonicalResaveStatus(*PendingMaintenancePlan,
+				EAssetCanonicalResavePackageStatus::Ready);
+			const FSlowTaskSnapshot Progress{
+				.Title = "Resaving asset packages",
+				.Message = std::format("Resaved {} / {} packages", MaintenanceCompleted, Total),
+				.Fraction = Total ? static_cast<double>(MaintenanceCompleted) / Total : 1.0,
+				.bCanCancel = true, .bCancelRequested = bCancelMaintenance};
+			if (Editor::DrawSlowTaskProgress(Progress, true, false)) bCancelMaintenance = true;
 		}
 		else if (!MaintenanceMessage.empty())
 		{

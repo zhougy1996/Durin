@@ -250,6 +250,16 @@ Interactive Level loading uses the startup presentation style: a centered
 8-unit indeterminate progress bar. Elapsed time and Cancel share a subdued
 footer; the full target path is available on hover over the level name. Resource
 counts are omitted because they do not measure completion.
+
+Startup and Level loading project their authoritative bootstrap/scene-load
+state directly into `FSlowTaskSnapshot` and reuse the `DurinEd` progress widget.
+The Level controller presents a modal snapshot for interactive opens; MainFrame
+startup presents inline progress without a second feedback lifecycle. Elapsed
+time comes from the scene operation when available. MainFrame also observes the
+default thread-local feedback context for generic slow tasks. See
+[slow task feedback](../../../Runtime/Core/SlowTasks.md) for projection,
+nesting, cancellation, and execution boundaries.
+
 Cancellation and failure preserve the previous document; the modal closes when
 the pending operation ends. Save confirmation is a separate modal preceding
 loading. Dialogs are drawn even when the Level workspace has no visible root.

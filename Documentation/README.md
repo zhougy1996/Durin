@@ -26,6 +26,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | IDE code model or debugging | [IDE code model](Development/Tooling/IDECodeModel.md) |
 | DurinDevTool shell, path discovery, documentation commands, or scaffolding | [DurinDevTool command interface](Development/Tooling/DurinDevTool.md) |
 | Toolset definitions, explicit native bindings, tool schemas, or exact tool invocation | [Toolset contracts](Runtime/Core/Tools.md) |
+| Slow tasks, nested work progress, feedback contexts, delayed dialogs, or cooperative cancel feedback | [Slow task feedback](Runtime/Core/SlowTasks.md) |
 | Editor toolset catalog, queued invocation, cancellation, detached endpoints, or external adapter seam | [Editor tool service](Editor/Architecture/Tools/EditorTools.md) |
 | Console tool syntax, JSON argument files, merged help/completion, or PIE tool calls | [Console Toolset integration](Editor/Architecture/Tools/ConsoleTools.md) |
 | Local MCP transport, external Toolset discovery/calls/cancellation, or client connection setup | [MCP adapter](Editor/Architecture/Tools/MCPTools.md), [connection guide](Editor/Guides/LocalMCP.md) |

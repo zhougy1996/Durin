@@ -490,7 +490,6 @@ durin_add_native_test(EditorShellTests
 		Private/UIStyleTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-		${_durin_level_editor_private}/Documents/DocumentDialogPresenters.cpp
 	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
 	INCLUDE_DIRECTORIES
 		${_durin_level_editor_private}
@@ -545,7 +544,7 @@ durin_add_native_test(EditorHostToolTests
 	STACKS editor
 	PRIVATE_SOURCE_OWNER MainFrame
 	PRIVATE_SOURCE_RATIONALE
-		"MainFrame-owned Console model and layout coverage avoids exporting private host-tool implementations."
+		"MainFrame-owned host-tool, settings, and maintenance feedback coverage avoids exporting private implementations."
 	SOURCES Private/ConsoleRecordModelTests.cpp Private/EditorHostToolTests.cpp Private/ConsoleToolAdapterTests.cpp
 	PRIVATE_SOURCES
 		${_durin_main_frame_private}/Panels/ConsoleRecordModel.cpp
@@ -553,7 +552,9 @@ durin_add_native_test(EditorHostToolTests
 		${_durin_main_frame_private}/Panels/ConsoleToolArguments.cpp
 		${_durin_main_frame_private}/Settings/EditorSettingsWindow.cpp
 		${_durin_main_frame_private}/Settings/HostSettings.cpp
-	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditor
+		${_durin_main_frame_private}/AssetCompatibilityWindow.cpp
+		${_durin_main_frame_private}/Widgets/EditorNotificationOverlay.cpp
+	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditor MainFrame AssetMaintenance AssetTools
 	INCLUDE_DIRECTORIES ${_durin_main_frame_private}
 	COMPILE_DEFINITIONS MAINFRAME_EXPORTS
 	REQUIRES editor

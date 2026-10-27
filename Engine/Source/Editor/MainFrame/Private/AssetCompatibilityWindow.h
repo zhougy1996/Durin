@@ -30,6 +30,7 @@ namespace Durin::Editor::MainFrame
 		}
 
 	private:
+		friend struct FAssetCompatibilityWindowTestAccess;
 		auto DrawDetails(const FRevealAsset& RevealAsset, bool bCanPlanMaintenance) -> void;
 		auto DrawMaintenancePlan() -> void;
 		auto DrawApplyConfirmation() -> void;

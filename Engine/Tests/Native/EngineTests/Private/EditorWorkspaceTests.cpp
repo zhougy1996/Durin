@@ -1,5 +1,6 @@
 #include "Asset/Asset.h"
-#include "Documents/DocumentDialogPresenters.h"
+#include "Feedback/SlowTaskWidget.h"
+#include "Misc/SlowTask.h"
 #include "Asset/PackageRemoval.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Actors/ActorChange.h"
@@ -1084,7 +1085,7 @@ TEST(FAssetPickerTests, FiltersCandidatesByPathPrefix)
 }
 
 // Exercise real ImGui modal lifetime across host frames, including cancellation.
-TEST(FLevelLoadingDialogTests, ShowsProgressBlocksInputAndClosesBeforeTheNextLoad)
+TEST(FSlowTaskDialogTests, ShowsProgressBlocksInputAndClosesBeforeTheNextLoad)
 {
 	using namespace Durin;
 	ImGuiContext* Context = ImGui::CreateContext();
@@ -1094,14 +1095,16 @@ TEST(FLevelLoadingDialogTests, ShowsProgressBlocksInputAndClosesBeforeTheNextLoa
 	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
 	IO.DeltaTime = 1.0f / 60.0f;
 	IO.Fonts->Build();
-	Editor::Level::FLevelLoadingDialogPresenter Presenter;
-	std::optional<FSceneLoadProgress> Progress = FSceneLoadProgress{};
+	FFeedbackContext Feedback;
+	Editor::FSlowTaskDialogPresenter Presenter;
+	auto Task = std::make_unique<FSlowTask>(0, "Opening Target...", Feedback);
+	Task->MakeDialog(true);
 	ImVec2 CancelPosition;
 	auto Frame = [&]() {
 		ImGui::NewFrame();
 		ImGui::Begin("LoadingDialogHost");
-		const bool bCancel = Presenter.Draw("/Sandbox/Levels/Target.Target", Progress);
-		if (Progress)
+		const bool bCancel = Presenter.Draw(Feedback);
+		if (Task)
 		{
 			EXPECT_NE(ImGui::GetTopMostPopupModal(), nullptr);
 			const ImGuiWindow* Modal = ImGui::GetTopMostPopupModal();
@@ -1117,9 +1120,7 @@ TEST(FLevelLoadingDialogTests, ShowsProgressBlocksInputAndClosesBeforeTheNextLoa
 		return bCancel;
 	};
 	EXPECT_FALSE(Frame());
-	Progress->Phase = ESceneLoadPhase::PreparingProducts;
-	Progress->bProductsKnown = true;
-	Progress->Meshes = 42;
+	Task->SetMessage("Preparing geometry and materials");
 	EXPECT_FALSE(Frame());
 	EXPECT_FALSE(Frame());
 	EXPECT_TRUE(IO.WantCaptureMouse);
@@ -1129,15 +1130,17 @@ TEST(FLevelLoadingDialogTests, ShowsProgressBlocksInputAndClosesBeforeTheNextLoa
 	EXPECT_FALSE(Frame());
 	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
 	EXPECT_TRUE(Frame());
-	Progress.reset();
+	Task.reset();
 	EXPECT_FALSE(Frame());
-	Progress = FSceneLoadProgress{.Id = 2};
+	Task = std::make_unique<FSlowTask>(1, "Second load", Feedback);
+	Task->MakeDialog(true);
+	Task->SetProgress(0.5);
 	EXPECT_FALSE(Frame());
-	Progress.reset();
+	Task.reset();
 	EXPECT_FALSE(Frame());
 }
 
-TEST(FLevelLoadingDialogTests, IdlePresenterDoesNotOpenAModal)
+TEST(FSlowTaskDialogTests, IdlePresenterDoesNotOpenAModal)
 {
 	ImGuiContext* Context = ImGui::CreateContext();
 	struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
@@ -1148,9 +1151,130 @@ TEST(FLevelLoadingDialogTests, IdlePresenterDoesNotOpenAModal)
 	IO.Fonts->Build();
 	ImGui::NewFrame();
 	ImGui::Begin("LoadingDialogHost");
-	Durin::Editor::Level::FLevelLoadingDialogPresenter Presenter;
-	EXPECT_FALSE(Presenter.Draw({}, std::nullopt));
+	Durin::FFeedbackContext Feedback;
+	Durin::Editor::FSlowTaskDialogPresenter Presenter;
+	EXPECT_FALSE(Presenter.Draw(Feedback));
 	EXPECT_EQ(ImGui::GetTopMostPopupModal(), nullptr);
 	ImGui::End();
 	ImGui::Render();
+}
+
+TEST(FSlowTaskDialogTests, DelaysPresentationAndClosesOnCompletionWithALiveTask)
+{
+	ImGuiContext* Context = ImGui::CreateContext();
+	struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	double Now = 0;
+	Durin::FFeedbackContext Feedback([&] { return Now; });
+	Durin::FSlowTask Task(100, "Preparing workspace", Feedback);
+	Durin::Editor::FSlowTaskDialogPresenter Presenter;
+	Task.MakeDialogDelayed(0.25);
+	auto Frame = [&](bool bExpectedModal) {
+		ImGui::NewFrame();
+		ImGui::Begin("SlowTaskHost");
+		EXPECT_FALSE(Presenter.Draw(Feedback));
+		EXPECT_EQ(ImGui::GetTopMostPopupModal() != nullptr, bExpectedModal);
+		ImGui::End();
+		ImGui::Render();
+	};
+	Frame(false);
+	Now = 0.25;
+	Task.SetProgress(0.5, "Loading settings");
+	Frame(true);
+	Task.Complete();
+	Frame(false);
+	EXPECT_EQ(Task.GetSnapshot()->Status, Durin::ESlowTaskStatus::Completed);
+	// Startup presentation uses the same snapshot without opening a modal.
+	ImGui::NewFrame();
+	ImGui::Begin("StartupHost");
+	EXPECT_FALSE(Durin::Editor::DrawSlowTaskProgress(*Task.GetSnapshot()));
+	EXPECT_EQ(ImGui::GetTopMostPopupModal(), nullptr);
+	ImGui::End();
+	ImGui::Render();
+}
+
+TEST(FSlowTaskDialogTests, InlineSnapshotRoutesCancelAndCanHideUnavailableTiming)
+{
+	ImGuiContext* Context = ImGui::CreateContext();
+	struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	Durin::FSlowTaskSnapshot Progress{.Title = "Importing Scene", .Message = "Preparing assets", .bCanCancel = true};
+	ImVec2 CancelPosition;
+	auto Frame = [&]() {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowSize(ImVec2(440.0f, 220.0f));
+		ImGui::Begin("InlineProgress");
+		const bool bClicked = Durin::Editor::DrawSlowTaskProgress(Progress, true, false);
+		CancelPosition = Context->LastItemData.Rect.GetCenter();
+		EXPECT_EQ((Context->LastItemData.ItemFlags & ImGuiItemFlags_Disabled) != 0, Progress.bCancelRequested);
+		EXPECT_EQ(ImGui::GetTopMostPopupModal(), nullptr);
+		ImGui::End();
+		ImGui::Render();
+		return bClicked;
+	};
+	EXPECT_FALSE(Frame());
+	EXPECT_FALSE(Frame());
+	IO.AddMousePosEvent(CancelPosition.x, CancelPosition.y);
+	EXPECT_FALSE(Frame());
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	EXPECT_FALSE(Frame());
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	EXPECT_TRUE(Frame());
+	Progress.bCancelRequested = true;
+	EXPECT_FALSE(Frame());
+}
+
+TEST(FSlowTaskDialogTests, ProjectedModalReturnsCancelAndClosesWithoutTaskState)
+{
+	using namespace Durin;
+	ImGuiContext* Context = ImGui::CreateContext();
+	struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	Editor::FSlowTaskDialogPresenter Presenter;
+	std::optional<FSlowTaskSnapshot> Feedback = FSlowTaskSnapshot{
+		.Title = "Opening Target...", .Message = "Loading assets", .ElapsedSeconds = 1.25, .bCanCancel = true};
+	ImVec2 CancelPosition;
+	auto Frame = [&]() {
+		ImGui::NewFrame();
+		ImGui::Begin("ProjectedLoadingHost");
+		const bool bCancel = Presenter.Draw(Feedback);
+		const bool bExpectedModal = Feedback && Feedback->Status == ESlowTaskStatus::Running;
+		const ImGuiWindow* Modal = ImGui::GetTopMostPopupModal();
+		EXPECT_EQ(Modal != nullptr, bExpectedModal);
+		if (Modal)
+			CancelPosition = ImVec2(Modal->DC.CursorPosPrevLine.x - MonaImGui::ScaleUI(35.0f),
+				Modal->DC.CursorPosPrevLine.y + ImGui::GetFrameHeight() * 0.5f);
+		ImGui::End();
+		ImGui::Render();
+		return bCancel;
+	};
+	EXPECT_FALSE(Frame());
+	EXPECT_FALSE(Frame());
+	IO.AddMousePosEvent(CancelPosition.x, CancelPosition.y);
+	EXPECT_FALSE(Frame());
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	EXPECT_FALSE(Frame());
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	EXPECT_TRUE(Frame());
+	EXPECT_FALSE(Feedback->bCancelRequested);
+	Feedback.reset();
+	EXPECT_FALSE(Frame());
+	Feedback = FSlowTaskSnapshot{.Status = ESlowTaskStatus::Failed};
+	EXPECT_FALSE(Frame());
+	Feedback = FSlowTaskSnapshot{.Title = "Next level", .Message = "Preparing initial view"};
+	EXPECT_FALSE(Frame());
+	Feedback->Status = ESlowTaskStatus::Completed;
+	EXPECT_FALSE(Frame());
 }

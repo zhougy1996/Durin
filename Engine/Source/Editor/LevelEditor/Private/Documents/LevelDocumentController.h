@@ -7,6 +7,7 @@
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Engine/HostStartup.h"
+#include "Feedback/SlowTaskWidget.h"
 
 namespace Durin
 {
@@ -96,9 +97,8 @@ namespace Durin::Editor::Level
 		std::string PendingLevelPath;
 		std::string PendingProjectFile;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
-		FLevelLoadingDialogPresenter LoadingDialog;
 		bool bShowLoadingProgress = false;
-		std::string LoadingLevelPath;
+		::Durin::Editor::FSlowTaskDialogPresenter LoadingDialog;
 		std::shared_ptr<FSceneLoadOperation> ActiveSceneLoad, PendingSceneLoad;
 		bool bDefaultStarted = false;
 		EHostStartupState DefaultOpenState = EHostStartupState::Pending;

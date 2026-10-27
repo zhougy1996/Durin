@@ -54,8 +54,29 @@ namespace Durin::Editor::MainFrame
 			}
 		}
 
-		auto DrawActionButton(::Durin::Editor::FNotificationManager& Notifications, const ::Durin::Editor::FNotification& Notification) -> void
+		auto ActionLabel(const ::Durin::Editor::FNotification& Notification) -> const char*
 		{
+			if (Notification.Type == ::Durin::Editor::ENotificationType::Progress && Notification.Cancel)
+				return Notification.bCancelRequested ? "Canceling..." : "Cancel";
+			return Notification.Action ? Notification.Action->Label.c_str() : nullptr;
+		}
+
+		auto DrawNotificationProgress(const ::Durin::Editor::FNotification& Notification, const ImVec4& Accent) -> void
+		{
+			if (Notification.Type != ::Durin::Editor::ENotificationType::Progress) return;
+			const float Progress = Notification.Progress.value_or(-1.0f - static_cast<float>(ImGui::GetTime()));
+			const std::string Overlay = Notification.Progress ? std::format("{}%", static_cast<int>(*Notification.Progress * 100.0f)) : std::string{};
+			ImGui::PushStyleColor(ImGuiCol_PlotHistogram, Accent);
+			ImGui::ProgressBar(Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f), Overlay.c_str());
+			ImGui::PopStyleColor();
+		}
+
+		auto DrawActionButton(::Durin::Editor::FNotificationManager& Notifications, const ::Durin::Editor::FNotification& Notification, bool bRightAlign = false) -> void
+		{
+			const char* Label = ActionLabel(Notification);
+			if (!Label) return;
+			if (bRightAlign)
+				ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(Label).x - ImGui::GetStyle().FramePadding.x * 2.0f);
 			const ImVec4 Accent = MonaImGui::GetThemeColor(ThemeColor(Notification.Type));
 			ImVec4 Button = Accent;
 			Button.w = 0.16f;
@@ -70,7 +91,6 @@ namespace Durin::Editor::MainFrame
 
 			if (Notification.Type == ::Durin::Editor::ENotificationType::Progress && Notification.Cancel)
 			{
-				const char* Label = Notification.bCancelRequested ? "Canceling..." : "Cancel";
 				ImGui::BeginDisabled(Notification.bCancelRequested);
 				if (ImGui::Button(Label)) Notifications.RequestCancel(Notification.Id);
 				ImGui::EndDisabled();
@@ -79,7 +99,7 @@ namespace Durin::Editor::MainFrame
 			{
 				const bool bEnabled = !Notification.Action->IsEnabled || Notification.Action->IsEnabled();
 				ImGui::BeginDisabled(!bEnabled);
-				if (ImGui::Button(Notification.Action->Label.c_str())) Notifications.InvokeAction(Notification.Id);
+				if (ImGui::Button(Label)) Notifications.InvokeAction(Notification.Id);
 				ImGui::EndDisabled();
 			}
 
@@ -184,9 +204,9 @@ namespace Durin::Editor::MainFrame
 						+ ImGui::CalcTextSize(Status->Message.c_str()).x,
 					ImGui::GetContentRegionAvail().x * 0.45f)
 				: ImGui::CalcTextSize("Ready").x;
-			const float ActionWidth = Status && Status->Action
-				? ImGui::CalcTextSize(Status->Action->Label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f
-				: 0.0f;
+			const char* StatusAction = Status ? ActionLabel(*Status) : nullptr;
+			const float ActionWidth = StatusAction
+				? ImGui::CalcTextSize(StatusAction).x + ImGui::GetStyle().FramePadding.x * 2.0f : 0.0f;
 
 			auto DrawToolButton = [&](const std::string& Label, const char* Tooltip,
 				EEditorStatusBarAction Action, float Width = 0.0f) {
@@ -278,7 +298,7 @@ namespace Durin::Editor::MainFrame
 				else ImGui::TextDisabled("Ready");
 
 				ImGui::TableNextColumn();
-				if (Status && Status->Action) DrawActionButton(Notifications, *Status);
+				if (Status) DrawActionButton(Notifications, *Status);
 
 				ImGui::TableNextColumn();
 				DrawToolButton(ActivityLabel, "Activity History",
@@ -365,25 +385,10 @@ namespace Durin::Editor::MainFrame
 				ImGui::TextUnformatted(Notification->Message.c_str());
 				ImGui::PopTextWrapPos();
 
-				if (Notification->Type == ::Durin::Editor::ENotificationType::Progress)
-				{
-					const float Progress = Notification->Progress.value_or(static_cast<float>(std::fmod(ImGui::GetTime() * 0.65, 1.0)));
-					const std::string Overlay = Notification->Progress ? std::format("{}%", static_cast<int>(*Notification->Progress * 100.0f)) : std::string{};
-					ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, MonaImGui::ScaleUI(3.0f));
-					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, Accent);
-					ImGui::ProgressBar(Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f), Overlay.empty() ? nullptr : Overlay.c_str());
-					ImGui::PopStyleColor();
-					ImGui::PopStyleVar();
-				}
-
-				if ((Notification->Type == ::Durin::Editor::ENotificationType::Progress && Notification->Cancel) || Notification->Action)
-				{
-					const char* Label = Notification->Type == ::Durin::Editor::ENotificationType::Progress ?
-						(Notification->bCancelRequested ? "Canceling..." : "Cancel") : Notification->Action->Label.c_str();
-					const float ButtonWidth = ImGui::CalcTextSize(Label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-					ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ButtonWidth);
-					DrawActionButton(Notifications, *Notification);
-				}
+				ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, MonaImGui::ScaleUI(3.0f));
+				DrawNotificationProgress(*Notification, Accent);
+				ImGui::PopStyleVar();
+				DrawActionButton(Notifications, *Notification, true);
 
 				Notifications.SetHovered(Notification->Id, ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
 				const ImVec2 WindowPos = ImGui::GetWindowPos();
@@ -445,19 +450,8 @@ namespace Durin::Editor::MainFrame
 							ImGui::PopStyleColor();
 						}
 
-						if (Notification.Type == ::Durin::Editor::ENotificationType::Progress)
-						{
-							const float Progress = Notification.Progress.value_or(static_cast<float>(std::fmod(ImGui::GetTime() * 0.65, 1.0)));
-							const std::string Overlay = Notification.Progress ? std::format("{}%", static_cast<int>(*Notification.Progress * 100.0f)) : std::string{};
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, Accent);
-							ImGui::ProgressBar(Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f), Overlay.empty() ? nullptr : Overlay.c_str());
-							ImGui::PopStyleColor();
-						}
-
-						if ((Notification.Type == ::Durin::Editor::ENotificationType::Progress && Notification.Cancel) || Notification.Action)
-						{
-							DrawActionButton(Notifications, Notification);
-						}
+						DrawNotificationProgress(Notification, Accent);
+						DrawActionButton(Notifications, Notification);
 						ImGui::Separator();
 						ImGui::PopID();
 					}
