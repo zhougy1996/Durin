@@ -434,8 +434,13 @@ completion-ready or asynchronous-dispatch boolean is needed. CPU assembly change
 back to Running before scheduling, so a canceled/rejected continuation cannot be
 mistaken for another DDC dispatch. The shared Core cancellation token controls terminal classification. Native task
 and DDC request-owner observers latch into the same flag throughout dispatch and
-CPU consumption. Detached synchronous APIs return empty inputs/products on
-cancellation, with no error marker; consumers check the token before using results.
+CPU consumption. Detached render/texture APIs retain their token-based cancellation
+contract. Physics `Capture`, `CookCaptured`, and `Cook` instead return expected values
+with `FPhysicsCookError`: `Cancelled` is explicit and has no input/product value;
+`Failed` carries bounded diagnostic text. A successful empty physics product means
+that no collision was requested. Consumers use the returned outcome rather than
+reinterpreting it through a later token observation; managers still check cancellation
+before publication to reject work cancelled after completion.
 The manager clears canceled output and retains no canceled failure diagnostic.
 Superseded remains a detailed stale-publication reason and physics disposition,
 independently of whether its underlying work was canceled.

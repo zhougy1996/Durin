@@ -9,6 +9,13 @@
 
 namespace Durin
 {
+	enum class EPhysicsCookError : uint8 { Failed, Cancelled };
+	struct FPhysicsCookError
+	{
+		EPhysicsCookError Code = EPhysicsCookError::Failed;
+		std::string Message;
+	};
+
 	struct FPhysicsCookResult
 	{
 		FCollisionGeometryRef Simple;
@@ -34,17 +41,16 @@ namespace Durin
 		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64;
 	};
 
-	// Check Context.Cancellation before using results. Cancelled calls return empty
-	// inputs/products; only genuine failures populate the error channel.
+	// Cancellation is an explicit failure outcome; a successful empty product means no collision was requested.
 	class FPhysicsCookHelper
 	{
 	public:
 		ENGINE_API static auto Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Context = {},
 			EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64)
-			-> std::expected<FPhysicsCookInput, std::string>;
+			-> std::expected<FPhysicsCookInput, FPhysicsCookError>;
 		ENGINE_API static auto CookCaptured(const FPhysicsCookInput& Input, const FAssetBuildTaskContext& Context = {})
-			-> std::expected<FPhysicsCookResult, std::string>;
+			-> std::expected<FPhysicsCookResult, FPhysicsCookError>;
 		ENGINE_API static auto Cook(const FCookBodySetupInfo& Info, const FAssetBuildTaskContext& Context = {})
-			-> std::expected<FPhysicsCookResult, std::string>;
+			-> std::expected<FPhysicsCookResult, FPhysicsCookError>;
 	};
 }

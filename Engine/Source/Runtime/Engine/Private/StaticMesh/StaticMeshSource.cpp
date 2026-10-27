@@ -459,7 +459,7 @@ namespace Durin
 			Control.Check();
 			if (!Payload)
 			{
-				return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::Read, .ReadCause = Payload});
+				return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::Read, .ReadCause = Payload.error()});
 			}
 			const FByteView Bytes = Payload->GetBytes();
 			if (Bytes.size() != Geometry.GetPayloadSize() || Bytes.size() > MaximumStaticMeshSourceBytes)

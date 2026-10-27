@@ -39,7 +39,6 @@ namespace Durin
 	class FBulkDataReadScope
 	{
 	public:
-		FBulkDataReadScope() = default;
 		ENGINE_API ~FBulkDataReadScope();
 		ENGINE_API FBulkDataReadScope(FBulkDataReadScope&& Other) noexcept;
 		ENGINE_API auto operator=(FBulkDataReadScope&& Other) noexcept -> FBulkDataReadScope&;
@@ -58,23 +57,13 @@ namespace Durin
 		friend class FBulkData;
 	};
 
-	enum class EBulkReadStatus : uint8
+	enum class EBulkReadError : uint8 { Empty, Busy, Retired, Cancelled, ReadFailed };
+	struct FBulkReadError
 	{
-		Acquired,
-		Empty,
-		Busy,
-		Retired,
-		ReadFailed
+		EBulkReadError Code = EBulkReadError::ReadFailed;
+		std::string Message;
 	};
-
-	// Admission state is separate from an underlying package I/O failure.
-	struct [[nodiscard]] FBulkDataReadResult
-	{
-		EBulkReadStatus Status = EBulkReadStatus::Empty;
-		FBulkDataReadScope Lock;
-		FPackageResourceReadResult Error;
-		explicit operator bool() const { return static_cast<bool>(Lock); }
-	};
+	using FBulkDataReadResult = std::expected<FBulkDataReadScope, FBulkReadError>;
 
 	// Exclusive mutation lease. Resize rejects oversized input without changing bytes.
 	class FBulkDataWriteScope

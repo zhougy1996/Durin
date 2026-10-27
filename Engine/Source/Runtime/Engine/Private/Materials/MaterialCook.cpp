@@ -166,11 +166,10 @@ namespace Durin
 		auto Read = CookedProgramData.AcquireRead();
 		if (!Read)
 		{
-			MaterialCookDiagnostic = std::format("Material cooked payload read failed [bulk status {}].{}",
-				static_cast<uint8>(Read.Status), !Read.Error ? " " + FormatPackageResourceReadError(Read.Error) : "");
+			MaterialCookDiagnostic = "Material cooked payload read failed: " + Read.error().Message;
 			return;
 		}
-		const FByteView Bytes = Read.Lock.GetBytes();
+		const FByteView Bytes = Read->GetBytes();
 
 		FMaterialStaticProperties PayloadProperties;
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate;
@@ -191,7 +190,7 @@ namespace Durin
 			MaterialCookDiagnostic = Decoded.error();
 			return;
 		}
-		Read.Lock.Reset();
+		Read->Reset();
 		const auto Admitted = AdmitCookedProgram(PayloadProperties, std::move(ProgramCandidate));
 		MaterialCookDiagnostic = Admitted ? std::string{} : Admitted.error();
 	}
@@ -273,7 +272,7 @@ namespace Durin
 			{
 				if (Control.IsCancelled()) return FShaderCompletion::Canceled();
 				std::shared_ptr<const FMaterialCompilerResult> Program;
-				const auto Decoded = DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), TargetPlatform,
+				const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(), TargetPlatform,
 					ECookTargetProfile::Game, Configuration.Quality, Configuration.FeatureLevel, {}, Properties, Program);
 				if (!Decoded) return FShaderCompletion::Failure(Decoded.error());
 				Variants.push_back(std::move(Program));

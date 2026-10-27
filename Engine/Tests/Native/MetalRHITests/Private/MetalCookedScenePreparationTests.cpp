@@ -26,7 +26,7 @@ namespace Durin
 			EXPECT_TRUE(Read);
 			if (!Read) return nullptr;
 			std::shared_ptr<const FMaterialCompilerResult> Program;
-			const auto Decoded = DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), ECookTargetPlatform::MacOS,
+			const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::MacOS,
 				ECookTargetProfile::Game, GetMaterialQualityLevel(), ERHIFeatureLevel::SM5, {}, Properties, Program);
 			EXPECT_TRUE(Decoded) << Decoded.error();
 			return Program;

@@ -39,11 +39,11 @@ namespace Durin
 				.Source = std::move(Buffer)});
 		}
 
-		auto ErrorResult(EPackageResourceReadStatus Status, EPackageResourceReadReason Reason)
+		auto ErrorResult(EPackageResourceReadStatus Status, std::string Message)
 			-> FPackageResourceRequest
 		{
 			return FPackageResourceRequest::Completed(std::unexpected(FPackageResourceReadError{
-				.Status = Status, .Reason = Reason}));
+				.Status = Status, .Message = std::move(Message)}));
 		}
 
 		auto RequestPayload(const std::shared_ptr<const FState>& Snapshot)
@@ -54,7 +54,7 @@ namespace Durin
 			const FPackageResourceRange& Range = std::get<FPackageResourceRange>(Snapshot->Source);
 			if (!Range.Resource)
 				return ErrorResult(EPackageResourceReadStatus::MissingSegment,
-					EPackageResourceReadReason::MissingSource);
+					"Editor bulk payload has no memory or package source.");
 			return FPackageResourceRequest::Transform(
 				Range.Resource->ReadRangeAsync(Range.SegmentOffset, Range.StoredSize),
 				[ExpectedSize = Snapshot->LogicalSize, ExpectedId = Snapshot->ContentId](
@@ -64,9 +64,8 @@ namespace Durin
 						const auto Digest = FXxHash128::HashBuffer(Result->GetBytes());
 						if (Result->GetSize() != ExpectedSize || Digest != ExpectedId)
 							return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::SegmentDigestMismatch,
-								.Reason = EPackageResourceReadReason::ContentMismatch,
-								.Actual = Result->GetSize(), .Expected = ExpectedSize,
-								.ActualDigest = Digest, .ExpectedDigest = ExpectedId});
+								.Message = std::format("Editor bulk content mismatch: actual size {}, expected {}; actual digest {}, expected {}.",
+									Result->GetSize(), ExpectedSize, Digest.ToString(), ExpectedId.ToString())});
 					}
 					return Result;
 				});

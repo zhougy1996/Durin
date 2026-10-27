@@ -288,11 +288,9 @@ namespace Durin
 					if (!Data) return std::unexpected(Data.error());
 					CookInfo.TriangleMeshDesc = std::move(*Data);
 					auto Input = FPhysicsCookHelper::Capture(std::move(CookInfo), Control, static_cast<EAssetPayloadTargetPlatform>(Platform));
-					if (Control.IsCancelled()) return std::unexpected("Cook collision capture was cancelled.");
-					if (!Input) return std::unexpected(Input.error());
+					if (!Input) return std::unexpected(Input.error().Message);
 					auto Built = FPhysicsCookHelper::CookCaptured(*Input, Control);
-					if (Control.IsCancelled()) return std::unexpected("Cook collision construction was cancelled.");
-					if (!Built) return std::unexpected(Built.error());
+					if (!Built) return std::unexpected(Built.error().Message);
 					const auto& Geometry = Input->GetMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Built->Simple : Built->Complex;
 					FPhysicsCollisionPayloadData Payload;
 					if (const auto Made = MakePhysicsCollisionPayloadData(Geometry, Payload); !Made)
@@ -473,12 +471,12 @@ namespace Durin
 		case ECookedMeshLoadError::RenderRead:
 		case ECookedMeshLoadError::CollisionRead:
 			return Error.ReadCause ? FormatPackageResourceReadError(*Error.ReadCause)
-				: "Cooked mesh payload read failed.";
+				: !Error.Diagnostic.empty() ? Error.Diagnostic : "Cooked mesh payload read failed.";
 		case ECookedMeshLoadError::Product:
 			return Error.ProductCause ? FormatCookedMeshProductError(*Error.ProductCause)
 				: "Cooked mesh product decoding failed.";
 		case ECookedMeshLoadError::Publication:
-			return !Error.PublicationDiagnostic.empty() ? Error.PublicationDiagnostic
+			return !Error.Diagnostic.empty() ? Error.Diagnostic
 				: "Cooked mesh publication failed.";
 		}
 		return "Unknown cooked mesh load failure.";
@@ -490,16 +488,17 @@ namespace Durin
 			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
 		auto Read = CookedRenderData.AcquireRead();
 		if (!Read) return {.Error = {.Code = ECookedMeshLoadError::RenderRead, .Owner = FObjectKey(this),
-			.ReadCause = std::make_shared<FPackageResourceReadResult>(std::move(Read.Error))}};
-		const FByteView Bytes = Read.Lock.GetBytes();
-		FBulkDataReadResult CollisionRead;
+			.Diagnostic = std::move(Read.error().Message)}};
+		const FByteView Bytes = Read->GetBytes();
+		std::optional<FBulkDataReadScope> CollisionRead;
 		FByteView CollisionBytes;
 		if (bRequiresCollision)
 		{
-			CollisionRead = CookedCollisionData.AcquireRead();
-			if (!CollisionRead) return {.Error = {.Code = ECookedMeshLoadError::CollisionRead, .Owner = FObjectKey(this),
-				.ReadCause = std::make_shared<FPackageResourceReadResult>(std::move(CollisionRead.Error))}};
-			CollisionBytes = CollisionRead.Lock.GetBytes();
+			auto CollisionResult = CookedCollisionData.AcquireRead();
+			if (!CollisionResult) return {.Error = {.Code = ECookedMeshLoadError::CollisionRead, .Owner = FObjectKey(this),
+				.Diagnostic = std::move(CollisionResult.error().Message)}};
+			CollisionRead.emplace(std::move(*CollisionResult));
+			CollisionBytes = CollisionRead->GetBytes();
 		}
 
 		FStaticMeshCookedProduct Product;
@@ -513,15 +512,15 @@ namespace Durin
 			return {.Error = {.Code = ECookedMeshLoadError::Product, .Owner = FObjectKey(this),
 				.ProductCause = std::make_shared<FCookedMeshProductError>(Result.Error)}};
 		}
-		CollisionRead.Lock.Reset();
-		Read.Lock.Reset();
+		CollisionRead.reset();
+		Read->Reset();
 
 		FStaticMeshRenderStateRecreateContext Refresh(this);
 		if (const auto Published = CommitPreparedMeshData(
 			std::move(Product.RenderData), nullptr); !Published)
 		{
 			return {.Error = {.Code = ECookedMeshLoadError::Publication, .Owner = FObjectKey(this),
-				.PublicationDiagnostic = Published.error()}};
+				.Diagnostic = Published.error()}};
 		}
 		if (bRequiresCollision)
 		{
@@ -621,7 +620,7 @@ namespace Durin
 					std::move(Product.RenderData), nullptr); !Published)
 				{
 					return {.Error = {.Code = ECookedMeshLoadError::Publication,
-						.PublicationDiagnostic = Published.error()}};
+						.Diagnostic = Published.error()}};
 				}
 				if (Product.bHasCollision)
 				{

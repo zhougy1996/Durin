@@ -173,7 +173,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(ResavedRead);
 	Durin::FMaterialStaticProperties ResavedProperties;
 	std::shared_ptr<const Durin::FMaterialCompilerResult> ResavedProgram;
-	ASSERT_TRUE(Durin::DecodeMaterialCookedProgramFamily(ResavedRead.Lock.GetBytes(),
+	ASSERT_TRUE(Durin::DecodeMaterialCookedProgramFamily(ResavedRead->GetBytes(),
 		Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, Durin::GetMaterialQualityLevel(), Durin::ERHIFeatureLevel::SM5, {}, ResavedProperties, ResavedProgram));
 	EXPECT_EQ(ResavedProgram->GetShaderMap().ShaderMapId, ExpectedIdentity);
@@ -253,7 +253,6 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		VariantIdentities[Index] = Durin::Testing::ExpectedGameMaterialIdentity(*Variant);
 		ASSERT_TRUE(Durin::FObjectPath::TryCreate(Variant->GetObjectPath(), VariantPaths[Index]));
 	}
-
 
 	// A transient instance inside the authored package must not need its own
 	// compiled payload or enter the cooked package graph.
