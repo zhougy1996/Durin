@@ -1,5 +1,5 @@
 #include "Engine/Engine.h"
-#include "Engine/SceneLoadOperation.h"
+#include "Engine/MapChangeHandler.h"
 #include "Rendering/ViewportPresentation.h"
 
 #include "Asset/CookedMeshLoadManager.h"
@@ -257,6 +257,7 @@ namespace Durin
 	{
 		PrepareForShutdown();
 		ClearGameInputWindow();
+		MapChange.reset();
 		if (MainWorld) MainWorld->Shutdown();
 		AuxiliarySceneViewports.clear();
 		MainSceneViewport.reset();
@@ -325,9 +326,9 @@ namespace Durin
 
 	auto DEngine::CloseSubsystemWork() -> void
 	{
-		const auto Loads = SceneLoads;
-		for (const auto& Owner : Loads) if (const auto Loading = Owner.lock()) Loading->Cancel();
-		SceneLoads.clear();
+		CancelPendingMapChange();
+		// Host retirement closes callback owners before another ordinary frame.
+		if (MapChange) MapChange->OnComplete = {};
 		EngineSubsystems.CloseWork();
 		const auto Contexts = WorldContexts;
 		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->RequestShutdown();
@@ -353,7 +354,7 @@ namespace Durin
 
 	auto DEngine::RedrawViewports() -> void
 	{
-		SubmitPendingScenes();
+		SubmitPendingMapChange();
 		if (bShutdownRequested || (GetStartupState() != EHostStartupState::Ready && !ShouldDrawStartupScene())) return;
 		auto RenderTargetViewport = [this](const std::shared_ptr<FSceneViewport>& SceneViewport, bool bAllowCameraFallback) {
 			if (SceneViewport == nullptr || SceneViewport->IsWindowBacked()) return;
@@ -498,49 +499,66 @@ namespace Durin
 		});
 	}
 
-	auto DEngine::CreateSceneLoad(FSceneLoadRequest Request) -> std::shared_ptr<FSceneLoadOperation>
+	auto DEngine::PrepareMapChange(FMapChangeRequest Request) -> bool
 	{
 		CheckGameThread();
-		auto Loading = std::shared_ptr<FSceneLoadOperation>(new FSceneLoadOperation(*this, std::move(Request), !bShutdownRequested));
-		SceneLoads.emplace_back(Loading);
-		return Loading;
+		if (bShutdownRequested || MapChange) return false;
+		LastMapChangeProgress.reset();
+		MapChange.reset(new FMapChangeHandler(*this, std::move(Request)));
+		return true;
 	}
-	auto DEngine::SubmitPendingScenes() -> void
+	auto DEngine::OpenLevel(FMapChangeRequest Request) -> bool
 	{
-		if (bShutdownRequested) return;
-		FHostOperationScope Operation(*this);
-		std::erase_if(SceneLoads, [](const auto& Owner) { return Owner.expired(); });
-		const auto Loads = SceneLoads;
-		for (const auto& Owner : Loads) if (const auto Loading = Owner.lock()) Loading->SubmitView();
+		return PrepareMapChange(std::move(Request)) && CommitMapChange();
 	}
-	auto DEngine::HasPendingSceneLoad() const -> bool
+	auto DEngine::OpenLevel(const FObjectPath& Path) -> bool
 	{
-		for (const auto& Owner : SceneLoads) if (const auto Loading = Owner.lock())
-		{
-			const auto Phase = Loading->GetProgress().Phase;
-			if (Phase != ESceneLoadPhase::Committed && Phase != ESceneLoadPhase::Canceled && Phase != ESceneLoadPhase::Failed) return true;
-		}
-		return false;
+		return OpenLevel(FMapChangeRequest{.Path = Path});
 	}
-	auto DEngine::GetSceneLoadProgress() const -> std::optional<FSceneLoadProgress>
+	auto DEngine::CommitMapChange() -> bool
 	{
 		CheckGameThread();
-		for (const auto& Owner : SceneLoads) if (const auto Loading = Owner.lock())
-		{
-			const auto Progress = Loading->GetProgress();
-			if (Progress.Phase != ESceneLoadPhase::Committed && Progress.Phase != ESceneLoadPhase::Canceled && Progress.Phase != ESceneLoadPhase::Failed)
-				return Progress;
-		}
-		return {};
+		if (bShutdownRequested || !MapChange) return false;
+		const auto Phase = MapChange->GetProgress().Phase;
+		if (Phase == EMapChangePhase::Committed || Phase == EMapChangePhase::Canceled || Phase == EMapChangePhase::Failed) return false;
+		MapChange->bCommitRequested = true;
+		return true;
 	}
-	// Only the ordinary frame advances operations; modal and UI callbacks observe them.
-	auto DEngine::AdvanceSceneLoads() -> void
+	auto DEngine::CancelPendingMapChange() -> void
 	{
-		if (bShutdownRequested) return;
+		CheckGameThread();
+		if (MapChange) MapChange->Cancel();
+	}
+	auto DEngine::SubmitPendingMapChange() -> void
+	{
+		if (bShutdownRequested || !MapChange) return;
 		FHostOperationScope Operation(*this);
-		std::erase_if(SceneLoads, [](const auto& Owner) { return Owner.expired(); });
-		const auto Loads = SceneLoads;
-		for (const auto& Owner : Loads) if (const auto Loading = Owner.lock()) Loading->Advance();
+		MapChange->SubmitView();
+	}
+	auto DEngine::IsPreparingMapChange() const -> bool { return MapChange != nullptr; }
+	auto DEngine::IsMapChangeReady() const -> bool
+	{
+		CheckGameThread();
+		return MapChange && MapChange->GetProgress().Phase == EMapChangePhase::Ready;
+	}
+	auto DEngine::GetMapChangeProgress() const -> std::optional<FMapChangeProgress>
+	{
+		CheckGameThread();
+		return MapChange ? MapChange->GetProgress() : LastMapChangeProgress;
+	}
+	// Only the ordinary frame advances and completes changes; UI callbacks request work.
+	auto DEngine::TickMapChange() -> void
+	{
+		if (bShutdownRequested || !MapChange) return;
+		FHostOperationScope Operation(*this);
+		MapChange->Advance();
+		if (IsMapChangeReady() && MapChange->bCommitRequested) MapChange->Commit();
+		const auto Progress = MapChange->GetProgress();
+		if (Progress.Phase != EMapChangePhase::Committed && Progress.Phase != EMapChangePhase::Canceled && Progress.Phase != EMapChangePhase::Failed) return;
+		auto OnComplete = std::move(MapChange->OnComplete);
+		LastMapChangeProgress = Progress;
+		MapChange.reset();
+		if (OnComplete) OnComplete(Progress);
 	}
 	auto DEngine::AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void
 	{

@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-10-26
+Last reviewed: 2026-10-27
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -184,19 +184,39 @@ pumpable. Candidate scene submissions run within normal RHI framing. After
 document commit the active scene may draw while startup still awaits its actual
 primary-window composition/presentation receipt. That gate does not read profiling.
 
-Editor default/open-Level and authored/cooked Game loading share
-`FSceneLoadOperation`. Callers submit one `FSceneLoadRequest` with the asset
-path, optional BeginPlay policy and optional initial-view builder. The ordinary
-Engine frame advances operations after completions and submits candidate views
-inside `RedrawViewports`; UI and modal callbacks never drive operation stages.
-Callers read one `FSceneLoadProgress` snapshot, then cancel or explicitly commit.
-Closed admission returns a failed operation through the same diagnostic channel.
-Editor view builders capture persisted camera state and viewport parameters by
-value. Engine reports typed progress; MainFrame owns its display text.
-The operation retains an asynchronous asset handle, prepares required products,
-initializes an isolated World/Scene, and renders an initial candidate view before
-explicit commit. Failure or cancellation retires the candidate and
-preserves the old document. Native World initialization/registration callbacks
+Editor default/open-Level and authored/cooked Game loading share Engine-owned
+map changes. `OpenLevel(FMapChangeRequest)` prepares and schedules activation;
+ordinary callers do not own a loading operation or poll to commit it.
+`PrepareMapChange`, `IsPreparingMapChange`, `IsMapChangeReady`,
+`CommitMapChange`, and `CancelPendingMapChange` support explicit staged control.
+Only one change can be pending per Engine. Closed admission or an already pending
+change rejects a new request without changing the existing progress.
+
+The private `FMapChangeHandler` retains the asynchronous asset handle, prepares
+required products, initializes an isolated World/Scene, and renders an initial
+candidate view. The ordinary Engine frame advances preparation after completions
+and submits candidate views inside `RedrawViewports`; UI/modal callbacks never
+drive stages. Only Pending render receipts may be resubmitted. A successful
+receipt remains idle until the next preparation advance consumes it.
+`CommitMapChange` accepts a request for activation once ready; it never replaces
+the World inline. Failure or cancellation retires the candidate and preserves
+the old document.
+
+Requests may supply an initial-view builder, a `BeforeCommit` veto and an
+`OnComplete` notification. Editor view builders capture persisted camera state
+and viewport parameters by value. Editor document/transaction and viewport
+coordination uses these callbacks rather than a separate polling state machine.
+Callbacks run on GameThread under the host lifecycle/GC guard. Completion is
+delivered once at an ordinary frame boundary after releasing the Handler; it
+may start another change. Host shutdown discards callbacks before retiring their
+owners. Closing an editor document invalidates its deferred callback lifetime.
+
+`GetMapChangeProgress` returns a value snapshot of current preparation or the
+last terminal result, with frozen terminal timing. MainFrame/LevelEditor project
+this business progress directly into SlowTask display. On successful commit,
+asset residency transfers to the active World and is released when its Level is
+replaced or detached. No completed loading Handler is retained by callers.
+Native World initialization/registration callbacks
 and package object application remain atomic owner-thread work. Game BeginPlay
 runs once on the candidate; its spawned products are recollected before rendering.
 Simulation and input wait until the committed generation has actually presented.

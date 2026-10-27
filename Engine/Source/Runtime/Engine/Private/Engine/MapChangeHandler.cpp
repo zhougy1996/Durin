@@ -1,4 +1,4 @@
-#include "Engine/SceneLoadOperation.h"
+#include "Engine/MapChangeHandler.h"
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -25,12 +25,12 @@
 
 namespace Durin
 {
-	struct FSceneLoadOperation::FImpl
+	struct FMapChangeHandler::FImpl
 	{
 		DEngine& Host;
 		EWorldType Type;
 		uint64 Id;
-		ESceneLoadPhase Phase = ESceneLoadPhase::LoadingAssets;
+		EMapChangePhase Phase = EMapChangePhase::LoadingAssets;
 		std::chrono::steady_clock::time_point Started = std::chrono::steady_clock::now(), PhaseStarted = Started;
 		std::string Error;
 		std::shared_ptr<FAsyncLoadHandle> Assets;
@@ -51,12 +51,12 @@ namespace Durin
 		struct FViewResult { std::atomic<bool> InFlight = false; std::atomic<ERenderViewResult> Result = ERenderViewResult::RendererResourcesPending; };
 		std::shared_ptr<FViewResult> ViewResult = std::make_shared<FViewResult>();
 		uint32 ViewAttempts = 0;
-		auto SetPhase(ESceneLoadPhase Next) -> void
+		auto SetPhase(EMapChangePhase Next) -> void
 		{
 			if (Phase == Next) return;
 			const auto Now = std::chrono::steady_clock::now();
 			DURIN_DEBUG("Scene operation {}: {} -> {} (phase elapsed {:.2f} ms)", Id,
-				GetSceneLoadPhaseLabel(Phase), GetSceneLoadPhaseLabel(Next),
+				GetMapChangePhaseLabel(Phase), GetMapChangePhaseLabel(Next),
 				std::chrono::duration<double, std::milli>(Now - PhaseStarted).count());
 			Phase = Next; PhaseStarted = Now;
 		}
@@ -70,7 +70,7 @@ namespace Durin
 		auto Fail(std::string Cause) -> void
 		{
 			Error = std::format("Scene operation {}: {}", Id, Cause);
-			SetPhase(ESceneLoadPhase::Failed);
+			SetPhase(EMapChangePhase::Failed);
 			RetireCandidate();
 			Assets.reset();
 		}
@@ -205,20 +205,21 @@ namespace Durin
 		}
 	};
 
-	FSceneLoadOperation::FSceneLoadOperation(DEngine& Host, FSceneLoadRequest Request, bool bAdmitted)
+	FMapChangeHandler::FMapChangeHandler(DEngine& Host, FMapChangeRequest Request)
 	{
 		CheckGameThread();
 		static uint64 NextId = 0;
 		Impl = std::make_unique<FImpl>(Host, Host.GetInitialWorldType(), ++NextId);
 		DURIN_DEBUG("Scene operation {}: loading {}", Impl->Id, Request.Path.ToString());
-		if (!bAdmitted) { Impl->Fail("Scene admission is closed."); return; }
+		BeforeCommit = std::move(Request.BeforeCommit);
+		OnComplete = std::move(Request.OnComplete);
 		Impl->bPlayRequested = Request.GameMode.has_value();
 		Impl->GameMode = Request.GameMode.value_or(nullptr);
 		Impl->BuildInitialView = std::move(Request.BuildInitialView);
 		Impl->Assets = RequestAsyncLoad(Request.Path, {}, DLevel::StaticClass());
 	}
-	FSceneLoadOperation::~FSceneLoadOperation() { Cancel(); }
-	auto FSceneLoadOperation::GetProgress() const -> FSceneLoadProgress
+	FMapChangeHandler::~FMapChangeHandler() { Cancel(); }
+	auto FMapChangeHandler::GetProgress() const -> FMapChangeProgress
 	{
 		CheckGameThread();
 		const auto Now = std::chrono::steady_clock::now();
@@ -226,23 +227,23 @@ namespace Durin
 			std::chrono::duration<double>(Now - Impl->PhaseStarted).count(), Impl->bCollected,
 			Impl->Meshes.size(), Impl->Materials.size(), Impl->Programs.size(), Impl->Error};
 	}
-	auto FSceneLoadOperation::GetLevel() const -> DLevel* { return Impl->Assets ? Cast<DLevel>(Impl->Assets->GetLoadedObject()) : nullptr; }
-	auto FSceneLoadOperation::Cancel() -> void
+	auto FMapChangeHandler::GetLevel() const -> DLevel* { return Impl->Assets ? Cast<DLevel>(Impl->Assets->GetLoadedObject()) : nullptr; }
+	auto FMapChangeHandler::Cancel() -> void
 	{
 		CheckGameThread();
-		if (Impl->Phase == ESceneLoadPhase::Committed || Impl->Phase == ESceneLoadPhase::Canceled || Impl->Phase == ESceneLoadPhase::Failed) return;
+		if (Impl->Phase == EMapChangePhase::Committed || Impl->Phase == EMapChangePhase::Canceled || Impl->Phase == EMapChangePhase::Failed) return;
 		if (Impl->bAdvancing)
 		{
 			Impl->bCancelRequested = true;
 			if (Impl->World) Impl->World->RequestShutdown();
 			return;
 		}
-		Impl->SetPhase(ESceneLoadPhase::Canceled);
+		Impl->SetPhase(EMapChangePhase::Canceled);
 		if (Impl->Assets) Impl->Assets->Cancel();
 		Impl->RetireCandidate();
 		Impl->Assets.reset();
 	}
-	auto FSceneLoadOperation::Advance() -> void
+	auto FMapChangeHandler::Advance() -> void
 	{
 		CheckGameThread();
 		auto& Loading = *Impl;
@@ -250,16 +251,16 @@ namespace Durin
 		Loading.bAdvancing = true;
 		struct FAdvanceScope
 		{
-			FSceneLoadOperation& Owner;
+			FMapChangeHandler& Owner;
 			FImpl& Loading;
-			const ESceneLoadPhase Phase = Loading.Phase;
+			const EMapChangePhase Phase = Loading.Phase;
 			const std::chrono::steady_clock::time_point Started = std::chrono::steady_clock::now();
 			~FAdvanceScope()
 			{
 				Loading.bAdvancing = false;
 				const double Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count();
 				if (Milliseconds >= 16.0)
-					DURIN_DEBUG("Scene timing: operation {} / {} / {:.2f} ms (GameThread).", Loading.Id, GetSceneLoadPhaseLabel(Phase), Milliseconds);
+					DURIN_DEBUG("Scene timing: operation {} / {} / {:.2f} ms (GameThread).", Loading.Id, GetMapChangePhaseLabel(Phase), Milliseconds);
 				if (Loading.bCancelRequested) Owner.Cancel();
 			}
 		} Scope{*this, Loading};
@@ -267,20 +268,20 @@ namespace Durin
 		{
 		switch (Loading.Phase)
 		{
-		case ESceneLoadPhase::LoadingAssets:
+		case EMapChangePhase::LoadingAssets:
 			if (!Loading.Assets->IsComplete()) return;
 			if (!Loading.Assets->GetResult()) return Loading.Fail(Loading.Assets->GetResult().error().Message);
 			if (!GetLevel()) return Loading.Fail("required Level is missing.");
-			Loading.SetPhase(ESceneLoadPhase::PreparingProducts);
+			Loading.SetPhase(EMapChangePhase::PreparingProducts);
 			return;
-		case ESceneLoadPhase::PreparingProducts:
+		case EMapChangePhase::PreparingProducts:
 		{
 			const auto Products = Loading.PrepareProducts(*GetLevel());
 			if (!Products) return Loading.Fail(Products.error());
-			if (*Products) Loading.SetPhase(Loading.bWorldRegistered ? ESceneLoadPhase::PreparingView : ESceneLoadPhase::RegisteringWorld);
+			if (*Products) Loading.SetPhase(Loading.bWorldRegistered ? EMapChangePhase::PreparingView : EMapChangePhase::RegisteringWorld);
 			return;
 		}
-		case ESceneLoadPhase::RegisteringWorld:
+		case EMapChangePhase::RegisteringWorld:
 			if (!Loading.Host.GetRendererModule()) return Loading.Fail("renderer services are unavailable.");
 			Loading.Scene = Loading.Host.GetRendererModule()->CreateScene();
 			if (!Loading.Scene) return Loading.Fail("candidate scene creation failed.");
@@ -303,12 +304,12 @@ namespace Durin
 				// stopped-in-time scene before enabling input or simulation.
 				Loading.Meshes.clear(); Loading.Materials.clear(); Loading.MaterialBindings.clear();
 				Loading.NextMaterial = 0; Loading.bCollected = false;
-				Loading.SetPhase(ESceneLoadPhase::PreparingProducts);
+				Loading.SetPhase(EMapChangePhase::PreparingProducts);
 				return;
 			}
-			Loading.SetPhase(ESceneLoadPhase::PreparingView);
+			Loading.SetPhase(EMapChangePhase::PreparingView);
 			return;
-		case ESceneLoadPhase::PreparingView:
+		case EMapChangePhase::PreparingView:
 		{
 			const auto Components = Loading.PrepareComponents();
 			if (!Components) return Loading.Fail(Components.error());
@@ -349,7 +350,7 @@ namespace Durin
 				Loading.InitialView->bDiscardHistory = true;
 			}
 			if (Loading.ViewResult->InFlight.load(std::memory_order_acquire)) return;
-			if (Loading.ViewResult->Result == ERenderViewResult::Success) Loading.SetPhase(ESceneLoadPhase::Ready);
+			if (Loading.ViewResult->Result == ERenderViewResult::Success) Loading.SetPhase(EMapChangePhase::Ready);
 			else if (Loading.ViewResult->Result != ERenderViewResult::RendererResourcesPending) Loading.Fail("required initial view resources failed.");
 			return;
 		}
@@ -359,11 +360,11 @@ namespace Durin
 		catch (const std::exception& Error) { Loading.Fail(Error.what()); }
 		catch (...) { Loading.Fail("native scene preparation threw an exception."); }
 	}
-	auto FSceneLoadOperation::SubmitView() -> void
+	auto FMapChangeHandler::SubmitView() -> void
 	{
 		CheckGameThread();
 		auto& Loading = *Impl;
-		if (Loading.Phase != ESceneLoadPhase::PreparingView || !Loading.bComponentsReady || !Loading.InitialView
+		if (Loading.Phase != EMapChangePhase::PreparingView || !Loading.bComponentsReady || !Loading.InitialView
 			|| Loading.ViewResult->InFlight.load(std::memory_order_acquire)
 			|| Loading.ViewResult->Result.load() != ERenderViewResult::RendererResourcesPending) return;
 		// Only GameThread submits. Once RenderThread publishes a terminal receipt,
@@ -393,22 +394,35 @@ namespace Durin
 		catch (const std::exception& Error) { Loading.Fail(Error.what()); }
 		catch (...) { Loading.Fail("initial view submission threw an exception."); }
 	}
-	auto FSceneLoadOperation::Commit() -> bool
+	auto FMapChangeHandler::Commit() -> bool
 	{
 		CheckGameThread();
-		if (Impl->Phase != ESceneLoadPhase::Ready || !Impl->World || Impl->World->IsShutdownRequested()) return false;
+		if (Impl->Phase != EMapChangePhase::Ready || !Impl->World || Impl->World->IsShutdownRequested()) return false;
 		if (Impl->bAdvancing) return false;
 		Impl->bAdvancing = true;
 		struct FCommitScope
 		{
-			FSceneLoadOperation& Owner;
+			FMapChangeHandler& Owner;
 			FImpl& Loading;
 			~FCommitScope() { Loading.bAdvancing = false; if (Loading.bCancelRequested) Owner.Cancel(); }
 		} Scope{*this, *Impl};
+		auto PrepareCommit = std::move(BeforeCommit);
+		try
+		{
+			if (PrepareCommit && !PrepareCommit(*GetLevel()))
+			{
+				Impl->Fail("Map activation was rejected by the caller.");
+				return false;
+			}
+		}
+		catch (const std::exception& Error) { Impl->Fail(Error.what()); return false; }
+		catch (...) { Impl->Fail("Map activation callback threw an exception."); return false; }
+		if (Impl->bCancelRequested || Impl->World->IsShutdownRequested()) return false;
+		Impl->World->LevelResidency = std::move(Impl->Assets);
 		Impl->Host.AdoptSceneWorld(Impl->World.Get(), std::move(Impl->Scene), Impl->Id);
 		Impl->World.Reset();
 		Impl->Output = nullptr;
-		Impl->SetPhase(ESceneLoadPhase::Committed);
+		Impl->SetPhase(EMapChangePhase::Committed);
 		return true;
 	}
 }

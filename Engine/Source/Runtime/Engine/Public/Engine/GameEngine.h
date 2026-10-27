@@ -8,7 +8,6 @@
 
 namespace Durin
 {
-	struct FGameStartupPreparation;
 	// Initializes the runtime engine with the active game world and main viewport.
 	DCLASS(NoClassDefaultObject)
 	class DGameEngine : public DEngine
@@ -24,7 +23,7 @@ namespace Durin
 		auto GetStartupState() const -> EHostStartupState override
 		{
 			return !StartupError.empty() ? EHostStartupState::Failed
-				: StartupPreparation ? EHostStartupState::Pending : EHostStartupState::Ready;
+				: bStartupPending ? EHostStartupState::Pending : EHostStartupState::Ready;
 		}
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto RequestGameMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool;
@@ -40,8 +39,7 @@ namespace Durin
 		auto HandleGameInputMouseDown(const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button) -> bool override;
 
 	private:
-		std::shared_ptr<FGameStartupPreparation> StartupPreparation;
-		std::shared_ptr<FSceneLoadOperation> ActiveSceneLoad;
+		bool bStartupPending = false;
 		std::string StartupError;
 		std::weak_ptr<FGenericWindow> CapturedMouseWindow;
 

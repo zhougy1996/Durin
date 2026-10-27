@@ -1,5 +1,5 @@
 #include "WorldTestSupport.h"
-#include "Engine/SceneLoadOperation.h"
+#include "Engine/MapChange.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -706,7 +706,15 @@ TEST(FWorldTests, SceneReplacementPreservesPlayingComponentLifecycleAndBoundTime
 	World->EndPlay(); Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
 }
 
-TEST(FWorldTests, CanceledSceneOperationPreservesTheActiveWorldAndCannotCommit)
+namespace Durin
+{
+	struct FMapChangeTestAccess
+	{
+		static auto Tick(DEngine& Engine) -> void { Engine.TickMapChange(); }
+	};
+}
+
+TEST(FWorldTests, CanceledMapChangePreservesTheActiveWorldAndCompletesAtTheFrameBoundary)
 {
 	using namespace Durin;
 	const std::array MountDefinitions{FMountPoint{.VirtualRoot = "/SceneCancellation/", .Owner = EMountOwner::Test,
@@ -720,39 +728,80 @@ TEST(FWorldTests, CanceledSceneOperationPreservesTheActiveWorldAndCannotCommit)
 	auto* Level = Previous->GetCurrentLevel();
 	FObjectPath Path;
 	ASSERT_TRUE(FObjectPath::TryCreate("/SceneCancellation/Candidate.Candidate", Path));
-	{
-		bool bBuiltView = false;
-		auto Loading = Host->CreateSceneLoad({.Path = Path, .BuildInitialView = [&](const DWorld&) -> std::expected<FSceneView, std::string> {
+	int Completions = 0;
+	bool bBuiltView = false;
+	ASSERT_TRUE(Host->PrepareMapChange({.Path = Path,
+		.BuildInitialView = [&](const DWorld&) -> std::expected<FSceneView, std::string> {
 			bBuiltView = true;
 			return std::unexpected("Canceled requests must not build a view.");
-		}});
-		EXPECT_TRUE(Host->HasPendingSceneLoad());
-		ASSERT_TRUE(Host->GetSceneLoadProgress());
-		EXPECT_EQ(Host->GetSceneLoadProgress()->Id, Loading->GetProgress().Id);
-		EXPECT_EQ(Loading->GetProgress().Phase, ESceneLoadPhase::LoadingAssets);
-		Loading->Cancel();
-		Loading->Cancel();
-		EXPECT_EQ(Loading->GetProgress().Phase, ESceneLoadPhase::Canceled);
-		EXPECT_FALSE(Host->HasPendingSceneLoad());
-		EXPECT_FALSE(Host->GetSceneLoadProgress());
-		EXPECT_FALSE(bBuiltView);
-		EXPECT_FALSE(Loading->Commit());
-		EXPECT_EQ(Host->GetWorld(), Previous);
-		EXPECT_EQ(Previous->GetCurrentLevel(), Level);
-		EXPECT_FALSE(Previous->IsShutdownRequested());
-	}
+		},
+		.OnComplete = [&](const FMapChangeProgress& Progress) {
+			++Completions;
+			EXPECT_EQ(Progress.Phase, EMapChangePhase::Canceled);
+			EXPECT_FALSE(Host->IsPreparingMapChange());
+		}}));
+	EXPECT_FALSE(Host->PrepareMapChange({.Path = Path}));
+	EXPECT_FALSE(Host->OpenLevel(Path));
+	EXPECT_TRUE(Host->IsPreparingMapChange());
+	EXPECT_FALSE(Host->IsMapChangeReady());
+	EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::LoadingAssets);
+	EXPECT_TRUE(Host->CommitMapChange()); // Only schedules work; never commits inline.
+	EXPECT_EQ(Host->GetWorld(), Previous);
+	Host->CancelPendingMapChange();
+	Host->CancelPendingMapChange();
+	EXPECT_EQ(Completions, 0);
+	EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::Canceled);
+	EXPECT_FALSE(Host->CommitMapChange());
+	FMapChangeTestAccess::Tick(*Host);
+	FMapChangeTestAccess::Tick(*Host);
+	EXPECT_EQ(Completions, 1);
+	EXPECT_FALSE(Host->IsPreparingMapChange());
+	EXPECT_FALSE(bBuiltView);
+	EXPECT_EQ(Host->GetWorld(), Previous);
+	EXPECT_EQ(Previous->GetCurrentLevel(), Level);
+	EXPECT_FALSE(Previous->IsShutdownRequested());
+	const auto Completed = Host->GetMapChangeProgress();
+	ASSERT_TRUE(Completed);
+	EXPECT_EQ(Completed->Phase, EMapChangePhase::Canceled);
+	EXPECT_EQ(Host->GetMapChangeProgress()->ElapsedSeconds, Completed->ElapsedSeconds);
 	Host->PrepareForShutdown();
-	{
-		auto Rejected = Host->CreateSceneLoad({.Path = Path});
-		ASSERT_TRUE(Rejected);
-		EXPECT_EQ(Rejected->GetProgress().Phase, ESceneLoadPhase::Failed);
-		EXPECT_NE(Rejected->GetProgress().Diagnostic.find("admission is closed"), std::string::npos);
-		EXPECT_EQ(Rejected->GetLevel(), nullptr);
-		EXPECT_FALSE(Rejected->Commit());
-		EXPECT_FALSE(Host->HasPendingSceneLoad());
-	}
+	EXPECT_FALSE(Host->PrepareMapChange({.Path = Path}));
+	EXPECT_FALSE(Host->OpenLevel(Path));
+	EXPECT_FALSE(Host->CommitMapChange());
 	auto* Retired = Host.Get();
 	Host.Reset();
 	MarkObjectHierarchyAsGarbage(Retired);
 	CollectGarbage();
+}
+
+TEST(FWorldTests, MapChangeCompletionCanStartAnotherChangeWithoutOverwritingItsProgress)
+{
+	using namespace Durin;
+	const std::array MountDefinitions{FMountPoint{.VirtualRoot = "/SceneCompletion/", .Owner = EMountOwner::Test,
+		.Root = std::filesystem::current_path()}};
+	Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "MapCompletionHost"));
+	FObjectPath Path;
+	ASSERT_TRUE(FObjectPath::TryCreate("/SceneCompletion/Candidate.Candidate", Path));
+	uint64 FirstId = 0;
+	int Completions = 0;
+	ASSERT_TRUE(Host->OpenLevel({.Path = Path, .OnComplete = [&](const FMapChangeProgress& Progress) {
+		++Completions;
+		EXPECT_EQ(Progress.Id, FirstId);
+		EXPECT_TRUE(Host->PrepareMapChange({.Path = Path}));
+		EXPECT_NE(Host->GetMapChangeProgress()->Id, Progress.Id);
+	}}));
+	FirstId = Host->GetMapChangeProgress()->Id;
+	Host->CancelPendingMapChange();
+	FMapChangeTestAccess::Tick(*Host);
+	EXPECT_EQ(Completions, 1);
+	EXPECT_TRUE(Host->IsPreparingMapChange());
+	EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::LoadingAssets);
+	Host->CancelPendingMapChange();
+	FMapChangeTestAccess::Tick(*Host);
+	EXPECT_EQ(Completions, 1);
+	Host->PrepareForShutdown();
+	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 }

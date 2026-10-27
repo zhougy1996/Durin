@@ -65,7 +65,7 @@ namespace Durin
 	auto DEditorEngine::EndTransaction() -> int32 { return Trans ? Trans->End() : 0; }
 	auto DEditorEngine::CanTransact() const -> bool
 	{ return GEditor == this && StartupState == EHostStartupState::Ready
-		&& !bShutdownRequested && !HasPendingSceneLoad() && Trans && Trans->CanTransact(); }
+		&& !bShutdownRequested && !IsPreparingMapChange() && Trans && Trans->CanTransact(); }
 	auto DEditorEngine::CancelTransaction(int32 StartIndex) -> void { if (Trans) Trans->Cancel(StartIndex); }
 
 	auto DEditorEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -262,7 +262,7 @@ namespace Durin
 		if (StartupState != EHostStartupState::Ready) return;
 		(void)RefreshEditorSubsystems();
 		FHostOperationScope Operation(*this);
-		if (auto* Tools = !HasPendingSceneLoad() ? GetEditorSubsystem<DEditorToolSubsystem>() : nullptr)
+		if (auto* Tools = !IsPreparingMapChange() ? GetEditorSubsystem<DEditorToolSubsystem>() : nullptr)
 		{
 			Tools->TickTools();
 			Tools->TickScripts();
@@ -375,7 +375,7 @@ namespace Durin
 		std::optional<DClass*> GameModeOverride,
 		std::string* OutError) -> bool
 	{
-		if (bShutdownRequested || HasPendingSceneLoad()
+		if (bShutdownRequested || IsPreparingMapChange()
 			|| (bEditorInitStarted && StartupState != EHostStartupState::Ready)) return false;
 		FHostOperationScope Operation(*this);
 		DLevel* SourceLevel = Request.SourceLevel;
