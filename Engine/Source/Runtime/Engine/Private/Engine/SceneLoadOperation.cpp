@@ -50,6 +50,7 @@ namespace Durin
 		FRenderResourcePreparation Preparation;
 		struct FViewResult { std::atomic<bool> InFlight = false; std::atomic<ERenderViewResult> Result = ERenderViewResult::RendererResourcesPending; };
 		std::shared_ptr<FViewResult> ViewResult = std::make_shared<FViewResult>();
+		uint32 ViewAttempts = 0;
 		auto SetPhase(ESceneLoadPhase Next) -> void
 		{
 			if (Phase == Next) return;
@@ -209,6 +210,7 @@ namespace Durin
 		CheckGameThread();
 		static uint64 NextId = 0;
 		Impl = std::make_unique<FImpl>(Host, Host.GetInitialWorldType(), ++NextId);
+		DURIN_DEBUG("Scene operation {}: loading {}", Impl->Id, Request.Path.ToString());
 		if (!bAdmitted) { Impl->Fail("Scene admission is closed."); return; }
 		Impl->bPlayRequested = Request.GameMode.has_value();
 		Impl->GameMode = Request.GameMode.value_or(nullptr);
@@ -361,15 +363,30 @@ namespace Durin
 	{
 		CheckGameThread();
 		auto& Loading = *Impl;
-		if (Loading.Phase != ESceneLoadPhase::PreparingView || !Loading.bComponentsReady || !Loading.InitialView || Loading.ViewResult->InFlight.exchange(true)) return;
+		if (Loading.Phase != ESceneLoadPhase::PreparingView || !Loading.bComponentsReady || !Loading.InitialView
+			|| Loading.ViewResult->InFlight.load(std::memory_order_acquire)
+			|| Loading.ViewResult->Result.load() != ERenderViewResult::RendererResourcesPending) return;
+		// Only GameThread submits. Once RenderThread publishes a terminal receipt,
+		// leave it idle for Advance() to consume; resubmitting here can starve that
+		// handoff when a fast view completes between Advance() and RedrawViewports().
+		Loading.ViewResult->InFlight.store(true);
 		try
 		{
 		if (!Loading.Output)
 			Loading.Output = RHICreateTexture(FRHITextureCreateDesc::Create2D("CandidateScene", Loading.InitialView->ViewportWidth,
 				Loading.InitialView->ViewportHeight, EPixelFormat::SRGBA8_UNORM).SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
+		const auto Submitted = std::chrono::steady_clock::now();
 		ENQUEUE_RENDER_COMMAND(PrepareCandidateScene)([Scene = Loading.Scene.get(), Renderer = Loading.Host.GetRendererModule(),
+			Id = Loading.Id, Attempt = ++Loading.ViewAttempts, Submitted,
 			View = *Loading.InitialView, Output = Loading.Output, Preparation = Loading.Preparation, Receipt = Loading.ViewResult](FRHICommandListImmediate& Commands) {
-			Receipt->Result = Renderer->RenderView(Commands, {Scene, View, Output, false, {}, nullptr, nullptr, &Preparation});
+			const auto Started = std::chrono::steady_clock::now();
+			const auto Result = Renderer->RenderView(Commands, {Scene, View, Output, false, {}, nullptr, nullptr, &Preparation});
+			const auto Progress = Preparation.GetProgress();
+			DURIN_DEBUG("Scene operation {} view attempt {}: result={}, queue_ms={:.2f}, render_ms={:.2f}, shaders={}, pipelines={}",
+				Id, Attempt, static_cast<int>(Result), std::chrono::duration<double, std::milli>(Started - Submitted).count(),
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count(),
+				Progress.ShaderAdmissions, Progress.PipelineAdmissions);
+			Receipt->Result = Result;
 			Receipt->InFlight.store(false, std::memory_order_release);
 		});
 		}
