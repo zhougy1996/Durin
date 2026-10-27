@@ -245,9 +245,11 @@ viewport/session restoration. Concurrent level or project opens are rejected
 without replacing the pending request. Default-Level startup uses the same load
 path with the host's existing startup presentation instead of a second modal.
 
-Interactive Level loading displays a modal with the target path, current scene
-preparation phase, elapsed time, available product counts, and Cancel. The
-indicator is indeterminate because product counts do not measure total work.
+Interactive Level loading uses the startup presentation style: a centered
+360-unit content column, centered level name and preparation phase, and an
+8-unit indeterminate progress bar. Elapsed time and Cancel share a subdued
+footer; the full target path is available on hover over the level name. Resource
+counts are omitted because they do not measure completion.
 Cancellation and failure preserve the previous document; the modal closes when
 the pending operation ends. Save confirmation is a separate modal preceding
 loading. Dialogs are drawn even when the Level workspace has no visible root.
