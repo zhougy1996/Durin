@@ -211,6 +211,18 @@ delivered once at an ordinary frame boundary after releasing the Handler; it
 may start another change. Host shutdown discards callbacks before retiring their
 owners. Closing an editor document invalidates its deferred callback lifetime.
 
+Expected loading failures remain explicit results and phases; internal steps do
+not throw to signal Pending, cancellation or a veto. Unexpected preparation and
+view-rendering exceptions become one failed progress diagnostic at their owner
+or render boundary. Actual World publication remains outside the recoverable
+preparation catch: a publication fault cannot promise rollback. Completion
+notification exceptions are logged after releasing the Handler and never
+rewrite the result or redeliver the callback, including when it started another
+change before throwing. All failed/canceled results carry a diagnostic, so
+callers do not need exception handling or duplicate fallback messages. A callback
+that cancels and then reports an error still completes as Canceled, without a
+second failure notification.
+
 `GetMapChangeProgress` returns a value snapshot of current preparation or the
 last terminal result, with frozen terminal timing. MainFrame/LevelEditor project
 this business progress directly into SlowTask display. On successful commit,

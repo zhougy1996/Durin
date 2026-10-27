@@ -107,10 +107,7 @@ namespace Durin
 					StartupError = Resolution.Message;
 				else
 				{
-					bStartupPending = OpenLevel({.Path = LevelPath, .GameMode = GameMode.GameModeClass,
-						.OnComplete = [this](const FMapChangeProgress& Progress) {
-							if (Progress.Phase == EMapChangePhase::Committed) GetMainSceneViewport()->RequestResourcePreparation();
-						}});
+					bStartupPending = OpenLevel({.Path = LevelPath, .GameMode = GameMode.GameModeClass});
 					if (!bStartupPending) StartupError = "Could not start the default map change.";
 				}
 			}
@@ -140,7 +137,7 @@ namespace Durin
 		}
 		else if (Progress->Phase == EMapChangePhase::Failed || Progress->Phase == EMapChangePhase::Canceled)
 		{
-			StartupError = Progress->Diagnostic.empty() ? "Game scene opening was canceled." : Progress->Diagnostic;
+			StartupError = Progress->Diagnostic;
 			bStartupPending = false;
 		}
 	}

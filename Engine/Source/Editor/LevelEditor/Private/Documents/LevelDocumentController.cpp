@@ -161,8 +161,7 @@ namespace Durin::Editor::Level
 		if (Context.EditorHost && Context.EditorHost->IsPreparingMapChange() && bShowLoadingProgress)
 		{
 			const auto Progress = *Context.EditorHost->GetMapChangeProgress();
-			if (Progress.Phase != EMapChangePhase::Failed && Progress.Phase != EMapChangePhase::Canceled
-				&& Progress.Phase != EMapChangePhase::Committed)
+			if (!IsMapChangeComplete(Progress.Phase))
 			{
 				const std::string_view Path = PendingLevelPath;
 				const auto Separator = Path.find_last_of('/');
@@ -264,7 +263,7 @@ namespace Durin::Editor::Level
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
 		}
 		else if (Progress.Phase == EMapChangePhase::Failed)
-			SetError(Progress.Diagnostic.empty() ? "Failed to load the level." : Progress.Diagnostic);
+			SetError(Progress.Diagnostic);
 		if (bDefaultStarted && DefaultOpenState == EHostStartupState::Pending)
 			DefaultOpenState = bSucceeded ? EHostStartupState::Ready : EHostStartupState::Failed;
 		PendingAction = ELevelDocumentAction::None;
@@ -428,11 +427,7 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::PrepareLevelActivation(DLevel& Level) -> bool
 	{
-		if (!Context.World)
-		{
-			SetError("No world is available to activate the level.");
-			return false;
-		}
+		if (!Context.World) return false;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
 		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
