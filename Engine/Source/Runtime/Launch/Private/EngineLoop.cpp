@@ -328,7 +328,7 @@ namespace Durin
 		}
 		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
 		LastTickTime = CurrentTime;
-		if (GetStartupState() == EHostStartupState::Pending || GEngine->HasPendingSceneLoad())
+		if (GetStartupState() == EHostStartupState::Pending || GEngine->IsPreparingMapChange())
 		{
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
 			const auto Deferred = PumpGameThreadDeferredWork({.MaxCallbacks = 63, .MaxSeconds = 0.001});
@@ -347,7 +347,7 @@ namespace Durin
 		}
 		if (bAdvanceHost && !GIsRequestingExit)
 		{
-			GEngine->AdvanceSceneLoads();
+			GEngine->TickMapChange();
 			GEngine->AdvanceStartup();
 		}
 		if (GIsRequestingExit) return;

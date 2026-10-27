@@ -469,10 +469,10 @@ namespace Durin::Editor::MainFrame
 			bool bShowElapsed = false;
 			if (GEditor && Context.State == EBootstrapState::LoadingDefaultDocument)
 			{
-				if (const auto Progress = GEditor->GetSceneLoadProgress())
+				if (const auto Progress = GEditor->GetMapChangeProgress(); Progress && GEditor->IsPreparingMapChange())
 				{
-					Feedback.Message = Progress->Phase == ESceneLoadPhase::Ready
-						? "Activating level" : std::string(GetSceneLoadPhaseLabel(Progress->Phase));
+					Feedback.Message = Progress->Phase == EMapChangePhase::Ready
+						? "Activating level" : std::string(GetMapChangePhaseLabel(Progress->Phase));
 					Feedback.ElapsedSeconds = Progress->ElapsedSeconds;
 					bShowElapsed = true;
 				}
@@ -1386,7 +1386,7 @@ namespace Durin
 						*Context->Console,
 						*Context->PythonScripts,
 						*Context->Activity);
-					ThumbnailPool.EndFrame(Host->GetStartupState() == EHostStartupState::Ready && !Host->HasPendingSceneLoad());
+					ThumbnailPool.EndFrame(Host->GetStartupState() == EHostStartupState::Ready && !Host->IsPreparingMapChange());
 					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 					DrawExitConfirmation(*Context);
 					return;

@@ -241,7 +241,6 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::AdvancePendingDocument() -> void
 	{
-		if (DocumentController) DocumentController->AdvancePendingOpen();
 	}
 
 	auto MLevelEditor::OpenDefaultDocument(std::string& OutError) -> EHostStartupState

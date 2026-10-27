@@ -1,5 +1,5 @@
 #include "Engine/GameEngine.h"
-#include "Engine/SceneLoadOperation.h"
+#include "Engine/MapChange.h"
 
 #include "Asset/Asset.h"
 #include "Asset/CookedMeshLoadManager.h"
@@ -27,10 +27,6 @@
 
 namespace Durin
 {
-	struct FGameStartupPreparation
-	{
-		std::shared_ptr<FSceneLoadOperation> Scene;
-	};
 	DGameEngine::DGameEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -111,58 +107,58 @@ namespace Durin
 					StartupError = Resolution.Message;
 				else
 				{
-					StartupPreparation = std::make_shared<FGameStartupPreparation>();
-					StartupPreparation->Scene = CreateSceneLoad({.Path = LevelPath, .GameMode = GameMode.GameModeClass});
+					bStartupPending = OpenLevel({.Path = LevelPath, .GameMode = GameMode.GameModeClass,
+						.OnComplete = [this](const FMapChangeProgress& Progress) {
+							if (Progress.Phase == EMapChangePhase::Committed) GetMainSceneViewport()->RequestResourcePreparation();
+						}});
+					if (!bStartupPending) StartupError = "Could not start the default map change.";
 				}
 			}
 		}
-		if (!StartupPreparation && StartupError.empty()) RequestGameMouseCapture(NativeWindow);
+		if (!bStartupPending && StartupError.empty()) RequestGameMouseCapture(NativeWindow);
 		return true;
 	}
-	auto DGameEngine::ShouldDrawStartupScene() const -> bool { return StartupPreparation && ActiveSceneLoad; }
+	auto DGameEngine::ShouldDrawStartupScene() const -> bool
+	{
+		const auto Progress = GetMapChangeProgress();
+		return bStartupPending && Progress && Progress->Phase == EMapChangePhase::Committed;
+	}
 	auto DGameEngine::AdvanceStartup() -> void
 	{
-		if (bShutdownRequested) { StartupPreparation.reset(); return; }
-		if (!StartupPreparation) return;
+		if (bShutdownRequested) { bStartupPending = false; return; }
+		if (!bStartupPending) return;
 		FHostOperationScope Operation(*this);
-		if (ActiveSceneLoad)
+		const auto Progress = GetMapChangeProgress();
+		if (!Progress) return;
+		if (Progress->Phase == EMapChangePhase::Committed)
 		{
 			const auto& Viewport = GetMainSceneViewport();
-			if (Viewport->HasRenderFailed()) { StartupError = "The committed game scene could not render for presentation."; StartupPreparation.reset(); return; }
+			if (Viewport->HasRenderFailed()) { StartupError = "The committed game scene could not render for presentation."; bStartupPending = false; return; }
 			if (!Viewport->GetOutputReceipt()->IsPresented(GetSceneGeneration(), Viewport->GetRHIViewport().GetReference())) return;
-			StartupPreparation.reset();
+			bStartupPending = false;
 			if (const auto Window = GameInputWindow.lock()) RequestGameMouseCapture(Window);
-			return;
 		}
-		auto Loading = StartupPreparation->Scene;
-		const auto Progress = Loading->GetProgress();
-		if (Progress.Phase == ESceneLoadPhase::Ready)
+		else if (Progress->Phase == EMapChangePhase::Failed || Progress->Phase == EMapChangePhase::Canceled)
 		{
-			if (!Loading->Commit()) { StartupError = "Prepared game scene could not commit."; StartupPreparation.reset(); return; }
-			ActiveSceneLoad = std::move(Loading);
-			GetMainSceneViewport()->RequestResourcePreparation();
-		}
-		else if (Progress.Phase == ESceneLoadPhase::Failed || Progress.Phase == ESceneLoadPhase::Canceled)
-		{
-			StartupError = Progress.Diagnostic.empty() ? "Game scene opening was canceled." : Progress.Diagnostic;
-			StartupPreparation.reset();
+			StartupError = Progress->Diagnostic.empty() ? "Game scene opening was canceled." : Progress->Diagnostic;
+			bStartupPending = false;
 		}
 	}
 	auto DGameEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
-		if (bShutdownRequested) { StartupPreparation.reset(); return Super::Tick(DeltaSeconds, bIdleMode); }
+		if (bShutdownRequested) { bStartupPending = false; return Super::Tick(DeltaSeconds, bIdleMode); }
 		if (GetStartupState() == EHostStartupState::Ready) Super::Tick(DeltaSeconds, bIdleMode);
 	}
 
 	auto DGameEngine::CloseSubsystemWork() -> void
 	{
-		StartupPreparation.reset();
+		bStartupPending = false;
 		Super::CloseSubsystemWork();
 	}
 
 	auto DGameEngine::BeginDestroy() -> void
 	{
-		StartupPreparation.reset();
+		bStartupPending = false;
 		ReleaseGameMouseCapture();
 		DEngine::BeginDestroy();
 	}

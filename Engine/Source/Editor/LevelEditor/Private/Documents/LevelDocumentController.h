@@ -13,7 +13,7 @@ namespace Durin
 {
 	class DLevel;
 	class DWorld;
-	class FSceneLoadOperation;
+	struct FMapChangeProgress;
 }
 
 namespace Durin::Editor::Level
@@ -59,10 +59,9 @@ namespace Durin::Editor::Level
 		// Interactive entry point: resolves unsaved changes before loading the selected level.
 		auto OpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
-		auto AdvancePendingOpen() -> void;
 		auto OpenDefaultLevel() -> EHostStartupState;
 		auto CanSaveCurrentLevel() const -> bool;
-		auto IsOpening() const -> bool { return bPendingDocumentOpen || PendingSceneLoad != nullptr; }
+		auto IsOpening() const -> bool;
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
 		auto CloseLevel() -> bool;
@@ -80,8 +79,8 @@ namespace Durin::Editor::Level
 		auto LoadLevel(std::string_view Path, bool bShowProgress = true) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
 		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
-		auto ActivateLevel(FSceneLoadOperation& Loading) -> bool;
-		auto AdvanceOpening() -> EHostStartupState;
+		auto PrepareLevelActivation(DLevel& Level) -> bool;
+		auto CompleteMapChange(const FMapChangeProgress& Progress) -> void;
 		auto SetError(std::string Message) const -> void;
 
 		FLevelEditorContext& Context;
@@ -99,7 +98,8 @@ namespace Durin::Editor::Level
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
 		bool bShowLoadingProgress = false;
 		::Durin::Editor::FSlowTaskDialogPresenter LoadingDialog;
-		std::shared_ptr<FSceneLoadOperation> ActiveSceneLoad, PendingSceneLoad;
+		// Deferred completion must not borrow a controller after its document closes.
+		std::shared_ptr<void> CallbackLifetime = std::make_shared<uint8>(0);
 		bool bDefaultStarted = false;
 		EHostStartupState DefaultOpenState = EHostStartupState::Pending;
 		TWeakObjectPtr<DPackage> DocumentPackage;

@@ -11,7 +11,7 @@
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Engine/SceneLoadOperation.h"
+#include "Engine/MapChange.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
@@ -143,10 +143,9 @@ namespace Durin::Editor::Level
 		return ELevelDocumentOpenResult::Rejected;
 	}
 
-	auto FLevelDocumentController::AdvancePendingOpen() -> void
+	auto FLevelDocumentController::IsOpening() const -> bool
 	{
-		if (PendingSceneLoad && (!bDefaultStarted || DefaultOpenState != EHostStartupState::Pending))
-			(void)AdvanceOpening();
+		return bPendingDocumentOpen || (Context.EditorHost && Context.EditorHost->IsPreparingMapChange());
 	}
 
 	auto FLevelDocumentController::DrawDialogs() -> void
@@ -159,22 +158,22 @@ namespace Durin::Editor::Level
 				return ResolveUnsavedLevelDialog(Decision);
 			});
 		std::optional<FSlowTaskSnapshot> Feedback;
-		if (PendingSceneLoad && bShowLoadingProgress)
+		if (Context.EditorHost && Context.EditorHost->IsPreparingMapChange() && bShowLoadingProgress)
 		{
-			const auto Progress = PendingSceneLoad->GetProgress();
-			if (Progress.Phase != ESceneLoadPhase::Failed && Progress.Phase != ESceneLoadPhase::Canceled
-				&& Progress.Phase != ESceneLoadPhase::Committed)
+			const auto Progress = *Context.EditorHost->GetMapChangeProgress();
+			if (Progress.Phase != EMapChangePhase::Failed && Progress.Phase != EMapChangePhase::Canceled
+				&& Progress.Phase != EMapChangePhase::Committed)
 			{
 				const std::string_view Path = PendingLevelPath;
 				const auto Separator = Path.find_last_of('/');
 				const auto Name = Path.substr(Separator == std::string_view::npos ? 0 : Separator + 1);
 				Feedback = FSlowTaskSnapshot{.Id = Progress.Id,
 					.Title = std::format("Opening {}...", Name.substr(0, Name.find('.'))),
-					.Message = Progress.Phase == ESceneLoadPhase::Ready ? "Activating level" : std::string(GetSceneLoadPhaseLabel(Progress.Phase)),
+					.Message = Progress.Phase == EMapChangePhase::Ready ? "Activating level" : std::string(GetMapChangePhaseLabel(Progress.Phase)),
 					.Details = PendingLevelPath, .ElapsedSeconds = Progress.ElapsedSeconds, .bCanCancel = true};
 			}
 		}
-		if (LoadingDialog.Draw(Feedback) && PendingSceneLoad) PendingSceneLoad->Cancel();
+		if (LoadingDialog.Draw(Feedback) && Context.EditorHost) Context.EditorHost->CancelPendingMapChange();
 	}
 
 	auto FLevelDocumentController::ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool
@@ -216,8 +215,6 @@ namespace Durin::Editor::Level
 			if (LoadLevel(DefaultLevel.GetPath().ToString(), false) == ELevelDocumentOpenResult::Rejected)
 				return DefaultOpenState = EHostStartupState::Failed;
 		}
-		if (DefaultOpenState != EHostStartupState::Pending) return DefaultOpenState;
-		DefaultOpenState = AdvanceOpening();
 		return DefaultOpenState;
 	}
 
@@ -231,10 +228,19 @@ namespace Durin::Editor::Level
 			SetError(Durin::ToString(Validation.error()));
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		if (PendingSceneLoad) return ELevelDocumentOpenResult::Rejected;
+		if (Context.EditorHost->IsPreparingMapChange()) return ELevelDocumentOpenResult::Rejected;
+		if (Context.Level && Context.Level->GetObjectPath() == Path.ToString())
+		{
+			if (!bShowProgress) DefaultOpenState = EHostStartupState::Ready;
+			return ELevelDocumentOpenResult::Opened;
+		}
 		bShowLoadingProgress = bShowProgress;
-		PendingSceneLoad = Context.EditorHost->CreateSceneLoad({.Path = Path, .BuildInitialView = SessionSettings.CreateInitialViewBuilder(SceneViewportPanel)});
-		if (!PendingSceneLoad)
+		if (!CallbackLifetime) CallbackLifetime = std::make_shared<uint8>(0);
+		const std::weak_ptr<void> Lifetime = CallbackLifetime;
+		if (!Context.EditorHost->OpenLevel({.Path = Path,
+			.BuildInitialView = SessionSettings.CreateInitialViewBuilder(SceneViewportPanel),
+			.BeforeCommit = [this, Lifetime](DLevel& Level) { return !Lifetime.expired() && PrepareLevelActivation(Level); },
+			.OnComplete = [this, Lifetime](const FMapChangeProgress& Progress) { if (!Lifetime.expired()) CompleteMapChange(Progress); }}))
 		{
 			SetError("Unable to start loading the level.");
 			return ELevelDocumentOpenResult::Rejected;
@@ -243,48 +249,27 @@ namespace Durin::Editor::Level
 		return ELevelDocumentOpenResult::Loading;
 	}
 
-	auto FLevelDocumentController::AdvanceOpening() -> EHostStartupState
+	auto FLevelDocumentController::CompleteMapChange(const FMapChangeProgress& Progress) -> void
 	{
-		if (!PendingSceneLoad) return EHostStartupState::Failed;
-		auto Loading = PendingSceneLoad;
-		const auto Progress = Loading->GetProgress();
-		if (Loading->GetLevel() && Progress.Phase == ESceneLoadPhase::PreparingProducts)
+		const bool bSucceeded = Progress.Phase == EMapChangePhase::Committed;
+		if (bSucceeded)
 		{
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
-			if (Loading->GetLevel() == Context.Level)
-			{
-				Loading->Cancel();
-				PendingSceneLoad.reset();
-				PendingAction = ELevelDocumentAction::None;
-				PendingLevelPath.clear();
-				CompletePendingDocumentOpen(true);
-				return EHostStartupState::Ready;
-			}
+			auto* World = Context.EditorHost->GetEditorWorld();
+			auto* Level = World->GetCurrentLevel();
+			FLevelDocumentRevisionState::Activate(GetLevelTransactions(), DocumentPackage.Get(), Level->GetPackage());
+			Context.Synchronize(World);
+			SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
+			DocumentPackage = Level->GetPackage();
+			DocumentWorld = World;
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
 		}
-		if (Progress.Phase == ESceneLoadPhase::Ready)
-		{
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
-			if (ActivateLevel(*Loading))
-			{
-				ActiveSceneLoad = std::move(Loading);
-				PendingSceneLoad.reset();
-				PendingAction = ELevelDocumentAction::None;
-				PendingLevelPath.clear();
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
-				CompletePendingDocumentOpen(true);
-				return EHostStartupState::Ready;
-			}
-			Loading->Cancel();
-		}
-		else if (Progress.Phase != ESceneLoadPhase::Failed && Progress.Phase != ESceneLoadPhase::Canceled)
-			return EHostStartupState::Pending;
-		if (Progress.Phase == ESceneLoadPhase::Failed)
+		else if (Progress.Phase == EMapChangePhase::Failed)
 			SetError(Progress.Diagnostic.empty() ? "Failed to load the level." : Progress.Diagnostic);
-		PendingSceneLoad.reset();
+		if (bDefaultStarted && DefaultOpenState == EHostStartupState::Pending)
+			DefaultOpenState = bSucceeded ? EHostStartupState::Ready : EHostStartupState::Failed;
 		PendingAction = ELevelDocumentAction::None;
 		PendingLevelPath.clear();
-		CompletePendingDocumentOpen(false);
-		return EHostStartupState::Failed;
+		CompletePendingDocumentOpen(bSucceeded);
 	}
 	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded) -> void
 	{
@@ -298,7 +283,7 @@ namespace Durin::Editor::Level
 	{
 		const auto* Gizmo = SceneViewportPanel.GetTransformGizmo();
 		const auto* Transactions = GetLevelTransactions();
-		return !PendingSceneLoad && Context.Level && Context.Level->GetPackage() && !(GEditor && GEditor->IsPlaying())
+		return !(Context.EditorHost && Context.EditorHost->IsPreparingMapChange()) && Context.Level && Context.Level->GetPackage() && !(GEditor && GEditor->IsPlaying())
 			&& !(Gizmo && Gizmo->IsDragging()) && (!Transactions || (Transactions->CanTransact() && !Transactions->IsActive()));
 	}
 
@@ -414,7 +399,8 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::CloseLevel() -> bool
 	{
-		if (PendingSceneLoad) { PendingSceneLoad->Cancel(); PendingSceneLoad.reset(); }
+		CallbackLifetime.reset();
+		if (Context.EditorHost) Context.EditorHost->CancelPendingMapChange();
 		PendingAction = ELevelDocumentAction::None;
 		QueuedPopup = EQueuedPopup::None;
 		PendingLevelPath.clear();
@@ -435,36 +421,24 @@ namespace Durin::Editor::Level
 			Context.Synchronize(World);
 			SceneViewportPanel.RestoreCameraState(nullptr, nullptr);
 		}
-		ActiveSceneLoad.reset();
 		DocumentPackage.Reset();
 		DocumentWorld.Reset();
 		return true;
 	}
 
-	auto FLevelDocumentController::ActivateLevel(FSceneLoadOperation& Loading) -> bool
+	auto FLevelDocumentController::PrepareLevelActivation(DLevel& Level) -> bool
 	{
-		DLevel* Level = Loading.GetLevel();
-		if (!Context.World || !Level)
+		if (!Context.World)
 		{
 			SetError("No world is available to activate the level.");
 			return false;
 		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
 		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		SessionSettings.Save(&SceneViewportPanel);
-		DLevel* Previous = Context.World->GetCurrentLevel();
-		DPackage* PreviousPackage = Previous ? Previous->GetPackage() : nullptr;
-		if (Previous != Level && !SceneViewportPanel.PrepareForLevelChange(Context)) return false;
-		if (!Loading.Commit())
-		{
-			SetError("The level is already active in another world.");
-			return false;
-		}
-		FLevelDocumentRevisionState::Activate(GetLevelTransactions(), PreviousPackage, Level->GetPackage());
-		Context.Synchronize(Context.EditorHost->GetEditorWorld());
-		SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
-		DocumentPackage = Level->GetPackage();
-		DocumentWorld = Context.World;
-		return true;
+		if (const auto* Previous = Context.World->GetCurrentLevel()) DocumentPackage = Previous->GetPackage();
+		return Context.World->GetCurrentLevel() == &Level || SceneViewportPanel.PrepareForLevelChange(Context);
 	}
 
 	auto FLevelDocumentController::SetError(std::string Message) const -> void

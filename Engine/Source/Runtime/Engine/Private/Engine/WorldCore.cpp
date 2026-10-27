@@ -182,6 +182,7 @@ namespace Durin
 			Previous->SetOwningWorld(nullptr);
 		}
 		CurrentLevel = Level;
+		LevelResidency.reset();
 		if (Level)
 		{
 			Level->SetOwningWorld(this);

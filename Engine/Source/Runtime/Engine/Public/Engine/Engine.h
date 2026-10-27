@@ -10,7 +10,7 @@
 #include "Engine/World.h"
 #include "Engine/EngineSubsystem.h"
 #include "Engine/HostStartup.h"
-#include "Engine/SceneLoadProgress.h"
+#include "Engine/MapChange.h"
 #include "DObject/ObjectLifecycle.h"
 
 #include "Engine.gen.h"
@@ -36,8 +36,7 @@ namespace Durin
 	class FGenericWindow;
 	class DWorld;
 	class FSceneInterface;
-	class FSceneLoadOperation;
-	struct FSceneLoadRequest;
+	class FMapChangeHandler;
 	class FObjectPath;
 	struct FSceneView;
 
@@ -90,9 +89,18 @@ namespace Durin
 		ENGINE_API auto RegisterAuxiliarySceneViewport(const std::shared_ptr<FSceneViewport>& InSceneViewport) -> void;
 		ENGINE_API auto UnregisterAuxiliarySceneViewport(const FSceneViewport* InSceneViewport) -> void;
 		ENGINE_API virtual auto SetWorld(DWorld* InWorld) -> void;
-		ENGINE_API auto CreateSceneLoad(FSceneLoadRequest Request) -> std::shared_ptr<FSceneLoadOperation>;
-		ENGINE_API auto HasPendingSceneLoad() const -> bool;
-		ENGINE_API auto GetSceneLoadProgress() const -> std::optional<FSceneLoadProgress>;
+		// A second pending change or closed host admission is rejected.
+		ENGINE_API auto PrepareMapChange(FMapChangeRequest Request) -> bool;
+		ENGINE_API auto IsMapChangeReady() const -> bool;
+		// Requests activation at a safe frame boundary once ready. OnComplete
+		// reports the final result; true only means the request was accepted.
+		ENGINE_API auto CommitMapChange() -> bool;
+		ENGINE_API auto CancelPendingMapChange() -> void;
+		// Ordinary opening prepares and requests commit without caller polling.
+		ENGINE_API auto OpenLevel(FMapChangeRequest Request) -> bool;
+		ENGINE_API auto OpenLevel(const FObjectPath& Path) -> bool;
+		ENGINE_API auto IsPreparingMapChange() const -> bool;
+		ENGINE_API auto GetMapChangeProgress() const -> std::optional<FMapChangeProgress>;
 		auto GetSceneGeneration() const -> uint64 { return SceneGeneration; }
 		ENGINE_API auto GetWorldContextFromWorld(const DWorld* World) const -> const FWorldContext*;
 		auto GetWorldContexts() const -> std::span<const FWorldContext> { return WorldContexts; }
@@ -143,9 +151,10 @@ namespace Durin
 		bool bShutdownComplete = false;
 	private:
 		friend class FEngineLoop;
-		friend class FSceneLoadOperation;
-		ENGINE_API auto AdvanceSceneLoads() -> void;
-		auto SubmitPendingScenes() -> void;
+		friend struct FMapChangeTestAccess;
+		friend class FMapChangeHandler;
+		ENGINE_API auto TickMapChange() -> void;
+		auto SubmitPendingMapChange() -> void;
 		// Tracks unpublished Worlds so host retirement can close their admission during boot.
 		class FWorldInitializationScope
 		{
@@ -159,7 +168,8 @@ namespace Durin
 		};
 		std::vector<DWorld*> InitializingWorlds;
 		std::vector<FWorldContext> WorldContexts;
-		std::vector<std::weak_ptr<FSceneLoadOperation>> SceneLoads;
+		std::unique_ptr<FMapChangeHandler> MapChange;
+		std::optional<FMapChangeProgress> LastMapChangeProgress;
 		uint64 SceneGeneration = 0;
 		// World lifecycle and SetWorld are the only writers of the context registry.
 		ENGINE_API auto RegisterWorldContext(DWorld& World) -> void;
