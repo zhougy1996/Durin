@@ -30,12 +30,13 @@ namespace Durin::Editor::Level
 		OpenProject
 	};
 
-	// Reports whether opening a level completed, failed, or awaits confirmation.
+	// Pending confirmation and loading are distinct; only Opened means activation completed.
 	enum class ELevelDocumentOpenResult
 	{
 		Rejected,
 		Opened,
-		Deferred,
+		AwaitingConfirmation,
+		Loading,
 	};
 
 	// Coordinates new/open/save/close flows and their confirmation popups.
@@ -54,12 +55,13 @@ namespace Durin::Editor::Level
 		);
 
 		auto RequestOpenProject(std::string ProjectFile) -> void;
-		auto RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult;
+		// Interactive entry point: resolves unsaved changes before loading the selected level.
+		auto OpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
 		auto AdvancePendingOpen() -> void;
 		auto OpenDefaultLevel() -> EHostStartupState;
 		auto CanSaveCurrentLevel() const -> bool;
-		auto IsOpening() const -> bool { return PendingSceneLoad != nullptr; }
+		auto IsOpening() const -> bool { return bPendingDocumentOpen || PendingSceneLoad != nullptr; }
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
 		auto CloseLevel() -> bool;
@@ -73,7 +75,8 @@ namespace Durin::Editor::Level
 		};
 
 		auto ExecutePendingAction() -> ELevelDocumentOpenResult;
-		auto OpenLevel(std::string_view Path) -> ELevelDocumentOpenResult;
+		// No save prompt. Completion is delivered after activation by the ordinary host frame.
+		auto LoadLevel(std::string_view Path, bool bShowProgress = true) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
 		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
 		auto ActivateLevel(FSceneLoadOperation& Loading) -> bool;
@@ -93,6 +96,9 @@ namespace Durin::Editor::Level
 		std::string PendingLevelPath;
 		std::string PendingProjectFile;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
+		FLevelLoadingDialogPresenter LoadingDialog;
+		bool bShowLoadingProgress = false;
+		std::string LoadingLevelPath;
 		std::shared_ptr<FSceneLoadOperation> ActiveSceneLoad, PendingSceneLoad;
 		bool bDefaultStarted = false;
 		EHostStartupState DefaultOpenState = EHostStartupState::Pending;

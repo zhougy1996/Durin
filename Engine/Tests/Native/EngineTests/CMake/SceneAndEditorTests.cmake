@@ -490,6 +490,7 @@ durin_add_native_test(EditorShellTests
 		Private/UIStyleTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
+		${_durin_level_editor_private}/Documents/DocumentDialogPresenters.cpp
 	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
 	INCLUDE_DIRECTORIES
 		${_durin_level_editor_private}

@@ -236,6 +236,26 @@ Save, Discard, or Cancel back to resource-specific workspace callbacks.
 `MainFrame` renders the one shared confirmation modal. Repeated close requests
 cannot create duplicate confirmations.
 
+The Level document controller separates interactive `OpenLevel` (including the
+unsaved-change decision) from `LoadLevel` (a specified path without a save
+prompt). Its immediate results distinguish `AwaitingConfirmation`, `Loading`,
+`Opened`, and `Rejected`; the workspace adapter maps both pending states to a
+deferred document open. Completion publishes success only after activation and
+viewport/session restoration. Concurrent level or project opens are rejected
+without replacing the pending request. Default-Level startup uses the same load
+path with the host's existing startup presentation instead of a second modal.
+
+Interactive Level loading displays a modal with the target path, current scene
+preparation phase, elapsed time, available product counts, and Cancel. The
+indicator is indeterminate because product counts do not measure total work.
+Cancellation and failure preserve the previous document; the modal closes when
+the pending operation ends. Save confirmation is a separate modal preceding
+loading. Dialogs are drawn even when the Level workspace has no visible root.
+Loading and confirmation block Level edits and play shortcuts. Only ordinary
+host frames advance and commit scene operations; modal callbacks observe
+progress or request cancellation, and never run a nested engine tick or wait
+loop. This preserves the [runtime scene-load contract](../../../Runtime/Application/RuntimeLifecycle.md).
+
 Level, Material, Texture, and StaticMesh workspaces apply the same compatibility
 policy after loading and before document activation. A load report containing any
 compatibility issue rejects the requested document, leaves the previous active
