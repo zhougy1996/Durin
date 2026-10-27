@@ -14,6 +14,10 @@ namespace Durin
 		LoadingAssets, PreparingProducts, RegisteringWorld, PreparingView,
 		Ready, Committed, Failed, Canceled
 	};
+	constexpr auto IsMapChangeComplete(EMapChangePhase Phase) -> bool
+	{
+		return Phase == EMapChangePhase::Committed || Phase == EMapChangePhase::Failed || Phase == EMapChangePhase::Canceled;
+	}
 	constexpr auto GetMapChangePhaseLabel(EMapChangePhase Phase) -> std::string_view
 	{
 		switch (Phase)

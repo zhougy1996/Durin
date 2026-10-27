@@ -519,8 +519,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		if (bShutdownRequested || !MapChange) return false;
-		const auto Phase = MapChange->GetProgress().Phase;
-		if (Phase == EMapChangePhase::Committed || Phase == EMapChangePhase::Canceled || Phase == EMapChangePhase::Failed) return false;
+		if (IsMapChangeComplete(MapChange->Phase)) return false;
 		MapChange->bCommitRequested = true;
 		return true;
 	}
@@ -539,7 +538,7 @@ namespace Durin
 	auto DEngine::IsMapChangeReady() const -> bool
 	{
 		CheckGameThread();
-		return MapChange && MapChange->GetProgress().Phase == EMapChangePhase::Ready;
+		return MapChange && MapChange->Phase == EMapChangePhase::Ready;
 	}
 	auto DEngine::GetMapChangeProgress() const -> std::optional<FMapChangeProgress>
 	{
@@ -551,14 +550,17 @@ namespace Durin
 	{
 		if (bShutdownRequested || !MapChange) return;
 		FHostOperationScope Operation(*this);
-		MapChange->Advance();
-		if (IsMapChangeReady() && MapChange->bCommitRequested) MapChange->Commit();
+		MapChange->Tick();
 		const auto Progress = MapChange->GetProgress();
-		if (Progress.Phase != EMapChangePhase::Committed && Progress.Phase != EMapChangePhase::Canceled && Progress.Phase != EMapChangePhase::Failed) return;
+		if (!IsMapChangeComplete(Progress.Phase)) return;
 		auto OnComplete = std::move(MapChange->OnComplete);
 		LastMapChangeProgress = Progress;
 		MapChange.reset();
-		if (OnComplete) OnComplete(Progress);
+		if (OnComplete)
+		{
+			try { OnComplete(Progress); }
+			catch (...) { DURIN_ERROR("Map change {} completion notification failed: {}", Progress.Id, FMapChangeHandler::DescribeException()); }
+		}
 	}
 	auto DEngine::AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void
 	{
@@ -570,7 +572,11 @@ namespace Durin
 		if (MainScene) { MainScene->Release(); MainScene.reset(); }
 		MainScene = std::move(Scene);
 		SceneGeneration = Generation;
-		if (MainSceneViewport) MainSceneViewport->SetSceneGeneration(Generation);
+		if (MainSceneViewport)
+		{
+			MainSceneViewport->SetSceneGeneration(Generation);
+			MainSceneViewport->RequestResourcePreparation();
+		}
 		for (const auto& Viewport : AuxiliarySceneViewports) if (Viewport) Viewport->SetSceneGeneration(Generation);
 		SetWorld(World);
 		if (Previous && Previous.Get() != World) Previous->Shutdown();

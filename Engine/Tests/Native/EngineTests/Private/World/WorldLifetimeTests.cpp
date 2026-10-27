@@ -1,5 +1,7 @@
 #include "WorldTestSupport.h"
 #include "Engine/MapChange.h"
+#include "Asset/AsyncLoad.h"
+#include "NativeDObjectTestSupport.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -711,6 +713,7 @@ namespace Durin
 	struct FMapChangeTestAccess
 	{
 		static auto Tick(DEngine& Engine) -> void { Engine.TickMapChange(); }
+		static auto SetRenderer(DEngine& Engine, IRendererModule& Renderer) -> void { Engine.RendererModule = &Renderer; }
 	};
 }
 
@@ -792,6 +795,7 @@ TEST(FWorldTests, MapChangeCompletionCanStartAnotherChangeWithoutOverwritingItsP
 		EXPECT_EQ(Progress.Id, FirstId);
 		EXPECT_TRUE(Host->PrepareMapChange({.Path = Path}));
 		EXPECT_NE(Host->GetMapChangeProgress()->Id, Progress.Id);
+		throw std::runtime_error("Completion failure after starting another map change");
 	}}));
 	FirstId = Host->GetMapChangeProgress()->Id;
 	Host->CancelPendingMapChange();
@@ -804,4 +808,93 @@ TEST(FWorldTests, MapChangeCompletionCanStartAnotherChangeWithoutOverwritingItsP
 	EXPECT_EQ(Completions, 1);
 	Host->PrepareForShutdown();
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+}
+
+TEST(FWorldTests, MapChangeCompletionExceptionsDoNotEscapeOrRedeliver)
+{
+	using namespace Durin;
+	const std::array MountDefinitions{FMountPoint{.VirtualRoot = "/CompletionFailure/", .Owner = EMountOwner::Test,
+		.Root = std::filesystem::current_path()}};
+	Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "MapCompletionFailureHost"));
+	FObjectPath Path;
+	ASSERT_TRUE(FObjectPath::TryCreate("/CompletionFailure/Candidate.Candidate", Path));
+	for (bool bStandardException : {true, false})
+	{
+		int Completions = 0;
+		ASSERT_TRUE(Host->OpenLevel({.Path = Path, .OnComplete = [&](const FMapChangeProgress&) {
+			++Completions;
+			if (bStandardException) throw std::runtime_error("Completion failure");
+			throw 42;
+		}}));
+		Host->CancelPendingMapChange();
+		EXPECT_NO_THROW(FMapChangeTestAccess::Tick(*Host));
+		EXPECT_NO_THROW(FMapChangeTestAccess::Tick(*Host));
+		EXPECT_EQ(Completions, 1);
+		EXPECT_FALSE(Host->IsPreparingMapChange());
+		EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::Canceled);
+		EXPECT_FALSE(Host->GetMapChangeProgress()->Diagnostic.empty());
+	}
+	Host->PrepareForShutdown();
+	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+}
+
+TEST(FWorldTests, MapChangeViewBuilderFailuresUseOneDiagnosticAndPreserveTheCurrentWorld)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::GetTestWorkDirectory() / "MapChangeFailures";
+	std::filesystem::create_directories(Root);
+	const std::array MountDefinitions{FMountPoint{.VirtualRoot = "/MapChangeFailures/", .Owner = EMountOwner::Test,
+		.Root = Root}};
+	Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	FPreviewLifecycleRenderer Renderer;
+	for (int FailureMode : {0, 1, 2, 3})
+	{
+		SCOPED_TRACE(FailureMode);
+		FPackagePath PackagePath;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/MapChangeFailures/Candidate{}", FailureMode), PackagePath));
+		DLevel* Level = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(PackagePath, Level));
+		TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "MapBuilderFailureHost"));
+		FMapChangeTestAccess::SetRenderer(*Host, Renderer);
+		auto* Previous = CreateWorld(Host.Get(), EWorldType::Editor);
+		Host->SetWorld(Previous);
+		int Completions = 0;
+		ASSERT_TRUE(Host->OpenLevel({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
+			.BuildInitialView = [FailureMode, &Host](const DWorld&) -> std::expected<FSceneView, std::string> {
+				if (FailureMode == 0) throw std::runtime_error("View builder failure");
+				if (FailureMode == 1) throw 42;
+				if (FailureMode == 3) Host->CancelPendingMapChange();
+				return std::unexpected("Expected view failure");
+			},
+			.OnComplete = [&](const FMapChangeProgress& Progress) {
+				++Completions;
+				EXPECT_EQ(Progress.Phase, FailureMode == 3 ? EMapChangePhase::Canceled : EMapChangePhase::Failed);
+			}}));
+		for (int Frame = 0; Frame < 12 && Host->IsPreparingMapChange(); ++Frame)
+		{
+			EXPECT_NO_THROW(FMapChangeTestAccess::Tick(*Host));
+			ProcessAsyncLoading();
+		}
+		EXPECT_EQ(Completions, 1);
+		EXPECT_FALSE(Host->IsPreparingMapChange());
+		const auto Progress = Host->GetMapChangeProgress();
+		ASSERT_TRUE(Progress);
+		EXPECT_EQ(Progress->Phase, FailureMode == 3 ? EMapChangePhase::Canceled : EMapChangePhase::Failed);
+		if (FailureMode != 3) EXPECT_NE(Progress->Diagnostic.find("Preparing initial view"), std::string::npos) << Progress->Diagnostic;
+		const auto Expected = FailureMode == 0 ? "View builder failure" : FailureMode == 1 ? "Unknown native exception"
+			: FailureMode == 2 ? "Expected view failure" : "Map change canceled";
+		EXPECT_NE(Progress->Diagnostic.find(Expected), std::string::npos) << Progress->Diagnostic;
+		EXPECT_EQ(Host->GetWorld(), Previous);
+		EXPECT_FALSE(Previous->IsShutdownRequested());
+		EXPECT_EQ(Level->GetWorld(), nullptr);
+		Host->PrepareForShutdown();
+		auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+		const auto Unloaded = UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
+		EXPECT_TRUE(Unloaded) << Unloaded.Message;
+	}
 }
