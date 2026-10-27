@@ -29,9 +29,9 @@ namespace Durin::Editor
 		const float Fraction = Task.Fraction ? static_cast<float>(*Task.Fraction) : -1.0f - static_cast<float>(ImGui::GetTime());
 		ImGui::ProgressBar(Fraction, ImVec2(ContentWidth, MonaImGui::ScaleUI(8.0f)), "");
 		ImGui::Spacing();
-		ImGui::SetCursorPosX(ContentLeft);
 		if (bShowElapsed)
 		{
+			ImGui::SetCursorPosX(ContentLeft);
 			ImGui::AlignTextToFramePadding();
 			ImGui::TextDisabled("%.1f s elapsed", Task.ElapsedSeconds);
 		}

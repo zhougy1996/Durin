@@ -78,6 +78,27 @@ namespace Durin
 		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture, bool bPrepareOnly) -> ERenderViewResult
 	{
 		FPreparedShaderMapScope ShaderScope(true);
+		const bool bTracePreparation = FRenderResourcePreparationScope::IsActive()
+			&& View.bDiscardHistory && !View.ViewStateId.IsValid();
+		const auto TraceStage = [bTracePreparation](std::string_view Name, auto&& Work) {
+			if (!bTracePreparation) return Work();
+			const auto Started = std::chrono::steady_clock::now();
+			try
+			{
+				auto Result = Work();
+				const double Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count();
+				if constexpr (std::is_same_v<decltype(Result), ERenderViewResult>)
+					DURIN_DEBUG("Candidate view stage {}: {:.2f} ms, result={}", Name, Milliseconds, static_cast<int>(Result));
+				else DURIN_DEBUG("Candidate view stage {}: {:.2f} ms", Name, Milliseconds);
+				return Result;
+			}
+			catch (...)
+			{
+				DURIN_DEBUG("Candidate view stage {} yielded or failed after {:.2f} ms", Name,
+					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count());
+				throw;
+			}
+		};
 		if (!bPrepareOnly && Service.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++Service.RenderSubmissionSerial;
 		check(IsInRenderingThread());
@@ -118,7 +139,7 @@ namespace Durin
 			// Material resolution belongs to logical collection, before the resource
 			// stages. Preserve its pending result with the same preparation batch.
 			FRenderPipelinePreparationBatch Batch;
-			Preparation = PrepareView_RenderThread(CommandList, Context);
+			Preparation = TraceStage("collect", [&] { return PrepareView_RenderThread(CommandList, Context); });
 			if (Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
 			if (FRenderPipelinePreparationBatch::HasPending()) return ERenderViewResult::RendererResourcesPending;
 		}
@@ -127,18 +148,18 @@ namespace Durin
 		const FSceneRenderPlan& PreparedView = *Context.Logical.PreparedView;
 		Context.Features = BuildSceneFrameFeaturePlan(
 			PreparedView, Options, Width, Height, Qualification);
-		const auto ResourceResult = ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::PrepareViewResources_RenderThread);
+		const auto ResourceResult = TraceStage("view resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::PrepareViewResources_RenderThread); });
 		if (ResourceResult != ERenderViewResult::Success) return ResourceResult;
-		const auto ResolutionResult = ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread);
+		const auto ResolutionResult = TraceStage("scene resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread); });
 		if (ResolutionResult != ERenderViewResult::Success) return ResolutionResult;
 		SelectViewState_RenderThread(Context);
 		// Route preparation only needs the sampling sequence. Do not begin history
 		// mutation while required PSOs are still being collected or joined.
 		if (ViewState) Context.Transaction.Temporal.SuccessfulSequence = ViewState->GetSuccessfulSequence();
-		const auto FeatureResult = ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread);
+		const auto FeatureResult = TraceStage("feature resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread); });
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
 		if (bPrepareOnly) return ERenderViewResult::Success;
 		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
@@ -146,9 +167,9 @@ namespace Durin
 		FRDGBuilder Graph;
 		FSceneRenderGraphComposition& Composition =
 			Context.Transaction.Composition;
-		Submission.Render(Graph);
-		if (!ExecuteGraph_RenderThread(
-			Graph, CommandList, OutRenderGraphCapture))
+		TraceStage("compose graph", [&] { Submission.Render(Graph); return true; });
+		if (!TraceStage("execute graph", [&] { return ExecuteGraph_RenderThread(
+			Graph, CommandList, OutRenderGraphCapture); }))
 			return ERenderViewResult::RendererResourcesUnavailable;
 		// Report the compiled assignment, independently of the async request bit.
 		if (Telemetry.View.GBuffer.GPUCullingDispatchedViews != 0)

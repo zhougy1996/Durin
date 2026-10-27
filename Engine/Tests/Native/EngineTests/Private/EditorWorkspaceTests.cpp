@@ -1232,6 +1232,24 @@ TEST(FSlowTaskDialogTests, InlineSnapshotRoutesCancelAndCanHideUnavailableTiming
 	EXPECT_FALSE(Frame());
 }
 
+TEST(FSlowTaskDialogTests, StartupProgressWithoutFooterDoesNotExtendWindowWithAnEmptyCursorMove)
+{
+	ImGuiContext* Context = ImGui::CreateContext();
+	struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	ImGui::NewFrame();
+	ImGui::Begin("StartupProgress");
+	ImGui::SetCursorPos(ImVec2(320.0f, 250.0f));
+	EXPECT_FALSE(Durin::Editor::DrawSlowTaskProgress({.Message = "Starting editor..."}, false, false));
+	EXPECT_FALSE(ImGui::GetCurrentWindow()->DC.IsSetPos);
+	ImGui::End();
+	ImGui::Render();
+}
+
 TEST(FSlowTaskDialogTests, ProjectedModalReturnsCancelAndClosesWithoutTaskState)
 {
 	using namespace Durin;
