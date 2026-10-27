@@ -9,6 +9,8 @@
 #include "Misc/StringConvert.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
+#include "Feedback/SlowTaskWidget.h"
+#include "AssetForge/Builtins/ImportFeedback.h"
 
 namespace Durin::Editor
 {
@@ -83,21 +85,11 @@ namespace Durin::Editor
 		if (Session && Session->GetProgress().Phase != ESceneImportPhase::Ready
 			&& Session->GetProgress().Phase != ESceneImportPhase::Completed)
 		{
-			const auto& Progress = Session->GetProgress();
-			constexpr const char* PhaseNames[] = {"Reading source", "Configure outputs", "Building assets",
-				"Preparing assets", "Compiling materials", "Saving assets", "Finishing", "Completed"};
-			ImGui::TextUnformatted(PhaseNames[static_cast<size_t>(Progress.Phase)]);
-			ImGui::TextUnformatted(Progress.Activity.c_str());
-			if (Progress.Total)
+			const auto Progress = AssetForge::Builtins::MakeAssetImportFeedback(Session->GetProgress(), SourcePathBuffer.data());
+			if (::Durin::Editor::DrawSlowTaskProgress(Progress, true, false))
 			{
-				ImGui::ProgressBar(static_cast<float>(Progress.Completed) / static_cast<float>(Progress.Total));
-				ImGui::Text("%zu / %zu", Progress.Completed, Progress.Total);
+				Session->Cancel();
 			}
-			else ImGui::TextDisabled("Working%s", static_cast<int>(ImGui::GetTime() * 3) % 3 == 0 ? "." : static_cast<int>(ImGui::GetTime() * 3) % 3 == 1 ? ".." : "...");
-			ImGui::BeginDisabled(Progress.bCancellationRequested);
-			if (ImGui::Button("Cancel")) { Session->Cancel(); }
-			ImGui::EndDisabled();
-			if (Progress.bCancellationRequested) ImGui::TextDisabled("Canceling; finishing the current safe step...");
 			ImGui::EndPopup();
 			return;
 		}

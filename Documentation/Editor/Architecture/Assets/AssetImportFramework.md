@@ -472,6 +472,13 @@ publication. Existing Scene and standalone factory entrypoints remain available
 for legacy programmatic callers and receipts; their ordinary file pickers no
 longer offer glTF as a second user workflow.
 
+FBX and glTF dialogs share the pure `MakeAssetImportFeedback` projection from
+session progress to `FSlowTaskSnapshot`, and embed the shared progress widget in
+the existing form. A cancel click calls the session directly. The form retains no
+Task, feedback context, or parallel cancellation state. Session cleanup, partial
+publication reports, and the different completion/close behaviors remain
+unchanged. See [slow task feedback](../../../Runtime/Core/SlowTasks.md).
+
 Reimport has no extension entry, family enum, or host switch: Content Browser asks
 `FReimportManager` for loaded-object capabilities and sends Reimport or the
 complete selected replacement file set back to the same manager. **Reimport**

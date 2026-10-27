@@ -50,6 +50,15 @@ durin_add_native_test(CoreToolTests
 	LIBRARIES Core
 )
 
+durin_add_native_test(SlowTaskTests
+	KIND contract
+	DOMAINS core
+	MODULES core
+	SOURCES Private/SlowTaskTests.cpp
+	LIBRARIES Core
+)
+set_source_files_properties(Private/SlowTaskTests.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 durin_add_native_test(CoreUtilityTests
 	KIND contract
 	DOMAINS core

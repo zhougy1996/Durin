@@ -1262,3 +1262,18 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		return Call && Call->Function.Get() == Functions.SampleNormal.Get();
 	}));
 }
+
+TEST(FSceneImportTests, CancellationRemainsVisibleAfterCleanupReplacesProgress)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("FeedbackCancel", "StaticModelMaterials/PrimitiveProjection.gltf");
+	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
+		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
+	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(), {});
+	Session.Cancel();
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
+	EXPECT_TRUE(Session.GetProgress().bCancellationRequested);
+	EXPECT_FALSE(Session.GetResult());
+	EXPECT_TRUE(Session.GetResult().SavedPackages.empty());
+}

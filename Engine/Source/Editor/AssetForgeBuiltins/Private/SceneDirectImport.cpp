@@ -1192,7 +1192,6 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 
 auto FAssetImportSession::FImpl::Tick() -> void
 {
-	Progress.bCancellationRequested = Cancellation.IsCancelled();
 	if (Progress.Phase == ESceneImportPhase::Building)
 		Progress.Completed = BuiltCount.load();
 	if (Progress.Phase == ESceneImportPhase::Completed)
@@ -1259,6 +1258,8 @@ FAssetImportSession::~FAssetImportSession()
 auto FAssetImportSession::Tick() -> void
 {
 	Impl->Tick();
+	// Phase transitions can replace Progress; publish the cancellation fact afterwards.
+	Impl->Progress.bCancellationRequested = Impl->Cancellation.IsCancelled();
 }
 auto FAssetImportSession::Cancel() -> void
 {

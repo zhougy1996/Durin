@@ -8,6 +8,7 @@
 #include "NamePoolDiagnosticsWindow.h"
 
 #include "EditorBranding.h"
+#include "Feedback/SlowTaskWidget.h"
 #include "ProjectBrowser.h"
 #include "ProfilingToolService.h"
 
@@ -75,6 +76,7 @@ namespace Durin::Editor::MainFrame
 			Console.reset();
 		}
 
+		Editor::FSlowTaskDialogPresenter SlowTaskDialogs;
 		EBootstrapState State = EBootstrapState::ConstructingShell;
 		bool bHasProject = false;
 		bool bProjectBrowserOpen = false;
@@ -404,27 +406,6 @@ namespace Durin::Editor::MainFrame
 				Profiling::EStartupMilestone::DefaultWorkspaceReady);
 			return true;
 		}
-
-		constexpr auto GetBootstrapPhaseIndex(EBootstrapState State)
-			-> uint8
-		{
-			switch (State)
-			{
-			case EBootstrapState::ConstructingShell:
-			case EBootstrapState::WaitingForFirstPresent:
-				return 1;
-			case EBootstrapState::LoadingWorkspace:
-			case EBootstrapState::WorkspaceReady:
-				return 2;
-			case EBootstrapState::LoadingDefaultDocument:
-			case EBootstrapState::Ready:
-				return 3;
-			case EBootstrapState::Failed:
-				return 0;
-			}
-			return 0;
-		}
-
 		auto DrawExitConfirmation(FBootstrapContext& Context) -> void
 		{
 			if (!Context.bExitRequested) return;
@@ -484,39 +465,26 @@ namespace Durin::Editor::MainFrame
 				Message = "Preparing editor...";
 			else if (Context.State == EBootstrapState::LoadingDefaultDocument)
 				Message = "Opening default level...";
-			std::string SceneStatus;
+			FSlowTaskSnapshot Feedback{.Title = "Starting editor...", .Message = Message};
+			bool bShowElapsed = false;
 			if (GEditor && Context.State == EBootstrapState::LoadingDefaultDocument)
 			{
 				if (const auto Progress = GEditor->GetSceneLoadProgress())
 				{
-					SceneStatus = Progress->bProductsKnown
-						? std::format("{} - {} meshes, {} materials ({:.1f} s elapsed)", GetSceneLoadPhaseLabel(Progress->Phase), Progress->Meshes, Progress->Materials, Progress->ElapsedSeconds)
-						: std::format("{} ({:.1f} s elapsed)", GetSceneLoadPhaseLabel(Progress->Phase), Progress->ElapsedSeconds);
+					Feedback.Message = Progress->Phase == ESceneLoadPhase::Ready
+						? "Activating level" : std::string(GetSceneLoadPhaseLabel(Progress->Phase));
+					Feedback.ElapsedSeconds = Progress->ElapsedSeconds;
+					bShowElapsed = true;
 				}
-				else if (GEditor->GetSceneGeneration() != 0) SceneStatus = "Waiting for the scene's first presentation";
+				else if (GEditor->GetSceneGeneration() != 0) Feedback.Message = "Waiting for the scene's first presentation";
 			}
-			if (!SceneStatus.empty()) Message = SceneStatus.c_str();
-			const ImVec2 MessageSize = ImGui::CalcTextSize(Message);
 			const ImVec2 ContentOrigin = ImGui::GetCursorPos();
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
 			const float ContentWidth = MonaImGui::ScaleUI(360.0f);
-			const float ContentHeight = MonaImGui::ScaleUI(72.0f);
-			const float ContentLeft = ContentOrigin.x
-				+ FMath::Max(0.0f, (Available.x - ContentWidth) * 0.5f);
-			const float ContentTop = ContentOrigin.y
-				+ FMath::Max(0.0f, (Available.y - ContentHeight) * 0.5f);
-			ImGui::SetCursorPos({
-				ContentLeft + FMath::Max(0.0f, (ContentWidth - MessageSize.x) * 0.5f),
-				ContentTop});
-			ImGui::TextUnformatted(Message);
-			ImGui::Spacing();
-			ImGui::SetCursorPosX(ContentLeft);
-			ImGui::ProgressBar(
-				-1.0f - static_cast<float>(ImGui::GetTime()),
-				{ContentWidth, MonaImGui::ScaleUI(8.0f)}, "");
-			ImGui::SetCursorPosX(
-				ContentLeft + ContentWidth - MonaImGui::ScaleUI(70.0f));
-			ImGui::TextDisabled("Phase %u/3", GetBootstrapPhaseIndex(Context.State));
+			const float ContentHeight = MonaImGui::ScaleUI(100.0f);
+			ImGui::SetCursorPos({ContentOrigin.x + std::max(0.0f, (Available.x - ContentWidth) * 0.5f),
+				ContentOrigin.y + std::max(0.0f, (Available.y - ContentHeight) * 0.5f)});
+			Editor::DrawSlowTaskProgress(Feedback, false, bShowElapsed);
 			ImGui::End();
 		}
 
@@ -1419,6 +1387,7 @@ namespace Durin
 						*Context->PythonScripts,
 						*Context->Activity);
 					ThumbnailPool.EndFrame(Host->GetStartupState() == EHostStartupState::Ready && !Host->HasPendingSceneLoad());
+					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 					DrawExitConfirmation(*Context);
 					return;
 				}
@@ -1427,10 +1396,12 @@ namespace Durin
 				{
 					Context->ProjectBrowser->Draw(
 						BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen);
+					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 					DrawExitConfirmation(*Context);
 					return;
 				}
 				DrawLoadingState(*Context);
+				Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 				DrawExitConfirmation(*Context);
 			});
 		});

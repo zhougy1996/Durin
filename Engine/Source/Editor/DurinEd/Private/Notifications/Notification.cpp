@@ -7,6 +7,11 @@ namespace Durin::Editor
 	{
 		constexpr float DefaultInfoDuration = 5.0f;
 		constexpr float DefaultWarningDuration = 8.0f;
+		auto NormalizeProgress(std::optional<float> Progress) -> std::optional<float>
+		{
+			return Progress && std::isfinite(*Progress) ? std::optional(std::clamp(*Progress, 0.0f, 1.0f)) : std::nullopt;
+		}
+
 	}
 
 	FNotificationManager::FNotificationManager(std::shared_ptr<const FSubsystemWorkGate> Gate,
@@ -86,7 +91,7 @@ namespace Durin::Editor
 			Notification.Id = Id;
 			Notification.Type = ENotificationType::Progress;
 			Notification.Message = std::move(Desc.Message);
-			if (Desc.Progress) Notification.Progress = std::clamp(*Desc.Progress, 0.0f, 1.0f);
+			Notification.Progress = NormalizeProgress(Desc.Progress);
 			Notification.Action = GuardAction(std::move(Desc.Action));
 			Notification.Cancel = GuardCallback(std::move(Desc.Cancel));
 			if (Desc.bRecordInHistory) History.emplace_back(Notification);
@@ -106,50 +111,31 @@ namespace Durin::Editor
 		Enqueue([this, Id, Progress, Message = std::move(Message)]() mutable {
 			UpdateAll(Id, [&](FNotification& Notification) {
 				if (Notification.Type != ENotificationType::Progress) return;
-				Notification.Progress = Progress ? std::optional(std::clamp(*Progress, 0.0f, 1.0f)) : std::nullopt;
+				Notification.Progress = NormalizeProgress(Progress);
 				if (!Message.empty()) Notification.Message = Message;
 			});
 		});
 	}
 
 	auto FNotificationManager::CompleteProgress(FNotificationId Id, std::string Message) -> void
-	{
-		Enqueue([this, Id, Message = std::move(Message)]() mutable {
-			UpdateAll(Id, [&](FNotification& Notification) {
-				if (Notification.Type != ENotificationType::Progress) return;
-				Notification.Type = ENotificationType::Success;
-				Notification.Progress.reset();
-				Notification.RemainingSeconds = DefaultInfoDuration;
-				Notification.Cancel = {};
-				if (!Message.empty()) Notification.Message = Message;
-			});
-		});
-	}
+	{ FinishProgress(Id, ENotificationType::Success, std::move(Message)); }
 
 	auto FNotificationManager::FailProgress(FNotificationId Id, std::string Message) -> void
-	{
-		Enqueue([this, Id, Message = std::move(Message)]() mutable {
-			UpdateAll(Id, [&](FNotification& Notification) {
-				if (Notification.Type != ENotificationType::Progress) return;
-				Notification.Type = ENotificationType::Error;
-				Notification.Progress.reset();
-				Notification.RemainingSeconds.reset();
-				Notification.Cancel = {};
-				Notification.Message = Message;
-			});
-		});
-	}
+	{ FinishProgress(Id, ENotificationType::Error, std::move(Message)); }
 
 	auto FNotificationManager::CancelProgress(FNotificationId Id, std::string Message) -> void
+	{ FinishProgress(Id, ENotificationType::Info, std::move(Message)); }
+
+	auto FNotificationManager::FinishProgress(FNotificationId Id, ENotificationType Type, std::string Message) -> void
 	{
-		Enqueue([this, Id, Message = std::move(Message)]() mutable {
+		Enqueue([this, Id, Type, Message = std::move(Message)]() mutable {
 			UpdateAll(Id, [&](FNotification& Notification) {
 				if (Notification.Type != ENotificationType::Progress) return;
-				Notification.Type = ENotificationType::Info;
+				Notification.Type = Type;
 				Notification.Progress.reset();
-				Notification.RemainingSeconds = DefaultInfoDuration;
+				Notification.RemainingSeconds = ResolveDuration(Type, -1.0f);
 				Notification.Cancel = {};
-				if (!Message.empty()) Notification.Message = Message;
+				if (!Message.empty() || Type == ENotificationType::Error) Notification.Message = Message;
 			});
 		});
 	}

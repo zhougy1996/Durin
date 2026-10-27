@@ -158,9 +158,23 @@ namespace Durin::Editor::Level
 			[this](EUnsavedLevelDialogDecision Decision) {
 				return ResolveUnsavedLevelDialog(Decision);
 			});
-		const auto Progress = bShowLoadingProgress && PendingSceneLoad
-			? std::optional(PendingSceneLoad->GetProgress()) : std::nullopt;
-		if (LoadingDialog.Draw(LoadingLevelPath, Progress) && PendingSceneLoad) PendingSceneLoad->Cancel();
+		std::optional<FSlowTaskSnapshot> Feedback;
+		if (PendingSceneLoad && bShowLoadingProgress)
+		{
+			const auto Progress = PendingSceneLoad->GetProgress();
+			if (Progress.Phase != ESceneLoadPhase::Failed && Progress.Phase != ESceneLoadPhase::Canceled
+				&& Progress.Phase != ESceneLoadPhase::Committed)
+			{
+				const std::string_view Path = PendingLevelPath;
+				const auto Separator = Path.find_last_of('/');
+				const auto Name = Path.substr(Separator == std::string_view::npos ? 0 : Separator + 1);
+				Feedback = FSlowTaskSnapshot{.Id = Progress.Id,
+					.Title = std::format("Opening {}...", Name.substr(0, Name.find('.'))),
+					.Message = Progress.Phase == ESceneLoadPhase::Ready ? "Activating level" : std::string(GetSceneLoadPhaseLabel(Progress.Phase)),
+					.Details = PendingLevelPath, .ElapsedSeconds = Progress.ElapsedSeconds, .bCanCancel = true};
+			}
+		}
+		if (LoadingDialog.Draw(Feedback) && PendingSceneLoad) PendingSceneLoad->Cancel();
 	}
 
 	auto FLevelDocumentController::ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool
@@ -218,7 +232,6 @@ namespace Durin::Editor::Level
 			return ELevelDocumentOpenResult::Rejected;
 		}
 		if (PendingSceneLoad) return ELevelDocumentOpenResult::Rejected;
-		LoadingLevelPath = std::string(PathString);
 		bShowLoadingProgress = bShowProgress;
 		PendingSceneLoad = Context.EditorHost->CreateSceneLoad({.Path = Path, .BuildInitialView = SessionSettings.CreateInitialViewBuilder(SceneViewportPanel)});
 		if (!PendingSceneLoad)
@@ -275,8 +288,6 @@ namespace Durin::Editor::Level
 	}
 	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded) -> void
 	{
-		bShowLoadingProgress = false;
-		LoadingLevelPath.clear();
 		Context.bReadOnly = Context.EditorHost && (Context.EditorHost->IsPlaying()
 			|| Context.EditorHost->GetStartupState() != EHostStartupState::Ready);
 		if (!std::exchange(bPendingDocumentOpen, false) || !CompleteDeferredOpen) return;

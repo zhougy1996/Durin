@@ -237,3 +237,66 @@ TEST(FNotificationManagerTests, EnablementMayRetireEntriesWithoutInvokingTheirAc
 	EXPECT_EQ(Invocations, 0);
 	EXPECT_TRUE(Manager.GetNotifications().empty());
 }
+
+TEST(FNotificationManagerTests, TerminalProgressUpdatesSharePolicyAcrossPresentations)
+{
+	using namespace Durin::Editor;
+	for (const auto Presentation : {ENotificationPresentation::Toast, ENotificationPresentation::StatusBar, ENotificationPresentation::HistoryOnly})
+		for (const auto Outcome : {ENotificationType::Success, ENotificationType::Error, ENotificationType::Info})
+			for (const bool bEmptyMessage : {false, true})
+			{
+				SCOPED_TRACE(std::format("presentation={} outcome={} empty={}", static_cast<int>(Presentation), static_cast<int>(Outcome), bEmptyMessage));
+				FNotificationManager Manager;
+				const auto Id = Manager.BeginProgress({.Message = "Working", .Progress = 0.5f, .Cancel = [] {}, .Presentation = Presentation});
+				Manager.Tick(0);
+				ASSERT_TRUE(Manager.RequestCancel(Id));
+				const std::string Message = bEmptyMessage ? "" : "Finished";
+				if (Outcome == ENotificationType::Success) Manager.CompleteProgress(Id, Message);
+				else if (Outcome == ENotificationType::Error) Manager.FailProgress(Id, Message);
+				else Manager.CancelProgress(Id, Message);
+				Manager.UpdateProgress(Id, 0.75f, "Late update");
+				Manager.CompleteProgress(Id, "Late completion");
+				Manager.Tick(0);
+				const auto Check = [&](const FNotification& Item) {
+					EXPECT_EQ(Item.Type, Outcome);
+					EXPECT_EQ(Item.Message, bEmptyMessage && Outcome != ENotificationType::Error ? "Working" : Message);
+					EXPECT_FALSE(Item.Progress);
+					EXPECT_FALSE(Item.Cancel);
+					EXPECT_TRUE(Item.bCancelRequested);
+					EXPECT_EQ(Item.RemainingSeconds.has_value(), Outcome != ENotificationType::Error);
+				};
+				ASSERT_EQ(Manager.GetHistory().size(), 1u);
+				Check(Manager.GetHistory().front());
+				if (Presentation == ENotificationPresentation::Toast)
+				{
+					ASSERT_NE(FindNotification(Manager, Id), nullptr);
+					Check(*FindNotification(Manager, Id));
+				}
+				else if (Presentation == ENotificationPresentation::StatusBar)
+				{
+					ASSERT_TRUE(Manager.GetStatusNotification());
+					Check(*Manager.GetStatusNotification());
+				}
+			}
+}
+
+TEST(FNotificationManagerTests, NonFiniteProgressUsesTheUnknownRepresentation)
+{
+	using namespace Durin::Editor;
+	for (const auto Invalid : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()})
+	{
+		FNotificationManager Manager;
+		const auto Id = Manager.BeginProgress({.Message = "Loading", .Progress = Invalid});
+		Manager.Tick(0);
+		ASSERT_NE(FindNotification(Manager, Id), nullptr);
+		EXPECT_FALSE(FindNotification(Manager, Id)->Progress);
+		EXPECT_FALSE(Manager.GetHistory().front().Progress);
+		Manager.UpdateProgress(Id, 2);
+		Manager.Tick(0);
+		EXPECT_FLOAT_EQ(*FindNotification(Manager, Id)->Progress, 1);
+		Manager.UpdateProgress(Id, Invalid);
+		Manager.Tick(0);
+		EXPECT_FALSE(FindNotification(Manager, Id)->Progress);
+		EXPECT_FALSE(Manager.GetHistory().front().Progress);
+	}
+}

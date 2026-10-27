@@ -298,6 +298,21 @@ gates immediately but leaves entries and consumers alive until the next host
 boundary, so drawing and the initiating callback can finish. An enablement
 predicate that retires its manager prevents the action from being invoked.
 
+Progress notifications normalize nonfinite fractions to unknown and clamp finite
+fractions to `[0, 1]` on both begin and update. Completion, failure, and cancellation
+share one terminal transition policy across toast, status, and history entries;
+late progress or terminal commands do not overwrite an already terminal entry.
+Failure uses the supplied message even when empty; completion/cancellation with
+an empty message retain the current message. Errors stay until dismissed, while completed
+and canceled progress use the normal informational lifetime.
+
+Toast and history progress use the same indicator rendering: measured work shows
+a percentage, while unknown work animates without inventing one. Toast, history,
+and status-bar buttons derive their label and cancellation/action availability
+from the same notification. A cancellable status notification does not require a
+separate Action to expose Cancel. Cancellation remains a one-shot request, and
+terminal notifications no longer offer cancellation.
+
 Raw manager references are valid only while their owning service remains alive.
 Workers must retain detached data and a work gate and publish at the game-thread
 boundary; copying a raw manager or host pointer into a worker is not lifetime

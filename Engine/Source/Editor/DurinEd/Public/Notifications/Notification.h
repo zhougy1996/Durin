@@ -113,6 +113,7 @@ namespace Durin::Editor
 		auto Find(FNotificationId Id) -> FNotification*;
 		auto FindStatus(FNotificationId Id) -> FNotification*;
 		auto FindHistory(FNotificationId Id) -> FNotification*;
+		auto FinishProgress(FNotificationId Id, ENotificationType Type, std::string Message) -> void;
 		auto UpdateAll(FNotificationId Id, const std::function<void(FNotification&)>& Update) -> void;
 		static auto ResolveDuration(ENotificationType Type, float RequestedSeconds) -> std::optional<float>;
 
