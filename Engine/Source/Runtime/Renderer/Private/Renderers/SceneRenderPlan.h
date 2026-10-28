@@ -17,27 +17,6 @@
 
 namespace Durin
 {
-	enum class EPreparedTranslucentGeometryFamily : uint8
-	{
-		StaticMesh,
-	};
-
-	struct FPreparedTranslucentSceneDraw
-	{
-		EPreparedTranslucentGeometryFamily Family =
-			EPreparedTranslucentGeometryFamily::StaticMesh;
-		uint32 DrawIndex = 0;
-		double SortDepth = 0.0;
-		FVisibleMeshDrawSortKey SortKey;
-	};
-
-	// Owns the fitted logical view for one command.
-	struct FPreparedViewContext
-	{
-		FSceneView View;
-		std::vector<FSimpleElement> RendererSimpleElements;
-	};
-
 	// Represents one complete optional sky/environment input.
 	struct FPreparedEnvironment
 	{
@@ -61,14 +40,12 @@ namespace Durin
 	struct FPreparedReceiverGeometry
 	{
 		FPreparedStaticMeshView StaticMeshes;
-		std::vector<FPreparedTranslucentSceneDraw> TranslucentGeometry;
 	};
 
 	// Owns one complete directional-shadow preparation and its cascade draws.
 	struct FPreparedDirectionalShadow
 	{
 		FPreparedDirectionalShadowView View;
-		FDirectionalShadowCasterTable Casters;
 		std::array<FPreparedStaticMeshView,
 			DirectionalShadowCascadeCount> StaticMeshes;
 	};
@@ -104,7 +81,7 @@ namespace Durin
 	// Command-local owner of immutable feature-bounded logical preparation.
 	struct FSceneRenderPlan
 	{
-		FPreparedViewContext Context;
+		FSceneView View;
 		std::optional<FPreparedEnvironment> Environment;
 		FPreparedLighting Lighting;
 		FPreparedReceiverGeometry Receiver;
@@ -124,6 +101,4 @@ namespace Durin
 		}
 	};
 
-	RENDERER_API auto PrepareCombinedTranslucentGeometry(
-		FPreparedReceiverGeometry& Geometry) -> void;
 } // namespace Durin

@@ -126,15 +126,4 @@ namespace Durin
 		bool bEditorAssistance = false;
 	};
 
-	struct FSceneRenderOutcome
-	{
-		FDirectionalShadowPassResult DirectionalShadow;
-		FGBufferPassResult GBuffer;
-		FGroundTruthAmbientOcclusionPassResult AmbientOcclusion;
-		FContactShadowVisibilityPassResult ContactShadow;
-		FVolumetricCloudShadowPassResult VolumetricCloudShadow;
-		FIsolatedDeferredPassResult IsolatedDeferred;
-		FSceneColorPassResult SceneColor;
-		FPostProcessPassResult PostProcess;
-	};
 } // namespace Durin

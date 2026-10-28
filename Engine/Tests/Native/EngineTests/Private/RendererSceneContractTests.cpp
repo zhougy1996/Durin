@@ -445,10 +445,7 @@ static_assert(!CHasResolvedDirectionalShadow<Durin::FSceneRenderPlan>);
 static_assert(!CHasTelemetry<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedTargets<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedTargets<Durin::FResolvedSceneResources>);
-static_assert(!CHasTelemetry<Durin::FSceneRenderOutcome>);
-static_assert(!CHasDeferredParameters<Durin::FSceneRenderOutcome>);
 static_assert(!CHasDeferredParameters<Durin::FSceneRenderGraphComposition>);
-static_assert(std::is_default_constructible_v<Durin::FSceneRenderOutcome>);
 static_assert(std::is_copy_constructible_v<Durin::FSceneFrameFeaturePlan>);
 static_assert(CAcceptsFeatureInputs<
 			  Durin::AddDirectionalShadowPasses,
@@ -4340,9 +4337,8 @@ namespace Durin
 				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
 			Context.Logical.Width = Context.Logical.Height = 32;
 			Context.Logical.OutputTarget = Output.GetReference();
-			Context.Logical.CallerView = &Context.Logical.RenderView;
 			Context.Logical.PreparedView.emplace();
-			Context.Features.PostProcess.Purposes = ESceneFeaturePurpose::Production;
+			Context.Logical.CallerView = &Context.Logical.PreparedView->View;
 			// Sentinel values prove that authoring and failed allocation do not run callbacks.
 			Context.Transaction.Composition.SceneColorPublication.Result = ERenderViewResult::InvalidOutput;
 			Context.Transaction.Composition.PostProcessPublication.Result = ERenderViewResult::InvalidOutput;

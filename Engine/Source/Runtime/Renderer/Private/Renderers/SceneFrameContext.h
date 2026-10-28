@@ -17,7 +17,6 @@ namespace Durin
 		{
 			FScene* Scene = nullptr;
 			const FSceneView* CallerView = nullptr;
-			FSceneView RenderView;
 			FRHITexture* OutputTarget = nullptr;
 			FSceneViewRenderOptions Options;
 			FRendererQualificationPolicy Qualification;

@@ -438,18 +438,6 @@ namespace Durin
 			EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Far), 10.0);
 			EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Near + FVector3(200.0, 0.0, 50.0)), 5.0);
 			EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, FVector3(10.0, 15.0, 30.0)), -5.0);
-			FPreparedReceiverGeometry Prepared;
-			for (const auto Center : {Near, Far, Near + FVector3(200.0, 0.0, 50.0)})
-			{
-				FPreparedStaticMeshDraw Draw;
-				Draw.TranslucentSortDepth = ComputeTranslucentSortDepth(View, Center);
-				Draw.SortKey.PrimitiveId = 3 - Prepared.StaticMeshes.Translucent.size();
-				Prepared.StaticMeshes.Translucent.push_back(Draw);
-			}
-			PrepareCombinedTranslucentGeometry(Prepared);
-			EXPECT_EQ(Prepared.TranslucentGeometry[0].SortKey.PrimitiveId, 2u);
-			EXPECT_EQ(Prepared.TranslucentGeometry[1].SortKey.PrimitiveId, 1u);
-			EXPECT_EQ(Prepared.TranslucentGeometry[2].SortKey.PrimitiveId, 3u);
 		}
 		View.Settings.Mode.TranslucentSortPolicy = ETranslucentSortPolicy::Distance;
 		EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Near), 10025.0);
@@ -462,37 +450,53 @@ namespace Durin
 	}
 
 	TEST(FRendererSceneViewTests,
-		CombinedTranslucencyOrdersDepthThenCompleteStableTies)
+		MeshPreparationFinalizesTranslucentOrderAndResolvedIndices)
 	{
-		FPreparedReceiverGeometry Prepared;
+		auto Collected = std::make_shared<FCollectedStaticMeshView>();
+		Collected->Primitives.resize(1);
+		auto Inputs = std::make_shared<FStaticMeshPreparationInputs>();
+		Inputs->Collected = Collected;
+		Inputs->MaterialCount = 1;
+		FStaticMeshPreparationChunk Chunk;
+		Chunk.Inputs = Inputs;
+		Chunk.PrimitiveCount = 1;
+		auto& Prepared = Chunk.Output;
+		Prepared.Primitives.resize(1);
+		Prepared.VisibleCandidates = Prepared.PreparedLocalPrimitives = 1;
+		Prepared.RequestedLODHistogram = Prepared.SelectedLODHistogram = {1};
+		Prepared.SelectedSections = Prepared.TranslucentSections = 4;
 		FPreparedStaticMeshDraw StaticNear;
+		StaticNear.Command = std::make_shared<const FMeshDrawDescription>();
+		StaticNear.MaterialUniformIndex = 0;
 		StaticNear.TranslucentSortDepth = 10.0;
 		StaticNear.SortKey.PrimitiveId = 20;
-		Prepared.StaticMeshes.Translucent.push_back(StaticNear);
-		FPreparedStaticMeshDraw StaticFar;
+		Prepared.Translucent.push_back(StaticNear);
+		FPreparedStaticMeshDraw StaticFar = StaticNear;
 		StaticFar.TranslucentSortDepth = 20.0;
 		StaticFar.SortKey.PrimitiveId = 30;
-		Prepared.StaticMeshes.Translucent.push_back(StaticFar);
-		FPreparedStaticMeshDraw StaticEarlier;
+		Prepared.Translucent.push_back(StaticFar);
+		FPreparedStaticMeshDraw StaticEarlier = StaticNear;
 		StaticEarlier.TranslucentSortDepth = 10.0;
 		StaticEarlier.SortKey.PrimitiveId = 10;
-		Prepared.StaticMeshes.Translucent.push_back(StaticEarlier);
-		FPreparedStaticMeshDraw ExactTie;
+		Prepared.Translucent.push_back(StaticEarlier);
+		FPreparedStaticMeshDraw ExactTie = StaticNear;
 		ExactTie.TranslucentSortDepth = 10.0;
 		ExactTie.SortKey.PrimitiveId = 20;
-		Prepared.StaticMeshes.Translucent.push_back(ExactTie);
+		Prepared.Translucent.push_back(ExactTie);
 
-		PrepareCombinedTranslucentGeometry(Prepared);
+		std::vector<FStaticMeshPreparationChunk> Chunks;
+		Chunks.push_back(std::move(Chunk));
+		const auto Result = MergeStaticMeshPreparationChunks(std::move(Chunks));
 
-		ASSERT_EQ(Prepared.TranslucentGeometry.size(), 4u);
-		EXPECT_EQ(Prepared.TranslucentGeometry[0].Family,
-			EPreparedTranslucentGeometryFamily::StaticMesh);
-		EXPECT_EQ(Prepared.TranslucentGeometry[0].SortKey.PrimitiveId, 30u);
-		EXPECT_EQ(Prepared.TranslucentGeometry[1].SortKey.PrimitiveId, 10u);
-		EXPECT_EQ(Prepared.TranslucentGeometry[2].Family,
-			EPreparedTranslucentGeometryFamily::StaticMesh);
-		EXPECT_EQ(Prepared.TranslucentGeometry[3].Family,
-			EPreparedTranslucentGeometryFamily::StaticMesh);
+		ASSERT_TRUE(Result.has_value());
+		ASSERT_EQ(Result->Translucent.size(), 4u);
+		const std::array<uint64, 4> ExpectedIds{30, 10, 20, 20};
+		for (uint32 Index = 0; Index < ExpectedIds.size(); ++Index)
+		{
+			EXPECT_EQ(Result->Translucent[Index].SortKey.PrimitiveId, ExpectedIds[Index]);
+			EXPECT_EQ(Result->Translucent[Index].ResolvedIndex, Index);
+			EXPECT_EQ(Result->Translucent[Index].MaterialUniformIndex, 0u);
+		}
 	}
 
 	TEST(FRendererSceneViewTests, FixedAspectViewsAreCenteredPerOutput)

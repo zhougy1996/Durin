@@ -26,10 +26,12 @@ namespace Durin
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareView");
 		FScene* Scene = Context.Logical.Scene;
-		FSceneView& RenderView = Context.Logical.RenderView;
 		const FSceneViewRenderOptions& Options = Context.Logical.Options;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		FSceneRenderPlan PreparedView;
+		PreparedView.View = FitSceneViewToOutput(
+			*Context.Logical.CallerView, Context.Logical.Width, Context.Logical.Height);
+		const FSceneView& RenderView = PreparedView.View;
 		FStaticMeshPreparationCache MeshPreparationCache;
 		Service.MeshCommandCache.BeginSubmission();
 		struct FEndCommandSubmission
@@ -39,7 +41,6 @@ namespace Durin
 		} EndCommandSubmission{Service.MeshCommandCache};
 		MeshPreparationCache.Commands = &Service.MeshCommandCache;
 		std::optional<FStaticMeshPreparationWork> ReceiverWork;
-		PreparedView.Context.View = RenderView;
 		if (Options.Environment)
 		{
 			const FViewEnvironmentOverride& Environment = *Options.Environment;
@@ -123,7 +124,7 @@ namespace Durin
 					Telemetry.View.DirectionalShadow.ShadowInvalidQualityFallbacks +=
 						Filter.bUsedInvalidQualityFallback ? 1u : 0u;
 					const auto DiscoveryStart = std::chrono::steady_clock::now();
-					PreparedView.DirectionalShadow->Casters =
+					const auto CasterTable =
 						PrepareDirectionalShadowCasterTable(
 							*Scene, PreparedView.DirectionalShadow->View
 						);
@@ -133,7 +134,6 @@ namespace Durin
 												std::chrono::steady_clock::now() - DiscoveryStart
 						)
 												.count());
-					const auto& CasterTable = PreparedView.DirectionalShadow->Casters;
 					std::vector<FStaticMeshPreparationWork> CascadeWork;
 					CascadeWork.reserve(PreparedView.DirectionalShadow->View.CascadeCount);
 					for (uint32 CascadeIndex = 0;
@@ -297,8 +297,7 @@ namespace Durin
 			}
 		}
 		if (ReceiverWork) PreparedView.Receiver.StaticMeshes = FinishStaticMeshView(std::move(*ReceiverWork));
-		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
-		Telemetry.View.CombinedTranslucentGeometryDraws = PreparedView.Receiver.TranslucentGeometry.size();
+		Telemetry.View.CombinedTranslucentGeometryDraws = PreparedView.Receiver.StaticMeshes.Translucent.size();
 		return {
 			.Result = ERenderViewResult::Success,
 			.Plan = std::move(PreparedView)};
@@ -313,7 +312,7 @@ namespace Durin
 		const auto& PreparedView = *Context.Logical.PreparedView;
 		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
-		const FSceneView& View = PreparedView.Context.View;
+		const FSceneView& View = PreparedView.View;
 		if (PreparedView.Receiver.StaticMeshes.bResourceFailure) return ERenderViewResult::RendererResourcesUnavailable;
 		const bool bRequiresDeferredOpaque =
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
@@ -386,7 +385,7 @@ namespace Durin
 	) const -> FSceneFrameFeaturePlan
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.BuildFeaturePlan");
-		const FSceneView& View = PreparedView.Context.View;
+		const FSceneView& View = PreparedView.View;
 		FSceneFrameFeaturePlan Plan;
 		auto AddPurpose = [](FSceneFeatureDecision& Feature,
 			ESceneFeaturePurpose Purpose, bool bEnabled) {
@@ -447,7 +446,6 @@ namespace Durin
 		Plan.CloudSpatial.Extent = {
 			static_cast<int32>(CloudExtent.Width),
 			static_cast<int32>(CloudExtent.Height)};
-		Plan.PostProcess.Purposes = ESceneFeaturePurpose::Production;
 		return Plan;
 	}
 

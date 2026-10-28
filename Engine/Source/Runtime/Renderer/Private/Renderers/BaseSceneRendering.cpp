@@ -290,17 +290,15 @@ namespace Durin
 			);
 		}
 		FMeshDrawBindingGroup TranslucentBindings;
-		for (const FPreparedTranslucentSceneDraw& Draw :
-			 Inputs.Receiver.TranslucentGeometry)
+		for (const FPreparedStaticMeshDraw& Draw :
+			 Inputs.Receiver.StaticMeshes.Translucent)
 		{
-			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
-				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
-					Inputs.Receiver.StaticMeshes.Translucent[Draw.DrawIndex],
-					Inputs.Receiver.StaticMeshes,
-					ResolvedSceneResources.Receiver.StaticMeshes, false, &TranslucentBindings
-				);
+			StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
+				CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
+				View.Settings.Mode.RenderMode, EMeshBasePass::Translucent, Draw,
+				Inputs.Receiver.StaticMeshes,
+				ResolvedSceneResources.Receiver.StaticMeshes, false, &TranslucentBindings
+			);
 		}
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
 			ResolvedSceneResources.Receiver.StaticMeshes
