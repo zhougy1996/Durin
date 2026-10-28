@@ -72,7 +72,6 @@ namespace Durin
 		FCloudShadow CloudShadow;
 		FCloudSpatial CloudSpatial;
 		FSceneFeatureDecision GBufferDebug;
-		FSceneFeatureDecision PostProcess;
 		FSceneFeatureDecision EditorAssistance;
 
 		[[nodiscard]] auto RequiresProductionDeferred() const -> bool

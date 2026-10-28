@@ -68,7 +68,7 @@ namespace Durin
 			.DetailDensity = GraphResources.VolumetricCloudDetailDensity,
 			.Weather = GraphResources.VolumetricCloudWeather,
 			.WeatherTexture = CloudWeatherTexture};
-		const FSceneView& PreparedRenderView = PreparedView.Context.View;
+		const FSceneView& PreparedRenderView = PreparedView.View;
 		const FPreparedDirectionalShadow* DirectionalShadow =
 			PreparedView.DirectionalShadow ? &*PreparedView.DirectionalShadow : nullptr;
 		const FPreparedVolumetricCloud* VolumetricCloud =

@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-10-28
 
 ## Ownership Boundary
 
@@ -18,6 +18,9 @@ shadow, and optional volumetric cloud. The temporal transaction, resolved
 execution resources, final feature decisions, pass results, and telemetry
 occupy the `Transaction`, `Resolved`, `Features`, and `Observation` partitions
 of the same submission-owned `FSceneFrameContext`, not fields of the logical plan.
+The plan owns the single fitted view snapshot used by resource preparation,
+temporal state and graph recording. The caller's original view remains borrowed
+for output settings; the frame context does not retain another fitted copy.
 
 [Load preparation](LoadPreparation.md) may pump the same resource phases before
 drawing. Each pump owns a fresh logical snapshot and stops before temporal or
@@ -101,7 +104,7 @@ ordinary view wrapper's size policy for diagnosis. These fixed thresholds are
 correctness defaults, not measured performance acceptance.
 
 The production frame starts receiver preparation immediately after visibility
-collection and joins it before combined translucent geometry consumes the result.
+collection and joins it before translucent geometry consumes the result.
 Environment, light, shadow and cloud preparation can proceed while its initial
 task window runs. Shadow preparation starts every cascade before joining them in
 cascade order for raster bias and telemetry. Collection and shared-cache resolution
@@ -171,8 +174,9 @@ Visible mesh draws contain compact template references, dense indices, world sor
 center/depth and optional per-view raster bias; they do not copy template geometry,
 material, pipeline or layout arrays. A compile-time bound limits this record to
 128 bytes. Visible ordering keys retain an alias to immutable template sort state
-and keep primitive/batch/LOD tie-breakers separately. Combined translucent lists
-share the same sort state. Comparison preserves pipeline, material, vertex input,
+and keep primitive/batch/LOD tie-breakers separately. Translucent recording uses
+the prepared mesh bucket directly, without a separate family/index list or
+second sort. Comparison preserves pipeline, material, vertex input,
 geometry, primitive, batch, LOD and section order, with translucent depth first.
 Cascade raster-bias magnitudes remain dynamic draw state and do not enter the
 pipeline-cache identity or mutate templates shared with another view.
@@ -343,6 +347,10 @@ Supported GBuffer, deferred, and GTAO debug modes remain explicit public view
 options and execute through the same compiled graph schedule. Timing and
 capture sinks observe completed typed pass results only.
 
+Shadow caster membership tables are local to logical preparation. Once cascade
+draws and telemetry have been produced, those candidate arrays are released
+before resource resolution and graph execution.
+
 The frame pipeline's preparation stage builds the plan from the fitted
 `FSceneView` and render-thread `FScene` snapshot. The plan never contains a
 reflected or game-thread object and remains bounded by the render command's
@@ -471,7 +479,7 @@ stay local. Pure viewport fitting lives in `FitSceneViewToOutput`.
    attachments. Then render cloud spatial work through its preselected compute
    or graphics domain and reconstruct/composite the result.
    Graph declarations own every color/depth handoff between these passes.
-8. Render combined translucent geometry in the prepared stable order; its
+8. Render the prepared translucent mesh bucket in its stable order; its
    ordinary load/store attachment declarations preserve color and depth; RDG
    transitions subsequent sampled consumers.
 9. The frame finalization stage selects debug or Scene Color output,

@@ -132,8 +132,6 @@ namespace Durin
 		Context.Logical.Width = Width;
 		Context.Logical.Height = Height;
 		Context.Logical.bPresentOutput = bPresentOutput;
-		Context.Logical.RenderView = FitSceneViewToOutput(
-			View, Width, Height);
 		FSceneRenderPreparationResult Preparation;
 		{
 			// Material resolution belongs to logical collection, before the resource
@@ -245,7 +243,7 @@ namespace Durin
 		auto* Scene = Context.Logical.Scene;
 		const auto Width = Context.Logical.Width;
 		const auto Height = Context.Logical.Height;
-		auto& RenderView = Context.Logical.RenderView;
+		const auto& RenderView = Context.Logical.PreparedView->View;
 		auto*& ViewState = Context.Transaction.ViewState;
 		auto& TemporalContext = Context.Transaction.Temporal;
 		ViewState = Service.ViewStates.Find(RenderView.ViewStateId);
@@ -272,7 +270,7 @@ namespace Durin
 		auto* Scene = Context.Logical.Scene;
 		const auto Width = Context.Logical.Width;
 		const auto Height = Context.Logical.Height;
-		auto& RenderView = Context.Logical.RenderView;
+		const auto& RenderView = Context.Logical.PreparedView->View;
 		auto*& ViewState = Context.Transaction.ViewState;
 		auto& TemporalContext = Context.Transaction.Temporal;
 		if (ViewState != nullptr)
@@ -311,7 +309,7 @@ namespace Durin
 		const auto Width = Context.Logical.Width;
 		const auto Height = Context.Logical.Height;
 		const auto& Qualification = Context.Logical.Qualification;
-		auto& RenderView = Context.Logical.RenderView;
+		const auto& RenderView = Context.Logical.PreparedView->View;
 		auto& TemporalContext = Context.Transaction.Temporal;
 		const auto& PreparedView = *Context.Logical.PreparedView;
 		auto& FeaturePlan = Context.Features;
@@ -328,15 +326,13 @@ namespace Durin
 			const RenderTargetLayouts::EViewportOutput ViewportOutput =
 				GetViewportOutput(bPresentOutput);
 			const RendererEditorAssistance::FRequest EditorAssistanceRequest =
-				FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput,
-					PreparedView.Context.RendererSimpleElements,
+				FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput, {},
 					OutputTarget->GetFormat());
 			RendererEditorAssistance::FPrepared& PreparedEditorAssistance =
 				Context.Logical.EditorAssistance;
 			if (!EditorAssistanceRequest.IsEmpty())
 				PreparedEditorAssistance = EditorAssistanceRenderer.Prepare_RenderThread(
-					CommandList, RenderView, EditorAssistanceRequest,
-					PreparedView.Context.RendererSimpleElements);
+					CommandList, RenderView, EditorAssistanceRequest);
 			const bool bHasEditorAssistance =
 				PreparedEditorAssistance.HasDrawableOperation();
 			if (bHasEditorAssistance)
