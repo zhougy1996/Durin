@@ -31,7 +31,6 @@ namespace Durin
 		auto RetireCandidate() -> void;
 		auto Fail(std::string Cause) -> void;
 		auto PrepareProducts(DLevel& Level) -> std::expected<bool, std::string>;
-		auto PrepareComponents() -> std::expected<bool, std::string>;
 		// Only called from an active exception handler, at owner boundaries.
 		static auto DescribeException() -> std::string;
 

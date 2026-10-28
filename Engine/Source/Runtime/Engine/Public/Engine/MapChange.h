@@ -9,7 +9,7 @@ namespace Durin
 	class DClass;
 	enum class EMapChangePhase : uint8
 	{
-		LoadingAssets, PreparingProducts, RegisteringWorld, PreparingComponents,
+		LoadingAssets, PreparingProducts, RegisteringWorld,
 		Ready, Committed, Failed, Canceled
 	};
 	constexpr auto IsMapChangeComplete(EMapChangePhase Phase) -> bool
@@ -23,7 +23,6 @@ namespace Durin
 		case EMapChangePhase::LoadingAssets: return "Loading assets";
 		case EMapChangePhase::PreparingProducts: return "Preparing geometry and materials";
 		case EMapChangePhase::RegisteringWorld: return "Registering scene";
-		case EMapChangePhase::PreparingComponents: return "Preparing component PSOs";
 		case EMapChangePhase::Ready: return "Ready to commit";
 		case EMapChangePhase::Committed: return "Committed";
 		case EMapChangePhase::Failed: return "Failed";
