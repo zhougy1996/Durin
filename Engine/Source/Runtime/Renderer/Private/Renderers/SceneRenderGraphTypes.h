@@ -2,9 +2,12 @@
 
 #include "CoreMinimal.h"
 
-#include "Renderers/SceneRenderingService.h"
+#include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
-#include "RDG/RDGParameters.h"
+#include "Renderers/SceneRenderResults.h"
+#include "Renderers/VolumetricCloudShadowRenderer.h"
+#include "Renderers/VolumetricCloudSpatialRenderer.h"
+#include "SceneView.h"
 
 namespace Durin
 {

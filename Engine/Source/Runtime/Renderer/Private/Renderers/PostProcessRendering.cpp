@@ -2,6 +2,9 @@
 #include "RDG/RDG.h"
 #include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/SceneRenderTelemetry.h"
+#include "Renderers/GBufferDebugRenderer.h"
+#include "Renderers/PostProcessRenderer.h"
+#include "Renderers/RendererRDGAllocator.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"

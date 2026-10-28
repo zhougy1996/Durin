@@ -3,6 +3,10 @@
 #include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/SceneRenderTelemetry.h"
+#include "Renderers/DirectionalShadowRenderer.h"
+#include "Renderers/PostProcessRenderer.h"
+#include "Renderers/RendererRDGAllocator.h"
+#include "Resources/DefaultTextureResources.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
@@ -80,8 +84,6 @@ namespace Durin
 										  || Inputs.AmbientOcclusionFeature.IsEnabled();
 		const bool bWantsProductionDeferred =
 			Inputs.Feature.HasPurpose(ESceneFeaturePurpose::Production);
-		const bool bHybridRetainedResourcesReady =
-			Inputs.bHybridRetainedResourcesReady;
 		const bool bIsolated = bWantsIsolatedDeferred;
 		const auto AmbientOcclusionQuality = Inputs.AmbientOcclusion.Quality;
 		std::optional<FRDGTextureHandle> IsolatedDeferred;
@@ -163,8 +165,7 @@ namespace Durin
 			.EnvironmentSampler = EnvironmentSampler,
 			.DirectionalShadowSampler = Inputs.DirectionalShadowRenderer.GetSampler_RenderThread(),
 			.AmbientOcclusionQuality = AmbientOcclusionQuality,
-			.bProduction = bWantsProductionDeferred,
-			.bRetainedResourcesReady = bHybridRetainedResourcesReady
+			.bProduction = bWantsProductionDeferred
 		};
 		auto ProductionInputs = Parameters->Inputs;
 		if (!bIsolated)
@@ -253,7 +254,6 @@ namespace Durin
 		};
 		FRHITexture* DirectionalShadowTexture = ResolvePersistent(Policy.PersistentAliases.DirectionalShadow);
 		FRHITexture* White = ResolvePersistent(Policy.PersistentAliases.White);
-		if (Policy.bProduction && !Policy.bRetainedResourcesReady) return std::nullopt;
 
 		if (!GBuffer.IsComplete() || !GBufferTargets) return std::nullopt;
 		const bool bAmbientOcclusionComplete = AmbientOcclusion.IsComplete()

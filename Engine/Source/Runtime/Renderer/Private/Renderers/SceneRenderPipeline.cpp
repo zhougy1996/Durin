@@ -340,13 +340,11 @@ namespace Durin
 					ESceneFeaturePurpose::Production;
 			const bool bWantsProductionDeferred =
 				FeaturePlan.RequiresProductionDeferred();
-			Context.Resolved.bHybridRetainedResourcesReady =
-				!bWantsProductionDeferred
-				|| StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
+			if (bWantsProductionDeferred
+				&& !StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 						PreparedView.Receiver.StaticMeshes,
 						ResolvedSceneResources.Receiver.StaticMeshes
-					);
-			if (!Context.Resolved.bHybridRetainedResourcesReady)
+					))
 				return ERenderViewResult::RendererResourcesUnavailable;
 			const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
 			auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderTelemetry.h"
@@ -31,7 +32,6 @@ namespace Durin
 		{
 			FResolvedSceneResources Scene;
 			FRHITexture* CloudWeatherTexture = nullptr;
-			bool bHybridRetainedResourcesReady = false;
 		};
 
 		struct FTransaction final

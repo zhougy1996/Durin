@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/PostProcessRendering.h"
 #include "RDG/RDGParameters.h"
 

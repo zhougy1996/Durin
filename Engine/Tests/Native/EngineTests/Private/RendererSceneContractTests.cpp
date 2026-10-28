@@ -771,7 +771,7 @@ TEST(FRendererSceneContractTests, DeferredLightingResolvesDeclaredAliasesAndFail
 				Parameters->CloudShadow = TRDGValueRead<FVolumetricCloudShadowPassResult>{Cloud};
 			}
 			const FDeferredLightingPolicy Policy{.PersistentAliases = {std::nullopt, White, ShadowArray, Cube, Cube, Black},
-				.bProduction = bProduction, .bRetainedResourcesReady = true};
+				.bProduction = bProduction};
 			const auto Consumer = Graph.AddPass("Lighting", ERDGPassType::Graphics, std::move(Parameters),
 				[&](FRHICommandListImmediate&, const FDeferredResourceTestParameters& Pass, const FRDGParameterResolver& Resolver) {
 					FSceneView View;
@@ -797,9 +797,9 @@ TEST(FRendererSceneContractTests, DeferredLightingResolvesDeclaredAliasesAndFail
 					EXPECT_FALSE(Physical->bGroundTruthAmbientOcclusionEnabled);
 					EXPECT_FALSE(Physical->bContactVisibilityEnabled);
 					EXPECT_FALSE(Physical->bVolumetricCloudVisibilityEnabled);
-					auto Unready = Policy;
-					Unready.bRetainedResourcesReady = false;
-					EXPECT_EQ(ResolveDeferredLightingResources(Resolver, Pass.Resources, Outcomes, Unready, View, Options, {}).has_value(), !bProduction);
+					auto FailedGBuffer = Outcomes;
+					FailedGBuffer.GBuffer.Status = EScenePassStatus::Failed;
+					EXPECT_FALSE(ResolveDeferredLightingResources(Resolver, Pass.Resources, FailedGBuffer, Policy, View, Options, {}).has_value());
 				});
 			Graph.MarkPassRoot(Consumer);
 			const auto Execution = Graph.Execute(Executor.GetImmediateCommandList());
