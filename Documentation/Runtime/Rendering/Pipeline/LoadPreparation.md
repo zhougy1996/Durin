@@ -165,6 +165,17 @@ logical traversal is not a hard frame-time bound. Pending work is revisited by t
 owner. Pipeline requests inherit the existing normal service priority; loading
 owners choose pump order rather than introducing a second scheduling queue. Terminal resource errors produce Failed rather than false readiness.
 
+For a draw carrying a preparation request, this budget ends after logical and
+resource preparation succeeds. Before temporal Begin or graph authoring, the
+pipeline enters a `FRenderResourcePreparationUseScope` from the active preparation
+scope. Recording and GPU readback no longer consume the preparation deadline,
+admission counts or retained-object budget. Additional native Shader/PSO demand
+is counted as uncovered use instead. The guard restores the preparation scope on
+normal return and unwinding, so the service still publishes the final request
+status from the complete view result. Preparation-only pumps retain their normal
+budgets and never enter this recording phase. This boundary does not permit
+synchronous Shader compilation or waits on the rendering thread.
+
 The handle retains ShaderMap code/resources, successful transactional slot
 payloads and shared pipeline request identities. Resident slots also keep their
 bounded request identities, so normal drawing can reuse the same weak-cache

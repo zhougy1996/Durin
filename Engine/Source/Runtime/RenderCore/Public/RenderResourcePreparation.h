@@ -40,15 +40,20 @@ namespace Durin
 
 	// Observe new demand admissions during activated drawing separately from
 	// preparation failure. Cache hits can still satisfy an uncovered PSO request.
+	class FRenderResourcePreparationScope;
 	class FRenderResourcePreparationUseScope
 	{
 	public:
 		RENDERCORE_API explicit FRenderResourcePreparationUseScope(const FRenderResourcePreparation& Preparation);
+		// Transition a successfully prepared invocation to recording without charging
+		// its shader/pipeline admissions or GPU readback time to the preparation budget.
+		RENDERCORE_API explicit FRenderResourcePreparationUseScope(FRenderResourcePreparationScope& Preparation);
 		RENDERCORE_API ~FRenderResourcePreparationUseScope();
 		FRenderResourcePreparationUseScope(const FRenderResourcePreparationUseScope&) = delete;
 	private:
 		std::shared_ptr<FRenderResourcePreparationState> State;
 		FRenderResourcePreparationUseScope* Previous = nullptr;
+		FRenderResourcePreparationScope* SuspendedPreparation = nullptr;
 		friend class FRenderResourcePreparationScope;
 	};
 
@@ -74,6 +79,7 @@ namespace Durin
 		FRenderResourcePreparationScope* Previous = nullptr;
 		std::chrono::steady_clock::time_point Start;
 		uint32 Shaders = 0, Pipelines = 0;
+		friend class FRenderResourcePreparationUseScope;
 	};
 	// A thumbnail capture may consume completed outputs, never compile on demand.
 	// Resource preparation may opt into asynchronous demand; nested captures still

@@ -22,7 +22,24 @@ namespace Durin
 		if (Preparation.GetProgress().State != ERenderResourcePreparationState::Ready) State.reset();
 		CurrentUse = this;
 	}
-	FRenderResourcePreparationUseScope::~FRenderResourcePreparationUseScope() { CurrentUse = Previous; }
+	FRenderResourcePreparationUseScope::FRenderResourcePreparationUseScope(FRenderResourcePreparationScope& Preparation)
+		: State(Preparation.State), Previous(CurrentUse), SuspendedPreparation(&Preparation)
+	{
+		CheckRenderingThread();
+		require(CurrentPreparation == &Preparation);
+		if (State->Canceled) throw FRenderResourcePreparationYield{};
+		CurrentPreparation = nullptr;
+		CurrentUse = this;
+	}
+	FRenderResourcePreparationUseScope::~FRenderResourcePreparationUseScope()
+	{
+		CurrentUse = Previous;
+		if (SuspendedPreparation)
+		{
+			require(CurrentPreparation == nullptr);
+			CurrentPreparation = SuspendedPreparation;
+		}
+	}
 	auto FRenderResourcePreparation::Create() -> FRenderResourcePreparation
 	{
 		FRenderResourcePreparation Result;

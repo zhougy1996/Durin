@@ -281,7 +281,7 @@ namespace Durin
 		try
 		{
 			Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, View,
-				OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture, bPrepareOnly);
+				OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture, bPrepareOnly, &Scope);
 		}
 		catch (const FRenderResourcePreparationYield&) { Result = ERenderViewResult::RendererResourcesPending; }
 		catch (const FRenderResourcePreparationCapacityExceeded&) {}

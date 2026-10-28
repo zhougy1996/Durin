@@ -75,7 +75,8 @@ namespace Durin
 	auto FSceneRenderPipeline::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture, bool bPrepareOnly) -> ERenderViewResult
+		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture, bool bPrepareOnly,
+		FRenderResourcePreparationScope* PreparationScope) -> ERenderViewResult
 	{
 		FPreparedShaderMapScope ShaderScope(true);
 		const bool bTracePreparation = FRenderResourcePreparationScope::IsActive()
@@ -160,6 +161,8 @@ namespace Durin
 			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread); });
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
 		if (bPrepareOnly) return ERenderViewResult::Success;
+		std::optional<FRenderResourcePreparationUseScope> PreparationUse;
+		if (PreparationScope) PreparationUse.emplace(*PreparationScope);
 		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
 		BeginTemporalState_RenderThread(Context);
 		FRDGBuilder Graph;

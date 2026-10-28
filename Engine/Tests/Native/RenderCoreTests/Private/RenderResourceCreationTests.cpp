@@ -884,6 +884,59 @@ namespace Durin
 			Thread->WaitForCompletion();
 		}
 
+		TEST(FRenderResourceCreationTests, RecordingObservesUncoveredDemandWithoutConsumingPreparationBudget)
+		{
+			class FRecordingTask final : public FRunnable
+			{
+			public:
+				auto Run() -> uint32 override
+				{
+					auto Owner = FRenderResourcePreparation::Create();
+					auto Resource = std::make_shared<int>(42);
+					{
+						FRenderResourcePreparationScope Scope(Owner);
+						FRenderResourcePreparationScope::BeforeShader();
+						FRenderResourcePreparationScope::Retain(Resource, sizeof(int));
+						{
+							FRenderResourcePreparationUseScope Recording(Scope);
+							EXPECT_FALSE(FRenderResourcePreparationScope::IsActive());
+							// Exceed both count limits without depending on wall-clock timing.
+							EXPECT_NO_THROW(for (uint32 Index = 0; Index < 32; ++Index) {
+								FRenderResourcePreparationScope::BeforeShader();
+								FRenderResourcePreparationScope::BeforePipeline();
+							});
+							// Recording must not extend the loading request's retained resource set.
+							EXPECT_NO_THROW(FRenderResourcePreparationScope::Retain(Resource, 257ull * 1024 * 1024));
+						}
+						EXPECT_TRUE(FRenderResourcePreparationScope::IsActive());
+						try
+						{
+							FRenderResourcePreparationUseScope Recording(Scope);
+							throw 42;
+						}
+						catch (int) {}
+						EXPECT_TRUE(FRenderResourcePreparationScope::IsActive());
+						Scope.Complete(ERenderResourcePreparationState::Ready);
+					}
+					EXPECT_FALSE(FRenderResourcePreparationScope::IsActive());
+					const auto Progress = Owner.GetProgress();
+					EXPECT_EQ(Progress.State, ERenderResourcePreparationState::Ready);
+					EXPECT_EQ(Progress.ShaderAdmissions, 1u);
+					EXPECT_EQ(Progress.PipelineAdmissions, 0u);
+					EXPECT_EQ(Progress.UncoveredShaderAdmissions, 32u);
+					EXPECT_EQ(Progress.UncoveredPipelineAdmissions, 32u);
+					EXPECT_EQ(Progress.RetainedObjects, 1u);
+					EXPECT_EQ(Progress.AccountedBytes, sizeof(int));
+					Owner.Retire_RenderThread(ERenderResourcePreparationState::Stale);
+					return 0;
+				}
+			} Task;
+			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Task, "RecordingPreparationContract", 0,
+				EThreadPriority::Normal, EThreadRole::RenderingThread));
+			ASSERT_NE(Thread, nullptr);
+			Thread->WaitForCompletion();
+		}
+
 		TEST(FRenderResourceCreationTests, PreparedPipelineRequestsSurviveSlotEviction)
 		{
 			ASSERT_EQ(GDynamicRHI, nullptr);

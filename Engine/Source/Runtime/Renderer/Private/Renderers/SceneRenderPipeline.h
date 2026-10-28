@@ -7,6 +7,7 @@
 namespace Durin
 {
 	class FRDGBuilder;
+	class FRenderResourcePreparationScope;
 	class FSceneRenderingService;
 
 	// Owns preparation, graph execution, and lifecycle finalization for
@@ -32,7 +33,8 @@ namespace Durin
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
 			FRDGCapture* OutRenderGraphCapture,
-			bool bPrepareOnly = false
+			bool bPrepareOnly = false,
+			FRenderResourcePreparationScope* PreparationScope = nullptr
 		) -> ERenderViewResult;
 
 	private:
