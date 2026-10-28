@@ -56,8 +56,6 @@ namespace Durin
 		const uint32 Width = Logical.Width;
 		const uint32 Height = Logical.Height;
 		const bool bPresentOutput = Logical.bPresentOutput;
-		const bool bHybridRetainedResourcesReady =
-			Resolved.bHybridRetainedResourcesReady;
 		auto& Composition = Context.Transaction.Composition;
 		auto& Telemetry = Context.Observation.Telemetry;
 		const auto GraphResources = PrepareGraphResources(Graph);
@@ -131,8 +129,7 @@ namespace Durin
 				.Environment = GraphResources.Environment,
 				.Width = Width, .Height = Height,
 				.Feature = Features.Deferred,
-				.AmbientOcclusionFeature = Features.AmbientOcclusion,
-				.bHybridRetainedResourcesReady = bHybridRetainedResourcesReady});
+				.AmbientOcclusionFeature = Features.AmbientOcclusion});
 		const FSceneGeometryRecordInputs GeometryInputs{
 			PreparedRenderView, Environment, PreparedView.Receiver};
 		const auto BaseSceneOutput = AddBaseScenePasses(Graph, { .Record = GeometryInputs,

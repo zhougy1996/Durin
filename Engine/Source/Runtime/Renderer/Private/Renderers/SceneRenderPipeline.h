@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	class FRDGBuilder;
 	class FSceneRenderingService;
 
 	// Owns preparation, graph execution, and lifecycle finalization for

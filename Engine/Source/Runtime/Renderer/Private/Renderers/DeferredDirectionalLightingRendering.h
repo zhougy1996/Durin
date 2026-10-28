@@ -67,7 +67,6 @@ namespace Durin
 		FRHISampler* DirectionalShadowSampler = nullptr;
 		EGroundTruthAmbientOcclusionQuality AmbientOcclusionQuality{};
 		bool bProduction = false;
-		bool bRetainedResourcesReady = false;
 	};
 
 	struct FDeferredDirectionalLightingPassParameters final
@@ -135,7 +134,6 @@ namespace Durin
 		uint32 Height;
 		const FSceneFeatureDecision& Feature;
 		const FSceneFrameFeaturePlan::FAmbientOcclusion& AmbientOcclusionFeature;
-		bool bHybridRetainedResourcesReady;
 	};
 
 	inline constexpr std::string_view DeferredDirectionalLightingPassName = "Scene.DeferredDirectionalLighting";

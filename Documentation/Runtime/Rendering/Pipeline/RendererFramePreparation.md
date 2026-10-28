@@ -556,8 +556,11 @@ its own declared resource group through `ResolveDeferredLightingParameters` and
 typed reads and immutable selection policy. It never transports physical texture
 or buffer bindings through a graph-owned value. Production and isolated callbacks
 construct separate local `FRenderParameters`; production fixes diagnostic mode to
-zero and additionally requires retained-geometry readiness. Isolated diagnostics
-keep their independent debug policy and do not require production readiness.
+zero. Required retained-geometry resources are admitted during feature preparation;
+failure rejects the submission before graph authoring. This readiness condition is
+not copied into the frame context or graph policy. Execution still checks actual
+GBuffer completion and declared resources. Isolated diagnostics keep their
+independent debug policy and do not require production preparation.
 Unrequested isolated lighting creates no pass, completion value or output target;
 postprocess declares an optional read only when that branch exists.
 

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Renderers/SceneFrameContext.h"
+#include "RDG/RDGDefinitions.h"
 
 namespace Durin
 {

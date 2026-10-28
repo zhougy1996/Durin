@@ -1,6 +1,7 @@
 #include "Renderers/SceneColorRendering.h"
 #include "RDG/RDG.h"
 #include "Renderers/SceneRenderTelemetry.h"
+#include "Renderers/StaticMeshRenderer.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"

@@ -2,6 +2,8 @@
 #include "RDG/RDG.h"
 #include "Renderers/BaseSceneRendering.h"
 #include "Renderers/SceneRenderTelemetry.h"
+#include "Renderers/RendererRDGAllocator.h"
+#include "Renderers/PostProcessRenderer.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"

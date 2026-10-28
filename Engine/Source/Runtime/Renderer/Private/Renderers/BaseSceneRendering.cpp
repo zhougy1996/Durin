@@ -2,6 +2,10 @@
 #include "RDG/RDG.h"
 #include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/SceneRenderTelemetry.h"
+#include "Renderers/DirectionalShadowRenderer.h"
+#include "Renderers/SkyBoxRenderer.h"
+#include "Renderers/StaticMeshRenderer.h"
+#include "Resources/DefaultTextureResources.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
@@ -137,10 +141,10 @@ namespace Durin
 			auto Parameters = MakeGeometryParameters(Bootstrap, true, false);
 			Parameters->GBufferCompletion = Inputs.Deferred.Inputs.GBufferCompletion;
 			SceneTextureGroups::AssignSkyRead(Parameters->Resources, Sky, SkyTexture);
-			(void)Graph.AddRasterPass(HybridBootstrapPassName, std::move(Parameters), [Recorder, RecordInputs, Sky, Timing, Failure, Policy = Inputs.Deferred.Policy](FRHICommandListImmediate& Commands, const FBaseScenePassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {
+			(void)Graph.AddRasterPass(HybridBootstrapPassName, std::move(Parameters), [Recorder, RecordInputs, Sky, Timing, Failure](FRHICommandListImmediate& Commands, const FBaseScenePassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {
 				Timing->Begin(Commands);
 				const auto* GBuffer = Resolver.ReadValue(Pass.GBufferCompletion);
-				if (!GBuffer || !GBuffer->IsComplete() || !Policy.bRetainedResourcesReady)
+				if (!GBuffer || !GBuffer->IsComplete())
 				{
 					++Recorder.Telemetry.View.Deferred.HybridDeferredUnavailableViews;
 					Resolver.WriteValue(Pass.Completion) = {};
