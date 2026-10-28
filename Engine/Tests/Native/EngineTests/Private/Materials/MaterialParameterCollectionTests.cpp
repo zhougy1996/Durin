@@ -124,7 +124,11 @@ TEST_F(FMaterialParameterCollectionTests,
 	DuplicateName.Name = "renamedexposure";
 	const auto Rejected = Collection->SetDeclarations(
 		std::array{A, DuplicateName});
-	EXPECT_EQ(Rejected.Error,
+	ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.error().RecordIndex, 1u);
+	EXPECT_EQ(Rejected.error().ParameterId, DuplicateName.Id);
+	EXPECT_FALSE(Rejected.error().Message.empty());
+	EXPECT_EQ(Rejected.error().Code,
 		EMaterialParameterCollectionError::DuplicateName);
 	EXPECT_EQ(Collection->GetDeclarations().size(), 2u);
 
@@ -132,7 +136,9 @@ TEST_F(FMaterialParameterCollectionTests,
 	for (uint32 Index = 0;
 		Index <= MaterialParameterCollectionMaxDeclarationCount; ++Index)
 		TooMany.push_back(MakeDeclaration(std::format("Value{}", Index)));
-	EXPECT_EQ(Collection->SetDeclarations(TooMany).Error,
+	const auto Limit = Collection->SetDeclarations(TooMany);
+	ASSERT_FALSE(Limit);
+	EXPECT_EQ(Limit.error().Code,
 		EMaterialParameterCollectionError::DeclarationLimit);
 }
 
@@ -163,7 +169,11 @@ TEST_F(FMaterialParameterCollectionTests,
 	const std::array Invalid{
 		FMaterialParameterCollectionUpdate::Set(Value.Id, FVector4(9.0)),
 		FMaterialParameterCollectionUpdate::Clear(Value.Id)};
-	EXPECT_EQ(First->ApplyUpdates(*Collection, Invalid).Error,
+	const auto Rejected = First->ApplyUpdates(*Collection, Invalid);
+	ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.error().RecordIndex, 1u);
+	EXPECT_EQ(Rejected.error().ParameterId, Value.Id);
+	EXPECT_EQ(Rejected.error().Code,
 		EMaterialParameterCollectionError::DuplicateUpdate);
 	ASSERT_TRUE(First->GetValue(*Collection, Value.Id, Read));
 	EXPECT_EQ(Read, FVector4(8.0, 7.0, 6.0, 5.0));

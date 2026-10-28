@@ -43,14 +43,14 @@ namespace Durin
 
 	auto FShaderCompilingManager::CancelLatchedMaterialCompiles() -> void
 	{
-		std::vector<std::shared_ptr<FMaterialShaderMap>> Pending;
+		std::vector<FShaderMapPtr> Pending;
 		{ std::scoped_lock Lock(MaterialMutex); Pending = CompilingShaderMaps; }
 		for (const auto& ShaderMap : Pending) if (ShaderMap->Cancellation.IsCancellationRequested()) CancelCompilation(ShaderMap);
 	}
 
 	auto FShaderCompilingManager::RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners) -> void
 	{
-		std::vector<std::shared_ptr<FMaterialShaderMap>> Pending;
+		std::vector<FShaderMapPtr> Pending;
 		{
 			std::scoped_lock Lock(MaterialMutex);
 			for (const auto& ShaderMap : CompilingShaderMaps)
@@ -88,7 +88,7 @@ namespace Durin
 		std::ranges::sort(Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
 		for (const auto& Dependency : Dependencies) { Identity.WriteString(Dependency.VirtualPath); Identity.WriteHash128(Dependency.ContentHash); }
 		const FMaterialCompileKey Key{.Identity = {.Digest = FXxHash128::HashBuffer(Identity.GetBytes())}, .bForceRecompile = Request.bForceRecompile};
-		std::shared_ptr<FMaterialShaderMap> NewShaderMap;
+		FShaderMapPtr NewShaderMap;
 		{
 			std::scoped_lock Lock(MaterialMutex);
 			if (const auto Existing = RequestedShaderMaps.find(Key); Existing != RequestedShaderMaps.end())
@@ -101,7 +101,7 @@ namespace Durin
 				return EMaterialCompileState::Running;
 			}
 			if (ShaderMapBytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileState::Deferred;
-			NewShaderMap = std::make_shared<FMaterialShaderMap>(); NewShaderMap->CanonicalIdentity = Key.Identity; NewShaderMap->Force = Key.bForceRecompile;
+			NewShaderMap = std::make_shared<MaterialBuildPrivate::FMaterialCompilation>(); NewShaderMap->CanonicalIdentity = Key.Identity; NewShaderMap->Force = Key.bForceRecompile;
 			NewShaderMap->CapturedBytes = ShaderMapBytes; CapturedMaterialBytes += ShaderMapBytes;
 			NewShaderMap->Origins.push_back(Request.Owner);
 			NewShaderMap->InitialOwner = Request.Owner;
@@ -111,9 +111,9 @@ namespace Durin
 		}
 		const auto Input = NewShaderMap->CompilingMaterialDependencies.front().CompilerInput;
 		NewShaderMap->DiagnosticInput = Input;
-		auto Submitted = FMaterialShaderMap::Compile(Input,
+		auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Input,
 			{.bForceRecompile = Key.bForceRecompile, .Cancellation = NewShaderMap->Cancellation,
-				.EncodedInput = std::move(TranslationInput), .ShaderMap = NewShaderMap},
+				.EncodedInput = std::move(TranslationInput), .Request = NewShaderMap},
 			[this, Weak = std::weak_ptr(NewShaderMap)](MaterialBuildPrivate::FMaterialBuildResult Build) {
 				const auto ShaderMap = Weak.lock(); if (!ShaderMap) return;
 				CompleteMaterialRequests(ShaderMap, std::move(Build));
@@ -208,7 +208,7 @@ namespace Durin
 			Result.ExpressionSources.push_back(std::move(Source));
 		}
 		if (State == EMaterialCompileState::Ready) {
-			Result.CompiledProgram = FMaterialShaderMap::BindCollections(Build.Program, Request.CompilerInput->Collections, &Request.CompilerInput->Environment);
+			Result.CompiledProgram = MaterialBuildPrivate::BindMaterialProgramCollections(Build.Program, Request.CompilerInput->Collections, &Request.CompilerInput->Environment);
 			Result.CacheOutcome = Build.RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit
 				: Build.SingleFlight || Request.bSingleFlightConsumer ? EMaterialCompileCacheOutcome::SingleFlight
 				: Request.bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled;
@@ -233,7 +233,7 @@ namespace Durin
 	}
 
 	auto FShaderCompilingManager::CompleteMaterialRequests(
-		const std::shared_ptr<FMaterialShaderMap>& ShaderMap,
+		const FShaderMapPtr& ShaderMap,
 		MaterialBuildPrivate::FMaterialBuildResult Build) -> void
 	{
 		std::vector<FMaterialCompileRequest> Consumers;

@@ -30,7 +30,7 @@ durin_add_native_test(MetalRHIHeadlessTests
 	BACKENDS ${_metal_rhi_test_backends}
 	SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm
 	LIBRARIES ${_metal_rhi_test_libraries}
-	INCLUDE_DIRECTORIES
+	INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private"
 		"${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MetalRHI/Private"
 		"${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MetalRHI/Private/MacOS"
 		"${CMAKE_SOURCE_DIR}/Engine/External/Source/metal-cpp"

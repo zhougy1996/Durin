@@ -213,7 +213,7 @@ namespace Durin
 					{
 						auto Current = MaterialBuildPrivate::ResolvePublicationCollections(Candidate.CompiledProgram->ActiveCollections);
 						if (!Current) { ScheduleEdit(Material, Context); return false; }
-						if (auto Refreshed = FMaterialShaderMap::BindCollections(Candidate.CompiledProgram, *Current)) Candidate.CompiledProgram = std::move(Refreshed);
+						if (auto Refreshed = MaterialBuildPrivate::BindMaterialProgramCollections(Candidate.CompiledProgram, *Current)) Candidate.CompiledProgram = std::move(Refreshed);
 					}
 					const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
 					Candidate.StaticProperties = Material.GetStaticProperties();

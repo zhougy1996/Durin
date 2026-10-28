@@ -139,7 +139,7 @@ namespace Durin
 			if (auto* Subsystem = Cast<DMaterialParameterCollectionSubsystem>(Object))
 				if (auto Refreshed = Subsystem->RefreshCollection(Collection); !Refreshed)
 					DURIN_ERROR("Failed to refresh material parameter collection '{}': {}",
-						Collection.GetObjectPath(), Refreshed.Message);
+						Collection.GetObjectPath(), Refreshed.error().Message);
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 		FObjectCacheContext Context;
 		const auto Owners = QueryLoadedMaterialHandles(

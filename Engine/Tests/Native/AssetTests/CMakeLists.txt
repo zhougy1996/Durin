@@ -44,6 +44,7 @@ if(DURIN_WITH_EDITOR)
 		LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder ShaderBuild
 		TIMEOUT 600
 		SOURCES Private/CookFunctionalTests.cpp
+		INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	)
 	durin_add_native_test(TargetPlatformTests
 		KIND contract

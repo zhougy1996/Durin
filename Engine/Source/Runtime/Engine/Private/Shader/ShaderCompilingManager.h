@@ -45,7 +45,7 @@ namespace Durin
 		auto CancelCompilation(FWeakObjectPtr Owner) -> bool;
 	private:
 		auto SubmitJobs(FMaterialCompileRequest Request) -> EMaterialCompileState;
-		friend class FMaterialShaderMap;
+		friend class MaterialBuildPrivate::FMaterialCompilation;
 		friend auto MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests() -> MaterialBuildPrivate::FMaterialProgramCompileStats;
 		friend struct Private::FMaterialCompilationLifecycle;
 		friend auto IsMaterialCompilationAcceptingRequests() -> bool;
@@ -59,12 +59,12 @@ namespace Durin
 		std::vector<std::weak_ptr<FJobGroup>> Groups;
 		std::atomic_uint64_t PeakActiveJobs = 0, PeakOutputBytes = 0;
 		std::atomic_bool Accepting = true;
-		using FShaderMapPtr = std::shared_ptr<FMaterialShaderMap>;
+		using FShaderMapPtr = MaterialBuildPrivate::FMaterialProgramCompileHandle;
 		std::atomic_uint64_t ProgramJoins = 0;
 		mutable std::mutex MaterialMutex;
 		std::vector<FShaderMapPtr> CompilingShaderMaps;
 #if DURIN_WITH_EDITOR
-		std::unordered_map<FMaterialProgramIdentity, std::weak_ptr<FMaterialShaderMap>> CompilingPrograms[2];
+		std::unordered_map<FMaterialProgramIdentity, std::weak_ptr<MaterialBuildPrivate::FMaterialCompilation>> CompilingPrograms[2];
 #endif
 		struct FMaterialCompileKey
 		{
