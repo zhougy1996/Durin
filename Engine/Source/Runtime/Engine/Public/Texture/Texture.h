@@ -104,6 +104,8 @@ namespace Durin
 			-> FRHITextureReferenceRef;
 		ENGINE_API auto GetResourceUpdateState() const -> ETextureResourceUpdateState;
 		ENGINE_API auto HasUsableResource() const -> bool;
+		// Polls cache/upload state and admits an update within the caller budget.
+		ENGINE_API auto PrepareRenderResource(uint32& RemainingUpdates) -> std::expected<bool, std::string>;
 		ENGINE_API auto IsResourceUpdatePending() const -> bool;
 		// Reload-only prepublication receipt. With an active RHI, drains this
 		// texture's admitted upload and reports whether a usable allocation exists.

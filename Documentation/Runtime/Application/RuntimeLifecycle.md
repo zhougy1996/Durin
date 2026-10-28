@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-10-27
+Last reviewed: 2026-10-28
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -194,7 +194,16 @@ change rejects a new request without changing the existing progress.
 
 The private `FMapChangeHandler` retains the asynchronous asset handle, prepares
 required products, initializes an isolated World/Scene, and renders an initial
-candidate view. The ordinary Engine frame advances preparation after completions
+candidate view. Mesh and texture preparation and material-program readiness belong
+to their existing resource interfaces; component PSO readiness and required-request
+diagnostics belong to `DPrimitiveComponent`. MapChange only collects/deduplicates
+owners, retains bounded program requests, supplies per-tick request budgets and
+aggregates Ready/Pending/failure results. Resource methods consume admission budget
+only when work can be requested. Cooked texture platform-data fallback keeps its
+existing blocking behavior inside the texture owner. No extra preparation manager
+or mirrored resource state is introduced.
+
+The ordinary Engine frame advances preparation after completions
 and submits candidate views inside `RedrawViewports`; UI/modal callbacks never
 drive stages. Only Pending render receipts may be resubmitted. A successful
 receipt remains idle until the next preparation advance consumes it.

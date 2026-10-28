@@ -182,4 +182,17 @@ namespace Durin
 				TrackPrecacheComponent(Component);
 		}
 	}
+	auto DPrimitiveComponent::GetPSOPrecacheReadiness() -> std::expected<bool, std::string>
+	{
+		if (IsPSOPrecacheReadyForProxyCreation()) return true;
+		for (const auto& Request : GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs())
+		{
+			const auto Progress = Request.GetProgress();
+			if (Request.IsCurrent() && Progress.bRequiredReady) continue;
+			if (Progress.State == EMaterialPSOPrecacheState::Failed || Progress.State == EMaterialPSOPrecacheState::Canceled)
+				return std::unexpected(std::format("required component '{}': {}", GetObjectPath(), Request.GetDiagnostic()));
+		}
+		return false;
+	}
+
 }

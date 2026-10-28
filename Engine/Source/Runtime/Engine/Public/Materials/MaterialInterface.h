@@ -145,6 +145,8 @@ namespace Durin
 		// program, independently of texture residency and component PSOs.
 		ENGINE_API virtual auto IsCompiling() const -> bool;
 		ENGINE_API virtual auto IsComplete() const -> bool;
+		ENGINE_API auto NeedsCookedProgramPreparation() const -> bool;
+		ENGINE_API auto GetProgramReadiness() const -> std::expected<bool, std::string>;
 		// Effective textures of the accepted program; replaces OutTextures.
 		ENGINE_API virtual auto GetUsedTextures(std::vector<DTexture2D*>& OutTextures) const -> void;
 		// Editor preview only: selects an explicit quality and a feature level no

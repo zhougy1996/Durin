@@ -45,6 +45,8 @@ namespace Durin
 		ENGINE_API virtual auto CollectPSOPrecacheData(const FPSOPrecacheParams& Params, FComponentPSOPrecacheParamsList& OutParams) -> void;
 		ENGINE_API auto CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority Priority = EPSOPrecachePriority::Highest) -> bool;
 		ENGINE_API auto IsPSOPrecacheReadyForProxyCreation() -> bool;
+		// Honors the proxy strategy and reports only failed required PSO requests.
+		ENGINE_API auto GetPSOPrecacheReadiness() -> std::expected<bool, std::string>;
 		ENGINE_API auto SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy Strategy) -> void;
 		auto GetPSOPrecacheProxyCreationStrategy() const -> EPSOPrecacheProxyCreationStrategy { return PSOPrecacheProxyCreationStrategy; }
 		auto GetPSOPrecacheDiagnostic() const -> const std::string& { return PSOPrecacheDiagnostic; }

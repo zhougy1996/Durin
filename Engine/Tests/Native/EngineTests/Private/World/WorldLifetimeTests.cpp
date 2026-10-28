@@ -1,6 +1,7 @@
 #include "WorldTestSupport.h"
 #include "Engine/MapChange.h"
 #include "Asset/AsyncLoad.h"
+#include "Texture/Texture2D.h"
 #include "NativeDObjectTestSupport.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/MountPathTestSupport.h"
@@ -897,4 +898,52 @@ TEST(FWorldTests, MapChangeViewBuilderFailuresUseOneDiagnosticAndPreserveTheCurr
 		const auto Unloaded = UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
 		EXPECT_TRUE(Unloaded) << Unloaded.Message;
 	}
+}
+
+TEST(FWorldTests, ResourcePreparationWithoutAdmissionPreservesPendingAndBudgets)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DStaticMesh> Mesh(NewObject<DStaticMesh>(nullptr, "UnpreparedMesh"));
+	uint32 MeshRequests = 0;
+	const auto MeshReady = Mesh->PrepareRenderResources(MeshRequests);
+	ASSERT_TRUE(MeshReady);
+	EXPECT_FALSE(*MeshReady);
+	EXPECT_EQ(MeshRequests, 0u);
+	TStrongObjectPtr<DTexture2D> Texture(NewObject<DTexture2D>(nullptr, "UnpreparedTexture"));
+	uint32 TextureUpdates = 0;
+	const auto TextureReady = Texture->PrepareRenderResource(TextureUpdates);
+	ASSERT_TRUE(TextureReady);
+	EXPECT_FALSE(*TextureReady);
+	EXPECT_EQ(TextureUpdates, 0u);
+	TextureUpdates = 1;
+	const auto MissingData = Texture->PrepareRenderResource(TextureUpdates);
+	EXPECT_FALSE(MissingData);
+	if (!MissingData) EXPECT_NE(MissingData.error().find("platform data"), std::string::npos);
+	EXPECT_EQ(TextureUpdates, 0u);
+	auto* RetiredMesh = Mesh.Get(); auto* RetiredTexture = Texture.Get();
+	Mesh.Reset(); Texture.Reset(); MarkObjectHierarchyAsGarbage(RetiredMesh); MarkObjectHierarchyAsGarbage(RetiredTexture); CollectGarbage();
+}
+
+TEST(FWorldTests, ComponentPSOReadinessReportsRequiredFailureAndHonorsProxyStrategy)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FPreviewLifecycleRenderer Renderer;
+	FPreviewLifecycleEngine Host(Renderer);
+	auto* PreviousEngine = std::exchange(GEngine, &Host);
+	struct FRestoreEngine { DEngine* Previous; ~FRestoreEngine() { GEngine = Previous; } } Restore{PreviousEngine};
+	auto* World = CreateWorld(&Host, EWorldType::Editor);
+	Host.SetWorld(World);
+	auto* Actor = World->SpawnActor<AStaticMeshActor>("PSOReadinessActor");
+	auto* Component = Actor->GetStaticMeshComponent();
+	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed")}));
+	const auto Failed = Component->GetPSOPrecacheReadiness();
+	EXPECT_FALSE(Failed);
+	if (!Failed) EXPECT_NE(Failed.error().find("Required pipeline failed"), std::string::npos);
+	Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
+	const auto Ready = Component->GetPSOPrecacheReadiness();
+	ASSERT_TRUE(Ready);
+	EXPECT_TRUE(*Ready);
+	Host.PrepareForShutdown(); Host.SetWorld(nullptr); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
 }

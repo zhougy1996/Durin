@@ -7,6 +7,7 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
+#include "Asset/Asset.h"
 #include "Asset/AssetCook.h"
 #include "Logging/LogMacros.h"
 #include "Asset/BulkData.h"
@@ -402,4 +403,22 @@ namespace Durin
 		}
 		return LoadCookedPlatformData();
 	}
+	auto DTexture::PrepareRenderResource(uint32& RemainingUpdates) -> std::expected<bool, std::string>
+	{
+		if (HasUsableResource()) return true;
+		if (!IsAsyncCacheComplete() || IsResourceUpdatePending()) return false;
+		const auto State = GetResourceUpdateState();
+		if (State == ETextureResourceUpdateState::Failed || State == ETextureResourceUpdateState::Closed)
+			return std::unexpected(std::format("required texture '{}': {}", GetObjectPath(), GetResourceUpdateError()));
+		if (RemainingUpdates == 0) return false;
+		--RemainingUpdates;
+		if (!HasPlatformData())
+		{
+			if (!GetAssetRuntimeConfiguration().RequiresCookedPayload() || !EnsurePlatformDataLoadedBlocking())
+				return std::unexpected(std::format("required texture '{}' has no platform data.", GetObjectPath()));
+		}
+		else UpdateResource();
+		return false;
+	}
+
 }
