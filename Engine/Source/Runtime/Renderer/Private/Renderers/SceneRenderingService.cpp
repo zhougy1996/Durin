@@ -9,8 +9,6 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
-#include "Misc/Time.h"
-#include "CoreGlobals.h"
 
 namespace Durin
 {
@@ -266,20 +264,33 @@ namespace Durin
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
 		const FRenderResourcePreparation& Preparation) -> void
 	{
-		if (!AdmitPreparation_RenderThread(Scene, OutputTarget, Preparation)) return;
+		(void)ExecutePreparedView_RenderThread(CommandList, Scene, View, OutputTarget,
+			bPresentOutput, Options, nullptr, nullptr, Preparation, true);
+	}
+
+	auto FSceneRenderingService::ExecutePreparedView_RenderThread(
+		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
+		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
+		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture,
+		const FRenderResourcePreparation& Preparation, bool bPrepareOnly) -> ERenderViewResult
+	{
+		if (!AdmitPreparation_RenderThread(Scene, OutputTarget, Preparation))
+			return ERenderViewResult::RendererResourcesUnavailable;
 		FRenderResourcePreparationScope Scope(Preparation);
+		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 		try
 		{
-			const auto Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, View,
-				OutputTarget, bPresentOutput, Options, nullptr, nullptr, true);
-			Scope.Complete(Result == ERenderViewResult::Success ? ERenderResourcePreparationState::Ready
-				: Result == ERenderViewResult::RendererResourcesPending ? ERenderResourcePreparationState::Pending
-				: ERenderResourcePreparationState::Failed);
+			Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, View,
+				OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture, bPrepareOnly);
 		}
-		catch (const FRenderResourcePreparationYield&) { Scope.Complete(ERenderResourcePreparationState::Pending); }
-		catch (const FRenderResourcePreparationCapacityExceeded&) { Scope.Complete(ERenderResourcePreparationState::Failed); }
-		catch (const std::bad_alloc&) { Scope.Complete(ERenderResourcePreparationState::Failed); }
+		catch (const FRenderResourcePreparationYield&) { Result = ERenderViewResult::RendererResourcesPending; }
+		catch (const FRenderResourcePreparationCapacityExceeded&) {}
+		catch (const std::bad_alloc&) {}
+		Scope.Complete(Result == ERenderViewResult::Success ? ERenderResourcePreparationState::Ready
+			: Result == ERenderViewResult::RendererResourcesPending ? ERenderResourcePreparationState::Pending
+			: ERenderResourcePreparationState::Failed);
 		PrunePreparations_RenderThread();
+		return Result;
 	}
 
 	auto FSceneRenderingService::RenderView_RenderThread(
@@ -294,31 +305,11 @@ namespace Durin
 		const FRenderResourcePreparation* Preparation
 	) -> ERenderViewResult
 	{
-		auto TimedView = View;
-		if (!std::isfinite(TimedView.MaterialTimeSeconds) || TimedView.MaterialTimeSeconds < 0.0)
-			TimedView.MaterialTimeSeconds = FTime::Seconds() - GStartTime;
 		if (Preparation)
-		{
-			if (!AdmitPreparation_RenderThread(Scene, OutputTarget, *Preparation))
-				return ERenderViewResult::RendererResourcesUnavailable;
-			FRenderResourcePreparationScope Scope(*Preparation);
-			ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
-			try
-			{
-				Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, TimedView,
-					OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture);
-			}
-			catch (const FRenderResourcePreparationYield&) { Result = ERenderViewResult::RendererResourcesPending; }
-			catch (const FRenderResourcePreparationCapacityExceeded&) {}
-			catch (const std::bad_alloc&) {}
-			Scope.Complete(Result == ERenderViewResult::Success ? ERenderResourcePreparationState::Ready
-				: Result == ERenderViewResult::RendererResourcesPending ? ERenderResourcePreparationState::Pending
-				: ERenderResourcePreparationState::Failed);
-			PrunePreparations_RenderThread();
-			return Result;
-		}
+			return ExecutePreparedView_RenderThread(CommandList, Scene, View, OutputTarget,
+				bPresentOutput, Options, OutStatistics, OutRenderGraphCapture, *Preparation, false);
 		return FSceneRenderPipeline(*this).Execute_RenderThread(
-			CommandList, Scene, TimedView, OutputTarget, bPresentOutput,
+			CommandList, Scene, View, OutputTarget, bPresentOutput,
 			Options, OutStatistics, OutRenderGraphCapture
 		);
 	}

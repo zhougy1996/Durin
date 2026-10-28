@@ -16,6 +16,8 @@
 #include "SceneInfo.h"
 #include "SceneView.h"
 #include "Math/Operations.h"
+#include "Misc/Time.h"
+#include "CoreGlobals.h"
 
 namespace Durin
 {
@@ -31,6 +33,9 @@ namespace Durin
 		FSceneRenderPlan PreparedView;
 		PreparedView.View = FitSceneViewToOutput(
 			*Context.Logical.CallerView, Context.Logical.Width, Context.Logical.Height);
+		if (!std::isfinite(PreparedView.View.MaterialTimeSeconds)
+			|| PreparedView.View.MaterialTimeSeconds < 0.0)
+			PreparedView.View.MaterialTimeSeconds = FTime::Seconds() - GStartTime;
 		const FSceneView& RenderView = PreparedView.View;
 		FStaticMeshPreparationCache MeshPreparationCache;
 		Service.MeshCommandCache.BeginSubmission();

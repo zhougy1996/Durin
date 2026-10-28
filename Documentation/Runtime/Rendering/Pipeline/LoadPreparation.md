@@ -90,6 +90,8 @@ missing host state never falls back to direct native PSO creation. Each pump reb
 local logical snapshot; no borrowed frame/proxy values are sent to workers.
 Each resource stage runs once per pump. Pipeline-batch capacity exhaustion is
 reported as unavailable through a nonblocking check before Pending is returned.
+Loading preparation and draws carrying a preparation request share the same
+admission, scope, exception-to-status mapping and request retirement path.
 
 Authored rendering demand shares CPU ShaderMap requests with `FShaderMapPreparation`.
 Missing outputs are submitted asynchronously through `FShaderCompilingManager`,

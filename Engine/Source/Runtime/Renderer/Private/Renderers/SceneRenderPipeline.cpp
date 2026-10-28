@@ -214,7 +214,6 @@ namespace Durin
 	{
 		auto* Scene = Context.Logical.Scene;
 		const auto& Options = Context.Logical.Options;
-		auto& EnvironmentLighting = Service.EnvironmentLighting;
 		auto& SkyBoxRenderer = Service.SkyBoxRenderer;
 		auto& PostProcessRenderer = Service.PostProcessRenderer;
 		{
@@ -228,8 +227,8 @@ namespace Durin
 				Service.UpdateSkyLighting_RenderThread(CommandList, *Scene);
 			// Sky resources include a static index upload, so initialize them before
 			// entering the Scene Color render pass.
-			const bool bSkyBoxResourcesReady =
-				SkyBoxRenderer.EnsureResources_RenderThread();
+			const bool bSkyBoxResourcesReady = !Context.Logical.PreparedView->Environment
+				|| SkyBoxRenderer.EnsureResources_RenderThread();
 			if (!bPostProcessReady || (Options.Environment && !bSkyBoxResourcesReady))
 			{
 				return ERenderViewResult::RendererResourcesUnavailable;

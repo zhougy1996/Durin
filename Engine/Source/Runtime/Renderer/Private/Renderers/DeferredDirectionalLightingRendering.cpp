@@ -4,7 +4,6 @@
 #include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/DirectionalShadowRenderer.h"
-#include "Renderers/PostProcessRenderer.h"
 #include "Renderers/RendererRDGAllocator.h"
 #include "Resources/DefaultTextureResources.h"
 
@@ -223,10 +222,8 @@ namespace Durin
 		const auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(
 			Resolver, Resources.GBuffer
 		);
-		const FPostProcessRenderer::FSceneTargets SceneTargets{
-			.Color = nullptr,
-			.Depth = GBufferTargets ? Resolver.GetTexture(Resources.SceneDepth) : nullptr
-		};
+		FRHITexture* SceneDepth = GBufferTargets ? Resolver.GetTexture(Resources.SceneDepth) : nullptr
+		;
 		const auto AmbientOcclusionTargets = SceneTextureGroups::ResolveOptionalAmbientOcclusion(
 			Resolver, Resources.AmbientOcclusion, AmbientOcclusionQuality
 		);
@@ -297,7 +294,7 @@ namespace Durin
 			.Normals = GBufferTargets->Normals,
 			.Surface = GBufferTargets->Surface,
 			.Emissive = GBufferTargets->Emissive,
-			.Depth = SceneTargets.Depth,
+			.Depth = SceneDepth,
 			.EnvironmentIrradiance = ResolvePersistent(Policy.PersistentAliases.Irradiance),
 			.EnvironmentPrefiltered = ResolvePersistent(Policy.PersistentAliases.Prefiltered),
 			.EnvironmentBrdfLut = ResolvePersistent(Policy.PersistentAliases.BrdfLut),

@@ -51,7 +51,7 @@ namespace Durin
 			const FSceneView& RenderView, FRHITexture* OutputTarget,
 			FRHITexture* DepthTarget, bool bPresentOutput,
 			const RendererEditorAssistance::FPrepared& Prepared,
-			FEditorAssistanceRenderer& Renderer) -> bool;
+			FEditorAssistanceRenderer& Renderer) -> void;
 
 		auto GetViewportOutput(bool bPresent)
 			-> RenderTargetLayouts::EViewportOutput
@@ -99,8 +99,7 @@ namespace Durin
 					if (Output == nullptr)
 						Output = Resolver.GetColorAttachment(
 							PassParameters.Resources.EditorOutputOffscreen).Texture;
-					Publication.bEditorAssistance =
-						RecordEditorAssistance(
+					RecordEditorAssistance(
 							Commands, *RecordView,
 							Output, Resolver.GetDepthStencilAttachment(
 								PassParameters.Resources.EditorDepth).Texture,
@@ -120,9 +119,9 @@ namespace Durin
 		bool bPresentOutput,
 		const RendererEditorAssistance::FPrepared& Prepared,
 		FEditorAssistanceRenderer& Renderer
-	) -> bool
+	) -> void
 	{
-		if (!Prepared.HasDrawableOperation()) return false;
+		if (!Prepared.HasDrawableOperation()) return;
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
 		FRHIRenderPassInfo EditorAssistancePassInfo{};
@@ -142,7 +141,6 @@ namespace Durin
 			Prepared
 		);
 		CommandList.EndRenderPass();
-		return true;
 	}
 	} // namespace
 } // namespace Durin

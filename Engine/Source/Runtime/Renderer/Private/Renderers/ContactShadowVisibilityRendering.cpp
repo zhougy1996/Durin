@@ -28,7 +28,7 @@ namespace Durin
 			const FGBufferRenderer::FTargets* GBufferTargets,
 			const FContactShadowVisibilityRenderer::FTargets* FragmentTargets,
 			const FContactShadowVisibilityRenderer::FComputeTargets* ComputeTargets,
-			const FPostProcessRenderer::FSceneTargets& SceneTargets,
+			FRHITexture* SceneDepth,
 			const FRDGShaderParameterScope* ShaderParameters,
 			uint32 Width, uint32 Height,
 			bool bGBufferComplete, bool bGBufferHasGeometry)
@@ -170,9 +170,7 @@ namespace Durin
 			const auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(Resolver,
 				Parameters.GBufferMaterial, Parameters.GBufferNormals,
 				Parameters.GBufferSurface, Parameters.GBufferEmissive);
-			const FPostProcessRenderer::FSceneTargets SceneTargets{
-				.Color = nullptr,
-				.Depth = Resolver.GetTexture(Parameters.SceneDepth)};
+			FRHITexture* SceneDepth = Resolver.GetTexture(Parameters.SceneDepth);
 			std::optional<FContactShadowVisibilityRenderer::FTargets>
 				FragmentContactTargets;
 			std::optional<FContactShadowVisibilityRenderer::FComputeTargets>
@@ -199,7 +197,7 @@ namespace Durin
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					FragmentContactTargets ? &*FragmentContactTargets : nullptr,
 					ComputeContactTargets ? &*ComputeContactTargets : nullptr,
-					SceneTargets, &ShaderParameters, Width, Height,
+					SceneDepth, &ShaderParameters, Width, Height,
 					GBufferResult.IsComplete(),
 					GBufferResult.bRenderedGeometry);
 		};
@@ -251,7 +249,7 @@ namespace Durin
 			FragmentContactTargets,
 		const FContactShadowVisibilityRenderer::FComputeTargets*
 			ComputeContactTargets,
-		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		FRHITexture* SceneDepth,
 		const FRDGShaderParameterScope* ShaderParameters,
 		uint32 Width,
 		uint32 Height,
@@ -275,7 +273,7 @@ namespace Durin
 				CommandList, true, FragmentContactTargets, ComputeContactTargets,
 				GBufferTargets->Material, GBufferTargets->Normals,
 				GBufferTargets->Surface, GBufferTargets->Emissive,
-				SceneTargets.Depth, RenderView,
+				SceneDepth, RenderView,
 				Shadow->View.LightDirection, Width, Height,
 				{.PreparedRoute = PreparedRoute,
 				 .bGraphManagedTextureAccess = true,

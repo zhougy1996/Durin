@@ -3,7 +3,6 @@
 #include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
-#include "Renderers/PostProcessRenderer.h"
 #include "Renderers/RendererRDGAllocator.h"
 
 #include "Renderers/SceneRendererProfiling.h"
@@ -63,7 +62,7 @@ namespace Durin
 			const FSceneView& RenderView,
 			const FGBufferRenderer::FTargets* GBufferTargets,
 			FGroundTruthAmbientOcclusionRenderer::FTargets AmbientOcclusionTargets,
-			const FPostProcessRenderer::FSceneTargets& SceneTargets,
+			FRHITexture* SceneDepth,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,
 			uint32 Height,
@@ -131,10 +130,8 @@ namespace Durin
 				const FRDGParameterResolver& Resolver) {
 				const auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(
 					Resolver, PassParameters.Resources.GBuffer);
-				const FPostProcessRenderer::FSceneTargets SceneTargets{
-					.Color = nullptr,
-					.Depth = GBufferTargets
-						? Resolver.GetTexture(PassParameters.Resources.SceneDepth) : nullptr};
+				FRHITexture* SceneDepth = GBufferTargets
+					? Resolver.GetTexture(PassParameters.Resources.SceneDepth) : nullptr;
 				const auto AmbientOcclusionTargets = SceneTextureGroups::ResolveAmbientOcclusion(
 					Resolver, PassParameters.Resources.AmbientOcclusionManaged, Quality);
 				Resolver.WriteValue(PassParameters.Completion) =
@@ -142,7 +139,7 @@ namespace Durin
 						Commands, *RecordView,
 						GBufferTargets ? &*GBufferTargets : nullptr,
 						AmbientOcclusionTargets,
-						SceneTargets, Options, Width, Height,
+						SceneDepth, Options, Width, Height,
 						Resolver.ReadValue(PassParameters.GBufferCompletion).IsComplete(),
 						*Allocator, *Renderer, *Telemetry);
 			});
@@ -158,7 +155,7 @@ namespace Durin
 		const FSceneView& RenderView,
 		const FGBufferRenderer::FTargets* GBufferTargets,
 		FGroundTruthAmbientOcclusionRenderer::FTargets AmbientOcclusionTargets,
-		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		FRHITexture* SceneDepth,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,
@@ -195,7 +192,7 @@ namespace Durin
 					GroundTruthAmbientOcclusionRenderer.RenderRaw_RenderThread(
 						CommandList, AmbientOcclusionTargets,
 						GBufferTargets->Normals, GBufferTargets->Surface,
-						SceneTargets.Depth, RenderView
+						SceneDepth, RenderView
 					);
 				if (bRendered)
 					RawTiming.Commit();
@@ -219,7 +216,7 @@ namespace Durin
 					GroundTruthAmbientOcclusionRenderer.RenderFilter_RenderThread(
 						CommandList, AmbientOcclusionTargets,
 						GBufferTargets->Normals, GBufferTargets->Surface,
-						SceneTargets.Depth, RenderView
+						SceneDepth, RenderView
 					);
 				FilterTiming.End();
 				const FGroundTruthAmbientOcclusionResolveTimingQuerySink
@@ -235,7 +232,7 @@ namespace Durin
 						GroundTruthAmbientOcclusionRenderer.RenderResolve_RenderThread(
 							CommandList, AmbientOcclusionTargets,
 							GBufferTargets->Normals, GBufferTargets->Surface,
-							SceneTargets.Depth, RenderView
+							SceneDepth, RenderView
 						);
 					ResolveTiming.End();
 					FeatureTiming.End();
@@ -258,7 +255,7 @@ namespace Durin
 								CommandList, AmbientOcclusionTargets,
 								GBufferTargets->Normals,
 								GBufferTargets->Surface,
-								SceneTargets.Depth, RenderView
+								SceneDepth, RenderView
 							);
 						std::swap(
 							AmbientOcclusionTargets.Raw,
