@@ -230,7 +230,7 @@ namespace StaticMeshBuildTestSupport
 				{.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const auto RenderEnd = std::chrono::steady_clock::now();
 			ASSERT_NE((*Render), nullptr);
-			std::expected<FPhysicsCookResult, FPhysicsCookError> Collision;
+			std::expected<FPhysicsCookResult, std::string> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
 			ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*(*Render),
 				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, false)))) << Error;

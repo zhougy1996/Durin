@@ -40,37 +40,36 @@ namespace Durin
 #endif
 			FCancellationToken Cancellation;
 			std::atomic<EWorkPhase> Phase = EWorkPhase::Queued;
-			std::expected<FPhysicsCookResult, FPhysicsCookError> Outcome;
-			auto Build(const FAssetBuildTaskContext& Control, bool bDispatch) -> bool
+			std::expected<FPhysicsCookResult, std::string> Outcome;
+			auto Build(uint64 MaximumWorkingSetBytes, bool bDispatch) -> bool
 			{
 #if DURIN_WITH_EDITOR
 				if (!bDispatch)
 				{
-					if (Completion) Outcome = PhysicsPrivate::ConsumeCookBuild(CookInfo.Mode, std::move(*Completion), Control);
+					if (Completion) Outcome = PhysicsPrivate::ConsumeCookBuild(CookInfo.Mode, std::move(*Completion));
 					Completion.reset();
 					return false;
 				}
 #endif
-				auto Data = InputTask->Execute(Control);
-				if (Control.IsCancelled()) { Outcome = PhysicsPrivate::CookCancelled(); return false; }
-				if (!Data) { Outcome = PhysicsPrivate::CookFailure(Data.error()); return false; }
+				auto Data = InputTask->Execute({.MaximumWorkingSetBytes = MaximumWorkingSetBytes});
+				if (!Data) { Outcome = std::unexpected(Data.error()); return false; }
 				CookInfo.TriangleMeshDesc = std::move(*Data);
-				auto Input = FPhysicsCookHelper::Capture(std::move(CookInfo), Control);
+				auto Input = FPhysicsCookHelper::Capture(std::move(CookInfo), MaximumWorkingSetBytes);
 				if (!Input) { Outcome = std::unexpected(Input.error()); return false; }
 #if DURIN_WITH_EDITOR
 				InputTask.reset();
 				CookInfo.TriangleMeshDesc = {};
 				if (Input->GetMode() == EBodySetupCollisionSourceMode::None) return false;
 				Phase.store(EWorkPhase::AwaitingDerivedData, std::memory_order_release);
-				auto Dispatched = PhysicsPrivate::DispatchCookBuild(*Input, *BuildOperation, Control, [Work = shared_from_this()](auto Value) {
+				auto Dispatched = PhysicsPrivate::DispatchCookBuild(*Input, *BuildOperation, MaximumWorkingSetBytes, [Work = shared_from_this()](auto Value) {
 					try { Work->Completion.emplace(std::move(Value)); }
-					catch (...) { Work->Outcome = PhysicsPrivate::CookFailure(MakeAssetBuildDiagnostic("Physics cache completion could not be retained.", "Cook")); }
+					catch (...) { Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics cache completion could not be retained.", "Cook")); }
 					if (Work->Completion && Work->Completion->GetStatus() == DerivedData::EStatus::Canceled) Work->Cancellation.Cancel();
 				});
 				if (Dispatched) return true;
 				Outcome = std::unexpected(std::move(Dispatched.error()));
 #else
-				Outcome = FPhysicsCookHelper::CookCaptured(*Input, Control);
+				Outcome = FPhysicsCookHelper::CookCaptured(*Input, MaximumWorkingSetBytes);
 #endif
 				return false;
 			}
@@ -246,7 +245,7 @@ namespace Durin
 			if (!IsTaskSchedulerRunning() || Record.Task.IsCancellationRequested()) Work.Cancellation.Cancel();
 			if (!Work.Cancellation.IsCancelled() && Work.Completion) return false;
 			Work.Completion.reset();
-			if (Work.Cancellation.IsCancelled()) Work.Outcome = PhysicsPrivate::CookCancelled();
+			if (Work.Cancellation.IsCancelled()) Work.Outcome = FPhysicsCookResult{};
 			Work.ReleaseInput();
 			Work.Phase.store(EWorkPhase::Complete, std::memory_order_release);
 			return true;
@@ -265,7 +264,7 @@ namespace Durin
 				try
 				{
 					if (bDispatch && Before) Before();
-					const bool Waiting = Work->Build({.Cancellation = Cancellation, .MaximumWorkingSetBytes = Bytes}, bDispatch);
+					const bool Waiting = Work->Build(Bytes, bDispatch);
 #if DURIN_WITH_EDITOR
 					if (Waiting)
 					{
@@ -274,8 +273,8 @@ namespace Durin
 #endif
 					if (After) After();
 				}
-				catch (...) { Work->Outcome = PhysicsPrivate::CookFailure(MakeAssetBuildDiagnostic("Physics mesh worker failed with an exception.", "Cook")); }
-				if (Cancellation.IsCancelled()) Work->Outcome = PhysicsPrivate::CookCancelled();
+				catch (...) { Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh worker failed with an exception.", "Cook")); }
+				if (Cancellation.IsCancelled()) Work->Outcome = FPhysicsCookResult{};
 				Work->ReleaseInput(); Work->Phase.store(EWorkPhase::Complete, std::memory_order_release); }, Options);
 #if DURIN_WITH_EDITOR
 			if (bDispatch) Enqueue(Record, false, Record->Task);
@@ -297,7 +296,7 @@ namespace Durin
 #endif
 				if (Phase != EWorkPhase::Running && Phase != EWorkPhase::Queued) continue;
 				AssetPrivate::ObserveAssetBuildTaskCancellation(Record->Task, Record->Work->Cancellation);
-				if (!Record->Task.IsCancellationRequested()) Record->Work->Outcome = PhysicsPrivate::CookFailure(MakeAssetBuildDiagnostic("Physics mesh task retired before worker completion.", "Cook"));
+				if (!Record->Task.IsCancellationRequested()) Record->Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh task retired before worker completion.", "Cook"));
 				Record->Work->ReleaseInput();
 				Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 			}
@@ -320,8 +319,7 @@ namespace Durin
 #endif
 				auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record->Body));
 				FPhysicsCookCompletionResult Completion;
-				if (Record->Work->Cancellation.IsCancelled() || !Body
-					|| (!Outcome && Outcome.error().Code == EPhysicsCookError::Cancelled))
+				if (Record->Work->Cancellation.IsCancelled() || !Body)
 				{
 					Cancel(*Record);
 					Completion.Status = EPhysicsCookCompletionStatus::Cancelled;
@@ -331,7 +329,7 @@ namespace Durin
 					Completion.Status = EPhysicsCookCompletionStatus::Superseded;
 				else if (!Outcome)
 				{
-					Body->FailPhysicsMeshes(Record->Generation, Outcome.error().Message);
+					Body->FailPhysicsMeshes(Record->Generation, Outcome.error());
 					Completion.Error = Body->GetPhysicsMeshBuildError();
 				}
 				else

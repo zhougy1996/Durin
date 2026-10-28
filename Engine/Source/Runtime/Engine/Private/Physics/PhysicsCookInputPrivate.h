@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Asset/AssetBuildTaskContext.h"
 #include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
 #if DURIN_WITH_EDITOR
@@ -11,24 +12,15 @@ namespace Durin::DerivedData { class ICache; }
 
 namespace Durin::PhysicsPrivate
 {
-	inline auto CookCancelled() -> std::unexpected<FPhysicsCookError>
-	{
-		return std::unexpected(FPhysicsCookError{EPhysicsCookError::Cancelled, "Cook: Physics cooking was cancelled."});
-	}
-	inline auto CookFailure(std::string_view Message) -> std::unexpected<FPhysicsCookError>
-	{
-		return std::unexpected(FPhysicsCookError{EPhysicsCookError::Failed, MakeAssetBuildDiagnostic(Message)});
-	}
 #if DURIN_WITH_EDITOR
 	ENGINE_API auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void;
 	auto DispatchCookBuild(const FPhysicsCookInput& Input, DerivedData::IRequestOwner& Owner,
-		const FAssetBuildTaskContext& Control, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, FPhysicsCookError>;
+		uint64 MaximumWorkingSetBytes, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>;
 	auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode,
-		DerivedData::FBuildCompleteParams Completion, const FAssetBuildTaskContext& Control) -> std::expected<FPhysicsCookResult, FPhysicsCookError>;
+		DerivedData::FBuildCompleteParams Completion) -> std::expected<FPhysicsCookResult, std::string>;
 #endif
 
-	inline auto HashInput(FByteView Positions, FByteView Indices, const std::function<bool()>& Cancel)
-		-> std::optional<FXxHash128>
+	inline auto HashInput(FByteView Positions, FByteView Indices) -> FXxHash128
 	{
 		static_assert(std::endian::native == std::endian::little);
 		static_assert(sizeof(FVector3f) == 12 && offsetof(FVector3f, y) == 4 && offsetof(FVector3f, z) == 8);
@@ -37,13 +29,8 @@ namespace Durin::PhysicsPrivate
 		for (const auto& [Bytes, Stride] : {std::pair{Positions, size_t(12)}, std::pair{Indices, size_t(4)}})
 		{
 			FBinaryWriter Header; Header.WriteU64(Bytes.size() / Stride); Hash.Update(Header.GetBytes());
-			for (size_t Offset = 0; Offset < Bytes.size(); Offset += 4096)
-			{
-				if (Cancel && Cancel()) return {};
-				Hash.Update(Bytes.subspan(Offset, std::min<size_t>(4096, Bytes.size() - Offset)));
-			}
+			Hash.Update(Bytes);
 		}
-		if (Cancel && Cancel()) return {};
 		return Hash.Finalize();
 	}
 	inline auto CheckCookReservation(uint64 Positions, uint64 Indices, uint64 MaximumWorkingSetBytes) -> bool

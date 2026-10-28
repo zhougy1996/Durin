@@ -142,7 +142,7 @@ TEST(FStaticMeshBuildQualificationTests, ColdAndWarmRenderAndCollision)
 			auto Collision = FPhysicsCookHelper::Cook(CollisionInput);
 			const auto CollisionEnd = std::chrono::steady_clock::now();
 			const auto CollisionAllocation = CollisionAllocations.Finish();
-			ASSERT_TRUE(Collision) << Collision.error().Message;
+			ASSERT_TRUE(Collision) << Collision.error();
 			ASSERT_TRUE(Collision->Complex);
 			EXPECT_EQ(Collision->Complex.GetTriangleCount(), TriangleCount);
 			CollisionBytes = Collision->Complex.GetRetainedBytes();
@@ -209,7 +209,7 @@ TEST(FStaticMeshBuildQualificationTests, TypedStorageTransferAlternatives)
 		MeasureArrayTransfer(std::move(LOD.IndexBuffer.GetMutableIndices()), MeshAccounting);
 	}
 	auto Collision = FPhysicsCookHelper::Cook(CollisionInput);
-	ASSERT_TRUE(Collision) << Collision.error().Message;
+	ASSERT_TRUE(Collision) << Collision.error();
 	ASSERT_TRUE(Collision->Complex);
 	// Snapshot outside the experiment. Current PhysicsCore exposes immutable
 	// element access, so these copies are reported separately; Stage 4 must
