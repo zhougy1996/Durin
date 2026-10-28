@@ -457,6 +457,10 @@ wave so partial draws and counters are not accumulated across attempts.
 Feature resource preparation reads the successful history sequence without opening
 a temporal transaction. Only after all required resources are ready does the
 outer submission establish its view-state guard and begin history mutation.
+When the invocation carries a preparation request, it also switches from budgeted
+preparation to observed resource use before this point. Graph recording and
+readback cannot turn a completed preparation into Pending merely by exceeding
+the loading deadline; uncovered Shader/PSO admissions remain observable.
 Feature policy is stored directly in `Context.Features`; preparation-only flags
 stay local. Pure viewport fitting lives in `FitSceneViewToOutput`.
 
