@@ -1337,7 +1337,8 @@ namespace
 		const Durin::FSceneView& View, const Durin::FRHITextureCreateDesc& TargetDesc,
 		const std::function<void()>& BeforeDraw = {},
 		const std::function<void(Durin::FRHICommandListImmediate&, Durin::FRHITexture*)>& AfterDraw = {},
-		const Durin::FSceneViewRenderOptions& Options = {}) -> Durin::ERenderViewResult
+		const Durin::FSceneViewRenderOptions& Options = {},
+		bool bDrawWithPreparation = false) -> Durin::ERenderViewResult
 	{
 		using namespace Durin;
 		const auto Preparation = FRenderResourcePreparation::Create();
@@ -1360,7 +1361,11 @@ namespace
 				if (BeforeDraw) BeforeDraw();
 				if (testing::Test::HasFatalFailure())
 				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
-				Result = Renderer.RenderView(Commands, {&Scene, View, Target, false, Options});
+				Result = Renderer.RenderView(Commands,
+					{&Scene, View, Target, false, Options, nullptr, nullptr,
+						bDrawWithPreparation ? &Preparation : nullptr});
+				if (bDrawWithPreparation && Result == ERenderViewResult::Success)
+					EXPECT_EQ(Preparation.GetProgress().State, ERenderResourcePreparationState::Ready);
 				if (Result == ERenderViewResult::Success && AfterDraw) AfterDraw(Commands, Target);
 			});
 			FlushRenderingCommands();
@@ -2181,7 +2186,8 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 		PreparedView.MaterialTimeSeconds = 0.125;
 		ASSERT_EQ(RenderPreparedGeometryView(Renderer, *Owner, PreparedView,
 			FRHITextureCreateDesc::Create2D("MaterialTimePreparation", 192, 108, EPixelFormat::SRGBA8_UNORM)
-				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)),
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy),
+			{}, {}, {}, true),
 			ERenderViewResult::Success);
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			FSceneView View;

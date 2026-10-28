@@ -190,8 +190,7 @@ namespace Durin
 		return {
 			.Result = ERenderViewResult::Success,
 			.bUsesVolumetricCloudComposite =
-				VolumetricCloud.bCompositeOutputValid,
-			.VolumetricCloud = VolumetricCloud
+				VolumetricCloud.bCompositeOutputValid
 		};
 	}
 } // namespace Durin

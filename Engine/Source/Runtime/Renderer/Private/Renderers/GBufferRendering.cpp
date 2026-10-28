@@ -149,7 +149,7 @@ namespace Durin
 			FSceneRenderTelemetry& Telemetry,
 			FGBufferRenderer& GBufferRenderer,
 			FStaticMeshRenderer& StaticMeshRenderer,
-			const FPostProcessRenderer::FSceneTargets& SceneTargets,
+			FRHITexture* SceneDepth,
 			const FGBufferRenderer::FTargets* GBufferTargets,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width, uint32 Height,
@@ -444,9 +444,7 @@ namespace Durin
 				const FRDGParameterResolver& Resolver) {
 				const FRDGAttachmentView Depth =
 					Resolver.GetDepthStencilAttachment(PassParameters.Depth);
-				const FPostProcessRenderer::FSceneTargets SceneTargets{
-					.Color = nullptr,
-					.Depth = Depth.Texture};
+				FRHITexture* SceneDepth = Depth.Texture;
 				const auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(
 					Resolver, PassParameters.Colors);
 				FRHIBuffer* ArgumentBuffer = PassParameters.Arguments
@@ -458,7 +456,7 @@ namespace Durin
 				Resolver.WriteValue(PassParameters.Completion) =
 					RecordGBuffer_RenderThread(
 					Commands, View, Receiver, Resolved, Telemetry, Renderer,
-					StaticMeshes, SceneTargets,
+					StaticMeshes, SceneDepth,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					Options, Width, Height,
 					bWantsIsolatedDeferred, GPUCullingPlan, ArgumentBuffer,
@@ -515,7 +513,7 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry,
 		FGBufferRenderer& GBufferRenderer,
 		FStaticMeshRenderer& StaticMeshRenderer,
-		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		FRHITexture* SceneDepth,
 		const FGBufferRenderer::FTargets* GBufferTargets,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
@@ -550,7 +548,7 @@ namespace Durin
 				GBufferTargets->Surface;
 			GBufferPassInfo.ColorRenderTargets[3] =
 				GBufferTargets->Emissive;
-			GBufferPassInfo.DepthStencilRenderTarget = SceneTargets.Depth;
+			GBufferPassInfo.DepthStencilRenderTarget = SceneDepth;
 			for (uint32 Index = 0; Index < 4; ++Index)
 			{
 				GBufferPassInfo.ColorClearValues[Index] =
@@ -619,7 +617,7 @@ namespace Durin
 					GBufferTargets->Normals,
 					GBufferTargets->Surface,
 					GBufferTargets->Emissive,
-					SceneTargets.Depth
+					SceneDepth
 				);
 			}
 			++Telemetry.View.GBuffer.GBufferEnabledViews;

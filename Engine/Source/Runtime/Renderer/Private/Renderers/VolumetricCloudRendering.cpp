@@ -3,7 +3,6 @@
 #include "Renderers/BaseSceneRendering.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/RendererRDGAllocator.h"
-#include "Renderers/PostProcessRenderer.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
@@ -101,7 +100,7 @@ namespace Durin
 				const FVolumetricCloudShadowRenderer::FRouteDecision&,
 				const FVolumetricCloudShadowRenderer::FTargets*,
 				const FVolumetricCloudShadowRenderer::FComputeTargets*,
-				const FPostProcessRenderer::FSceneTargets&, FRHITexture*, FRHITexture*,
+				FRHITexture*, FRHITexture*, FRHITexture*,
 				FRHITexture*, uint32, uint32, bool)
 				-> FVolumetricCloudShadowPassResult;
 		};
@@ -253,11 +252,9 @@ namespace Durin
 					PassParameters.Resources.SceneDepth);
 				if (Depth == nullptr) Depth = Resolver.GetTexture(
 					PassParameters.Resources.SceneDepthCompute);
-				const FPostProcessRenderer::FSceneTargets SceneTargets{
-					.Color = nullptr,
-					.Depth = PreparedCloudShadowRoute
+				FRHITexture* SceneDepth = PreparedCloudShadowRoute
 							!= FVolumetricCloudShadowRenderer::ERoute::FactorOne
-						? Depth : nullptr};
+						? Depth : nullptr;
 				auto GetCloudInput = [&](const auto& Graphics, const auto& Compute) {
 					FRHITexture* Texture = Resolver.GetTexture(Graphics);
 					return Texture != nullptr ? Texture : Resolver.GetTexture(Compute);
@@ -268,7 +265,7 @@ namespace Durin
 						RecordInputs, PreparedCloudShadowDecision,
 						FragmentTargets ? &*FragmentTargets : nullptr,
 						ComputeTargets ? &*ComputeTargets : nullptr,
-						SceneTargets,
+						SceneDepth,
 						GetCloudInput(PassParameters.Resources.CloudBaseDensity,
 							PassParameters.Resources.CloudBaseDensityCompute),
 						GetCloudInput(PassParameters.Resources.CloudDetailDensity,
@@ -559,7 +556,7 @@ namespace Durin
 		const FVolumetricCloudShadowRenderer::FRouteDecision& PreparedRoute,
 		const FVolumetricCloudShadowRenderer::FTargets* FragmentTargets,
 		const FVolumetricCloudShadowRenderer::FComputeTargets* ComputeTargets,
-		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		FRHITexture* SceneDepth,
 		FRHITexture* BaseDensity,
 		FRHITexture* DetailDensity,
 		FRHITexture* Weather,
@@ -579,7 +576,7 @@ namespace Durin
 								&& ResolvedCloud->Textures.BaseDensity
 								&& ResolvedCloud->Textures.DetailDensity
 								&& ResolvedCloud->Textures.DensitySampler
-								&& SceneTargets.Depth;
+								&& SceneDepth;
 		if (!bInputsReady) return PassResult;
 		PassResult.Status = EScenePassStatus::Failed;
 		const bool bForceFragment =
@@ -593,7 +590,7 @@ namespace Durin
 				 .BaseDensity = BaseDensity,
 				 .DetailDensity = DetailDensity,
 			 .Weather = Weather,
-			 .SceneDepth = SceneTargets.Depth,
+			 .SceneDepth = SceneDepth,
 				 .DensitySampler = ResolvedCloud->Textures.DensitySampler,
 			 .Parameters = Cloud->Parameters,
 				 .View = &Inputs.View,

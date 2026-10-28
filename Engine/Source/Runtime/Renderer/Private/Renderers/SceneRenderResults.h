@@ -112,7 +112,6 @@ namespace Durin
 	{
 		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 		bool bUsesVolumetricCloudComposite = false;
-		FVolumetricCloudPassResult VolumetricCloud;
 
 		[[nodiscard]] auto IsSuccess() const -> bool
 		{
@@ -123,7 +122,6 @@ namespace Durin
 	struct FPostProcessPassResult
 	{
 		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
-		bool bEditorAssistance = false;
 	};
 
 } // namespace Durin

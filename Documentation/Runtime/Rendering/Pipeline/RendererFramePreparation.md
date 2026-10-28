@@ -168,7 +168,9 @@ Material time is also submission state: `PrepareMeshViewUniform` uploads the
 current view's `MaterialTimeSeconds` independently of cached geometry, material
 publications and command templates. Reusing those records must preserve animated
 shader inputs. Explicit time values remain deterministic across repeated renders;
-an unspecified time is resolved by `RenderView` before preparing the view.
+an unspecified time is resolved once when preparation constructs the fitted
+view. Both loading preparation and drawing use that owned snapshot; the service
+does not copy the whole caller view solely to normalize material time.
 
 Visible mesh draws contain compact template references, dense indices, world sort
 center/depth and optional per-view raster bias; they do not copy template geometry,
@@ -587,6 +589,8 @@ Sky selection is frozen during authoring, including procedural/default-cube
 fallbacks. Forward and bootstrap resolve their own declared sky member (or a
 same-handle persistent alias); recording never queries an undeclared fallback.
 Explicit environment overrides preserve their required-texture failure policy.
+Sky shaders, pipelines and geometry are prepared only when the logical plan
+contains an environment; views without sky do not request those resources.
 
 Scene Color and post-process callbacks copy only their final transactional
 publication into `FSceneRenderGraphComposition`; intermediate payloads never
