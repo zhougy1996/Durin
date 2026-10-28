@@ -5,15 +5,14 @@
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "SceneOwnership.h"
-#include "RenderResourcePreparation.h"
-#include "RHIResources.h"
 #include "Materials/MaterialProgramPreparation.h"
 
 namespace Durin
 {
 	class DEngine;
+	class DWorld;
 	class FAsyncLoadHandle;
-	// Engine-owned preparation. Render completions cannot publish a World.
+	// Engine-owned resource and World preparation.
 	class FMapChangeHandler
 	{
 	public:
@@ -25,7 +24,6 @@ namespace Durin
 		auto Cancel() -> void;
 		auto Tick() -> void;
 		auto Advance() -> void;
-		auto SubmitView() -> void;
 		auto Commit() -> void;
 		auto GetLevel() const -> DLevel*;
 		auto GetProgress() const -> FMapChangeProgress;
@@ -34,7 +32,7 @@ namespace Durin
 		auto Fail(std::string Cause) -> void;
 		auto PrepareProducts(DLevel& Level) -> std::expected<bool, std::string>;
 		auto PrepareComponents() -> std::expected<bool, std::string>;
-		// Only called from an active exception handler, at owner/render boundaries.
+		// Only called from an active exception handler, at owner boundaries.
 		static auto DescribeException() -> std::string;
 
 		DEngine& Host;
@@ -51,22 +49,8 @@ namespace Durin
 		size_t NextMaterial = 0;
 		bool bCollected = false;
 		bool bAdvancing = false, bCancelRequested = false, bCommitRequested = false;
-		bool bComponentsReady = false;
 		std::optional<DClass*> GameMode;
-		std::function<std::expected<FSceneView, std::string>(const DWorld&)> BuildInitialView;
 		std::function<bool(DLevel&)> BeforeCommit;
 		std::function<void(const FMapChangeProgress&)> OnComplete;
-		std::optional<FSceneView> InitialView;
-		FTextureRHIRef Output;
-		FRenderResourcePreparation Preparation;
-		enum class EViewState : uint8 { Pending, InFlight, Ready, Failed };
-		struct FViewResult
-		{
-			std::atomic<EViewState> State = EViewState::Pending;
-			// Published with State's release; read only after an acquire of Failed.
-			std::string Error;
-		};
-		std::shared_ptr<FViewResult> ViewResult = std::make_shared<FViewResult>();
-		uint32 ViewAttempts = 0;
 	};
 }

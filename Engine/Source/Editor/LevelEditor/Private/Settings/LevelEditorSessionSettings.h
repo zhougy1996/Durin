@@ -1,15 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "SceneView.h"
 
 #include "Settings/LevelViewportSessionSettings.h"
 
 namespace Durin
 {
 	class DLevel;
-	class DWorld;
-	struct FSceneView;
 }
 
 namespace Durin::Editor::Level
@@ -32,8 +29,6 @@ namespace Durin::Editor::Level
 		auto ApplyTo(FSceneViewportPanel& SceneViewportPanel) const -> void;
 		auto CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void;
 		auto RestoreViewportState(DLevel* Level, FSceneViewportPanel& SceneViewportPanel) const -> void;
-		auto CreateInitialViewBuilder(const FSceneViewportPanel& Panel) const
-			-> std::function<std::expected<FSceneView, std::string>(const DWorld&)>;
 		auto MoveViewportState(std::string_view OldPath, std::string_view NewPath) -> void;
 
 		auto GetDetailsPaneRatio() const -> float { return DetailsPaneRatio; }

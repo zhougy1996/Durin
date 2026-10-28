@@ -194,20 +194,6 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FSceneViewportPanel::CreateInitialViewBuilder() const -> std::function<bool(DLevel*, const FLevelViewportCameraState*, FSceneView&)>
-	{
-		if (!SceneViewport || !ViewportClient) return {};
-		uint32 Width = 0, Height = 0;
-		if (!FLevelEditorViewportClient::ResolveViewportExtent(SceneViewport->GetDesiredSize(), Width, Height)) return {};
-		return [Width, Height, Settings = ViewportClient->GetViewSettings()](DLevel* Level, const FLevelViewportCameraState* State, FSceneView& OutView) {
-			FLevelEditorViewportClient CandidateClient;
-			CandidateClient.InitializeForLevel(Level, State);
-			if (!CandidateClient.BuildViewMatrices(Width, Height, OutView)) return false;
-			OutView.Settings = Settings;
-			return true;
-		};
-	}
-
 	auto FSceneViewportPanel::RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void
 	{
 		if (ViewportClient != nullptr) ViewportClient->InitializeForLevel(Level, State);

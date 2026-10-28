@@ -4,7 +4,6 @@
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
 #include "Engine/Level.h"
-#include "Engine/World.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -170,25 +169,6 @@ namespace Durin::Editor::Level
 			}
 		}
 		SceneViewportPanel.RestoreCameraState(Level, State);
-	}
-
-	auto FLevelEditorSessionSettings::CreateInitialViewBuilder(const FSceneViewportPanel& Panel) const
-		-> std::function<std::expected<FSceneView, std::string>(const DWorld&)>
-	{
-		const auto* Project = GetCurrentProject();
-		const auto ProjectIt = Project ? ViewportStates.find(Project->ProjectFile) : ViewportStates.end();
-		// Snapshot both persisted state and live viewport parameters. No UI owner is borrowed.
-		const FLevelViewportStateMap::mapped_type States = ProjectIt != ViewportStates.end() ? ProjectIt->second : FLevelViewportStateMap::mapped_type{};
-		return [States, BuildView = Panel.CreateInitialViewBuilder()](const DWorld& World) -> std::expected<FSceneView, std::string> {
-			auto* Level = World.GetCurrentLevel();
-			if (!Level || !BuildView) return std::unexpected("The initial editor viewport is unavailable.");
-			const auto* Package = Level->GetPackage();
-			const auto State = Package ? States.find(Package->GetPackagePath()) : States.end();
-			FSceneView View;
-			if (!BuildView(Level, State != States.end() ? &State->second : nullptr, View))
-				return std::unexpected("The initial editor view could not be built.");
-			return View;
-		};
 	}
 
 	auto FLevelEditorSessionSettings::MoveViewportState(std::string_view OldPath, std::string_view NewPath) -> void

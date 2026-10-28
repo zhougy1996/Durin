@@ -237,7 +237,6 @@ namespace Durin::Editor::Level
 		if (!CallbackLifetime) CallbackLifetime = std::make_shared<uint8>(0);
 		const std::weak_ptr<void> Lifetime = CallbackLifetime;
 		if (!Context.EditorHost->OpenLevel({.Path = Path,
-			.BuildInitialView = SessionSettings.CreateInitialViewBuilder(SceneViewportPanel),
 			.BeforeCommit = [this, Lifetime](DLevel& Level) { return !Lifetime.expired() && PrepareLevelActivation(Level); },
 			.OnComplete = [this, Lifetime](const FMapChangeProgress& Progress) { if (!Lifetime.expired()) CompleteMapChange(Progress); }}))
 		{

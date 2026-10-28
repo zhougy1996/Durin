@@ -4,7 +4,7 @@ Summary: Prepare cooked material programs and exact scene Shader/PSO resources b
 
 Modules: Engine, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-10-26
+Last reviewed: 2026-10-28
 
 ## Object and program readiness
 
@@ -29,7 +29,7 @@ admission. Terminal results remain observable after cancellation. Each request
 has the existing 8 MiB encoded family limit. Decoded products and package-task storage have additional allocation cost;
 these limits are not a process RSS bound.
 
-The shared scene operation requests selected Local/Spline mesh CPU/GPU residency
+The Engine-owned MapChange handler requests selected Local/Spline mesh CPU/GPU residency
 with at most four requests per advancement and waits for authored compilation
 without joining it. Both authored and cooked operations collect visible effective
 mesh-slot materials and their parent chains; cooked operations prepare at most
@@ -44,12 +44,13 @@ loading retains the existing explicit synchronous lazy-load boundary; upload
 completion is asynchronous and is never joined here. Collections
 are limited to 4,096 owners. Game BeginPlay runs on the candidate before its final
 product collection, so spawned initial resources participate in admission. The
-operation waits for visible registered mesh components' required PSO requests
-and normal proxy publication before rendering its candidate view. Withheld
-proxies cannot make an incomplete candidate appear ready merely by being absent
-from view collection. Required failures terminate the scene operation; optional
-PSO work does not block activation. The operation renders a candidate view before commit; actual committed output and
-primary-window presentation have separate generation-scoped receipts. Later
+handler waits for visible registered mesh components' required PSO requests
+and normal proxy publication before commit. Withheld proxies cannot make an
+incomplete candidate appear ready merely by being absent from view collection.
+Required failures terminate MapChange; optional PSO work does not block activation.
+No candidate offscreen view is rendered. View-dependent Shader/PSO preparation
+continues through the committed viewport; startup retains the generation-scoped
+output and primary-window presentation gates. Later
 streamed products retain their normal component/demand preparation gates.
 
 Preparation uses the effective `FMaterialResource` returned by
