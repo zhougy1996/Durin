@@ -268,7 +268,7 @@ cache boundary, where decode rejection triggers rebuilding. Public payload valid
 retain typed failures for cooked loading and other non-cache callers. Public derived-data builds return
 `std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>` or
 `std::expected<FPhysicsCookResult, std::string>`.
-Render data is returned with unique ownership; failure and cancellation return no product.
+Render data is returned with unique ownership; render failure and cancellation return no product.
 Render construction returns ordinary failure text capped
 at 4096 bytes. Cancellation is recorded in the shared invocation token, never in
 the error. Cancelled synchronous construction returns an empty product; callers
@@ -280,7 +280,11 @@ wrapper. Lower-level source, construction, codec and validation errors are forma
 at the pipeline boundary; completion diagnostics retain only ordinary failure text.
 There is no per-layer error enumeration or nested completion cause tree.
 Physics preparation, cooking and installation also use bounded diagnostic strings,
-with the failure stage recorded in text.
+with the failure stage recorded in text. Synchronous physics `Capture`,
+`CookCaptured`, and `Cook` accept a working-set byte budget and run to completion;
+they expose no cancellation parameter or cancellation result. Asynchronous physics
+admission can withdraw unstarted work. Started cooks finish before the owner decides
+whether to publish or discard their products.
 Both pipelines log recoverable cache problems once at execution, with function,
 key, operation and bounded original cause. Results and completion records carry no
 cache warning lists. Clean hits and misses produce no warning records.
@@ -359,7 +363,7 @@ markers. `FAssetBuildTaskContext::Cancellation` is a Core
 `FCancellationToken`; copies share a monotonic atomic flag. Observers bridge existing
 caller, scheduler and request-owner cancellation into that same flag. DDC request
 options, build contexts, CPU assembly and import sessions preserve the token. A
-cancelled synchronous call returns empty inputs/products with no error; its caller
+cancelled synchronous render call returns empty inputs/products with no error; its caller
 checks the token first. Compiler workers retain errors only for actual failure.
 All terminals require producer task completion and DDC request-owner `Poll()`;
 explicit finish uses `Wait()` after the producer has stopped submitting work.

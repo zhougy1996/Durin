@@ -38,10 +38,8 @@ namespace Durin::PhysicsPrivate
 			return Array < 2 || (Geometry == 0 ? Array >= 4 : Array == 2 || Array == 3);
 		}
 		auto ReadLayout(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode,
-			const std::function<bool()>& ShouldCancel,
 			bool ValidateArrays) -> std::expected<FLayout, std::string>
 		{
-			if (ShouldCancel && ShouldCancel()) return std::unexpected("Collision output validation was cancelled.");
 			const auto Metadata = GetBuildMetadataPayload(Output);
 			if (!ValidSettings(Mode) || Output.GetSchema() != "Physics.CollisionOutput" || Output.GetSchemaVersion() != 3
 				|| Metadata.GetSize() > MaximumMetadataBytes
@@ -88,18 +86,17 @@ namespace Durin::PhysicsPrivate
 					Blocks.*Descriptor.Member = Value->GetData();
 					++ValueCount;
 				}
-				if (ValidateArrays && !FCollisionCookedData::ValidateBlocks(Blocks, ShouldCancel))
-					return std::unexpected("Collision output array semantics are invalid or validation was cancelled.");
+				if (ValidateArrays && !FCollisionCookedData::ValidateBlocks(Blocks))
+					return std::unexpected("Collision output array semantics are invalid.");
 			}
 			if (!Reader.IsAtEnd() || Output.GetValues().size() != ValueCount)
 				return std::unexpected("Collision output contains extra metadata or arrays.");
-			if (ShouldCancel && ShouldCancel()) return std::unexpected("Collision output validation was cancelled.");
+
 			return Layout;
 		}
 	}
 
-	auto MakeSharedOutput(FCollisionCookedData Cooked, EBodySetupCollisionSourceMode Mode,
-		const std::function<bool()>& ShouldCancel)
+	auto MakeSharedOutput(FCollisionCookedData Cooked, EBodySetupCollisionSourceMode Mode)
 		-> std::expected<FBuildOutput, std::string>
 	{
 		if (!ValidSettings(Mode) || bool(Cooked) != (Mode != EBodySetupCollisionSourceMode::None))
@@ -131,37 +128,32 @@ namespace Durin::PhysicsPrivate
 		auto Meta = MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
 		if (!Meta || !Output.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("Collision metadata is invalid.");
 		auto Built = std::move(Output).Build(); if (!Built) return Built;
-		if (auto Valid = ValidateSharedOutput(*Built, Mode, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
+		if (auto Valid = ValidateSharedOutput(*Built, Mode); !Valid) return std::unexpected(std::move(Valid.error()));
 		return Built;
 	}
 
-	auto ValidateSharedOutput(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode,
-		const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
+	auto ValidateSharedOutput(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode) -> std::expected<void, std::string>
 	{
-		auto Layout = ReadLayout(Output, Mode, ShouldCancel, true);
+		auto Layout = ReadLayout(Output, Mode, true);
 		if (!Layout) return std::unexpected(std::move(Layout.error()));
 		return {};
 	}
 
-	auto AssembleSharedOutput(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode,
-		const std::function<bool()>& ShouldCancel) -> std::expected<FPhysicsCookResult, std::string>
+	auto AssembleSharedOutput(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode) -> std::expected<FPhysicsCookResult, std::string>
 	{
-		bool bCancelled = false;
-		const auto Cancel = [&] { bCancelled = bCancelled || (ShouldCancel && ShouldCancel()); return bCancelled; };
 		// FromBlocks validates arrays immediately before conversion; do not repeat it here.
-		auto Layout = ReadLayout(Output, Mode, Cancel, false);
+		auto Layout = ReadLayout(Output, Mode, false);
 		if (!Layout) return std::unexpected(std::move(Layout.error()));
 		FPhysicsCookResult Result;
 		for (size_t Geometry = 0; Geometry < 2; ++Geometry)
 		{
 			if (!(*Layout)[Geometry]) continue;
-			auto Cooked = FCollisionCookedData::FromBlocks(std::move(*(*Layout)[Geometry]), Cancel);
-			if (!Cooked) return std::unexpected("Collision output assembly failed validation or was cancelled.");
-			auto Published = FCollisionGeometryRef::MakeCooked(std::move(Cooked), Cancel);
-			if (!Published) return std::unexpected("Collision output publication was cancelled.");
+			auto Cooked = FCollisionCookedData::FromBlocks(std::move(*(*Layout)[Geometry]));
+			if (!Cooked) return std::unexpected("Collision output assembly failed validation.");
+			auto Published = FCollisionGeometryRef::MakeCooked(std::move(Cooked));
+			if (!Published) return std::unexpected("Collision output publication failed.");
 			(Geometry == 0 ? Result.Simple : Result.Complex) = std::move(Published);
 		}
-		if (Cancel()) return std::unexpected("Collision output assembly was cancelled.");
 		return Result;
 	}
 }

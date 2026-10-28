@@ -435,12 +435,14 @@ back to Running before scheduling, so a canceled/rejected continuation cannot be
 mistaken for another DDC dispatch. The shared Core cancellation token controls terminal classification. Native task
 and DDC request-owner observers latch into the same flag throughout dispatch and
 CPU consumption. Detached render/texture APIs retain their token-based cancellation
-contract. Physics `Capture`, `CookCaptured`, and `Cook` instead return expected values
-with `FPhysicsCookError`: `Cancelled` is explicit and has no input/product value;
-`Failed` carries bounded diagnostic text. A successful empty physics product means
-that no collision was requested. Consumers use the returned outcome rather than
-reinterpreting it through a later token observation; managers still check cancellation
-before publication to reject work cancelled after completion.
+contract. Physics `Capture`, `CookCaptured`, and `Cook` run synchronously to
+completion and accept only a working-set byte budget, with no cancellation token
+or callback. They return owned input/products or bounded ordinary failure text;
+a successful empty physics product means no collision was requested. The physics
+manager competes with worker entry to withdraw queued work. Once started, input
+capture, the DDC recipe and CPU assembly complete without caller cancellation;
+the manager decides whether to accept their result at publication. DDC request
+options do not inherit owner/native-task cancellation from a started physics cook.
 The manager clears canceled output and retains no canceled failure diagnostic.
 Superseded remains a detailed stale-publication reason and physics disposition,
 independently of whether its underlying work was canceled.

@@ -287,10 +287,10 @@ namespace Durin
 					if (Control.IsCancelled()) return std::unexpected("Cook collision preparation was cancelled.");
 					if (!Data) return std::unexpected(Data.error());
 					CookInfo.TriangleMeshDesc = std::move(*Data);
-					auto Input = FPhysicsCookHelper::Capture(std::move(CookInfo), Control, static_cast<EAssetPayloadTargetPlatform>(Platform));
-					if (!Input) return std::unexpected(Input.error().Message);
-					auto Built = FPhysicsCookHelper::CookCaptured(*Input, Control);
-					if (!Built) return std::unexpected(Built.error().Message);
+					auto Input = FPhysicsCookHelper::Capture(std::move(CookInfo), Control.MaximumWorkingSetBytes, static_cast<EAssetPayloadTargetPlatform>(Platform));
+					if (!Input) return std::unexpected(Input.error());
+					auto Built = FPhysicsCookHelper::CookCaptured(*Input, Control.MaximumWorkingSetBytes);
+					if (!Built) return std::unexpected(Built.error());
 					const auto& Geometry = Input->GetMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Built->Simple : Built->Complex;
 					FPhysicsCollisionPayloadData Payload;
 					if (const auto Made = MakePhysicsCollisionPayloadData(Geometry, Payload); !Made)

@@ -2,20 +2,12 @@
 
 #include "CoreMinimal.h"
 
-#include "Asset/AssetBuildTaskContext.h"
 #include "Physics/CookBodySetupInfo.h"
 #include "Collision/CollisionGeometry.h"
 #include "Misc/TargetIdentity.h"
 
 namespace Durin
 {
-	enum class EPhysicsCookError : uint8 { Failed, Cancelled };
-	struct FPhysicsCookError
-	{
-		EPhysicsCookError Code = EPhysicsCookError::Failed;
-		std::string Message;
-	};
-
 	struct FPhysicsCookResult
 	{
 		FCollisionGeometryRef Simple;
@@ -41,16 +33,16 @@ namespace Durin
 		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64;
 	};
 
-	// Cancellation is an explicit failure outcome; a successful empty product means no collision was requested.
+	// Synchronous work runs to completion. Admission and result acceptance belong to the caller.
 	class FPhysicsCookHelper
 	{
 	public:
-		ENGINE_API static auto Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Context = {},
+		ENGINE_API static auto Capture(FCookBodySetupInfo Info, uint64 MaximumWorkingSetBytes = UINT64_MAX,
 			EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64)
-			-> std::expected<FPhysicsCookInput, FPhysicsCookError>;
-		ENGINE_API static auto CookCaptured(const FPhysicsCookInput& Input, const FAssetBuildTaskContext& Context = {})
-			-> std::expected<FPhysicsCookResult, FPhysicsCookError>;
-		ENGINE_API static auto Cook(const FCookBodySetupInfo& Info, const FAssetBuildTaskContext& Context = {})
-			-> std::expected<FPhysicsCookResult, FPhysicsCookError>;
+			-> std::expected<FPhysicsCookInput, std::string>;
+		ENGINE_API static auto CookCaptured(const FPhysicsCookInput& Input, uint64 MaximumWorkingSetBytes = UINT64_MAX)
+			-> std::expected<FPhysicsCookResult, std::string>;
+		ENGINE_API static auto Cook(const FCookBodySetupInfo& Info, uint64 MaximumWorkingSetBytes = UINT64_MAX)
+			-> std::expected<FPhysicsCookResult, std::string>;
 	};
 }

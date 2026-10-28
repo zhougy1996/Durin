@@ -41,9 +41,8 @@ namespace Durin::PhysicsPrivate
 				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
 				if (Inputs.size() != 1 || Inputs[0] != Reference(Input.GetIdentity()))
 					return std::unexpected(Error("Physics captured identity changed."));
-				const auto Identity = HashInput(Input.GetPositions().GetBytes(), Input.GetIndices().GetBytes(), [&] { return Cancel.IsCancelled(); });
-				if (!Identity) return std::unexpected(Cancelled());
-				if (*Identity != Input.GetIdentity()) return std::unexpected(Error("Physics captured bytes do not match their identity."));
+				const auto Identity = HashInput(Input.GetPositions().GetBytes(), Input.GetIndices().GetBytes());
+				if (Identity != Input.GetIdentity()) return std::unexpected(Error("Physics captured bytes do not match their identity."));
 				return std::vector<FBuildInput>{{.Identity = Inputs[0],
 					.Values = {{"Positions", Input.GetPositions()}, {"Indices", Input.GetIndices()}}}};
 			}
@@ -63,7 +62,6 @@ namespace Durin::PhysicsPrivate
 				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != FCollisionCookedData::GetBuildVersion())
 					return Context.FailExecution("Physics cooker identity does not match the build request.");
-				const auto Cancel = [&] { return Context.IsCancelled(); };
 				auto Config = Settings(Context); if (!Config) return Fail(std::move(Config.error()));
 				const auto* Input = Context.FindInput("Geometry");
 				if (!Input || Input->Identity != Reference(Input->Identity.Identity) || !Input->Metadata.IsEmpty() || Input->Values.size() != 2) return Fail("Physics source representation is invalid.");
@@ -78,13 +76,11 @@ namespace Durin::PhysicsPrivate
 				const auto PositionCount = Positions->size() / sizeof(FVector3f), IndexCount = Indices->size() / sizeof(uint32);
 				if (auto Valid = CheckCookInput(PositionCount, IndexCount, Config->Mode, std::numeric_limits<uint64>::max()); !Valid)
 					return Fail(Valid.error());
-				const auto Identity = HashInput(Positions->GetBytes(), Indices->GetBytes(), Cancel);
-				if (!Identity) return Fail(Cancelled().Description);
-				if (*Identity != Input->Identity.Identity) return Fail("Physics source semantic identity is invalid.");
+				const auto Identity = HashInput(Positions->GetBytes(), Indices->GetBytes());
+				if (Identity != Input->Identity.Identity) return Fail("Physics source semantic identity is invalid.");
 				std::vector<FVector3> ConvertedPositions; ConvertedPositions.reserve(PositionCount);
 				for (size_t Index = 0; Index < PositionCount; ++Index)
 				{
-					if (Index % 256 == 0 && Cancel()) return Fail(Cancelled().Description);
 					FVector3f Position; std::memcpy(&Position, Positions->data() + Index * sizeof(Position), sizeof(Position));
 					ConvertedPositions.emplace_back(Position);
 				}
@@ -95,19 +91,16 @@ namespace Durin::PhysicsPrivate
 					ConvertedIndices.resize(IndexCount);
 					for (size_t Index = 0; Index < IndexCount; ++Index)
 					{
-						if (Index % 256 == 0 && Cancel()) return Fail(Cancelled().Description);
 						std::memcpy(&ConvertedIndices[Index], Indices->data() + Index * sizeof(uint32), sizeof(uint32));
 					}
 					NativeIndices = std::span<const uint32>(ConvertedIndices);
 				}
 				FCollisionGeometryBuildDiagnostics Diagnostics;
 				auto Cooked = Config->Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-					? FCollisionCookedData::BuildConvexHull(ConvertedPositions, &Diagnostics, Cancel)
-					: FCollisionCookedData::BuildTriangleMesh(ConvertedPositions, *NativeIndices, &Diagnostics, Cancel);
-				if (Cancel() || Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) return Fail(Cancelled().Description);
+					? FCollisionCookedData::BuildConvexHull(ConvertedPositions, &Diagnostics)
+					: FCollisionCookedData::BuildTriangleMesh(ConvertedPositions, *NativeIndices, &Diagnostics);
 				if (!Cooked) return Context.FailExecution(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)));
-				auto Output = MakeSharedOutput(std::move(Cooked), Config->Mode, Cancel);
-				if (Cancel()) return Fail(Cancelled().Description);
+				auto Output = MakeSharedOutput(std::move(Cooked), Config->Mode);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);

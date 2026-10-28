@@ -1660,9 +1660,6 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRejectsInvalidMetadataAn
 		EXPECT_FALSE(PhysicsPrivate::AssembleSharedOutput(*Invalid, Mode));
 	}
 	EXPECT_FALSE(PhysicsPrivate::MakeSharedOutput({}, Mode));
-	EXPECT_FALSE(PhysicsPrivate::ValidateSharedOutput(*Output, Mode, [] { return true; }));
-	uint32 Checks = 0;
-	EXPECT_FALSE(PhysicsPrivate::AssembleSharedOutput(*Output, Mode, [&] { return ++Checks == 3; }));
 }
 
 TEST(FStaticMeshPayloadCodecTests, PositionBufferMovesRvaluesAndPreservesBorrowedInputs)

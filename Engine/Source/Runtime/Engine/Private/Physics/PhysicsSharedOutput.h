@@ -8,13 +8,10 @@
 namespace Durin::PhysicsPrivate
 {
 	ENGINE_API auto MakeSharedOutput(FCollisionCookedData Cooked,
-		EBodySetupCollisionSourceMode Mode,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<DerivedData::FBuildOutput, std::string>;
+		EBodySetupCollisionSourceMode Mode) -> std::expected<DerivedData::FBuildOutput, std::string>;
 	ENGINE_API auto ValidateSharedOutput(const DerivedData::FBuildOutput& Output,
-		EBodySetupCollisionSourceMode Mode,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, std::string>;
+		EBodySetupCollisionSourceMode Mode) -> std::expected<void, std::string>;
 	ENGINE_API auto AssembleSharedOutput(const DerivedData::FBuildOutput& Output,
-		EBodySetupCollisionSourceMode Mode,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<FPhysicsCookResult, std::string>;
+		EBodySetupCollisionSourceMode Mode) -> std::expected<FPhysicsCookResult, std::string>;
 }
 #endif
