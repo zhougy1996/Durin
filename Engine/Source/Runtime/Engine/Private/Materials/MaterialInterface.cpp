@@ -821,4 +821,17 @@ namespace Durin
 		for (auto* Object : Context.GetMaterialsAffectedByMaterial(Dependency)) Result.emplace_back(Object);
 		return Result;
 	}
+	auto DMaterialInterface::NeedsCookedProgramPreparation() const -> bool
+	{
+		return GetAssetRuntimeConfiguration().RequiresCookedPayload() && !IsDynamicInstance() && !IsComplete();
+	}
+	auto DMaterialInterface::GetProgramReadiness() const -> std::expected<bool, std::string>
+	{
+		if (IsCompiling()) return false;
+		if (!IsComplete())
+			return std::unexpected(std::format("required material '{}' has no complete program (state {}): {}",
+				GetObjectPath(), static_cast<uint32>(GetMaterialCompileStatus().State), GetMaterialCookDiagnostic()));
+		return true;
+	}
+
 }

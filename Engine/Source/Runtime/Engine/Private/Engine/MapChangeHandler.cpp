@@ -12,8 +12,6 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/SplineMeshComponent.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshCompilation.h"
-#include "Asset/CookedMeshLoadManager.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialProgramPreparation.h"
 #include "Materials/DefaultMaterialService.h"
@@ -87,29 +85,14 @@ namespace Durin
 			if (Meshes.size() > 4096 || Materials.size() > 4096) return std::unexpected("required product owners exceed 4096.");
 		}
 		bool Pending = false;
-		uint32 Requests = 0;
+		uint32 Requests = 4;
 		for (const auto& Owner : Meshes)
 		{
 			auto* Mesh = Cast<DStaticMesh>(Owner.Get());
 			if (!IsValid(Mesh)) return std::unexpected("required mesh was unloaded.");
-			if (Mesh->IsCompiling()) { Pending = true; continue; }
-			const auto Diagnostic = Mesh->GetCompilationDiagnostic();
-			if (Diagnostic.Status && *Diagnostic.Status != EStaticMeshCompilationStatus::Succeeded)
-				return std::unexpected(FormatStaticMeshCompilationDiagnostic(Diagnostic));
-			const auto Status = Mesh->GetRenderDataLoadStatus();
-			if (Status.CpuPhase == ECookedMeshCpuPhase::Failed || Status.CpuPhase == ECookedMeshCpuPhase::Cancelled || Status.GpuPhase == ECookedMeshGpuPhase::Failed)
-				return std::unexpected("required mesh render data failed.");
-			if (Status.CpuPhase == ECookedMeshCpuPhase::CpuReady && Status.GpuPhase == ECookedMeshGpuPhase::Ready) continue;
-			Pending = true;
-			if (Requests++ < 4)
-			{
-				if (const auto* Manager = GetCookedMeshLoadManager())
-				{
-					const auto Work = Manager->GetDiagnostics();
-					if (Work.InFlightCount + Work.PendingRequestCount >= 8) break;
-				}
-				(void)Mesh->RequestRenderDataAndResources();
-			}
+			const auto Ready = Mesh->PrepareRenderResources(Requests);
+			if (!Ready) return std::unexpected(Ready.error());
+			Pending |= !*Ready;
 		}
 		std::string ProgramError;
 		std::erase_if(Programs, [&](auto& Program) {
@@ -123,7 +106,7 @@ namespace Durin
 		{
 			auto* Material = Cast<DMaterialInterface>(Materials[NextMaterial++].Get());
 			if (!IsValid(Material)) return std::unexpected("required material was unloaded.");
-			if (GetAssetRuntimeConfiguration().RequiresCookedPayload() && !Material->IsDynamicInstance() && !Material->IsComplete())
+			if (Material->NeedsCookedProgramPreparation())
 				Programs.push_back(FMaterialProgramPreparation::Request(*Material));
 		}
 		if (!Programs.empty() || NextMaterial != Materials.size()) return false;
@@ -133,10 +116,9 @@ namespace Durin
 		{
 			auto* Material = Cast<DMaterialInterface>(Owner.Get());
 			if (!IsValid(Material)) return std::unexpected("required material was unloaded.");
-			if (Material->IsCompiling()) { Pending = true; continue; }
-			if (!Material->IsComplete())
-				return std::unexpected(std::format("required material '{}' has no complete program (state {}): {}",
-					Material->GetObjectPath(), static_cast<uint32>(Material->GetMaterialCompileStatus().State), Material->GetMaterialCookDiagnostic()));
+			const auto Ready = Material->GetProgramReadiness();
+			if (!Ready) return std::unexpected(Ready.error());
+			Pending |= !*Ready;
 		}
 		if (Pending) return false;
 		for (const auto& Owner : MaterialBindings)
@@ -147,22 +129,12 @@ namespace Durin
 			Textures.insert(UsedTextures.begin(), UsedTextures.end());
 			if (Textures.size() > 4096) return std::unexpected("required textures exceed 4096.");
 		}
-		uint32 TextureRequests = 0;
+		uint32 TextureRequests = 4;
 		for (auto* Texture : Textures)
 		{
-			if (Texture->HasUsableResource()) continue;
-			if (!Texture->IsAsyncCacheComplete() || Texture->IsResourceUpdatePending()) { Pending = true; continue; }
-			const auto State = Texture->GetResourceUpdateState();
-			if (State == ETextureResourceUpdateState::Failed || State == ETextureResourceUpdateState::Closed)
-				return std::unexpected(std::format("required texture '{}': {}", Texture->GetObjectPath(), Texture->GetResourceUpdateError()));
-			if (++TextureRequests > 4) { Pending = true; continue; }
-			if (!Texture->HasPlatformData())
-			{
-				if (!GetAssetRuntimeConfiguration().RequiresCookedPayload() || !Texture->EnsurePlatformDataLoadedBlocking())
-					return std::unexpected(std::format("required texture '{}' has no platform data.", Texture->GetObjectPath()));
-			}
-			else Texture->UpdateResource();
-			Pending = true;
+			const auto Ready = Texture->PrepareRenderResource(TextureRequests);
+			if (!Ready) return std::unexpected(Ready.error());
+			Pending |= !*Ready;
 		}
 		return !Pending;
 	}
@@ -176,15 +148,9 @@ namespace Durin
 				for (auto* Component : Actor->FindComponentsByClass<DMeshComponent>())
 				{
 					if (!Component->IsRegistered() || !Component->IsVisible()) continue;
-					if (Component->IsPSOPrecacheReadyForProxyCreation()) continue;
-					for (const auto& Request : Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs())
-					{
-						const auto Progress = Request.GetProgress();
-						if (Request.IsCurrent() && Progress.bRequiredReady) continue;
-						if (Progress.State == EMaterialPSOPrecacheState::Failed || Progress.State == EMaterialPSOPrecacheState::Canceled)
-							return std::unexpected(std::format("required component '{}': {}", Component->GetObjectPath(), Request.GetDiagnostic()));
-					}
-					Ready = false;
+					const auto ComponentReady = Component->GetPSOPrecacheReadiness();
+					if (!ComponentReady) return std::unexpected(ComponentReady.error());
+					Ready &= *ComponentReady;
 				}
 		return Ready;
 	}
