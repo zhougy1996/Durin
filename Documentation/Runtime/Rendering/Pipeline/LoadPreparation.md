@@ -43,11 +43,11 @@ new texture loads/uploads are requested per advancement. Cooked texture CPU
 loading retains the existing explicit synchronous lazy-load boundary; upload
 completion is asynchronous and is never joined here. Collections
 are limited to 4,096 owners. Game BeginPlay runs on the candidate before its final
-product collection, so spawned initial resources participate in admission. The
-handler waits for visible registered mesh components' required PSO requests
-and normal proxy publication before commit. Withheld proxies cannot make an
-incomplete candidate appear ready merely by being absent from view collection.
-Required failures terminate MapChange; optional PSO work does not block activation.
+product collection, so spawned initial resources participate in admission.
+MapChange does not scan or wait for component PSOs. Components use their existing
+delay-proxy policy and owner notifications to appear after required PSOs become
+ready, including after map activation. Required PSO failures remain observable on
+the component's requests and keep its proxy withheld without failing MapChange.
 No candidate offscreen view is rendered. View-dependent Shader/PSO preparation
 continues through the committed viewport; startup retains the generation-scoped
 output and primary-window presentation gates. Later

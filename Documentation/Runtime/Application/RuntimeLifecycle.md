@@ -193,10 +193,10 @@ Only one change can be pending per Engine. Closed admission or an already pendin
 change rejects a new request without changing the existing progress.
 
 The private `FMapChangeHandler` retains the asynchronous asset handle, prepares
-required products, initializes an isolated World/Scene, and waits for required
-component PSOs. Mesh and texture preparation and material-program readiness belong
-to their existing resource interfaces; component PSO readiness and required-request
-diagnostics belong to `DPrimitiveComponent`. MapChange only collects/deduplicates
+required products and initializes an isolated World/Scene. Mesh and texture
+preparation and material-program readiness belong to their existing resource
+interfaces. Components own PSO readiness, delayed proxy creation and request
+diagnostics; MapChange does not aggregate or wait for component PSOs. It collects/deduplicates
 owners, retains bounded program requests, supplies per-tick request budgets and
 aggregates Ready/Pending/failure results. Resource methods consume admission budget
 only when work can be requested. Cooked texture platform-data fallback keeps its
@@ -204,8 +204,11 @@ existing blocking behavior inside the texture owner. No extra preparation manage
 or mirrored resource state is introduced.
 
 The ordinary Engine frame advances preparation after completions; UI/modal
-callbacks never drive stages. Required products and component PSOs becoming ready
-authorize commit without a candidate offscreen render, render receipt or retries.
+callbacks never drive stages. Required products and World registration becoming
+ready authorize commit without a candidate offscreen render, render receipt or retries.
+Components with pending required PSOs appear after their normal owner notification
+creates the proxy. Failed required requests keep that component withheld and
+diagnosable without failing or rolling back the map change.
 View-dependent renderer preparation runs through the committed viewport, and
 startup still waits for its actual presentation receipt before becoming ready.
 `CommitMapChange` accepts a request for activation once ready; it never replaces

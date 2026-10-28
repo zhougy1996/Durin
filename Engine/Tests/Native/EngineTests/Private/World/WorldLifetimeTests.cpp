@@ -838,7 +838,7 @@ TEST(FWorldTests, MapChangeCompletionExceptionsDoNotEscapeOrRedeliver)
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 }
 
-TEST(FWorldTests, MapChangeBecomesReadyAndCommitsWithoutAViewportOrCandidateRender)
+TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -855,6 +855,8 @@ TEST(FWorldTests, MapChangeBecomesReadyAndCommitsWithoutAViewportOrCandidateRend
 	FPreviewLifecycleRenderer Renderer;
 	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "MapWithoutViewHost"));
 	FMapChangeTestAccess::SetRenderer(*Host, Renderer);
+	auto* PreviousEngine = std::exchange(GEngine, Host.Get());
+	struct FRestoreEngine { DEngine* Previous; ~FRestoreEngine() { GEngine = Previous; } } Restore{PreviousEngine};
 	auto* Previous = CreateWorld(Host.Get(), EWorldType::Editor);
 	Host->SetWorld(Previous);
 	int Completions = 0;
@@ -863,12 +865,27 @@ TEST(FWorldTests, MapChangeBecomesReadyAndCommitsWithoutAViewportOrCandidateRend
 			++Completions;
 			EXPECT_EQ(Progress.Phase, EMapChangePhase::Committed);
 		}}));
+	for (int Frame = 0; Frame < 12 && Host->GetMapChangeProgress()->Phase != EMapChangePhase::RegisteringWorld; ++Frame)
+	{
+		FMapChangeTestAccess::Tick(*Host);
+		ProcessAsyncLoading();
+	}
+	ASSERT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::RegisteringWorld);
+	// Withhold a component proxy before World registration. A failed required
+	// request must stay local to the component rather than reject the map change.
+	auto* Actor = Level->SpawnActor<AStaticMeshActor>("DeferredPSOActor");
+	ASSERT_NE(Actor, nullptr);
+	auto* Component = Actor->GetStaticMeshComponent();
+	const auto Request = FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed");
+	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({Request}));
 	for (int Frame = 0; Frame < 12 && !Host->IsMapChangeReady(); ++Frame)
 	{
 		FMapChangeTestAccess::Tick(*Host);
 		ProcessAsyncLoading();
 	}
 	ASSERT_TRUE(Host->IsMapChangeReady());
+	EXPECT_TRUE(Component->IsRegistered());
+	EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
 	EXPECT_EQ(Host->GetWorld(), Previous);
 	EXPECT_EQ(Completions, 0);
 	EXPECT_EQ(Renderer.RenderCalls, 0);
@@ -879,6 +896,8 @@ TEST(FWorldTests, MapChangeBecomesReadyAndCommitsWithoutAViewportOrCandidateRend
 	EXPECT_FALSE(Host->IsPreparingMapChange());
 	EXPECT_NE(Host->GetWorld(), Previous);
 	EXPECT_EQ(Host->GetWorld()->GetCurrentLevel(), Level);
+	EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
+	EXPECT_EQ(Request.GetDiagnostic(), "Required pipeline failed");
 	EXPECT_EQ(Renderer.RenderCalls, 0);
 	Host->PrepareForShutdown();
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
@@ -969,7 +988,7 @@ TEST(FWorldTests, ResourcePreparationWithoutAdmissionPreservesPendingAndBudgets)
 	Mesh.Reset(); Texture.Reset(); MarkObjectHierarchyAsGarbage(RetiredMesh); MarkObjectHierarchyAsGarbage(RetiredTexture); CollectGarbage();
 }
 
-TEST(FWorldTests, ComponentPSOReadinessReportsRequiredFailureAndHonorsProxyStrategy)
+TEST(FWorldTests, ComponentProxyGatePreservesRequiredFailureAndHonorsProxyStrategy)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -982,12 +1001,9 @@ TEST(FWorldTests, ComponentPSOReadinessReportsRequiredFailureAndHonorsProxyStrat
 	auto* Actor = World->SpawnActor<AStaticMeshActor>("PSOReadinessActor");
 	auto* Component = Actor->GetStaticMeshComponent();
 	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed")}));
-	const auto Failed = Component->GetPSOPrecacheReadiness();
-	EXPECT_FALSE(Failed);
-	if (!Failed) EXPECT_NE(Failed.error().find("Required pipeline failed"), std::string::npos);
+	EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
+	EXPECT_EQ(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs()[0].GetDiagnostic(), "Required pipeline failed");
 	Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
-	const auto Ready = Component->GetPSOPrecacheReadiness();
-	ASSERT_TRUE(Ready);
-	EXPECT_TRUE(*Ready);
+	EXPECT_TRUE(Component->IsPSOPrecacheReadyForProxyCreation());
 	Host.PrepareForShutdown(); Host.SetWorld(nullptr); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
 }

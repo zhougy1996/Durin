@@ -134,22 +134,6 @@ namespace Durin
 		return !Pending;
 	}
 
-	auto FMapChangeHandler::PrepareComponents() -> std::expected<bool, std::string>
-	{
-		DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
-		bool Ready = true;
-		for (const auto& Actor : World->GetCurrentLevel()->GetActors())
-			if (IsValid(Actor.Get()) && !Actor->IsHidden())
-				for (auto* Component : Actor->FindComponentsByClass<DMeshComponent>())
-				{
-					if (!Component->IsRegistered() || !Component->IsVisible()) continue;
-					const auto ComponentReady = Component->GetPSOPrecacheReadiness();
-					if (!ComponentReady) return std::unexpected(ComponentReady.error());
-					Ready &= *ComponentReady;
-				}
-		return Ready;
-	}
-
 	FMapChangeHandler::FMapChangeHandler(DEngine& InHost, FMapChangeRequest Request)
 		: Host(InHost), Path(std::move(Request.Path)), GameMode(Request.GameMode),
 		  BeforeCommit(std::move(Request.BeforeCommit)),
@@ -237,7 +221,7 @@ namespace Durin
 		{
 			const auto Products = PrepareProducts(*GetLevel());
 			if (!Products) return Fail(Products.error());
-			if (*Products) SetPhase(World ? EMapChangePhase::PreparingComponents : EMapChangePhase::RegisteringWorld);
+			if (*Products) SetPhase(World ? EMapChangePhase::Ready : EMapChangePhase::RegisteringWorld);
 			return;
 		}
 		case EMapChangePhase::RegisteringWorld:
@@ -264,15 +248,8 @@ namespace Durin
 				SetPhase(EMapChangePhase::PreparingProducts);
 				return;
 			}
-			SetPhase(EMapChangePhase::PreparingComponents);
+			SetPhase(EMapChangePhase::Ready);
 			return;
-		case EMapChangePhase::PreparingComponents:
-		{
-			const auto Components = PrepareComponents();
-			if (!Components) return Fail(Components.error());
-			if (*Components) SetPhase(EMapChangePhase::Ready);
-			return;
-		}
 		default: return;
 		}
 	}
