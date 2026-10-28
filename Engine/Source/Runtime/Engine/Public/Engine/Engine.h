@@ -154,7 +154,6 @@ namespace Durin
 		friend struct FMapChangeTestAccess;
 		friend class FMapChangeHandler;
 		ENGINE_API auto TickMapChange() -> void;
-		auto SubmitPendingMapChange() -> void;
 		// Tracks unpublished Worlds so host retirement can close their admission during boot.
 		class FWorldInitializationScope
 		{

@@ -609,6 +609,7 @@ namespace
 	class FPreviewLifecycleRenderer : public Durin::IRendererModule
 	{
 	public:
+		int RenderCalls = 0;
 		auto CreateScene() -> Durin::FScenePtr override
 		{
 			return {new FWorldSceneLifecycleTestScene(), Durin::FSceneDeleter([](Durin::FSceneInterface* Scene) { delete Scene; })};
@@ -618,6 +619,7 @@ namespace
 		auto InvalidateAllViewStates() -> void override {}
 		auto RenderView(Durin::FRHICommandListImmediate&, const Durin::FSceneViewRenderRequest&) -> Durin::ERenderViewResult override
 		{
+			++RenderCalls;
 			return Durin::ERenderViewResult::Success;
 		}
 	};
@@ -733,12 +735,7 @@ TEST(FWorldTests, CanceledMapChangePreservesTheActiveWorldAndCompletesAtTheFrame
 	FObjectPath Path;
 	ASSERT_TRUE(FObjectPath::TryCreate("/SceneCancellation/Candidate.Candidate", Path));
 	int Completions = 0;
-	bool bBuiltView = false;
 	ASSERT_TRUE(Host->PrepareMapChange({.Path = Path,
-		.BuildInitialView = [&](const DWorld&) -> std::expected<FSceneView, std::string> {
-			bBuiltView = true;
-			return std::unexpected("Canceled requests must not build a view.");
-		},
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
 			++Completions;
 			EXPECT_EQ(Progress.Phase, EMapChangePhase::Canceled);
@@ -760,7 +757,6 @@ TEST(FWorldTests, CanceledMapChangePreservesTheActiveWorldAndCompletesAtTheFrame
 	FMapChangeTestAccess::Tick(*Host);
 	EXPECT_EQ(Completions, 1);
 	EXPECT_FALSE(Host->IsPreparingMapChange());
-	EXPECT_FALSE(bBuiltView);
 	EXPECT_EQ(Host->GetWorld(), Previous);
 	EXPECT_EQ(Previous->GetCurrentLevel(), Level);
 	EXPECT_FALSE(Previous->IsShutdownRequested());
@@ -842,7 +838,55 @@ TEST(FWorldTests, MapChangeCompletionExceptionsDoNotEscapeOrRedeliver)
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 }
 
-TEST(FWorldTests, MapChangeViewBuilderFailuresUseOneDiagnosticAndPreserveTheCurrentWorld)
+TEST(FWorldTests, MapChangeBecomesReadyAndCommitsWithoutAViewportOrCandidateRender)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::GetTestWorkDirectory() / "MapChangeWithoutView";
+	std::filesystem::create_directories(Root);
+	const std::array MountDefinitions{FMountPoint{.VirtualRoot = "/MapChangeWithoutView/", .Owner = EMountOwner::Test,
+		.Root = Root}};
+	Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	FPackagePath PackagePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/MapChangeWithoutView/Candidate", PackagePath));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(PackagePath, Level));
+	FPreviewLifecycleRenderer Renderer;
+	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "MapWithoutViewHost"));
+	FMapChangeTestAccess::SetRenderer(*Host, Renderer);
+	auto* Previous = CreateWorld(Host.Get(), EWorldType::Editor);
+	Host->SetWorld(Previous);
+	int Completions = 0;
+	ASSERT_TRUE(Host->PrepareMapChange({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
+		.OnComplete = [&](const FMapChangeProgress& Progress) {
+			++Completions;
+			EXPECT_EQ(Progress.Phase, EMapChangePhase::Committed);
+		}}));
+	for (int Frame = 0; Frame < 12 && !Host->IsMapChangeReady(); ++Frame)
+	{
+		FMapChangeTestAccess::Tick(*Host);
+		ProcessAsyncLoading();
+	}
+	ASSERT_TRUE(Host->IsMapChangeReady());
+	EXPECT_EQ(Host->GetWorld(), Previous);
+	EXPECT_EQ(Completions, 0);
+	EXPECT_EQ(Renderer.RenderCalls, 0);
+	ASSERT_TRUE(Host->CommitMapChange());
+	EXPECT_EQ(Host->GetWorld(), Previous);
+	FMapChangeTestAccess::Tick(*Host);
+	EXPECT_EQ(Completions, 1);
+	EXPECT_FALSE(Host->IsPreparingMapChange());
+	EXPECT_NE(Host->GetWorld(), Previous);
+	EXPECT_EQ(Host->GetWorld()->GetCurrentLevel(), Level);
+	EXPECT_EQ(Renderer.RenderCalls, 0);
+	Host->PrepareForShutdown();
+	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+	const auto Unloaded = UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
+	EXPECT_TRUE(Unloaded) << Unloaded.Message;
+}
+
+TEST(FWorldTests, MapChangeCommitVetoFailuresUseOneDiagnosticAndPreserveTheCurrentWorld)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -866,11 +910,11 @@ TEST(FWorldTests, MapChangeViewBuilderFailuresUseOneDiagnosticAndPreserveTheCurr
 		Host->SetWorld(Previous);
 		int Completions = 0;
 		ASSERT_TRUE(Host->OpenLevel({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
-			.BuildInitialView = [FailureMode, &Host](const DWorld&) -> std::expected<FSceneView, std::string> {
-				if (FailureMode == 0) throw std::runtime_error("View builder failure");
+			.BeforeCommit = [FailureMode, &Host](DLevel&) {
+				if (FailureMode == 0) throw std::runtime_error("Commit veto failure");
 				if (FailureMode == 1) throw 42;
 				if (FailureMode == 3) Host->CancelPendingMapChange();
-				return std::unexpected("Expected view failure");
+				return false;
 			},
 			.OnComplete = [&](const FMapChangeProgress& Progress) {
 				++Completions;
@@ -886,9 +930,9 @@ TEST(FWorldTests, MapChangeViewBuilderFailuresUseOneDiagnosticAndPreserveTheCurr
 		const auto Progress = Host->GetMapChangeProgress();
 		ASSERT_TRUE(Progress);
 		EXPECT_EQ(Progress->Phase, FailureMode == 3 ? EMapChangePhase::Canceled : EMapChangePhase::Failed);
-		if (FailureMode != 3) EXPECT_NE(Progress->Diagnostic.find("Preparing initial view"), std::string::npos) << Progress->Diagnostic;
-		const auto Expected = FailureMode == 0 ? "View builder failure" : FailureMode == 1 ? "Unknown native exception"
-			: FailureMode == 2 ? "Expected view failure" : "Map change canceled";
+		if (FailureMode != 3) EXPECT_NE(Progress->Diagnostic.find("Ready to commit"), std::string::npos) << Progress->Diagnostic;
+		const auto Expected = FailureMode == 0 ? "Commit veto failure" : FailureMode == 1 ? "Unknown native exception"
+			: FailureMode == 2 ? "Map activation was rejected" : "Map change canceled";
 		EXPECT_NE(Progress->Diagnostic.find(Expected), std::string::npos) << Progress->Diagnostic;
 		EXPECT_EQ(Host->GetWorld(), Previous);
 		EXPECT_FALSE(Previous->IsShutdownRequested());

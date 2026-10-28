@@ -354,7 +354,6 @@ namespace Durin
 
 	auto DEngine::RedrawViewports() -> void
 	{
-		SubmitPendingMapChange();
 		if (bShutdownRequested || (GetStartupState() != EHostStartupState::Ready && !ShouldDrawStartupScene())) return;
 		auto RenderTargetViewport = [this](const std::shared_ptr<FSceneViewport>& SceneViewport, bool bAllowCameraFallback) {
 			if (SceneViewport == nullptr || SceneViewport->IsWindowBacked()) return;
@@ -527,12 +526,6 @@ namespace Durin
 	{
 		CheckGameThread();
 		if (MapChange) MapChange->Cancel();
-	}
-	auto DEngine::SubmitPendingMapChange() -> void
-	{
-		if (bShutdownRequested || !MapChange) return;
-		FHostOperationScope Operation(*this);
-		MapChange->SubmitView();
 	}
 	auto DEngine::IsPreparingMapChange() const -> bool { return MapChange != nullptr; }
 	auto DEngine::IsMapChangeReady() const -> bool

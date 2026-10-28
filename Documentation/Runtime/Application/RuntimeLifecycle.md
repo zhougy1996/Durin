@@ -193,8 +193,8 @@ Only one change can be pending per Engine. Closed admission or an already pendin
 change rejects a new request without changing the existing progress.
 
 The private `FMapChangeHandler` retains the asynchronous asset handle, prepares
-required products, initializes an isolated World/Scene, and renders an initial
-candidate view. Mesh and texture preparation and material-program readiness belong
+required products, initializes an isolated World/Scene, and waits for required
+component PSOs. Mesh and texture preparation and material-program readiness belong
 to their existing resource interfaces; component PSO readiness and required-request
 diagnostics belong to `DPrimitiveComponent`. MapChange only collects/deduplicates
 owners, retains bounded program requests, supplies per-tick request budgets and
@@ -203,28 +203,28 @@ only when work can be requested. Cooked texture platform-data fallback keeps its
 existing blocking behavior inside the texture owner. No extra preparation manager
 or mirrored resource state is introduced.
 
-The ordinary Engine frame advances preparation after completions
-and submits candidate views inside `RedrawViewports`; UI/modal callbacks never
-drive stages. Only Pending render receipts may be resubmitted. A successful
-receipt remains idle until the next preparation advance consumes it.
+The ordinary Engine frame advances preparation after completions; UI/modal
+callbacks never drive stages. Required products and component PSOs becoming ready
+authorize commit without a candidate offscreen render, render receipt or retries.
+View-dependent renderer preparation runs through the committed viewport, and
+startup still waits for its actual presentation receipt before becoming ready.
 `CommitMapChange` accepts a request for activation once ready; it never replaces
 the World inline. Failure or cancellation retires the candidate and preserves
 the old document.
 
-Requests may supply an initial-view builder, a `BeforeCommit` veto and an
-`OnComplete` notification. Editor view builders capture persisted camera state
-and viewport parameters by value. Editor document/transaction and viewport
-coordination uses these callbacks rather than a separate polling state machine.
+Requests may supply a `BeforeCommit` veto and an `OnComplete` notification.
+Editor document/transaction and viewport coordination uses these callbacks rather
+than a separate polling state machine.
 Callbacks run on GameThread under the host lifecycle/GC guard. Completion is
 delivered once at an ordinary frame boundary after releasing the Handler; it
 may start another change. Host shutdown discards callbacks before retiring their
 owners. Closing an editor document invalidates its deferred callback lifetime.
 
 Expected loading failures remain explicit results and phases; internal steps do
-not throw to signal Pending, cancellation or a veto. Unexpected preparation and
-view-rendering exceptions become one failed progress diagnostic at their owner
-or render boundary. Actual World publication remains outside the recoverable
-preparation catch: a publication fault cannot promise rollback. Completion
+not throw to signal Pending, cancellation or a veto. Unexpected preparation
+exceptions become one failed progress diagnostic at their owner boundary. Actual
+World publication remains outside the recoverable preparation catch: a publication
+fault cannot promise rollback. Completion
 notification exceptions are logged after releasing the Handler and never
 rewrite the result or redeliver the callback, including when it started another
 change before throwing. All failed/canceled results carry a diagnostic, so
@@ -239,7 +239,7 @@ asset residency transfers to the active World and is released when its Level is
 replaced or detached. No completed loading Handler is retained by callers.
 Native World initialization/registration callbacks
 and package object application remain atomic owner-thread work. Game BeginPlay
-runs once on the candidate; its spawned products are recollected before rendering.
+runs once on the candidate; its spawned products are recollected before commit.
 Simulation and input wait until the committed generation has actually presented.
 
 Automated running-tick counts and startup-command dispatch begin only after host

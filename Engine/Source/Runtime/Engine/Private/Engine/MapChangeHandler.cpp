@@ -3,7 +3,6 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Asset/AsyncLoad.h"
-#include "Client/SceneViewport.h"
 #include "Engine/Level.h"
 #include "Engine/Actor.h"
 #include "DObject/StrongObjectPtr.h"
@@ -18,8 +17,6 @@
 #include "Texture/Texture2D.h"
 #include "IRendererModule.h"
 #include "Rendering/SceneInterface.h"
-#include "RHICommandList.h"
-#include "RenderingThread.h"
 
 namespace Durin
 {
@@ -43,8 +40,6 @@ namespace Durin
 	{
 		if (World) { auto* Retired = World.Get(); Retired->Shutdown(); World.Reset(); MarkObjectHierarchyAsGarbage(Retired); }
 		if (Scene) { Scene->Release(); Scene.reset(); }
-		Preparation.RequestCancel();
-		Output = nullptr;
 		if (Assets) Assets->Cancel();
 		Assets.reset();
 	}
@@ -157,7 +152,7 @@ namespace Durin
 
 	FMapChangeHandler::FMapChangeHandler(DEngine& InHost, FMapChangeRequest Request)
 		: Host(InHost), Path(std::move(Request.Path)), GameMode(Request.GameMode),
-		  BuildInitialView(std::move(Request.BuildInitialView)), BeforeCommit(std::move(Request.BeforeCommit)),
+		  BeforeCommit(std::move(Request.BeforeCommit)),
 		  OnComplete(std::move(Request.OnComplete))
 	{
 		CheckGameThread();
@@ -242,7 +237,7 @@ namespace Durin
 		{
 			const auto Products = PrepareProducts(*GetLevel());
 			if (!Products) return Fail(Products.error());
-			if (*Products) SetPhase(World ? EMapChangePhase::PreparingView : EMapChangePhase::RegisteringWorld);
+			if (*Products) SetPhase(World ? EMapChangePhase::PreparingComponents : EMapChangePhase::RegisteringWorld);
 			return;
 		}
 		case EMapChangePhase::RegisteringWorld:
@@ -257,7 +252,6 @@ namespace Durin
 			if (bCancelRequested) return;
 			if (!World->SetCurrentLevel(GetLevel())) return Fail("Level registration was rejected; the previous document remains active.");
 			if (bCancelRequested) return;
-			Preparation = FRenderResourcePreparation::Create();
 			if (GameMode.has_value())
 			{
 				const auto Play = World->BeginPlay({.GameModeClass = *GameMode});
@@ -270,99 +264,23 @@ namespace Durin
 				SetPhase(EMapChangePhase::PreparingProducts);
 				return;
 			}
-			SetPhase(EMapChangePhase::PreparingView);
+			SetPhase(EMapChangePhase::PreparingComponents);
 			return;
-		case EMapChangePhase::PreparingView:
+		case EMapChangePhase::PreparingComponents:
 		{
 			const auto Components = PrepareComponents();
 			if (!Components) return Fail(Components.error());
-			if (!*Components)
-			{
-				bComponentsReady = false;
-				return;
-			}
-			if (!bComponentsReady)
-			{
-				// A view completed before component invalidation cannot authorize the
-				// replacement set. Retire its receipt after its command has finished.
-				if (ViewResult->State.load(std::memory_order_acquire) == EViewState::InFlight) return;
-				ViewResult->Error.clear();
-				ViewResult->State = EViewState::Pending;
-				bComponentsReady = true;
-			}
-			if (!InitialView)
-			{
-				if (BuildInitialView)
-				{
-					auto View = BuildInitialView(*World);
-					if (!View) return Fail(View.error());
-					InitialView = std::move(*View);
-					BuildInitialView = {};
-				}
-				else
-				{
-					const auto& Viewport = Host.GetMainSceneViewport();
-					if (!Viewport) return Fail("initial viewport is unavailable.");
-					const auto Size = Viewport->GetDesiredSize();
-					InitialView = Host.BuildWorldSceneView(*World,
-						static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(Size.x))),
-						static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(Size.y))));
-				}
-				if (!InitialView->ViewportWidth || !InitialView->ViewportHeight)
-					return Fail("initial view has no output extent.");
-				InitialView->ViewStateId = {};
-				InitialView->bDiscardHistory = true;
-			}
-			const auto ViewState = ViewResult->State.load(std::memory_order_acquire);
-			if (ViewState == EViewState::Ready) SetPhase(EMapChangePhase::Ready);
-			else if (ViewState == EViewState::Failed) Fail(ViewResult->Error);
+			if (*Components) SetPhase(EMapChangePhase::Ready);
 			return;
 		}
 		default: return;
 		}
-	}
-	auto FMapChangeHandler::SubmitView() -> void
-	{
-		CheckGameThread();
-		if (Phase != EMapChangePhase::PreparingView || !bComponentsReady || !InitialView
-			|| ViewResult->State.load(std::memory_order_acquire) != EViewState::Pending) return;
-		// Only GameThread submits. Once RenderThread publishes a terminal receipt,
-		// leave it idle for Advance() to consume; resubmitting here can starve that
-		// handoff when a fast view completes between Advance() and RedrawViewports().
-		ViewResult->State = EViewState::InFlight;
-		try
-		{
-			if (!Output)
-				Output = RHICreateTexture(FRHITextureCreateDesc::Create2D("CandidateScene", InitialView->ViewportWidth,
-					InitialView->ViewportHeight, EPixelFormat::SRGBA8_UNORM).SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
-			const auto Submitted = std::chrono::steady_clock::now();
-			ENQUEUE_RENDER_COMMAND(PrepareCandidateScene)([Scene = Scene.get(), Renderer = Host.GetRendererModule(),
-				Id = Id, Attempt = ++ViewAttempts, Submitted,
-				View = *InitialView, Output = Output, Preparation = Preparation, Receipt = ViewResult](FRHICommandListImmediate& Commands) {
-				const auto Started = std::chrono::steady_clock::now();
-				ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
-				try { Result = Renderer->RenderView(Commands, {Scene, View, Output, false, {}, nullptr, nullptr, &Preparation}); }
-				catch (...) { Receipt->Error = DescribeException(); }
-				if (Result != ERenderViewResult::Success && Result != ERenderViewResult::RendererResourcesPending && Receipt->Error.empty())
-					Receipt->Error = std::format("initial view rendering failed (result {}).", static_cast<int>(Result));
-				const auto Progress = Preparation.GetProgress();
-				DURIN_DEBUG("Map change {} view attempt {}: result={}, queue_ms={:.2f}, render_ms={:.2f}, shaders={}, pipelines={}",
-					Id, Attempt, static_cast<int>(Result), std::chrono::duration<double, std::milli>(Started - Submitted).count(),
-					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count(),
-					Progress.ShaderAdmissions, Progress.PipelineAdmissions);
-				Receipt->State.store(Result == ERenderViewResult::Success ? EViewState::Ready
-					: Result == ERenderViewResult::RendererResourcesPending ? EViewState::Pending : EViewState::Failed,
-					std::memory_order_release);
-			});
-		}
-		catch (...) { Fail(DescribeException()); }
 	}
 	auto FMapChangeHandler::Commit() -> void
 	{
 		World->LevelResidency = std::move(Assets);
 		Host.AdoptSceneWorld(World.Get(), std::move(Scene), Id);
 		World.Reset();
-		Output = nullptr;
 		SetPhase(EMapChangePhase::Committed);
 	}
 }
