@@ -425,6 +425,7 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
 
 		INCLUDE_DIRECTORIES
+			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 		REQUIRES editor

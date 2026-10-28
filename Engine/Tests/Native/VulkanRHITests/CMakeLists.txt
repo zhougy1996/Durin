@@ -9,7 +9,7 @@ durin_add_native_test(VulkanQueueQualificationTests
     REQUIRES editor
     REQUIREMENT_RATIONALE "Compiles the authored compute producer for native event qualification."
     ENVIRONMENTS authored-shaders
-    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private"
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private" "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private"
     RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
     HEAVY_RUNTIME_RATIONALE "Qualifies native Vulkan events, exact resource ownership and transient aliasing without presentation. Native-event cases require a supporting ICD."
     TIMEOUT 600

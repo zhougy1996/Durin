@@ -122,7 +122,7 @@ namespace Durin
 			Preparation->Primary = std::move(*Bulk);
 		};
 		for (size_t Index = 0; Index < Inputs.size(); ++Index) {
-			auto Submitted = FMaterialShaderMap::Compile(Inputs[Index],
+			auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Inputs[Index],
 				{.Cancellation = Work->Cancellation},
 				[Work, Index](MaterialBuildPrivate::FMaterialBuildResult Build) {
 					const auto& Result = *Build.Program;

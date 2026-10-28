@@ -195,7 +195,7 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 					const auto GenerationUs = Micros(GenerationBegin);
 					auto Output = FShaderCompilingManager::Get().CompileGeneratedSync(MakeMaterialShaderCompileRequest(Translation, false));
 					ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
-					auto Candidate = FMaterialShaderMap::FinalizeContent(std::move(Translation), std::move(Output));
+					auto Candidate = MaterialBuildPrivate::FinalizeMaterialShaderMap(std::move(Translation), std::move(Output));
 					ASSERT_TRUE(Candidate);
 					const auto TotalUs = Micros(Begin);
 					const auto After = GetShaderBuildStats();
@@ -248,7 +248,7 @@ TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 			std::vector<FMaterialProgramCompileHandle> Handles;
 			std::vector<FMaterialBuildResult> Results(Count);
 			for (uint32 Index = 0; Index < Count; ++Index) {
-				auto Compile = FMaterialShaderMap::Compile(Inputs[Index], {}, [&, Index](auto Result) { Results[Index] = std::move(Result); });
+				auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Inputs[Index], {}, [&, Index](auto Result) { Results[Index] = std::move(Result); });
 				ASSERT_TRUE(Compile); Handles.push_back(std::move(*Compile));
 			}
 			for (const auto& Handle : Handles) Manager.FinishCompilation(Handle);

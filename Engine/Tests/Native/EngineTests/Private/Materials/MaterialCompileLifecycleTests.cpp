@@ -1310,7 +1310,7 @@ TEST_F(FMaterialAsyncCompileTests, ShaderCompilerRegistersOnceAndStopsBothReques
 	Compiler.SubmitJobs(Shader);
 	EXPECT_EQ(Shader.Wait(), EShaderBuildWaitResult::Completed);
 	EXPECT_EQ(ShaderCalls, 1u);
-	auto Material = FMaterialShaderMap::Compile(std::make_shared<const MIR::FCompilerInput>(), {},
+	auto Material = MaterialBuildPrivate::FMaterialCompilation::Compile(std::make_shared<const MIR::FCompilerInput>(), {},
 		[](auto) { ADD_FAILURE() << "Rejected material must not complete."; });
 	ASSERT_FALSE(Material);
 	EXPECT_EQ(Material.error(), MaterialBuildPrivate::EMaterialCompileAdmissionError::Closed);

@@ -60,10 +60,10 @@ namespace Durin
 		}
 
 		auto Error(EMaterialParameterCollectionError Code, uint32 Index,
-			FGuid Id, std::string Message) -> FMaterialParameterCollectionResult
+			FGuid Id, std::string Message) -> std::unexpected<FMaterialParameterCollectionError>
 		{
-			return {.Error = Code, .RecordIndex = Index,
-				.ParameterId = Id, .Message = std::move(Message)};
+			return std::unexpected(FMaterialParameterCollectionError{.Code = Code, .RecordIndex = Index,
+				.ParameterId = Id, .Message = std::move(Message)});
 		}
 
 		auto CanonicalDeclarations(const DMaterialParameterCollection& Collection)
@@ -91,7 +91,7 @@ namespace Durin
 		const auto Result = Validate();
 		if (!Result)
 			DURIN_ERROR("PostLoad '{}': invalid material parameter collection: {}",
-				GetObjectPath(), Result.Message);
+				GetObjectPath(), Result.error().Message);
 		else
 		{
 			for (auto& Declaration : Declarations)
@@ -111,7 +111,7 @@ namespace Durin
 		{
 			Declarations = LastValidDeclarations;
 			DURIN_ERROR("Rejected material parameter collection edit '{}': {}",
-				GetObjectPath(), Result.Message);
+				GetObjectPath(), Result.error().Message);
 			return;
 		}
 		for (auto& Declaration : Declarations)
@@ -123,7 +123,7 @@ namespace Durin
 	}
 
 	auto DMaterialParameterCollection::Validate() const
-		-> FMaterialParameterCollectionResult
+		-> std::expected<void, FMaterialParameterCollectionError>
 	{
 		if (!CollectionId.IsValid() || SchemaVersion != CurrentMaterialParameterCollectionSchemaVersion)
 			return Error(EMaterialParameterCollectionError::InvalidCollection, 0, {},
@@ -158,10 +158,10 @@ namespace Durin
 
 	auto DMaterialParameterCollection::BuildLayout() const
 		-> std::expected<FMaterialParameterCollectionLayout,
-			FMaterialParameterCollectionResult>
+			FMaterialParameterCollectionError>
 	{
 		if (auto Validation = Validate(); !Validation)
-			return std::unexpected(std::move(Validation));
+			return std::unexpected(std::move(Validation.error()));
 		const auto Ordered = CanonicalDeclarations(*this);
 		std::vector<FMaterialCompilerParameterDeclaration> Parameters;
 		Parameters.reserve(Ordered.size());
@@ -169,10 +169,10 @@ namespace Durin
 			Parameters.push_back({Declaration.Id, Declaration.Type});
 		auto Compiled = CompileMaterialLayout(Parameters);
 		if (!Compiled)
-			return std::unexpected(Error(
+			return Error(
 				EMaterialParameterCollectionError::InvalidDeclaration, 0,
 				Compiled.Validation.ParameterId,
-				"The collection uniform layout could not be compiled."));
+				"The collection uniform layout could not be compiled.");
 		FMaterialParameterCollectionLayout Result{
 			.CollectionId = CollectionId, .UniformLayout = std::move(Compiled.Layout),
 			.SchemaVersion = SchemaVersion};
@@ -198,7 +198,7 @@ namespace Durin
 	}
 
 	auto DMaterialParameterCollection::BuildDefaultPayload() const
-		-> std::expected<FByteBuffer, FMaterialParameterCollectionResult>
+		-> std::expected<FByteBuffer, FMaterialParameterCollectionError>
 	{
 		auto Layout = BuildLayout();
 		if (!Layout) return std::unexpected(Layout.error());
@@ -207,7 +207,7 @@ namespace Durin
 
 	auto DMaterialParameterCollection::SetDeclarations(
 		std::span<const FMaterialParameterCollectionDeclaration> InDeclarations)
-		-> FMaterialParameterCollectionResult
+		-> std::expected<void, FMaterialParameterCollectionError>
 	{
 		check(IsInGameThread());
 		auto Previous = Declarations;
@@ -258,7 +258,7 @@ namespace Durin
 
 	auto DMaterialParameterCollection::SetDefaultValue(
 		FGuid ParameterId, const FVector4& Value)
-		-> FMaterialParameterCollectionResult
+		-> std::expected<void, FMaterialParameterCollectionError>
 	{
 		check(IsInGameThread());
 		auto Declaration = std::ranges::find(Declarations, ParameterId,
@@ -305,7 +305,7 @@ namespace Durin
 
 	auto DMaterialParameterCollectionSubsystem::FindOrCreateState(
 		DMaterialParameterCollection& Collection)
-		-> std::expected<FState*, FMaterialParameterCollectionResult>
+		-> std::expected<FState*, FMaterialParameterCollectionError>
 	{
 		check(IsInGameThread());
 		auto Layout = Collection.BuildLayout();
@@ -314,9 +314,9 @@ namespace Durin
 			Existing != States.end())
 		{
 			if (Existing->second.Collection.Get() != &Collection)
-				return std::unexpected(Error(
+				return Error(
 					EMaterialParameterCollectionError::InvalidCollection, 0, {},
-					"Two live collections use the same persistent identity."));
+					"Two live collections use the same persistent identity.");
 			if (!Existing->second.Layout.HasCompatibleSchema(*Layout))
 			{
 				Existing->second.Layout = std::move(*Layout);
@@ -338,7 +338,7 @@ namespace Durin
 	auto DMaterialParameterCollectionSubsystem::BuildSnapshot(const FState& State,
 		const std::unordered_map<FGuid, FVector4>& Overrides, uint64 Version) const
 		-> std::expected<std::shared_ptr<const FMaterialParameterCollectionSnapshot>,
-			FMaterialParameterCollectionResult>
+			FMaterialParameterCollectionError>
 	{
 		auto Payload = State.Layout.DefaultPayload;
 		for (const auto& [Id, Value] : Overrides)
@@ -346,8 +346,8 @@ namespace Durin
 			const auto Field = std::ranges::find(State.Layout.UniformLayout.Fields,
 				Id, &FMaterialRenderField::ParameterId);
 			if (Field == State.Layout.UniformLayout.Fields.end())
-				return std::unexpected(Error(EMaterialParameterCollectionError::InvalidState, 0,
-					Id, "A runtime override no longer matches the collection schema."));
+				return Error(EMaterialParameterCollectionError::InvalidState, 0,
+					Id, "A runtime override no longer matches the collection schema.");
 			const std::array<float, 4> Components{
 				static_cast<float>(Value.x), static_cast<float>(Value.y),
 				static_cast<float>(Value.z), static_cast<float>(Value.w)};
@@ -362,10 +362,10 @@ namespace Durin
 
 	auto DMaterialParameterCollectionSubsystem::Publish(FState& State,
 		std::unordered_map<FGuid, FVector4> Overrides)
-		-> FMaterialParameterCollectionResult
+		-> std::expected<void, FMaterialParameterCollectionError>
 	{
 		auto Snapshot = BuildSnapshot(State, Overrides, State.Version + 1);
-		if (!Snapshot) return Snapshot.error();
+		if (!Snapshot) return std::unexpected(Snapshot.error());
 		State.Overrides = std::move(Overrides);
 		State.Version = (*Snapshot)->Version;
 		State.Snapshot = std::move(*Snapshot);
@@ -379,7 +379,7 @@ namespace Durin
 	auto DMaterialParameterCollectionSubsystem::ApplyUpdates(
 		DMaterialParameterCollection& Collection,
 		std::span<const FMaterialParameterCollectionUpdate> Updates)
-		-> FMaterialParameterCollectionResult
+		-> std::expected<void, FMaterialParameterCollectionError>
 	{
 		check(IsInGameThread());
 		Counters.SubmittedRecords += Updates.size();
@@ -388,7 +388,7 @@ namespace Durin
 		if (!StateResult)
 		{
 			++Counters.RejectedCommits;
-			return StateResult.error();
+			return std::unexpected(StateResult.error());
 		}
 		auto* State = *StateResult;
 		std::unordered_set<FGuid> Seen;
@@ -436,7 +436,7 @@ namespace Durin
 
 	auto DMaterialParameterCollectionSubsystem::SetValue(
 		DMaterialParameterCollection& Collection, FGuid ParameterId,
-		const FVector4& Value) -> FMaterialParameterCollectionResult
+		const FVector4& Value) -> std::expected<void, FMaterialParameterCollectionError>
 	{
 		const auto Update = FMaterialParameterCollectionUpdate::Set(ParameterId, Value);
 		return ApplyUpdates(Collection, std::span(&Update, 1));
@@ -444,7 +444,7 @@ namespace Durin
 
 	auto DMaterialParameterCollectionSubsystem::SetValue(
 		DMaterialParameterCollection& Collection, FName ParameterName,
-		const FVector4& Value) -> FMaterialParameterCollectionResult
+		const FVector4& Value) -> std::expected<void, FMaterialParameterCollectionError>
 	{
 		const auto* Declaration = Collection.FindDeclaration(ParameterName);
 		if (!Declaration)
@@ -459,7 +459,7 @@ namespace Durin
 
 	auto DMaterialParameterCollectionSubsystem::ClearValue(
 		DMaterialParameterCollection& Collection, FGuid ParameterId)
-		-> FMaterialParameterCollectionResult
+		-> std::expected<void, FMaterialParameterCollectionError>
 	{
 		const auto Update = FMaterialParameterCollectionUpdate::Clear(ParameterId);
 		return ApplyUpdates(Collection, std::span(&Update, 1));
@@ -467,7 +467,7 @@ namespace Durin
 
 	auto DMaterialParameterCollectionSubsystem::ClearValue(
 		DMaterialParameterCollection& Collection, FName ParameterName)
-		-> FMaterialParameterCollectionResult
+		-> std::expected<void, FMaterialParameterCollectionError>
 	{
 		const auto* Declaration = Collection.FindDeclaration(ParameterName);
 		if (!Declaration)
@@ -518,15 +518,15 @@ namespace Durin
 
 	auto DMaterialParameterCollectionSubsystem::RefreshCollection(
 		DMaterialParameterCollection& Collection)
-		-> FMaterialParameterCollectionResult
+		-> std::expected<void, FMaterialParameterCollectionError>
 	{
 		check(IsInGameThread());
 		if (!States.contains(Collection.GetCollectionId())) return {};
 		auto StateResult = FindOrCreateState(Collection);
-		if (!StateResult) return StateResult.error();
+		if (!StateResult) return std::unexpected(StateResult.error());
 		auto* State = *StateResult;
 		auto Candidate = BuildSnapshot(*State, State->Overrides, State->Version + 1);
-		if (!Candidate) return Candidate.error();
+		if (!Candidate) return std::unexpected(Candidate.error());
 		if (State->Snapshot
 			&& State->Snapshot->Layout.HasCompatibleSchema((*Candidate)->Layout)
 			&& State->Snapshot->Payload == (*Candidate)->Payload) return {};

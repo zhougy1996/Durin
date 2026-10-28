@@ -597,7 +597,7 @@ TEST(FMaterialTranslationTests, MaterialCacheWaitReleasesTheOnlyAvailableWorker)
 	if (Count > 1) ASSERT_TRUE(Held.WaitFor(5));
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
 	auto& Manager = FShaderCompilingManager::Get(); std::atomic_uint32_t Completed = 0;
-	auto Compile = FMaterialShaderMap::Compile(Input, {}, [&](auto Result) { EXPECT_TRUE(Result); ++Completed; });
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {}, [&](auto Result) { EXPECT_TRUE(Result); ++Completed; });
 	ASSERT_TRUE(Compile);
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
 	FThreadEvent Progress; auto Unrelated = Tasks::LaunchTask("UnrelatedMaterialProgress", [&] { Progress.Trigger(); });
@@ -729,18 +729,18 @@ TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTrans
 	} Restore{Cache, Handles, Cancellation};
 	std::atomic_uint32_t Completions = 0;
 	for (uint32 Index = 0; Index < 32; ++Index) {
-		auto Compile = FMaterialShaderMap::Compile(Captured, {.Cancellation = Cancellation}, [&](auto) { ++Completions; });
+		auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {.Cancellation = Cancellation}, [&](auto) { ++Completions; });
 		ASSERT_TRUE(Compile); Handles.push_back(std::move(*Compile));
 	}
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
-	auto Excess = FMaterialShaderMap::Compile(Captured, {}, [](auto) { ADD_FAILURE() << "Rejected submission invoked completion"; });
+	auto Excess = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {}, [](auto) { ADD_FAILURE() << "Rejected submission invoked completion"; });
 	ASSERT_FALSE(Excess); EXPECT_EQ(Excess.error(), EMaterialCompileAdmissionError::Capacity);
 	Cancellation.Cancel(); Cache->Release.Trigger();
 	for (const auto& Handle : Handles) Manager.CancelCompilation(Handle);
 	for (const auto& Handle : Handles) Manager.FinishCompilation(Handle);
 	EXPECT_EQ(Completions, 32u); Handles.clear();
 	{
-		auto Recovered = FMaterialShaderMap::Compile(Captured, {.Cancellation = Cancellation}, [](auto Result) {
+		auto Recovered = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {.Cancellation = Cancellation}, [](auto Result) {
 			ASSERT_NE(Result.Program, nullptr); EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		});
 		ASSERT_TRUE(Recovered); Manager.FinishCompilation(*Recovered);
@@ -764,7 +764,7 @@ TEST(FMaterialTranslationTests, CancellationDuringCacheIOCompletesAndRetiresWith
 	SetTranslationServiceForTests(Service);
 	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); SetTranslationServiceForTests({}); } } Restore{Cache};
 	auto& Manager = FShaderCompilingManager::Get(); std::atomic_uint32_t Calls = 0;
-	auto Compile = FMaterialShaderMap::Compile(std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput()), {}, [&](auto Result) { EXPECT_FALSE(Result); EXPECT_TRUE(Result.Program->Diagnostics.empty()); EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled); ++Calls; });
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput()), {}, [&](auto Result) { EXPECT_FALSE(Result); EXPECT_TRUE(Result.Program->Diagnostics.empty()); EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled); ++Calls; });
 	ASSERT_TRUE(Compile);
 	ASSERT_TRUE(Cache->Entered.WaitFor(5)); const auto Begin = std::chrono::steady_clock::now(); Manager.CancelCompilation(*Compile);
 	Cache->Release.Trigger(); Manager.FinishCompilation(*Compile); EXPECT_FALSE(Manager.IsCompiling(*Compile)); EXPECT_EQ(Calls, 1u);
@@ -784,7 +784,7 @@ TEST(FMaterialProgramOwnershipTests, ManagerAndSynchronousCallersShareReuseAndFo
 	const auto Build = [&](bool Force) {
 		FMaterialBuildResult Result;
 		auto& Manager = FShaderCompilingManager::Get();
-		auto Compile = FMaterialShaderMap::Compile(Input, {.bForceRecompile = Force}, [&](auto Value) { Result = std::move(Value); });
+		auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = Force}, [&](auto Value) { Result = std::move(Value); });
 		if (Compile) Manager.FinishCompilation(*Compile);
 		return Result;
 	};
@@ -855,9 +855,9 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 		const auto Before = GetMaterialProgramCompileStatsForTests();
 		std::array<FMaterialBuildResult, 2> Results;
 		std::array<std::atomic_uint32_t, 2> Calls{};
-		auto First = FMaterialShaderMap::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { Results[0] = std::move(Result); ++Calls[0]; });
+		auto First = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { Results[0] = std::move(Result); ++Calls[0]; });
 		ASSERT_TRUE(First); ASSERT_TRUE(Cache->FirstEntered.WaitFor(10)); ASSERT_TRUE(Cache->SecondEntered.WaitFor(10));
-		auto Second = FMaterialShaderMap::Compile(Other, {.bForceRecompile = true}, [&](auto Result) { Results[1] = std::move(Result); ++Calls[1]; });
+		auto Second = MaterialBuildPrivate::FMaterialCompilation::Compile(Other, {.bForceRecompile = true}, [&](auto Result) { Results[1] = std::move(Result); ++Calls[1]; });
 		ASSERT_TRUE(Second);
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (GetMaterialProgramCompileStatsForTests().Joins == Before.Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
@@ -906,7 +906,7 @@ TEST(FMaterialProgramOwnershipTests, FailedShaderRequestsDrainWithoutPublication
 	auto& Manager = FShaderCompilingManager::Get();
 	std::atomic_uint32_t Calls = 0;
 	FMaterialBuildResult Result;
-	auto Compile = FMaterialShaderMap::Compile(Input, {.bForceRecompile = true}, [&](auto Value) { Result = std::move(Value); ++Calls; });
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Value) { Result = std::move(Value); ++Calls; });
 	ASSERT_TRUE(Compile); Manager.FinishCompilation(*Compile);
 	EXPECT_FALSE(Manager.IsCompiling(*Compile)); EXPECT_EQ(Calls, 1u);
 	ASSERT_NE(Result.Program, nullptr); ASSERT_FALSE(Result);
@@ -928,7 +928,7 @@ TEST(FMaterialProgramOwnershipTests, SuccessfulSubmissionSupportsInlineShaderCal
 	auto& Manager = FShaderCompilingManager::Get();
 	std::atomic_uint32_t Calls = 0;
 	FMaterialBuildResult Result;
-	auto Compile = FMaterialShaderMap::Compile(Input, {.bForceRecompile = true}, [&](auto Value) { Result = std::move(Value); ++Calls; });
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Value) { Result = std::move(Value); ++Calls; });
 	ASSERT_TRUE(Compile);
 	if (Inline) EXPECT_EQ(Calls, 1u);
 	Manager.FinishCompilation(*Compile); EXPECT_EQ(Calls, 1u);
@@ -951,10 +951,10 @@ TEST(FMaterialProgramOwnershipTests, CacheHandoffAllowsLookupBeforeDeliveryRetir
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment));
 	auto& Manager = FShaderCompilingManager::Get();
 	FMaterialBuildResult First, Second;
-	auto Producer = FMaterialShaderMap::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { First = std::move(Result); });
+	auto Producer = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { First = std::move(Result); });
 	ASSERT_TRUE(Producer); ASSERT_TRUE(Ready.WaitFor(10));
 	const auto Before = GetShaderBuildStats();
-	auto Lookup = FMaterialShaderMap::Compile(Input, {}, [&](auto Result) { Second = std::move(Result); });
+	auto Lookup = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {}, [&](auto Result) { Second = std::move(Result); });
 	ASSERT_TRUE(Lookup); Manager.FinishCompilation(*Lookup);
 	ASSERT_TRUE(Second); EXPECT_TRUE(Second.RetainedHit);
 	EXPECT_TRUE(Manager.IsCompiling(*Producer));
@@ -996,24 +996,23 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment));
 	auto& Manager = FShaderCompilingManager::Get();
 	FMaterialBuildResult First;
-	auto Producer = FMaterialShaderMap::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { First = std::move(Result); });
+	auto Producer = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { First = std::move(Result); });
 	ASSERT_TRUE(Producer); Manager.FinishCompilation(*Producer);
 	ASSERT_TRUE(First);
-	EXPECT_EQ(First.Program->ShaderMap, *Producer);
+	static_assert(!std::is_same_v<FMaterialProgramCompileHandle, std::shared_ptr<FMaterialShaderMap>>);
 	EXPECT_EQ((*Producer)->GetShaderMapId(), First.Program->GetShaderMap().ShaderMapId);
-	EXPECT_NE((*Producer)->GetCompilingId(), 0u);
+	EXPECT_NE((*Producer)->CompilingId, 0u);
 	const FMaterialShaderMap Copy(First.Program->GetShaderMap());
-	EXPECT_EQ(Copy.GetCompilingId(), 0u);
 	EXPECT_EQ(Copy.CompiledShaders.size(), MaterialCompiledEntryPoints.size());
 	std::vector<FMaterialProgramCompileHandle> Kept{*Producer};
 	for (uint32 Index = 0; Index < 40; ++Index) {
 		FMaterialBuildResult Next;
-		auto Compile = FMaterialShaderMap::Compile(Input, {}, [&](auto Result) { Next = std::move(Result); });
+		auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {}, [&](auto Result) { Next = std::move(Result); });
 		ASSERT_TRUE(Compile) << Index;
 		Manager.FinishCompilation(*Compile);
 		ASSERT_TRUE(Next); EXPECT_TRUE(Next.RetainedHit);
 		EXPECT_EQ(Next.Program->ShaderMap, First.Program->ShaderMap);
-		EXPECT_NE((*Compile)->GetCompilingId(), (*Producer)->GetCompilingId());
+		EXPECT_NE((*Compile)->CompilingId, (*Producer)->CompilingId);
 		Kept.push_back(*Compile);
 	}
 	ASSERT_NE(FMaterialShaderMap::FindId(First.Program->GetShaderMap().ShaderMapId), nullptr);
@@ -1034,7 +1033,7 @@ TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedA
 	EXPECT_TRUE(Cancellation.IsCancellationRequested());
 	const auto Before = GetTranslationStats();
 	std::atomic_uint32_t Calls = 0;
-	auto Compile = FMaterialShaderMap::Compile(Input, {.Cancellation = Cancellation}, [&](auto Result) {
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.Cancellation = Cancellation}, [&](auto Result) {
 		ASSERT_NE(Result.Program, nullptr);
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		EXPECT_FALSE(Result.RetainedHit);
@@ -1059,11 +1058,11 @@ TEST(FMaterialProgramOwnershipTests, FinishAllCompilationDrainsCallbackSubmissio
 	Completion = [&](auto Result) {
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		if (Calls.fetch_add(1) + 1 < 8) {
-			auto Followup = FMaterialShaderMap::Compile(Input, {.Cancellation = Cancellation}, Completion);
+			auto Followup = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.Cancellation = Cancellation}, Completion);
 			EXPECT_TRUE(Followup);
 		}
 	};
-	auto First = FMaterialShaderMap::Compile(Input, {.Cancellation = Cancellation}, Completion);
+	auto First = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.Cancellation = Cancellation}, Completion);
 	ASSERT_TRUE(First);
 	Manager.FinishAllCompilation();
 	const auto CallsAtReturn = Calls.load();
@@ -1082,7 +1081,7 @@ TEST(FMaterialProgramOwnershipTests, CanceledSubmissionSupportsInlineAndTaskExec
 	auto& Manager = FShaderCompilingManager::Get();
 	FCancellationToken Cancellation; Cancellation.Cancel();
 	std::atomic_uint32_t Calls = 0;
-	auto Compile = FMaterialShaderMap::Compile(std::make_shared<const MIR::FCompilerInput>(), {.Cancellation = Cancellation}, [&](auto Result) {
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(std::make_shared<const MIR::FCompilerInput>(), {.Cancellation = Cancellation}, [&](auto Result) {
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled); ++Calls;
 	});
 	ASSERT_TRUE(Compile);
@@ -1105,7 +1104,7 @@ TEST(FMaterialTranslationTests, FailedNormalizationNeverConstructsShaderWork)
 	EXPECT_FALSE(Translation);
 	EXPECT_EQ(Translation.Diagnostics, Prepared.Normalized.Diagnostics);
 	EXPECT_TRUE(MakeMaterialShaderCompileRequest(Translation, false).Source.empty());
-	const auto Result = FMaterialShaderMap::FinalizeContent(Translation, {});
+	const auto Result = MaterialBuildPrivate::FinalizeMaterialShaderMap(Translation, {});
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Diagnostics, Prepared.Normalized.Diagnostics);
 	EXPECT_TRUE(Result.GetShaderMap().CompiledShaders.empty());
@@ -1139,7 +1138,7 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 		ASSERT_TRUE(Stage) << FormatShaderCompilerErrors(Stage.Errors);
 		for (auto& Code : Stage.CompiledShaders) Output.CompiledShaders.push_back(std::move(Code));
 	}
-	const auto Split = FMaterialShaderMap::FinalizeContent(Translation, Output);
+	const auto Split = MaterialBuildPrivate::FinalizeMaterialShaderMap(Translation, Output);
 	const auto Synchronous = MIR::Compile(Input);
 	ASSERT_TRUE(Split);
 	ASSERT_TRUE(Synchronous);
@@ -1162,7 +1161,7 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 	WarnedOutput.Errors.emplace_back("material compiler warning");
 	auto TimedTranslation = Translation;
 	TimedTranslation.CompileTime = .031f;
-	const auto Warned = FMaterialShaderMap::FinalizeContent(std::move(TimedTranslation), std::move(WarnedOutput));
+	const auto Warned = MaterialBuildPrivate::FinalizeMaterialShaderMap(std::move(TimedTranslation), std::move(WarnedOutput));
 	ASSERT_TRUE(Warned);
 	ASSERT_FALSE(Warned.Diagnostics.empty());
 	EXPECT_FLOAT_EQ(Warned.GetShaderMap().CompileTime, .031f);
@@ -1187,12 +1186,12 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 		else if (Variant == 1) Wrong.CompiledShaders.front().SourceEntryPoint = "WrongEntry";
 		else Wrong.CompiledShaders.front().Target = Request.Target == VulkanShaderTarget
 			? MetalShaderTarget : VulkanShaderTarget;
-		const auto Rejected = FMaterialShaderMap::FinalizeContent(Translation, std::move(Wrong));
+		const auto Rejected = MaterialBuildPrivate::FinalizeMaterialShaderMap(Translation, std::move(Wrong));
 		EXPECT_FALSE(Rejected);
 		EXPECT_TRUE(Rejected.GetShaderMap().CompiledShaders.empty());
 		ASSERT_FALSE(Rejected.Diagnostics.empty());
 	}
-	const auto Failed = FMaterialShaderMap::FinalizeContent(Translation,
+	const auto Failed = MaterialBuildPrivate::FinalizeMaterialShaderMap(Translation,
 		{.Status = EShaderBuildStatus::Canceled});
 	EXPECT_FALSE(Failed);
 	EXPECT_TRUE(Failed.GetShaderMap().CompiledShaders.empty());
@@ -2991,7 +2990,7 @@ TEST(FMaterialProgramOwnershipTests, ShaderDiagnosticsAreCollectedDirectlyByMate
 	FShaderCompilerOutput Output; Output.Errors.emplace_back("first compiler error");
 	FShaderCompilerError Error{"second compiler error"}; Error.ErrorVirtualFilePath = "/Generated/Test.slang"; Error.ErrorLineString = "7";
 	Output.Errors.push_back(std::move(Error));
-	const auto Result = FMaterialShaderMap::FinalizeContent(std::move(Translation), std::move(Output));
+	const auto Result = MaterialBuildPrivate::FinalizeMaterialShaderMap(std::move(Translation), std::move(Output));
 	ASSERT_FALSE(Result); ASSERT_EQ(Result.Diagnostics.size(), 2u);
 	EXPECT_FLOAT_EQ(Result.GetShaderMap().CompileTime, 0.f);
 	EXPECT_EQ(Result.Diagnostics[0].Message, "first compiler error");
