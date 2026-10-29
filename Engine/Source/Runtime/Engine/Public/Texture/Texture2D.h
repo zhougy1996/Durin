@@ -5,6 +5,7 @@
 #include "EngineAPI.h"
 #include "Texture/Texture2DData.h"
 #include "Texture/Texture2DCompilationTypes.h"
+#include "Texture/TextureBuildOperation.h"
 #include "RHIResources.h"
 #include "Texture/Texture.h"
 
@@ -16,8 +17,8 @@ namespace Durin
 	struct FTexture2DBuildRequest;
 	struct FTexture2DBuildSettings;
 	struct FTexture2DInputError;
-	struct FTexture2DCompilationError;
 	struct FTexture2DResultApplicationContext;
+	struct FTexture2DCompilationRequest;
 	struct FAssetImportDataState;
 
 	class DTexture2D;
@@ -74,6 +75,14 @@ namespace Durin
 		ENGINE_API auto SetImportedSource(FTextureSource Value, const FTexture2DBuildSettings& Settings,
 			FAssetImportDataState ImportState) -> std::expected<void, std::string>;
 
+		using DTexture::BeginCachePlatformData;
+		// Accepted asynchronous requests complete once on GameThread; admission errors have no callback.
+		ENGINE_API auto BeginCachePlatformData(FTexture2DCompilationRequest Request,
+			FTextureCompilationCompletion Completion = {}) -> std::expected<void, FTextureBuildOperationError>;
+		// Explicit blocking construction/application for tools and owner-thread operations.
+		ENGINE_API auto CachePlatformData(FTexture2DBuildRequest Request,
+			const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>;
+
 		// Captures a detached source snapshot without reading or decompressing its payload.
 		ENGINE_API auto CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
 			-> std::expected<FTexture2DBuildRequest, FTexture2DInputError>;
@@ -103,12 +112,9 @@ namespace Durin
 		friend class FTextureCompilingManager;
 
 #if DURIN_WITH_EDITORONLY_DATA
-		friend ENGINE_API auto BuildTexture2DSynchronously(DTexture2D& Texture,
-			FTexture2DBuildRequest Request, const FTexture2DResultApplicationContext& Context)
-			-> std::expected<void, FTexture2DCompilationError>;
 		auto ApplyBuildResult(FXxHash128 SourceIdentity, const FTexture2DBuildSettings& Settings,
 			std::unique_ptr<FTexturePlatformData> Product, const FTexture2DResultApplicationContext& Context)
-			-> std::expected<void, FTexture2DCompilationError>;
+			-> std::expected<void, FTextureBuildOperationError>;
 #endif
 
 		auto ResetPlatformData() -> void override { PlatformData.reset(); }

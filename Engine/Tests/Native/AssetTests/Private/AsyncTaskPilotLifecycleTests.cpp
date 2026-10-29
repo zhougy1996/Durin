@@ -416,8 +416,8 @@ namespace
 				Request.Build = MakeTexture2DBuildRequest(Source).value();
 				Request.ResultApplication.SourceReplacement = Source;
 				Request.Priority = ETexture2DCompilationPriority::Interactive;
-				ASSERT_TRUE(SubmitTexture2DCompilation(*Owners[Index], std::move(Request), [&, Index](FTextureOperationResult Result) {
-					EXPECT_EQ(Index == 0 ? DerivedData::EStatus::Canceled : DerivedData::EStatus::Ok, Result.Status);
+				ASSERT_TRUE(Owners[Index]->BeginCachePlatformData(std::move(Request), [&, Index](FTextureOperationResult Result) {
+					EXPECT_EQ(Index == 0 ? ETextureCompilationStatus::Canceled : ETextureCompilationStatus::Succeeded, Result.Status);
 					++Deliveries[Index];
 				}));
 			}
@@ -465,9 +465,9 @@ namespace
 			FTexture2DCompilationRequest FailingCallback;
 			FailingCallback.Build = MakeTexture2DBuildRequest(Owners[1]->GetSource()).value();
 			FailingCallback.Build.bPersistDerivedData = false;
-			ASSERT_TRUE(SubmitTexture2DCompilation(*Owners[1], std::move(FailingCallback), [&](FTextureOperationResult Result) {
-				EXPECT_EQ(DerivedData::EStatus::Error, Result.Status);
-				EXPECT_EQ(Result.Diagnostic, "Texture build task failed.");
+			ASSERT_TRUE(Owners[1]->BeginCachePlatformData(std::move(FailingCallback), [&](FTextureOperationResult Result) {
+				EXPECT_EQ(ETextureCompilationStatus::Failed, Result.Status);
+				EXPECT_EQ(Result.Diagnostic, "Texture build failed.");
 				++Deliveries[1];
 			}));
 			EXPECT_FALSE(Owners[1]->FinishCachePlatformData(10.0));
@@ -489,7 +489,7 @@ namespace
 		Request.ResultApplication.SourceReplacement = Source;
 		Request.Build.bPersistDerivedData = false;
 		uint32 LargeCompleted = 0;
-		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&](FTextureOperationResult Result) {
+		ASSERT_TRUE(Texture->BeginCachePlatformData(std::move(Request), [&](FTextureOperationResult Result) {
 			EXPECT_TRUE(Result.Succeeded()); ++LargeCompleted;
 		}));
 		ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
@@ -533,8 +533,8 @@ namespace
 		FTexture2DCompilationRequest HeldRequest;
 		HeldRequest.Build = MakeTexture2DBuildRequest(Source).value();
 		HeldRequest.ResultApplication.SourceReplacement = Source;
-		ASSERT_TRUE(SubmitTexture2DCompilation(*HeldTexture, std::move(HeldRequest), [&](FTextureOperationResult Result) {
-			EXPECT_EQ(DerivedData::EStatus::Canceled, Result.Status);
+		ASSERT_TRUE(HeldTexture->BeginCachePlatformData(std::move(HeldRequest), [&](FTextureOperationResult Result) {
+			EXPECT_EQ(ETextureCompilationStatus::Canceled, Result.Status);
 			++HeldCompleted;
 		}));
 		ASSERT_TRUE(WaitUntil([&] { return ShutdownCache->Reads.load() != 0; }, std::chrono::seconds(5)));
@@ -589,9 +589,9 @@ namespace
 		FTexture2DCompilationRequest SaturatedRequest;
 		SaturatedRequest.Build = Durin::MakeTexture2DBuildRequest(SaturatedSource).value();
 		SaturatedRequest.ResultApplication.SourceReplacement = SaturatedSource;
-		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(SaturatedRequest),
+		ASSERT_TRUE(Texture->BeginCachePlatformData(std::move(SaturatedRequest),
 			[&](FTextureOperationResult Result) {
-				EXPECT_EQ(DerivedData::EStatus::Canceled, Result.Status);
+				EXPECT_EQ(ETextureCompilationStatus::Canceled, Result.Status);
 				++SaturatedCompleted;
 			}));
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
@@ -618,7 +618,7 @@ namespace
 			Request.Build = Durin::MakeTexture2DBuildRequest(Source).value();
 			Request.ResultApplication.SourceReplacement = Source;
 			Request.Build.bPersistDerivedData = false;
-			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&, Index](FTextureOperationResult Result) { EXPECT_EQ(DerivedData::EStatus::Canceled, Result.Status); ++Completed[Index]; }));
+			ASSERT_TRUE(Texture->BeginCachePlatformData(std::move(Request), [&, Index](FTextureOperationResult Result) { EXPECT_EQ(ETextureCompilationStatus::Canceled, Result.Status); ++Completed[Index]; }));
 		}
 		// Scheduler thresholds do not reject queued owner work.
 		for (uint32 Index = 2; Index < 6; ++Index)

@@ -143,11 +143,11 @@ namespace Durin::Editor::Texture
 					if (const auto Submitted = AssetForge::Builtins::RebuildTexture2DFromSource(
 						*LiveTexture, Settings, ETexture2DCompilationPriority::Interactive,
 						[DeferredCompletion, MakeDeferredResult](FTextureOperationResult Result) {
-							(*DeferredCompletion)(MakeDeferredResult(Result.Status == DerivedData::EStatus::Canceled
+							(*DeferredCompletion)(MakeDeferredResult(Result.Status == ETextureCompilationStatus::Canceled
 								? "Texture build was canceled." : std::move(Result.Diagnostic)));
 						}); !Submitted)
 					{
-						(*DeferredCompletion)(MakeDeferredResult(FormatTexture2DCompilationError(Submitted.error())));
+						(*DeferredCompletion)(MakeDeferredResult(FormatTextureBuildOperationError(Submitted.error())));
 						return FPropertyEditDeferredCancel{};
 					}
 					return FPropertyEditDeferredCancel([WeakTexture] {

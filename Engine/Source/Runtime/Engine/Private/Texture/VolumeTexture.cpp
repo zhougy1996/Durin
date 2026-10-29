@@ -211,8 +211,7 @@ namespace Durin
 	auto DVolumeTexture::BuildPlatformDataForLoad() -> void
 	{
 #if DURIN_WITH_EDITORONLY_DATA
-		const auto Result = BuildVolumeTextureSynchronously(*this,
-			{.Source = GetSource().CopyTornOff(), .Settings = BuildSettings},
+		const auto Result = this->CachePlatformData({.Source = GetSource().CopyTornOff(), .Settings = BuildSettings},
 			{.bMarkPackageDirty = false, .bPreserveSource = true});
 #else
 		DURIN_ERROR("PostLoad '{}': authored VolumeTexture builds require editor-only data support.", GetObjectPath());

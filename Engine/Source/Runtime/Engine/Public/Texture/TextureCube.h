@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
+#include "Texture/TextureBuildOperation.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
 #include "Texture/Texture.h"
@@ -13,6 +14,9 @@
 
 namespace Durin
 {
+	struct FTextureCubeBuildRequest;
+	struct FTextureCubeResultApplicationContext;
+
 	// May synchronously load source pixels; returned images retain shared storage independently.
 #if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto ReadTextureCubeFaces(const FTextureSource& Source) -> FTextureCubeFaceImages;
@@ -34,6 +38,10 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
+#if DURIN_WITH_EDITORONLY_DATA
+		ENGINE_API auto CachePlatformData(const FTextureCubeBuildRequest& Request,
+			const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>;
+#endif
 		ENGINE_API explicit DTextureCube(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTextureCube() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;

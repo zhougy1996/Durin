@@ -52,9 +52,11 @@ namespace Durin
 			return Durin::BuildTexture2D(Request);
 		}
 		auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
-			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> override
+			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildOperationError> override
 		{
-			return Durin::NormalizeTextureCube(Request);
+			auto Normalized = Durin::NormalizeTextureCube(Request);
+			if (!Normalized) return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::InvalidInput, std::move(Normalized.error().Diagnostic)});
+			return std::move(*Normalized);
 		}
 		auto BuildTextureCube(const FTextureCubeBuildInput& Request)
 			-> std::optional<FTextureCubePlatformData> override

@@ -17,7 +17,6 @@ namespace Durin
 		if (Error.InputCause) return FormatTexture2DInputError(*Error.InputCause);
 		switch (Error.Code)
 		{
-		case ETexture2DBuildError::None: return {};
 		case ETexture2DBuildError::InvalidInput: return "Texture build input is invalid.";
 		case ETexture2DBuildError::MissingSourceIdentity: return "Texture2D source identity is missing.";
 		case ETexture2DBuildError::AuthoredBuildUnavailable: return "Texture2D authored build orchestration is unavailable outside editor builds.";
@@ -31,7 +30,6 @@ namespace Durin
 
 	auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string
 	{
-		if (Error.Code == ETexture2DInputError::None) return {};
 		if (Error.Code == ETexture2DInputError::EmptyMips) return "Texture2D source mip chain is empty.";
 		if (Error.Code >= ETexture2DInputError::InvalidUsage) return "Texture2D build settings are invalid.";
 		return "Texture2D source mip chain is invalid.";
@@ -46,7 +44,7 @@ namespace Durin
 		{
 			const auto& Info = Mips[Index].GetInfo();
 			Bytes += Mips[Index].GetPixels().size();
-			ETexture2DInputError Code = ETexture2DInputError::None;
+			std::optional<ETexture2DInputError> Code;
 			if (!Mips[Index].IsValid()) Code = ETexture2DInputError::InvalidImage;
 			else if (Info.Format != Image::ERawImageFormat::RGBA8) Code = ETexture2DInputError::UnsupportedFormat;
 			else if (Info.Depth != 1 || Info.SliceCount != 1) Code = ETexture2DInputError::UnsupportedShape;
@@ -57,8 +55,8 @@ namespace Durin
 			else if (Bytes > MaximumTextureSourceBytes) Code = ETexture2DInputError::SourceBudgetExceeded;
 			else if (Index > 0 && Mips[Index - 1].GetInfo().Width == 1
 				&& Mips[Index - 1].GetInfo().Height == 1) Code = ETexture2DInputError::MipAfterTerminal;
-			if (Code != ETexture2DInputError::None)
-				return std::unexpected(FTexture2DInputError{.Code = Code, .Index = Index, .Bytes = Bytes, .Actual = Info, .Base = Base});
+			if (Code)
+				return std::unexpected(FTexture2DInputError{.Code = *Code, .Index = Index, .Bytes = Bytes, .Actual = Info, .Base = Base});
 		}
 		return {};
 	}
@@ -91,13 +89,13 @@ namespace Durin
 
 	auto ValidateTexture2DBuildSettings(const FTexture2DBuildSettings& Settings) -> std::expected<void, FTexture2DInputError>
 	{
-		ETexture2DInputError Code = ETexture2DInputError::None;
+		std::optional<ETexture2DInputError> Code;
 		if (!IsValidTextureUsage(Settings.Usage)) Code = ETexture2DInputError::InvalidUsage;
 		else if (!IsValidTextureCompressionQuality(Settings.CompressionQuality)) Code = ETexture2DInputError::InvalidCompressionQuality;
 		else if (!IsValidTextureAlphaMipMode(Settings.AlphaMipMode)) Code = ETexture2DInputError::InvalidAlphaMipMode;
 		else if (!IsValidTextureAlphaCoverageThreshold(Settings.AlphaCoverageThreshold)) Code = ETexture2DInputError::InvalidAlphaCoverageThreshold;
-		if (Code != ETexture2DInputError::None)
-			return std::unexpected(FTexture2DInputError{.Code = Code, .Settings = Settings});
+		if (Code)
+			return std::unexpected(FTexture2DInputError{.Code = *Code, .Settings = Settings});
 		return {};
 	}
 

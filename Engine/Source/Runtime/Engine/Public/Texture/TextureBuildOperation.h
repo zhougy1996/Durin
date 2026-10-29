@@ -2,25 +2,26 @@
 
 #include "CoreMinimal.h"
 #include "Misc/Build.h"
-#if DURIN_WITH_EDITORONLY_DATA
-#include "DerivedDataStatus.h"
-#endif
 
 namespace Durin
 {
 #if DURIN_WITH_EDITORONLY_DATA
+	enum class ETextureCompilationStatus : uint8 { Succeeded, Failed, Canceled };
 	struct FTextureOperationResult
 	{
-		DerivedData::EStatus Status = DerivedData::EStatus::Error;
+		ETextureCompilationStatus Status = ETextureCompilationStatus::Failed;
 		std::string Diagnostic;
-		auto Succeeded() const -> bool { return Status == DerivedData::EStatus::Ok; }
+		auto Succeeded() const -> bool { return Status == ETextureCompilationStatus::Succeeded; }
 	};
+	using FTextureCompilationCompletion = std::function<void(FTextureOperationResult)>;
 #endif
 
 	enum class ETextureBuildOperationFailure
 	{
 		Failed,
 		InvalidInput,
+		Unavailable,
+		Busy,
 		Canceled
 	};
 
@@ -34,6 +35,8 @@ namespace Durin
 
 	inline auto FormatTextureBuildOperationError(const FTextureBuildOperationError& Error) -> std::string
 	{
+		if (Error.Code == ETextureBuildOperationFailure::Unavailable) return "Texture build services are unavailable.";
+		if (Error.Code == ETextureBuildOperationFailure::Busy) return "Texture build services are busy; retry later.";
 		if (Error.Code == ETextureBuildOperationFailure::Canceled) return "Texture build was cancelled.";
 		return Error.Code == ETextureBuildOperationFailure::InvalidInput && !Error.InputReason.empty()
 			? Error.InputReason : "Texture build failed.";

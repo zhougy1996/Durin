@@ -328,7 +328,7 @@ namespace Durin
 			DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Error);
 			return false;
 		}
-		const auto Result = BuildTextureCubeSynchronously(*this, Request,
+		const auto Result = this->CachePlatformData(Request,
 			{.bPreserveSource = true});
 		return static_cast<bool>(Result);
 	}

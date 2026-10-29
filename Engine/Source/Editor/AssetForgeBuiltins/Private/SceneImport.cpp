@@ -910,20 +910,20 @@ namespace Durin::AssetForge::Builtins
 		OutProduct.Settings = {
 			.Usage = Descriptor.TextureUsage,
 			.bSRGB = Descriptor.TextureUsage == ETextureUsage::Color};
-		const FTexture2DBuildExecutionControl Control{
-			.ShouldCancel = IsCancellationRequested};
+		if (IsCancellationRequested()) { OutError = "Texture build was canceled."; return false; }
 		auto Translated = TranslateTexture2DSource(Bytes);
 		if (!Translated)
 		{ OutError = Translated.error(); return false; }
 		auto Request = MakeTexture2DBuildRequest(
 			*Translated, OutProduct.Settings);
 		if (!Request) { OutError = FormatTexture2DInputError(Request.error()); return false; }
-		auto BuildResult = BuildTexture2DDetached(*Request, &Control);
+		auto BuildResult = BuildTexture2DDetached(*Request);
 		if (!BuildResult)
 		{
 			OutError = FormatTextureBuildOperationError(BuildResult.error());
 			return false;
 		}
+		if (IsCancellationRequested()) { OutError = "Texture build was canceled."; return false; }
 		OutProduct.PlatformData = std::move(*BuildResult);
 		OutProduct.SourceData = std::move(*Translated);
 		OutError.clear();

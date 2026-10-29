@@ -31,13 +31,12 @@ namespace Durin
 	struct FTextureCubeBuildValue
 	{
 		FTextureCubeCanonicalBuildInput CanonicalInput;
-		std::unique_ptr<FTextureCubePlatformData> PlatformData;
+		FTextureCubePlatformData PlatformData;
 	};
 
 	ENGINE_API auto BuildTextureCubeDetached(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FTextureCubeBuildValue, FTextureBuildOperationError>;
-	ENGINE_API auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context)
-		-> std::expected<void, FTextureBuildOperationError>;
+
 }
 
 #endif

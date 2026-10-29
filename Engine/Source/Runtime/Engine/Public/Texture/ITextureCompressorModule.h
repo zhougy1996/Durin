@@ -9,6 +9,7 @@
 #include "Texture/Texture2DBuildTypes.h"
 #include "Texture/TextureCubeBuildTypes.h"
 #include "Texture/VolumeTextureBuildTypes.h"
+#include "Texture/TextureBuildOperation.h"
 
 namespace Durin
 {
@@ -30,7 +31,7 @@ namespace Durin
 		virtual auto BuildTexture2D(const FTexture2DBuildInput& Request)
 			-> std::optional<FTexturePlatformData> = 0;
 		virtual auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
-			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> = 0;
+			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildOperationError> = 0;
 		// Synchronous and non-cancelable. Failure is logged by TextureCompressor.
 		virtual auto BuildTextureCube(const FTextureCubeBuildInput& Request)
 			-> std::optional<FTextureCubePlatformData> = 0;

@@ -1,3 +1,4 @@
+#include "Texture/Texture2DBuildDiagnostics.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
@@ -53,9 +54,12 @@ namespace
 			return Built;
 		}
 		auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
-			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> override
+			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildOperationError> override
 		{
-			return Durin::NormalizeTextureCube(Request);
+			auto Normalized = Durin::NormalizeTextureCube(Request);
+			if (!Normalized) return std::unexpected(FTextureBuildOperationError{
+				ETextureBuildOperationFailure::InvalidInput, std::move(Normalized.error().Diagnostic)});
+			return std::move(*Normalized);
 		}
 		auto BuildTextureCube(const FTextureCubeBuildInput& Request)
 			-> std::optional<FTextureCubePlatformData> override
@@ -344,9 +348,9 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeColdAndWarmIncludingNormalizat
 		if (!Built) return {};
 		FXxHash128Builder Hash;
 		uint64 Bytes = 0;
-		for (const auto& Face : Built->PlatformData->Faces) Bytes += HashMips(Face, Hash);
+		for (const auto& Face : Built->PlatformData.Faces) Bytes += HashMips(Face, Hash);
 		std::vector<FByteView> Blocks;
-		for (const auto& Face : Built->PlatformData->Faces)
+		for (const auto& Face : Built->PlatformData.Faces)
 			for (const auto& Mip : Face.Mips) Blocks.emplace_back(Mip.Pixels);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes,
 			Provider->BuildCalls == 0, 0, false, Provider->CountTransferBytes(Blocks)};
@@ -445,12 +449,12 @@ TEST_F(FDerivedDataTextureQualificationTests, VolumeColdAndWarm)
 		if (!Built) return {};
 		FXxHash128Builder Hash;
 		uint64 Bytes = 0;
-		for (const auto& Mip : (*Built)->Mips) { Hash.Update(Mip.Voxels); Bytes += Mip.Voxels.size(); }
+		for (const auto& Mip : Built->Mips) { Hash.Update(Mip.Voxels); Bytes += Mip.Voxels.size(); }
 		const bool bHit = Provider->BuildCalls == 0;
 		const auto Requests = Probe->GetReadStats().RequestCount - Before;
 		EXPECT_EQ(Requests, bHit ? 0u : 1u);
 		std::vector<FByteView> Blocks;
-		for (const auto& Mip : (*Built)->Mips) Blocks.emplace_back(Mip.Voxels);
+		for (const auto& Mip : Built->Mips) Blocks.emplace_back(Mip.Voxels);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes, bHit, Requests, true, Provider->CountTransferBytes(Blocks)};
 	}, [&] { Request.Source.ReleaseSourceMemory(); });
 }

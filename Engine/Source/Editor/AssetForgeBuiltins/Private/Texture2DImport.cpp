@@ -373,21 +373,19 @@ namespace Durin::AssetForge::Builtins
 		DTexture2D& Texture,
 		const FTexture2DBuildSettings& Settings,
 		ETexture2DCompilationPriority Priority,
-		FTexture2DCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>
+		FTextureCompilationCompletion Completion) -> std::expected<void, FTextureBuildOperationError>
 	{
 		if (!Texture.GetPackage())
-			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingPackage, .ObjectPath = Texture.GetObjectPath()});
+			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::InvalidInput, "Texture updates require a package."});
 		if (!Texture.GetSource().IsValid())
-			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource, .ObjectPath = Texture.GetObjectPath()});
+			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::InvalidInput, "Texture source is invalid."});
 		auto Build = Texture.CreateBuildRequest(Settings);
-		if (!Build) return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource,
-			.InputCause = Build.error(), .ObjectPath = Texture.GetObjectPath()});
-		return SubmitTexture2DCompilation(Texture, {
+		if (!Build) return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::InvalidInput, FormatTexture2DInputError(Build.error())});
+		return Texture.BeginCachePlatformData({
 			.Build = std::move(*Build),
 			.ResultApplication = {
 				.bMarkPackageDirty = true,
-				.bReportLoadMutation = false,
-				.bSourceDecoderInvoked = false},
+				.bReportLoadMutation = false},
 			.Priority = Priority}, std::move(Completion));
 	}
 
@@ -430,15 +428,14 @@ namespace Durin::AssetForge::Builtins
 	namespace
 	{
 		auto RejectTextureSettings(const DTexture2D& Texture, ETexture2DInputError Code,
-			const FTexture2DBuildSettings& Settings) -> std::expected<void, FTexture2DCompilationError>
+			const FTexture2DBuildSettings& Settings) -> std::expected<void, FTextureBuildOperationError>
 		{
-			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSettings,
-				.InputCause = FTexture2DInputError{.Code = Code, .Settings = Settings},
-				.ObjectPath = Texture.GetObjectPath()});
+			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::InvalidInput,
+				FormatTexture2DInputError(FTexture2DInputError{.Code = Code, .Settings = Settings})});
 		}
 	}
 
-	auto SetTexture2DUsage(DTexture2D& Texture, ETextureUsage Usage) -> std::expected<void, FTexture2DCompilationError>
+	auto SetTexture2DUsage(DTexture2D& Texture, ETextureUsage Usage) -> std::expected<void, FTextureBuildOperationError>
 	{
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.Usage = Usage;
@@ -448,7 +445,7 @@ namespace Durin::AssetForge::Builtins
 		return RebuildTexture2DFromSource(Texture, Settings);
 	}
 
-	auto SetTexture2DSRGB(DTexture2D& Texture, bool bSRGB) -> std::expected<void, FTexture2DCompilationError>
+	auto SetTexture2DSRGB(DTexture2D& Texture, bool bSRGB) -> std::expected<void, FTextureBuildOperationError>
 	{
 		if (Texture.IsSRGB() == bSRGB) return {};
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
@@ -456,7 +453,7 @@ namespace Durin::AssetForge::Builtins
 		return RebuildTexture2DFromSource(Texture, Settings);
 	}
 
-	auto SetTexture2DMaxResolution(DTexture2D& Texture, uint32 MaxResolution) -> std::expected<void, FTexture2DCompilationError>
+	auto SetTexture2DMaxResolution(DTexture2D& Texture, uint32 MaxResolution) -> std::expected<void, FTextureBuildOperationError>
 	{
 		if (Texture.GetMaxResolution() == MaxResolution) return {};
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
@@ -465,7 +462,7 @@ namespace Durin::AssetForge::Builtins
 	}
 
 	auto SetTexture2DCompressionQuality(DTexture2D& Texture,
-		ETextureCompressionQuality Quality) -> std::expected<void, FTexture2DCompilationError>
+		ETextureCompressionQuality Quality) -> std::expected<void, FTextureBuildOperationError>
 	{
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.CompressionQuality = Quality;
@@ -474,7 +471,7 @@ namespace Durin::AssetForge::Builtins
 		return RebuildTexture2DFromSource(Texture, Settings);
 	}
 
-	auto SetTexture2DAlphaMipMode(DTexture2D& Texture, ETextureAlphaMipMode Mode) -> std::expected<void, FTexture2DCompilationError>
+	auto SetTexture2DAlphaMipMode(DTexture2D& Texture, ETextureAlphaMipMode Mode) -> std::expected<void, FTextureBuildOperationError>
 	{
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.AlphaMipMode = Mode;
@@ -483,7 +480,7 @@ namespace Durin::AssetForge::Builtins
 		return RebuildTexture2DFromSource(Texture, Settings);
 	}
 
-	auto SetTexture2DAlphaCoverageThreshold(DTexture2D& Texture, float Threshold) -> std::expected<void, FTexture2DCompilationError>
+	auto SetTexture2DAlphaCoverageThreshold(DTexture2D& Texture, float Threshold) -> std::expected<void, FTextureBuildOperationError>
 	{
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.AlphaCoverageThreshold = Threshold;

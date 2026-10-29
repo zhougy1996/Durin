@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-29
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -172,22 +172,36 @@ fallback.
 rejected settings, mip index, image descriptors and accumulated bytes with distinct
 failure reasons.
 `ITextureCompressorModule::BuildTexture2D` returns
-`std::optional<FTexture2DBuildOutput>` by value. It logs a failure once inside
+`std::optional<FTexturePlatformData>` by value. It logs a failure once inside
 TextureCompressor and returns no partial product. The synchronous recipe accepts no
 cancellation control; Engine adapters own derived-data policy and cancellation.
 `BuildTextureCube` and `BuildVolumeTexture` follow the same contract, returning
 `std::optional<FTextureCubePlatformData>` and
 `std::optional<FVolumeTexturePlatformData>` without pointer wrappers. Detailed
 recipe failure reasons remain in module logs.
-Compilation submission and synchronous build return
-`std::expected<void, FTexture2DCompilationError>`, retaining actionable input
-reasons, input causes, object identity, and expected/actual source identities.
-Internal build causes remain in diagnostics. Rejected submission has no
-completion callback; result application validates before publishing source,
-settings or platform data. Completion results also retain typed Error separately
-from lifecycle status, including full expected/actual build identities and import
-validation/save causes. Import metadata publication has no diagnostic output.
-Pending edit/import contracts format with `FormatTexture2DCompilationError`.
+Object-level platform-data work follows the UE cache lifecycle names:
+`DTexture2D::BeginCachePlatformData(Request, Completion)` admits explicit asynchronous
+work; `DTexture2D::CachePlatformData`, `DTextureCube::CachePlatformData` and
+`DVolumeTexture::CachePlatformData` synchronously construct and apply platform data.
+The base texture's no-argument `BeginCachePlatformData` and `FinishCachePlatformData`
+remain the ordinary metadata-driven lifecycle operations.
+Admission, synchronous application and editor rebuild helpers return
+`std::expected<void, FTextureBuildOperationError>`. The public error contains only
+Failed, InvalidInput, Unavailable, Busy or Canceled disposition and actionable input
+text. It has no success state, provider stage, nested compilation/input cause,
+object identity or expected/actual build hashes. Callers format it through
+`FormatTextureBuildOperationError`. Rejected asynchronous admission has no callback;
+accepted work completes exactly once on GameThread. Application validates candidates
+before publication. Invalid settings, source changes and failed builds preserve
+existing installed data until a complete candidate is accepted.
+The complete internal 2D build entry, execution controls, build/compiler diagnostics,
+cache-only mip lookup and test metrics live in Engine private headers. Cube normalization
+keeps its detailed validation codes inside TextureCompressor and exposes only actionable
+input text through the module contract. No provider diagnostic type crosses that boundary.
+Detached public construction returns a complete CPU product by value or the same narrow
+operation error; success has no nullable product alternative. Its synchronous 2D entry has
+no cancellation predicate; import orchestration checks cancellation before construction
+and before accepting the completed result.
 
 Engine registers `DTexture` to the `Durin.Texture` manager in its
 [asset-compilation aggregate](../Build/AssetCompilation.md). Editor-enabled
@@ -212,9 +226,12 @@ lookup use source metadata and content identity only. Explicit edit requests can
 carry decoded images; authored PostLoad defers payload recovery until a worker
 cache miss. Workers consume those images to generate mips, compress,
 validate, and request best-effort DDC persistence before placing a move-only result
-in the manager mailbox. Worker and object completion results use `DerivedData::EStatus` with one owned
-diagnostic string. Input validation retains structured field errors at synchronous
-admission boundaries; asynchronous completion does not nest build or task errors.
+in the manager mailbox. Worker status and detailed diagnostics remain private.
+Public `FTextureOperationResult` uses `ETextureCompilationStatus` (Succeeded, Failed,
+Canceled); it carries a generic failure message or no message on success/cancellation.
+Private bounded snapshots and module logs retain detailed diagnostics. The public
+`GetBuildStatus` snapshot also exposes only the texture-domain phase and generic
+failure presentation, independently of DDC and native task states.
 The request and texture share one progress snapshot. Retired work records are
 erased; only bounded object diagnostics remain.
 The Texture compiling manager commits on the GameThread

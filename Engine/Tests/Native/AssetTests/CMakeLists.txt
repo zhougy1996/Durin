@@ -67,6 +67,7 @@ if(DURIN_WITH_EDITOR)
 		MODULES engine texture-compressor static-mesh-build derived-data-cache
 		LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder DerivedDataCache
 		SOURCES Private/AsyncTaskPilotLifecycleTests.cpp
+		INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	)
 
 	# The allocator replacement is qualified against Mach-O symbol interposition.
@@ -77,6 +78,7 @@ if(DURIN_WITH_EDITOR)
 			MODULES engine texture-compressor
 			LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder
 			SOURCES Private/AsyncTaskPilotQualificationTests.cpp
+		INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 		)
 	else()
 		durin_exclude_native_test_sources(

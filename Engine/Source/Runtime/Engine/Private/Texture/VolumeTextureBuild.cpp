@@ -77,15 +77,16 @@ namespace Durin
 	}
 
 	auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)
-		-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildOperationError>
+		-> std::expected<FVolumeTexturePlatformData, FTextureBuildOperationError>
 	{
 		auto Result = BuildVolumeTextureWithDiagnostic(Request);
 		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
-		return std::move(*Result);
+		return std::move(**Result);
 	}
 
-	auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
+	auto DVolumeTexture::CachePlatformData(const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
 	{
+		auto& Texture = *this;
 		CheckGameThread();
 		Texture.BlockOnAnyAsyncBuild();
 		auto Result = BuildVolumeTextureWithDiagnostic(Request);

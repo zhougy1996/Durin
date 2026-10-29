@@ -155,21 +155,19 @@ namespace Durin::TextureCubeBuilder
 		uint32 FaceDimension = 99;
 		const auto ZeroDimensions = ValidateEquirectangularTextureCubeProjection(0, 0, Settings, false, FaceDimension);
 		ASSERT_FALSE(ZeroDimensions);
-		EXPECT_EQ(ZeroDimensions.error().Code, ETextureBuildFailure::InvalidInput);
-		EXPECT_EQ(ZeroDimensions.error().Stage, ETextureBuildStage::Normalize);
 		EXPECT_EQ(FaceDimension, 0u);
-		EXPECT_EQ(ZeroDimensions.error().CubeInputCause, ETextureCubeInputError::EmptyDimensions);
+		EXPECT_EQ(ZeroDimensions.error().CubeInputCause, ETextureCubeValidationError::EmptyDimensions);
 		const auto AspectRatio = ValidateEquirectangularTextureCubeProjection(8, 3, Settings, false, FaceDimension);
 		ASSERT_FALSE(AspectRatio);
-		EXPECT_EQ(AspectRatio.error().CubeInputCause, ETextureCubeInputError::AspectRatio);
+		EXPECT_EQ(AspectRatio.error().CubeInputCause, ETextureCubeValidationError::AspectRatio);
 		const auto OverBudget = ValidateEquirectangularTextureCubeProjection(16384, 8192, Settings, false, FaceDimension);
 		ASSERT_FALSE(OverBudget);
-		EXPECT_EQ(OverBudget.error().CubeInputCause, ETextureCubeInputError::PixelLimit);
+		EXPECT_EQ(OverBudget.error().CubeInputCause, ETextureCubeValidationError::PixelLimit);
 
 		Settings.FaceDimension = MaximumProjectedTextureCubeFaceDimension + 1;
 		const auto OversizedFace = ValidateEquirectangularTextureCubeProjection(8, 4, Settings, false, FaceDimension);
 		ASSERT_FALSE(OversizedFace);
-		EXPECT_EQ(OversizedFace.error().CubeInputCause, ETextureCubeInputError::FaceDimensionLimit);
+		EXPECT_EQ(OversizedFace.error().CubeInputCause, ETextureCubeValidationError::FaceDimensionLimit);
 
 		FTextureCubePanoramaImage LDR;
 		LDR.Width = 8;
@@ -178,7 +176,7 @@ namespace Durin::TextureCubeBuilder
 		const auto InvalidLDR = ProjectEquirectangularTextureCube(LDR, {}, Cube);
 		ASSERT_FALSE(InvalidLDR);
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
-		EXPECT_EQ(InvalidLDR.error().CubeInputCause, ETextureCubeInputError::PixelStorage);
+		EXPECT_EQ(InvalidLDR.error().CubeInputCause, ETextureCubeValidationError::PixelStorage);
 
 		FTextureCubePanoramaFloatImage HDR;
 		HDR.Width = 2;
@@ -188,14 +186,14 @@ namespace Durin::TextureCubeBuilder
 		const auto NonfiniteHDR = ProjectEquirectangularTextureCube(HDR, {}, Cube);
 		ASSERT_FALSE(NonfiniteHDR);
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
-		EXPECT_EQ(NonfiniteHDR.error().CubeInputCause, ETextureCubeInputError::InvalidRadiance);
+		EXPECT_EQ(NonfiniteHDR.error().CubeInputCause, ETextureCubeValidationError::InvalidRadiance);
 
 		HDR.Pixels[0] = 1.0f;
 		Settings = {};
 		Settings.ExposureEV = 17.0f;
 		const auto InvalidExposure = ProjectEquirectangularTextureCube(HDR, Settings, Cube);
 		ASSERT_FALSE(InvalidExposure);
-		EXPECT_EQ(InvalidExposure.error().CubeInputCause, ETextureCubeInputError::Exposure);
+		EXPECT_EQ(InvalidExposure.error().CubeInputCause, ETextureCubeValidationError::Exposure);
 	}
 
 	TEST(FEquirectangularTextureCubeTests, FaceImagesShareSourceStorageAndRetainMetadataAfterOwnerRelease)

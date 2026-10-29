@@ -33,7 +33,8 @@ namespace Durin
 			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
 		if (!Normalized)
 		{
-			return std::unexpected(std::move(Normalized.error()));
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
+				FormatTextureBuildOperationError(Normalized.error())});
 		}
 		auto CanonicalInput = std::move(*Normalized);
 		const bool bHDR = CanonicalInput.GetOutput() == ETextureCubeOutput::HDR;
@@ -69,7 +70,7 @@ namespace Durin
 			CanonicalInput.PanoramaFaceDimension, CanonicalInput.PanoramaExposureEV,
 			Request.TargetPlatform, Request.TargetProfile, Request.bPersistDerivedData, &CanonicalInput);
 		if (!Product) return std::unexpected(std::move(Product.error()));
-		return FTextureCubeBuildValue{std::move(CanonicalInput), std::move(*Product)};
+		return FTextureCubeBuildValue{std::move(CanonicalInput), std::move(**Product)};
 	}
 
 	auto BuildTextureCubeDetached(const FTextureCubeBuildRequest& Request)
@@ -80,13 +81,15 @@ namespace Durin
 		return std::move(*Result);
 	}
 
-	auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
+	auto DTextureCube::CachePlatformData(const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
 	{
+		auto& Texture = *this;
 		CheckGameThread();
 		Texture.BlockOnAnyAsyncBuild();
 		auto Result = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
 		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
-		auto Applied = ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput), std::move(Result->PlatformData), Context);
+		auto Applied = ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput),
+			std::make_unique<FTextureCubePlatformData>(std::move(Result->PlatformData)), Context);
 		if (!Applied) return std::unexpected(TexturePrivate::ReportBuildFailure(Applied.error()));
 		return {};
 	}

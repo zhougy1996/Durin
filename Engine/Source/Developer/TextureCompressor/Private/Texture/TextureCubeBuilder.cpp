@@ -90,63 +90,58 @@ namespace Durin::TextureCubeBuilder
 			return std::clamp(Numerator / Denominator, 0.0, 1.0);
 		}
 
-		auto ValidateLDRPanorama(const FTextureCubePanoramaImage& Panorama) -> std::expected<void, FTextureBuildError>
+		auto ValidateLDRPanorama(const FTextureCubePanoramaImage& Panorama) -> std::expected<void, FTextureCompressorDiagnostic>
 		{
 			const uint64 PixelCount = static_cast<uint64>(Panorama.Width) * Panorama.Height;
 			if (PixelCount > std::numeric_limits<size_t>::max() / LDRChannelCount
 				|| Panorama.Pixels.size() != static_cast<size_t>(PixelCount) * LDRChannelCount)
 			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-					"LDR panorama pixel storage does not match its dimensions.", ETextureCubeInputError::PixelStorage});
+				return std::unexpected(FTextureCompressorDiagnostic{"LDR panorama pixel storage does not match its dimensions.", ETextureCubeValidationError::PixelStorage});
 			}
 			return {};
 		}
 
-		auto ValidateHDRPanorama(const FReadOnlyHDRPanorama& Panorama) -> std::expected<void, FTextureBuildError>
+		auto ValidateHDRPanorama(const FReadOnlyHDRPanorama& Panorama) -> std::expected<void, FTextureCompressorDiagnostic>
 		{
 			const uint64 PixelCount = static_cast<uint64>(Panorama.Width) * Panorama.Height;
 			if (PixelCount > std::numeric_limits<size_t>::max() / Panorama.PixelStride
 				|| Panorama.Pixels.size() / sizeof(float) != static_cast<size_t>(PixelCount) * Panorama.PixelStride)
 			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-					"HDR panorama pixel storage does not match its dimensions.", ETextureCubeInputError::PixelStorage});
+				return std::unexpected(FTextureCompressorDiagnostic{"HDR panorama pixel storage does not match its dimensions.", ETextureCubeValidationError::PixelStorage});
 			}
 			if (Panorama.AnyRGBChannel([](float Value) { return !std::isfinite(Value) || Value < 0.0f; }))
 			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-					"HDR panorama contains a negative or nonfinite channel.", ETextureCubeInputError::InvalidRadiance});
+				return std::unexpected(FTextureCompressorDiagnostic{"HDR panorama contains a negative or nonfinite channel.", ETextureCubeValidationError::InvalidRadiance});
 			}
 			return {};
 		}
 
 		auto ValidateHDRTextureCubePanorama(const FReadOnlyHDRPanorama& Panorama,
-			const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<void, FTextureBuildError>
+			const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<void, FTextureCompressorDiagnostic>
 		{
 			uint32 Dimension = 0;
 			if (Settings.Output != ETextureCubeOutput::HDR)
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize, "HDR cube output is required.", ETextureCubeInputError::OutputMode});
+				return std::unexpected(FTextureCompressorDiagnostic{"HDR cube output is required.", ETextureCubeValidationError::OutputMode});
 			if (auto Result = ValidateEquirectangularTextureCubeProjection(Panorama.Width, Panorama.Height,
 				{Settings.FaceDimension, Settings.ExposureEV}, true, Dimension); !Result) return Result;
 			if (auto Result = ValidateHDRPanorama(Panorama); !Result) return Result;
 			if (Dimension > 512)
 			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-					"HDR cube output is limited to 512 pixels per face.", ETextureCubeInputError::FaceDimensionLimit});
+				return std::unexpected(FTextureCompressorDiagnostic{"HDR cube output is limited to 512 pixels per face.", ETextureCubeValidationError::FaceDimensionLimit});
 			}
 			const double Exposure = std::exp2(static_cast<double>(Settings.ExposureEV));
 			if (Panorama.AnyRGBChannel([Exposure](float Value) {
 				return static_cast<double>(Value) * Exposure > 16384.0;
 			}))
 			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-					"Exposed HDR radiance exceeds the 16384 lighting limit.", ETextureCubeInputError::RadianceLimit});
+				return std::unexpected(FTextureCompressorDiagnostic{"Exposed HDR radiance exceeds the 16384 lighting limit.", ETextureCubeValidationError::RadianceLimit});
 			}
 			return {};
 		}
 
 		template <typename PixelWriter>
 		auto ProjectPanorama(uint32 Width, uint32 Height, uint32 FaceDimension, PixelWriter&& WritePixel)
-			-> std::expected<FTextureCubeFaceImages, FTextureBuildError>
+			-> std::expected<FTextureCubeFaceImages, FTextureCompressorDiagnostic>
 		{
 			FTextureCubeFaceImages Projected;
 			for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
@@ -160,8 +155,7 @@ namespace Durin::TextureCubeBuilder
 						if (!ResolveTextureCubeFacePixelDirection(
 							static_cast<ETextureCubeFace>(FaceIndex), X, Y, FaceDimension, Direction))
 						{
-							return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-								"Unable to resolve a projected cube pixel direction."});
+							return std::unexpected(FTextureCompressorDiagnostic{"Unable to resolve a projected cube pixel direction."});
 						}
 						const FBilinearSample Sample = MakeBilinearSample(Direction, Width, Height);
 						const size_t Destination = (static_cast<size_t>(Y) * FaceDimension + X) * LDRChannelCount;
@@ -175,8 +169,7 @@ namespace Durin::TextureCubeBuilder
 					.Format = Image::ERawImageFormat::RGBA8}, std::move(Pixels));
 				if (!ImageResult)
 				{
-					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-						ImageResult.error().ToString()});
+					return std::unexpected(FTextureCompressorDiagnostic{ImageResult.error().ToString()});
 				}
 				Projected.Faces[FaceIndex] = std::move(*ImageResult);
 			}
@@ -187,7 +180,7 @@ namespace Durin::TextureCubeBuilder
 	} // namespace
 
 	auto ValidateHDRTextureCubePanorama(const FTextureCubePanoramaFloatImage& Panorama,
-		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<void, FTextureBuildError>
+		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<void, FTextureCompressorDiagnostic>
 	{
 		return ValidateHDRTextureCubePanorama(ReadHDRPanorama(Panorama), Settings);
 	}
@@ -263,41 +256,35 @@ namespace Durin::TextureCubeBuilder
 
 	auto ValidateEquirectangularTextureCubeProjection(uint32 Width, uint32 Height,
 		const FEquirectangularTextureCubeProjectionSettings& Settings, bool bHDR,
-		uint32& OutFaceDimension) -> std::expected<void, FTextureBuildError>
+		uint32& OutFaceDimension) -> std::expected<void, FTextureCompressorDiagnostic>
 	{
 		OutFaceDimension = 0;
 		if (Width == 0 || Height == 0)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				"Equirectangular panorama dimensions must be nonzero.", ETextureCubeInputError::EmptyDimensions});
+			return std::unexpected(FTextureCompressorDiagnostic{"Equirectangular panorama dimensions must be nonzero.", ETextureCubeValidationError::EmptyDimensions});
 		}
 		if (static_cast<uint64>(Height) * 2 != Width)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				std::format("Equirectangular panorama must have an exact 2:1 aspect ratio, but is {}x{}.", Width, Height), ETextureCubeInputError::AspectRatio});
+			return std::unexpected(FTextureCompressorDiagnostic{std::format("Equirectangular panorama must have an exact 2:1 aspect ratio, but is {}x{}.", Width, Height), ETextureCubeValidationError::AspectRatio});
 		}
 		if (Width > MaximumTextureCubePanoramaDimension || Height > MaximumTextureCubePanoramaDimension)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				std::format("Equirectangular panorama dimensions exceed the {} pixel limit.", MaximumTextureCubePanoramaDimension), ETextureCubeInputError::DimensionLimit});
+			return std::unexpected(FTextureCompressorDiagnostic{std::format("Equirectangular panorama dimensions exceed the {} pixel limit.", MaximumTextureCubePanoramaDimension), ETextureCubeValidationError::DimensionLimit});
 		}
 		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
 		if (PixelCount > MaximumTextureCubePanoramaPixels)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				"Equirectangular panorama decoded pixels exceed the 33554432 pixel limit.", ETextureCubeInputError::PixelLimit});
+			return std::unexpected(FTextureCompressorDiagnostic{"Equirectangular panorama decoded pixels exceed the 33554432 pixel limit.", ETextureCubeValidationError::PixelLimit});
 		}
 		if (!std::isfinite(Settings.ExposureEV)
 			|| Settings.ExposureEV < MinimumTextureCubePanoramaExposureEV
 			|| Settings.ExposureEV > MaximumTextureCubePanoramaExposureEV)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				"Panorama exposure must be finite and between -16 and 16 EV.", ETextureCubeInputError::Exposure});
+			return std::unexpected(FTextureCompressorDiagnostic{"Panorama exposure must be finite and between -16 and 16 EV.", ETextureCubeValidationError::Exposure});
 		}
 		if (!bHDR && Settings.ExposureEV != 0.0f)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				"Exposure is available only for Radiance HDR panoramas.", ETextureCubeInputError::LDRExposure});
+			return std::unexpected(FTextureCompressorDiagnostic{"Exposure is available only for Radiance HDR panoramas.", ETextureCubeValidationError::LDRExposure});
 		}
 
 		const uint32 FaceDimension = Settings.FaceDimension == 0
@@ -305,15 +292,13 @@ namespace Durin::TextureCubeBuilder
 			: Settings.FaceDimension;
 		if (FaceDimension > MaximumProjectedTextureCubeFaceDimension)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				std::format("Projected cube face dimension must be between 1 and {}.",
-				MaximumProjectedTextureCubeFaceDimension), ETextureCubeInputError::FaceDimensionLimit});
+			return std::unexpected(FTextureCompressorDiagnostic{std::format("Projected cube face dimension must be between 1 and {}.",
+				MaximumProjectedTextureCubeFaceDimension), ETextureCubeValidationError::FaceDimensionLimit});
 		}
 		const uint64 ProjectedBytes = static_cast<uint64>(TextureCubeFaceCount) * FaceDimension * FaceDimension * LDRChannelCount;
 		if (ProjectedBytes > std::numeric_limits<size_t>::max())
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				"Projected cube byte count exceeds the addressable allocation limit.", ETextureCubeInputError::AllocationLimit});
+			return std::unexpected(FTextureCompressorDiagnostic{"Projected cube byte count exceeds the addressable allocation limit.", ETextureCubeValidationError::AllocationLimit});
 		}
 		OutFaceDimension = FaceDimension;
 		return {};
@@ -321,7 +306,7 @@ namespace Durin::TextureCubeBuilder
 
 	auto ProjectEquirectangularTextureCube(const FTextureCubePanoramaImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
-		FTextureCubeFaceImages& OutSourceData) -> std::expected<void, FTextureBuildError>
+		FTextureCubeFaceImages& OutSourceData) -> std::expected<void, FTextureCompressorDiagnostic>
 	{
 		OutSourceData = {};
 		uint32 FaceDimension = 0;
@@ -330,7 +315,7 @@ namespace Durin::TextureCubeBuilder
 		if (auto Result = ValidateLDRPanorama(Panorama); !Result) return Result;
 
 		auto Projected = ProjectPanorama(Panorama.Width, Panorama.Height, FaceDimension,
-			[&](const FBilinearSample& Sample, std::byte* Destination) -> std::expected<void, FTextureBuildError> {
+			[&](const FBilinearSample& Sample, std::byte* Destination) -> std::expected<void, FTextureCompressorDiagnostic> {
 				for (uint32 Channel = 0; Channel < LDRChannelCount; ++Channel)
 				{
 					double Value = 0.0;
@@ -354,7 +339,7 @@ namespace Durin::TextureCubeBuilder
 
 	auto ProjectEquirectangularTextureCube(const FTextureCubePanoramaFloatImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
-		FTextureCubeFaceImages& OutSourceData) -> std::expected<void, FTextureBuildError>
+		FTextureCubeFaceImages& OutSourceData) -> std::expected<void, FTextureCompressorDiagnostic>
 	{
 		OutSourceData = {};
 		uint32 FaceDimension = 0;
@@ -364,7 +349,7 @@ namespace Durin::TextureCubeBuilder
 		const double Exposure = std::exp2(static_cast<double>(Settings.ExposureEV));
 
 		auto Projected = ProjectPanorama(Panorama.Width, Panorama.Height, FaceDimension,
-			[&](const FBilinearSample& Sample, std::byte* Destination) -> std::expected<void, FTextureBuildError> {
+			[&](const FBilinearSample& Sample, std::byte* Destination) -> std::expected<void, FTextureCompressorDiagnostic> {
 				for (uint32 Channel = 0; Channel < HDRChannelCount; ++Channel)
 				{
 					double Linear = 0.0;
@@ -373,8 +358,7 @@ namespace Durin::TextureCubeBuilder
 					const double Exposed = Linear * Exposure;
 					if (!std::isfinite(Exposed))
 					{
-						return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-							"HDR panorama exposure produced a nonfinite channel."});
+						return std::unexpected(FTextureCompressorDiagnostic{"HDR panorama exposure produced a nonfinite channel."});
 					}
 					Destination[Channel] = static_cast<std::byte>(
 						ColorConvert::LinearToSRGB8(FilmicToneMap(Exposed)));

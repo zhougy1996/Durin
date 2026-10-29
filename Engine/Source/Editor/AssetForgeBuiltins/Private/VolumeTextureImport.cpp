@@ -411,7 +411,7 @@ namespace Durin::AssetForge::Builtins
 			if (!Source) return std::unexpected(Source.error());
 			// Canonical storage now owns this generation; release translation pixels before cold resolution.
 			*Translated = {};
-			auto BuildResult = BuildVolumeTextureSynchronously(Texture, {.Source = std::move(*Source), .Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {});
+			auto BuildResult = Texture.CachePlatformData({.Source = std::move(*Source), .Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {});
 			if (!BuildResult) return std::unexpected(FormatTextureBuildOperationError(BuildResult.error()));
 			if (const auto Published = PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings); !Published) return Published;
 			if (!SaveOptions) return {};

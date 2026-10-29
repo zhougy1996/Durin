@@ -28,22 +28,12 @@ namespace Durin
 	ENGINE_API auto ValidateTexture2DBuildSource(const FTextureSource& Source)
 		-> std::expected<void, FTexture2DInputError>;
 
-	// This cancellation value is borrowed only for the duration of Build.
-	struct FTexture2DBuildExecutionControl
-	{
-		std::function<bool()> ShouldCancel;
-	};
-
 	// Operation boundary for detached consumers such as scene import. Engine records
 	// build diagnostics; callers receive only failure disposition and input reasons.
-	ENGINE_API auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
+	ENGINE_API auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request)
 		-> std::expected<FTexturePlatformData, FTextureBuildOperationError>;
 
-	// Returns a complete value-owned CPU product; failures expose no partial product.
-	ENGINE_API auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
-		-> std::expected<FTexturePlatformData, FTexture2DBuildError>;
+
 }
 
 #endif

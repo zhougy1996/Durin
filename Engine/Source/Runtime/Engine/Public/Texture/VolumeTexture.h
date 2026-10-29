@@ -4,6 +4,7 @@
 
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
+#include "Texture/TextureBuildOperation.h"
 #include "Texture/Texture.h"
 #include "Texture/TextureSource.h"
 #include "Texture/VolumeTextureData.h"
@@ -12,6 +13,9 @@
 
 namespace Durin
 {
+	struct FVolumeTextureBuildRequest;
+	struct FVolumeTextureResultApplicationContext;
+
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Payload-backed input may require a synchronous read.
 #if DURIN_WITH_EDITORONLY_DATA
@@ -27,6 +31,10 @@ namespace Durin
 		GENERATED_BODY()
 
 	public:
+#if DURIN_WITH_EDITORONLY_DATA
+		ENGINE_API auto CachePlatformData(const FVolumeTextureBuildRequest& Request,
+			const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>;
+#endif
 		ENGINE_API explicit DVolumeTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DVolumeTexture() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
