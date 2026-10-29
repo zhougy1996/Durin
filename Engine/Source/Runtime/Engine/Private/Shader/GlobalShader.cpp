@@ -1,4 +1,5 @@
 #include "Shader/GlobalShader.h"
+#include "RenderResourcePreparation.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/ShaderData.h"
 
@@ -221,9 +222,11 @@ namespace Durin
 							.RetryDependencies = ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual});
 					}
+					const auto DeferredBefore = FRenderResourceAdmissionScope::GetDeferredAdmissions();
 					if (bCreateRHIShaders
 						&& Shader->GetOrCreateRHIShader(false) == nullptr)
 					{
+						if (FRenderResourceAdmissionScope::GetDeferredAdmissions() != DeferredBefore) return FResult::Pending();
 						return FResult::Failure({
 							.Category = ERenderResourceCreateErrorCategory::RHIResource,
 							.Reason = ERenderResourceCreateErrorReason::ShaderFailure,

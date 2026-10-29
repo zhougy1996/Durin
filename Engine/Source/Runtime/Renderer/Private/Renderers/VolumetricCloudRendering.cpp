@@ -132,6 +132,8 @@ namespace Durin
 			FSceneViewTemporalContext& TemporalContext;
 			FSceneViewState*& ViewState;
 
+			bool bTemporalReady = true;
+
 			auto RenderVolumetricCloudComposite_RenderThread(
 				FRHICommandListImmediate&, const FVolumetricCloudRecordInputs&,
 				const FVolumetricCloudSpatialPassResult&,
@@ -445,7 +447,7 @@ namespace Durin
 		FRDGBuilder& Graph, const FCloudCompositeFeatureInputs& Inputs) -> FCloudCompositeGraphOutput
 	{
 		FCloudCompositeRecorder Recorder{Inputs.Allocator, Inputs.Renderer,
-			Inputs.Telemetry, Inputs.Temporal, Inputs.ViewState};
+			Inputs.Telemetry, Inputs.Temporal, Inputs.ViewState, Inputs.Feature.bTemporalReady};
 		const auto RecordInputs = Inputs.Record;
 		auto* CloudWeatherTexture = Inputs.Resolved.VolumetricCloud ? Inputs.Resolved.VolumetricCloud->Weather : nullptr;
 		if (Inputs.Feature.Decision.Route
@@ -743,10 +745,10 @@ namespace Durin
 			: (Spatial.Route == FVolumetricCloudRenderer::ERoute::Fragment
 				&& FragmentTargets ? FragmentTargets->Cloud.GetReference() : nullptr);
 		const FVolumetricCloudRenderer::FTemporalReconstructionResult Temporal =
-			CurrentCloud != nullptr ? VolumetricCloudRenderer.ReconstructTemporal_RenderThread(
+			CurrentCloud != nullptr && bTemporalReady ? VolumetricCloudRenderer.ReconstructTemporal_RenderThread(
 										  CommandList, {.CurrentCloud = CurrentCloud, .View = &View, .TemporalContext = &TemporalContext, .ViewState = ViewState, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .QualityTier = QualityTier, .CloudHistoryKey = Cloud != nullptr ? Cloud->HistoryKey : 0}
 									  ) :
-									  FVolumetricCloudRenderer::FTemporalReconstructionResult{};
+									  FVolumetricCloudRenderer::FTemporalReconstructionResult{.Cloud = CurrentCloud};
 		ViewTelemetry.VolumetricCloud.VolumetricCloudHistoryBytes = Temporal.HistoryBytes;
 		if (Temporal.bCandidatePublished)
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudTemporalDraws;

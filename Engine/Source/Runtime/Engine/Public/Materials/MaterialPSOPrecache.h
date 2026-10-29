@@ -4,23 +4,16 @@
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderTypes.h"
 #include "PSOPrecache.h"
+#include "Rendering/PrimitiveRenderParticipation.h"
 #include "PipelineStateCache.h"
 
 namespace Durin
 {
-	enum class EMaterialPSOPrecachePass : uint8
-	{
-		None = 0, Forward = 1, ShadowDepth = 2, GBuffer = 4,
-		HybridRetainedForward = 8, SortedTranslucency = 16, HitProxy = 32,
-	};
-	ENUM_CLASS_FLAGS(EMaterialPSOPrecachePass);
-
 	struct FPSOPrecacheParams
 	{
-		EMaterialPSOPrecachePass Passes = EMaterialPSOPrecachePass::Forward;
-		EMaterialPSOPrecachePass RequiredPasses = EMaterialPSOPrecachePass::Forward;
+		FPrimitiveRenderParticipation Participation;
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
-		bool bWireframe = false, bReverseCulling = false, bOrientationChanging = false, bReversedZ = false;
+		bool bWireframe = false, bOrientationChanging = false, bReversedZ = false;
 		auto operator==(const FPSOPrecacheParams&) const -> bool = default;
 	};
 
@@ -85,27 +78,28 @@ namespace Durin
 		struct FState;
 		std::unique_ptr<FState> State;
 	};
-
-	struct FMaterialPSOPrecachePipeline
-	{
-		std::shared_ptr<FPipelineState> Pipeline;
-		bool bRequired = true;
-		// Preserve terminal progress after releasing the native pipeline observation.
-		ERHIPipelineRequestState CompletedState = ERHIPipelineRequestState::Failed;
-	};
 	struct FMaterialPSOPrecacheCollection
 	{
-		std::vector<FMaterialPSOPrecachePipeline> Pipelines;
+		FPSOPrecacheDataArray PSOInitializers;
+		// Once set, later collection pumps may append only optional descriptions.
+		bool bRequiredPSOsCollected = false;
 		std::shared_ptr<void> Resources;
 	};
-	// Return false while Shader/resource collection is pending. Never wait for PSOs.
+	// Append complete descriptions; the manager consumes entries after admission.
+	// Return false while Shader/resource collection is pending. Never submit or wait here.
 	using FMaterialPSOCollector = std::function<std::expected<bool, std::string>(
 		const FMaterialPSOPrecacheParams&, FMaterialPSOPrecacheCollection&)>;
+
+	using FMaterialPSOSubmitter = std::function<std::expected<std::shared_ptr<FPipelineState>,
+		ERHIPipelineRequestRejection>(const FPSOPrecacheData&)>;
+
 
 	class FMaterialPSORequestManager
 	{
 	public:
-		ENGINE_API FMaterialPSORequestManager();
+		// Default submission uses the shared device pipeline cache. Hosts may inject
+		// another cache without changing collection or request progress semantics.
+		ENGINE_API explicit FMaterialPSORequestManager(FMaterialPSOSubmitter Submitter = {});
 		ENGINE_API ~FMaterialPSORequestManager();
 		FMaterialPSORequestManager(const FMaterialPSORequestManager&) = delete;
 		auto operator=(const FMaterialPSORequestManager&) -> FMaterialPSORequestManager& = delete;

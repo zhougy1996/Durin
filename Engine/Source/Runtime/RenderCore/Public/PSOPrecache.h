@@ -1,10 +1,44 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RenderCoreAPI.h"
+#include "RHIPipelineCreation.h"
+#include "RHIResources.h"
 #include "VertexFactory.h"
 
 namespace Durin
 {
+	// Submission description, separate from the asynchronous pipeline observation.
+	// The collector keeps referenced shaders/declarations alive until admission.
+	struct FPSOPrecacheData
+	{
+		enum class EType : uint8 { Graphics, Compute };
+		EType Type = EType::Graphics;
+		FGraphicsPipelineStateInitializer GraphicsInitializer;
+		FComputePipelineStateInitializer ComputeInitializer;
+		bool bRequired = true;
+		EPSOPrecachePriority Priority = EPSOPrecachePriority::Medium;
+
+		FPSOPrecacheData() = default;
+		explicit FPSOPrecacheData(FGraphicsPipelineStateInitializer Initializer,
+			bool bInRequired = true, EPSOPrecachePriority InPriority = EPSOPrecachePriority::Medium)
+			: Type(EType::Graphics), GraphicsInitializer(std::move(Initializer)), bRequired(bInRequired), Priority(InPriority) {}
+		explicit FPSOPrecacheData(FComputePipelineStateInitializer Initializer,
+			bool bInRequired = true, EPSOPrecachePriority InPriority = EPSOPrecachePriority::Medium)
+			: Type(EType::Compute), ComputeInitializer(std::move(Initializer)), bRequired(bInRequired), Priority(InPriority) {}
+		[[nodiscard]] auto IsValid() const -> bool
+		{
+			if (Priority >= EPSOPrecachePriority::Num) return false;
+			switch (Type)
+			{
+			case EType::Graphics: return GraphicsInitializer.IsValid();
+			case EType::Compute: return ComputeInitializer.IsValid();
+			}
+			return false;
+		}
+	};
+	using FPSOPrecacheDataArray = std::vector<FPSOPrecacheData>;
+
 	enum class EPSOPrecacheVertexFactoryError : uint8
 	{
 		UnsupportedVertexFactory,

@@ -307,7 +307,7 @@ namespace Durin
 
 	auto FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneFrameContext& Context
+		FSceneFrameContext& Context, bool bPrepareOnly
 	) -> ERenderViewResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveSceneResources");
@@ -315,7 +315,9 @@ namespace Durin
 		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		const FSceneView& View = PreparedView.View;
-		if (PreparedView.Receiver.StaticMeshes.bResourceFailure) return ERenderViewResult::RendererResourcesUnavailable;
+		if (PreparedView.Receiver.StaticMeshes.bResourceFailure
+			&& (bPrepareOnly || PreparedView.Receiver.StaticMeshes.ResourceFailurePrimitives.empty()))
+			return ERenderViewResult::RendererResourcesUnavailable;
 		const bool bRequiresDeferredOpaque =
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
@@ -324,14 +326,16 @@ namespace Durin
 		const FGeometryResolutionResult GeometryResolution =
 			Service.StaticMeshRenderer.PrepareResources_RenderThread(CommandList, PreparedView.Receiver.StaticMeshes,
 				ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque, &SectionResources);
-		// A partial receiver cannot satisfy the graph's declared attachment results.
-		if (!GeometryResolution) return ERenderViewResult::RendererResourcesUnavailable;
+		// Preparation callers wait for complete geometry; interactive views admit ready components.
+		if (bPrepareOnly && !GeometryResolution) return ERenderViewResult::RendererResourcesUnavailable;
 		if (PreparedView.DirectionalShadow)
 		{
 			ResolvedSceneResources.DirectionalShadow.emplace();
-			Service.DirectionalShadowRenderer.PrepareResources_RenderThread(CommandList, Context.Logical.Scene,
+			const bool bShadowReady = Service.DirectionalShadowRenderer.PrepareResources_RenderThread(CommandList, Context.Logical.Scene,
 				Service.StaticMeshRenderer, *PreparedView.DirectionalShadow, *ResolvedSceneResources.DirectionalShadow,
-				Telemetry.View, &SectionResources);
+				Telemetry.View, &SectionResources, !bPrepareOnly);
+			if (bPrepareOnly && PreparedView.DirectionalShadow->View.bEnabled && !bShadowReady)
+				return ERenderViewResult::RendererResourcesUnavailable;
 		}
 
 		const bool bShadowReady = ResolvedSceneResources.DirectionalShadow

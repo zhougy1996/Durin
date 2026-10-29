@@ -199,7 +199,8 @@ namespace Durin
 		FMeshMaterialShaderMap() = default;
 		explicit operator bool() const { return Payload != nullptr; }
 
-		ENGINE_API static auto TryCreate(FMeshMaterialShaderMapBuildInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult;
+		// Native admission can yield Pending; OutMap is published only on success.
+		ENGINE_API static auto TryCreate(FMeshMaterialShaderMapBuildInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;
 		ENGINE_API static auto TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;
 		// Startup/tool assembly with explicit synchronous fixed-stage compilation.
 		ENGINE_API static auto TryCompileSync(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;

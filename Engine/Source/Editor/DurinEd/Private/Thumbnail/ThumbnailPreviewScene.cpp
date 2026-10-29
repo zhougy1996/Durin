@@ -5,6 +5,7 @@
 #include "Thumbnail/ThumbnailPreviewScene.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "DynamicRHI.h"
 #include "Engine/Actor.h"
 #include "Engine/Engine.h"
@@ -168,6 +169,7 @@ namespace Durin::Editor
 			FByteBuffer Pixels;
 			std::shared_ptr<FRHITextureReadback> Readback;
 			FShaderMapPreparation Shaders;
+			FRenderResourcePreparation Preparation;
 			std::string Error;
 			uint64 Generation = 0;
 		};
@@ -266,6 +268,8 @@ namespace Durin::Editor
 				std::lock_guard Lock(Capture->Mutex);
 				++Capture->Generation;
 				Capture->Shaders = {};
+				Capture->Preparation.RequestCancel();
+				Capture->Preparation = {};
 				if (Capture->Readback) Capture->Readback->Cancel();
 			}
 			if (GRenderingThread) FlushRenderingCommands();
@@ -413,6 +417,8 @@ namespace Durin::Editor
 			{
 				return std::unexpected("A rendered-thumbnail capture is already in flight.");
 			}
+			if (Impl->Capture->State != EThumbnailCaptureState::Preparing)
+				Impl->Capture->Preparation = FRenderResourcePreparation::Create();
 			Impl->Capture->State = EThumbnailCaptureState::Rendering;
 			Impl->Capture->Pixels.clear();
 			Impl->Capture->Error.clear();
@@ -420,6 +426,24 @@ namespace Durin::Editor
 		}
 
 		std::shared_ptr Capture = Impl->Capture;
+		DPrimitiveComponent::ProcessPSOPrecacheRequests(GetWorld());
+		for (const auto& [Key, Actor] : Impl->ReusableActors)
+		{
+			if (!Actor || Actor->IsHidden()) continue;
+			for (const auto& Owned : Actor->GetComponents())
+				if (auto* Primitive = Cast<DPrimitiveComponent>(Owned.Get()); Primitive && Primitive->IsVisible())
+				{
+					const bool bPending = Primitive->CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority::Highest);
+					if (!Primitive->GetPSOPrecacheComponentData().IsReadyForProxyCreation())
+					{
+						std::lock_guard Lock(Capture->Mutex);
+						Capture->State = bPending ? EThumbnailCaptureState::Preparing : EThumbnailCaptureState::Failed;
+						if (!bPending) Capture->Error = Primitive->GetPSOPrecacheDiagnostic().empty()
+							? "Thumbnail component PSO preparation failed." : Primitive->GetPSOPrecacheDiagnostic();
+						return {};
+					}
+				}
+		}
 		IRendererModule* Renderer = GEngine->GetRendererModule();
 		FSceneInterface* Scene = Impl->PreviewScene->GetRenderScene();
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
@@ -437,7 +461,7 @@ namespace Durin::Editor
 			.Environment = Impl->Environment
 		};
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
-			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options, ImageRenderer, Output, Shaders = std::move(Shaders)](
+			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options, ImageRenderer, Output, Preparation = Capture->Preparation, Shaders = std::move(Shaders)](
 				FRHICommandListImmediate& CommandList
 			) mutable {
 				std::shared_ptr<FRHITextureReadback> Readback;
@@ -465,7 +489,19 @@ namespace Durin::Editor
 				{
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					FSceneViewStatistics Statistics;
-					const ERenderViewResult RenderResult = Renderer->RenderView(CommandList, {Scene, View, RenderTarget, false, Options, &Statistics});
+					const FSceneViewRenderRequest Request{Scene, View, RenderTarget, false, Options, &Statistics};
+					const auto Progress = Renderer->PrepareViewResources(CommandList, Request, Preparation);
+					ERenderViewResult RenderResult = Progress.State == ERenderResourcePreparationState::Ready
+						? Renderer->RenderView(CommandList, Request)
+						: Progress.State == ERenderResourcePreparationState::Pending
+							? ERenderViewResult::RendererResourcesPending : ERenderViewResult::RendererResourcesUnavailable;
+					if (Progress.State == ERenderResourcePreparationState::Failed && Options.Environment)
+					{
+						const auto& Reference = Options.Environment->TextureReference;
+						auto* Environment = Reference ? Reference->GetReferencedTexture_RenderThread() : nullptr;
+						if (!Environment || Environment->GetDimension() != ETextureDimension::TextureCube)
+							RenderResult = ERenderViewResult::RequiredEnvironmentUnavailable;
+					}
 					bPending = RenderResult == ERenderViewResult::RendererResourcesPending;
 					if (!bPending && RenderResult != ERenderViewResult::Success)
 						Error = GetRenderFailureDiagnostic(RenderResult);
@@ -484,7 +520,11 @@ namespace Durin::Editor
 				Capture->Error = std::move(Error);
 				Capture->State = bPending ? EThumbnailCaptureState::Preparing
 					: Capture->Error.empty() ? EThumbnailCaptureState::ReadbackPending : EThumbnailCaptureState::Failed;
-				if (!bPending) Capture->Shaders = {};
+				if (!bPending)
+				{
+					Capture->Shaders = {};
+					Capture->Preparation = {};
+				}
 			}
 		);
 		return {};
@@ -542,6 +582,8 @@ namespace Durin::Editor
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			++Impl->Capture->Generation;
 			Impl->Capture->Shaders = {};
+			Impl->Capture->Preparation.RequestCancel();
+			Impl->Capture->Preparation = {};
 			if (Impl->Capture->Readback) Impl->Capture->Readback->Cancel();
 			Impl->Capture->Readback.reset();
 			Impl->Capture->State = EThumbnailCaptureState::Idle;

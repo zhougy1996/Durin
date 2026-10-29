@@ -368,6 +368,7 @@ namespace Durin
 					SelectedPolicy.bForceFragmentVolumetricCloud = bForceFragment;
 					SelectedPolicy.RasterFailure = Failure;
 					FScopedRendererQualificationPolicy Qualification(SelectedPolicy);
+					const bool bDeliberatelyPending = Policy.PendingFeature != EScenePreparationPending::None || Policy.PendingPrimitive.has_value() || Policy.PendingShadowPrimitive.has_value();
 					const bool Prepare = Failure == ESceneRasterFailure::None && !Policy.FailedAllocationObservation;
 					Renderer.BeginFrame_RenderThread(CommandList);
 					if (Prepare)
@@ -376,14 +377,15 @@ namespace Durin
 						Renderer.PrepareViewResources(CommandList, {Scene, View, Output, false, Options}, Preparation);
 						EXPECT_EQ(CommandList.GetNumRecordedDrawCommands(), DrawsBefore);
 						const auto State = Preparation.GetProgress().State;
-						if (State != ERenderResourcePreparationState::Ready)
+						if (bDeliberatelyPending) EXPECT_EQ(State, ERenderResourcePreparationState::Pending);
+						if (State != ERenderResourcePreparationState::Ready && !bDeliberatelyPending)
 						{
 							*Result = State == ERenderResourcePreparationState::Pending
 								? ERenderViewResult::RendererResourcesPending : ERenderViewResult::RendererResourcesUnavailable;
 							GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 							return;
 						}
-						if (ObservePreparedDraw) ObservePreparedDraw(true);
+						if (!bDeliberatelyPending && ObservePreparedDraw) ObservePreparedDraw(true);
 					}
 					if (bOverrideDuringRecording) SetSceneGraphAuthoringTimingSink(OverrideQualificationAfterAuthoring);
 					*Result = Renderer.RenderView(CommandList, {Scene, View, Output, false, Options});
@@ -393,7 +395,7 @@ namespace Durin
 						GRecordingQualificationOverride.reset();
 						SetSceneGraphAuthoringTimingSink(nullptr);
 					}
-					if (Prepare && ObservePreparedDraw) ObservePreparedDraw(false);
+					if (Prepare && !bDeliberatelyPending && ObservePreparedDraw) ObservePreparedDraw(false);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 					if (*Result == ERenderViewResult::Success)
@@ -1085,6 +1087,58 @@ namespace Durin
 			ERenderMode::Lit, ESceneRasterFailure::SortedTranslucency);
 		RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
 			ERenderMode::Unlit, ESceneRasterFailure::Forward);
+
+		// Loading/capture owners can keep waiting while the same interactive view
+		// produces a complete frame from ready components and feature routes.
+		bEditorAssistance = false;
+		ExtraPolicy = {};
+		const auto WithoutAOPixels = RenderOffscreen(false, false);
+		ExtraPolicy.PendingFeature = EScenePreparationPending::AmbientOcclusion;
+		EXPECT_EQ(*WithoutAOPixels, *RenderOffscreen(false, true));
+		EXPECT_FALSE(HasPass("Scene.AmbientOcclusion"));
+		ExtraPolicy = {};
+		RenderOffscreen(false, true);
+		EXPECT_TRUE(HasPass("Scene.AmbientOcclusion"));
+
+		const auto WithoutCloud = RenderOffscreen(false, false);
+		Component->SetEnabled(true);
+		RenderOffscreen(false, false);
+		ExtraPolicy.PendingFeature = EScenePreparationPending::CloudComposite;
+		EXPECT_EQ(*WithoutCloud, *RenderOffscreen(false, false));
+		EXPECT_FALSE(HasPass("Scene.VolumetricCloud"));
+		ExtraPolicy = {};
+		auto LocalHistory = Renderer.CreateViewState();
+		HistoryId = LocalHistory.GetId();
+		RenderOffscreen(false, false);
+		ExtraPolicy.PendingFeature = EScenePreparationPending::CloudTemporal;
+		RenderOffscreen(false, false);
+		EXPECT_TRUE(HasPass("Scene.VolumetricCloud"));
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudTemporalDraws, 0u);
+		ExtraPolicy = {};
+		RenderOffscreen(false, false);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudTemporalDraws, 1u);
+		HistoryId = {};
+		LocalHistory.Reset();
+		Component->SetEnabled(false);
+
+		RenderOffscreen(false, false);
+		const auto ReadyDraws = GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws;
+		ExtraPolicy.PendingPrimitive = 10001;
+		RenderOffscreen(false, false);
+		EXPECT_GT(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, 0u);
+		EXPECT_LT(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, ReadyDraws);
+		ExtraPolicy = {};
+		RenderOffscreen(false, false);
+		EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, ReadyDraws);
+
+		ExtraPolicy.PendingShadowPrimitive = 10001;
+		RenderOffscreen(false, false);
+		EXPECT_TRUE(HasPass("Scene.DirectionalShadow"));
+		EXPECT_GT(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, 0u);
+		EXPECT_LT(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, ReadyDraws);
+		ExtraPolicy = {};
+		RenderOffscreen(false, false);
+		EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, ReadyDraws);
 
 		SetSceneRenderGraphCaptureSink(nullptr);
 		SetViewRenderTelemetrySink(nullptr);

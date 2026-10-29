@@ -1,5 +1,6 @@
 #include "Renderers/SurfaceMaterial.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/MeshPassRelevance.h"
 #include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/MaterialPSOPrecacheCollector.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -167,10 +168,7 @@ namespace Durin
 		if (Request.bGPUCulling && Request.Failure
 			== EGPUCullingFailure::PipelineUnavailable) return nullptr;
 		if (Request.VertexDeclaration == nullptr
-			|| Request.Material.ShaderMap.BlendMode
-				== EMaterialBlendMode::Translucent
-			|| Request.Material.ShaderMap.ShadingModel
-				!= EMaterialShadingModel::Lit)
+			|| !RendererPrivate::IsMeshPassRelevant(RendererPrivate::EMeshPipelinePass::GBuffer, Request.Material))
 		{
 			return nullptr;
 		}

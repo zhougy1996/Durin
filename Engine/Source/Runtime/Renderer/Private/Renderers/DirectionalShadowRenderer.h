@@ -54,7 +54,7 @@ namespace Durin
 		auto PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
 			FStaticMeshRenderer& StaticMeshes, const FPreparedDirectionalShadow& Shadow,
 			FResolvedDirectionalShadow& ResolvedShadow, FViewRenderTelemetry& Telemetry,
-			FStaticMeshSectionResourceContext* ResourceContext = nullptr) -> bool;
+			FStaticMeshSectionResourceContext* ResourceContext = nullptr, bool bAllowPartial = false) -> bool;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* Target,

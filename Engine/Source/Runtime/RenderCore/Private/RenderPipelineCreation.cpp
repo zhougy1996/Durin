@@ -84,7 +84,8 @@ namespace Durin
 				const uint64 Bytes = sizeof(FEntry) - sizeof(TKey) + GetPipelineKeyOwnedBytes(Key);
 				if (Entries.size() >= 256 || Bytes > 1024 * 1024 - KeyBytes)
 					return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
-				FRenderResourcePreparationScope::BeforePipeline();
+				if (!FRenderResourcePreparationScope::TryBeforePipeline())
+				{ RetryAdmission = true; return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
 				TResult Result;
 				if constexpr (Graphics) Result = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, Name);
 				else Result = PipelineStateCache::PrecacheComputePipelineState(Initializer, Name);
@@ -138,6 +139,12 @@ namespace Durin
 		if (Previous) Previous->MarkPending();
 		if (bResourcePending) FRenderPipelinePreparationBatch::MarkResourcePending();
 	}
+	auto FRenderPipelineRequestScope::MarkResourcePending() -> void
+	{
+		if (Current) Current->MarkPending();
+		FRenderPipelinePreparationBatch::MarkResourcePending();
+	}
+
 	auto FRenderPipelineRequestScope::Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer)
 		-> FGraphicsPipelineStateRHIRef
 	{

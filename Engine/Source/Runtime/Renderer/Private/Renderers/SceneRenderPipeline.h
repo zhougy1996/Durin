@@ -7,7 +7,6 @@
 namespace Durin
 {
 	class FRDGBuilder;
-	class FRenderResourcePreparationScope;
 	class FSceneRenderingService;
 
 	// Owns preparation, graph execution, and lifecycle finalization for
@@ -33,26 +32,25 @@ namespace Durin
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
 			FRDGCapture* OutRenderGraphCapture,
-			bool bPrepareOnly = false,
-			FRenderResourcePreparationScope* PreparationScope = nullptr
+			bool bPrepareOnly = false
 		) -> ERenderViewResult;
 
 	private:
 		using FResourcePreparationStage = auto (FSceneRenderPipeline::*)(
-			FRHICommandListImmediate&, FSceneFrameContext&) -> ERenderViewResult;
+			FRHICommandListImmediate&, FSceneFrameContext&, bool) -> ERenderViewResult;
 		auto ResolvePipelineStage_RenderThread(FRHICommandListImmediate& CommandList,
-			FSceneFrameContext& Context, FResourcePreparationStage Stage) -> ERenderViewResult;
-		auto PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult;
+			FSceneFrameContext& Context, FResourcePreparationStage Stage, bool bPrepareOnly) -> ERenderViewResult;
+		auto PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context, bool bPrepareOnly) -> ERenderViewResult;
 		auto SelectViewState_RenderThread(FSceneFrameContext& Context) -> void;
 		auto BeginTemporalState_RenderThread(FSceneFrameContext& Context) -> void;
-		auto PrepareFeatureResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult;
+		auto PrepareFeatureResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context, bool bPrepareOnly) -> ERenderViewResult;
 		auto PrepareView_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FSceneFrameContext& Context
 		) -> std::expected<FSceneRenderPlan, ERenderViewResult>;
 		auto ResolveSceneRenderResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FSceneFrameContext& Context
+			FSceneFrameContext& Context, bool bPrepareOnly
 		) -> ERenderViewResult;
 		auto BuildSceneFrameFeaturePlan(
 			const FSceneRenderPlan& PreparedView,

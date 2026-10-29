@@ -65,6 +65,7 @@ namespace Durin
 		auto PropagatePending(bool bResourcePending) -> void;
 		// CPU preparation is owned only until this resource attempt publishes or resets.
 		static auto RetainPreparation(std::shared_ptr<const void> Preparation) -> void;
+		static auto MarkResourcePending() -> void;
 		auto ReleasePreparations() -> void;
 		static auto Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRHIRef;
 		static auto Compute(FName Name, const FComputePipelineStateInitializer& Initializer) -> FComputePipelineStateRHIRef;

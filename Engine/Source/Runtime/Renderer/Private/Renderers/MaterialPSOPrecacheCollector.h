@@ -4,6 +4,7 @@
 #include "Materials/MaterialPSOPrecache.h"
 #include "RenderResourceCreation.h"
 #include "RendererAPI.h"
+#include "Renderers/MeshPipelineDescription.h"
 
 namespace Durin
 {
@@ -11,6 +12,30 @@ namespace Durin
 	class FMeshMaterialShaderMap;
 	namespace RendererPrivate
 	{
+		class FMeshVertexFactoryImplementation;
+		// Renderer supports both selectable scene paths. HitProxy and alternate
+		// raster/depth modes are optional; required work covers the preparation mode.
+		struct FMaterialPSOPrecacheConfig
+		{
+			bool bForward = true;
+			bool bHybrid = true;
+			bool bHitProxy = true;
+			bool bSupportsWireframe = true;
+		};
+		struct FMaterialPSOPrecachePass
+		{
+			EMeshPipelinePass Pass;
+			FMeshPipelineRasterOptions Raster;
+			bool bRequired;
+		};
+		RENDERER_API auto SelectMaterialPSOPrecachePasses(const FMaterialPSOPrecacheParams& Params,
+			bool bSupportsGBuffer, const FMaterialPSOPrecacheConfig& Config = {})
+			-> std::vector<FMaterialPSOPrecachePass>;
+
+		RENDERER_API auto SelectMaterialPSOPrecachePasses(const FMaterialPSOPrecacheParams& Params,
+			const FMeshVertexFactoryImplementation& Factory, const FMaterialPSOPrecacheConfig& Config = {})
+			-> std::vector<FMaterialPSOPrecachePass>;
+
 		struct FMaterialPSOFragmentShader
 		{
 			FShaderType* Type = nullptr;

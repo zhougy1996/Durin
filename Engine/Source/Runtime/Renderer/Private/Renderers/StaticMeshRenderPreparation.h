@@ -47,6 +47,7 @@ namespace Durin
 		std::shared_ptr<const FMeshDrawDescription> Command;
 		uint32 MaterialUniformIndex = 0;
 		bool bTemplateReused = false;
+		bool bMaterialUnavailable = false;
 	};
 	class FMeshDrawDescriptionCache;
 	struct FMeshViewPreparationInput
@@ -230,6 +231,8 @@ namespace Durin
 		std::vector<size_t> SelectedLODHistogram;
 		std::array<size_t, 6> SubmissionOutcomes{};
 		bool bResourceFailure = false;
+		// Retain component identity even when collection produced no usable draw.
+		std::vector<FPrimitiveComponentId> ResourceFailurePrimitives;
 		size_t VisibleCandidates = 0;
 		size_t VisibleLocalCandidates = 0;
 		size_t VisibleSplineCandidates = 0;
@@ -359,6 +362,13 @@ namespace Durin
 				? &*Draws[Draw.ResolvedIndex].MaterialBinding : nullptr;
 		}
 	};
+
+	// Final admission after bindings are prepared. Preserve resolved indices and
+	// remove every batch of an unready component from color, depth, and shadows.
+	RENDERER_API auto RemoveUnreadyStaticMeshPrimitives(FPreparedStaticMeshView& Prepared,
+		const FResolvedStaticMeshView& Resolved,
+		std::span<FPreparedStaticMeshView> ShadowViews = {},
+		std::span<const FResolvedStaticMeshView> ShadowResources = {}) -> void;
 
 	// Owns collected geometry/material values after all scene/proxy reads finish.
 	// Dynamic provider bindings retain their existing resource-retirement contract.

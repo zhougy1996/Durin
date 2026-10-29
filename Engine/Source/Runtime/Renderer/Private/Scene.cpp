@@ -89,6 +89,7 @@ namespace Durin
 		const bool bVisible = Primitive->IsVisible() && (Owner == nullptr || !Owner->IsHidden());
 		FPrimitiveSceneProxy* Token = Proxy.get();
 		Proxy->SetCustomPrimitiveData(Primitive->GetCustomPrimitiveData());
+		Proxy->SetRenderParticipation(Primitive->GetRenderParticipation());
 		AddPrimitiveProxy(Id, std::move(Proxy), Primitive->GetRenderMatrix(), bVisible);
 		Primitive->SceneProxy = Token;
 	}

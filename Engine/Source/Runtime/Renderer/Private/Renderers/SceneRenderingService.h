@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RenderResourcePreparation.h"
 
 #include "Renderers/StaticMeshRenderPreparation.h"
 
@@ -81,8 +82,7 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
-			FRDGCapture* OutRenderGraphCapture,
-			const FRenderResourcePreparation* Preparation = nullptr
+			FRDGCapture* OutRenderGraphCapture
 		) -> ERenderViewResult;
 
 		auto GetResourceCoordinator() -> FRendererResourceCoordinator&
@@ -112,11 +112,7 @@ namespace Durin
 		auto PrunePreparations_RenderThread() -> void;
 		auto AdmitPreparation_RenderThread(FScene* Scene, FRHITexture* Output,
 			const FRenderResourcePreparation& Preparation) -> bool;
-		auto ExecutePreparedView_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
-			const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
-			const FSceneViewRenderOptions& Options, FSceneViewStatistics* OutStatistics,
-			FRDGCapture* OutRenderGraphCapture, const FRenderResourcePreparation& Preparation,
-			bool bPrepareOnly) -> ERenderViewResult;
+		FRenderResourceAdmissionBudget AdmissionBudget;
 		FRendererResourceCoordinator Coordinator;
 		FRendererRDGAllocator RDGAllocator;
 		FDefaultTextureResources DefaultTextures;

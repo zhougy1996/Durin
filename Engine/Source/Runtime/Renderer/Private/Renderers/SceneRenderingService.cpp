@@ -4,6 +4,7 @@
 #include "Renderers/MaterialPSOPrecacheCollector.h"
 
 #include "Asset/Asset.h"
+#include "CoreGlobals.h"
 #include "Console/ConsoleCommand.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -37,6 +38,8 @@ namespace Durin
     auto FSceneRenderingService::BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void
     {
         CheckRenderingThread();
+		AdmissionBudget.BeginFrame(GRenderFrameCounterRenderThread);
+		FRenderResourceAdmissionScope Admission(AdmissionBudget, GRenderFrameCounterRenderThread);
         PrunePreparations_RenderThread();
         if (GDynamicRHI) Retirement.Collect(GDynamicRHI->RHIGetQueueCapabilities());
 		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection) {
@@ -264,24 +267,13 @@ namespace Durin
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
 		const FRenderResourcePreparation& Preparation) -> void
 	{
-		(void)ExecutePreparedView_RenderThread(CommandList, Scene, View, OutputTarget,
-			bPresentOutput, Options, nullptr, nullptr, Preparation, true);
-	}
-
-	auto FSceneRenderingService::ExecutePreparedView_RenderThread(
-		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
-		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture,
-		const FRenderResourcePreparation& Preparation, bool bPrepareOnly) -> ERenderViewResult
-	{
-		if (!AdmitPreparation_RenderThread(Scene, OutputTarget, Preparation))
-			return ERenderViewResult::RendererResourcesUnavailable;
+		if (!AdmitPreparation_RenderThread(Scene, OutputTarget, Preparation)) return;
 		FRenderResourcePreparationScope Scope(Preparation);
 		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 		try
 		{
 			Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, View,
-				OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture, bPrepareOnly, &Scope);
+				OutputTarget, bPresentOutput, Options, nullptr, nullptr, true);
 		}
 		catch (const FRenderResourcePreparationYield&) { Result = ERenderViewResult::RendererResourcesPending; }
 		catch (const FRenderResourcePreparationCapacityExceeded&) {}
@@ -290,7 +282,6 @@ namespace Durin
 			: Result == ERenderViewResult::RendererResourcesPending ? ERenderResourcePreparationState::Pending
 			: ERenderResourcePreparationState::Failed);
 		PrunePreparations_RenderThread();
-		return Result;
 	}
 
 	auto FSceneRenderingService::RenderView_RenderThread(
@@ -301,13 +292,9 @@ namespace Durin
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics,
-		FRDGCapture* OutRenderGraphCapture,
-		const FRenderResourcePreparation* Preparation
+		FRDGCapture* OutRenderGraphCapture
 	) -> ERenderViewResult
 	{
-		if (Preparation)
-			return ExecutePreparedView_RenderThread(CommandList, Scene, View, OutputTarget,
-				bPresentOutput, Options, OutStatistics, OutRenderGraphCapture, *Preparation, false);
 		return FSceneRenderPipeline(*this).Execute_RenderThread(
 			CommandList, Scene, View, OutputTarget, bPresentOutput,
 			Options, OutStatistics, OutRenderGraphCapture

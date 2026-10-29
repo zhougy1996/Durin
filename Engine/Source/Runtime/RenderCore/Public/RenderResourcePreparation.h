@@ -57,6 +57,41 @@ namespace Durin
 		friend class FRenderResourcePreparationScope;
 	};
 
+	// Shared normal-render admission allowance across views in one render frame.
+	// Exhaustion defers local resource attempts; it never throws a view-wide yield.
+	class FRenderResourceAdmissionBudget
+	{
+	public:
+		explicit FRenderResourceAdmissionBudget(uint32 InShaders = 8, uint32 InPipelines = 16,
+			std::chrono::microseconds InTime = std::chrono::milliseconds(2))
+			: MaximumShaders(InShaders), MaximumPipelines(InPipelines), TimeBudget(InTime) {}
+		RENDERCORE_API auto BeginFrame(uint64 Frame) -> void;
+		auto GetShaderAdmissions() const -> uint32 { return Shaders; }
+		auto GetPipelineAdmissions() const -> uint32 { return Pipelines; }
+		auto GetDeferredAdmissions() const -> uint32 { return Deferred; }
+	private:
+		auto Admit(bool bShader) -> bool;
+		uint64 Frame = UINT64_MAX;
+		uint32 MaximumShaders, MaximumPipelines, Shaders = 0, Pipelines = 0, Deferred = 0;
+		std::chrono::microseconds TimeBudget;
+		std::chrono::steady_clock::time_point Start;
+		friend class FRenderResourceAdmissionScope;
+		friend class FRenderResourcePreparationScope;
+	};
+	class FRenderResourceAdmissionScope
+	{
+	public:
+		RENDERCORE_API FRenderResourceAdmissionScope(FRenderResourceAdmissionBudget& Budget, uint64 Frame);
+		RENDERCORE_API ~FRenderResourceAdmissionScope();
+		FRenderResourceAdmissionScope(const FRenderResourceAdmissionScope&) = delete;
+		// Compare around one creation attempt; earlier frame deferrals are unrelated.
+		RENDERCORE_API static auto GetDeferredAdmissions() -> uint32;
+	private:
+		FRenderResourceAdmissionBudget& Budget;
+		FRenderResourceAdmissionScope* Previous;
+		friend class FRenderResourcePreparationScope;
+	};
+
 	// Control-flow exceptions never represent resource failure or failed attempts.
 	struct FRenderResourcePreparationYield {};
 	struct FRenderResourcePreparationCapacityExceeded {};
@@ -70,7 +105,9 @@ namespace Durin
 		RENDERCORE_API auto Complete(ERenderResourcePreparationState Result) -> void;
 		RENDERCORE_API static auto IsActive() -> bool;
 		RENDERCORE_API static auto BeforeShader() -> void;
+		RENDERCORE_API static auto TryBeforeShader() -> bool;
 		RENDERCORE_API static auto BeforePipeline() -> void;
+		RENDERCORE_API static auto TryBeforePipeline() -> bool;
 		// Accounted bytes cover explicitly supplied CPU metadata/code, not GPU RSS.
 		RENDERCORE_API static auto Retain(std::shared_ptr<const void> Resource, uint64 AccountedBytes) -> void;
 	private:

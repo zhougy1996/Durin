@@ -1,5 +1,6 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/MeshPipelineDescription.h"
+#include "Renderers/MeshPassRelevance.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include <typeinfo>
@@ -260,6 +261,7 @@ namespace Durin
 		{
 			auto& Input = ViewInputs.emplace_back();
 			if (!SceneInfo) continue;
+			if (!SceneInfo->GetProxy().GetRenderParticipation().IsRelevant(Mode == ERenderPreparationMode::ShadowDepth)) continue;
 			Input.WorldBounds = SceneInfo->GetWorldBounds();
 			const auto& Proxy = SceneInfo->GetProxy();
 			// Extensions with custom collection stay dynamic until they explicitly
@@ -281,6 +283,11 @@ namespace Durin
 			Primitive.Id = SceneInfo->GetId();
 			Primitive.bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
 			Primitive.WorldBounds = SceneInfo->GetWorldBounds();
+			if (!SceneInfo->GetProxy().GetRenderParticipation().IsRelevant(Mode == ERenderPreparationMode::ShadowDepth))
+			{
+				Primitive.Outcomes[static_cast<size_t>(EGeometrySubmissionOutcome::Excluded)] = 1;
+				continue;
+			}
 			const auto& ProjectedSize = ViewFact.Projected;
 			Primitive.bProjectedSizeFallback = ProjectedSize.Status != EProjectedScreenSizeStatus::Valid;
 			FMeshCollectionContext Context;
@@ -430,7 +437,11 @@ namespace Durin
 							auto Material = Command->Material;
 
 							const auto MaterialIndex = Cache.ResolveMaterial(Material);
-							if (!MaterialIndex) continue;
+							if (!MaterialIndex)
+							{
+								(*Elements)[Index].bMaterialUnavailable = true;
+								continue;
+							}
 							(*Elements)[Index] = {Command, *MaterialIndex, true};
 						}
 						Found =
@@ -458,6 +469,7 @@ namespace Durin
 						const auto MaterialIndex = Cache.ResolveMaterial(Material);
 						if (!MaterialIndex)
 						{
+							Item.bMaterialUnavailable = true;
 							bStableMaterials = false;
 							continue;
 						}
@@ -503,8 +515,8 @@ namespace Durin
 							Candidate->Material.PlanningPassIdentity.ShaderMap.BlendMode;
 						Candidate->Pass = BlendMode == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
 																														   EMeshBasePass::Opaque;
-						if (Mode == ERenderPreparationMode::ShadowDepth
-							&& Candidate->Pass == EMeshBasePass::Translucent)
+						if (!IsMeshPassRelevant(Mode == ERenderPreparationMode::ShadowDepth
+							? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward, Candidate->Material.PlanningPassIdentity))
 							continue;
 
 						if (!std::isfinite(Candidate->PipelineKey.Material.ShaderMap.OpacityMaskThreshold)) continue;
@@ -578,6 +590,12 @@ namespace Durin
 				++Result.RejectedPrimitives;
 				return;
 			}
+			const size_t ResourceFailuresBefore = Result.SubmissionOutcomes[
+				static_cast<size_t>(EGeometrySubmissionOutcome::ResourceFailure)];
+			auto CaptureResourceFailure = [&]() {
+				if (Result.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::ResourceFailure)] > ResourceFailuresBefore)
+					Result.ResourceFailurePrimitives.push_back(Primitive.Id);
+			};
 			const bool bSplineMesh = Primitive.bSplineMesh;
 			++Result.VisibleCandidates;
 			if (bSplineMesh) ++Result.VisibleSplineCandidates;
@@ -589,6 +607,7 @@ namespace Durin
 			Result.bResourceFailure |= Primitive.Outcomes[static_cast<size_t>(EGeometrySubmissionOutcome::ResourceFailure)] != 0;
 			if (Primitive.Batches.empty())
 			{
+				CaptureResourceFailure();
 				++Result.RejectedPrimitives;
 				return;
 			}
@@ -673,7 +692,15 @@ namespace Durin
 					++Result.SharedSectionFactBuilds;
 					FPreparedStaticMeshDraw Item;
 					const auto& FrozenElement = FrozenBatch.GetElement(ElementIndex);
-					if (!FrozenElement.Command) continue;
+					if (!FrozenElement.Command)
+					{
+						if (FrozenElement.bMaterialUnavailable)
+						{
+							++Result.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::ResourceFailure)];
+							Result.bResourceFailure = true;
+						}
+						continue;
+					}
 					Item.Command = FrozenElement.Command;
 					Item.MaterialUniformIndex = FrozenElement.MaterialUniformIndex;
 					if (FrozenElement.bTemplateReused) ++Result.DrawDescriptionReuses;
@@ -762,12 +789,40 @@ namespace Durin
 				++Result.SelectedLODHistogram[SelectedLODIndex];
 			};
 			for (const auto& Batch : Primitive.Batches) PrepareBatch(Batch);
+			CaptureResourceFailure();
 			if (Result.Primitives.size() == FirstPrimitiveBatch) ++Result.RejectedPrimitives;
 			else if (bSplineMesh) ++Result.PreparedSplinePrimitives;
 			else ++Result.PreparedLocalPrimitives;
 		};
 		std::ranges::for_each(std::span(Collected.Primitives).subspan(FirstPrimitive, PrimitiveCount), PreparePrimitive);
 		return Result;
+	}
+
+	auto RemoveUnreadyStaticMeshPrimitives(FPreparedStaticMeshView& Prepared,
+		const FResolvedStaticMeshView& Resolved,
+		std::span<FPreparedStaticMeshView> ShadowViews,
+		std::span<const FResolvedStaticMeshView> ShadowResources) -> void
+	{
+		std::unordered_set<uint64> Unready;
+		auto Collect = [&](const FPreparedStaticMeshView& View, const FResolvedStaticMeshView& Resources) {
+			for (const auto Id : View.ResourceFailurePrimitives) Unready.insert(Id.Value);
+			for (const auto* Bucket : {&View.Opaque, &View.Masked, &View.Translucent})
+				for (const auto& Draw : *Bucket)
+					if (!Resources.IsReady(Draw))
+						if (const auto* Primitive = View.GetPrimitive(Draw)) Unready.insert(Primitive->PrimitiveId.Value);
+		};
+		Collect(Prepared, Resolved);
+		check(ShadowResources.empty() || ShadowResources.size() == ShadowViews.size());
+		for (size_t Index = 0; Index < ShadowResources.size(); ++Index) Collect(ShadowViews[Index], ShadowResources[Index]);
+		auto Remove = [&](FPreparedStaticMeshView& View) {
+			for (auto* Bucket : {&View.Opaque, &View.Masked, &View.Translucent})
+				std::erase_if(*Bucket, [&](const auto& Draw) {
+					const auto* Primitive = View.GetPrimitive(Draw);
+					return !Primitive || Unready.contains(Primitive->PrimitiveId.Value);
+				});
+		};
+		Remove(Prepared);
+		for (auto& Shadow : ShadowViews) Remove(Shadow);
 	}
 
 	static auto FinalizeStaticMeshPreparation(FPreparedStaticMeshView& Result, size_t MaterialCount) -> void
@@ -1014,6 +1069,8 @@ namespace Durin
 			for (size_t Index = 0; Index < Result.SubmissionOutcomes.size(); ++Index)
 				Result.SubmissionOutcomes[Index] += Chunk.Output.SubmissionOutcomes[Index];
 			Result.bResourceFailure |= Chunk.Output.bResourceFailure;
+			Result.ResourceFailurePrimitives.insert(Result.ResourceFailurePrimitives.end(),
+				Chunk.Output.ResourceFailurePrimitives.begin(), Chunk.Output.ResourceFailurePrimitives.end());
 			Result.VisibleCandidates += Chunk.Output.VisibleCandidates;
 			Result.VisibleLocalCandidates += Chunk.Output.VisibleLocalCandidates;
 			Result.VisibleSplineCandidates += Chunk.Output.VisibleSplineCandidates;

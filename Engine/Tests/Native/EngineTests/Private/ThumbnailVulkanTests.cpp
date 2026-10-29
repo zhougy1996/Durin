@@ -1,4 +1,8 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Components/PrimitiveComponent.h"
+#include "Engine/Actor.h"
+#include "Materials/MaterialPSOPrecache.h"
+#include "VertexFactory.h"
 
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -34,6 +38,7 @@
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/Shader.h"
 #include "RenderResourceCreation.h"
+#include "Renderers/SceneRendererProfiling.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
@@ -926,4 +931,73 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 		EXPECT_EQ(Pixels[Center + 3], Channel == ETexturePreviewChannel::RGBA ? std::byte{128} : std::byte{255});
 		Pool.Reset();
 	}
+}
+
+TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishingInteractiveFallback)
+{
+    using namespace Durin;
+    Editor::FThumbnailPreviewScenePool Pool(Contract);
+    ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
+    ASSERT_TRUE(Pool.BeginCapture());
+    FByteBuffer WarmPixels;
+    std::string Error;
+    ASSERT_EQ(Tests::FinishThumbnailCapture(Pool, WarmPixels, Error), Editor::EThumbnailCaptureState::Ready) << Error;
+    ASSERT_FALSE(WarmPixels.empty());
+
+    auto Policy = std::make_shared<std::unique_ptr<FScopedRendererQualificationPolicy>>();
+    EnqueueRenderCommand("HoldThumbnailOptionalResource", [Policy](FRHICommandListImmediate&) {
+        *Policy = std::make_unique<FScopedRendererQualificationPolicy>(FRendererQualificationPolicy{
+            .bEnableGroundTruthAmbientOcclusion = true,
+            .PendingFeature = EScenePreparationPending::AmbientOcclusion});
+    });
+    FlushRenderingCommands();
+    EXPECT_TRUE(Pool.BeginCapture());
+    for (uint32 Pump = 0; Pump < 8; ++Pump)
+    {
+        FlushRenderingCommands();
+        auto Pending = Pool.PollCapture();
+        EXPECT_TRUE(Pending.has_value());
+        if (Pending) EXPECT_FALSE(Pending->has_value());
+    }
+    // Restore on the render thread even when a preceding expectation fails.
+    EnqueueRenderCommand("ReleaseThumbnailOptionalResource", [Policy](FRHICommandListImmediate&) { Policy->reset(); });
+    FlushRenderingCommands();
+    FByteBuffer CompletePixels;
+    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, CompletePixels, Error), Editor::EThumbnailCaptureState::Ready) << Error;
+    EXPECT_FALSE(CompletePixels.empty());
+}
+
+TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSOs)
+{
+    using namespace Durin;
+    static const FVertexFactoryType Factory("ThumbnailOptionalPSOFixture",
+        EVertexFactoryFlags::SupportsPSOPrecaching);
+    FVertexDeclarationElementList Elements{};
+    Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, 12);
+    FMaterialPSOPrecacheParams Params;
+    Params.VertexFactoryData = FPSOPrecacheVertexFactoryData(&Factory, Elements);
+    FMaterialPSORequestManager OptionalWork;
+    auto Request = OptionalWork.PrecachePSOs(Params);
+    OptionalWork.Pump([](const auto&, auto& Out) -> std::expected<bool, std::string> {
+        Out.bRequiredPSOsCollected = true;
+        return false;
+    });
+    ASSERT_TRUE(Request.GetProgress().bRequiredReady);
+    ASSERT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Pending);
+
+    Editor::FThumbnailPreviewScenePool Pool(Contract);
+    ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
+    auto* Actor = Pool.GetReusableActor("OptionalPSOFixture");
+    ASSERT_NE(Actor, nullptr);
+    auto* Component = Cast<DPrimitiveComponent>(Actor->AddInstanceComponent(DPrimitiveComponent::StaticClass()));
+    ASSERT_NE(Component, nullptr);
+    ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({Request}));
+    ASSERT_TRUE(Component->IsPSOPrecaching());
+    ASSERT_TRUE(Pool.BeginCapture());
+    FByteBuffer Pixels;
+    std::string Error;
+    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, Pixels, Error), Editor::EThumbnailCaptureState::Ready) << Error;
+    EXPECT_FALSE(Pixels.empty());
+    EXPECT_TRUE(Component->IsPSOPrecaching());
+    Component->GetPSOPrecacheComponentData().Reset();
 }

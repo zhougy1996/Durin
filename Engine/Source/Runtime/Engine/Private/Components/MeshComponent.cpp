@@ -6,8 +6,6 @@
 #include "Logging/LogMacros.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/DefaultMaterialService.h"
-#include "DynamicRHI.h"
-#include "RHICapabilities.h"
 #include "Materials/MeshMaterialSlot.h"
 
 namespace Durin
@@ -15,6 +13,7 @@ namespace Durin
 	auto DMeshComponent::CollectMeshPSOPrecacheData(const FPSOPrecacheParams& Params,
 		FComponentPSOPrecacheParamsList& OutParams, std::string_view FactoryName, bool bOrientationChanging) -> void
 	{
+		if (!Params.Participation.bCastShadow && !Params.Participation.bRenderInMainPass) return;
 		const FVertexFactoryType* Factory = nullptr;
 		for (auto* Type : FVertexFactoryType::GetTypeList()) if (Type->GetName() == FactoryName) { Factory = Type; break; }
 		for (uint32 Slot = 0; Slot < GetNumMaterials(); ++Slot)
@@ -23,36 +22,14 @@ namespace Durin
 			if (!Material) Material = Durin::GetDefaultMaterial();
 			// An unavailable default uses the existing explicit ErrorMaterial path.
 			if (!Material) continue;
-			const auto Resource = Material->GetMaterialResource();
-			const auto Properties = Resource.GetStaticProperties();
 			auto Options = Params;
-			Options.Passes = EMaterialPSOPrecachePass::Forward | EMaterialPSOPrecachePass::HybridRetainedForward | EMaterialPSOPrecachePass::HitProxy;
-			if (Resource.GetBlendMode() == EMaterialBlendMode::Translucent)
-				Options.Passes |= EMaterialPSOPrecachePass::SortedTranslucency;
-			else
-			{
-				Options.Passes |= EMaterialPSOPrecachePass::ShadowDepth;
-				if (Properties.ShadingModel == EMaterialShadingModel::Lit)
-					Options.Passes |= EMaterialPSOPrecachePass::GBuffer;
-			}
-			Options.RequiredPasses = Options.Passes;
 			Options.bOrientationChanging = bOrientationChanging;
-			// Cover view depth/raster modes and both instance/transform windings
-			// without invalidating the job set for ordinary transform updates.
-			for (uint8 Variant = 0; Variant < 8; ++Variant)
-			{
-				Options.bReverseCulling = (Variant & 1) != 0;
-				Options.bReversedZ = (Variant & 2) != 0;
-				Options.bWireframe = (Variant & 4) != 0;
-				if (Options.bWireframe && GDynamicRHI)
-					if (const auto* Caps = GDynamicRHI->RHIGetCapabilities(); Caps && !Caps->bSupportsNonSolidFill) continue;
-				if (std::ranges::any_of(OutParams, [&](const auto& Existing) {
-					return Existing.MaterialInterface == Material && Existing.PSOPrecacheParams == Options;
-				})) continue;
-				if (OutParams.size() >= FPSOPrecacheComponentData::MaximumRequests)
-				{ OutParams.push_back({}); return; } // An explicit overflow, never partial coverage.
-				OutParams.push_back({Material, {FPSOPrecacheVertexFactoryData(Factory)}, Options});
-			}
+			if (std::ranges::any_of(OutParams, [&](const auto& Existing) {
+				return Existing.MaterialInterface == Material && Existing.PSOPrecacheParams == Options;
+			})) continue;
+			if (OutParams.size() >= FPSOPrecacheComponentData::MaximumRequests)
+			{ OutParams.push_back({}); return; }
+			OutParams.push_back({Material, {FPSOPrecacheVertexFactoryData(Factory)}, Options});
 		}
 	}
 	auto DMeshComponent::GetNumMaterials() const -> uint32
