@@ -9,6 +9,9 @@
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"
 #include "Asset/Load.h"
+#include "DObject/WeakObjectPtr.h"
+#include "Threading/Task.h"
+#include "Threading/TaskComposition.h"
 #include "../Asset/CookedArchiveTarget.h"
 
 namespace Durin::TexturePrivate
@@ -61,8 +64,72 @@ namespace Durin::TexturePrivate
 	// through the family's setter after successful payload validation. A failure never updates resources.
 	template<class TPlatformData, class TTexture>
 	auto LoadCookedPlatformData(TTexture& Texture, FBulkData& CookedData,
-		std::string_view Family) -> bool
+		std::string_view Family, bool bAsync, std::shared_ptr<FPackageResourceRequest>& Pending) -> bool
 	{
+		if (bAsync)
+		{
+			const auto Revision = CookedData.GetContentRevision();
+			const auto Target = AssetPrivate::CookedArchiveTarget(GetAssetRuntimeConfiguration());
+			const auto CookRoot = GetAssetRuntimeConfiguration().GetCookRoot();
+			const auto Platform = GetAssetRuntimeConfiguration().GetCookTargetPlatform();
+			const TWeakObjectPtr<TTexture> Owner(&Texture);
+			Pending = std::make_shared<FPackageResourceRequest>();
+			const std::weak_ptr RequestIdentity(Pending);
+			auto Candidate = std::make_shared<std::expected<std::unique_ptr<TPlatformData>, std::string>>(
+				std::unexpected("Cooked texture decode did not complete."));
+			auto Completion = Tasks::TCompletionSource<void>::Create({.DebugName = "CookedTextureDecode"});
+			// Admit the owner continuation before IO, including during shutdown drain.
+			auto Publication = Tasks::Then(Completion.TakeTask(), Tasks::ETaskExecutor::GameThreadDeferred,
+				{.DebugName = "CookedTexturePublication"}, [Owner, Revision, Candidate, RequestIdentity, CookRoot, Platform] {
+					auto* Current = Owner.Get();
+					const auto Request = RequestIdentity.lock();
+					if (!Current || !Request || Current->IsPendingKill() || Current->GetResourceUpdateState() == ETextureResourceUpdateState::Closed
+						|| Current->CookedLoad != Request || Current->HasPlatformData()) return;
+					const auto Resource = Current->GetCookedPlatformData().GetMetadata().Range.Resource;
+					if (!GetAssetRuntimeConfiguration().RequiresCookedPayload()
+						|| CookRoot != GetAssetRuntimeConfiguration().GetCookRoot()
+						|| Platform != GetAssetRuntimeConfiguration().GetCookTargetPlatform()
+						|| (Resource && Resource->IsRetired()))
+					{
+						Current->UpdateResource(); // No CPU product was admitted; keep the failure on its owner.
+						Current->ResourceUpdateError = "Cooked texture request was invalidated before publication.";
+						return;
+					}
+					if (Current->GetCookedPlatformData().GetContentRevision() != Revision)
+					{
+						Current->CookedLoad.reset();
+						Current->BeginCachePlatformData();
+						return;
+					}
+					if (*Candidate) Current->SetPlatformData(std::move(**Candidate));
+					Current->UpdateResource();
+					if (!*Candidate)
+					{
+						Current->ResourceUpdateError = Candidate->error();
+						DURIN_WARN("Cooked texture '{}': {}", Current->GetObjectPath(), Current->ResourceUpdateError);
+					}
+				});
+			*Pending = FPackageResourceRequest::Transform(CookedData.ReloadAsync(),
+				[Candidate, Completion, Target](FPackageResourceReadResult Read) {
+					struct FCompleteOnExit
+					{
+						decltype(Completion) Source;
+						~FCompleteOnExit() { Source.TrySetValue(); }
+					} Complete{Completion};
+					if (Read)
+					{
+						auto Data = std::make_unique<TPlatformData>();
+						FCanonicalMemoryReader Ar(Read->GetBytes(), EArchivePurpose::CookedPayload, {.Target = Target});
+						Data->Serialize(Ar);
+						if (!Ar.IsError() && RequireArchiveEnd(Ar)) *Candidate = std::move(Data);
+						else *Candidate = std::unexpected(std::string(Ar.GetError()));
+					}
+					else *Candidate = std::unexpected(FormatPackageResourceReadError(Read));
+					return Read;
+				});
+			return true;
+		}
+
 		auto FailCooked = [&](std::string Message) {
 			DURIN_WARN("Cooked {} '{}': {}",
 				Family, Texture.GetObjectPath(), Message);

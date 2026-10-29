@@ -17,6 +17,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/StrongObjectPtr.h"
 #include "DObject/Package.h"
 #include "DynamicRHI.h"
 #include "EngineTestSupport.h"
@@ -56,6 +57,18 @@
 #include "Texture/VolumeTextureRenderResource.h"
 
 #include "NativeDObjectTestSupport.h"
+
+namespace Durin
+{
+	struct FTextureCookTestAccess
+	{
+		static auto CopyCookedLoad(const DTexture& Texture) -> FPackageResourceRequest
+		{
+			check(Texture.CookedLoad);
+			return *Texture.CookedLoad;
+		}
+	};
+}
 
 namespace
 {
@@ -365,6 +378,13 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	EXPECT_FALSE(CookedTexture->HasPlatformData());
 	EXPECT_EQ(CookedTexture->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
 	EXPECT_EQ(CookedTexture->GetPlatformDataShared(), PlatformBeforeGetIdentity);
+	const auto CacheDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	while (!CookedTexture->IsAsyncCacheComplete() && std::chrono::steady_clock::now() < CacheDeadline)
+	{
+		Durin::PumpGameThreadDeferredWork();
+		std::this_thread::yield();
+	}
+	ASSERT_TRUE(CookedTexture->HasPlatformData()); // PostLoad finishes without MapChange or a blocking getter.
 	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
 	const auto* InstalledPlatform = CookedTexture->GetPlatformData();
@@ -379,6 +399,23 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	ExpectPlatformDataEqual(*CookedTexture->GetPlatformData(), ExpectedPlatformData);
 	EXPECT_EQ(CookedTexture->GetAssetImportData(), nullptr);
 	EXPECT_NE(CookedTexture->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
+	// Complete decode without pumping publication, then invalidate its owner. A
+	// finished old request must not install CPU data or resurrect a GPU update.
+	Durin::TStrongObjectPtr<Durin::DTexture2D> Invalidated(
+		Durin::NewObject<Durin::DTexture2D>(nullptr, "InvalidatedCookedPublication"));
+	const_cast<Durin::FBulkData&>(Invalidated->GetCookedPlatformData()) = CookedTexture->GetCookedPlatformData();
+	Invalidated->PostLoad();
+	const auto OldRequest = Durin::FTextureCookTestAccess::CopyCookedLoad(*Invalidated);
+	const auto DecodeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	while (!OldRequest.IsReady() && std::chrono::steady_clock::now() < DecodeDeadline) std::this_thread::yield();
+	ASSERT_TRUE(OldRequest.IsReady());
+	ASSERT_FALSE(Invalidated->HasPlatformData());
+	Invalidated->UpdateResource();
+	for (uint32 Frame = 0; Frame < 4; ++Frame) Durin::PumpGameThreadDeferredWork();
+	EXPECT_FALSE(Invalidated->HasPlatformData());
+	EXPECT_FALSE(Invalidated->IsResourceUpdatePending());
+	EXPECT_EQ(Invalidated->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
+	auto* Retired = Invalidated.Get(); Invalidated.Reset(); Durin::MarkAsGarbage(Retired); Durin::CollectGarbage();
 
 	Durin::FRHITextureReferenceRef TextureReference =
 		CookedTexture->GetTextureReferenceRHI();
@@ -406,6 +443,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	CookedMaterial = MaterialLoad.value_or(nullptr);
 	ASSERT_TRUE(MaterialLoad) << (MaterialLoad ? std::string{} : MaterialLoad.error().Message);
 	ASSERT_NE(CookedMaterial, nullptr);
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*CookedMaterial);
 	ASSERT_TRUE(CookedMaterial->GetAcceptedCompiledProgram());
 	EXPECT_EQ(CookedMaterial->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedMaterialIdentity);
 	ASSERT_TRUE(CookedMaterial->GetMaterialCompileStatus().IsCurrent());
@@ -580,8 +618,11 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		CookedTexture = CorruptBulkLoad.value_or(nullptr);
 	EXPECT_FALSE(CorruptBulkLoad);
 	EXPECT_EQ(CookedTexture, nullptr);
-	EXPECT_NE((CorruptBulkLoad ? std::string{} : CorruptBulkLoad.error().Message).find("bulk segment"), std::string::npos)
-		<< (CorruptBulkLoad ? std::string{} : CorruptBulkLoad.error().Message);
+	if (!CorruptBulkLoad)
+	{
+		EXPECT_EQ(CorruptBulkLoad.error().Code, Durin::EAssetReadError::CorruptFile);
+		EXPECT_FALSE(CorruptBulkLoad.error().Message.empty());
+	}
 	ASSERT_TRUE(AssetRuntime.Restore());
 }
 

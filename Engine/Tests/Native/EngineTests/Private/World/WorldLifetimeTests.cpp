@@ -860,6 +860,13 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	auto* Previous = CreateWorld(Host.Get(), EWorldType::Editor);
 	Host->SetWorld(Previous);
 	int Completions = 0;
+	auto* Actor = Level->SpawnActor<AStaticMeshActor>("DeferredPSOActor");
+	ASSERT_NE(Actor, nullptr);
+	auto* Component = Actor->GetStaticMeshComponent();
+	auto* Mesh = NewObject<DStaticMesh>(Level, "UnpreparedMesh");
+	Component->SetStaticMesh(Mesh);
+	const auto Request = FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed");
+	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({Request}));
 	ASSERT_TRUE(Host->PrepareMapChange({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
 			++Completions;
@@ -871,13 +878,6 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 		ProcessAsyncLoading();
 	}
 	ASSERT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::RegisteringWorld);
-	// Withhold a component proxy before World registration. A failed required
-	// request must stay local to the component rather than reject the map change.
-	auto* Actor = Level->SpawnActor<AStaticMeshActor>("DeferredPSOActor");
-	ASSERT_NE(Actor, nullptr);
-	auto* Component = Actor->GetStaticMeshComponent();
-	const auto Request = FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed");
-	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({Request}));
 	for (int Frame = 0; Frame < 12 && !Host->IsMapChangeReady(); ++Frame)
 	{
 		FMapChangeTestAccess::Tick(*Host);
@@ -896,6 +896,7 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	EXPECT_FALSE(Host->IsPreparingMapChange());
 	EXPECT_NE(Host->GetWorld(), Previous);
 	EXPECT_EQ(Host->GetWorld()->GetCurrentLevel(), Level);
+	EXPECT_EQ(Mesh->GetRenderData(), nullptr); // Resource readiness does not gate commit.
 	EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
 	EXPECT_EQ(Request.GetDiagnostic(), "Required pipeline failed");
 	EXPECT_EQ(Renderer.RenderCalls, 0);
@@ -963,27 +964,18 @@ TEST(FWorldTests, MapChangeCommitVetoFailuresUseOneDiagnosticAndPreserveTheCurre
 	}
 }
 
-TEST(FWorldTests, ResourcePreparationWithoutAdmissionPreservesPendingAndBudgets)
+TEST(FWorldTests, ResourceQueriesDoNotStartPreparationAndTextureFailureStaysOnOwner)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DStaticMesh> Mesh(NewObject<DStaticMesh>(nullptr, "UnpreparedMesh"));
-	uint32 MeshRequests = 0;
-	const auto MeshReady = Mesh->PrepareRenderResources(MeshRequests);
-	ASSERT_TRUE(MeshReady);
-	EXPECT_FALSE(*MeshReady);
-	EXPECT_EQ(MeshRequests, 0u);
+	EXPECT_EQ(Mesh->GetRenderDataLoadStatus().CpuPhase, ECookedMeshCpuPhase::Unloaded);
 	TStrongObjectPtr<DTexture2D> Texture(NewObject<DTexture2D>(nullptr, "UnpreparedTexture"));
-	uint32 TextureUpdates = 0;
-	const auto TextureReady = Texture->PrepareRenderResource(TextureUpdates);
-	ASSERT_TRUE(TextureReady);
-	EXPECT_FALSE(*TextureReady);
-	EXPECT_EQ(TextureUpdates, 0u);
-	TextureUpdates = 1;
-	const auto MissingData = Texture->PrepareRenderResource(TextureUpdates);
-	EXPECT_FALSE(MissingData);
-	if (!MissingData) EXPECT_NE(MissingData.error().find("platform data"), std::string::npos);
-	EXPECT_EQ(TextureUpdates, 0u);
+	EXPECT_FALSE(Texture->HasUsableResource());
+	EXPECT_FALSE(Texture->IsResourceUpdatePending());
+	Texture->UpdateResource();
+	EXPECT_EQ(Texture->GetResourceUpdateState(), ETextureResourceUpdateState::Failed);
+	EXPECT_NE(Texture->GetResourceUpdateError().find("platform data"), std::string::npos);
 	auto* RetiredMesh = Mesh.Get(); auto* RetiredTexture = Texture.Get();
 	Mesh.Reset(); Texture.Reset(); MarkObjectHierarchyAsGarbage(RetiredMesh); MarkObjectHierarchyAsGarbage(RetiredTexture); CollectGarbage();
 }

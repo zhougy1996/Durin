@@ -13,6 +13,7 @@
 namespace Durin
 {
 	class DObject;
+	ENGINE_API auto PumpCookedMeshLoadManager() -> uint32;
 
 	enum class ECookedMeshFamily : uint8
 	{
@@ -185,6 +186,10 @@ namespace Durin
 		auto GetDiagnostics() const -> FCookedMeshLoadDiagnostics;
 
 	private:
+		friend class DStaticMesh;
+		friend auto PumpCookedMeshLoadManager() -> uint32;
+		auto Defer(FObjectKey Owner) -> void;
+		auto RetryDeferred() -> void;
 		struct FState;
 		std::shared_ptr<FState> State;
 	};

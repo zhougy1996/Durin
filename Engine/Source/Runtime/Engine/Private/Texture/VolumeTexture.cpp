@@ -218,10 +218,10 @@ namespace Durin
 #endif
 	}
 
-	auto DVolumeTexture::LoadCookedPlatformData() -> bool
+	auto DVolumeTexture::LoadCookedPlatformData(bool bAsync) -> bool
 	{
 		return TexturePrivate::LoadCookedPlatformData<FVolumeTexturePlatformData>(
-			*this, GetMutableCookedPlatformData(), "volume texture");
+			*this, GetMutableCookedPlatformData(), "volume texture", bAsync, CookedLoad);
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA

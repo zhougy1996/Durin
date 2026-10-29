@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-10-28
+Last reviewed: 2026-10-29
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -192,20 +192,17 @@ ordinary callers do not own a loading operation or poll to commit it.
 Only one change can be pending per Engine. Closed admission or an already pending
 change rejects a new request without changing the existing progress.
 
-The private `FMapChangeHandler` retains the asynchronous asset handle, prepares
-required products and initializes an isolated World/Scene. Mesh and texture
-preparation and material-program readiness belong to their existing resource
-interfaces. Components own PSO readiness, delayed proxy creation and request
-diagnostics; MapChange does not aggregate or wait for component PSOs. It collects/deduplicates
-owners, retains bounded program requests, supplies per-tick request budgets and
-aggregates Ready/Pending/failure results. Resource methods consume admission budget
-only when work can be requested. Cooked texture platform-data fallback keeps its
-existing blocking behavior inside the texture owner. No extra preparation manager
-or mirrored resource state is introduced.
+The private `FMapChangeHandler` retains the asynchronous asset handle and
+initializes an isolated World/Scene. Resources own preparation, publication and
+diagnostics. Cooked materials cache programs through their compilation owner and
+existing retry queue; textures begin asynchronous platform-data caching in PostLoad
+and publish through `UpdateResource`. Mesh components request residency on registration.
+MapChange does not traverse products, retain program requests, impose resource
+budgets or wait for resource/PSO readiness. Components own delayed proxy creation.
 
 The ordinary Engine frame advances preparation after completions; UI/modal
-callbacks never drive stages. Required products and World registration becoming
-ready authorize commit without a candidate offscreen render, render receipt or retries.
+callbacks never drive stages. Object loading and World registration authorize
+commit without a candidate offscreen render, render receipt or retries.
 Components with pending required PSOs appear after their normal owner notification
 creates the proxy. Failed required requests keep that component withheld and
 diagnosable without failing or rolling back the map change.
@@ -242,7 +239,7 @@ asset residency transfers to the active World and is released when its Level is
 replaced or detached. No completed loading Handler is retained by callers.
 Native World initialization/registration callbacks
 and package object application remain atomic owner-thread work. Game BeginPlay
-runs once on the candidate; its spawned products are recollected before commit.
+runs once on the candidate; spawned resources use the same owner preparation paths.
 Simulation and input wait until the committed generation has actually presented.
 
 Automated running-tick counts and startup-command dispatch begin only after host

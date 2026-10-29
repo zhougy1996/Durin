@@ -45,12 +45,6 @@ namespace Durin
 			return Texture != nullptr && Texture->HasPlatformData();
 		}
 
-		auto EnsureTextureLoaded(DTexture* Texture) -> void
-		{
-			// Authored textures publish through the stable reference after async compilation.
-			if (Texture && GetAssetRuntimeConfiguration().RequiresCookedPayload())
-				(void)Texture->EnsurePlatformDataLoadedBlocking();
-		}
 	} // namespace
 
 	DVolumetricCloudComponent::DVolumetricCloudComponent(
@@ -281,11 +275,10 @@ namespace Durin
 
 	auto DVolumetricCloudComponent::CreateRenderState() -> void
 	{
-		if (IsRegistered())
+		if (IsRegistered() && GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			EnsureTextureLoaded(BaseDensityTexture.Get());
-			EnsureTextureLoaded(DetailDensityTexture.Get());
-			EnsureTextureLoaded(WeatherTexture.Get());
+			for (auto* Texture : std::array<DTexture*, 3>{BaseDensityTexture.Get(), DetailDensityTexture.Get(), WeatherTexture.Get()})
+				if (Texture) Texture->BeginCachePlatformData();
 		}
 		RefreshEligibilityDiagnostic();
 		if (!IsRegistered()) return;
@@ -301,7 +294,7 @@ namespace Durin
 		Data.bEnabled = bEnabled;
 		Data.BaseDensityTexture = GetTextureReference(BaseDensityTexture.Get());
 		Data.DetailDensityTexture = GetTextureReference(DetailDensityTexture.Get());
-		Data.WeatherTexture = IsTextureReady(WeatherTexture.Get()) ? GetTextureReference(WeatherTexture.Get()) : FRHITextureReferenceRef{};
+		Data.WeatherTexture = GetTextureReference(WeatherTexture.Get());
 		Data.MinimumZ = MinimumZ;
 		Data.MaximumZ = MaximumZ;
 		Data.MaximumDistance = MaximumDistance;

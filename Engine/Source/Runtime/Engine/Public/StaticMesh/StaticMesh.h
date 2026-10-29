@@ -139,9 +139,6 @@ namespace Durin
 		// Starts or joins bounded cooked loading and returns immediately with the
 		// current generation-qualified CPU/GPU snapshot. Does not retry failed/cancelled work.
 		ENGINE_API auto RequestRenderDataAndResources() -> FCookedMeshLoadStatus;
-		// GameThread: false while compiling/loading; errors retain the resource diagnostic.
-		// Consumes caller admission budget only when a new resource request is allowed.
-		ENGINE_API auto PrepareRenderResources(uint32& RemainingRequests) -> std::expected<bool, std::string>;
 		// Blocks for CPU data only, retrying a prior CPU failure/cancellation.
 		// May perform package I/O on the GameThread; use RequestRenderDataAndResources() for polling.
 		// Does not request GPU initialization; prior rendering requests may still complete.

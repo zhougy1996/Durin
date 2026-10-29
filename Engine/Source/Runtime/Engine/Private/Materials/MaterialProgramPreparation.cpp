@@ -37,7 +37,7 @@ namespace Durin
 		ERHIFeatureLevel FeatureLevel;
 		ERHIBackend Backend;
 		EMaterialProgramPreparationState Status = EMaterialProgramPreparationState::Pending;
-		FPackageResourceRequest Request;
+		std::optional<FPackageResourceRequest> Request;
 		std::shared_ptr<FMaterialProgramDecodeResult> Result = std::make_shared<FMaterialProgramDecodeResult>();
 		~FMaterialProgramPreparationState() { Result->Canceled = true; }
 	};
@@ -68,33 +68,7 @@ namespace Durin
 			State.Result->Diagnostic = "Cooked program preparation requires bounded cooked data and a task scheduler.";
 			return Preparation;
 		}
-		auto Admission = std::make_shared<FMaterialProgramAdmission>();
-		auto Count = ActiveProgramPreparations.load();
-		while (Count < 16 && !ActiveProgramPreparations.compare_exchange_weak(Count, Count + 1)) {}
-		if (Count >= 16)
-		{
-			State.Status = EMaterialProgramPreparationState::Failed;
-			State.Result->Diagnostic = "Cooked program preparation capacity exceeded.";
-			return Preparation;
-		}
-		Admission->Active = true;
-		// Snapshot owns only bytes/range metadata. Workers never dereference Owner.
-		FBulkData Snapshot = Material.CookedProgramData;
-		State.Request = FPackageResourceRequest::Transform(Snapshot.ReloadAsync(),
-			[Admission = std::move(Admission), Result = State.Result, Quality = State.Quality, Level = State.FeatureLevel, Backend = State.Backend](FPackageResourceReadResult Read) {
-				struct FReleaseAdmission
-				{
-					FMaterialProgramAdmission& Admission;
-					~FReleaseAdmission() { Admission.Release(); }
-				} Release{*Admission};
-				if (Result->Canceled) return Read;
-				if (!Read) { Result->Diagnostic = FormatPackageResourceReadError(Read); return Read; }
-				const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(),
-					Backend == ERHIBackend::Metal ? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
-					ECookTargetProfile::Game, Quality, Level, {}, Result->Properties, Result->Program);
-				if (!Decoded) Result->Diagnostic = Decoded.error();
-				return Read;
-			});
+
 		return Preparation;
 	}
 	auto FMaterialProgramPreparation::Poll() -> EMaterialProgramPreparationState
@@ -116,8 +90,36 @@ namespace Durin
 			|| Current.Range.SegmentOffset != Earlier.Range.SegmentOffset || Current.Range.StoredSize != Earlier.Range.StoredSize
 			|| Current.Range.StorageFlags != Earlier.Range.StorageFlags || Current.Range.Alignment != Earlier.Range.Alignment)
 			return State->Status = EMaterialProgramPreparationState::Stale;
-		if (!State->Request.IsReady()) return State->Status;
-		const auto Read = State->Request.Wait(); // Already complete; never waits for worker progress.
+		if (!State->Request)
+		{
+			auto Admission = std::make_shared<FMaterialProgramAdmission>();
+			auto Count = ActiveProgramPreparations.load();
+			while (Count < 16 && !ActiveProgramPreparations.compare_exchange_weak(Count, Count + 1)) {}
+			if (Count >= 16)
+			{
+				return State->Status;
+			}
+			Admission->Active = true;
+			// Snapshot owns only bytes/range metadata. Workers never dereference Owner.
+			FBulkData Snapshot = Owner->CookedProgramData;
+			State->Request = FPackageResourceRequest::Transform(Snapshot.ReloadAsync(),
+				[Admission = std::move(Admission), Result = State->Result, Quality = State->Quality, Level = State->FeatureLevel, Backend = State->Backend](FPackageResourceReadResult Read) {
+					struct FReleaseAdmission
+					{
+						FMaterialProgramAdmission& Admission;
+						~FReleaseAdmission() { Admission.Release(); }
+					} Release{*Admission};
+					if (Result->Canceled) return Read;
+					if (!Read) { Result->Diagnostic = FormatPackageResourceReadError(Read); return Read; }
+					const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(),
+						Backend == ERHIBackend::Metal ? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
+						ECookTargetProfile::Game, Quality, Level, {}, Result->Properties, Result->Program);
+					if (!Decoded) Result->Diagnostic = Decoded.error();
+					return Read;
+				});
+		}
+		if (!State->Request->IsReady()) return State->Status;
+		const auto Read = State->Request->Wait(); // Already complete; never waits for worker progress.
 		if (!Read || !State->Result->Program || !State->Result->Diagnostic.empty())
 		{
 			if (!Read && State->Result->Diagnostic.empty()) State->Result->Diagnostic = FormatPackageResourceReadError(Read);
@@ -145,7 +147,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		// Decode owns this string until its continuation finishes.
-		return State && (State->Status == EMaterialProgramPreparationState::Failed || State->Request.IsReady())
+		return State && (State->Status == EMaterialProgramPreparationState::Failed || (State->Request && State->Request->IsReady()))
 			? State->Result->Diagnostic : std::string{};
 	}
 }

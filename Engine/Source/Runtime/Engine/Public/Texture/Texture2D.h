@@ -119,7 +119,7 @@ namespace Durin
 
 		auto ResetPlatformData() -> void override { PlatformData.reset(); }
 		auto BuildPlatformDataForLoad() -> void override;
-		auto LoadCookedPlatformData() -> bool override;
+		auto LoadCookedPlatformData(bool bAsync = false) -> bool override;
 
 		DPROPERTY()
 		ETextureUsage Usage = ETextureUsage::Color;

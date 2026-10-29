@@ -865,27 +865,5 @@ namespace Durin
 		NotifyStaticMeshCompilationMutation(*this);
 		MarkPackageDirty();
 	}
-	auto DStaticMesh::PrepareRenderResources(uint32& RemainingRequests) -> std::expected<bool, std::string>
-	{
-		if (IsCompiling()) return false;
-		const auto Diagnostic = GetCompilationDiagnostic();
-		if (Diagnostic.Status && *Diagnostic.Status != EStaticMeshCompilationStatus::Succeeded)
-			return std::unexpected(FormatStaticMeshCompilationDiagnostic(Diagnostic));
-		const auto Status = GetRenderDataLoadStatus();
-		if (Status.CpuPhase == ECookedMeshCpuPhase::Failed || Status.CpuPhase == ECookedMeshCpuPhase::Cancelled || Status.GpuPhase == ECookedMeshGpuPhase::Failed)
-			return std::unexpected("required mesh render data failed.");
-		if (Status.CpuPhase == ECookedMeshCpuPhase::CpuReady && Status.GpuPhase == ECookedMeshGpuPhase::Ready) return true;
-		if (RemainingRequests != 0)
-		{
-			if (const auto* Manager = GetCookedMeshLoadManager())
-			{
-				const auto Work = Manager->GetDiagnostics();
-				if (Work.InFlightCount + Work.PendingRequestCount >= 8) return false;
-			}
-			--RemainingRequests;
-			(void)RequestRenderDataAndResources();
-		}
-		return false;
-	}
 
 }

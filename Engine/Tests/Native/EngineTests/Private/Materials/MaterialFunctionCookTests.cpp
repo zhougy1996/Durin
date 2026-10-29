@@ -1,5 +1,6 @@
 #include "NativeRHIBackendTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "MaterialFunctionTestSupport.h"
 #include "MaterialCookedProgramTestSupport.h"
 
@@ -110,6 +111,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 		Loaded = LoadedResult.value_or(nullptr);
 		ASSERT_TRUE(LoadedResult) << (LoadedResult ? std::string{} : LoadedResult.error().Message);
 		ASSERT_NE(Loaded, nullptr);
+		FShaderCompilingManager::Get().FinishAllCompilation();
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
@@ -191,6 +193,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		Loaded = LoadResult.value_or(nullptr);
 		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+		FShaderCompilingManager::Get().FinishAllCompilation();
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout.ResourceFieldCount, 1u);
@@ -278,6 +281,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_NE(Loaded, nullptr);
+		FShaderCompilingManager::Get().FinishAllCompilation();
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout.ResourceFieldCount, 6u);

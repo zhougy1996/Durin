@@ -21,6 +21,8 @@
 #include "NativeAssetRuntimeTestSupport.h"
 
 #include "NativeDObjectTestSupport.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Threading/Task.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
@@ -3061,6 +3063,51 @@ TEST(FStaticMeshReplacementTests, ReplacementRejectsInvalidSourceSlotsAndUVChann
 	const auto Missing = Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {});
 	EXPECT_FALSE(Missing.error().empty());
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+}
+
+TEST(FStaticMeshCookedLoadTests, AdmissionPressureRetriesOwnersWithoutMapChange)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const bool bOwnsScheduler = !IsTaskSchedulerRunning();
+	if (bOwnsScheduler) ASSERT_TRUE(InitializeTaskScheduler(4));
+	struct FSchedulerCleanup { bool Owns; ~FSchedulerCleanup() { if (Owns) ShutdownTaskScheduler(); } } SchedulerCleanup{bOwnsScheduler};
+	Testing::FScopedAssetRuntimeForTests Runtime;
+	const auto Root = std::filesystem::absolute(Testing::GetTestWorkDirectory() / "MeshAdmissionRetry");
+	std::filesystem::create_directories(Root);
+	ASSERT_TRUE(Runtime.RestartCooked(Root));
+	ASSERT_TRUE(InitializeCookedMeshLoadManager());
+	struct FManagerCleanup { ~FManagerCleanup() { ShutdownCookedMeshLoadManager(); } } ManagerCleanup;
+	std::vector<TStrongObjectPtr<DStaticMesh>> Meshes;
+	const FByteBuffer Bytes{std::byte{0xff}};
+	// More owners than the default active + pending request capacities. Invalid
+	// products let this CPU-only test prove every deferred owner eventually decodes.
+	for (uint32 Index = 0; Index < 24; ++Index)
+	{
+		auto* Mesh = NewObject<DStaticMesh>(nullptr, FName(std::format("AdmissionMesh{}", Index)));
+		Meshes.emplace_back(Mesh);
+		auto Payload = FBulkData::TryCreateDetached(Bytes);
+		ASSERT_TRUE(Payload);
+		const_cast<FBulkData&>(Mesh->GetCookedRenderData()) = std::move(*Payload);
+		Mesh->RequestRenderDataAndResources();
+	}
+	EXPECT_GT(GetCookedMeshLoadManager()->GetDiagnostics().RejectedCount, 0u);
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	while (std::ranges::any_of(Meshes, [](const auto& Mesh) { return Mesh->GetRenderDataLoadStatus().CpuPhase != ECookedMeshCpuPhase::Failed; })
+		&& std::chrono::steady_clock::now() < Deadline)
+	{
+		PumpCookedMeshLoadManager();
+		std::this_thread::yield();
+	}
+	const auto Diagnostics = GetCookedMeshLoadManager()->GetDiagnostics();
+	EXPECT_EQ(Diagnostics.AcceptedCount, Meshes.size());
+	EXPECT_EQ(Diagnostics.FailedCount, Meshes.size());
+	for (auto& Mesh : Meshes)
+	{
+		EXPECT_EQ(Mesh->GetRenderDataLoadStatus().CpuPhase, ECookedMeshCpuPhase::Failed);
+		auto* Retired = Mesh.Get(); Mesh.Reset(); MarkAsGarbage(Retired);
+	}
+	CollectGarbage();
 }
 
 TEST(FStaticMeshCookedLoadTests, BlockingFailureRetainsDecodeCauseAcrossRetry)

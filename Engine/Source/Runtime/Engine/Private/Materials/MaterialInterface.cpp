@@ -472,12 +472,6 @@ namespace Durin
 	auto DMaterialInterface::GetAcceptedCompiledProgram() const
 		-> std::shared_ptr<const FMaterialCompilerResult>
 	{
-		if (!CompilationOwner.RenderLayer.CompiledProgram
-			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedProgramData.GetMetadata().LogicalSize != 0)
-		{
-			const_cast<DMaterialInterface*>(this)->LoadCookedProgram();
-		}
 		return CompilationOwner.RenderLayer.CompiledProgram;
 	}
 
@@ -485,7 +479,8 @@ namespace Durin
 	{
 		CheckMaterialQueryThread();
 		if (IsDynamicInstance()) return IsValid(GetParent()) && GetParent()->IsCompiling();
-		return HasPendingMaterialCompilation(*this);
+		return HasPendingMaterialCompilation(*this)
+			|| (CompilationOwner.CookedPreparation && CompilationOwner.MaterialCompileStatus.State == EMaterialCompileState::Running);
 	}
 
 	auto DMaterialInterface::IsComplete() const -> bool
@@ -564,6 +559,7 @@ namespace Durin
 	auto DMaterialInterface::BeginDestroy() -> void
 	{
 		PSOPrecacheOwner.Invalidate();
+		CompilationOwner.CookedPreparation.reset();
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		FObjectCacheContext Context;
@@ -821,17 +817,46 @@ namespace Durin
 		for (auto* Object : Context.GetMaterialsAffectedByMaterial(Dependency)) Result.emplace_back(Object);
 		return Result;
 	}
-	auto DMaterialInterface::NeedsCookedProgramPreparation() const -> bool
+	auto DMaterialInterface::CacheResourceShadersForRendering() -> void
 	{
-		return GetAssetRuntimeConfiguration().RequiresCookedPayload() && !IsDynamicInstance() && !IsComplete();
+		CheckGameThread();
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			RequestMaterialRecompile(*this);
+			return;
+		}
+		if (IsDynamicInstance()
+			|| CompilationOwner.RenderLayer.CompiledProgram || CompilationOwner.CookedPreparation || IsPendingKill()) return;
+		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Deferred;
+		MaterialCookDiagnostic.clear();
+		Private::GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(this));
+		if (!IsTaskSchedulerRunning()) return;
+		CompilationOwner.CookedPreparation = FMaterialProgramPreparation::Request(*this);
+		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Running;
 	}
-	auto DMaterialInterface::GetProgramReadiness() const -> std::expected<bool, std::string>
+	auto DMaterialInterface::PollCookedProgramPreparation() -> bool
 	{
-		if (IsCompiling()) return false;
-		if (!IsComplete())
-			return std::unexpected(std::format("required material '{}' has no complete program (state {}): {}",
-				GetObjectPath(), static_cast<uint32>(GetMaterialCompileStatus().State), GetMaterialCookDiagnostic()));
-		return true;
+		if (!CompilationOwner.CookedPreparation)
+		{
+			CacheResourceShadersForRendering();
+			return IsCompiling();
+		}
+		auto Preparation = *CompilationOwner.CookedPreparation; // Admission may retire the owner's handle.
+		const auto State = Preparation.Poll();
+		if (State == EMaterialProgramPreparationState::Failed)
+		{
+			MaterialCookDiagnostic = Preparation.GetDiagnostic();
+			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
+		}
+		if (State == EMaterialProgramPreparationState::Canceled || State == EMaterialProgramPreparationState::Stale)
+		{
+			MaterialCookDiagnostic = State == EMaterialProgramPreparationState::Stale
+				? "Cooked program request was invalidated before publication." : "Cooked program preparation was canceled.";
+			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
+		}
+		if (State == EMaterialProgramPreparationState::Pending) return true;
+		CompilationOwner.CookedPreparation.reset();
+		return false;
 	}
 
 }
