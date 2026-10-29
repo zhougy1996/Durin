@@ -85,10 +85,8 @@ namespace Durin::AssetPrivate
 			Options.InputResolver = std::move(Resolver);
 			DerivedData::FRequestOwner Owner;
 			std::optional<DerivedData::FBuildCompleteParams> Completion;
-			auto Admitted = (*Session)->Build(std::move(Definition), Owner, [&](auto Value) {
-				Completion = std::move(Value);
-			}, {}, std::move(Options));
-			if (!Admitted) return std::unexpected(std::move(Admitted.error()));
+			(*Session)->Build(std::move(Definition), Owner, [&](auto Value) { Completion = std::move(Value); }, {}, std::move(Options));
+
 			require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
 			require(Completion.has_value());
 			return std::move(*Completion);

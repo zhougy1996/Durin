@@ -63,11 +63,12 @@ TEST(FBuildFunctionTests, ContextPublishesValueWarningAndDeterministicError)
 	auto DefinitionValue = Definition(); auto Inputs = std::move(FBuildInputsBuilder(DefinitionValue.GetSources(), Resolver)).Build(); ASSERT_TRUE(Inputs);
 	std::optional<FBuildCompleteParams> Result;
 	FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
-	ASSERT_TRUE((*Session)->Build(DefinitionValue, [&](auto Value) { Result = std::move(Value); }, std::move(*Inputs), Options));
+	FRequestOwner Owner;
+	(*Session)->Build(DefinitionValue, Owner, [&](auto Value) { Result = std::move(Value); }, std::move(*Inputs), Options);
 	ASSERT_TRUE(Result); EXPECT_EQ(Result->GetStatus(), EStatus::Ok); ASSERT_NE(Result->GetOutput(), nullptr);
 	EXPECT_NE(Result->GetOutput()->FindValue(FValueId::FromName("Data")), nullptr); ASSERT_EQ(Result->GetOutput()->GetMessages().size(), 1u);
 	Function->Error = true; Inputs = std::move(FBuildInputsBuilder(DefinitionValue.GetSources(), Resolver)).Build(); Result.reset();
-	ASSERT_TRUE((*Session)->Build(DefinitionValue, [&](auto Value) { Result = std::move(Value); }, std::move(*Inputs), Options));
+	(*Session)->Build(DefinitionValue, Owner, [&](auto Value) { Result = std::move(Value); }, std::move(*Inputs), Options);
 	ASSERT_TRUE(Result); EXPECT_EQ(Result->GetStatus(), EStatus::Error); ASSERT_NE(Result->GetOutput(), nullptr);
 	EXPECT_TRUE(Result->GetOutput()->HasError()); EXPECT_TRUE(Result->GetOutput()->GetValues().empty());
 }

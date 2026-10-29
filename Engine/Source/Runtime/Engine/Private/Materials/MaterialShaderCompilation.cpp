@@ -5,10 +5,11 @@
 #include "MaterialPreparedProgram.h"
 
 #if DURIN_WITH_EDITOR
-#include "MaterialTranslation.h"
-#include "MaterialTranslationCodec.h"
-#include "Shader/IShaderBuildModule.h"
-#include "Threading/TaskComposition.h"
+	#include "RequestOwnerInternal.h"
+	#include "MaterialTranslation.h"
+	#include "MaterialTranslationCodec.h"
+	#include "Shader/IShaderBuildModule.h"
+	#include "Threading/TaskComposition.h"
 #endif
 
 namespace Durin
@@ -99,7 +100,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(ShaderMap->Mutex);
 			auto Task = std::move(Dispatch);
-			ShaderMap->Owner->TrackTask(std::move(Task));
+			Durin::DerivedData::Private::FOwnerAccess::TrackTask(*ShaderMap->Owner, std::move(Task));
 		}
 	}
 
@@ -144,10 +145,7 @@ namespace Durin
 			if (Existing && !Existing->BuildCancellation.IsCancellationRequested()) {
 				ShaderMap->SingleFlight = true;
 				ProgramJoins.fetch_add(1);
-				ShaderMap->Owner->TrackDependency({
-					.IsFinished = [Owner = Existing->Owner] { return Owner->Poll(); },
-					.Wait = [Owner = Existing->Owner] { return Owner->Wait(); },
-					.RequestCancel = [] {}});
+				Durin::DerivedData::Private::FOwnerAccess::TrackDependency(*ShaderMap->Owner, {.IsFinished = [Owner = Existing->Owner] { return Owner->Poll(); }, .Wait = [Owner = Existing->Owner] { return Owner->Wait(); }, .RequestCancel = [] {}});
 				Existing->CompileDependencies.push_back(ShaderMap);
 				Shared = std::move(Existing);
 			}

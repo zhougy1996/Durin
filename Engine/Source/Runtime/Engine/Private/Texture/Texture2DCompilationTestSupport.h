@@ -1,6 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#if DURIN_WITH_EDITOR
+	#include "CacheDispatchPrivate.h"
+#endif
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
@@ -19,7 +22,10 @@ namespace Durin
 	};
 
 
-	namespace DerivedData { class ICache; }
+	namespace DerivedData
+	{
+		class ICacheBackend;
+	}
 	class DTexture2D;
 
 	namespace AssetPrivate
@@ -27,7 +33,7 @@ namespace Durin
 		ENGINE_API auto SetTexture2DCompilationPhaseHookForTests(
 			std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void;
 		// Shared Texture2D/Cube session. Replace only while quiescent; null restores production.
-		ENGINE_API auto SetTextureAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void;
+		ENGINE_API auto SetTextureAsyncCacheForTests(std::shared_ptr<DerivedData::ICacheBackend> Cache) -> void;
 		// Bounded internal snapshot for qualification and regression tests.
 		struct FTexture2DCompilationDiagnostic
 		{

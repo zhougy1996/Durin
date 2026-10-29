@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "DerivedDataBuildScheduler.h"
+#include "DerivedDataBuildExecution.h"
 #include "DerivedDataRequestOwner.h"
 
 namespace Durin::DerivedData
@@ -19,20 +20,6 @@ namespace Durin::DerivedData
 		std::shared_ptr<const IBuildInputResolver> InputResolver;
 	};
 
-	class FBuildRequest
-	{
-	public:
-		FBuildRequest() = default;
-		DERIVEDDATACACHE_API auto RequestCancel() const -> bool;
-		DERIVEDDATACACHE_API auto Cancel() const -> bool;
-		// Result notification may precede retirement when explicitly requested.
-		DERIVEDDATACACHE_API auto IsResultReady() const -> bool;
-		DERIVEDDATACACHE_API auto IsComplete() const -> bool;
-		DERIVEDDATACACHE_API auto Wait() const -> ERequestWaitResult;
-	private:
-		friend class FBuildSession;
-		std::shared_ptr<Private::FBuildRequestState> State;
-	};
 	enum class EBuildDrainResult : uint8 { Drained, WouldBlock };
 
 	class FBuildSession
@@ -41,27 +28,16 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API ~FBuildSession();
 		FBuildSession(const FBuildSession&) = delete;
 		auto operator=(const FBuildSession&) -> FBuildSession& = delete;
-		DERIVEDDATACACHE_API auto Build(FBuildDefinition Definition,
-			FBuildCompletionCallback Completion, FBuildInputs Inputs = {},
-			FBuildRequestOptions Options = {}) -> std::expected<FBuildRequest, FBuildAdmissionError>;
-		DERIVEDDATACACHE_API auto Build(FBuildAction Action,
-			FBuildCompletionCallback Completion, FBuildInputs Inputs = {},
-			FBuildRequestOptions Options = {}) -> std::expected<FBuildRequest, FBuildAdmissionError>;
-		DERIVEDDATACACHE_API auto Build(FBuildDefinition Definition, IRequestOwner& Owner,
-			FBuildCompletionCallback Completion, FBuildInputs Inputs = {},
-			FBuildRequestOptions Options = {}) -> std::expected<FBuildRequest, FBuildAdmissionError>;
-		DERIVEDDATACACHE_API auto Build(FBuildAction Action, IRequestOwner& Owner,
-			FBuildCompletionCallback Completion, FBuildInputs Inputs = {},
-			FBuildRequestOptions Options = {}) -> std::expected<FBuildRequest, FBuildAdmissionError>;
+		// Every request completes exactly once, including admission failure. Callbacks may run inline.
+		DERIVEDDATACACHE_API auto Build(FBuildDefinition Definition, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildInputs Inputs = {}, FBuildRequestOptions Options = {}) -> void;
+		DERIVEDDATACACHE_API auto Build(FBuildAction Action, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildInputs Inputs = {}, FBuildRequestOptions Options = {}) -> void;
 		DERIVEDDATACACHE_API auto Close() -> void;
 		DERIVEDDATACACHE_API auto Drain() -> EBuildDrainResult;
 	private:
 		friend class FBuildService;
 		explicit FBuildSession(std::shared_ptr<Private::FBuildSessionState> State);
-		auto BuildImpl(std::variant<FBuildDefinition, FBuildAction> Request,
-			FBuildCompletionCallback Completion, FBuildInputs Inputs,
-			FBuildRequestOptions Options, IRequestOwner* RequestOwner = nullptr)
-			-> std::expected<FBuildRequest, FBuildAdmissionError>;
+		auto BuildImpl(std::variant<FBuildDefinition, FBuildAction> Request, FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options, IRequestOwner& RequestOwner)
+			-> std::expected<void, FBuildAdmissionError>;
 		std::shared_ptr<Private::FBuildSessionState> State;
 	};
 
@@ -81,7 +57,7 @@ namespace Durin::DerivedData
 		virtual auto Register(std::shared_ptr<const IBuildFunction> Function)
 			-> std::expected<void, FBuildAdmissionError> = 0;
 		// Producer and cache execution default to inline. Task sessions share the
-		// service dispatcher; an injected AsyncCache overrides either cache mode.
+		// service dispatcher; cache implementation and dispatch handles remain private.
 		virtual auto CreateSession(std::shared_ptr<const IBuildInputResolver> Resolver = {},
 			std::shared_ptr<IBuildScheduler> Scheduler = {},
 			EBuildCacheExecution CacheExecution = EBuildCacheExecution::Inline)

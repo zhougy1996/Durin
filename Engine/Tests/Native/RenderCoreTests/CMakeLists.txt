@@ -1,3 +1,4 @@
+include_directories("${CMAKE_SOURCE_DIR}/Engine/Source/Developer/DerivedDataCache/Private")
 set(_durin_render_core_private_dir
 	"${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private")
 set(_durin_shader_build_private_dir

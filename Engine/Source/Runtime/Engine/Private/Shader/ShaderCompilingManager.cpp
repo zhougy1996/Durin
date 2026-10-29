@@ -4,7 +4,8 @@
 #include "Materials/MaterialPreparedProgram.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #if DURIN_WITH_EDITOR
-#include "Materials/MaterialTranslation.h"
+	#include "RequestOwnerInternal.h"
+	#include "Materials/MaterialTranslation.h"
 #endif
 
 namespace Durin
@@ -295,10 +296,7 @@ namespace Durin
 				});
 			};
 		auto Jobs = std::make_shared<FShaderBuildHandle>(std::move(Group));
-		ShaderMap->Owner->TrackDependency({
-			.IsFinished = [Jobs] { return Jobs->IsComplete(); },
-			.Wait = [Jobs] { return Jobs->Wait() == EShaderBuildWaitResult::Completed ? DerivedData::ERequestWaitResult::Completed : DerivedData::ERequestWaitResult::WouldBlock; },
-			.RequestCancel = [Jobs] { Jobs->RequestCancel(); }});
+		Durin::DerivedData::Private::FOwnerAccess::TrackDependency(*ShaderMap->Owner, {.IsFinished = [Jobs] { return Jobs->IsComplete(); }, .Wait = [Jobs] { return Jobs->Wait() == EShaderBuildWaitResult::Completed ? DerivedData::ERequestWaitResult::Completed : DerivedData::ERequestWaitResult::WouldBlock; }, .RequestCancel = [Jobs] { Jobs->RequestCancel(); }});
 		bool HighPriority;
 		{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->ShaderJobs = Jobs; HighPriority = ShaderMap->HighPriority; }
 		if (HighPriority) Jobs->SetPriority(EShaderBuildPriority::High);

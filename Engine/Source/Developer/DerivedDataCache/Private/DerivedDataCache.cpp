@@ -1,4 +1,4 @@
-#include "DerivedDataCache/DerivedDataCache.h"
+#include "CacheBackend.h"
 
 #include "DerivedDataCacheStorage.h"
 #include "CacheStorageOwnership.h"
@@ -52,17 +52,17 @@ namespace Durin::DerivedData
 
 		FCacheStorage GCacheStorage;
 
-		class FRecordCache final : public ICache
+		class FRecordCache final : public ICacheBackend
 		{
 		public:
-			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+			auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 			{
 				FCacheQueryStats Stats;
 				auto Result = GetImpl(Request, &Stats);
 				if (Request.Stats) *Request.Stats = Stats;
 				Private::ObserveCacheGet(Request.Key, Result, Stats); return Result;
 			}
-			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+			auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 			{
 				const auto Start = std::chrono::steady_clock::now();
 				FCacheStoreStats Stats;
@@ -73,7 +73,7 @@ namespace Durin::DerivedData
 				return Result;
 			}
 		private:
-			auto GetImpl(const FCacheGetRequest& Request, FCacheQueryStats* Destination) const -> FCacheGetResult
+			auto GetImpl(const FCacheGetBackendRequest& Request, FCacheQueryStats* Destination) const -> FCacheGetResult
 			try
 			{
 				FCacheQueryStats Stats;
@@ -164,7 +164,7 @@ namespace Durin::DerivedData
 			}
 			catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache read allocation failed."}); }
 
-			auto PutImpl(const FCachePutRequest& Request, FCacheStoreStats* Destination) const -> FCachePutResult
+			auto PutImpl(const FCachePutBackendRequest& Request, FCacheStoreStats* Destination) const -> FCachePutResult
 			try
 			{
 				FCacheStoreStats Stats;
@@ -463,5 +463,5 @@ namespace Durin::DerivedData
 		return GCacheStorage;
 	}
 
-	auto GetCache() -> ICache& { return GRecordCache; }
+	auto GetCacheBackend() -> ICacheBackend& { return GRecordCache; }
 }

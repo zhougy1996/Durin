@@ -1,8 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DerivedDataBuildExecution.h"
-#include "Threading/Task.h"
+#include "DerivedDataCacheAPI.h"
 #include "DerivedDataRequest.h"
 
 namespace Durin::DerivedData
@@ -19,31 +18,7 @@ namespace Durin::DerivedData
 		auto BoundDescription() -> void
 		{ if (Description.size() > MaximumDescriptionBytes) Description.resize(MaximumDescriptionBytes); }
 	};
-	struct FBuildScheduleParams
-	{
-		std::string_view FunctionName;
-		ERequestPriority Priority = ERequestPriority::Normal;
-	};
-	class IBuildScheduledWork
-	{
-	public:
-		virtual ~IBuildScheduledWork() = default;
-		// May help execute tasks. Completed includes executing or dropping the thunk.
-		virtual auto Wait() const -> ERequestWaitResult = 0;
-		virtual auto RequestCancel() const -> void {}
-		// Native dispatch completion includes destruction of the scheduled thunk's captures.
-		virtual auto GetTaskHandle() const -> Tasks::FTask { return {}; }
-	};
-	class IBuildScheduler
-	{
-	public:
-		virtual ~IBuildScheduler() = default;
-		virtual auto IsInline() const -> bool { return false; }
-		// Reject without invoking/retaining Work, or accept at-most-once execution.
-		// A null wait handle permits externally driven work; dropped work cancels.
-		virtual auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Work)
-			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> = 0;
-	};
+	class IBuildScheduler;
 	DERIVEDDATACACHE_API auto CreateInlineBuildScheduler() -> std::shared_ptr<IBuildScheduler>;
 	// Borrows the running Core task system; creates no threads or memory reservations.
 	DERIVEDDATACACHE_API auto CreateTaskBuildScheduler() -> std::shared_ptr<IBuildScheduler>;

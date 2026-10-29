@@ -1,18 +1,25 @@
 #pragma once
 
-#include "DerivedDataRequestOwner.h"
+#include "RequestOwnerInternal.h"
 
 namespace Durin::DerivedData::Private
 {
-	auto CreateRequestOwnerState() -> std::shared_ptr<IRequestOwner>;
+	auto CreateRequestOwnerState() -> std::shared_ptr<IRequestOwnerInternal>;
 	struct FRequestOwnerScope
 	{
-		IRequestOwner* Owner;
+		IRequestOwnerInternal* Owner;
 		IRequest* Request;
 		const void* Domain;
 		FRequestOwnerScope* Previous;
 		static thread_local FRequestOwnerScope* Current;
-		explicit FRequestOwnerScope(IRequestOwner* Owner, IRequest* Request = nullptr, const void* Domain = nullptr) : Owner(Owner), Request(Request), Domain(Domain), Previous(Current) { Current = this; }
+		explicit FRequestOwnerScope(IRequestOwnerInternal* Owner, IRequest* Request = nullptr, const void* Domain = nullptr)
+			: Owner(Owner)
+			, Request(Request)
+			, Domain(Domain)
+			, Previous(Current)
+		{
+			Current = this;
+		}
 		~FRequestOwnerScope() { Current = Previous; }
 		static auto Blocks(const IRequest* Request, const void* Domain) -> bool
 		{
@@ -28,7 +35,7 @@ namespace Durin::DerivedData::Private
 		std::condition_variable Changed;
 		bool Dispatching = true, CompletionReleased = false, OwnerReleased = false, Finished = false, StageDispatching = false;
 		uint64 ScheduleRevision = 0;
-		std::shared_ptr<IRequestOwner> Group;
+		std::shared_ptr<IRequestOwnerInternal> Group;
 		std::shared_ptr<IBuildScheduledWork> Scheduled;
 		const void* WaitDomain = nullptr;
 		virtual auto OnFinished() -> void {}
@@ -41,7 +48,7 @@ namespace Durin::DerivedData::Private
 		}
 		auto ReleaseOwner() -> void
 		{
-			std::shared_ptr<IRequestOwner> Owner;
+			std::shared_ptr<IRequestOwnerInternal> Owner;
 			{
 				std::lock_guard Lock(Mutex);
 				if (Dispatching || !CompletionReleased || OwnerReleased) return;

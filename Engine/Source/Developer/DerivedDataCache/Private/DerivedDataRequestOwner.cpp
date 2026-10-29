@@ -1,5 +1,6 @@
 #include "DerivedDataRequestOwner.h"
 #include "RequestOwnerPrivate.h"
+#include "BuildSchedulerPrivate.h"
 #include "Threading/Task.h"
 
 namespace Durin::DerivedData
@@ -47,7 +48,7 @@ namespace Durin::DerivedData
 	}
 	namespace Private
 	{
-		class FOwnerState final : public IRequestOwner, public std::enable_shared_from_this<FOwnerState>
+		class FOwnerState final : public IRequestOwnerInternal, public std::enable_shared_from_this<FOwnerState>
 		{
 		public:
 			mutable std::mutex Mutex;
@@ -72,7 +73,7 @@ namespace Durin::DerivedData
 				if (Cancel) Dependency->RequestCancel();
 			}
 			explicit FOwnerState(ERequestPriority Priority) : Priority(Priority) {}
-			auto Begin(std::shared_ptr<IRequest> Request) -> std::shared_ptr<IRequestOwner> override
+			auto Begin(std::shared_ptr<IRequest> Request) -> std::shared_ptr<IRequestOwnerInternal> override
 			{
 				{ std::lock_guard Lock(Mutex); Requests.emplace(Request.get(), FEntry{Request, {}}); }
 				return shared_from_this();
@@ -86,7 +87,10 @@ namespace Durin::DerivedData
 					if (Retired.Dispatch)
 					{
 						Tasks::FTask Native;
-						{ std::lock_guard DispatchLock(Retired.Dispatch->Mutex); if (Retired.Dispatch->Scheduled) Native = Retired.Dispatch->Scheduled->GetTaskHandle(); }
+						{
+							std::lock_guard DispatchLock(Retired.Dispatch->Mutex);
+							if (Retired.Dispatch->Scheduled) Native = Private::GetNativeTask(*Retired.Dispatch->Scheduled);
+						}
 						if (Native.IsValid())
 						{
 							PruneNativeTasks();
@@ -135,7 +139,7 @@ namespace Durin::DerivedData
 				{
 					std::lock_guard Lock(Mutex);
 					const auto It = Requests.find(Request);
-					if (It == Requests.end()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "Request already completed."});
+					if (Request && It == Requests.end()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "Request already completed."});
 					Params.Priority = Priority; Cancel = Canceled;
 					Requests.emplace(Task.get(), FEntry{Task, Task});
 				}
@@ -208,7 +212,7 @@ namespace Durin::DerivedData
 		static auto Begin(IRequestOwner& Owner) -> std::shared_ptr<FBarrierRequest>
 		{
 			auto Request = std::make_shared<FBarrierRequest>();
-			Request->Group = Owner.Begin(Request);
+			Request->Group = Private::BeginRequest(Owner, Request);
 			Request->DispatchReturned();
 			return Request;
 		}
@@ -219,20 +223,47 @@ namespace Durin::DerivedData
 	};
 	FRequestBarrier::FRequestBarrier(IRequestOwner& Owner) : State(std::make_unique<FState>(Owner)) {}
 	FRequestBarrier::~FRequestBarrier() = default;
-	FRequestOwner::FRequestOwner(ERequestPriority Priority) : State(std::make_shared<Private::FOwnerState>(Priority)) {}
+
+	FRequestOwner::FRequestOwner(ERequestPriority Priority)
+		: IRequestOwner(std::make_shared<Private::FOwnerState>(Priority))
+	{
+	}
 	FRequestOwner::~FRequestOwner() { Cancel(); }
-	auto FRequestOwner::Begin(std::shared_ptr<IRequest> Request) -> std::shared_ptr<IRequestOwner> { return State->Begin(std::move(Request)); }
-	auto FRequestOwner::End(IRequest* Request) -> void { State->End(Request); }
-	auto FRequestOwner::Cancel() -> void { State->Cancel(); }
-	auto FRequestOwner::RequestCancel() -> void { State->RequestCancel(); }
-	auto FRequestOwner::IsCanceled() const -> bool { return State->IsCanceled(); }
-	auto FRequestOwner::GetPriority() const -> ERequestPriority { return State->GetPriority(); }
-	auto FRequestOwner::SetPriority(ERequestPriority Priority) -> void { State->SetPriority(Priority); }
-	auto FRequestOwner::Poll() const -> bool { return State->Poll(); }
-	auto FRequestOwner::Wait() const -> ERequestWaitResult { return State->Wait(); }
-	auto FRequestOwner::TrackTask(Tasks::FTask Task) -> void { State->TrackTask(std::move(Task)); }
-	auto FRequestOwner::TrackDependency(FRequestDependency Dependency) -> void { State->TrackDependency(std::move(Dependency)); }
-	auto Private::CreateRequestOwnerState() -> std::shared_ptr<IRequestOwner> { return std::make_shared<FOwnerState>(ERequestPriority::Normal); }
-	auto FRequestOwner::LaunchTask(IRequest* Request, IBuildScheduler& Scheduler, std::string_view Name, std::function<void()> Work, std::function<void()> OnCanceled)
-		-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> { return State->LaunchTask(Request, Scheduler, Name, std::move(Work), std::move(OnCanceled)); }
+	auto IRequestOwner::Begin(std::shared_ptr<IRequest> Request) -> void { State->Begin(std::move(Request)); }
+	auto IRequestOwner::End(IRequest* Request) -> void { State->End(Request); }
+	auto IRequestOwner::Cancel() -> void { State->Cancel(); }
+	auto IRequestOwner::RequestCancel() -> void { State->RequestCancel(); }
+	auto IRequestOwner::IsCanceled() const -> bool { return State->IsCanceled(); }
+	auto IRequestOwner::GetPriority() const -> ERequestPriority { return State->GetPriority(); }
+	auto IRequestOwner::SetPriority(ERequestPriority Value) -> void { State->SetPriority(Value); }
+	auto IRequestOwner::Poll() const -> bool { return State->Poll(); }
+	auto IRequestOwner::Wait() const -> ERequestWaitResult { return State->Wait(); }
+	auto IRequestOwner::LaunchTask(std::string_view Name, std::function<void()> Work) -> void
+	{
+		FRequestBarrier Submission(*this);
+		auto Fallback = Work;
+		auto Result = State->LaunchTask(nullptr, *CreateTaskBuildScheduler(), Name, Work, Work);
+		if (!Result)
+		{
+			try
+			{
+				if (Fallback) Fallback();
+			}
+			catch (...)
+			{
+			}
+		}
+	}
+	auto Private::FOwnerAccess::TrackTask(FRequestOwner& Owner, Tasks::FTask Task) -> void
+	{
+		std::static_pointer_cast<Private::FOwnerState>(Get(Owner))->TrackTask(std::move(Task));
+	}
+	auto Private::FOwnerAccess::TrackDependency(FRequestOwner& Owner, Private::FRequestDependency Dependency) -> void
+	{
+		std::static_pointer_cast<Private::FOwnerState>(Get(Owner))->TrackDependency(std::move(Dependency));
+	}
+	auto Private::CreateRequestOwnerState() -> std::shared_ptr<Private::IRequestOwnerInternal>
+	{
+		return std::make_shared<Private::FOwnerState>(ERequestPriority::Normal);
+	}
 }

@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #include "MetalShaderFormat.h"
 #include "ShaderBuild/ShaderPaths.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -265,12 +266,12 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 	TEST_F(FShaderBuilderTests, MountedTypedInvalidHitRebuildsOnceAndClosedBuilderCancels)
 	{
 		using namespace DerivedData;
-		struct FCache final : ICache
+		struct FCache final : ICacheBackend
 		{
 			mutable std::optional<FCacheRecord> Record;
 			mutable bool InvalidProduct = false;
 			mutable uint32 Gets = 0, Puts = 0;
-			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+			auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 			{
 				++Gets;
 				if (!Record || !InvalidProduct) return Record;
@@ -278,11 +279,11 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				Output.AddValue(FValueId("Metadata"), FSharedByteBuffer::Take(FByteBuffer{std::byte{0}}));
 				return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
 			}
-			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+			auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 			{ ++Puts; Record = Request.Record; return {}; }
 		};
 		auto Cache = std::make_shared<FCache>();
-		auto MakeService = [&] { return std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, FBuildServiceOptions{.Cache = Cache}); };
+		auto MakeService = [&] { return std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, Durin::DerivedData::Private::FBuildBackendOptions{.Cache = Cache}); };
 		Builder = std::make_unique<FShaderBuilder>(MakeService());
 		const auto Cold = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()); ASSERT_TRUE(Cold);
 		Builder.reset(); Cache->InvalidProduct = true;
@@ -307,20 +308,19 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 	TEST_F(FShaderBuilderTests, CachedErrorIsRejectedAndShaderRecompiled)
 	{
 		using namespace DerivedData;
-		struct FNegativeCache final : ICache
+		struct FNegativeCache final : ICacheBackend
 		{
-			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+			auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 			{
 				const auto Descriptor = GetShaderBuildDescriptor();
 				FBuildOutputBuilder Output(Descriptor.OutputType, Descriptor.OutputSchema);
 				Output.AddMessage(EBuildMessageSeverity::Error, "deterministic shader failure");
 				return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
 			}
-			auto Put(const FCachePutRequest&) const -> FCachePutResult override
+			auto Put(const FCachePutBackendRequest&) const -> FCachePutResult override
 			{ return {}; }
 		};
-		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{},
-			FBuildServiceOptions{.Cache = std::make_shared<FNegativeCache>()});
+		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, Durin::DerivedData::Private::FBuildBackendOptions{.Cache = std::make_shared<FNegativeCache>()});
 		Builder = std::make_unique<FShaderBuilder>(Service);
 		const auto Result = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
 		EXPECT_EQ(Result.Status, EShaderBuildStatus::Ok) << FormatShaderCompilerErrors(Result.Errors);
@@ -426,17 +426,23 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		ASSERT_FALSE(IsTaskSchedulerRunning());
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		struct FStop { ~FStop() { ShutdownTaskScheduler(); } } Stop;
-		struct FGateCache final : DerivedData::ICache
+		struct FGateCache final : DerivedData::ICacheBackend
 		{
 			mutable FThreadEvent Entered, Release;
-			auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override
-			{ Entered.Trigger(); Release.WaitFor(10.0); return DerivedData::GetCache().Get(Request); }
-			auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override
-			{ return DerivedData::GetCache().Put(Request); }
+			auto Get(const DerivedData::FCacheGetBackendRequest& Request) const -> DerivedData::FCacheGetResult override
+			{
+				Entered.Trigger();
+				Release.WaitFor(10.0);
+				return DerivedData::GetCacheBackend().Get(Request);
+			}
+			auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override
+			{
+				return DerivedData::GetCacheBackend().Put(Request);
+			}
 		};
 		auto Cache = std::make_shared<FGateCache>();
 		struct FRelease { std::shared_ptr<FGateCache> Cache; ~FRelease() { Cache->Release.Trigger(); } } Release{Cache};
-		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, DerivedData::FBuildServiceOptions{.Cache = Cache});
+		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, DerivedData::Private::FBuildBackendOptions{.Cache = Cache});
 		Builder = std::make_unique<FShaderBuilder>(Service);
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = "/Generated/Materials/AsyncGate";

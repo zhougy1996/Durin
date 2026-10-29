@@ -1,3 +1,4 @@
+include_directories("${CMAKE_SOURCE_DIR}/Engine/Source/Developer/DerivedDataCache/Private")
 include(GoogleTest)
 
 set(_durin_level_editor_private

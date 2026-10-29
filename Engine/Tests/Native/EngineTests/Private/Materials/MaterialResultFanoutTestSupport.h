@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #pragma once
 
 #include "CoreMinimal.h"
@@ -16,11 +17,16 @@ namespace Durin::Testing
 inline auto CheckDetachedMaterialResultFanout(bool Shutdown) -> void
 {
 	using namespace Durin;
-	struct FGateCache final : DerivedData::ICache
+	struct FGateCache final : DerivedData::ICacheBackend
 	{
 		mutable FThreadEvent Entered, Release;
-		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCache().Get(Request); }
-		auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override { Entered.Trigger(); Release.WaitFor(10); return DerivedData::GetCache().Put(Request); }
+		auto Get(const DerivedData::FCacheGetBackendRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCacheBackend().Get(Request); }
+		auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override
+		{
+			Entered.Trigger();
+			Release.WaitFor(10);
+			return DerivedData::GetCacheBackend().Put(Request);
+		}
 	};
 	SCOPED_TRACE(Shutdown ? "shutdown during fanout" : "cancel one follower during fanout");
 	FAssetCompilingManager::Get().FinishAllCompilation();

@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #include "ShaderBuildSession.h"
 #include "MetalLibraryBuild.h"
 #include "ShaderBuildVersion.h"
@@ -327,11 +328,11 @@ namespace Durin
 
 	struct FShaderBuildService::FState
 	{
-		struct FObservedCache final : ICache
+		struct FObservedCache final : ICacheBackend
 		{
-			std::shared_ptr<ICache> Backend;
+			std::shared_ptr<ICacheBackend> Backend;
 			mutable std::atomic_uint64_t Microseconds = 0;
-			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+			auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 			{
 				const auto Begin = std::chrono::steady_clock::now();
 				auto Result = Backend->Get(Request);
@@ -339,7 +340,7 @@ namespace Durin
 					std::chrono::steady_clock::now() - Begin).count(), std::memory_order_relaxed);
 				return Result;
 			}
-			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+			auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 			{
 				const auto Begin = std::chrono::steady_clock::now();
 				auto Result = Backend->Put(Request);
@@ -356,26 +357,26 @@ namespace Durin
 		std::shared_ptr<FBuildSession> TaskSession;
 		std::mutex Mutex;
 		bool Closed = false;
-		auto Open(FBuildServiceOptions Options) -> void
+		auto Open(DerivedData::Private::FBuildBackendOptions Options) -> void
 		{
 			Cache = std::make_shared<FObservedCache>();
-			Cache->Backend = Options.Cache ? std::move(Options.Cache) : std::shared_ptr<ICache>(&GetCache(), [](ICache*) {});
+			Cache->Backend = Options.Cache ? std::move(Options.Cache) : std::shared_ptr<ICacheBackend>(&GetCacheBackend(), [](ICacheBackend*) {});
 			Options.Cache = Cache;
-			Service = CreateBuild(std::move(Options));
+			Service = Durin::DerivedData::Private::CreateBuildForBackend(std::move(Options));
 			require(Service->Register(std::make_shared<FFunction>(Compiler)));
 			require(Service->Register(CreateMetalLibraryBuildFunction()));
 			auto Created = Service->CreateSession({}, CreateInlineBuildScheduler()); require(Created);
 			Session = std::move(*Created); Compiler->ProducerMicroseconds = 0; Closed = false;
 		}
 	};
-	FShaderBuildService::FShaderBuildService(std::function<void(std::string_view)> Hook, FBuildServiceOptions Options)
+	FShaderBuildService::FShaderBuildService(std::function<void(std::string_view)> Hook, DerivedData::Private::FBuildBackendOptions Options)
 		: State(std::make_unique<FState>())
 	{
 		State->Compiler->BeforeGeneratedCompile = std::move(Hook);
 		State->Open(std::move(Options));
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
-	auto FShaderBuildService::ResetCacheForTests(FBuildServiceOptions Options) -> void
+	auto FShaderBuildService::ResetCacheForTests(DerivedData::Private::FBuildBackendOptions Options) -> void
 	{
 		Close();
 		std::lock_guard Lock(State->Mutex);
@@ -385,9 +386,8 @@ namespace Durin
 	auto FShaderBuildService::GetCompilerEnvironmentIdentity() const -> const std::string& { return State->Environment; }
 	auto FShaderBuildService::GetProducerMicroseconds() const -> uint64 { return State->Compiler->ProducerMicroseconds.load(); }
 	auto FShaderBuildService::GetCacheMicroseconds() const -> uint64 { return State->Cache->Microseconds.load(); }
-	auto FShaderBuildService::Submit(FShaderSessionRequest Request, IRequestOwner& Owner,
-		FBuildCompletionCallback Completion, FBuildRequestOptions Options, bool bInlineExecution)
-		-> std::expected<FBuildRequest, FBuildAdmissionError>
+	auto FShaderBuildService::Submit(FShaderSessionRequest Request, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildRequestOptions Options, bool bInlineExecution)
+		-> std::expected<void, FBuildAdmissionError>
 	{
 		std::shared_ptr<FBuildSession> Session;
 		{
@@ -406,7 +406,8 @@ namespace Durin
 			}
 		}
 		Options.InputResolver = std::move(Request.Resolver);
-		return Session->Build(std::move(Request.Definition), Owner, std::move(Completion), {}, std::move(Options));
+		Session->Build(std::move(Request.Definition), Owner, std::move(Completion), {}, std::move(Options));
+		return {};
 	}
 	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options)
 		-> FBuildCompleteParams

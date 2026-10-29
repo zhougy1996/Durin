@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "MetalShaderFormat.h"
 #include "Materials/MaterialShaderMap.h"
@@ -581,13 +582,20 @@ TEST(FMaterialTranslationTests, MaterialCacheWaitReleasesTheOnlyAvailableWorker)
 	using namespace DerivedData;
 	using namespace MaterialBuildPrivate;
 	InitializeDObjectSystem();
-	struct FGate final : ICache
+	struct FGate final : ICacheBackend
 	{
 		mutable FThreadEvent Entered, Release;
-		auto Get(const FCacheGetRequest&) const -> FCacheGetResult { Entered.Trigger(); Release.WaitFor(10); return std::optional<FCacheRecord>{}; }
-		auto Put(const FCachePutRequest&) const -> FCachePutResult { return {}; }
+		auto Get(const FCacheGetBackendRequest&) const -> FCacheGetResult
+		{
+			Entered.Trigger();
+			Release.WaitFor(10);
+			return std::optional<FCacheRecord>{};
+		}
+		auto Put(const FCachePutBackendRequest&) const -> FCachePutResult { return {}; }
 	};
-	auto Cache = std::make_shared<FGate>(); auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
+	auto Cache = std::make_shared<FGate>();
+	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.Cache = Cache});
+	ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
 	SetTranslationServiceForTests(Service);
 	FThreadEvent Hold, Held; std::atomic_uint32_t Holding = 0;
 	std::vector<Tasks::FTask> Blockers;
@@ -611,11 +619,11 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 	using namespace DerivedData;
 	using namespace MaterialBuildPrivate;
 	InitializeDObjectSystem();
-	struct FCache final : ICache
+	struct FCache final : ICacheBackend
 	{
 		mutable std::optional<FCacheRecord> Record;
 		mutable bool Corrupt = false, FailStore = false;
-		auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+		auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 		{
 			if (!Record) return std::optional<FCacheRecord>{};
 			if (!Corrupt) return Record;
@@ -629,10 +637,12 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 			FBuildOutputBuilder Output("Material.Translation", 1); Output.AddValue(FValueId("Product"), FSharedByteBuffer::Take(std::move(Bytes)));
 			return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
 		}
-		auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 		{ if (FailStore) return std::unexpected(FCacheError{ECacheError::StorageFailure, "fixture"}); Record = Request.Record; return {}; }
 	};
-	auto Cache = std::make_shared<FCache>(); auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
+	auto Cache = std::make_shared<FCache>();
+	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.Cache = Cache});
+	ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
 	SetTranslationServiceForTests(Service);
 	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); } } Restore;
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
@@ -664,7 +674,8 @@ TEST(FMaterialTranslationTests, PreservesExecutionAndAdmissionDiagnostics)
 		auto Configure(FBuildConfigContext& Context) const -> void override { Inner->Configure(Context); }
 		auto Build(FBuildContext& Context) const -> void override { Context.FailExecution("translation producer diagnostic"); }
 	};
-	auto Service = CreateBuild({}); ASSERT_TRUE(Service->Register(std::make_shared<FFailingTranslation>()));
+	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({});
+	ASSERT_TRUE(Service->Register(std::make_shared<FFailingTranslation>()));
 	SetTranslationServiceForTests(Service);
 	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); OpenTranslationSessions(); } } Restore;
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
@@ -705,14 +716,16 @@ TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTrans
 {
 	using namespace Durin; using namespace MaterialBuildPrivate;
 	auto Captured = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
-	struct FGate final : DerivedData::ICache {
+	struct FGate final : DerivedData::ICacheBackend
+	{
 		mutable FThreadEvent Entered, Release;
-		auto Get(const DerivedData::FCacheGetRequest&) const -> DerivedData::FCacheGetResult override
+		auto Get(const DerivedData::FCacheGetBackendRequest&) const -> DerivedData::FCacheGetResult override
 		{ Entered.Trigger(); Release.WaitFor(10); return std::optional<DerivedData::FCacheRecord>{}; }
-		auto Put(const DerivedData::FCachePutRequest&) const -> DerivedData::FCachePutResult override { return {}; }
+		auto Put(const DerivedData::FCachePutBackendRequest&) const -> DerivedData::FCachePutResult override { return {}; }
 	};
 	auto Cache = std::make_shared<FGate>();
-	auto Service = DerivedData::CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
+	auto Service = DerivedData::Private::CreateBuildForBackend({.Cache = Cache});
+	ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
 	SetTranslationServiceForTests(Service);
 	auto& Manager = FShaderCompilingManager::Get();
 	std::vector<FMaterialProgramCompileHandle> Handles;
@@ -755,12 +768,20 @@ TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTrans
 TEST(FMaterialTranslationTests, CancellationDuringCacheIOCompletesAndRetiresWithoutPublicationPump)
 {
 	using namespace Durin; using namespace DerivedData; using namespace MaterialBuildPrivate;
-	struct FGate final : ICache {
+	struct FGate final : ICacheBackend
+	{
 		mutable FThreadEvent Entered, Release;
-		auto Get(const FCacheGetRequest&) const -> FCacheGetResult override { Entered.Trigger(); Release.WaitFor(10); return std::optional<FCacheRecord>{}; }
-		auto Put(const FCachePutRequest&) const -> FCachePutResult override { return {}; }
+		auto Get(const FCacheGetBackendRequest&) const -> FCacheGetResult override
+		{
+			Entered.Trigger();
+			Release.WaitFor(10);
+			return std::optional<FCacheRecord>{};
+		}
+		auto Put(const FCachePutBackendRequest&) const -> FCachePutResult override { return {}; }
 	};
-	auto Cache = std::make_shared<FGate>(); auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
+	auto Cache = std::make_shared<FGate>();
+	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.Cache = Cache});
+	ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
 	SetTranslationServiceForTests(Service);
 	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); SetTranslationServiceForTests({}); } } Restore{Cache};
 	auto& Manager = FShaderCompilingManager::Get(); std::atomic_uint32_t Calls = 0;
@@ -823,14 +844,16 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 	InitializeDObjectSystem();
 	auto& Manager = FShaderCompilingManager::Get();
 	for (int Canceled = -1; Canceled < 3; ++Canceled) {
-		struct FGate final : DerivedData::ICache {
+		struct FGate final : DerivedData::ICacheBackend
+		{
 			mutable FThreadEvent FirstEntered, SecondEntered, FirstRelease, OthersRelease;
 			mutable std::atomic_uint32_t Stores = 0;
-			auto Get(const DerivedData::FCacheGetRequest&) const -> DerivedData::FCacheGetResult override { return std::optional<DerivedData::FCacheRecord>{}; }
-			auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override {
+			auto Get(const DerivedData::FCacheGetBackendRequest&) const -> DerivedData::FCacheGetResult override { return std::optional<DerivedData::FCacheRecord>{}; }
+			auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override
+			{
 				if (Stores.fetch_add(1) == 0) { FirstEntered.Trigger(); FirstRelease.WaitFor(15); }
 				else { SecondEntered.Trigger(); }
-				return DerivedData::GetCache().Put(Request);
+				return DerivedData::GetCacheBackend().Put(Request);
 			}
 		};
 		auto Cache = std::make_shared<FGate>();

@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "DerivedDataCache/DerivedDataCacheDiagnostics.h"
-#include "DerivedDataCache/DerivedDataCache.h"
+#include "CacheBackend.h"
 
 namespace Durin::DerivedData::Private
 {
