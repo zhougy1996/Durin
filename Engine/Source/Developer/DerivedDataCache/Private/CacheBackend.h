@@ -20,7 +20,7 @@ namespace Durin::DerivedData
 	struct FCacheGetBackendRequest
 	{
 		FCacheKey Key;
-		FBuildOutputLimits OutputLimits;
+		FCacheRecordLimits RecordLimits;
 		// Manifest plus each distinct requested blob identity and raw size.
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
 		// Retained payload/codec storage; excludes descriptor and allocator overhead.

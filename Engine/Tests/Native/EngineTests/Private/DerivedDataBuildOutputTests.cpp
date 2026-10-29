@@ -1,3 +1,5 @@
+#include "CacheRecordStorage.h"
+#include "BuildCacheRecordPrivate.h"
 #include "CacheRecordFixtureCodec.h"
 #include "DerivedDataBuildOutput.h"
 #include "Serialization/BinaryFormat.h"
@@ -25,12 +27,14 @@ TEST(FDerivedDataBuildOutputTests, ObservationsStayBoundedAndNeverEnterCacheReco
 	};
 	const auto First = Make(1), Second = Make(2); ASSERT_EQ(First.GetObservations().size(), 1u);
 	EXPECT_FALSE(First.CheckLimits({.MaximumObservationBytes = 1})); EXPECT_FALSE(First.CheckLimits({.MaximumObservations = 0}));
-	auto A = FCacheRecord::FromOutput(Key(), First).value(), B = FCacheRecord::FromOutput(Key(), Second).value();
-	EXPECT_TRUE(std::ranges::equal(A.EncodeManifest()->GetBytes(), B.EncodeManifest()->GetBytes()));
+	auto A = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), First).value(), B = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), Second).value();
+	EXPECT_TRUE(std::ranges::equal(Durin::DerivedData::Private::EncodeCacheManifest(A)->GetBytes(), Durin::DerivedData::Private::EncodeCacheManifest(B)->GetBytes()));
 	EXPECT_TRUE(std::ranges::equal(FCacheRecordFixtureCodec::Encode(A)->GetBytes(), FCacheRecordFixtureCodec::Encode(B)->GetBytes()));
-	EXPECT_TRUE(A.ToOutput(Key())->GetObservations().empty());
-	const auto Encoded = A.EncodeManifest().value(); auto Loaded = FCacheRecord::DecodeManifest(Key(), Encoded); ASSERT_TRUE(Loaded);
-	EXPECT_FALSE(Loaded->ToOutput(Key())); // Values are attachments until resolved.
+	EXPECT_TRUE(Durin::DerivedData::Private::ReadBuildOutput(Key(), A)->GetObservations().empty());
+	const auto Encoded = Durin::DerivedData::Private::EncodeCacheManifest(A).value();
+	auto Loaded = Durin::DerivedData::Private::DecodeCacheManifest(Key(), Encoded);
+	ASSERT_TRUE(Loaded);
+	EXPECT_FALSE(Durin::DerivedData::Private::ReadBuildOutput(Key(), *Loaded)); // Values are attachments until resolved.
 	FBuildOutputBuilder Limited("Fixture.Output", 2, {.MaximumObservations = 0}); FCbWriter Empty;
 	EXPECT_FALSE(Limited.AddObservation(FValueId::FromName("Timing"), Empty.SaveObject().value()));
 }
@@ -40,18 +44,23 @@ TEST(FDerivedDataBuildOutputTests, StructuredManifestPreservesLargeTablesAndReje
 	FBuildOutputBuilder Builder("Fixture.Output", 2);
 	for (uint32 I = 0; I < 600; ++I) ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data").MakeIndexed(I), Bytes("same")));
 	FCbWriter Metadata; Metadata.AddString("owned", "Name"); ASSERT_TRUE(Builder.AddMeta(FValueId::FromName("Meta"), Metadata.SaveObject().value()));
-	const auto Record = FCacheRecord::FromOutput(Key(), std::move(Builder).Build().value()).value();
-	const auto Encoded = Record.EncodeManifest().value(); auto Loaded = FCacheRecord::DecodeManifest(Key(), Encoded); ASSERT_TRUE(Loaded);
-	const auto MetadataLimit = Record.GetMetadata()[0].Object.GetBytes().GetSize();
-	EXPECT_TRUE(FCacheRecord::DecodeManifest(Key(), Encoded, {.MaximumMetadataBytes = MetadataLimit}));
-	EXPECT_FALSE(FCacheRecord::DecodeManifest(Key(), Encoded, {.MaximumMetadataBytes = MetadataLimit - 1}));
+	const auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), std::move(Builder).Build().value()).value();
+	const auto Encoded = Durin::DerivedData::Private::EncodeCacheManifest(Record).value();
+	auto Loaded = Durin::DerivedData::Private::DecodeCacheManifest(Key(), Encoded);
+	ASSERT_TRUE(Loaded);
+	const auto MetadataLimit = Record.GetMeta().GetBytes().GetSize();
+	const auto BuildMetadataLimit = Durin::DerivedData::Private::ReadBuildCacheRecord(Record)->GetMetadata()[0].Object.GetBytes().GetSize();
+	EXPECT_TRUE(Durin::DerivedData::Private::DecodeCacheManifest(Key(), Encoded, {.MaximumMetadataBytes = MetadataLimit}));
+	EXPECT_FALSE(Durin::DerivedData::Private::DecodeCacheManifest(Key(), Encoded, {.MaximumMetadataBytes = MetadataLimit - 1}));
 	const auto Resolved = Loaded->WithValues(Record.GetValues()).value();
 	EXPECT_TRUE(std::ranges::equal(FCacheRecordFixtureCodec::Encode(Record)->GetBytes(), FCacheRecordFixtureCodec::Encode(Resolved)->GetBytes()));
-	EXPECT_TRUE(FCacheRecordFixtureCodec::Decode(Key(), FCacheRecordFixtureCodec::Encode(Resolved).value(), {.MaximumMetadataBytes = MetadataLimit}));
-	ASSERT_EQ(Loaded->GetValues().size(), 600u); EXPECT_TRUE(Loaded->GetMetadata()[0].Object.GetBytes().SharesStorageWith(Encoded));
-	EXPECT_TRUE(std::ranges::equal(Encoded.GetBytes(), Loaded->EncodeManifest()->GetBytes()));
-	EXPECT_TRUE(Record.EncodeManifest(Encoded.GetSize())); EXPECT_FALSE(Record.EncodeManifest(Encoded.GetSize() - 1));
-	EXPECT_FALSE(Record.EncodeManifest(UINT64_MAX, 1));
+	EXPECT_TRUE(FCacheRecordFixtureCodec::Decode(Key(), FCacheRecordFixtureCodec::Encode(Resolved).value(), {.MaximumMetadataBytes = BuildMetadataLimit}));
+	ASSERT_EQ(Loaded->GetValues().size(), 600u);
+	EXPECT_TRUE(Loaded->GetMeta().GetBytes().SharesStorageWith(Encoded));
+	EXPECT_TRUE(std::ranges::equal(Encoded.GetBytes(), Durin::DerivedData::Private::EncodeCacheManifest(*Loaded)->GetBytes()));
+	EXPECT_TRUE(Durin::DerivedData::Private::EncodeCacheManifest(Record, Encoded.GetSize()));
+	EXPECT_FALSE(Durin::DerivedData::Private::EncodeCacheManifest(Record, Encoded.GetSize() - 1));
+	EXPECT_FALSE(Durin::DerivedData::Private::EncodeCacheManifest(Record, UINT64_MAX, 1));
 	FCbLimits Limits{.MaximumEncodedBytes = 8 * 1024 * 1024, .MaximumDepth = 40, .MaximumFields = 700000};
 	const auto Root = FCbObject::TryLoad(Encoded.MakeView(16, Encoded.GetSize() - 32), Limits).value().GetView();
 	ASSERT_EQ(Root.Find("Values").AsArray().Num(), 600u);
@@ -67,14 +76,14 @@ TEST(FDerivedDataBuildOutputTests, StructuredManifestPreservesLargeTablesAndReje
 			Descriptor.AddObject(Attachment.SaveObject().value(), "Attachment"); Values.AddObject(Descriptor.SaveObject().value());
 		}
 		Changed.AddArray(Values.SaveArray().value(), "Values");
-		Changed.AddArray(FCbArray::TryLoad(Root.Find("Metadata").GetBytes()).value(), "Metadata");
-		Changed.AddArray(FCbArray::TryLoad(Root.Find("Messages").GetBytes()).value(), "Messages");
+		Changed.AddObject(FCbObject::TryLoad(Root.Find("Meta").GetBytes()).value(), "Meta");
 		Changed.AddString(std::string(*Root.Find("Bucket").AsString()), "Bucket"); Changed.AddBinary(*Root.Find("Key").AsBinary(), "Key");
-		Changed.AddString(std::string(*Root.Find("OutputSchema").AsString()), "OutputSchema"); Changed.AddUInt64(*Root.Find("OutputVersion").AsUInt64(), "OutputVersion");
 		if (Case == 3) Changed.AddNull("Unknown");
-		FBinaryWriter Wire; Wire.WriteHeader({0x4d424444, Case == 4 ? 1u : 2u, 0}); Wire.WriteBytes(Changed.SaveObject()->GetBytes().GetBytes());
+		FBinaryWriter Wire;
+		Wire.WriteHeader({0x4d424444, Case == 4 ? 2u : 3u, 0});
+		Wire.WriteBytes(Changed.SaveObject()->GetBytes().GetBytes());
 		Wire.WriteHash128(FXxHash128::HashBuffer(Wire.GetBytes()));
-		EXPECT_FALSE(FCacheRecord::DecodeManifest(Key(), FSharedByteBuffer::Take(Wire.TakeBytes()))) << Case;
+		EXPECT_FALSE(Durin::DerivedData::Private::DecodeCacheManifest(Key(), FSharedByteBuffer::Take(Wire.TakeBytes()))) << Case;
 	}
 }
 
@@ -111,12 +120,13 @@ TEST(FDerivedDataBuildOutputTests, DescriptorOnlyRecordsCannotBecomeCompleteOutp
 	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Empty"), {}));
 	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data"), Bytes("value")));
 	auto Built = std::move(Builder).Build(); ASSERT_TRUE(Built);
-	auto Record = FCacheRecord::FromOutput(Key(), *Built); ASSERT_TRUE(Record);
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), *Built);
+	ASSERT_TRUE(Record);
 	const auto Reference = Record->RemoveValueData();
 	ASSERT_TRUE(Reference.IsValid());
 	EXPECT_EQ(Reference.GetKey(), Key());
-	EXPECT_EQ(Reference.GetSchema(), Built->GetSchema());
-	EXPECT_EQ(Reference.GetSchemaVersion(), Built->GetSchemaVersion());
+	EXPECT_EQ(Durin::DerivedData::Private::ReadBuildCacheRecord(Reference)->GetSchema(), Built->GetSchema());
+	EXPECT_EQ(Durin::DerivedData::Private::ReadBuildCacheRecord(Reference)->GetSchemaVersion(), Built->GetSchemaVersion());
 	ASSERT_EQ(Reference.GetValues().size(), Record->GetValues().size());
 	for (size_t Index = 0; Index < Reference.GetValues().size(); ++Index)
 	{
@@ -128,11 +138,12 @@ TEST(FDerivedDataBuildOutputTests, DescriptorOnlyRecordsCannotBecomeCompleteOutp
 		EXPECT_FALSE(After.Value.HasData());
 		EXPECT_TRUE(Before.Value.HasData());
 	}
-	const auto Incomplete = Reference.ToOutput(Key()); ASSERT_FALSE(Incomplete);
+	const auto Incomplete = Durin::DerivedData::Private::ReadBuildOutput(Key(), Reference);
+	ASSERT_FALSE(Incomplete);
 	EXPECT_EQ(Incomplete.error().Code, ECacheError::InvalidRequest);
 	const auto Encoded = FCacheRecordFixtureCodec::Encode(Reference); ASSERT_FALSE(Encoded);
 	EXPECT_EQ(Encoded.error().Code, ECacheError::InvalidRequest);
-	EXPECT_TRUE(Record->ToOutput(Key()));
+	EXPECT_TRUE(Durin::DerivedData::Private::ReadBuildOutput(Key(), *Record));
 	EXPECT_TRUE(FCacheRecordFixtureCodec::Encode(*Record));
 	EXPECT_FALSE(FCacheRecord{}.RemoveValueData().IsValid());
 }
@@ -141,14 +152,17 @@ TEST(FDerivedDataBuildOutputTests, IndependentRecordsRetainPayloadsMetadataAndMe
 {
 	auto Built = Output();
 	const auto Backing = Built.FindValue(FValueId::FromName("A"))->GetData();
-	auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record);
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), Built);
+	ASSERT_TRUE(Record);
 	Built = {};
 	const auto Reference = Record->RemoveValueData();
-	ASSERT_EQ(Reference.GetMetadata().size(), 1u);
-	EXPECT_TRUE(Reference.GetMetadata()[0].Object.GetBytes().SharesStorageWith(Record->GetMetadata()[0].Object.GetBytes()));
-	ASSERT_EQ(Reference.GetMessages().size(), 1u);
-	EXPECT_EQ(Reference.GetMessages()[0].Text, "warning");
-	auto Loaded = Record->ToOutput(Key()); ASSERT_TRUE(Loaded);
+	const auto View = Durin::DerivedData::Private::ReadBuildCacheRecord(Reference).value();
+	ASSERT_EQ(View.GetMetadata().size(), 1u);
+	EXPECT_TRUE(View.GetMetadata()[0].Object.GetBytes().SharesStorageWith(Durin::DerivedData::Private::ReadBuildCacheRecord(*Record)->GetMetadata()[0].Object.GetBytes()));
+	ASSERT_EQ(View.GetMessages().size(), 1u);
+	EXPECT_EQ(View.GetMessages()[0].Text, "warning");
+	auto Loaded = Durin::DerivedData::Private::ReadBuildOutput(Key(), *Record);
+	ASSERT_TRUE(Loaded);
 	Record = FCacheRecord{};
 	EXPECT_TRUE(Loaded->FindValue(FValueId::FromName("A"))->GetData().SharesStorageWith(Backing));
 	EXPECT_EQ(GetBuildMetadataPayload(*Loaded).GetSize(), 4u);
@@ -173,24 +187,43 @@ TEST(FDerivedDataBuildOutputTests, TransientLogsAreReturnedButNotCacheable)
 	FBuildOutputBuilder Builder("Fixture.Output", 1); Builder.AddValue(FValueId::FromName("Data"), Bytes("value"));
 	EXPECT_TRUE(Builder.AddLog("Fixture", EBuildLogSeverity::Warning, "transient"));
 	auto Built = std::move(Builder).Build(); ASSERT_TRUE(Built); ASSERT_TRUE(Built->HasLogs()); EXPECT_EQ(Built->GetLogs().size(), 1u);
-	auto Record = FCacheRecord::FromOutput(Key(), *Built); ASSERT_FALSE(Record); EXPECT_EQ(Record.error().Code, ECacheError::InvalidRequest);
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), *Built);
+	ASSERT_FALSE(Record);
+	EXPECT_EQ(Record.error().Code, ECacheError::InvalidRequest);
 }
 
 TEST(FDerivedDataBuildOutputTests, RawAndCompressedRecordsRoundTripWithRetainedViews)
 {
-	auto Built = Output(); auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record); auto Raw = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Raw); auto Decoded = FCacheRecordFixtureCodec::Decode(Key(), *Raw); ASSERT_TRUE(Decoded); auto Loaded = Decoded->ToOutput(Key()); ASSERT_TRUE(Loaded); EXPECT_TRUE(Loaded->FindValue(FValueId::FromName("A"))->GetData().SharesStorageWith(*Raw));
-	auto Compressed = FCacheRecordFixtureCodec::CompressEncoded(*Raw); ASSERT_TRUE(Compressed); auto Inflated = FCacheRecordFixtureCodec::Decode(Key(), *Compressed); ASSERT_TRUE(Inflated); EXPECT_TRUE(Inflated->ToOutput(Key()).has_value());
+	auto Built = Output();
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), Built);
+	ASSERT_TRUE(Record);
+	auto Raw = FCacheRecordFixtureCodec::Encode(*Record);
+	ASSERT_TRUE(Raw);
+	auto Decoded = FCacheRecordFixtureCodec::Decode(Key(), *Raw);
+	ASSERT_TRUE(Decoded);
+	auto Loaded = Durin::DerivedData::Private::ReadBuildOutput(Key(), *Decoded);
+	ASSERT_TRUE(Loaded);
+	EXPECT_TRUE(Loaded->FindValue(FValueId::FromName("A"))->GetData().SharesStorageWith(*Raw));
+	auto Compressed = FCacheRecordFixtureCodec::CompressEncoded(*Raw);
+	ASSERT_TRUE(Compressed);
+	auto Inflated = FCacheRecordFixtureCodec::Decode(Key(), *Compressed);
+	ASSERT_TRUE(Inflated);
+	EXPECT_TRUE(Durin::DerivedData::Private::ReadBuildOutput(Key(), *Inflated).has_value());
 }
 
 TEST(FDerivedDataBuildOutputTests, CorruptionAndWrongKeysAreRejected)
 {
-	auto Record = FCacheRecord::FromOutput(Key(), Output()).value(); auto Raw = FCacheRecordFixtureCodec::Encode(Record).value(); FByteBuffer Corrupt(Raw.begin(), Raw.end()); Corrupt[Corrupt.size() / 2] ^= std::byte{1}; EXPECT_FALSE(FCacheRecordFixtureCodec::Decode(Key(), FSharedByteBuffer::Take(std::move(Corrupt))));
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), Output()).value();
+	auto Raw = FCacheRecordFixtureCodec::Encode(Record).value();
+	FByteBuffer Corrupt(Raw.begin(), Raw.end());
+	Corrupt[Corrupt.size() / 2] ^= std::byte{1};
+	EXPECT_FALSE(FCacheRecordFixtureCodec::Decode(Key(), FSharedByteBuffer::Take(std::move(Corrupt))));
 	auto Other = FCacheKey::FromHash(FCacheBucket::FromString("OutputFixtures"), FXxHash128::HashBuffer("other")); EXPECT_FALSE(FCacheRecordFixtureCodec::Decode(Other, Raw));
 }
 
 TEST(FDerivedDataBuildOutputTests, PayloadHashesAreCheckedEvenWithAValidEnvelopeHash)
 {
-	auto Record = FCacheRecord::FromOutput(Key(), Output()).value();
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), Output()).value();
 	auto Raw = FCacheRecordFixtureCodec::Encode(Record).value();
 	for (std::string_view Payload : {"large", "meta"})
 	{
@@ -211,18 +244,20 @@ TEST(FDerivedDataBuildOutputTests, PayloadHashesAreCheckedEvenWithAValidEnvelope
 TEST(FDerivedDataBuildOutputTests, ReusedOutputStillEnforcesStricterLimitsAndKeys)
 {
 	auto Built = Output();
-	auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record);
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), Built);
+	ASSERT_TRUE(Record);
 	auto Raw = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Raw);
 	auto Loaded = FCacheRecordFixtureCodec::Decode(Key(), *Raw); ASSERT_TRUE(Loaded);
 	for (const auto& Candidate : {*Record, *Loaded})
 	{
-		auto Warm = Candidate.ToOutput(Key()); ASSERT_TRUE(Warm);
+		auto Warm = Durin::DerivedData::Private::ReadBuildOutput(Key(), Candidate);
+		ASSERT_TRUE(Warm);
 		EXPECT_TRUE(Warm->CheckLimits());
 		EXPECT_FALSE(Warm->CheckLimits({.MaximumTotalBytes = 1}));
-		EXPECT_FALSE(Candidate.ToOutput(Key(), {.MaximumValues = 1}));
-		EXPECT_FALSE(Candidate.ToOutput(Key(), {.MaximumMetadataBytes = 1}));
-		EXPECT_FALSE(FCacheRecord::FromOutput(Key(), *Warm, {.MaximumValues = 1}));
+		EXPECT_FALSE(Durin::DerivedData::Private::ReadBuildOutput(Key(), Candidate, {.MaximumValues = 1}));
+		EXPECT_FALSE(Durin::DerivedData::Private::ReadBuildOutput(Key(), Candidate, {.MaximumMetadataBytes = 1}));
+		EXPECT_FALSE(Durin::DerivedData::Private::MakeBuildCacheRecord(Key(), *Warm, {.MaximumValues = 1}));
 		auto Other = FCacheKey::FromHash(Key().GetBucket(), FXxHash128::HashBuffer("other"));
-		EXPECT_FALSE(Candidate.ToOutput(Other));
+		EXPECT_FALSE(Durin::DerivedData::Private::ReadBuildOutput(Other, Candidate));
 	}
 }

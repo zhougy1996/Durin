@@ -1,3 +1,4 @@
+#include "BuildServiceBackendPrivate.h"
 #include "CacheDispatchPrivate.h"
 #include "StaticMesh/StaticMeshDerivedDataKeyTestSupport.h"
 
@@ -161,8 +162,8 @@ namespace
 
 	auto GetObjectPath(const FStaticMeshCacheFixture& Fixture, std::string_view Key) -> std::filesystem::path
 	{
-		return Fixture.CacheRoot / "records" / "v4" / "StaticMesh"
-			/ std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
+		return Fixture.CacheRoot / "records" / "v5" / "StaticMesh"
+			   / std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
 	}
 
 	auto WriteU32(Durin::FByteBuffer& Bytes, size_t Offset, uint32 Value) -> void
@@ -499,9 +500,9 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	CollisionLog.Reset();
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)))) << Error;
-	const auto CollisionPath = Fixture.CacheRoot / "records" / "v4" / "StaticMeshCollision"
-		/ GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString().substr(0, 2)
-		/ (GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString() + ".bin");
+	const auto CollisionPath = Fixture.CacheRoot / "records" / "v5" / "StaticMeshCollision"
+							   / GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString().substr(0, 2)
+							   / (GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(CollisionPath));
 	CollisionLog.Reset();
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
@@ -2709,8 +2710,8 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0))));
 	const auto Key = GetCollisionKey(*Fixture.Mesh->GetRenderData());
-	const auto Path = Fixture.CacheRoot / "records" / "v4" / "StaticMeshCollision"
-		/ Key.ToString().substr(0, 2) / (Key.ToString() + ".bin");
+	const auto Path = Fixture.CacheRoot / "records" / "v5" / "StaticMeshCollision"
+					  / Key.ToString().substr(0, 2) / (Key.ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(Path));
 	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({Key, Invalid, MaximumPhysicsCollisionPayloadBytes, DerivedData::ECacheStorageNamespace::Records}));
 	CollisionLog.Reset();
@@ -3562,7 +3563,7 @@ TEST(FStaticMeshSeparatedBuildTests, IndependentCollisionHonorsPersistenceAndPre
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	const auto Key = GetCollisionKey(*Mesh->GetRenderData()).ToString();
-	const auto CollisionPath = Cache / "records" / "v4" / "StaticMeshCollision" / Key.substr(0, 2) / (Key + ".bin");
+	const auto CollisionPath = Cache / "records" / "v5" / "StaticMeshCollision" / Key.substr(0, 2) / (Key + ".bin");
 	EXPECT_FALSE(std::filesystem::exists(CollisionPath));
 	Mesh->RebuildCollision();
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);

@@ -1,3 +1,4 @@
+#include "CacheRecordStorage.h"
 #include "FileSystemCacheBackend.h"
 #include "DerivedDataValue.h"
 #include "CacheStorageOwnership.h"
@@ -11,8 +12,10 @@ namespace Durin::DerivedData
 		-> FFilePath
 	{
 		auto Root = FFilePath(Lease.Root);
-		if (Namespace == ECacheStorageNamespace::Records) Root /= "records/v4";
-		else if (Namespace == ECacheStorageNamespace::Values) Root /= FCacheBlobIdentity::Namespace;
+		if (Namespace == ECacheStorageNamespace::Records)
+			Root /= Private::CacheRecordNamespace;
+		else if (Namespace == ECacheStorageNamespace::Values)
+			Root /= Private::FCacheBlobIdentity::Namespace;
 		return (Root / std::string(Bucket.ToString())).lexically_normal();
 	}
 

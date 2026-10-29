@@ -1,6 +1,7 @@
 #include "Texture/Texture2DCache.h"
 
 #if DURIN_WITH_EDITOR
+	#include "BuildCacheRecordPrivate.h"
 	#include "CacheDispatchPrivate.h"
 	#include "DerivedDataCache/DerivedDataCache.h"
 	#include "Texture2DSharedOutput.h"
@@ -27,7 +28,9 @@ namespace Durin
 			return std::unexpected(FTexture2DCacheError{Code, std::move(Cached.error().Diagnostic)});
 		}
 		if (!*Cached) return std::optional<FTexture2DCachedMips>{};
-		const auto& Record = **Cached;
+		auto BuildRecord = DerivedData::Private::ReadBuildCacheRecord(**Cached);
+		if (!BuildRecord) return std::unexpected(FTexture2DCacheError{ETexture2DCacheError::InvalidOutput, BuildRecord.error().Diagnostic});
+		const auto& Record = *BuildRecord;
 		if (std::ranges::any_of(Record.GetMessages(), [](const auto& Message) { return Message.Severity == DerivedData::EBuildMessageSeverity::Error; }))
 			return std::unexpected(FTexture2DCacheError{ETexture2DCacheError::InvalidOutput, "Texture cache contains a failed build output."});
 		auto Layout = TexturePrivate::ReadTexture2DOutputLayout(Record, Request.TargetPlatform, Request.TargetProfile);

@@ -1,3 +1,4 @@
+#include "BuildCacheRecordPrivate.h"
 #include "CacheBackend.h"
 #include "CacheRecordFixtureCodec.h"
 #include "Runtime/Engine/Private/Texture/TextureBuildInternal.h"
@@ -49,7 +50,9 @@ TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndAvoidsUnselect
 	}
 	const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Texture2D"), {123, 456});
 	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Product, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(Output) << Output.error(); auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+	ASSERT_TRUE(Output) << Output.error();
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
+	ASSERT_TRUE(Record);
 	ASSERT_TRUE(GetCacheBackend().Put({*Record}));
 	const std::array<uint32, 2> Mips{8, 2};
 	auto Selected = ReadTexture2DCachedMips({FCacheKeyProxy(Key), Mips}); ASSERT_TRUE(Selected && *Selected);
@@ -102,7 +105,7 @@ TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMi
 	Product.Mips.push_back({.Pixels = FSharedByteBuffer::Take(FByteBuffer(16, std::byte{1})), .Width = 1, .Height = 1, .RowPitch = 16});
 	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Product, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(Output);
-	auto Record = FCacheRecord::FromOutput(Key, *Output);
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
 	ASSERT_TRUE(Record);
 	ASSERT_TRUE(GetCacheBackend().Put({*Record}));
 	const std::array<uint32, 2> Duplicate{0, 0}; Request.MipIndices = Duplicate;
@@ -126,7 +129,7 @@ TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMi
 	for (const auto& Meta : Output->GetMetadata()) Failed.AddMeta(Meta.Id, Meta.Object);
 	Failed.AddMessage(EBuildMessageSeverity::Error, "fixture failure");
 	auto FailedOutput = std::move(Failed).Build(); ASSERT_TRUE(FailedOutput);
-	ASSERT_TRUE(GetCacheBackend().Put({FCacheRecord::FromOutput(Key, *FailedOutput).value()}));
+	ASSERT_TRUE(GetCacheBackend().Put({Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *FailedOutput).value()}));
 	// Failed build outputs discard values by contract, so a required mip is missing.
 	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::MissingValue);
 }
@@ -745,10 +748,10 @@ TEST(FTextureDerivedDataTests, SharedOutputRetainsGroupedMipsAndPreservesCookByt
 	Source = {}; Backing = {}; Owner.reset();
 	EXPECT_FALSE(Lifetime.expired());
 	auto Key = DerivedData::FCacheKey::FromHash(DerivedData::FCacheBucket::FromString("TextureOutputFixture"), FXxHash128::HashBuffer("key"));
-	auto Record = DerivedData::FCacheRecord::FromOutput(Key, *Output);
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
 	ASSERT_TRUE(Record);
 	Output = DerivedData::FBuildOutput{};
-	auto Loaded = Record->ToOutput(Key);
+	auto Loaded = Durin::DerivedData::Private::ReadBuildOutput(Key, *Record);
 	ASSERT_TRUE(Loaded);
 	auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Loaded, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(Product) << Product.error();
@@ -818,7 +821,7 @@ TEST(FTextureDerivedDataTests, AbandonedOutputAndFailedPersistenceDoNotChangeBlo
 	ASSERT_TRUE(Output);
 	const auto* Address = Source.Mips[0].Pixels.data();
 	const auto Key = DerivedData::FCacheKey::FromHash(DerivedData::FCacheBucket::FromString("TextureOutputFixture"), FXxHash128::HashBuffer("key"));
-	EXPECT_FALSE(DerivedData::FCacheRecord::FromOutput(Key, *Output, {.MaximumTotalBytes = 1}));
+	EXPECT_FALSE(Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output, {.MaximumTotalBytes = 1}));
 	FByteBuffer RejectedBytes;
 	FCanonicalMemoryWriter RejectedWriter(RejectedBytes, EArchivePurpose::DerivedDataPayload,
 		{.Target = {"Unsupported", "Game"}});
@@ -839,7 +842,7 @@ TEST(FTextureDerivedDataTests, DecodedCacheRecordsAssembleSharedMipsWithIdentica
 	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Source, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(Output);
 	const auto Key = DerivedData::FCacheKey::FromHash(DerivedData::FCacheBucket::FromString("TextureOutputFixture"), FXxHash128::HashBuffer("encoded"));
-	auto Record = DerivedData::FCacheRecord::FromOutput(Key, *Output);
+	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
 	ASSERT_TRUE(Record);
 	auto Raw = DerivedData::FCacheRecordFixtureCodec::Encode(*Record);
 	ASSERT_TRUE(Raw);
@@ -849,7 +852,7 @@ TEST(FTextureDerivedDataTests, DecodedCacheRecordsAssembleSharedMipsWithIdentica
 		ASSERT_TRUE(Stored);
 		auto LoadedRecord = DerivedData::FCacheRecordFixtureCodec::Decode(Key, *Stored);
 		ASSERT_TRUE(LoadedRecord);
-		auto Loaded = LoadedRecord->ToOutput(Key);
+		auto Loaded = Durin::DerivedData::Private::ReadBuildOutput(Key, *LoadedRecord);
 		ASSERT_TRUE(Loaded);
 		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Loaded, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 		ASSERT_TRUE(Product);

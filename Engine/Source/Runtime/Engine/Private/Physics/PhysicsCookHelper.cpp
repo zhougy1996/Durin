@@ -1,6 +1,7 @@
 #include "Physics/PhysicsCookHelper.h"
 #include "PhysicsCookInputPrivate.h"
 #if DURIN_WITH_EDITOR
+	#include "BuildServiceBackendPrivate.h"
 	#include "CacheDispatchPrivate.h"
 	#include "DerivedDataBuildSession.h"
 	#include "Asset/ResourceBuildSessions.h"

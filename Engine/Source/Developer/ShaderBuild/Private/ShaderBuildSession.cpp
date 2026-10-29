@@ -1,3 +1,4 @@
+#include "BuildServiceBackendPrivate.h"
 #include "CacheDispatchPrivate.h"
 #include "ShaderBuildSession.h"
 #include "MetalLibraryBuild.h"

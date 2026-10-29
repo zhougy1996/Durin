@@ -1,3 +1,4 @@
+#include "BuildCacheRecordPrivate.h"
 #include "CacheRecordFixtureCodec.h"
 #include "Physics/PhysicsDerivedData.h"
 #include "Physics/PhysicsSharedOutput.h"
@@ -1468,12 +1469,14 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRestoresRawAndCompressedRecordsWi
 		auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeRenderData(Payload), Payload.MaterialSlotCount);
 		ASSERT_TRUE(Output) << Output.error();
 		const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("MeshOutputFixture"), FXxHash128::HashBuffer("mesh"));
-		auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+		auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
+		ASSERT_TRUE(Record);
 		auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
 		if (Compressed) Encoded = FCacheRecordFixtureCodec::CompressEncoded(*Encoded);
 		ASSERT_TRUE(Encoded);
 		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
-		auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
+		auto Warm = Durin::DerivedData::Private::ReadBuildOutput(Key, *Loaded);
+		ASSERT_TRUE(Warm);
 		EXPECT_FALSE(Warm->FindValue(StaticMeshStreamId(0))->GetData().GetNativeView<FVector3f>());
 		auto Render = StaticMeshPrivate::AssembleSharedOutput(*Warm); ASSERT_TRUE(Render) << Render.error();
 		Warm = FBuildOutput{}; Loaded = FCacheRecord{}; Encoded = FSharedByteBuffer{};
@@ -1606,12 +1609,14 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRetainsColdArraysAndPres
 		FCanonicalMemoryWriter ExpectedWriter(ExpectedBytes, EArchivePurpose::CookedPackage, {.Target = {"Win64", "Game"}});
 		ExpectedPayload.Serialize(ExpectedWriter); ASSERT_FALSE(ExpectedWriter.IsError());
 		const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("CollisionOutputFixture"), FXxHash128::HashBuffer("collision"));
-		auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+		auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
+		ASSERT_TRUE(Record);
 		auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
 		if (Compressed) Encoded = FCacheRecordFixtureCodec::CompressEncoded(*Encoded);
 		ASSERT_TRUE(Encoded);
 		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
-		auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
+		auto Warm = Durin::DerivedData::Private::ReadBuildOutput(Key, *Loaded);
+		ASSERT_TRUE(Warm);
 		EXPECT_FALSE(Warm->FindValue(CollisionBlockId(Hull ? 0 : 1, 0))->GetData().GetNativeView<FVector3>());
 		auto Assembled = PhysicsPrivate::AssembleSharedOutput(*Warm, Mode); ASSERT_TRUE(Assembled) << Assembled.error();
 		const auto& Restored = Hull ? Assembled->Simple : Assembled->Complex;

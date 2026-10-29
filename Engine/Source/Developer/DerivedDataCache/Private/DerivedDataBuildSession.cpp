@@ -1,3 +1,4 @@
+#include "BuildCacheRecordPrivate.h"
 #include "DerivedDataBuildSession.h"
 #include "DerivedDataBuildExecutionPrivate.h"
 #include "CacheDispatchPrivate.h"
@@ -154,7 +155,7 @@ namespace Durin::DerivedData
 				{ std::lock_guard Lock(Mutex); Data = std::move(Work); }
 				const auto Policy = Data->Options.Policy;
 				if (!Policy.QueryCache || Policy.ForceBuild) { ResumeLocal(); return; }
-				const std::array Requests{FCacheGetBackendRequest{.Key = std::get<FBuildAction>(Data->Request).GetKey(), .OutputLimits = Policy.OutputLimits, .MaximumEncodedBytes = Policy.MaximumEncodedBytes, .MaximumWorkingSetBytes = Policy.MaximumWorkingSetBytes, .ShouldCancel = [Cancel = Data->Options.Cancellation] { return Cancel.IsCancelled(); }}};
+				const std::array Requests{FCacheGetBackendRequest{.Key = std::get<FBuildAction>(Data->Request).GetKey(), .RecordLimits = {.MaximumTotalBytes = Policy.OutputLimits.MaximumTotalBytes}, .MaximumEncodedBytes = Policy.MaximumEncodedBytes, .MaximumWorkingSetBytes = Policy.MaximumWorkingSetBytes, .ShouldCancel = [Cancel = Data->Options.Cancellation] { return Cancel.IsCancelled(); }}};
 				auto Cache = Data->Resources->Service.AsyncCache; auto CacheOwner = Group;
 				auto Self = shared_from_this(); const auto Revision = BeginScheduledStage();
 				auto Submitted = Cache->Get(Requests, *CacheOwner,
@@ -178,14 +179,11 @@ namespace Durin::DerivedData
 				if (Result && *Result)
 				{
 					const auto& Function = std::get<FBuildAction>(Work->Request).GetFunction();
-					auto Output = (**Result).GetSchema() == Function.OutputType
-						&& (**Result).GetSchemaVersion() == Function.OutputSchema
-						? (**Result).ToOutput(Key, Work->Options.Policy.OutputLimits)
-						: std::expected<FBuildOutput, FCacheError>(std::unexpected(FCacheError{
-							ECacheError::Corrupt, "Cache output schema does not match the build function."}));
+					auto Output = Private::ReadBuildOutput(Key, **Result, Work->Options.Policy.OutputLimits);
+					const bool SchemaMismatch = Output && (Output->GetSchema() != Function.OutputType || Output->GetSchemaVersion() != Function.OutputSchema);
+					if (SchemaMismatch) Output = std::unexpected(FCacheError{ECacheError::Corrupt, "Cache output schema does not match the build function."});
 					if (Output && !Output->HasError()) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildExecutionFlags::CacheQueryHit)); return; }
-					Private::ObserveCache(Key, (**Result).GetSchema() != Function.OutputType || (**Result).GetSchemaVersion() != Function.OutputSchema
-						? Private::ECacheObservation::SchemaRejected : Private::ECacheObservation::RecordRejected);
+					Private::ObserveCache(Key, SchemaMismatch ? Private::ECacheObservation::SchemaRejected : Private::ECacheObservation::RecordRejected);
 					Result = std::unexpected(Output ? FCacheError{ECacheError::Corrupt, "Cached build output contains errors."}
 						: std::move(Output.error()));
 				}
@@ -203,7 +201,7 @@ namespace Durin::DerivedData
 					|| Output->HasLogs()) { Work.reset(); Finish(std::move(Completion)); return; }
 				const auto Policy = Work->Options.Policy;
 				Work->LocalCompletion = std::move(Completion);
-				auto Record = FCacheRecord::FromOutput(*Work->LocalCompletion->GetCacheKey(), *Work->LocalCompletion->GetOutput(), Policy.PersistenceLimits);
+				auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(*Work->LocalCompletion->GetCacheKey(), *Work->LocalCompletion->GetOutput(), Policy.PersistenceLimits);
 				if (Policy.ResultDelivery == EBuildResultDelivery::BeforePersistence)
 					Deliver(*Work->LocalCompletion);
 				if (!Record) { Work.reset(); ReceiveStore(std::unexpected(std::move(Record.error()))); return; }

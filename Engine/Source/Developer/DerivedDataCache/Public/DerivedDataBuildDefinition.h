@@ -2,10 +2,16 @@
 
 #include "CoreMinimal.h"
 
-#include "DerivedDataCache/DerivedDataCacheTypes.h"
+#include "DerivedDataValue.h"
 
 namespace Durin::DerivedData
 {
+	struct FBuildValueKey
+	{
+		FCacheKey BuildKey;
+		FValueId Id;
+		auto operator==(const FBuildValueKey&) const -> bool = default;
+	};
 	struct FBuildFunctionDescriptor
 	{
 		std::string Name;

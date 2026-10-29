@@ -179,8 +179,6 @@ namespace Durin::DerivedData::Private
 					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-request byte capacity exhausted."});
 				if (!Op->PutRequest) continue;
 				const auto& Record = Op->PutRequest->Record;
-				if (!Charge(Record.GetSchema().size()))
-					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-record byte capacity exhausted."});
 				std::vector<FSharedByteBuffer> Backings;
 				const auto Retain = [&](FSharedByteBuffer Buffer) {
 					if (std::ranges::any_of(Backings, [&](const auto& Other) { return Buffer.SharesStorageWith(Other); })) return true;
@@ -189,10 +187,7 @@ namespace Durin::DerivedData::Private
 				};
 				for (const auto& Value : Record.GetValues()) if (!Retain(Value.Value.GetData()))
 					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-payload byte capacity exhausted."});
-				for (const auto& Meta : Record.GetMetadata()) if (!Retain(Meta.Object.GetBytes()))
-					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-metadata byte capacity exhausted."});
-				for (const auto& Message : Record.GetMessages()) if (!Charge(Message.Text.size()))
-					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-message byte capacity exhausted."});
+				if (!Retain(Record.GetMeta().GetBytes())) return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-metadata byte capacity exhausted."});
 			}
 			{
 				std::unique_lock Lock(State->Mutex);
@@ -330,7 +325,7 @@ namespace Durin::DerivedData
 		Tags->reserve(Requests.size());
 		for (const auto& Request : Requests)
 		{
-			BackendRequests.push_back({.Key = Request.Key, .OutputLimits = Request.OutputLimits, .MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes, .Mode = Request.Mode, .RequiredValues = Request.RequiredValues});
+			BackendRequests.push_back({.Key = Request.Key, .RecordLimits = Request.RecordLimits, .MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes, .Mode = Request.Mode, .RequiredValues = Request.RequiredValues});
 			Tags->emplace_back(Request.Name, Request.UserData);
 		}
 		auto Result = State->Dispatcher(false)->Get(BackendRequests, Owner, [Tags, Notify](uint32 Index, FCacheGetResult Result, FCacheQueryStats) mutable {

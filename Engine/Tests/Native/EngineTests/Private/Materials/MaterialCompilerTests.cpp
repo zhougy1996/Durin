@@ -1,3 +1,5 @@
+#include "BuildServiceBackendPrivate.h"
+#include "BuildCacheRecordPrivate.h"
 #include "CacheDispatchPrivate.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "MetalShaderFormat.h"
@@ -635,7 +637,7 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 			FByteBuffer Bytes(Data.begin(), Data.end());
 			Bytes.front() = std::byte{2};
 			FBuildOutputBuilder Output("Material.Translation", 1); Output.AddValue(FValueId("Product"), FSharedByteBuffer::Take(std::move(Bytes)));
-			return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
+			return std::optional{Durin::DerivedData::Private::MakeBuildCacheRecord(Request.Key, std::move(Output).Build().value()).value()};
 		}
 		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 		{ if (FailStore) return std::unexpected(FCacheError{ECacheError::StorageFailure, "fixture"}); Record = Request.Record; return {}; }
