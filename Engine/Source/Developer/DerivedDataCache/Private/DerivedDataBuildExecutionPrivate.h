@@ -2,11 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "DerivedDataBuildSession.h"
+#include "Threading/CancellationToken.h"
 
 namespace Durin::DerivedData::Private
 {
 	struct FBuildExecutionAccess
 	{
+		static auto ObserveCancellation(FCancellationToken Token) -> FBuildCancellation
+		{ return FBuildCancellation(std::move(Token)); }
 		static auto Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
 			-> std::expected<std::vector<FBuildInput>, FBuildInputError>;
 		static auto Configure(const IBuildFunction& Function) -> FBuildFunctionDescriptor;
@@ -58,6 +61,7 @@ namespace Durin::DerivedData::Private
 	auto ExecuteBuildLocal(const FBuildAction& Action,
 		const FBuildRegistrySnapshot& Registry,
 		const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
-		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options)
+		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options,
+		const FBuildCancellation& Cancel)
 		-> FBuildCompleteParams;
 }

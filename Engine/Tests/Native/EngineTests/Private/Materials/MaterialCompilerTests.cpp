@@ -705,12 +705,12 @@ TEST(FMaterialTranslationTests, ClosedSessionsRemainClosedUntilExplicitOpen)
 	FRequestOwner Owner;
 	for (uint32 Index = 0; Index < 2; ++Index)
 	{
-		auto Accepted = SubmitTranslation(Input, false, Owner, [&](auto) { ++Completions; }, {}, true, {}, EBuildCacheExecution::Inline);
+		auto Accepted = SubmitTranslation(Input, false, Owner, [&](auto) { ++Completions; }, true, {}, EBuildCacheExecution::Inline);
 		ASSERT_FALSE(Accepted); EXPECT_EQ(Accepted.error().Reason, EBuildAdmissionReason::Closed);
 	}
 	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Completions, 0u); EXPECT_EQ(GetTranslationStats().Producers, Before.Producers);
 	OpenTranslationSessions();
-	auto Accepted = SubmitTranslation(Input, false, Owner, [&](auto Product) { EXPECT_TRUE(Product); ++Completions; }, {}, true, {}, EBuildCacheExecution::Inline);
+	auto Accepted = SubmitTranslation(Input, false, Owner, [&](auto Product) { EXPECT_TRUE(Product); ++Completions; }, true, {}, EBuildCacheExecution::Inline);
 	ASSERT_TRUE(Accepted); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Completions, 1u);
 }
 

@@ -51,11 +51,9 @@ namespace Durin
 		if (!Definition) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 			ETextureBuildStage::Normalize, "Invalid VolumeTexture build definition."});
 		DerivedData::FBuildRequestOptions Options;
-		Options.Policy.StoreOnBuild = Request.bPersistDerivedData;
-		Options.Policy.InputLimits.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
-		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
-		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
-		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
+		Options.Policy = Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
+		Options.Limits.Input.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
+		Options.Limits.Output.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		auto Built = TexturePrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeVolumeTextureInputResolver(Source), std::move(Options));
 		auto& Completion = Built;

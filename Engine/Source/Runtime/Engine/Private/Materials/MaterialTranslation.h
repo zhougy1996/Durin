@@ -14,7 +14,7 @@ namespace Durin::MaterialBuildPrivate
 	ENGINE_API auto OpenTranslationSessions() -> void;
 	ENGINE_API auto CloseTranslationSessions() -> void;
 	ENGINE_API auto TranslateMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialTranslatedProgram;
-	ENGINE_API auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, DerivedData::IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, DerivedData::FBuildCancellation Cancellation = {}, bool QueryCache = true, std::shared_ptr<const FMaterialTranslationInput> EncodedInput = {}, DerivedData::EBuildCacheExecution Execution = DerivedData::EBuildCacheExecution::Task)
+	ENGINE_API auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, DerivedData::IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool QueryCache = true, std::shared_ptr<const FMaterialTranslationInput> EncodedInput = {}, DerivedData::EBuildCacheExecution Execution = DerivedData::EBuildCacheExecution::Task)
 		-> std::expected<void, DerivedData::FBuildAdmissionError>;
 }
 #endif

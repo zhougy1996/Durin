@@ -19,9 +19,6 @@ namespace Durin::DerivedData
 	struct FCacheGetRequest
 	{
 		FCacheKey Key;
-		FCacheRecordLimits RecordLimits;
-		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
-		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 		ECacheGetMode Mode = ECacheGetMode::FullRecord;
 		std::span<const FValueId> RequiredValues;
 		std::string Name;
@@ -30,9 +27,6 @@ namespace Durin::DerivedData
 	struct FCachePutRequest
 	{
 		FCacheRecord Record;
-		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
-		uint64 MaximumRawBytes = 2ull * 1024 * 1024 * 1024;
-		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 		std::string Name;
 		uint64 UserData = 0;
 	};
@@ -52,6 +46,13 @@ namespace Durin::DerivedData
 	};
 	using FOnCacheGetComplete = std::function<void(FCacheGetResponse)>;
 	using FOnCachePutComplete = std::function<void(FCachePutResponse)>;
+	// Service/backend resource ceilings, never a per-request cache policy.
+	struct FCacheResourceLimits
+	{
+		FCacheRecordLimits Record;
+		uint64 MaximumEncodedBytes = 2ull * 1024 * 1024 * 1024 + 2ull * 1024 * 1024;
+		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
+	};
 	// Backend-neutral requests complete once per item, including rejection and cancellation.
 	// Callbacks may run inline or on another thread. Owner tracks callback retirement.
 	class ICache

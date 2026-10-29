@@ -14,12 +14,16 @@ This contract owns persistent storage, not asset assembly policy.
 Public cache requests use `ICache::Get`/`Put` with an owner and one status-bearing
 response per item. Synchronous hit/miss/error results, cancellation predicates,
 per-query statistics, and dispatch handles are private backend concerns.
+Public requests do not carry storage budgets: backend configuration supplies
+`FCacheResourceLimits` for record validation, encoded bytes, and codec working set.
+These ceilings apply to both Get and Put; build-owned product validation remains
+separate from cache policy.
 
 `DerivedDataCacheRecord.h` defines immutable `FCacheRecord`, its builder, and
 `FCacheRecordLimits` independently of Build. A record contains a key, one opaque
 Compact Binary metadata object, and ID-addressed values. It exposes no producer
-schema, build messages, Build conversion, or wire-format methods. Cache requests
-use record limits rather than `FBuildOutputLimits`.
+schema, build messages, Build conversion, or wire-format methods. Private backend requests
+use configured record limits rather than `FBuildOutputLimits`.
 
 Persistent requests use `records/v5/<bucket>/<prefix>/<action-hash>.bin` manifests
 and `values/v1/Content/<prefix>/<raw-hash>.bin` content blobs. Values share storage

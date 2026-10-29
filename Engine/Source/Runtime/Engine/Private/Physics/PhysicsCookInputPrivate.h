@@ -19,7 +19,7 @@ namespace Durin::PhysicsPrivate
 #if DURIN_WITH_EDITOR
 	ENGINE_API auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICacheBackend> Cache) -> void;
 	auto DispatchCookBuild(const FPhysicsCookInput& Input, DerivedData::IRequestOwner& Owner,
-		uint64 MaximumWorkingSetBytes, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>;
+		DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>;
 	auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode,
 		DerivedData::FBuildCompleteParams Completion) -> std::expected<FPhysicsCookResult, std::string>;
 #endif

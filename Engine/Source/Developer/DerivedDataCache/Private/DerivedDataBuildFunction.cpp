@@ -35,7 +35,7 @@ namespace Durin::DerivedData
 	catch (...) { return std::unexpected(FBuildInputError{"Build input description threw an exception."}); }
 	auto FBuildInputs::GetIdentities() const -> std::span<const FBuildInputReference> { return State ? std::span(State->Identities) : std::span<const FBuildInputReference>{}; }
 	auto FBuildInputsBuilder::Build() && -> std::expected<FBuildInputs, FBuildInputError>
-	{ return FBuildInputs::TryCreate(Sources, std::move(Resolver), Cancel); }
+	{ return FBuildInputs::TryCreate(Sources, std::move(Resolver)); }
 
 	auto FBuildContext::FindConstant(std::string_view Name) const -> const FBuildConstantValue*
 	{

@@ -69,10 +69,9 @@ namespace Durin::DerivedData::Private
 
 	auto ExecuteBuildLocal(const FBuildAction& Action,
 		const FBuildRegistrySnapshot& Registry, const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
-		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options) -> FBuildCompleteParams
+		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options, const FBuildCancellation& Cancel) -> FBuildCompleteParams
 	{
 		const auto& Policy = Options.Policy;
-		const auto& Cancel = Options.Cancellation;
 		const auto CacheKey = Action.GetKey();
 		EBuildExecutionFlags ExecutionFlags = EBuildExecutionFlags::None;
 		auto Canceled = [&] { return FBuildCompleteParams::Canceled(CacheKey, ExecutionFlags); };
@@ -87,7 +86,7 @@ namespace Durin::DerivedData::Private
 			if (Cancel.IsCancelled()) return Canceled();
 			const auto Entry = Registry.Find(Action.GetFunction().Name);
 			if (!Entry) return Failed("Build function is not registered.");
-			if (!Policy.BuildLocal) return Failed("No usable cache value is available and local build is disabled.");
+			if (!Policy.Has(EBuildPolicy::BuildLocal)) return Failed("No usable cache value is available and local build is disabled.");
 			std::expected<std::vector<FBuildInput>, FBuildInputError> Inputs = std::vector<FBuildInput>{};
 			if (!Action.GetInputs().empty()) { if (RequestInputs.IsValid()) Inputs = FBuildExecutionAccess::Resolve(RequestInputs, Cancel); else if (SessionResolver) Inputs = SessionResolver->Resolve(Action.GetInputs(), Cancel); else Inputs = std::unexpected(FBuildInputError{"Build input payloads are unavailable."}); }
 			if (Cancel.IsCancelled()) return Canceled(); if (!Inputs) return Failed(Inputs.error().Description); if (Inputs->size() != Action.GetInputs().size()) return Failed("Resolved input count mismatch.");
@@ -95,20 +94,20 @@ namespace Durin::DerivedData::Private
 			for (size_t Index = 0; Index < Inputs->size(); ++Index)
 			{
 				auto& Input = (*Inputs)[Index]; if (Input.Identity != Action.GetInputs()[Index]) return Failed("Resolved input identity mismatch."); std::ranges::sort(Input.Values, {}, &FBuildInputValue::Name); std::string_view Previous;
-				if (Input.Values.size() > std::min<uint32>(Policy.InputLimits.MaximumValues, FBuildInput::MaximumValues)
-					|| Input.Metadata.GetSize() > Policy.InputLimits.MaximumMetadataBytes
-					|| Input.Metadata.GetSize() > Policy.InputLimits.MaximumTotalBytes - Total) return Failed("Resolved input table or metadata budget exceeded.");
+				if (Input.Values.size() > std::min<uint32>(Options.Limits.Input.MaximumValues, FBuildInput::MaximumValues)
+					|| Input.Metadata.GetSize() > Options.Limits.Input.MaximumMetadataBytes
+					|| Input.Metadata.GetSize() > Options.Limits.Input.MaximumTotalBytes - Total) return Failed("Resolved input table or metadata budget exceeded.");
 				Total += Input.Metadata.GetSize();
-				for (const auto& Value : Input.Values) { if (!Private::IsBuildValueIdentifier(Value.Name) || (!Previous.empty() && Previous >= Value.Name)) return Failed("Resolved input has invalid or duplicate value names."); Previous = Value.Name; if (Value.Data.GetSize() > Policy.InputLimits.MaximumTotalBytes - Total) return Failed("Resolved input byte budget exceeded."); Total += Value.Data.GetSize(); }
+				for (const auto& Value : Input.Values) { if (!Private::IsBuildValueIdentifier(Value.Name) || (!Previous.empty() && Previous >= Value.Name)) return Failed("Resolved input has invalid or duplicate value names."); Previous = Value.Name; if (Value.Data.GetSize() > Options.Limits.Input.MaximumTotalBytes - Total) return Failed("Resolved input byte budget exceeded."); Total += Value.Data.GetSize(); }
 			}
 			ExecutionFlags |= EBuildExecutionFlags::BuildLocal;
-			FBuildOutputBuilder Builder = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Policy.OutputLimits); auto Context = FBuildExecutionAccess::MakeContext(Action, *Inputs, Builder, Cancel); Entry->Function->Build(Context);
+			FBuildOutputBuilder Builder = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Options.Limits.Output); auto Context = FBuildExecutionAccess::MakeContext(Action, *Inputs, Builder, Cancel); Entry->Function->Build(Context);
 			if (Cancel.IsCancelled()) return Canceled();
 			if (const auto& Failure = FBuildExecutionAccess::GetExecutionFailure(Context); Failure) {
 				auto Partial = std::move(Builder).Build();
 				if (!Partial || Partial->GetObservations().empty()) return Failed(*Failure);
 				// Only transient observations survive execution failure, never partial products.
-				auto Diagnostics = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Policy.OutputLimits);
+				auto Diagnostics = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Options.Limits.Output);
 				for (const auto& Observation : Partial->GetObservations()) Diagnostics.AddObservation(Observation.Id, Observation.Object);
 				auto Output = std::move(Diagnostics).Build();
 				return Output ? Failed(*Failure, std::move(*Output)) : Failed(*Failure);

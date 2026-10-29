@@ -15,7 +15,9 @@ namespace Durin::DerivedData
 	struct FBuildRequestOptions
 	{
 		FBuildPolicy Policy;
-		FBuildCancellation Cancellation;
+		FBuildRequestLimits Limits;
+		// Early notification leaves persistence tracked by owner/session waits.
+		EBuildResultDelivery ResultDelivery = EBuildResultDelivery::AfterPersistence;
 		// Resolver owns captured request state; description runs inside the admitted build.
 		std::shared_ptr<const IBuildInputResolver> InputResolver;
 	};

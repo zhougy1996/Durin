@@ -62,7 +62,7 @@ TEST(FBuildFunctionTests, ContextPublishesValueWarningAndDeterministicError)
 	ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession(); ASSERT_TRUE(Session);
 	auto DefinitionValue = Definition(); auto Inputs = std::move(FBuildInputsBuilder(DefinitionValue.GetSources(), Resolver)).Build(); ASSERT_TRUE(Inputs);
 	std::optional<FBuildCompleteParams> Result;
-	FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
+	FBuildRequestOptions Options{.Policy = EBuildPolicy::Build};
 	FRequestOwner Owner;
 	(*Session)->Build(DefinitionValue, Owner, [&](auto Value) { Result = std::move(Value); }, std::move(*Inputs), Options);
 	ASSERT_TRUE(Result); EXPECT_EQ(Result->GetStatus(), EStatus::Ok); ASSERT_NE(Result->GetOutput(), nullptr);

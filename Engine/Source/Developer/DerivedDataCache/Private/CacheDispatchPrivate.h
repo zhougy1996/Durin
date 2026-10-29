@@ -52,6 +52,7 @@ namespace Durin::DerivedData::Private
 		std::shared_ptr<ICacheBackend> Backend;
 		std::shared_ptr<IAsyncCache> Override, Inline, Task;
 		FCacheDispatchLimits Limits;
+		FCacheResourceLimits ResourceLimits;
 		static auto Wrap(std::shared_ptr<FCacheAccess> State) -> std::shared_ptr<ICache>
 		{
 			return std::shared_ptr<ICache>(new ICache(std::move(State)));
@@ -59,6 +60,6 @@ namespace Durin::DerivedData::Private
 		static auto Get(ICache& Cache) -> FCacheAccess& { return *Cache.State; }
 		auto Dispatcher(bool bTask) -> std::shared_ptr<IAsyncCache>;
 	};
-	DERIVEDDATACACHE_API auto CreateCacheForBackend(std::shared_ptr<ICacheBackend> Backend = {}, std::shared_ptr<IAsyncCache> Override = {}, FCacheDispatchLimits Limits = {}) -> std::shared_ptr<ICache>;
+	DERIVEDDATACACHE_API auto CreateCacheForBackend(std::shared_ptr<ICacheBackend> Backend = {}, std::shared_ptr<IAsyncCache> Override = {}, FCacheDispatchLimits Limits = {}, FCacheResourceLimits ResourceLimits = {}) -> std::shared_ptr<ICache>;
 
 } // namespace Durin::DerivedData::Private

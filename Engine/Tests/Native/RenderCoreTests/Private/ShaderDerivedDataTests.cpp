@@ -237,7 +237,7 @@ namespace Durin
 		auto InvalidOptions = std::move(Definition).Build();
 		ASSERT_TRUE(InvalidOptions);
 		Request->Definition = std::move(*InvalidOptions);
-		const auto Result = Service.Execute(std::move(*Request), {.Policy = {.QueryCache = false, .StoreOnBuild = false}});
+		const auto Result = Service.Execute(std::move(*Request), {.Policy = DerivedData::EBuildPolicy::Build});
 		EXPECT_EQ(Result.GetStatus(), DerivedData::EStatus::Error);
 		EXPECT_EQ(Result.GetOutput(), nullptr);
 	}

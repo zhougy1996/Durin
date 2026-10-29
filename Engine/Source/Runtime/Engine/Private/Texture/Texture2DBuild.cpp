@@ -125,16 +125,12 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITOR
-	static auto MakeTexture2DBuildOptions(const FTexture2DBuildRequest& Request,
-		std::function<bool()> ShouldCancel) -> DerivedData::FBuildRequestOptions
+	static auto MakeTexture2DBuildOptions(const FTexture2DBuildRequest& Request) -> DerivedData::FBuildRequestOptions
 	{
 		DerivedData::FBuildRequestOptions Options;
-		Options.Policy.StoreOnBuild = Request.bPersistDerivedData;
-		Options.Policy.InputLimits.MaximumTotalBytes = MaximumTextureSourceBytes;
-		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
-		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
-		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
-		Options.Cancellation = DerivedData::FBuildCancellation(std::move(ShouldCancel));
+		Options.Policy = Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
+		Options.Limits.Input.MaximumTotalBytes = MaximumTextureSourceBytes;
+		Options.Limits.Output.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		return Options;
 	}
 
@@ -161,6 +157,7 @@ namespace Durin
 		DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel,
 		std::function<void(DerivedData::EStatus, std::unique_ptr<FTexturePlatformData>, std::string)> Completion) -> void
 	{
+		if (ShouldCancel && ShouldCancel()) Owner.RequestCancel();
 		if (auto Valid = ValidateTexture2DBuildRequest(Request); !Valid)
 		{
 			Completion(DerivedData::EStatus::Error, {}, FormatTexture2DBuildError(Valid.error()));
@@ -193,7 +190,7 @@ namespace Durin
 			Completion(Status, std::move(Product), std::move(Diagnostic));
 		};
 		auto Admitted = BuildAsync(std::move(*Definition), MakeTexture2DInputResolver(Request.Source), Owner,
-			std::move(Callback), MakeTexture2DBuildOptions(Request, std::move(ShouldCancel)));
+			std::move(Callback), MakeTexture2DBuildOptions(Request));
 		if (!Admitted) Completion(DerivedData::EStatus::Error, {}, Admitted.error().Description);
 	}
 #endif
@@ -205,9 +202,13 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Request);
 		if (!Definition) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput});
-		auto Options = MakeTexture2DBuildOptions(Request, ExecutionControl ? ExecutionControl->ShouldCancel : std::function<bool()>{});
+		if (ExecutionControl && ExecutionControl->ShouldCancel && ExecutionControl->ShouldCancel())
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+		auto Options = MakeTexture2DBuildOptions(Request);
 		auto Built = TexturePrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeTexture2DInputResolver(Request.Source), std::move(Options));
+		if (ExecutionControl && ExecutionControl->ShouldCancel && ExecutionControl->ShouldCancel())
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 		return ConsumeTexture2DBuild(Built, Request.TargetPlatform, Request.TargetProfile);
 #else
 		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AuthoredBuildUnavailable});

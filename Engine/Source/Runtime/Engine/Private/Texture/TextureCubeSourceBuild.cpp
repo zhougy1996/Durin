@@ -38,11 +38,9 @@ namespace Durin
 	static auto CubeBuildOptions(bool bPersist) -> DerivedData::FBuildRequestOptions
 	{
 		DerivedData::FBuildRequestOptions Options;
-		Options.Policy.StoreOnBuild = bPersist;
-		Options.Policy.InputLimits.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
-		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
-		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
-		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
+		Options.Policy = bPersist ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
+		Options.Limits.Input.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
+		Options.Limits.Output.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		return Options;
 	}
 	static auto ConsumeCubeBuild(const DerivedData::FBuildCompleteParams& Completion,
@@ -83,7 +81,6 @@ namespace Durin
 			ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 		if (!Definition) { Completion(DerivedData::EStatus::Error, {}, std::move(Definition.error().Diagnostic)); return; }
 		auto Options = CubeBuildOptions(true);
-		Options.Cancellation = DerivedData::FBuildCancellation(std::move(ShouldCancel));
 		auto Callback = [Completion](DerivedData::FBuildCompleteParams Result) mutable {
 			const auto Status = Result.GetStatus();
 			if (Status == DerivedData::EStatus::Canceled)

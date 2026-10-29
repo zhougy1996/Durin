@@ -4583,7 +4583,7 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildFunctionRejectsMismatchedBuilderIden
 	auto Session = Service->CreateSession();
 	ASSERT_TRUE(Session);
 	std::optional<FBuildCompleteParams> Result;
-	FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
+	FBuildRequestOptions Options{.Policy = EBuildPolicy::Build};
 	Options.InputResolver = StaticMeshPrivate::MakeRenderInputResolver(Request);
 	FRequestOwner Owner;
 	(*Session)->Build(*Definition, Owner, [&](auto Value) { Result = std::move(Value); }, {}, Options);
@@ -4628,7 +4628,7 @@ TEST(FPhysicsCookTests, BuildFunctionRejectsMismatchedIdentityBeforeRecipeDecodi
 	auto Session = Service->CreateSession();
 	ASSERT_TRUE(Session);
 	std::optional<FBuildCompleteParams> Result;
-	FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
+	FBuildRequestOptions Options{.Policy = EBuildPolicy::Build};
 	Options.InputResolver = PhysicsPrivate::MakeCollisionInputResolver(*Input);
 	FRequestOwner Owner;
 	(*Session)->Build(*Definition, Owner, [&](auto Value) { Result = std::move(Value); }, {}, Options);

@@ -24,13 +24,13 @@ namespace Durin
 		std::condition_variable ProcessChanged;
 		uint32 ActiveProcesses = 0;
 		auto RunTool(std::vector<std::string> Arguments, const std::filesystem::path& Directory,
-			const DerivedData::FBuildCancellation& Cancel) -> std::expected<FProcessOutput, std::string>
+			const std::function<bool()>& ShouldCancel) -> std::expected<FProcessOutput, std::string>
 		{
 			{
 				std::unique_lock Lock(ProcessMutex);
 				while (ActiveProcesses >= 2)
 				{
-					if (Cancel.IsCancelled()) return std::unexpected("Metal tool request canceled.");
+					if (ShouldCancel && ShouldCancel()) return std::unexpected("Metal tool request canceled.");
 					ProcessChanged.wait_for(Lock, std::chrono::milliseconds(10));
 				}
 				++ActiveProcesses;
@@ -43,7 +43,7 @@ namespace Durin
 			std::vector<char*> Argv;
 			for (auto& Argument : Arguments) Argv.push_back(Argument.data());
 			Argv.push_back(nullptr);
-			if (Cancel.IsCancelled()) return std::unexpected("Metal compiler canceled.");
+			if (ShouldCancel && ShouldCancel()) return std::unexpected("Metal compiler canceled.");
 			struct FChild
 			{
 				int Pipe[2] = {-1, -1};
@@ -100,7 +100,7 @@ namespace Durin
 					Child.Pid = 0;
 					break;
 				}
-				if ((Waited < 0 && errno != EINTR) || Cancel.IsCancelled() || std::chrono::steady_clock::now() >= Deadline)
+				if ((Waited < 0 && errno != EINTR) || (ShouldCancel && ShouldCancel()) || std::chrono::steady_clock::now() >= Deadline)
 				{
 					return std::unexpected("Metal compiler canceled, timed out or failed while waiting.");
 				}
@@ -133,7 +133,7 @@ namespace Durin
 					|| !Profile || *Profile != MetalLibraryShaderTarget.SettingsDigest)
 					return Context.FailExecution("Invalid Metal library build inputs.");
 			#if defined(__APPLE__)
-				const auto Actual = GetMetalLibraryProducerIdentity(Context.GetCancellation());
+				const auto Actual = GetMetalLibraryProducerIdentity([&Context] { return Context.IsCancelled(); });
 				if (!Actual || *Actual != *Producer)
 					return Context.FailExecution(Actual ? "Metal toolchain changed after capture." : Actual.error());
 				{
@@ -164,12 +164,12 @@ namespace Durin
 					if (!File) return Context.FailExecution("Cannot capture Metal compiler source.");
 				}
 				const auto Compile = RunTool({"metal", "-std=macos-metal2.0", "-mmacosx-version-min=14.0", "-O2",
-					"-c", "shader.metal", "-o", "shader.air"}, Scratch, Context.GetCancellation());
+					"-c", "shader.metal", "-o", "shader.air"}, Scratch, [&Context] { return Context.IsCancelled(); });
 				if (!Compile || Compile->Code) return Context.FailExecution(Compile ? Compile->Text : Compile.error());
 				const auto IntermediateSize = std::filesystem::file_size(Scratch / "shader.air", Error);
 				if (Error || IntermediateSize > MaximumLibraryBytes)
 					return Context.FailExecution("Metal intermediate exceeds output limit.");
-				const auto Link = RunTool({"metallib", "shader.air", "-o", "shader.metallib"}, Scratch, Context.GetCancellation());
+				const auto Link = RunTool({"metallib", "shader.air", "-o", "shader.metallib"}, Scratch, [&Context] { return Context.IsCancelled(); });
 				if (!Link || Link->Code) return Context.FailExecution(Link ? Link->Text : Link.error());
 				const auto Size = std::filesystem::file_size(Scratch / "shader.metallib", Error);
 				if (Error || Size > MaximumLibraryBytes) return Context.FailExecution("Metal library exceeds output limit.");
@@ -185,14 +185,14 @@ namespace Durin
 			}
 		};
 	}
-	auto GetMetalLibraryProducerIdentity(const DerivedData::FBuildCancellation& Cancel) -> std::expected<std::string, std::string>
+	auto GetMetalLibraryProducerIdentity(const std::function<bool()>& ShouldCancel) -> std::expected<std::string, std::string>
 	{
 	#if defined(__APPLE__)
-		const auto Version = RunTool({"metal", "--version"}, {}, Cancel);
+		const auto Version = RunTool({"metal", "--version"}, {}, ShouldCancel);
 		if (!Version || Version->Code) return std::unexpected(Version ? Version->Text : Version.error());
-		const auto SDK = RunTool({"--show-sdk-version"}, {}, Cancel);
+		const auto SDK = RunTool({"--show-sdk-version"}, {}, ShouldCancel);
 		if (!SDK || SDK->Code) return std::unexpected(SDK ? SDK->Text : SDK.error());
-		const auto SDKBuild = RunTool({"--show-sdk-build-version"}, {}, Cancel);
+		const auto SDKBuild = RunTool({"--show-sdk-build-version"}, {}, ShouldCancel);
 		if (!SDKBuild || SDKBuild->Code) return std::unexpected(SDKBuild ? SDKBuild->Text : SDKBuild.error());
 		const auto VersionStart = Version->Text.find("Apple metal version ");
 		if (VersionStart == std::string::npos) return std::unexpected("Unrecognized Metal compiler version.");

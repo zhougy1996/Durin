@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "BuildCacheRecordPrivate.h"
+#include "DerivedDataCache/DerivedDataCache.h"
 
 namespace Durin::DerivedData
 {
@@ -10,10 +11,10 @@ namespace Durin::DerivedData
 	{
 	public:
 		DERIVEDDATACACHE_API static auto Encode(const FCacheRecord& Record,
-			uint64 MaximumBytes = FCacheRecord::DefaultMaximumEncodedBytes) -> std::expected<FSharedByteBuffer, FCacheError>;
+			uint64 MaximumBytes = FCacheResourceLimits{}.MaximumEncodedBytes) -> std::expected<FSharedByteBuffer, FCacheError>;
 		DERIVEDDATACACHE_API static auto CompressEncoded(const FSharedByteBuffer& Raw,
-			uint64 MaximumBytes = FCacheRecord::DefaultMaximumEncodedBytes) -> std::expected<FSharedByteBuffer, FCacheError>;
+			uint64 MaximumBytes = FCacheResourceLimits{}.MaximumEncodedBytes) -> std::expected<FSharedByteBuffer, FCacheError>;
 		DERIVEDDATACACHE_API static auto Decode(const FCacheKey& Key, FSharedByteBuffer Bytes,
-			FBuildOutputLimits Limits = {}, uint64 MaximumBytes = FCacheRecord::DefaultMaximumEncodedBytes) -> std::expected<FCacheRecord, FCacheError>;
+			FBuildOutputLimits Limits = {}, uint64 MaximumBytes = FCacheResourceLimits{}.MaximumEncodedBytes) -> std::expected<FCacheRecord, FCacheError>;
 	};
 }

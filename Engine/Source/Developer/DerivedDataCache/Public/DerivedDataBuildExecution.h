@@ -45,16 +45,46 @@ namespace Durin::DerivedData
 
 	enum class EBuildResultDelivery : uint8 { AfterPersistence, BeforePersistence };
 
-	struct FBuildPolicy
+	// Supported UE policy subset: local builds and a single cache store.
+	enum class EBuildPolicy : uint8
 	{
-		bool QueryCache = true, BuildLocal = true, StoreOnBuild = true;
-		bool ForceBuild = false;
-		// Early notification leaves persistence tracked by request/owner/session waits.
-		EBuildResultDelivery ResultDelivery = EBuildResultDelivery::AfterPersistence;
-		FBuildOutputLimits InputLimits, OutputLimits, PersistenceLimits;
-		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
-		// Cache payload/codec workspace only; producer reservations belong to the asset scheduler.
-		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
+		None = 0,
+		BuildLocal = 1 << 0,
+		Build = BuildLocal,
+		CacheQuery = 1 << 2,
+		CacheStoreOnBuild = 1 << 4,
+		CacheStore = CacheStoreOnBuild,
+		Cache = (1 << 2) | (1 << 4),
+		Default = (1 << 0) | (1 << 2) | (1 << 4),
+	};
+	constexpr auto operator|(EBuildPolicy A, EBuildPolicy B) -> EBuildPolicy
+	{ return EBuildPolicy(uint8(A) | uint8(B)); }
+	constexpr auto operator&(EBuildPolicy A, EBuildPolicy B) -> EBuildPolicy
+	{ return EBuildPolicy(uint8(A) & uint8(B)); }
+	constexpr auto operator~(EBuildPolicy Value) -> EBuildPolicy
+	{ return EBuildPolicy(~uint8(Value)); }
+	// Uniform policy; unsupported remote or per-value behavior is not advertised.
+	class FBuildPolicy
+	{
+	public:
+		constexpr FBuildPolicy(EBuildPolicy Policy = EBuildPolicy::Default) : Policy(Policy) {}
+		constexpr auto GetDefaultPolicy() const -> EBuildPolicy { return Policy; }
+		constexpr auto GetCombinedPolicy() const -> EBuildPolicy { return Policy; }
+		constexpr auto Has(EBuildPolicy Flag) const -> bool { return (Policy & Flag) == Flag; }
+	private:
+		EBuildPolicy Policy;
+	};
+	// Product validation is independent of execution and cache policy.
+	struct FBuildInputLimits
+	{
+		uint64 MaximumTotalBytes = 2ull * 1024 * 1024 * 1024;
+		uint64 MaximumMetadataBytes = 4ull * 1024 * 1024;
+		uint32 MaximumValues = 4096;
+	};
+	struct FBuildRequestLimits
+	{
+		FBuildInputLimits Input;
+		FBuildOutputLimits Output;
 	};
 	class IBuildScheduler;
 	struct FBuildServiceOptions
@@ -62,5 +92,6 @@ namespace Durin::DerivedData
 		std::shared_ptr<ICache> Cache;
 		// Applies to service-owned cache dispatchers.
 		FCacheDispatchLimits CacheDispatchLimits;
+		FCacheResourceLimits CacheLimits;
 	};
 }

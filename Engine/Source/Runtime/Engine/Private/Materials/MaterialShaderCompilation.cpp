@@ -67,9 +67,6 @@ namespace Durin
 			ShaderMap->Input = CopyInput ? std::make_shared<const MIR::FCompilerInput>(*Input) : std::move(Input);
 			ShaderMap->EncodedInput = std::move(Options.EncodedInput);
 			ShaderMap->Force = Options.bForceRecompile; ShaderMap->Cancellation = std::move(Options.Cancellation);
-			ShaderMap->BuildCancellation = ShaderMap->BuildCancellation.WithObserver([Weak = std::weak_ptr(ShaderMap)] {
-				const auto Value = Weak.lock(); return !Value || IsBuildCanceled(Value);
-			});
 			ShaderMap->Completion = std::move(Completion);
 			ShaderMap->Inline = !IsTaskSchedulerRunning();
 		DerivedData::FRequestBarrier Submission(*ShaderMap->Owner);
@@ -337,7 +334,7 @@ namespace Durin
 				try { ProcessTranslation(ShaderMap, std::move(Product)); }
 				catch (...) { CompleteCompilation(ShaderMap, {.Diagnostics = {{
 					.Message = "Material compile admission was rejected."}}}); }
-			}, ShaderMap->BuildCancellation, true, ShaderMap->EncodedInput,
+			}, true, ShaderMap->EncodedInput,
 			ShaderMap->Inline ? DerivedData::EBuildCacheExecution::Inline : DerivedData::EBuildCacheExecution::Task);
 		if (!Admitted) CompleteCompilation(ShaderMap, {.Diagnostics = {{
 			.Message = Admitted.error().Description}}});

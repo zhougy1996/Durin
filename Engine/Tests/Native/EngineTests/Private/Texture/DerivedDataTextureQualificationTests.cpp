@@ -142,11 +142,14 @@ namespace
 		{
 			FPaths::SetDerivedDataCacheDirForTests((Root / Fixture).generic_string());
 			Provider->ResetObservation();
-			std::atomic<bool> bCancelled = false;
-			Provider->OnRecipeCompleted = [&] { bCancelled.store(true); };
-			DerivedData::FBuildRequestOptions Options;
-			Options.Cancellation = DerivedData::FBuildCancellation([&] { return bCancelled.load(); });
-			auto Canceled = TexturePrivate::Build(Definition, Resolver, std::move(Options));
+			DerivedData::FRequestOwner Owner;
+			Provider->OnRecipeCompleted = [&] { Owner.RequestCancel(); };
+			auto Session = DerivedData::GetBuild().CreateSession(Resolver).value();
+			std::optional<DerivedData::FBuildCompleteParams> Result;
+			Session->Build(Definition, Owner, [&](auto Value) { Result = std::move(Value); });
+			ASSERT_EQ(Owner.Wait(), DerivedData::ERequestWaitResult::Completed);
+			ASSERT_TRUE(Result);
+			const auto& Canceled = *Result;
 			EXPECT_EQ(Canceled.GetStatus(), DerivedData::EStatus::Canceled);
 			EXPECT_EQ(Canceled.GetOutput(), nullptr);
 			EXPECT_EQ(Provider->BuildCalls, 1u);

@@ -1,6 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
-#include "DerivedDataCacheRecord.h"
+#include "DerivedDataCache/DerivedDataCache.h"
 namespace Durin::DerivedData::Private
 {
 	// Wire identity/versioning belongs to the local storage implementation.
@@ -14,6 +14,6 @@ namespace Durin::DerivedData::Private
 	};
 	inline auto BlobIdentity(const FValue& Value) -> FCacheBlobIdentity { return {Value.GetRawHash()}; }
 	inline constexpr std::string_view CacheRecordNamespace = "records/v5";
-	DERIVEDDATACACHE_API auto EncodeCacheManifest(const FCacheRecord& Record, uint64 MaximumBytes = FCacheRecord::DefaultMaximumEncodedBytes, uint64 MaximumWorkingBytes = UINT64_MAX) -> std::expected<FSharedByteBuffer, FCacheError>;
-	DERIVEDDATACACHE_API auto DecodeCacheManifest(const FCacheKey& Key, FSharedByteBuffer Bytes, FCacheRecordLimits Limits = {}, uint64 MaximumBytes = FCacheRecord::DefaultMaximumEncodedBytes) -> std::expected<FCacheRecord, FCacheError>;
+	DERIVEDDATACACHE_API auto EncodeCacheManifest(const FCacheRecord& Record, uint64 MaximumBytes = FCacheResourceLimits{}.MaximumEncodedBytes, uint64 MaximumWorkingBytes = UINT64_MAX) -> std::expected<FSharedByteBuffer, FCacheError>;
+	DERIVEDDATACACHE_API auto DecodeCacheManifest(const FCacheKey& Key, FSharedByteBuffer Bytes, FCacheRecordLimits Limits = {}, uint64 MaximumBytes = FCacheResourceLimits{}.MaximumEncodedBytes) -> std::expected<FCacheRecord, FCacheError>;
 } // namespace Durin::DerivedData::Private

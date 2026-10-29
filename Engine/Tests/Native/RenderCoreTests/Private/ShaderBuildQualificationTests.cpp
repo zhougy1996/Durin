@@ -67,8 +67,7 @@ namespace Durin
 			auto Request = MakeMetalLibraryBuildRequest(Shader, *Producer);
 			ASSERT_TRUE(Request) << Request.error();
 			DerivedData::FBuildRequestOptions Options;
-			Options.Policy.ForceBuild = Round < 2;
-			Options.Policy.BuildLocal = Round < 2;
+			Options.Policy = Round < 2 ? DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheStore : DerivedData::EBuildPolicy::Cache;
 			const auto Begin = std::chrono::steady_clock::now();
 			const auto Completion = Service.Execute(std::move(*Request), Options);
 			ASSERT_EQ(Completion.GetStatus(), DerivedData::EStatus::Ok) << Completion.GetDiagnostic();

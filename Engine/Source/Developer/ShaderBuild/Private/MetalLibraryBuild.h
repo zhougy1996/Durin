@@ -6,7 +6,7 @@
 namespace Durin
 {
 	inline constexpr uint32 MetalLibraryBuildVersion = 1;
-	SHADERBUILD_API auto GetMetalLibraryProducerIdentity(const DerivedData::FBuildCancellation& Cancel = {})
+	SHADERBUILD_API auto GetMetalLibraryProducerIdentity(const std::function<bool()>& ShouldCancel = {})
 		-> std::expected<std::string, std::string>;
 	SHADERBUILD_API auto CreateMetalLibraryBuildFunction() -> std::shared_ptr<const DerivedData::IBuildFunction>;
 	SHADERBUILD_API auto MakeMetalLibraryBuildRequest(const FShaderCode& Source,
