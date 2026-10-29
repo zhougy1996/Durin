@@ -13,6 +13,32 @@ namespace Durin
 		struct FRetained { std::shared_ptr<const void> Resource; uint64 Bytes; };
 		std::vector<FRetained> Resources;
 	};
+	static thread_local FRenderResourceAdmissionScope* CurrentAdmission = nullptr;
+	auto FRenderResourceAdmissionBudget::BeginFrame(uint64 InFrame) -> void
+	{
+		if (Frame == InFrame) return;
+		Frame = InFrame; Shaders = Pipelines = Deferred = 0;
+		Start = std::chrono::steady_clock::now();
+	}
+	auto FRenderResourceAdmissionBudget::Admit(bool bShader) -> bool
+	{
+		if ((bShader ? Shaders >= MaximumShaders : Pipelines >= MaximumPipelines)
+			|| ((Shaders + Pipelines) != 0 && std::chrono::steady_clock::now() - Start >= TimeBudget))
+		{ ++Deferred; return false; }
+		if (Shaders + Pipelines == 0) Start = std::chrono::steady_clock::now();
+		if (bShader) ++Shaders; else ++Pipelines;
+		return true;
+	}
+	FRenderResourceAdmissionScope::FRenderResourceAdmissionScope(FRenderResourceAdmissionBudget& InBudget, uint64 Frame)
+		: Budget(InBudget), Previous(CurrentAdmission)
+	{
+		if (Budget.Frame != Frame) Budget.BeginFrame(Frame);
+		CurrentAdmission = this;
+	}
+	FRenderResourceAdmissionScope::~FRenderResourceAdmissionScope() { CurrentAdmission = Previous; }
+	auto FRenderResourceAdmissionScope::GetDeferredAdmissions() -> uint32
+	{ return CurrentAdmission ? CurrentAdmission->Budget.Deferred : 0; }
+
 	static thread_local FRenderResourcePreparationScope* CurrentPreparation = nullptr;
 	static thread_local FRenderResourcePreparationUseScope* CurrentUse = nullptr;
 	FRenderResourcePreparationUseScope::FRenderResourcePreparationUseScope(const FRenderResourcePreparation& Preparation)
@@ -113,6 +139,17 @@ namespace Durin
 		if (CurrentPreparation) CurrentPreparation->Admit(false);
 		else if (CurrentUse && CurrentUse->State) ++CurrentUse->State->UncoveredPipelines;
 	}
+	auto FRenderResourcePreparationScope::TryBeforeShader() -> bool
+	{
+		if (!CurrentPreparation && CurrentAdmission && !CurrentAdmission->Budget.Admit(true)) return false;
+		BeforeShader(); return true;
+	}
+	auto FRenderResourcePreparationScope::TryBeforePipeline() -> bool
+	{
+		if (!CurrentPreparation && CurrentAdmission && !CurrentAdmission->Budget.Admit(false)) return false;
+		BeforePipeline(); return true;
+	}
+
 	auto FRenderResourcePreparationScope::Retain(std::shared_ptr<const void> Resource, uint64 Bytes) -> void
 	{
 		if (!CurrentPreparation || !Resource) return;

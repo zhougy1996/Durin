@@ -64,6 +64,7 @@ namespace Durin
 		struct FCloudSpatial final : FSceneFeatureDecision
 		{
 			FVolumetricCloudSpatialRenderer::FRouteDecision Decision;
+			bool bTemporalReady = true;
 			FIntPoint Extent{0, 0};
 		};
 

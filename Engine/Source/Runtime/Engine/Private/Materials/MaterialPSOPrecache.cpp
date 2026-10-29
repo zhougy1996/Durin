@@ -1,4 +1,5 @@
 #include "Materials/MaterialPSOPrecache.h"
+#include "RenderResourcePreparation.h"
 #include "CoreGlobals.h"
 #include "RenderingThread.h"
 
@@ -16,6 +17,13 @@ namespace Durin
 		return 0;
 	}
 	enum class EPSOPhase : uint8 { Queued, Collecting, Compiling, Completed, Retired };
+	struct FSubmittedMaterialPSO
+	{
+		std::shared_ptr<FPipelineState> Pipeline;
+		bool bRequired = true;
+		ERHIPipelineRequestState CompletedState = ERHIPipelineRequestState::Failed;
+	};
+
 	struct FMaterialPSOPrecacheWork
 	{
 		uint64 Id = 0, ShaderGeneration = 0;
@@ -23,6 +31,8 @@ namespace Durin
 		FMaterialPSOPrecacheParams Params;
 		FVertexDeclarationElementList Elements{};
 		FMaterialPSOPrecacheCollection Collection;
+		std::vector<FSubmittedMaterialPSO> Submitted;
+		std::optional<std::string> OptionalError;
 		std::atomic<EPSOPhase> Phase = EPSOPhase::Queued;
 		std::mutex ObserversMutex;
 		std::vector<std::weak_ptr<FMaterialPSOPrecacheObserver>> Observers;
@@ -49,6 +59,7 @@ namespace Durin
 			RequiredReady = false;
 			Phase = EPSOPhase::Retired;
 			Collection = {};
+			Submitted.clear();
 			Params.CompiledProgram.reset();
 		}
 		auto Fail(std::string Error) -> void
@@ -127,6 +138,7 @@ namespace Durin
 		std::vector<std::weak_ptr<FMaterialPSOPrecacheWork>> Entries;
 		std::vector<std::shared_ptr<FMaterialPSOPrecacheWork>> Pending;
 		bool Closed = false;
+		FMaterialPSOSubmitter Submitter;
 	};
 
 	auto FMaterialPSOPrecacheRequestID::Rejected(std::string Error) -> FMaterialPSOPrecacheRequestID
@@ -186,15 +198,28 @@ namespace Durin
 		return Subscription;
 	}
 
-	FMaterialPSORequestManager::FMaterialPSORequestManager() : State(std::make_unique<FState>()) {}
+	FMaterialPSORequestManager::FMaterialPSORequestManager(FMaterialPSOSubmitter Submitter)
+		: State(std::make_unique<FState>())
+	{
+		State->Submitter = Submitter ? std::move(Submitter) : FMaterialPSOSubmitter{
+			[](const FPSOPrecacheData& Data) -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
+				if (Data.Type == FPSOPrecacheData::EType::Graphics)
+				{
+					auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Data.GraphicsInitializer, "MaterialPSOPrecache");
+					if (!Pipeline) return std::unexpected(Pipeline.error());
+					return std::move(*Pipeline);
+				}
+				auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Data.ComputeInitializer, "MaterialPSOPrecache");
+				if (!Pipeline) return std::unexpected(Pipeline.error());
+				return std::move(*Pipeline);
+			}};
+	}
 	FMaterialPSORequestManager::~FMaterialPSORequestManager() { Close(); }
 	auto FMaterialPSORequestManager::PrecachePSOs(FMaterialPSOPrecacheParams Params) -> FMaterialPSOPrecacheRequestID
 	{
 		const auto Elements = Params.VertexFactoryData.GetVertexElements();
 		const auto& Options = Params.PrecachePSOParams;
-		if (!Elements || Params.Priority >= EPSOPrecachePriority::Num || Options.Passes == EMaterialPSOPrecachePass::None
-			|| (uint8(Options.Passes) & ~uint8(63)) != 0
-			|| !EnumHasAllFlags(Options.Passes, Options.RequiredPasses)
+		if (!Elements || Params.Priority >= EPSOPrecachePriority::Num
 			|| Options.Topology >= FGraphicsPipelineStateInitializer::EPrimitiveTopology::Count
 			|| !std::isfinite(Params.Material.ShaderMap.OpacityMaskThreshold))
 			return FMaterialPSOPrecacheRequestID::Rejected("Invalid material PSO precache parameters or unsupported Vertex Factory.");
@@ -236,6 +261,7 @@ namespace Durin
 		Work->ShaderGeneration = Generation; Work->Target = Target;
 		Work->Priority = Params.Priority;
 		Work->Params = std::move(Params); Work->Elements = *Elements;
+		Work->RequiredReady = false;
 		State->Entries.push_back(Work);
 		State->Pending.push_back(Work);
 		AttachWork(Result.Observer, std::move(Work));
@@ -277,19 +303,83 @@ namespace Durin
 			{
 				try
 				{
+					const bool bRequiredWasCollected = Work->Collection.bRequiredPSOsCollected;
+					const auto PreviousCount = Work->Collection.PSOInitializers.size();
 					const auto Result = Collector(Work->Params, Work->Collection);
 					if (Work->GetState() != EMaterialPSOPrecacheState::Pending) { Work->Collection = {}; continue; }
-					if (!Result) { Work->Fail(Result.error()); continue; }
-					if (*Result && Work->Collection.Pipelines.empty())
-					{ Work->Fail("Material PSO collector completed without covering a pipeline."); continue; }
-					if (Work->Collection.Pipelines.size() > MaximumPipelinesPerRequest)
+					if (bRequiredWasCollected && (!Work->Collection.bRequiredPSOsCollected
+						|| Work->Collection.PSOInitializers.size() < PreviousCount
+						|| std::ranges::any_of(std::span(Work->Collection.PSOInitializers).subspan(PreviousCount),
+							[](const auto& Data) { return Data.bRequired; })))
+					{ Work->RequiredReady = false; Work->Fail("Required PSO collection changed after publication."); continue; }
+					if (Result && *Result && Work->Collection.PSOInitializers.empty() && !Work->Collection.bRequiredPSOsCollected)
+					{ Work->Fail("Material PSO collector completed without declaring coverage."); continue; }
+					if (Work->Collection.PSOInitializers.size() > MaximumPipelinesPerRequest)
 					{ Work->Fail("Material PSO collector exceeded its pipeline capacity."); Work->Collection = {}; continue; }
-					if (*Result) Work->Phase = EPSOPhase::Compiling;
+					if (!Result)
+					{
+						if (!Work->Collection.bRequiredPSOsCollected)
+						{ Work->Fail(Result.error()); continue; }
+						Work->OptionalError = Result.error();
+						Work->Phase = EPSOPhase::Compiling;
+					}
+					else if (*Result) Work->Phase = EPSOPhase::Compiling;
 				}
 				catch (const std::exception& Error) { Work->Fail(Error.what()); continue; }
 			}
+			// Accepted entries are consumed in order. Backpressure retries only the
+			// first unsubmitted initializer; compiled prefixes are never resubmitted.
+			try
+			{
+				while (Work->Submitted.size() < Work->Collection.PSOInitializers.size())
+				{
+					auto& Data = Work->Collection.PSOInitializers[Work->Submitted.size()];
+					auto RejectSubmission = [&](std::string Error) -> bool {
+						if (Data.bRequired) { Work->Fail(std::move(Error)); return false; }
+						if (!Work->OptionalError) Work->OptionalError = std::move(Error);
+						// Retain the failed optional slot so required pipelines are still
+						// observed, including those not yet compiled on this first pump.
+						Work->Submitted.push_back({{}, false, ERHIPipelineRequestState::Failed});
+						Data = {};
+						return true;
+					};
+					if (!Data.IsValid())
+					{
+						if (RejectSubmission("Invalid PSO precache initializer or priority.")) continue;
+						break;
+					}
+					const bool bRequired = Data.bRequired;
+					const auto Priority = Data.Priority;
+					if (!FRenderResourcePreparationScope::TryBeforePipeline()) break;
+					std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> Pipeline;
+					try { Pipeline = State->Submitter(Data); }
+					catch (const std::exception& Error)
+					{
+						if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break;
+						if (RejectSubmission(Error.what())) continue;
+						break;
+					}
+					if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break;
+					if (!Pipeline)
+					{
+						if (Pipeline.error() == ERHIPipelineRequestRejection::CapacityExceeded) break;
+						if (RejectSubmission("Material PSO pipeline admission failed.")) continue;
+						break;
+					}
+					if (!*Pipeline)
+					{
+						if (RejectSubmission("Material PSO submission returned no pipeline.")) continue;
+						break;
+					}
+					(*Pipeline)->BoostPriority(std::max(Priority, Work->Priority.load()));
+					Work->Submitted.push_back({*Pipeline, bRequired});
+					Data = {}; // Release admitted initializer layouts; the request owns its inputs.
+				}
+			}
+			catch (const std::exception& Error) { Work->Fail(Error.what()); }
+			if (Work->GetState() != EMaterialPSOPrecacheState::Pending) continue;
 			uint32 Pending = 0, RequiredPending = 0, Failed = 0, RequiredFailed = 0;
-			for (auto& Pipeline : Work->Collection.Pipelines)
+			for (auto& Pipeline : Work->Submitted)
 			{
 				if (Pipeline.Pipeline) Pipeline.Pipeline->BoostPriority(Work->Priority.load());
 				const auto Status = Pipeline.Pipeline ? Pipeline.Pipeline->GetState() : Pipeline.CompletedState;
@@ -301,12 +391,19 @@ namespace Durin
 				if (Status == ERHIPipelineRequestState::Pending) { ++Pending; if (Pipeline.bRequired) ++RequiredPending; }
 				else if (Status != ERHIPipelineRequestState::Ready) { ++Failed; if (Pipeline.bRequired) ++RequiredFailed; }
 			}
-			Work->Pipelines = uint32(Work->Collection.Pipelines.size());
+			for (size_t Index = Work->Submitted.size(); Index < Work->Collection.PSOInitializers.size(); ++Index)
+			{
+				++Pending;
+				if (Work->Collection.PSOInitializers[Index].bRequired) ++RequiredPending;
+			}
+			Work->Pipelines = uint32(Work->Collection.PSOInitializers.size());
 			Work->Pending = Pending; Work->RequiredPending = RequiredPending; Work->Failed = Failed;
-			Work->RequiredReady = Work->Phase == EPSOPhase::Compiling && !RequiredPending && !RequiredFailed;
+			Work->RequiredReady = (Work->Collection.bRequiredPSOsCollected || Work->Phase == EPSOPhase::Compiling)
+				&& !RequiredPending && !RequiredFailed;
 			if (Work->Phase == EPSOPhase::Compiling && !Pending)
 			{
-				if (Failed) Work->Fail("One or more material PSO requests failed.");
+				if (Work->OptionalError) Work->Fail(*Work->OptionalError);
+				else if (Failed) Work->Fail("One or more material PSO requests failed.");
 				else
 				{
 					Work->Result = std::make_shared<const FMaterialPSOPrecacheWork::FResult>();
@@ -319,7 +416,7 @@ namespace Durin
 		std::lock_guard Lock(State->Mutex);
 		std::erase_if(State->Pending, [](auto& Work) {
 			if (Work->GetState() == EMaterialPSOPrecacheState::Pending) return false;
-			Work->Collection = {}; Work->Params.CompiledProgram.reset();
+			Work->Collection = {}; Work->Submitted.clear(); Work->Params.CompiledProgram.reset();
 			return true;
 		});
 	}

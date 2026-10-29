@@ -7,6 +7,7 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "StaticMesh/StaticMeshLODSelection.h"
 #include "Rendering/PrimitiveCustomData.h"
+#include "Rendering/PrimitiveRenderParticipation.h"
 
 namespace Durin
 {
@@ -24,6 +25,8 @@ namespace Durin
 	class FPrimitiveSceneProxy
 	{
 	public:
+		auto GetRenderParticipation() const -> const FPrimitiveRenderParticipation& { return RenderParticipation; }
+		auto SetRenderParticipation(FPrimitiveRenderParticipation Value) -> void { RenderParticipation = Value; }
 		ENGINE_API virtual ~FPrimitiveSceneProxy() = default;
 		auto GetCustomPrimitiveData() const -> const FPrimitiveCustomData& { return CustomPrimitiveData; }
 		auto SetCustomPrimitiveData(const FPrimitiveCustomData& Value) -> bool
@@ -44,5 +47,6 @@ namespace Durin
 			const FMaterialRenderProxyBindingUpdate&) -> bool { return false; }
 	private:
 		FPrimitiveCustomData CustomPrimitiveData;
+		FPrimitiveRenderParticipation RenderParticipation;
 	};
 }

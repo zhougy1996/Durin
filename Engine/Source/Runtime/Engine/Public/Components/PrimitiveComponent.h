@@ -5,6 +5,7 @@
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Physics/BodyInstance.h"
 #include "Rendering/PrimitiveComponentId.h"
+#include "Rendering/PrimitiveRenderParticipation.h"
 #include "PSOPrecacheComponent.h"
 
 #include "PrimitiveComponent.gen.h"
@@ -66,6 +67,12 @@ namespace Durin
 		auto SetMaterialPSOPrecacheData(std::vector<FMaterialPSOPrecacheRequestID> Requests, std::function<void()> Finished = {}) -> bool
 		{ return PSOPrecacheComponentData.SetMaterialPSOPrecacheData(std::move(Requests), std::move(Finished)); }
 		auto IsPSOPrecaching() const -> bool { return bPSOPrecacheSubmissionPending || PSOPrecacheComponentData.IsPSOPrecaching(); }
+		ENGINE_API auto SetCastShadow(bool bValue) -> void;
+		ENGINE_API auto SetRenderInMainPass(bool bValue) -> void;
+		auto CastsShadow() const -> bool { return bCastShadow; }
+		auto RendersInMainPass() const -> bool { return bRenderInMainPass; }
+		auto GetRenderParticipation() const -> FPrimitiveRenderParticipation { return {bCastShadow, bRenderInMainPass}; }
+		ENGINE_API virtual auto SetupPrecachePSOParams(FPSOPrecacheParams& Params) const -> void;
 		ENGINE_API auto SetVisible(bool bInVisible) -> void;
 		ENGINE_API auto SetCustomPrimitiveData(uint32 First, std::span<const float> Values) -> bool;
 		auto GetCustomPrimitiveData() const -> const FPrimitiveCustomData& { return CustomPrimitiveData; }
@@ -123,6 +130,10 @@ namespace Durin
 		mutable FCollisionGeometryRef CachedCollisionGeometry;
 		DPROPERTY(Category = "Rendering", Edit)
 		bool bVisible = true;
+		DPROPERTY(Category = "Rendering", Edit)
+		bool bCastShadow = true;
+		DPROPERTY(Category = "Rendering", Edit)
+		bool bRenderInMainPass = true;
 		DPROPERTY(Category = "Collision", Edit)
 		FBodyInstance BodyInstance;
 

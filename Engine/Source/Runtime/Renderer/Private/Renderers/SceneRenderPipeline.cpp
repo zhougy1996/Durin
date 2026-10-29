@@ -10,6 +10,7 @@
 #include "RHICommandList.h"
 #include "RDG/RDG.h"
 #include "RenderingThread.h"
+#include "CoreGlobals.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Scene.h"
 #include "SceneView.h"
@@ -66,10 +67,11 @@ namespace Durin
 	auto FSceneRenderPipeline::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture, bool bPrepareOnly,
-		FRenderResourcePreparationScope* PreparationScope) -> ERenderViewResult
+		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture, bool bPrepareOnly) -> ERenderViewResult
 	{
 		FPreparedShaderMapScope ShaderScope(true);
+		std::optional<FRenderResourceAdmissionScope> Admission;
+		if (!bPrepareOnly) Admission.emplace(Service.AdmissionBudget, GRenderFrameCounterRenderThread);
 		const bool bTracePreparation = FRenderResourcePreparationScope::IsActive()
 			&& View.bDiscardHistory && !View.ViewStateId.IsValid();
 		const auto TraceStage = [bTracePreparation](std::string_view Name, auto&& Work) {
@@ -128,8 +130,8 @@ namespace Durin
 			// stages. Preserve its pending result with the same preparation batch.
 			FRenderPipelinePreparationBatch Batch;
 			Preparation = TraceStage("collect", [&] { return PrepareView_RenderThread(CommandList, Context); });
-			if (Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
-			if (FRenderPipelinePreparationBatch::HasPending()) return ERenderViewResult::RendererResourcesPending;
+			if (bPrepareOnly && Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
+			if (bPrepareOnly && FRenderPipelinePreparationBatch::HasPending()) return ERenderViewResult::RendererResourcesPending;
 		}
 		if (!Preparation) return Preparation.error();
 		Context.Logical.PreparedView = std::move(*Preparation);
@@ -137,21 +139,54 @@ namespace Durin
 		Context.Features = BuildSceneFrameFeaturePlan(
 			PreparedView, Options, Width, Height, Qualification);
 		const auto ResourceResult = TraceStage("view resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::PrepareViewResources_RenderThread); });
+			&FSceneRenderPipeline::PrepareViewResources_RenderThread, bPrepareOnly); });
 		if (ResourceResult != ERenderViewResult::Success) return ResourceResult;
 		const auto ResolutionResult = TraceStage("scene resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread); });
+			&FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread, bPrepareOnly); });
 		if (ResolutionResult != ERenderViewResult::Success) return ResolutionResult;
 		SelectViewState_RenderThread(Context);
 		// Route preparation only needs the sampling sequence. Do not begin history
-		// mutation while required PSOs are still being collected or joined.
+		// mutation while resource routes and component admission are being decided.
 		if (ViewState) Context.Transaction.Temporal.SuccessfulSequence = ViewState->GetVolumetricCloudHistory().GetSuccessfulSequence();
+		if (Qualification.PendingPrimitive)
+		{
+			for (uint32 Index = 0; Index < PreparedView.Receiver.StaticMeshes.GetNumSections(); ++Index)
+			{
+				const auto& Draw = PreparedView.Receiver.StaticMeshes.GetDraw(Index);
+				if (const auto* Primitive = PreparedView.Receiver.StaticMeshes.GetPrimitive(Draw);
+					Primitive && Primitive->PrimitiveId.Value == *Qualification.PendingPrimitive)
+					Context.Resolved.Scene.Receiver.StaticMeshes.Draws[Draw.ResolvedIndex].bReady = false;
+			}
+			if (bPrepareOnly) return ERenderViewResult::RendererResourcesPending;
+		}
+		if (Qualification.PendingShadowPrimitive && Context.Resolved.Scene.DirectionalShadow)
+		{
+			for (uint32 Cascade = 0; Cascade < PreparedView.DirectionalShadow->View.CascadeCount; ++Cascade)
+			{
+				const auto& Prepared = PreparedView.DirectionalShadow->StaticMeshes[Cascade];
+				auto& Resolved = Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade];
+				for (uint32 Index = 0; Index < Prepared.GetNumSections(); ++Index)
+				{
+					const auto& Draw = Prepared.GetDraw(Index);
+					if (Prepared.GetPrimitive(Draw)->PrimitiveId.Value == *Qualification.PendingShadowPrimitive)
+						Resolved.Draws[Draw.ResolvedIndex].bReady = false;
+				}
+			}
+			if (bPrepareOnly) return ERenderViewResult::RendererResourcesPending;
+		}
 		const auto FeatureResult = TraceStage("feature resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread); });
+			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread, bPrepareOnly); });
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
 		if (bPrepareOnly) return ERenderViewResult::Success;
-		std::optional<FRenderResourcePreparationUseScope> PreparationUse;
-		if (PreparationScope) PreparationUse.emplace(*PreparationScope);
+		RemoveUnreadyStaticMeshPrimitives(Context.Logical.PreparedView->Receiver.StaticMeshes,
+			Context.Resolved.Scene.Receiver.StaticMeshes,
+			Context.Logical.PreparedView->DirectionalShadow
+				? std::span(Context.Logical.PreparedView->DirectionalShadow->StaticMeshes)
+				: std::span<FPreparedStaticMeshView>{},
+			Context.Resolved.Scene.DirectionalShadow && Context.Resolved.Scene.DirectionalShadow->bEnabled
+				? std::span<const FResolvedStaticMeshView>(Context.Resolved.Scene.DirectionalShadow->StaticMeshes)
+				: std::span<const FResolvedStaticMeshView>{});
+		Admission.reset();
 		FCloudHistoryCandidateScope CloudHistoryCandidate(ViewState);
 		BeginTemporalState_RenderThread(Context);
 		FRDGBuilder Graph;
@@ -187,17 +222,17 @@ namespace Durin
 
 	auto FSceneRenderPipeline::ResolvePipelineStage_RenderThread(
 		FRHICommandListImmediate& CommandList, FSceneFrameContext& Context,
-		FResourcePreparationStage Stage) -> ERenderViewResult
+		FResourcePreparationStage Stage, bool bPrepareOnly) -> ERenderViewResult
 	{
 		FRenderPipelinePreparationBatch Batch;
-		const auto Result = (this->*Stage)(CommandList, Context);
-		if (Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
-		if (FRenderPipelinePreparationBatch::HasPending())
+		const auto Result = (this->*Stage)(CommandList, Context, bPrepareOnly);
+		if (bPrepareOnly && Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
+		if ((bPrepareOnly || Result != ERenderViewResult::Success) && FRenderPipelinePreparationBatch::HasPending())
 			return ERenderViewResult::RendererResourcesPending;
 		return Result;
 	}
 
-	auto FSceneRenderPipeline::PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult
+	auto FSceneRenderPipeline::PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context, bool bPrepareOnly) -> ERenderViewResult
 	{
 		auto* Scene = Context.Logical.Scene;
 		const auto& Options = Context.Logical.Options;
@@ -211,7 +246,10 @@ namespace Durin
 			// Failure is non-fatal: StaticMeshRenderer binds the complete black
 			// environment fallback set instead.
 			if (Scene && Scene->SkyLighting->WorldUpdateFrame!=GRenderFrameCounterRenderThread)
+			{
+				FRenderPipelinePreparationBatch OptionalBatch;
 				Service.UpdateSkyLighting_RenderThread(CommandList, *Scene);
+			}
 			// Sky resources include a static index upload, so initialize them before
 			// entering the Scene Color render pass.
 			const bool bSkyBoxResourcesReady = !Context.Logical.PreparedView->Environment
@@ -284,7 +322,7 @@ namespace Durin
 		}
 	}
 
-	auto FSceneRenderPipeline::PrepareFeatureResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult
+	auto FSceneRenderPipeline::PrepareFeatureResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context, bool bPrepareOnly) -> ERenderViewResult
 	{
 		auto* OutputTarget = Context.Logical.OutputTarget;
 		const auto Width = Context.Logical.Width;
@@ -324,7 +362,7 @@ namespace Durin
 				&& !StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 						PreparedView.Receiver.StaticMeshes,
 						ResolvedSceneResources.Receiver.StaticMeshes
-					))
+					) && bPrepareOnly)
 				return ERenderViewResult::RendererResourcesUnavailable;
 			const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
 			auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;
@@ -392,6 +430,11 @@ namespace Durin
 					true, !bForceCloudFragment);
 				FeaturePlan.CloudSpatial.Decision = Prepared;
 			}
+			auto IsPreparationPending = [&](EScenePreparationPending Feature) {
+				if (Qualification.PendingFeature != Feature) return false;
+				FRenderPipelinePreparationBatch::MarkResourcePending();
+				return true;
+			};
 			bool FixedPipelinesReady = true;
 			const FRHICapabilities* Capabilities = GDynamicRHI
 				? GDynamicRHI->RHIGetCapabilities() : nullptr;
@@ -403,29 +446,52 @@ namespace Durin
 				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
 					Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes,
-					bPrepareGPUCulling, Qualification.GPUCullingFailure) && FixedPipelinesReady;
+					bPrepareGPUCulling, Qualification.GPUCullingFailure) || !bPrepareOnly;
 			if (FixedPipelinesReady)
 				FixedPipelinesReady = StaticMeshRenderer.PrepareUniforms_RenderThread(CommandList,
 					Context.Logical.Scene, RenderView,
 					PreparedView.Receiver.StaticMeshes, ResolvedSceneResources.Receiver.StaticMeshes,
-					bWantsProductionDeferred, bNeedsGBuffer);
+					bWantsProductionDeferred, bNeedsGBuffer, false, !bPrepareOnly);
 			if (FixedPipelinesReady)
 				FixedPipelinesReady = StaticMeshRenderer.PrepareBindings_RenderThread(
 					CommandList, &Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
-					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer);
+					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer) || !bPrepareOnly;
 			if (FeaturePlan.Deferred.IsEnabled())
 				FixedPipelinesReady = Service.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
-			if (FeaturePlan.AmbientOcclusion.IsEnabled())
-				FixedPipelinesReady = Service.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
-			if (FeaturePlan.GBufferDebug.IsEnabled())
-				FixedPipelinesReady = Service.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+			if (FeaturePlan.AmbientOcclusion.IsEnabled()
+				&& (IsPreparationPending(EScenePreparationPending::AmbientOcclusion)
+					|| !Service.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList)))
+			{
+				if (bPrepareOnly) FixedPipelinesReady = false;
+				else FeaturePlan.AmbientOcclusion.Purposes = ESceneFeaturePurpose::None;
+			}
+			if (FeaturePlan.GBufferDebug.IsEnabled()
+				&& !Service.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList))
+			{
+				if (bPrepareOnly) FixedPipelinesReady = false;
+				else FeaturePlan.GBufferDebug.Purposes = ESceneFeaturePurpose::None;
+			}
 			if (FeaturePlan.CloudSpatial.IsEnabled() && PreparedView.VolumetricCloud)
 			{
-				FixedPipelinesReady = VolumetricCloudRenderer.EnsureCompositeResources_RenderThread(CommandList) && FixedPipelinesReady;
+				if (IsPreparationPending(EScenePreparationPending::CloudComposite)
+					|| !VolumetricCloudRenderer.EnsureCompositeResources_RenderThread(CommandList))
+				{
+					if (bPrepareOnly) FixedPipelinesReady = false;
+					else
+					{
+						FeaturePlan.CloudSpatial.Purposes = ESceneFeaturePurpose::None;
+						FeaturePlan.CloudSpatial.Decision.Route = FVolumetricCloudRenderer::ERoute::Disabled;
+					}
+				}
 				if (!FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(RenderView.Settings.VolumetricCloud.Quality).IsFullResolution())
-					FixedPipelinesReady = VolumetricCloudRenderer.EnsureTemporalResources_RenderThread(CommandList) && FixedPipelinesReady;
+				{
+					const bool bTemporalReady = !IsPreparationPending(EScenePreparationPending::CloudTemporal)
+						&& VolumetricCloudRenderer.EnsureTemporalResources_RenderThread(CommandList);
+					FeaturePlan.CloudSpatial.bTemporalReady = bTemporalReady;
+					if (bPrepareOnly) FixedPipelinesReady = bTemporalReady && FixedPipelinesReady;
+				}
 			}
-			if (!FixedPipelinesReady || FRenderPipelinePreparationBatch::HasPending())
+			if (!FixedPipelinesReady || (bPrepareOnly && FRenderPipelinePreparationBatch::HasPending()))
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
 		return ERenderViewResult::Success;

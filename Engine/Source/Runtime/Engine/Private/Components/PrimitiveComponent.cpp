@@ -234,10 +234,37 @@ namespace Durin
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);
 	}
 
+	auto DPrimitiveComponent::SetCastShadow(bool bValue) -> void
+	{
+		if (bCastShadow == bValue) return;
+		bCastShadow = bValue;
+		MarkPackageDirty();
+		MarkRenderStateDirty();
+	}
+
+	auto DPrimitiveComponent::SetRenderInMainPass(bool bValue) -> void
+	{
+		if (bRenderInMainPass == bValue) return;
+		bRenderInMainPass = bValue;
+		MarkPackageDirty();
+		MarkRenderStateDirty();
+	}
+
+	auto DPrimitiveComponent::SetupPrecachePSOParams(FPSOPrecacheParams& Params) const -> void
+	{
+		Params.Participation = GetRenderParticipation();
+	}
+
 	auto DPrimitiveComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
+		if (Event.MemberProperty->NamePrivate == FName("bCastShadow")
+			|| Event.MemberProperty->NamePrivate == FName("bRenderInMainPass"))
+		{
+			MarkRenderStateDirty();
+			return;
+		}
 		if (Event.MemberProperty->NamePrivate == FName("bVisible"))
 		{
 			MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);

@@ -26,6 +26,11 @@ namespace Durin
 	{
 		None, ShaderUnavailable, PipelineUnavailable, MetadataBudget, CommandAdmission,
 	};
+	// Simulates asynchronous resource preparation for route admission regressions.
+	enum class EScenePreparationPending : uint8
+	{
+		None, AmbientOcclusion, CloudComposite, CloudTemporal
+	};
 	// Feature-bounded development routes. This type is Renderer-private so
 	// production submissions cannot request qualification-only execution.
 	struct FRendererQualificationPolicy
@@ -38,6 +43,9 @@ namespace Durin
 		EGPUCullingFailure GPUCullingFailure = EGPUCullingFailure::None;
 		std::optional<uint32> FailedAllocationObservation;
 		ESceneRasterFailure RasterFailure = ESceneRasterFailure::None;
+		EScenePreparationPending PendingFeature = EScenePreparationPending::None;
+		std::optional<uint64> PendingPrimitive;
+		std::optional<uint64> PendingShadowPrimitive;
 	};
 
 	// Installs one render-thread qualification policy for the lexical duration

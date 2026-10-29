@@ -1,5 +1,6 @@
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/MaterialShader.h"
+#include "RenderResourcePreparation.h"
 #include "Threading/RunnableThread.h"
 #include "Shader/ShaderData.h"
 
@@ -138,7 +139,7 @@ namespace Durin
 
 	auto FMeshMaterialShaderMap::TryCreate(
 		FMeshMaterialShaderMapBuildInput Input,
-		FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult
+		FMeshMaterialShaderMap& OutMap) -> FShaderCompletion
 	{
 		FShaderOperationResult Result;
 		OutMap = {};
@@ -234,9 +235,11 @@ namespace Durin
 			{
 				return std::unexpected(std::format("Material shader map is missing type '{}'.", (std::string(Type->GetName()))));
 			}
+			const auto DeferredBefore = FRenderResourceAdmissionScope::GetDeferredAdmissions();
 			if (Input.bCreateRHIShaders
 				&& Shader->GetOrCreateRHIShader(false) == nullptr)
 			{
+				if (FRenderResourceAdmissionScope::GetDeferredAdmissions() != DeferredBefore) return FShaderCompletion::Pending();
 				return std::unexpected(std::format("RHI shader creation returned null for Material type '{}'.", (std::string(Type->GetName()))));
 			}
 		}

@@ -66,7 +66,7 @@ namespace Durin
 	auto FDirectionalShadowRenderer::PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
 		FStaticMeshRenderer& StaticMeshes, const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow, FViewRenderTelemetry& Telemetry,
-		FStaticMeshSectionResourceContext* ResourceContext) -> bool
+		FStaticMeshSectionResourceContext* ResourceContext, bool bAllowPartial) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -163,19 +163,25 @@ namespace Durin
 		State->FallbackLighting = CommandList.CreateUniformBufferRange(
 			&FullyUnlit, sizeof(FullyUnlit));
 		bool bReady = State->FallbackLighting.Buffer != nullptr;
-		for (uint32 Cascade = 0;
-			Cascade < Shadow.View.CascadeCount; ++Cascade)
+		bool bComplete = true;
+		for (uint32 Cascade = 0; Cascade < Shadow.View.CascadeCount; ++Cascade)
 		{
-			bReady = !Shadow.StaticMeshes[Cascade].bResourceFailure &&
-					 StaticMeshes.PrepareShadowResources_RenderThread(CommandList, Shadow.StaticMeshes[Cascade],
-						 ResolvedShadow.StaticMeshes[Cascade], ResourceContext) &&
-					 bReady;
-			if (bReady) bReady = StaticMeshes.PrepareUniforms_RenderThread(CommandList,
-				Scene, Shadow.View.Cascades[Cascade].CasterView, Shadow.StaticMeshes[Cascade],
-				ResolvedShadow.StaticMeshes[Cascade], false, false, true);
-			if (bReady) bReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,
-				Shadow.StaticMeshes[Cascade], ResolvedShadow.StaticMeshes[Cascade], State->FallbackLighting, true);
+			const auto& Prepared = Shadow.StaticMeshes[Cascade];
+			auto& Resolved = ResolvedShadow.StaticMeshes[Cascade];
+			const auto Geometry = StaticMeshes.PrepareShadowResources_RenderThread(CommandList, Prepared, Resolved, ResourceContext);
+			bComplete = !Prepared.bResourceFailure && bool(Geometry) && bComplete;
+			if (Prepared.bResourceFailure && Prepared.ResourceFailurePrimitives.empty()) bReady = false;
+			if (bReady) bReady = StaticMeshes.PrepareUniforms_RenderThread(CommandList, Scene,
+				Shadow.View.Cascades[Cascade].CasterView, Prepared, Resolved, false, false, true, bAllowPartial);
+			if (bReady)
+			{
+				const bool bBindingsReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,
+					Prepared, Resolved, State->FallbackLighting, true);
+				bComplete = bBindingsReady && bComplete;
+				bReady = bBindingsReady || bAllowPartial;
+			}
 		}
+		bReady = bReady && (bAllowPartial || bComplete);
 		if (!bReady)
 		{
 			++Telemetry.DirectionalShadow.ShadowPreparationFailures;

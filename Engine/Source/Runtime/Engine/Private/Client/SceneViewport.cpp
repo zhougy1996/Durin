@@ -22,7 +22,8 @@ namespace Durin
 			ResourcePreparation = FRenderResourcePreparation::Create();
 		if (!ResourcePreparation.IsValid()) return Renderer.RenderView(Commands, Request);
 		const bool bWasReady = ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Ready;
-		Request.Preparation = &ResourcePreparation;
+		if (!bWasReady && ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Pending)
+			Renderer.PrepareViewResources(Commands, Request, ResourcePreparation);
 		const auto Result = Renderer.RenderView(Commands, Request);
 		const auto Progress = ResourcePreparation.GetProgress();
 		if (!bWasReady && Progress.State == ERenderResourcePreparationState::Ready)

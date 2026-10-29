@@ -328,7 +328,7 @@ namespace Durin
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52)};
 		FMeshMaterialShaderMap MapA;
-		FShaderOperationResult Error;
+		FShaderCompletion Error;
 		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Generation = Generation,
@@ -340,7 +340,7 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = true,
 			.CompiledProgramIdentity = Identity.ProgramIdentity,
 			.CompiledTarget = "vulkan-spirv-1.5",
-			.bCreateRHIShaders = false}, MapA))) << std::string(Error.error());
+			.bCreateRHIShaders = false}, MapA))) << Error.Error;
 
 		const std::array<const FShaderType*, 2> TypesB{&FragmentType, &VertexType};
 		FShaderCompilerOutput OutputB;
@@ -360,7 +360,7 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = true,
 			.CompiledProgramIdentity = Identity.ProgramIdentity,
 			.CompiledTarget = "vulkan-spirv-1.5",
-			.bCreateRHIShaders = false}, MapB))) << std::string(Error.error());
+			.bCreateRHIShaders = false}, MapB))) << Error.Error;
 		EXPECT_EQ(MapA.GetCompatibilityHash(), MapB.GetCompatibilityHash());
 		EXPECT_EQ(MapA.GetCompatibilityText(), MapB.GetCompatibilityText());
 
@@ -384,7 +384,7 @@ namespace Durin
 		const FMeshMaterialShaderMapIdentity Identity{
 			.ProgramIdentity = {.Digest = {.HashLow = 1, .HashHigh = 1}}};
 		FMeshMaterialShaderMap Map;
-		FShaderOperationResult Error;
+		FShaderCompletion Error;
 		EXPECT_FALSE((Error = FMeshMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Target = "vulkan-spirv-1.5",

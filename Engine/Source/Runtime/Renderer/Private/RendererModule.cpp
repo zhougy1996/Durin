@@ -292,8 +292,7 @@ namespace Durin
 			bPresentOutput,
 			Options,
 			OutStatistics,
-			OutRenderGraphCapture,
-			Request.Preparation
+			OutRenderGraphCapture
 		);
 		if (OutStatistics != nullptr)
 		{

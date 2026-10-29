@@ -1,4 +1,5 @@
 #include "Renderers/BaseSceneRendering.h"
+#include "Renderers/MeshPassRelevance.h"
 #include "RDG/RDG.h"
 #include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/SceneRenderTelemetry.h"
@@ -232,7 +233,8 @@ namespace Durin
 		{
 			const auto& StaticDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.StaticMeshes.Opaque : Inputs.Receiver.StaticMeshes.Masked;
 			for (const FPreparedStaticMeshDraw& Draw : StaticDraws)
-				if (!Draw.Command->bSupportsGBuffer || Draw.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel != EMaterialShadingModel::Lit)
+				if (RendererPrivate::IsMeshPassRelevant(RendererPrivate::EMeshPipelinePass::HybridRetainedForward,
+					Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
 						CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,

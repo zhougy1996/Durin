@@ -18,7 +18,7 @@ namespace Durin
 	class FSceneInterface;
 	struct FRDGCapture;
 
-	// Reports whether one render-thread view submission produced a complete output.
+	// Reports whether the admitted scene and selected feature routes produced an output.
 	enum class ERenderViewResult : uint8
 	{
 		Success,
@@ -37,9 +37,6 @@ namespace Durin
 		FSceneViewRenderOptions Options;
 		FSceneViewStatistics* Statistics = nullptr;
 		FRDGCapture* Capture = nullptr;
-		// Observe and bound preparation during this same invocation, then draw the
-		// prepared frame directly. Separate PrepareViewResources calls remain prepare-only.
-		const FRenderResourcePreparation* Preparation = nullptr;
 	};
 
 	// Defines scene ownership and frame rendering services exposed by the renderer module.
@@ -61,12 +58,13 @@ namespace Durin
 		virtual auto CreateViewState() -> FSceneViewStateOwner = 0;
 		virtual auto InvalidateViewState(FSceneViewStateId Id) -> void = 0;
 		virtual auto InvalidateAllViewStates() -> void = 0;
-		// A non-null capture output requests one owning graph snapshot for this view.
 		// Pump on the render thread with the actual upcoming scene/view/output.
 		// Pending never joins PSOs or draws; callers retain the handle through activation.
 		virtual auto PrepareViewResources(FRHICommandListImmediate& CommandList,
 			const FSceneViewRenderRequest& Request, const FRenderResourcePreparation& Preparation) -> FRenderResourcePreparationProgress
 		{ Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed); return Preparation.GetProgress(); }
+		// Draw ready components and selected feature fallbacks. Capture owners first
+		// wait through PrepareViewResources; Capture requests a graph snapshot only.
 		virtual auto RenderView(FRHICommandListImmediate& CommandList,
 			const FSceneViewRenderRequest& Request) -> ERenderViewResult = 0;
 	};

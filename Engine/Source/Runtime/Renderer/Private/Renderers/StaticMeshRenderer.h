@@ -99,7 +99,7 @@ namespace Durin
 		auto PrepareUniforms_RenderThread(FRHICommandListImmediate& CommandList,
 			FScene* Scene, const FSceneView& View, const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView, bool bProductionDeferred,
-			bool bGBuffer, bool bShadow = false) -> bool;
+			bool bGBuffer, bool bShadow = false, bool bAllowPartial = false) -> bool;
 
 	private:
 		auto PrepareSectionResources_RenderThread(const FPreparedStaticMeshPrimitive* Primitive,

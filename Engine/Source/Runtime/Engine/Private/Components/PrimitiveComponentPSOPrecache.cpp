@@ -64,7 +64,9 @@ namespace Durin
 		PSOPrecacheComponentData.Reset();
 		PSOPrecacheDiagnostic.clear(); bPSOPrecacheSubmissionPending = false;
 		FComponentPSOPrecacheParamsList Params;
-		CollectPSOPrecacheData({}, Params);
+		FPSOPrecacheParams PrecacheParams;
+		SetupPrecachePSOParams(PrecacheParams);
+		CollectPSOPrecacheData(PrecacheParams, Params);
 		if (Params.size() > FPSOPrecacheComponentData::MaximumRequests)
 		{
 			PSOPrecacheDiagnostic = "Component PSO collection exceeds its capacity.";

@@ -3,6 +3,7 @@
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
 #include "RenderResourcePreparation.h"
+#include "RenderPipelineCreation.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderData.h"
 #include "ShaderBindingInternal.h"
@@ -232,7 +233,8 @@ namespace Durin
 
 			const FShaderCode& CompiledShader = Code->GetCompiledShader(ShaderIndex);
 			const FRHIShaderCreateDesc ShaderCreateDesc = MakeShaderCreateDesc(Code->GetSharedShaderCode(ShaderIndex));
-			FRenderResourcePreparationScope::BeforeShader();
+			if (!FRenderResourcePreparationScope::TryBeforeShader())
+			{ FRenderPipelineRequestScope::MarkResourcePending(); return nullptr; }
 			Shaders[ShaderIndex] = GDynamicRHI->RHICreateShader(ShaderCreateDesc);
 
 			if (bRequired)

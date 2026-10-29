@@ -1361,7 +1361,7 @@ namespace
 				if (testing::Test::HasFatalFailure())
 				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
 				Result = Renderer.RenderView(Commands,
-					{&Scene, View, Target, false, Options, nullptr, nullptr, &Preparation});
+					{&Scene, View, Target, false, Options});
 				ASSERT_NE(Result, ERenderViewResult::RendererResourcesPending)
 					<< "A ready view must finish recording even when capture exceeds the preparation time budget.";
 				if (Result == ERenderViewResult::Success)
@@ -1935,7 +1935,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			FRHITextureCreateDesc::Create2D("ForwardOnlyGeometry", 192, 108, EPixelFormat::SRGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource),
 			[] { SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Telemetry = Value; }); });
-		ASSERT_EQ(Result, ERenderViewResult::Success);
+		ASSERT_EQ(Result, FailShadow ? ERenderViewResult::RendererResourcesUnavailable : ERenderViewResult::Success);
+		if (FailShadow) continue;
 		EXPECT_EQ(Telemetry.GBuffer.GBufferSuccessfulDraws, LocalFactory ? 1u : 0u);
 		EXPECT_EQ(Telemetry.CombinedTranslucentGeometryDraws, 1u);
 		EXPECT_EQ(Telemetry.DirectionalShadow.ShadowPreparationFailures, FailShadow ? 1u : 0u);
@@ -2676,7 +2677,8 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		auto Incompatible = MakeSnapshot(FVector4(0,1,0,0), 1.0f, 3);
 		++Incompatible->Layout.SchemaVersion;
 		GreenWorld->UpdateMaterialParameterCollection(Incompatible);
-		RenderCollection(GreenWorld.Get(), Repeated, false);
+		const auto Rejected = RenderCollection(GreenWorld.Get(), Repeated);
+		EXPECT_EQ(Rejected.StaticMeshSuccessfulDraws, 0u);
 		GreenWorld->RemoveMaterialParameterCollection(Layout->CollectionId);
 		RenderCollection(GreenWorld.Get(), Repeated);
 		EXPECT_EQ(Repeated, Red);
@@ -2856,6 +2858,30 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		};
 		EXPECT_GT(CountDominant(MixedPixels, 0), 100u);
 		EXPECT_GT(CountDominant(MixedPixels, 2), 100u);
+		auto Broken = MakeSnapshot(FVector4(0,1,0,0), 1.0f, 4);
+		++Broken->Layout.SchemaVersion;
+		MixedWorld->UpdateMaterialParameterCollection(Broken);
+		const auto Partial = RenderCollection(MixedWorld.Get(), Repeated);
+		EXPECT_EQ(Partial.StaticMeshSuccessfulDraws, 0u);
+		EXPECT_NE(Repeated, MixedPixels);
+		FSceneTestOwner PartialWorld;
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+			for (uint32 Index = 0; Index < 2; ++Index)
+			{
+				auto Proxy = std::make_unique<FProceduralProxy>(); Proxy->Geometry = Geometry;
+				Proxy->Materials = Index == 0
+					? std::array<FMaterialRenderData, 2>{MaterialProxy->GetMaterialWithFallback(), MaterialProxy->GetMaterialWithFallback()}
+					: std::array<FMaterialRenderData, 2>{OtherProxy->GetMaterialWithFallback(), OtherProxy->GetMaterialWithFallback()};
+				ASSERT_TRUE(Proxy->PublishGeometry());
+				FSceneInterfaceTestAccess::AddPrimitiveProxy(*PartialWorld, FPrimitiveComponentId(920 + Index), std::move(Proxy), FMatrix(1.0));
+			}
+		});
+		RenderCollection(PartialWorld.Get(), Repeated);
+		PartialWorld->UpdateMaterialParameterCollection(Broken);
+		const auto OtherComponent = RenderCollection(PartialWorld.Get(), Repeated);
+		EXPECT_EQ(OtherComponent.StaticMeshSuccessfulDraws, 2u);
+		MixedWorld->RemoveMaterialParameterCollection(Layout->CollectionId);
+		RenderCollection(MixedWorld.Get(), Repeated);
 		const auto MixedStable = RenderCollection(MixedWorld.Get(), Repeated);
 		EXPECT_EQ(MixedStable.PersistentCommandHits, 2u);
 		EXPECT_EQ(MixedStable.PreparedSurfaceBindingBatches, 0u);
@@ -3219,7 +3245,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 		ASSERT_TRUE(Local && Spline);
 		const std::array Factories{FPSOPrecacheVertexFactoryData(&Local->GetType()), FPSOPrecacheVertexFactoryData(&Spline->GetType())};
 		FPSOPrecacheParams Options;
-		Options.Passes = Options.RequiredPasses = EMaterialPSOPrecachePass::Forward | EMaterialPSOPrecachePass::ShadowDepth | EMaterialPSOPrecachePass::GBuffer;
 		std::vector<FMaterialPSOPrecacheRequestID> Root, Dynamic, Duplicate;
 		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, Root));
 		ASSERT_TRUE(Instance->PrecachePSOs(Renderer, Factories, Options, Dynamic));
@@ -3234,14 +3259,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 			while (std::ranges::any_of(Requests, [](const auto& Id) { return Id.GetProgress().State == EMaterialPSOPrecacheState::Pending; })
 				&& std::chrono::steady_clock::now() < Deadline)
 			{
-				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Renderer.BeginFrame_RenderThread(Commands); });
+				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { ++GRenderFrameCounterRenderThread; Renderer.BeginFrame_RenderThread(Commands); });
 				FlushRenderingCommands();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
 			for (const auto& Id : Requests)
 			{
 				EXPECT_EQ(Id.GetProgress().State, EMaterialPSOPrecacheState::Ready) << Id.GetDiagnostic();
-				EXPECT_TRUE(Id.GetProgress().bRequiredReady); EXPECT_EQ(Id.GetProgress().Pipelines, 3u);
+				EXPECT_TRUE(Id.GetProgress().bRequiredReady); EXPECT_EQ(Id.GetProgress().Pipelines, GDynamicRHI->RHIGetCapabilities()->bSupportsNonSolidFill ? 22u : 14u);
 			}
 		};
 		PumpUntilFinished(Dynamic);
@@ -3325,7 +3350,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		auto* Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(DStaticMeshComponent::StaticClass()));
 		ASSERT_NE(Component, nullptr); Component->SetStaticMesh(Mesh);
 		ASSERT_TRUE(Component->IsRegistered());
-		ASSERT_EQ(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().size(), 8u) << Component->GetPSOPrecacheDiagnostic();
+		ASSERT_EQ(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().size(), 1u) << Component->GetPSOPrecacheDiagnostic();
+		FComponentPSOPrecacheParamsList Collected;
+		Component->CollectPSOPrecacheData({}, Collected);
+		ASSERT_EQ(Collected.size(), 1u);
+		EXPECT_TRUE(Collected[0].PSOPrecacheParams.Participation.bCastShadow);
+		EXPECT_TRUE(Collected[0].PSOPrecacheParams.Participation.bRenderInMainPass);
+
 		auto OldRequests = std::vector<FMaterialPSOPrecacheRequestID>(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().begin(),
 			Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().end());
 		for (const auto& Request : OldRequests) EXPECT_EQ(Request.GetPriority(), EPSOPrecachePriority::Highest);
@@ -3338,7 +3369,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		auto Pump = [&](size_t Expected) {
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 			do {
-				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Renderer.BeginFrame_RenderThread(Commands); });
+				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { ++GRenderFrameCounterRenderThread; Renderer.BeginFrame_RenderThread(Commands); });
 				FlushRenderingCommands(); DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
 				if (Count() == Expected) break;
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3404,12 +3435,60 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		Pump(1);
 		auto* Spline = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(DSplineMeshComponent::StaticClass()));
 		ASSERT_NE(Spline, nullptr); Spline->SetStaticMesh(Mesh);
-		ASSERT_EQ(Spline->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().size(), 8u);
+		ASSERT_EQ(Spline->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().size(), 1u);
 		EXPECT_EQ(Count(), 1u);
 		Spline->UnregisterComponent();
 		for (uint32 Index = 0; Index < 4; ++Index) DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
 		EXPECT_EQ(Count(), 1u);
 		Spline->RegisterComponent(); Pump(2);
+		auto CheckParticipation = [&](bool bMain, bool bShadow) {
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				FSceneView View;
+				View.ViewportWidth = View.ViewportHeight = 64;
+				for (const auto* Info : Scene.GetPrimitiveSceneInfos()) {
+					EXPECT_EQ(Info->GetProxy().GetRenderParticipation().bRenderInMainPass, bMain);
+					EXPECT_EQ(Info->GetProxy().GetRenderParticipation().bCastShadow, bShadow);
+				}
+				const auto Main = PrepareStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), View,
+					ERasterMode::Solid, ERenderPreparationMode::Full);
+				const auto Shadow = PrepareStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), View,
+					ERasterMode::Solid, ERenderPreparationMode::ShadowDepth);
+				EXPECT_EQ(Main.GetNumSections() != 0, bMain);
+				EXPECT_EQ(Shadow.GetNumSections() != 0, bShadow);
+				const auto CandidateCount = Scene.GetPrimitiveSceneInfos().size();
+				EXPECT_EQ(Main.VisibleCandidates, CandidateCount);
+				EXPECT_EQ(Shadow.VisibleCandidates, CandidateCount);
+				if (!bMain) {
+					EXPECT_EQ(Main.RejectedPrimitives, CandidateCount);
+					EXPECT_EQ(Main.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::Excluded)], CandidateCount);
+				}
+				if (!bShadow) {
+					EXPECT_EQ(Shadow.RejectedPrimitives, CandidateCount);
+					EXPECT_EQ(Shadow.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::Excluded)], CandidateCount);
+				}
+			});
+			FlushRenderingCommands();
+		};
+		const auto PreviousJobs = Component->GetPSOPrecacheComponentData().GetLatestJobSet();
+		Component->SetCastShadow(false); Spline->SetCastShadow(false); Pump(2);
+		EXPECT_GT(Component->GetPSOPrecacheComponentData().GetLatestJobSet(), PreviousJobs);
+		CheckParticipation(true, false);
+		const auto StableJobs = Component->GetPSOPrecacheComponentData().GetLatestJobSet();
+		Component->SetCastShadow(false);
+		EXPECT_EQ(Component->GetPSOPrecacheComponentData().GetLatestJobSet(), StableJobs);
+		Component->SetRenderInMainPass(false); Spline->SetRenderInMainPass(false); Pump(2);
+		EXPECT_TRUE(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().empty());
+		CheckParticipation(false, false);
+		Component->SetCastShadow(true); Spline->SetCastShadow(true); Pump(2);
+		CheckParticipation(false, true);
+		for (const auto* Primitive : {static_cast<DPrimitiveComponent*>(Component), static_cast<DPrimitiveComponent*>(Spline)}) {
+			FPSOPrecacheParams Params;
+			Primitive->SetupPrecachePSOParams(Params);
+			EXPECT_TRUE(Params.Participation.bCastShadow);
+			EXPECT_FALSE(Params.Participation.bRenderInMainPass);
+		}
+		Component->SetRenderInMainPass(true); Spline->SetRenderInMainPass(true); Pump(2);
+		CheckParticipation(true, true);
 		Component->UnregisterComponent(); Spline->UnregisterComponent(); EXPECT_EQ(Count(), 0u);
 	}
 }

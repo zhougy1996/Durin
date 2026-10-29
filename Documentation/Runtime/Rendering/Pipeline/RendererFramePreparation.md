@@ -110,8 +110,9 @@ task window runs. Shadow preparation starts every cascade before joining them in
 cascade order for raster bias and telemetry. Collection and shared-cache resolution
 remain rendering-thread operations; subsequent cache growth cannot change an
 already frozen input. With three cascades, one frame retains at most 32 active
-mesh preparation tasks. Required receiver failure rejects resource resolution;
-shadow failure uses the existing all-cascade readiness fallback.
+mesh preparation tasks. Component resource failures participate in local admission
+across receiver and active shadow cascades; shared resource failures retain their
+view or feature failure policy.
 
 Successful static-mesh resource initialization publishes one immutable
 `FMeshGeometryRecord` per LOD, with a process-unique nonzero record ID.
@@ -361,7 +362,8 @@ are complete values: absence is valid, while a selected but invalid required
 environment fails the view.
 
 Preparation returns either one complete plan or a typed failure. The published
-plan is then held as `const`. A distinct resolution stage allocates the packed
+plan remains immutable during resource resolution. Final component admission
+filters its draw buckets before authoring. A distinct resolution stage allocates the packed
 lighting uniform, resolves receiver and shadow resources, and resolves the cloud
 sampler. The pipeline then publishes one immutable `FSceneFrameFeaturePlan`.
 Purpose flags explain production, debug, qualification, and dependency demand;
@@ -447,22 +449,37 @@ access still applies.
 The pipeline owns the builder, execution/capture and final result inspection.
 The submission and service outlive Execute and publication/abort; graph callbacks
 borrow their stable records. Telemetry and view-state guards are destroyed before
-the submission context. Logical preparation runs once. View resources, scene
-resources and feature resources each collect required PSO requests, join them at
-one common waiting boundary, and resolve their results before advancing. Dependent
-requests may require another wave within the same resource phase; previous phases
-and scene collection are not repeated. Each phase is bounded by 4,096 joined
-observations and returns failure if waiting is unavailable or capacity is exceeded.
-Per-phase resolved state and observations are restored before resolving a completed
-wave so partial draws and counters are not accumulated across attempts.
+the submission context. Logical preparation runs once. View, scene and feature resource phases collect
+asynchronous requests without joining them on the render thread. Preparation-only
+calls return Pending until selected resources are ready, or fail on terminal errors
+and bounded-capacity exhaustion.
 
-Feature resource preparation reads the successful history sequence without opening
-a temporal transaction. Only after all required resources are ready does the
-outer submission establish a cleanup guard and begin a cloud-history candidate.
-When the invocation carries a preparation request, it also switches from budgeted
-preparation to observed resource use before this point. Graph recording and
-readback cannot turn a completed preparation into Pending merely by exceeding
-the loading deadline; uncovered Shader/PSO admissions remain observable.
+Interactive rendering admits ready components before graph authoring. An unready
+section in the receiver or any enabled shadow cascade excludes every batch of
+that component from color, depth and all shadow cascades for this submission;
+unrelated components remain drawable. Material Collection schema, payload and
+uniform failures, and component-specific uniform allocation failures reject the
+affected components. Shared view uniforms and required output failures still
+propagate. Shared shadow target or view-resource failure can disable shadows;
+a single caster's resource failure does not disable the entire shadow feature. Resolved draw
+indices remain stable after admission. Resource preparation and binding schedules
+are consumed before this final filtering and are not reused afterward.
+
+Optional resources select a ready route before authoring: unavailable AO uses
+unoccluded lighting, GPU culling falls back to direct draws, unavailable cloud
+composition omits cloud color, and unavailable temporal reconstruction uses the
+current spatial cloud result. Required output and base lighting resources remain
+necessary. Once authored, a declared pass failing to record still propagates a
+failure; local readiness fallback does not hide execution errors.
+
+Feature preparation reads the history sequence without opening a candidate.
+After preparation and admission, the submission begins cloud history and records
+the graph. Preparation-only requests never enter that recording phase. Capture
+owners wait through `PrepareViewResources` before calling `RenderView`; recording
+and readback have no preparation time budget. Normal resource phases share the
+per-frame Shader/PSO admission allowance described in
+[Load Preparation](LoadPreparation.md#scene-resource-readiness); deferred attempts
+remain retryable, and the allowance ends before graph recording.
 The pipeline snapshots qualification policy once at submission entry.
 Resource preparation, authored pass callbacks, GPU-culling dispatch, and the
 per-execution allocator receive explicit policy values. Reusable renderer
