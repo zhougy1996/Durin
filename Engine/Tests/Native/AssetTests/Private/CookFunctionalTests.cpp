@@ -1,3 +1,4 @@
+#include "Texture/Texture2DCompilationTestSupport.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "Asset/Cook.h"
@@ -932,8 +933,7 @@ auto ExpectDirectTexturePreparation(bool Nested) -> void
 		});
 	auto Build = MakeTexture2DBuildRequest(Texture->GetSource());
 	ASSERT_TRUE(Build);
-	ASSERT_TRUE(SubmitTexture2DCompilation(*Texture,
-		{.Build = std::move(*Build), .ResultApplication = {.bMarkPackageDirty = false}},
+	ASSERT_TRUE(Texture->BeginCachePlatformData({.Build = std::move(*Build), .ResultApplication = {.bMarkPackageDirty = false}},
 		[&](FTextureOperationResult Result) { Completed = Result.Succeeded(); }));
 	ASSERT_EQ(StartedFuture.wait_for(std::chrono::seconds(10)), std::future_status::ready);
 	ASSERT_FALSE(Completed);

@@ -6,7 +6,6 @@
 #if DURIN_WITH_EDITORONLY_DATA
 
 #include "Texture/TextureCubeData.h"
-#include "Texture/TextureBuildOutcome.h"
 
 namespace Durin
 {

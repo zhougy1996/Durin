@@ -8,6 +8,7 @@
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Texture2DBuildDiagnostics.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
 #include "Texture/TexturePlatformCache.h"
 #include "DerivedDataBuildExecution.h"
@@ -33,7 +34,6 @@ namespace Durin
 		FTexture2DBuildRequest Build;
 		FObjectKey Owner;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
-		bool bSourceDecoderInvoked = false;
 		std::shared_ptr<const FTexturePlatformCacheInput> PlatformCache;
 	};
 
@@ -50,7 +50,6 @@ namespace Durin
 		FTexture2DCompilationMetrics Metrics;
 		FXxHash128 SourceIdentity;
 		FTexture2DBuildSettings Settings;
-		bool bSourceDecoderInvoked = false;
 
 	};
 
@@ -92,7 +91,7 @@ namespace Durin
 		auto Submit(
 			DTexture2D& Texture,
 			FTexture2DCompilationRequest Request,
-			FTexture2DCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>;
+			FTextureCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>;
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
 		auto GetBuildStatus(const DTexture2D& Texture) const -> FTexture2DBuildStatus;

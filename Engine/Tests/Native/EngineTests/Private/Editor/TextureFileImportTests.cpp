@@ -750,8 +750,7 @@ TEST_F(FTextureImportQueueTests, MutationCanceledImportDoesNotUnloadNewCompilati
 	auto Prepared = PrepareTexture2DImport(Source.generic_string());
 	ASSERT_TRUE(Prepared);
 	std::optional<FTextureOperationResult> Replacement;
-	ASSERT_TRUE(SubmitTexture2DCompilation(*Texture,
-		{.Build = MakeTexture2DBuildRequest(Prepared->Source).value(),
+	ASSERT_TRUE(Texture->BeginCachePlatformData({.Build = MakeTexture2DBuildRequest(Prepared->Source).value(),
 		 .ResultApplication = {.SourceReplacement = Prepared->Source}},
 		[&](FTextureOperationResult Value) { Replacement = std::move(Value); }));
 	ASSERT_TRUE(Drain(Importer));
@@ -789,8 +788,7 @@ TEST_F(FTextureImportQueueTests, TeardownAfterMutationCancellationRetainsReplace
 	{
 		~FDrainCompilation() { FAssetCompilingManager::Get().FinishAllCompilation(); }
 	} DrainCompilation;
-	ASSERT_TRUE(SubmitTexture2DCompilation(*Texture,
-		{.Build = MakeTexture2DBuildRequest(Prepared->Source).value(),
+	ASSERT_TRUE(Texture->BeginCachePlatformData({.Build = MakeTexture2DBuildRequest(Prepared->Source).value(),
 		 .ResultApplication = {.SourceReplacement = Prepared->Source}},
 		[&](FTextureOperationResult Value) { Replacement = std::move(Value); }));
 	// No importer tick occurs between external cancellation and destruction.

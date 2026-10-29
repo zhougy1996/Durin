@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-29
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -199,10 +199,12 @@ unload, irrespective of its outcome; save failures retain assets for retry.
 Batch cancellation before authored commit discards captured input and skips
 remaining files. After commit it does not roll back the import. Importer teardown
 joins capture/write work, drains current compilation and retains committed assets.
-Texture2D property-setting helpers return `std::expected<void, FTexture2DCompilationError>`
-directly. Invalid usage, quality, alpha mode or threshold retains the requested
-settings in the Engine input cause; unchanged values remain successful no-ops,
-and rebuild rejection preserves its original compilation error.
+Texture2D property-setting helpers return `std::expected<void, FTextureBuildOperationError>`.
+Invalid usage, quality, alpha mode or threshold returns actionable input text;
+unchanged values remain successful no-ops. Rebuild rejection carries only a stable
+operation disposition, and asynchronous completion uses texture-domain status.
+Compiler causes, source-identity differences and provider diagnostics stay in Engine
+private state and logs rather than Factory or property-edit error objects.
 
 Volume import settings expose expected-void `Validate()` with an
 AssetForgeBuiltins-owned error code and a copy of the rejected settings. Import format, dimensions, tile-cell

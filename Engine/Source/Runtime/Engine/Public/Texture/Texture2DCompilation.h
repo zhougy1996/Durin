@@ -10,18 +10,12 @@
 
 namespace Durin
 {
-
-
-	// Accepted requests invoke their completion exactly once on the GameThread.
-	using FTexture2DCompilationCompletion = std::function<void(FTextureOperationResult)>;
-
 	struct FTexture2DResultApplicationContext
 	{
 		// Empty for rebuilds. Authored replacements stay on the GameThread.
 		std::optional<FTextureSource> SourceReplacement;
 		bool bMarkPackageDirty = true;
 		bool bReportLoadMutation = false;
-		bool bSourceDecoderInvoked = true;
 	};
 
 	struct FTexture2DCompilationRequest
@@ -32,22 +26,6 @@ namespace Durin
 		FTexture2DResultApplicationContext ResultApplication;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
 	};
-
-
-	ENGINE_API auto SubmitTexture2DCompilation(
-		DTexture2D& Texture,
-		FTexture2DCompilationRequest Request,
-		FTexture2DCompilationCompletion Completion = {}) -> std::expected<void, FTexture2DCompilationError>;
-	ENGINE_API auto BuildTexture2DSynchronously(
-		DTexture2D& Texture,
-		FTexture2DBuildRequest Request,
-		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>;
-}
-
-namespace Durin::AssetPrivate
-{
-	ENGINE_API auto SetTexture2DCompilationPhaseHookForTests(
-		std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void;
 }
 
 #endif

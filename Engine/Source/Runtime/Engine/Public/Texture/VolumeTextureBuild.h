@@ -31,9 +31,8 @@ namespace Durin
 	};
 
 	ENGINE_API auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)
-		-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildOperationError>;
-	ENGINE_API auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context)
-		-> std::expected<void, FTextureBuildOperationError>;
+		-> std::expected<FVolumeTexturePlatformData, FTextureBuildOperationError>;
+
 }
 
 #endif

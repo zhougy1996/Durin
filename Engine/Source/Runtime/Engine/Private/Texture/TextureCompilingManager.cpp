@@ -233,8 +233,7 @@ namespace Durin
 				.Diagnostic = std::move(Diagnostic),
 				.Metrics = {.EstimatedBytes = RequestState.EstimatedBytes},
 				.SourceIdentity = RequestState.Request.Build.Source.GetIdentity(),
-				.Settings = RequestState.Request.Build.Settings,
-				.bSourceDecoderInvoked = RequestState.Request.bSourceDecoderInvoked};
+				.Settings = RequestState.Request.Build.Settings};
 		}
 
 		auto SetPhase(const std::shared_ptr<FRequestState>& RequestState, ETexture2DCompilationPhase Phase) -> void
@@ -367,7 +366,6 @@ namespace Durin
 				RequestState->Progress->Diagnostic.Phase = ETexture2DCompilationPhase::AwaitingApply;
 				RequestState->Progress->Diagnostic.Diagnostic = Result.Diagnostic;
 				RequestState->Progress->Diagnostic.Metrics = Result.Metrics;
-				RequestState->Progress->Diagnostic.bSourceDecoderInvoked = Result.bSourceDecoderInvoked;
 				RequestState->Progress->Diagnostic.QueuedNanoseconds = RequestState->Progress->BuildStartNanoseconds != 0
 					? RequestState->Progress->BuildStartNanoseconds - RequestState->Progress->EnqueueNanoseconds
 					: NowNanoseconds() - RequestState->Progress->EnqueueNanoseconds;

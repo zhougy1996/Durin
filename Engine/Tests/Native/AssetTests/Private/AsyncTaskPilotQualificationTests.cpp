@@ -309,7 +309,7 @@ namespace
 			const uint64 Start = StartMeasurement();
 			for (uint32 Index = 0; Index < BatchSize; ++Index)
 			{
-				ASSERT_TRUE(SubmitTexture2DCompilation(*Textures[Index], std::move(Requests[Index]),
+				ASSERT_TRUE(Textures[Index]->BeginCachePlatformData(std::move(Requests[Index]),
 					[&](FTextureOperationResult Result) { ++Completions; Success &= Result.Succeeded(); }));
 			}
 			uint64 DeclaredInFlightBytes = 0;

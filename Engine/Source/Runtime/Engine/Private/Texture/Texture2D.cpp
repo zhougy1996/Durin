@@ -117,7 +117,7 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': Texture2D source data is missing or invalid.", GetObjectPath());
 			return;
 		}
-		if (const auto Built = SubmitTexture2DCompilation(*this, {.Build = {.Source = GetSource().CopyTornOff(), .Settings = {
+		if (const auto Built = this->BeginCachePlatformData({.Build = {.Source = GetSource().CopyTornOff(), .Settings = {
 				.Usage = Usage,
 				.CompressionQuality = CompressionQuality,
 				.AlphaMipMode = AlphaMipMode,
@@ -125,9 +125,8 @@ namespace Durin
 				.MaxResolution = MaxResolution,
 				.bSRGB = bSRGB}}, .ResultApplication = {
 			.bMarkPackageDirty = false,
-			.bReportLoadMutation = false,
-			.bSourceDecoderInvoked = false}}); !Built)
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatTexture2DCompilationError(Built.error()));
+			.bReportLoadMutation = false}}); !Built)
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatTextureBuildOperationError(Built.error()));
 #else
 		DURIN_ERROR("PostLoad '{}': authored Texture2D builds require editor-only data support.", GetObjectPath());
 #endif

@@ -887,6 +887,7 @@ durin_add_native_test(StaticMeshBuildQualificationTests
 set(_durin_texture_test_include_directories
 	${CMAKE_CURRENT_SOURCE_DIR}/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source
+	${DURIN_PROJECT_ROOT_DIR}/Source/Runtime/Engine/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureCompressor/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private
 )

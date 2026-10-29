@@ -5,6 +5,8 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/Texture2DBuild.h"
+#include "TextureBuildOutcome.h"
+#include "Texture2DBuildDiagnostics.h"
 #include "Texture/TextureCubeBuild.h"
 #include "Texture/ITextureCompressorModule.h"
 #if DURIN_WITH_EDITOR

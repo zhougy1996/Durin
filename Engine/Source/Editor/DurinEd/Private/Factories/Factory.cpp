@@ -103,7 +103,7 @@ namespace Durin
 			return Error.SourceHintCause ? FormatSourceHintError(*Error.SourceHintCause)
 				: "Factory source hint could not be created.";
 		case EFactoryError::TextureCompilation:
-			return Error.TextureCompilationCause ? FormatTexture2DCompilationError(*Error.TextureCompilationCause)
+			return !Error.TextureCompilationMessage.empty() ? Error.TextureCompilationMessage
 				: "Texture compilation failed.";
 		case EFactoryError::SourceMissing:
 			return Error.ExpectedClass + " source file does not exist: " + Error.Filename;

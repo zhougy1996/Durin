@@ -113,7 +113,7 @@ auto main(int Count, char** Args) -> int
 	FTextureCubeBuildRequest Request;
 	Request.Input = FTextureCubePanoramaBuildInput{MakeStudioPanorama(bNeutral),
 		{.FaceDimension = CubeFaceDimension, .Output = ETextureCubeOutput::HDR}};
-	const auto Built = BuildTextureCubeSynchronously(*Cube, Request, {});
+	const auto Built = Cube->CachePlatformData(Request, {});
 	if (!Built)
 	{
 		std::cerr << FormatTextureBuildOperationError(Built.error());

@@ -13,20 +13,18 @@ namespace Durin
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 	}
 
-	auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError>
+	auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureCompressorDiagnostic>
 	{
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		if (!TextureCompressorPrivate::IsSupportedBuildTarget(Request.TargetPlatform, Request.TargetProfile))
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				"TextureCube build target is unsupported."});
+			return std::unexpected(FTextureCompressorDiagnostic{"TextureCube build target is unsupported."});
 		}
 		if (const auto* Faces = std::get_if<FTextureCubeFacesBuildInput>(&Request.Input.get()))
 		{
 			if (!Faces->FaceImages.IsValid())
 			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-					"TextureCube decoded faces are invalid."});
+				return std::unexpected(FTextureCompressorDiagnostic{"TextureCube decoded faces are invalid."});
 			}
 			if ((Faces->SourceLayout != ETextureCubeSourceLayout::SixFaces
 				&& Faces->SourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama)
@@ -34,8 +32,7 @@ namespace Durin
 				|| Faces->PanoramaExposureEV < MinimumTextureCubePanoramaExposureEV
 				|| Faces->PanoramaExposureEV > MaximumTextureCubePanoramaExposureEV
 				|| Faces->OriginalSourceWidth == 0 || Faces->OriginalSourceHeight == 0)
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
-					ETextureBuildStage::Normalize, "TextureCube source layout, dimensions, or exposure are invalid."});
+				return std::unexpected(FTextureCompressorDiagnostic{"TextureCube source layout, dimensions, or exposure are invalid."});
 			CanonicalInput = {.Pixels = FTextureCubeLDRCanonicalInput{.FaceImages = Faces->FaceImages,
 					.SourceLayout = Faces->SourceLayout, .bSRGB = Faces->Settings.bSRGB},
 				.OriginalSourceWidth = Faces->OriginalSourceWidth,
@@ -49,10 +46,9 @@ namespace Durin
 		if (Panorama.Settings.Output != ETextureCubeOutput::LDR
 			&& Panorama.Settings.Output != ETextureCubeOutput::HDR)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-				"TextureCube output range is invalid."});
+			return std::unexpected(FTextureCompressorDiagnostic{"TextureCube output range is invalid."});
 		}
-		return std::visit([&](const auto& Image) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> {
+		return std::visit([&](const auto& Image) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureCompressorDiagnostic> {
 			FTextureCubeFaceImages SourceData;
 			const bool bHDR = Panorama.Settings.Output == ETextureCubeOutput::HDR;
 			if (bHDR)
@@ -63,8 +59,7 @@ namespace Durin
 				}
 				else
 				{
-					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-						"HDR cube output requires a linear float panorama."});
+					return std::unexpected(FTextureCompressorDiagnostic{"HDR cube output requires a linear float panorama."});
 				}
 			}
 			else if (auto Result = TextureCubeBuilder::ProjectEquirectangularTextureCube(
@@ -72,8 +67,7 @@ namespace Durin
 				SourceData); !Result) return std::unexpected(std::move(Result.error()));
 			if (!bHDR && !SourceData.IsValid())
 			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-					"TextureCube decoded faces are invalid."});
+				return std::unexpected(FTextureCompressorDiagnostic{"TextureCube decoded faces are invalid."});
 			}
 			const Durin::Image::FImageInfo Info{.Width = Image.Width,
 				.Height = Image.Height,
@@ -107,8 +101,7 @@ namespace Durin
 			auto ImageResult1 = Durin::Image::FImage::TryCreate(Info, std::move(AuthoredBytes));
 			if (!ImageResult1)
 			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
-					ImageResult1.error().ToString()});
+				return std::unexpected(FTextureCompressorDiagnostic{ImageResult1.error().ToString()});
 			}
 			auto AuthoredPanorama = std::move(*ImageResult1);
 			if (bHDR)

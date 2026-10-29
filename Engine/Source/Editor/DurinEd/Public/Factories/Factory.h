@@ -11,7 +11,6 @@ namespace Durin
 {
 	struct FStaticMeshImportSettingsError;
 	struct FSourceHintError;
-	struct FTexture2DCompilationError;
 
 	enum class EFactoryError : uint8
 	{
@@ -31,7 +30,7 @@ namespace Durin
 		uint32 SourceLayout = 0;
 		std::shared_ptr<const FStaticMeshImportSettingsError> StaticMeshSettingsCause;
 		std::shared_ptr<const FSourceHintError> SourceHintCause;
-		std::shared_ptr<const FTexture2DCompilationError> TextureCompilationCause;
+		std::string TextureCompilationMessage;
 	};
 
 	DURINED_API auto FormatFactoryError(const FFactoryError& Error) -> std::string;
