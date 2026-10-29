@@ -264,7 +264,7 @@ namespace Durin
 				if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
 #if DURIN_WITH_EDITORONLY_DATA
 				if (Request) {
-					auto Built = BuildStaticMeshRenderData(std::move(*Request), Control); Request.reset();
+					auto Built = BuildStaticMeshRenderData(std::move(*Request), Control.MaximumWorkingSetBytes); Request.reset();
 					if (Control.IsCancelled()) return std::unexpected("Cook render construction was cancelled.");
 					if (!Built) return std::unexpected(Built.error());
 					Projection.emplace();

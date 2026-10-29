@@ -20,6 +20,6 @@ namespace Durin::StaticMeshPrivate
 		DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>;
 	// CPU consumption runs on a worker after the build callback has retired.
 	auto ConsumeRenderBuild(const FStaticMeshBuildSettings& Settings, DerivedData::FBuildCompleteParams Completion,
-		const FAssetBuildTaskContext& Control) -> FRenderBuildResult;
+		uint64 MaximumWorkingSetBytes) -> FRenderBuildResult;
 }
 #endif

@@ -23,9 +23,9 @@ namespace Durin
 		ENGINE_API static auto Get() -> IMeshBuilderModule*;
 		// Nonzero opaque identity combining implementation, algorithm, and dependency versions. Immutable for the editor lifetime.
 		virtual auto GetBuildVersion() const -> uint64 = 0;
-		// Synchronous CPU construction. Failure/cancellation preserves the uninitialized output.
-		// Build failures are logged by the module; cancellation is observed through Parameters.Control.
-		virtual auto BuildRender(FStaticMeshRenderData& OutRenderData,
+		// Synchronous CPU construction runs to completion; failure preserves the output.
+		// Build failures are logged by the module. Scheduling owns cancellation.
+		virtual auto BuildMesh(FStaticMeshRenderData& OutRenderData,
 			const FStaticMeshBuildParameters& Parameters) -> bool = 0;
 	};
 }

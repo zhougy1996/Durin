@@ -106,7 +106,7 @@ namespace Durin::StaticMeshPrivate
 				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Module->GetBuildVersion())
 					return Context.FailExecution("StaticMesh builder identity does not match the action.");
-				const auto ShouldCancel = [&] { return Context.IsCancelled(); };
+
 				auto Count = MaterialCount(Context); if (!Count) return Fail(std::move(Count.error()));
 				const FBuildInput* Source = Context.FindInput("Source"); const FBuildInput* Settings = Context.FindInput("Reconciliation");
 				if (!Source || !Settings || Source->Identity != SourceReference(Source->Identity.Identity) || Settings->Identity != ReconciliationReference(Settings->Identity.Identity)
@@ -127,7 +127,6 @@ namespace Durin::StaticMeshPrivate
 				std::unordered_set<FName> Names; std::unordered_set<uint32> Indices;
 				for (uint32 Index = 0; Index < ActualCount; ++Index)
 				{
-					if (ShouldCancel()) return Fail(Cancelled().Description);
 					std::string Name; FStaticMeshBuildMaterialSlot Slot;
 					if (!Reader.ReadString(Name, 4096) || !Reader.ReadString(Slot.SourceName, 4096) || !Reader.ReadU32(Slot.SourceMaterialIndex))
 						return Fail("StaticMesh material descriptor is invalid.");
@@ -139,16 +138,14 @@ namespace Durin::StaticMeshPrivate
 				if (!Reader.IsAtEnd() || BuildStaticMeshReconciliationHash(Slots, Size) != Settings->Identity.Identity)
 					return Fail("StaticMesh reconciliation semantic identity is invalid.");
 
-				auto Geometry = DecodeSourceLODs(Bytes, SlotCount, MeshCount, ShouldCancel);
-				if (!Geometry) return Fail(Geometry.error().Code == EStaticMeshSourceError::Cancelled ? Cancelled().Description : FormatStaticMeshSourceError(Geometry.error()));
+				auto Geometry = DecodeSourceLODs(Bytes, SlotCount, MeshCount);
+				if (!Geometry) return Fail(FormatStaticMeshSourceError(Geometry.error()));
 				if (Geometry->size() != LODCount) return Fail("StaticMesh LOD count does not match source metadata.");
 				auto Product = std::make_unique<FStaticMeshRenderData>();
-				const bool bBuilt = Module->BuildRender(*Product, {.Geometry = Geometry->front(), .MaterialSlots = Slots, .NormalizedSize = Size,
-					.Control = {.Cancellation = Context.GetCancellation()}, .LODGeometries = *Geometry});
-				if (ShouldCancel()) return Fail(Cancelled().Description);
+				const bool bBuilt = Module->BuildMesh(*Product, {.Geometry = Geometry->front(), .MaterialSlots = Slots, .NormalizedSize = Size,
+					.LODGeometries = *Geometry});
 				if (!bBuilt) return Context.FailExecution("StaticMesh render construction failed; see MeshBuilder logs for details.");
-				auto Output = MakeSharedOutput(std::move(Product), *Count, ShouldCancel);
-				if (ShouldCancel()) return Fail(Cancelled().Description);
+				auto Output = MakeSharedOutput(std::move(Product), *Count);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);

@@ -25,7 +25,7 @@ namespace Durin
 			return Version;
 		}
 
-		auto BuildRender(FStaticMeshRenderData& OutRenderData,
+		auto BuildMesh(FStaticMeshRenderData& OutRenderData,
 			const FStaticMeshBuildParameters& Parameters) -> bool override
 		{
 			return FStaticMeshBuilder::Build(OutRenderData, Parameters);

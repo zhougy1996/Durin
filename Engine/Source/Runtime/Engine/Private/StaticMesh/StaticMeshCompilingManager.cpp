@@ -49,28 +49,27 @@ namespace Durin
 #else
 			std::monostate Request;
 #endif
-			std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Outcome =
-				std::unexpected(MakeAssetBuildDiagnostic("StaticMesh render build has not started."));
+			std::optional<std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>> Outcome;
 			uint64 EstimatedWorkingSetBytes = 0;
 			FCancellationToken Cancellation;
 			std::atomic<EWorkPhase> Phase = EWorkPhase::Queued;
-			auto Build(const FAssetBuildTaskContext& Control) -> void
+			auto Build() -> void
 			{
 #if DURIN_WITH_EDITORONLY_DATA
 	#if DURIN_WITH_EDITOR
-				if (Completion) Outcome = StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(*Completion), Control);
+				if (Completion) Outcome = StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(*Completion), EstimatedWorkingSetBytes);
+				else Fail("StaticMesh build completion is missing.");
 				Completion.reset();
 	#else
-				Outcome = BuildStaticMeshRenderData(std::move(Request), Control);
+				Outcome = BuildStaticMeshRenderData(std::move(Request), EstimatedWorkingSetBytes);
 	#endif
 #else
 				Outcome = std::unexpected(MakeAssetBuildDiagnostic("Authored mesh builds require editor-only data."));
 #endif
-				if (Control.IsCancelled()) Outcome = std::unique_ptr<FStaticMeshRenderData>{};
 			}
 			auto Fail(std::string Message) -> void { Outcome = std::unexpected(MakeAssetBuildDiagnostic(std::move(Message))); }
 			auto ReleaseInput() -> void { Request = {}; }
-			auto ReleaseOutput() -> void { Outcome = std::unique_ptr<FStaticMeshRenderData>{}; }
+			auto ReleaseOutput() -> void { Outcome.reset(); }
 		};
 
 		struct FRecord
@@ -380,10 +379,7 @@ namespace Durin
 							else
 #endif
 							{
-								const FAssetBuildTaskContext Control{
-									.Cancellation = Cancellation,
-									.MaximumWorkingSetBytes = Work->EstimatedWorkingSetBytes};
-								Work->Build(Control);
+								if (!Cancellation.IsCancelled()) Work->Build();
 							}
 							if (Hook) Hook(Id, EStaticMeshCompilationPhase::Mailbox);
 						}
@@ -568,14 +564,14 @@ namespace Durin
 				// Remove before owner code can re-enter the pump. The record and
 				// output stay alive until the owner callback returns, including exceptions.
 				std::erase(Records, Record);
-				auto Outcome = std::exchange(Record->Work->Outcome, std::unique_ptr<FStaticMeshRenderData>{});
+				auto Outcome = std::exchange(Record->Work->Outcome, std::nullopt);
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
 				[[maybe_unused]] auto DdcCompletion = std::exchange(Record->Work->Completion, std::nullopt);
 #endif
 				if (!Record->Terminal && Record->Work->Cancellation.IsCancelled())
 					Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
 				auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Record->Diagnostic.Owner));
-				if (!Record->Terminal) CompleteRender(Record, Mesh, Outcome, Result);
+				if (!Record->Terminal) { require(Outcome.has_value()); CompleteRender(Record, Mesh, *Outcome, Result); }
 				if (*Record->Terminal != EStaticMeshCompilationStatus::Failed) Record->Diagnostic.Error.clear();
 				Record->Diagnostic.Error.resize(std::min(Record->Diagnostic.Error.size(), MaximumAssetBuildDiagnosticBytes));
 				Record->Diagnostic.Status = *Record->Terminal;

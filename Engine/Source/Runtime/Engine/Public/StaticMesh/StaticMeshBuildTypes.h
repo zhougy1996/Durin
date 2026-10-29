@@ -5,7 +5,6 @@
 #include "EngineAPI.h"
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
-#include "Asset/AssetBuildTaskContext.h"
 #include "MeshDescription/MeshDescription.h"
 #endif
 
@@ -28,13 +27,13 @@ namespace Durin
 		float NormalizedSize = 1.5f;
 	};
 
-	// Borrowed settings and controls for one synchronous detached build.
+	// Borrowed geometry/settings and memory budget for one synchronous detached build.
 	struct FStaticMeshBuildParameters
 	{
 		FMeshDescriptionReadHandle Geometry;
 		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots;
 		float NormalizedSize = 1.5f;
-		FAssetBuildTaskContext Control;
+		uint64 MaximumWorkingSetBytes = UINT64_MAX;
 		std::span<const FMeshDescriptionReadHandle> LODGeometries;
 		FMeshDescriptionReadHandle NormalizationGeometry;
 	};

@@ -1527,15 +1527,13 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsMalformedDescriptorsAndStr
 		EXPECT_FALSE(StaticMeshPrivate::ValidateSharedOutput(*Invalid));
 		EXPECT_FALSE(StaticMeshPrivate::AssembleSharedOutput(*Invalid));
 	}
-	EXPECT_FALSE(StaticMeshPrivate::ValidateSharedOutput(*Output, [] { return true; }));
-	EXPECT_FALSE(StaticMeshPrivate::AssembleSharedOutput(*Output, [] { return true; }));
 	auto InvalidBounds = MakeRecipeRenderData(MakeSingleSectionFixture());
 	InvalidBounds->LODResources[0].Sections[0].LocalBounds.bIsValid = false;
 	EXPECT_FALSE(StaticMeshPrivate::MakeSharedOutput(std::move(InvalidBounds), 1));
 }
 
 
-TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsNonTriangleSectionsAndHonorsMidAssemblyCancellation)
+TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsNonTriangleSectionsAndRestoresByteBackedStreams)
 {
 	auto Product = MakeRecipeRenderData(MakeSingleSectionFixture());
 	Product->LODResources[0].IndexBuffer.GetMutableIndices() = {0, 1};
@@ -1554,12 +1552,12 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsNonTriangleSectionsAndHono
 	auto Data = CopyOutputDescriptors(*Output);
 	for (auto& [Id, Value] : Data.Values) Value = FSharedByteBuffer::Copy(Value.GetBytes());
 	Output = std::move(Data).Build(); ASSERT_TRUE(Output);
-	uint32 ValidationChecks = 0;
-	ASSERT_TRUE(StaticMeshPrivate::ValidateSharedOutput(*Output, [&] { ++ValidationChecks; return false; }));
-	uint32 Checks = 0;
-	EXPECT_FALSE(StaticMeshPrivate::AssembleSharedOutput(*Output, [&] { return ++Checks > ValidationChecks + 1; }));
-	EXPECT_GT(Checks, ValidationChecks + 1);
-	EXPECT_TRUE(StaticMeshPrivate::AssembleSharedOutput(*Output));
+	ASSERT_TRUE(StaticMeshPrivate::ValidateSharedOutput(*Output));
+	auto Assembled = StaticMeshPrivate::AssembleSharedOutput(*Output);
+	ASSERT_TRUE(Assembled) << Assembled.error();
+	ASSERT_NE(*Assembled, nullptr);
+	EXPECT_EQ((*Assembled)->LODResources.front().IndexBuffer.GetNumIndices(), 3u);
+
 }
 
 TEST(FStaticMeshPayloadCodecTests, RenderViewValidationMatchesArchiveValidationWithoutMutatingStreams)

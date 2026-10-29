@@ -653,8 +653,13 @@ auto FAssetImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 			}
 			FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Output.StaticMeshMaterialSlots),
 				.Source = Output.StaticMeshSource};
-			auto Outcome = BuildStaticMeshRenderData(std::move(Request),
-			    {.Cancellation = Cancellation});
+			if (Cancellation.IsCancelled())
+			{
+				Result = AddError(Result, EImportDiagnosticCategory::Canceled, "scene-build",
+				    "Scene mesh build was cancelled.", Descriptor.StableIdentity);
+				return;
+			}
+			auto Outcome = BuildStaticMeshRenderData(std::move(Request));
 			if (Cancellation.IsCancelled() || !Outcome)
 			{
 				Result = AddError(Result,

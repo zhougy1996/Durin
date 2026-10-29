@@ -57,10 +57,8 @@ namespace Durin
 		Mesh.BlockOnAnyAsyncBuild();
 		const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
 		const auto& Slots = Request.PreparedMaterialSlots ? *Request.PreparedMaterialSlots : Snapshot.MaterialSlots;
-		const FAssetBuildTaskContext Control;
 		auto Render = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Slots, Snapshot.NormalizedSize), .Source = Request.Source,
-			.bPersistDerivedData = Request.bPersistDerivedData}, Control);
-		if (Control.IsCancelled()) return std::unexpected(std::string("StaticMesh construction was cancelled."));
+			.bPersistDerivedData = Request.bPersistDerivedData});
 		if (!Render) return std::unexpected(Render.error());
 		if (const auto Applied = CommitStaticMeshBuild(Mesh, std::move(*Render), Request.Source, Snapshot,
 			Request.bMarkPackageDirty, nullptr,
