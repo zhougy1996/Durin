@@ -181,7 +181,7 @@ namespace Durin::DerivedData
 				if (!Request.Record.IsValid())
 					return std::unexpected(FCacheError{ECacheError::InvalidRequest,
 						"Cache put request has no record."});
-				if (auto Valid = Request.Record.CheckLimits({.MaximumTotalBytes = Request.MaximumRawBytes}, true); !Valid)
+				if (auto Valid = Request.Record.CheckLimits(Request.RecordLimits, true); !Valid)
 					return std::unexpected(std::move(Valid.error()));
 				uint64 ResidentBytes = 0;
 				std::vector<FSharedByteBuffer> Backings;

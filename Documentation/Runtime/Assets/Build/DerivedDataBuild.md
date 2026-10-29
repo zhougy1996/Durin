@@ -161,9 +161,23 @@ trip. Typed assembly and publication remain owner-controlled.
 
 ## Policy and cache behavior
 
-`FBuildPolicy` controls cache query, local build, store-on-build, force build,
-input/output/persistence limits, encoded-byte limits, maximum working set, and
-result delivery relative to persistence.
+`FBuildPolicy` contains a uniform `EBuildPolicy` bitmask using the supported
+UE semantics: `BuildLocal`, `CacheQuery`, and `CacheStoreOnBuild`, with `Build`,
+`CacheStore`, `Cache`, and `Default` combinations. Default queries the cache,
+builds locally on a miss, and stores successful output. `Build | CacheStore`
+forces production by omitting `CacheQuery`; there is no separate force flag.
+`CacheQuery` never runs a producer. Unsupported policy bits fail admission through
+the normal error completion. Remote builds, cache promotion, keep-alive and
+per-value overrides are not exposed until supported by the implementation.
+
+`FBuildRequestOptions::Limits` bounds input and output product validation,
+independently of policy and action identity. `FBuildInputLimits` contains only
+input byte, metadata, and value-count ceilings; output validation uses
+`FBuildOutputLimits`. There is no separate persistence product limit. `ResultDelivery` is a request completion option rather than a
+cache policy. `FBuildServiceOptions::CacheLimits` configures service-owned cache
+record, encoded-byte, and codec working-set ceilings. An injected `ICache` keeps
+its own configured ceilings. Public Get/Put requests carry no codec or workspace
+options; private backend requests receive the immutable backend configuration.
 Successful completion always returns its validated output. Compression and
 encoding are cache implementation details, not build service or request policy.
 Tests may replace the complete structured cache interface for deterministic
@@ -237,13 +251,16 @@ completion-only error text for callers. Only input-determined failures
 use `AddError`; neither these errors nor budget and module failures become cache entries.
 Adapter versions are advanced to invalidate previously misclassified failures. Cache and input infrastructure failures are logged by their owning
 layer and are not translated into request-level phase or cause objects.
-Cancellation is a distinct terminal status. Request options carry the Core
-`FCancellationToken` (`FBuildCancellation` is its DDC alias). Copies share a
-monotonic flag, including observers of request-owner cancellation. Cancelling a
-request, or completing it as `Canceled`, latches the caller token before notification.
-The token owns no completion event: callback retirement and request waiting remain
-separate lifecycle guarantees. Observer callbacks are serialized, must not reenter
-their token, and must retain valid captures for every token copy.
+Cancellation is a distinct terminal status, controlled through `IRequestOwner`.
+Request options contain no cancellation token or predicate. Each admitted request
+owns an independent private cancellation source; session cancellation cannot latch
+a caller token or cancel another owner's request. Resolvers receive only a
+read-only `FBuildCancellation` view, and build contexts expose a cancellation
+query without access to the source. Cancellation is execution state and never
+becomes a deterministic producer error or cache entry. The asynchronous asset
+layer bridges its cancellation source to `Owner.RequestCancel()` and decides
+whether to accept completed products. Started synchronous Cook, mesh, and texture
+algorithms may finish. Owner waiting still includes callback retirement.
 
 `FBuildSession::Build` takes an explicit `IRequestOwner` and returns void. Every
 request invokes its completion exactly once, including a closed session, capacity,
@@ -259,7 +276,7 @@ when it is created; later registration affects later sessions without mutating
 existing sessions. Registered functions and required services remain owned
 through drain.
 `FBuildSession::Build` accepts a definition or action, optional request inputs,
-policy, cancellation, and completion callback. An omitted scheduler or
+policy, product limits, an explicit request owner, and completion callback. An omitted scheduler or
 `CreateInlineBuildScheduler` executes inline. `CreateTaskBuildScheduler` schedules
 on Core workers in scheduler lifetime. Its wait handle uses
 Core cooperative waiting, including single-worker nested builds. A stopped
@@ -333,7 +350,7 @@ Charges remain through callbacks and dispatch publication and are released on re
 retirement. Request objects, record tables, opaque callable captures,
 allocator/container spare capacity, backend result data, and active codec workspace
 are excluded; this is a coarse queued-data budget, not an RSS bound.
-Each request retains its existing encoded/raw/workspace budgets. This controls
+Each private backend request receives the configured record/encoded/workspace ceilings. This controls
 operation concurrency and retained admission, not a new global asset memory
 reservation. `Close` stops admission and cancels accepted items; `Drain` waits
 for them without closing admission itself. Adapter destruction closes and drains;
@@ -360,7 +377,7 @@ workspace budget remain independent.
 Scheduled builds prepare action identity, submit a full async Get, and release
 the Worker task. A usable full hit completes directly; misses/rejections resume
 resolution and production on the captured producer scheduler. Metadata description
-runs once, full output conversion remains mandatory, and priority/budget are
+runs once, full output conversion remains mandatory, and owner priority, product limits, and backend resource ceilings are
 preserved across continuations. A valid local output is retained through async
 Put; write admission, serialization, dispatch, backend failure, or a dropped write
 cannot discard it. By default, `EBuildResultDelivery::AfterPersistence` delays

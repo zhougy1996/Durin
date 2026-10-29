@@ -142,10 +142,10 @@ namespace Durin
 				Subscriber->NativeProducer = Subscriber->Options.NativeProducerIdentity;
 			else if (Subscriber->BinaryMetal)
 			{
-				const auto Producer = GetMetalLibraryProducerIdentity(DerivedData::FBuildCancellation([Weak = std::weak_ptr(Subscriber)] {
+				const auto Producer = GetMetalLibraryProducerIdentity([Weak = std::weak_ptr(Subscriber)] {
 					const auto Owner = Weak.lock(); return !Owner || Owner->Canceled.load()
 					|| (Owner->Options.IsCancelled && Owner->Options.IsCancelled());
-				}));
+				});
 				if (!Producer) return Subscriber->Finish(FShaderCompilerOutput::Failure(Producer.error()));
 				Subscriber->NativeProducer = *Producer;
 			}
@@ -206,15 +206,9 @@ namespace Durin
 			auto Request = MakeMetalLibraryBuildRequest(Subscriber->NativeOutput.CompiledShaders[Subscriber->NativeIndex], Subscriber->NativeProducer);
 			if (!Request) return Subscriber->Finish(FShaderCompilerOutput::Failure(Request.error()));
 			FBuildRequestOptions Options;
-			Options.Policy.ForceBuild = Subscriber->Request->bForceRecompile;
-			Options.Policy.QueryCache = Query;
-			Options.Policy.BuildLocal = !Subscriber->Options.bNativeCacheOnly;
-			Options.Policy.OutputLimits.MaximumTotalBytes = Subscriber->Request->MaximumOutputBytes;
-			Options.Policy.PersistenceLimits = Options.Policy.OutputLimits;
-			Options.Cancellation = FBuildCancellation([Weak = std::weak_ptr(Subscriber)] {
-				const auto Owner = Weak.lock(); return !Owner || Owner->Canceled.load()
-					|| (Owner->Options.IsCancelled && Owner->Options.IsCancelled());
-			});
+			Options.Policy = (Query && !Subscriber->Request->bForceRecompile ? EBuildPolicy::CacheQuery : EBuildPolicy::None)
+				| (Subscriber->Options.bNativeCacheOnly ? EBuildPolicy::None : EBuildPolicy::Build) | EBuildPolicy::CacheStore;
+			Options.Limits.Output.MaximumTotalBytes = Subscriber->Request->MaximumOutputBytes;
 			auto Admitted = Builder->BuildService->Submit(std::move(*Request), Subscriber->NativeOwner,
 				[Self = shared_from_this(), Subscriber, Query](FBuildCompleteParams Completion) {
 					try
@@ -249,13 +243,10 @@ namespace Durin
 			try {
 			using namespace DerivedData;
 			FBuildRequestOptions Options;
-			Options.Policy.ForceBuild = Flight->Prepared->Options.bForceRecompile;
-			Options.Policy.QueryCache = Query;
-			Options.Policy.InputLimits.MaximumTotalBytes = ShaderCaptureLimits::MaximumSessionInputBytes;
-			Options.Policy.InputLimits.MaximumValues = uint32(ShaderCaptureLimits::MaximumFiles + 2);
-			Options.Policy.OutputLimits.MaximumTotalBytes = std::min(ShaderCompiledOutput::MaximumValueBytes, Flight->Prepared->Request->MaximumOutputBytes);
-			Options.Policy.PersistenceLimits = Options.Policy.OutputLimits;
-			Options.Policy.MaximumEncodedBytes = ShaderCompiledOutput::MaximumValueBytes + 4ull * 1024 * 1024;
+			Options.Policy = Query && !Flight->Prepared->Options.bForceRecompile ? EBuildPolicy::Default : EBuildPolicy::Build | EBuildPolicy::CacheStore;
+			Options.Limits.Input.MaximumTotalBytes = ShaderCaptureLimits::MaximumSessionInputBytes;
+			Options.Limits.Input.MaximumValues = uint32(ShaderCaptureLimits::MaximumFiles + 2);
+			Options.Limits.Output.MaximumTotalBytes = std::min(ShaderCompiledOutput::MaximumValueBytes, Flight->Prepared->Request->MaximumOutputBytes);
 			auto Admitted = Builder->BuildService->Submit(*Flight->Session, Flight->Owner,
 				[Self = shared_from_this(), Flight, Inline, Query](FBuildCompleteParams Completion) {
 					try

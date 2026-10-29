@@ -32,9 +32,11 @@ namespace
 		mutable bool Corrupt = false;
 		bool FailPut = false;
 		mutable std::optional<FCacheRecord> Stored;
-		auto Get(const FCacheGetBackendRequest&) const -> FCacheGetResult override
+		mutable FCacheResourceLimits LastGetLimits, LastPutLimits;
+		auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 		{
 			++Gets;
+			LastGetLimits = {Request.RecordLimits, Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes};
 			if (Corrupt)
 			{
 				Corrupt = false;
@@ -45,6 +47,7 @@ namespace
 		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 		{
 			++Puts;
+			LastPutLimits = {Request.RecordLimits, Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes};
 			if (FailPut) return std::unexpected(FCacheError{ECacheError::StorageFailure, "fixture write failure"});
 			Stored = Request.Record; return {};
 		}
@@ -53,17 +56,18 @@ namespace
 	{
 		std::shared_ptr<FResolver> Resolver = std::make_shared<FResolver>(); std::shared_ptr<FFunction> Function = std::make_shared<FFunction>(); std::shared_ptr<FMemoryCache> Cache = std::make_shared<FMemoryCache>();
 		std::shared_ptr<IBuild> Service; std::shared_ptr<FBuildSession> Session;
-		FHarness()
+		FHarness(FCacheResourceLimits Limits = {})
 		{
 			Durin::DerivedData::Private::FBuildBackendOptions O;
 			O.Cache = Cache;
+			O.CacheLimits = Limits;
 			Service = Durin::DerivedData::Private::CreateBuildForBackend(std::move(O));
 			Service->Register(Function).value();
 			Session = Service->CreateSession().value();
 		}
-		auto Run(FBuildRequestOptions O = {}) -> FBuildCompleteParams
+		auto Run(FBuildRequestOptions O = {}, bool Canceled = false) -> FBuildCompleteParams
 		{
-			O.InputResolver = Resolver; FRequestOwner Owner; std::optional<FBuildCompleteParams> Result;
+			O.InputResolver = Resolver; FRequestOwner Owner; if (Canceled) Owner.RequestCancel(); std::optional<FBuildCompleteParams> Result;
 			Session->Build(Definition(), Owner, [&](auto V) { Result = std::move(V); }, {}, std::move(O));
 			require(Owner.Wait() == ERequestWaitResult::Completed); return std::move(*Result);
 		}
@@ -124,7 +128,69 @@ TEST(FBuildExecutionTests, ErrorOutputIsNotPersistedAndNextRequestRebuilds)
 
 TEST(FBuildExecutionTests, CancellationRemainsDistinct)
 {
-	FHarness H; FBuildRequestOptions O; O.Cancellation = FBuildCancellation([] { return true; }); auto Result = H.Run(std::move(O)); EXPECT_EQ(Result.GetStatus(), EStatus::Canceled); EXPECT_EQ(Result.GetOutput(), nullptr);
+	FHarness H; auto Result = H.Run({}, true); EXPECT_EQ(Result.GetStatus(), EStatus::Canceled); EXPECT_EQ(Result.GetOutput(), nullptr);
+}
+
+TEST(FBuildExecutionTests, UniformPoliciesControlQueryBuildAndStoreIndependently)
+{
+	FHarness H;
+	auto Run = [&](EBuildPolicy Policy) { return H.Run({.Policy = Policy}); };
+	EXPECT_EQ(Run(EBuildPolicy::None).GetStatus(), EStatus::Error);
+	EXPECT_EQ(Run(EBuildPolicy::Cache).GetStatus(), EStatus::Error);
+	EXPECT_EQ(H.Function->Builds, 0u);
+	EXPECT_EQ(H.Cache->Gets, 1u);
+	EXPECT_EQ(Run(EBuildPolicy::Build).GetStatus(), EStatus::Ok);
+	EXPECT_EQ(H.Cache->Gets, 1u);
+	EXPECT_EQ(H.Cache->Puts, 0u);
+	EXPECT_EQ(Run(EBuildPolicy::Build | EBuildPolicy::CacheStore).GetStatus(), EStatus::Ok);
+	EXPECT_EQ(H.Cache->Gets, 1u);
+	EXPECT_EQ(H.Cache->Puts, 1u);
+	auto Hit = Run(EBuildPolicy::CacheQuery);
+	EXPECT_EQ(Hit.GetStatus(), EStatus::Ok);
+	EXPECT_TRUE(HasBuildExecutionFlag(Hit.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
+	EXPECT_EQ(H.Function->Builds, 2u);
+	EXPECT_EQ(Run(EBuildPolicy::Build | EBuildPolicy::CacheStore).GetStatus(), EStatus::Ok);
+	EXPECT_EQ(H.Function->Builds, 3u);
+	EXPECT_EQ(H.Cache->Gets, 2u);
+	EXPECT_EQ(H.Cache->Puts, 2u);
+}
+
+TEST(FBuildExecutionTests, ProductLimitRejectsBothLocalOutputAndWarmCacheOutput)
+{
+	FHarness H;
+	ASSERT_EQ(H.Run().GetStatus(), EStatus::Ok);
+	FBuildRequestOptions Limited{.Policy = EBuildPolicy::CacheQuery};
+	Limited.Limits.Output.MaximumTotalBytes = 1;
+	EXPECT_EQ(H.Run(Limited).GetStatus(), EStatus::Error);
+	EXPECT_EQ(H.Function->Builds, 1u);
+	Limited.Policy = EBuildPolicy::Build;
+	EXPECT_EQ(H.Run(Limited).GetStatus(), EStatus::Error);
+	EXPECT_EQ(H.Function->Builds, 2u);
+	EXPECT_EQ(H.Cache->Puts, 1u);
+	EXPECT_EQ(H.Run().GetStatus(), EStatus::Ok);
+	EXPECT_EQ(H.Function->Builds, 2u);
+}
+
+TEST(FBuildExecutionTests, ServiceResourceCeilingsReachCacheIndependentlyOfProductLimits)
+{
+	FCacheResourceLimits Limits{.Record = {.MaximumTotalBytes = 1234, .MaximumMetadataBytes = 512, .MaximumValues = 7},
+		.MaximumEncodedBytes = 2345, .MaximumWorkingSetBytes = 3456};
+	FHarness H(Limits);
+	ASSERT_EQ(H.Run().GetStatus(), EStatus::Ok);
+	const auto Check = [&](const FCacheResourceLimits& Actual) {
+		EXPECT_EQ(Actual.Record.MaximumTotalBytes, Limits.Record.MaximumTotalBytes);
+		EXPECT_EQ(Actual.Record.MaximumMetadataBytes, Limits.Record.MaximumMetadataBytes);
+		EXPECT_EQ(Actual.Record.MaximumValues, Limits.Record.MaximumValues);
+		EXPECT_EQ(Actual.MaximumEncodedBytes, Limits.MaximumEncodedBytes);
+		EXPECT_EQ(Actual.MaximumWorkingSetBytes, Limits.MaximumWorkingSetBytes);
+	};
+	Check(H.Cache->LastGetLimits);
+	Check(H.Cache->LastPutLimits);
+	FBuildRequestOptions Options;
+	Options.Limits.Output.MaximumTotalBytes = 8192;
+	ASSERT_EQ(H.Run(Options).GetStatus(), EStatus::Ok);
+	Check(H.Cache->LastGetLimits);
+	EXPECT_EQ(H.Function->Builds, 1u);
 }
 
 TEST(FBuildExecutionTests, ProducerExceptionIsInfrastructureFailureAndIsNotCached)
@@ -132,12 +198,12 @@ TEST(FBuildExecutionTests, ProducerExceptionIsInfrastructureFailureAndIsNotCache
 	FHarness H; H.Function->Throw = true; auto Result = H.Run(); EXPECT_EQ(Result.GetStatus(), EStatus::Error); EXPECT_EQ(Result.GetOutput(), nullptr); EXPECT_EQ(H.Cache->Puts, 0u);
 }
 
-TEST(FBuildExecutionTests, ExecutionFailureCanRetryWithSameIdentityAndLargerCacheBudget)
+TEST(FBuildExecutionTests, ExecutionFailureCanRetryWithSameIdentityAndDifferentProductLimit)
 {
 	FHarness H;
 	H.Function->ExecutionFail = true;
 	FBuildRequestOptions Limited;
-	Limited.Policy.MaximumWorkingSetBytes = 1024;
+	Limited.Limits.Output.MaximumTotalBytes = 1024;
 	auto Failed = H.Run(Limited);
 	EXPECT_EQ(Failed.GetStatus(), EStatus::Error);
 	EXPECT_EQ(Failed.GetOutput(), nullptr);
@@ -252,7 +318,7 @@ TEST(FBuildExecutionTests, EarlyInlineSuccessHitsCacheAndErrorsRetry)
 	for (bool Negative : {false, true})
 	{
 		FHarness H; H.Function->Fail = Negative;
-		FBuildRequestOptions Options; Options.Policy.ResultDelivery = EBuildResultDelivery::BeforePersistence;
+		FBuildRequestOptions Options; Options.ResultDelivery = EBuildResultDelivery::BeforePersistence;
 		auto Cold = H.Run(Options), Warm = H.Run(Options);
 		EXPECT_EQ(Cold.GetStatus(), Negative ? EStatus::Error : EStatus::Ok);
 		EXPECT_EQ(Warm.GetStatus(), Cold.GetStatus());

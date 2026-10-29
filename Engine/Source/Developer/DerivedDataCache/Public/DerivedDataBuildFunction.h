@@ -9,7 +9,17 @@
 namespace Durin::DerivedData
 {
 	namespace Private { struct FBuildExecutionAccess; }
-	using FBuildCancellation = FCancellationToken;
+	// Read-only cancellation view supplied by the request owner/execution layer.
+	class FBuildCancellation
+	{
+	public:
+		FBuildCancellation() = default;
+		auto IsCancelled() const -> bool { return Token.IsCancelled(); }
+	private:
+		friend struct Private::FBuildExecutionAccess;
+		explicit FBuildCancellation(FCancellationToken Token) : Token(std::move(Token)) {}
+		FCancellationToken Token;
+	};
 
 	struct FBuildInputValue { std::string Name; FSharedByteBuffer Data; };
 	struct FBuildInput
@@ -56,12 +66,10 @@ namespace Durin::DerivedData
 		FBuildInputsBuilder(FBuildInputsBuilder&&) noexcept = default;
 		auto operator=(FBuildInputsBuilder&&) noexcept -> FBuildInputsBuilder& = default;
 		FBuildInputsBuilder(const FBuildInputsBuilder&) = delete;
-		auto SetCancellation(FBuildCancellation Value) -> FBuildInputsBuilder& { Cancel = std::move(Value); return *this; }
 		DERIVEDDATACACHE_API auto Build() && -> std::expected<FBuildInputs, FBuildInputError>;
 	private:
 		std::vector<FBuildSourceReference> Sources;
 		std::shared_ptr<const IBuildInputResolver> Resolver;
-		FBuildCancellation Cancel;
 	};
 
 	class FBuildConfigContext
@@ -97,7 +105,6 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto AddLog(std::string Category, EBuildLogSeverity Severity,
 			std::string Text) -> bool;
 		auto IsCancelled() const -> bool { return Cancel.IsCancelled(); }
-		auto GetCancellation() const -> const FBuildCancellation& { return Cancel; }
 	private:
 		friend struct Private::FBuildExecutionAccess;
 		FBuildContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs, FBuildOutputBuilder& Output,

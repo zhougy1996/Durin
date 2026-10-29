@@ -22,7 +22,7 @@ namespace Durin::DerivedData
 		FCacheKey Key;
 		FCacheRecordLimits RecordLimits;
 		// Manifest plus each distinct requested blob identity and raw size.
-		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
+		uint64 MaximumEncodedBytes = FCacheResourceLimits{}.MaximumEncodedBytes;
 		// Retained payload/codec storage; excludes descriptor and allocator overhead.
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 		ECacheGetMode Mode = ECacheGetMode::FullRecord;
@@ -49,9 +49,9 @@ namespace Durin::DerivedData
 	struct FCachePutBackendRequest
 	{
 		FCacheRecord Record;
-		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
-		// Logical output value, metadata, and message bytes before compression.
-		uint64 MaximumRawBytes = 2ull * 1024 * 1024 * 1024;
+		uint64 MaximumEncodedBytes = FCacheResourceLimits{}.MaximumEncodedBytes;
+		// Generic record validation before compression.
+		FCacheRecordLimits RecordLimits;
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 		std::function<bool()> ShouldCancel;
 		// Borrowed only by synchronous Put; async dispatch does not retain this pointer.

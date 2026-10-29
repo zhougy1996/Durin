@@ -1,6 +1,7 @@
 #include "CacheDispatchPrivate.h"
 #include "RequestOwnerPrivate.h"
 #include "CacheDiagnosticsPrivate.h"
+#include "DerivedDataCache/DerivedDataCache.h"
 
 namespace Durin::DerivedData::Private
 {
@@ -295,12 +296,13 @@ namespace Durin::DerivedData::Private
 		if (!Result) Result = CreateAsyncCache(Backend, bTask ? CreateTaskCacheScheduler() : CreateInlineBuildScheduler(), Limits);
 		return Result;
 	}
-	auto CreateCacheForBackend(std::shared_ptr<ICacheBackend> Backend, std::shared_ptr<IAsyncCache> Override, FCacheDispatchLimits Limits) -> std::shared_ptr<ICache>
+	auto CreateCacheForBackend(std::shared_ptr<ICacheBackend> Backend, std::shared_ptr<IAsyncCache> Override, FCacheDispatchLimits Limits, FCacheResourceLimits ResourceLimits) -> std::shared_ptr<ICache>
 	{
 		auto State = std::make_shared<FCacheAccess>();
 		State->Backend = std::move(Backend);
 		State->Override = std::move(Override);
 		State->Limits = Limits;
+		State->ResourceLimits = ResourceLimits;
 		return FCacheAccess::Wrap(std::move(State));
 	}
 } // namespace Durin::DerivedData::Private
@@ -325,7 +327,7 @@ namespace Durin::DerivedData
 		Tags->reserve(Requests.size());
 		for (const auto& Request : Requests)
 		{
-			BackendRequests.push_back({.Key = Request.Key, .RecordLimits = Request.RecordLimits, .MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes, .Mode = Request.Mode, .RequiredValues = Request.RequiredValues});
+			BackendRequests.push_back({.Key = Request.Key, .RecordLimits = State->ResourceLimits.Record, .MaximumEncodedBytes = State->ResourceLimits.MaximumEncodedBytes, .MaximumWorkingSetBytes = State->ResourceLimits.MaximumWorkingSetBytes, .Mode = Request.Mode, .RequiredValues = Request.RequiredValues});
 			Tags->emplace_back(Request.Name, Request.UserData);
 		}
 		auto Result = State->Dispatcher(false)->Get(BackendRequests, Owner, [Tags, Notify](uint32 Index, FCacheGetResult Result, FCacheQueryStats) mutable {
@@ -369,7 +371,7 @@ namespace Durin::DerivedData
 		Tags->reserve(Requests.size());
 		for (const auto& Request : Requests)
 		{
-			BackendRequests.push_back({Request.Record, Request.MaximumEncodedBytes, Request.MaximumRawBytes, Request.MaximumWorkingSetBytes});
+			BackendRequests.push_back({Request.Record, State->ResourceLimits.MaximumEncodedBytes, State->ResourceLimits.Record, State->ResourceLimits.MaximumWorkingSetBytes});
 			Tags->push_back({Request.Name, Request.Record.GetKey(), Request.UserData});
 		}
 		auto Result = State->Dispatcher(false)->Put(BackendRequests, Owner, [Tags, Notify](uint32 Index, FCachePutResult Result) mutable {

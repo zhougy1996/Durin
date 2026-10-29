@@ -28,15 +28,12 @@ namespace Durin
 			});
 			return PhysicsSessions.Get(Execution);
 		}
-		auto MakePhysicsOptions(const FPhysicsCookInput& Input, uint64 MaximumWorkingSetBytes) -> DerivedData::FBuildRequestOptions
+		auto MakePhysicsOptions(const FPhysicsCookInput& Input) -> DerivedData::FBuildRequestOptions
 		{
 			DerivedData::FBuildRequestOptions Options;
-			Options.Policy.StoreOnBuild = Input.ShouldPersist();
-			Options.Policy.MaximumWorkingSetBytes = MaximumWorkingSetBytes;
-			Options.Policy.InputLimits.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
-			Options.Policy.OutputLimits.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
-			const uint64 MaximumBytes = std::min(MaximumPhysicsCollisionPayloadBytes, MaximumWorkingSetBytes / 16);
-			Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes; Options.Policy.MaximumEncodedBytes = MaximumBytes;
+			Options.Policy = Input.ShouldPersist() ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
+			Options.Limits.Input.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
+			Options.Limits.Output.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
 			return Options;
 		}
 
@@ -54,13 +51,13 @@ namespace Durin
 			require(PhysicsSessions.SetTaskService(std::move(Service)) == DerivedData::EBuildDrainResult::Drained);
 		}
 		auto DispatchCookBuild(const FPhysicsCookInput& Input, DerivedData::IRequestOwner& Owner,
-			uint64 MaximumWorkingSetBytes, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>
+			DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>
 		{
 			auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), FCollisionCookedData::GetBuildVersion(), 0, Input.GetTargetPlatform());
 			if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("Physics build definition is invalid.", "Cook"));
 			auto Session = GetPhysicsSession(DerivedData::EBuildCacheExecution::Task);
 			if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description, "Cook"));
-			auto Options = MakePhysicsOptions(Input, MaximumWorkingSetBytes);
+			auto Options = MakePhysicsOptions(Input);
 			Options.InputResolver = MakeCollisionInputResolver(Input);
 			(*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
 
@@ -138,7 +135,7 @@ namespace Durin
 		if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("Physics build definition is invalid.", "Cook"));
 		auto Session = GetPhysicsSession(DerivedData::EBuildCacheExecution::Inline);
 		if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description, "Cook"));
-		auto Options = MakePhysicsOptions(Input, MaximumWorkingSetBytes);
+		auto Options = MakePhysicsOptions(Input);
 		Options.InputResolver = PhysicsPrivate::MakeCollisionInputResolver(Input);
 		DerivedData::FRequestOwner Owner;
 		std::optional<DerivedData::FBuildCompleteParams> Completion;

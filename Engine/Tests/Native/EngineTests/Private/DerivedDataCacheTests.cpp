@@ -663,7 +663,7 @@ namespace
 		return std::move(FBuildDefinitionBuilder("Resource.SessionFixture")).Build().value();
 	}
 	auto ResourceOptions() -> FBuildRequestOptions
-	{ return {.Policy = {.QueryCache = false, .StoreOnBuild = false}}; }
+	{ return {.Policy = EBuildPolicy::Build}; }
 }
 
 TEST(FResourceBuildSessionTests, InlineNestedBuildAndTypedAdmissionSurviveCloseAndReopen)
@@ -1152,11 +1152,11 @@ TEST(FCacheTests, EnforcesRawEncodedAndResidentBudgetsBeforePublishingManifest)
 	FScopedCacheDirectory Directory("ContentBudgets");
 	const auto Key = MakeKey(FCacheBucket::FromString("Budgets"), 'f');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(4096, std::byte{8}))});
-	EXPECT_FALSE(GetCacheBackend().Put({Record, 8192, 100, 16 * 1024 * 1024}));
-	EXPECT_FALSE(GetCacheBackend().Put({Record, 64, 8192, 16 * 1024 * 1024}));
-	EXPECT_FALSE(GetCacheBackend().Put({Record, 8192, 8192, 4096}));
+	EXPECT_FALSE(GetCacheBackend().Put({Record, 8192, {.MaximumTotalBytes = 100}, 16 * 1024 * 1024}));
+	EXPECT_FALSE(GetCacheBackend().Put({Record, 64, {.MaximumTotalBytes = 8192}, 16 * 1024 * 1024}));
+	EXPECT_FALSE(GetCacheBackend().Put({Record, 8192, {.MaximumTotalBytes = 8192}, 4096}));
 	const auto Backing = FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{3}));
-	EXPECT_FALSE(GetCacheBackend().Put({RecordWith(Key, {Backing.MakeView(0, 1)}), 8192, 8192, 4096}));
+	EXPECT_FALSE(GetCacheBackend().Put({RecordWith(Key, {Backing.MakeView(0, 1)}), 8192, {.MaximumTotalBytes = 8192}, 4096}));
 	EXPECT_FALSE(GetCacheBackend().Get({Key}).value().has_value());
 	ASSERT_TRUE(GetCacheBackend().Put({Record}));
 	const auto Manifest = GetCacheStorage().Get({Key, 8192, ECacheStorageNamespace::Records}); ASSERT_TRUE(Manifest); ASSERT_TRUE(*Manifest);
@@ -1953,6 +1953,35 @@ TEST(FCacheMaintenanceTests, CanceledClearLeavesValuesUntilManifestsAreRemovedAn
 	auto Resumed = MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Clear});
 	ASSERT_TRUE(Resumed); EXPECT_FALSE(std::filesystem::exists(Blob));
 	EXPECT_FALSE(GetCacheBackend().Get({Key}).value().has_value());
+}
+
+TEST(FPublicCacheTests, BackendResourceLimitsApplyWithoutRequestStorageOptions)
+{
+	FScopedCacheDirectory Directory("PublicCacheResourceLimits");
+	const auto Key = MakeKey(FCacheBucket::FromString("PublicCache"), 'd');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
+	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	FCacheResourceLimits Raw, Metadata, Values, Encoded, Workspace;
+	Raw.Record.MaximumTotalBytes = 1;
+	Metadata.Record.MaximumMetadataBytes = 0;
+	Values.Record.MaximumValues = 0;
+	Encoded.MaximumEncodedBytes = 1;
+	Workspace.MaximumWorkingSetBytes = 1;
+	const std::array Gets{FCacheGetRequest{.Key = Key}};
+	const std::array Puts{FCachePutRequest{.Record = Record}};
+	for (const auto& Limits : {Raw, Metadata, Values, Encoded, Workspace})
+	{
+		auto Cache = Durin::DerivedData::Private::CreateCacheForBackend({}, {}, {}, Limits);
+		FRequestOwner Owner;
+		uint32 Calls = 0;
+		Cache->Get(Gets, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Calls; });
+		Cache->Put(Puts, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Calls; });
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+		EXPECT_EQ(Calls, 2u);
+		auto Retained = GetCacheBackend().Get({Key});
+		ASSERT_TRUE(Retained && *Retained);
+		EXPECT_EQ((**Retained).GetValues()[0].Value.GetRawHash(), Record.GetValues()[0].Value.GetRawHash());
+	}
 }
 
 TEST(FPublicCacheTests, ResponsesCarryIdentityAndNestedCallbacksStayOwned)

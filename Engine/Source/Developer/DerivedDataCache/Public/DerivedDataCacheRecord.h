@@ -15,7 +15,6 @@ namespace Durin::DerivedData
 	class FCacheRecord
 	{
 	public:
-		static constexpr uint64 DefaultMaximumEncodedBytes = 2ull * 1024 * 1024 * 1024 + 2ull * 1024 * 1024;
 		FCacheRecord() = default;
 		auto IsValid() const -> bool { return State != nullptr; }
 		DERIVEDDATACACHE_API auto GetKey() const -> FCacheKey;

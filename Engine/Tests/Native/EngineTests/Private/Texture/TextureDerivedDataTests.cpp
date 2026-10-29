@@ -120,7 +120,7 @@ TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMi
 	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::Canceled);
 	Request.ShouldCancel = {}; Request.MaximumEncodedBytes = 1;
 	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::CacheFailure);
-	Request.MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
+	Request.MaximumEncodedBytes = FCacheResourceLimits{}.MaximumEncodedBytes;
 	const auto Hash = Record->GetValues()[0].Value.GetRawHash().ToString();
 	std::filesystem::remove(Directory.Root / "values/v1/Content" / Hash.substr(0, 2) / (Hash + ".bin"));
 	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::MissingValue);
@@ -1019,15 +1019,18 @@ TEST(FTexturePlatformSessionTests, SyncCompletionCarriesCancellationAndFailureDi
 	ASSERT_TRUE(Request);
 	auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(*Request);
 	ASSERT_TRUE(Definition);
-	DerivedData::FBuildRequestOptions CancelOptions;
-	CancelOptions.Cancellation = DerivedData::FBuildCancellation([] { return true; });
-	auto Canceled = TexturePrivate::Build(*Definition, {}, std::move(CancelOptions));
+	DerivedData::FRequestOwner Owner; Owner.RequestCancel();
+	auto Session = DerivedData::GetBuild().CreateSession().value();
+	std::optional<DerivedData::FBuildCompleteParams> CanceledResult;
+	Session->Build(*Definition, Owner, [&](auto Value) { CanceledResult = std::move(Value); });
+	ASSERT_EQ(Owner.Wait(), DerivedData::ERequestWaitResult::Completed);
+	ASSERT_TRUE(CanceledResult);
+	const auto& Canceled = *CanceledResult;
 	EXPECT_EQ(Canceled.GetStatus(), DerivedData::EStatus::Canceled);
 	EXPECT_EQ(Canceled.GetOutput(), nullptr);
 	EXPECT_TRUE(Canceled.GetDiagnostic().empty());
 	DerivedData::FBuildRequestOptions Options;
-	Options.Policy.QueryCache = false;
-	Options.Policy.ForceBuild = true;
+	Options.Policy = DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheStore;
 	// No resolver is supplied for a definition requiring source inputs.
 	auto Failed = TexturePrivate::Build(*Definition, {}, std::move(Options));
 	EXPECT_EQ(Failed.GetStatus(), DerivedData::EStatus::Error);
@@ -1141,7 +1144,7 @@ TEST(FTextureDerivedDataTests, AdaptersRejectMismatchedBuilderIdentityBeforeRead
 		ASSERT_TRUE(Service->Register(Function));
 		auto Session = Service->CreateSession();
 		ASSERT_TRUE(Session);
-		FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
+		FBuildRequestOptions Options{.Policy = EBuildPolicy::Build};
 		Options.InputResolver = std::make_shared<FResolver>(Action->GetInputs());
 		std::optional<FBuildCompleteParams> Result;
 		FRequestOwner Owner;

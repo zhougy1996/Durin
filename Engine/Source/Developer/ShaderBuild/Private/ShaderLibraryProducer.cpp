@@ -50,7 +50,7 @@ namespace Durin
 		std::string NativeProducer;
 		if (Resolved->GetCookedShaderTarget() == MetalLibraryShaderTarget && TargetProfile == EShaderTargetProfile::Game)
 		{
-			const auto Native = GetMetalLibraryProducerIdentity(DerivedData::FBuildCancellation(IsCancelled));
+			const auto Native = GetMetalLibraryProducerIdentity(IsCancelled);
 			if (!Native) return FShaderCompletion::Failure(Native.error());
 			NativeProducer = *Native;
 		}

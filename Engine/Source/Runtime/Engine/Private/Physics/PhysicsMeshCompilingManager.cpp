@@ -61,7 +61,7 @@ namespace Durin
 				CookInfo.TriangleMeshDesc = {};
 				if (Input->GetMode() == EBodySetupCollisionSourceMode::None) return false;
 				Phase.store(EWorkPhase::AwaitingDerivedData, std::memory_order_release);
-				auto Dispatched = PhysicsPrivate::DispatchCookBuild(*Input, *BuildOperation, MaximumWorkingSetBytes, [Work = shared_from_this()](auto Value) {
+				auto Dispatched = PhysicsPrivate::DispatchCookBuild(*Input, *BuildOperation, [Work = shared_from_this()](auto Value) {
 					try { Work->Completion.emplace(std::move(Value)); }
 					catch (...) { Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics cache completion could not be retained.", "Cook")); }
 					if (Work->Completion && Work->Completion->GetStatus() == DerivedData::EStatus::Canceled) Work->Cancellation.Cancel();

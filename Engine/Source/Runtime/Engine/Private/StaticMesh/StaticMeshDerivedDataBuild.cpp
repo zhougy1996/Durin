@@ -101,18 +101,13 @@ namespace Durin
 			}
 			return {};
 		}
-		auto MakeRenderOptions(bool bPersist, uint64 MaximumWorkingSetBytes, FCancellationToken Cancellation = {})
+		auto MakeRenderOptions(bool bPersist)
 			-> DerivedData::FBuildRequestOptions
 		{
 			DerivedData::FBuildRequestOptions Options;
-			Options.Policy.StoreOnBuild = bPersist;
-			Options.Policy.MaximumWorkingSetBytes = MaximumWorkingSetBytes;
-			Options.Policy.InputLimits.MaximumTotalBytes = MaximumStaticMeshSourceBytes + 64ull * 1024 * 1024;
-			Options.Policy.OutputLimits.MaximumTotalBytes = MaximumStaticMeshPayloadBytes;
-			const uint64 MaximumBytes = std::min(MaximumStaticMeshPayloadBytes, MaximumWorkingSetBytes / 16);
-			Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes;
-			Options.Policy.MaximumEncodedBytes = MaximumBytes;
-			Options.Cancellation = std::move(Cancellation);
+			Options.Policy = bPersist ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
+			Options.Limits.Input.MaximumTotalBytes = MaximumStaticMeshSourceBytes + 64ull * 1024 * 1024;
+			Options.Limits.Output.MaximumTotalBytes = MaximumStaticMeshPayloadBytes;
 			return Options;
 		}
 		auto ConsumeRenderBuild(const FStaticMeshBuildSettings& Settings, DerivedData::FBuildCompleteParams Completion,
@@ -137,11 +132,11 @@ namespace Durin
 			DerivedData::IRequestOwner& Owner, FCancellationToken Cancellation, uint64 MaximumWorkingSetBytes,
 			DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>
 		{
-			if (Cancellation.IsCancelled()) return {};
+			if (Cancellation.IsCancelled()) Owner.RequestCancel();
 			if (auto Validation = ValidateRenderRequest(Request, MaximumWorkingSetBytes); !Validation) return Validation;
 			auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Settings.MaterialSlots.size()), BuilderVersion);
 			if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh build definition is invalid."));
-			auto Options = MakeRenderOptions(Request.bPersistDerivedData, MaximumWorkingSetBytes, std::move(Cancellation));
+			auto Options = MakeRenderOptions(Request.bPersistDerivedData);
 			Options.InputResolver = MakeRenderInputResolver(Request);
 			Request.Source.ReleaseGeometry();
 			auto Session = Sessions.Get(DerivedData::EBuildCacheExecution::Task);
@@ -209,7 +204,7 @@ namespace Durin
 		auto Inputs = StaticMeshPrivate::MakeRenderInputResolver(Request);
 		// The resolver retains canonical bulk, not the request's optional decoded residency.
 		Request.Source.ReleaseGeometry();
-		auto Options = StaticMeshPrivate::MakeRenderOptions(Request.bPersistDerivedData, MaximumWorkingSetBytes);
+		auto Options = StaticMeshPrivate::MakeRenderOptions(Request.bPersistDerivedData);
 		auto Built = Sessions.Build(std::move(*Definition), std::move(Inputs), std::move(Options));
 		if (!Built) return std::unexpected(MakeAssetBuildDiagnostic(
 			Built.error().Description));

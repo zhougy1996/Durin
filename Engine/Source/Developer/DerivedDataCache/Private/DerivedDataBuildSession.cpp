@@ -5,6 +5,8 @@
 #include "Logging/LogMacros.h"
 #include "RequestOwnerPrivate.h"
 #include "CacheDiagnosticsPrivate.h"
+#include "DerivedDataCache/DerivedDataCache.h"
+#include "Threading/CancellationToken.h"
 
 namespace Durin::DerivedData
 {
@@ -13,6 +15,7 @@ namespace Durin::DerivedData
 		struct FSessionCacheConfig
 		{
 			std::shared_ptr<IAsyncCache> AsyncCache;
+			FCacheResourceLimits Limits;
 		};
 		struct FSessionResources
 		{
@@ -56,13 +59,14 @@ namespace Durin::DerivedData
 			std::variant<FBuildDefinition, FBuildAction> Request;
 			FBuildInputs Inputs;
 			FBuildRequestOptions Options;
+			FBuildCancellation Cancellation;
 			std::shared_ptr<FSessionResources> Resources;
 			std::optional<FBuildCompleteParams> LocalCompletion;
 		};
 		enum class ERequestState { PendingDispatch, Queued, Running, Completing, Done };
 		struct FBuildRequestState : FRequestCompletion, std::enable_shared_from_this<FBuildRequestState>
 		{
-			FBuildCancellation Cancellation;
+			FCancellationToken Cancellation;
 			ERequestState State = ERequestState::PendingDispatch;
 			uint64 Id = 0;
 			std::weak_ptr<FBuildSessionState> Owner;
@@ -149,13 +153,14 @@ namespace Durin::DerivedData
 			auto StartBuild(std::shared_ptr<FRequestData> Work) -> void
 			{
 				auto Action = PrepareBuildAction(Work->Request, Work->Resources->Registry,
-					Work->Options.InputResolver ? Work->Options.InputResolver : Work->Resources->Resolver, Work->Inputs, Work->Options.Cancellation);
+					Work->Options.InputResolver ? Work->Options.InputResolver : Work->Resources->Resolver, Work->Inputs, Work->Cancellation);
 				if (!Action) { Finish(std::move(Action.error())); return; }
 				Work->Request = std::move(*Action);
 				{ std::lock_guard Lock(Mutex); Data = std::move(Work); }
 				const auto Policy = Data->Options.Policy;
-				if (!Policy.QueryCache || Policy.ForceBuild) { ResumeLocal(); return; }
-				const std::array Requests{FCacheGetBackendRequest{.Key = std::get<FBuildAction>(Data->Request).GetKey(), .RecordLimits = {.MaximumTotalBytes = Policy.OutputLimits.MaximumTotalBytes}, .MaximumEncodedBytes = Policy.MaximumEncodedBytes, .MaximumWorkingSetBytes = Policy.MaximumWorkingSetBytes, .ShouldCancel = [Cancel = Data->Options.Cancellation] { return Cancel.IsCancelled(); }}};
+				const auto& CacheLimits = Data->Resources->Service.Limits;
+				if (!Policy.Has(EBuildPolicy::CacheQuery)) { ResumeLocal(); return; }
+				const std::array Requests{FCacheGetBackendRequest{.Key = std::get<FBuildAction>(Data->Request).GetKey(), .RecordLimits = CacheLimits.Record, .MaximumEncodedBytes = CacheLimits.MaximumEncodedBytes, .MaximumWorkingSetBytes = CacheLimits.MaximumWorkingSetBytes, .ShouldCancel = [Cancel = Data->Cancellation] { return Cancel.IsCancelled(); }}};
 				auto Cache = Data->Resources->Service.AsyncCache; auto CacheOwner = Group;
 				auto Self = shared_from_this(); const auto Revision = BeginScheduledStage();
 				auto Submitted = Cache->Get(Requests, *CacheOwner,
@@ -175,11 +180,11 @@ namespace Durin::DerivedData
 				auto Session = Owner.lock(); FRequestOwnerScope Scope(Group.get(), this, Session.get());
 				auto Work = Data;
 				const auto Key = std::get<FBuildAction>(Work->Request).GetKey();
-				if (Work->Options.Cancellation.IsCancelled()) { Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildExecutionFlags::None)); return; }
+				if (Work->Cancellation.IsCancelled()) { Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildExecutionFlags::None)); return; }
 				if (Result && *Result)
 				{
 					const auto& Function = std::get<FBuildAction>(Work->Request).GetFunction();
-					auto Output = Private::ReadBuildOutput(Key, **Result, Work->Options.Policy.OutputLimits);
+					auto Output = Private::ReadBuildOutput(Key, **Result, Work->Options.Limits.Output);
 					const bool SchemaMismatch = Output && (Output->GetSchema() != Function.OutputType || Output->GetSchemaVersion() != Function.OutputSchema);
 					if (SchemaMismatch) Output = std::unexpected(FCacheError{ECacheError::Corrupt, "Cache output schema does not match the build function."});
 					if (Output && !Output->HasError()) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildExecutionFlags::CacheQueryHit)); return; }
@@ -188,7 +193,7 @@ namespace Durin::DerivedData
 						: std::move(Output.error()));
 				}
 				if (!Result) CacheFailure("read", Result.error());
-				if (Work->Options.Policy.BuildLocal) Private::ObserveCache(Key, Private::ECacheObservation::Fallback);
+				if (Work->Options.Policy.Has(EBuildPolicy::BuildLocal)) Private::ObserveCache(Key, Private::ECacheObservation::Fallback);
 				Work.reset(); ContinueLocal();
 			}
 			catch (...) { InfrastructureFailure(); }
@@ -197,15 +202,15 @@ namespace Durin::DerivedData
 			try
 			{
 				const auto* Output = Completion.GetOutput();
-				if (Completion.GetStatus() != EStatus::Ok || !Output || !Work->Options.Policy.StoreOnBuild
+				if (Completion.GetStatus() != EStatus::Ok || !Output || !Work->Options.Policy.Has(EBuildPolicy::CacheStoreOnBuild)
 					|| Output->HasLogs()) { Work.reset(); Finish(std::move(Completion)); return; }
-				const auto Policy = Work->Options.Policy;
+				const auto& CacheLimits = Work->Resources->Service.Limits;
 				Work->LocalCompletion = std::move(Completion);
-				auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(*Work->LocalCompletion->GetCacheKey(), *Work->LocalCompletion->GetOutput(), Policy.PersistenceLimits);
-				if (Policy.ResultDelivery == EBuildResultDelivery::BeforePersistence)
+				auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(*Work->LocalCompletion->GetCacheKey(), *Work->LocalCompletion->GetOutput(), Work->Options.Limits.Output);
+				if (Work->Options.ResultDelivery == EBuildResultDelivery::BeforePersistence)
 					Deliver(*Work->LocalCompletion);
 				if (!Record) { Work.reset(); ReceiveStore(std::unexpected(std::move(Record.error()))); return; }
-				const std::array Requests{FCachePutBackendRequest{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes, [Cancel = Work->Options.Cancellation] { return Cancel.IsCancelled(); }}};
+				const std::array Requests{FCachePutBackendRequest{std::move(*Record), CacheLimits.MaximumEncodedBytes, CacheLimits.Record, CacheLimits.MaximumWorkingSetBytes, [Cancel = Work->Cancellation] { return Cancel.IsCancelled(); }}};
 				auto Cache = Work->Resources->Service.AsyncCache; auto CacheOwner = Group; Work.reset();
 				auto Self = shared_from_this(); const auto Revision = BeginScheduledStage();
 				auto Saved = Cache->Put(Requests, *CacheOwner,
@@ -221,7 +226,7 @@ namespace Durin::DerivedData
 				if (!Result) CacheFailure("write", Result.error());
 				auto Completion = std::move(*Data->LocalCompletion);
 				Data->LocalCompletion.reset();
-				try { if (Data->Options.Cancellation.IsCancelled()) Completion = FBuildCompletionAccess::Canceled(std::move(Completion)); }
+				try { if (Data->Cancellation.IsCancelled()) Completion = FBuildCompletionAccess::Canceled(std::move(Completion)); }
 				catch (...) { Completion = FBuildCompleteParams::Error(*Completion.GetCacheKey(), Completion.GetExecutionFlags()); }
 				Finish(std::move(Completion));
 			}
@@ -240,9 +245,9 @@ namespace Durin::DerivedData
 					std::nullopt, EBuildExecutionFlags::None);
 				try
 				{
-					Work->Options.Cancellation = Work->Options.Cancellation.WithObserver([Weak = weak_from_this()] {
+					Work->Cancellation = FBuildExecutionAccess::ObserveCancellation(Cancellation.WithObserver([Weak = weak_from_this()] {
 						auto Self = Weak.lock(); return !Self || Self->Group->IsCanceled();
-					});
+					}));
 					StartBuild(std::move(Work));
 					return;
 				}
@@ -287,7 +292,7 @@ namespace Durin::DerivedData
 		try
 		{
 			auto Work = Data;
-			if (Work->Options.Cancellation.IsCancelled()) { const auto Key = std::get<FBuildAction>(Work->Request).GetKey(); Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildExecutionFlags::None)); return; }
+			if (Work->Cancellation.IsCancelled()) { const auto Key = std::get<FBuildAction>(Work->Request).GetKey(); Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildExecutionFlags::None)); return; }
 			auto Scheduler = Work->Resources->Scheduler;
 			const auto Function = std::get<FBuildAction>(Work->Request).GetFunction().Name;
 			Work.reset();
@@ -305,7 +310,7 @@ namespace Durin::DerivedData
 			try
 			{
 				auto Completion = ExecuteBuildLocal(std::get<FBuildAction>(Work->Request), Work->Resources->Registry,
-					Work->Options.InputResolver ? Work->Options.InputResolver : Work->Resources->Resolver, Work->Inputs, Work->Options);
+					Work->Options.InputResolver ? Work->Options.InputResolver : Work->Resources->Resolver, Work->Inputs, Work->Options, Work->Cancellation);
 				Work->Inputs = {}; Work->Options.InputResolver.reset();
 				StoreLocal(std::move(Work), std::move(Completion));
 			}
@@ -386,7 +391,7 @@ namespace Durin::DerivedData
 			if (!Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Snapshot.error())});
 			auto SessionCache = State->Options.Cache;
 			if (!Scheduler) Scheduler = CreateInlineBuildScheduler();
-			if (!SessionCache) SessionCache = Private::CreateCacheForBackend({}, {}, State->Options.CacheDispatchLimits);
+			if (!SessionCache) SessionCache = Private::CreateCacheForBackend({}, {}, State->Options.CacheDispatchLimits, State->Options.CacheLimits);
 			auto AsyncCache = Private::FCacheAccess::Get(*SessionCache).Dispatcher(CacheExecution == EBuildCacheExecution::Task);
 			auto& Cache = CacheExecution == EBuildCacheExecution::Inline ? State->InlineCache : State->TaskCache;
 			if (!State->Options.Cache && Cache)
@@ -395,7 +400,7 @@ namespace Durin::DerivedData
 				Cache = AsyncCache;
 			auto SessionState = std::make_shared<Private::FBuildSessionState>();
 			SessionState->Resources = std::make_shared<Private::FSessionResources>(
-				std::move(*Snapshot), std::move(Resolver), std::move(Scheduler), Private::FSessionCacheConfig{std::move(AsyncCache)}
+				std::move(*Snapshot), std::move(Resolver), std::move(Scheduler), Private::FSessionCacheConfig{std::move(AsyncCache), Private::FCacheAccess::Get(*SessionCache).ResourceLimits}
 			);
 			std::erase_if(State->Sessions, [](const auto& Weak) { return Weak.expired(); });
 			if (State->Sessions.size() >= 4096)
@@ -495,7 +500,9 @@ namespace Durin::DerivedData
 			{
 				std::lock_guard Lock(Owner->Mutex);
 				if (Owner->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build session is closed."});
-				if (Options.Policy.ResultDelivery > EBuildResultDelivery::BeforePersistence)
+				if ((Options.Policy.GetCombinedPolicy() & ~EBuildPolicy::Default) != EBuildPolicy::None)
+					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Unsupported build policy flags."});
+				if (Options.ResultDelivery > EBuildResultDelivery::BeforePersistence)
 					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Invalid result delivery policy."});
 				if (!Completion) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Build completion callback is missing."});
 				if (Inputs.IsValid() && Options.InputResolver)
@@ -514,8 +521,7 @@ namespace Durin::DerivedData
 				Request->Id = Owner->NextId++;
 				Request->Owner = Owner;
 				Request->Data = std::make_shared<Private::FRequestData>(
-					std::move(BuildRequest), std::move(Inputs), std::move(Options), Owner->Resources);
-				Request->Cancellation = Request->Data->Options.Cancellation;
+					std::move(BuildRequest), std::move(Inputs), std::move(Options), FBuildCancellation{}, Owner->Resources);
 				Request->Callback = std::move(Completion);
 				Scheduler = Owner->Resources->Scheduler;
 				Owner->Requests.emplace(Request->Id, Request); ++Owner->Active;
