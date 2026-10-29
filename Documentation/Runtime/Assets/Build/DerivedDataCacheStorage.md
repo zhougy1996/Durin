@@ -4,12 +4,16 @@ Summary: Specify Durin CB manifests, versioned value attachments, selective loca
 
 Modules: DerivedDataCache
 
-Last reviewed: 2026-10-23
+Last reviewed: 2026-10-29
 
 Build ownership and completion belong to the [build protocol](DerivedDataBuild.md).
 This contract owns persistent storage, not asset assembly policy.
 
 ## Manifests, values, and query limits
+
+Public cache requests use `ICache::Get`/`Put` with an owner and one status-bearing
+response per item. Synchronous hit/miss/error results, cancellation predicates,
+per-query statistics, and dispatch handles are private backend concerns.
 
 Persistent cache requests use `records/v4/<bucket>/<prefix>/<action-hash>.bin`
 manifests and `values/v1/Content/<prefix>/<raw-hash>.bin` content blobs. Values

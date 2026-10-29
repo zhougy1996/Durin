@@ -1,8 +1,9 @@
 #include "Texture/Texture2DCache.h"
 
 #if DURIN_WITH_EDITOR
-#include "DerivedDataCache/DerivedDataCache.h"
-#include "Texture2DSharedOutput.h"
+	#include "CacheDispatchPrivate.h"
+	#include "DerivedDataCache/DerivedDataCache.h"
+	#include "Texture2DSharedOutput.h"
 
 namespace Durin
 {
@@ -17,9 +18,7 @@ namespace Durin
 			return std::unexpected(FTexture2DCacheError{ETexture2DCacheError::InvalidRequest, "Texture mip indices must be unique and bounded."});
 		std::vector<DerivedData::FValueId> Values;
 		for (uint32 Index : Indices) Values.push_back(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(Index));
-		auto Cached = DerivedData::GetCache().Get({.Key = *Request.Key.AsCacheKey(),
-			.MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes,
-			.Mode = DerivedData::ECacheGetMode::SelectedValues, .RequiredValues = Values, .ShouldCancel = Request.ShouldCancel});
+		auto Cached = DerivedData::GetCacheBackend().Get({.Key = *Request.Key.AsCacheKey(), .MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes, .Mode = DerivedData::ECacheGetMode::SelectedValues, .RequiredValues = Values, .ShouldCancel = Request.ShouldCancel});
 		if (!Cached)
 		{
 			auto Code = ETexture2DCacheError::CacheFailure;

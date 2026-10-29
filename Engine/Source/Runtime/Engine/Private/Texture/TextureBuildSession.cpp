@@ -1,7 +1,8 @@
 #include "TextureDerivedDataBuild.h"
 #if DURIN_WITH_EDITOR
-#include "Asset/ResourceBuildSessions.h"
-#include "Texture/Texture2DCompilationTestSupport.h"
+	#include "CacheDispatchPrivate.h"
+	#include "Asset/ResourceBuildSessions.h"
+	#include "Texture/Texture2DCompilationTestSupport.h"
 
 namespace Durin::TexturePrivate
 {
@@ -10,12 +11,12 @@ namespace Durin::TexturePrivate
 		AssetPrivate::FResourceBuildSessions Sessions;
 	}
 
-	auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
+	auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICacheBackend> Cache) -> void
 	{
 		std::shared_ptr<DerivedData::IBuild> Service;
 		if (Cache)
 		{
-			Service = DerivedData::CreateBuild({.Cache = std::move(Cache)});
+			Service = DerivedData::Private::CreateBuildForBackend({.Cache = std::move(Cache)});
 			require(Service->Register(MakeTexture2DBuildFunction()).has_value());
 			require(Service->Register(MakeTextureCubeBuildFunction()).has_value());
 			require(Service->Register(MakeVolumeTextureBuildFunction()).has_value());
@@ -32,8 +33,8 @@ namespace Durin::TexturePrivate
 		auto Persistent = Sessions.Get(DerivedData::EBuildCacheExecution::Task);
 		if (!Persistent) return std::unexpected(std::move(Persistent.error()));
 		Options.InputResolver = std::move(Resolver);
-		auto Admitted = (*Persistent)->Build(std::move(Definition), Owner, std::move(Completion), {}, std::move(Options));
-		if (!Admitted) return std::unexpected(std::move(Admitted.error()));
+		(*Persistent)->Build(std::move(Definition), Owner, std::move(Completion), {}, std::move(Options));
+
 		return {};
 	}
 
@@ -66,7 +67,7 @@ namespace Durin::TexturePrivate
 
 namespace Durin::AssetPrivate
 {
-	auto SetTextureAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
+	auto SetTextureAsyncCacheForTests(std::shared_ptr<DerivedData::ICacheBackend> Cache) -> void
 	{
 		TexturePrivate::SetAsyncCacheForTests(std::move(Cache));
 	}

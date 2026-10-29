@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-23
+Last reviewed: 2026-10-29
 
 ## Ownership
 
@@ -169,7 +169,8 @@ encoding are cache implementation details, not build service or request policy.
 Tests may replace the complete structured cache interface for deterministic
 miss, hit, corruption, and store behavior.
 
-Cache lookup returns `expected<optional<FCacheRecord>, FCacheError>`.
+The private synchronous backend returns `expected<optional<FCacheRecord>, FCacheError>`;
+the public cache interface completes requests through status-bearing responses.
 An empty optional is a normal miss and emits no diagnostic. Backend failure is a
 real error and is never labeled corruption. When policy allows local build, a
 miss, rejected record, or cache infrastructure failure falls through once to
@@ -237,9 +238,12 @@ The token owns no completion event: callback retirement and request waiting rema
 separate lifecycle guarantees. Observer callbacks are serialized, must not reenter
 their token, and must retain valid captures for every token copy.
 
-Admission rejection uses `FBuildAdmissionError` and invokes no completion.
-Closed service/session, capacity, missing function, invalid request, dispatch
-rejection, and internal admission failure are distinct reasons.
+`FBuildSession::Build` takes an explicit `IRequestOwner` and returns void. Every
+request invokes its completion exactly once, including a closed session, capacity,
+missing function, invalid input, or dispatch rejection. These failures become
+`EStatus::Error` completions with bounded diagnostic text. Scheduler admission
+errors stay inside dispatch; factory/registration errors remain separate from
+request completion. A missing completion callback is a programming error.
 
 ## Persistent sessions and lifecycle
 
@@ -252,7 +256,7 @@ policy, cancellation, and completion callback. An omitted scheduler or
 `CreateInlineBuildScheduler` executes inline. `CreateTaskBuildScheduler` schedules
 on Core workers in scheduler lifetime. Its wait handle uses
 Core cooperative waiting, including single-worker nested builds. A stopped
-Core scheduler rejects admission without completion; the adapter does not start
+Core scheduler rejection produces an error completion; the adapter does not start
 or stop Core. Asset producers explicitly nest their operation completion when parent completion must include it.
 
 All sessions use one Prepare, CacheGet, BuildLocal, CachePut, Complete pipeline.
@@ -264,28 +268,28 @@ production on the selected producer scheduler; warm hits skip it.
 `CreateSession` accepts a producer scheduler and explicit `EBuildCacheExecution`.
 Both default to inline execution. Task consumers select `CreateTaskBuildScheduler`
 and `EBuildCacheExecution::Task`; all task-cache sessions of an `IBuild` share one
-service-owned dispatcher using Core BlockingIO. Scheduler injection belongs to
-`CreateAsyncCache`; services accept that configured `IAsyncCache` as one explicit
-dependency instead of exposing a second cache-scheduler override. There is no
+service-owned dispatcher using Core BlockingIO. Cache services accept an optional configured public `ICache`. Backend and cache-scheduler
+injection belong to private integration/fault-injection seams. There is no
 running-Core mode selection.
 Inline sessions share a separate service-owned inline dispatcher over the same
 backend. Its item/byte admission is independent of the task queue; synchronous
 callers never wait on task saturation or help execute sibling asset work. Inline
 dispatch does not apply the task concurrency limit and permits synchronous nested
 submissions. It retains the same bounded item/byte admission through retirement.
-Injected `IAsyncCache` takes precedence over either cache mode and remains
-caller-configured. Session Close cancels only its own requests; service Close/Drain
+An injected public `ICache` supplies its private dispatchers; an explicitly injected
+private dispatcher takes precedence over either cache mode. Session Close cancels only its own requests; service Close/Drain
 also closes/drains its owned dispatchers, without globally closing an injected cache.
 
-`IAsyncCache` admits Get/Put batches atomically. Rejected batches invoke no
-callbacks; every accepted item delivers exactly one indexed result, including
-backend exceptions, scheduling rejection, cancellation, and dropped work.
-Completion order need not match input order. Ordinary inline batches advance
-iteratively from their dispatch pump rather than recursively pumping from each
-completion. Explicit nested inline submissions still complete synchronously before
-returning to the outer callback.
-Selection IDs are copied and records retain immutable storage; async Get ignores
-borrowed Stats pointers and returns statistics by value in its callback.
+Public `ICache::Get` and `Put` accept batches, an owner, and a completion callback,
+and return void. Every item receives one `FCacheGetResponse` or `FCachePutResponse`,
+including batch rejection. Responses carry request name/user data, the record or key,
+and `EStatus`; a miss is an error response with no valid record. Backend errors,
+query statistics, and dispatch handles stay private. Empty batches do no work.
+Completion order need not match input order, and callbacks may run inline.
+The private dispatcher keeps atomic batch admission and indexed backend results.
+Ordinary inline batches advance iteratively; explicit nested inline submissions
+complete synchronously before returning to the outer callback. Selection IDs and
+request tags are copied and records retain immutable storage.
 Captured cancellation and callback state must
 remain valid until the request owner drains. Callers stop submitting before owner
 destruction. Build and Cache accept the same `IRequestOwner`. An owner retains mutable priority, cancels current/future work,
@@ -372,21 +376,18 @@ preserve their existing format. Request inputs/resolvers are released after loca
 production, before persistence completion.
 
 A scheduler rejects without invoking or retaining its thunk, or accepts it for
-at-most-once execution. Dropping accepted work completes it as canceled. Request
-handles can cancel pending/running work. `FBuildRequest::Wait` waits for callback
-completion, request resource release, and dispatch return without closing the
-session. While execution is pending it first uses the scheduler wait handle,
-allowing Core worker helping. Unsupported task-thread waits return `WouldBlock`;
-an empty request handle returns `InvalidRequest`. Schedulers without wait handles
-require external progress. Completed or canceled
-requests do not wait for retained stale thunks, which own no producer/resolver
-resources. Callbacks execute without session locks;
-callback exceptions cannot break accounting.
+at-most-once execution. Dropping accepted work completes it as canceled. Public
+builds expose no request handle: owner cancellation signals pending/running work,
+and owner waiting joins callbacks, resource release, and dispatch retirement.
+Internal scheduler wait handles support Core worker helping. Schedulers without
+wait handles require external progress. Completed/canceled requests do not wait
+for stale thunks that retain no producer/resolver resources. Callbacks run without
+session locks; callback exceptions cannot break accounting.
 
 `IRequest` defines cancellation and waiting. `IRequestOwner` tracks Build and
 Cache requests through paired `Begin`/`End`, and owns task dispatch through
-`LaunchTask`. `Begin` returns a shared state lease; registration and owner-field
-initialization hold the request lock. `FRequestOwner` supplies cancellation,
+`LaunchTask(Name, Body)`. `Begin` registers a shared request and returns void; shared
+owner leases and registration/publication synchronization remain private. `FRequestOwner` supplies cancellation,
 `Wait`, `Poll`, and mutable priority. Destruction cancels and joins all requests.
 Destroying an owner from its callback is rejected: move that
 destruction outside the callback and drain first. Reentrant waits return
@@ -404,8 +405,8 @@ including their callback, without waiting for another owner's I/O slot. Already
 canceled owners do not dispatch cache work; stale dispatch thunks do no backend
 work. Owner wait joins requests already admitted; concurrent submission windows
 must be protected by submission barriers before publishing handles.
-`TrackTask` includes accepted native handles in this boundary; cancellation stays
-with the task's source. `TrackDependency` includes external handles such as Shader
+Private native-task tracking includes accepted handles in this boundary; cancellation stays
+with the task's source. Private dependency tracking includes external work such as Shader
 subscribers, including cancellation for dependencies registered after cancel.
 Dependency queries and waits execute outside owner locks. A wait rechecks the
 owner after joining its snapshot, including work added by a continuation.
@@ -414,9 +415,8 @@ The complete Build request, its Get/Put stages, and each dispatched task registe
 with the same owner. Dispatch tasks own the queued/running transition and dropped
 callable handling. Canceling queued producer continuations retires their callback
 without requiring the producer queue to advance; stale thunks perform no work.
-Cache batch handles wait only for their own operations, avoiding a wait on the
-enclosing build. Requests without an explicit owner retain private owner state
-until retirement. Queued cache selection and subsequent stages read the owner's
+Private cache-stage handles wait only for their operations, avoiding a wait on the
+enclosing build. All public requests require an explicit owner. Queued cache selection and subsequent stages read the owner's
 latest priority; dispatched Core tasks retain their launch priority. There is no
 per-request priority mirror or scheduler working-set budget. Memory reservations
 and cache raw/encoded/resident size limits remain independent protections.
@@ -438,12 +438,13 @@ its work. Asset managers drain producers and their owners before Core shutdown.
 
 Task completion does not forward cancellation. Render and texture managers signal
 their request owners; physics owner abort withdraws only unstarted cooks and lets
-started work retire normally. Batch cancellation affects only
-that batch, including when several producers use one owner. LaunchTask reads
+started work retire normally. Internal batch cancellation affects only that batch; public cancellation is scoped
+to the request owner. LaunchTask reads
 current owner priority and uses the process scheduler lifetime.
 Schedulers and DDC callbacks must progress without GameThread pumping. Native
-schedulers expose their dispatch handle through `IBuildScheduledWork::GetTaskHandle`;
-custom external schedulers retain responsibility for their own dispatch lifetime.
+dispatch handles and the scheduling protocol live in private implementation headers;
+public session configuration uses opaque scheduler factories. Private external
+schedulers retain responsibility for their own dispatch lifetime.
 Managers drain DDC before Core scheduler shutdown.
 
 Inline cache dispatch permits callback reentry and does not use the asynchronous

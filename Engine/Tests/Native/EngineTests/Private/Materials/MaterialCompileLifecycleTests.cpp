@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #include "MaterialResourceTestSupport.h"
 #include "MetalShaderFormat.h"
 #include "Materials/MaterialShaderMap.h"
@@ -70,11 +71,28 @@ namespace
 	auto QualifyDistinctTranslationsConvergingToOneProgram() -> void
 	{
 		using namespace Durin;
-		struct FGate final : DerivedData::ICache {
+		struct FGate final : DerivedData::ICacheBackend
+		{
 			mutable FThreadEvent Entered, Release;
 			mutable std::atomic_bool Blocked = false;
-			auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override { if (!Blocked.exchange(true)) { Entered.Trigger(); Release.WaitFor(10); } return DerivedData::GetCache().Get(Request); }
-			auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override { if (!Blocked.exchange(true)) { Entered.Trigger(); Release.WaitFor(10); } return DerivedData::GetCache().Put(Request); }
+			auto Get(const DerivedData::FCacheGetBackendRequest& Request) const -> DerivedData::FCacheGetResult override
+			{
+				if (!Blocked.exchange(true))
+				{
+					Entered.Trigger();
+					Release.WaitFor(10);
+				}
+				return DerivedData::GetCacheBackend().Get(Request);
+			}
+			auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override
+			{
+				if (!Blocked.exchange(true))
+				{
+					Entered.Trigger();
+					Release.WaitFor(10);
+				}
+				return DerivedData::GetCacheBackend().Put(Request);
+			}
 		};
 		auto Cache = std::make_shared<FGate>(); ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});
 		auto* A = NewObject<DMaterial>(nullptr, "SemanticConvergenceA"); auto* B = NewObject<DMaterial>(nullptr, "SemanticConvergenceB");
@@ -379,10 +397,16 @@ TEST_F(FMaterialAsyncCompileTests, InitialCompilationQueriesDoNotSelectAnInvalid
 	using namespace Durin;
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	auto* Material = MakeObject<DMaterial>("InitialReadiness");
-	struct FGate final : DerivedData::ICache {
+	struct FGate final : DerivedData::ICacheBackend
+	{
 		mutable FThreadEvent Entered, Release;
-		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCache().Get(Request); }
-		auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override { Entered.Trigger(); Release.WaitFor(10); return DerivedData::GetCache().Put(Request); }
+		auto Get(const DerivedData::FCacheGetBackendRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCacheBackend().Get(Request); }
+		auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override
+		{
+			Entered.Trigger();
+			Release.WaitFor(10);
+			return DerivedData::GetCacheBackend().Put(Request);
+		}
 	};
 	auto Cache = std::make_shared<FGate>();
 	ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});
@@ -412,10 +436,16 @@ TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnShare
 	auto* A = MakeObject<DMaterial>("SharedAsync"); auto* B = MakeObject<DMaterial>("SharedSync");
 	A->SetEditCompileMode(EMaterialEditCompileMode::Manual); B->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	struct FGate final : DerivedData::ICache {
+	struct FGate final : DerivedData::ICacheBackend
+	{
 		mutable FThreadEvent Entered, Release;
-		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCache().Get(Request); }
-		auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override { Entered.Trigger(); Release.WaitFor(10); return DerivedData::GetCache().Put(Request); }
+		auto Get(const DerivedData::FCacheGetBackendRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCacheBackend().Get(Request); }
+		auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override
+		{
+			Entered.Trigger();
+			Release.WaitFor(10);
+			return DerivedData::GetCacheBackend().Put(Request);
+		}
 	};
 	auto Cache = std::make_shared<FGate>();
 	ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});

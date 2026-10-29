@@ -144,9 +144,8 @@ namespace Durin::MaterialBuildPrivate
 	auto OpenTranslationSessions() -> void { RegisterTranslation(); Sessions.Open(); }
 	auto SetTranslationServiceForTests(std::shared_ptr<IBuild> Service) -> void { require(Sessions.SetTaskService(std::move(Service)) == EBuildDrainResult::Drained); }
 	auto CloseTranslationSessions() -> void { require(Sessions.Close() == EBuildDrainResult::Drained); }
-	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
-		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
-		-> std::expected<FBuildRequest, FBuildAdmissionError>;
+	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
+		-> std::expected<void, FBuildAdmissionError>;
 	auto TranslateMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialTranslatedProgram
 	{
 		if (auto Error = ConsumerError(Input); !Error.empty()) return {.Diagnostics = {{.Message = std::move(Error)}}};
@@ -159,14 +158,12 @@ namespace Durin::MaterialBuildPrivate
 		require(Owner.Wait() == ERequestWaitResult::Completed);
 		return Product;
 	}
-	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
-		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
-		-> std::expected<FBuildRequest, FBuildAdmissionError>
+	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
+		-> std::expected<void, FBuildAdmissionError>
 	{
 		RegisterTranslation(); auto Request = MakeRequest(*Input, std::move(EncodedInput)); if (!Request) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Material snapshot exceeds the input limit."});
 		auto Session = Sessions.Get(Execution); if (!Session) return std::unexpected(Session.error());
-		return (*Session)->Build(Request->Definition, Owner,
-			[Input, Force, &Owner, Completion = std::move(Completion), Cancellation, Query, Execution, Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{Request->Resolver->Bytes, Request->Resolver->Identity}), Identity = Request->Resolver->Identity](FBuildCompleteParams Result) mutable {
+		(*Session)->Build(Request->Definition, Owner, [Input, Force, &Owner, Completion = std::move(Completion), Cancellation, Query, Execution, Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{Request->Resolver->Bytes, Request->Resolver->Identity}), Identity = Request->Resolver->Identity](FBuildCompleteParams Result) mutable {
 				if (Result.GetStatus() == EStatus::Ok)
 				{
 					if (auto Product = Assemble(Result, Identity, *Input)) return Completion(std::move(*Product));
@@ -189,13 +186,11 @@ namespace Durin::MaterialBuildPrivate
 						Diagnostic.append(Message.Text, 0, MaterialProgramMaxDiagnosticMessageBytes - Diagnostic.size());
 					}
 				Completion(Failure(Diagnostic.empty() ? "Material IR version, node count, or surface output count is invalid."
-					: std::move(Diagnostic)));
-			}, {}, Options(Request->Resolver, Force, Cancellation, Query));
+					: std::move(Diagnostic))); }, {}, Options(Request->Resolver, Force, Cancellation, Query));
+		return {};
 	}
-	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
-		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query,
-		std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
-		-> std::expected<FBuildRequest, FBuildAdmissionError>
+	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
+		-> std::expected<void, FBuildAdmissionError>
 	{
 		const auto Error = ConsumerError(*Input);
 		if (!Error.empty()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, Error});

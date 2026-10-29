@@ -1,4 +1,4 @@
-#include "DerivedDataCache/DerivedDataCacheAsync.h"
+#include "CacheDispatchPrivate.h"
 #include "RequestOwnerPrivate.h"
 #include "CacheDiagnosticsPrivate.h"
 
@@ -11,9 +11,9 @@ namespace Durin::DerivedData::Private
 		std::atomic<bool> Started = false, Completing = false, Canceled = false;
 		bool Active = false; // Protected by Cache->Mutex.
 		std::shared_ptr<FAsyncCacheState> Cache;
-		FCacheGetRequest GetRequest;
+		FCacheGetBackendRequest GetRequest;
 		std::vector<FValueId> Ids;
-		std::optional<FCachePutRequest> PutRequest;
+		std::optional<FCachePutBackendRequest> PutRequest;
 		FCacheGetCallback GetCallback;
 		FCachePutCallback PutCallback;
 		uint32 Index = 0;
@@ -34,7 +34,7 @@ namespace Durin::DerivedData::Private
 		uint32 Active = 0, Concurrency = 2, Capacity = 4096;
 		uint64 DispatchTurn = 0;
 		uint64 RetainedBytes = 0, MaximumRetainedBytes = 512ull * 1024 * 1024;
-		std::shared_ptr<ICache> Backend;
+		std::shared_ptr<ICacheBackend> Backend;
 		std::shared_ptr<IBuildScheduler> Scheduler;
 		std::vector<std::shared_ptr<FCacheOperation>> Pending, All;
 		auto Pump() -> void;
@@ -152,17 +152,17 @@ namespace Durin::DerivedData::Private
 	{
 	public:
 		std::shared_ptr<FAsyncCacheState> State;
-		FAsyncCache(std::shared_ptr<ICache> Cache, std::shared_ptr<IBuildScheduler> Scheduler, FCacheDispatchLimits Limits)
+		FAsyncCache(std::shared_ptr<ICacheBackend> Cache, std::shared_ptr<IBuildScheduler> Scheduler, FCacheDispatchLimits Limits)
 			: State(std::make_shared<FAsyncCacheState>())
 		{
-			State->Backend = Cache ? std::move(Cache) : std::shared_ptr<ICache>(&GetCache(), [](ICache*) {});
+			State->Backend = Cache ? std::move(Cache) : std::shared_ptr<ICacheBackend>(&GetCacheBackend(), [](ICacheBackend*) {});
 			State->Scheduler = Scheduler ? std::move(Scheduler) : CreateTaskCacheScheduler();
 			State->Concurrency = std::clamp(Limits.Concurrency, 1u, 64u); State->Capacity = std::clamp(Limits.Capacity, 1u, 4096u);
 			State->MaximumRetainedBytes = Limits.MaximumRetainedBytes;
 			State->Pending.reserve(State->Capacity); State->All.reserve(State->Capacity);
 		}
 		~FAsyncCache() override { Close(); Drain(); }
-		auto Admit(std::vector<std::shared_ptr<FCacheOperation>> Operations, IRequestOwner& Owner)
+		auto Admit(std::vector<std::shared_ptr<FCacheOperation>> Operations, IRequestOwnerInternal& Owner)
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError>
 		{
 			auto Handle = std::make_shared<FCacheBatchWork>();
@@ -204,7 +204,10 @@ namespace Durin::DerivedData::Private
 				{
 					Op->Cache = State; Op->QueuedTurn = State->DispatchTurn; Op->QueuedAt = std::chrono::steady_clock::now();
 					Op->WaitDomain = State->Scheduler->IsInline() ? nullptr : State.get();
-					{ std::lock_guard OperationLock(Op->Mutex); Op->Group = Owner.Begin(Op); }
+					{
+						std::lock_guard OperationLock(Op->Mutex);
+						Op->Group = BeginRequest(Owner, Op);
+					}
 					State->All.push_back(Op); State->Pending.push_back(Op);
 				} }
 				catch (...) {
@@ -221,7 +224,7 @@ namespace Durin::DerivedData::Private
 			for (auto& Op : Operations) if (Op->IsCanceled()) Op->RequestCancel();
 			State->Pump(); return Handle;
 		}
-		auto Get(std::span<const FCacheGetRequest> Requests, IRequestOwner& Owner, FCacheGetCallback Callback)
+		auto Get(std::span<const FCacheGetBackendRequest> Requests, IRequestOwnerInternal& Owner, FCacheGetCallback Callback)
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError> override
 		try
 		{
@@ -246,7 +249,7 @@ namespace Durin::DerivedData::Private
 			return Result;
 		}
 		catch (...) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache batch admission failed."}); }
-		auto Put(std::span<const FCachePutRequest> Requests, IRequestOwner& Owner, FCachePutCallback Callback)
+		auto Put(std::span<const FCachePutBackendRequest> Requests, IRequestOwnerInternal& Owner, FCachePutCallback Callback)
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError> override
 		try
 		{
@@ -283,6 +286,115 @@ namespace Durin::DerivedData::Private
 
 namespace Durin::DerivedData
 {
-	auto CreateAsyncCache(std::shared_ptr<ICache> Cache, std::shared_ptr<IBuildScheduler> Scheduler, FCacheDispatchLimits Limits) -> std::shared_ptr<IAsyncCache>
+	auto CreateAsyncCache(std::shared_ptr<ICacheBackend> Cache, std::shared_ptr<IBuildScheduler> Scheduler, FCacheDispatchLimits Limits) -> std::shared_ptr<IAsyncCache>
 	{ return std::make_shared<Private::FAsyncCache>(std::move(Cache), std::move(Scheduler), Limits); }
 }
+
+namespace Durin::DerivedData::Private
+{
+	auto FCacheAccess::Dispatcher(bool bTask) -> std::shared_ptr<IAsyncCache>
+	{
+		std::lock_guard Lock(Mutex);
+		if (Override) return Override;
+		auto& Result = bTask ? Task : Inline;
+		if (!Result) Result = CreateAsyncCache(Backend, bTask ? CreateTaskCacheScheduler() : CreateInlineBuildScheduler(), Limits);
+		return Result;
+	}
+	auto CreateCacheForBackend(std::shared_ptr<ICacheBackend> Backend, std::shared_ptr<IAsyncCache> Override, FCacheDispatchLimits Limits) -> std::shared_ptr<ICache>
+	{
+		auto State = std::make_shared<FCacheAccess>();
+		State->Backend = std::move(Backend);
+		State->Override = std::move(Override);
+		State->Limits = Limits;
+		return FCacheAccess::Wrap(std::move(State));
+	}
+} // namespace Durin::DerivedData::Private
+namespace Durin::DerivedData
+{
+	namespace
+	{
+		auto CacheStatus(const FCacheError& Error) -> EStatus
+		{
+			return Error.Code == ECacheError::Canceled ? EStatus::Canceled : EStatus::Error;
+		}
+	} // namespace
+	auto ICache::Get(std::span<const FCacheGetRequest> Requests, IRequestOwner& Owner, FOnCacheGetComplete Completion) -> void
+	{
+		if (Requests.empty()) return;
+		require(static_cast<bool>(Completion));
+		FRequestBarrier Submission(Owner);
+		auto Notify = std::make_shared<FOnCacheGetComplete>(std::move(Completion));
+		std::vector<FCacheGetBackendRequest> BackendRequests;
+		BackendRequests.reserve(Requests.size());
+		auto Tags = std::make_shared<std::vector<std::pair<std::string, uint64>>>();
+		Tags->reserve(Requests.size());
+		for (const auto& Request : Requests)
+		{
+			BackendRequests.push_back({.Key = Request.Key, .OutputLimits = Request.OutputLimits, .MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes, .Mode = Request.Mode, .RequiredValues = Request.RequiredValues});
+			Tags->emplace_back(Request.Name, Request.UserData);
+		}
+		auto Result = State->Dispatcher(false)->Get(BackendRequests, Owner, [Tags, Notify](uint32 Index, FCacheGetResult Result, FCacheQueryStats) mutable {
+			FCacheGetResponse Response{.Name = (*Tags)[Index].first, .UserData = (*Tags)[Index].second};
+			if (Result && *Result)
+			{
+				Response.Status = EStatus::Ok;
+				Response.Record = std::move(**Result);
+			}
+			else if (!Result)
+				Response.Status = CacheStatus(Result.error());
+			(*Notify)(std::move(Response));
+		});
+		if (!Result)
+			for (const auto& Tag : *Tags)
+			{
+				try
+				{
+					(*Notify)({.Name = Tag.first, .UserData = Tag.second, .Status = Owner.IsCanceled() ? EStatus::Canceled : CacheStatus(Result.error())});
+				}
+				catch (...)
+				{
+				}
+			}
+	}
+	auto ICache::Put(std::span<const FCachePutRequest> Requests, IRequestOwner& Owner, FOnCachePutComplete Completion) -> void
+	{
+		if (Requests.empty()) return;
+		require(static_cast<bool>(Completion));
+		FRequestBarrier Submission(Owner);
+		auto Notify = std::make_shared<FOnCachePutComplete>(std::move(Completion));
+		std::vector<FCachePutBackendRequest> BackendRequests;
+		BackendRequests.reserve(Requests.size());
+		struct FTag
+		{
+			std::string Name;
+			FCacheKey Key;
+			uint64 UserData;
+		};
+		auto Tags = std::make_shared<std::vector<FTag>>();
+		Tags->reserve(Requests.size());
+		for (const auto& Request : Requests)
+		{
+			BackendRequests.push_back({Request.Record, Request.MaximumEncodedBytes, Request.MaximumRawBytes, Request.MaximumWorkingSetBytes});
+			Tags->push_back({Request.Name, Request.Record.GetKey(), Request.UserData});
+		}
+		auto Result = State->Dispatcher(false)->Put(BackendRequests, Owner, [Tags, Notify](uint32 Index, FCachePutResult Result) mutable {
+			(*Notify)({.Name = (*Tags)[Index].Name, .Key = (*Tags)[Index].Key, .UserData = (*Tags)[Index].UserData, .Status = Result ? EStatus::Ok : CacheStatus(Result.error())});
+		});
+		if (!Result)
+			for (const auto& Tag : *Tags)
+			{
+				try
+				{
+					(*Notify)({.Name = Tag.Name, .Key = Tag.Key, .UserData = Tag.UserData, .Status = Owner.IsCanceled() ? EStatus::Canceled : CacheStatus(Result.error())});
+				}
+				catch (...)
+				{
+				}
+			}
+	}
+	auto GetCache() -> ICache&
+	{
+		static const auto Cache = Private::CreateCacheForBackend();
+		return *Cache;
+	}
+} // namespace Durin::DerivedData

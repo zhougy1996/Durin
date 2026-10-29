@@ -1,3 +1,4 @@
+include_directories("${CMAKE_SOURCE_DIR}/Engine/Source/Developer/DerivedDataCache/Private")
 set(_durin_asset_package_modules engine)
 set(_durin_asset_package_libraries)
 if(DURIN_WITH_EDITOR)

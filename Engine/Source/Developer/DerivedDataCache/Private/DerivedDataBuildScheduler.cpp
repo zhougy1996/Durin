@@ -1,4 +1,4 @@
-#include "DerivedDataBuildScheduler.h"
+#include "BuildSchedulerPrivate.h"
 #include "Threading/TaskComposition.h"
 
 namespace Durin::DerivedData
@@ -13,7 +13,7 @@ namespace Durin::DerivedData
 				-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
 			{ Work(); return std::shared_ptr<IBuildScheduledWork>{}; }
 		};
-		class FTaskWork final : public IBuildScheduledWork
+		class FTaskWork final : public IBuildScheduledWork, public Private::INativeBuildWork
 		{
 		public:
 			Tasks::FTask Task;

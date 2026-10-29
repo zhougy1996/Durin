@@ -5,8 +5,9 @@
 #include "StaticMesh/StaticMeshCompilationTestSupport.h"
 
 #if DURIN_WITH_EDITOR
-#include "DerivedDataBuildSession.h"
-#include "Asset/ResourceBuildSessions.h"
+	#include "CacheDispatchPrivate.h"
+	#include "DerivedDataBuildSession.h"
+	#include "Asset/ResourceBuildSessions.h"
 #endif
 #include "StaticMeshSharedOutput.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -157,8 +158,8 @@ namespace Durin
 					if (bSuccess) Hook();
 				};
 			}
-			auto Admitted = (*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
-			if (!Admitted) return std::unexpected(MakeAssetBuildDiagnostic(Admitted.error().Description));
+			(*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
+
 			return {};
 		}
 	}
@@ -175,12 +176,12 @@ namespace Durin
 			std::lock_guard Lock(CompletionHookMutex);
 			CompletionHookForTests = std::move(Hook);
 		}
-		auto SetStaticMeshAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
+		auto SetStaticMeshAsyncCacheForTests(std::shared_ptr<DerivedData::ICacheBackend> Cache) -> void
 		{
 			std::shared_ptr<DerivedData::IBuild> Service;
 			if (Cache)
 			{
-				Service = DerivedData::CreateBuild({.Cache = std::move(Cache)});
+				Service = DerivedData::Private::CreateBuildForBackend({.Cache = std::move(Cache)});
 				require(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()).has_value());
 			}
 			require(Sessions.SetTaskService(std::move(Service)) == DerivedData::EBuildDrainResult::Drained);

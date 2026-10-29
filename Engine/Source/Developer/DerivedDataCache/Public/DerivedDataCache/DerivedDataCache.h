@@ -1,75 +1,72 @@
 #pragma once
-
 #include "CoreMinimal.h"
-
 #include "DerivedDataBuildOutput.h"
+#include "DerivedDataStatus.h"
 
 namespace Durin::DerivedData
 {
-	enum class ECacheGetMode : uint8 { FullRecord, MetadataOnly, SelectedValues };
-	struct FCacheQueryStats
+	class IRequestOwner;
+	namespace Private
 	{
-		// Successful physical reads, validated raw bytes, and peak accounted payload/
-		// codec storage (including estimated Zstd context), excluding container overhead.
-		uint64 ReadBytes = 0;
-		uint64 DecodedBytes = 0;
-		uint64 PeakWorkingSetBytes = 0;
-		uint64 DurationNanoseconds = 0;
-		// Distinct requested blobs resolved; coalesced reads can charge zero ReadBytes.
-		uint32 ValuesRead = 0;
+		struct FCacheAccess;
+	}
+	enum class ECacheGetMode : uint8
+	{
+		FullRecord,
+		MetadataOnly,
+		SelectedValues
 	};
 	struct FCacheGetRequest
 	{
 		FCacheKey Key;
 		FBuildOutputLimits OutputLimits;
-		// Manifest plus each distinct requested blob identity and raw size.
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
-		// Retained payload/codec storage; excludes descriptor and allocator overhead.
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 		ECacheGetMode Mode = ECacheGetMode::FullRecord;
-		// SelectedValues accepts unique IDs in any order. Empty means descriptors only.
-		// Other modes require an empty list. All selected IDs are required.
 		std::span<const FValueId> RequiredValues;
-		std::function<bool()> ShouldCancel;
-		// Borrowed for this synchronous call; records actual completed I/O and codec work.
-		FCacheQueryStats* Stats = nullptr;
+		std::string Name;
+		uint64 UserData = 0;
 	};
-
-	using FCacheGetResult = std::expected<std::optional<FCacheRecord>, FCacheError>;
-
-	struct FCacheStoreStats
-	{
-		// Successful physical I/O and per-identity codec calls. Peak covers retained
-		// inputs plus blob verification/encoding after manifest construction; it
-		// excludes transient CB assembly, which has a separate workspace preflight.
-		uint64 ReadBytes = 0, WrittenBytes = 0, CompressedBytes = 0;
-		uint64 PeakWorkingSetBytes = 0;
-		uint32 BlobsReused = 0, BlobsCompressed = 0, BlobsWritten = 0;
-	};
-
 	struct FCachePutRequest
 	{
 		FCacheRecord Record;
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
-		// Logical output value, metadata, and message bytes before compression.
 		uint64 MaximumRawBytes = 2ull * 1024 * 1024 * 1024;
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
-		std::function<bool()> ShouldCancel;
-		// Borrowed only by synchronous Put; async dispatch does not retain this pointer.
-		FCacheStoreStats* Stats = nullptr;
+		std::string Name;
+		uint64 UserData = 0;
 	};
-
-	using FCachePutResult = std::expected<void, FCacheError>;
-
+	struct FCacheGetResponse
+	{
+		std::string Name;
+		FCacheRecord Record;
+		uint64 UserData = 0;
+		EStatus Status = EStatus::Error;
+	};
+	struct FCachePutResponse
+	{
+		std::string Name;
+		FCacheKey Key;
+		uint64 UserData = 0;
+		EStatus Status = EStatus::Error;
+	};
+	using FOnCacheGetComplete = std::function<void(FCacheGetResponse)>;
+	using FOnCachePutComplete = std::function<void(FCachePutResponse)>;
+	// Backend-neutral requests complete once per item, including rejection and cancellation.
+	// Callbacks may run inline or on another thread. Owner tracks callback retirement.
 	class ICache
 	{
 	public:
-		virtual ~ICache() = default;
-		virtual auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult = 0;
-		virtual auto Put(const FCachePutRequest& Request) const -> FCachePutResult = 0;
-	};
+		DERIVEDDATACACHE_API auto Get(std::span<const FCacheGetRequest> Requests, IRequestOwner& Owner, FOnCacheGetComplete Completion) -> void;
+		DERIVEDDATACACHE_API auto Put(std::span<const FCachePutRequest> Requests, IRequestOwner& Owner, FOnCachePutComplete Completion) -> void;
 
-	// Returns the process-owned structured record cache. Serialization,
-	// compression, validation, and physical storage remain behind this boundary.
+	private:
+		friend struct Private::FCacheAccess;
+		explicit ICache(std::shared_ptr<Private::FCacheAccess> State)
+			: State(std::move(State))
+		{
+		}
+		std::shared_ptr<Private::FCacheAccess> State;
+	};
 	DERIVEDDATACACHE_API auto GetCache() -> ICache&;
 }

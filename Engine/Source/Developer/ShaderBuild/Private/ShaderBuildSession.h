@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #pragma once
 
 #include "CoreMinimal.h"
@@ -42,8 +43,7 @@ namespace Durin
 	class SHADERBUILD_API FShaderBuildService
 	{
 	public:
-		explicit FShaderBuildService(std::function<void(std::string_view)> BeforeGeneratedCompile = {},
-			DerivedData::FBuildServiceOptions Options = {});
+		explicit FShaderBuildService(std::function<void(std::string_view)> BeforeGeneratedCompile = {}, DerivedData::Private::FBuildBackendOptions Options = {});
 		~FShaderBuildService();
 		auto GetBuildVersion() const -> uint64;
 		auto GetCompilerEnvironmentIdentity() const -> const std::string&;
@@ -51,11 +51,10 @@ namespace Durin
 		auto GetCacheMicroseconds() const -> uint64;
 		auto Execute(FShaderSessionRequest Request, DerivedData::FBuildRequestOptions Options)
 			-> DerivedData::FBuildCompleteParams;
-		auto Submit(FShaderSessionRequest Request, DerivedData::IRequestOwner& Owner,
-			DerivedData::FBuildCompletionCallback Completion, DerivedData::FBuildRequestOptions Options,
-			bool bInlineExecution) -> std::expected<DerivedData::FBuildRequest, DerivedData::FBuildAdmissionError>;
+		auto Submit(FShaderSessionRequest Request, DerivedData::IRequestOwner& Owner, DerivedData::FBuildCompletionCallback Completion, DerivedData::FBuildRequestOptions Options, bool bInlineExecution) -> std::expected<void, DerivedData::FBuildAdmissionError>;
 		auto Close() -> void;
-		auto ResetCacheForTests(DerivedData::FBuildServiceOptions Options) -> void;
+		auto ResetCacheForTests(DerivedData::Private::FBuildBackendOptions Options) -> void;
+
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;

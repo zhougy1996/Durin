@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #include "StaticMesh/StaticMeshDerivedDataKeyTestSupport.h"
 
 #include "StaticMesh/StaticMeshAttributes.h"
@@ -3926,14 +3927,14 @@ TEST(FPhysicsMeshLifecycleTests, WaitingDDCFreesCpuSlotsAndPhysicsWaitResumesRen
 	InitializeDObjectSystem();
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	class FHeldCache final : public DerivedData::ICache
+	class FHeldCache final : public DerivedData::ICacheBackend
 	{
 	public:
 		mutable std::atomic<uint32> Reads = 0;
 		mutable FThreadEvent Release;
-		auto Get(const DerivedData::FCacheGetRequest&) const -> DerivedData::FCacheGetResult override
+		auto Get(const DerivedData::FCacheGetBackendRequest&) const -> DerivedData::FCacheGetResult override
 		{ ++Reads; Release.WaitFor(10.0); return std::optional<DerivedData::FCacheRecord>{}; }
-		auto Put(const DerivedData::FCachePutRequest&) const -> DerivedData::FCachePutResult override { return {}; }
+		auto Put(const DerivedData::FCachePutBackendRequest&) const -> DerivedData::FCachePutResult override { return {}; }
 	};
 	auto Cache = std::make_shared<FHeldCache>();
 	FThreadEvent CallbackEntered, ReleaseCallback, CpuMailbox;
@@ -4222,14 +4223,18 @@ TEST(FPhysicsMeshLifecycleTests, DdcWaitReleasesMemoryAndAbortLetsCookRetireBefo
 {
 	using namespace Durin;
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	class FHeldCache final : public DerivedData::ICache
+	class FHeldCache final : public DerivedData::ICacheBackend
 	{
 	public:
 		mutable FThreadEvent Entered, Release;
 		mutable std::atomic<uint32> Writes = 0;
-		auto Get(const DerivedData::FCacheGetRequest&) const -> DerivedData::FCacheGetResult override
+		auto Get(const DerivedData::FCacheGetBackendRequest&) const -> DerivedData::FCacheGetResult override
 		{ Entered.Trigger(); Release.WaitFor(10.0); return std::optional<DerivedData::FCacheRecord>{}; }
-		auto Put(const DerivedData::FCachePutRequest&) const -> DerivedData::FCachePutResult override { ++Writes; return {}; }
+		auto Put(const DerivedData::FCachePutBackendRequest&) const -> DerivedData::FCachePutResult override
+		{
+			++Writes;
+			return {};
+		}
 	};
 	auto Cache = std::make_shared<FHeldCache>();
 	struct FDrain
@@ -4572,14 +4577,16 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildFunctionRejectsMismatchedBuilderIden
 		.Source = Source};
 	auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Settings.MaterialSlots.size()), Version ^ 1ull);
 	ASSERT_TRUE(Definition);
-	auto Service = CreateBuild();
+	auto Service = Durin::DerivedData::Private::CreateBuildForBackend();
 	ASSERT_TRUE(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()));
 	auto Session = Service->CreateSession();
 	ASSERT_TRUE(Session);
 	std::optional<FBuildCompleteParams> Result;
 	FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
 	Options.InputResolver = StaticMeshPrivate::MakeRenderInputResolver(Request);
-	ASSERT_TRUE((*Session)->Build(*Definition, [&](auto Value) { Result = std::move(Value); }, {}, Options));
+	FRequestOwner Owner;
+	(*Session)->Build(*Definition, Owner, [&](auto Value) { Result = std::move(Value); }, {}, Options);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	ASSERT_TRUE(Result);
 	EXPECT_EQ(Result->GetStatus(), EStatus::Error);
 	EXPECT_EQ(Result->GetOutput(), nullptr);
@@ -4615,14 +4622,16 @@ TEST(FPhysicsCookTests, BuildFunctionRejectsMismatchedIdentityBeforeRecipeDecodi
 	// None is invalid for an executable cook; identity must be checked first.
 	auto Definition = MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode::None, Version ^ (uint64{1} << 63));
 	ASSERT_TRUE(Definition);
-	auto Service = CreateBuild();
+	auto Service = Durin::DerivedData::Private::CreateBuildForBackend();
 	ASSERT_TRUE(Service->Register(PhysicsPrivate::MakeCollisionBuildFunction()));
 	auto Session = Service->CreateSession();
 	ASSERT_TRUE(Session);
 	std::optional<FBuildCompleteParams> Result;
 	FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
 	Options.InputResolver = PhysicsPrivate::MakeCollisionInputResolver(*Input);
-	ASSERT_TRUE((*Session)->Build(*Definition, [&](auto Value) { Result = std::move(Value); }, {}, Options));
+	FRequestOwner Owner;
+	(*Session)->Build(*Definition, Owner, [&](auto Value) { Result = std::move(Value); }, {}, Options);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	ASSERT_TRUE(Result);
 	EXPECT_EQ(Result->GetStatus(), EStatus::Error);
 	EXPECT_EQ(Result->GetOutput(), nullptr);
@@ -4664,13 +4673,13 @@ TEST(FPhysicsCookTests, QuerySettingsReuseGeometryCacheAndPreservePublicationPol
 	RenderPayload.Serialize(RenderWriter);
 	ASSERT_FALSE(RenderWriter.IsError());
 	const auto Slots = FStaticMeshTestAccess::MakeSlots(Source);
-	class FRecordingCache final : public ICache
+	class FRecordingCache final : public ICacheBackend
 	{
 	public:
 		mutable std::mutex Mutex;
 		mutable std::vector<FCacheRecord> Records;
 		mutable uint32 Hits = 0, Writes = 0;
-		auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+		auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 		{
 			const std::lock_guard Lock(Mutex);
 			for (const auto& Record : Records) if (Record.GetKey() == Request.Key)
@@ -4680,7 +4689,7 @@ TEST(FPhysicsCookTests, QuerySettingsReuseGeometryCacheAndPreservePublicationPol
 			}
 			return std::optional<FCacheRecord>{};
 		}
-		auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 		{
 			const std::lock_guard Lock(Mutex);
 			++Writes;

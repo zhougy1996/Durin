@@ -56,13 +56,11 @@ namespace Durin::DerivedData
 		// Cache payload/codec workspace only; producer reservations belong to the asset scheduler.
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
 	};
-	class IAsyncCache;
 	class IBuildScheduler;
 	struct FBuildServiceOptions
 	{
 		std::shared_ptr<ICache> Cache;
-		std::shared_ptr<IAsyncCache> AsyncCache;
-		// Applies to service-owned dispatchers; injected AsyncCache owns its policy.
+		// Applies to service-owned cache dispatchers.
 		FCacheDispatchLimits CacheDispatchLimits;
 	};
 }

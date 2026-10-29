@@ -16,3 +16,5 @@ endif()
 
 durin_target_enable_delay_load(ShaderBuild "slang.dll")
 durin_target_deploy_runtime_files(ShaderBuild Slang_Imported)
+
+target_include_directories(ShaderBuild PRIVATE "${CMAKE_SOURCE_DIR}/Engine/Source/Developer/DerivedDataCache/Private")

@@ -99,8 +99,9 @@ namespace
 		TrailingBytes.push_back(std::byte{0x7f});
 
 		FBulkData Bulk;
+		std::shared_ptr<FPackageResourceRequest> Pending;
 		EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
-			*Texture, Bulk, Family));
+			*Texture, Bulk, Family, false, Pending));
 		for (const FByteBuffer& InvalidBytes : {FByteBuffer{std::byte{0xff}}, TrailingBytes})
 		{
 			{
@@ -111,7 +112,7 @@ namespace
 			Logger.Flush();
 			const uint64 LogCursor = Logger.ReadRecords(1, 0).NewestAvailableSequence + 1;
 			EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
-				*Texture, Bulk, Family));
+				*Texture, Bulk, Family, false, Pending));
 			Logger.Flush();
 			const auto Logs = Logger.ReadRecords(LogCursor);
 			const std::string DiagnosticPrefix = std::format("Cooked {} '{}': ", Family, Texture->GetObjectPath());
@@ -134,7 +135,7 @@ namespace
 			Bulk = std::move(*ValueResult);
 		}
 		ASSERT_TRUE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
-			*Texture, Bulk, Family));
+			*Texture, Bulk, Family, false, Pending));
 		EXPECT_TRUE(Texture->HasPlatformData());
 		EXPECT_NE(Texture->GetPlatformDataShared(), RevisionIdentity);
 		EXPECT_NE(Bulk.GetState(), EBulkDataState::ReadLocked);

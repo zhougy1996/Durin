@@ -1,12 +1,13 @@
 #include "Physics/PhysicsCookHelper.h"
 #include "PhysicsCookInputPrivate.h"
 #if DURIN_WITH_EDITOR
-#include "DerivedDataBuildSession.h"
-#include "Asset/ResourceBuildSessions.h"
-#include "PhysicsCookDerivedDataKey.h"
-#include "PhysicsBuildFunction.h"
-#include "PhysicsSharedOutput.h"
-#include "TargetPlatform.h"
+	#include "CacheDispatchPrivate.h"
+	#include "DerivedDataBuildSession.h"
+	#include "Asset/ResourceBuildSessions.h"
+	#include "PhysicsCookDerivedDataKey.h"
+	#include "PhysicsBuildFunction.h"
+	#include "PhysicsSharedOutput.h"
+	#include "TargetPlatform.h"
 #endif
 
 namespace Durin
@@ -41,12 +42,12 @@ namespace Durin
 	}
 	namespace PhysicsPrivate
 	{
-		auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
+		auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICacheBackend> Cache) -> void
 		{
 			std::shared_ptr<DerivedData::IBuild> Service;
 			if (Cache)
 			{
-				Service = DerivedData::CreateBuild({.Cache = std::move(Cache)});
+				Service = DerivedData::Private::CreateBuildForBackend({.Cache = std::move(Cache)});
 				require(Service->Register(MakeCollisionBuildFunction()).has_value());
 			}
 			require(PhysicsSessions.SetTaskService(std::move(Service)) == DerivedData::EBuildDrainResult::Drained);
@@ -60,8 +61,8 @@ namespace Durin
 			if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description, "Cook"));
 			auto Options = MakePhysicsOptions(Input, MaximumWorkingSetBytes);
 			Options.InputResolver = MakeCollisionInputResolver(Input);
-			auto Admitted = (*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
-			if (!Admitted) return std::unexpected(MakeAssetBuildDiagnostic(Admitted.error().Description, "Cook"));
+			(*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
+
 			return {};
 		}
 		auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode,
@@ -140,8 +141,8 @@ namespace Durin
 		Options.InputResolver = PhysicsPrivate::MakeCollisionInputResolver(Input);
 		DerivedData::FRequestOwner Owner;
 		std::optional<DerivedData::FBuildCompleteParams> Completion;
-		auto Admitted = (*Session)->Build(std::move(*Definition), Owner, [&](auto Value) { Completion.emplace(std::move(Value)); }, {}, std::move(Options));
-		if (!Admitted) return std::unexpected(MakeAssetBuildDiagnostic(Admitted.error().Description, "Cook"));
+		(*Session)->Build(std::move(*Definition), Owner, [&](auto Value) { Completion.emplace(std::move(Value)); }, {}, std::move(Options));
+
 		require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
 		require(Completion.has_value());
 		return PhysicsPrivate::ConsumeCookBuild(Input.GetMode(), std::move(*Completion));

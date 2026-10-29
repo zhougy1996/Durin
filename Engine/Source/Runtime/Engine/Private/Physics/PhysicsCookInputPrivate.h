@@ -5,15 +5,19 @@
 #include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
 #if DURIN_WITH_EDITOR
-#include "DerivedDataBuildSession.h"
+	#include "CacheDispatchPrivate.h"
+	#include "DerivedDataBuildSession.h"
 #endif
 
-namespace Durin::DerivedData { class ICache; }
+namespace Durin::DerivedData
+{
+	class ICacheBackend;
+}
 
 namespace Durin::PhysicsPrivate
 {
 #if DURIN_WITH_EDITOR
-	ENGINE_API auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void;
+	ENGINE_API auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICacheBackend> Cache) -> void;
 	auto DispatchCookBuild(const FPhysicsCookInput& Input, DerivedData::IRequestOwner& Owner,
 		uint64 MaximumWorkingSetBytes, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>;
 	auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode,

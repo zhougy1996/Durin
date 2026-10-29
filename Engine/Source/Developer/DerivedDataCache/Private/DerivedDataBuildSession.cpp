@@ -1,6 +1,6 @@
 #include "DerivedDataBuildSession.h"
 #include "DerivedDataBuildExecutionPrivate.h"
-#include "DerivedDataCache/DerivedDataCacheAsync.h"
+#include "CacheDispatchPrivate.h"
 #include "Logging/LogMacros.h"
 #include "RequestOwnerPrivate.h"
 #include "CacheDiagnosticsPrivate.h"
@@ -9,12 +9,16 @@ namespace Durin::DerivedData
 {
 	namespace Private
 	{
+		struct FSessionCacheConfig
+		{
+			std::shared_ptr<IAsyncCache> AsyncCache;
+		};
 		struct FSessionResources
 		{
 			FBuildRegistrySnapshot Registry;
 			std::shared_ptr<const IBuildInputResolver> Resolver;
 			std::shared_ptr<IBuildScheduler> Scheduler;
-			FBuildServiceOptions Service;
+			FSessionCacheConfig Service;
 		};
 		struct FBuildSessionState
 		{
@@ -150,9 +154,7 @@ namespace Durin::DerivedData
 				{ std::lock_guard Lock(Mutex); Data = std::move(Work); }
 				const auto Policy = Data->Options.Policy;
 				if (!Policy.QueryCache || Policy.ForceBuild) { ResumeLocal(); return; }
-				const std::array Requests{FCacheGetRequest{.Key = std::get<FBuildAction>(Data->Request).GetKey(), .OutputLimits = Policy.OutputLimits,
-					.MaximumEncodedBytes = Policy.MaximumEncodedBytes, .MaximumWorkingSetBytes = Policy.MaximumWorkingSetBytes,
-					.ShouldCancel = [Cancel = Data->Options.Cancellation] { return Cancel.IsCancelled(); }}};
+				const std::array Requests{FCacheGetBackendRequest{.Key = std::get<FBuildAction>(Data->Request).GetKey(), .OutputLimits = Policy.OutputLimits, .MaximumEncodedBytes = Policy.MaximumEncodedBytes, .MaximumWorkingSetBytes = Policy.MaximumWorkingSetBytes, .ShouldCancel = [Cancel = Data->Options.Cancellation] { return Cancel.IsCancelled(); }}};
 				auto Cache = Data->Resources->Service.AsyncCache; auto CacheOwner = Group;
 				auto Self = shared_from_this(); const auto Revision = BeginScheduledStage();
 				auto Submitted = Cache->Get(Requests, *CacheOwner,
@@ -205,8 +207,7 @@ namespace Durin::DerivedData
 				if (Policy.ResultDelivery == EBuildResultDelivery::BeforePersistence)
 					Deliver(*Work->LocalCompletion);
 				if (!Record) { Work.reset(); ReceiveStore(std::unexpected(std::move(Record.error()))); return; }
-				const std::array Requests{FCachePutRequest{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes,
-					[Cancel = Work->Options.Cancellation] { return Cancel.IsCancelled(); }}};
+				const std::array Requests{FCachePutBackendRequest{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes, [Cancel = Work->Options.Cancellation] { return Cancel.IsCancelled(); }}};
 				auto Cache = Work->Resources->Service.AsyncCache; auto CacheOwner = Group; Work.reset();
 				auto Self = shared_from_this(); const auto Revision = BeginScheduledStage();
 				auto Saved = Cache->Put(Requests, *CacheOwner,
@@ -385,20 +386,19 @@ namespace Durin::DerivedData
 				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Invalid cache execution mode."});
 			auto Snapshot = State->Registry.Freeze();
 			if (!Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Snapshot.error())});
-			auto SessionOptions = State->Options;
+			auto SessionCache = State->Options.Cache;
 			if (!Scheduler) Scheduler = CreateInlineBuildScheduler();
-			if (!SessionOptions.AsyncCache)
-			{
-				auto& Cache = CacheExecution == EBuildCacheExecution::Inline ? State->InlineCache : State->TaskCache;
-				if (!Cache) Cache = CreateAsyncCache(SessionOptions.Cache,
-					CacheExecution == EBuildCacheExecution::Inline ? CreateInlineBuildScheduler()
-						: CreateTaskCacheScheduler(),
-					SessionOptions.CacheDispatchLimits);
-				SessionOptions.AsyncCache = Cache;
-			}
+			if (!SessionCache) SessionCache = Private::CreateCacheForBackend({}, {}, State->Options.CacheDispatchLimits);
+			auto AsyncCache = Private::FCacheAccess::Get(*SessionCache).Dispatcher(CacheExecution == EBuildCacheExecution::Task);
+			auto& Cache = CacheExecution == EBuildCacheExecution::Inline ? State->InlineCache : State->TaskCache;
+			if (!State->Options.Cache && Cache)
+				AsyncCache = Cache;
+			else if (!State->Options.Cache)
+				Cache = AsyncCache;
 			auto SessionState = std::make_shared<Private::FBuildSessionState>();
 			SessionState->Resources = std::make_shared<Private::FSessionResources>(
-				std::move(*Snapshot), std::move(Resolver), std::move(Scheduler), std::move(SessionOptions));
+				std::move(*Snapshot), std::move(Resolver), std::move(Scheduler), Private::FSessionCacheConfig{std::move(AsyncCache)}
+			);
 			std::erase_if(State->Sessions, [](const auto& Weak) { return Weak.expired(); });
 			if (State->Sessions.size() >= 4096)
 				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Build service session capacity is exhausted."});
@@ -449,40 +449,42 @@ namespace Durin::DerivedData
 
 	FBuildSession::FBuildSession(std::shared_ptr<Private::FBuildSessionState> InState) : State(std::move(InState)) {}
 	FBuildSession::~FBuildSession() { Close(); Drain(); }
-	auto FBuildRequest::Cancel() const -> bool { return State && State->Cancel(); }
-	auto FBuildRequest::RequestCancel() const -> bool { return State && State->RequestCancel(); }
-	auto FBuildRequest::Wait() const -> ERequestWaitResult
-	{ return State ? State->Wait() : ERequestWaitResult::InvalidRequest; }
-
-	auto FBuildRequest::IsResultReady() const -> bool
+	auto FBuildSession::Build(FBuildDefinition Definition, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options) -> void
 	{
-		if (!State) return false;
-		std::lock_guard Lock(State->Mutex); return State->ResultReady;
+		require(static_cast<bool>(Completion));
+		FRequestBarrier Submission(Owner);
+		auto Fallback = Completion;
+		auto Result = BuildImpl(std::move(Definition), std::move(Completion), std::move(Inputs), std::move(Options), Owner);
+		if (!Result)
+		{
+			try
+			{
+				Fallback(FBuildCompleteParams::Error({}, EBuildExecutionFlags::None, std::move(Result.error().Description)));
+			}
+			catch (...)
+			{
+			}
+		}
 	}
-	auto FBuildRequest::IsComplete() const -> bool
+	auto FBuildSession::Build(FBuildAction Action, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options) -> void
 	{
-		if (!State) return false;
-		std::lock_guard Lock(State->Mutex);
-		return State->State == Private::ERequestState::Done;
+		require(static_cast<bool>(Completion));
+		FRequestBarrier Submission(Owner);
+		auto Fallback = Completion;
+		auto Result = BuildImpl(std::move(Action), std::move(Completion), std::move(Inputs), std::move(Options), Owner);
+		if (!Result)
+		{
+			try
+			{
+				Fallback(FBuildCompleteParams::Error({}, EBuildExecutionFlags::None, std::move(Result.error().Description)));
+			}
+			catch (...)
+			{
+			}
+		}
 	}
-	auto FBuildSession::Build(FBuildDefinition Definition, FBuildCompletionCallback Completion,
-		FBuildInputs Inputs, FBuildRequestOptions Options) -> std::expected<FBuildRequest, FBuildAdmissionError>
-	{ return BuildImpl(std::move(Definition), std::move(Completion), std::move(Inputs), std::move(Options)); }
-	auto FBuildSession::Build(FBuildAction Action, FBuildCompletionCallback Completion,
-		FBuildInputs Inputs, FBuildRequestOptions Options) -> std::expected<FBuildRequest, FBuildAdmissionError>
-	{ return BuildImpl(std::move(Action), std::move(Completion), std::move(Inputs), std::move(Options)); }
-	auto FBuildSession::Build(FBuildDefinition Definition, IRequestOwner& Owner,
-		FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options)
-		-> std::expected<FBuildRequest, FBuildAdmissionError>
-	{ return BuildImpl(std::move(Definition), std::move(Completion), std::move(Inputs), std::move(Options), &Owner); }
-	auto FBuildSession::Build(FBuildAction Action, IRequestOwner& Owner,
-		FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options)
-		-> std::expected<FBuildRequest, FBuildAdmissionError>
-	{ return BuildImpl(std::move(Action), std::move(Completion), std::move(Inputs), std::move(Options), &Owner); }
-	auto FBuildSession::BuildImpl(std::variant<FBuildDefinition, FBuildAction> BuildRequest,
-		FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options,
-		IRequestOwner* RequestOwner)
-		-> std::expected<FBuildRequest, FBuildAdmissionError>
+	auto FBuildSession::BuildImpl(std::variant<FBuildDefinition, FBuildAction> BuildRequest, FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options, IRequestOwner& RequestOwner)
+		-> std::expected<void, FBuildAdmissionError>
 	{
 		auto Owner = State;
 		Private::FSubmissionScope Submission{Owner};
@@ -521,15 +523,19 @@ namespace Durin::DerivedData
 				Owner->Requests.emplace(Request->Id, Request); ++Owner->Active;
 				++Owner->Submitting; Submission.Counted = true;
 				DispatchReturn.Request = Request;
-				auto LocalOwner = RequestOwner ? std::shared_ptr<IRequestOwner>{} : Private::CreateRequestOwnerState();
+
 				{
 					std::lock_guard RequestLock(Request->Mutex);
-					Request->Group = (RequestOwner ? *RequestOwner : *LocalOwner).Begin(Request);
+					Request->Group = Private::BeginRequest(RequestOwner, Request);
 					if (Request->Group->IsCanceled()) Request->Cancellation.Cancel();
 				}
 			}
-			FBuildRequest Handle; Handle.State = Request;
-			if (Request->Cancellation.IsCancelled()) { Request->Run(); return Handle; }
+
+			if (Request->Cancellation.IsCancelled())
+			{
+				Request->Run();
+				return {};
+			}
 			const auto& Data = *Request->Data;
 			const std::string FunctionName(std::holds_alternative<FBuildDefinition>(Data.Request)
 				? std::get<FBuildDefinition>(Data.Request).GetFunctionName() : std::get<FBuildAction>(Data.Request).GetFunction().Name);
@@ -543,11 +549,14 @@ namespace Durin::DerivedData
 				return std::unexpected(std::move(Error));
 			}
 			Request->AcceptDispatch();
-			return Handle;
+			return {};
 		}
 		catch (...)
 		{
-			if (Submission.Counted && !Request->RejectDispatch()) { FBuildRequest Handle; Handle.State = Request; return Handle; }
+			if (Submission.Counted && !Request->RejectDispatch())
+			{
+				return {};
+			}
 			return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, "Build dispatch or admission failed."});
 		}
 	}

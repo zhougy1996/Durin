@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "Threading/TaskComposition.h"
 #include <gtest/gtest.h>
@@ -31,7 +32,7 @@ namespace
 		return Render;
 	}
 
-	class FHeldDerivedDataCache final : public DerivedData::ICache
+	class FHeldDerivedDataCache final : public DerivedData::ICacheBackend
 	{
 	public:
 		mutable std::atomic<uint32> Reads = 0;
@@ -44,7 +45,7 @@ namespace
 		mutable std::atomic<uint32> CancellationReleasedReads = 0;
 		mutable std::mutex RecordMutex;
 		mutable std::unordered_map<std::string, DerivedData::FCacheRecord> Records;
-		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override
+		auto Get(const DerivedData::FCacheGetBackendRequest& Request) const -> DerivedData::FCacheGetResult override
 		{
 			++Reads;
 			if (bReleaseReadsOnCancel)
@@ -65,7 +66,7 @@ namespace
 			if (const auto It = Records.find(Request.Key.ToString()); It != Records.end()) return std::optional{It->second};
 			return std::optional<DerivedData::FCacheRecord>{};
 		}
-		auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override
+		auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override
 		{
 			++Writes;
 			if (bHoldWrites) ReleaseWrites.WaitFor(10.0);

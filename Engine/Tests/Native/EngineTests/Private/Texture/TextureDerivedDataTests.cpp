@@ -1,3 +1,4 @@
+#include "CacheBackend.h"
 #include "CacheRecordFixtureCodec.h"
 #include "Runtime/Engine/Private/Texture/TextureBuildInternal.h"
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataBuild.h"
@@ -49,7 +50,7 @@ TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndAvoidsUnselect
 	const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Texture2D"), {123, 456});
 	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Product, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(Output) << Output.error(); auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
-	ASSERT_TRUE(GetCache().Put({*Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({*Record}));
 	const std::array<uint32, 2> Mips{8, 2};
 	auto Selected = ReadTexture2DCachedMips({FCacheKeyProxy(Key), Mips}); ASSERT_TRUE(Selected && *Selected);
 	EXPECT_EQ((**Selected).OriginalMipCount, 10u); EXPECT_EQ((**Selected).PixelFormat, Product.PixelFormat);
@@ -63,8 +64,9 @@ TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndAvoidsUnselect
 	}
 	const std::array Ids{FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(2)};
 	FCacheQueryStats FullStats, SelectedStats;
-	auto Full = GetCache().Get({.Key = Key, .Stats = &FullStats}); ASSERT_TRUE(Full && *Full);
-	auto Partial = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids, .Stats = &SelectedStats});
+	auto Full = GetCacheBackend().Get({.Key = Key, .Stats = &FullStats});
+	ASSERT_TRUE(Full && *Full);
+	auto Partial = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids, .Stats = &SelectedStats});
 	ASSERT_TRUE(Partial && *Partial);
 	EXPECT_EQ(FullStats.ValuesRead, 10u); EXPECT_EQ(SelectedStats.ValuesRead, 1u);
 	EXPECT_EQ(SelectedStats.DecodedBytes, Product.Mips[2].Pixels.GetSize());
@@ -85,7 +87,7 @@ TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndAvoidsUnselect
 	}
 	const std::array<uint32, 1> OneMip{2};
 	Selected = ReadTexture2DCachedMips({FCacheKeyProxy(Key), OneMip}); ASSERT_TRUE(Selected && *Selected);
-	EXPECT_FALSE(GetCache().Get({Key}));
+	EXPECT_FALSE(GetCacheBackend().Get({Key}));
 }
 
 TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMissAndCancel)
@@ -99,7 +101,10 @@ TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMi
 	FTexturePlatformData Product; Product.PixelFormat = EPixelFormat::BC3_UNORM_SRGB;
 	Product.Mips.push_back({.Pixels = FSharedByteBuffer::Take(FByteBuffer(16, std::byte{1})), .Width = 1, .Height = 1, .RowPitch = 16});
 	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Product, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(Output); auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record); ASSERT_TRUE(GetCache().Put({*Record}));
+	ASSERT_TRUE(Output);
+	auto Record = FCacheRecord::FromOutput(Key, *Output);
+	ASSERT_TRUE(Record);
+	ASSERT_TRUE(GetCacheBackend().Put({*Record}));
 	const std::array<uint32, 2> Duplicate{0, 0}; Request.MipIndices = Duplicate;
 	auto Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::InvalidRequest);
 	const std::array<uint32, 1> OutOfBounds{MaximumTextureMipCount}; Request.MipIndices = OutOfBounds;
@@ -121,7 +126,7 @@ TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMi
 	for (const auto& Meta : Output->GetMetadata()) Failed.AddMeta(Meta.Id, Meta.Object);
 	Failed.AddMessage(EBuildMessageSeverity::Error, "fixture failure");
 	auto FailedOutput = std::move(Failed).Build(); ASSERT_TRUE(FailedOutput);
-	ASSERT_TRUE(GetCache().Put({FCacheRecord::FromOutput(Key, *FailedOutput).value()}));
+	ASSERT_TRUE(GetCacheBackend().Put({FCacheRecord::FromOutput(Key, *FailedOutput).value()}));
 	// Failed build outputs discard values by contract, so a required mip is missing.
 	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::MissingValue);
 }
@@ -1136,9 +1141,9 @@ TEST(FTextureDerivedDataTests, AdaptersRejectMismatchedBuilderIdentityBeforeRead
 		FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
 		Options.InputResolver = std::make_shared<FResolver>(Action->GetInputs());
 		std::optional<FBuildCompleteParams> Result;
-		auto Request = (*Session)->Build(*Action, [&](auto Value) { Result = std::move(Value); }, {}, Options);
-		ASSERT_TRUE(Request);
-		EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
+		FRequestOwner Owner;
+		(*Session)->Build(*Action, Owner, [&](auto Value) { Result = std::move(Value); }, {}, Options);
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 		ASSERT_TRUE(Result);
 		EXPECT_EQ(Result->GetStatus(), EStatus::Error);
 		EXPECT_EQ(Result->GetOutput(), nullptr);

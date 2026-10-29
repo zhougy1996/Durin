@@ -1,3 +1,4 @@
+#include "CacheDispatchPrivate.h"
 #include "ShaderBuildSession.h"
 #include "MetalLibraryBuild.h"
 #include "ShaderBuildTestSupport.h"
@@ -18,7 +19,7 @@ namespace Durin
 	class FShaderBuildModule final : public IShaderBuildModule
 	{
 	public:
-		auto ResetService(DerivedData::FBuildServiceOptions Options) -> void
+		auto ResetService(DerivedData::Private::FBuildBackendOptions Options) -> void
 		{
 			AdvanceShaderReloadGeneration();
 			if (Builder) Builder->Close();
@@ -125,7 +126,7 @@ namespace Durin
 	};
 	namespace ShaderBuildPrivate
 	{
-		auto ResetServiceForTests(DerivedData::FBuildServiceOptions Options) -> void
+		auto ResetServiceForTests(DerivedData::Private::FBuildBackendOptions Options) -> void
 		{
 			require(ActiveModule);
 			ActiveModule->ResetService(std::move(Options));
