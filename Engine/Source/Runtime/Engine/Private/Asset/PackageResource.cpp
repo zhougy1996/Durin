@@ -566,18 +566,27 @@ namespace Durin
 		}
 	}
 
-	auto FPackageResourceRequest::Wait() const -> FPackageResourceReadResult
+	auto FPackageResourceRequest::Wait(std::optional<double> TimeoutSeconds) const -> FPackageResourceReadResult
 	{
 		if (!State) return Result(EPackageResourceReadStatus::Retired, {.Message = "Package request is invalid."});
+		if (TimeoutSeconds && (!std::isfinite(*TimeoutSeconds) || *TimeoutSeconds < 0.0))
+			return Result(EPackageResourceReadStatus::IoError, {.Message = "Invalid package request wait timeout."});
+		const auto Started = std::chrono::steady_clock::now();
 		Durin::Tasks::FTask Completion;
 		{
 			std::unique_lock Lock(State->Mutex);
-			State->Bound.wait(Lock, [&] { return !State->bBinding; });
+			if (TimeoutSeconds)
+			{
+				if (!State->Bound.wait_for(Lock, std::chrono::duration<double>(*TimeoutSeconds), [&] { return !State->bBinding; }))
+					return Result(EPackageResourceReadStatus::IoError, {.Message = "Package request binding wait timed out; the request outcome is unchanged."});
+			}
+			else State->Bound.wait(Lock, [&] { return !State->bBinding; });
 			Completion = State->Completion();
 		}
 		if (Completion.IsValid())
 		{
-			const auto Wait = Tasks::Wait(Completion);
+			const auto Wait = TimeoutSeconds ? Tasks::Wait(Completion, std::max(0.0, *TimeoutSeconds
+				- std::chrono::duration<double>(std::chrono::steady_clock::now() - Started).count())) : Tasks::Wait(Completion);
 			if (Wait.WaitStatus != ETaskWaitStatus::Completed)
 				return Result(EPackageResourceReadStatus::IoError,
 					{.Message = std::format("Package request wait was rejected; the request outcome is unchanged. WaitStatus: {}.", static_cast<uint32>(Wait.WaitStatus))});

@@ -17,6 +17,14 @@ namespace Durin
 	inline constexpr uint64 MaterialCompileMaxRequestBytes = 2ull * 1024ull * 1024ull;
 	inline constexpr uint64 MaterialCompileMaxResultBytes = 8ull * 1024ull * 1024ull;
 
+	enum class EMaterialShaderPrecompileMode : uint8
+	{
+		None,
+		Background,
+		Synchronous,
+		Default = Background,
+	};
+
 	// Editor policy for authored edits; explicit requests and loading bypass it.
 	enum class EMaterialEditCompileMode : uint8
 	{

@@ -4,10 +4,10 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
-#include "Materials/MaterialProgramPreparation.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "Shader/IShaderBuildModule.h"
 #include "MaterialCookedProgramTestSupport.h"
+#include "Threading/Task.h"
 
 static auto QualifyDefaultMaterialCook(bool Metal) -> void
 {
@@ -93,72 +93,35 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	}
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
-	// Both demand loading and explicit preparation retain the terminal failure on the owner.
+	// Loading starts owner preparation; queries do not decode the payload.
 	auto& CookedData = const_cast<Durin::FBulkData&>(Cooked->GetCookedProgramData());
 	const auto SavedCookedData = CookedData;
 	const std::array InvalidProgramBytes{std::byte{0}};
 	auto InvalidData = Durin::FBulkData::TryCreateDetached(InvalidProgramBytes);
 	ASSERT_TRUE(InvalidData);
 	CookedData = std::move(*InvalidData);
+	Cooked->PostLoad();
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), nullptr);
 	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty()); // Queries do not read/decode payloads.
-	auto FailedPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
-	const auto FailureDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-	while (FailedPreparation.Poll() == Durin::EMaterialProgramPreparationState::Pending
-		&& std::chrono::steady_clock::now() < FailureDeadline) std::this_thread::yield();
-	ASSERT_EQ(FailedPreparation.Poll(), Durin::EMaterialProgramPreparationState::Failed);
-	EXPECT_EQ(FailedPreparation.GetDiagnostic(), Cooked->GetMaterialCookDiagnostic());
-	EXPECT_EQ(FailedPreparation.GetProgram(), nullptr);
+	const std::array<Durin::DObject*, 1> Owners{Cooked};
+	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(Owners);
+	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
+	EXPECT_FALSE(Cooked->GetMaterialCookDiagnostic().empty());
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), nullptr);
 	CookedData = SavedCookedData;
-	// Explicit program preparation starts before accepted-program demand.
-	auto CanceledPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
-	auto ProgramPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
-	CanceledPreparation.Cancel();
-	EXPECT_EQ(CanceledPreparation.Poll(), Durin::EMaterialProgramPreparationState::Canceled);
-	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-	while (ProgramPreparation.Poll() == Durin::EMaterialProgramPreparationState::Pending
-		&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
-	ASSERT_EQ(ProgramPreparation.Poll(), Durin::EMaterialProgramPreparationState::Ready)
-		<< ProgramPreparation.GetDiagnostic();
-	ASSERT_NE(ProgramPreparation.GetProgram(), nullptr);
-	EXPECT_EQ(ProgramPreparation.GetProgram(), Cooked->GetAcceptedCompiledProgram());
-	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
-	// Keep all terminal observations alive: admission bounds work, not diagnostic handles.
-	std::vector<Durin::FMaterialProgramPreparation> Burst;
-	for (uint32 Index = 0; Index < 24; ++Index) Burst.push_back(Durin::FMaterialProgramPreparation::Request(*Cooked));
-	const auto BurstDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-	while (std::ranges::any_of(Burst, [](auto& Item) { return Item.Poll() == Durin::EMaterialProgramPreparationState::Pending; })
-		&& std::chrono::steady_clock::now() < BurstDeadline) std::this_thread::yield();
-	for (auto& Item : Burst) EXPECT_EQ(Item.Poll(), Durin::EMaterialProgramPreparationState::Ready) << Item.GetDiagnostic();
-	std::vector<Durin::FMaterialProgramPreparation> CompletedPreparations;
-	for (uint32 Index = 0; Index < 24; ++Index)
-	{
-		auto Next = Durin::FMaterialProgramPreparation::Request(*Cooked);
-		const auto NextDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-		while (Next.Poll() == Durin::EMaterialProgramPreparationState::Pending
-			&& std::chrono::steady_clock::now() < NextDeadline) std::this_thread::yield();
-		ASSERT_EQ(Next.Poll(), Durin::EMaterialProgramPreparationState::Ready) << Next.GetDiagnostic();
-		Next.Cancel();
-		EXPECT_EQ(Next.Poll(), Durin::EMaterialProgramPreparationState::Ready);
-		CompletedPreparations.push_back(std::move(Next));
-	}
-	FailedPreparation.Cancel();
-	EXPECT_EQ(FailedPreparation.Poll(), Durin::EMaterialProgramPreparationState::Failed);
-	auto StalePreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
+	Cooked->CacheResourceShadersForRendering();
+	Durin::FShaderCompilingManager::Get().MarkCompilationAsCanceled(Owners);
+	EXPECT_FALSE(Cooked->IsCompiling());
+	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Canceled);
+	Cooked->CacheResourceShadersForRendering();
 	const auto OriginalQuality = Durin::GetMaterialQualityLevel();
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality == Durin::EMaterialQualityLevel::High
 		? Durin::EMaterialQualityLevel::Low : Durin::EMaterialQualityLevel::High));
-	EXPECT_EQ(StalePreparation.Poll(), Durin::EMaterialProgramPreparationState::Stale);
+	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(Owners);
+	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Canceled);
+	EXPECT_FALSE(Cooked->GetMaterialCookDiagnostic().empty());
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality));
-	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 6u);
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
-	for (const auto& Shader : Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders)
-	{
-		EXPECT_EQ(Shader.Target, Metal ? Durin::MetalLibraryShaderTarget : Durin::VulkanShaderTarget);
-		EXPECT_TRUE(Durin::ShaderFormat::ValidateShaderCode(Shader));
-	}
-	auto ReplacedPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
+	Cooked->CacheResourceShadersForRendering();
 	const auto VersionBeforeReplace = Cooked->GetRenderChangeCount();
 	// Deliberately replace identical inline storage without a material edit event.
 	auto& Storage = const_cast<Durin::FBulkData&>(Cooked->GetCookedProgramData());
@@ -167,7 +130,90 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	Storage = StorageSnapshot;
 	EXPECT_EQ(Storage.GetMetadata().LogicalSize, SizeBeforeReplace);
 	EXPECT_EQ(Cooked->GetRenderChangeCount(), VersionBeforeReplace);
-	EXPECT_EQ(ReplacedPreparation.Poll(), Durin::EMaterialProgramPreparationState::Stale);
+	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(Owners);
+	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Canceled);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), nullptr);
+	// Multiple owners exceed the decode admission limit and finish through the
+	// ordinary compiler queue. Repeated cache calls must not duplicate work.
+	std::vector<Durin::TStrongObjectPtr<Durin::DMaterial>> Burst;
+	std::vector<Durin::DObject*> BurstOwners;
+	for (uint32 Index = 0; Index < 24; ++Index)
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr,
+			Durin::FName(std::format("CookedAdmission{}", Index)));
+		const_cast<Durin::FBulkData&>(Material->GetCookedProgramData()) = SavedCookedData;
+		Material->PostLoad();
+		Material->CacheResourceShadersForRendering();
+		Burst.emplace_back(Material);
+		BurstOwners.push_back(Material);
+	}
+	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(BurstOwners);
+	for (const auto& Material : Burst)
+	{
+		EXPECT_FALSE(Material->IsCompiling());
+		EXPECT_TRUE(Material->IsComplete()) << Material->GetMaterialCookDiagnostic();
+	}
+	Cooked->CacheResourceShadersForRendering();
+	Durin::FShaderCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 1});
+	Cooked->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Cooked->IsComplete()) << Cooked->GetMaterialCookDiagnostic();
+	{
+		struct FRestoreTasks
+		{
+			bool bDeferred = Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting;
+			~FRestoreTasks()
+			{
+				EXPECT_TRUE(Durin::InitializeTaskScheduler(2));
+				if (bDeferred) EXPECT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
+			}
+		} Restore;
+		Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+		Durin::TStrongObjectPtr<Durin::DMaterial> Pending(
+			Durin::NewObject<Durin::DMaterial>(nullptr, "PendingCookedProgram"));
+		const_cast<Durin::FBulkData&>(Pending->GetCookedProgramData()) = SavedCookedData;
+		Pending->CacheResourceShadersForRendering();
+		ASSERT_TRUE(Pending->IsCompiling());
+		Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
+		const std::array<Durin::DObject*, 1> PendingOwners{Pending.Get()};
+		Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(PendingOwners);
+		EXPECT_EQ(Pending->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
+		EXPECT_FALSE(Pending->IsCompiling());
+		EXPECT_FALSE(Pending->GetMaterialCookDiagnostic().empty());
+		Durin::TStrongObjectPtr<Durin::DMaterial> Offline(
+			Durin::NewObject<Durin::DMaterial>(nullptr, "OfflineCookedProgram"));
+		const_cast<Durin::FBulkData&>(Offline->GetCookedProgramData()) = SavedCookedData;
+		const auto BeforeNone = Offline->GetMaterialCompileStatus().State;
+		Offline->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::None);
+		EXPECT_EQ(Offline->GetMaterialCompileStatus().State, BeforeNone);
+		Offline->CacheResourceShadersForRendering();
+		EXPECT_EQ(Offline->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
+		EXPECT_FALSE(Offline->IsCompiling());
+		EXPECT_FALSE(Offline->GetMaterialCookDiagnostic().empty());
+		const std::array<Durin::DObject*, 1> OfflineOwners{Offline.Get()};
+		Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(OfflineOwners);
+		Offline->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::Synchronous);
+		EXPECT_TRUE(Offline->IsComplete()) << Offline->GetMaterialCookDiagnostic();
+		ASSERT_TRUE(Offline->GetAcceptedCompiledProgram());
+		EXPECT_EQ(Offline->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
+		Durin::TStrongObjectPtr<Durin::DMaterial> Invalid(
+			Durin::NewObject<Durin::DMaterial>(nullptr, "InvalidOfflineCookedProgram"));
+		auto InvalidPayload = Durin::FBulkData::TryCreateDetached(InvalidProgramBytes);
+		ASSERT_TRUE(InvalidPayload);
+		const_cast<Durin::FBulkData&>(Invalid->GetCookedProgramData()) = std::move(*InvalidPayload);
+		Invalid->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::Synchronous);
+		EXPECT_EQ(Invalid->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
+		EXPECT_FALSE(Invalid->IsCompiling());
+		EXPECT_FALSE(Invalid->GetMaterialCookDiagnostic().empty());
+	}
+	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram()) << Cooked->GetMaterialCookDiagnostic();
+	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 6u);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
+	for (const auto& Shader : Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders)
+	{
+		EXPECT_EQ(Shader.Target, Metal ? Durin::MetalLibraryShaderTarget : Durin::VulkanShaderTarget);
+		EXPECT_TRUE(Durin::ShaderFormat::ValidateShaderCode(Shader));
+	}
 	const auto ProgramBeforeCanceledResave = Cooked->GetAcceptedCompiledProgram();
 	const Durin::FAssetBuildTaskContext CanceledControl{.Cancellation = Durin::FCancellationToken([] { return true; })};
 	const auto CanceledResave = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {}, CanceledControl);
@@ -385,14 +431,12 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_FALSE(Durin::RequestMaterialRecompile(*Child));
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "CookedDynamicTexture");
 	ASSERT_TRUE(Texture->GetTextureReferenceRHI());
-	auto ParameterPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
+	const auto AcceptedProgram = Cooked->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(Cooked->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
-	const auto ParameterDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-	while (ParameterPreparation.Poll() == Durin::EMaterialProgramPreparationState::Pending
-		&& std::chrono::steady_clock::now() < ParameterDeadline) std::this_thread::yield();
-	ASSERT_EQ(ParameterPreparation.Poll(), Durin::EMaterialProgramPreparationState::Ready)
-		<< ParameterPreparation.GetDiagnostic();
+	Cooked->CacheResourceShadersForRendering();
+	EXPECT_FALSE(Cooked->IsCompiling());
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), AcceptedProgram);
 	Instance->GetPackage()->ClearDirty();
 	ASSERT_TRUE(Child->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));

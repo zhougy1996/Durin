@@ -4,7 +4,7 @@
 
 #include "EngineAPI.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureRenderResource.h"
+#include "RenderResource.h"
 
 namespace Durin
 {

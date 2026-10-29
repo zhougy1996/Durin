@@ -354,7 +354,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	const Durin::FStaticMeshRenderResourceStatus ReadyLifecycleStatus =
 		LifecycleMesh->GetRenderResourceStatus();
 	EXPECT_TRUE(ReadyLifecycleStatus.IsReady());
-	EXPECT_GT(
+	EXPECT_EQ(
 		ReadyLifecycleStatus.Revision,
 		QueuedLifecycleStatus.Revision);
 	const auto StaticMeshInitMicroseconds =
@@ -449,7 +449,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	EXPECT_EQ(
 		InvalidFailedStatus.Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Failed);
-	EXPECT_GT(InvalidFailedStatus.Revision, InvalidQueuedStatus.Revision);
+	EXPECT_EQ(InvalidFailedStatus.Revision, InvalidQueuedStatus.Revision);
 	EXPECT_EQ(
 		InvalidMesh->GetRenderData()->GetNumInitializedResources(),
 		0u);
@@ -503,7 +503,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	EXPECT_EQ(
 		ReleasedStatus.Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Unavailable);
-	EXPECT_GT(ReleasedStatus.Revision, ReleaseQueuedStatus.Revision);
+	EXPECT_EQ(ReleasedStatus.Revision, ReleaseQueuedStatus.Revision);
 	EXPECT_TRUE(LifecycleMesh->IsReadyForFinishDestroy());
 	EXPECT_EQ(
 		LifecycleMesh->GetRenderData()->GetNumInitializedResources(),

@@ -642,6 +642,10 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	auto Second = SecondResource->ReadRangeAsync(0, 4);
 	ASSERT_TRUE(FirstResource->Started.WaitFor(1.0));
 	ASSERT_TRUE(SecondResource->Started.WaitFor(1.0));
+	const auto TimedOut = First.Wait(0.01);
+	EXPECT_FALSE(TimedOut);
+	EXPECT_FALSE(First.IsReady()); // Timeout is caller-local, not request failure/cancellation.
+	EXPECT_FALSE(First.Wait(0.0));
 	FThreadEvent CpuRan;
 	auto Cpu = Durin::Tasks::FTask(Tasks::LaunchTask("PackageIoIsolation", [&] { CpuRan.Trigger(); }));
 	EXPECT_TRUE(CpuRan.WaitFor(0.5));

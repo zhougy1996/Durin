@@ -109,7 +109,7 @@ namespace Durin
 			PlatformData);
 	}
 
-	auto DTexture2D::BuildPlatformDataForLoad() -> void
+	auto DTexture2D::BuildPlatformDataForLoad(bool bAsyncCache) -> void
 	{
 #if DURIN_WITH_EDITORONLY_DATA
 		if (!GetSource().IsValid())
@@ -117,7 +117,7 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': Texture2D source data is missing or invalid.", GetObjectPath());
 			return;
 		}
-		if (const auto Built = this->BeginCachePlatformData({.Build = {.Source = GetSource().CopyTornOff(), .Settings = {
+		FTexture2DCompilationRequest Request{.Build = {.Source = GetSource().CopyTornOff(), .Settings = {
 				.Usage = Usage,
 				.CompressionQuality = CompressionQuality,
 				.AlphaMipMode = AlphaMipMode,
@@ -125,17 +125,19 @@ namespace Durin
 				.MaxResolution = MaxResolution,
 				.bSRGB = bSRGB}}, .ResultApplication = {
 			.bMarkPackageDirty = false,
-			.bReportLoadMutation = false}}); !Built)
+			.bReportLoadMutation = false}};
+		const auto Built = bAsyncCache ? this->BeginCachePlatformData(std::move(Request))
+			: this->CachePlatformData(std::move(Request.Build), Request.ResultApplication);
+		if (!Built)
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatTextureBuildOperationError(Built.error()));
 #else
 		DURIN_ERROR("PostLoad '{}': authored Texture2D builds require editor-only data support.", GetObjectPath());
 #endif
 	}
 
-	auto DTexture2D::LoadCookedPlatformData(bool bAsync) -> bool
+	auto DTexture2D::LoadCookedPlatformData(bool bAsync) -> void
 	{
-		return TexturePrivate::LoadCookedPlatformData<FTexturePlatformData>(
-			*this, GetMutableCookedPlatformData(), "Texture2D", bAsync, CookedLoad);
+		TexturePrivate::LoadCookedPlatformData<FTexturePlatformData>(*this, bAsync);
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA

@@ -31,7 +31,8 @@ namespace Durin
 		ENGINE_API auto Cancel() -> void;
 		// A rejected thread/dependency wait returns a caller-local IoError; it
 		// does not terminalize the request or prevent a later authorized wait.
-		ENGINE_API auto Wait() const -> FPackageResourceReadResult;
+		// A bounded wait may return a caller-local timeout without canceling work.
+		ENGINE_API auto Wait(std::optional<double> TimeoutSeconds = std::nullopt) const -> FPackageResourceReadResult;
 
 		ENGINE_API static auto Completed(FPackageResourceReadResult Result)
 			-> FPackageResourceRequest;

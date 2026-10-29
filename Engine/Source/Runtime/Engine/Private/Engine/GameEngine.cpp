@@ -11,7 +11,6 @@
 #include "DObject/WeakObjectPtr.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Materials/MaterialInterface.h"
-#include "Materials/MaterialProgramPreparation.h"
 #include "CoreGlobals.h"
 #include "Engine/Level.h"
 #include "Engine/Actor.h"

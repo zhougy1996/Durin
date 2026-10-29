@@ -208,7 +208,7 @@ namespace Durin
 			PlatformData);
 	}
 
-	auto DVolumeTexture::BuildPlatformDataForLoad() -> void
+	auto DVolumeTexture::BuildPlatformDataForLoad(bool) -> void
 	{
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto Result = this->CachePlatformData({.Source = GetSource().CopyTornOff(), .Settings = BuildSettings},
@@ -218,10 +218,9 @@ namespace Durin
 #endif
 	}
 
-	auto DVolumeTexture::LoadCookedPlatformData(bool bAsync) -> bool
+	auto DVolumeTexture::LoadCookedPlatformData(bool bAsync) -> void
 	{
-		return TexturePrivate::LoadCookedPlatformData<FVolumeTexturePlatformData>(
-			*this, GetMutableCookedPlatformData(), "volume texture", bAsync, CookedLoad);
+		TexturePrivate::LoadCookedPlatformData<FVolumeTexturePlatformData>(*this, bAsync);
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA

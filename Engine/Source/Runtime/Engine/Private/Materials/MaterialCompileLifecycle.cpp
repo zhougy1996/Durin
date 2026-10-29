@@ -303,6 +303,7 @@ namespace Durin
 		CheckMaterialCompileGameThread();
 		const auto State = Material.GetMaterialCompileStatus().State;
 		return FShaderCompilingManager::Get().IsMaterialCompiling(FWeakObjectPtr(const_cast<DMaterialInterface*>(&Material)))
+			|| State == EMaterialCompileState::Running
 			|| State == EMaterialCompileState::Deferred || State == EMaterialCompileState::Scheduled;
 	}
 
@@ -333,12 +334,12 @@ namespace Durin
 		auto CancelMaterialCompileDomain(DMaterialInterface& Material) -> bool
 		{
 			CheckMaterialCompileGameThread();
+			const bool bPending = HasPendingMaterialCompilation(Material);
 			Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			const bool bCanceled = FShaderCompilingManager::Get().CancelCompilation(FWeakObjectPtr(&Material));
-			if (bCanceled || Material.GetMaterialCompileStatus().State == EMaterialCompileState::Deferred
-				|| Material.GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled)
+			if (bCanceled || bPending)
 				Private::FMaterialCompilationLifecycle::MarkCanceled(Material);
-			return bCanceled;
+			return bCanceled || bPending;
 		}
 	}
 

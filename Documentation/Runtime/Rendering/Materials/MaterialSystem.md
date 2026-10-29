@@ -757,6 +757,14 @@ products with explicit caller-boundary waiting; cooked Game submits no authoring
 hits, shared in-flight work, compilation, or forced compilation; corrupt Shader
 artifacts follow ShaderBuild's cache-miss/repair contract.
 
+`CacheResourceShadersForRendering(EMaterialShaderPrecompileMode)` defaults to
+`Background`; `None` starts no work and `Synchronous` finishes and installs the
+owner's program before returning, reusing pending preparation. Cooked synchronous
+preparation can read/decode directly without a scheduler or GameThread completion
+queue. Both modes share decoding, qualification and publication. Background work
+without a running scheduler records `Failed` with a diagnostic rather than
+remaining deferred indefinitely; callers may explicitly retry synchronously.
+
 Cook prepares detached Win64 or MacOS Game programs from captured authored
 inputs and never substitutes ErrorMaterial or requires an accepted live render
 program. MacOS Game selects the binary Metal library profile; authoring retains
@@ -780,10 +788,10 @@ layout, active collection asset paths, schemas, layouts and default fallbacks,
 and complete shader code/reflection set. Equivalent selected programs may share
 immutable artifacts by identity. The family is uncompressed, 16-byte aligned,
 bounded to 8 MiB, and protected by an internal checksum plus the DAST field range
-and raw-segment extent/hash contract. Metadata load is range-free; first
-render-layer construction locks and decodes the exact requested configuration,
-unless an explicit [program preparation owner](../Pipeline/LoadPreparation.md#object-and-program-readiness)
-has already decoded and admitted it.
+and raw-segment extent/hash contract. Metadata load is range-free; owner
+preparation decodes and admits the exact requested configuration. Render-layer
+queries only consume the accepted program; see
+[object and program readiness](../Pipeline/LoadPreparation.md#object-and-program-readiness).
 The default compiler environment records ShaderBuild's opaque build identity and
 separate adapter function/constants/output versions in its existing
 `CompilerIdentity` provenance string, so compiler/algorithm upgrades
