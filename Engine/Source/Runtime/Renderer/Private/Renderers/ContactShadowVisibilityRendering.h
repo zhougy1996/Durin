@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/GBufferRendering.h"
 #include "RDG/RDGParameters.h"

@@ -495,7 +495,7 @@ namespace Durin
 							View, nullptr, Extent.Width, Extent.Height
 						);
 						auto RunTemporalFrame = [&](uint64 Serial) {
-							const auto Context = ViewState.Begin(
+							const auto Context = ViewState.GetVolumetricCloudHistory().Begin(
 								Metadata, Serial, false
 							);
 							FVolumetricCloudRenderer::FRenderInput LowInput = Input;
@@ -526,7 +526,7 @@ namespace Durin
 												   && Temporal.bCandidatePublished
 												   && LowComposite != nullptr
 												   && (Serial == 1 || Temporal.bHistoryAccepted);
-							ViewState.Commit();
+							ViewState.GetVolumetricCloudHistory().Abort();
 							return bComplete;
 						};
 						Profile.bLowResolutionTemporalComplete =
@@ -679,7 +679,7 @@ namespace Durin
 						const auto Metadata = BuildSceneViewTemporalMetadata(
 							View, nullptr, OutputWidth, OutputHeight
 						);
-						const auto Context = ViewState.Begin(
+						const auto Context = ViewState.GetVolumetricCloudHistory().Begin(
 							Metadata, Serial, bCameraCut
 						);
 						if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
@@ -719,12 +719,10 @@ namespace Durin
 						Profile.ShadowTargetBytes = Shadow.TargetBytes;
 						Profile.ShadowSamples = static_cast<uint64>(OutputWidth)
 												* OutputHeight * Shadow.SampleCount;
-						if (Shadow.Visibility && Spatial.Cloud && Temporal.Cloud
-							&& Temporal.bCandidatePublished && Composite)
-							ViewState.Commit();
-						else
+						ViewState.GetVolumetricCloudHistory().Abort();
+						if (!(Shadow.Visibility && Spatial.Cloud && Temporal.Cloud
+							&& Temporal.bCandidatePublished && Composite))
 						{
-							ViewState.Abort();
 							Profile.bComplete = false;
 						}
 						return {Composite, Temporal};

@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/DeferredDirectionalLightingRendering.h"
 #include "Renderers/SceneColorRendering.h"
 #include "RDG/RDGParameters.h"
@@ -58,7 +60,6 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry;
 		FRDGTextureHandle Output;
 		FRHITexture* OutputTarget;
-		FPostProcessPassResult& Publication;
 		uint32 Width;
 		uint32 Height;
 		const FSceneFeatureDecision& GBufferDebugFeature;

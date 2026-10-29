@@ -445,7 +445,7 @@ static_assert(!CHasResolvedDirectionalShadow<Durin::FSceneRenderPlan>);
 static_assert(!CHasTelemetry<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedTargets<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedTargets<Durin::FResolvedSceneResources>);
-static_assert(!CHasDeferredParameters<Durin::FSceneRenderGraphComposition>);
+static_assert(!CHasDeferredParameters<Durin::FSceneFrameContext::FTransaction>);
 static_assert(std::is_copy_constructible_v<Durin::FSceneFrameFeaturePlan>);
 static_assert(CAcceptsFeatureInputs<
 			  Durin::AddDirectionalShadowPasses,
@@ -1535,48 +1535,48 @@ TEST(FRendererSceneContractTests, ViewStateTransactionsPreserveLastSuccessfulFit
 				Durin::BuildSceneViewTemporalMetadata(
 					View, nullptr, 640, 360
 				);
-			Result->push_back(State->Begin(First, 1, false));
+			Result->push_back(State->GetVolumetricCloudHistory().Begin(First, 1, false));
 			State->GetVolumetricCloudHistory().SetPendingClear(11, 1);
-			State->Commit();
+			State->GetVolumetricCloudHistory().Commit();
 			HistoryPolicies->push_back(
 				State->GetVolumetricCloudHistory().CommittedPolicyKey
 			);
 
 			Durin::FSceneViewTemporalMetadata Moved = First;
-			Moved.ViewLocation = {5.0, 6.0, 7.0};
-			Result->push_back(State->Begin(Moved, 2, false));
+			Moved.ViewProjectionMatrix[3][0] = 5.0;
+			Result->push_back(State->GetVolumetricCloudHistory().Begin(Moved, 2, false));
 			State->GetVolumetricCloudHistory().SetPendingClear(22, 1);
-			State->Abort();
+			State->GetVolumetricCloudHistory().Abort();
 			HistoryPolicies->push_back(
 				State->GetVolumetricCloudHistory().CommittedPolicyKey
 			);
 
-			Result->push_back(State->Begin(Moved, 3, false));
+			Result->push_back(State->GetVolumetricCloudHistory().Begin(Moved, 3, false));
 			State->GetVolumetricCloudHistory().SetPendingClear(33, 1);
-			State->Commit();
+			State->GetVolumetricCloudHistory().Commit();
 			HistoryPolicies->push_back(
 				State->GetVolumetricCloudHistory().CommittedPolicyKey
 			);
 
-			(void)State->Begin(Moved, 4, false);
-			State->Commit();
+			(void)State->GetVolumetricCloudHistory().Begin(Moved, 4, false);
+			State->GetVolumetricCloudHistory().Commit();
 			HistoryPolicies->push_back(
 				State->GetVolumetricCloudHistory().CommittedPolicyKey
 			);
 
 			Durin::FSceneViewTemporalMetadata ProjectionChanged = Moved;
 			ProjectionChanged.ProjectionMatrix[0][0] = 2.0;
-			Result->push_back(State->Begin(ProjectionChanged, 5, false));
-			State->Abort();
+			Result->push_back(State->GetVolumetricCloudHistory().Begin(ProjectionChanged, 5, false));
+			State->GetVolumetricCloudHistory().Abort();
 
 			State->Invalidate(
 				Durin::ESceneViewDiscontinuity::ManualInvalidation
 			);
-			Result->push_back(State->Begin(Moved, 6, false));
-			State->Abort();
+			Result->push_back(State->GetVolumetricCloudHistory().Begin(Moved, 6, false));
+			State->GetVolumetricCloudHistory().Abort();
 
-			Result->push_back(State->Begin(Moved, 200, true));
-			State->Abort();
+			Result->push_back(State->GetVolumetricCloudHistory().Begin(Moved, 200, true));
+			State->GetVolumetricCloudHistory().Abort();
 
 			EXPECT_TRUE(Registry.Remove(SecondId));
 			EXPECT_FALSE(Registry.Remove(SecondId));
@@ -1593,10 +1593,10 @@ TEST(FRendererSceneContractTests, ViewStateTransactionsPreserveLastSuccessfulFit
 	EXPECT_FALSE((*Result)[0].bHistoryValid);
 	EXPECT_TRUE((*Result)[1].bHistoryValid);
 	EXPECT_EQ((*Result)[1].SuccessfulSequence, 1u);
-	EXPECT_EQ((*Result)[1].PreviousSubmissionSerial, 1u);
-	EXPECT_EQ((*Result)[1].Previous.ViewLocation, Durin::FVector3(0.0));
+	EXPECT_EQ((*Result)[1].PreviousRenderFrame, 1u);
+	EXPECT_EQ((*Result)[1].PreviousViewProjectionMatrix, Durin::FMatrix(1.0));
 	EXPECT_TRUE((*Result)[2].bHistoryValid);
-	EXPECT_EQ((*Result)[2].PreviousSubmissionSerial, 1u);
+	EXPECT_EQ((*Result)[2].PreviousRenderFrame, 1u);
 	EXPECT_TRUE(Durin::HasAnyViewDiscontinuity(
 		(*Result)[3].Discontinuities,
 		Durin::ESceneViewDiscontinuity::ProjectionChange
@@ -1621,7 +1621,7 @@ TEST(FRendererSceneContractTests, ViewStateTransactionsPreserveLastSuccessfulFit
 	EXPECT_EQ((*HistoryPolicies)[3], 33u);
 }
 
-TEST(FRendererSceneContractTests, VolumetricCloudHistoryPolicyFollowsOuterViewTransactions)
+TEST(FRendererSceneContractTests, VolumetricCloudHistoryPublishesIndependentlyAndAbortsOnlyUnfinishedCandidates)
 {
 	FRenderingThreadScope RenderingThread;
 	auto Observed = std::make_shared<std::vector<uint64>>();
@@ -1641,33 +1641,33 @@ TEST(FRendererSceneContractTests, VolumetricCloudHistoryPolicyFollowsOuterViewTr
 			const auto Metadata = Durin::BuildSceneViewTemporalMetadata(
 				View, nullptr, 640, 360
 			);
-			(void)State.Begin(Metadata, 1, false);
+			(void)State.GetVolumetricCloudHistory().Begin(Metadata, 1, false);
 			State.GetVolumetricCloudHistory().SetPendingClear(11, 101);
-			State.Commit();
+			State.GetVolumetricCloudHistory().Commit();
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
 
-			(void)State.Begin(Metadata, 2, false);
+			(void)State.GetVolumetricCloudHistory().Begin(Metadata, 2, false);
 			State.GetVolumetricCloudHistory().SetPendingClear(22, 202);
-			State.Abort();
+			State.GetVolumetricCloudHistory().Abort();
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedCloudKey);
 
-			(void)State.Begin(Metadata, 3, false);
+			(void)State.GetVolumetricCloudHistory().Begin(Metadata, 3, false);
 			State.GetVolumetricCloudHistory().SetPendingClear(33, 303);
-			State.Commit();
+			State.GetVolumetricCloudHistory().Commit();
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedCloudKey);
 
 			Durin::FSceneViewTemporalMetadata Resized = Metadata;
 			Resized.OutputWidth = 1280;
-			const auto ResizedContext = State.Begin(Resized, 4, false);
+			const auto ResizedContext = State.GetVolumetricCloudHistory().Begin(Resized, 4, false);
 			EXPECT_FALSE(ResizedContext.bHistoryValid);
-			State.Abort();
+			State.GetVolumetricCloudHistory().Abort();
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedCloudKey);
 
-			(void)State.Begin(Resized, 5, false);
-			State.Commit();
+			(void)State.GetVolumetricCloudHistory().Begin(Resized, 5, false);
+			State.GetVolumetricCloudHistory().Commit();
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
 			Observed->push_back(State.GetVolumetricCloudHistory().CommittedCloudKey);
 
@@ -1679,6 +1679,59 @@ TEST(FRendererSceneContractTests, VolumetricCloudHistoryPolicyFollowsOuterViewTr
 	Durin::FlushRenderingCommands();
 
 	EXPECT_EQ(*Observed, (std::vector<uint64>{11, 11, 101, 33, 303, 33, 303, 0, 0, 0}));
+}
+
+TEST(FRendererSceneContractTests, CloudHistoryKeepsPublishedCameraAfterOuterFailureAndUsesRenderFrameAge)
+{
+	FRenderingThreadScope RenderingThread;
+	struct FExerciseCloudHistoryAgeCommand
+	{
+		static constexpr auto GetName() -> const char* { return "ExerciseCloudHistoryAge"; }
+	};
+	Durin::EnqueueRenderCommand<FExerciseCloudHistoryAgeCommand>(
+		[](Durin::FRHICommandListImmediate&) {
+			Durin::FVolumetricCloudViewHistory History;
+			Durin::FSceneViewTemporalMetadata First;
+			First.OutputWidth = 640;
+			First.OutputHeight = 360;
+			(void)History.Begin(First, 10, false);
+			History.SetPendingClear(11, 101);
+			History.Commit();
+
+			auto Moved = First;
+			Moved.ViewProjectionMatrix[3][0] = 5.0;
+			(void)History.Begin(Moved, 11, false);
+			History.SetPendingClear(22, 202);
+			History.Commit();
+			// The outer view fails after cloud publication; scope cleanup must
+			// preserve both the published camera and its matching cloud policy.
+			History.Abort();
+			for (uint32 OtherView = 0; OtherView < 256; ++OtherView)
+			{
+				const auto Context = History.Begin(First, 11, false);
+				EXPECT_TRUE(Context.bHistoryValid);
+				EXPECT_EQ(Context.FrameGap, 0u);
+				EXPECT_EQ(Context.PreviousViewProjectionMatrix, Moved.ViewProjectionMatrix);
+				EXPECT_EQ(History.CommittedPolicyKey, 22u);
+				History.Abort();
+			}
+			// Recording no cloud output cannot advance the camera alone.
+			(void)History.Begin(First, 12, false);
+			History.Commit();
+			const auto Boundary = History.Begin(First, 131, false);
+			EXPECT_EQ(Boundary.OutputWidth, First.OutputWidth);
+			EXPECT_EQ(Boundary.OutputHeight, First.OutputHeight);
+			EXPECT_TRUE(Boundary.bHistoryValid);
+			EXPECT_EQ(Boundary.PreviousRenderFrame, 11u);
+			EXPECT_EQ(Boundary.SuccessfulSequence, 2u);
+			History.Abort();
+			const auto Expired = History.Begin(First, 132, false);
+			EXPECT_FALSE(Expired.bHistoryValid);
+			EXPECT_TRUE(Durin::HasAnyViewDiscontinuity(Expired.Discontinuities,
+				Durin::ESceneViewDiscontinuity::InactiveGapExpiry));
+			History.Abort();
+		});
+	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, SceneViewportsOwnIsolatedOptInStateAndConsumeCutsOnce)
@@ -1728,13 +1781,14 @@ TEST(FRendererSceneContractTests, ViewStateReportsEveryFrozenDiscontinuityCause)
 				Durin::BuildSceneViewTemporalMetadata(
 					View, nullptr, 320, 180
 				);
-			(void)State.Begin(Baseline, 1, false);
-			State.Commit();
+			(void)State.GetVolumetricCloudHistory().Begin(Baseline, 1, false);
+			State.GetVolumetricCloudHistory().SetPendingClear(0, 0);
+			State.GetVolumetricCloudHistory().Commit();
 
 			auto ObserveAbort = [&](Durin::FSceneViewTemporalMetadata Candidate,
 									uint64 Serial) {
-				Contexts->push_back(State.Begin(Candidate, Serial, false));
-				State.Abort();
+				Contexts->push_back(State.GetVolumetricCloudHistory().Begin(Candidate, Serial, false));
+				State.GetVolumetricCloudHistory().Abort();
 			};
 
 			Durin::FSceneViewTemporalMetadata Candidate = Baseline;
@@ -3154,6 +3208,17 @@ namespace Durin::Tests
 			std::shared_ptr<const FRDGAllocationRetirement> Retirement;
 		};
 
+		class FExplicitPolicyAllocator final : public FRDGAllocator
+		{
+		public:
+			explicit FExplicitPolicyAllocator(FRendererRDGAllocator& InPool) : Pool(InPool) {}
+			std::optional<uint32> Failure;
+			auto Allocate(std::span<const FRDGAllocationRequest> Requests, FRDGAllocatedResources& Output)
+				-> FRDGAllocationResult override { return Pool.Allocate(Requests, Output, Failure); }
+		private:
+			FRendererRDGAllocator& Pool;
+		};
+
 		struct FRDGTestRequest final
 		{
 			bool bTexture;
@@ -3213,6 +3278,35 @@ namespace Durin::Tests
 	}
 
 #if defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
+	TEST(FRendererRDGAllocatorTests, AllocationFailurePolicyIsExplicitAndDoesNotLeakBetweenInvocations)
+	{
+		FAllocatorRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			FExplicitPolicyAllocator Explicit(Allocator);
+			auto Execute = [&](FRDGAllocator& Selected) {
+				FRHICommandListExecutor Executor;
+				FRDGBuilder Graph;
+				const auto Buffer = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(64, 4,
+					EBufferUsageFlags::UnorderedAccess), .ObservationTag = 17}, "PolicyBuffer");
+				const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, "Write", ERDGPassType::Compute);
+				FRDGBuilderTestAccessor::UseBuffer(Graph, Pass, Buffer, 0, 64, ERDGUse::Write,
+					ERHIAccess::ComputeShaderReadWrite, true);
+				return Graph.Execute(Executor.GetImmediateCommandList(), &Selected);
+			};
+			{
+				FScopedRendererQualificationPolicy Global({.FailedAllocationObservation = 17});
+				EXPECT_TRUE(Execute(Allocator));
+			}
+			Explicit.Failure = 17;
+			EXPECT_FALSE(Execute(Explicit));
+			EXPECT_TRUE(Execute(Allocator));
+		});
+		FlushRenderingCommands();
+	}
+
 	TEST(FRendererRDGAllocatorTests, GraphAliasingSharesOnePoolEntryAndRecoversFromAliasCreationFailure)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
@@ -4306,20 +4400,21 @@ namespace Durin
 		FRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<Tests::FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FSceneViewState State;
-			EXPECT_EQ(State.GetSuccessfulSequence(), 0u);
-			EXPECT_FALSE(State.IsSubmissionActive());
+			EXPECT_EQ(State.GetVolumetricCloudHistory().GetSuccessfulSequence(), 0u);
+			EXPECT_FALSE(State.GetVolumetricCloudHistory().IsSubmissionActive());
 			FSceneViewTemporalMetadata Metadata;
-			auto First = State.Begin(Metadata, 1, false);
-			EXPECT_EQ(First.SuccessfulSequence, State.GetSuccessfulSequence());
-			State.Commit();
-			const auto PreparedSequence = State.GetSuccessfulSequence();
+			auto First = State.GetVolumetricCloudHistory().Begin(Metadata, 1, false);
+			EXPECT_EQ(First.SuccessfulSequence, State.GetVolumetricCloudHistory().GetSuccessfulSequence());
+			State.GetVolumetricCloudHistory().SetPendingClear(0, 0);
+			State.GetVolumetricCloudHistory().Commit();
+			const auto PreparedSequence = State.GetVolumetricCloudHistory().GetSuccessfulSequence();
 			EXPECT_EQ(PreparedSequence, 1u);
-			EXPECT_FALSE(State.IsSubmissionActive());
-			auto Next = State.Begin(Metadata, 2, false);
+			EXPECT_FALSE(State.GetVolumetricCloudHistory().IsSubmissionActive());
+			auto Next = State.GetVolumetricCloudHistory().Begin(Metadata, 2, false);
 			EXPECT_EQ(Next.SuccessfulSequence, PreparedSequence);
-			State.Abort();
-			EXPECT_EQ(State.GetSuccessfulSequence(), PreparedSequence);
-			EXPECT_FALSE(State.IsSubmissionActive());
+			State.GetVolumetricCloudHistory().Abort();
+			EXPECT_EQ(State.GetVolumetricCloudHistory().GetSuccessfulSequence(), PreparedSequence);
+			EXPECT_FALSE(State.GetVolumetricCloudHistory().IsSubmissionActive());
 		});
 		FlushRenderingCommands();
 	}
@@ -4339,19 +4434,20 @@ namespace Durin
 			Context.Logical.OutputTarget = Output.GetReference();
 			Context.Logical.PreparedView.emplace();
 			Context.Logical.CallerView = &Context.Logical.PreparedView->View;
-			// Sentinel values prove that authoring and failed allocation do not run callbacks.
-			Context.Transaction.Composition.SceneColorPublication.Result = ERenderViewResult::InvalidOutput;
-			Context.Transaction.Composition.PostProcessPublication.Result = ERenderViewResult::InvalidOutput;
 			FRDGBuilder Graph;
 			Submission.Render(Graph);
 			EXPECT_FALSE(Graph.HasCompiledPlan());
 			EXPECT_EQ(RHI.Creates, 0u);
-			EXPECT_EQ(Context.Transaction.Composition.SceneColorPublication.Result, ERenderViewResult::InvalidOutput);
+			EXPECT_TRUE(Submission.GetCompletion().IsValid());
 			const auto Consumer = FRDGBuilderTestAccessor::AddPass(Graph, "Caller.ReadScene", ERDGPassType::Graphics);
 			FRDGBuilderTestAccessor::UseTexture(Graph, Consumer, Submission.GetOutputTexture(),
 				{ERHITextureAspect::Color, 0, 1, 0, 1}, ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
 			Graph.MarkPassRoot(Consumer);
-			ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Graph).has_value());
+			FRejectAllocation Allocator;
+			const auto Execution = Graph.Execute(Commands, &Allocator);
+			ASSERT_FALSE(Execution.has_value());
+			EXPECT_EQ(GetRDGExecutionStatus(Execution), ERDGExecutionStatus::PreparationFailed);
+			ASSERT_TRUE(Graph.HasCompiledPlan());
 			EXPECT_EQ(Graph.GetPasses().back().Name, "Caller.ReadScene");
 			const auto Capture = Graph.Capture();
 			EXPECT_FALSE(std::ranges::any_of(Capture.Resources, [](const auto& Resource) {
@@ -4362,16 +4458,14 @@ namespace Durin
 			for (const auto& Parameter : Capture.Parameters)
 				if (Parameter.PassDeclarationIndex == Base->DeclarationIndex)
 					EXPECT_FALSE(Parameter.bPassManagedTransition) << Parameter.FieldPath;
-			FRejectAllocation Allocator;
-			EXPECT_FALSE(Graph.Execute(Commands, &Allocator).has_value());
-			EXPECT_EQ(Context.Transaction.Composition.SceneColorPublication.Result, ERenderViewResult::InvalidOutput);
-			EXPECT_EQ(Context.Transaction.Composition.PostProcessPublication.Result, ERenderViewResult::InvalidOutput);
+			EXPECT_EQ(Graph.GetState(), ERDGBuilderState::Failed);
 		});
 		FlushRenderingCommands();
 	}
 }
 #endif
 
+#if !defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
 TEST(FRendererSceneContractTests, SkyLightingPublishesOnlyCompletedJobs)
 {
     using namespace Durin;
@@ -4615,3 +4709,5 @@ TEST(FRendererSceneContractTests, CollectionSnapshotsDoNotMergeAcrossConsumersOr
     EXPECT_FALSE(Removed);
     EXPECT_EQ(Final, First);
 }
+
+#endif

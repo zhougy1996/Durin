@@ -2,6 +2,10 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRendererProfiling.h"
+
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/SceneRenderGraphTypes.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/MeshRendererShared.h"
@@ -105,6 +109,7 @@ namespace Durin
 		FStaticMeshRenderer& StaticMeshes;
 		FRDGTextureHandle Depth;
 		const FSceneViewRenderOptions& Options;
+		EGPUCullingFailure Failure = EGPUCullingFailure::None;
 		uint32 Width;
 		uint32 Height;
 		const FSceneFeatureDecision& Feature;

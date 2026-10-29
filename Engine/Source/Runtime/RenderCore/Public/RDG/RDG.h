@@ -124,6 +124,11 @@ namespace Durin
 		// Consumes this builder even on failure. Retrying requires a newly authored graph.
 		RENDERCORE_API auto Execute(FRHICommandListImmediate& CommandList,
 			FRDGAllocator* Allocator = nullptr) -> FRDGExecutionResult;
+		// Reads an executed producer's CPU result after successful command recording.
+		// Does not retain culled passes or wait for GPU completion. The const reference
+		// remains valid only while this builder exists.
+		template<typename T>
+		auto ReadValueAfterExecute(TRDGValueHandle<T> Handle) const -> const T&;
 		// 4. Inspect lifecycle and diagnostics, including after execution failure.
 		RENDERCORE_API auto GetState() const -> ERDGBuilderState;
 		// Absent before Execute. Duplicate execution leaves the original report unchanged.
@@ -264,6 +269,8 @@ namespace Durin
 		RENDERCORE_API auto MarkValueStorageConstructed(uint32 ResourceIndex) -> void;
 		RENDERCORE_API auto UseValueErased(FRDGPassHandle Pass, uint64 Owner,
 			uint32 Index, const void* TypeIdentity, ERDGUse Use) -> void;
+		RENDERCORE_API auto ResolveValueAfterExecute(uint64 Owner, uint32 Index,
+			const void* TypeIdentity) const -> const void*;
 		RENDERCORE_API auto StateOwner() const -> uint64;
 		struct FState;
 		std::unique_ptr<FState> State;

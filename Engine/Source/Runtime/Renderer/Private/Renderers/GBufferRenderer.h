@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRendererProfiling.h"
+
 #include "Materials/MaterialRenderProxy.h"
 #include "RendererAPI.h"
 #include "RHICommandList.h"
@@ -73,6 +75,7 @@ namespace Durin
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
 			bool bGPUCulling = false;
+			EGPUCullingFailure Failure = EGPUCullingFailure::None;
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 		};
 
@@ -97,12 +100,13 @@ namespace Durin
 			const std::shared_ptr<const FRHIShaderParameterBatch>& VertexBindings,
 			const RendererPrivate::FPreparedSurfaceMaterialBindings& FragmentBindings) -> bool;
 			auto ReleaseResources_RenderThread() -> void;
-		auto EnsureGPUCullingResources_RenderThread() -> bool;
+		auto EnsureGPUCullingResources_RenderThread(EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
 		auto DispatchGPUCulling_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			uint32 CandidateCount,
-			const FRDGShaderParameterScope& GraphShaderParameters) -> bool;
+			const FRDGShaderParameterScope& GraphShaderParameters,
+			EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
 
 	private:
 		struct FState;

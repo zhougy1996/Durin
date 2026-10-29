@@ -164,7 +164,7 @@ namespace Durin
 	auto FGBufferRenderer::EnsurePipeline_RenderThread(
 		const FPipelineRequest& Request) -> std::shared_ptr<const FPipeline>
 	{
-		if (Request.bGPUCulling && GetRendererQualificationPolicy().GPUCullingFailure
+		if (Request.bGPUCulling && Request.Failure
 			== EGPUCullingFailure::PipelineUnavailable) return nullptr;
 		if (Request.VertexDeclaration == nullptr
 			|| Request.Material.ShaderMap.BlendMode
@@ -331,10 +331,9 @@ namespace Durin
 		return Pipeline.Fragment.GetShader()->GetSurfaceLayout();
 	}
 
-	auto FGBufferRenderer::EnsureGPUCullingResources_RenderThread() -> bool
+	auto FGBufferRenderer::EnsureGPUCullingResources_RenderThread(EGPUCullingFailure Failure) -> bool
 	{
-		if (GetRendererQualificationPolicy().GPUCullingFailure
-			== EGPUCullingFailure::ShaderUnavailable) return false;
+		if (Failure == EGPUCullingFailure::ShaderUnavailable) return false;
 		using FPayload = FState::FGPUCullingPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		return State->GPUCulling.Resolve(
@@ -387,10 +386,9 @@ namespace Durin
 	auto FGBufferRenderer::DispatchGPUCulling_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
 		uint32 CandidateCount,
-		const FRDGShaderParameterScope& GraphShaderParameters) -> bool
+		const FRDGShaderParameterScope& GraphShaderParameters, EGPUCullingFailure Failure) -> bool
 	{
 		check(!CommandList.IsInsideRenderPass());
-		const auto Failure = GetRendererQualificationPolicy().GPUCullingFailure;
 		if (Failure == EGPUCullingFailure::ShaderUnavailable
 			|| Failure == EGPUCullingFailure::CommandAdmission) return false;
 		auto* Payload = State->GPUCulling.GetPayload();

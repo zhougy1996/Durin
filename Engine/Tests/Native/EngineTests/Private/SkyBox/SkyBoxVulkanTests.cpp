@@ -428,11 +428,13 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				return;
 			}
 			Durin::FVolumetricCloudViewHistory History;
+			(void)History.Begin({}, 1, false);
 			History.SetPending(Color, 1, 1);
 			History.Commit();
 			Result->bTypedHistoryCandidateCommitted =
 				History.CommittedPolicyKey == 1
 				&& History.CommittedTexture == Color;
+			(void)History.Begin({}, 2, false);
 			History.SetPending(Color, 2, 1);
 			History.Abort();
 			Result->bTypedHistoryAbortRetainedCommitted =

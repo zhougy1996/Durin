@@ -68,14 +68,20 @@ namespace Durin
 	struct FPreparedVolumetricCloud
 	{
 		FVolumetricCloudRenderer::FParameters Parameters;
-		FVolumetricCloudRenderer::FTextureBindings Textures;
+		struct FDensityTextures
+		{
+			FRHITexture* BaseDensity = nullptr;
+			FRHITexture* DetailDensity = nullptr;
+			FRHITexture* Weather = nullptr;
+		} Textures;
 		uint64 HistoryKey = 0;
 	};
 
 	// Owns cloud bindings that require Renderer resource resolution.
 	struct FResolvedVolumetricCloud
 	{
-		FVolumetricCloudRenderer::FTextureBindings Textures;
+		FRHISampler* DensitySampler = nullptr;
+		FRHITexture* Weather = nullptr;
 	};
 
 	// Command-local owner of immutable feature-bounded logical preparation.
@@ -87,18 +93,6 @@ namespace Durin
 		FPreparedReceiverGeometry Receiver;
 		std::optional<FPreparedDirectionalShadow> DirectionalShadow;
 		std::optional<FPreparedVolumetricCloud> VolumetricCloud;
-	};
-
-	// Publishes either one complete logical plan or its preparation failure.
-	struct FSceneRenderPreparationResult
-	{
-		ERenderViewResult Result = ERenderViewResult::Success;
-		std::optional<FSceneRenderPlan> Plan;
-
-		[[nodiscard]] auto IsSuccess() const -> bool
-		{
-			return Result == ERenderViewResult::Success && Plan.has_value();
-		}
 	};
 
 } // namespace Durin

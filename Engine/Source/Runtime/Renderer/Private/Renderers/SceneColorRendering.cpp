@@ -65,7 +65,7 @@ namespace Durin
 	{
 		FSceneColorRecorder Recorder{Inputs.StaticMeshes, Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
-		const auto Failure = GetRendererQualificationPolicy().RasterFailure;
+		const auto Failure = Inputs.Failure;
 		const bool bRequiresDeferredOpaque =
 			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
 		const bool bVolumetricCloudComposite = Inputs.CloudFeature.Decision.Route
@@ -96,7 +96,7 @@ namespace Durin
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}
 			};
 		}
-		auto Record = [Recorder, &Publication = Inputs.Publication, RecordInputs, bVolumetricCloudComposite, Failure, bRequiresDeferredOpaque](FRHICommandListImmediate& Commands, const FSceneColorPassParameters& PassParameters, const FRDGParameterResolver& Resolver) mutable {
+		auto Record = [Recorder, RecordInputs, bVolumetricCloudComposite, Failure, bRequiresDeferredOpaque](FRHICommandListImmediate& Commands, const FSceneColorPassParameters& PassParameters, const FRDGParameterResolver& Resolver) mutable {
 			auto& SceneColorResult = Resolver.WriteValue(
 				PassParameters.Completion
 			);
@@ -122,7 +122,6 @@ namespace Durin
 					SceneColorResult = Recorder.RenderSceneTranslucency_RenderThread(Commands, RecordInputs, Input, VolumetricCloudResult);
 				}
 			}
-			Publication = SceneColorResult;
 			if (!SceneColorResult.IsSuccess()) return;
 			ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes, Recorder.ResolvedSceneResources.Receiver.StaticMeshes, Recorder.Telemetry.View);
 		};

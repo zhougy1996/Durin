@@ -1208,7 +1208,7 @@ namespace Durin
 
 	auto FStaticMeshRenderer::PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
 		FResolvedStaticMeshView& ResolvedView,
-		bool bPrepareGPUCulling) -> bool
+		bool bPrepareGPUCulling, EGPUCullingFailure Failure) -> bool
 	{
 		for (auto& Record : ResolvedView.Draws)
 		{
@@ -1233,7 +1233,7 @@ namespace Durin
 					&& (!Item.Command->Material.CompiledProgram
 						|| (Item.Command->Material.CompiledProgram->GetShaderMap().RequiredStages & MaterialShaderEntryBit(EMaterialShaderEntry::GPUCullingVertex))))
 				{
-					auto GPUPipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .bGPUCulling = true, .Topology = Item.Command->PipelineKey.Topology});
+					auto GPUPipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .bGPUCulling = true, .Failure = Failure, .Topology = Item.Command->PipelineKey.Topology});
 					ResolvedView.Draws[Item.ResolvedIndex]
 						.GBufferGPUCullingPipeline = std::move(GPUPipeline);
 				}

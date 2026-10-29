@@ -4,7 +4,6 @@
 
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
-#include "Renderers/SceneRenderResults.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "SceneView.h"
@@ -100,12 +99,6 @@ namespace Durin
 		FResolvedReceiverGeometry Receiver;
 		std::optional<FResolvedDirectionalShadow> DirectionalShadow;
 		std::optional<FResolvedVolumetricCloud> VolumetricCloud;
-	};
-
-	struct FSceneRenderGraphComposition final
-	{
-		FSceneColorPassResult SceneColorPublication;
-		FPostProcessPassResult PostProcessPublication;
 	};
 
 } // namespace Durin

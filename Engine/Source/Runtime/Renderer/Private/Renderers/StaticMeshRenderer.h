@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRendererProfiling.h"
+
 #include "Misc/CoreTypes.h"
 #include "RendererAPI.h"
 #include "Renderers/MeshRendererExecution.h"
@@ -36,7 +38,7 @@ namespace Durin
 	public:
 		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView,
-			bool bPrepareGPUCulling = false) -> bool;
+			bool bPrepareGPUCulling = false, EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
 			auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
 			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
 			const FRHIUniformBufferRange& Lighting, bool bShadow = false) -> bool;

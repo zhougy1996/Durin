@@ -4,7 +4,7 @@ Summary: Prepare cooked material programs and exact scene Shader/PSO resources b
 
 Modules: Engine, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-10-28
+Last reviewed: 2026-10-29
 
 ## Object and program readiness
 
@@ -205,7 +205,7 @@ current view once and continues directly into graph construction/drawing when
 ready; Pending returns without drawing. The prepared frame is local to that call,
 never borrowed across frames. `PrepareViewResources` remains an explicit
 prepare-only operation for callers that do not want a draw. Observation scope
-does not choose prepare-only execution or suppress the rendering submission serial.
+does not choose prepare-only execution or advance the render-frame clock.
 A Ready handle describes the most recent invocation; changes to
 view/output/features are rechecked before drawing. Repumping Ready replaces
 its retained resource window; Pending pumps retain their partial progress.

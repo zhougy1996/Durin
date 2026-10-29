@@ -9,7 +9,7 @@ namespace Durin
 {
 	class FScene;
 
-	inline constexpr uint64 SceneViewStateInactiveSubmissionThreshold = 120;
+	inline constexpr uint64 SceneViewStateInactiveFrameThreshold = 120;
 
 	// Explains why committed metadata cannot be consumed as valid history.
 	enum class ESceneViewDiscontinuity : uint16
@@ -56,13 +56,11 @@ namespace Durin
 		return (static_cast<uint16>(Value) & static_cast<uint16>(Mask)) != 0;
 	}
 
-	// Frozen final-fitted metadata published only by a successful outer view.
+	// Fitted camera metadata published together with the cloud history texture.
 	struct FSceneViewTemporalMetadata
 	{
-		FMatrix ViewMatrix{1.0};
 		FMatrix ProjectionMatrix{1.0};
 		FMatrix ViewProjectionMatrix{1.0};
-		FVector3 ViewLocation{0.0};
 		uint32 ViewportX = 0;
 		uint32 ViewportY = 0;
 		uint32 ViewportWidth = 0;
@@ -74,25 +72,34 @@ namespace Durin
 		const FScene* Scene = nullptr;
 	};
 
-	// Immutable per-submission snapshot consumed by future feature renderers.
+	// Immutable cloud reconstruction context paired with the published history.
 	struct FSceneViewTemporalContext
 	{
-		FSceneViewTemporalMetadata Current;
-		FSceneViewTemporalMetadata Previous;
-		uint64 SubmissionSerial = 0;
-		uint64 PreviousSubmissionSerial = 0;
+		FMatrix PreviousViewProjectionMatrix{1.0};
+		uint32 OutputWidth = 0;
+		uint32 OutputHeight = 0;
+		uint64 RenderFrame = 0;
+		uint64 PreviousRenderFrame = 0;
 		uint64 SuccessfulSequence = 0;
-		uint64 SubmissionGap = 0;
+		uint64 FrameGap = 0;
 		ESceneViewDiscontinuity Discontinuities =
 			ESceneViewDiscontinuity::None;
-		bool bHasPrevious = false;
 		bool bHistoryValid = false;
 	};
 
-	// Private per-view cloud history. Candidate publication follows the outer
-	// view transaction; aborted candidates become reusable scratch storage.
+	// Cloud-owned texture and camera history. Publish after cloud reconstruction;
+	// later view failures cannot revoke it. Unfinished candidates remain reusable.
 	struct FVolumetricCloudViewHistory
 	{
+		RENDERER_API auto Begin(
+			const FSceneViewTemporalMetadata& Current,
+			uint64 RenderFrame,
+			bool bDiscardHistory
+		) -> FSceneViewTemporalContext;
+		RENDERER_API auto Invalidate(ESceneViewDiscontinuity Cause) -> void;
+		auto GetSuccessfulSequence() const -> uint64 { return SuccessfulSequence; }
+		auto IsSubmissionActive() const -> bool { return bSubmissionActive; }
+
 		uint64 CommittedPolicyKey = 0;
 		uint64 CommittedCloudKey = 0;
 		uint64 PendingPolicyKey = 0;
@@ -113,36 +120,32 @@ namespace Durin
 		RENDERER_API auto Abort() -> void;
 		RENDERER_API auto Reset() -> void;
 		[[nodiscard]] RENDERER_API auto GetRetainedBytes() const -> uint64;
-	};
-
-	// Owns transactional metadata and feature-local history for one logical stream.
-	class FSceneViewState
-	{
-	public:
-		RENDERER_API auto Begin(
-			const FSceneViewTemporalMetadata& Current,
-			uint64 SubmissionSerial,
-			bool bDiscardHistory
-		) -> FSceneViewTemporalContext;
-		RENDERER_API auto Commit() -> void;
-		RENDERER_API auto Abort() -> void;
-		RENDERER_API auto Invalidate(ESceneViewDiscontinuity Cause) -> void;
-		auto GetVolumetricCloudHistory() -> FVolumetricCloudViewHistory&
-		{
-			return VolumetricCloudHistory;
-		}
-		auto GetSuccessfulSequence() const -> uint64 { return SuccessfulSequence; }
-		auto IsSubmissionActive() const -> bool { return bSubmissionActive; }
 
 	private:
 		std::optional<FSceneViewTemporalMetadata> Committed;
 		std::optional<FSceneViewTemporalMetadata> Pending;
-		uint64 LastSuccessfulSubmissionSerial = 0;
-		uint64 PendingSubmissionSerial = 0;
+		uint64 LastSuccessfulRenderFrame = 0;
+		uint64 PendingRenderFrame = 0;
 		uint64 SuccessfulSequence = 0;
 		ESceneViewDiscontinuity PendingInvalidation =
 			ESceneViewDiscontinuity::None;
 		bool bSubmissionActive = false;
+	};
+
+	// Identity owns feature-local state; each feature publishes its own history.
+	class FSceneViewState
+	{
+	public:
+		auto Invalidate(ESceneViewDiscontinuity Cause) -> void
+		{
+			VolumetricCloudHistory.Invalidate(Cause);
+		}
+		auto GetVolumetricCloudHistory() -> FVolumetricCloudViewHistory&
+		{
+			return VolumetricCloudHistory;
+		}
+
+	private:
 		FVolumetricCloudViewHistory VolumetricCloudHistory;
 	};
 

@@ -726,6 +726,27 @@ namespace Durin
 		return Backing.Buffer.GetReference();
 	}
 
+	auto FRDGBuilder::ResolveValueAfterExecute(uint64 Owner, uint32 Index,
+		const void* TypeIdentity) const -> const void*
+	{
+		requiref(State->Lifecycle == ERDGBuilderState::Recorded,
+			"Reading a render graph result requires successful execution.");
+		requiref(Owner == Compiled->Owner && Index < Compiled->Resources.size(),
+			"Reading a render graph result used an invalid typed value handle.");
+		const auto& Resource = Compiled->Resources[Index];
+		requiref(Resource.ValueTypeIdentity != nullptr && Resource.ValueTypeIdentity == TypeIdentity,
+			"Reading a render graph result used a wrongly typed value handle.");
+		requiref(std::ranges::any_of(Compiled->RuntimePasses, [Index](const auto& Pass) {
+			return std::ranges::any_of(Pass.ValueUses, [Index](const auto& Use) {
+				return Use.first == Index && Use.second == ERDGUse::Write;
+			});
+		}), "Reading a render graph result requires an executed producer.");
+		requiref(Resource.ValueStorageIndex < State->ValueStorage.Allocations.size()
+			&& State->ValueStorage.Allocations[Resource.ValueStorageIndex]->bConstructed,
+			"Reading a render graph result resolved unavailable typed value storage.");
+		return State->ValueStorage.Allocations[Resource.ValueStorageIndex]->Data;
+	}
+
 	auto FRDGPassResources::ResolveValue(uint64 Owner, uint32 Index,
 		const void* TypeIdentity, bool bWrite) const -> void*
 	{

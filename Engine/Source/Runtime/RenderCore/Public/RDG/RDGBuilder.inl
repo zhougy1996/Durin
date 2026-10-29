@@ -15,6 +15,13 @@ namespace Durin
 		return Pass;
 	}
 
+	template<typename T>
+	auto FRDGBuilder::ReadValueAfterExecute(TRDGValueHandle<T> Handle) const -> const T&
+	{
+		return *static_cast<const T*>(ResolveValueAfterExecute(Handle.Owner,
+			Handle.Index, &RDGPrivate::GValueTypeIdentity<std::remove_cv_t<T>>));
+	}
+
 	template<typename T, typename... Args>
 	requires std::constructible_from<T, Args...> && std::destructible<T>
 	auto FRDGBuilder::CreateValue(std::string_view Name, std::string_view StableTypeName,

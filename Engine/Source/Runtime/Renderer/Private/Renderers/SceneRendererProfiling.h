@@ -41,7 +41,7 @@ namespace Durin
 	};
 
 	// Installs one render-thread qualification policy for the lexical duration
-	// of a test/tool submission. The graph executor snapshots the value.
+	// of a test/tool submission. The pipeline snapshots it once at submission entry.
 	class RENDERER_API FScopedRendererQualificationPolicy final
 	{
 	public:

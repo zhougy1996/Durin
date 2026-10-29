@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/SceneRenderGraphTypes.h"
 #include "RDG/RDGParameters.h"
 

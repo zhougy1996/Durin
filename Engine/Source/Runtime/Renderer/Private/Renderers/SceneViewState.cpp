@@ -61,6 +61,21 @@ namespace Durin
 
 	auto FVolumetricCloudViewHistory::Commit() -> void
 	{
+		check(IsInRenderingThread());
+		check(bSubmissionActive);
+		check(Pending.has_value());
+		if (PendingTexture == nullptr && !bPendingClear)
+		{
+			Abort();
+			return;
+		}
+		Committed = std::move(Pending);
+		LastSuccessfulRenderFrame = PendingRenderFrame;
+		PendingRenderFrame = 0;
+		PendingInvalidation = ESceneViewDiscontinuity::None;
+		if (SuccessfulSequence != std::numeric_limits<uint64>::max())
+			++SuccessfulSequence;
+		bSubmissionActive = false;
 		if (bPendingClear)
 		{
 			CommittedTexture = nullptr;
@@ -82,6 +97,10 @@ namespace Durin
 
 	auto FVolumetricCloudViewHistory::Abort() -> void
 	{
+		check(IsInRenderingThread());
+		Pending.reset();
+		PendingRenderFrame = 0;
+		bSubmissionActive = false;
 		if (PendingTexture != nullptr)
 			SpareTexture = std::move(PendingTexture);
 		PendingPolicyKey = 0;
@@ -109,16 +128,17 @@ namespace Durin
 		return Bytes(CommittedTexture) + Bytes(PendingTexture) + Bytes(SpareTexture);
 	}
 
-	auto FSceneViewState::Begin(
+	auto FVolumetricCloudViewHistory::Begin(
 		const FSceneViewTemporalMetadata& Current,
-		uint64 SubmissionSerial,
+		uint64 RenderFrame,
 		bool bDiscardHistory
 	) -> FSceneViewTemporalContext
 	{
 		check(IsInRenderingThread());
 		FSceneViewTemporalContext Context;
-		Context.Current = Current;
-		Context.SubmissionSerial = SubmissionSerial;
+		Context.OutputWidth = Current.OutputWidth;
+		Context.OutputHeight = Current.OutputHeight;
+		Context.RenderFrame = RenderFrame;
 		Context.SuccessfulSequence = SuccessfulSequence;
 		if (bSubmissionActive)
 		{
@@ -129,7 +149,7 @@ namespace Durin
 
 		bSubmissionActive = true;
 		Pending = Current;
-		PendingSubmissionSerial = SubmissionSerial;
+		PendingRenderFrame = RenderFrame;
 		if (bDiscardHistory)
 			PendingInvalidation |=
 				ESceneViewDiscontinuity::ExplicitCameraCut;
@@ -141,12 +161,11 @@ namespace Durin
 		}
 		else
 		{
-			Context.bHasPrevious = true;
-			Context.Previous = *Committed;
-			Context.PreviousSubmissionSerial =
-				LastSuccessfulSubmissionSerial;
-			Context.SubmissionGap = SubmissionSerial >= LastSuccessfulSubmissionSerial ? SubmissionSerial - LastSuccessfulSubmissionSerial : std::numeric_limits<uint64>::max();
-			if (Context.SubmissionGap > SceneViewStateInactiveSubmissionThreshold)
+			Context.PreviousViewProjectionMatrix = Committed->ViewProjectionMatrix;
+			Context.PreviousRenderFrame =
+				LastSuccessfulRenderFrame;
+			Context.FrameGap = RenderFrame >= LastSuccessfulRenderFrame ? RenderFrame - LastSuccessfulRenderFrame : std::numeric_limits<uint64>::max();
+			if (Context.FrameGap > SceneViewStateInactiveFrameThreshold)
 				Context.Discontinuities |=
 					ESceneViewDiscontinuity::InactiveGapExpiry;
 			if (Committed->Scene != Current.Scene)
@@ -171,50 +190,22 @@ namespace Durin
 					ESceneViewDiscontinuity::DepthConventionChange;
 		}
 
-		Context.bHistoryValid = Context.bHasPrevious
+		Context.bHistoryValid = Committed.has_value()
 								&& !IsHistoryInvalidating(Context.Discontinuities);
 		if (!Context.bHistoryValid)
 		{
-			// View-local discontinuities participate in the outer transaction.
-			// A later render failure must be able to abort this clear and retain
-			// the last committed cloud texture. A successful cloud reconstruction
-			// replaces the pending clear with its spatial-only candidate.
-			VolumetricCloudHistory.SetPendingClear(0, 0);
+			// Keep the old texture until a replacement or clear is published.
+			// A failed cloud reconstruction must not advance its camera metadata.
+			SetPendingClear(0, 0);
 		}
 		return Context;
 	}
 
-	auto FSceneViewState::Commit() -> void
-	{
-		check(IsInRenderingThread());
-		check(bSubmissionActive);
-		check(Pending.has_value());
-		Committed = std::move(Pending);
-		LastSuccessfulSubmissionSerial = PendingSubmissionSerial;
-		PendingSubmissionSerial = 0;
-		PendingInvalidation = ESceneViewDiscontinuity::None;
-		if (SuccessfulSequence != std::numeric_limits<uint64>::max())
-			++SuccessfulSequence;
-		VolumetricCloudHistory.Commit();
-		bSubmissionActive = false;
-	}
-
-	auto FSceneViewState::Abort() -> void
-	{
-		check(IsInRenderingThread());
-		if (!bSubmissionActive)
-			return;
-		Pending.reset();
-		PendingSubmissionSerial = 0;
-		VolumetricCloudHistory.Abort();
-		bSubmissionActive = false;
-	}
-
-	auto FSceneViewState::Invalidate(ESceneViewDiscontinuity Cause) -> void
+	auto FVolumetricCloudViewHistory::Invalidate(ESceneViewDiscontinuity Cause) -> void
 	{
 		check(IsInRenderingThread());
 		PendingInvalidation |= Cause;
-		VolumetricCloudHistory.Reset();
+		Reset();
 	}
 
 	auto FSceneViewStateRegistry::Add(FSceneViewStateId Id) -> bool
@@ -279,10 +270,8 @@ namespace Durin
 	) -> FSceneViewTemporalMetadata
 	{
 		return {
-			.ViewMatrix = View.ViewMatrix,
 			.ProjectionMatrix = View.ProjectionMatrix,
 			.ViewProjectionMatrix = View.ViewProjectionMatrix,
-			.ViewLocation = View.ViewLocation,
 			.ViewportX = View.ViewportX,
 			.ViewportY = View.ViewportY,
 			.ViewportWidth = View.ViewportWidth,

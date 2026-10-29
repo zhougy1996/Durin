@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/GBufferRendering.h"
 #include "RDG/RDGParameters.h"
 
@@ -140,7 +142,6 @@ namespace Durin
 		std::optional<FRDGTextureHandle> BaseDensity;
 		std::optional<FRDGTextureHandle> DetailDensity;
 		std::optional<FRDGTextureHandle> Weather;
-		FRHITexture* WeatherTexture;
 	};
 
 	struct FCloudShadowFeatureInputs final

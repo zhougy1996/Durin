@@ -548,7 +548,7 @@ namespace Durin
 				const auto Metadata = BuildSceneViewTemporalMetadata(
 					View, nullptr, 64, 32
 				);
-				const auto FirstContext = TemporalState.Begin(Metadata, 1, false);
+				const auto FirstContext = TemporalState.GetVolumetricCloudHistory().Begin(Metadata, 1, false);
 				const auto FirstTemporal = Clouds.ReconstructTemporal_RenderThread(
 					CommandList,
 					{.CurrentCloud = Compute.Cloud,
@@ -560,7 +560,6 @@ namespace Durin
 				);
 				(*Results)[23] = FirstTemporal.bCandidatePublished
 								 && !FirstTemporal.bHistoryAccepted;
-				TemporalState.Commit();
 				(*Results)[24] = TemporalState.GetVolumetricCloudHistory()
 									 .CanReproject(
 										 FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
@@ -569,7 +568,7 @@ namespace Durin
 										 91, 64, 32
 									 );
 
-				const auto RecoveredContext = TemporalState.Begin(Metadata, 3, false);
+				const auto RecoveredContext = TemporalState.GetVolumetricCloudHistory().Begin(Metadata, 3, false);
 				const auto RecoveredTemporal = Clouds.ReconstructTemporal_RenderThread(
 					CommandList,
 					{.CurrentCloud = Compute.Cloud,
@@ -581,27 +580,37 @@ namespace Durin
 				);
 				(*Results)[25] = RecoveredTemporal.bCandidatePublished
 								 && RecoveredTemporal.bHistoryAccepted;
-				TemporalState.Commit();
 
-				const auto PolicyContext = TemporalState.Begin(Metadata, 4, false);
+				FSceneView PolicyView = View;
+				PolicyView.ViewLocation += FVector3{10.0, 0.0, 0.0};
+				PolicyView.ViewMatrix = BuildViewMatrix(PolicyView.ViewLocation,
+					Math::Normalize(FVector3{1.0, 0.0, 0.1}));
+				PolicyView.ViewProjectionMatrix = PolicyView.ProjectionMatrix * PolicyView.ViewMatrix;
+				const auto PolicyMetadata = BuildSceneViewTemporalMetadata(PolicyView, nullptr, 64, 32);
+				const auto PolicyContext = TemporalState.GetVolumetricCloudHistory().Begin(PolicyMetadata, 4, false);
 				const auto PolicyTemporal = Clouds.ReconstructTemporal_RenderThread(
 					CommandList,
 					{.CurrentCloud = Compute.Cloud,
-					 .View = &View,
+					 .View = &PolicyView,
 					 .TemporalContext = &PolicyContext,
 					 .ViewState = &TemporalState,
 					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::Epic,
 					 .CloudHistoryKey = 91}
 				);
-				TemporalState.Abort();
+				// Simulate outer cleanup after a later pass failure.
+				TemporalState.GetVolumetricCloudHistory().Abort();
+				const auto AfterFailure = TemporalState.GetVolumetricCloudHistory().Begin(Metadata, 5, false);
 				(*Results)[26] = PolicyTemporal.bCandidatePublished
 								 && !PolicyTemporal.bHistoryAccepted
+								 && AfterFailure.PreviousRenderFrame == 4
+								 && AfterFailure.PreviousViewProjectionMatrix == PolicyMetadata.ViewProjectionMatrix
 								 && TemporalState.GetVolumetricCloudHistory().CanReproject(
 									 FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
-										 FVolumetricCloudRenderer::EQualityTier::High
+										 FVolumetricCloudRenderer::EQualityTier::Epic
 									 ),
 									 91, 64, 32
 								 );
+				TemporalState.GetVolumetricCloudHistory().Abort();
 				TemporalState.Invalidate(
 					ESceneViewDiscontinuity::DeviceInvalidation
 				);

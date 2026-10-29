@@ -1,5 +1,4 @@
 #include "Renderers/RendererRDGAllocator.h"
-#include "Renderers/SceneRendererProfiling.h"
 
 #include "RenderResourceCreation.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -257,6 +256,13 @@ namespace Durin
 		std::span<const FRDGAllocationRequest> Requests,
 		FRDGAllocatedResources& OutResources) -> FRDGAllocationResult
 	{
+		return Allocate(Requests, OutResources, std::nullopt);
+	}
+
+	auto FRendererRDGAllocator::Allocate(
+		std::span<const FRDGAllocationRequest> Requests,
+		FRDGAllocatedResources& OutResources, std::optional<uint32> FailedObservation) -> FRDGAllocationResult
+	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.AllocateRDGResources");
 		check(IsInRenderingThread());
 		const auto& Generation = Coordinator.GetGeneration_RenderThread();
@@ -354,7 +360,7 @@ namespace Durin
 			return std::unexpected(FRDGAllocationFailure{Reason, ResourceId});
 		};
 
-		if (const auto FailedTag = GetRendererQualificationPolicy().FailedAllocationObservation)
+		if (const auto FailedTag = FailedObservation)
 			for (const auto& Request : Requests)
 				if (Request.ObservationTag == *FailedTag)
 					return Fail(ERDGAllocationError::PhysicalAllocationFailed, Request.ResourceId);

@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/PostProcessRendering.h"
 #include "RDG/RDGParameters.h"
@@ -37,7 +39,6 @@ namespace Durin
 		FEditorAssistanceRenderer& Renderer;
 		FRDGTextureHandle SceneDepth;
 		FRHITexture* OutputTarget;
-		FPostProcessPassResult& Publication;
 		const FSceneFeatureDecision& Feature;
 		bool bPresentOutput;
 	};

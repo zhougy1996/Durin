@@ -84,7 +84,7 @@ namespace Durin
 		auto RecordInputs = Inputs.Record;
 		RecordInputs.bRequireEnvironmentTexture = RecordInputs.Environment && RecordInputs.Environment->Texture;
 		const bool bHybrid = Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
-		const auto Failure = GetRendererQualificationPolicy().RasterFailure;
+		const auto Failure = Inputs.Failure;
 		const auto Completion = Graph.CreateValue<FSceneColorPassResult>("Scene.BaseValue", "scene-color-result");
 		std::optional<FRDGTextureHandle> Sky;
 		FRHITexture* SkyTexture = nullptr;
