@@ -55,13 +55,13 @@ namespace StaticMeshBuildTestSupport
 	}
 
 	inline auto BuildRenderForTest(Durin::FStaticMeshBuildRequest Request,
-		const Durin::FAssetBuildTaskContext& Control = {},
+		uint64 MaximumWorkingSetBytes = UINT64_MAX,
 		FCacheLogCapture* Capture = nullptr)
 	{
 		if (Request.Settings.MaterialSlots.empty() && Request.Source.IsValid())
 			Request.Settings.MaterialSlots = {{.Name = Durin::FName("Material"), .SourceName = "Material", .SourceMaterialIndex = 0}};
 		if (Capture) Capture->Reset();
-		return Durin::BuildStaticMeshRenderData(std::move(Request), Control);
+		return Durin::BuildStaticMeshRenderData(std::move(Request), MaximumWorkingSetBytes);
 	}
 
 	class FScopedDerivedDataCacheRestore
@@ -248,7 +248,7 @@ namespace StaticMeshBuildTestSupport
 		}
 	}
 
-	inline auto CheckRenderPublicationAndCancellation(bool bMeasure) -> void
+	inline auto CheckRenderPublication(bool bMeasure) -> void
 	{
 		using namespace Durin;
 		FScopedDerivedDataCacheRestore RestoreCache;
@@ -278,19 +278,8 @@ namespace StaticMeshBuildTestSupport
 		Input.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry());
 		auto Request = FStaticMeshBuildRequest{.Settings = MakeStaticMeshBuildSettings(Input.MaterialSlots, Input.NormalizedSize), .Source = Source};
 		Request.bPersistDerivedData = false;
-		FAssetBuildTaskMetrics Metrics;
 		const auto Start = std::chrono::steady_clock::now();
-		auto LastCheckpoint = Start;
-		uint64 MaximumGapNanoseconds = 0;
-		const Durin::FAssetBuildTaskContext Control{.Cancellation = [&] {
-				const auto Now = std::chrono::steady_clock::now();
-				MaximumGapNanoseconds = std::max(MaximumGapNanoseconds, static_cast<uint64>(
-					std::chrono::duration_cast<std::chrono::nanoseconds>(Now - LastCheckpoint).count()));
-				LastCheckpoint = Now;
-				return false;
-			}, .Metrics = &Metrics};
-		auto Outcome = BuildStaticMeshRenderData(std::move(Request),
-			Control);
+		auto Outcome = BuildStaticMeshRenderData(std::move(Request));
 		const auto Built = std::chrono::steady_clock::now();
 		ASSERT_TRUE(Outcome) << Outcome.error();
 		auto Candidate = std::move(*Outcome);
@@ -299,41 +288,9 @@ namespace StaticMeshBuildTestSupport
 		ASSERT_TRUE(CommitStaticMeshBuild(*Mesh, std::move(Candidate), Source, Snapshot, true, nullptr, &PreparedSlots)) << Error;
 		const auto Published = std::chrono::steady_clock::now();
 		EXPECT_FALSE(Source.IsGeometryResident());
-		EXPECT_GT(Metrics.CancellationCheckpoints, bMeasure ? 1000u : 4u);
 		if (bMeasure) std::cout << "render_build_fixture triangles=" << (bMeasure ? 100000u : 32u) << " build_ns="
 			<< std::chrono::duration_cast<std::chrono::nanoseconds>(Built - Start).count()
-			<< " publication_ns=" << std::chrono::duration_cast<std::chrono::nanoseconds>(Published - Built).count()
-			<< " checkpoints=" << Metrics.CancellationCheckpoints
-			<< " maximum_checkpoint_gap_ns=" << MaximumGapNanoseconds << std::endl;
-		uint64 MaximumCancellationNanoseconds = 0;
-		for (const uint64 StopAfter : {Metrics.CancellationCheckpoints / 4,
-			Metrics.CancellationCheckpoints / 2, Metrics.CancellationCheckpoints * 3 / 4})
-		{
-			auto CancelRequest = FStaticMeshBuildRequest{.Settings = MakeStaticMeshBuildSettings(Input.MaterialSlots, Input.NormalizedSize), .Source = Source};
-			CancelRequest.bPersistDerivedData = false;
-			uint64 Checks = 0;
-			bool bRequested = false;
-			std::chrono::steady_clock::time_point RequestedAt;
-			const Durin::FAssetBuildTaskContext CancelControl{.Cancellation = [&] {
-					if (bRequested) return true;
-					if (++Checks == StopAfter)
-					{
-						bRequested = true;
-						RequestedAt = std::chrono::steady_clock::now();
-					}
-					return false;
-				}};
-			const auto Cancelled = BuildStaticMeshRenderData(std::move(CancelRequest),
-				CancelControl);
-			ASSERT_TRUE(bRequested);
-			ASSERT_TRUE(Cancelled);
-			EXPECT_TRUE(CancelControl.Cancellation.IsCancelled());
-			MaximumCancellationNanoseconds = std::max(MaximumCancellationNanoseconds,
-				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-					std::chrono::steady_clock::now() - RequestedAt).count()));
-		}
-		if (bMeasure) std::cout << "render_build_cancellation_fixture samples=3 maximum_cancel_to_return_ns="
-			<< MaximumCancellationNanoseconds << std::endl;
+			<< " publication_ns=" << std::chrono::duration_cast<std::chrono::nanoseconds>(Published - Built).count() << std::endl;
 
 	}
 

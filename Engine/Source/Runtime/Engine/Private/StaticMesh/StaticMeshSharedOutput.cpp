@@ -44,14 +44,13 @@ namespace Durin::StaticMeshPrivate
 				std::memcpy(&Value, Bytes.data() + Index * sizeof(T), sizeof(T));
 				return Value;
 			}
-			auto Freeze(const std::function<bool()>& ShouldCancel) const -> FSharedByteBuffer
+			auto Freeze() const -> FSharedByteBuffer
 			{
 				if (Block.GetNativeView<T>()) return Block;
 				std::vector<T> Values(size());
 				// Serialized bytes never get cast to objects. The vector establishes lifetime/alignment.
 				for (size_t Offset = 0; Offset < Values.size(); Offset += 4096)
 				{
-					if (ShouldCancel && ShouldCancel()) throw AssetPrivate::FPayloadBuildCancelled{};
 					const auto Count = std::min<size_t>(4096, Values.size() - Offset);
 					std::memcpy(Values.data() + Offset, Bytes.data() + Offset * sizeof(T), Count * sizeof(T));
 				}
@@ -83,9 +82,10 @@ namespace Durin::StaticMeshPrivate
 			if (auto Native = Stream.Block.template GetNativeView<T>()) Stream.Native = *Native;
 			return true;
 		}
-		auto ReadLayout(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel) -> std::expected<FLayout, std::string>
+		auto ReadLayout(const FBuildOutput& Output) -> std::expected<FLayout, std::string>
 		{
-			AssetPrivate::FPayloadBuildControl Control{ShouldCancel}; Control.Check();
+			const std::function<bool()> NoCancellation;
+			AssetPrivate::FPayloadBuildControl Control{NoCancellation};
 			if (Output.GetSchema() != StaticMeshRenderOutputType || Output.GetSchemaVersion() != StaticMeshRenderOutputSchemaVersion
 				|| !Output.CheckLimits({.MaximumTotalBytes = MaximumStaticMeshPayloadBytes}))
 				return std::unexpected("StaticMesh output schema or size is invalid.");
@@ -100,7 +100,7 @@ namespace Durin::StaticMeshPrivate
 			size_t ValueCount = 0;
 			for (uint32 Index = 0; Index < Count; ++Index)
 			{
-				Control.Check(); auto& LOD = Layout.LODs[Index];
+				auto& LOD = Layout.LODs[Index];
 				uint32 Vertices = 0, Indices = 0, Colors = 0, Sections = 0;
 				if (!Reader.ReadFloat(LOD.ScreenSize) || !ReadBounds(Reader, LOD.LocalBounds)
 					|| !Reader.ReadU32(Vertices) || !Reader.ReadU32(Indices) || !Reader.ReadU32(LOD.NumTexCoords)
@@ -127,7 +127,6 @@ namespace Durin::StaticMeshPrivate
 				LOD.Sections.resize(Sections);
 				for (auto& Section : LOD.Sections)
 				{
-					Control.Tick();
 					if (!SectionReader.ReadU32(Section.FirstIndex) || !SectionReader.ReadU32(Section.IndexCount)
 						|| !SectionReader.ReadU32(Section.MinVertexIndex) || !SectionReader.ReadU32(Section.MaxVertexIndex)
 						|| !SectionReader.ReadU32(Section.MaterialSlotIndex) || !ReadBounds(SectionReader, Section.LocalBounds))
@@ -147,17 +146,14 @@ namespace Durin::StaticMeshPrivate
 				for (size_t SectionIndex = 0; SectionIndex < Layout.LODs[Index].Sections.size(); ++SectionIndex)
 					Layout.LODs[Index].Sections[SectionIndex].LocalBounds = Bounds.LODs[Index].Sections[SectionIndex];
 			}
-			Control.Check();
 			return Layout;
 		}
 	}
 
-	auto ValidateSharedOutput(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
-	try { auto Layout = ReadLayout(Output, ShouldCancel); if (!Layout) return std::unexpected(std::move(Layout.error())); return {}; }
-	catch (const AssetPrivate::FPayloadBuildCancelled&) { return std::unexpected("StaticMesh output validation was cancelled."); }
+	auto ValidateSharedOutput(const FBuildOutput& Output) -> std::expected<void, std::string>
+	{ auto Layout = ReadLayout(Output); if (!Layout) return std::unexpected(std::move(Layout.error())); return {}; }
 
-	auto MakeSharedOutput(std::unique_ptr<FStaticMeshRenderData> Product, uint32 MaterialSlotCount,
-		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
+	auto MakeSharedOutput(std::unique_ptr<FStaticMeshRenderData> Product, uint32 MaterialSlotCount) -> std::expected<FBuildOutput, std::string>
 	{
 		if (!Product || !IsValidBounds(Product->LocalBounds) || Product->LODResources.empty() || Product->LODResources.size() > MaximumStaticMeshLODs)
 			return std::unexpected("StaticMesh output LOD count is invalid.");
@@ -167,7 +163,6 @@ namespace Durin::StaticMeshPrivate
 		Metadata.WriteU32(MaterialSlotCount); Metadata.WriteU32(uint32(Product->LODResources.size())); WriteBounds(Metadata, Product->LocalBounds);
 		for (uint32 Index = 0; Index < Product->LODResources.size(); ++Index)
 		{
-			if (ShouldCancel && ShouldCancel()) return std::unexpected("StaticMesh output construction was cancelled.");
 			auto& LOD = Product->LODResources[Index];
 			auto& Buffers = LOD.VertexBuffers;
 			auto& Tangents = Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer;
@@ -192,7 +187,6 @@ namespace Durin::StaticMeshPrivate
 			for (const auto& Section : LOD.Sections)
 			{
 				if (!IsValidBounds(Section.LocalBounds)) return std::unexpected("StaticMesh recipe section bounds are invalid.");
-				if (ShouldCancel && ShouldCancel()) return std::unexpected("StaticMesh output construction was cancelled.");
 				Sections.WriteU32(Section.FirstIndex); Sections.WriteU32(Section.IndexCount);
 				Sections.WriteU32(Section.MinVertexIndex); Sections.WriteU32(Section.MaxVertexIndex); Sections.WriteU32(Section.MaterialSlotIndex);
 				WriteBounds(Sections, Section.LocalBounds);
@@ -204,35 +198,32 @@ namespace Durin::StaticMeshPrivate
 		auto Meta = MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
 		if (!Meta || !Output.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("StaticMesh metadata is invalid.");
 		auto Built = std::move(Output).Build(); if (!Built) return Built;
-		if (auto Valid = ValidateSharedOutput(*Built, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
+		if (auto Valid = ValidateSharedOutput(*Built); !Valid) return std::unexpected(std::move(Valid.error()));
 		return Built;
 	}
 
-	auto AssembleSharedOutput(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel)
+	auto AssembleSharedOutput(const FBuildOutput& Output)
 		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>
-	try
 	{
-		auto Parsed = ReadLayout(Output, ShouldCancel);
+		auto Parsed = ReadLayout(Output);
 		if (!Parsed) return std::unexpected(std::move(Parsed.error()));
 		const FLayout* Layout = &*Parsed;
 		auto Result = std::make_unique<FStaticMeshRenderData>();
 		Result->LocalBounds = Layout->LocalBounds; Result->MaterialSlots.resize(Layout->MaterialSlotCount);
 		for (const auto& Source : Layout->LODs)
 		{
-			if (ShouldCancel && ShouldCancel()) throw AssetPrivate::FPayloadBuildCancelled{};
 			auto& LOD = Result->LODResources.emplace_back(); auto& Buffers = LOD.VertexBuffers;
-			Buffers.PositionVertexBuffer.SetSharedPositions(Source.Positions.Freeze(ShouldCancel));
-			Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.SetSharedNormals(Source.Normals.Freeze(ShouldCancel));
-			Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.SetSharedTangents(Source.Tangents.Freeze(ShouldCancel));
-			LOD.IndexBuffer.SetSharedIndices(Source.Indices.Freeze(ShouldCancel));
+			Buffers.PositionVertexBuffer.SetSharedPositions(Source.Positions.Freeze());
+			Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.SetSharedNormals(Source.Normals.Freeze());
+			Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.SetSharedTangents(Source.Tangents.Freeze());
+			LOD.IndexBuffer.SetSharedIndices(Source.Indices.Freeze());
 			for (uint32 Channel = 0; Channel < Source.NumTexCoords; ++Channel)
-				Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.SetSharedTexCoord(Channel, Source.TexCoords[Channel].Freeze(ShouldCancel));
-			if (Source.bHasVertexColors) Buffers.ColorVertexBuffer.SetSharedColors(Source.Colors.Freeze(ShouldCancel));
+				Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.SetSharedTexCoord(Channel, Source.TexCoords[Channel].Freeze());
+			if (Source.bHasVertexColors) Buffers.ColorVertexBuffer.SetSharedColors(Source.Colors.Freeze());
 			LOD.LocalBounds = Source.LocalBounds; LOD.ScreenSize = Source.ScreenSize;
 			LOD.NumTexCoords = uint8(Source.NumTexCoords); LOD.bHasColorVertexData = Source.bHasVertexColors;
 			for (size_t Index = 0; Index < Source.Sections.size(); ++Index)
 			{
-				if ((Index % 256) == 0 && ShouldCancel && ShouldCancel()) throw AssetPrivate::FPayloadBuildCancelled{};
 				const auto Section = Source.Sections[Index];
 				LOD.Sections.push_back({.FirstIndex = Section.FirstIndex, .IndexCount = Section.IndexCount,
 					.MinVertexIndex = Section.MinVertexIndex, .MaxVertexIndex = Section.MaxVertexIndex,
@@ -240,9 +231,7 @@ namespace Durin::StaticMeshPrivate
 			}
 			Buffers.Finalize(LOD.NumTexCoords, LOD.bHasColorVertexData);
 		}
-		if (ShouldCancel && ShouldCancel()) throw AssetPrivate::FPayloadBuildCancelled{};
 		return Result;
 	}
-	catch (const AssetPrivate::FPayloadBuildCancelled&) { return std::unexpected("StaticMesh output assembly was cancelled."); }
 }
 #endif

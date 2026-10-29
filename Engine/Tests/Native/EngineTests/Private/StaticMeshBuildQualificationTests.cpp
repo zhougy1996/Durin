@@ -87,7 +87,7 @@ TEST(FStaticMeshBuildQualificationTests, RepresentativeDetachedBuildBudgets)
 
 TEST(FStaticMeshBuildQualificationTests, MeasuresRenderBuildAndPublicationSeparately)
 {
-	CheckRenderPublicationAndCancellation(true);
+	CheckRenderPublication(true);
 }
 
 TEST(FStaticMeshBuildQualificationTests, ConcurrentLargeRenderBuildsSeparateCostsAndRetainCancelledBytes)
@@ -193,7 +193,7 @@ TEST(FStaticMeshBuildQualificationTests, TypedStorageTransferAlternatives)
 	auto* Module = IMeshBuilderModule::Get();
 	ASSERT_NE(Module, nullptr);
 	FStaticMeshRenderData Product;
-	ASSERT_TRUE(Module->BuildRender(Product, {.Geometry = *Read, .MaterialSlots = Slots}));
+	ASSERT_TRUE(Module->BuildMesh(Product, {.Geometry = *Read, .MaterialSlots = Slots}));
 	FTransferAccounting MeshAccounting;
 	uint64 MeshFixtureSnapshotBytes = 0;
 	for (auto& LOD : Product.LODResources)

@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
-#include "Asset/AssetBuildTaskContext.h"
 #include "StaticMesh/StaticMeshBuildTypes.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -30,11 +29,10 @@ namespace Durin
 	ENGINE_API auto MakeStaticMeshBuildSettings(std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		float NormalizedSize = 1.5f) -> FStaticMeshBuildSettings;
 
-	// Worker-safe execution using the resident MeshBuilder module.
-	// Check Control.Cancellation before consuming the result: cancellation returns an
-	// empty product, ordinary failure returns an error, and success returns render data.
+	// Synchronous worker-safe construction runs to completion. Success owns a
+	// complete, non-null product; scheduling and result acceptance belong to the caller.
 	ENGINE_API auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
-		const FAssetBuildTaskContext& Control = {})
+		uint64 MaximumWorkingSetBytes = UINT64_MAX)
 		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>;
 #endif
 

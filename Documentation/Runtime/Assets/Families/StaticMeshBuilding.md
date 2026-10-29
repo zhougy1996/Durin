@@ -4,7 +4,7 @@ Summary: Define StaticMesh source ownership, detached builds, payload validation
 
 Modules: Engine, MeshBuilder, AssetForgeBuiltins
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-29
 
 ## Source ownership and publication
 
@@ -96,27 +96,29 @@ and render build identity. The builder checks aggregate construction budgets.
 
 The module-private Developer `FStaticMeshBuilder::Build` receives
 `FStaticMeshBuildParameters` with immutable decoded LOD handles, fixed material slots,
-normalization and borrowed cancellation/memory controls.
-`IMeshBuilderModule::BuildRender(FStaticMeshRenderData& OutRenderData,
+normalization and a working-set byte budget.
+`IMeshBuilderModule::BuildMesh(FStaticMeshRenderData& OutRenderData,
 const FStaticMeshBuildParameters& Parameters)` synchronously writes detached CPU
 render data and returns `bool`. The output must have no initialized GPU resources
-or vertex factories; failure or cancellation preserves its previous CPU data.
+or vertex factories; failure preserves its previous CPU data.
 The builder moves CPU streams into uninitialized vertex/index buffers. Engine
 freezes those allocations into shared DDC outputs without copying; GPU resource
 initialization and material object binding remain with Engine.
 MeshBuilder logs construction failures with mesh/section identity, rejected
 indices/values and budget facts directly at the failure site, without an error
-object crossing the module contract. Cooperative cancellation checks stop
-construction without an error log. Physics cooking is independent of the render build module. Derived-data
-orchestration checks its latched cancellation state before interpreting `false`
-as a generic construction failure and never publishes canceled output.
+object crossing the module contract. The synchronous module entry follows the
+UE `BuildMesh(OutRenderData, BuildParameters)` shape and runs to completion without
+cancellation controls. Physics cooking is independent of the render build module.
+The asynchronous owner may withdraw queued work and discards obsolete or canceled
+results after already-started construction finishes.
 A warm hit
 uses source identity even with unreadable canonical bulk; a miss resolves the
 captured canonical bytes and decodes them inside the registered function.
 `BuildStaticMeshRenderData` constructs owned, validated render data, including
 bounds. `CommitStaticMeshBuild` consumes that prepared
 render data on the owner thread after checking the captured source, normalization,
-material bindings and cancellation state. It does no bounds or collision
+and material bindings. The owning operation checks cancellation before committing.
+It does no bounds or collision
 construction. Resource initialization precedes live mutation. Source, slots,
 render and prevalidated import provenance become current within one consumer
 refresh boundary. A changed accepted source or normalization invalidates derived
@@ -204,8 +206,9 @@ publishes only a complete candidate. Async workers retain `ProductCause`.
 Ordinary payload Archive loading instead fills an unpublished
 destination in place: cancellation reports an error and the caller discards the
 incomplete value. Successful loading clears obsolete optional UV/color streams
-and collision leaf data. The authored wrapper latches cancellation, so an interrupted cache decode
-cannot fall through to construction or become a successful cache hit. The cancellable
+and collision leaf data. The standalone payload codecs latch cancellation, so an interrupted decode
+cannot become a successful decode. Render build shared-output validation and
+assembly run to completion and do not accept cancellation controls. The cancellable
 bounds overload is for detached construction only: false can leave partial bounds,
 and the caller must discard that candidate. No callback survives its synchronous
 call. Contiguous allocation/copy, container hashing/packing, archive I/O and
@@ -268,11 +271,12 @@ cache boundary, where decode rejection triggers rebuilding. Public payload valid
 retain typed failures for cooked loading and other non-cache callers. Public derived-data builds return
 `std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>` or
 `std::expected<FPhysicsCookResult, std::string>`.
-Render data is returned with unique ownership; render failure and cancellation return no product.
-Render construction returns ordinary failure text capped
-at 4096 bytes. Cancellation is recorded in the shared invocation token, never in
-the error. Cancelled synchronous construction returns an empty product; callers
-check the token before inspecting the result or publishing it. Application and resource
+Render construction returns a complete, non-null product with unique ownership
+or ordinary failure text capped at 4096 bytes. Synchronous render construction,
+source decoding within its recipe, and shared-output assembly run to completion.
+`BuildStaticMeshRenderData` accepts a working-set byte budget and has no cancellation
+parameter or empty-product cancellation sentinel. Cancellation belongs to asynchronous
+scheduling and result acceptance. Application and resource
 publication return `expected<void, string>` and do not accept cancellation control;
 the owning transaction or compiler checks cancellation before publication.
 Cooked publication errors retain owned diagnostic text rather than a shared failure
@@ -361,10 +365,13 @@ Import saving reports its own result and does not modify compilation history.
 Ordinary failure channels carry diagnostic strings without wrappers or cancellation
 markers. `FAssetBuildTaskContext::Cancellation` is a Core
 `FCancellationToken`; copies share a monotonic atomic flag. Observers bridge existing
-caller, scheduler and request-owner cancellation into that same flag. DDC request
-options, build contexts, CPU assembly and import sessions preserve the token. A
-cancelled synchronous render call returns empty inputs/products with no error; its caller
-checks the token first. Compiler workers retain errors only for actual failure.
+caller, scheduler and request-owner cancellation into that same flag. DDC requests
+and import sessions preserve the token; synchronous render construction and assembly
+do not receive it. A canceled request can withdraw queued work or cache acquisition,
+but an already-started CPU build or assembly completes before its owner discards
+the product. Compiler work stores an optional completed outcome: missing work and
+released results are absent, never successful null products. Compiler workers retain
+errors only for actual failure.
 All terminals require producer task completion and DDC request-owner `Poll()`;
 explicit finish uses `Wait()` after the producer has stopped submitting work.
 Finalization removes the queue record before observer code,
