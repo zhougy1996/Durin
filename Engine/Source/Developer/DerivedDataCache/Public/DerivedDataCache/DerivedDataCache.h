@@ -1,6 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
-#include "DerivedDataBuildOutput.h"
+#include "DerivedDataCacheRecord.h"
 #include "DerivedDataStatus.h"
 
 namespace Durin::DerivedData
@@ -19,7 +19,7 @@ namespace Durin::DerivedData
 	struct FCacheGetRequest
 	{
 		FCacheKey Key;
-		FBuildOutputLimits OutputLimits;
+		FCacheRecordLimits RecordLimits;
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 		ECacheGetMode Mode = ECacheGetMode::FullRecord;

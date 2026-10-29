@@ -1,5 +1,5 @@
 #include "DerivedDataCache/DerivedDataCacheMaintenance.h"
-#include "DerivedDataBuildOutput.h"
+#include "CacheRecordStorage.h"
 #include "CacheStorageOwnership.h"
 #include "CompressedCacheValue.h"
 #include "Misc/FileHelper.h"
@@ -60,7 +60,7 @@ namespace Durin::DerivedData
 			auto Verify(const FEntry& Entry) -> std::expected<void, FCacheError>
 			{
 				const auto Relative = Entry.Relative.generic_string();
-				const bool Record = Relative.starts_with("records/v4/");
+				const bool Record = Relative.starts_with(std::string(Private::CacheRecordNamespace) + "/");
 				const bool Value = Relative.starts_with("values/v1/Content/");
 				if ((!Record && !Value) || Entry.Path.extension() != ".bin")
 				{ ++Report.UnsupportedFiles; AddDiagnostic(Entry.Path, "Unsupported namespace or file; preserved."); return {}; }
@@ -71,13 +71,13 @@ namespace Durin::DerivedData
 				{
 					auto Bytes = Load(Entry.Path); if (!Bytes) return std::unexpected(Bytes.error());
 					const uint64 ManifestBytes = Bytes->GetSize();
-					const auto BucketPath = Entry.Path.parent_path().parent_path().lexically_relative(Root / "records/v4").generic_string();
+					const auto BucketPath = Entry.Path.parent_path().parent_path().lexically_relative(Root / Private::CacheRecordNamespace).generic_string();
 					const auto Key = FCacheKey::FromString(FCacheBucket::FromString(BucketPath), Entry.Path.stem().generic_string());
 					if (!Key.IsValid() || Entry.Path.parent_path().filename() != Key.ToString().substr(0, 2))
 						Valid = Error(ECacheError::Corrupt, "Manifest address is invalid.");
 					else
 					{
-						auto Manifest = FCacheRecord::DecodeManifest(Key, std::move(*Bytes), {}, Options.MaximumFileBytes);
+						auto Manifest = Private::DecodeCacheManifest(Key, std::move(*Bytes), {}, Options.MaximumFileBytes);
 						if (!Manifest) Valid = std::unexpected(Manifest.error());
 						else for (const auto& Item : Manifest->GetValues())
 						{

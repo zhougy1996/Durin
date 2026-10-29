@@ -35,17 +35,6 @@ namespace Durin::DerivedData
 		}
 	};
 
-	// Version 1 addresses trusted local blobs using XXH3-128 over raw bytes.
-	// Future cryptographic identities require a new version and storage namespace.
-	struct FCacheBlobIdentity
-	{
-		static constexpr uint32 Version = 1;
-		static constexpr std::string_view Algorithm = "xxh3-128";
-		static constexpr std::string_view Namespace = "values/v1";
-		FXxHash128 Hash;
-		auto operator==(const FCacheBlobIdentity&) const -> bool = default;
-	};
-
 	class FValue
 	{
 	public:
@@ -64,7 +53,6 @@ namespace Durin::DerivedData
 			return Result;
 		}
 		auto GetRawHash() const -> FXxHash128 { return RawHash; }
-		auto GetBlobIdentity() const -> FCacheBlobIdentity { return {RawHash}; }
 		auto GetRawSize() const -> uint64 { return RawSize; }
 		auto HasData() const -> bool { return DataPresent; }
 		auto GetData() const -> FSharedByteBuffer { return Data; }
@@ -82,10 +70,4 @@ namespace Durin::DerivedData
 		FValue Value;
 	};
 
-	struct FBuildValueKey
-	{
-		FCacheKey BuildKey;
-		FValueId Id;
-		auto operator==(const FBuildValueKey&) const -> bool = default;
-	};
 }

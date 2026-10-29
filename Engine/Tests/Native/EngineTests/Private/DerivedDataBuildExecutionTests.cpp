@@ -1,3 +1,5 @@
+#include "BuildServiceBackendPrivate.h"
+#include "BuildCacheRecordPrivate.h"
 #include "CacheDispatchPrivate.h"
 #include "DerivedDataBuildSession.h"
 #include "Serialization/CompactBinary.h"
@@ -93,7 +95,7 @@ TEST(FBuildExecutionTests, DescriptorOnlyRecordFallsBackAndIsReplacedByCompleteO
 	EXPECT_EQ(H.Cache->Puts, 2u);
 	ASSERT_TRUE(H.Cache->Stored);
 	ASSERT_NE(Result.GetCacheKey(), nullptr);
-	EXPECT_TRUE(H.Cache->Stored->ToOutput(*Result.GetCacheKey()));
+	EXPECT_TRUE(Durin::DerivedData::Private::ReadBuildOutput(*Result.GetCacheKey(), *H.Cache->Stored));
 	EXPECT_TRUE(HasBuildExecutionFlag(H.Run().GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
 	EXPECT_EQ(H.Function->Builds, 2u);
 }

@@ -15,27 +15,29 @@ Public cache requests use `ICache::Get`/`Put` with an owner and one status-beari
 response per item. Synchronous hit/miss/error results, cancellation predicates,
 per-query statistics, and dispatch handles are private backend concerns.
 
-Persistent cache requests use `records/v4/<bucket>/<prefix>/<action-hash>.bin`
-manifests and `values/v1/Content/<prefix>/<raw-hash>.bin` content blobs. Values
-share storage across records and buckets. `DDBM` schema 2 wraps a canonical Durin
-CB object in the 16-byte binary header and an XXH3-128 integrity trailer.
-The CB object has exactly `Bucket`, binary `Key`, `OutputSchema`, unsigned
-`OutputVersion`, and `Values`, `Metadata`, `Messages` arrays. Each value object
-contains object-ID `Id`, unsigned `RawSize`, and `Attachment`; the attachment
-contains `Version=1`, `Algorithm="xxh3-128"`, `Namespace="values/v1"`, and binary
-16-byte `Hash` over raw content (low then high 64-bit word, little endian).
-Metadata entries contain `Id` and nested `Object`; messages contain unsigned
-`Severity` and `Text`. Unknown fields/types/identity versions, non-canonical
-tables, and logical limits are rejected. Nested metadata shares manifest storage;
-logical metadata budgets exclude the enclosing CB field name. The envelope is
-bounded to 8 MiB of CB, depth 40, and 700,000 fields; family metadata keeps its
-own 4 MiB/depth-32/4,096-field limits. It contains no value
-payloads. Decoding validates ordering, IDs, schema, metadata, messages, and total
-logical raw output limits before requesting blobs. Full-record Get resolves and
-validates every value before returning; missing required blobs are rejected and
-follow the normal build fallback path.
-`records/v3` is cold-invalidated without migration or deletion; existing value
-blobs remain reusable. This is a Durin format, with no UE wire-compatibility claim.
+`DerivedDataCacheRecord.h` defines immutable `FCacheRecord`, its builder, and
+`FCacheRecordLimits` independently of Build. A record contains a key, one opaque
+Compact Binary metadata object, and ID-addressed values. It exposes no producer
+schema, build messages, Build conversion, or wire-format methods. Cache requests
+use record limits rather than `FBuildOutputLimits`.
+
+Persistent requests use `records/v5/<bucket>/<prefix>/<action-hash>.bin` manifests
+and `values/v1/Content/<prefix>/<raw-hash>.bin` content blobs. Values share storage
+across records and buckets. Private `CacheRecordStorage.h` owns `DDBM` schema 3:
+a canonical CB object inside a 16-byte binary header and XXH3-128 trailer. The
+object has exactly `Bucket`, binary `Key`, opaque object `Meta`, and `Values`.
+Each value contains object-ID `Id`, unsigned `RawSize`, and `Attachment`; its
+attachment contains `Version=1`, `Algorithm="xxh3-128"`, `Namespace="values/v1"`,
+and a binary 16-byte raw-content hash. Unknown fields/types/identity versions,
+non-canonical value tables, and record limits are rejected before blob reads.
+The cache never interprets fields inside `Meta`.
+
+Metadata shares manifest storage; logical metadata budgets exclude its enclosing
+CB field name. A manifest is bounded to 8 MiB of CB, depth 40, and 700,000 fields.
+Full-record Get resolves and validates every value; missing required blobs follow
+the normal build fallback path. Older record namespaces, including `records/v4`,
+are cold misses without migration or deletion; value blobs remain reusable.
+This is a Durin format, with no UE wire-compatibility claim.
 `FCacheBlobIdentity` versions blob addressing independently of action/source
 identity and codec envelopes. Version 1 is supported only for trusted local
 storage: its non-cryptographic hashes detect accidental corruption. A shared or
@@ -49,7 +51,7 @@ unique non-null required IDs in any order, resolves only those blobs, and leaves
 other values as references. An empty selection is equivalent to metadata-only.
 Unknown required IDs or missing selected blobs return `MissingValue`; an absent
 manifest remains a normal miss. Invalid or duplicate selections fail before I/O.
-All modes validate the entire manifest against logical output limits; selection
+All modes validate the entire manifest against generic record limits; selection
 narrows physical reads and resident data, not the output schema's validity bounds.
 Partial records cannot convert to complete build outputs. Build execution always
 requests a full record and retains its existing rejected-record rebuild fallback.
@@ -105,10 +107,9 @@ Existing manifests remain visible when a replacement fails. Already published
 blobs from a failed request may remain orphaned.
 
 Raw, encoded, and payload/codec working-set limits are separate. Raw limits count
-logical output values, metadata, and message bytes. Encoded limits count the
+logical value bytes and the opaque metadata object. Encoded limits count the
 manifest plus each distinct requested blob identity/raw-size pair.
-Persistence workspace counts distinct retained source buffer capacities, resident
-messages, the manifest, candidate/final encoding buffers, and estimated Zstd
+Persistence workspace counts distinct retained source buffer capacities, the opaque metadata buffer, the manifest, candidate/final encoding buffers, and estimated Zstd
 context memory. Manifest encoding preflights eight times its bounded size
 estimate for CB child/container copies, independently of its encoded-byte bound.
 Read workspace counts the retained manifest, already resolved
@@ -133,9 +134,9 @@ publication-failure, and concurrent read/write tests cover the current policy.
 
 Legacy namespaces are cold misses with no compatibility read or rewrite path.
 The historical schema-2 whole-record codec is available only through the private
-`CacheRecordFixtureCodec.h` test fixture boundary. Production record APIs expose
-structured outputs, manifests, and value attachments; production consumers do not
-encode, compress, or decode whole records.
+`CacheRecordFixtureCodec.h` test fixture boundary. Public record APIs expose only generic records and values. Build interpretation lives
+in its private adapter; manifests, compression, attachment namespace/versioning,
+and historical fixture formats remain private.
 
 ## Bounded diagnostics
 
@@ -190,7 +191,7 @@ from a cache user or prior inspection. No active operation is canceled or waited
 
 - Inspect reports `records/` and `values/` file counts/encoded sizes, including
   legacy namespaces; unknown root siblings are counted but never traversed.
-- Verify validates current `records/v4` manifests, required blob identities/sizes,
+- Verify validates current `records/v5` manifests, required blob identities/sizes,
   and every current `values/v1` blob, including orphans. It checks raw content as
   well as envelopes. Missing content, corruption, and unsupported files are explicit
   counts; unsupported/legacy files are preserved and do not produce a valid report.

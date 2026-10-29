@@ -85,7 +85,7 @@ namespace Durin
 				<< " producer=" << *Producer << std::endl;
 		}
 		std::vector<std::filesystem::path> NativeRecords;
-		for (const auto& Entry : std::filesystem::recursive_directory_iterator(Root / "DDC" / "records" / "v4" / "Shader"))
+		for (const auto& Entry : std::filesystem::recursive_directory_iterator(Root / "DDC" / "records" / "v5" / "Shader"))
 			if (Entry.is_regular_file() && Entry.path().extension() == ".bin") NativeRecords.push_back(Entry.path());
 		ASSERT_EQ(NativeRecords.size(), 1u);
 		{ std::ofstream Corrupt(NativeRecords.front(), std::ios::binary | std::ios::trunc); Corrupt << "corrupt"; ASSERT_TRUE(Corrupt.good()); }

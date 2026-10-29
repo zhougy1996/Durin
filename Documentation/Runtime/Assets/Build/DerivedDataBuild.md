@@ -182,8 +182,15 @@ The cache validates and decodes persisted bytes before
 returning a record. Cache-query failures are logged by DDC before the build falls
 back; their internal reason is not returned as completion data.
 
-Persistence converts the validated build output into a keyed record and submits
-that record to the cache. The cache encodes, compresses, and stores it. Record or
+The private `BuildCacheRecordPrivate.h` adapter converts validated Build output
+into a generic keyed record. Its opaque metadata stores the build format marker,
+output schema/version, metadata table, and deterministic messages. The inverse
+adapter validates this structure and retains existing immutable values without
+rehashing their payloads. Transient logs and observations never enter the record.
+Only the Build layer interprets these fields; cache storage validates generic
+record/attachment integrity. Partial cache queries may inspect the private build
+metadata view without claiming their unresolved values form a complete output.
+The adapter submits the resulting record to the cache. The cache encodes, compresses, and stores it. Record or
 cache-store failure cannot discard an already validated local output; completion
 remains successful and DDC logs the store failure. Fresh invalid producer output
 and outputs containing errors or transient logs never reach persistence.

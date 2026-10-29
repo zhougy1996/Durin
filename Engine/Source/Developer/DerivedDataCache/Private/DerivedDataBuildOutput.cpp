@@ -1,15 +1,12 @@
 #include "DerivedDataBuildOutput.h"
-#include "CacheRecordFixtureCodec.h"
+#include "BuildCacheRecordPrivate.h"
 #include "DerivedDataBuildValidation.h"
 #include "Serialization/BinaryFormat.h"
-#include <zstd.h>
 
 namespace Durin::DerivedData
 {
 	namespace
 	{
-		constexpr uint32 CacheRecordMagic = 0x52424444; // DDBR
-		constexpr uint32 CacheRecordSchema = 2;
 		auto IsIdentifier(std::string_view Id) -> bool { return Private::IsBuildValueIdentifier(Id); }
 		auto CanonicalObjectBytes(const FSharedByteBuffer& Bytes) -> uint64
 		{
@@ -18,13 +15,6 @@ namespace Durin::DerivedData
 			uint32 NameBytes = 0;
 			if (!ReadLittleEndianAt(Bytes.GetBytes(), 1, NameBytes)) return Bytes.GetSize();
 			return Bytes.GetSize() - NameBytes;
-		}
-		auto CanonicalObjectEncoding(FSharedByteBuffer Bytes) -> FSharedByteBuffer
-		{
-			const auto Size = CanonicalObjectBytes(Bytes); if (Size == Bytes.GetSize()) return Bytes;
-			FBinaryWriter W; W.WriteU8(uint8(ECbFieldType::Object)); W.WriteU32(0); W.WriteU64(Size - 13);
-			W.WriteBytes(Bytes.MakeView(Bytes.GetSize() - Size + 13, Size - 13).GetBytes());
-			return FSharedByteBuffer::Take(W.TakeBytes());
 		}
 		auto IsValidMessage(const FBuildOutputMessage& Message) -> bool
 		{
@@ -61,13 +51,6 @@ namespace Durin::DerivedData
 	{ FCbWriter Writer; Writer.AddBinary(std::move(Payload), "Payload"); return Writer.SaveObject(); }
 	auto GetBuildMetadataPayload(const FBuildOutput& Output, FValueId Id) -> FSharedByteBuffer
 	{ const auto Field = Output.FindMeta(Id).Find("Payload"); const auto Payload = Field.AsBinary(); return Payload ? *Payload : FSharedByteBuffer{}; }
-	auto GetBuildMetadataPayload(const FCacheRecord& Record, FValueId Id) -> FSharedByteBuffer
-	{
-		const auto Metadata = Record.GetMetadata();
-		const auto It = std::ranges::lower_bound(Metadata, Id, {}, &FBuildOutputMeta::Id);
-		if (It == Metadata.end() || It->Id != Id) return {};
-		return It->Object.GetView().Find("Payload").AsBinary().value_or(FSharedByteBuffer{});
-	}
 
 	template<typename T>
 	static auto Validate(const T& Data, FBuildOutputLimits Limits, bool RequireData = true)
@@ -223,277 +206,18 @@ namespace Durin::DerivedData
 	auto FBuildOutput::FindValue(FValueId Id) const -> const FValue* { const auto Values = GetValues(); const auto It = std::ranges::lower_bound(Values, Id, {}, &FValueWithId::Id); return It != Values.end() && It->Id == Id ? &It->Value : nullptr; }
 	auto FBuildOutput::FindMeta(FValueId Id) const -> FCbObjectView { const auto Meta = GetMetadata(); const auto It = std::ranges::lower_bound(Meta, Id, {}, &FBuildOutputMeta::Id); return It != Meta.end() && It->Id == Id ? It->Object.GetView() : FCbObjectView{}; }
 
-	struct FCacheRecord::FState
+
+	auto Private::FBuildCacheRecordAccess::Restore(FBuildCacheRecordView View, FBuildOutputLimits Limits) -> std::expected<FBuildOutput, FCacheError>
 	{
-		FCacheKey Key;
-		std::string Schema;
-		uint32 SchemaVersion = 0;
-		std::vector<FValueWithId> Values;
-		std::vector<FBuildOutputMeta> Metadata;
-		std::vector<FBuildOutputMessage> Messages;
-	};
-	auto FCacheRecord::FromOutput(const FCacheKey& Key, const FBuildOutput& Output, FBuildOutputLimits Limits) -> std::expected<FCacheRecord, FCacheError>
-	{
-		if (!Key.IsValid() || !Output.IsValid()) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record requires a key and output."});
-		if (Output.HasLogs()) return std::unexpected(FCacheError{ECacheError::InvalidRequest,
-			"Build outputs with transient logs cannot be cached."});
-		if (auto Valid = Output.CheckLimits(Limits); !Valid) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, std::move(Valid.error())});
-		auto Data = std::make_shared<FState>();
-		Data->Key = Key;
-		Data->Schema = Output.State->Schema;
-		Data->SchemaVersion = Output.State->SchemaVersion;
-		Data->Values = Output.State->Values;
-		Data->Metadata = Output.State->Metadata;
-		Data->Messages = Output.State->Messages;
-		FCacheRecord Result; Result.State = std::move(Data); return Result;
-	}
-	auto FCacheRecord::ToOutput(const FCacheKey& ExpectedKey, FBuildOutputLimits Limits) const -> std::expected<FBuildOutput, FCacheError>
-	{
-		if (!State || State->Key != ExpectedKey) return std::unexpected(FCacheError{ECacheError::Corrupt, "Cache record key mismatch."});
-		if (std::ranges::any_of(State->Values, [](const auto& Item) { return !Item.Value.HasData(); }))
-			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record has unresolved value references."});
 		auto Data = std::make_shared<FBuildOutput::FState>();
-		Data->Schema = State->Schema;
-		Data->SchemaVersion = State->SchemaVersion;
-		Data->Values = State->Values;
-		Data->Metadata = State->Metadata;
-		Data->Messages = State->Messages;
+		Data->Schema = std::move(View.Schema);
+		Data->SchemaVersion = View.SchemaVersion;
+		Data->Values.assign(View.Record.GetValues().begin(), View.Record.GetValues().end());
+		Data->Metadata = std::move(View.Metadata);
+		Data->Messages = std::move(View.Messages);
 		if (auto Valid = Validate(*Data, Limits); !Valid) return std::unexpected(FCacheError{ECacheError::Corrupt, std::move(Valid.error())});
-		FBuildOutput Output; Output.State = std::move(Data); return Output;
+		FBuildOutput Result;
+		Result.State = std::move(Data);
+		return Result;
 	}
-	auto FCacheRecord::FindMeta(FValueId Id) const -> FCbObjectView
-	{
-		const auto Metadata = GetMetadata(); const auto It = std::ranges::lower_bound(Metadata, Id, {}, &FBuildOutputMeta::Id);
-		return It != Metadata.end() && It->Id == Id ? It->Object.GetView() : FCbObjectView{};
-	}
-	auto FCacheRecord::RemoveValueData() const -> FCacheRecord
-	{
-		if (!State) return {};
-		auto Data = std::make_shared<FState>(*State);
-		for (auto& Item : Data->Values) Item.Value = Item.Value.RemoveData();
-		FCacheRecord Result; Result.State = std::move(Data); return Result;
-	}
-	namespace
-	{
-		constexpr uint64 MaximumManifestBytes = 8ull * 1024 * 1024;
-		auto ManifestLimits(uint64 Bytes) -> FCbLimits
-		{ return {.MaximumEncodedBytes = std::min(Bytes, MaximumManifestBytes), .MaximumDepth = 40, .MaximumFields = 700000}; }
-		auto HashBytes(FXxHash128 Hash) -> FSharedByteBuffer
-		{ FBinaryWriter W; W.WriteHash128(Hash); return FSharedByteBuffer::Take(W.TakeBytes()); }
-		auto ReadHash(FCbFieldView Field) -> std::optional<FXxHash128>
-		{
-			const auto Bytes = Field.AsBinary(); if (!Bytes || Bytes->GetSize() != 16) return {};
-			FBinaryReader R(Bytes->GetBytes()); FXxHash128 Hash; if (!R.ReadHash128(Hash)) return {}; return Hash;
-		}
-	}
-
-	auto FCacheRecord::EncodeManifest(uint64 MaximumBytes, uint64 MaximumWorkingBytes) const -> std::expected<FSharedByteBuffer, FCacheError>
-	try
-	{
-		auto TooLarge = [] { return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Manifest exceeds encoded or CB workspace budget."}); };
-		if (!State) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Manifest requires a record."});
-		// CB writers retain child entries and copy containers while freezing them.
-		// Bound these copies before allocation, independently of the wire budget.
-		uint64 Estimate = 1024 + State->Values.size() * 512;
-		for (const auto& Item : State->Metadata) Estimate += 100 + Item.Object.GetBytes().GetSize();
-		for (const auto& Item : State->Messages) Estimate += 100 + Item.Text.size();
-		if (MaximumBytes < 32 || Estimate > MaximumWorkingBytes / 8) return TooLarge();
-		const auto Limits = ManifestLimits(MaximumBytes - 32);
-		FCbWriter Root(Limits), Values(Limits), Metadata(Limits), Messages(Limits);
-		Root.AddString(std::string(State->Key.GetBucket().ToString()), "Bucket");
-		Root.AddBinary(HashBytes(State->Key.GetHash()), "Key");
-		Root.AddString(State->Schema, "OutputSchema"); Root.AddUInt64(State->SchemaVersion, "OutputVersion");
-		for (const auto& Item : State->Values)
-		{
-			const auto Identity = Item.Value.GetBlobIdentity(); FCbWriter Attachment(Limits), Value(Limits);
-			Attachment.AddUInt64(Identity.Version, "Version"); Attachment.AddString(std::string(Identity.Algorithm), "Algorithm");
-			Attachment.AddString(std::string(Identity.Namespace), "Namespace"); Attachment.AddBinary(HashBytes(Identity.Hash), "Hash");
-			auto Ref = Attachment.SaveObject(); if (!Ref) return TooLarge();
-			Value.AddObjectId({Item.Id.GetBytes()}, "Id"); Value.AddUInt64(Item.Value.GetRawSize(), "RawSize"); Value.AddObject(std::move(*Ref), "Attachment");
-			auto Object = Value.SaveObject(); if (!Object || !Values.AddObject(std::move(*Object))) return TooLarge();
-		}
-		for (const auto& Item : State->Metadata)
-		{
-			FCbWriter Meta(Limits); Meta.AddObjectId({Item.Id.GetBytes()}, "Id"); Meta.AddObject(Item.Object, "Object");
-			auto Object = Meta.SaveObject(); if (!Object || !Metadata.AddObject(std::move(*Object))) return TooLarge();
-		}
-		for (const auto& Item : State->Messages)
-		{
-			FCbWriter Message(Limits); Message.AddUInt64(uint8(Item.Severity), "Severity"); Message.AddString(Item.Text, "Text");
-			auto Object = Message.SaveObject(); if (!Object || !Messages.AddObject(std::move(*Object))) return TooLarge();
-		}
-		auto ValueArray = Values.SaveArray(); auto MetaArray = Metadata.SaveArray(); auto MessageArray = Messages.SaveArray();
-		if (!ValueArray || !MetaArray || !MessageArray) return TooLarge();
-		Root.AddArray(std::move(*ValueArray), "Values"); Root.AddArray(std::move(*MetaArray), "Metadata"); Root.AddArray(std::move(*MessageArray), "Messages");
-		auto Object = Root.SaveObject(); if (!Object) return TooLarge();
-		FBinaryWriter W({.MaximumTotalBytes = MaximumBytes}); W.Reserve(Object->GetBytes().GetSize() + 32);
-		W.WriteHeader({0x4d424444, 2, 0}); W.WriteBytes(Object->GetBytes().GetBytes());
-		W.WriteHash128(FXxHash128::HashBuffer(W.GetBytes())); if (W.HasError()) return TooLarge();
-		return FSharedByteBuffer::Take(W.TakeBytes());
-	}
-	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Manifest allocation failed."}); }
-
-	auto FCacheRecord::DecodeManifest(const FCacheKey& ExpectedKey, FSharedByteBuffer Bytes,
-		FBuildOutputLimits Limits, uint64 MaximumBytes) -> std::expected<FCacheRecord, FCacheError>
-	try
-	{
-		auto Corrupt = [] { return std::unexpected(FCacheError{ECacheError::Corrupt, "Cache manifest is malformed or has an unsupported attachment identity."}); };
-		if (!ExpectedKey.IsValid() || Bytes.GetSize() < 49 || Bytes.GetSize() > MaximumBytes || Bytes.GetSize() > MaximumManifestBytes + 32) return Corrupt();
-		const uint64 BodySize = Bytes.GetSize() - 16;
-		FBinaryReader Trailer(Bytes.MakeView(BodySize, 16).GetBytes()); FXxHash128 Hash;
-		if (!Trailer.ReadHash128(Hash) || Hash != FXxHash128::HashBuffer(Bytes.MakeView(0, BodySize).GetBytes())) return Corrupt();
-		FBinaryReader Header(Bytes.MakeView(0, 16).GetBytes()); if (!Header.ReadAndValidateHeader(0x4d424444, 2, 0)) return Corrupt();
-		auto Object = FCbObject::TryLoad(Bytes.MakeView(16, BodySize - 16), ManifestLimits(MaximumBytes)); if (!Object) return Corrupt();
-		const auto Root = Object->GetView(); const auto Bucket = Root.Find("Bucket").AsString(); const auto Key = ReadHash(Root.Find("Key"));
-		const auto Schema = Root.Find("OutputSchema").AsString(); const auto Version = Root.Find("OutputVersion").AsUInt64();
-		const auto Values = Root.Find("Values").AsArray(); const auto Metadata = Root.Find("Metadata").AsArray(); const auto Messages = Root.Find("Messages").AsArray();
-		if (Root.Num() != 7 || !Bucket || *Bucket != ExpectedKey.GetBucket().ToString() || !Key || *Key != ExpectedKey.GetHash()
-			|| !Schema || !Version || *Version > UINT32_MAX || !Values.IsValid() || !Metadata.IsValid() || !Messages.IsValid()
-			|| Values.Num() > std::min<uint32>(Limits.MaximumValues, 4096) || Metadata.Num() > std::min<uint32>(Limits.MaximumMetadata, 4096)
-			|| Messages.Num() > std::min<uint32>(Limits.MaximumMessages, 128)) return Corrupt();
-		auto Data = std::make_shared<FState>(); Data->Key = ExpectedKey; Data->Schema = std::string(*Schema); Data->SchemaVersion = uint32(*Version);
-		for (const auto& Field : Values.GetFields())
-		{
-			const auto Value = Field.AsObject(); const auto Id = Value.Find("Id").AsObjectId(); const auto Size = Value.Find("RawSize").AsUInt64();
-			const auto Attachment = Value.Find("Attachment").AsObject(); const auto RawHash = ReadHash(Attachment.Find("Hash"));
-			if (Value.Num() != 3 || !Id || !Size || Attachment.Num() != 4 || !RawHash
-				|| Attachment.Find("Version").AsUInt64() != FCacheBlobIdentity::Version
-				|| Attachment.Find("Algorithm").AsString() != FCacheBlobIdentity::Algorithm
-				|| Attachment.Find("Namespace").AsString() != FCacheBlobIdentity::Namespace) return Corrupt();
-			Data->Values.push_back({FValueId::FromBytes(Id->Bytes), FValue::FromReference(*RawHash, *Size)});
-		}
-		uint64 MetaBytes = 0;
-		for (const auto& Field : Metadata.GetFields())
-		{
-			const auto Meta = Field.AsObject(); const auto Id = Meta.Find("Id").AsObjectId(); const auto Stored = Meta.Find("Object");
-			if (Meta.Num() != 2 || !Id || !Stored.AsObject().IsValid()) return Corrupt();
-			const auto Size = CanonicalObjectBytes(Stored.GetBytes());
-			if (Size > std::min<uint64>(Limits.MaximumMetadataBytes, 4ull * 1024 * 1024) - MetaBytes) return Corrupt();
-			// Retain the immutable nested object, including its enclosing field name.
-			auto Loaded = FCbObject::TryLoad(Stored.GetBytes(), {.MaximumEncodedBytes = Stored.GetBytes().GetSize()}); if (!Loaded) return Corrupt();
-			Data->Metadata.push_back({FValueId::FromBytes(Id->Bytes), std::move(*Loaded)}); MetaBytes += Size;
-		}
-		for (const auto& Field : Messages.GetFields())
-		{
-			const auto Message = Field.AsObject(); const auto Severity = Message.Find("Severity").AsUInt64(); const auto Text = Message.Find("Text").AsString();
-			if (Message.Num() != 2 || !Severity || *Severity > uint8(EBuildMessageSeverity::Error) || !Text || Text->size() > 4096) return Corrupt();
-			Data->Messages.push_back({EBuildMessageSeverity(*Severity), std::string(*Text)});
-		}
-		if (!Validate(*Data, Limits, false)) return Corrupt();
-		FCacheRecord Record; Record.State = std::move(Data); return Record;
-	}
-	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Manifest allocation failed."}); }
-	auto FCacheRecord::WithValues(std::span<const FValueWithId> Values) const -> std::expected<FCacheRecord, FCacheError>
-	{
-		if (!State || Values.size() != State->Values.size())
-			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Record resolution requires all values."});
-		return WithSelectedValues(Values);
-	}
-	auto FCacheRecord::WithSelectedValues(std::span<const FValueWithId> Values) const -> std::expected<FCacheRecord, FCacheError>
-	{
-		if (!State) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Record is empty."});
-		auto Data = std::make_shared<FState>(*State); FValueId Previous;
-		for (const auto& Actual : Values)
-		{
-			const auto It = std::ranges::lower_bound(Data->Values, Actual.Id, {}, &FValueWithId::Id);
-			if (Actual.Id.IsNull() || (!Previous.IsNull() && Previous >= Actual.Id) || It == Data->Values.end()
-				|| It->Id != Actual.Id || !Actual.Value.HasData() || It->Value.GetRawHash() != Actual.Value.GetRawHash()
-				|| It->Value.GetRawSize() != Actual.Value.GetRawSize())
-				return std::unexpected(FCacheError{ECacheError::Corrupt, "Resolved value identity mismatch."});
-			Previous = Actual.Id; It->Value = Actual.Value;
-		}
-		FCacheRecord Record; Record.State = std::move(Data); return Record;
-	}
-	auto FCacheRecord::FindValue(FValueId Id) const -> const FValue*
-	{
-		const auto Values = GetValues(); const auto It = std::ranges::lower_bound(Values, Id, {}, &FValueWithId::Id);
-		return It != Values.end() && It->Id == Id ? &It->Value : nullptr;
-	}
-
-	auto FCacheRecordFixtureCodec::Encode(const FCacheRecord& Record, uint64 MaximumBytes) -> std::expected<FSharedByteBuffer, FCacheError>
-	try
-	{
-		if (!Record.IsValid()) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record is empty."});
-		if (std::ranges::any_of(Record.GetValues(), [](const auto& Item) { return !Item.Value.HasData(); }))
-			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Schema-2 encoding requires resident value data."});
-		const auto& Output = Record;
-		std::vector<FSharedByteBuffer> Metadata;
-		for (const auto& Item : Output.GetMetadata()) Metadata.push_back(CanonicalObjectEncoding(Item.Object.GetBytes()));
-		FBinaryWriter W({.MaximumTotalBytes = MaximumBytes}); W.WriteHeader({CacheRecordMagic, CacheRecordSchema, 0});
-		W.WriteString(Record.GetKey().GetBucket().ToString()); W.WriteHash128(Record.GetKey().GetHash()); W.WriteString(Output.GetSchema()); W.WriteU32(Output.GetSchemaVersion());
-		W.WriteU32(uint32(Output.GetValues().size())); W.WriteU32(uint32(Output.GetMetadata().size())); W.WriteU32(uint32(Output.GetMessages().size()));
-		for (const auto& Item : Output.GetValues()) { W.WriteBytes(std::as_bytes(std::span(Item.Id.GetBytes()))); W.WriteU64(Item.Value.GetRawSize()); W.WriteHash128(Item.Value.GetRawHash()); }
-		for (size_t Index = 0; Index < Output.GetMetadata().size(); ++Index)
-		{ W.WriteBytes(std::as_bytes(std::span(Output.GetMetadata()[Index].Id.GetBytes()))); W.WriteU64(Metadata[Index].GetSize()); W.WriteHash128(FXxHash128::HashBuffer(Metadata[Index].GetBytes())); }
-		for (const auto& M : Output.GetMessages()) { W.WriteU8(uint8(M.Severity)); W.WriteString(M.Text); }
-		for (const auto& Item : Output.GetValues()) W.WriteBytes(Item.Value.GetData().GetBytes());
-		for (const auto& Object : Metadata) W.WriteBytes(Object.GetBytes());
-		if (W.HasError()) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache record encoding exceeds its byte budget."});
-		const auto Hash = FXxHash128::HashBuffer(W.GetBytes()); W.WriteHash128(Hash);
-		if (W.HasError()) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache record trailer exceeds its byte budget."});
-		return FSharedByteBuffer::Take(W.TakeBytes());
-	}
-	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Allocation"}); }
-
-	auto FCacheRecordFixtureCodec::CompressEncoded(const FSharedByteBuffer& Raw, uint64 MaximumBytes) -> std::expected<FSharedByteBuffer, FCacheError>
-	try
-	{
-		FBinaryReader R(Raw.GetBytes()); if (!R.ReadAndValidateHeader(CacheRecordMagic, CacheRecordSchema, 0)) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Compression requires a raw cache record."});
-		constexpr uint64 FrameBytes = 40; if (Raw.GetSize() > MaximumBytes || MaximumBytes <= FrameBytes) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache record compression exceeds its byte budget."});
-		FByteBuffer Compressed(std::min<uint64>(ZSTD_compressBound(Raw.size()), MaximumBytes - FrameBytes));
-		const size_t Size = ZSTD_compress(Compressed.data(), Compressed.size(), Raw.data(), Raw.size(), 3);
-		if (ZSTD_isError(Size)) return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache record compression failed."});
-		Compressed.resize(Size); FBinaryWriter W({.MaximumTotalBytes = MaximumBytes}); W.WriteHeader({CacheRecordMagic, CacheRecordSchema, 1}); W.WriteU64(Raw.GetSize()); W.WriteBytes(Compressed); W.WriteHash128(FXxHash128::HashBuffer(W.GetBytes()));
-		if (W.HasError()) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Compressed cache record exceeds its byte budget."}); return FSharedByteBuffer::Take(W.TakeBytes());
-	}
-	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Allocation"}); }
-
-	auto FCacheRecordFixtureCodec::Decode(const FCacheKey& ExpectedKey, FSharedByteBuffer Bytes, FBuildOutputLimits Limits, uint64 MaximumBytes) -> std::expected<FCacheRecord, FCacheError>
-	try
-	{
-		auto Corrupt = [] { return std::unexpected(FCacheError{ECacheError::Corrupt, "Cache record envelope is malformed or unsupported."}); };
-		if (!ExpectedKey.IsValid()) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record requires an action key."});
-		if (Bytes.GetSize() > MaximumBytes || Bytes.GetSize() < 32) return Corrupt();
-		const uint64 BodySize = Bytes.GetSize() - 16; FBinaryReader Trailer(Bytes.MakeView(BodySize, 16).GetBytes()); FXxHash128 Hash;
-		if (!Trailer.ReadHash128(Hash) || Hash != FXxHash128::HashBuffer(Bytes.MakeView(0, BodySize).GetBytes())) return Corrupt();
-		uint32 Format = 0; if (!ReadLittleEndianAt(Bytes.GetBytes(), 8, Format)) return Corrupt();
-		if (Format == 1)
-		{
-			FBinaryReader R(Bytes.MakeView(0, BodySize).GetBytes(), {.MaximumTotalBytes = MaximumBytes}); uint64 Size = 0; FByteView Frame;
-			if (!R.ReadAndValidateHeader(CacheRecordMagic, CacheRecordSchema, 1) || !R.ReadU64(Size) || Size > MaximumBytes || !R.ReadRegion(Frame, R.GetRemainingBytes(), MaximumBytes) || ZSTD_getFrameContentSize(Frame.data(), Frame.size()) != Size || ZSTD_findFrameCompressedSize(Frame.data(), Frame.size()) != Frame.size()) return Corrupt();
-			FByteBuffer Raw(Size); if (ZSTD_decompress(Raw.data(), Raw.size(), Frame.data(), Frame.size()) != Size) return Corrupt(); return Decode(ExpectedKey, FSharedByteBuffer::Take(std::move(Raw)), Limits, MaximumBytes);
-		}
-		FBinaryReader R(Bytes.MakeView(0, BodySize).GetBytes(), {.MaximumTotalBytes = MaximumBytes}); std::string Bucket, Schema; FXxHash128 KeyHash; uint32 Version = 0, ValueCount = 0, MetaCount = 0, MessageCount = 0;
-		if (!R.ReadAndValidateHeader(CacheRecordMagic, CacheRecordSchema, 0) || !R.ReadString(Bucket, FCacheBucket::MaximumNameLength) || !R.ReadHash128(KeyHash) || Bucket != ExpectedKey.GetBucket().ToString() || KeyHash != ExpectedKey.GetHash() || !R.ReadString(Schema, 96) || !R.ReadU32(Version) || !R.ReadU32(ValueCount) || !R.ReadU32(MetaCount) || !R.ReadU32(MessageCount) || ValueCount > Limits.MaximumValues || MetaCount > Limits.MaximumMetadata || MessageCount > Limits.MaximumMessages) return Corrupt();
-		struct FDescriptor { FValueId Id; uint64 Size; FXxHash128 Hash; }; std::vector<FDescriptor> Values(ValueCount), Meta(MetaCount);
-		auto ReadDescriptors = [&](auto& List) { for (auto& D : List) { FByteView Id; if (!R.ReadRegion(Id, 12, 12) || !R.ReadU64(D.Size) || !R.ReadHash128(D.Hash)) return false; std::array<uint8, 12> Raw{}; for (size_t I = 0; I < 12; ++I) Raw[I] = uint8(Id[I]); D.Id = FValueId::FromBytes(Raw); } return true; };
-		if (!ReadDescriptors(Values) || !ReadDescriptors(Meta)) return Corrupt();
-		std::vector<FBuildOutputMessage> Messages(MessageCount); for (auto& M : Messages) { uint8 S; if (!R.ReadU8(S) || !R.ReadString(M.Text, 4096)) return Corrupt(); M.Severity = EBuildMessageSeverity(S); }
-		FBuildOutputBuilder Builder(std::move(Schema), Version, Limits); uint64 Offset = R.Tell();
-		for (const auto& D : Values)
-		{
-			if (D.Size > BodySize - Offset) return Corrupt();
-			auto Data = Bytes.MakeView(Offset, D.Size);
-			if (!Builder.AddValue(D.Id, std::move(Data))) return Corrupt();
-			Offset += D.Size;
-		}
-		for (const auto& D : Meta) { if (D.Size > BodySize - Offset) return Corrupt(); auto Data = Bytes.MakeView(Offset, D.Size); if (FXxHash128::HashBuffer(Data.GetBytes()) != D.Hash) return Corrupt(); auto Object = FCbObject::TryLoad(Data); if (!Object || !Builder.AddMeta(D.Id, std::move(*Object))) return Corrupt(); Offset += D.Size; }
-		if (Offset != BodySize) return Corrupt(); for (auto& M : Messages) if (!Builder.AddMessage(M.Severity, std::move(M.Text))) return Corrupt(); auto Output = std::move(Builder).Build(); if (!Output) return Corrupt();
-		// Inspect the validated public values instead of accessing builder internals
-		// or hashing their immutable payloads a second time in this fixture codec.
-		for (const auto& D : Values)
-		{
-			const auto* Value = Output->FindValue(D.Id);
-			if (!Value || Value->GetRawHash() != D.Hash) return Corrupt();
-		}
-		return FCacheRecord::FromOutput(ExpectedKey, *Output, Limits);
-	}
-	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Allocation"}); }
-
-	auto FCacheRecord::GetKey() const -> FCacheKey { return State ? State->Key : FCacheKey{}; }
-	auto FCacheRecord::GetSchema() const -> std::string_view { return State ? State->Schema : std::string_view{}; }
-	auto FCacheRecord::GetSchemaVersion() const -> uint32 { return State ? State->SchemaVersion : 0; }
-	auto FCacheRecord::GetMetadata() const -> std::span<const FBuildOutputMeta> { return State ? std::span(State->Metadata) : std::span<const FBuildOutputMeta>{}; }
-	auto FCacheRecord::GetMessages() const -> std::span<const FBuildOutputMessage> { return State ? std::span(State->Messages) : std::span<const FBuildOutputMessage>{}; }
-	auto FCacheRecord::GetValues() const -> std::span<const FValueWithId> { return State ? std::span(State->Values) : std::span<const FValueWithId>{}; }
 }

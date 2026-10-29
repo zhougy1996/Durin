@@ -210,7 +210,7 @@ namespace
 		const std::string Key = GetTextureDerivedDataKey(Texture);
 		EXPECT_GE(Key.size(), 2u);
 		return std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
-			/ "records" / "v4" / "Texture2D" / Key.substr(0, 2) / (Key + ".bin");
+			   / "records" / "v5" / "Texture2D" / Key.substr(0, 2) / (Key + ".bin");
 	}
 
 }

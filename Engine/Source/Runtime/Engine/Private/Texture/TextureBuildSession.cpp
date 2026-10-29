@@ -1,5 +1,6 @@
 #include "TextureDerivedDataBuild.h"
 #if DURIN_WITH_EDITOR
+	#include "BuildServiceBackendPrivate.h"
 	#include "CacheDispatchPrivate.h"
 	#include "Asset/ResourceBuildSessions.h"
 	#include "Texture/Texture2DCompilationTestSupport.h"

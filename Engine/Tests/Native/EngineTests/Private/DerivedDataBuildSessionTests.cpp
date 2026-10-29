@@ -1,3 +1,5 @@
+#include "BuildServiceBackendPrivate.h"
+#include "BuildCacheRecordPrivate.h"
 #include "RequestOwnerInternal.h"
 #include "CacheBackend.h"
 #include "DerivedDataBuildSession.h"
@@ -99,12 +101,13 @@ namespace
 			FBuildOutputBuilder Builder(OutputSchema, OutputVersion);
 			if (Negative) Builder.AddMessage(EBuildMessageSeverity::Error, "deterministic fixture failure");
 			else Builder.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7})));
-			auto Record = FCacheRecord::FromOutput(Request.Key, std::move(Builder).Build().value()).value();
+			auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Request.Key, std::move(Builder).Build().value()).value();
 			return std::optional{Partial ? Record.RemoveValueData() : Record};
 		}
 		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 		{
-			++Puts; EXPECT_TRUE(Request.Record.ToOutput(Request.Record.GetKey()));
+			++Puts;
+			EXPECT_TRUE(Durin::DerivedData::Private::ReadBuildOutput(Request.Record.GetKey(), Request.Record));
 			if (ThrowPut) throw std::runtime_error("fixture persistence exception");
 			return std::unexpected(FCacheError{ECacheError::StorageFailure, "fixture failed persistence"});
 		}
@@ -845,8 +848,9 @@ TEST(FBuildSessionTests, RunningCloseDrainsCallbackBeforeServiceRelease)
 	Release.Trigger();
 	EXPECT_EQ(Fixture.Service->Drain(), EBuildDrainResult::Drained);
 	EXPECT_TRUE(CallbackFinished.WaitFor(0.0));
-	EXPECT_TRUE(RequestOwner.Poll());
 	Worker.join();
+	EXPECT_EQ(RequestOwner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_TRUE(RequestOwner.Poll());
 }
 
 TEST(FBuildSessionTests, ServiceDrainTracksStateAfterLastSessionHandleDiesInCallback)

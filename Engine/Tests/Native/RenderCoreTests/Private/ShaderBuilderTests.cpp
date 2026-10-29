@@ -1,3 +1,5 @@
+#include "BuildServiceBackendPrivate.h"
+#include "BuildCacheRecordPrivate.h"
 #include "CacheDispatchPrivate.h"
 #include "MetalShaderFormat.h"
 #include "ShaderBuild/ShaderPaths.h"
@@ -234,7 +236,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder.reset();
 
 		const std::filesystem::path Bucket = GetBuilderTestRoot()
-			/ "DDC" / "records" / "v4" / "Shader";
+											 / "DDC" / "records" / "v5" / "Shader";
 		std::vector<std::filesystem::path> Entries;
 		std::error_code Error;
 		for (std::filesystem::recursive_directory_iterator It(Bucket, Error), End;
@@ -277,7 +279,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				if (!Record || !InvalidProduct) return Record;
 				FBuildOutputBuilder Output("Shader.Output", 1);
 				Output.AddValue(FValueId("Metadata"), FSharedByteBuffer::Take(FByteBuffer{std::byte{0}}));
-				return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
+				return std::optional{Durin::DerivedData::Private::MakeBuildCacheRecord(Request.Key, std::move(Output).Build().value()).value()};
 			}
 			auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 			{ ++Puts; Record = Request.Record; return {}; }
@@ -315,7 +317,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				const auto Descriptor = GetShaderBuildDescriptor();
 				FBuildOutputBuilder Output(Descriptor.OutputType, Descriptor.OutputSchema);
 				Output.AddMessage(EBuildMessageSeverity::Error, "deterministic shader failure");
-				return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
+				return std::optional{Durin::DerivedData::Private::MakeBuildCacheRecord(Request.Key, std::move(Output).Build().value()).value()};
 			}
 			auto Put(const FCachePutBackendRequest&) const -> FCachePutResult override
 			{ return {}; }

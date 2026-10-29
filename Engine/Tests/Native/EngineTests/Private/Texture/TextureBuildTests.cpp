@@ -1297,8 +1297,8 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	EXPECT_EQ(Probe->GetReadStats().RequestCount, 1u);
 
 	const auto CachePath = std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
-		/ "records" / "v4" / "VolumeTexture" / Key.ToString().substr(0, 2)
-		/ (Key.ToString() + ".bin");
+						   / "records" / "v5" / "VolumeTexture" / Key.ToString().substr(0, 2)
+						   / (Key.ToString() + ".bin");
 	Durin::FByteBuffer CachedBytes;
 	auto CachedBytesRead = Durin::FFileHelper::LoadFileToArray(CachePath);
 	ASSERT_TRUE(CachedBytesRead) << CachedBytesRead.error().ToString();

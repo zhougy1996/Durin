@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 #include "CacheBackend.h"
 #include "RequestOwnerInternal.h"
-#include "DerivedDataBuildSession.h"
 #include "DerivedDataBuildScheduler.h"
 #include "DerivedDataRequestOwner.h"
 
@@ -61,18 +60,5 @@ namespace Durin::DerivedData::Private
 		auto Dispatcher(bool bTask) -> std::shared_ptr<IAsyncCache>;
 	};
 	DERIVEDDATACACHE_API auto CreateCacheForBackend(std::shared_ptr<ICacheBackend> Backend = {}, std::shared_ptr<IAsyncCache> Override = {}, FCacheDispatchLimits Limits = {}) -> std::shared_ptr<ICache>;
-	struct FBuildBackendOptions
-	{
-		std::shared_ptr<ICacheBackend> Cache;
-		std::shared_ptr<IAsyncCache> AsyncCache;
-		FCacheDispatchLimits CacheDispatchLimits;
-	};
-} // namespace Durin::DerivedData::Private
 
-namespace Durin::DerivedData::Private
-{
-	inline auto CreateBuildForBackend(FBuildBackendOptions Options = {}) -> std::shared_ptr<IBuild>
-	{
-		return CreateBuild({.Cache = CreateCacheForBackend(std::move(Options.Cache), std::move(Options.AsyncCache), Options.CacheDispatchLimits), .CacheDispatchLimits = Options.CacheDispatchLimits});
-	}
 } // namespace Durin::DerivedData::Private

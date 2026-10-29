@@ -1,3 +1,4 @@
+#include "CacheRecordStorage.h"
 #include "CacheBackend.h"
 
 #include "DerivedDataCacheStorage.h"
@@ -14,7 +15,7 @@ namespace Durin::DerivedData
 		// part of request-local deduplication even though storage addresses by hash.
 		struct FBlobContentKey
 		{
-			FCacheBlobIdentity Identity;
+			Private::FCacheBlobIdentity Identity;
 			uint64 RawSize;
 			auto operator==(const FBlobContentKey&) const -> bool = default;
 		};
@@ -92,7 +93,7 @@ namespace Durin::DerivedData
 				const auto CancelError = [] { return std::unexpected(FCacheError{ECacheError::Canceled, "Cache query canceled."}); };
 				if (Request.Mode > ECacheGetMode::SelectedValues
 					|| (Request.Mode != ECacheGetMode::SelectedValues && !Request.RequiredValues.empty())
-					|| Request.RequiredValues.size() > std::min<uint32>(Request.OutputLimits.MaximumValues, 4096))
+					|| Request.RequiredValues.size() > std::min<uint32>(Request.RecordLimits.MaximumValues, 4096))
 					return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache query mode or selection count is invalid."});
 				std::vector<FValueId> Required(Request.RequiredValues.begin(), Request.RequiredValues.end());
 				std::ranges::sort(Required);
@@ -109,8 +110,7 @@ namespace Durin::DerivedData
 				if (!Stored) return std::unexpected(std::move(Stored.error()));
 				if (!*Stored) return std::optional<FCacheRecord>{};
 				const uint64 ManifestBytes = (**Stored).GetSize();
-				auto Record = FCacheRecord::DecodeManifest(Request.Key, std::move(**Stored),
-					Request.OutputLimits, Request.MaximumEncodedBytes);
+				auto Record = Private::DecodeCacheManifest(Request.Key, std::move(**Stored), Request.RecordLimits, Request.MaximumEncodedBytes);
 				if (!Record) return std::unexpected(std::move(Record.error()));
 				if (Canceled()) return CancelError();
 				for (const auto& Id : Required)
@@ -123,7 +123,7 @@ namespace Durin::DerivedData
 					if (Request.Mode == ECacheGetMode::MetadataOnly
 						|| (Request.Mode == ECacheGetMode::SelectedValues && !std::ranges::binary_search(Required, Item.Id))) continue;
 					if (Canceled()) return CancelError();
-					const FBlobContentKey Identity{Item.Value.GetBlobIdentity(), Item.Value.GetRawSize()};
+					const FBlobContentKey Identity{Private::BlobIdentity(Item.Value), Item.Value.GetRawSize()};
 					if (const auto Existing = Resolved.find(Identity); Existing != Resolved.end())
 					{
 						Values.push_back({Item.Id, Existing->second});
@@ -181,12 +181,8 @@ namespace Durin::DerivedData
 				if (!Request.Record.IsValid())
 					return std::unexpected(FCacheError{ECacheError::InvalidRequest,
 						"Cache put request has no record."});
-				{
-					auto Output = Request.Record.ToOutput(Request.Record.GetKey());
-					if (!Output) return std::unexpected(std::move(Output.error()));
-					if (auto Valid = Output->CheckLimits({.MaximumTotalBytes = Request.MaximumRawBytes}); !Valid)
-						return std::unexpected(FCacheError{ECacheError::ValueTooLarge, std::move(Valid.error())});
-				}
+				if (auto Valid = Request.Record.CheckLimits({.MaximumTotalBytes = Request.MaximumRawBytes}, true); !Valid)
+					return std::unexpected(std::move(Valid.error()));
 				uint64 ResidentBytes = 0;
 				std::vector<FSharedByteBuffer> Backings;
 				auto Retain = [&](FSharedByteBuffer Buffer) -> bool
@@ -197,15 +193,8 @@ namespace Durin::DerivedData
 				};
 				for (const auto& Item : Request.Record.GetValues())
 					if (!Retain(Item.Value.GetData())) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident value storage exceeds persistence workspace."});
-				for (const auto& Meta : Request.Record.GetMetadata())
-					if (!Retain(Meta.Object.GetBytes())) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident metadata storage exceeds persistence workspace."});
-				for (const auto& Message : Request.Record.GetMessages())
-				{
-					if (Message.Text.capacity() > Request.MaximumWorkingSetBytes - ResidentBytes)
-						return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident messages exceed persistence workspace."});
-					ResidentBytes += Message.Text.capacity();
-				}
-				auto Manifest = Request.Record.EncodeManifest(Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes - ResidentBytes);
+				if (!Retain(Request.Record.GetMeta().GetBytes())) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident metadata exceeds persistence workspace."});
+				auto Manifest = Private::EncodeCacheManifest(Request.Record, Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes - ResidentBytes);
 				if (!Manifest) return std::unexpected(std::move(Manifest.error()));
 				uint64 EncodedBytes = Manifest->GetSize();
 				const uint64 RetainedBytes = ResidentBytes + Manifest->GetSize();
@@ -214,7 +203,7 @@ namespace Durin::DerivedData
 				for (const auto& Item : Request.Record.GetValues())
 				{
 					if (Canceled()) return CancelError();
-					const FBlobContentKey Identity{Item.Value.GetBlobIdentity(), Item.Value.GetRawSize()};
+					const FBlobContentKey Identity{Private::BlobIdentity(Item.Value), Item.Value.GetRawSize()};
 					if (!Published.emplace(Identity).second) continue;
 					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
 					const uint64 Workspace = Request.MaximumWorkingSetBytes - RetainedBytes;

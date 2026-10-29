@@ -1,3 +1,4 @@
+#include "BuildCacheRecordPrivate.h"
 #include "CacheRecordFixtureCodec.h"
 #include "MetalShaderFormat.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -302,10 +303,12 @@ namespace Durin
 		ASSERT_TRUE(Product); ASSERT_EQ(Product.Errors.size(), 2u);
 		auto Built = ShaderSharedOutput::Make(MakeOptions(), Product); ASSERT_TRUE(Built) << Built.Error;
 		const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("ShaderDiagnostics"), FXxHash128::HashBuffer("diagnostics"));
-		auto Record = FCacheRecord::FromOutput(Key, *Built); ASSERT_TRUE(Record);
+		auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Built);
+		ASSERT_TRUE(Record);
 		auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
 		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
-		auto Cached = Loaded->ToOutput(Key); ASSERT_TRUE(Cached);
+		auto Cached = Durin::DerivedData::Private::ReadBuildOutput(Key, *Loaded);
+		ASSERT_TRUE(Cached);
 		auto Restored = ShaderSharedOutput::Assemble(MakeOptions(), *Cached); ASSERT_TRUE(Restored);
 		ASSERT_EQ(Restored.Errors.size(), 2u); EXPECT_EQ(Restored.Errors[0].ErrorVirtualFilePath, "/Test/Main.slang");
 		EXPECT_EQ(Restored.Errors[0].ErrorLineString, "12"); EXPECT_EQ(Restored.Errors[1].StrippedErrorMessage, "warning: second");
@@ -695,12 +698,14 @@ namespace Durin
 			FByteBuffer Before; ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, Product, Before));
 			auto Output = ShaderSharedOutput::Make(Options, Product); ASSERT_TRUE(Output);
 			const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("ShaderOutputFixture"), FXxHash128::HashBuffer("shader"));
-			auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+			auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
+			ASSERT_TRUE(Record);
 			auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
 			if (Compressed) Encoded = FCacheRecordFixtureCodec::CompressEncoded(*Encoded);
 			ASSERT_TRUE(Encoded);
 			auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
-			auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
+			auto Warm = Durin::DerivedData::Private::ReadBuildOutput(Key, *Loaded);
+			ASSERT_TRUE(Warm);
 			const auto* Code = Warm->FindValue(ShaderValueId(0, false))->GetData().data();
 			auto Assembled = ShaderSharedOutput::Assemble(Options, *Warm); ASSERT_TRUE(Assembled);
 			EXPECT_EQ(Assembled.CompiledShaders[0].Code.data(), Code);

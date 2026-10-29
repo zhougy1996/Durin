@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DerivedDataBuildOutput.h"
+#include "BuildCacheRecordPrivate.h"
 
 namespace Durin::DerivedData
 {
