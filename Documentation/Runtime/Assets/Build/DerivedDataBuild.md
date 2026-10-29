@@ -173,8 +173,8 @@ per-value overrides are not exposed until supported by the implementation.
 `FBuildRequestOptions::Limits` bounds input and output product validation,
 independently of policy and action identity. `FBuildInputLimits` contains only
 input byte, metadata, and value-count ceilings; output validation uses
-`FBuildOutputLimits`. There is no separate persistence product limit. `ResultDelivery` is a request completion option rather than a
-cache policy. `FBuildServiceOptions::CacheLimits` configures service-owned cache
+`FBuildOutputLimits`. There is no separate persistence product limit or
+request-selectable completion mode. `FBuildServiceOptions::CacheLimits` configures service-owned cache
 record, encoded-byte, and codec working-set ceilings. An injected `ICache` keeps
 its own configured ceilings. Public Get/Put requests carry no codec or workspace
 options; private backend requests receive the immutable backend configuration.
@@ -380,20 +380,21 @@ resolution and production on the captured producer scheduler. Metadata descripti
 runs once, full output conversion remains mandatory, and owner priority, product limits, and backend resource ceilings are
 preserved across continuations. A valid local output is retained through async
 Put; write admission, serialization, dispatch, backend failure, or a dropped write
-cannot discard it. By default, `EBuildResultDelivery::AfterPersistence` delays
-notification until persistence responds, and request cancellation clears the final
-output. Opt-in `BeforePersistence` notifies exactly once with the validated local
-output before submitting Put. Error outputs complete without submitting Put. Cancellation
-before notification still returns Canceled; cancellation or store failure afterward
-can stop persistence but cannot revoke or replace an already delivered result.
-The result callback and its captures retire after notification. `IsResultReady`
-reports that notification has begun; `IsComplete` and request Wait still track the
-remaining persistence response and request retirement. Owner Wait also joins cache
-request buffers and native dispatch captures. Session/service Close cancels remaining
-persistence, and Drain continues to include it. Reentrant waits keep returning
-WouldBlock. Inline cache execution may still persist synchronously before Build
-returns, so early delivery does not promise background execution. Wait handles
-follow each stage and use Core helping; close/drain spans every stage and callback.
+cannot discard it. Build has one completion boundary: a cache hit completes after
+validation; a local build completes after its cache-store response, or immediately
+when no store is required. Store admission, encoding, dispatch, and backend
+failures preserve a successful local output. Error outputs complete without
+submitting Put. Cancellation observed before completion returns Canceled without
+output, including while persistence is queued or running. A completed store can
+remain useful in the cache even if its canceled request discards the result.
+There is no early-result notification or separate result-ready state.
+
+The completion callback runs exactly once. Its return is not owner retirement:
+Owner Wait also joins callback captures, cache request buffers, and native dispatch
+captures. Session/service Close cancels pending work, and Drain includes all
+accepted work through retirement. Reentrant waits return WouldBlock. Inline
+execution may complete before Build returns. Wait handles follow each stage and
+use Core helping; close/drain spans every stage and callback.
 Callbacks have no fixed thread affinity. Infrastructure failures after action
 preparation retain the known key; deterministic messages and cache diagnostics
 preserve their existing format. Request inputs/resolvers are released after local
