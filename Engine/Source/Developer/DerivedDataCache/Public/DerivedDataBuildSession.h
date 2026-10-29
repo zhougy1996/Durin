@@ -16,8 +16,6 @@ namespace Durin::DerivedData
 	{
 		FBuildPolicy Policy;
 		FBuildRequestLimits Limits;
-		// Early notification leaves persistence tracked by owner/session waits.
-		EBuildResultDelivery ResultDelivery = EBuildResultDelivery::AfterPersistence;
 		// Resolver owns captured request state; description runs inside the admitted build.
 		std::shared_ptr<const IBuildInputResolver> InputResolver;
 	};
@@ -30,7 +28,9 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API ~FBuildSession();
 		FBuildSession(const FBuildSession&) = delete;
 		auto operator=(const FBuildSession&) -> FBuildSession& = delete;
-		// Every request completes exactly once, including admission failure. Callbacks may run inline.
+		// Completes once after execution and any cache-store response, including admission failure.
+		// Store failure preserves a valid local output; cancellation before completion discards it.
+		// Callbacks may run inline. Owner waits also include callback/capture retirement.
 		DERIVEDDATACACHE_API auto Build(FBuildDefinition Definition, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildInputs Inputs = {}, FBuildRequestOptions Options = {}) -> void;
 		DERIVEDDATACACHE_API auto Build(FBuildAction Action, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildInputs Inputs = {}, FBuildRequestOptions Options = {}) -> void;
 		DERIVEDDATACACHE_API auto Close() -> void;

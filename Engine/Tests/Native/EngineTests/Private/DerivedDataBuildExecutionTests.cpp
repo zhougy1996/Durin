@@ -313,13 +313,12 @@ TEST(FBuildExecutionTests, QueuedProducerUsesOnePreparationAndSkipsProductionOnW
 	EXPECT_EQ(H.Cache->Puts, 1u);
 }
 
-TEST(FBuildExecutionTests, EarlyInlineSuccessHitsCacheAndErrorsRetry)
+TEST(FBuildExecutionTests, InlineSuccessHitsCacheAndErrorsRetry)
 {
 	for (bool Negative : {false, true})
 	{
 		FHarness H; H.Function->Fail = Negative;
-		FBuildRequestOptions Options; Options.ResultDelivery = EBuildResultDelivery::BeforePersistence;
-		auto Cold = H.Run(Options), Warm = H.Run(Options);
+		auto Cold = H.Run(), Warm = H.Run();
 		EXPECT_EQ(Cold.GetStatus(), Negative ? EStatus::Error : EStatus::Ok);
 		EXPECT_EQ(Warm.GetStatus(), Cold.GetStatus());
 		ASSERT_TRUE(Cold.GetOutput()); ASSERT_TRUE(Warm.GetOutput());

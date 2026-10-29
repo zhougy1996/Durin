@@ -43,8 +43,6 @@ namespace Durin::DerivedData
 		std::string Diagnostic;
 	};
 
-	enum class EBuildResultDelivery : uint8 { AfterPersistence, BeforePersistence };
-
 	// Supported UE policy subset: local builds and a single cache store.
 	enum class EBuildPolicy : uint8
 	{
