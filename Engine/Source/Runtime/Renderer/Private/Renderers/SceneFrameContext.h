@@ -31,14 +31,12 @@ namespace Durin
 		struct FResolved final
 		{
 			FResolvedSceneResources Scene;
-			FRHITexture* CloudWeatherTexture = nullptr;
 		};
 
 		struct FTransaction final
 		{
 			FSceneViewTemporalContext Temporal;
 			FSceneViewState* ViewState = nullptr;
-			FSceneRenderGraphComposition Composition;
 		};
 
 		struct FObservation final

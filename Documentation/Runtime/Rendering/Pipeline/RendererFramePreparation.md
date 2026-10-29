@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-10-28
+Last reviewed: 2026-10-29
 
 ## Ownership Boundary
 
@@ -438,11 +438,13 @@ constructs a noncopyable, nonmovable `FSceneRenderer` with its own in-place
 `FSceneRenderer::Render(FRDGBuilder&)` exactly once. Render registers scene
 resources and wires typed outputs through named `Add<Feature>Passes(Graph, Inputs)`
 functions. It does not execute the graph or commit history.
+`GetCompletion()` exposes the final CPU result handle for execution-time consumers
+or read-only inspection after successful graph execution.
 `GetOutputTexture()` exposes the registered output handle after authoring so
 callers can append consumers to the same builder; the declared imported final
 access still applies.
 
-The pipeline owns the builder, execution/capture and final transaction publication.
+The pipeline owns the builder, execution/capture and final result inspection.
 The submission and service outlive Execute and publication/abort; graph callbacks
 borrow their stable records. Telemetry and view-state guards are destroyed before
 the submission context. Logical preparation runs once. View resources, scene
@@ -456,11 +458,18 @@ wave so partial draws and counters are not accumulated across attempts.
 
 Feature resource preparation reads the successful history sequence without opening
 a temporal transaction. Only after all required resources are ready does the
-outer submission establish its view-state guard and begin history mutation.
+outer submission establish a cleanup guard and begin a cloud-history candidate.
 When the invocation carries a preparation request, it also switches from budgeted
 preparation to observed resource use before this point. Graph recording and
 readback cannot turn a completed preparation into Pending merely by exceeding
 the loading deadline; uncovered Shader/PSO admissions remain observable.
+The pipeline snapshots qualification policy once at submission entry.
+Resource preparation, authored pass callbacks, GPU-culling dispatch, and the
+per-execution allocator receive explicit policy values. Reusable renderer
+resources and allocation pools never reread a later global qualification scope.
+Logical preparation returns `std::expected<FSceneRenderPlan, ERenderViewResult>`;
+a successful result always owns a complete plan.
+
 Feature policy is stored directly in `Context.Features`; preparation-only flags
 stay local. Pure viewport fitting lives in `FitSceneViewToOutput`.
 
@@ -469,7 +478,7 @@ stay local. Pure viewport fitting lives in `FitSceneViewToOutput`.
    shared poses, translucency and cloud inputs once; derive feature policy.
 3. Collect, join and resolve resource phases; reject an interleaved view-state
    submission and read its sampling sequence for cloud preparation. Begin the
-   temporal transaction only after feature resources are ready.
+   cloud-history candidate only after feature resources are ready.
 
 4. Compile explicit top-level dependencies and output roots, cull unreachable
    versions, then allocate retained logical descriptions as one complete-or-null
@@ -492,8 +501,9 @@ stay local. Pure viewport fitting lives in `FitSceneViewToOutput`.
    performs post process, optional editor assistance, restores the output
    viewport/scissor, and finishes in `Present` for window output or
    `ShaderReadOnly` offscreen.
-10. On complete success, commit temporal state and publish telemetry. Every
-   early return aborts pending view state and publishes no partial statistics.
+10. Publish telemetry on complete view success. Cloud reconstruction has already
+   published its own texture and paired camera metadata. Every early return
+   discards only unfinished cloud candidates and publishes no partial statistics.
 
 Qualification routes are optional branches over the same prepared plan,
 transient targets, and typed results. They do not build a second frame model or
@@ -596,17 +606,26 @@ Explicit environment overrides preserve their required-texture failure policy.
 Sky shaders, pipelines and geometry are prepared only when the logical plan
 contains an environment; views without sky do not request those resources.
 
-Scene Color and post-process callbacks copy only their final transactional
-publication into `FSceneRenderGraphComposition`; intermediate payloads never
-leave graph storage. Editor assistance reads the post-process value and
-publishes its adjusted final result without becoming a second writer. The
-pipeline commits view state and telemetry only from these final publications
-after successful graph execution. Compilation failure maps to the existing
-compile-failure status; preparation failure maps to execution failure. The
-pipeline reads compiler diagnostics and observational budgets from the builder
-after Execute, publishes a capture only when requested and compilation succeeded,
-and leaves temporal/output transactions uncommitted on failure. A later frame
-authors a new builder; it never retries a consumed graph.
+Cloud composition and isolated-deferred results carry only the output-validity
+facts consumed downstream. They do not mirror these facts into unused pass-status
+fields; GBuffer geometry presence and AO scratch/resolution selection remain
+separate consumed facts.
+
+Scene Color and post-process callbacks write only graph-owned Completion
+values. Post-process propagates the exact upstream failure code into its own
+Completion. Editor assistance reads that value and preserves the output root
+without copying it into submission-local publication slots.
+`FSceneRenderer::GetCompletion()` exposes the final same-builder handle.
+After successful graph execution, the pipeline reads it once through
+`ReadValueAfterExecute` and publishes telemetry only for view success.
+Feature history publication remains independent of this final status.
+
+Compilation failure maps to the existing compile-failure status; preparation
+failure maps to execution failure. The pipeline reads compiler diagnostics and
+observational budgets from the builder after Execute, publishes a capture only
+when requested and compilation succeeded, and never reads CPU result values
+after graph failure. Failed final output does not revoke feature history already
+produced. A later frame authors a new builder; it never retries a consumed graph.
 
 Required output, Scene targets, required environment, or required production
 resources fail the view. Optional compute routes may fall back to fragment;
@@ -627,8 +646,11 @@ contracts. RHI and the active backend remain authoritative for validating and
 committing physical execution state; migrated edges contain no competing
 feature-local manual transition.
 
-Cloud stages share density/detail/weather handles and weather range metadata
-through `FCloudDensityInputs`. Environment authoring inputs group the selected handles, physical range metadata
+Cloud stages share density/detail/weather handles through `FCloudDensityInputs`.
+The logical cloud plan holds only authored density/detail/weather texture inputs.
+Resolved cloud state adds the density sampler and normalized weather fallback,
+without copying the base/detail bindings. Graph authoring derives physical range
+metadata from those owners; the frame context carries no separate weather cache. Environment authoring inputs group the selected handles, physical range metadata
 and sampler in `FSceneEnvironmentInputs`. These pointers are setup metadata;
 callbacks continue to resolve physical resources only from their declared pass
 parameters. GBuffer keeps its four attachments as one typed texture set.
@@ -664,7 +686,7 @@ attribution; changing the tag cannot change compatibility, allocation success,
 transitions, culling, or command recording.
 
 The graph preserves imported initial/final access, persistent view-state
-history, optional fallback policy, and the temporal/output transaction while
+history, optional fallback policy, and feature/output publication while
 compiling equivalent RHI transition batches. It does not introduce a second
 scene-preparation model, mutable blackboard, public pass registry, or alternate
 feature interface. Graph-managed raster boundaries merge compatible neighboring

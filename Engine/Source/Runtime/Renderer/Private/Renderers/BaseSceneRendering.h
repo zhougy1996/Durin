@@ -2,6 +2,10 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRendererProfiling.h"
+
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/DeferredDirectionalLightingRendering.h"
 #include "RDG/RDGParameters.h"
 
@@ -85,6 +89,7 @@ namespace Durin
 		std::optional<FRDGTextureHandle> DefaultShadowArray;
 		FSceneEnvironmentInputs Environment;
 		const FSceneFeatureDecision& DeferredFeature;
+		ESceneRasterFailure Failure = ESceneRasterFailure::None;
 	};
 
 	inline constexpr std::string_view BaseScenePassName = "Scene.Forward";

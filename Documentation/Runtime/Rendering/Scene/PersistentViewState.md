@@ -1,10 +1,10 @@
 # Persistent View State
 
-Summary: Define optional renderer-owned identity, previous-view metadata, discontinuity, and transactional history lifetime for logical view streams.
+Summary: Define optional renderer-owned identity, previous-view metadata, discontinuity, and feature-owned history lifetime for logical view streams.
 
 Modules: RenderCore, Renderer, Engine
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-10-29
 
 ## Public Boundary and Ownership
 
@@ -37,45 +37,39 @@ thread. RenderCore contains no previous matrices and no feature resource cache.
 Future features extend `FSceneViewState` with strongly typed private members;
 they do not add a string-keyed, type-erased public cache.
 
-Every `RenderView_RenderThread` attempt advances a renderer-owned saturating
-`uint64` submission serial. The serial does not depend on game ticks,
-`GFrameCounter`, wall time, swapchain images, or output identity. A backwards or
-wrapped serial is treated as an expired gap rather than accepting ambiguous
-history. The inactive threshold is 120 renderer submissions.
+History age uses `GRenderFrameCounterRenderThread`, not the number of view
+submissions. Other viewports, captures, and retries in the same render frame do
+not age a view's history. A gap above 120 render frames, or a backwards counter,
+rejects reuse.
 
-After `FitViewToOutput`, Renderer prepares one immutable temporal context with:
+After `FitViewToOutput`, Renderer begins a cloud-local candidate with fitted
+projection and view-projection matrices, viewport/output extents, depth
+convention, and scene identity. The history object compares this compatibility
+metadata against its last publication. Reconstruction receives only the previous
+view-projection matrix and current output size, plus validity, render-frame age,
+discontinuities, and the cloud's successful reconstruction sequence.
+Resource preparation only reads that sequence; it does not begin a candidate.
 
-- current and previous final view, projection, and view-projection matrices;
-- camera location, fitted viewport rectangle, and output extent;
-- depth convention and scene identity;
-- current and previous submission serials, submission gap, and the count of
-  successful commits; and
-- a discontinuity bitmask plus explicit previous/history validity.
+## Feature Publication and Reset Rules
 
-Feature renderers consume the prepared context. They do not query the registry.
-Internal shadow and feature views never begin or commit the outer view state.
+`FVolumetricCloudViewHistory` owns its texture and matching camera metadata.
+`Begin` does not change published state. Cloud reconstruction publishes both
+after successfully recording its commands. Later cloud composition, translucency,
+post-process, or presentation failure does not revoke that publication.
+The outer scope calls `Abort` only to recycle unfinished candidates. A candidate
+with no texture or explicit clear cannot advance camera metadata alone.
 
-## Transaction and Reset Rules
+Cloud history rejects first use, explicit camera cuts, scene/output/viewport/
+projection/depth changes, inactivity, device/manual invalidation, and interleaved
+use. Projection and extent checks remain conservative because the current cloud
+algorithm does not define a history-resampling policy. These are cloud
+compatibility rules, not a universal validity requirement for future features.
 
-`Begin` prepares a pending candidate without changing committed metadata.
-Only a complete outer `ERenderViewResult::Success`, including post-process and
-presentation recording, calls `Commit`. Every early return or failed pass calls
-`Abort`, discards pending feature candidates, and retains last-known-good
-metadata and feature history.
-
-The context reports first use, explicit camera cut, scene change, output extent
-change, fitted viewport change, projection change, depth-convention change,
-inactive-gap expiry, device invalidation, manual invalidation, missing state,
-and duplicate/interleaved use. Any reported discontinuity makes history invalid
-for the submission. Projection and extent changes are distinct so a later
-feature may document a resampling policy; the foundation defaults both to
-invalid history.
-
-Manual invalidation, device invalidation, and explicit cuts persist across
-failed attempts and clear only after a successful replacement commit. Device
-invalidation releases typed GPU history while preserving the public ID.
-Disabled consumers publish no candidate and retain their last-known-good
-feature history until a discontinuity, device reset, owner release, or shutdown.
+Manual/device invalidation releases cloud GPU history while preserving the
+public ID. Explicit cuts and hard-reset signals persist until the feature
+publishes a replacement or clear. Disabled consumers publish no candidate; age
+and compatibility are rechecked when they next run. Future temporal features
+own their own paired resources, metadata, compatibility, and publication point.
 
 ## Engine Integration
 
@@ -85,11 +79,11 @@ Initialization starts with a cut. World replacement and explicit
 `RequestHistoryReset()` calls request another cut; camera possession, teleport,
 focus, and cinematic lifecycle owners call that method when they reject
 continuity. The request is consumed by the next buildable submission and then
-persists inside Renderer until a successful commit.
+persists inside the feature until a successful history publication.
 
 Owner creation failure leaves the viewport stateless. Resize, output fitting,
-and scene changes are also detected from the last successful fitted metadata,
-so no failed frame advances or silently erases continuity.
+and scene changes are also detected from the metadata paired with the last published feature result,
+so failed reconstruction cannot advance its camera independently.
 
 ## Related Documentation
 

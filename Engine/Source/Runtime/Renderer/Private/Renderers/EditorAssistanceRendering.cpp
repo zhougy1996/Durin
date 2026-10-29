@@ -85,14 +85,14 @@ namespace Durin
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		const auto EditorAssistancePass =
 			Graph.AddPass(EditorAssistancePassName, ERDGPassType::Graphics, std::move(Parameters),
-				[Renderer, &Publication = Inputs.Publication,
+				[Renderer,
 					RecordView = &RecordView, &PreparedEditorAssistance,
 					bPresentOutput](FRHICommandListImmediate& Commands,
 					const FEditorAssistancePassParameters& PassParameters,
 					const FRDGParameterResolver& Resolver) {
-					Publication = Resolver.ReadValue(
+					const auto& PostProcess = Resolver.ReadValue(
 						PassParameters.PostProcess);
-					if (Publication.Result
+					if (PostProcess.Result
 						!= ERenderViewResult::Success) return;
 					FRHITexture* Output = Resolver.GetColorAttachment(
 						PassParameters.Resources.EditorOutputPresent).Texture;

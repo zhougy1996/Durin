@@ -140,7 +140,6 @@ namespace Durin
 		// Used only during serial render-thread preparation; retains candidate capacity.
 		FSceneVisibilityResult VisibilityScratch;
 		FMeshDrawDescriptionCache MeshCommandCache;
-		uint64 RenderSubmissionSerial = 0;
 		FSceneRenderGraphWarnings RenderGraphWarnings;
 	};
 } // namespace Durin

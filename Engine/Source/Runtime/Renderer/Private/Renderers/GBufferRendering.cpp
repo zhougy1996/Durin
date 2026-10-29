@@ -298,7 +298,7 @@ namespace Durin
 			Inputs.View,
 			Options.bEnableGPUCulling,
 			Capabilities && Capabilities->bSupportsIndirectDraw,
-			&OverflowCandidates, GetRendererQualificationPolicy().GPUCullingFailure == EGPUCullingFailure::MetadataBudget
+			&OverflowCandidates, Inputs.Failure == EGPUCullingFailure::MetadataBudget
 				? 0 : FGBufferGPUCullingPlan::MaximumGeneratedBytes, &Admission);
 		Inputs.Telemetry.View.GBuffer.GPUCullingPolicyDisabledViews += Options.bEnableGPUCulling ? 0u : 1u;
 		Inputs.Telemetry.View.GBuffer.GPUCullingBelowThresholdCandidates += Admission.BelowThresholdCandidates;
@@ -391,7 +391,7 @@ namespace Durin
 				ERDGPassType::Compute, std::move(CullParameters),
 				[Plan = GPUCullingPlan, &Renderer = Inputs.Renderer,
 					&Telemetry = Inputs.Telemetry,
-					&View = Inputs.View](FRHICommandListImmediate& Commands,
+					&View = Inputs.View, Failure = Inputs.Failure](FRHICommandListImmediate& Commands,
 						const FGBufferGPUCullingPassParameters& Parameters,
 						const FRDGParameterResolver& Resolver) {
 					const auto ShaderParameters = Resolver.GetShaderParameters(Parameters);
@@ -399,7 +399,7 @@ namespace Durin
 						Commands, GetGPUCullingTimingQuerySink());
 					Plan->bDispatched = Renderer.DispatchGPUCulling_RenderThread(
 						Commands, View, static_cast<uint32>(Plan->Candidates.size()),
-						ShaderParameters);
+						ShaderParameters, Failure);
 					if (Plan->bDispatched)
 					{
 						GPUCullingTiming.Commit();

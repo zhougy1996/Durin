@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Renderers/SceneFrameContext.h"
+#include "Renderers/SceneRenderResults.h"
 #include "RDG/RDGDefinitions.h"
 
 namespace Durin
@@ -28,6 +29,13 @@ namespace Durin
 			return *OutputTexture;
 		}
 
+		// Same-builder final CPU result; read only after successful graph execution.
+		auto GetCompletion() const -> TRDGValueHandle<FPostProcessPassResult>
+		{
+			check(Completion.has_value());
+			return *Completion;
+		}
+
 	private:
 		friend class FSceneRenderPipeline;
 		friend struct FSceneRendererTestAccess;
@@ -37,5 +45,6 @@ namespace Durin
 		FSceneFrameContext Context;
 		bool bAuthored = false;
 		std::optional<FRDGTextureHandle> OutputTexture;
+		std::optional<TRDGValueHandle<FPostProcessPassResult>> Completion;
 	};
 } // namespace Durin

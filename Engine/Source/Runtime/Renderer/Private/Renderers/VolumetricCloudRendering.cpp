@@ -151,7 +151,7 @@ namespace Durin
 		const auto RecordInputs = Inputs.Record;
 		const auto PreparedCloudShadowRoute = Inputs.Feature.Decision.Route;
 		const auto PreparedCloudShadowDecision = Inputs.Feature.Decision;
-		auto* CloudWeatherTexture = Inputs.Density.WeatherTexture;
+		auto* CloudWeatherTexture = Inputs.Resolved.VolumetricCloud ? Inputs.Resolved.VolumetricCloud->Weather : nullptr;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
 		std::optional<FRDGTextureHandle> VolumetricCloudShadowFragment;
@@ -209,16 +209,16 @@ namespace Durin
 			if (bCompute) Compute = Parameter;
 			else Graphics = Parameter;
 		};
-		if (Inputs.Resolved.VolumetricCloud)
+		if (Inputs.Resolved.VolumetricCloud && Inputs.Record.Cloud)
 		{
 			AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 				Parameters->Resources.CloudBaseDensityCompute,
 				Inputs.Density.BaseDensity,
-				Inputs.Resolved.VolumetricCloud->Textures.BaseDensity);
+				Inputs.Record.Cloud->Textures.BaseDensity);
 			AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 				Parameters->Resources.CloudDetailDensityCompute,
 				Inputs.Density.DetailDensity,
-				Inputs.Resolved.VolumetricCloud->Textures.DetailDensity);
+				Inputs.Record.Cloud->Textures.DetailDensity);
 			AssignCloudInput(Parameters->Resources.CloudWeather,
 				Parameters->Resources.CloudWeatherCompute,
 				Inputs.Density.Weather, CloudWeatherTexture);
@@ -297,7 +297,7 @@ namespace Durin
 		const auto RecordInputs = Inputs.Record;
 		const auto PreparedCloudRoute = Inputs.Feature.Decision.Route;
 		const auto PreparedCloudDecision = Inputs.Feature.Decision;
-		auto* CloudWeatherTexture = Inputs.Density.WeatherTexture;
+		auto* CloudWeatherTexture = Inputs.Resolved.VolumetricCloud ? Inputs.Resolved.VolumetricCloud->Weather : nullptr;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
 		std::optional<FRDGTextureHandle> VolumetricCloudFragment;
@@ -363,16 +363,16 @@ namespace Durin
 			if (bCompute) Compute = Parameter;
 			else Graphics = Parameter;
 		};
-		if (Inputs.Resolved.VolumetricCloud)
+		if (Inputs.Resolved.VolumetricCloud && Inputs.Record.Cloud)
 		{
 			AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 				Parameters->Resources.CloudBaseDensityCompute,
 				Inputs.Density.BaseDensity,
-				Inputs.Resolved.VolumetricCloud->Textures.BaseDensity);
+				Inputs.Record.Cloud->Textures.BaseDensity);
 			AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 				Parameters->Resources.CloudDetailDensityCompute,
 				Inputs.Density.DetailDensity,
-				Inputs.Resolved.VolumetricCloud->Textures.DetailDensity);
+				Inputs.Record.Cloud->Textures.DetailDensity);
 			AssignCloudInput(Parameters->Resources.CloudWeather,
 				Parameters->Resources.CloudWeatherCompute,
 				Inputs.Density.Weather, CloudWeatherTexture);
@@ -447,7 +447,7 @@ namespace Durin
 		FCloudCompositeRecorder Recorder{Inputs.Allocator, Inputs.Renderer,
 			Inputs.Telemetry, Inputs.Temporal, Inputs.ViewState};
 		const auto RecordInputs = Inputs.Record;
-		auto* CloudWeatherTexture = Inputs.Density.WeatherTexture;
+		auto* CloudWeatherTexture = Inputs.Resolved.VolumetricCloud ? Inputs.Resolved.VolumetricCloud->Weather : nullptr;
 		if (Inputs.Feature.Decision.Route
 			== FVolumetricCloudRenderer::ERoute::Disabled) return {};
 		const auto VolumetricCloudCompletion = Graph.CreateValue<
@@ -472,14 +472,14 @@ namespace Durin
 				{GetTextureAspects(Physical->GetFormat()), 0,
 					Physical->GetNumMips(), 0, Physical->GetArraySize()}};
 		};
-		if (Inputs.Resolved.VolumetricCloud)
+		if (Inputs.Resolved.VolumetricCloud && Inputs.Record.Cloud)
 		{
 			AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 				Inputs.Density.BaseDensity,
-				Inputs.Resolved.VolumetricCloud->Textures.BaseDensity);
+				Inputs.Record.Cloud->Textures.BaseDensity);
 			AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 				Inputs.Density.DetailDensity,
-				Inputs.Resolved.VolumetricCloud->Textures.DetailDensity);
+				Inputs.Record.Cloud->Textures.DetailDensity);
 			AssignCloudInput(Parameters->Resources.CloudWeather,
 				Inputs.Density.Weather, CloudWeatherTexture);
 		}
@@ -573,9 +573,9 @@ namespace Durin
 		const bool bInputsReady = bGBufferComplete
 								&& Cloud != nullptr && ResolvedCloud != nullptr
 								&& !Inputs.Lighting.Lights.Directional.empty()
-								&& ResolvedCloud->Textures.BaseDensity
-								&& ResolvedCloud->Textures.DetailDensity
-								&& ResolvedCloud->Textures.DensitySampler
+								&& Cloud->Textures.BaseDensity
+								&& Cloud->Textures.DetailDensity
+								&& ResolvedCloud->DensitySampler
 								&& SceneDepth;
 		if (!bInputsReady) return PassResult;
 		PassResult.Status = EScenePassStatus::Failed;
@@ -591,7 +591,7 @@ namespace Durin
 				 .DetailDensity = DetailDensity,
 			 .Weather = Weather,
 			 .SceneDepth = SceneDepth,
-				 .DensitySampler = ResolvedCloud->Textures.DensitySampler,
+				 .DensitySampler = ResolvedCloud->DensitySampler,
 			 .Parameters = Cloud->Parameters,
 				 .View = &Inputs.View,
 			 .QualityTier = QualityTier,
@@ -661,7 +661,7 @@ namespace Durin
 									&& BaseDensity != nullptr
 									&& DetailDensity != nullptr
 									&& Weather != nullptr
-									&& ResolvedCloud->Textures.DensitySampler != nullptr
+									&& ResolvedCloud->DensitySampler != nullptr
 									&& Depth != nullptr;
 		const auto QualityTier = CanonicalizeVolumetricCloudQuality(
 			View.Settings.VolumetricCloud.Quality);
@@ -674,9 +674,8 @@ namespace Durin
 		if (!bInputsPresent) FragmentTargets = nullptr;
 		if (!bInputsPresent || Qualification.bForceFragmentVolumetricCloud)
 			ComputeTargets = nullptr;
-		auto Textures = ResolvedCloud != nullptr
-			? ResolvedCloud->Textures
-			: FVolumetricCloudRenderer::FTextureBindings{};
+		FVolumetricCloudRenderer::FTextureBindings Textures;
+		Textures.DensitySampler = ResolvedCloud ? ResolvedCloud->DensitySampler : nullptr;
 		Textures.BaseDensity = BaseDensity;
 		Textures.DetailDensity = DetailDensity;
 		Textures.Weather = Weather;
@@ -776,12 +775,8 @@ namespace Durin
 		{
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudEnabledViews;
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudCompositeDraws;
-			return {
-				.Status = EScenePassStatus::Complete,
-				.bCompositeOutputValid = true};
+			return {.bCompositeOutputValid = true};
 		}
-		return {
-			.Status = Spatial.Status == EScenePassStatus::Complete
-				? EScenePassStatus::Failed : EScenePassStatus::NotRequested};
+		return {};
 	}
 } // namespace Durin

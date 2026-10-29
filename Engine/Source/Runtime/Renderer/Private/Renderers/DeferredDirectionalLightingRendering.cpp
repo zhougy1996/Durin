@@ -188,7 +188,6 @@ namespace Durin
 			}
 			else if (bWantsIsolatedDeferred)
 			{
-				DeferredResult.Status = EScenePassStatus::Failed;
 				++Recorder.Telemetry.View.Deferred.DeferredDirectionalUnavailableViews;
 			}
 		});
@@ -341,7 +340,6 @@ namespace Durin
 		FIsolatedDeferredPassResult Result;
 		if (bWantsIsolatedDeferred)
 		{
-			Result.Status = EScenePassStatus::Failed;
 			if (Targets == nullptr)
 				++Telemetry.View.Deferred.DeferredDirectionalUnavailableViews;
 			else
@@ -363,7 +361,6 @@ namespace Durin
 				DeferredTiming.End();
 				if (bRendered)
 				{
-					Result.Status = EScenePassStatus::Complete;
 					++Telemetry.View.Deferred.DeferredDirectionalEnabledViews;
 					Telemetry.View.Deferred.DeferredDirectionalOutputBytes =
 						FDeferredDirectionalLightingRenderer::

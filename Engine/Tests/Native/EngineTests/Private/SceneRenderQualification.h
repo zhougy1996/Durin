@@ -64,6 +64,14 @@ namespace Durin
 			auto ResetScene() -> void { FSceneInterfaceTestAccess::ReleaseScene(MainScene); }
 		};
 
+		std::unique_ptr<FScopedRendererQualificationPolicy> GRecordingQualificationOverride;
+		auto OverrideQualificationAfterAuthoring(uint64) -> void
+		{
+			GRecordingQualificationOverride = std::make_unique<FScopedRendererQualificationPolicy>(
+				FRendererQualificationPolicy{.GPUCullingFailure = EGPUCullingFailure::CommandAdmission,
+					.FailedAllocationObservation = static_cast<uint32>(ERDGAllocationObservation::Scene)});
+		}
+
 		FViewRenderTelemetry GSceneCloudTelemetry;
 		uint32 GSceneCloudTelemetryPublications = 0;
 		std::vector<FRDGCapture> GSceneCloudGraphCaptures;
@@ -307,10 +315,13 @@ namespace Durin
 		FSceneViewRenderOptions ExtraOptions;
 		bool bContactShadows = false;
 		bool bObserveTelemetry = true;
+		bool bOverrideDuringRecording = false;
+		bool bEditorAssistance = false;
 		bool bDisableCPUCulling = false;
 		FVector3 WorldShift{};
 		uint32 OffscreenOrdinal = 0;
-		auto RenderOffscreen = [&Renderer, Scene, &ExtraPolicy, &ExtraOptions, &bContactShadows, &OffscreenOrdinal, &bDisableCPUCulling, &WorldShift, &bObserveTelemetry, ObservePreparedDraw](
+		FSceneViewStateId HistoryId;
+		auto RenderOffscreen = [&Renderer, Scene, &ExtraPolicy, &ExtraOptions, &bContactShadows, &OffscreenOrdinal, &bDisableCPUCulling, &WorldShift, &bObserveTelemetry, &bOverrideDuringRecording, &bEditorAssistance, &HistoryId, ObservePreparedDraw](
 								   bool bForceFragment, bool bAmbientOcclusion = true,
 			EGroundTruthAmbientOcclusionQuality AOQuality = EGroundTruthAmbientOcclusionQuality::HalfResolution,
 			ERenderMode RenderMode = ERenderMode::Lit,
@@ -328,7 +339,7 @@ namespace Durin
 			{
 			EnqueueRenderCommand<FSceneCloudRender>(
 				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode,
-					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows, bDisableCPUCulling, WorldShift, ObservePreparedDraw, Preparation](
+					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows, bDisableCPUCulling, WorldShift, HistoryId, bEditorAssistance, bOverrideDuringRecording, ObservePreparedDraw, Preparation](
 					FRHICommandListImmediate& CommandList
 				) {
 					FTextureRHIRef Output = GDynamicRHI->RHICreateTexture(
@@ -343,6 +354,8 @@ namespace Durin
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					FSceneView View = MakeSceneCloudView(Width, Height);
+					View.ViewStateId = HistoryId;
+					if (bEditorAssistance) View.OverlayPrimitives.push_back({EViewOverlayShape::Arrow});
 					View.ViewLocation += WorldShift;
 					View.ViewMatrix = BuildViewMatrix(View.ViewLocation, Math::Normalize(FVector3{1, 0, 0.1}));
 					View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
@@ -372,7 +385,14 @@ namespace Durin
 						}
 						if (ObservePreparedDraw) ObservePreparedDraw(true);
 					}
+					if (bOverrideDuringRecording) SetSceneGraphAuthoringTimingSink(OverrideQualificationAfterAuthoring);
 					*Result = Renderer.RenderView(CommandList, {Scene, View, Output, false, Options});
+					if (bOverrideDuringRecording)
+					{
+						EXPECT_NE(GRecordingQualificationOverride, nullptr);
+						GRecordingQualificationOverride.reset();
+						SetSceneGraphAuthoringTimingSink(nullptr);
+					}
 					if (Prepare && ObservePreparedDraw) ObservePreparedDraw(false);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
@@ -437,6 +457,12 @@ namespace Durin
 		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowComputeViews, 1u);
 		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowDispatches, 1u);
 		EXPECT_GT(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowSamples, 0u);
+		// Missing optional weather still imports the normalized white fallback.
+		ASSERT_EQ(Component->GetWeatherTexture(), nullptr);
+		const auto Weather = std::ranges::find_if(GSceneCloudGraphCaptures.back().Resources,
+			[](const auto& Resource) { return Resource.Name == "Scene.VolumetricCloud.Weather"; });
+		ASSERT_NE(Weather, GSceneCloudGraphCaptures.back().Resources.end());
+		EXPECT_TRUE(Weather->bExternal);
 		const auto Fragment = RenderOffscreen(true);
 		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudEnabledViews, 1u);
 		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudFragmentViews, 1u);
@@ -962,6 +988,12 @@ namespace Durin
 					EXPECT_EQ(Query->GetState(), ERHITextureReadbackState::Canceled);
 			}
 			ExtraPolicy = {};
+			// Changing the global scope after authoring must affect neither allocation
+			// nor the recorded GPU dispatch for this already-frozen view.
+			bOverrideDuringRecording = true;
+			EXPECT_EQ(*Reference, *RenderOffscreen(false, false));
+			EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 1u);
+			bOverrideDuringRecording = false;
 			for (const auto Tag : {ERDGAllocationObservation::GPUCullingCandidates, ERDGAllocationObservation::GPUCullingVisible,
 				ERDGAllocationObservation::GPUCullingArguments, ERDGAllocationObservation::GPUCullingTransforms})
 			{
@@ -1017,12 +1049,42 @@ namespace Durin
 			bContactShadows = false;
 		}
 
+		// Cloud history survives a real later-stage failure even when this
+		// stream has no history left after an explicit reset.
+		{
+			Component->SetEnabled(true);
+			auto HistoryOwner = Renderer.CreateViewState();
+			HistoryId = HistoryOwner.GetId();
+			ASSERT_TRUE(HistoryId.IsValid());
+			RenderOffscreen(false);
+			Renderer.InvalidateViewState(HistoryId);
+			RenderOffscreen(false, true, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+				ERenderMode::Lit, ESceneRasterFailure::SortedTranslucency);
+			RenderOffscreen(false);
+			EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudHistoryAccepted, 1u);
+			Component->SetEnabled(false);
+			HistoryId = {};
+			HistoryOwner.Reset();
+			FlushRenderingCommands();
+		}
+
 		// Each injected raster failure executes the real authored route and must
 		// survive later cloud/sorted stages without becoming a successful publication.
 		for (const auto Failure : {ESceneRasterFailure::HybridBootstrap, ESceneRasterFailure::ProductionDeferred,
 			ESceneRasterFailure::RetainedForward, ESceneRasterFailure::SortedTranslucency})
 			RenderOffscreen(false, true, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Lit, Failure);
 		RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Unlit, ESceneRasterFailure::Forward);
+
+		// The same final Completion must report success and preserve the original
+		// upstream error when editor assistance is the output root.
+		bEditorAssistance = true;
+		RenderOffscreen(false);
+		EXPECT_TRUE(std::ranges::any_of(GSceneCloudGraphCaptures.back().Passes,
+			[](const auto& Pass) { return Pass.Name == "Scene.EditorAssistance"; }));
+		RenderOffscreen(false, true, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+			ERenderMode::Lit, ESceneRasterFailure::SortedTranslucency);
+		RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+			ERenderMode::Unlit, ESceneRasterFailure::Forward);
 
 		SetSceneRenderGraphCaptureSink(nullptr);
 		SetViewRenderTelemetrySink(nullptr);

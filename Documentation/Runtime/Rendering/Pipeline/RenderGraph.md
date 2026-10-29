@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-10-22
+Last reviewed: 2026-10-29
 
 ## Reading and Calling the Graph
 
@@ -448,6 +448,14 @@ direction. Parameter resolution additionally requires the exact submitted
 wrapper address; copied, wrong-pass, wrong-direction, foreign, or wrongly typed
 members are rejected. Captures expose the stable value type and parameter field
 path without addresses or compiler-specific type spelling.
+
+`ReadValueAfterExecute(Handle)` returns a const reference to the same
+builder-owned CPU payload after successful command recording. It validates graph
+identity, type, storage, and that the declared producer survived culling and
+executed. Calls during setup/recording or after any execution failure are
+rejected, including when an earlier producer already wrote a partial result.
+Reading does not retain a pass, extract GPU resources, or wait for the GPU.
+The reference expires with the builder; callers copy only data needed beyond it.
 
 ## Typed Pass Parameters
 

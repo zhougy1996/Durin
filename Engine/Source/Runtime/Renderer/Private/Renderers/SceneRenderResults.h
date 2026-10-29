@@ -91,13 +91,11 @@ namespace Durin
 
 	struct FIsolatedDeferredPassResult
 	{
-		EScenePassStatus Status = EScenePassStatus::NotRequested;
 		bool bOutputValid = false;
 	};
 
 	struct FVolumetricCloudPassResult
 	{
-		EScenePassStatus Status = EScenePassStatus::NotRequested;
 		bool bCompositeOutputValid = false;
 	};
 

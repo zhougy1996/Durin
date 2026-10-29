@@ -52,11 +52,9 @@ namespace Durin
 		Graph.SetTransientAliasingEnabled(Options.bEnableTransientAliasing);
 		const auto& Features = Context.Features;
 		const auto& PreparedEditorAssistance = Logical.EditorAssistance;
-		auto* CloudWeatherTexture = Resolved.CloudWeatherTexture;
 		const uint32 Width = Logical.Width;
 		const uint32 Height = Logical.Height;
 		const bool bPresentOutput = Logical.bPresentOutput;
-		auto& Composition = Context.Transaction.Composition;
 		auto& Telemetry = Context.Observation.Telemetry;
 		const auto GraphResources = PrepareGraphResources(Graph);
 		OutputTexture = GraphResources.Output;
@@ -64,8 +62,7 @@ namespace Durin
 		const FCloudDensityInputs CloudDensity{
 			.BaseDensity = GraphResources.VolumetricCloudBaseDensity,
 			.DetailDensity = GraphResources.VolumetricCloudDetailDensity,
-			.Weather = GraphResources.VolumetricCloudWeather,
-			.WeatherTexture = CloudWeatherTexture};
+			.Weather = GraphResources.VolumetricCloudWeather};
 		const FSceneView& PreparedRenderView = PreparedView.View;
 		const FPreparedDirectionalShadow* DirectionalShadow =
 			PreparedView.DirectionalShadow ? &*PreparedView.DirectionalShadow : nullptr;
@@ -84,6 +81,7 @@ namespace Durin
 			.Renderer = Service.GBufferRenderer,
 			.StaticMeshes = Service.StaticMeshRenderer,
 			.Depth = GraphResources.SceneDepth, .Options = Options,
+			.Failure = Logical.Qualification.GPUCullingFailure,
 			.Width = Width, .Height = Height, .Feature = Features.GBuffer,
 			.DeferredFeature = Features.Deferred});
 		const auto AmbientOcclusionOutput =
@@ -145,7 +143,8 @@ namespace Durin
 			.DefaultWhite = GraphResources.DefaultWhite,
 			.DefaultShadowArray = GraphResources.DefaultShadowArray,
 			.Environment = GraphResources.Environment,
-			.DeferredFeature = Features.Deferred});
+			.DeferredFeature = Features.Deferred,
+			.Failure = Logical.Qualification.RasterFailure});
 		const FVolumetricCloudRecordInputs CloudInputs{
 			PreparedRenderView, VolumetricCloud};
 		const auto CloudSpatialOutput =
@@ -175,8 +174,8 @@ namespace Durin
 			.BaseScene = BaseSceneOutput, .VolumetricCloud = CloudCompositeOutput,
 			.StaticMeshes = Service.StaticMeshRenderer,
 			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
-			.Publication = Composition.SceneColorPublication,
 			.DeferredFeature = Features.Deferred,
+			.Failure = Logical.Qualification.RasterFailure,
 			.CloudFeature = Features.CloudSpatial});
 		const auto PostProcessOutput = AddPostProcessPasses(Graph, { .RecordView = PreparedRenderView,
 			.View = View, .Options = Options, .SceneColor = SceneColorOutput,
@@ -184,16 +183,15 @@ namespace Durin
 			.GBufferDebug = Service.GBufferDebugRenderer,
 			.Renderer = Service.PostProcessRenderer, .Telemetry = Telemetry,
 			.Output = GraphResources.Output, .OutputTarget = OutputTarget,
-			.Publication = Composition.PostProcessPublication,
 			.Width = Width, .Height = Height,
 			.GBufferDebugFeature = Features.GBufferDebug,
 			.EditorAssistanceFeature = Features.EditorAssistance,
 			.bPresentOutput = bPresentOutput});
+		Completion = PostProcessOutput.Completion;
 		AddEditorAssistancePasses(Graph, { .View = PreparedRenderView,
 			.Prepared = PreparedEditorAssistance, .PostProcess = PostProcessOutput,
 			.Renderer = Service.EditorAssistanceRenderer,
 			.SceneDepth = GraphResources.SceneDepth, .OutputTarget = OutputTarget,
-			.Publication = Composition.PostProcessPublication,
 			.Feature = Features.EditorAssistance,
 			.bPresentOutput = bPresentOutput});
 		if (AuthoringSink) AuthoringSink(FTime::Nanoseconds() - AuthoringStarted);
@@ -210,7 +208,7 @@ namespace Durin
 		const uint32 Height = Logical.Height;
 		auto* OutputTarget = Logical.OutputTarget;
 		const bool bPresentOutput = Logical.bPresentOutput;
-		auto* CloudWeatherTexture = Resolved.CloudWeatherTexture;
+		auto* CloudWeatherTexture = Resolved.Scene.VolumetricCloud ? Resolved.Scene.VolumetricCloud->Weather : nullptr;
 		FGraphResources GraphResources;
 		FRDGBudget SceneRenderBudget{
 			.MaxPasses = 256,
@@ -269,10 +267,10 @@ namespace Durin
 		{
 			GraphResources.VolumetricCloudBaseDensity = ImportPersistentTexture(
 				"Scene.VolumetricCloud.BaseDensity",
-				Resolved.Scene.VolumetricCloud->Textures.BaseDensity);
+				PreparedView.VolumetricCloud->Textures.BaseDensity);
 			GraphResources.VolumetricCloudDetailDensity = ImportPersistentTexture(
 				"Scene.VolumetricCloud.DetailDensity",
-				Resolved.Scene.VolumetricCloud->Textures.DetailDensity);
+				PreparedView.VolumetricCloud->Textures.DetailDensity);
 			GraphResources.VolumetricCloudWeather = ImportPersistentTexture(
 				"Scene.VolumetricCloud.Weather", CloudWeatherTexture);
 		}

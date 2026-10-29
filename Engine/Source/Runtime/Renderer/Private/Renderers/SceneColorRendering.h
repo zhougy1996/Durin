@@ -2,6 +2,10 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRendererProfiling.h"
+
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/BaseSceneRendering.h"
 #include "Renderers/VolumetricCloudRendering.h"
 #include "RDG/RDGParameters.h"
@@ -47,8 +51,8 @@ namespace Durin
 		FStaticMeshRenderer& StaticMeshes;
 		FResolvedSceneResources& Resolved;
 		FSceneRenderTelemetry& Telemetry;
-		FSceneColorPassResult& Publication;
 		const FSceneFeatureDecision& DeferredFeature;
+		ESceneRasterFailure Failure = ESceneRasterFailure::None;
 		const FSceneFrameFeaturePlan::FCloudSpatial& CloudFeature;
 	};
 

@@ -157,7 +157,7 @@ namespace Durin
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		const auto PostProcessPass =
 			Graph.AddPass(PostProcessPassName, ERDGPassType::Graphics, std::move(Parameters),
-			[Recorder, &Publication = Inputs.Publication,
+			[Recorder,
 				RecordView = &RecordView, &View, bGBufferDebug, &Options,
 				bPresentOutput, bHasEditorAssistance](
 				FRHICommandListImmediate& Commands,
@@ -167,7 +167,11 @@ namespace Durin
 					PassParameters.SceneColor);
 				auto& PostProcessResult = Resolver.WriteValue(
 					PassParameters.Completion);
-				if (!SceneColorResult.IsSuccess()) return;
+				if (!SceneColorResult.IsSuccess())
+				{
+					PostProcessResult.Result = SceneColorResult.Result;
+					return;
+				}
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = Resolver.GetTexture(PassParameters.Resources.SceneColor),
 					.Depth = bGBufferDebug
@@ -206,8 +210,6 @@ namespace Durin
 					DebugTargets ? &*DebugTargets : nullptr,
 					SceneColorInput, IsolatedDeferredOutput,
 					bHasEditorAssistance);
-				if (!bHasEditorAssistance)
-					Publication = PostProcessResult;
 			});
 		if (!bHasEditorAssistance)
 		{

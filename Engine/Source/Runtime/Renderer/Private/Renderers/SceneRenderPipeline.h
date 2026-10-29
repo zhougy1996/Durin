@@ -49,7 +49,7 @@ namespace Durin
 		auto PrepareView_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FSceneFrameContext& Context
-		) -> FSceneRenderPreparationResult;
+		) -> std::expected<FSceneRenderPlan, ERenderViewResult>;
 		auto ResolveSceneRenderResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FSceneFrameContext& Context
@@ -64,7 +64,8 @@ namespace Durin
 		auto ExecuteGraph_RenderThread(
 			FRDGBuilder& Graph,
 			FRHICommandListImmediate& CommandList,
-			FRDGCapture* OutRenderGraphCapture
+			FRDGCapture* OutRenderGraphCapture,
+			const FRendererQualificationPolicy& Qualification
 		) -> bool;
 
 		FSceneRenderingService& Service;

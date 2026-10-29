@@ -24,7 +24,7 @@ namespace Durin
 	auto FSceneRenderPipeline::PrepareView_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FSceneFrameContext& Context
-	) -> FSceneRenderPreparationResult
+	) -> std::expected<FSceneRenderPlan, ERenderViewResult>
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareView");
 		FScene* Scene = Context.Logical.Scene;
@@ -53,8 +53,7 @@ namespace Durin
 			if (Texture == nullptr
 				|| Texture->GetDimension() != ETextureDimension::TextureCube)
 			{
-				return {
-					.Result = ERenderViewResult::RequiredEnvironmentUnavailable};
+				return std::unexpected(ERenderViewResult::RequiredEnvironmentUnavailable);
 			}
 			PreparedView.Environment.emplace();
 			PreparedView.Environment->SkyBox.TextureReference =
@@ -303,9 +302,7 @@ namespace Durin
 		}
 		if (ReceiverWork) PreparedView.Receiver.StaticMeshes = FinishStaticMeshView(std::move(*ReceiverWork));
 		Telemetry.View.CombinedTranslucentGeometryDraws = PreparedView.Receiver.StaticMeshes.Translucent.size();
-		return {
-			.Result = ERenderViewResult::Success,
-			.Plan = std::move(PreparedView)};
+		return PreparedView;
 	}
 
 	auto FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread(
@@ -373,9 +370,10 @@ namespace Durin
 		if (PreparedView.VolumetricCloud)
 		{
 			ResolvedSceneResources.VolumetricCloud.emplace();
-			ResolvedSceneResources.VolumetricCloud->Textures =
-				PreparedView.VolumetricCloud->Textures;
-			ResolvedSceneResources.VolumetricCloud->Textures.DensitySampler =
+			ResolvedSceneResources.VolumetricCloud->Weather = PreparedView.VolumetricCloud->Textures.Weather
+				? PreparedView.VolumetricCloud->Textures.Weather
+				: Service.DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+			ResolvedSceneResources.VolumetricCloud->DensitySampler =
 				Service.VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
 		}
 		return ERenderViewResult::Success;

@@ -892,6 +892,7 @@ namespace Durin
 		if (Quality.IsFullResolution() || Quality.HistoryWeight <= 0.0f)
 		{
 			History.SetPendingClear(PolicyKey, Input.CloudHistoryKey);
+			History.Commit();
 			Result.bCandidatePublished = true;
 			Result.HistoryBytes = History.GetRetainedBytes();
 			return Result;
@@ -935,7 +936,7 @@ namespace Durin
 						static_cast<float>(Matrix[Column][Row]);
 		};
 		CopyMatrix(Uniform.InverseViewProjection, InverseViewProjection);
-		CopyMatrix(Uniform.PreviousViewProjection, Input.TemporalContext->Previous.ViewProjectionMatrix * Math::TranslationMatrix(Input.View->ViewLocation));
+		CopyMatrix(Uniform.PreviousViewProjection, Input.TemporalContext->PreviousViewProjectionMatrix * Math::TranslationMatrix(Input.View->ViewLocation));
 		Uniform.Layer[0] = static_cast<float>(Input.Parameters.MinimumZ - Input.View->ViewLocation.z);
 		Uniform.Layer[1] = static_cast<float>(Input.Parameters.MaximumZ - Input.View->ViewLocation.z);
 		Uniform.Layer[2] = static_cast<float>(Input.Parameters.MaximumDistance);
@@ -949,8 +950,8 @@ namespace Durin
 		const auto Viewport = FSpatial::CalculateScaledViewport(
 			{Input.View->ViewportX, Input.View->ViewportY,
 			 Input.View->ViewportWidth, Input.View->ViewportHeight},
-			{Input.TemporalContext->Current.OutputWidth,
-			 Input.TemporalContext->Current.OutputHeight},
+			{Input.TemporalContext->OutputWidth,
+			 Input.TemporalContext->OutputHeight},
 			{Width, Height}
 		);
 		if (Viewport.Width == 0 || Viewport.Height == 0)
@@ -996,6 +997,7 @@ namespace Durin
 		CommandList.EndRenderPass();
 
 		History.SetPending(Candidate, PolicyKey, Input.CloudHistoryKey);
+		History.Commit();
 		Result.Cloud = Candidate;
 		Result.bHistoryAccepted = bHistoryAccepted;
 		Result.bCandidatePublished = true;

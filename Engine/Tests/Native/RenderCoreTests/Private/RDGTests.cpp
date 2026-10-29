@@ -6634,6 +6634,77 @@ namespace Durin
 		EXPECT_TRUE(Result.has_value()) << ToString(Result.error());
 	}
 
+	TEST_F(FRDGTests, CompletedValuesAreReadOnlyAndKeepBuilderOwnedStorage)
+	{
+		FRDGBuilder Builder;
+		const auto Value = Builder.CreateValue<FTypedValuePayload>("Result", "result");
+		const FTypedValuePayload* Recorded = nullptr;
+		auto Parameters = Builder.AllocParameters<FTypedValueWriteParameters>();
+		Parameters->Output = {Value};
+		const auto Producer = Builder.AddPass("Produce", ERDGPassType::Compute,
+			std::move(Parameters), [&Recorded](FRHICommandListImmediate&,
+				const FTypedValueWriteParameters& Pass, const FRDGParameterResolver& Resolver) {
+				auto& Output = Resolver.WriteValue(Pass.Output);
+				Output.Value = 73;
+				Recorded = &Output;
+			});
+		Builder.MarkPassRoot(Producer);
+		ASSERT_TRUE(Builder.Execute(GetCommandList()).has_value());
+		const auto& ReadOnlyBuilder = Builder;
+		static_assert(std::is_same_v<decltype(ReadOnlyBuilder.ReadValueAfterExecute(Value)), const FTypedValuePayload&>);
+		EXPECT_EQ(&ReadOnlyBuilder.ReadValueAfterExecute(Value), Recorded);
+		EXPECT_EQ(ReadOnlyBuilder.ReadValueAfterExecute(Value).Value, 73);
+		FRDGBuilder Other;
+		const auto Foreign = Other.CreateValue<FTypedValuePayload>("Foreign", "result");
+		EXPECT_DEATH(static_cast<void>(Builder.ReadValueAfterExecute(Foreign)), "invalid typed value handle");
+		EXPECT_DEATH(static_cast<void>(Builder.ReadValueAfterExecute(TRDGValueHandle<int>{})), "invalid typed value handle");
+		const auto Wrong = std::bit_cast<TRDGValueHandle<float>>(Value);
+		EXPECT_DEATH(static_cast<void>(Builder.ReadValueAfterExecute(Wrong)), "wrongly typed value handle");
+	}
+
+	TEST_F(FRDGTests, CompletedValueReadRejectsBuildingRecordingAndCulledProducer)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Value = Builder.CreateValue<int>("Culled", "int", 19);
+		const auto Producer = FRDGBuilderTestAccessor::AddPass(Builder, "CulledProducer", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseValue(Builder, Producer, Value, ERDGUse::Write);
+		EXPECT_DEATH(static_cast<void>(Builder.ReadValueAfterExecute(Value)), "requires successful execution");
+		const auto Root = FRDGBuilderTestAccessor::AddPass(Builder, "Root", ERDGPassType::Compute,
+			[&Builder, Value](FRHICommandListImmediate&, const FRDGPassResources&) {
+				EXPECT_DEATH(static_cast<void>(Builder.ReadValueAfterExecute(Value)), "requires successful execution");
+			});
+		Builder.MarkPassRoot(Root);
+		ASSERT_TRUE(Builder.Execute(GetCommandList()).has_value());
+		EXPECT_EQ(Builder.GetPasses().size(), 1u);
+		EXPECT_DEATH(static_cast<void>(Builder.ReadValueAfterExecute(Value)), "requires an executed producer");
+	}
+
+	TEST_F(FRDGTests, CompletedValueReadRejectsCompileAndPartialRecordingFailures)
+	{
+		FRDGBuilder Invalid;
+		const auto Unwritten = Invalid.CreateValue<int>("Unwritten", "int", 0);
+		ASSERT_FALSE(Invalid.Execute(GetCommandList()).has_value());
+		EXPECT_DEATH(static_cast<void>(Invalid.ReadValueAfterExecute(Unwritten)), "requires successful execution");
+
+		FRDGBuilder Builder;
+		const auto Value = Builder.CreateValue<int>("Partial", "int", 0);
+		bool Produced = false;
+		const auto Producer = FRDGBuilderTestAccessor::AddPass(Builder, "Produce", ERDGPassType::Compute,
+			[Value, &Produced](FRHICommandListImmediate&, const FRDGPassResources& Resources) {
+				Resources.WriteValue(Value) = 42;
+				Produced = true;
+			});
+		FRDGBuilderTestAccessor::UseValue(Builder, Producer, Value, ERDGUse::Write);
+		const auto Failure = FRDGBuilderTestAccessor::AddPass(Builder, "Fail", ERDGPassType::Compute,
+			[](FRHICommandListImmediate&, const FRDGPassResources&) { throw std::runtime_error("late failure"); });
+		Builder.AddPassDependency(Producer, Failure);
+		Builder.MarkPassRoot(Failure);
+		EXPECT_THROW(Builder.Execute(GetCommandList()), std::runtime_error);
+		EXPECT_TRUE(Produced);
+		EXPECT_DEATH(static_cast<void>(Builder.ReadValueAfterExecute(Value)), "requires successful execution");
+	}
+
 	TEST_F(FRDGTests, TypedValuesRejectInvalidWriterAndTypeContracts)
 	{
 		{

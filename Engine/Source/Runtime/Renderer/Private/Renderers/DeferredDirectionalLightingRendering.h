@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Renderers/SceneRenderResults.h"
+
 #include "Renderers/AmbientOcclusionRendering.h"
 #include "Renderers/ContactShadowVisibilityRendering.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
