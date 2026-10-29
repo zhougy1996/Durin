@@ -99,6 +99,7 @@ namespace Durin
 				return;
 			}
 			ResetPlatformData();
+			BeginCachePlatformData();
 			return;
 		}
 #if DURIN_WITH_EDITORONLY_DATA
@@ -131,7 +132,17 @@ namespace Durin
 	{
 		CheckGameThread();
 		if (!bAcceptingRenderResourceBuilds || IsPendingKill() || HasPlatformData()
-			|| (bCacheRequestCurrent && !IsAsyncCacheComplete()) || GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+			|| (bCacheRequestCurrent && !IsAsyncCacheComplete())) return;
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			if (!CookedLoad && IsTaskSchedulerRunning() && GetGameThreadDeferredWorkQueueDiagnostics().bAccepting)
+			{
+				ResourceUpdateError.clear();
+				LastUpdateState = ETextureResourceUpdateState::Pending;
+				LoadCookedPlatformData(true);
+			}
+			return;
+		}
 		bCacheRequestCurrent = true;
 		BuildPlatformDataForLoad();
 	}
@@ -139,6 +150,7 @@ namespace Durin
 	auto DTexture::IsAsyncCacheComplete() const -> bool
 	{
 		CheckGameThread();
+		if (CookedLoad) return HasPlatformData() || LastUpdateState == ETextureResourceUpdateState::Failed || LastUpdateState == ETextureResourceUpdateState::Closed;
 		return !HasPendingTextureCompilation(*this);
 	}
 
@@ -159,6 +171,7 @@ namespace Durin
 
 	auto DTexture::BeginDestroy() -> void
 	{
+		if (CookedLoad) CookedLoad->Cancel();
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		bAcceptingRenderResourceBuilds = false;
 		ReleaseRenderResources();
@@ -203,7 +216,10 @@ namespace Durin
 	}
 
 	auto DTexture::HasUsableResource() const -> bool { return RenderResource != nullptr; }
-	auto DTexture::IsResourceUpdatePending() const -> bool { return PendingUpdate != nullptr; }
+	auto DTexture::IsResourceUpdatePending() const -> bool
+	{
+		return PendingUpdate != nullptr || (CookedLoad && !IsAsyncCacheComplete());
+	}
 	auto DTexture::FinishReloadResourcePreparation() -> bool
 	{
 		CheckGameThread();
@@ -268,6 +284,7 @@ namespace Durin
 	auto DTexture::InvalidateRenderResource() -> void
 	{
 		CheckGameThread();
+		if (CookedLoad) { CookedLoad->Cancel(); CookedLoad.reset(); }
 		if (PendingUpdate) PendingUpdate->Discard();
 		if (bTextureReferenceInitializationQueued)
 		{
@@ -402,23 +419,6 @@ namespace Durin
 			return false;
 		}
 		return LoadCookedPlatformData();
-	}
-	auto DTexture::PrepareRenderResource(uint32& RemainingUpdates) -> std::expected<bool, std::string>
-	{
-		if (HasUsableResource()) return true;
-		if (!IsAsyncCacheComplete() || IsResourceUpdatePending()) return false;
-		const auto State = GetResourceUpdateState();
-		if (State == ETextureResourceUpdateState::Failed || State == ETextureResourceUpdateState::Closed)
-			return std::unexpected(std::format("required texture '{}': {}", GetObjectPath(), GetResourceUpdateError()));
-		if (RemainingUpdates == 0) return false;
-		--RemainingUpdates;
-		if (!HasPlatformData())
-		{
-			if (!GetAssetRuntimeConfiguration().RequiresCookedPayload() || !EnsurePlatformDataLoadedBlocking())
-				return std::unexpected(std::format("required texture '{}' has no platform data.", GetObjectPath()));
-		}
-		else UpdateResource();
-		return false;
 	}
 
 }

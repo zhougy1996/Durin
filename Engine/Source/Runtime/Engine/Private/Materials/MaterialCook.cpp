@@ -161,40 +161,6 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterialInterface::LoadCookedProgram() -> void
-	{
-		auto Read = CookedProgramData.AcquireRead();
-		if (!Read)
-		{
-			MaterialCookDiagnostic = "Material cooked payload read failed: " + Read.error().Message;
-			return;
-		}
-		const FByteView Bytes = Read->GetBytes();
-
-		FMaterialStaticProperties PayloadProperties;
-		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate;
-		const ERHIFeatureLevel FeatureLevel = GDynamicRHI
-			&& GDynamicRHI->RHIGetCapabilities()
-			? GDynamicRHI->RHIGetCapabilities()->FeatureLevel
-			: ERHIFeatureLevel::SM5;
-		const auto Decoded = DecodeMaterialCookedProgramFamily(
-			Bytes,
-			GetActiveRHIBackend().value_or(
-				ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")).value_or(ERHIBackend::Vulkan)) == ERHIBackend::Metal
-				? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
-			ECookTargetProfile::Game,
-			GetMaterialQualityLevel(), FeatureLevel, {},
-			PayloadProperties, ProgramCandidate);
-		if (!Decoded)
-		{
-			MaterialCookDiagnostic = Decoded.error();
-			return;
-		}
-		Read->Reset();
-		const auto Admitted = AdmitCookedProgram(PayloadProperties, std::move(ProgramCandidate));
-		MaterialCookDiagnostic = Admitted ? std::string{} : Admitted.error();
-	}
-
 	auto DMaterialInterface::AdmitCookedProgram(const FMaterialStaticProperties& PayloadProperties,
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> std::expected<void, std::string>
 	{
@@ -238,6 +204,7 @@ namespace Durin
 		CompilationOwner.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
 		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
+		CompilationOwner.CookedPreparation.reset();
 		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
 		CompilationOwner.MaterialCompileStatus.CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
@@ -248,7 +215,7 @@ namespace Durin
 			CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
 		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().Target;
 		CompilationOwner.MaterialCompileDiagnostics.clear();
-		PublishMaterialRenderProxyState();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 		return {};
 	}
 

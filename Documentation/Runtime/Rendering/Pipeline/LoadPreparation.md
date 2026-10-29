@@ -29,21 +29,28 @@ admission. Terminal results remain observable after cancellation. Each request
 has the existing 8 MiB encoded family limit. Decoded products and package-task storage have additional allocation cost;
 these limits are not a process RSS bound.
 
-The Engine-owned MapChange handler requests selected Local/Spline mesh CPU/GPU residency
-with at most four requests per advancement and waits for authored compilation
-without joining it. Both authored and cooked operations collect visible effective
-mesh-slot materials and their parent chains; cooked operations prepare at most
-eight programs concurrently. `DMaterialInterface::IsCompiling` and `IsComplete`
-are nonblocking program queries, independent of textures and component PSOs.
-`GetUsedTextures` replaces its output with deduplicated effective textures from
-the accepted program, including instance overrides. Only effective bindings,
-not overridden parent textures, participate in scene texture readiness. Texture
-CPU compilation and GPU publication use their existing owners; at most four
-new texture loads/uploads are requested per advancement. Cooked texture CPU
-loading retains the existing explicit synchronous lazy-load boundary; upload
-completion is asynchronous and is never joined here. Collections
-are limited to 4,096 owners. Game BeginPlay runs on the candidate before its final
-product collection, so spawned initial resources participate in admission.
+Resource preparation is independent of MapChange. Mesh components request CPU/GPU
+residency on registration and use existing render-data change notifications.
+Mesh admission pressure retains only weak owner identities in the existing cooked
+load manager; its ordinary pump retries without allocating extra read/decode work.
+Cancel, shutdown and owner destruction retire those intents.
+Cooked materials start `CacheResourceShadersForRendering` in PostLoad. Their
+compilation owner retains the existing program request; the shader compiler's
+retry queue pumps admission and publication. The 16-request decode bound defers
+excess work instead of reporting a permanent failure. Program getters are pure;
+offline consumers explicitly finish compilation before inspecting accepted programs.
+Dynamic instances may retain declared parameter overrides while a cooked parent
+program is pending. Normal publication applies those overrides when it becomes ready;
+failed parents and ready-program reachability validation retain their existing rules.
+Cooked textures asynchronously read/decode platform data after PostLoad, then
+apply on GameThread and upload through the existing resource-update path and
+stable texture reference. Explicit blocking loaders remain available to offline
+and reload callers. SkyLight and cloud proxies begin caching without blocking
+registration and retain stable references for late texture publication.
+Texture read/decode failures retain their detailed message
+in the existing resource diagnostic.
+`IsCompiling`, `IsComplete` and texture resource state queries
+do not perform blocking preparation. MapChange retains no resource lists or budgets.
 MapChange does not scan or wait for component PSOs. Components use their existing
 delay-proxy policy and owner notifications to appear after required PSOs become
 ready, including after map activation. Required PSO failures remain observable on

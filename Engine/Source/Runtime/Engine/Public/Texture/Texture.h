@@ -22,6 +22,12 @@ namespace Durin
 	class FTextureReference;
 	class FTextureResourceUpdate;
 	class DTexture;
+	namespace TexturePrivate
+	{
+		template<class TPlatformData, class TTexture>
+		auto LoadCookedPlatformData(TTexture&, FBulkData&, std::string_view, bool,
+			std::shared_ptr<FPackageResourceRequest>&) -> bool;
+	}
 
 	// Progress of CPU initialization/publication, independent of usable fallback.
 	DENUM()
@@ -51,10 +57,11 @@ namespace Durin
 		// Full-object edits retire prior work and begin independent authored compilation.
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		// Authored 2D/cube data: schedules cache lookup/build without reading source pixels.
-		// Volume textures currently use the synchronous implementation.
-		// Repeated calls while installed or pending are no-ops. Cooked data stays lazy.
+		// Authored volume textures currently use the synchronous implementation.
+		// Cooked families schedule worker reads/decode when the owner executor is available.
+		// Repeated calls while installed or pending are no-ops.
 		ENGINE_API auto BeginCachePlatformData() -> void;
-		// CPU compilation completion, including failure; does not imply GPU readiness.
+		// CPU cache completion, including failure; does not imply GPU readiness.
 		ENGINE_API auto IsAsyncCacheComplete() const -> bool;
 		// Explicit blocking boundary. Returns CPU-data success; GPU upload remains asynchronous.
 		ENGINE_API auto FinishCachePlatformData(double TimeoutSeconds = 300.0) -> bool;
@@ -104,8 +111,6 @@ namespace Durin
 			-> FRHITextureReferenceRef;
 		ENGINE_API auto GetResourceUpdateState() const -> ETextureResourceUpdateState;
 		ENGINE_API auto HasUsableResource() const -> bool;
-		// Polls cache/upload state and admits an update within the caller budget.
-		ENGINE_API auto PrepareRenderResource(uint32& RemainingUpdates) -> std::expected<bool, std::string>;
 		ENGINE_API auto IsResourceUpdatePending() const -> bool;
 		// Reload-only prepublication receipt. With an active RHI, drains this
 		// texture's admitted upload and reports whether a usable allocation exists.
@@ -123,11 +128,16 @@ namespace Durin
 		ENGINE_API auto AdoptBuildSource(FTextureSource Value) -> void;
 #endif
 		ENGINE_API auto InvalidateRenderResource() -> void;
-		// Restricted to family serializers and blocking loaders.
+		// Restricted to family serializers and loaders.
 		auto GetMutableCookedPlatformData() -> FBulkData&
 		{
 			return CookedPlatformData;
 		}
+
+		std::shared_ptr<FPackageResourceRequest> CookedLoad;
+		template<class TPlatformData, class TTexture>
+		friend auto TexturePrivate::LoadCookedPlatformData(TTexture&, FBulkData&, std::string_view, bool,
+			std::shared_ptr<FPackageResourceRequest>&) -> bool;
 
 		// Drops installed CPU data for lazy cooked loading; leaves published GPU resources intact.
 		virtual auto ResetPlatformData() -> void = 0;
@@ -140,12 +150,13 @@ namespace Durin
 			-> std::unique_ptr<FTextureResource> = 0;
 		// Installs family-specific cooked data and queues its resource update.
 		// Logs failures locally and returns false without updating resources.
-		virtual auto LoadCookedPlatformData() -> bool = 0;
+		virtual auto LoadCookedPlatformData(bool bAsync = false) -> bool = 0;
 
 	private:
 
 
 		auto ReleaseRenderResources() -> void;
+		friend struct FTextureCookTestAccess;
 		auto StartResourceUpdate(std::unique_ptr<FTextureResource> Candidate) -> void;
 		auto ConsumeResourceUpdate() -> void;
 

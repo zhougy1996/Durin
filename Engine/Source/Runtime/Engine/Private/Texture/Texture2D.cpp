@@ -132,10 +132,10 @@ namespace Durin
 #endif
 	}
 
-	auto DTexture2D::LoadCookedPlatformData() -> bool
+	auto DTexture2D::LoadCookedPlatformData(bool bAsync) -> bool
 	{
 		return TexturePrivate::LoadCookedPlatformData<FTexturePlatformData>(
-			*this, GetMutableCookedPlatformData(), "Texture2D");
+			*this, GetMutableCookedPlatformData(), "Texture2D", bAsync, CookedLoad);
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA

@@ -474,8 +474,10 @@ namespace Durin
 				return;
 			}
 			CompilationOwner.RenderLayer.CompiledProgram.reset();
+			CompilationOwner.CookedPreparation.reset();
 			CompilationOwner.MaterialCompileDiagnostics.clear();
 			MaterialCookDiagnostic = {};
+			CacheResourceShadersForRendering();
 			return;
 		}
 #if DURIN_WITH_EDITORONLY_DATA

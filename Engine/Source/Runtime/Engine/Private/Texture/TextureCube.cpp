@@ -344,10 +344,10 @@ namespace Durin
 #endif
 	}
 
-	auto DTextureCube::LoadCookedPlatformData() -> bool
+	auto DTextureCube::LoadCookedPlatformData(bool bAsync) -> bool
 	{
 		return TexturePrivate::LoadCookedPlatformData<FTextureCubePlatformData>(
-			*this, GetMutableCookedPlatformData(), "TextureCube");
+			*this, GetMutableCookedPlatformData(), "TextureCube", bAsync, CookedLoad);
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA

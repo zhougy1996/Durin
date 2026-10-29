@@ -128,8 +128,11 @@ persistence failure does not discard valid in-memory platform data.
 Both warm DDC reads and cold builds return from authored Texture2D/TextureCube
 `PostLoad` in a pending CPU readiness phase. Thumbnails poll
 `IsAsyncCacheComplete()` before inspecting platform data. Cook and reload use
-`FinishCachePlatformData()` explicitly; cooked-runtime lazy payload behavior
-remains unchanged. Save and cook can only observe committed asset
+`FinishCachePlatformData()` explicitly. Cooked PostLoad starts asynchronous
+range reads and decode when the owner executor is available, then applies and
+uploads through the resource owner. Getters remain nonblocking; see
+[load preparation](../../Rendering/Pipeline/LoadPreparation.md#object-and-program-readiness).
+Save and cook can only observe committed asset
 state; the Texture Editor requires an explicit Wait for Build or Cancel Build
 decision instead of serializing a pending candidate.
 

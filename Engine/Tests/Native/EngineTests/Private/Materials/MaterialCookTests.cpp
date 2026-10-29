@@ -5,6 +5,7 @@
 #include "MaterialRenderRepresentationTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
 #include "Materials/MaterialProgramPreparation.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "Shader/IShaderBuildModule.h"
 #include "MaterialCookedProgramTestSupport.h"
 
@@ -100,7 +101,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(InvalidData);
 	CookedData = std::move(*InvalidData);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), nullptr);
-	EXPECT_EQ(Cooked->GetMaterialCookDiagnostic(), "Material cooked program byte extent is invalid.");
+	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty()); // Queries do not read/decode payloads.
 	auto FailedPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
 	const auto FailureDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	while (FailedPreparation.Poll() == Durin::EMaterialProgramPreparationState::Pending
@@ -123,6 +124,12 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_EQ(ProgramPreparation.GetProgram(), Cooked->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
 	// Keep all terminal observations alive: admission bounds work, not diagnostic handles.
+	std::vector<Durin::FMaterialProgramPreparation> Burst;
+	for (uint32 Index = 0; Index < 24; ++Index) Burst.push_back(Durin::FMaterialProgramPreparation::Request(*Cooked));
+	const auto BurstDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	while (std::ranges::any_of(Burst, [](auto& Item) { return Item.Poll() == Durin::EMaterialProgramPreparationState::Pending; })
+		&& std::chrono::steady_clock::now() < BurstDeadline) std::this_thread::yield();
+	for (auto& Item : Burst) EXPECT_EQ(Item.Poll(), Durin::EMaterialProgramPreparationState::Ready) << Item.GetDiagnostic();
 	std::vector<Durin::FMaterialProgramPreparation> CompletedPreparations;
 	for (uint32 Index = 0; Index < 24; ++Index)
 	{
@@ -307,6 +314,18 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	}
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
+	const std::array<Durin::DObject*, 1> CookedOwners{Cooked};
+	const auto BudgetDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	uint64 CookedCompletions = 0;
+	while (Cooked->IsCompiling() && std::chrono::steady_clock::now() < BudgetDeadline)
+	{
+		const auto Tick = Durin::FShaderCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 1});
+		EXPECT_LE(Tick.ProcessedCompletionCount, 1u);
+		CookedCompletions += Tick.ProcessedCompletionCount;
+		std::this_thread::yield();
+	}
+	EXPECT_GT(CookedCompletions, 0u); // Cooked admissions participate in normal compiler feedback.
+	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(CookedOwners);
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
@@ -327,6 +346,12 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Instance, nullptr);
 	EXPECT_EQ(Instance->GetParent(), Cooked);
+	Instance->PostLoad(); // Exercise initialization before the owner queue advances.
+	ASSERT_TRUE(Instance->IsCompiling());
+	auto* PendingChild = Durin::DMaterialInstance::CreateDynamic(Instance, nullptr, "PendingCookedChild");
+	ASSERT_NE(PendingChild, nullptr);
+	ASSERT_TRUE(PendingChild->SetVectorParameterValue(
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.3, 0.6, 0.8)));
 	for (size_t Index = 0; Index < VariantPaths.size(); ++Index)
 	{
 		Durin::DMaterialInstance* Variant = nullptr;
@@ -337,6 +362,8 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		}
 		ASSERT_TRUE(Variant);
 		ASSERT_GT(Variant->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
+		const std::array<Durin::DObject*, 1> VariantOwners{Variant};
+		Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(VariantOwners);
 		ASSERT_TRUE(Variant->GetAcceptedCompiledProgram());
 		EXPECT_EQ(Variant->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, VariantIdentities[Index]);
 		EXPECT_NE(Variant->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
@@ -347,6 +374,10 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 			Durin::FVector4f(0.8f, 0.3f, 0.1f, 1.0f));
 	}
 
+	const std::array<Durin::DObject*, 1> InstanceOwners{Instance};
+	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(InstanceOwners);
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*PendingChild)).BaseColor,
+		Durin::FVector4f(0.3f, 0.6f, 0.8f, 1.0f));
 	auto* Child = Durin::DMaterialInstance::CreateDynamic(Instance, nullptr, "CookedChild");
 	ASSERT_TRUE(Child);
 	EXPECT_TRUE(Child->IsDynamicInstance());
@@ -502,7 +533,9 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_NE(Loaded, nullptr);
-		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
+	const std::array<Durin::DObject*, 1> LoadedOwners{Loaded};
+	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(LoadedOwners);
+	ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout, ExpectedLayout);
 		EXPECT_EQ(Loaded->GetStaticProperties().GeometryUsage, 1u);
 		EXPECT_EQ(Loaded->GetStaticProperties().PassUsage, 7u);
@@ -521,6 +554,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_NE(LoadedInstance, nullptr);
+		FShaderCompilingManager::Get().FinishAllCompilation();
 		EXPECT_FALSE(LoadedInstance->IsParameterValueOrphan(Texture.Id));
 		const auto RootBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded));
 		const auto InstanceBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*LoadedInstance));

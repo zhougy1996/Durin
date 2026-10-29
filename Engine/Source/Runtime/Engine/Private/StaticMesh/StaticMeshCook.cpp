@@ -655,6 +655,8 @@ namespace Durin
 			Request.Fields.push_back(CookedCollisionData);
 		if (const auto Submitted = Manager->Submit(std::move(Request)); !Submitted)
 		{
+			if (Submitted.Error.Code == ECookedMeshAdmissionError::PendingBudget || Submitted.Error.Code == ECookedMeshAdmissionError::FlightBudget)
+				Manager->Defer(FObjectKey(this));
 			CookedLoadError = {.Code = ECookedMeshLoadError::Admission, .Owner = FObjectKey(this),
 				.AdmissionCause = std::make_shared<FCookedMeshAdmissionError>(Submitted.Error)};
 			return false;

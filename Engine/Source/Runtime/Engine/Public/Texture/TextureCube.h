@@ -92,7 +92,7 @@ namespace Durin
 	private:
 		auto ResetPlatformData() -> void override { PlatformData.reset(); }
 		auto BuildPlatformDataForLoad() -> void override;
-		auto LoadCookedPlatformData() -> bool override;
+		auto LoadCookedPlatformData(bool bAsync = false) -> bool override;
 
 #if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly, AlwaysSerialize, DisplayName = "Source Layout")

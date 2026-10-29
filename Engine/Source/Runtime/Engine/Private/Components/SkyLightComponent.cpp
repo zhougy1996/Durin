@@ -91,9 +91,9 @@ namespace Durin
 
 	auto DSkyLightComponent::CreateSceneProxy() -> std::shared_ptr<const FSkyLightSceneProxy>
 	{
-		// Authored textures publish through the stable reference after async compilation.
+		// Both authored and cooked textures publish through the stable reference.
 		if (TextureCube && GetAssetRuntimeConfiguration().RequiresCookedPayload())
-			(void)TextureCube->EnsurePlatformDataLoadedBlocking();
+			TextureCube->BeginCachePlatformData();
 		auto Proxy = std::make_shared<FSkyLightSceneProxy>();
 		Proxy->PersistentId = SkyLightSceneId;
 		Proxy->SelectionKey = GetObjectPath();

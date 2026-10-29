@@ -100,7 +100,8 @@ namespace Durin
 			const FMaterialParameterValue& Value
 			) -> std::expected<void, std::string>;
 		// Dynamic instances only. Validates the complete borrowed batch against one
-		// accepted parent contract for Set. Clear only needs a valid local GUID,
+		// accepted parent contract for Set. A pending cooked parent uses serialized
+		// declarations and retains overrides until publication. Clear only needs a valid local GUID,
 		// including orphaned values. Commits and publishes at most once.
 		ENGINE_API auto ApplyDynamicParameterUpdates(
 			std::span<const FMaterialDynamicParameterUpdate> Updates)

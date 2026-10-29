@@ -11,6 +11,7 @@
 #include "Materials/MaterialCookConfiguration.h"
 #include "Asset/AssetBuildTaskContext.h"
 #include "Materials/MaterialCompileLifecycle.h"
+#include "Materials/MaterialProgramPreparation.h"
 #include "Materials/MaterialFunctionInterface.h"
 #include "Delegates/Delegate.h"
 #include "Materials/MaterialPSOPrecache.h"
@@ -94,6 +95,7 @@ namespace Durin
 	{
 		// The render-safe contract remains available while a replacement compiles.
 		FMaterialResource RenderLayer;
+		std::optional<FMaterialProgramPreparation> CookedPreparation;
 		// Last scheduled or submitted schema, used to classify reflected dynamic edits.
 		FMaterialStaticProperties LastObservedShaderProperties;
 		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
@@ -139,14 +141,15 @@ namespace Durin
 		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
 		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;
 		ENGINE_API virtual auto GetStaticProperties() const -> const FMaterialStaticProperties&;
+		// Returns the accepted program without initiating loading or compilation.
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult>;
 		// Nonblocking GameThread queries. Completeness covers the current material
 		// program, independently of texture residency and component PSOs.
 		ENGINE_API virtual auto IsCompiling() const -> bool;
 		ENGINE_API virtual auto IsComplete() const -> bool;
-		ENGINE_API auto NeedsCookedProgramPreparation() const -> bool;
-		ENGINE_API auto GetProgramReadiness() const -> std::expected<bool, std::string>;
+		// Starts owner preparation; existing compiler completion publishes the resource.
+		ENGINE_API auto CacheResourceShadersForRendering() -> void;
 		// Effective textures of the accepted program; replaces OutTextures.
 		ENGINE_API virtual auto GetUsedTextures(std::vector<DTexture2D*>& OutTextures) const -> void;
 		// Editor preview only: selects an explicit quality and a feature level no
@@ -217,7 +220,6 @@ namespace Durin
 		ENGINE_API auto PostEditChangePropertyWithContext(const FPropertyChangedEvent& Event, FObjectCacheContext& Context) -> void;
 		ENGINE_API auto AdmitCookedProgram(const FMaterialStaticProperties& Properties,
 			std::shared_ptr<const FMaterialCompilerResult> Program) -> std::expected<void, std::string>;
-		ENGINE_API auto LoadCookedProgram() -> void;
 		// A transient runtime owner can select only an already compiled compatible variant.
 		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
 		FBulkData CookedProgramData;
@@ -242,6 +244,8 @@ namespace Durin
 
 	private:
 		auto ResolveResourceProperties() const -> FMaterialStaticProperties;
+		friend class FShaderCompilingManager;
+		auto PollCookedProgramPreparation() -> bool;
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 	private:
 		friend class FMaterialProgramPreparation;

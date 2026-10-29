@@ -2,6 +2,8 @@
 #include "Asset/CookedMeshLoadManager.h"
 
 #include "DObject/Object.h"
+#include "DObject/WeakObjectPtr.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Threading/RunnableThread.h"
 namespace Durin
 {
@@ -44,7 +46,7 @@ namespace Durin
 		};
 
 		std::mutex GManagerMutex;
-		std::unique_ptr<FCookedMeshLoadManager> GManager;
+		std::shared_ptr<FCookedMeshLoadManager> GManager;
 	}
 
 	struct FCookedMeshLoadManager::FState
@@ -178,6 +180,7 @@ namespace Durin
 		uint64 PendingCompletionBytes = 0;
 		std::vector<std::shared_ptr<FFlight>> Flights;
 		std::vector<FPendingRequest> PendingRequests;
+		std::unordered_set<FObjectKey> DeferredOwners;
 		std::deque<FCompletion> Mailbox;
 		FCookedMeshLoadDiagnostics Diagnostics;
 	};
@@ -573,7 +576,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		std::scoped_lock Lock(State->Mutex);
-		bool bFound = false;
+		bool bFound = State->DeferredOwners.erase(Owner) != 0;
 		for (const std::shared_ptr<FFlight>& Flight : State->Flights)
 		{
 			if (!SameOwner(Flight->Identity.Owner, Owner)) continue;
@@ -615,6 +618,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		std::scoped_lock Lock(State->Mutex);
+		State->DeferredOwners.clear();
 		if (State->ManagerState == ECookedMeshManagerState::Accepting)
 			State->ManagerState = ECookedMeshManagerState::Draining;
 	}
@@ -626,6 +630,7 @@ namespace Durin
 		{
 			std::scoped_lock Lock(State->Mutex);
 			if (State->ManagerState == ECookedMeshManagerState::Stopped) return;
+			State->DeferredOwners.clear();
 			State->ManagerState = ECookedMeshManagerState::Draining;
 			for (const std::shared_ptr<FFlight>& Flight : State->Flights)
 			{
@@ -670,21 +675,48 @@ namespace Durin
 	{
 		CheckGameThread();
 		std::scoped_lock Lock(GManagerMutex);
-		if (!GManager) GManager = std::make_unique<FCookedMeshLoadManager>();
+		if (!GManager) GManager = std::make_shared<FCookedMeshLoadManager>();
 		return GManager->Initialize();
 	}
 
 	auto PumpCookedMeshLoadManager() -> uint32
 	{
 		CheckGameThread();
-		std::scoped_lock Lock(GManagerMutex);
-		return GManager ? GManager->Pump() : 0;
+		std::shared_ptr<FCookedMeshLoadManager> Manager;
+		{
+			std::scoped_lock Lock(GManagerMutex);
+			Manager = GManager;
+		}
+		if (!Manager) return 0;
+		const auto Processed = Manager->Pump();
+		Manager->RetryDeferred();
+		return Processed;
+	}
+	auto FCookedMeshLoadManager::Defer(FObjectKey Owner) -> void
+	{
+		std::scoped_lock Lock(State->Mutex);
+		if (State->ManagerState == ECookedMeshManagerState::Accepting) State->DeferredOwners.insert(Owner);
+	}
+	auto FCookedMeshLoadManager::RetryDeferred() -> void
+	{
+		std::vector<FObjectKey> Owners;
+		{
+			std::scoped_lock Lock(State->Mutex);
+			if (State->ManagerState != ECookedMeshManagerState::Accepting) { State->DeferredOwners.clear(); return; }
+			for (auto It = State->DeferredOwners.begin(); It != State->DeferredOwners.end() && Owners.size() < 64;)
+			{
+				Owners.push_back(*It);
+				It = State->DeferredOwners.erase(It);
+			}
+		}
+		for (const auto Owner : Owners)
+			if (auto* Mesh = Cast<DStaticMesh>(FWeakObjectPtr(Owner).Get()); IsValid(Mesh)) Mesh->RequestRenderDataAndResources();
 	}
 
 	auto ShutdownCookedMeshLoadManager() -> void
 	{
 		CheckGameThread();
-		std::unique_ptr<FCookedMeshLoadManager> Manager;
+		std::shared_ptr<FCookedMeshLoadManager> Manager;
 		{
 			std::scoped_lock Lock(GManagerMutex);
 			Manager = std::move(GManager);

@@ -504,27 +504,27 @@ namespace Durin
 				bChanged |= bRemoved;
 				continue;
 			}
-			// Clearing local storage remains valid when the parent contract is unavailable.
-			// Only Set needs a current declaration and an accepted active parameter.
-			if (!Program)
-				return Reject("The parameter is not reachable from the material outputs.",
-					Index, Update.ParameterId);
-			if (!Reachability) Reachability = GetParameterReachability();
-			if (!Reachability || !Reachability->Validation)
+			// Cooked declarations are available before program publication. Preserve
+			// initialization values in the ordinary override arrays while it loads.
+			if (!Program && !(GetAssetRuntimeConfiguration().RequiresCookedPayload() && IsCompiling()))
 				return Reject("The parameter is not reachable from the material outputs.",
 					Index, Update.ParameterId);
 			const auto* Definition = FindParameterDefinition(Update.ParameterId);
 			if (!Definition)
 				return Reject("Material declaration does not exist.",
 					Index, Update.ParameterId);
-			const auto Active = std::ranges::find(Program->GetShaderMap().ActiveParameters,
-				Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
-			if (Active == Program->GetShaderMap().ActiveParameters.end()
-				|| !Reachability->ParameterIds.contains(Update.ParameterId))
-				return Reject("The parameter is not reachable from the material outputs.",
-					Index, Update.ParameterId);
 			const EMaterialParameterType Type = Update.Value.GetType();
-			if (Definition->Type != Type || Active->Type != Type)
+			if (Program)
+			{
+				if (!Reachability) Reachability = GetParameterReachability();
+				const auto Active = std::ranges::find(Program->GetShaderMap().ActiveParameters,
+					Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
+				if (!Reachability || !Reachability->Validation || Active == Program->GetShaderMap().ActiveParameters.end()
+					|| !Reachability->ParameterIds.contains(Update.ParameterId))
+					return Reject("The parameter is not reachable from the material outputs.", Index, Update.ParameterId);
+				if (Active->Type != Type) return Reject("Material declaration type is invalid.", Index, Update.ParameterId);
+			}
+			if (Definition->Type != Type)
 			{
 				return Reject("Material declaration type is invalid.", Index, Update.ParameterId);
 			}
@@ -762,13 +762,14 @@ namespace Durin
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			CompilationOwner.RenderLayer = {};
+			CompilationOwner.CookedPreparation.reset();
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
 				MaterialCookDiagnostic = "Material cooked program is unavailable.";
 				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), MaterialCookDiagnostic);
 			}
 		}
-		else RequestMaterialRecompile(*this);
+		CacheResourceShadersForRendering();
 		PublishMaterialRenderProxyState();
 		NotifyParameterChanges();
 	}

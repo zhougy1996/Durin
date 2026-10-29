@@ -258,6 +258,7 @@ namespace Durin
 		auto FMaterialCompilationLifecycle::MarkCanceled(
 			DMaterialInterface& Material) -> void
 		{
+			Material.CompilationOwner.CookedPreparation.reset();
 			GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
 		}
@@ -379,8 +380,7 @@ namespace Durin
 			}
 		while (std::ranges::any_of(Owners, [this](FWeakObjectPtr Owner) {
 			auto* Material = Cast<DMaterialInterface>(Owner.Get());
-			return IsMaterialCompiling(Owner) || (IsValid(Material)
-				&& Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred);
+			return IsValid(Material) && Material->IsCompiling();
 		}))
 		{
 			RaiseMaterialPriority(Owners);
@@ -432,9 +432,18 @@ namespace Durin
 				Processed.SuccessfullyCompiledAssets.emplace_back(Material);
 		});
 		if (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline) Private::GetMaterialCompileRetryQueue().Process(
-			Private::MaterialCompileMaxRetryChecks, [this, &Params](FWeakObjectPtr Owner) {
+			Private::MaterialCompileMaxRetryChecks, [this, &Params, &Processed](FWeakObjectPtr Owner) {
 				auto* Material = Cast<DMaterialInterface>(Owner.Get());
 				if (!IsValid(Material)) return false;
+				if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
+				{
+					if (Processed.ProcessedCompletionCount >= Params.MaximumCompletions
+						|| (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline)) return true;
+					if (Material->PollCookedProgramPreparation()) return true;
+					++Processed.ProcessedCompletionCount;
+					if (Material->IsComplete()) Processed.SuccessfullyCompiledAssets.emplace_back(Material);
+					return false;
+				}
 				const auto IsDeferred = [&] {
 					const auto Status = Material->GetMaterialCompileStatus().State;
 					return Status == EMaterialCompileState::Deferred

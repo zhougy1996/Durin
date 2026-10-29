@@ -1896,6 +1896,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		ASSERT_NE(Asset, nullptr);
 		if (auto* LoadedMaterial = Cast<DMaterialInterface>(Asset))
 		{
+			FAssetCompilingManager::Get().FinishCompilationForObject(*LoadedMaterial);
 			const auto Program = LoadedMaterial->GetAcceptedCompiledProgram();
 			ASSERT_TRUE(Program) << LoadedMaterial->GetMaterialCookDiagnostic();
 			EXPECT_TRUE(LoadedMaterial->GetMaterialCompileStatus().IsCurrent());

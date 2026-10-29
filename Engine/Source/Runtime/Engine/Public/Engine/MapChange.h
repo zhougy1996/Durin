@@ -9,7 +9,7 @@ namespace Durin
 	class DClass;
 	enum class EMapChangePhase : uint8
 	{
-		LoadingAssets, PreparingProducts, RegisteringWorld,
+		LoadingAssets, RegisteringWorld,
 		Ready, Committed, Failed, Canceled
 	};
 	constexpr auto IsMapChangeComplete(EMapChangePhase Phase) -> bool
@@ -21,7 +21,6 @@ namespace Durin
 		switch (Phase)
 		{
 		case EMapChangePhase::LoadingAssets: return "Loading assets";
-		case EMapChangePhase::PreparingProducts: return "Preparing geometry and materials";
 		case EMapChangePhase::RegisteringWorld: return "Registering scene";
 		case EMapChangePhase::Ready: return "Ready to commit";
 		case EMapChangePhase::Committed: return "Committed";
@@ -36,8 +35,6 @@ namespace Durin
 		EMapChangePhase Phase = EMapChangePhase::LoadingAssets;
 		double ElapsedSeconds = 0;
 		double PhaseSeconds = 0;
-		bool bProductsKnown = false;
-		uint64 Meshes = 0, Materials = 0, ProgramsInFlight = 0;
 		std::string Diagnostic;
 	};
 	struct FMapChangeRequest
