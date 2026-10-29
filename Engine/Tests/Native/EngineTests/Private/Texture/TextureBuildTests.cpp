@@ -522,12 +522,55 @@ TEST(FTexturePlatformDataTests, EnsureDoesNotBuildMissingAuthoredData)
 		EXPECT_FALSE(Base.HasPlatformData());
 		EXPECT_EQ(Base.GetAssetImportData(), nullptr);
 		EXPECT_EQ(std::as_const(Base).GetAssetImportData(), nullptr);
-		EXPECT_FALSE(Base.EnsurePlatformDataLoadedBlocking());
+		EXPECT_FALSE(Base.FinishCachePlatformData());
 		EXPECT_EQ(Texture->GetPlatformData(), nullptr);
 	};
 	ExpectMissingAuthoredData.template operator()<Durin::DTexture2D>();
 	ExpectMissingAuthoredData.template operator()<Durin::DTextureCube>();
 	ExpectMissingAuthoredData.template operator()<Durin::DVolumeTexture>();
+}
+
+TEST(FTexturePlatformDataTests, SynchronousCacheUsesCurrentSourceWithoutAnAsyncRequest)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	auto Image = Durin::Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(64, std::byte{0x80}));
+	ASSERT_TRUE(Image);
+	auto Check = []<typename TTexture>(Durin::FTextureSource Source) {
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::is_same_v<TTexture, Durin::DTexture2D>
+			? "/TextureImportTests/SyncSource2D" : "/TextureImportTests/SyncSourceCube", Path));
+		TTexture* Texture = nullptr;
+		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Texture));
+		if constexpr (std::is_same_v<TTexture, Durin::DTextureCube>)
+			Texture->SetBuildSettings(Durin::ETextureCubeSourceLayout::SixFaces, 4, 0.0f, 4, 4, true);
+		Texture->SetSource(std::move(Source));
+		Texture->GetPackage()->ClearDirty();
+		const auto Identity = Texture->GetSource().GetIdentity();
+		EXPECT_FALSE(Texture->FinishCachePlatformData());
+		EXPECT_FALSE(Texture->HasPlatformData());
+		Texture->CachePlatformData(false);
+		ASSERT_TRUE(Texture->HasPlatformData());
+		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+		EXPECT_EQ(Texture->GetSource().GetIdentity(), Identity);
+		EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+		const auto Installed = Texture->GetPlatformDataShared();
+		Texture->BeginCachePlatformData();
+		EXPECT_EQ(Texture->GetPlatformDataShared(), Installed);
+		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+		Durin::MarkObjectHierarchyAsGarbage(Texture->GetPackage());
+		Durin::CollectGarbage();
+	};
+	Durin::FTextureSource Source2D;
+	ASSERT_TRUE(Source2D.Init2D(Image->GetView(), 4));
+	Check.template operator()<Durin::DTexture2D>(std::move(Source2D));
+	std::array<Durin::Image::FImageView, 6> Faces;
+	Faces.fill(Image->GetView());
+	Durin::FTextureSource SourceCube;
+	ASSERT_TRUE(SourceCube.InitCube(Faces, 4));
+	Check.template operator()<Durin::DTextureCube>(std::move(SourceCube));
 }
 
 TEST(FTexture2DBuildModuleTests, KeepsProductsValueOwned)
@@ -1374,6 +1417,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	Texture = nullptr;
 	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
 	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -1395,16 +1440,16 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	EXPECT_FALSE(CookedTexture->HasPlatformData());
 	EXPECT_EQ(CookedTexture->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
 	EXPECT_EQ(CookedTexture->GetPlatformDataShared(), PlatformBeforeGetIdentity);
-	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
+	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).FinishCachePlatformData());
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
 	const auto* InstalledPlatform = CookedTexture->GetPlatformData();
 	const auto InstalledPlatformDataIdentity = CookedTexture->GetPlatformDataShared();
-	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
+	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).FinishCachePlatformData());
 	EXPECT_EQ(CookedTexture->GetPlatformData(), InstalledPlatform);
 	EXPECT_EQ(CookedTexture->GetPlatformDataShared(), InstalledPlatformDataIdentity);
 	auto* MissingPlatform = Durin::NewObject<Durin::DVolumeTexture>(
 		nullptr, "MissingCookedPlatformData");
-	EXPECT_FALSE(MissingPlatform->EnsurePlatformDataLoadedBlocking());
+	EXPECT_FALSE(MissingPlatform->FinishCachePlatformData());
 	EXPECT_EQ(MissingPlatform->GetPlatformData(), nullptr);
 	EXPECT_FALSE(CookedTexture->CreateBuildInput().IsValid());
 	EXPECT_TRUE(std::ranges::equal(CookedTexture->GetPlatformData()->Mips.front().Voxels,

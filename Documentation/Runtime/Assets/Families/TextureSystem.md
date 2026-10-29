@@ -89,13 +89,27 @@ data, payload validation, resource publication, and compilation readiness querie
 For Texture2D, TextureCube, and VolumeTexture, `GetPlatformData()` returns only
 installed CPU data and returns null until installation. Queries and payload
 inspection never read cooked bulk, deserialize data, or update render resources.
-`EnsurePlatformDataLoadedBlocking()` is the explicit GameThread boundary:
-it synchronously reads and validates cooked data, installs it, and calls
-`UpdateResource()`; GPU completion remains asynchronous. An already-installed
-value succeeds without repeating the resource update. Missing authored builds,
-missing cooked fields, and bulk/decode failures log the texture path and reason
-inside this boundary and return false. Callers use the result for fallback
-without repeating the log. This API does not compile authored source.
+`CachePlatformData(bAsyncCache)` prepares the current texture's CPU platform
+data. False selects synchronous preparation; true requests background work.
+`BeginCachePlatformData()` is the background convenience entry point.
+`FinishCachePlatformData(TimeoutSeconds)` only completes existing authored
+compilation or a cooked read/decode request and installs its result on GameThread;
+it never starts a new request. With no work or installed data it returns false.
+Automatic publication and explicit completion share the same decode, validation
+and installation logic. Synchronous cooked caching with no request reads,
+decodes and installs CPU data without requiring a task scheduler or deferred
+executor. An existing request is reused rather than decoded twice, and can
+finish without a deferred executor.
+Installed data succeeds without another resource update. Zero only queries
+installed data; negative or non-finite timeouts are rejected. A positive timeout
+bounds waiting on an existing request, without canceling it. Synchronous I/O,
+decode and installation cannot be preempted and are not covered by that wait
+timeout. Explicit completion never pumps unrelated GameThread callbacks.
+GPU upload remains asynchronous and is skipped when no RHI exists.
+These guarantees concern texture CPU-product completion after the object exists;
+package-object loading retains its own asset-I/O runtime requirements.
+Read/decode failures write the existing failure state and diagnostic directly,
+without invalidating a previously published GPU resource or calling `UpdateResource`.
 
 ### Payload architecture qualification
 
@@ -251,7 +265,8 @@ Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pump
 the aggregate with a 64-item normal-frame limit and a shared 2 ms cooperative
 deadline checked between completion applications. The manager mailbox
 remains the durable owner of large move-only results and does not depend on
-deferred-executor admission for wakeup. `DTexture::FinishCachePlatformData(TimeoutSeconds)` waits until its
+deferred-executor admission for wakeup. For authored compilation,
+`DTexture::FinishCachePlatformData(TimeoutSeconds)` waits until its
 request reaches the mailbox and then applies only that request without the
 normal-frame budget.
 Shutdown likewise drains all callbacks before the process task scheduler
@@ -325,92 +340,68 @@ and resource-construction hook. The base retains the sole reflected source and
   identities.
 
 `DTexture` directly owns the current `FTextureResource`, a stable
-`FTextureReference`, and at most one executing `FTextureResourceUpdate`.
+`FTextureReference`, and one `FRenderCommandFence` for resource readiness.
 Concrete `FTexture2DResource`, `FTextureCubeResource`, and
-`FVolumeTextureResource` inherit `FTextureResource` directly and remain the
-asset's rendering representation until replacement or teardown. Initialization
-consumes their immutable CPU upload input, releasing its shared ownership even when
-initialization fails; the persistent resource retains only its RHI allocation.
-An explicit retry constructs a new candidate from installed asset platform data.
+`FVolumeTextureResource` inherit `FTextureResource` directly. Initialization
+consumes immutable CPU upload input and releases its shared ownership; the
+persistent resource retains its RHI allocation.
 
-The update operation owns its candidate and coalesces one uninitialized
-successor. During execution, another `UpdateResource()` replaces that successor.
-Only the latest retained input starts after the active result is consumed.
-Direct invalidation marks the active operation discarded under its publication
-mutex and removes its previous successor. Discarded work cannot publish; its
-existing handoff retires it and starts the latest successor without blocking the
-GameThread. A queued reference reset also clears an allocation published before
-the discard. Closing the operation discards its successor without initializing it.
+`UpdateResource()` releases the prior resource, constructs its replacement from
+installed platform data on GameThread, and queues reference initialization,
+resource initialization and publication on RenderThread. Each admitted update
+executes in command order. There is no candidate/successor operation, cancellation
+state machine, GPU completion task or GameThread ownership handoff. GPU updates
+need an active RHI and open render-command admission, independently of the task
+scheduler and GameThread deferred executor. CPU asynchronous preparation retains
+its existing worker scheduling, invalidation and publication rules.
 
-RenderThread initializes the candidate and records every mip upload before
-publication. `FUpdateTexture2DCommand` and `FUpdateTexture3DCommand` copy upload
-bytes and retain the target allocation; Vulkan replay copies into transfer
-storage retired by GPU completion tokens. CPU initialization completion means
-upload recording and publication have been ordered, not that GPU execution is
-complete. The existing void upload API does not convert later device or replay
-failure into a recoverable per-texture result.
+`ReleaseResource()` queues fallback, release and deferred deletion, retaining
+installed CPU data, pending CPU preparation and the reusable texture reference.
+Source/CPU-product mutation separately retires stale preparation and invalidates
+rendering. `UpdateResource()` never loads or builds CPU data. Preparation failures
+leave untouched GPU resources alone; explicit updates and invalidation have no
+old-allocation rollback guarantee.
 
-Publication switches the stable reference through
-`FDynamicRHI::RHIUpdateTextureReference()`. Material and scene bindings retain
-counted copies of this stable identity and observe replacements without
-reacquiring the asset. The operation owns the published candidate until
-GameThread acquires its terminal handoff. Successful consumption installs the
-candidate as the asset's current resource and retires the previous resource;
-failure retires the candidate and leaves the stable reference at fallback.
-Direct updates retire the old resource and queue fallback before uploading, so
-failed updates cannot silently display old pixels. The fallback target may be
-null; consumers retain their existing family-specific default-binding policy.
-Delayed release resets the stable target only when it still matches the released
-allocation, so retiring an old resource cannot unbind its replacement.
+RenderThread records every mip upload before publishing the stable reference
+through `FDynamicRHI::RHIUpdateTextureReference()`. `FUpdateTexture2DCommand` and
+`FUpdateTexture3DCommand` copy upload bytes and retain the target allocation;
+Vulkan replay copies into transfer storage retired by GPU completion tokens.
+The resource fence confirms that initialization and publication have been ordered,
+not that GPU execution has finished. Later device/replay failures are not
+recoverable per-texture update results.
 
-There is no extra GameThread allocation cache. The current resource's allocation
-remains immutable from acquired initialization until queued release. Within
-that interval the owning GameThread can capture a counted allocation through
-`GetTextureRHI_GameThread()` without reading the stable reference's mutable
-RenderThread target. New updates always use a separate candidate.
-
-Texture updates pre-register an external task completion source and a
-`GameThreadDeferred` handoff before admitting render work. Render completion
-signals the existing source; it never submits a new task during shutdown.
-`PumpGameThreadDeferredWork()` consumes handoffs before UI, including minimized
-frames. Getters never advance work. The callback resolves a weak asset identity
-and checks the matching operation before transferring ownership. There is no
-texture-specific global pending list, event bus, or pump.
-
-Missing RHI, scheduler, or deferred executor rejects and consumes the candidate synchronously.
-Rejected render admission signals the pre-registered handoff. Normal scheduler
-drain consumes accepted updates; successors are rejected once submission closes.
-Cancel shutdown may discard handoffs: asset destruction cancels its handoff,
-closes and joins render work, and retires candidates independently of task progress.
-Native render hosts initialize the task scheduler and deferred executor as well
-as the rendering thread.
-
-`HasUsableResource()` reports availability of a consumed successful allocation;
-`IsResourceUpdatePending()` includes terminal-but-not-consumed operations.
-`GetResourceUpdateState()` reports CPU update progress/result independently.
-The asset exposes `GetResourceUpdateError()` for the latest consumed upload failure
-or rejected update; successful retries and direct invalidation clear it. Unsupported
-descriptions, failed allocation, missing RHI, exceptions, and rejected command
-admission are logged; the operation retains its completion state. Editors
-use that state for generic failure and explicit update retry, with details in
-the log. Missing platform data rejects before admission and records `Failed`.
-Usable CPU data survives GPU upload failure so `UpdateResource()` can retry. The exact descriptor
-support check precedes allocation; see
+`HasUsableResource()` checks the current allocation only after its fence completes.
+`IsResourceUpdatePending()` combines the existing CPU request with pending GPU
+initialization; no terminal-but-unconsumed GPU state exists. GPU progress/result
+is derived from the fence and resource, while the existing preparation/admission
+state preserves CPU failures and rejected requests. Getters never advance work.
+`GetResourceUpdateError()` exposes preparation/admission diagnostics or the failed
+GPU allocation result. Missing platform data and closed render admission reject
+before initialization. Invalid descriptions, allocation failures and exceptions
+are logged. CPU data remains available for an explicit retry. Descriptor support
+is checked before allocation; see
 [RHI Capabilities and Vulkan Startup](../../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
 
-Ordinary replacement is asynchronous. `BeginDestroy` stops admission, cancels
-the deferred handoff, discards the retained successor, and closes the active operation
-under the same mutex used for publication. It joins accepted CPU initialization,
-then queues release and deferred cleanup of candidates/current before the stable
-reference. No publication can occur after that close boundary. Accepted commands
-retain operation storage without capturing a UObject. Reference and candidate
-initialization share one command submission. Producers must close initialized
-owners before RenderCore stops accepting required cleanup commands.
+`FinishReloadResourcePreparation()` completes CPU data and waits only this
+resource's fence. It does not flush the global render queue or pump GameThread
+callbacks. Headless reload accepts valid CPU data without requiring a GPU resource.
 
-`GetPublishedTexture()` is a GameThread-only capture of the last consumed
-successful `FTextureRHIRef`. It retains a concrete allocation, not a UObject or
-C++ resource, and does not follow later replacements. RHI operations still run
-on their owning rendering thread. Ordinary long-lived bindings continue to use
+`BeginDestroy()` closes admission and cancels CPU preparation. Existing generic
+deferred cleanup owns each resource through its queued initialization, release
+and deletion, followed by retirement of the stable reference. No render command
+captures the texture UObject, and destruction never joins GPU initialization.
+Initialized owners must retire before RenderCore closes cleanup admission.
+
+Material and scene bindings retain counted copies of the stable reference and
+observe replacements without reacquiring the asset. Delayed release resets that
+target only when it still matches the released allocation, so retiring an old
+resource cannot unbind its replacement. Failed direct updates leave fallback,
+which may be null under the existing family binding policy.
+
+`GetPublishedTexture()` is a GameThread-only capture of the current allocation
+after its fence completes. The counted `FTextureRHIRef` retains neither a UObject
+nor a C++ resource and does not follow replacements. GameThread never reads the
+stable reference's mutable RenderThread target. Ordinary long-lived bindings use
 `GetTextureReferenceRHI()` instead.
 
 Cube thumbnail rendering creates a fixed reference on demand from its captured

@@ -168,6 +168,14 @@ initially empty preview waits for CPU data; thumbnail readiness returns pending
 while authored compilation is active, then requests resources through the
 independent GPU path. Inspector and material preview report pending work without
 a build barrier. Closing an Inspector does not cancel background compilation.
+`InitResources()` queues GPU initialization for resident CPU data, including after
+`ReleaseResources()`. Release retains CPU geometry and does not cancel asset
+compilation or cooked reads. GameThread coalesces repeated requests; RenderThread
+executes initialization and release in command order without owner-state callbacks
+or request-version comparisons. The existing resource fence gates GameThread
+readiness queries and destruction. Resource revisions invalidate caches at admission
+and CPU-data publication, not at render-command completion. Ordinary component demand
+can initialize a released mesh again without rebuilding or reloading its CPU data.
 The manager's bounded read-only observations are documented in
 [Asset Compilation](../Build/AssetCompilation.md#staticmesh-completion).
 

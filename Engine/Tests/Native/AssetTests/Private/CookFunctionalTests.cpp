@@ -1883,6 +1883,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	EXPECT_EQ(Inventory(Source), Before);
 	Testing::FScopedAssetRuntimeForTests Runtime;
 	ASSERT_TRUE(Runtime.RestartCooked(Output));
+	ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 	Testing::RegisterMountPointForTests("/Game/", (Output / "Game").generic_string(), true, false);
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	for (const auto& Path : Paths)
@@ -1907,7 +1908,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		}
 
 		if (Asset->IsA(DTexture::StaticClass()))
-			EXPECT_TRUE(static_cast<DTexture*>(Asset)->EnsurePlatformDataLoadedBlocking());
+			EXPECT_TRUE(static_cast<DTexture*>(Asset)->FinishCachePlatformData());
 		if (Asset->IsA(DStaticMesh::StaticClass()))
 			EXPECT_TRUE(static_cast<DStaticMesh*>(Asset)->EnsureRenderDataLoadedBlocking());
 		if (Path.GetView() == "/Game/Environment")

@@ -11,7 +11,6 @@
 #include "Materials/MaterialCookConfiguration.h"
 #include "Asset/AssetBuildTaskContext.h"
 #include "Materials/MaterialCompileLifecycle.h"
-#include "Materials/MaterialProgramPreparation.h"
 #include "Materials/MaterialFunctionInterface.h"
 #include "Delegates/Delegate.h"
 #include "Materials/MaterialPSOPrecache.h"
@@ -20,7 +19,7 @@
 
 namespace Durin
 {
-	class FMaterialProgramPreparation;
+	struct FMaterialProgramPreparationState;
 	class IRendererModule;
 	class FObjectCacheContext;
 	template<typename T> class TObjectCacheIterator;
@@ -95,7 +94,7 @@ namespace Durin
 	{
 		// The render-safe contract remains available while a replacement compiles.
 		FMaterialResource RenderLayer;
-		std::optional<FMaterialProgramPreparation> CookedPreparation;
+		std::shared_ptr<FMaterialProgramPreparationState> CookedPreparation;
 		// Last scheduled or submitted schema, used to classify reflected dynamic edits.
 		FMaterialStaticProperties LastObservedShaderProperties;
 		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
@@ -148,8 +147,10 @@ namespace Durin
 		// program, independently of texture residency and component PSOs.
 		ENGINE_API virtual auto IsCompiling() const -> bool;
 		ENGINE_API virtual auto IsComplete() const -> bool;
-		// Starts owner preparation; existing compiler completion publishes the resource.
-		ENGINE_API auto CacheResourceShadersForRendering() -> void;
+		// Background preparation publishes through the existing compiler manager.
+		// Synchronous also installs the program before returning; None starts no work.
+		ENGINE_API auto CacheResourceShadersForRendering(
+			EMaterialShaderPrecompileMode PrecompileMode = EMaterialShaderPrecompileMode::Default) -> void;
 		// Effective textures of the accepted program; replaces OutTextures.
 		ENGINE_API virtual auto GetUsedTextures(std::vector<DTexture2D*>& OutTextures) const -> void;
 		// Editor preview only: selects an explicit quality and a feature level no
@@ -245,10 +246,9 @@ namespace Durin
 	private:
 		auto ResolveResourceProperties() const -> FMaterialStaticProperties;
 		friend class FShaderCompilingManager;
-		auto PollCookedProgramPreparation() -> bool;
+		auto PollCookedProgramPreparation(bool bSynchronous = false) -> bool;
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 	private:
-		friend class FMaterialProgramPreparation;
 		friend struct Private::FMaterialCompilationLifecycle;
 #if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)

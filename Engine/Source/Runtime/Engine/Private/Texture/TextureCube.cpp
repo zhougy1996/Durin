@@ -334,20 +334,31 @@ namespace Durin
 	}
 #endif
 
-	auto DTextureCube::BuildPlatformDataForLoad() -> void
+	auto DTextureCube::BuildPlatformDataForLoad(bool bAsyncCache) -> void
 	{
 #if DURIN_WITH_EDITORONLY_DATA
-		if (!SubmitTexturePlatformCache(*this, std::make_shared<FCubeCacheInput>(*this)))
-			DURIN_ERROR("PostLoad '{}': TextureCube cache admission failed.", GetObjectPath());
+		if (bAsyncCache)
+		{
+			if (!SubmitTexturePlatformCache(*this, std::make_shared<FCubeCacheInput>(*this)))
+				DURIN_ERROR("PostLoad '{}': TextureCube cache admission failed.", GetObjectPath());
+			return;
+		}
+		FTextureCubeBuildRequest Request;
+		std::string Error;
+		if (!MakeTextureCubeBuildRequest(FCubeCacheInput(*this), Request, Error))
+		{
+			DURIN_ERROR("CachePlatformData '{}': {}", GetObjectPath(), Error);
+			return;
+		}
+		(void)this->CachePlatformData(Request, {.bMarkPackageDirty = false, .bPreserveSource = true});
 #else
 		DURIN_ERROR("PostLoad '{}': authored TextureCube builds require editor-only data support.", GetObjectPath());
 #endif
 	}
 
-	auto DTextureCube::LoadCookedPlatformData(bool bAsync) -> bool
+	auto DTextureCube::LoadCookedPlatformData(bool bAsync) -> void
 	{
-		return TexturePrivate::LoadCookedPlatformData<FTextureCubePlatformData>(
-			*this, GetMutableCookedPlatformData(), "TextureCube", bAsync, CookedLoad);
+		TexturePrivate::LoadCookedPlatformData<FTextureCubePlatformData>(*this, bAsync);
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA

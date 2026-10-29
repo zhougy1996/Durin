@@ -1,18 +1,18 @@
-#include "Materials/MaterialProgramPreparation.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialCookedProgram.h"
+#include "MaterialCompileRetryQueue.h"
 #include "Asset/Asset.h"
 #include "DObject/WeakObjectPtr.h"
-#include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
 #include "Threading/Task.h"
 #include "Threading/RunnableThread.h"
+#include "Shader/ShaderCompilingManager.h"
 
 namespace Durin
 {
 	static std::atomic_uint32_t ActiveProgramPreparations = 0;
-	// Admission belongs to the running continuation, never to a retained observer.
+	// Admission belongs to the running continuation, never to a retained owner.
 	struct FMaterialProgramAdmission
 	{
 		std::atomic_bool Active = false;
@@ -26,17 +26,16 @@ namespace Durin
 		std::shared_ptr<const FMaterialCompilerResult> Program;
 		std::string Diagnostic;
 	};
+	// Only request identity and detached work live here. The material owns compile
+	// status, diagnostics and the accepted render program.
 	struct FMaterialProgramPreparationState
 	{
-		FWeakObjectPtr Owner;
 		uint64 BulkRevision = 0;
-		FBulkDataMetadata Metadata;
 		std::filesystem::path CookRoot;
 		ECookTargetPlatform CookTarget = ECookTargetPlatform::Win64;
 		EMaterialQualityLevel Quality;
 		ERHIFeatureLevel FeatureLevel;
 		ERHIBackend Backend;
-		EMaterialProgramPreparationState Status = EMaterialProgramPreparationState::Pending;
 		std::optional<FPackageResourceRequest> Request;
 		std::shared_ptr<FMaterialProgramDecodeResult> Result = std::make_shared<FMaterialProgramDecodeResult>();
 		~FMaterialProgramPreparationState() { Result->Canceled = true; }
@@ -49,105 +48,130 @@ namespace Durin
 	{
 		return GDynamicRHI && GDynamicRHI->RHIGetCapabilities() ? GDynamicRHI->RHIGetCapabilities()->FeatureLevel : ERHIFeatureLevel::SM5;
 	}
-	auto FMaterialProgramPreparation::Request(DMaterialInterface& Material) -> FMaterialProgramPreparation
+	auto DMaterialInterface::CacheResourceShadersForRendering(
+		EMaterialShaderPrecompileMode PrecompileMode) -> void
 	{
 		CheckGameThread();
-		FMaterialProgramPreparation Preparation;
-		Preparation.State = std::make_shared<FMaterialProgramPreparationState>();
-		auto& State = *Preparation.State;
-		State.Owner = FWeakObjectPtr(&Material);
-		State.BulkRevision = Material.CookedProgramData.GetContentRevision();
-		State.Metadata = Material.CookedProgramData.GetMetadata();
-		State.CookRoot = GetAssetRuntimeConfiguration().GetCookRoot();
-		State.CookTarget = GetAssetRuntimeConfiguration().GetCookTargetPlatform();
-		State.Quality = GetMaterialQualityLevel(); State.FeatureLevel = PreparationFeatureLevel(); State.Backend = PreparationBackend();
-		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload() || !IsTaskSchedulerRunning()
-			|| State.Metadata.LogicalSize == 0 || State.Metadata.LogicalSize > MaterialCookedProgramMaxPayloadBytes)
+		if (PrecompileMode == EMaterialShaderPrecompileMode::None || IsPendingKill()) return;
+		if (IsDynamicInstance())
 		{
-			State.Status = EMaterialProgramPreparationState::Failed;
-			State.Result->Diagnostic = "Cooked program preparation requires bounded cooked data and a task scheduler.";
-			return Preparation;
+			if (auto* Parent = GetParent()) Parent->CacheResourceShadersForRendering(PrecompileMode);
+			return;
 		}
-
-		return Preparation;
+		if (IsComplete()) return;
+		const bool bSynchronous = PrecompileMode == EMaterialShaderPrecompileMode::Synchronous;
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			if (!IsCompiling()) RequestMaterialRecompile(*this);
+			if (bSynchronous)
+			{
+				const std::array<DObject*, 1> Owners{this};
+				FShaderCompilingManager::Get().FinishCompilationForObjects(Owners);
+			}
+			return;
+		}
+		if (!CompilationOwner.CookedPreparation)
+		{
+			auto& Status = CompilationOwner.MaterialCompileStatus.State;
+			MaterialCookDiagnostic.clear();
+			if (!bSynchronous && !IsTaskSchedulerRunning())
+			{
+				Status = EMaterialCompileState::Failed;
+				MaterialCookDiagnostic = "Background cooked program preparation requires a running task scheduler.";
+				return;
+			}
+			auto& State = *(CompilationOwner.CookedPreparation = std::make_shared<FMaterialProgramPreparationState>());
+			State.BulkRevision = CookedProgramData.GetContentRevision();
+			State.CookRoot = GetAssetRuntimeConfiguration().GetCookRoot();
+			State.CookTarget = GetAssetRuntimeConfiguration().GetCookTargetPlatform();
+			State.Quality = GetMaterialQualityLevel();
+			State.FeatureLevel = PreparationFeatureLevel();
+			State.Backend = PreparationBackend();
+			Status = EMaterialCompileState::Running;
+		}
+		if (bSynchronous)
+		{
+			PollCookedProgramPreparation(true);
+			Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
+		}
+		else Private::GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(this));
 	}
-	auto FMaterialProgramPreparation::Poll() -> EMaterialProgramPreparationState
+	auto DMaterialInterface::PollCookedProgramPreparation(bool bSynchronous) -> bool
 	{
 		CheckGameThread();
-		if (!State) return EMaterialProgramPreparationState::Failed;
-		if (State->Status != EMaterialProgramPreparationState::Pending) return State->Status;
-		if (State->Result->Canceled) return State->Status = EMaterialProgramPreparationState::Canceled;
-		auto* Owner = Cast<DMaterialInterface>(State->Owner.Get());
-		const auto Current = Owner ? Owner->CookedProgramData.GetMetadata() : FBulkDataMetadata{};
-		const auto& Earlier = State->Metadata;
-		if (!IsValid(Owner) || !GetAssetRuntimeConfiguration().RequiresCookedPayload()
+		if (!CompilationOwner.CookedPreparation) return false;
+		// Admission retires the owner's request, so retain it through publication.
+		const auto State = CompilationOwner.CookedPreparation;
+		const auto Finish = [&](EMaterialCompileState Status, std::string Diagnostic) {
+			CompilationOwner.MaterialCompileStatus.State = Status;
+			MaterialCookDiagnostic = std::move(Diagnostic);
+			CompilationOwner.CookedPreparation.reset();
+			return false;
+		};
+		const auto Metadata = CookedProgramData.GetMetadata();
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			|| GetAssetRuntimeConfiguration().GetCookRoot() != State->CookRoot
 			|| GetAssetRuntimeConfiguration().GetCookTargetPlatform() != State->CookTarget
-			|| (Current.Range.Resource && Current.Range.Resource->IsRetired())
-			|| Owner->CookedProgramData.GetContentRevision() != State->BulkRevision || State->Quality != GetMaterialQualityLevel()
-			|| State->FeatureLevel != PreparationFeatureLevel() || State->Backend != PreparationBackend()
-			|| Current.LogicalSize != Earlier.LogicalSize || Current.Range.Resource != Earlier.Range.Resource
-			|| Current.Range.SegmentOffset != Earlier.Range.SegmentOffset || Current.Range.StoredSize != Earlier.Range.StoredSize
-			|| Current.Range.StorageFlags != Earlier.Range.StorageFlags || Current.Range.Alignment != Earlier.Range.Alignment)
-			return State->Status = EMaterialProgramPreparationState::Stale;
+			|| (Metadata.Range.Resource && Metadata.Range.Resource->IsRetired())
+			|| CookedProgramData.GetContentRevision() != State->BulkRevision
+			|| State->Quality != GetMaterialQualityLevel()
+			|| State->FeatureLevel != PreparationFeatureLevel() || State->Backend != PreparationBackend())
+			return Finish(EMaterialCompileState::Canceled, "Cooked program request was invalidated before publication.");
 		if (!State->Request)
 		{
-			auto Admission = std::make_shared<FMaterialProgramAdmission>();
-			auto Count = ActiveProgramPreparations.load();
-			while (Count < 16 && !ActiveProgramPreparations.compare_exchange_weak(Count, Count + 1)) {}
-			if (Count >= 16)
+			if (Metadata.LogicalSize == 0 || Metadata.LogicalSize > MaterialCookedProgramMaxPayloadBytes)
+				return Finish(EMaterialCompileState::Failed, "Cooked program preparation requires bounded cooked data.");
+			const auto Decode = [Result = State->Result, Quality = State->Quality,
+				Level = State->FeatureLevel, Backend = State->Backend](FByteView Bytes) {
+				const auto Decoded = DecodeMaterialCookedProgramFamily(Bytes,
+					Backend == ERHIBackend::Metal ? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
+					ECookTargetProfile::Game, Quality, Level, {}, Result->Properties, Result->Program);
+				if (!Decoded) Result->Diagnostic = Decoded.error();
+			};
+			if (bSynchronous)
 			{
-				return State->Status;
+				auto Read = CookedProgramData.AcquireRead();
+				if (!Read) return Finish(EMaterialCompileState::Failed, Read.error().Message);
+				Decode(Read->GetBytes());
 			}
-			Admission->Active = true;
-			// Snapshot owns only bytes/range metadata. Workers never dereference Owner.
-			FBulkData Snapshot = Owner->CookedProgramData;
-			State->Request = FPackageResourceRequest::Transform(Snapshot.ReloadAsync(),
-				[Admission = std::move(Admission), Result = State->Result, Quality = State->Quality, Level = State->FeatureLevel, Backend = State->Backend](FPackageResourceReadResult Read) {
-					struct FReleaseAdmission
-					{
-						FMaterialProgramAdmission& Admission;
-						~FReleaseAdmission() { Admission.Release(); }
-					} Release{*Admission};
-					if (Result->Canceled) return Read;
-					if (!Read) { Result->Diagnostic = FormatPackageResourceReadError(Read); return Read; }
-					const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(),
-						Backend == ERHIBackend::Metal ? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
-						ECookTargetProfile::Game, Quality, Level, {}, Result->Properties, Result->Program);
-					if (!Decoded) Result->Diagnostic = Decoded.error();
-					return Read;
-				});
+			else
+			{
+				if (!IsTaskSchedulerRunning())
+					return Finish(EMaterialCompileState::Failed, "Cooked program task scheduler stopped before admission.");
+				auto Admission = std::make_shared<FMaterialProgramAdmission>();
+				auto Count = ActiveProgramPreparations.load();
+				while (Count < 16 && !ActiveProgramPreparations.compare_exchange_weak(Count, Count + 1)) {}
+				if (Count >= 16) return true;
+				Admission->Active = true;
+				FBulkData Snapshot = CookedProgramData;
+				State->Request = FPackageResourceRequest::Transform(Snapshot.ReloadAsync(),
+					[Admission = std::move(Admission), Result = State->Result, Decode](FPackageResourceReadResult Read) {
+						struct FReleaseAdmission
+						{
+							FMaterialProgramAdmission& Admission;
+							~FReleaseAdmission() { Admission.Release(); }
+						} Release{*Admission};
+						if (Result->Canceled) return Read;
+						if (!Read) { Result->Diagnostic = FormatPackageResourceReadError(Read); return Read; }
+						Decode(Read->GetBytes());
+						return Read;
+					});
+			}
 		}
-		if (!State->Request->IsReady()) return State->Status;
-		const auto Read = State->Request->Wait(); // Already complete; never waits for worker progress.
-		if (!Read || !State->Result->Program || !State->Result->Diagnostic.empty())
+		if (State->Request)
 		{
-			if (!Read && State->Result->Diagnostic.empty()) State->Result->Diagnostic = FormatPackageResourceReadError(Read);
-			Owner->MaterialCookDiagnostic = State->Result->Diagnostic;
-			return State->Status = EMaterialProgramPreparationState::Failed;
+			if (!State->Request->IsReady() && !bSynchronous && IsTaskSchedulerRunning()) return true;
+			// Join the existing read/decode even in synchronous mode; never submit it twice.
+			const auto Read = State->Request->Wait();
+			if (!Read) return Finish(EMaterialCompileState::Failed, FormatPackageResourceReadError(Read));
 		}
-		const auto Admitted = Owner->AdmitCookedProgram(State->Result->Properties, State->Result->Program);
-		if (!Admitted)
+		if (!State->Result->Program || !State->Result->Diagnostic.empty())
 		{
-			State->Result->Diagnostic = Admitted.error();
-			Owner->MaterialCookDiagnostic = State->Result->Diagnostic;
-			return State->Status = EMaterialProgramPreparationState::Failed;
+			return Finish(EMaterialCompileState::Failed, State->Result->Diagnostic);
 		}
-		Owner->MaterialCookDiagnostic.clear();
-		State->Result->Program = Owner->GetAcceptedCompiledProgram();
-		return State->Status = EMaterialProgramPreparationState::Ready;
-	}
-	auto FMaterialProgramPreparation::Cancel() const -> void { if (State && State->Status == EMaterialProgramPreparationState::Pending) State->Result->Canceled = true; }
-	auto FMaterialProgramPreparation::GetProgram() const -> std::shared_ptr<const FMaterialCompilerResult>
-	{
-		CheckGameThread();
-		return State && !State->Result->Canceled && State->Status == EMaterialProgramPreparationState::Ready ? State->Result->Program : nullptr;
-	}
-	auto FMaterialProgramPreparation::GetDiagnostic() const -> std::string
-	{
-		CheckGameThread();
-		// Decode owns this string until its continuation finishes.
-		return State && (State->Status == EMaterialProgramPreparationState::Failed || (State->Request && State->Request->IsReady()))
-			? State->Result->Diagnostic : std::string{};
+		const auto Admitted = AdmitCookedProgram(State->Result->Properties, State->Result->Program);
+		if (!Admitted) return Finish(EMaterialCompileState::Failed, Admitted.error());
+		MaterialCookDiagnostic.clear();
+		return false;
 	}
 }

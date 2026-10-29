@@ -1,4 +1,6 @@
 #include "TextureTestSupport.h"
+#include "Threading/Task.h"
+#include "DObject/StrongObjectPtr.h"
 
 #include "Asset/PackageInspection.h"
 #include "Asset/Load.h"
@@ -44,6 +46,12 @@ namespace
 	auto ExpectLazyCookedInstall(T& Texture) -> void
 	{
 		const Durin::DTexture& BaseTexture = Texture;
+		// PostLoad may read bulk data in the background. Observe getter purity
+		// after that read settles, without pumping CPU-product publication.
+		const auto ReadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (BaseTexture.GetCookedPlatformData().GetState() == Durin::EBulkDataState::Loading
+			&& std::chrono::steady_clock::now() < ReadDeadline) std::this_thread::yield();
+		ASSERT_NE(BaseTexture.GetCookedPlatformData().GetState(), Durin::EBulkDataState::Loading);
 		const Durin::EBulkDataState BulkState =
 			BaseTexture.GetCookedPlatformData().GetState();
 		const auto UpdateState = BaseTexture.GetResourceUpdateState();
@@ -51,13 +59,22 @@ namespace
 		EXPECT_FALSE(BaseTexture.HasPlatformData());
 		EXPECT_EQ(BaseTexture.GetCookedPlatformData().GetState(), BulkState);
 		EXPECT_EQ(BaseTexture.GetResourceUpdateState(), UpdateState);
-		ASSERT_TRUE(Texture.EnsurePlatformDataLoadedBlocking());
+		ASSERT_TRUE(Texture.FinishCachePlatformData());
 		ASSERT_NE(Texture.GetPlatformData(), nullptr);
 		const auto* Installed = Texture.GetPlatformData();
 		const auto InstalledPlatformDataIdentity = Texture.GetPlatformDataShared();
-		ASSERT_TRUE(Texture.EnsurePlatformDataLoadedBlocking());
+		ASSERT_TRUE(Texture.FinishCachePlatformData());
 		EXPECT_EQ(Texture.GetPlatformData(), Installed);
 		EXPECT_EQ(Texture.GetPlatformDataShared(), InstalledPlatformDataIdentity);
+		Durin::TStrongObjectPtr<T> Offline(Durin::NewObject<T>(nullptr, Durin::FName{}));
+		const_cast<Durin::FBulkData&>(Offline->GetCookedPlatformData()) = Texture.GetCookedPlatformData();
+		Offline->PostLoad();
+		EXPECT_FALSE(Offline->HasPlatformData());
+		// Finish is completion-only; simple tools explicitly request synchronous caching.
+		EXPECT_FALSE(Offline->FinishCachePlatformData(1e-12));
+		EXPECT_FALSE(Offline->HasPlatformData());
+		Offline->CachePlatformData();
+		EXPECT_TRUE(Offline->HasPlatformData());
 	}
 }
 
@@ -91,6 +108,19 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 
 	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
 	ASSERT_TRUE(AssetRuntime.RestartCooked(Root));
+	struct FRestoreTaskRuntime
+	{
+		bool bDeferred = Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting;
+		~FRestoreTaskRuntime()
+		{
+			EXPECT_TRUE(Durin::InitializeTaskScheduler(2));
+			if (bDeferred) EXPECT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
+		}
+	} RestoreTasks;
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2)); // Package-object loading uses the existing asset IO runtime.
+	ASSERT_FALSE(Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting);
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 
@@ -105,10 +135,6 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	ASSERT_NE(Texture2D, nullptr);
 	EXPECT_FALSE(Texture2D->GetSource().IsValid());
 	EXPECT_EQ(Texture2D->GetAssetImportData(), nullptr);
-	ASSERT_NO_FATAL_FAILURE(ExpectLazyCookedInstall(*Texture2D));
-	ASSERT_TRUE(Texture2D->GetPlatformData()->IsValid());
-	EXPECT_EQ(Texture2D->GetPlatformData()->Mips.front().Width, 2u);
-	EXPECT_EQ(Texture2D->GetPlatformData()->Mips.front().Height, 1u);
 
 	Durin::FPackagePath TextureCubePath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
@@ -121,9 +147,6 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	ASSERT_NE(TextureCube, nullptr);
 	EXPECT_FALSE(TextureCube->GetSource().IsValid());
 	EXPECT_EQ(TextureCube->GetAssetImportData(), nullptr);
-	ASSERT_NO_FATAL_FAILURE(ExpectLazyCookedInstall(*TextureCube));
-	ASSERT_TRUE(TextureCube->GetPlatformData()->IsValid());
-	EXPECT_EQ(TextureCube->GetBuiltFaceDimension(), 1u);
 
 	Durin::FPackagePath VolumePath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
@@ -136,6 +159,15 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	ASSERT_NE(Volume, nullptr);
 	EXPECT_FALSE(Volume->GetSource().IsValid());
 	EXPECT_EQ(Volume->GetAssetImportData(), nullptr);
+	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
+	ASSERT_FALSE(Durin::IsTaskSchedulerRunning());
+	ASSERT_NO_FATAL_FAILURE(ExpectLazyCookedInstall(*Texture2D));
+	ASSERT_TRUE(Texture2D->GetPlatformData()->IsValid());
+	EXPECT_EQ(Texture2D->GetPlatformData()->Mips.front().Width, 2u);
+	EXPECT_EQ(Texture2D->GetPlatformData()->Mips.front().Height, 1u);
+	ASSERT_NO_FATAL_FAILURE(ExpectLazyCookedInstall(*TextureCube));
+	ASSERT_TRUE(TextureCube->GetPlatformData()->IsValid());
+	EXPECT_EQ(TextureCube->GetBuiltFaceDimension(), 1u);
 	ASSERT_NO_FATAL_FAILURE(ExpectLazyCookedInstall(*Volume));
 	ASSERT_TRUE(Volume->GetPlatformData()->IsValid());
 	EXPECT_EQ(Volume->GetPlatformData()->Mips.front().Width, 65u);
@@ -145,4 +177,16 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	ASSERT_TRUE(Durin::UnloadPackage(Texture2DPath));
 	ASSERT_TRUE(Durin::UnloadPackage(TextureCubePath));
 	ASSERT_TRUE(Durin::UnloadPackage(VolumePath));
+	EXPECT_FALSE(Durin::IsTaskSchedulerRunning());
+	EXPECT_FALSE(Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting);
+	// Background work can also finish without installing a deferred executor.
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	const auto AsyncReload = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath));
+	ASSERT_TRUE(AsyncReload);
+	EXPECT_FALSE((*AsyncReload)->HasPlatformData());
+	EXPECT_TRUE((*AsyncReload)->IsResourceUpdatePending());
+	ASSERT_TRUE((*AsyncReload)->FinishCachePlatformData(10.0));
+	EXPECT_TRUE((*AsyncReload)->HasPlatformData());
+	EXPECT_FALSE(Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting);
+	ASSERT_TRUE(Durin::UnloadPackage(Texture2DPath));
 }

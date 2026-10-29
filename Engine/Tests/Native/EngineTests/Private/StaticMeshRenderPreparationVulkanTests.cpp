@@ -2925,6 +2925,37 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndI
 	Mesh->InitResources();
 	FlushRenderingCommands();
 	ASSERT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
+	const auto* ResidentData = Mesh->GetRenderData();
+	std::atomic_bool bObservedRelease = false;
+	uint64 QueuedRevision = 0;
+	{
+		FScopedRenderThreadBlocker Blocker;
+		Mesh->ReleaseResources();
+		Mesh->InitResources();
+		Mesh->ReleaseResources();
+		// Observe actual resources between release and the following initialization.
+		EnqueueRenderCommand("ObserveStaticMeshResourceCycle",
+			[ResidentData, &bObservedRelease](FRHICommandListImmediate&) {
+				bObservedRelease = ResidentData->GetNumInitializedResources() == 0;
+			});
+		Mesh->InitResources();
+		QueuedRevision = Mesh->GetRenderResourceStatus().Revision;
+		EXPECT_TRUE(Mesh->HasPendingRenderResourceInitialization());
+		Blocker.Release();
+	}
+	FlushRenderingCommands();
+	EXPECT_TRUE(bObservedRelease);
+	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, QueuedRevision);
+	EXPECT_EQ(Mesh->GetRenderData(), ResidentData);
+	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
+	Mesh->ReleaseResources();
+	FlushRenderingCommands();
+	EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
+	EXPECT_EQ(ResidentData->GetNumInitializedResources(), 0u);
+	EXPECT_EQ(Mesh->GetRenderData(), ResidentData);
+	Mesh->RequestRenderDataAndResources();
+	FlushRenderingCommands();
+	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
 	const auto Revision = Mesh->GetRenderResourceStatus().Revision;
 	Replace();
 	FlushRenderingCommands();

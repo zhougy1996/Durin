@@ -392,6 +392,31 @@ namespace
 	};
 }
 
+TEST_F(FMaterialAsyncCompileTests, ShaderPrecompileModesFinishAuthoredWorkAndReusePendingRequests)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("PrecompileModes");
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.03125f));
+	const auto Generation = Material->GetMaterialCompileStatus().RequestGeneration;
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::None);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Material->IsComplete());
+	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.03125f));
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Background);
+	const auto PendingGeneration = Material->GetMaterialCompileStatus().RequestGeneration;
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Background);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, PendingGeneration);
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_TRUE(Material->IsComplete());
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, PendingGeneration);
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, PendingGeneration);
+}
+
 TEST_F(FMaterialAsyncCompileTests, InitialCompilationQueriesDoNotSelectAnInvalidMaterial)
 {
 	using namespace Durin;

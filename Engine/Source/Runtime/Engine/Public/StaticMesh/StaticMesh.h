@@ -68,8 +68,8 @@ namespace Durin
 
 	// Pairs readiness with the asset-local revision that must still match before publication.
 	// Revisions are never transferred between assets or reused: construction starts unavailable at
-	// a non-zero revision, and every accepted CPU-data publication, initialization result, imported-
-	// state exchange, resource invalidation, release, or destruction boundary advances it.
+	// a non-zero revision. CPU-data publication, GPU init/release admission, imported-state
+	// exchange, invalidation and destruction advance it; render-command completion does not.
 	struct FStaticMeshRenderResourceStatus
 	{
 		EStaticMeshRenderResourceReadiness Readiness =
@@ -144,7 +144,7 @@ namespace Durin
 		// Does not request GPU initialization; prior rendering requests may still complete.
 		ENGINE_API auto EnsureRenderDataLoadedBlocking()
 			-> FCookedMeshBlockingResult;
-		// Returns one coherent, nonblocking snapshot for stale-work rejection.
+		// GameThread-only, nonblocking readiness and cache-invalidation snapshot.
 		ENGINE_API auto GetRenderResourceStatus() const
 			-> FStaticMeshRenderResourceStatus;
 		// Nonblocking query for queued GPU initialization only. False also covers
@@ -190,6 +190,9 @@ namespace Durin
 		// Queues GPU initialization for resident CPU data; query GetRenderResourceStatus()
 		// for readiness. Explicit calls retry failed GPU initialization without reloading CPU data.
 		ENGINE_API auto InitResources() -> void;
+		// Releases GPU resources in render-command order, retaining resident CPU data.
+		// InitResources() can immediately queue initialization again.
+		ENGINE_API auto ReleaseResources() -> void;
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 #if DURIN_WITH_EDITORONLY_DATA
@@ -253,46 +256,6 @@ namespace Durin
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 			float InNormalizedSize) -> std::expected<void, std::string>;
 #endif
-		enum class EStaticMeshRenderResourceState : uint8
-		{
-			Uninitialized,
-			InitializationQueued,
-			Ready,
-			Failed,
-			ReleaseQueued,
-			Released
-		};
-
-		static constexpr uint64 RenderResourceStateBits = 3;
-		static constexpr uint64 RenderResourceStateMask =
-			(1ull << RenderResourceStateBits) - 1;
-		static constexpr auto PackRenderResourceStatus(
-			EStaticMeshRenderResourceState State,
-			uint64 Revision) -> uint64
-		{
-			return (Revision << RenderResourceStateBits)
-				| static_cast<uint64>(State);
-		}
-		static constexpr auto UnpackRenderResourceState(uint64 Packed)
-			-> EStaticMeshRenderResourceState
-		{
-			return static_cast<EStaticMeshRenderResourceState>(
-				Packed & RenderResourceStateMask);
-		}
-		static constexpr auto UnpackRenderResourceRevision(uint64 Packed)
-			-> uint64
-		{
-			return Packed >> RenderResourceStateBits;
-		}
-		auto LoadRenderResourceState() const
-			-> EStaticMeshRenderResourceState;
-		auto PublishRenderResourceState(EStaticMeshRenderResourceState State)
-			-> void;
-		auto TryPublishRenderResourceState(
-			EStaticMeshRenderResourceState Expected,
-			EStaticMeshRenderResourceState State) -> bool;
-		auto AdvanceRenderResourceRevision() -> void;
-		auto ReleaseResources() -> void;
 		auto InvalidateRenderData() -> void;
 		auto ValidateAndReplaceRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, std::string>;
@@ -360,9 +323,11 @@ namespace Durin
 		FCookedMeshLoadError CookedLoadError;
 		FBulkData CookedRenderData;
 		FBulkData CookedCollisionData;
-		FRenderCommandFence ReleaseResourcesFence;
-		std::atomic<uint64> RenderResourceStatus{PackRenderResourceStatus(
-			EStaticMeshRenderResourceState::Uninitialized, 1)};
+		// GameThread owns admission and cache invalidation; the fence transfers
+		// access to render-resource readiness back after queued work completes.
+		FRenderCommandFence RenderResourcesFence;
+		bool bRenderResourcesRequested = false;
+		uint64 RenderResourceRevision = 1;
 		std::atomic<ECookedMeshCpuPhase> CookedLoadPhase{ECookedMeshCpuPhase::Unloaded};
 		std::atomic<uint64> CookedLoadGeneration{1};
 

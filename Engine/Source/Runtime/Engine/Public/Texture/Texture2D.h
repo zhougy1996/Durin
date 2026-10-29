@@ -76,6 +76,7 @@ namespace Durin
 			FAssetImportDataState ImportState) -> std::expected<void, std::string>;
 
 		using DTexture::BeginCachePlatformData;
+		using DTexture::CachePlatformData;
 		// Accepted asynchronous requests complete once on GameThread; admission errors have no callback.
 		ENGINE_API auto BeginCachePlatformData(FTexture2DCompilationRequest Request,
 			FTextureCompilationCompletion Completion = {}) -> std::expected<void, FTextureBuildOperationError>;
@@ -118,8 +119,8 @@ namespace Durin
 #endif
 
 		auto ResetPlatformData() -> void override { PlatformData.reset(); }
-		auto BuildPlatformDataForLoad() -> void override;
-		auto LoadCookedPlatformData(bool bAsync = false) -> bool override;
+		auto BuildPlatformDataForLoad(bool bAsyncCache) -> void override;
+		auto LoadCookedPlatformData(bool bAsync) -> void override;
 
 		DPROPERTY()
 		ETextureUsage Usage = ETextureUsage::Color;

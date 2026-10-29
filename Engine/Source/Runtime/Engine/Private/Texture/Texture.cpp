@@ -2,8 +2,6 @@
 #include "DObject/PropertyChange.h"
 
 #include "DObject/Package.h"
-#include "DObject/WeakObjectPtr.h"
-#include "Threading/TaskComposition.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
@@ -15,11 +13,10 @@
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
 #include "RHICommandList.h"
-#include "Texture/TextureRenderResource.h"
+#include "RenderResource.h"
 #include "Texture/TexturePlatformCache.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
-#include "RenderingThread.h"
 
 namespace Durin
 {
@@ -29,7 +26,7 @@ namespace Durin
 		auto* Preparation = FCookPreparationContext::Get(*this, Context);
 		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing texture Cook preparation context."}; return; }
 		if (Context.CheckCancellation()) return;
-		if (IsAsyncCacheComplete()) BeginCachePlatformData();
+		BeginCachePlatformData();
 		Context.WaitForCompletion = [this, Preparation, &Context] {
 			if (!FinishCachePlatformData() || !HasPlatformData())
 				Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::PlatformData,
@@ -49,8 +46,10 @@ namespace Durin
 		auto RetireTextureResource(std::unique_ptr<FTextureResource> Resource) -> void
 		{
 			if (!Resource) return;
-			if (!Resource->IsInitialized()) return;
-			Resource->BeginRelease_GameThread();
+			EnqueueRenderCommand("ReleaseTextureResource",
+				[Resource = Resource.get()](FRHICommandListImmediate&) {
+					if (Resource->IsInitialized()) Resource->ReleaseResource();
+				});
 			BeginCleanupRenderResource(FDeferredRenderResourceCleanup(std::move(Resource)));
 		}
 	}
@@ -130,35 +129,58 @@ namespace Durin
 
 	auto DTexture::BeginCachePlatformData() -> void
 	{
+		CachePlatformData(true);
+	}
+
+	auto DTexture::CachePlatformData(bool bAsyncCache) -> void
+	{
 		CheckGameThread();
-		if (!bAcceptingRenderResourceBuilds || IsPendingKill() || HasPlatformData()
-			|| (bCacheRequestCurrent && !IsAsyncCacheComplete())) return;
+		if (!bAcceptingRenderResourceBuilds || IsPendingKill()) return;
+		if (!IsAsyncCacheComplete())
+		{
+			if (!bAsyncCache) (void)FinishCachePlatformData();
+			return;
+		}
+		if (HasPlatformData()) return;
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			if (!CookedLoad && IsTaskSchedulerRunning() && GetGameThreadDeferredWorkQueueDiagnostics().bAccepting)
+			if (!bAsyncCache || IsTaskSchedulerRunning())
 			{
 				ResourceUpdateError.clear();
 				LastUpdateState = ETextureResourceUpdateState::Pending;
-				LoadCookedPlatformData(true);
+				LoadCookedPlatformData(bAsyncCache);
 			}
 			return;
 		}
-		bCacheRequestCurrent = true;
-		BuildPlatformDataForLoad();
+		BuildPlatformDataForLoad(bAsyncCache);
 	}
 
 	auto DTexture::IsAsyncCacheComplete() const -> bool
 	{
 		CheckGameThread();
-		if (CookedLoad) return HasPlatformData() || LastUpdateState == ETextureResourceUpdateState::Failed || LastUpdateState == ETextureResourceUpdateState::Closed;
+		if (CookedLoad) return false;
 		return !HasPendingTextureCompilation(*this);
 	}
 
 	auto DTexture::FinishCachePlatformData(double TimeoutSeconds) -> bool
 	{
 		CheckGameThread();
-		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return EnsurePlatformDataLoadedBlocking();
-		return FinishTextureCompilation(*this, TimeoutSeconds);
+		if (!std::isfinite(TimeoutSeconds) || TimeoutSeconds < 0.0) return false;
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			return FinishTextureCompilation(*this, TimeoutSeconds);
+		if (HasPlatformData()) return true;
+		if (!bAcceptingRenderResourceBuilds || IsPendingKill()) return false;
+		// Zero only observes installed data, without starting work or applying results.
+		if (TimeoutSeconds == 0.0) return false;
+		if (const auto Request = CookedLoad)
+		{
+			(void)Request->Wait(TimeoutSeconds);
+			if (!Request->IsReady()) return false;
+			// The family's setter retires the request and publication action.
+			const auto Publish = CookedPublication;
+			if (Publish) Publish();
+		}
+		return !IsPendingKill() && HasPlatformData();
 	}
 
 	auto DTexture::BlockOnAnyAsyncBuild() -> void
@@ -171,7 +193,8 @@ namespace Durin
 
 	auto DTexture::BeginDestroy() -> void
 	{
-		if (CookedLoad) CookedLoad->Cancel();
+		if (CookedLoad) { CookedLoad->Cancel(); CookedLoad.reset(); }
+		CookedPublication = {};
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		bAcceptingRenderResourceBuilds = false;
 		ReleaseRenderResources();
@@ -180,13 +203,6 @@ namespace Durin
 
 	auto DTexture::ReleaseRenderResources() -> void
 	{
-		if (PendingUpdate)
-		{
-			PendingUpdate->Close();
-			PendingUpdate->Wait();
-			RetireTextureResource(PendingUpdate->TakeCandidate());
-			PendingUpdate.reset();
-		}
 		RetireTextureResource(std::move(RenderResource));
 		LastUpdateState = ETextureResourceUpdateState::Closed;
 		if (bTextureReferenceInitializationQueued)
@@ -212,32 +228,51 @@ namespace Durin
 
 	auto DTexture::GetResourceUpdateState() const -> ETextureResourceUpdateState
 	{
-		return PendingUpdate && !PendingUpdate->IsDiscarded() ? PendingUpdate->GetState() : LastUpdateState;
+		CheckGameThread();
+		if (LastUpdateState == ETextureResourceUpdateState::Closed
+			|| LastUpdateState == ETextureResourceUpdateState::Failed || !RenderResource) return LastUpdateState;
+		if (CookedLoad || !ResourceFence.IsFenceComplete()) return ETextureResourceUpdateState::Pending;
+		return HasUsableResource() ? ETextureResourceUpdateState::Succeeded : ETextureResourceUpdateState::Failed;
 	}
 
-	auto DTexture::HasUsableResource() const -> bool { return RenderResource != nullptr; }
+	auto DTexture::GetResourceUpdateError() const -> const std::string&
+	{
+		CheckGameThread();
+		if (ResourceUpdateError.empty() && RenderResource && ResourceFence.IsFenceComplete() && !HasUsableResource())
+		{
+			static const std::string UploadFailure = "Texture upload failed; see render initialization diagnostics.";
+			return UploadFailure;
+		}
+		return ResourceUpdateError;
+	}
+
+	auto DTexture::HasUsableResource() const -> bool
+	{
+		CheckGameThread();
+		return RenderResource && ResourceFence.IsFenceComplete() && RenderResource->IsInitialized()
+			&& RenderResource->GetTextureRHI_GameThread();
+	}
+
 	auto DTexture::IsResourceUpdatePending() const -> bool
 	{
-		return PendingUpdate != nullptr || (CookedLoad && !IsAsyncCacheComplete());
+		CheckGameThread();
+		return CookedLoad != nullptr || (RenderResource && !ResourceFence.IsFenceComplete());
 	}
+
 	auto DTexture::FinishReloadResourcePreparation() -> bool
 	{
 		CheckGameThread();
+		CachePlatformData(false);
 		if (!FinishCachePlatformData()) return false;
 		if (!GDynamicRHI) return HasPlatformData();
-		if (PendingUpdate)
-		{
-			if (GRenderingThread) FlushRenderingCommands();
-			PumpGameThreadDeferredWork();
-			ConsumeResourceUpdate();
-		}
-		return !PendingUpdate && LastUpdateState == ETextureResourceUpdateState::Succeeded
-			&& HasUsableResource();
+		ResourceFence.Wait();
+		return GetResourceUpdateState() == ETextureResourceUpdateState::Succeeded && HasUsableResource();
 	}
+
 	auto DTexture::GetPublishedTexture() const -> FTextureRHIRef
 	{
 		CheckGameThread();
-		return RenderResource ? RenderResource->GetTextureRHI_GameThread() : FTextureRHIRef{};
+		return HasUsableResource() ? RenderResource->GetTextureRHI_GameThread() : FTextureRHIRef{};
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
@@ -273,7 +308,6 @@ namespace Durin
 	auto DTexture::InvalidateAuthoredBuild() -> void
 	{
 		CheckGameThread();
-		bCacheRequestCurrent = false;
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		ResetPlatformData();
 		CookedPlatformData = {};
@@ -285,7 +319,14 @@ namespace Durin
 	{
 		CheckGameThread();
 		if (CookedLoad) { CookedLoad->Cancel(); CookedLoad.reset(); }
-		if (PendingUpdate) PendingUpdate->Discard();
+		CookedPublication = {};
+		ReleaseResource();
+	}
+
+	auto DTexture::ReleaseResource() -> void
+	{
+		CheckGameThread();
+		if (!bAcceptingRenderResourceBuilds) return;
 		if (bTextureReferenceInitializationQueued)
 		{
 			// FIFO ordering clears an already-published candidate before any successor upload.
@@ -318,7 +359,7 @@ namespace Durin
 				GetObjectPath());
 			return;
 		}
-		InvalidateRenderResource();
+		ReleaseResource();
 		if (!HasPlatformData())
 		{
 			LastUpdateState = ETextureResourceUpdateState::Failed;
@@ -328,97 +369,40 @@ namespace Durin
 				GetObjectPath());
 			return;
 		}
-		auto Candidate = CreateRenderResourceCandidate(TextureReference.get());
-		check(Candidate != nullptr);
-#if DURIN_BUILD_DEBUG
-		Candidate->SetDebugOwner(GetPackage()
-			? FName(GetPackage()->GetPackagePath()) : FName("<transient DTexture>"));
-#endif
-		if (PendingUpdate)
+		if (!GDynamicRHI || GetRenderCommandAdmissionState() != ERenderCommandAdmissionState::Running)
 		{
-			PendingUpdate->SetSuccessor(std::move(Candidate));
-			LastUpdateState = ETextureResourceUpdateState::Pending;
-		}
-		else StartResourceUpdate(std::move(Candidate));
-	}
-
-	auto DTexture::StartResourceUpdate(std::unique_ptr<FTextureResource> Candidate) -> void
-	{
-		check(!PendingUpdate);
-		PendingUpdate = std::make_shared<FTextureResourceUpdate>(std::move(Candidate));
-		if (!GDynamicRHI || !IsTaskSchedulerRunning()
-			|| GetRenderCommandAdmissionState() != ERenderCommandAdmissionState::Running
-			|| !GetGameThreadDeferredWorkQueueDiagnostics().bAccepting)
-		{
-			DURIN_WARN("Texture update rejected: RHI, render admission, or GameThread task executor is unavailable. (texture: {})", GetObjectPath());
-			PendingUpdate->Reject();
-			ConsumeResourceUpdate();
+			LastUpdateState = ETextureResourceUpdateState::Failed;
+			ResourceUpdateError = "Texture upload requires an RHI and open render-command admission.";
+			DURIN_WARN("Texture resource update rejected: {} (texture: {})", ResourceUpdateError, GetObjectPath());
 			return;
 		}
-		// Register both nodes before render admission; shutdown never needs a new completion submission.
-		auto Completion = Tasks::TCompletionSource<void>::Create({.DebugName = "TextureInitialization"});
-		auto Handoff = Tasks::Then(Completion.TakeTask(), Tasks::ETaskExecutor::GameThreadDeferred,
-			{.DebugName = "TextureResourceHandoff"},
-			[Owner = TWeakObjectPtr<DTexture>(this), Update = std::weak_ptr(PendingUpdate)] {
-				if (auto* Texture = Owner.Get(); Texture && Texture->PendingUpdate == Update.lock())
-					Texture->ConsumeResourceUpdate();
-			});
-		PendingUpdate->SetCompletionTask(Durin::Tasks::FTask(Handoff));
+		RenderResource = CreateRenderResourceCandidate(TextureReference.get());
+		check(RenderResource != nullptr);
+#if DURIN_BUILD_DEBUG
+		RenderResource->SetDebugOwner(GetPackage()
+			? FName(GetPackage()->GetPackagePath()) : FName("<transient DTexture>"));
+#endif
 		const bool bInitializeReference = !bTextureReferenceInitializationQueued;
-		// One command owns both initialization steps.
-		EnqueueRenderCommand("TextureResourceUpdate",
-			[Update = PendingUpdate, Reference = TextureReference.get(), bInitializeReference, Completion]
+		EnqueueRenderCommand("InitTextureResource",
+			[Resource = RenderResource.get(), Reference = TextureReference.get(), bInitializeReference,
+				TextureName = GetObjectPath()]
 			(FRHICommandListImmediate& Commands) {
-				Update->Execute_RenderThread(Commands, *Reference, bInitializeReference);
-				Completion.TrySetValue();
+				try
+				{
+					if (bInitializeReference) Reference->InitResource(Commands);
+					Reference->ResetToFallback_RenderThread();
+					Resource->InitResource(Commands);
+					if (Resource->GetTextureRHI_RenderThread()) Resource->PublishTexture_RenderThread();
+					else DURIN_WARN("Texture '{}' upload failed; using fallback.", TextureName);
+				}
+				catch (...)
+				{
+					if (Resource->IsInitialized()) Resource->ReleaseResource();
+					Reference->ResetToFallback_RenderThread();
+					DURIN_WARN("Texture '{}' initialization threw an exception; using fallback.", TextureName);
+				}
 			});
 		bTextureReferenceInitializationQueued = true;
+		ResourceFence.BeginFence();
 	}
-
-	auto DTexture::ConsumeResourceUpdate() -> void
-	{
-		if (!PendingUpdate || !PendingUpdate->IsComplete()) return;
-		const auto CompletedState = PendingUpdate->GetState();
-		// A discarded completion must not overwrite a newer direct failure or idle state.
-		if (CompletedState != ETextureResourceUpdateState::Closed) LastUpdateState = CompletedState;
-		auto Candidate = PendingUpdate->TakeCandidate();
-		if (CompletedState == ETextureResourceUpdateState::Succeeded)
-		{
-			RetireTextureResource(std::move(RenderResource));
-			RenderResource = std::move(Candidate);
-		}
-		else if (CompletedState == ETextureResourceUpdateState::Failed)
-		{
-			ResourceUpdateError = "Texture upload failed; see render initialization diagnostics.";
-			DURIN_WARN("Texture resource update failed; using fallback. (texture: {})", GetObjectPath());
-		}
-		RetireTextureResource(std::move(Candidate));
-		auto Successor = PendingUpdate->TakeSuccessor();
-		PendingUpdate.reset();
-		if (Successor)
-		{
-			ResourceUpdateError.clear();
-			StartResourceUpdate(std::move(Successor));
-		}
-	}
-
-	auto DTexture::EnsurePlatformDataLoadedBlocking() -> bool
-	{
-		CheckGameThread();
-		if (HasPlatformData()) return true;
-		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
-		{
-			DURIN_WARN(
-				"Texture '{}': platform data has not been built.", GetObjectPath());
-			return false;
-		}
-		if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
-		{
-			DURIN_WARN(
-				"Cooked texture '{}': required PlatformData field is missing.", GetObjectPath());
-			return false;
-		}
-		return LoadCookedPlatformData();
-	}
-
 }

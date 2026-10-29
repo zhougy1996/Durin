@@ -10,6 +10,7 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "RHIResources.h"
+#include "RenderingThread.h"
 #include "Texture/TextureSource.h"
 
 #include "Texture.gen.h"
@@ -20,13 +21,11 @@ namespace Durin
 	class DAssetImportData;
 	class FTextureResource;
 	class FTextureReference;
-	class FTextureResourceUpdate;
 	class DTexture;
 	namespace TexturePrivate
 	{
 		template<class TPlatformData, class TTexture>
-		auto LoadCookedPlatformData(TTexture&, FBulkData&, std::string_view, bool,
-			std::shared_ptr<FPackageResourceRequest>&) -> bool;
+		auto LoadCookedPlatformData(TTexture&, bool) -> void;
 	}
 
 	// Progress of CPU initialization/publication, independent of usable fallback.
@@ -56,14 +55,20 @@ namespace Durin
 		ENGINE_API auto PostLoad() -> void override;
 		// Full-object edits retire prior work and begin independent authored compilation.
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		// Prepares the current texture's platform data; false completes synchronously.
+		// Reuses existing work. Source import and saving remain separate operations.
+		ENGINE_API auto CachePlatformData(bool bAsyncCache = false) -> void;
 		// Authored 2D/cube data: schedules cache lookup/build without reading source pixels.
 		// Authored volume textures currently use the synchronous implementation.
-		// Cooked families schedule worker reads/decode when the owner executor is available.
+		// Cooked families schedule worker reads/decode when the scheduler is available.
 		// Repeated calls while installed or pending are no-ops.
 		ENGINE_API auto BeginCachePlatformData() -> void;
 		// CPU cache completion, including failure; does not imply GPU readiness.
 		ENGINE_API auto IsAsyncCacheComplete() const -> bool;
-		// Explicit blocking boundary. Returns CPU-data success; GPU upload remains asynchronous.
+		// Explicit CPU-cache completion boundary; GPU upload remains asynchronous.
+		// Completes existing work and installs it directly; never starts a new cache request.
+		// Zero only queries installed data. A finite nonnegative timeout bounds the wait,
+		// not executing callbacks. Expiry does not cancel work; no GameThread queue pumping.
 		ENGINE_API auto FinishCachePlatformData(double TimeoutSeconds = 300.0) -> bool;
 		// GameThread mutation barrier: cancel, finish and retire this texture's active build.
 		ENGINE_API auto BlockOnAnyAsyncBuild() -> void;
@@ -97,15 +102,11 @@ namespace Durin
 		{
 			return CookedPlatformData;
 		}
-		// GameThread only. Loads and installs cooked data synchronously when absent,
-		// then calls UpdateResource (GPU completion is asynchronous). Does not build
-		// authored data. Already-installed data succeeds without another update.
-		// On failure, logs the texture path and reason and returns false.
-		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
-
 		// Asynchronously uploads installed platform data; direct updates invalidate the prior allocation.
 		ENGINE_API auto UpdateResource() -> void;
-		auto GetResourceUpdateError() const -> const std::string& { return ResourceUpdateError; }
+		// Releases GPU resources while retaining CPU data, cache work and the reusable reference.
+		ENGINE_API auto ReleaseResource() -> void;
+		ENGINE_API auto GetResourceUpdateError() const -> const std::string&;
 
 		ENGINE_API auto GetTextureReferenceRHI() const
 			-> FRHITextureReferenceRef;
@@ -116,7 +117,7 @@ namespace Durin
 		// texture's admitted upload and reports whether a usable allocation exists.
 		// A headless runtime accepts the prepared CPU product without GPU evidence.
 		ENGINE_API auto FinishReloadResourcePreparation() -> bool;
-		// GameThread only. Captures the last consumed successful allocation, retaining no UObject.
+		// GameThread only. Captures the current allocation after initialization completes, retaining no UObject.
 		// Render commands may retain this value for fixed-input work; ordinary bindings use the stable reference.
 		ENGINE_API auto GetPublishedTexture() const -> FTextureRHIRef;
 
@@ -135,40 +136,38 @@ namespace Durin
 		}
 
 		std::shared_ptr<FPackageResourceRequest> CookedLoad;
+		// One prepared result's installation, shared by explicit finish and automatic wakeup.
+		std::function<void()> CookedPublication;
 		template<class TPlatformData, class TTexture>
-		friend auto TexturePrivate::LoadCookedPlatformData(TTexture&, FBulkData&, std::string_view, bool,
-			std::shared_ptr<FPackageResourceRequest>&) -> bool;
+		friend auto TexturePrivate::LoadCookedPlatformData(TTexture&, bool) -> void;
 
 		// Drops installed CPU data for lazy cooked loading; leaves published GPU resources intact.
 		virtual auto ResetPlatformData() -> void = 0;
 		// Begins authored caching with load-time mutation policy and updates resources on completion.
 		// Logs failures locally, including the texture path.
-		virtual auto BuildPlatformDataForLoad() -> void = 0;
+		virtual auto BuildPlatformDataForLoad(bool bAsyncCache) -> void = 0;
 
 		virtual auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureResource> = 0;
-		// Installs family-specific cooked data and queues its resource update.
-		// Logs failures locally and returns false without updating resources.
-		virtual auto LoadCookedPlatformData(bool bAsync = false) -> bool = 0;
+		// Starts family-specific cooked decoding and publishes on GameThread.
+		virtual auto LoadCookedPlatformData(bool bAsync) -> void = 0;
 
 	private:
 
 
 		auto ReleaseRenderResources() -> void;
 		friend struct FTextureCookTestAccess;
-		auto StartResourceUpdate(std::unique_ptr<FTextureResource> Candidate) -> void;
-		auto ConsumeResourceUpdate() -> void;
 
 		// The asset owns its render representation and the stable identity used by consumers.
 		std::unique_ptr<FTextureReference> TextureReference;
 		std::unique_ptr<FTextureResource> RenderResource;
-		std::shared_ptr<FTextureResourceUpdate> PendingUpdate;
+		FRenderCommandFence ResourceFence;
 		std::string ResourceUpdateError;
+		// CPU preparation/admission result. GPU readiness is derived from the resource after its fence.
 		ETextureResourceUpdateState LastUpdateState = ETextureResourceUpdateState::Idle;
 		bool bTextureReferenceInitializationQueued = false;
 		bool bAcceptingRenderResourceBuilds = true;
-		bool bCacheRequestCurrent = false;
 
 #if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)

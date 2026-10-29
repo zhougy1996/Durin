@@ -31,6 +31,7 @@ namespace Durin
 		GENERATED_BODY()
 
 	public:
+		using DTexture::CachePlatformData;
 #if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto CachePlatformData(const FVolumeTextureBuildRequest& Request,
 			const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>;
@@ -70,8 +71,8 @@ namespace Durin
 
 	private:
 		auto ResetPlatformData() -> void override { PlatformData.reset(); }
-		auto BuildPlatformDataForLoad() -> void override;
-		auto LoadCookedPlatformData(bool bAsync = false) -> bool override;
+		auto BuildPlatformDataForLoad(bool bAsyncCache) -> void override;
+		auto LoadCookedPlatformData(bool bAsync) -> void override;
 
 #if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)

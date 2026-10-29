@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
-#include "Texture/TextureRenderResource.h"
+#include "RenderResource.h"
 
 namespace Durin
 {

@@ -479,8 +479,7 @@ namespace Durin
 	{
 		CheckMaterialQueryThread();
 		if (IsDynamicInstance()) return IsValid(GetParent()) && GetParent()->IsCompiling();
-		return HasPendingMaterialCompilation(*this)
-			|| (CompilationOwner.CookedPreparation && CompilationOwner.MaterialCompileStatus.State == EMaterialCompileState::Running);
+		return HasPendingMaterialCompilation(*this);
 	}
 
 	auto DMaterialInterface::IsComplete() const -> bool
@@ -816,47 +815,6 @@ namespace Durin
 		std::vector<FObjectKey> Result;
 		for (auto* Object : Context.GetMaterialsAffectedByMaterial(Dependency)) Result.emplace_back(Object);
 		return Result;
-	}
-	auto DMaterialInterface::CacheResourceShadersForRendering() -> void
-	{
-		CheckGameThread();
-		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
-		{
-			RequestMaterialRecompile(*this);
-			return;
-		}
-		if (IsDynamicInstance()
-			|| CompilationOwner.RenderLayer.CompiledProgram || CompilationOwner.CookedPreparation || IsPendingKill()) return;
-		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Deferred;
-		MaterialCookDiagnostic.clear();
-		Private::GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(this));
-		if (!IsTaskSchedulerRunning()) return;
-		CompilationOwner.CookedPreparation = FMaterialProgramPreparation::Request(*this);
-		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Running;
-	}
-	auto DMaterialInterface::PollCookedProgramPreparation() -> bool
-	{
-		if (!CompilationOwner.CookedPreparation)
-		{
-			CacheResourceShadersForRendering();
-			return IsCompiling();
-		}
-		auto Preparation = *CompilationOwner.CookedPreparation; // Admission may retire the owner's handle.
-		const auto State = Preparation.Poll();
-		if (State == EMaterialProgramPreparationState::Failed)
-		{
-			MaterialCookDiagnostic = Preparation.GetDiagnostic();
-			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
-		}
-		if (State == EMaterialProgramPreparationState::Canceled || State == EMaterialProgramPreparationState::Stale)
-		{
-			MaterialCookDiagnostic = State == EMaterialProgramPreparationState::Stale
-				? "Cooked program request was invalidated before publication." : "Cooked program preparation was canceled.";
-			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
-		}
-		if (State == EMaterialProgramPreparationState::Pending) return true;
-		CompilationOwner.CookedPreparation.reset();
-		return false;
 	}
 
 }

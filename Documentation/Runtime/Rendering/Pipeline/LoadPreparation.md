@@ -8,26 +8,24 @@ Last reviewed: 2026-10-29
 
 ## Object and program readiness
 
-Async asset completion retains its existing object-readiness meaning. A loading
-owner may independently call `FMaterialProgramPreparation::Request` on the game
-thread before accepted-program demand. The request snapshots the bounded cooked
-bulk range/content revision and quality, feature level and backend. Parameter-only
-material publications do not invalidate immutable cooked program decoding. A same-sized inline replacement or admitted write invalidates a pending
-request even when its range metadata and material edit version are unchanged. Package
-I/O and family decode run without dereferencing live objects. `Poll` admits only
-a current result on the game thread, through the same declaration, collection,
-properties and proxy publication checks as demand loading.
+Async asset completion retains its existing object-readiness meaning. Materials
+start preparation through `CacheResourceShadersForRendering`; callers observe
+`IsCompiling`, `IsComplete`, the existing compile status and owner diagnostic.
+There is no separate public program-preparation handle or terminal state machine.
+Explicit offline waits and cancellation use the existing shader compiler manager.
+The internal request snapshots cooked bulk content revision, configuration,
+quality, feature level and backend. Parameter-only publications do not invalidate
+decoding. A same-sized inline replacement or admitted write changes the bulk
+revision and prevents stale publication. Package I/O and family decode never
+dereference live objects; the compiler queue publishes current results on the
+game thread through existing declaration, collection, properties and proxy checks.
 
-Program preparation reports Pending, Ready, Failed, Canceled or Stale. Ready
-retains the immutable accepted program; failure does not become asset-load
-failure. Cancellation withdraws one request. Copies alias that request. Separate
-requests do not cancel each other. Unload, retired package storage, changed
-configuration or replaced cooked content prevents pending publication. At most
-16 read/decode continuations are admitted; each releases its admission on exit,
-including cancellation and failure. Retaining terminal handles consumes no work
-admission. Terminal results remain observable after cancellation. Each request
-has the existing 8 MiB encoded family limit. Decoded products and package-task storage have additional allocation cost;
-these limits are not a process RSS bound.
+Unload, retired storage, changed configuration or replaced content prevents
+pending publication. Failure stays on the material rather than failing asset
+loading. At most 16 read/decode continuations are admitted; each releases its
+admission on exit, including cancellation and failure. Each request retains the
+existing 8 MiB encoded family limit. Decoded products and package-task storage
+have additional allocation cost; these limits are not a process RSS bound.
 
 Resource preparation is independent of MapChange. Mesh components request CPU/GPU
 residency on registration and use existing render-data change notifications.
@@ -35,7 +33,7 @@ Mesh admission pressure retains only weak owner identities in the existing cooke
 load manager; its ordinary pump retries without allocating extra read/decode work.
 Cancel, shutdown and owner destruction retire those intents.
 Cooked materials start `CacheResourceShadersForRendering` in PostLoad. Their
-compilation owner retains the existing program request; the shader compiler's
+compilation owner retains only the internal decode request; the shader compiler's
 retry queue pumps admission and publication. The 16-request decode bound defers
 excess work instead of reporting a permanent failure. Program getters are pure;
 offline consumers explicitly finish compilation before inspecting accepted programs.
@@ -44,8 +42,10 @@ program is pending. Normal publication applies those overrides when it becomes r
 failed parents and ready-program reachability validation retain their existing rules.
 Cooked textures asynchronously read/decode platform data after PostLoad, then
 apply on GameThread and upload through the existing resource-update path and
-stable texture reference. Explicit blocking loaders remain available to offline
-and reload callers. SkyLight and cloud proxies begin caching without blocking
+stable texture reference. Offline and reload callers use the same
+`FinishCachePlatformData` completion boundary; see the
+[texture cache contract](../../Assets/Families/TextureSystem.md#derived-platform-data).
+SkyLight and cloud proxies begin caching without blocking
 registration and retain stable references for late texture publication.
 Texture read/decode failures retain their detailed message
 in the existing resource diagnostic.

@@ -1,4 +1,5 @@
 #include "AssetTools/Relocation.h"
+#include "Threading/Task.h"
 #include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
 #include "NativeAssetTestSupport.h"
@@ -885,6 +886,8 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
 	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
 	ASSERT_TRUE(AssetRuntime.RestartCooked(FirstRoot));
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstRoot / "Game").generic_string() + "/");
 	const Durin::FAssetCatalogRefreshResult Refresh =
@@ -908,16 +911,16 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	EXPECT_FALSE(Cooked->HasPlatformData());
 	EXPECT_EQ(Cooked->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
 	EXPECT_EQ(Cooked->GetPlatformDataShared(), PlatformBeforeGetIdentity);
-	ASSERT_TRUE(static_cast<Durin::DTexture&>(*Cooked).EnsurePlatformDataLoadedBlocking());
+	ASSERT_TRUE(static_cast<Durin::DTexture&>(*Cooked).FinishCachePlatformData());
 	ASSERT_NE(Cooked->GetPlatformData(), nullptr);
 	const auto* InstalledPlatform = Cooked->GetPlatformData();
 	const auto InstalledPlatformDataIdentity = Cooked->GetPlatformDataShared();
-	ASSERT_TRUE(static_cast<Durin::DTexture&>(*Cooked).EnsurePlatformDataLoadedBlocking());
+	ASSERT_TRUE(static_cast<Durin::DTexture&>(*Cooked).FinishCachePlatformData());
 	EXPECT_EQ(Cooked->GetPlatformData(), InstalledPlatform);
 	EXPECT_EQ(Cooked->GetPlatformDataShared(), InstalledPlatformDataIdentity);
 	auto* MissingPlatform = Durin::NewObject<Durin::DTextureCube>(
 		nullptr, "MissingCookedPlatformData");
-	EXPECT_FALSE(MissingPlatform->EnsurePlatformDataLoadedBlocking());
+	EXPECT_FALSE(MissingPlatform->FinishCachePlatformData());
 	EXPECT_EQ(MissingPlatform->GetPlatformData(), nullptr);
 	EXPECT_EQ(Cooked->GetAssetImportData(), nullptr);
 	EXPECT_NE(Cooked->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
