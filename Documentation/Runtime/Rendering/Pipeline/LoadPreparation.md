@@ -334,8 +334,9 @@ The pass performs final material/participation/factory filtering, selects its ve
 and fragment stages and describes pipeline state. Shared `BuildMeshDrawCommands`
 logic initializes the ShaderMap, resolves the selected shader bindings and builds
 owned `FMeshPassPipeline` resources containing the ShaderMap, vertex binding, fragment
-shader/layout, declaration and native pipeline. Geometry visibility, uniform/parameter
-packet caches and command-list recording remain with their existing owners.
+shader/layout, declaration and native pipeline. Each pipeline records its mesh pass
+and direct/GPU-culling route. Geometry visibility, uniform allocation, cache retention,
+retirement and pass/geometry recording remain with their existing owners.
 
 `FMeshPassDrawListContext` adapts command construction to the existing asynchronous
 ShaderMap and pipeline caches: a shader context publishes a complete shader payload;
@@ -344,27 +345,48 @@ request service. A precache context consumes the same payload and appends only a
 initializer, without creating a pipeline or recording a draw. Both output paths
 use the same final filtering, shader selection and `FMeshPipelineDescription`.
 Material ShaderMap identity, factory/layout and selected shader stages must match
-the supplied payload before either path can emit output. A retained-command context
-also assembles the complete existing `FMeshDrawCommand` snapshot: geometry description,
-input binding, primitive state/uniform, selected draw resources and material parameter
-packets. The cache owner supplies prepared packets and owns retention/eviction; the
-processor removes per-view packets before publishing the immutable command, preserving
-view-local binding refresh and the existing multi-route cache representation.
-The retained context validates the captured material, factory/layout, topology and
-effective pipeline state against the admitted batch before publication. Commands
-own their primitive/batch identity and derive cache keys from the resources actually
-published in their snapshot. Optional GPU binding fallback therefore caches only
-the direct-route snapshot and cannot suppress a later GPU-route retry. The snapshot
-retains its geometry/input and stable bindings independently of the source view;
-view-local packets are released when their view expires.
-Filtered, pending or failed attempts leave the output payload untouched; cached payloads retain the ShaderMap
-that owns their compiled fragment layout. Each context is confined to its call on
-the render thread; shared draw prototypes keep no request-specific context.
+the supplied payload before either path can emit output.
+
+Each `FMeshDrawCommand` owns exactly one pass pipeline, one material snapshot,
+geometry/input ownership, primitive identity/state and that pass's binding packets.
+`FResolvedMeshDrawRecord` is only a transient routing container for selected pass
+pipelines and commands; it is never copied into a cached command.
+`FCachedPassMeshDrawListContext` collects stable material/primitive/Vertex Factory
+bindings with no view uniform or pass packets. `FDynamicPassMeshDrawListContext`
+creates a separate command with the current view/pass packets, optionally reusing
+a matching cached command's stable bindings. Cached commands cannot be submitted.
+`BuildMeshDrawCommands` owns both binding collection and final command assembly;
+`SubmitBindings` records the resulting pipeline and packets without resolving or
+creating resources. Factory-specific vertex bindings remain with the Vertex Factory;
+the shared pass layout interprets only set 0 of its reflection. HitProxy IDs are
+request-local set-1 bindings and use dynamic contexts without cached-command reuse.
+GPU-culling dynamic contexts attach the graph's visible-instance/transform storage
+ranges just before recording; incomplete GPU vertex packets cannot be submitted.
+
+A view-local `FMeshDrawCommandBindingCache` preserves material/primitive packet sharing
+and GPU grouping. Uniform/surface resource producers keep their existing caches;
+the Static Mesh renderer owns bounded command retention (up to 2048 single-pass
+commands, preserving the former four-pass/512-draw budget). Each pass is probed,
+built and cached independently. Keys include captured geometry description,
+primitive/batch identity, pass, GPU route and the owned pipeline identity. Optional
+GPU binding failure publishes no GPU command and cannot suppress a later GPU retry.
+Cache reuse checks input/state and current stable material resources; changed
+Collection ranges rebuild stable bindings while retaining compatible uniforms and
+pipelines. Dynamic contexts reject mismatched cached dependencies without replacing
+their previous output. Device/Shader/manual generations and release still clear the
+owner's caches through the existing resource coordinator and retirement flow.
+
+Filtered, pending or failed attempts leave the output payload untouched. Commands
+retain their geometry, binding resources and pipeline/ShaderMap independently of
+cache eviction or source-view lifetime; the ShaderMap owns the compiled fragment
+layout. View/pass packets belong only to dynamic commands and retire with their
+view's existing resolved-resource owner. Contexts are call-local on the render
+thread; immutable draw prototypes keep no request-specific context.
 
 Concrete processors and their creation-function registrations live with their
 passes: Base Scene owns Forward, hybrid retained and sorted translucency;
 Directional Shadow, GBuffer and HitProxy own their corresponding processors.
-`MeshPassProcessor.h/.cpp` contains only the base, shared collection helpers and
+`MeshPassProcessor.h/.cpp` contains the base, shared collection/command helpers and
 the registration manager. `FRegisterPassProcessorCreateFunction` registers a
 factory for an existing `EMeshPipelinePass`; `FPassProcessorManager` enumerates,
 looks up and creates processors through that registry. Duplicate, null and

@@ -228,6 +228,10 @@ namespace Durin
 		return FragmentBindings.Bind(CommandList);
 	}
 
+	auto FGBufferRenderer::GetPipelineResources(const std::shared_ptr<const FPipeline>& Pipeline)
+		-> std::shared_ptr<const RendererPrivate::FMeshPassPipeline>
+	{ return Pipeline; }
+
 	auto FGBufferRenderer::GetVertexBinding(const FPipeline& Pipeline, const FVertexFactoryBinding& Binding) const
 		-> std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding>
 	{

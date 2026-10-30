@@ -12,7 +12,7 @@
 
 namespace Durin
 {
-	namespace RendererPrivate { class FMeshVertexShaderBinding; class FCompiledSurfaceBindingLayout; class FPreparedSurfaceMaterialBindings; }
+	namespace RendererPrivate { class FMeshVertexShaderBinding; class FCompiledSurfaceBindingLayout; class FPreparedSurfaceMaterialBindings; struct FMeshPassPipeline; }
 	struct FGBufferPipeline;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
@@ -90,6 +90,8 @@ namespace Durin
 			-> std::array<FRHITextureCreateDesc, 4>;
 		auto EnsurePipeline_RenderThread(const FPipelineRequest& Request)
 			-> std::shared_ptr<const FPipeline>;
+		static auto GetPipelineResources(const std::shared_ptr<const FPipeline>& Pipeline)
+			-> std::shared_ptr<const RendererPrivate::FMeshPassPipeline>;
 		auto GetVertexBinding(const FPipeline& Pipeline, const FVertexFactoryBinding& Binding) const
 			-> std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding>;
 		auto GetFragmentShader(const FPipeline& Pipeline) const -> FRHIShader*;

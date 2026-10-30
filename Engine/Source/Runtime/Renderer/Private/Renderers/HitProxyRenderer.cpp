@@ -115,8 +115,7 @@ namespace Durin
 			FPreparedStaticMeshSurfaceMaterial Material;
 			FRHIUniformBufferRange Transform;
 			FRHIUniformBufferRange Id;
-			FPreparedSurfaceMaterialBindings FragmentBindings;
-			std::shared_ptr<const FRHIShaderParameterBatch> VertexBindings;
+			std::shared_ptr<const FMeshDrawCommand> Command;
 		};
 	}
 
@@ -196,7 +195,7 @@ namespace Durin
 						bFrameDependent |= EnumHasAnyFlags(Texture->GetReferencedTexture_RenderThread()->GetFlags(), ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::Storage);
 				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::HitProxy);
 				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory,
-					{Draw.Command->PipelineKey.Rasterizer, {}, {}}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer,
+					{Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer,
 					false, View.DepthConvention == ESceneDepthConvention::ReversedZ};
 				FMeshPassDrawListContext ShaderContext(Coordinator.GetGeneration_RenderThread(), Program.get(), {}, Item);
 				Processor.AddMeshBatch(Batch, ShaderContext);
@@ -230,13 +229,14 @@ namespace Durin
 						Collections.push_back(Commands.CreateUniformBufferRange(Payload.data(), Payload.size()));
 					}
 				if (!bReady) break;
-				if (!PrepareCompiledSurfaceMaterial(Item.FragmentShader, *Item.FragmentLayout,
-					Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform,
-					Item.Transform, Collections, Item.FragmentBindings)) { bReady = false; break; }
-				Item.VertexBindings = PrepareMeshVertexMaterial(*Item.VertexShader,
-					Item.VertexShader->Prepare(Commands, Item.Transform, *Item.Primitive->CollectedBinding),
-					Item.Material.Surface, Item.Material.Uniform, ViewUniform, Collections);
-				if (!Item.VertexBindings) { bReady = false; break; }
+				const FResolvedStaticMeshView::FMaterialUniform Material{Item.Material.Surface, Item.Material.Uniform, Collections};
+				const FMeshDrawCommandBuildInput Input{Commands, *Item.Primitive, Draw,
+					std::make_shared<const FMeshPassPipeline>(static_cast<const FMeshPassPipeline&>(Item)), Material,
+					Item.Transform, ViewUniform, {}, Item.Id, 3};
+				FMeshDrawCommandBindingCache BindingCache;
+				FDynamicPassMeshDrawListContext BindingContext(Input, BindingCache, Item.Command);
+				Processor.AddMeshBatch(Batch, BindingContext);
+				if (!BindingContext.GetResult()) { bReady = false; break; }
 				Draws.push_back(std::move(Item));
 			}
 		});
@@ -317,11 +317,9 @@ namespace Durin
 		Commands.SetViewport(float(View.ViewportX), float(View.ViewportY), 0.f, float(Width), float(Height), 1.f);
 		for (const auto& Item : Draws)
 		{
-			Commands.SetGraphicsPipelineState(*Item.PipelineState);
+			if (!Item.Command || !Item.Command->SubmitBindings(Commands)) { bReady = false; break; }
 			FStaticMeshGeometryBinding Geometry(*Item.Primitive, *Item.Draw);
 			Geometry.Bind(Commands);
-			Commands.SetPreparedShaderParameters(Item.VertexBindings);
-			if (!Item.FragmentBindings.Bind(Commands)) { bReady = false; break; }
 			Geometry.DrawIndexed(Commands);
 		}
 		if (bReady && OverlayBuffer)

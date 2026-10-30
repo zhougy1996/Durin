@@ -3986,7 +3986,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 			FlushRenderingCommands();
 		}
 	} DirectCleanup{DirectCollector, DirectInitializers, DirectCommandRequests, ExpectedCommandPipeline};
-	bool DirectReady = false, CommandReady = false;
+	bool DirectReady = false, CommandReady = false, BindingContextsValidated = false;
 	std::string DirectError;
 	const auto DirectDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	do {
@@ -4046,6 +4046,66 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 				EXPECT_EQ(WrongMaterial.GetResult().Status, EShaderBuildStatus::Error);
 				EXPECT_TRUE(Rejected.empty());
 				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
+				if (CommandReady && !BindingContextsValidated) {
+					FSceneView BindingView; BindingView.ViewportWidth = BindingView.ViewportHeight = 64;
+					BindingView.FeatureLevel = LowScene->GetFeatureLevel();
+					const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, static_cast<FScene*>(LowScene.get())->GetPrimitiveSceneInfos(), BindingView, ERasterMode::Solid);
+					ASSERT_FALSE(Prepared.Opaque.empty());
+					const auto& BindingDraw = Prepared.Opaque.front();
+					const auto* Primitive = Prepared.GetPrimitive(BindingDraw); ASSERT_TRUE(Primitive && Primitive->CollectedBinding);
+					const auto& PassProcessor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::ShadowDepth);
+					const FMeshPassProcessorBatch ShadowBatch{BindingDraw.Command->Material.PlanningPassIdentity, *Factory,
+						{BindingDraw.Command->PipelineKey.Rasterizer, BindingDraw.Command->PipelineKey.Depth, BindingDraw.Command->PipelineKey.ColorBlend},
+						BindingDraw.Command->PipelineKey.Topology, {}, BindingDraw.Command->bSupportsGBuffer};
+					FMeshPassShaders ShadowShaders;
+					FMeshPassDrawListContext ShaderContext(Generation, LowResource.CompiledProgram.get(), {}, ShadowShaders);
+					PassProcessor.AddMeshBatch(ShadowBatch, ShaderContext);
+					if (ShaderContext.GetResult().Status == EShaderBuildStatus::Pending) { CommandReady = false; return; }
+					ASSERT_TRUE(ShaderContext.GetResult()) << ShaderContext.GetResult().Error;
+					auto Pipeline = std::make_shared<FMeshPassPipeline>();
+					FMeshPassDrawListContext PipelineContext("BindingContextShadow", ShadowShaders, Primitive->CollectedBinding->Declaration, *Pipeline);
+					PassProcessor.AddMeshBatch(ShadowBatch, PipelineContext);
+					if (!PipelineContext.GetResult() && Requests.HasPending()) { CommandReady = false; return; }
+					ASSERT_TRUE(PipelineContext.GetResult()) << PipelineContext.GetResult().Error;
+					FMaterialRenderBinding Binding;
+					FMaterialRenderValidationDiagnostic BindingDiagnostic;
+					ASSERT_TRUE(TryGetMaterialRenderBinding(BindingDraw.Command->Material.Representation, Binding, BindingDiagnostic));
+					FResolvedStaticMeshView::FMaterialUniform PassMaterial;
+					PassMaterial.Surface.bCompiledLayout = true; PassMaterial.Surface.PublishedBinding = Binding;
+					PassMaterial.Surface.CompiledUniformPayload = Binding.CompiledUniformPayload;
+					PassMaterial.Uniform = Commands.CreateUniformBufferRange(Binding.CompiledUniformPayload.data(), static_cast<uint32>(Binding.CompiledUniformPayload.size()));
+					const auto Transform = BuildMeshTransformUniform(*Primitive);
+					const auto PrimitiveUniform = Commands.CreateUniformBufferRange(&Transform, sizeof(Transform));
+					FMaterialViewUniform ViewParameters;
+					ViewParameters.Viewport = FVector4f(0, 0, 64, 64);
+					FMeshDrawCommandBuildInput Input{Commands, *Primitive, BindingDraw, Pipeline, PassMaterial,
+						PrimitiveUniform, Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters)), {}, {}, 2};
+					FMeshDrawCommandBindingCache CacheA;
+					std::shared_ptr<const FMeshDrawCommand> Cached, DynamicA, DynamicB;
+					FCachedPassMeshDrawListContext CachedContext(Input, CacheA, Cached); PassProcessor.AddMeshBatch(ShadowBatch, CachedContext);
+					ASSERT_TRUE(CachedContext.GetResult()) << CachedContext.GetResult().Error;
+					ASSERT_TRUE(Cached && Cached->bCached); EXPECT_EQ(Cached->Pipeline->Pass, EMeshPipelinePass::ShadowDepth);
+					EXPECT_FALSE(Cached->VertexPassBindings); EXPECT_FALSE(Cached->FragmentPassBindings); EXPECT_FALSE(Cached->ViewUniform.Buffer);
+					EXPECT_FALSE(Cached->SubmitBindings(Commands));
+					FDynamicPassMeshDrawListContext DynamicContextA(Input, CacheA, DynamicA, Cached); PassProcessor.AddMeshBatch(ShadowBatch, DynamicContextA);
+					ASSERT_TRUE(DynamicContextA.GetResult()) << DynamicContextA.GetResult().Error;
+					ASSERT_TRUE(DynamicA && !DynamicA->bCached && DynamicA->VertexPassBindings);
+					EXPECT_EQ(DynamicA->VertexBindings, Cached->VertexBindings);
+					ViewParameters.WorldOriginHigh.x += 100;
+					Input.ViewUniform = Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters));
+					FMeshDrawCommandBindingCache CacheB;
+					FDynamicPassMeshDrawListContext DynamicContextB(Input, CacheB, DynamicB, Cached); PassProcessor.AddMeshBatch(ShadowBatch, DynamicContextB);
+					ASSERT_TRUE(DynamicContextB.GetResult()) << DynamicContextB.GetResult().Error;
+					EXPECT_EQ(DynamicB->VertexBindings, Cached->VertexBindings);
+					EXPECT_NE(DynamicB->VertexPassBindings, DynamicA->VertexPassBindings);
+					EXPECT_TRUE(DynamicB->ViewUniform.Buffer != DynamicA->ViewUniform.Buffer || DynamicB->ViewUniform.Offset != DynamicA->ViewUniform.Offset);
+					const auto Original = DynamicB;
+					PassMaterial.CollectionUniforms.push_back(PrimitiveUniform);
+					FDynamicPassMeshDrawListContext StaleContext(Input, CacheB, DynamicB, Cached); PassProcessor.AddMeshBatch(ShadowBatch, StaleContext);
+					EXPECT_EQ(StaleContext.GetResult().Status, EShaderBuildStatus::Error); EXPECT_EQ(DynamicB, Original);
+					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
+					BindingContextsValidated = true;
+				}
 			}
 		});
 		FlushRenderingCommands();
@@ -4053,6 +4113,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	} while ((!DirectReady || !CommandReady) && DirectError.empty() && std::chrono::steady_clock::now() < DirectDeadline);
 	ASSERT_TRUE(DirectReady) << DirectError;
 	ASSERT_TRUE(CommandReady);
+	ASSERT_TRUE(BindingContextsValidated);
 	ASSERT_EQ(DirectInitializers.size(), 1u + (InitialConfig.bSupportsWireframe ? 8u : 4u));
 	const auto DirectEntries = std::span(DirectInitializers).subspan(1);
 	EXPECT_EQ(std::ranges::count_if(DirectEntries, [](const auto& Entry) { return Entry.bRequired; }), 2);

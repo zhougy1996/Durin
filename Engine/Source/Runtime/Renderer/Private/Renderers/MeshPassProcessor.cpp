@@ -21,10 +21,25 @@ namespace Durin::RendererPrivate
 		FRHIVertexDeclaration* InDeclaration, FPSOPrecacheDataArray& InOutInitializers, bool InRequired, EPSOPrecachePriority InPriority)
 		: Shaders(&InShaders), Declaration(InDeclaration), OutInitializers(&InOutInitializers), bRequired(InRequired), Priority(InPriority) {}
 
-	FMeshPassDrawListContext::FMeshPassDrawListContext(const FPreparedStaticMeshPrimitive& InPrimitive,
-		const FPreparedStaticMeshDraw& InDraw, const FResolvedStaticMeshView& InResolvedView,
-		std::shared_ptr<const FMeshDrawCommand>& InOutCommand)
-		: Primitive(&InPrimitive), Draw(&InDraw), ResolvedView(&InResolvedView), OutRetainedCommand(&InOutCommand) {}
+	FMeshPassDrawListContext::FMeshPassDrawListContext(const FMeshDrawCommandBuildInput& Input,
+		FMeshDrawCommandBindingCache& Cache, std::shared_ptr<const FMeshDrawCommand>& Out,
+		bool bCached, std::shared_ptr<const FMeshDrawCommand> Existing)
+		: BindingInput(&Input), BindingCache(&Cache), OutDrawCommand(&Out), ExistingCommand(std::move(Existing)), bCachedOutput(bCached) {}
+	FMeshPassDrawListContext::FMeshPassDrawListContext(std::shared_ptr<const FMeshDrawCommand> Prepared,
+		FRHIStorageBufferRange InVisibleInstances, FRHIStorageBufferRange InInstanceTransforms,
+		std::shared_ptr<const FMeshDrawCommand>& Out)
+		: OutDrawCommand(&Out), GPUCommand(std::move(Prepared)), VisibleInstances(InVisibleInstances), InstanceTransforms(InInstanceTransforms) {}
+
+	auto FMeshDrawCommand::SubmitBindings(FRHICommandList& Commands) const -> bool
+	{
+		if (bCached || !Pipeline || !Pipeline->PipelineState || !VertexBindings
+			|| (!Pipeline->bGPUCulling && !VertexPassBindings)
+			|| (Pipeline->FragmentLayout && (!FragmentBindings || !FragmentPassBindings))) return false;
+		Commands.SetGraphicsPipelineState(*Pipeline->PipelineState);
+		Commands.SetPreparedShaderParameters(VertexBindings);
+		if (VertexPassBindings && !VertexPassBindings->Bind(Commands)) return false;
+		return !FragmentBindings || (FragmentBindings->Bind(Commands) && FragmentPassBindings->Bind(Commands));
+	}
 
 	auto FMeshPassProcessor::BuildMeshDrawCommands(const FMeshPassProcessorBatch& Batch, FMeshPassDrawListContext& DrawContext) const -> void
 	{
@@ -38,40 +53,136 @@ namespace Durin::RendererPrivate
 		const auto Fragment = GetFragmentShader(Batch.Material.ShaderMap.BlendMode);
 		if (!Fragment.Type || !Fragment.Resolve)
 		{ DrawContext.Result = FShaderCompletion::Failure("Unsupported mesh pass fragment shader."); return; }
-		if (DrawContext.OutRetainedCommand)
+		const auto MatchesBatch = [&](const FMeshDrawDescription& Draw, const FVertexFactoryInputBinding& Input) {
+			const auto& Key = Draw.PipelineKey;
+			return Draw.Material.PlanningPassIdentity == Batch.Material && Key.Material == Batch.Material
+				&& Key.FactoryKey == Factory.GetType().GetStableKey() && Key.LayoutKey == Factory.GetLayoutKey()
+				&& Input.GetFactoryKey() == Key.FactoryKey && Input.GetLayoutKey() == Key.LayoutKey
+				&& Key.Topology == Batch.Topology && Key.Rasterizer == Batch.PipelineState.Rasterizer
+				&& Key.Depth == Batch.PipelineState.Depth && Key.ColorBlend == Batch.PipelineState.ColorBlend;
+		};
+		if (DrawContext.GPUCommand)
 		{
-			const auto& Primitive = *DrawContext.Primitive;
-			const auto& Draw = *DrawContext.Draw;
-			const auto& View = *DrawContext.ResolvedView;
-			if (!Primitive.CollectedBinding || !Draw.Command || Draw.ResolvedIndex >= View.Draws.size()
-				|| Draw.PrimitiveIndex >= View.PrimitiveUniforms.size() || Draw.MaterialUniformIndex >= View.MaterialUniforms.size()
-				|| !View.IsReady(Draw))
-			{ DrawContext.Result = FShaderCompletion::Failure("Cannot retain an incomplete mesh draw command."); return; }
-			const auto& Key = Draw.Command->PipelineKey;
-			if (Draw.Command->Material.PlanningPassIdentity != Batch.Material || Key.Material != Batch.Material
-				|| Key.FactoryKey != Factory.GetType().GetStableKey() || Key.LayoutKey != Factory.GetLayoutKey()
-				|| Primitive.CollectedBinding->GetFactoryKey() != Key.FactoryKey || Primitive.CollectedBinding->GetLayoutKey() != Key.LayoutKey
-				|| Key.Topology != Batch.Topology || Key.Rasterizer != Batch.PipelineState.Rasterizer
-				|| Key.Depth != Batch.PipelineState.Depth || Key.ColorBlend != Batch.PipelineState.ColorBlend)
-			{ DrawContext.Result = FShaderCompletion::Failure("Retained mesh draw context does not match the admitted batch."); return; }
-			auto Command = std::make_shared<FMeshDrawCommand>();
-			Command->PrimitiveId = Primitive.PrimitiveId;
-			Command->BatchId = Primitive.BatchId;
-			Command->Description = Draw.Command;
-			Command->Input = Primitive.CollectedBinding;
-			Command->PrimitiveUniform = View.PrimitiveUniforms[Draw.PrimitiveIndex];
-			Command->Record = View.Draws[Draw.ResolvedIndex];
-			Command->PrimitiveState = FMeshDrawPrimitiveState::Capture(Primitive);
-			Command->Materials = View.MaterialUniforms[Draw.MaterialUniformIndex];
-			Command->Record.VertexPassBindings.reset();
-			Command->Record.HybridVertexPassBindings.reset();
-			Command->Record.GBufferVertexPassBindings.reset();
-			Command->Record.FragmentPassBindings.reset();
-			Command->Record.HybridFragmentPassBindings.reset();
-			Command->Record.GBufferFragmentPassBindings.reset();
-			Command->Record.GBufferGPUCullingFragmentPassBindings.reset();
-			*DrawContext.OutRetainedCommand = std::move(Command);
+			const auto& Prepared = *DrawContext.GPUCommand;
+			if (Prepared.bCached || !Prepared.Description || !Prepared.Input || !Prepared.Pipeline || !Prepared.Pipeline->ShaderMap
+				|| !Prepared.Pipeline->VertexShader || !Prepared.Pipeline->bGPUCulling
+				|| !Batch.bGPUCulling || !MatchesBatch(*Prepared.Description, *Prepared.Input)
+				|| Prepared.Pipeline->VertexFactoryPass != MeshPass || Prepared.Pipeline->FragmentType != Fragment.Type
+				|| Prepared.Pipeline->Pass != GetPass() || Prepared.Pipeline->ShaderMap.GetIdentity() != Batch.Material.ShaderMap
+				|| Prepared.Pipeline->FactoryKey != Factory.GetType().GetStableKey() || Prepared.Pipeline->LayoutKey != Factory.GetLayoutKey()
+				|| !DrawContext.VisibleInstances.Buffer || !DrawContext.InstanceTransforms.Buffer)
+			{ DrawContext.Result = FShaderCompletion::Failure("GPU draw context does not match a prepared dynamic command."); return; }
+			auto Command = std::make_shared<FMeshDrawCommand>(Prepared);
+			const auto& Vertex = *Command->Pipeline->VertexShader;
+			Command->VertexBindings = PrepareMeshVertexMaterial(Vertex,
+				Vertex.PrepareGPUCulling(DrawContext.VisibleInstances, DrawContext.InstanceTransforms),
+				Command->Material.Surface, Command->Material.Uniform, Command->ViewUniform, Command->Material.CollectionUniforms);
+			if (!Command->VertexBindings)
+			{ DrawContext.Result = FShaderCompletion::Failure("GPU command vertex binding collection failed."); return; }
+			*DrawContext.OutDrawCommand = std::move(Command);
 			DrawContext.Result = FShaderCompletion{};
+			return;
+		}
+		if (DrawContext.BindingInput)
+		{
+			const auto& Input = *DrawContext.BindingInput;
+			const auto& Draw = Input.Draw;
+			const auto& Primitive = Input.Primitive;
+			const auto& Pipeline = Input.Pipeline;
+			if (!Draw.Command || !Primitive.CollectedBinding || !Pipeline || Input.Commands.IsInsideRenderPass())
+			{ DrawContext.Result = FShaderCompletion::Failure("Mesh bindings require an admitted draw and an outside-pass preparation context."); return; }
+			const auto& Key = Draw.Command->PipelineKey;
+			if (!MatchesBatch(*Draw.Command, *Primitive.CollectedBinding)
+				|| Pipeline->Pass != GetPass() || Pipeline->bGPUCulling != Batch.bGPUCulling
+				|| !Pipeline->ShaderMap || Pipeline->ShaderMap.GetIdentity() != Batch.Material.ShaderMap
+				|| Pipeline->VertexFactoryPass != MeshPass || Pipeline->FragmentType != Fragment.Type
+				|| Pipeline->FactoryKey != Key.FactoryKey || Pipeline->LayoutKey != Key.LayoutKey
+				|| (DrawContext.bCachedOutput && Input.HitProxy.Buffer))
+			{ DrawContext.Result = FShaderCompletion::Failure("Mesh command binding context does not match the selected pass and admitted batch."); return; }
+			if (!Pipeline->PipelineState || !Pipeline->VertexShader || !Pipeline->FragmentShader)
+			{ DrawContext.Result = FShaderCompletion::Failure("Mesh command binding requires prepared native resources."); return; }
+			auto Command = std::make_shared<FMeshDrawCommand>();
+			Command->PrimitiveId = Primitive.PrimitiveId; Command->BatchId = Primitive.BatchId;
+			Command->Description = Draw.Command; Command->Input = Primitive.CollectedBinding;
+			Command->Pipeline = Pipeline; Command->PrimitiveUniform = Input.PrimitiveUniform;
+			Command->PrimitiveState = FMeshDrawPrimitiveState::Capture(Primitive);
+			Command->Material = Input.Material; Command->bCached = DrawContext.bCachedOutput;
+			auto& Cache = *DrawContext.BindingCache;
+			const auto& Existing = DrawContext.ExistingCommand;
+			if (Existing)
+			{
+				if (!Existing->bCached || !Existing->Pipeline || Existing->GetKey() != Command->GetKey() || Existing->Input != Command->Input
+					|| Existing->PrimitiveState != Command->PrimitiveState
+					|| !std::ranges::equal(Existing->Material.CollectionUniforms, Input.Material.CollectionUniforms,
+						[](const auto& A, const auto& B) { return A.Buffer == B.Buffer && A.Offset == B.Offset && A.Size == B.Size; }))
+				{ DrawContext.Result = FShaderCompletion::Failure("Cached mesh command does not match the dynamic draw dependencies."); return; }
+				Command->VertexBindings = Existing->VertexBindings;
+				Command->FragmentBindings = Existing->FragmentBindings;
+			}
+			const auto& Vertex = Pipeline->VertexShader;
+			if (!Pipeline->bGPUCulling && !Command->VertexBindings)
+			{
+				const auto VertexKey = std::make_tuple(Draw.PrimitiveIndex, Draw.MaterialUniformIndex, Input.MaterialSlot, Vertex->GetRHIShader(false));
+				if (const auto Found = Cache.Vertices.find(VertexKey); Found != Cache.Vertices.end()) Command->VertexBindings = Found->second;
+				else
+				{
+					Command->VertexBindings = PrepareMeshVertexMaterial(*Vertex, Vertex->Prepare(Input.Commands, Input.PrimitiveUniform, *Primitive.CollectedBinding),
+						Input.Material.Surface, Input.Material.Uniform, {}, Input.Material.CollectionUniforms, true);
+					if (!Command->VertexBindings) { DrawContext.Result = FShaderCompletion::Failure("Mesh stable vertex binding collection failed."); return; }
+					Cache.Vertices.emplace(VertexKey, Command->VertexBindings);
+				}
+			}
+			if (Pipeline->FragmentLayout)
+			{
+				const auto& Layout = *Pipeline->FragmentLayout;
+				const bool UsesPrimitive = std::ranges::any_of(Layout.GetEntries(), [](const auto& Entry) { return Entry.Source == FCompiledSurfaceBindingLayout::ESource::Primitive; });
+				const auto FragmentKey = std::make_tuple(Draw.MaterialUniformIndex, Input.MaterialSlot,
+					UsesPrimitive ? Draw.PrimitiveIndex : std::numeric_limits<uint32>::max(), Pipeline->FragmentShader.GetReference());
+				if (Command->FragmentBindings)
+				{
+					const auto [Found, Inserted] = Cache.Fragments.try_emplace(FragmentKey, Command->FragmentBindings);
+					Command->FragmentBindings = Found->second;
+				}
+				else if (const auto Found = Cache.Fragments.find(FragmentKey); Found != Cache.Fragments.end())
+				{ Command->FragmentBindings = Found->second; ++Cache.SurfaceBindingBatchReuses; }
+				else
+				{
+					auto Bindings = std::make_shared<FPreparedSurfaceMaterialBindings>();
+					if (!PrepareCompiledSurfaceMaterial(Pipeline->FragmentShader, Layout.ForSet(1), Input.Material.Surface,
+						Input.Material.Uniform, {}, Input.HitProxy, {}, Input.PrimitiveUniform, Input.Material.CollectionUniforms, *Bindings))
+					{ DrawContext.Result = FShaderCompletion::Failure("Mesh stable fragment binding collection failed."); return; }
+					Command->FragmentBindings = std::move(Bindings); Cache.Fragments.emplace(FragmentKey, Command->FragmentBindings);
+					++Cache.PreparedSurfaceBindingBatches;
+				}
+			}
+			if (!DrawContext.bCachedOutput)
+			{
+				Command->ViewUniform = Input.ViewUniform;
+				auto CollectPass = [&](FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
+					std::shared_ptr<const FPreparedSurfaceMaterialBindings>& Out) -> bool {
+					const auto PassKey = std::make_pair(Input.MaterialSlot, Shader);
+					if (!Input.HitProxy.Buffer)
+						if (const auto Found = Cache.Passes.find(PassKey); Found != Cache.Passes.end()) { Out = Found->second; return true; }
+					auto Bindings = std::make_shared<FPreparedSurfaceMaterialBindings>();
+					if (!PrepareCompiledSurfaceMaterial(Shader, Layout.ForSet(0), Input.Material.Surface, {}, Input.Lighting,
+						Input.HitProxy, Input.ViewUniform, {}, {}, *Bindings)) return false;
+					Out = std::move(Bindings); if (!Input.HitProxy.Buffer) Cache.Passes.emplace(PassKey, Out);
+					return true;
+				};
+				if (!Pipeline->bGPUCulling)
+				{
+					if (!Vertex->GetReflection()) { DrawContext.Result = FShaderCompletion::Failure("Mesh vertex reflection is unavailable."); return; }
+					auto Reflection = *Vertex->GetReflection();
+					// Factory-specific set-1 bindings are collected by the factory;
+					// only pass resources belong to the shared surface binding layout.
+					std::erase_if(Reflection.ResourceBindings, [](const auto& Binding) { return Binding.SetIndex != 0; });
+					if (!CollectPass(Vertex->GetRHIShader(false), FCompiledSurfaceBindingLayout(Reflection), Command->VertexPassBindings))
+					{ DrawContext.Result = FShaderCompletion::Failure("Mesh view vertex binding collection failed."); return; }
+				}
+				if (Pipeline->FragmentLayout && !CollectPass(Pipeline->FragmentShader, *Pipeline->FragmentLayout, Command->FragmentPassBindings))
+				{ DrawContext.Result = FShaderCompletion::Failure("Mesh view fragment binding collection failed."); return; }
+			}
+			*DrawContext.OutDrawCommand = std::move(Command); DrawContext.Result = FShaderCompletion{};
 			return;
 		}
 		if (DrawContext.OutShaders)
@@ -119,6 +230,7 @@ namespace Durin::RendererPrivate
 			FMeshPassPipeline Candidate;
 			static_cast<FMeshPassShaders&>(Candidate) = *Shaders;
 			Candidate.VertexDeclaration = DrawContext.Declaration;
+			Candidate.Pass = GetPass(); Candidate.bGPUCulling = Batch.bGPUCulling;
 			DrawContext.FailureCategory = ERenderResourceCreateErrorCategory::GraphicsPipeline;
 			Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(DrawContext.Name, Initializer);
 			if (!Candidate.PipelineState)
