@@ -118,7 +118,7 @@ namespace Durin
 	struct FResolvedMeshPipeline;
 	class FRHIShaderParameterBatch;
 	struct FGBufferPipeline;
-	namespace RendererPrivate { class FPreparedSurfaceMaterialBindings; }
+	namespace RendererPrivate { class FPreparedSurfaceMaterialBindings; struct FMeshDrawCommand; }
 
 	// Local to one uninterrupted mesh recording span. Callers reset at pass
 	// boundaries or before any foreign pipeline/parameter commands.
@@ -154,20 +154,8 @@ namespace Durin
 		std::shared_ptr<const FResolvedMeshPipeline> HybridPipeline;
 		std::shared_ptr<const FGBufferPipeline> GBufferPipeline;
 		std::shared_ptr<const FGBufferPipeline> GBufferGPUCullingPipeline;
-		std::shared_ptr<const FRHIShaderParameterBatch> VertexBindings;
-		std::shared_ptr<const FRHIShaderParameterBatch> HybridVertexBindings;
-		std::shared_ptr<const FRHIShaderParameterBatch> GBufferVertexBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> VertexPassBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridVertexPassBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferVertexPassBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> FragmentPassBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridFragmentPassBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferFragmentPassBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferGPUCullingFragmentPassBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> SurfaceBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridSurfaceBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferBindings;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferGPUCullingBindings;
+		// Transient routing only: ordinary/shadow, retained-forward, GBuffer, GPU GBuffer.
+		std::array<std::shared_ptr<const RendererPrivate::FMeshDrawCommand>, 4> Commands;
 		bool bReady = false;
 	};
 

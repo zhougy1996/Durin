@@ -1,4 +1,5 @@
 #include "Renderers/GBufferRendering.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "RDG/RDG.h"
 #include "Renderers/SceneTextureGroupParameters.h"
 
@@ -71,13 +72,13 @@ namespace Durin
 				{ ++Diagnostics.IncompatibleCandidates; continue; }
 				const auto& Record = Resolved.Draws[Draw.ResolvedIndex];
 				if (!Record.GBufferGPUCullingPipeline
-					|| !Record.GBufferGPUCullingBindings
+					|| !Record.Commands[3] || !Record.Commands[3]->FragmentBindings
 					|| !Primitive->CollectedBinding)
 				{ ++Diagnostics.PreparationUnavailableCandidates; continue; }
 				const FGroupKey Key{Draw.Command.get(),
 					Primitive->CollectedBinding.get(),
 					Record.GBufferGPUCullingPipeline.get(),
-					Record.GBufferGPUCullingBindings.get()};
+					Record.Commands[3]->FragmentBindings.get()};
 				auto [GroupIt, bInserted] = GroupByKey.try_emplace(
 					Key, Groups.size());
 				if (bInserted) Groups.emplace_back();
