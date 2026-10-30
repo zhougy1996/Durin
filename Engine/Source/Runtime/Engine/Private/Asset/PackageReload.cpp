@@ -18,6 +18,8 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/MountPaths.h"
 #include "DynamicRHI.h"
+#include "RenderResource.h"
+#include "RenderingThread.h"
 #include "Texture/Texture2D.h"
 #include "Texture/VolumeTexture.h"
 #include "Threading/RunnableThread.h"
@@ -150,6 +152,28 @@ namespace Durin
 				FAssetCompilingManager::Get().FinishCompilationForObjects(Objects);
 				for (DObject* Object : Objects)
 				{
+					// Selected compilation must leave installed CPU data; do not retry failed work.
+					if (auto* Texture = Cast<DTexture>(Object);
+						Texture && (!Texture->IsAsyncCacheComplete() || !Texture->HasPlatformData()))
+					{
+						OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
+							Stage::PrepareRuntimeProducts, {},
+							Reason::TexturePreparation, {.ObjectPath = Object->GetObjectPath()});
+						return false;
+					}
+				}
+				if (GDynamicRHI && std::ranges::any_of(Objects, [](DObject* Object) {
+					const auto* Texture = Cast<DTexture>(Object);
+					return Texture && Texture->HasPendingRenderResourceInitialization();
+				}))
+				{
+					// All selected uploads precede this fence. No GameThread callbacks or GPU idle wait.
+					FRenderCommandFence ResourceFence;
+					ResourceFence.BeginFence();
+					ResourceFence.Wait();
+				}
+				for (DObject* Object : Objects)
+				{
 					if (auto* Function = Cast<DMaterialFunctionInterface>(Object))
 					{
 						const std::array<DMaterialFunctionInterface*, 1> Roots{Function};
@@ -163,7 +187,8 @@ namespace Durin
 						}
 					}
 					if (auto* Texture = Cast<DTexture>(Object);
-						Texture && !Texture->FinishReloadResourcePreparation())
+						GDynamicRHI && Texture
+						&& (!Texture->GetResource() || !Texture->GetResource()->GetTextureRHI_GameThread()))
 					{
 						OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
 							Stage::PrepareRuntimeProducts, {},

@@ -219,7 +219,7 @@ TEST(FTexture2DTests, PostEditChangeUsesObjectQueriesAndManagerNotification)
 				if (Asset.Get() != Texture) continue;
 				++Notifications;
 				EXPECT_TRUE(Texture->IsAsyncCacheComplete());
-				EXPECT_EQ(Texture->GetBuildStatus().Phase, ETexture2DCompilationPhase::Ready);
+				EXPECT_EQ(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Phase, ETexture2DCompilationPhase::Ready);
 				EXPECT_TRUE(Texture->HasPlatformData());
 			}
 		})};
@@ -240,14 +240,14 @@ TEST(FTexture2DTests, PostEditChangeUsesObjectQueriesAndManagerNotification)
 	Texture->PostEditChange();
 	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
-	EXPECT_EQ(Texture->GetBuildStatus().Phase, ETexture2DCompilationPhase::Failed);
+	EXPECT_EQ(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Phase, ETexture2DCompilationPhase::Failed);
 	EXPECT_EQ(Notifications, 1u);
 	AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
 	Texture->PostEditChange();
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Texture);
 	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
-	EXPECT_EQ(Texture->GetBuildStatus().Phase, ETexture2DCompilationPhase::Canceled);
+	EXPECT_EQ(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Phase, ETexture2DCompilationPhase::Canceled);
 	EXPECT_EQ(Notifications, 1u);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), SourceIdentity);
 	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), Metadata);
@@ -293,7 +293,7 @@ TEST(FTexture2DTests, ImportedSourceAndMetadataSurviveDerivedDataFailure)
 	EXPECT_TRUE(Source->Hint.ends_with("Replacement.png"));
 	EXPECT_EQ(Source->DisplayLabel, "Replacement.png");
 	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
-	EXPECT_EQ(Texture->GetBuildStatus().Phase, Durin::ETexture2DCompilationPhase::Failed);
+	EXPECT_EQ(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Phase, Durin::ETexture2DCompilationPhase::Failed);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Prepared->Source.GetIdentity());
 	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), CommittedMetadata);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());

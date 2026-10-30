@@ -94,7 +94,6 @@ namespace Durin
 			FTextureCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>;
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
-		auto GetBuildStatus(const DTexture2D& Texture) const -> FTexture2DBuildStatus;
 		auto HasPending(const DTexture& Texture) const -> bool;
 		auto PrepareMutation(DTexture& Texture) -> void;
 		auto Wait(DTexture& Texture, double TimeoutSeconds) -> bool;

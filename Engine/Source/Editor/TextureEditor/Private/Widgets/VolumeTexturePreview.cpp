@@ -64,20 +64,22 @@ namespace Durin::Editor::Texture
 			Mip.RowPitch, Mip.DepthPitch, BytesPerVoxel, Axis, SliceIndex);
 	}
 
-	auto ExtractVolumeTexturePreviewSlice(const FVolumeTextureSourceData& Source,
+	auto ExtractVolumeTexturePreviewSlice(const FTextureSource& Source,
 		EVolumeTexturePreviewAxis Axis, uint32 SliceIndex)
 		-> FVolumeTexturePreviewSlice
 	{
-		if (!Source.IsValid()
-			|| (Source.Format != EVolumeTextureFormat::R8_UNORM
-				&& Source.Format != EVolumeTextureFormat::RGBA8_UNORM)) return {};
-		const uint32 BytesPerVoxel = Source.Format == EVolumeTextureFormat::R8_UNORM
+		if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Volume
+			|| (Source.GetFormat() != ETextureSourceFormat::R8_UNORM
+				&& Source.GetFormat() != ETextureSourceFormat::RGBA8)) return {};
+		const uint32 BytesPerVoxel = Source.GetFormat() == ETextureSourceFormat::R8_UNORM
 			? 1u : 4u;
-		const auto Bytes = Source.GetVoxelBytes();
+		const auto Mips = Source.GetMipData();
+		if (!Mips.IsValid()) return {};
+		const auto Bytes = Mips.GetData();
 		return Extract(Bytes,
-			Source.Width, Source.Height, Source.Depth,
-			Source.Width * BytesPerVoxel,
-			Source.Width * Source.Height * BytesPerVoxel,
+			Source.GetWidth(), Source.GetHeight(), Source.GetDepth(),
+			Source.GetWidth() * BytesPerVoxel,
+			Source.GetWidth() * Source.GetHeight() * BytesPerVoxel,
 			BytesPerVoxel, Axis, SliceIndex);
 	}
 }

@@ -362,7 +362,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
 		Imported.Asset->GetAssetImportData());
 	ASSERT_NE(ImportData, nullptr);
-	EXPECT_EQ(Imported.Asset->CreateBuildInput().Depth, 2u);
+	EXPECT_EQ(Imported.Asset->GetSource().GetDepth(), 2u);
 	const FVolumeTextureImportDataState ImportState = ImportData->GetVolumeTextureState();
 	const FSourceFile* ImportedSource =
 		ImportData->GetSourceData().FindByRole("source");
@@ -500,8 +500,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		AtlasPath.generic_string(), "/TextureImportTests/ProductionVolume", Settings);
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
-	const FVolumeTextureSourceData ImportedSource = Imported.Asset->CreateBuildInput();
-	const FSharedByteBuffer ImportedVoxels = ImportedSource.GetVoxelBytes();
+	const auto& ImportedSource = Imported.Asset->GetSource();
+	const FSharedByteBuffer ImportedVoxels = ImportedSource.GetMipData().GetData();
 	ASSERT_EQ(ImportedVoxels.size(), 128ull * 128 * 128);
 	for (uint32 Slice : {0u, 1u, 63u, 127u})
 		EXPECT_EQ(ImportedVoxels[Slice * 128ull * 128],
@@ -578,8 +578,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	Reloaded = Loaded.value_or(nullptr);
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 	ASSERT_NE(Reloaded, nullptr);
-	const FVolumeTextureSourceData ReloadedSource = Reloaded->CreateBuildInput();
-	const FSharedByteBuffer ReloadedVoxels = ReloadedSource.GetVoxelBytes();
+	const auto& ReloadedSource = Reloaded->GetSource();
+	const FSharedByteBuffer ReloadedVoxels = ReloadedSource.GetMipData().GetData();
 	EXPECT_EQ(ReloadedVoxels.size(), 128ull * 128 * 128);
 	EXPECT_TRUE(std::ranges::equal(
 		ReloadedVoxels, V6SourceBytes));

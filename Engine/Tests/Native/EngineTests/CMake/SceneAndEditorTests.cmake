@@ -470,6 +470,7 @@ durin_add_native_test(AssetPackageReloadTests
 	STACKS editor
 	SOURCES Private/AssetPackageReloadTests.cpp
 	LIBRARIES Core CoreDObject Engine DurinEd TextureCompressor ShaderBuild MeshBuilder
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE

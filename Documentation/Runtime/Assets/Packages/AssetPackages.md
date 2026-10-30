@@ -700,7 +700,11 @@ Dirty or changing residency.
 The coordinator snapshots and validates every saved main/bulk closure, admits
 external dependencies through one exact-identity load scope, creates all private
 graphs, runs family PostLoad/runtime preparation on those private objects, and
-revalidates the complete disk digests. It then prepares one
+revalidates the complete disk digests. Texture preparation finishes selected CPU
+compilation through the asset compiling manager, validates installed data, waits for pending
+uploads with a generic render-command fence, and validates allocations before
+publication. Failed compilation rejects replacement without an implicit retry;
+headless preparation requires only valid CPU data. It then prepares one
 `FObjectGraphReplacement` across the batch. Its final referencer scan and
 registration/reference commit occur in one GameThread call, so a failure in a
 later package cannot publish an earlier package. Strong references are rewritten,

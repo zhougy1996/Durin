@@ -225,7 +225,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	EXPECT_EQ(LoadedCube->GetPanoramaFaceDimension(), 2u);
 	EXPECT_FLOAT_EQ(LoadedCube->GetPanoramaExposureEV(), 1.0f);
 	ASSERT_TRUE(LoadedCube->FinishCachePlatformData());
-	EXPECT_EQ(LoadedCube->GetBuiltPixelFormat(), Durin::EPixelFormat::BC1_UNORM_SRGB);
+	EXPECT_EQ(LoadedCube->GetPixelFormat(), Durin::EPixelFormat::BC1_UNORM_SRGB);
 
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "PanoramaWorkflowWorld");
 	EXPECT_TRUE(World->InitializeSubsystems());

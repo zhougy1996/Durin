@@ -27,7 +27,7 @@ namespace Durin::Editor::Texture
 		EVolumeTexturePreviewAxis Axis, uint32 SliceIndex)
 		-> FVolumeTexturePreviewSlice;
 	TEXTUREEDITOR_API auto ExtractVolumeTexturePreviewSlice(
-		const FVolumeTextureSourceData& Source,
+		const FTextureSource& Source,
 		EVolumeTexturePreviewAxis Axis, uint32 SliceIndex)
 		-> FVolumeTexturePreviewSlice;
 }

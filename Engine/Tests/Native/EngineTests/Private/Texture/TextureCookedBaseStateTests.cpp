@@ -169,7 +169,7 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	EXPECT_EQ(Texture2D->GetPlatformData()->Mips.front().Height, 1u);
 	ASSERT_NO_FATAL_FAILURE(ExpectLazyCookedInstall(*TextureCube));
 	ASSERT_TRUE(TextureCube->GetPlatformData()->IsValid());
-	EXPECT_EQ(TextureCube->GetBuiltFaceDimension(), 1u);
+	EXPECT_EQ(TextureCube->GetSizeX(), 1u);
 	ASSERT_NO_FATAL_FAILURE(ExpectLazyCookedInstall(*Volume));
 	ASSERT_TRUE(Volume->GetPlatformData()->IsValid());
 	EXPECT_EQ(Volume->GetPlatformData()->Mips.front().Width, 65u);

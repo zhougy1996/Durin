@@ -215,7 +215,7 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         Cube->SetBuildSettings(ETextureCubeSourceLayout::EquirectangularPanorama,32,0,8,4,false,ETextureCubeOutput::HDR);
         Cube->BeginCachePlatformData();
         ASSERT_TRUE(Cube->FinishCachePlatformData());
-        EXPECT_EQ(Cube->GetBuiltPixelFormat(), EPixelFormat::RGBA32_FLOAT);
+        EXPECT_EQ(Cube->GetPixelFormat(), EPixelFormat::RGBA32_FLOAT);
         Cube->UpdateResource();
         FlushRenderingCommands();
         PumpGameThreadDeferredWork();

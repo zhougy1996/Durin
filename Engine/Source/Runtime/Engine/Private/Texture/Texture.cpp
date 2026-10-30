@@ -122,7 +122,7 @@ namespace Durin
 		// completion must not reopen compilation after applying the product.
 		if (Event.MemberProperty || Event.Phase != EPropertyChangePhase::Committed || IsTemplateObject()
 			|| GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		InvalidateAuthoredBuild();
 		BeginCachePlatformData();
 #endif
@@ -185,9 +185,7 @@ namespace Durin
 	auto DTexture::BlockOnAnyAsyncBuild() -> void
 	{
 		CheckGameThread();
-#if DURIN_WITH_EDITORONLY_DATA
-		PrepareTextureForMutation(*this);
-#endif
+		FAssetCompilingManager::Get().FinishCompilationForObject(*this);
 	}
 
 	auto DTexture::BeginDestroy() -> void
@@ -242,16 +240,6 @@ namespace Durin
 		return RenderResource && !ResourceFence.IsFenceComplete();
 	}
 
-	auto DTexture::FinishReloadResourcePreparation() -> bool
-	{
-		CheckGameThread();
-		CachePlatformData(false);
-		if (!FinishCachePlatformData()) return false;
-		if (!GDynamicRHI) return HasPlatformData();
-		ResourceFence.Wait();
-		return RenderResource && RenderResource->GetTextureRHI_GameThread();
-	}
-
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DTexture::ReplaceSourceStorage(FTextureSource Value) -> bool
 	{
@@ -270,7 +258,7 @@ namespace Durin
 	auto DTexture::SetSource(FTextureSource Value) -> void
 	{
 		CheckGameThread();
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		AdoptBuildSource(std::move(Value));
 		InvalidateAuthoredBuild();
 	}
@@ -297,7 +285,9 @@ namespace Durin
 		CheckGameThread();
 		// External CPU-product replacement retires authored work too. The compiler
 		// detaches its active request before applying, so its own install does not join itself.
-		if (HasPendingTextureCompilation(*this)) BlockOnAnyAsyncBuild();
+#if DURIN_WITH_EDITORONLY_DATA
+		if (HasPendingTextureCompilation(*this)) PrepareTextureForMutation(*this);
+#endif
 		if (CookedLoad) { CookedLoad->Cancel(); CookedLoad.reset(); }
 		CookedPublication = {};
 		ReleaseResource();

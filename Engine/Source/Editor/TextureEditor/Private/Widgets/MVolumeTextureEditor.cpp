@@ -224,13 +224,13 @@ namespace Durin::Editor::Texture
 	{
 		auto& State = PreviewStates.try_emplace(ResourceId).first->second;
 		const FVolumeTexturePlatformData* Platform = Texture->GetPlatformData();
-		const FVolumeTextureSourceData Source = Texture->CreateBuildInput();
+		const FTextureSource& Source = Texture->GetSource();
 		const bool bPlatform = Platform && Platform->IsValid()
 			&& (Platform->PixelFormat == EPixelFormat::R8_UNORM
 				|| Platform->PixelFormat == EPixelFormat::RGBA8_UNORM);
 		const bool bSource = Source.IsValid()
-			&& (Source.Format == EVolumeTextureFormat::R8_UNORM
-				|| Source.Format == EVolumeTextureFormat::RGBA8_UNORM);
+			&& (Source.GetFormat() == ETextureSourceFormat::R8_UNORM
+				|| Source.GetFormat() == ETextureSourceFormat::RGBA8);
 		ImGui::TextDisabled("VOLUME SLICE PREVIEW");
 		constexpr std::array AxisLabels{"XY", "XZ", "YZ"};
 		for (uint32 Index = 0; Index < AxisLabels.size(); ++Index)
@@ -252,8 +252,8 @@ namespace Durin::Editor::Texture
 		}
 		uint32 SliceCount = 0;
 		if (bPlatform) SliceCount = AxisSliceCount(Platform->Mips[State.Mip], State.Axis);
-		else if (bSource) SliceCount = State.Axis == EVolumeTexturePreviewAxis::XY ? Source.Depth
-			: State.Axis == EVolumeTexturePreviewAxis::XZ ? Source.Height : Source.Width;
+		else if (bSource) SliceCount = State.Axis == EVolumeTexturePreviewAxis::XY ? Source.GetDepth()
+			: State.Axis == EVolumeTexturePreviewAxis::XZ ? Source.GetHeight() : Source.GetWidth();
 		if (SliceCount) State.Slice = std::min(State.Slice, SliceCount - 1);
 		if (SliceCount > 1)
 		{

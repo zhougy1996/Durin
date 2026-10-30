@@ -57,7 +57,8 @@ namespace Durin
 		// Zero only queries installed data. A finite nonnegative timeout bounds the wait,
 		// not executing callbacks. Expiry does not cancel work; no GameThread queue pumping.
 		ENGINE_API auto FinishCachePlatformData(double TimeoutSeconds = 300.0) -> bool;
-		// GameThread mutation barrier: cancel, finish and retire this texture's active build.
+		// GameThread only. Completes admitted compilation and applies its result.
+		// GPU initialization remains asynchronous; mutations use their private retirement barrier.
 		ENGINE_API auto BlockOnAnyAsyncBuild() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
 
@@ -101,10 +102,6 @@ namespace Durin
 			-> FRHITextureReferenceRef;
 		// GPU initialization only. CPU caching is queried through IsAsyncCacheComplete().
 		ENGINE_API auto HasPendingRenderResourceInitialization() const -> bool;
-		// Reload-only prepublication receipt. With an active RHI, drains this
-		// texture's admitted upload and reports whether a usable allocation exists.
-		// A headless runtime accepts the prepared CPU product without GPU evidence.
-		ENGINE_API auto FinishReloadResourcePreparation() -> bool;
 
 	protected:
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);

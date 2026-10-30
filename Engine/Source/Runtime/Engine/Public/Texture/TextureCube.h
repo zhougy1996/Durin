@@ -62,13 +62,9 @@ namespace Durin
 #endif
 		auto IsSRGB() const -> bool { return bSRGB; }
 
-#if DURIN_WITH_EDITOR
-		ENGINE_API auto RebuildPlatformData() -> bool;
-#endif
-
-		ENGINE_API auto GetBuiltFaceDimension() const -> uint32;
-		ENGINE_API auto GetBuiltMipCount() const -> uint32;
-		ENGINE_API auto GetBuiltPixelFormat() const -> EPixelFormat;
+		ENGINE_API auto GetSizeX() const -> uint32;
+		ENGINE_API auto GetNumMips() const -> uint32;
+		ENGINE_API auto GetPixelFormat() const -> EPixelFormat;
 		// Returns installed CPU data only; never loads bulk data or updates resources.
 		auto GetPlatformData() const -> const FTextureCubePlatformData*
 		{

@@ -1,4 +1,5 @@
 #include "Texture/VolumeTexture.h"
+#include "Texture/TexturePlatformCache.h"
 #include "Logging/LogMacros.h"
 #include "Texture/TextureCookedData.h"
 
@@ -27,39 +28,6 @@ namespace Durin
 			case EVolumeTextureFormat::RGBA16_FLOAT: return ETextureSourceFormat::RGBA16_FLOAT;
 			default: return ETextureSourceFormat::Invalid;
 			}
-		}
-
-		auto ToVolumeTextureFormat(ETextureSourceFormat Format)
-			-> std::optional<EVolumeTextureFormat>
-		{
-			switch (Format)
-			{
-			case ETextureSourceFormat::R8_UNORM: return EVolumeTextureFormat::R8_UNORM;
-			case ETextureSourceFormat::RG8_UNORM: return EVolumeTextureFormat::RG8_UNORM;
-			case ETextureSourceFormat::RGBA8: return EVolumeTextureFormat::RGBA8_UNORM;
-			case ETextureSourceFormat::R16_FLOAT: return EVolumeTextureFormat::R16_FLOAT;
-			case ETextureSourceFormat::RGBA16_FLOAT: return EVolumeTextureFormat::RGBA16_FLOAT;
-			default: return std::nullopt;
-			}
-		}
-
-		auto MakeVolumeTextureBuildInput(const FTextureSource& Source)
-			-> FVolumeTextureSourceData
-		{
-			FVolumeTextureSourceData Result;
-			const std::optional<EVolumeTextureFormat> Format =
-				ToVolumeTextureFormat(Source.GetFormat());
-			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Volume
-				|| !Format) return Result;
-			Result.Width = Source.GetWidth();
-			Result.Height = Source.GetHeight();
-			Result.Depth = Source.GetDepth();
-			Result.Format = *Format;
-			Result.CanonicalSourceIdentity = Source.GetIdentity();
-			const FTextureSource::FMipData Mips = Source.GetMipData();
-			if (!Mips.IsValid()
-				|| !Result.Voxels.UpdatePayload(Mips.GetData())) return {};
-			return Result.IsValid() ? std::move(Result) : FVolumeTextureSourceData{};
 		}
 
 #endif
@@ -176,12 +144,6 @@ namespace Durin
 
 	DVolumeTexture::~DVolumeTexture() = default;
 
-#if DURIN_WITH_EDITORONLY_DATA
-	auto DVolumeTexture::CreateBuildInput() const -> FVolumeTextureSourceData
-	{
-		return MakeVolumeTextureBuildInput(GetSource());
-	}
-#endif
 
 	auto DVolumeTexture::SetPlatformData(
 		std::unique_ptr<FVolumeTexturePlatformData> Data) -> void
@@ -245,7 +207,7 @@ namespace Durin
 		FVolumeTextureBuildSettings Value) -> void
 	{
 		CheckGameThread();
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		BuildSettings = Value;
 		InvalidateAuthoredBuild();
 	}

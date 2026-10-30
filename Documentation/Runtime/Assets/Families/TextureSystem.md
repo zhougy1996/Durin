@@ -89,6 +89,9 @@ data, payload validation, resource publication, and compilation readiness querie
 For Texture2D, TextureCube, and VolumeTexture, `GetPlatformData()` returns only
 installed CPU data and returns null until installation. Queries and payload
 inspection never read cooked bulk, deserialize data, or update render resources.
+Cube metadata uses `GetSizeX()`, `GetNumMips()`, and `GetPixelFormat()`; it does
+not expose a separate set of built-resource queries. Full-object edits use the
+shared `PostEditChange()` compilation path across all three texture families.
 `CachePlatformData(bAsyncCache)` prepares the current texture's CPU platform
 data. False selects synchronous preparation; true requests background work.
 `BeginCachePlatformData()` is the background convenience entry point.
@@ -260,9 +263,9 @@ validate, and request best-effort DDC persistence before placing a move-only res
 in the manager mailbox. Worker status and detailed diagnostics remain private.
 Public `FTextureOperationResult` uses `ETextureCompilationStatus` (Succeeded, Failed,
 Canceled); it carries a generic failure message or no message on success/cancellation.
-Private bounded snapshots and module logs retain detailed diagnostics. The public
-`GetBuildStatus` snapshot also exposes only the texture-domain phase and generic
-failure presentation, independently of DDC and native task states.
+Private bounded snapshots and module logs retain detailed diagnostics. Asset
+callers query `IsAsyncCacheComplete()` and installed platform data; compiler phases
+remain private rather than forming a second Texture2D-only lifecycle interface.
 The request and texture share one progress snapshot. Retired work records are
 erased; only bounded object diagnostics remain.
 The Texture compiling manager commits on the GameThread
@@ -271,9 +274,12 @@ Texture2D result application uses one validated private commit; public setters
 retain the selected mutation barrier. Compiler completion uses the plain
 `FTextureOperationResult`; Texture2D import returns its authored commit result
 without waiting for platform-data readiness.
-Source/settings mutation and new submissions cancel, finish and retire the previous
-request before proceeding. This selected blocking boundary follows UE texture
-mutation ownership and replaces latest-wins request serials.
+`BlockOnAnyAsyncBuild()` waits for the selected compilation and GameThread result
+application through the asset compiling manager, preserving its terminal outcome
+and diagnostics. It neither starts nor cancels work, and GPU initialization remains
+asynchronous. Source/settings replacement and new submissions use the existing
+private mutation barrier to cancel, finish and retire the previous request before
+changing inputs; that replacement policy is separate from the public wait.
 
 Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pumps
 the aggregate with a 64-item normal-frame limit and a shared 2 ms cooperative
@@ -403,9 +409,12 @@ CPU data remains available for an explicit retry. Descriptor support
 is checked before allocation; see
 [RHI Capabilities and Vulkan Startup](../../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
 
-`FinishReloadResourcePreparation()` completes CPU data and waits only this
-resource's fence. It does not flush the global render queue or pump GameThread
-callbacks. Headless reload accepts valid CPU data without requiring a GPU resource.
+Package reload completes selected compilation through the asset compiling manager
+and validates installed CPU data, then waits for admitted uploads with a generic
+render-command fence before validating resource allocations. Textures expose no
+reload-specific completion API. Preparation failures reject replacement without
+implicitly retrying compilation. Headless reload accepts valid CPU data without
+requiring a GPU resource; no wait pumps unrelated GameThread callbacks.
 
 `BeginDestroy()` closes admission and cancels CPU preparation. All build/cache
 entry points reject closed textures, including teardown
@@ -533,10 +542,11 @@ texture document owns independent preview state and registered preview textures,
 so simultaneously visible documents cannot reuse or overwrite one another's
 image. Missing or invalid platform data falls back to canonical imported pixels
 when available; otherwise the preview is released.
-Persistent canonical-data, build, upload, and format status is shown with retry
-controls. Pending diagnostics show phase, request, elapsed
-queue/worker time, and memory estimates, with Cancel Build and Wait for Build
-controls. Reimport resolves the persisted explicit hint only when invoked;
+Volume source previews consume canonical `FTextureSource` mip bytes only when
+their input or slice selection changes, without rematerializing import BulkData.
+Canonical-data availability, cache activity, upload, and format information is
+shown with retry and Cancel Build controls. Detailed compiler failures remain in
+module logs. Reimport resolves the persisted explicit hint only when invoked;
 Reimport From File adopts a newly selected hint after a successful candidate
 commit. Content Browser thumbnail keys use authored package and canonical
 content identity and never inspect a physical source.

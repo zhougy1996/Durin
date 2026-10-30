@@ -49,8 +49,8 @@ namespace Durin
 		else if (SourceMode == ESkyLightSourceMode::SpecifiedCube && !TextureCube) EligibilityStatus = "Assign an HDR TextureCube";
 		else if (SourceMode == ESkyLightSourceMode::SpecifiedCube && !TextureCube->HasPlatformData()) EligibilityStatus = "Source platform data is pending";
 		else if (SourceMode == ESkyLightSourceMode::SpecifiedCube
-			&& (TextureCube->GetBuiltPixelFormat() != EPixelFormat::RGBA32_FLOAT
-				|| TextureCube->GetBuiltFaceDimension() > 512)) EligibilityStatus = "Source requires linear HDR output at 512 pixels per face or less";
+			&& (TextureCube->GetPixelFormat() != EPixelFormat::RGBA32_FLOAT
+				|| TextureCube->GetSizeX() > 512)) EligibilityStatus = "Source requires linear HDR output at 512 pixels per face or less";
 		else
 		{
 			switch (UpdateStatus->State.load(std::memory_order_acquire))

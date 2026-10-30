@@ -46,16 +46,17 @@ does not authorize immediate C++ destruction.
 
 Texture assets apply this rule to their stable `FTextureReference` and concrete
 `FTextureResource` ownership. Their publication, replacement, invalidation, and
-asset diagnostics are defined by [Texture System](../../Assets/Families/TextureSystem.md). Texture
-replacement retires the previous resource only after successful publication;
-failed candidates leave it usable. Texture close synchronizes with publication
-and joins CPU initialization before queuing concrete/reference cleanup, including
-when the Task system has already stopped.
+asset diagnostics are defined by [Texture System](../../Assets/Families/TextureSystem.md).
+Concrete resources and stable references retire through deferred cleanup;
+render commands do not retain the texture UObject, and asset destruction does
+not join GPU initialization, including when the Task system has already stopped.
 
 Saved package reload builds each candidate texture against its own unpublished
-`FTextureReference`. With an active RHI, `FinishReloadResourcePreparation` drains
-that texture's admitted upload and requires a usable resource before object
-publication; rejection therefore leaves the live texture and its resource intact.
+`FTextureReference`. The coordinator completes selected compilation and CPU cache
+work through existing interfaces. With an active RHI, a generic render-command
+fence waits for pending uploads before resource validation and object publication;
+rejection therefore leaves the live texture and its resource intact. There is no
+texture-specific reload completion interface.
 Headless CPU validation accepts the prepared platform product but is not GPU
 qualification evidence. After reference commit, cloud and material consumers
 refresh their native texture-reference caches, and displaced resources follow the

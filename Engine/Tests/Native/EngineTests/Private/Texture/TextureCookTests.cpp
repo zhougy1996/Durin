@@ -608,7 +608,8 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 
 	// A CPU decode failure must not invalidate an already published allocation.
 	{
-	ASSERT_TRUE(CookedTexture->FinishReloadResourcePreparation());
+	ASSERT_TRUE(CookedTexture->FinishCachePlatformData());
+	ASSERT_FALSE(CookedTexture->HasPendingRenderResourceInitialization());
 	const auto PublishedBeforeFailure = CookedTexture->GetResource()->GetTextureRHI_GameThread();
 	ASSERT_TRUE(PublishedBeforeFailure);
 	const std::array InvalidBytes{std::byte{0}};
@@ -803,21 +804,26 @@ namespace
 			EXPECT_EQ(Earlier, Durin::FByteBuffer(4, std::byte{0x11}));
 			EXPECT_EQ(Latest, Durin::FByteBuffer(4, std::byte{0x33}));
 		}
-		// Explicit resource completion waits only this owner's fence,
+		// Generic render-fence completion waits for queued updates
 		// without executing unrelated GameThread callbacks.
 		auto Gate = Durin::Tasks::TCompletionSource<void>::Create({.DebugName = "TextureResourceJoinIsolation"});
 		auto CallbackRan = std::make_shared<std::atomic_bool>(false);
 		auto Unrelated = Durin::Tasks::Then(Gate.TakeTask(), Durin::Tasks::ETaskExecutor::GameThreadDeferred,
 			{.DebugName = "TextureResourceJoinIsolation"}, [CallbackRan] { *CallbackRan = true; });
 		Gate.TrySetValue();
+		Durin::FRenderCommandFence ResourceFence;
 		Texture->UpdateResource();
 		InstallUpdateInput(*Texture, std::byte{0x55});
 		Texture->UpdateResource();
-		ASSERT_TRUE(Texture->FinishReloadResourcePreparation());
+		ASSERT_TRUE(Texture->FinishCachePlatformData());
+		ResourceFence.BeginFence();
+		ResourceFence.Wait();
 		EXPECT_FALSE(*CallbackRan);
 		EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());
 		Texture->UpdateResource();
-		ASSERT_TRUE(Texture->FinishReloadResourcePreparation());
+		ASSERT_TRUE(Texture->FinishCachePlatformData());
+		ResourceFence.BeginFence();
+		ResourceFence.Wait();
 		const auto JoinedAllocation = Texture->GetResource()->GetTextureRHI_GameThread();
 		ASSERT_TRUE(JoinedAllocation);
 		Durin::PumpGameThreadDeferredWork();
