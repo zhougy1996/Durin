@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-10-30
 
 ## Ownership
 
@@ -340,14 +340,15 @@ provided active work retires. Mutable owner priority is sampled at dispatch.
 Atomic item/byte admission rejection returns `ECacheError::Capacity`, distinct
 from backend `StorageFailure`, without callbacks or owner accounting.
 
-Queued-data charges cover copied selection bytes, schema/message lengths, and
-distinct payload/metadata backing capacities within each Put record. Fixed
+Queued-data charges cover owned value-policy override entries and distinct
+payload/metadata backing capacities within each Put record. Shared policies are
+charged conservatively per request. Fixed
 request overhead uses item admission; record tables use existing record limits.
-A selection-free Get therefore needs no queued-data bytes even when this budget
+A uniform-policy Get therefore needs no queued-data bytes even when this budget
 is zero. A slice charges its entire retained allocation;
 shared allocations across separate requests are charged conservatively per request.
 Charges remain through callbacks and dispatch publication and are released on request
-retirement. Request objects, record tables, opaque callable captures,
+retirement. Request objects, record value-descriptor tables, opaque callable captures,
 allocator/container spare capacity, backend result data, and active codec workspace
 are excluded; this is a coarse queued-data budget, not an RSS bound.
 Each private backend request receives the configured record/encoded/workspace ceilings. This controls

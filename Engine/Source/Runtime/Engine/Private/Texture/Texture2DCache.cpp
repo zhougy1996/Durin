@@ -17,9 +17,10 @@ namespace Durin
 		std::ranges::sort(Indices);
 		if (Indices.back() >= MaximumTextureMipCount || std::adjacent_find(Indices.begin(), Indices.end()) != Indices.end())
 			return std::unexpected(FTexture2DCacheError{ETexture2DCacheError::InvalidRequest, "Texture mip indices must be unique and bounded."});
-		std::vector<DerivedData::FValueId> Values;
-		for (uint32 Index : Indices) Values.push_back(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(Index));
-		auto Cached = DerivedData::GetCacheBackend().Get({.Key = *Request.Key.AsCacheKey(), .MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes, .Mode = DerivedData::ECacheGetMode::SelectedValues, .RequiredValues = Values, .ShouldCancel = Request.ShouldCancel});
+		DerivedData::FCacheRecordPolicyBuilder Policy(DerivedData::ECachePolicy::None);
+		for (uint32 Index : Indices)
+			Policy.AddValuePolicy(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(Index), DerivedData::ECachePolicy::Default);
+		auto Cached = DerivedData::GetCacheBackend().Get({.Key = *Request.Key.AsCacheKey(), .MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes, .Policy = Policy.Build(), .ShouldCancel = Request.ShouldCancel});
 		if (!Cached)
 		{
 			auto Code = ETexture2DCacheError::CacheFailure;
@@ -28,6 +29,13 @@ namespace Durin
 			return std::unexpected(FTexture2DCacheError{Code, std::move(Cached.error().Diagnostic)});
 		}
 		if (!*Cached) return std::optional<FTexture2DCachedMips>{};
+		// A policy controls existing values; the texture contract requires each requested mip.
+		for (uint32 Index : Indices)
+		{
+			const auto* Value = (**Cached).FindValue(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(Index));
+			if (!Value || !Value->HasData())
+				return std::unexpected(FTexture2DCacheError{ETexture2DCacheError::MissingValue, "Selected texture mip is unavailable."});
+		}
 		auto BuildRecord = DerivedData::Private::ReadBuildCacheRecord(**Cached);
 		if (!BuildRecord) return std::unexpected(FTexture2DCacheError{ETexture2DCacheError::InvalidOutput, BuildRecord.error().Diagnostic});
 		const auto& Record = *BuildRecord;

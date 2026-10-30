@@ -41,12 +41,10 @@ namespace Durin::DerivedData
 		return Directory / KeyText.substr(0, 2) / (KeyText + ".bin");
 	}
 
-	auto FFileSystemCacheBackend::Get(const FCacheStorageGetRequest& Request) const
-		-> FCacheStorageGetResult
+	auto FFileSystemCacheBackend::FindEntry(const FCacheKey& Key, ECacheStorageNamespace Namespace) const
+		-> std::expected<std::optional<FFilePath>, FCacheError>
 	{
-		if (Request.MaximumValueBytes == 0)
-			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache get request is invalid."});
-		auto EntryPath = GetEntryPath(Request.Key, Request.Namespace);
+		auto EntryPath = GetEntryPath(Key, Namespace);
 		if (!EntryPath) return std::unexpected(std::move(EntryPath.error()));
 		FFilePath Path = std::move(*EntryPath);
 
@@ -71,21 +69,43 @@ namespace Durin::DerivedData
 					if (!std::filesystem::is_directory(AncestorStatus))
 						return std::unexpected(FCacheError{ECacheError::StorageFailure,
 							"Cache entry parent is not a directory."});
-					return std::optional<FSharedByteBuffer>{};
+					return std::optional<FFilePath>{};
 				}
 			}
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				std::format("Failed to inspect cache entry: {}", ErrorCode.message())});
 		}
 		if (!std::filesystem::exists(Status))
-			return std::optional<FSharedByteBuffer>{};
+			return std::optional<FFilePath>{};
 		if (!std::filesystem::is_regular_file(Status))
 			return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache entry is not a regular file."});
 		FFilePath ResolvedPath;
 		if (!FPaths::TryResolveContainedPath(
-			Path, GetBucketDirectory(Request.Key.GetBucket(), Request.Namespace), ResolvedPath, ErrorCode))
+				Path, GetBucketDirectory(Key.GetBucket(), Namespace), ResolvedPath, ErrorCode
+			))
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				"Cache entry resolves outside its configured bucket."});
+		return std::optional<FFilePath>{std::move(ResolvedPath)};
+	}
+
+	auto FFileSystemCacheBackend::Exists(const FCacheKey& Key, ECacheStorageNamespace Namespace) const
+		-> std::expected<bool, FCacheError>
+	{
+		auto Entry = FindEntry(Key, Namespace);
+		if (!Entry) return std::unexpected(std::move(Entry.error()));
+		return Entry->has_value();
+	}
+
+	auto FFileSystemCacheBackend::Get(const FCacheStorageGetRequest& Request) const
+		-> FCacheStorageGetResult
+	{
+		if (Request.MaximumValueBytes == 0)
+			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache get request is invalid."});
+		auto Entry = FindEntry(Request.Key, Request.Namespace);
+		if (!Entry) return std::unexpected(std::move(Entry.error()));
+		if (!*Entry) return std::optional<FSharedByteBuffer>{};
+		FFilePath ResolvedPath = std::move(**Entry);
+		std::error_code ErrorCode;
 		const uint64 FileSize = std::filesystem::file_size(ResolvedPath, ErrorCode);
 		if (ErrorCode)
 			return std::unexpected(FCacheError{ECacheError::StorageFailure, "Failed to inspect cache entry size."});

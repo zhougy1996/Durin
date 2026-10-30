@@ -69,7 +69,10 @@ TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndAvoidsUnselect
 	FCacheQueryStats FullStats, SelectedStats;
 	auto Full = GetCacheBackend().Get({.Key = Key, .Stats = &FullStats});
 	ASSERT_TRUE(Full && *Full);
-	auto Partial = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids, .Stats = &SelectedStats});
+	FCacheRecordPolicyBuilder Policy(ECachePolicy::None);
+	for (const auto& Id : Ids)
+		Policy.AddValuePolicy(Id, ECachePolicy::Default);
+	auto Partial = GetCacheBackend().Get({.Key = Key, .Policy = Policy.Build(), .Stats = &SelectedStats});
 	ASSERT_TRUE(Partial && *Partial);
 	EXPECT_EQ(FullStats.ValuesRead, 10u); EXPECT_EQ(SelectedStats.ValuesRead, 1u);
 	EXPECT_EQ(SelectedStats.DecodedBytes, Product.Mips[2].Pixels.GetSize());

@@ -1,12 +1,12 @@
 #include "Physics/PhysicsDerivedData.h"
-#include "Asset/PayloadBuildControl.h"
+#include "PhysicsPayloadPrivate.h"
+#include "Logging/LogMacros.h"
 #include "Serialization/Archive.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin
 {
-	using AssetPrivate::FPayloadBuildControl;
-	using AssetPrivate::FPayloadBuildCancelled;
+	using namespace PhysicsPrivate;
 	namespace
 	{
 		auto ResolvePhysicsTarget(FArchive& Ar, EAssetPayloadTargetPlatform& Platform) -> bool
@@ -30,11 +30,10 @@ namespace Durin
 
 	}
 
-	auto FormatPhysicsCollisionPayloadError(const FPhysicsCollisionPayloadError& Error) -> std::string
+	auto PhysicsPrivate::FormatPhysicsCollisionPayloadError(const FPhysicsCollisionPayloadError& Error) -> std::string
 	{
 		switch (Error.Code)
 		{
-		case EPhysicsCollisionPayloadError::None: return {};
 		case EPhysicsCollisionPayloadError::InvalidGeometry: return "Collision payload requires one valid hull or triangle mesh.";
 		case EPhysicsCollisionPayloadError::InvalidVertex: return "Collision geometry contains an invalid vertex.";
 		case EPhysicsCollisionPayloadError::FloatStorage: return "Collision vertex is outside finite float32 storage.";
@@ -48,16 +47,14 @@ namespace Durin
 		case EPhysicsCollisionPayloadError::UnknownOrdinal: return "Collision BVH references an unknown source ordinal.";
 		case EPhysicsCollisionPayloadError::InvalidSourceMode: return "Collision payload source mode is invalid.";
 		case EPhysicsCollisionPayloadError::InvalidTopology: return "Collision payload topology or BVH is invalid.";
-		case EPhysicsCollisionPayloadError::Cancelled: return "Physics payload operation was cancelled.";
 		}
 		return "Physics collision payload is invalid.";
 	}
 
-	auto MakePhysicsCollisionPayloadData(
+	auto PhysicsPrivate::TryMakePhysicsCollisionPayloadData(
 		const FCollisionGeometryRef& Geometry,
-		FPhysicsCollisionPayloadData& OutPayload,
-		const std::function<bool()>& ShouldCancel) -> std::expected<void, FPhysicsCollisionPayloadError>
-	try
+		FPhysicsCollisionPayloadData& OutPayload
+	) -> std::expected<void, FPhysicsCollisionPayloadError>
 	{
 		auto Reject = [&](EPhysicsCollisionPayloadError Code, uint64 Index = 0, FVector3 Position = FVector3(0)) {
 			std::expected<void, FPhysicsCollisionPayloadError> Result = std::unexpected(FPhysicsCollisionPayloadError{.Code = Code,
@@ -70,8 +67,6 @@ namespace Durin
 			if (Geometry) Result.error().GeometryKind = Geometry.GetKind();
 			return Result;
 		};
-		FPayloadBuildControl Control{ShouldCancel};
-		Control.Check();
 		if (!Geometry || (Geometry.GetKind() != ECollisionGeometryKind::ConvexHull
 			&& Geometry.GetKind() != ECollisionGeometryKind::TriangleMesh))
 			return Reject(EPhysicsCollisionPayloadError::InvalidGeometry);
@@ -82,7 +77,6 @@ namespace Durin
 		Candidate.Positions.reserve(Geometry.GetVertexCount());
 		for (uint32 Index = 0; Index < Geometry.GetVertexCount(); ++Index)
 		{
-			Control.Tick();
 			const FVector3* Vertex = Geometry.GetVertex(Index);
 			if (!Vertex || !Math::IsFinite(*Vertex))
 				return Reject(EPhysicsCollisionPayloadError::InvalidVertex, Index, Vertex ? *Vertex : FVector3(0));
@@ -95,7 +89,6 @@ namespace Durin
 		Candidate.SourceOrdinals.reserve(Geometry.GetTriangleCount());
 		for (uint32 Index = 0; Index < Geometry.GetTriangleCount(); ++Index)
 		{
-			Control.Tick();
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(Index);
 			if (!Triangle) return Reject(EPhysicsCollisionPayloadError::InvalidTriangle, Index);
 			Candidate.Indices.insert(Candidate.Indices.end(),
@@ -105,7 +98,6 @@ namespace Durin
 		Candidate.Nodes.reserve(Geometry.GetNodeCount());
 		for (uint32 Index = 0; Index < Geometry.GetNodeCount(); ++Index)
 		{
-			Control.Tick();
 			const FCollisionGeometryNode* Node = Geometry.GetNode(Index);
 			if (!Node) return Reject(EPhysicsCollisionPayloadError::InvalidNode, Index);
 			Candidate.Nodes.push_back(*Node);
@@ -113,26 +105,19 @@ namespace Durin
 		Candidate.LeafTriangles.reserve(Geometry.GetLeafTriangleCount());
 		for (uint32 Index = 0; Index < Geometry.GetLeafTriangleCount(); ++Index)
 		{
-			Control.Tick();
 			const uint32 TriangleIndex = Geometry.GetLeafTriangle(Index);
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(TriangleIndex);
 			if (!Triangle) return Reject(EPhysicsCollisionPayloadError::InvalidMembership, Index);
 			Candidate.LeafTriangles.push_back(Triangle->SourceOrdinal);
 		}
-		Control.Check();
 		OutPayload = std::move(Candidate);
 		return {};
 	}
-	catch (const FPayloadBuildCancelled&)
-	{
-		return std::unexpected(FPhysicsCollisionPayloadError{.Code = EPhysicsCollisionPayloadError::Cancelled, .Operation = EPhysicsCollisionPayloadOperation::Extract});
-	}
 
-	auto MakePhysicsCollisionGeometry(
+	auto PhysicsPrivate::TryMakePhysicsCollisionGeometry(
 		const FPhysicsCollisionPayloadData& Payload,
-		FCollisionGeometryRef& OutGeometry,
-		const std::function<bool()>& ShouldCancel) -> std::expected<void, FPhysicsCollisionPayloadError>
-	try
+		FCollisionGeometryRef& OutGeometry
+	) -> std::expected<void, FPhysicsCollisionPayloadError>
 	{
 		auto Reject = [&](EPhysicsCollisionPayloadError Code, uint64 Index = 0, uint32 Ordinal = 0,
 			FVector3 Position = FVector3(0)) {
@@ -142,13 +127,6 @@ namespace Durin
 				.OrdinalCount = Payload.SourceOrdinals.size(), .NodeCount = Payload.Nodes.size(),
 				.LeafCount = Payload.LeafTriangles.size(), .Index = Index, .Ordinal = Ordinal, .Position = Position});
 		};
-		bool bCancelled = false;
-		const std::function<bool()> Cancelled = [&] {
-			bCancelled = bCancelled || (ShouldCancel && ShouldCancel());
-			return bCancelled;
-		};
-		FPayloadBuildControl Control{Cancelled};
-		Control.Check();
 		if (Payload.Positions.empty() || Payload.Indices.empty()
 			|| Payload.Indices.size() % 3 != 0
 			|| Payload.SourceOrdinals.size() != Payload.Indices.size() / 3)
@@ -157,7 +135,6 @@ namespace Durin
 		Vertices.reserve(Payload.Positions.size());
 		for (const FVector3f& Position : Payload.Positions)
 		{
-			Control.Tick();
 			if (!Math::IsFinite(Position)) return Reject(EPhysicsCollisionPayloadError::NonFinitePosition, static_cast<uint64>(&Position - Payload.Positions.data()), 0, FVector3(Position));
 			Vertices.emplace_back(Position);
 		}
@@ -166,14 +143,13 @@ namespace Durin
 		{
 			if (!Payload.Nodes.empty() || !Payload.LeafTriangles.empty())
 				return Reject(EPhysicsCollisionPayloadError::UnexpectedBvh);
-			Candidate = FCollisionGeometryRef::MakeConvexHull(Vertices, Payload.Indices, Cancelled);
+			Candidate = FCollisionGeometryRef::MakeConvexHull(Vertices, Payload.Indices);
 		}
 		else if (Payload.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 		{
 			std::map<uint32, uint32> OrdinalToTriangle;
 			for (uint32 Triangle = 0; Triangle < Payload.SourceOrdinals.size(); ++Triangle)
 			{
-				Control.Tick();
 				if (!OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle).second)
 					return Reject(EPhysicsCollisionPayloadError::DuplicateOrdinal, Triangle, Payload.SourceOrdinals[Triangle]);
 			}
@@ -182,34 +158,24 @@ namespace Durin
 			for (size_t LeafIndex = 0; LeafIndex < Payload.LeafTriangles.size(); ++LeafIndex)
 			{
 				const uint32 Ordinal = Payload.LeafTriangles[LeafIndex];
-				Control.Tick();
 				const auto Found = OrdinalToTriangle.find(Ordinal);
 				if (Found == OrdinalToTriangle.end())
 					return Reject(EPhysicsCollisionPayloadError::UnknownOrdinal, LeafIndex, Ordinal);
 				LeafTriangles.push_back(Found->second);
 			}
 			Candidate = FCollisionGeometryRef::MakeCookedTriangleMesh(
-				Vertices, Payload.Indices, Payload.SourceOrdinals, Payload.Nodes, LeafTriangles, Cancelled);
+				Vertices, Payload.Indices, Payload.SourceOrdinals, Payload.Nodes, LeafTriangles
+			);
 		}
 		else return Reject(EPhysicsCollisionPayloadError::InvalidSourceMode);
-		if (!Candidate) return Reject(bCancelled ? EPhysicsCollisionPayloadError::Cancelled
-			: EPhysicsCollisionPayloadError::InvalidTopology);
-		Control.Check();
+		if (!Candidate) return Reject(EPhysicsCollisionPayloadError::InvalidTopology);
 		OutGeometry = Candidate;
 		return {};
 	}
-	catch (const FPayloadBuildCancelled&)
-	{
-		return std::unexpected(FPhysicsCollisionPayloadError{.Code = EPhysicsCollisionPayloadError::Cancelled, .Operation = EPhysicsCollisionPayloadOperation::Construct});
-	}
 
-	auto FPhysicsCollisionPayloadData::Serialize(FArchive& Ar,
-		const std::function<bool()>& ShouldCancel) -> void
-	try
+	auto FPhysicsCollisionPayloadData::Serialize(FArchive& Ar) -> void
 	{
 		if (Ar.IsError()) return;
-		FPayloadBuildControl Control{ShouldCancel};
-		Control.Check();
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
 		EAssetPayloadTargetPlatform TargetPlatform;
 		if (!ResolvePhysicsTarget(Ar, TargetPlatform)) return;
@@ -231,12 +197,20 @@ namespace Durin
 
 		auto TransferStreams = [&] {
 			for (auto& Position : Positions)
-				for (uint32 Axis = 0; Axis < 3; ++Axis) { Control.Tick(); *Streams[0] << Position[Axis]; }
-			for (uint32& Index : *WireIndices) { Control.Tick(); *Streams[1] << Index; }
-			for (uint32& Ordinal : *WireOrdinals) { Control.Tick(); *Streams[2] << Ordinal; }
+				for (uint32 Axis = 0; Axis < 3; ++Axis)
+				{
+					*Streams[0] << Position[Axis];
+				}
+			for (uint32& Index : *WireIndices)
+			{
+				*Streams[1] << Index;
+			}
+			for (uint32& Ordinal : *WireOrdinals)
+			{
+				*Streams[2] << Ordinal;
+			}
 			for (auto& Node : Nodes)
 			{
-				Control.Tick();
 				for (uint32 Axis = 0; Axis < 3; ++Axis) *Streams[3] << Node.Minimum[Axis];
 				*Streams[3] << Node.First;
 				for (uint32 Axis = 0; Axis < 3; ++Axis) *Streams[3] << Node.Maximum[Axis];
@@ -270,18 +244,19 @@ namespace Durin
 				LogicalBytes += Sizes[Chunk];
 			}
 			FCollisionGeometryRef Validation;
-			if (const auto Built = MakePhysicsCollisionGeometry(*this, Validation, ShouldCancel); !Built)
+			if (const auto Built = PhysicsPrivate::TryMakePhysicsCollisionGeometry(*this, Validation); !Built)
 				return Reject(EArchiveFailureCode::InvalidData, FormatPhysicsCollisionPayloadError(Built.error()));
 			if (SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 			{
 				std::map<uint32, uint32> OrdinalToTriangle;
 				for (uint32 Triangle = 0; Triangle < SourceOrdinals.size(); ++Triangle)
-					{ Control.Tick(); OrdinalToTriangle.emplace(SourceOrdinals[Triangle], Triangle); }
+				{
+					OrdinalToTriangle.emplace(SourceOrdinals[Triangle], Triangle);
+				}
 				OrderedIndices.reserve(Indices.size());
 				OrderedOrdinals.reserve(LeafTriangles.size());
 				for (uint32 Ordinal : LeafTriangles)
 				{
-					Control.Tick();
 					const auto Found = OrdinalToTriangle.find(Ordinal);
 					if (Found == OrdinalToTriangle.end())
 						return Reject(EArchiveFailureCode::InvalidData, "DCOL leaf references an unknown source ordinal.");
@@ -324,7 +299,6 @@ namespace Durin
 			return Reject(EArchiveFailureCode::LimitExceeded, "DCOL stored size exceeds its limit.");
 		if (Ar.IsSaving())
 		{
-			Control.Check();
 			Ar.WriteBytes(Body);
 			return;
 		}
@@ -346,7 +320,6 @@ namespace Durin
 				return Reject(EArchiveFailureCode::InvalidData, "DCOL chunk extent or count is invalid.");
 			for (uint64 Offset = PreviousEnd; Offset < Offsets[Chunk]; ++Offset)
 			{
-				Control.Tick();
 				if (Region[static_cast<size_t>(Offset - PhysicsCollisionPayloadHeaderSize)] != std::byte{0})
 					return Reject(EArchiveFailureCode::NonZeroPadding, "DCOL padding is nonzero.");
 			}
@@ -365,7 +338,6 @@ namespace Durin
 			return Reject(EArchiveFailureCode::LimitExceeded, "DCOL decoded allocation budget is exceeded.");
 		SourceMode = Counts[3] == 0 ? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
 			: EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
-		Control.Check();
 		Positions.resize(static_cast<size_t>(Counts[0]));
 		Indices.resize(static_cast<size_t>(Counts[1]));
 		SourceOrdinals.resize(static_cast<size_t>(Counts[2]));
@@ -376,11 +348,26 @@ namespace Durin
 			if (!RequireArchiveEnd(*Stream)) return Reject(Stream->GetFailure()->Code, Stream->GetError());
 		if (!Nodes.empty()) LeafTriangles = SourceOrdinals;
 		FCollisionGeometryRef Validation;
-		if (const auto Built = MakePhysicsCollisionGeometry(*this, Validation, ShouldCancel); !Built)
+		if (const auto Built = PhysicsPrivate::TryMakePhysicsCollisionGeometry(*this, Validation); !Built)
 			return Reject(EArchiveFailureCode::InvalidData, FormatPhysicsCollisionPayloadError(Built.error()));
 	}
-	catch (const FPayloadBuildCancelled&)
+	auto MakePhysicsCollisionPayloadData(const FCollisionGeometryRef& Geometry, FPhysicsCollisionPayloadData& OutPayload) -> bool
 	{
-		Ar.Fail(EArchiveFailureCode::InvalidData, "Physics payload operation was cancelled.");
+		if (const auto Result = PhysicsPrivate::TryMakePhysicsCollisionPayloadData(Geometry, OutPayload); !Result)
+		{
+			DURIN_ERROR_CATEGORY("PhysicsPayload", "{}", PhysicsPrivate::FormatPhysicsCollisionPayloadError(Result.error()));
+			return false;
+		}
+		return true;
+	}
+
+	auto MakePhysicsCollisionGeometry(const FPhysicsCollisionPayloadData& Payload, FCollisionGeometryRef& OutGeometry) -> bool
+	{
+		if (const auto Result = PhysicsPrivate::TryMakePhysicsCollisionGeometry(Payload, OutGeometry); !Result)
+		{
+			DURIN_ERROR_CATEGORY("PhysicsPayload", "{}", PhysicsPrivate::FormatPhysicsCollisionPayloadError(Result.error()));
+			return false;
+		}
+		return true;
 	}
 }

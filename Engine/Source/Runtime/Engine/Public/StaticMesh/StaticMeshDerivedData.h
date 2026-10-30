@@ -70,58 +70,12 @@ namespace Durin
 		FBox LocalBounds;
 
 		// Loads in place; discard failures. The byte owner checks completion before publication.
-		ENGINE_API auto Serialize(
-			FArchive& Ar,
-			const std::function<bool()>& ShouldCancel = {}) -> void;
+		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
-	enum class EStaticMeshPayloadError : uint8
-	{
-		None, Bounds, MaterialSlotCount, LODCount, ScreenSize, ScreenSizeOrder,
-		VertexCount, IndexCount, SectionCount, UVChannelCount, StoredSize,
-		VertexStreamCount, UVStreamCount, ColorStreamCount, NonFiniteAttribute,
-		NonFiniteUV, IndexRange, SectionCoverage, SectionVertexRange,
-		SectionMaterialSlot, SectionBounds, SectionVertexMismatch,
-		IncompleteCoverage, FinalScreenSize, Cancelled
-	};
-
-	enum class EStaticMeshPayloadStream : uint8 { None, Position, Normal, Tangent, Color, UV, Index };
-
-	// Owns rejected values; no references into a caller's mutable payload survive.
-	struct FStaticMeshPayloadError
-	{
-		EStaticMeshPayloadError Code = EStaticMeshPayloadError::None;
-		EStaticMeshPayloadStream Stream = EStaticMeshPayloadStream::None;
-		std::optional<uint64> LODIndex;
-		std::optional<uint64> SectionIndex;
-		std::optional<uint64> ElementIndex;
-		std::optional<uint32> Channel;
-		uint64 Actual = 0;
-		uint64 Expected = 0;
-		uint64 AdditionalActual = 0;
-		uint64 AdditionalExpected = 0;
-		float ScreenSize = 0.0f;
-		float PreviousScreenSize = 0.0f;
-		FBox Bounds;
-		FVector4 Value = FVector4(0);
-		std::optional<FStaticMeshPayloadSection> Section;
-	};
-
-	ENGINE_API auto FormatStaticMeshPayloadError(const FStaticMeshPayloadError& Error) -> std::string;
-
-	// Copies serializable CPU data from runtime render data into the explicit payload model.
-	ENGINE_API auto MakeStaticMeshPayloadData(
-		const FStaticMeshRenderData& RenderData,
-		FStaticMeshPayloadData& OutPayload,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshPayloadError>;
-
-	// Checks runtime stream views without constructing or copying a payload product.
-	ENGINE_API auto ValidateStaticMeshRenderData(const FStaticMeshRenderData& RenderData,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshPayloadError>;
-
-	// Reconstructs CPU render data; runtime-only names and source material indices remain empty.
-	ENGINE_API auto MakeStaticMeshRenderData(
-		const FStaticMeshPayloadData& Payload,
-		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshPayloadError>;
+	// Synchronous conversions commit complete products only; failure leaves outputs unchanged.
+	ENGINE_API auto MakeStaticMeshPayloadData(const FStaticMeshRenderData& RenderData, FStaticMeshPayloadData& OutPayload) -> bool;
+	ENGINE_API auto ValidateStaticMeshRenderData(const FStaticMeshRenderData& RenderData) -> bool;
+	// Runtime-only names and source material indices remain empty.
+	ENGINE_API auto MakeStaticMeshRenderData(const FStaticMeshPayloadData& Payload, std::unique_ptr<FStaticMeshRenderData>& OutRenderData) -> bool;
 }

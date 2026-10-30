@@ -54,6 +54,8 @@ namespace Durin::DerivedData
 			const FCacheStorageGetRequest& Request) const -> FCacheStorageGetResult;
 		DERIVEDDATACACHE_API auto Put(
 			const FCacheStoragePutRequest& Request) const -> FCacheStoragePutResult;
+		// Presence checks validate file type and containment without fetching payload bytes.
+		DERIVEDDATACACHE_API auto Exists(const FCacheKey& Key, ECacheStorageNamespace Namespace, const Private::FCacheStorageLease& Lease) const -> std::expected<bool, FCacheError>;
 		// A record transaction supplies one lease for every manifest/blob access.
 		DERIVEDDATACACHE_API auto Get(const FCacheStorageGetRequest& Request,
 			const Private::FCacheStorageLease& Lease) const -> FCacheStorageGetResult;

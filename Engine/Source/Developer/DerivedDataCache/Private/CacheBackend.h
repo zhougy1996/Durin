@@ -25,10 +25,7 @@ namespace Durin::DerivedData
 		uint64 MaximumEncodedBytes = FCacheResourceLimits{}.MaximumEncodedBytes;
 		// Retained payload/codec storage; excludes descriptor and allocator overhead.
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
-		ECacheGetMode Mode = ECacheGetMode::FullRecord;
-		// SelectedValues accepts unique IDs in any order. Empty means descriptors only.
-		// Other modes require an empty list. All selected IDs are required.
-		std::span<const FValueId> RequiredValues;
+		FCacheRecordPolicy Policy;
 		std::function<bool()> ShouldCancel;
 		// Borrowed for this synchronous call; records actual completed I/O and codec work.
 		FCacheQueryStats* Stats = nullptr;

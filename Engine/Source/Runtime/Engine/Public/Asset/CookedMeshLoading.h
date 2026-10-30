@@ -43,7 +43,6 @@ namespace Durin
 	};
 
 	enum class ETaskState : uint8;
-	struct FCookedMeshProductError;
 	struct FCookedMeshAdmissionError;
 	enum class ECookedMeshLoadError : uint8
 	{
@@ -60,7 +59,6 @@ namespace Durin
 		uint64 Reserved = 0;
 		std::optional<ETaskState> TaskState;
 		std::optional<FPackageResourceReadError> ReadCause;
-		std::shared_ptr<const FCookedMeshProductError> ProductCause;
 		std::string Diagnostic;
 		std::shared_ptr<const FCookedMeshAdmissionError> AdmissionCause;
 	};

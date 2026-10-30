@@ -1,8 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "StaticMesh/StaticMeshDerivedData.h"
-#include "Asset/PayloadBuildControl.h"
+#include "StaticMeshPayloadPrivate.h"
 
 namespace Durin::StaticMeshPrivate
 {
@@ -51,8 +50,7 @@ namespace Durin::StaticMeshPrivate
 	// Optional geometry bounds are computed within the validation scans. Callers
 	// may consume them only after validation succeeds.
 	template<typename TPayload>
-	auto ValidatePayload(const TPayload& Payload, AssetPrivate::FPayloadBuildControl& Control,
-		FStaticMeshPayloadBounds* Bounds = nullptr) -> std::expected<void, FStaticMeshPayloadError>
+	auto ValidatePayload(const TPayload& Payload, FStaticMeshPayloadBounds* Bounds = nullptr) -> std::expected<void, FStaticMeshPayloadError>
 	{
 		FStaticMeshPayloadError Error;
 		const auto Reject = [&](EStaticMeshPayloadError Code, uint64 Actual = 0, uint64 Expected = 0) {
@@ -79,7 +77,6 @@ namespace Durin::StaticMeshPrivate
 			+ 24ull + 4ull + 4ull + static_cast<uint64>(Payload.LODs.size()) * 44ull;
 		for (size_t LODIndex = 0; LODIndex < Payload.LODs.size(); ++LODIndex)
 		{
-			Control.Tick();
 			const auto& LOD = Payload.LODs[LODIndex];
 			Error = {.LODIndex = LODIndex, .ScreenSize = LOD.ScreenSize,
 				.PreviousScreenSize = LODIndex ? Payload.LODs[LODIndex - 1].ScreenSize : 0.0f,
@@ -116,7 +113,6 @@ namespace Durin::StaticMeshPrivate
 			}
 			for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
 			{
-				Control.Tick();
 				const size_t ExpectedCount = Channel < LOD.NumTexCoords ? VertexCount : 0;
 				if (LOD.TexCoords[Channel].size() != ExpectedCount)
 				{
@@ -129,7 +125,6 @@ namespace Durin::StaticMeshPrivate
 			const auto CheckStream = [&](const auto& Values, EStaticMeshPayloadStream Stream, FBox* StreamBounds = nullptr) {
 				for (size_t Index = 0; Index < Values.size(); ++Index)
 				{
-					Control.Tick();
 					const auto Value = Values[Index];
 					if (IsFinite(Value))
 					{
@@ -153,7 +148,6 @@ namespace Durin::StaticMeshPrivate
 				return Reject(EStaticMeshPayloadError::NonFiniteAttribute);
 			for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
 			{
-				Control.Tick();
 				if (!CheckStream(LOD.TexCoords[Channel], EStaticMeshPayloadStream::UV))
 				{
 					Error.Channel = Channel;
@@ -162,7 +156,6 @@ namespace Durin::StaticMeshPrivate
 			}
 			for (size_t Index = 0; Index < IndexCount; ++Index)
 			{
-				Control.Tick();
 				if (LOD.Indices[Index] < VertexCount) continue;
 				Error.ElementIndex = Index;
 				Error.Stream = EStaticMeshPayloadStream::Index;
@@ -171,7 +164,6 @@ namespace Durin::StaticMeshPrivate
 			uint64 CoveredIndices = 0;
 			for (size_t SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
 			{
-				Control.Tick();
 				const auto& Section = LOD.Sections[SectionIndex];
 				Error.SectionIndex = SectionIndex;
 				Error.Section = FStaticMeshPayloadSection{.FirstIndex = Section.FirstIndex, .IndexCount = Section.IndexCount,
@@ -193,7 +185,6 @@ namespace Durin::StaticMeshPrivate
 				uint32 ActualMaximum = 0;
 				for (uint64 IndexOffset = Section.FirstIndex; IndexOffset < SectionEnd; ++IndexOffset)
 				{
-					Control.Tick();
 					const uint32 VertexIndex = LOD.Indices[static_cast<size_t>(IndexOffset)];
 					ActualMinimum = std::min(ActualMinimum, VertexIndex);
 					ActualMaximum = std::max(ActualMaximum, VertexIndex);
