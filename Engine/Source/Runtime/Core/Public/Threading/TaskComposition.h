@@ -9,7 +9,7 @@ namespace Durin::Tasks
 {
 	namespace Detail
 	{
-		struct FCompletionSourceAccess;
+		struct FExternalResultAccess;
 		// Construction failures are programming/lifetime violations or allocation failure.
 		// This is never used to turn ordinary scheduler saturation into an assertion.
 		[[noreturn]] CORE_API auto FailConstruction(FTaskConstructionError Error) -> void;
@@ -484,128 +484,107 @@ namespace Durin::Tasks
 		catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
 	}
 
-	// One producer lifetime; cancellation retains external work until explicit acknowledgement.
-	template<typename T>
-	class TCompletionSource
+	namespace Detail
 	{
-		struct FSource
+		// One producer lifetime; cancellation retains external work until explicit acknowledgement.
+		template<typename T>
+		class TExternalResultSource
 		{
-			FTask Handle;
-			Detail::TResultState<T> Storage = {};
-			std::atomic<bool> bResolved = false;
-			std::atomic<bool> bTaskTaken = false;
-			~FSource()
+			struct FSource
 			{
-				if (Handle.IsValid() && !bResolved.exchange(true))
+				FTask Handle;
+				Detail::TResultState<T> Storage = {};
+				std::atomic<bool> bResolved = false;
+				std::atomic<bool> bTaskTaken = false;
+				~FSource()
 				{
-					Durin::Private::FTaskRuntimeAccess::SetFailure(Handle,
-						{ETaskTerminalReason::CallbackFailure, {}, ETaskFailureCode::AbandonedSource});
-					Durin::Private::FTaskRuntimeAccess::CompleteExternal(Handle, ETaskState::Failed);
+					if (Handle.IsValid() && !bResolved.exchange(true))
+					{
+						Durin::Private::FTaskRuntimeAccess::SetFailure(Handle,
+							{ETaskTerminalReason::CallbackFailure, {}, ETaskFailureCode::AbandonedSource});
+						Durin::Private::FTaskRuntimeAccess::CompleteExternal(Handle, ETaskState::Failed);
+					}
 				}
-			}
-		};
-	public:
-		// Data-only completion independent of scheduler admission and shutdown.
-		static auto CreateDetached() -> TCompletionSource
-		{
-			auto Source = std::make_shared<FSource>();
-			Source->Storage = Detail::MakeResultState<T>();
-			Source->Handle = Durin::Private::FTaskRuntimeAccess::CreateDetachedCompletion(
-				Detail::MakeResultCompletion<T>(Source->Storage), {Source->Storage, !std::is_void_v<T>});
-			return TCompletionSource(std::move(Source));
-		}
-		// External producer in the scheduler lifetime.
-		static auto Create(const FTaskExecutionOptions& Options = {}) -> TCompletionSource
-		{
-			return CreateInternal(Options, true);
-		}
+			};
 		private:
-		friend struct Detail::FCompletionSourceAccess;
-		static auto CreateInternal(const FTaskExecutionOptions& Options, bool bUnknownRequirements)
-			-> TCompletionSource
-		{
-			try
+			friend struct FExternalResultAccess;
+			static auto CreateInternal(const FTaskExecutionOptions& Options, bool bUnknownRequirements)
+				-> TExternalResultSource
 			{
-				auto Source = std::make_shared<FSource>();
-				Source->Storage = Detail::MakeResultState<T>();
-				FTaskLaunchOptions Launch;
-				Launch.Attribution = Options.Attribution;
-				Launch.CancellationToken = Options.Cancellation;
-				Launch.bExternalCompletion = true;
-				Launch.bUnknownExecutionRequirement = bUnknownRequirements;
-				auto Handle = Detail::LaunchWithStorage<T>(Options.DebugName, Source->Storage,
-					[](const FTaskCancellationToken&) {}, Launch);
-				Source->Handle = std::move(Handle);
-				return TCompletionSource(std::move(Source));
+				try
+				{
+					auto Source = std::make_shared<FSource>();
+					Source->Storage = Detail::MakeResultState<T>();
+					FTaskLaunchOptions Launch;
+					Launch.Attribution = Options.Attribution;
+					Launch.CancellationToken = Options.Cancellation;
+					Launch.bExternalCompletion = true;
+					Launch.bUnknownExecutionRequirement = bUnknownRequirements;
+					auto Handle = Detail::LaunchWithStorage<T>(Options.DebugName, Source->Storage,
+						[](const FTaskCancellationToken&) {}, Launch);
+					Source->Handle = std::move(Handle);
+					return TExternalResultSource(std::move(Source));
+				}
+				catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
 			}
-			catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
-		}
-	public:
-		auto TakeTask() -> TTask<T>
-		{
-			require(Source && !Source->bTaskTaken.exchange(true));
-			return Detail::FTaskAccess::Make<T>(Source->Handle, Source->Storage);
-		}
-		auto GetTaskHandle() const -> FTask { return FTask(Source->Handle); }
-		auto TrySetValue() const -> bool requires std::is_void_v<T>
-		{
-			if (Source->bResolved.exchange(true)) return false;
-			Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
-			return true;
-		}
-		template<typename U = T> requires (std::same_as<U, T> && !std::is_void_v<U>)
-		auto TrySetValue(std::type_identity_t<U> Value = {}) const -> bool
-		{
-			if (Source->bResolved.exchange(true)) return false;
-			try { Source->Storage->SetPending(std::move(Value)); }
-			catch (...) { Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Failed); return true; }
-			Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
-			return true;
-		}
-		auto TrySetFailure(FTaskFailure Failure) const -> bool
-		{
-			if (Source->bResolved.exchange(true)) return false;
-			Durin::Private::FTaskRuntimeAccess::SetFailure(Source->Handle, std::move(Failure));
-			Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Failed);
-			return true;
-		}
-		auto TrySetCanceled() const -> bool
-		{
-			if (Source->bResolved.exchange(true)) return false;
-			Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Canceled);
-			return true;
-		}
-	private:
-		auto TrySetTaskResult(const TTask<T>& Task) const -> bool
-		{
-			if (Source->bResolved.exchange(true)) return false;
-			if constexpr (std::is_void_v<T>) Durin::Private::RetainForwardedTask(Source->Handle, Task);
-			else Source->Storage->ForwardResult(Detail::FTaskAccess::GetResultState(Task), FTask(Task));
-			Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
-			return true;
-		}
-		explicit TCompletionSource(std::shared_ptr<FSource> InSource) : Source(std::move(InSource)) {}
-		std::shared_ptr<FSource> Source;
-	};
-
-	template<typename T>
-	auto MakeReadyTask(T Value) -> TTask<T>
-	{
-		auto Source = TCompletionSource<T>::CreateDetached();
-		auto Task = Source.TakeTask();
-		Source.TrySetValue(std::move(Value));
-		return Task;
+		public:
+			auto TakeTask() -> TTask<T>
+			{
+				require(Source && !Source->bTaskTaken.exchange(true));
+				return Detail::FTaskAccess::Make<T>(Source->Handle, Source->Storage);
+			}
+			auto GetTaskHandle() const -> FTask { return FTask(Source->Handle); }
+			auto TrySetValue() const -> bool requires std::is_void_v<T>
+			{
+				if (Source->bResolved.exchange(true)) return false;
+				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
+				return true;
+			}
+			template<typename U = T> requires (std::same_as<U, T> && !std::is_void_v<U>)
+			auto TrySetValue(std::type_identity_t<U> Value = {}) const -> bool
+			{
+				if (Source->bResolved.exchange(true)) return false;
+				try { Source->Storage->SetPending(std::move(Value)); }
+				catch (...) { Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Failed); return true; }
+				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
+				return true;
+			}
+			auto TrySetFailure(FTaskFailure Failure) const -> bool
+			{
+				if (Source->bResolved.exchange(true)) return false;
+				Durin::Private::FTaskRuntimeAccess::SetFailure(Source->Handle, std::move(Failure));
+				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Failed);
+				return true;
+			}
+			auto TrySetCanceled() const -> bool
+			{
+				if (Source->bResolved.exchange(true)) return false;
+				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Canceled);
+				return true;
+			}
+		private:
+			auto TrySetTaskResult(const TTask<T>& Task) const -> bool
+			{
+				if (Source->bResolved.exchange(true)) return false;
+				if constexpr (std::is_void_v<T>) Durin::Private::RetainForwardedTask(Source->Handle, Task);
+				else Source->Storage->ForwardResult(Detail::FTaskAccess::GetResultState(Task), FTask(Task));
+				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
+				return true;
+			}
+			explicit TExternalResultSource(std::shared_ptr<FSource> InSource) : Source(std::move(InSource)) {}
+			std::shared_ptr<FSource> Source;
+		};
 	}
 
 	namespace Detail
 	{
-		struct FCompletionSourceAccess
+		struct FExternalResultAccess
 		{
 			template<typename T>
-			static auto Create(const FTaskExecutionOptions& Options, bool bUnknownRequirements = true)
-				-> TCompletionSource<T>
-			{ return TCompletionSource<T>::CreateInternal(Options, bUnknownRequirements); }
-			template<typename T> static auto SetTaskResult(const TCompletionSource<T>& Source, const TTask<T>& Task) -> bool
+			static auto Create(const FTaskExecutionOptions& Options = {}, bool bUnknownRequirements = true)
+				-> TExternalResultSource<T>
+			{ return TExternalResultSource<T>::CreateInternal(Options, bUnknownRequirements); }
+			template<typename T> static auto SetTaskResult(const TExternalResultSource<T>& Source, const TTask<T>& Task) -> bool
 			{ return Source.TrySetTaskResult(Task); }
 		};
 		template<typename T> struct TInnerTask;
@@ -622,7 +601,7 @@ namespace Durin::Tasks
 		try
 		{
 			const FTask Predecessor = Input;
-			auto Source = Detail::FCompletionSourceAccess::Create<U>(Options);
+			auto Source = Detail::FExternalResultAccess::Create<U>(Options);
 			auto Output = Source.TakeTask();
 			auto InvokeInner = [Source, Function = std::forward<F>(Function)](auto&&... Args) mutable
 				requires std::is_invocable_v<std::decay_t<F>&, decltype(Args)...> {
@@ -635,7 +614,7 @@ namespace Durin::Tasks
 				}
 				auto Hook = std::make_shared<Durin::Private::FTaskTerminalHook>();
 				Hook->Function = [Source, Inner](ETaskState Terminal) {
-					if (Terminal == ETaskState::Succeeded) Detail::FCompletionSourceAccess::SetTaskResult(Source, Inner);
+					if (Terminal == ETaskState::Succeeded) Detail::FExternalResultAccess::SetTaskResult(Source, Inner);
 					// Hooks precede public terminal visibility; GetFailure() is not valid here.
 					else if (Terminal == ETaskState::Failed) Source.TrySetFailure(Durin::Private::FTaskRuntimeAccess::GetFailure(Inner));
 					else Source.TrySetCanceled();
@@ -668,7 +647,7 @@ namespace Durin::Tasks
 			if (Inputs.empty())
 			{
 				if (!Options.Prerequisites.empty()) return LaunchTaskImpl(Executor, Options, std::forward<F>(Gather));
-				auto Source = FCompletionSourceAccess::Create<Out>(Options, false);
+				auto Source = FExternalResultAccess::Create<Out>(Options, false);
 				auto Result = Source.TakeTask();
 				Source.TrySetValue(Out{});
 				return Result;

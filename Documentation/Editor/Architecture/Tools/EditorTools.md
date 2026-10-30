@@ -4,7 +4,7 @@ Summary: Define per-editor tool discovery, exact provider routing, bounded cross
 
 Modules: Core, DurinEd
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-10-30
 
 ## Ownership and Entry Points
 
@@ -114,7 +114,13 @@ contexts have unique sequences but no retained receipt.
 
 Queued cancellation removes the queue item and publishes a cancellation receipt.
 Running includes dispatched pending Futures. Completion observations mark native
-work ready; TickTools validates and publishes on GameThread. Running cancellation only signals the provider's cooperative token; it does not
+work ready using Core-owned `FFutureReadiness` markers; TickTools validates and
+publishes on GameThread. Each invocation owns a move-only promise and shares its
+standalone future with receipts. Close detaches observations and resolves public
+receipts without joining a provider that needs GameThread. Accepted provider work
+and module joins remain the provider's responsibility. Late completion retains
+only independent future storage; retained receipt views keep their accounting
+pins after service destruction. Running cancellation only signals the provider's cooperative token; it does not
 interrupt execution, imply rollback, or overwrite successful domain work. No
 service lock is held while calling a provider, so a worker can query/cancel a
 running request without waiting for provider return.

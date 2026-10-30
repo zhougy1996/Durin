@@ -1300,7 +1300,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		Tasks::FTaskExecutionOptions SourceOptions;
-		auto Source = Tasks::TCompletionSource<void>::Create(SourceOptions);
+		auto Source = Tasks::Detail::FExternalResultAccess::Create<void>(SourceOptions);
 		auto Pending = Source.TakeTask();
 		const Tasks::FTask PendingHandle = Durin::Tasks::FTask(Pending);
 		for (int InvalidKind = 0; InvalidKind < 3; ++InvalidKind)

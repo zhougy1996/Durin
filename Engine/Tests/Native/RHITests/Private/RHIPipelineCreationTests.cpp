@@ -83,7 +83,55 @@ namespace Durin
 				EXPECT_EQ(Result.Compute != nullptr, Expected == ERHIPipelineRequestState::Ready);
 			}
 			Owner.StopAndWait();
+			EXPECT_EQ(ETaskState::Succeeded, Request.GetTaskHandle().GetState());
 		}
+	}
+
+	TEST_F(FRHIPipelineCreationTests, CanceledObservationSignalsBeforeCompilerCaptureRetirement)
+	{
+		std::promise<void> Entered, Release;
+		auto Released = Release.get_future().share();
+		std::atomic<bool> Retired = false;
+		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) {
+			struct FRetire { std::atomic<bool>& Flag; ~FRetire() { Flag = true; } } Capture{Retired};
+			Entered.set_value(); Released.wait();
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer; Initializer.ComputeShader = Shader;
+		auto Request = Owner.RequestCompute(Initializer, "observer retirement gap");
+		ASSERT_TRUE(Request.IsAccepted());
+		Entered.get_future().wait();
+		EXPECT_TRUE(Request.Cancel());
+		EXPECT_EQ(ETaskState::Succeeded, Request.GetTaskHandle().GetState());
+		EXPECT_EQ(ERHIPipelineRequestState::Canceled, Request.GetState());
+		EXPECT_FALSE(Retired.load());
+		Release.set_value(); Owner.StopAndWait();
+		EXPECT_TRUE(Retired.load());
+	}
+
+	TEST_F(FRHIPipelineCreationTests, DroppedObservationSignalsWithoutRetiringSharedCompilation)
+	{
+		std::promise<void> Entered, Release;
+		auto Released = Release.get_future().share();
+		std::atomic<bool> Retired = false;
+		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) {
+			struct FRetire { std::atomic<bool>& Flag; ~FRetire() { Flag = true; } } Capture{Retired};
+			Entered.set_value(); Released.wait();
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer; Initializer.ComputeShader = Shader;
+		auto Request = Owner.RequestCompute(Initializer, "dropped observer");
+		ASSERT_TRUE(Request.IsAccepted());
+		Entered.get_future().wait();
+		auto Signal = Request.GetTaskHandle();
+		Request = {};
+		EXPECT_TRUE(Signal.IsCompleted());
+		EXPECT_EQ(ETaskState::Succeeded, Signal.GetState());
+		EXPECT_FALSE(Retired.load());
+		Release.set_value(); Owner.StopAndWait();
+		EXPECT_TRUE(Retired.load());
 	}
 
 	TEST_F(FRHIPipelineCreationTests, IdleQueueRejectsReuseAfterSchedulerRestart)

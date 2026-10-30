@@ -281,27 +281,57 @@ namespace Durin
 		EXPECT_EQ(Tasks::Detail::FTaskAccess::GetResultState(Parent), nullptr);
 	}
 
-	TEST_F(FTaskCloseTests, VoidCompletionSourcesPreserveOutcomesAndLatePublication)
+	TEST_F(FTaskCloseTests, PrivateVoidResultsPreserveOutcomesAndLatePublication)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		for (bool Detached : {false, true})
+		for (auto Outcome : {ETaskState::Succeeded, ETaskState::Failed, ETaskState::Canceled})
 		{
-			for (auto Outcome : {ETaskState::Succeeded, ETaskState::Failed, ETaskState::Canceled})
-			{
-				auto Source = Detached ? Tasks::TCompletionSource<void>::CreateDetached() : Tasks::TCompletionSource<void>::Create();
-				auto Task = Source.TakeTask();
-				EXPECT_FALSE(Task.IsCompleted());
-				if (Outcome == ETaskState::Succeeded) EXPECT_TRUE(Source.TrySetValue());
-				else if (Outcome == ETaskState::Failed) EXPECT_TRUE(Source.TrySetFailure({}));
-				else EXPECT_TRUE(Source.TrySetCanceled());
-				EXPECT_FALSE(Source.TrySetValue());
-				EXPECT_EQ(Task.Wait().TaskState, Outcome);
-			}
+			auto Source = Tasks::Detail::FExternalResultAccess::Create<void>();
+			auto Task = Source.TakeTask();
+			EXPECT_FALSE(Task.IsCompleted());
+			if (Outcome == ETaskState::Succeeded) EXPECT_TRUE(Source.TrySetValue());
+			else if (Outcome == ETaskState::Failed) EXPECT_TRUE(Source.TrySetFailure({}));
+			else EXPECT_TRUE(Source.TrySetCanceled());
+			EXPECT_FALSE(Source.TrySetValue());
+			EXPECT_EQ(Task.Wait().TaskState, Outcome);
 		}
 		Tasks::TTask<void> Abandoned;
-		{ auto Source = Tasks::TCompletionSource<void>::Create(); Abandoned = Source.TakeTask(); }
+		{ auto Source = Tasks::Detail::FExternalResultAccess::Create<void>(); Abandoned = Source.TakeTask(); }
 		EXPECT_EQ(Abandoned.Wait().TaskState, ETaskState::Failed);
 		EXPECT_EQ(Abandoned.GetFailure().Code, Tasks::ETaskFailureCode::AbandonedSource);
+	}
+
+	TEST_F(FTaskCloseTests, ClosedAdmissionDispatchesEventPublicationAndJoinsDroppedProducerCaptures)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		Tasks::FTaskEvent Signal("EarlyProducerSignal");
+		FThreadEvent Started, Release;
+		std::atomic<bool> Retired = false;
+		struct FRetirement { std::atomic<bool>& Flag; ~FRetirement() { Flag = true; } };
+		auto Producer = Tasks::LaunchTask("TrackedProducer", [&, Signal,
+			Capture = std::shared_ptr<FRetirement>(new FRetirement{Retired})]() mutable {
+			Started.Trigger();
+			// Observe the actual admission transition, not a timing approximation.
+			while (IsTaskSchedulerRunning()) std::this_thread::yield();
+			Signal.Trigger();
+			Release.Wait();
+		});
+		auto Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
+			{.DebugName = "PreadmittedPublication"}, [&] {
+				EXPECT_FALSE(IsTaskSchedulerRunning());
+				EXPECT_FALSE(Retired.load());
+				Release.Trigger();
+			}, Signal);
+		Started.Wait(); Producer = {};
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
+		EXPECT_TRUE(Retired.load());
+		EXPECT_TRUE(Publication.IsCompleted());
+		const auto Diagnostics = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(0u, Diagnostics.NonterminalTaskCount);
+		EXPECT_EQ(0u, Diagnostics.ActiveWorkerCount);
+		EXPECT_EQ(0u, Diagnostics.QueueDepth);
+		EXPECT_EQ(0u, GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
 	}
 
 	TEST_F(FTaskCloseTests, VoidFanInAndDeepFlattenRetainNodeLifetimesAfterShutdown)
@@ -525,12 +555,12 @@ namespace Durin
 		struct FCase { bool bNested; bool bDynamicFirst; };
 		for (const auto [Nested, DynamicFirst] : {FCase{false, false}, FCase{true, false}, FCase{true, true}})
 		{
-			auto Source = Tasks::TCompletionSource<void>::Create();
+			auto Source = Tasks::Detail::FExternalResultAccess::Create<void>();
 			Tasks::FTask Outer = Source.GetTaskHandle();
 			Tasks::FTaskEvent Gate("MixedDependencyGate", false);
 			std::weak_ptr<int> Weak;
 			{
-				auto InnerSource = Tasks::TCompletionSource<std::shared_ptr<int>>::Create();
+				auto InnerSource = Tasks::Detail::FExternalResultAccess::Create<std::shared_ptr<int>>();
 				auto Inner = InnerSource.TakeTask();
 				if (Nested && !DynamicFirst) ASSERT_FALSE(Private::FTaskRuntimeAccess::AddCompletionDependency(Outer, Gate));
 				ASSERT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Outer, Inner));
@@ -564,7 +594,7 @@ namespace Durin
 		{
 			Tasks::FTaskEvent Gate("ReadinessGate", false);
 			Tasks::FTaskEvent Event("NestedWaitTarget", false);
-			auto Source = Tasks::Detail::FCompletionSourceAccess::Create<void>({}, false);
+			auto Source = Tasks::Detail::FExternalResultAccess::Create<void>({}, false);
 			auto Child = Tasks::LaunchTask("LateReadyChild", [&] { Source.TrySetValue(); }, Tasks::Prerequisites(Gate));
 			Tasks::FTask Target;
 			if (Dynamic)

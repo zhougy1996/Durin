@@ -484,8 +484,6 @@ namespace Durin
 			CORE_API static auto GetFailure(const Tasks::FTask& Task) -> Tasks::FTaskFailure;
 			CORE_API static auto SetFailure(const Tasks::FTask& Task, Tasks::FTaskFailure Failure) -> void;
 			CORE_API static auto SetCurrentFailure(Tasks::FTaskFailure Failure) -> void;
-			// Detached completion reuses task storage without admitting a scheduled body.
-			CORE_API static auto CreateDetachedCompletion(FTaskCompletionFunction&& Completion, FTaskResultStorage Result) -> Tasks::FTask;
 			CORE_API static auto CreateTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement) -> Tasks::FTask;
 			CORE_API static auto AddTaskEventPrerequisites(const Tasks::FTask& Event, std::span<const Tasks::FTask> Prerequisites) -> std::optional<Tasks::FTaskConstructionError>;
 			CORE_API static auto TriggerTaskEvent(const Tasks::FTask& Event) -> void;

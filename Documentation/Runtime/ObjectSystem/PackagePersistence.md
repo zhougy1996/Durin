@@ -4,7 +4,7 @@ Summary: Define Engine-free reflected package capture, synchronous and asynchron
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-30
 
 ## Ownership and Entry Points
 
@@ -99,15 +99,22 @@ saving does not mark an asset as catalog-published.
 Dropping the handle does not cancel the save. Cancellation is advisory before
 commit and discards stages; a commit already in progress reaches its terminal
 publication/finalization or rollback boundary. A late cancellation does not undo
-committed bytes, even if the task reports Canceled. Pins and adapter captures are
-released on GameThread before terminal result delivery. Recursive preparation
+committed bytes, even if the task reports Canceled. Operation cleanup runs on GameThread before result delivery. Typed completion
+uses a Core-private registered external result adapter, preserving returned-task
+cancellation checks and domain results. Result publication inside the finish
+callback can precede destruction of that callback's captures: FinishAsyncSave
+clears Write/Finish captures and removes the owner entry before reporting owner
+quiescence. Retain DrainAsyncSaves as that retirement join. Recursive preparation
 and submission from a save terminal callback are rejected.
 
 The shared owner admits at most 64 operations and 256 MiB of detached output
 across direct and protected async saves. Slots and byte accounting remain held
 through terminal publication. Admission requires a running scheduler and an
 accepting GameThread deferred executor. Disk work is gated until the completion
-continuation has been admitted; failure cannot start a destructive write.
+continuation has been admitted. An event releases the gate only after an
+explicit admission decision has been written; disk work reads that decision,
+not event success/cancellation. Failed setup also triggers the gate with a
+rejected decision and cannot start a destructive write.
 
 `DPackage::HasAsyncFileWrites()` reports disk work only, including protected
 staging. `WaitForAsyncFileWrites()` snapshots admitted disk tasks and waits that

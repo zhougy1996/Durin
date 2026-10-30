@@ -108,10 +108,14 @@ namespace Durin
 	struct FRHIPipelineCreationRequest::FState
 	{
 		explicit FState(std::shared_ptr<FRequestLifetime> InLifetime)
-			: Lifetime(std::move(InLifetime)),
-			Source(Tasks::TCompletionSource<void>::Create({.DebugName = "RHI.PipelineObserver"})),
-			Task(Source.TakeTask()) { ++Lifetime->Observers; }
-		~FState() { --Lifetime->Observers; }
+			: Lifetime(std::move(InLifetime)) { ++Lifetime->Observers; }
+		~FState()
+		{
+			// Dropping the final request retires observation, not shared compilation.
+			// A retained erased event handle must still receive its completion signal.
+			Cancel();
+			--Lifetime->Observers;
+		}
 		auto Publish(const FPublished& Publication) -> void
 		{
 			std::lock_guard Lock(Lifetime->WaitMutex);
@@ -119,7 +123,7 @@ namespace Durin
 			if (Lifetime->Closed.load())
 			{
 				Outcome.store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
-				Source.TrySetCanceled();
+				Signal.Trigger();
 			}
 			else
 			{
@@ -127,7 +131,7 @@ namespace Durin
 				// Terminal subscriptions run before the Core task publishes its
 				// terminal state. Publish domain readiness before they wake RHI.
 				Outcome.store(Publication->Result.State, std::memory_order_release);
-				Source.TrySetValue();
+				Signal.Trigger();
 			}
 			Lifetime->Changed.notify_all();
 		}
@@ -136,9 +140,9 @@ namespace Durin
 			std::lock_guard Lock(Lifetime->WaitMutex);
 			if (Outcome.load() != ERHIPipelineRequestState::Pending) return false;
 			Outcome.store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
-			const bool Canceled = Source.TrySetCanceled();
+			Signal.Trigger();
 			Lifetime->Changed.notify_all();
-			return Canceled;
+			return true;
 		}
 		auto Retire() -> void
 		{
@@ -146,8 +150,7 @@ namespace Durin
 			if (const auto Value = Published.Load()) Value->Retire();
 		}
 		std::shared_ptr<FRequestLifetime> Lifetime;
-		Tasks::TCompletionSource<void> Source;
-		Tasks::TTask<void> Task;
+		Tasks::FTaskEvent Signal{"RHI.PipelineObserver"};
 		TAtomicSharedPtr<FPipelinePublication> Published;
 		std::atomic<ERHIPipelineRequestState> Outcome = ERHIPipelineRequestState::Pending;
 		// Accessed only under the compile queue mutex, and cleared at publication.
@@ -182,7 +185,7 @@ namespace Durin
 	}
 	auto FRHIPipelineCreationRequest::GetTaskHandle() const -> Durin::Tasks::FTask
 	{
-		return State ? Durin::Tasks::FTask(State->Task) : Durin::Tasks::FTask{};
+		return State ? Durin::Tasks::FTask(State->Signal) : Durin::Tasks::FTask{};
 	}
 	auto FRHIPipelineCreationRequest::IsCompute() const -> bool
 	{

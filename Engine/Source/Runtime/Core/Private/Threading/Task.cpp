@@ -581,7 +581,7 @@ namespace Durin
 		ETaskDependencyKind Kind;
 	};
 
-	enum class ETaskNodeKind : uint8 { Executable, External, Detached, Event };
+	enum class ETaskNodeKind : uint8 { Executable, External, Event };
 
 	// A serial closes the gap between inspecting graph progress and sleeping.
 	class FTaskWaitSignal
@@ -758,7 +758,6 @@ namespace Durin
 			return ExecutionState == ETaskState::Running && !IsExternal() && Phase == EPhase::Open;
 		}
 		auto IsExternal() const -> bool { return Kind != ETaskNodeKind::Executable; }
-		auto IsDetachedCompletion() const -> bool { return Kind == ETaskNodeKind::Detached; }
 		auto IsTaskEvent() const -> bool { return Event != nullptr; }
 		auto BindTerminal(std::shared_ptr<Private::FTaskTerminalHook> Hook) -> void
 		{
@@ -3033,18 +3032,6 @@ namespace Durin
 
 
 
-		auto FTaskRuntimeAccess::CreateDetachedCompletion(FTaskCompletionFunction&& Completion, FTaskResultStorage Result) -> Tasks::FTask
-		{
-			FTaskNodeInit Init;
-			Init.DebugName = "DetachedCompletion";
-			Init.LifetimeAccounting = std::make_shared<FTaskSchedulerLifetimeAccounting>();
-			Init.Kind = ETaskNodeKind::Detached;
-			Init.bUnknownExecutionRequirement = true;
-			Init.Completion = std::move(Completion);
-			Init.Result = std::move(Result);
-			return Tasks::FTask(std::make_shared<FTaskStateData>(Init));
-		}
-
 		auto FTaskRuntimeAccess::CreateTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement) -> Tasks::FTask
 		{
 			FTaskNodeInit Init;
@@ -3120,7 +3107,7 @@ namespace Durin
 		{
 			std::lock_guard GraphLock(GTaskDependencyMutex);
 			if (Parent.State && Parent.State->IsTaskEvent() && !Child.State) return {};
-			if (!Parent.State || !Child.State || Parent.State->IsDetachedCompletion() || Child.State->IsDetachedCompletion()
+			if (!Parent.State || !Child.State
 				|| (!Parent.State->IsTaskEvent() && !Child.State->IsTaskEvent() && Parent.State->PinScheduler() != Child.State->PinScheduler()))
 				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidPrerequisite, Child.GetTaskId()};
 			if (Parent.State->IsIndependentCPU())
@@ -3174,7 +3161,7 @@ namespace Durin
 
 	auto CancelTask(const Tasks::FTask& Task) -> bool
 	{
-		return Task.State && !Task.State->IsDetachedCompletion() && Task.State->RequestCancellation();
+		return Task.State && Task.State->RequestCancellation();
 	}
 
 	auto WaitTask(const Tasks::FTask& Task) -> FTaskWaitResult

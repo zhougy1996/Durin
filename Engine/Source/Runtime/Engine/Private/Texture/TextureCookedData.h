@@ -120,24 +120,36 @@ namespace Durin::TexturePrivate
 		}
 		Texture.CookedLoad = Pending;
 		Texture.CookedPublication = Publish;
-		std::optional<Tasks::TCompletionSource<void>> Completion;
+		std::optional<Tasks::FTaskEvent> Completion;
 		if (GetGameThreadDeferredWorkQueueDiagnostics().bAccepting)
 		{
-			Completion.emplace(Tasks::TCompletionSource<void>::Create({.DebugName = "CookedTextureDecode"}));
+			Completion.emplace("CookedTextureDecode");
 			// Register automatic publication before IO, so shutdown needs no new admission.
-			auto Publication = Tasks::Then(Completion->TakeTask(), Tasks::ETaskExecutor::GameThreadDeferred,
-				{.DebugName = "CookedTexturePublication"}, Publish);
+			auto Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
+				{.DebugName = "CookedTexturePublication"}, Publish, *Completion);
 		}
-		*Pending = FPackageResourceRequest::Transform(CookedData.ReloadAsync(),
-			[Candidate, Completion, Decode](FPackageResourceReadResult Read) {
-				struct FCompleteOnExit
-				{
-					decltype(Completion) Source;
-					~FCompleteOnExit() { if (Source) Source->TrySetValue(); }
-				} Complete{Completion};
-				*Candidate = Read ? Decode(Read->GetBytes())
-					: std::expected<std::unique_ptr<TPlatformData>, std::string>(std::unexpected(FormatPackageResourceReadError(Read)));
-				return Read;
-			});
+		try
+		{
+			*Pending = FPackageResourceRequest::Transform(CookedData.ReloadAsync(),
+				[Candidate, Completion, Decode](FPackageResourceReadResult Read) {
+					struct FCompleteOnExit
+					{
+						decltype(Completion) Signal;
+						~FCompleteOnExit() { if (Signal) Signal->Trigger(); }
+					} Complete{Completion};
+					// The accepted Transform task owns this callable through capture
+					// retirement. This signal only releases Candidate publication.
+					*Candidate = Read ? Decode(Read->GetBytes())
+						: std::expected<std::unique_ptr<TPlatformData>, std::string>(std::unexpected(FormatPackageResourceReadError(Read)));
+					return Read;
+				});
+		}
+		catch (...)
+		{
+			// Failed producer setup must also release the pre-admitted publication.
+			// Candidate already carries a failure if no decode was performed.
+			if (Completion) Completion->Trigger();
+			throw;
+		}
 	}
 }

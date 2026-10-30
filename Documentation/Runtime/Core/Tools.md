@@ -4,7 +4,7 @@ Summary: Define owned tool values, bounded schema validation, provider interface
 
 Modules: Core
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-10-30
 
 ## Ownership and Scope
 
@@ -94,11 +94,16 @@ must revalidate live targets and state. Host dispatch validates successful
 output against the descriptor. Provider exceptions are contained by the
 modular-feature invocation boundary, not reported as successful domain results.
 
-`IToolset::Call` returns `FToolFuture` (`Tasks::TTask<FToolResult>`).
-`ReadyToolResult` adapts synchronous handlers through scheduler-independent shared
-task storage; `FToolCompletionSource::CreateDetached()` supplies pending outcomes.
-The feature interface version is 2. Read results nonblockingly through
-`GetResultShared()`; do not wait or run a nested editor loop on GameThread.
+`IToolset::Call` returns `FToolFuture` (`TSharedFuture<FToolResult>`).
+`ReadyToolResult` shares a ready standalone future; `FToolPromise` is a move-only
+`TPromise<FToolResult>` for pending delivery. Retrieve once with
+`GetFuture().Share()`. Neither construction registers a scheduler task.
+The feature interface version is 3. Read results nonblockingly through
+`GetResultShared()` and query `IsReady()`; do not wait or run a nested editor
+loop on GameThread. Future infrastructure failure/abandonment is distinct from
+a successfully delivered domain failure. Async providers must retain and join
+their own accepted work before provider/module retirement; resolving a receipt
+or detaching its observation is not that join.
 `FToolResult` carries final success/failure, owned Data and diagnostics. Its
 default is failure. There is no separate operation identity in the result.
 Queued/Running/Completed/Cancelled/Expired invocation states describe host
@@ -108,8 +113,8 @@ Future lifetime never implies automatic recording or rollback.
 A synchronous host rejects may-pend descriptors before provider callbacks.
 A synchronous descriptor returning pending violates the contract after possible
 effects; the host must fail without retry. The calling host validates both ready
-and delayed terminal output before publishing its authoritative result. Task
-abandonment/failure is distinct from a successful task carrying a failed tool
+and delayed terminal output before publishing its authoritative result. Future
+abandonment/failure is distinct from successful delivery carrying a failed tool
 result. Cancellation signals intent; a domain must acknowledge it and can still
 report successful applied work. Subscribe callbacks only mark work runnable;
 resolve editor objects and enter interpreters at their owning execution boundary.

@@ -501,7 +501,7 @@ namespace Durin
         }
         auto Settled(const FJob& Job) const -> bool
         {
-            return std::ranges::all_of(Job.Invocations, [](const auto& Entry) { return Entry.second.Future.IsCompleted(); });
+            return std::ranges::all_of(Job.Invocations, [](const auto& Entry) { return Entry.second.Future.IsReady(); });
         }
         auto Runnable(const FJob& Job) const -> bool
         {
@@ -509,7 +509,7 @@ namespace Durin
             if (!Job.Started) return true;
             if (Job.Continuations.empty()) return Settled(Job);
             const auto Id = Job.Continuations.front().Waiting;
-            return !Id || Job.Invocations.at(Id).Future.IsCompleted();
+            return !Id || Job.Invocations.at(Id).Future.IsReady();
         }
         auto Step(FJob& Job) -> bool
         {

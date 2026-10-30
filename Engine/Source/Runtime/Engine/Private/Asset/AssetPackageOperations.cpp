@@ -21,6 +21,7 @@
 #include "Misc/MountPaths.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
+#include "Threading/Private/ExternalTaskResult.h"
 #include "Misc/Guid.h"
 
 namespace Durin
@@ -334,13 +335,13 @@ namespace Durin
 		if (!Operation) return {};
 		if (auto Result = PackageSavePrivate::CheckAsyncAdmission(Operation->GetDetachedBytes()); !Result)
 		{ Admission = Error(EAssetWriteError::ShuttingDown, Result.Message); return {}; }
-		auto Source = Tasks::TCompletionSource<FAssetWriteResult>::Create({.DebugName = "Asset.SaveAsync"});
+		Private::TExternalTaskResult<FAssetWriteResult> Source({.DebugName = "Asset.SaveAsync"});
 		auto Task = Source.TakeTask();
 		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Operation->GetDetachedBytes(),
 			[Operation] { Operation->Stage(); },
 			[Operation, Source, Cancellation = Cancellation](bool bSucceeded) mutable {
 				const bool bCancelled = Cancellation.IsCancellationRequested()
-					|| Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetTaskHandle());
+					|| Source.IsCancellationRequested();
 				auto Result = bCancelled ? Error(EAssetWriteError::Cancelled, "Save was cancelled before publication.")
 					: !bSucceeded ? Error(EAssetWriteError::IoError, "Save I/O task failed.")
 					: Operation->Complete();

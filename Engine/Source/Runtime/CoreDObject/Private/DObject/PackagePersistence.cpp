@@ -5,6 +5,7 @@
 #include "Misc/FilePublication.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
+#include "Threading/Private/ExternalTaskResult.h"
 
 namespace Durin
 {
@@ -18,6 +19,7 @@ namespace Durin
 		{
 			uint64 Bytes = 0;
 			Tasks::FTask Disk, Publication;
+			bool bAdmitted = false; // Published to disk work by the admission event.
 			std::function<void()> Write;
 			std::function<void(bool)> Finish;
 			bool bFinishing = false;
@@ -73,14 +75,14 @@ namespace Durin
 			Save->Bytes = Bytes; Save->Write = std::move(Write); Save->Finish = std::move(Finish);
 			// Register publication before releasing disk work. The owner gate also
 			// prevents writes when publication setup is deliberately canceled.
-			auto Gate = Tasks::TCompletionSource<void>::Create({.DebugName = "Package.SaveAdmission"});
-			const std::array Prerequisites{Gate.GetTaskHandle()};
+			Tasks::FTaskEvent Gate("Package.SaveAdmission");
+			const auto Prerequisites = Tasks::Prerequisites(Gate);
 			Tasks::FTaskExecutionOptions DiskOptions;
 			DiskOptions.DebugName = "Package.SaveIO";
 			DiskOptions.Prerequisites = Prerequisites;
 			auto Disk = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, DiskOptions,
-				[Save, Admission = Gate.GetTaskHandle()](const FTaskCancellationToken&) {
-					if (Admission.GetState() != ETaskState::Succeeded) {
+				[Save](const FTaskCancellationToken&) {
+					if (!Save->bAdmitted) {
 						Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
 						return;
 					}
@@ -89,7 +91,7 @@ namespace Durin
 			Save->Disk = std::move(Disk);
 			if (PublicationFault == EPublicationFault::RejectAdmission)
 			{
-				Gate.TrySetCanceled();
+				Gate.Trigger();
 				// The closed admission gate prevents Write from being invoked. Retire
 				// caller captures here; accepted I/O work may still await its executor.
 				Save->Write = {}; Save->Finish = {};
@@ -100,7 +102,8 @@ namespace Durin
 			Save->Publication = std::move(Completion);
 			{ std::lock_guard Lock(AsyncSaveMutex); AsyncSaves.push_back(Save); }
 			if (PublicationFault == EPublicationFault::CancelContinuation) CancelTask(Save->Publication);
-			Gate.TrySetValue();
+			Save->bAdmitted = true;
+			Gate.Trigger();
 			return {};
 		}
 		auto PollAsyncSaves() -> void
@@ -378,13 +381,13 @@ namespace Durin
 		if (!Operation) return {};
 		Admission = PackageSavePrivate::CheckAsyncAdmission(Operation->GetDetachedBytes());
 		if (!Admission) return {};
-		auto Source = Tasks::TCompletionSource<FPackageSaveResult>::Create({.DebugName = "Package.SaveAsync"});
+		Private::TExternalTaskResult<FPackageSaveResult> Source({.DebugName = "Package.SaveAsync"});
 		auto Task = Source.TakeTask();
 		Admission = PackageSavePrivate::SubmitAsyncSave(Operation->GetDetachedBytes(),
 			[Operation] { Operation->StageDetached(); },
 			[Operation, Source, Cancellation = Options.Cancellation](bool bSucceeded) mutable {
 				const bool bCancelled = Cancellation.IsCancellationRequested()
-					|| Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetTaskHandle());
+					|| Source.IsCancellationRequested();
 				auto Result = !bSucceeded || bCancelled ? Operation->Cancel() : Operation->Complete();
 				if (!bSucceeded) Result = Fail(EPackageSaveError::IoError, "Package I/O task did not succeed.");
 				Operation.reset();
