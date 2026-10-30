@@ -10,14 +10,6 @@
 
 namespace Durin
 {
-	struct FTexture2DResultApplicationContext
-	{
-		// Empty for rebuilds. Authored replacements stay on the GameThread.
-		std::optional<FTextureSource> SourceReplacement;
-		bool bMarkPackageDirty = true;
-		bool bReportLoadMutation = false;
-	};
-
 	struct FTexture2DCompilationRequest
 	{
 		// Detached worker input and derived-data policy.

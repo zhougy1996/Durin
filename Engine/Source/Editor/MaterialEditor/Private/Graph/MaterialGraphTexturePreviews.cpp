@@ -1,4 +1,5 @@
 #include "MaterialGraphCanvas.h"
+#include "RenderResource.h"
 #include "MaterialGraphEditSession.h"
 #include "Asset/Asset.h"
 #include "TexturePreview.h"
@@ -34,8 +35,10 @@ namespace Durin::Editor::Material
 			const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Expression.Get());
 			if (!Parameter || !Parameter->DefaultValue.Texture.IsValid()) continue;
 			auto* Asset = Parameter->DefaultValue.Texture.Get();
-			if (Asset->IsResourceUpdatePending() || !Asset->HasUsableResource()) continue;
-			auto Allocation = Asset->GetPublishedTexture();
+			if (!Asset->IsAsyncCacheComplete() || Asset->HasPendingRenderResourceInitialization()) continue;
+			const auto* Resource = Asset->GetResource();
+			if (!Resource) continue;
+			auto Allocation = Resource->GetTextureRHI_GameThread();
 			if (!Allocation) continue;
 			auto& Entry = Registrations[Allocation.GetReference()];
 			auto Shared = Entry.lock();

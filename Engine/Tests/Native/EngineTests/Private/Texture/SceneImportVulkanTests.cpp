@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "RenderResource.h"
 #include "Materials/MaterialShaderMap.h"
 
 #include "StaticMesh/StaticMeshImportSettings.h"
@@ -540,12 +541,14 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	// Authored texture reload rebuilds platform data asynchronously before upload.
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReloadedTexture);
 	const auto TextureDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-	while (ReloadedTexture->IsResourceUpdatePending() && std::chrono::steady_clock::now() < TextureDeadline)
+	while (ReloadedTexture->HasPendingRenderResourceInitialization() && std::chrono::steady_clock::now() < TextureDeadline)
 	{
 		Durin::PumpGameThreadDeferredWork();
 		std::this_thread::yield();
 	}
-	ASSERT_TRUE(ReloadedTexture->HasUsableResource()) << ReloadedTexture->GetResourceUpdateError();
+	ASSERT_FALSE(ReloadedTexture->HasPendingRenderResourceInitialization());
+	ASSERT_NE(ReloadedTexture->GetResource(), nullptr);
+	ASSERT_TRUE(ReloadedTexture->GetResource()->GetTextureRHI_GameThread());
 	EXPECT_TRUE(ReloadedTexture->IsSRGB());
 	Durin::FVector3 ImportedFactor;
 	ASSERT_TRUE(ReloadedMaterial->GetVectorParameterValue(

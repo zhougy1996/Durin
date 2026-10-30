@@ -7,7 +7,6 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"
-#include "Texture/VolumeTextureBuild.h"
 #include "Texture/VolumeTextureRenderResource.h"
 #include "Threading/RunnableThread.h"
 
@@ -199,23 +198,13 @@ namespace Durin
 			PlatformData.get(), FName("Durin::DVolumeTexture"), "VolumeTexture");
 	}
 
-	auto DVolumeTexture::CreateRenderResourceCandidate(
+	auto DVolumeTexture::CreateResource(
 		FTextureReference* TextureReference)
 		-> std::unique_ptr<FTextureResource>
 	{
 		check(PlatformData && PlatformData->IsValid());
 		return std::make_unique<FVolumeTextureResource>(TextureReference,
 			PlatformData);
-	}
-
-	auto DVolumeTexture::BuildPlatformDataForLoad(bool) -> void
-	{
-#if DURIN_WITH_EDITORONLY_DATA
-		const auto Result = this->CachePlatformData({.Source = GetSource().CopyTornOff(), .Settings = BuildSettings},
-			{.bMarkPackageDirty = false, .bPreserveSource = true});
-#else
-		DURIN_ERROR("PostLoad '{}': authored VolumeTexture builds require editor-only data support.", GetObjectPath());
-#endif
 	}
 
 	auto DVolumeTexture::LoadCookedPlatformData(bool bAsync) -> void

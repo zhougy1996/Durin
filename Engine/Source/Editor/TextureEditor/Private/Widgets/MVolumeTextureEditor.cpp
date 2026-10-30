@@ -315,7 +315,8 @@ namespace Durin::Editor::Texture
 		const auto* Platform = Texture->GetPlatformData();
 		const FTextureSource& Source = Texture->GetSource();
 		DrawFact("CPU status", Texture->HasPlatformData()
-			? "Platform data ready" : "Platform data unavailable");
+			? "Platform data ready" : !Texture->IsAsyncCacheComplete()
+				? "Preparing platform data" : "Platform data unavailable");
 		if (Platform && Platform->IsValid())
 		{
 			const auto& Mip = Platform->Mips.front();

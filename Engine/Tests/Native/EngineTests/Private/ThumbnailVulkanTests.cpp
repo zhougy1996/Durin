@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "RenderResource.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/Actor.h"
 #include "Materials/MaterialPSOPrecache.h"
@@ -779,8 +780,9 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	Platform->Mips.push_back(std::move(Mip));
 	Asset->SetPlatformData(std::move(Platform));
 	Asset->UpdateResource();
-	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->IsResourceUpdatePending(); }));
-	ASSERT_TRUE(Asset->HasUsableResource());
+	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->HasPendingRenderResourceInitialization(); }));
+	ASSERT_NE(Asset->GetResource(), nullptr);
+	ASSERT_TRUE(Asset->GetResource()->GetTextureRHI_GameThread());
 	ASSERT_FALSE(Asset->GetSource().IsValid());
 	const auto Data = FindAssetExact(Packages.back());
 	ASSERT_TRUE(Data);
@@ -871,7 +873,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 
 	Asset->UpdateResource();
 	EXPECT_FALSE((*Session)->ValidatePreparedInput());
-	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->IsResourceUpdatePending(); }));
+	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->HasPendingRenderResourceInitialization(); }));
 	EXPECT_FALSE((*Session)->ValidatePreparedInput());
 	(*Session)->ResetPreview();
 	EXPECT_FALSE((*Session)->ValidatePreparedInput());

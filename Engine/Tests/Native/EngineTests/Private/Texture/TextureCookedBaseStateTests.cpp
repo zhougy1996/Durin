@@ -54,11 +54,13 @@ namespace
 		ASSERT_NE(BaseTexture.GetCookedPlatformData().GetState(), Durin::EBulkDataState::Loading);
 		const Durin::EBulkDataState BulkState =
 			BaseTexture.GetCookedPlatformData().GetState();
-		const auto UpdateState = BaseTexture.GetResourceUpdateState();
+		const auto* Resource = BaseTexture.GetResource();
+		const bool bCacheComplete = BaseTexture.IsAsyncCacheComplete();
 		EXPECT_EQ(Texture.GetPlatformData(), nullptr);
 		EXPECT_FALSE(BaseTexture.HasPlatformData());
 		EXPECT_EQ(BaseTexture.GetCookedPlatformData().GetState(), BulkState);
-		EXPECT_EQ(BaseTexture.GetResourceUpdateState(), UpdateState);
+		EXPECT_EQ(BaseTexture.GetResource(), Resource);
+		EXPECT_EQ(BaseTexture.IsAsyncCacheComplete(), bCacheComplete);
 		ASSERT_TRUE(Texture.FinishCachePlatformData());
 		ASSERT_NE(Texture.GetPlatformData(), nullptr);
 		const auto* Installed = Texture.GetPlatformData();
@@ -184,7 +186,8 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	const auto AsyncReload = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath));
 	ASSERT_TRUE(AsyncReload);
 	EXPECT_FALSE((*AsyncReload)->HasPlatformData());
-	EXPECT_TRUE((*AsyncReload)->IsResourceUpdatePending());
+	EXPECT_FALSE((*AsyncReload)->IsAsyncCacheComplete());
+	EXPECT_FALSE((*AsyncReload)->HasPendingRenderResourceInitialization());
 	ASSERT_TRUE((*AsyncReload)->FinishCachePlatformData(10.0));
 	EXPECT_TRUE((*AsyncReload)->HasPlatformData());
 	EXPECT_FALSE(Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting);

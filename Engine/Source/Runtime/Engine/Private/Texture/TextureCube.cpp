@@ -49,6 +49,14 @@ namespace Durin
 			float Exposure;
 			bool bSRGB;
 			ETextureCubeOutput Output;
+			auto CanBuildSourceDirectly() const -> bool
+			{
+				return Source.GetKind() == ETextureSourceKind::TextureCube
+					|| (Source.GetKind() == ETextureSourceKind::LongLatCube
+						&& Output == ETextureCubeOutput::HDR && Source.GetSourceChannelCount() == 4
+						&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT);
+			}
+			auto Build() const -> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>;
 			auto Dispatch(DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel,
 				std::function<void(DerivedData::EStatus, std::unique_ptr<FTexturePlatformCacheResult>, std::string)> Completion) const -> void override;
 		};
@@ -113,6 +121,22 @@ namespace Durin
 			return true;
 		}
 
+		auto FCubeCacheInput::Build() const
+			-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
+		{
+			if (CanBuildSourceDirectly())
+				return TexturePrivate::BuildTextureCubeSource(Source, bSRGB, FaceDimension, Exposure,
+					ECookTargetPlatform::Win64, ECookTargetProfile::Game, true);
+			FTextureCubeBuildRequest Request;
+			std::string Error;
+			if (!MakeTextureCubeBuildRequest(*this, Request, Error))
+				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
+					ETextureBuildStage::Normalize, Error.empty() ? "Invalid cube source payload." : std::move(Error)});
+			auto Built = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
+			if (!Built) return std::unexpected(std::move(Built.error()));
+			return std::make_unique<FTextureCubePlatformData>(std::move(Built->PlatformData));
+		}
+
 		auto FCubeCacheInput::Dispatch(DerivedData::IRequestOwner& Owner,
 			std::function<bool()> ShouldCancel,
 			std::function<void(DerivedData::EStatus, std::unique_ptr<FTexturePlatformCacheResult>, std::string)> Completion) const -> void
@@ -145,10 +169,7 @@ namespace Durin
 			}
 			// Existing canonical six-face and HDR panorama identities can query DDC
 			// before reading pixels. Noncanonical panorama input still normalizes on the worker.
-			const bool bHDR = Source.GetKind() == ETextureSourceKind::LongLatCube
-				&& Output == ETextureCubeOutput::HDR && Source.GetSourceChannelCount() == 4
-				&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT;
-			if (Source.GetKind() == ETextureSourceKind::TextureCube || bHDR)
+			if (CanBuildSourceDirectly())
 			{
 				TexturePrivate::BuildTextureCubeSourceAsync(Source, bSRGB, FaceDimension, Exposure,
 					Owner, std::move(ShouldCancel), std::move(Complete));
@@ -308,7 +329,7 @@ namespace Durin
 		PlatformData = std::move(Data);
 	}
 
-	auto DTextureCube::CreateRenderResourceCandidate(
+	auto DTextureCube::CreateResource(
 		FTextureReference* TextureReference)
 		-> std::unique_ptr<FTextureResource>
 	{
@@ -321,16 +342,16 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	auto DTextureCube::RebuildPlatformData() -> bool
 	{
-		std::string Error;
-		FTextureCubeBuildRequest Request;
-		if (!MakeTextureCubeBuildRequest(FCubeCacheInput(*this), Request, Error))
-		{
-			DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Error);
-			return false;
-		}
-		const auto Result = this->CachePlatformData(Request,
-			{.bPreserveSource = true});
-		return static_cast<bool>(Result);
+		CheckGameThread();
+		if (IsPendingKill()) return false;
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return false;
+		auto Built = FCubeCacheInput(*this).Build();
+		if (!Built) { (void)TexturePrivate::ReportBuildFailure(Built.error()); return false; }
+		SetPlatformData(std::move(*Built));
+		UpdateResource();
+		MarkPackageDirty();
+		return true;
 	}
 #endif
 
@@ -343,14 +364,11 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': TextureCube cache admission failed.", GetObjectPath());
 			return;
 		}
-		FTextureCubeBuildRequest Request;
-		std::string Error;
-		if (!MakeTextureCubeBuildRequest(FCubeCacheInput(*this), Request, Error))
-		{
-			DURIN_ERROR("CachePlatformData '{}': {}", GetObjectPath(), Error);
-			return;
-		}
-		(void)this->CachePlatformData(Request, {.bMarkPackageDirty = false, .bPreserveSource = true});
+		BlockOnAnyAsyncBuild();
+		auto Built = FCubeCacheInput(*this).Build();
+		if (!Built) { (void)TexturePrivate::ReportBuildFailure(Built.error()); return; }
+		SetPlatformData(std::move(*Built));
+		UpdateResource();
 #else
 		DURIN_ERROR("PostLoad '{}': authored TextureCube builds require editor-only data support.", GetObjectPath());
 #endif

@@ -1,4 +1,5 @@
 #include "Thumbnail/MaterialThumbnailRenderer.h"
+#include "RenderResource.h"
 #include "DObject/WeakObjectPtr.h"
 
 #include "Asset/Asset.h"
@@ -108,13 +109,12 @@ namespace Durin::Editor::Material
 				{
 					return std::unexpected("A referenced material texture is not built.");
 				}
-				if (Texture->IsResourceUpdatePending()) return FMaterialThumbnailResource{{}, false};
-				if (Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed
-					&& !Texture->HasUsableResource())
+				if (Texture->HasPendingRenderResourceInitialization()) return FMaterialThumbnailResource{{}, false};
+				const auto* Resource = Texture->GetResource();
+				if (!Resource || !Resource->GetTextureRHI_GameThread())
 				{
-					return std::unexpected("A referenced material texture render resource failed.");
+					return std::unexpected("A referenced material texture render resource is unavailable.");
 				}
-				if (!Texture->HasUsableResource()) return FMaterialThumbnailResource{{}, false};
 			}
 			return FMaterialThumbnailResource{Material->GetMaterialResource(), true};
 		}
@@ -309,8 +309,11 @@ namespace Durin::Editor::Material
 				DependencySnapshots.clear();
 				for (DTexture2D* Texture : GetTextureDependencies(*Material))
 				{
-					auto Snapshot = Texture->GetPublishedTexture();
-					if (!Snapshot || Texture->IsResourceUpdatePending())
+					if (!Texture->IsAsyncCacheComplete() || Texture->HasPendingRenderResourceInitialization())
+						return std::unexpected("The material texture resource is not ready.");
+					const auto* TextureResource = Texture->GetResource();
+					auto Snapshot = TextureResource ? TextureResource->GetTextureRHI_GameThread() : FTextureRHIRef{};
+					if (!Snapshot)
 					{
 						return std::unexpected("The material texture snapshot is not ready.");
 					}
@@ -394,8 +397,9 @@ namespace Durin::Editor::Material
 			{
 				return std::ranges::all_of(DependencySnapshots, [](const auto& Item) {
 					const auto* Texture = Item.Texture.Get();
-					return Texture && !Texture->IsResourceUpdatePending()
-						&& Texture->GetPublishedTexture() == Item.Allocation;
+					return Texture && Texture->IsAsyncCacheComplete() && !Texture->HasPendingRenderResourceInitialization()
+						&& Texture->GetResource()
+						&& Texture->GetResource()->GetTextureRHI_GameThread() == Item.Allocation;
 				});
 			}
 			// Fixed allocations stay alive independently of their weak asset identities.

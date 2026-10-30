@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "RenderResource.h"
 #include "Materials/MaterialShaderMap.h"
 
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -377,7 +378,6 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	const auto PlatformBeforeGetIdentity = CookedTexture->GetPlatformDataShared();
 	const Durin::DTexture2D& ConstTexture = *CookedTexture;
 	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
-	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
 	EXPECT_FALSE(CookedTexture->HasPlatformData());
 	EXPECT_EQ(CookedTexture->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
 	EXPECT_EQ(CookedTexture->GetPlatformDataShared(), PlatformBeforeGetIdentity);
@@ -399,7 +399,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		nullptr, "MissingCookedPlatformData");
 	MissingPlatform->CachePlatformData();
 	EXPECT_FALSE(MissingPlatform->FinishCachePlatformData());
-	EXPECT_FALSE(MissingPlatform->GetResourceUpdateError().empty());
+	EXPECT_EQ(MissingPlatform->GetResource(), nullptr);
 	EXPECT_EQ(MissingPlatform->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*CookedTexture->GetPlatformData(), ExpectedPlatformData);
 	EXPECT_EQ(CookedTexture->GetAssetImportData(), nullptr);
@@ -422,7 +422,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	EXPECT_EQ(Durin::FTextureCookTestAccess::GetCookedLoad(*Invalidated), PendingIdentity);
 	EXPECT_FALSE(Invalidated->IsAsyncCacheComplete());
 	EXPECT_FALSE(Invalidated->HasPlatformData());
-	EXPECT_TRUE(Invalidated->IsResourceUpdatePending());
+	EXPECT_FALSE(Invalidated->HasPendingRenderResourceInitialization());
 	const auto OldRequest = Durin::FTextureCookTestAccess::CopyCookedLoad(*Invalidated);
 	const auto DecodeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	while (!OldRequest.IsReady() && std::chrono::steady_clock::now() < DecodeDeadline) std::this_thread::yield();
@@ -431,8 +431,8 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Invalidated->SetPlatformData(nullptr); // CPU-product mutation retires the old preparation.
 	for (uint32 Frame = 0; Frame < 4; ++Frame) Durin::PumpGameThreadDeferredWork();
 	EXPECT_FALSE(Invalidated->HasPlatformData());
-	EXPECT_FALSE(Invalidated->IsResourceUpdatePending());
-	EXPECT_EQ(Invalidated->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Idle);
+	EXPECT_FALSE(Invalidated->HasPendingRenderResourceInitialization());
+	EXPECT_EQ(Invalidated->GetResource(), nullptr);
 	Invalidated->BeginCachePlatformData();
 	const auto RetriedRequest = Durin::FTextureCookTestAccess::GetCookedLoad(*Invalidated);
 	ASSERT_TRUE(RetriedRequest);
@@ -609,7 +609,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	// A CPU decode failure must not invalidate an already published allocation.
 	{
 	ASSERT_TRUE(CookedTexture->FinishReloadResourcePreparation());
-	const auto PublishedBeforeFailure = CookedTexture->GetPublishedTexture();
+	const auto PublishedBeforeFailure = CookedTexture->GetResource()->GetTextureRHI_GameThread();
 	ASSERT_TRUE(PublishedBeforeFailure);
 	const std::array InvalidBytes{std::byte{0}};
 	auto InvalidCookedData = Durin::FBulkData::TryCreateDetached(InvalidBytes);
@@ -618,12 +618,11 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	CookedTexture->PostLoad();
 	EXPECT_FALSE(CookedTexture->FinishCachePlatformData(10.0));
 	EXPECT_TRUE(CookedTexture->IsAsyncCacheComplete());
-	EXPECT_EQ(CookedTexture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
-	EXPECT_FALSE(CookedTexture->GetResourceUpdateError().empty());
+
 	EXPECT_FALSE(CookedTexture->HasPlatformData());
-	EXPECT_EQ(CookedTexture->GetPublishedTexture(), PublishedBeforeFailure);
+	EXPECT_EQ(CookedTexture->GetResource()->GetTextureRHI_GameThread(), PublishedBeforeFailure);
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(CookedTexture->GetPublishedTexture(), PublishedBeforeFailure);
+	EXPECT_EQ(CookedTexture->GetResource()->GetTextureRHI_GameThread(), PublishedBeforeFailure);
 	}
 
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
@@ -754,20 +753,21 @@ namespace
 		const auto StableReference = Texture->GetTextureReferenceRHI();
 		Texture->UpdateResource();
 		Durin::FlushRenderingCommands();
-		ASSERT_TRUE(Texture->HasUsableResource());
-		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Succeeded);
+		ASSERT_NE(Texture->GetResource(), nullptr);
+		ASSERT_TRUE(Texture->GetResource()->GetTextureRHI_GameThread());
 		const auto CachedPlatformData = Texture->GetPlatformDataShared();
 		Texture->ReleaseResource();
-		EXPECT_FALSE(Texture->HasUsableResource());
+		EXPECT_EQ(Texture->GetResource(), nullptr);
 		EXPECT_EQ(Texture->GetPlatformDataShared(), CachedPlatformData);
 		EXPECT_EQ(Texture->GetTextureReferenceRHI(), StableReference);
 		Durin::FlushRenderingCommands();
-		EXPECT_EQ(Texture->GetPublishedTexture(), nullptr);
+		EXPECT_EQ(Texture->GetResource(), nullptr);
 		Texture->UpdateResource();
 		Durin::FlushRenderingCommands();
-		ASSERT_TRUE(Texture->HasUsableResource());
+		ASSERT_NE(Texture->GetResource(), nullptr);
+		ASSERT_TRUE(Texture->GetResource()->GetTextureRHI_GameThread());
 		EXPECT_EQ(Texture->GetPlatformDataShared(), CachedPlatformData);
-		const auto OldSnapshot = Texture->GetPublishedTexture();
+		const auto OldSnapshot = Texture->GetResource()->GetTextureRHI_GameThread();
 		ASSERT_TRUE(OldSnapshot);
 		std::latch Blocked(1), Resume(1);
 		Durin::EnqueueRenderCommand("HoldTextureAdmission", [&](Durin::FRHICommandListImmediate&) {
@@ -779,22 +779,22 @@ namespace
 		Texture->UpdateResource();
 		InstallUpdateInput(*Texture, std::byte{0x33});
 		Texture->UpdateResource(); // C is the final allocation.
-		EXPECT_TRUE(Texture->IsResourceUpdatePending());
-		EXPECT_FALSE(Texture->HasUsableResource());
-		EXPECT_EQ(Texture->GetPublishedTexture(), nullptr);
+		EXPECT_TRUE(Texture->HasPendingRenderResourceInitialization());
+		EXPECT_NE(Texture->GetResource(), nullptr); // RHI is not readable before initialization completes.
 		Resume.count_down();
 		Durin::FlushRenderingCommands();
-		EXPECT_FALSE(Texture->IsResourceUpdatePending());
-		ASSERT_TRUE(Texture->HasUsableResource());
-		const auto CompletedAllocation = Texture->GetPublishedTexture();
+		EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());
+		ASSERT_NE(Texture->GetResource(), nullptr);
+		ASSERT_TRUE(Texture->GetResource()->GetTextureRHI_GameThread());
+		const auto CompletedAllocation = Texture->GetResource()->GetTextureRHI_GameThread();
 		Durin::PumpGameThreadDeferredWork({.MaxCallbacks = 1});
-		EXPECT_EQ(Texture->GetPublishedTexture(), CompletedAllocation);
+		EXPECT_EQ(Texture->GetResource()->GetTextureRHI_GameThread(), CompletedAllocation);
 		EXPECT_EQ(Texture->GetTextureReferenceRHI(), StableReference);
-		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Succeeded);
+		EXPECT_NE(Texture->GetResource(), nullptr);
 		if constexpr (std::is_same_v<TTexture, Durin::DTextureCube>)
 		{
 			Durin::FByteBuffer Earlier, Latest;
-			const auto Current = Texture->GetPublishedTexture();
+			const auto Current = Texture->GetResource()->GetTextureRHI_GameThread();
 			Durin::EnqueueRenderCommand("ReadOwnedTextureSnapshots", [OldSnapshot, Current, &Earlier, &Latest](Durin::FRHICommandListImmediate& Commands) {
 				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, OldSnapshot, 0, 0, Earlier));
 				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Current, 0, 0, Latest));
@@ -815,22 +815,21 @@ namespace
 		Texture->UpdateResource();
 		ASSERT_TRUE(Texture->FinishReloadResourcePreparation());
 		EXPECT_FALSE(*CallbackRan);
-		EXPECT_FALSE(Texture->IsResourceUpdatePending());
+		EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());
 		Texture->UpdateResource();
 		ASSERT_TRUE(Texture->FinishReloadResourcePreparation());
-		const auto JoinedAllocation = Texture->GetPublishedTexture();
+		const auto JoinedAllocation = Texture->GetResource()->GetTextureRHI_GameThread();
 		ASSERT_TRUE(JoinedAllocation);
 		Durin::PumpGameThreadDeferredWork();
 		EXPECT_TRUE(*CallbackRan);
-		EXPECT_EQ(Texture->GetPublishedTexture(), JoinedAllocation); // Deferred callbacks cannot alter the completed allocation.
-		EXPECT_FALSE(Texture->IsResourceUpdatePending());
-		EXPECT_TRUE(Texture->GetResourceUpdateError().empty());
+		EXPECT_EQ(Texture->GetResource()->GetTextureRHI_GameThread(), JoinedAllocation); // Deferred callbacks cannot alter the completed allocation.
+		EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());
 		// Direct source mutation invalidates both CPU and GPU data across every family.
 		Texture->SetSource({});
 		EXPECT_FALSE(Texture->HasPlatformData());
-		EXPECT_FALSE(Texture->HasUsableResource());
+		EXPECT_EQ(Texture->GetResource(), nullptr);
 		Texture->UpdateResource();
-		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
+		EXPECT_EQ(Texture->GetResource(), nullptr);
 		Durin::FlushRenderingCommands();
 		Durin::EnqueueRenderCommand("CheckInvalidSourceFallback", [StableReference](Durin::FRHICommandListImmediate&) {
 			EXPECT_EQ(StableReference->GetReferencedTexture_RenderThread(), nullptr);
@@ -895,15 +894,16 @@ TEST(FTextureResourceLifetimeIntegrationTests, OrderedUpdatesPublishAndRetireAcr
 	Draining->UpdateResource();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
-	EXPECT_FALSE(Draining->IsResourceUpdatePending());
-	ASSERT_TRUE(Draining->HasUsableResource());
+	EXPECT_FALSE(Draining->HasPendingRenderResourceInitialization());
+	ASSERT_NE(Draining->GetResource(), nullptr);
+	ASSERT_TRUE(Draining->GetResource()->GetTextureRHI_GameThread());
 	{
-		const auto BeforeOfflineUpdate = Draining->GetPublishedTexture();
+		const auto BeforeOfflineUpdate = Draining->GetResource()->GetTextureRHI_GameThread();
 		InstallUpdateInput(*Draining, std::byte{0x56});
 		Draining->UpdateResource();
 		Durin::FlushRenderingCommands();
-		EXPECT_EQ(Draining->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Succeeded);
-		EXPECT_NE(Draining->GetPublishedTexture(), BeforeOfflineUpdate);
+		EXPECT_NE(Draining->GetResource(), nullptr);
+		EXPECT_NE(Draining->GetResource()->GetTextureRHI_GameThread(), BeforeOfflineUpdate);
 	}
 	Durin::RemoveFromRoot(Draining);
 	Durin::MarkAsGarbage(Draining);
@@ -918,10 +918,11 @@ TEST(FTextureResourceLifetimeIntegrationTests, OrderedUpdatesPublishAndRetireAcr
 	Canceled->UpdateResource();
 	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Cancel);
 	Durin::FlushRenderingCommands();
-	ASSERT_TRUE(Canceled->HasUsableResource());
+	ASSERT_NE(Canceled->GetResource(), nullptr);
+	ASSERT_TRUE(Canceled->GetResource()->GetTextureRHI_GameThread());
 	Canceled->UpdateResource();
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(Canceled->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Succeeded);
+	EXPECT_NE(Canceled->GetResource(), nullptr);
 	Durin::RemoveFromRoot(Canceled);
 	Durin::MarkAsGarbage(Canceled);
 	Durin::CollectGarbage();
@@ -937,9 +938,8 @@ TEST(FTextureResourceLifetimeIntegrationTests, OrderedUpdatesPublishAndRetireAcr
 	InstallUpdateInput(*Rejected, std::byte{0x44});
 	Rejected->UpdateResource();
 	Durin::PumpGameThreadDeferredWork();
-	EXPECT_EQ(Rejected->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
-	EXPECT_FALSE(Rejected->IsResourceUpdatePending());
-	EXPECT_FALSE(Rejected->HasUsableResource());
+	EXPECT_EQ(Rejected->GetResource(), nullptr);
+	EXPECT_FALSE(Rejected->HasPendingRenderResourceInitialization());
 	Durin::MarkAsGarbage(Rejected);
 	Durin::CollectGarbage();
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);

@@ -387,7 +387,7 @@ namespace Durin
 	auto FTextureResource::GetTextureRHI_GameThread() const -> FTextureRHIRef
 	{
 		CheckGameThread();
-		return TextureRHI;
+		return IsInitialized() ? TextureRHI : FTextureRHIRef{};
 	}
 
 	void FTextureResource::SetTextureRHI_RenderThread(

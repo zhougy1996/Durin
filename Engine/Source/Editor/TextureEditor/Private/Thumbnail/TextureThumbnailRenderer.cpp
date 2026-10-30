@@ -1,4 +1,5 @@
 #include "Thumbnail/TextureThumbnailRenderer.h"
+#include "RenderResource.h"
 #include "Shader/ShaderMapPreparation.h"
 
 #include "Asset/Asset.h"
@@ -47,9 +48,10 @@ namespace Durin::Editor::Texture
 					bAssetLoaded = true;
 				}
 				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset is unavailable."};
-				if (!Texture.Get()->IsAsyncCacheComplete() || Texture.Get()->IsResourceUpdatePending())
+				if (!Texture.Get()->IsAsyncCacheComplete() || Texture.Get()->HasPendingRenderResourceInitialization())
 					return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				if (!Texture.Get()->HasUsableResource())
+				const auto* Resource = Texture.Get()->GetResource();
+				if (!Resource || !Resource->GetTextureRHI_GameThread())
 					return {.Diagnostic = "Texture2D built render resource is unavailable."};
 				auto ShaderReady = Shaders.Poll();
 				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
@@ -58,7 +60,11 @@ namespace Durin::Editor::Texture
 			}
 			auto PreparePreview(IThumbnailPreviewScene& Scene) -> std::expected<void, std::string> override
 			{
-				Snapshot = Texture.IsValid() ? Texture.Get()->GetPublishedTexture() : FTextureRHIRef{};
+				const auto* Asset = Texture.Get();
+				if (!Asset || !Asset->IsAsyncCacheComplete() || Asset->HasPendingRenderResourceInitialization())
+					return std::unexpected("Texture2D render resource is not ready.");
+				const auto* Resource = Asset->GetResource();
+				Snapshot = Resource ? Resource->GetTextureRHI_GameThread() : FTextureRHIRef{};
 				if (!Snapshot) { return std::unexpected("Texture2D built allocation is unavailable."); }
 				return Scene.SetImageRenderer([Input = Snapshot, Display = Options](
 					FRHICommandListImmediate& Commands, uint32 Width, uint32 Height) {
@@ -67,8 +73,10 @@ namespace Durin::Editor::Texture
 			}
 			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
 			{
-				if (!Texture.IsValid() || Texture.Get()->IsResourceUpdatePending() || !Snapshot
-					|| !Texture.Get()->HasUsableResource() || Texture.Get()->GetPublishedTexture() != Snapshot
+				if (!Texture.IsValid() || !Texture.Get()->IsAsyncCacheComplete()
+					|| Texture.Get()->HasPendingRenderResourceInitialization() || !Snapshot
+					|| !Texture.Get()->GetResource()
+					|| Texture.Get()->GetResource()->GetTextureRHI_GameThread() != Snapshot
 					|| Texture.Get()->GetPlatformDataShared() != Platform || Texture.Get()->GetUsage() != Options.Usage
 					|| (Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0) != AssetRevision)
 				{

@@ -22,14 +22,6 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	// Caller-owned result-application policy used only by Engine on the GameThread.
-	struct FVolumeTextureResultApplicationContext
-	{
-		bool bMarkPackageDirty = true;
-		// PostLoad/rebuild consumes the installed source without replacing its storage.
-		bool bPreserveSource = false;
-	};
-
 	ENGINE_API auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)
 		-> std::expected<FVolumeTexturePlatformData, FTextureBuildOperationError>;
 

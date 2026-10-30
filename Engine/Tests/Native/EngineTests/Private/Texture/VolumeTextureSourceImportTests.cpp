@@ -458,6 +458,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_NE(ReloadedSource, nullptr);
 	EXPECT_TRUE(ReloadedSource->Hint.ends_with(
 		"MovedVolume/Noise.png"));
+	ASSERT_TRUE(ReloadedBase->FinishCachePlatformData());
+	ASSERT_TRUE(ReloadedDetail->FinishCachePlatformData());
 	auto* Component = NewObject<DVolumetricCloudComponent>(nullptr, "ImportedCloud");
 	Component->SetBaseDensityTexture(ReloadedBase);
 	Component->SetDetailDensityTexture(ReloadedDetail);

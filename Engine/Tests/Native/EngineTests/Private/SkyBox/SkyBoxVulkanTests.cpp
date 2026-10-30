@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "RenderResource.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Actors/ProceduralSkyActor.h"
@@ -290,14 +291,15 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		ObservedCubeTarget->load(std::memory_order_acquire);
 	ASSERT_NE(InitialCubeTarget, nullptr);
 	Durin::PumpGameThreadDeferredWork();
-	ASSERT_FALSE(CubeResult.Asset->IsResourceUpdatePending());
+	ASSERT_FALSE(CubeResult.Asset->HasPendingRenderResourceInitialization());
 
 	ASSERT_TRUE(CubeResult.Asset->RebuildPlatformData());
 	EXPECT_EQ(CubeResult.Asset->GetTextureReferenceRHI(), CubeReference);
 	Durin::FlushRenderingCommands();
 	Durin::PumpGameThreadDeferredWork();
-	EXPECT_TRUE(CubeResult.Asset->HasUsableResource());
-	EXPECT_FALSE(CubeResult.Asset->IsResourceUpdatePending());
+	ASSERT_NE(CubeResult.Asset->GetResource(), nullptr);
+	EXPECT_TRUE(CubeResult.Asset->GetResource()->GetTextureRHI_GameThread());
+	EXPECT_FALSE(CubeResult.Asset->HasPendingRenderResourceInitialization());
 	struct FObserveReplacementCubeTarget
 	{
 		static constexpr auto GetName() -> const char*

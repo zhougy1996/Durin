@@ -99,7 +99,7 @@ namespace Durin
 		PlatformData = std::move(Data);
 	}
 
-	auto DTexture2D::CreateRenderResourceCandidate(
+	auto DTexture2D::CreateResource(
 		FTextureReference* TextureReference)
 		-> std::unique_ptr<FTextureResource>
 	{
@@ -124,8 +124,7 @@ namespace Durin
 				.AlphaCoverageThreshold = AlphaCoverageThreshold,
 				.MaxResolution = MaxResolution,
 				.bSRGB = bSRGB}}, .ResultApplication = {
-			.bMarkPackageDirty = false,
-			.bReportLoadMutation = false}};
+			.bMarkPackageDirty = false}};
 		const auto Built = bAsyncCache ? this->BeginCachePlatformData(std::move(Request))
 			: this->CachePlatformData(std::move(Request.Build), Request.ResultApplication);
 		if (!Built)

@@ -87,14 +87,12 @@ namespace Durin::TexturePrivate
 		const auto Publish = [Owner, Revision, Candidate, RequestIdentity, CookRoot, Platform, bAsync] {
 			auto* Current = Owner.Get();
 			const auto Request = RequestIdentity.lock();
-			if (!Current || Current->IsPendingKill() || Current->GetResourceUpdateState() == ETextureResourceUpdateState::Closed
+			if (!Current || Current->IsPendingKill()
 				|| (bAsync && (!Request || Current->CookedLoad != Request)) || Current->HasPlatformData()) return;
 			const auto Fail = [&](std::string Diagnostic) {
 				Current->CookedLoad.reset();
 				Current->CookedPublication = {};
-				Current->LastUpdateState = ETextureResourceUpdateState::Failed;
-				Current->ResourceUpdateError = std::move(Diagnostic);
-				DURIN_WARN("Cooked texture '{}': {}", Current->GetObjectPath(), Current->ResourceUpdateError);
+				DURIN_WARN("Cooked texture '{}': {}", Current->GetObjectPath(), Diagnostic);
 			};
 			const auto Resource = Current->GetCookedPlatformData().GetMetadata().Range.Resource;
 			if (!GetAssetRuntimeConfiguration().RequiresCookedPayload()

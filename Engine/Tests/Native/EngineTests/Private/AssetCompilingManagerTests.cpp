@@ -198,6 +198,14 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	Aggregate.MarkCompilationAsCanceled(Objects);
 	EXPECT_TRUE(BaseState->bCanceled);
 	EXPECT_TRUE(DerivedState->bCanceled);
+	Texture->SetInternalFlags(EObjectInternalFlags::BeginDestroyed);
+	DerivedState->bCanceled = false;
+	Aggregate.MarkCompilationAsCanceled(*Texture);
+	EXPECT_TRUE(DerivedState->bCanceled);
+	ASSERT_EQ(DerivedState->LastObjects.size(), 1u);
+	EXPECT_EQ(DerivedState->LastObjects.front(), Texture);
+	EXPECT_TRUE(Aggregate.FinishCompilationForObject(*Texture).SuccessfullyCompiledAssets.empty());
+	Texture->BeginDestroy();
 	const auto Frame = Aggregate.ProcessAsyncTasks({.MaximumCompletions = 2});
 	EXPECT_EQ(Frame.ProcessedCompletionCount, 2u);
 	EXPECT_GE(BaseState->ProcessCount, 1u);

@@ -21,13 +21,6 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	struct FTextureCubeResultApplicationContext
-	{
-		bool bMarkPackageDirty = true;
-		// PostLoad/rebuild consumes the installed source without replacing its storage.
-		bool bPreserveSource = false;
-	};
-
 	struct FTextureCubeBuildValue
 	{
 		FTextureCubeCanonicalBuildInput CanonicalInput;
