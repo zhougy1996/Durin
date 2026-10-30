@@ -54,7 +54,7 @@ namespace Durin
 		auto GetOutput() const -> ETextureCubeOutput { return Output; }
 		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
 		auto GetOriginalSourceHeight() const -> uint32 { return OriginalSourceHeight; }
-		// GameThread only. Assigns validated settings and cancels pending authored builds.
+		// GameThread only. Waits for authored builds before assigning validated settings.
 		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
 			uint32 InPanoramaFaceDimension, float InPanoramaExposureEV,
 			uint32 InOriginalSourceWidth, uint32 InOriginalSourceHeight,

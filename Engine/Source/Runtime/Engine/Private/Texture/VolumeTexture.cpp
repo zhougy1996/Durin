@@ -1,5 +1,4 @@
 #include "Texture/VolumeTexture.h"
-#include "Texture/TexturePlatformCache.h"
 #include "Logging/LogMacros.h"
 #include "Texture/TextureCookedData.h"
 
@@ -149,6 +148,8 @@ namespace Durin
 		std::unique_ptr<FVolumeTexturePlatformData> Data) -> void
 	{
 		CheckGameThread();
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return;
 		InvalidateRenderResource();
 		PlatformData = std::move(Data);
 	}
@@ -207,7 +208,8 @@ namespace Durin
 		FVolumeTextureBuildSettings Value) -> void
 	{
 		CheckGameThread();
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return;
 		BuildSettings = Value;
 		InvalidateAuthoredBuild();
 	}

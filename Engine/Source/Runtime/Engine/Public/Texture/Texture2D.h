@@ -68,12 +68,12 @@ namespace Durin
 		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
 		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
-		// GameThread only. Cancels and finishes pending work before assigning validated settings.
+		// GameThread only. Waits for pending builds before assigning validated settings.
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void;
 
-		// GameThread only. Validates the candidate, cancels/drains prior compilation, then commits
+		// GameThread only. Validates the candidate, completes prior compilation, then commits
 		// source/settings/import metadata and marks dirty. Does not build or save.
 		ENGINE_API auto SetImportedSource(FTextureSource Value, const FTexture2DBuildSettings& Settings,
 			FAssetImportDataState ImportState) -> std::expected<void, std::string>;

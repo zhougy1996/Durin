@@ -95,7 +95,6 @@ namespace Durin
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
 		auto HasPending(const DTexture& Texture) const -> bool;
-		auto PrepareMutation(DTexture& Texture) -> void;
 		auto Wait(DTexture& Texture, double TimeoutSeconds) -> bool;
 		auto SubmitPlatformCache(DTexture& Texture,
 			std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool;

@@ -1,5 +1,4 @@
 #include "Misc/Build.h"
-#include "Texture/TexturePlatformCache.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/TextureCubeBuild.h"
 #include "Texture/ITextureCompressorModule.h"
@@ -82,7 +81,7 @@ namespace Durin
 		CheckGameThread();
 		if (IsPendingKill())
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
 		if (IsPendingKill())
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
 		auto Prepared = TexturePrivate::PrepareTextureCubeBuild(Request);
