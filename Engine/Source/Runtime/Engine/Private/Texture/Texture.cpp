@@ -114,6 +114,26 @@ namespace Durin
 #endif
 	}
 
+	auto DTexture::Modify(bool bAlwaysMarkDirty) -> bool
+	{
+		BlockOnAnyAsyncBuild();
+		return !IsPendingKill() && Super::Modify(bAlwaysMarkDirty);
+	}
+
+	auto DTexture::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
+	{
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::ModuleRejected,
+			.ObjectPath = GetObjectPath(), .Message = "Texture owner is being destroyed."});
+		return Super::PreEditChangeProperty(Proposal);
+	}
+
+	auto DTexture::PreEditUndo() -> void
+	{
+		BlockOnAnyAsyncBuild();
+		Super::PreEditUndo();
+	}
+
 	auto DTexture::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
@@ -122,7 +142,8 @@ namespace Durin
 		// completion must not reopen compilation after applying the product.
 		if (Event.MemberProperty || Event.Phase != EPropertyChangePhase::Committed || IsTemplateObject()
 			|| GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return;
 		InvalidateAuthoredBuild();
 		BeginCachePlatformData();
 #endif
@@ -185,7 +206,8 @@ namespace Durin
 	auto DTexture::BlockOnAnyAsyncBuild() -> void
 	{
 		CheckGameThread();
-		FAssetCompilingManager::Get().FinishCompilationForObject(*this);
+		while (HasPendingTextureCompilation(*this))
+			FAssetCompilingManager::Get().FinishCompilationForObject(*this);
 	}
 
 	auto DTexture::BeginDestroy() -> void
@@ -258,7 +280,8 @@ namespace Durin
 	auto DTexture::SetSource(FTextureSource Value) -> void
 	{
 		CheckGameThread();
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return;
 		AdoptBuildSource(std::move(Value));
 		InvalidateAuthoredBuild();
 	}
@@ -273,7 +296,6 @@ namespace Durin
 	auto DTexture::InvalidateAuthoredBuild() -> void
 	{
 		CheckGameThread();
-		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		ResetPlatformData();
 		CookedPlatformData = {};
 		InvalidateRenderResource();
@@ -283,11 +305,6 @@ namespace Durin
 	auto DTexture::InvalidateRenderResource() -> void
 	{
 		CheckGameThread();
-		// External CPU-product replacement retires authored work too. The compiler
-		// detaches its active request before applying, so its own install does not join itself.
-#if DURIN_WITH_EDITORONLY_DATA
-		if (HasPendingTextureCompilation(*this)) PrepareTextureForMutation(*this);
-#endif
 		if (CookedLoad) { CookedLoad->Cancel(); CookedLoad.reset(); }
 		CookedPublication = {};
 		ReleaseResource();

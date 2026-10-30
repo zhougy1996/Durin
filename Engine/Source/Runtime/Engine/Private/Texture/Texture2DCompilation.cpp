@@ -73,7 +73,6 @@ namespace Durin
 
 		mutable std::mutex Mutex;
 		std::unordered_map<FObjectKey, FAssetState, FObjectKeyHash> Assets;
-		std::unordered_set<FObjectKey, FObjectKeyHash> MutatingOwners;
 		std::deque<FObjectKey> CompletedOrder;
 		static constexpr size_t MaximumRetainedAssetDiagnostics = 256;
 		std::vector<FWeakObjectPtr> SuccessfullyAppliedTextures;
@@ -317,13 +316,7 @@ namespace Durin
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidOwner,
 				.ObjectPath = Texture.GetObjectPath()});
 		}
-		{
-			std::lock_guard Lock(CompilationState->Mutex);
-			if (CompilationState->MutatingOwners.contains(Owner))
-				return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::AdmissionRejected,
-					.ObjectPath = Identity});
-		}
-		PrepareMutation(Texture);
+		Texture.BlockOnAnyAsyncBuild();
 		if (!IsValid(&Texture))
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidOwner,
 				.ObjectPath = Identity});
@@ -380,11 +373,7 @@ namespace Durin
 			|| !Input || !Input->Source.IsValid() || Input->Source.GetOwner()) return false;
 		const FObjectKey Owner(&Texture);
 		if (IsObjectKeyNull(Owner)) return false;
-		{
-			std::lock_guard Lock(CompilationState->Mutex);
-			if (CompilationState->MutatingOwners.contains(Owner)) return false;
-		}
-		PrepareMutation(Texture);
+		Texture.BlockOnAnyAsyncBuild();
 		if (!IsValid(&Texture)) return false;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
@@ -441,39 +430,6 @@ namespace Durin
 		return State && State->Texture.Get() == &Texture && State->ActiveRequestId != 0;
 	}
 
-	auto FTextureCompilingManager::PrepareMutation(DTexture& Texture) -> void
-	{
-		CheckGameThread();
-		if (!CompilationState) return;
-		const FObjectKey Owner(&Texture);
-		uint64 RequestId = 0;
-		{
-			std::lock_guard Lock(CompilationState->Mutex);
-			require(CompilationState->MutatingOwners.emplace(Owner).second);
-			if (const auto* State = CompilationState->FindLocked(Owner)) RequestId = State->ActiveRequestId;
-		}
-		struct FMutationGuard
-		{
-			std::shared_ptr<FCompilationState> State;
-			FObjectKey Owner;
-			~FMutationGuard() { std::lock_guard Lock(State->Mutex); State->MutatingOwners.erase(Owner); }
-		} Guard{CompilationState, Owner};
-		if (RequestId)
-		{
-			CancelWork(RequestId);
-			require(WaitForWork(RequestId, 300.0));
-			PumpCompletions(1, {}, RequestId);
-		}
-		require(!HasPending(Texture));
-		std::lock_guard Lock(CompilationState->Mutex);
-		if (auto* State = CompilationState->FindLocked(Owner)) State->Progress.reset();
-	}
-
-	auto PrepareTextureForMutation(DTexture& Texture) -> void
-	{
-		if (const auto Manager = GetTextureCompilingManager()) Manager->PrepareMutation(Texture);
-	}
-
 	auto FTextureCompilingManager::Cancel(DTexture& Texture) -> bool
 	{
 		if (!CompilationState) return false;
@@ -491,33 +447,20 @@ namespace Durin
 	auto FTextureCompilingManager::Wait(
 		DTexture& Texture, double TimeoutSeconds) -> bool
 	{
-		if (!CompilationState) return false;
 		uint64 RequestId = 0;
-		bool bCanUsePlatformData = true;
+		if (CompilationState)
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(FObjectKey(&Texture));
-			if (State && State->Texture.Get() == &Texture)
-			{
-				RequestId = State->ActiveRequestId;
-				bCanUsePlatformData = (!State->Progress || State->Progress->Read().Phase == ETexture2DCompilationPhase::None
-					|| State->Progress->Read().Phase == ETexture2DCompilationPhase::Ready);
-			}
+			if (const auto* State = CompilationState->FindLocked(FObjectKey(&Texture));
+				State && State->Texture.Get() == &Texture) RequestId = State->ActiveRequestId;
 		}
-		if (RequestId == 0)
-			return bCanUsePlatformData && Texture.HasPlatformData();
-		if (!WaitForWork(RequestId, TimeoutSeconds)) return false;
-		FAssetCompilingManager::Get().FinishCompilationForObject(Texture);
+		if (RequestId != 0)
 		{
-			std::lock_guard Lock(CompilationState->Mutex);
-			if (const FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(FObjectKey(&Texture)))
-				bCanUsePlatformData = (!State->Progress || State->Progress->Read().Phase == ETexture2DCompilationPhase::None
-					|| State->Progress->Read().Phase == ETexture2DCompilationPhase::Ready);
+			if (!WaitForWork(RequestId, TimeoutSeconds)) return false;
+			FAssetCompilingManager::Get().FinishCompilationForObject(Texture);
 		}
-		return !HasPending(Texture) && bCanUsePlatformData
-			&& Texture.HasPlatformData();
+		// Installed CPU data owns readiness; a retired request's diagnostic is not a second cache state.
+		return !HasPending(Texture) && Texture.HasPlatformData();
 	}
 
 	namespace AssetPrivate
@@ -567,7 +510,7 @@ namespace Durin
 		CheckGameThread();
 		if (IsPendingKill())
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
 		// A retired request's completion callback may have begun teardown.
 		if (IsPendingKill())
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});

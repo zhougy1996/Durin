@@ -41,6 +41,9 @@ namespace Durin
 		ENGINE_API auto ClearCachedCookedPlatformData(const FObjectCookContext& Context) -> void override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
+		ENGINE_API auto Modify(bool bAlwaysMarkDirty = true) -> bool override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
+		ENGINE_API auto PreEditUndo() -> void override;
 		// Full-object edits retire prior work and begin independent authored compilation.
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		// Prepares the current texture's platform data; false completes synchronously.
@@ -54,11 +57,12 @@ namespace Durin
 		ENGINE_API auto IsAsyncCacheComplete() const -> bool;
 		// Explicit CPU-cache completion boundary; GPU upload remains asynchronous.
 		// Completes existing work and installs it directly; never starts a new cache request.
+		// Reports installed CPU-data readiness; per-request outcomes are delivered through completion.
 		// Zero only queries installed data. A finite nonnegative timeout bounds the wait,
 		// not executing callbacks. Expiry does not cancel work; no GameThread queue pumping.
 		ENGINE_API auto FinishCachePlatformData(double TimeoutSeconds = 300.0) -> bool;
 		// GameThread only. Completes admitted compilation and applies its result.
-		// GPU initialization remains asynchronous; mutations use their private retirement barrier.
+		// Reentrant same-owner submissions are completed before return; GPU initialization remains asynchronous.
 		ENGINE_API auto BlockOnAnyAsyncBuild() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
 

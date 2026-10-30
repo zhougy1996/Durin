@@ -277,8 +277,8 @@ the observer. A successful worker can still fail object validation or applicatio
 `Building` includes worker preparation and DDC execution. `AwaitingApply` means
 a work result is posted, including failed or canceled work; terminal phases are
 published only by the GameThread owner. `Ready` requires successful application. Cancellation is a separate terminal
-outcome. A texture has at most one active request; replacing a request first
-cancels, waits for callback retirement, and delivers its canceled terminal result.
+outcome. A texture has at most one active request; a later submission first
+completes the previous request and delivers its actual terminal result.
 
 `FTextureOperationResult` identifies one terminal outcome with
 `ETextureCompilationStatus` (`Succeeded`, `Failed`, or `Canceled`) and one owned
@@ -303,17 +303,19 @@ restart a completed build.
 `DTexture::BlockOnAnyAsyncBuild` finishes the selected texture through the asset
 compiling manager, including GameThread result application. It does not cancel,
 clear terminal diagnostics, start another build, or wait for GPU initialization.
-Source/settings setters and synchronous replacement builds use the existing
-private mutation barrier: it cancels and finishes only that texture, delivers
-the old observer as `Canceled`, and retires its request before returning.
+Source/settings/platform-data setters, synchronous builds, `Modify`, and
+`PreEditChangeProperty`/`PreEditUndo` use this same wait before changing or capturing live data.
+There is no separate mutation barrier or per-owner mutation state. Explicit
+cancellation and destruction retain the existing cancellation path.
 Cancellation is not an error and carries no cancellation-reason code.
 Texture2D imports commit Source/settings/import metadata before starting DDC work.
 Build failure or cancellation does not undo that authored commit. The import
 result describes the commit, while compiler status describes platform-data
 readiness. Importer teardown retains committed assets and drains current work;
 batch cancellation before commit discards captured input.
-Same-owner submissions from inside this barrier are rejected. New submissions
-then start with no active predecessor; no latest-wins serial is needed. Storage-only
+If a completion or post-compile observer submits follow-up work for the same
+texture, the wait completes that work before allowing a mutation to proceed.
+New submissions then start with no active predecessor; no latest-wins serial is needed. Storage-only
 source recompression preserves semantic identity and retained read handles.
 Editor save and compensation adapters consume this terminal contract through
 [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md).

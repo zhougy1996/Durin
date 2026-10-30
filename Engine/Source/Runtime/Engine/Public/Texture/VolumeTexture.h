@@ -42,7 +42,7 @@ namespace Durin
 
 #if DURIN_WITH_EDITORONLY_DATA
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
-		// GameThread only. Assigns validated settings and cancels pending authored builds.
+		// GameThread only. Waits for authored builds before assigning validated settings.
 		ENGINE_API auto SetBuildSettings(
 			FVolumeTextureBuildSettings Value) -> void;
 #endif

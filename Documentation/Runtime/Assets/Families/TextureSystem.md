@@ -100,7 +100,9 @@ Canonical cube faces and HDR panoramas use the same source identity and DDC path
 for synchronous and asynchronous caching, without decoding source bytes on a hit.
 `FinishCachePlatformData(TimeoutSeconds)` only completes existing authored
 compilation or a cooked read/decode request and installs its result on GameThread;
-it never starts a new request. With no work or installed data it returns false.
+it never starts a new request. Its result reports installed CPU-data readiness;
+request completion separately reports success, failure, or cancellation. A failed
+request can retain a usable earlier product. With no installed data it returns false.
 Automatic publication and explicit completion share the same decode, validation
 and installation logic. Synchronous cooked caching with no request reads,
 decodes and installs CPU data without requiring a task scheduler or deferred
@@ -277,9 +279,10 @@ without waiting for platform-data readiness.
 `BlockOnAnyAsyncBuild()` waits for the selected compilation and GameThread result
 application through the asset compiling manager, preserving its terminal outcome
 and diagnostics. It neither starts nor cancels work, and GPU initialization remains
-asynchronous. Source/settings replacement and new submissions use the existing
-private mutation barrier to cancel, finish and retire the previous request before
-changing inputs; that replacement policy is separate from the public wait.
+asynchronous. Source/settings/platform-data replacement, new submissions,
+`Modify`, `PreEditChangeProperty`, and `PreEditUndo` reuse this wait before changing or capturing
+live data. Same-owner work submitted by completion observers is drained before
+mutation proceeds. There is no separate mutation barrier or mutation-state set.
 
 Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pumps
 the aggregate with a 64-item normal-frame limit and a shared 2 ms cooperative
@@ -342,14 +345,15 @@ rebuilding it, and the edit session registers one transaction and one Dirty
 transition. Cancel, Undo, and Redo use the same asynchronous proposal path.
 Changing usage resets sRGB to that preset's default; editing sRGB afterward is
 an explicit override. Committed edits dirty the package through the shared
-reflected transaction path. Direct source and build-setting setters cancel authored work and invalidate
+reflected transaction path. Direct source and build-setting setters complete authored work and invalidate
 installed platform data, obsolete cooked bytes, and GPU publication. They do not
 build or mark the package dirty themselves; the operation applying those values
-owns rebuilding and dirty marking. `SetPlatformData()` cancels and retires active
-CPU preparation and invalidates GPU publication before adopting its CPU input.
+owns rebuilding and dirty marking. `SetPlatformData()` completes authored
+compilation and invalidates GPU publication before adopting its CPU input.
 Compiler application detaches the active request before installation, so it never
-joins itself. Synchronous caching retires previous operation diagnostics before
-retrying. Call `UpdateResource()` to upload installed data.
+joins itself. Retained request diagnostics do not override installed CPU-data
+readiness after a synchronous retry or external product replacement.
+Call `UpdateResource()` to upload installed data.
 
 ## Render-Thread Boundary
 

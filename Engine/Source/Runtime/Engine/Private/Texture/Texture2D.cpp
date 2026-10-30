@@ -1,5 +1,4 @@
 #include "Texture/Texture2D.h"
-#include "Texture/TexturePlatformCache.h"
 #include "Logging/LogMacros.h"
 #include "Texture/TextureCookedData.h"
 
@@ -96,6 +95,8 @@ namespace Durin
 		std::unique_ptr<FTexturePlatformData> Data) -> void
 	{
 		CheckGameThread();
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return;
 		InvalidateRenderResource();
 		PlatformData = std::move(Data);
 	}
@@ -197,7 +198,8 @@ namespace Durin
 		ImportState.SourceData.Normalize();
 		if (const auto Validation = ImportState.Validate(); !Validation)
 			return std::unexpected(FormatAssetImportDataError(Validation.error()));
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return std::unexpected(std::string("Texture import owner is being destroyed."));
 		auto* ImportData = GetAssetImportData();
 		if (!ImportData) ImportData = NewObject<DAssetImportData>(this, "AssetImportData");
 		if (!ImportData) return std::unexpected(std::string("Could not allocate Texture2D import metadata."));
@@ -221,7 +223,8 @@ namespace Durin
 		ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void
 	{
 		CheckGameThread();
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return;
 		Usage = InUsage;
 		bSRGB = bInSRGB;
 		MaxResolution = InMaxResolution;

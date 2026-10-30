@@ -366,7 +366,7 @@ TEST(FTexture2DTests, ImportedCommitRejectsInvalidMetadataAndRetiresPriorCompila
 	EXPECT_EQ(Texture->GetPlatformDataShared(), OldProduct);
 	auto Retired = std::make_shared<uint32>(0);
 	ASSERT_TRUE(Texture->BeginCachePlatformData({.Build = Texture->CreateBuildRequest({}).value()}, [Texture, OldIdentity, OldMetadata, Retired](Durin::FTextureOperationResult Result) {
-			EXPECT_EQ(Result.Status, Durin::ETextureCompilationStatus::Canceled);
+			EXPECT_EQ(Result.Status, Durin::ETextureCompilationStatus::Succeeded);
 			EXPECT_EQ(Texture->GetSource().GetIdentity(), OldIdentity);
 			EXPECT_EQ(Texture->GetAssetImportData()->GetState(), OldMetadata);
 			++*Retired;

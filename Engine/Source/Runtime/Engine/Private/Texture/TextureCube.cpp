@@ -325,6 +325,8 @@ namespace Durin
 		std::unique_ptr<FTextureCubePlatformData> Data) -> void
 	{
 		CheckGameThread();
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return;
 		InvalidateRenderResource();
 		PlatformData = std::move(Data);
 	}
@@ -349,7 +351,7 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': TextureCube cache admission failed.", GetObjectPath());
 			return;
 		}
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
 		auto Built = FCubeCacheInput(*this).Build();
 		if (!Built) { (void)TexturePrivate::ReportBuildFailure(Built.error()); return; }
 		SetPlatformData(std::move(*Built));
@@ -415,7 +417,8 @@ namespace Durin
 		bool bInSRGB, ETextureCubeOutput InOutput) -> void
 	{
 		CheckGameThread();
-		PrepareTextureForMutation(*this);
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill()) return;
 		SourceLayout = InSourceLayout;
 		PanoramaFaceDimension = InPanoramaFaceDimension;
 		PanoramaExposureEV = InPanoramaExposureEV;
