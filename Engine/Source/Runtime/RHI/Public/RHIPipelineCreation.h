@@ -74,6 +74,7 @@ namespace Durin
 		auto GetRejection() const -> ERHIPipelineRequestRejection { return Rejection; }
 		RHI_API auto GetState() const -> ERHIPipelineRequestState;
 		RHI_API auto GetResult() const -> FRHIPipelineCreationResult;
+		// Completion signal only; inspect GetState/GetResult for failure or cancellation.
 		RHI_API auto GetTaskHandle() const -> Tasks::FTask;
 		RHI_API auto IsCompute() const -> bool;
 		// Immutable recording metadata is available before the native pipeline.

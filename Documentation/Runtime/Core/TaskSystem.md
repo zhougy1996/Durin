@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-10-23
+Last reviewed: 2026-10-30
 
 ## Construction And Acceptance
 
@@ -104,10 +104,11 @@ and crossings of configured count/byte thresholds.
 Terminal publication removes scheduler tracking exactly once; retained
 terminal handles/results have separate lifetimes.
 
-External producers can use `TCompletionSource<T>::Create(Options)` in the
-scheduler lifetime.
-Register consumers before starting external work so producer acknowledgement
-does not require another submission during shutdown.
+External integration uses Core-private registered result nodes for composition
+and audited typed save adapters. Data-only delivery uses standalone futures;
+result-free ordering uses events. Register accepted consumers and producer
+retirement obligations before external work starts so shutdown requires no new
+submission. Event/future creation alone does not register work for drain.
 
 ## Concurrency Limiter
 
@@ -157,7 +158,7 @@ Non-void results occupy aligned storage in their result state without a separate
 value allocation. Task nodes store their move-only callback directly; execution
 and capture retirement happen outside the node mutex.
 Result storage, the task body, the completion callback and the node kind are
-bound during construction, including external and detached completion sources
+bound during construction, including private registered external result nodes
 and events. The node's result-storage binding and kind cannot change afterward.
 Ordinary dependencies accept task/event objects directly. Constructing or assigning
 a generic `FTask` from an lvalue task/event copies observation; an rvalue transfers
@@ -177,8 +178,7 @@ Rejected waits, failure and cancellation must be handled before result access.
 node; it returns empty before publication or after failure/cancellation.
 Void tasks compose without a value argument and allocate no result state or result
 publication callback. They expose no `GetResult()` or `GetResultShared()`; use
-`Wait()` and inspect its outcome. `TCompletionSource<void>::TrySetValue()` takes no
-value. Retained void handles require neither a submitting module's result destructor
+`Wait()` and inspect its outcome. Retained void handles require neither a submitting module's result destructor
 code nor a module result reservation. Void async flattening retains the inner node
 and its attached lifetimes, with iterative retirement of deep forwarding chains.
 
@@ -258,29 +258,21 @@ that metadata before public completion, while `GetFailure()` still requires Fail
 Continuation prerequisites are normalized once during submission; fan-in keeps
 its original input order and duplicates for result and failure-index semantics.
 
-`TCompletionSource<T>::Create` returns a counted external producer directly.
-It does not occupy a worker. `TakeTask()` obtains its typed handle once; that
-handle can subsequently be copied freely.
-`TrySetValue`, `TrySetFailure` and `TrySetCanceled` settle once and report late
-publication attempts. Last unresolved source release fails with abandonment.
-Cancellation requests do not decide the producer outcome: a later value still
-succeeds. `TrySetCanceled` explicitly reports an operation with no result, rather
-than requesting cancellation. This producer outcome, propagated by success-only
-composition, and the operation-level `ParallelFor` result retain `Canceled`;
-ordinary cooperative task completion does not become `Canceled`.
-Preallocated terminal hooks run outside internal locks without scheduling a
-new task. Source known-requirement construction also supports internal
-composition such as empty fan-in and dynamically bound inner tasks.
+Registered external result delivery remains private to Core composition and the
+narrow `Threading/Private/ExternalTaskResult.h` save adapter. It admits a counted
+node without occupying a worker. The typed handle is obtained once and can then
+be copied. Publication settles exactly once; unresolved producer destruction
+fails with abandonment. Cancellation requests remain separate from a producer's
+acknowledged outcome and never prove retirement. Known execution requirements
+support empty fan-in and dynamically bound inner tasks. Terminal hooks dispatch
+without new submission. Where result publication precedes callback/capture
+destruction, the domain must retain its accepted producer or explicit owner join
+through that destruction; result readiness alone is insufficient.
 
-`TCompletionSource<T>::CreateDetached()` reuses the same node, result storage,
-terminal publication and abandonment contract without scheduler admission. It
-creates no callable or execution queue and remains valid across scheduler startup
-and shutdown. Use it for bounded owner-managed data completion, such as ToolService;
-it does not register pending work for scheduler drain. Owners must stop/drain
-producers themselves. `MakeReadyTask(Value)` returns its already settled shared
-result. Detached nodes are not scheduler prerequisites or nested execution work.
-Erased-handle Cancel returns false for these observation-only nodes; only their
-producer can acknowledge cancellation. Domain cancellation uses its own token.
+There is no public completion source or detached data-only task constructor.
+Ready data uses MakeReadyFuture; scheduled work that returns a constant is an
+ordinary LaunchTask with normal scheduler lifetime and dependency rules. No
+observation-only MakeReadyTask helper is exposed.
 
 `TTask::Subscribe(Callback)` returns a move-only `FTaskSubscription`.
 Notification runs once, possibly inline, on the completing/subscribing thread.
@@ -293,6 +285,46 @@ Dropping/Resetting observation releases its captures and does not cancel domain
 work; an already in-flight notification may finish. Notification exceptions are
 contained. `WithLifetime(SharedOwner)` attaches ownership to the shared node and
 all its handles and result aliases; this supports accounting that outlives receipt eviction.
+
+## Standalone Futures
+
+`Threading/Future.h` supplies `Durin::TPromise<T>`, move-only `TFuture<T>` and
+copyable `TSharedFuture<T>`. These use independent result storage, mutexes and
+condition variables: no task node, executor, admission, dependency conversion,
+helping, or GameThread pumping. Unresolved futures do not delay scheduler drain;
+they remain usable before startup, after shutdown, and across restarts.
+
+GetFuture retrieves one consumer. Share transfers it to a shared consumer;
+Consume transfers the value and invalidates an unshared consumer. Get waits and
+returns a repeatable const reference; unshared GetMutable permits caller-managed
+mutable access. Void supports Get/Consume without a value. Ready construction
+uses MakeReadyFuture, explicitly Share it for copyable delivery. Invalid access
+throws logic_error. Get on failed/canceled completion throws, rethrowing a stored
+producer exception when available. Failed state distinguishes Exception and
+Abandoned; domain errors remain ordinary successful values.
+
+TrySetValue/TrySetFailure/TrySetCanceled settle once; checked setters reject
+repeated publication. Promise destruction or replacement fails an unresolved
+state with Abandoned and wakes waiters. Cancellation acknowledgement is a
+producer outcome, separate from any domain cancellation request. WaitFor accepts
+chrono durations and returns readiness. A wait never progresses its producer;
+domain APIs must prohibit waits on threads required for that producer's progress.
+
+Subscribe returns FFutureSubscription. Notifications run outside state locks,
+possibly inline on subscription or publication; exceptions are contained. Reset
+or destruction prevents unpinned callbacks, while an in-flight call may finish.
+Owners must synchronize in-flight provider callbacks before unloading code.
+FFutureReadiness/ObserveReady use Core-owned marker code for detachable host
+observation. Reentrant reads/subscriptions are supported; notification callbacks
+must not wait for another callback in the same publication pass.
+
+Shared GetResultShared is a nonblocking immutable owning view, empty until
+success. WithLifetime attaches a pin to the state, retained by all consumer
+handles and result views through result destruction. Pins do not automatically
+install a module-unload protocol. A ready result is not a producer retirement
+join; domains retain their accepted producer task, command or explicit owner
+drain separately. Futures are not a second task scheduler and expose no implicit
+continuations.
 
 ## Serial Pipes
 
@@ -365,8 +397,7 @@ collect work on behalf of an owner.
 Empty prerequisite handles are ignored, as already-completed dependencies.
 Nonempty scheduled task prerequisites must belong to the same scheduler lifetime;
 scheduler-independent events can connect tasks and events without that restriction.
-Detached data completion sources remain ineligible as execution prerequisites or
-nested work. Ordinary launch
+Standalone futures are not task prerequisites or nested work. Ordinary launch
 prerequisites are completion dependencies: the body becomes runnable once every
 prerequisite finishes, including Failed and Canceled outcomes. They do not
 forward failure or cancellation. Consumers requiring successful admission or

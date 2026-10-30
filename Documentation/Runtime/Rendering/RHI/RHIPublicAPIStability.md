@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-10-30
 
 ## Directory Contract
 
@@ -87,7 +87,11 @@ or mutating description arrays. Content equality and hashing remain the owning
 [graphics contract](GraphicsStateAndBindings.md#graphics-pipeline-contract).
 
 Pipeline creation requests expose `GetTaskHandle()` for CPU completion
-dependencies. This erased Core handle contains no native result or cancellation
+dependencies. It is a result-free task event; successful event completion means
+only that observation finished. Inspect request GetState/GetResult for domain
+failure/cancellation. Individual cancellation signals the observer without
+canceling shared compilation. StopAndWait still joins LastDrain and compiler
+capture retirement before resource release. This erased Core handle contains no native result or cancellation
 authority over shared compilation; request cancellation remains an explicit RHI
 operation. The declaration depends on `Threading/Task.h`, while task/event
 composition belongs to the [Core task API](../../Core/TaskSystem.md#composition).

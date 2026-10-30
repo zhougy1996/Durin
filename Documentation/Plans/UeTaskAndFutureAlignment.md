@@ -2,23 +2,183 @@
 
 Summary: Separate scheduled tasks, task events, and external result delivery while preserving cancellation, producer retirement, and shutdown drain guarantees.
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-10-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-30
 
 ## Current Status
 
-Planning only. No runtime, public API, or test implementation has changed.
-The inventory below was checked against revision
-`cac748bd0d5943099170c6296be001712ce02df6` across the source and test roots of
-Engine, Sandbox, and RoadWeaver declared in `Durin.dworkspace`. Current direct
-production sources are in Engine; Sandbox and RoadWeaver have no matching direct
-uses. Repeat symbol and alias searches before each API migration.
+Stage 0 contract and ownership audit completed against
+`d724be255599a8e532e2719701fc4e8e9dda3e59`. The refreshed source/test inventory
+is retained in ignored `Build/UeTaskAndFutureAlignment/Stage0Inventory.txt`.
+Engine remains the only workspace project with direct callers. Searches cover
+completion sources/accessors, detached construction, ready tasks, Tool aliases
+and handlers, save APIs/cancellation, and `GetTaskHandle` consumers.
 
-All implementation stages remain open. UE alignment means matching abstraction
-boundaries, not reproducing every implementation detail or removing Durin's
-existing failure, cancellation, and module-lifetime guarantees.
+Texture initialization has already migrated to accepted render commands and
+`ResourceFence`; the historical `TextureInitialization` row needs no source
+replacement. Preserve that implementation and validate its lifecycle coverage.
+Stage 1 implemented scheduler-independent futures and Core-owned readiness
+markers. Win64-Debug-DurinEditor / windows-msvc-x64: all 9 `FFutureTests.*`
+passed both together and serially isolated via `CoreConcurrencyTests` on the
+Stage 1 working tree based on `99867ee44`. The deterministic race uses a
+three-party barrier for publication/subscription/competing publication, and
+latches hold a notification in flight during detachment. Tests verify zero
+scheduler counter changes and unresolved-future survival across two restarts.
+Reports: `Build/NativeTestResults/Win64-Debug-DurinEditor/CoreConcurrencyTests.xml`
+and `Build/UeTaskAndFutureAlignment/Stage1-Isolated.xml`. The initial sandbox
+MSVC C1902 was resolved by running the same build outside the sandbox.
+Stage 2 migrated Tool results to `TSharedFuture<FToolResult>` and move-only
+`FToolPromise`, including editor receipts, Python observations and MCP/Python
+fixtures. IToolset feature version is 3. All workspace alias searches were
+repeated; no old Tool completion alias remains. On the Stage 2 tree based on
+`9b5a5ad8a`, Win64-Debug-DurinEditor passed `@domain=tools` (CoreToolTests and
+EditorOperationTests), MCPIntegrationTests (19), PythonToolIntegrationTests (48),
+and MCPPythonJobTests (14). Reports are `Build/UeTaskAndFutureAlignment/Stage2-*.xml`.
+The added editor test destroys the service while retaining a receipt, then
+publishes from a late producer thread; the closed receipt remains canceled.
+No production handler launches unowned asynchronous work. Provider ownership
+requirements remain separate from receipt/observation lifetime.
+Stage 3 migrated cooked-texture readiness, RHI observer completion and package
+admission to events with separate domain state, and introduced Core's private
+typed save-result adapter. Texture initialization retains its existing render
+command/fence path. On the Stage 3 tree based on `8641bf4dd`, the default Windows
+profile/preset passed PackagePersistenceTests (34), RHIPipelineCreationTests
+(17), TextureTests (150), and TextureImportWorkflowTests (24). Reports are
+`Build/UeTaskAndFutureAlignment/Stage3-*.xml`. Existing package fault-injection
+coverage exercises rejected admission, canceled publication, owner cleanup and
+returned-task cancellation; Texture coverage retains revision/owner invalidation
+and pending-load behavior. The new RHI promise/latch test holds compiler work
+past observer cancellation and checks retirement after StopAndWait. All generic
+RHI handle consumers were audited: they use completion/wakeups, while request
+state/result controls domain behavior. No production public-source uses remain
+outside Core's transitional machinery; Stage 4 removes that machinery's public
+surface; final acceptance is recorded below.
+
+Stage 4 validation decisions: the final render gate exposed a pending RHI
+observer released during resource replacement. Final observer destruction must
+signal its event while shared compiler retirement remains joined by LastDrain;
+a deterministic dropped-observer regression covers that distinction. It also
+exposed an existing RDG test assuming independent tasks execute on a different
+thread. RDG already uses LaunchIndependentTask and helping waits; update the
+fixture to check independent CPU authority and ordered result delivery instead
+of OS thread identity. No RDG scheduling implementation or wait policy changes.
+
+### Final acceptance
+
+Stages 0–4 are complete. Final tested source/test inputs are the `Engine` Git
+subtree `33ebf2e13a8c983ce7ef1aef3c7ae8053037778e`, based on implementation revision
+`0469417e3`; the completion commit retains this exact subtree. Only documentation
+receipts changed after the last runtime verification. Configuration:
+`windows-msvc-x64`, `Win64-Debug-DurinEditor`, MSVC 14.44, 14 build jobs.
+
+- Final `build all` passed; receipt:
+  `Build/.agent-state/logs/20261030-171202-013434-38440-cmake.log`.
+  This incremental workspace build covers Engine, Sandbox and RoadWeaver.
+- CoreConcurrencyTests: 239 passed, covering Tasks/Futures, composition,
+  cancellation, dropped handles, shutdown and module retirement. Report:
+  `Build/UeTaskAndFutureAlignment/Stage4-Core.xml`. Core inputs were unchanged
+  by the later RHI observer fix and RDG fixture correction, so this result is
+  reused. All 13 Future cases and the new drain race also passed serial isolation
+  in `Final-FutureIsolated.xml` and `Final-DrainRaceIsolated.xml` in that directory.
+- Final native targets passed: `@domain=tools` (CoreToolTests,
+  EditorOperationTests), PackagePersistenceTests (34), RHIPipelineCreationTests
+  (18), RHICommandListTests (145), RHIThreadTests (20), RenderContractTests (243),
+  TextureTests (150), TextureImportWorkflowTests (24), MCPIntegrationTests (19),
+  PythonToolIntegrationTests (48), MCPPythonJobTests (14). Their reports are
+  `Build/UeTaskAndFutureAlignment/Final-*.xml`. The Tool/package reports precede
+  the RHI-only final fix; their relevant Core, Tool and save inputs are unchanged.
+  RHI, render, Texture and protocol integrations passed with the final RHI fix.
+- Deterministic regressions use barriers/latches or promises/events: publication
+  racing subscription/setters; in-flight callback detachment; observer cancel or
+  release before compiler exit; closed admission before event signal followed by
+  deferred publication before producer capture destruction. Existing package
+  injected rejection/canceled-publication gates continue to pass. Checked promise
+  storage-move exceptions publish failure rather than leaving consumers pending.
+- Final workspace source/test searches found no `TCompletionSource`, old Tool
+  completion alias, completion-source accessor, detached task-node constructor,
+  or MakeReadyTask. The empty audit is retained as
+  `Build/UeTaskAndFutureAlignment/Stage4RemovedSymbols.txt`. Internal registered
+  graph result delivery is confined to Core implementation details and the
+  narrow private save adapter. Detached observation coverage moved to Future
+  tests; generic task lifetime coverage still constructs actual tracked tasks.
+- Lasting boundaries are documented in TaskSystem, Tools, EditorTools, package
+  persistence, RHI API stability, runtime lifecycle and module retirement.
+  Application-hosted/GPU qualification was not selected: no application-host or
+  native GPU behavior changed; CPU fake-RHI/lifecycle tests cover this migration.
+  No required gate remains open.
+
+### Frozen Future API
+
+The types live in `Durin`, declared by `Threading/Future.h`:
+
+- `EFutureState { Invalid, Pending, Succeeded, Failed, Canceled }`;
+  `EFutureFailure { Exception, Abandoned }`; `FFutureFailure` contains the code
+  and an optional `std::exception_ptr`. Domain errors remain values.
+- `TPromise<T>`: default construction creates a state; move-only; `GetFuture()`
+  retrieves its sole `TFuture<T>` once. Destruction/move assignment abandons an
+  unresolved old state. `TrySetValue(T)` (no argument for void),
+  `TrySetFailure(FFutureFailure)`, and `TrySetCanceled()` return false after the
+  first publisher wins. Checked `SetValue`, `SetFailure`, `SetCanceled` reject
+  duplicate publication. A throwing move into result storage publishes Exception failure.
+- Both consumer types: default invalid construction, `IsValid()`, `IsReady()`,
+  `GetState()`, `Wait()`, `WaitFor(std::chrono::duration)` returning readiness,
+  `GetFailure()` for Failed, and repeatable `Get()` returning `const T&` (void
+  returns nothing). Invalid access and non-successful Get throw; they never
+  synthesize a successful value. Wait performs only condition-variable waiting.
+- `TFuture<T>` is move-only; `GetMutable()` returns `T&`; `Consume()` moves the
+  value and invalidates the consumer, including when moving throws. Void has
+  Get/Consume but no mutable reference. `Share()` transfers ownership into a
+  copyable `TSharedFuture<T>` and invalidates the unshared handle.
+- Shared futures expose `GetResultShared()` as a nonblocking
+  `std::shared_ptr<const T>` (empty unless successful) and `WithLifetime(pin)`
+  returning another shared handle. Pins attach to the shared result state and
+  survive every retained handle/result view. Shared futures cannot consume or
+  obtain mutable references. `MakeReadyFuture(T)` returns an unshared ready
+  future; Tool construction explicitly shares it.
+- `Subscribe(function<void(EFutureState)>)` returns move-only
+  `FFutureSubscription`; `Reset()`/destruction detaches. Registration racing
+  publication invokes exactly once, possibly inline. Reset prevents callbacks
+  not yet pinned for invocation; an already pinned callback may finish. Callback
+  exceptions are contained, callbacks and capture destruction occur outside the
+  state mutex. A callback must not block waiting for another callback in the
+  same notification pass. `FFutureReadiness` and `ObserveReady()` use Core-owned
+  marker code so late notification cannot reenter a retired host module.
+
+These are intentionally separate from task states/failures and cancellation
+requests. No implicit task conversion, pumping, scheduler counters, or Then/Next
+API exists. As selected above, Get is repeatable reference access rather than
+standard future's consuming get; Share/Consume transfer only consumer ownership.
+Mutable access and producer-progress-thread wait guards remain caller duties.
+Module owners must retire callbacks and result deleters before physical unload;
+attaching an ownership pin does not itself install a module unload protocol.
+
+### Producer ownership mapping
+
+| Producer | Admission and signal | Capture retirement and owner/process join |
+| --- | --- | --- |
+| Tool native handlers and service receipts | InvokeRegistered visitor owns synchronous provider dispatch; invocation promise is installed before Run. Pending providers return standalone shared futures. Service observation marks readiness only; Tick resolves domain output. | Complete/Close detach observation and release Raw without waiting on GameThread. Future marker code is Core-owned. There are no production AsyncHandler assignments in the refreshed workspace; Python tool bindings are synchronous and PythonRuntime separately owns job sessions. Future asynchronous handlers must retain their own accepted task/work gate and join it before provider shutdown. Service Gate protects admission, not asynchronous producer retirement. Retained Charge/result views contain no service/editor pointer. |
+| Texture initialization | Existing InitTextureResource render command, followed by ResourceFence.BeginFence. | ResourceFence/FlushRenderingCommands joins the accepted command through capture destruction; object destruction waits the resource fence. Module producers flush before render/RHI shutdown. No Future or new event bridge is needed here. |
+| Cooked texture decode | Register GameThreadDeferred publication behind an event before ReloadAsync/Transform; Candidate writes precede signaling on success, error, or exception. | PackageResource.Transform is an accepted ThenCompleted/LaunchTask, whose callable owns the decode captures through retirement. Request completion/Wait joins that task; process CPU drain also tracks it independently of the early event. Publication owns weak object identity and shared Candidate, never a raw retiring texture. Retain revision/request checks. An event does not replace the Transform task or resource I/O ownership. |
+| RHI pipeline observer | MakeObserver precedes queue insertion; Publish stores Published/Outcome before signaling. Observer Cancel stores Canceled then signals without canceling compilation. | LastDrain owns Drain and compiler inputs; StopAndWait closes queue admission, clears queued entries and joins LastDrain before ReleaseResources. Observer completion is only a wake dependency. RHICommandList and RHIPipelineCreationTests subscribe for wakeups; PipelineStateCache uses completion only. All read domain state/result for outcomes. |
+| Package admission | Register disk task behind event, then publication task and AsyncSaves owner entry before setting explicit admitted=true and triggering. Rejection leaves decision=false and triggers. | Disk owns Save; FinishAsyncSave clears Write and moves/calls/clears Finish on GameThread before erasing AsyncSaves. Poll/DrainAsyncSaves handles canceled publication. Host save drain precedes object/executor teardown. |
+| Package and asset typed saves | Register private external result node before SubmitAsyncSave. Finish callback reads domain token plus returned-task cancellation, performs Complete/Cancel and resets Operation before result publication. Setup rejection settles the registered node. | Result-ready can precede Finish capture destruction. AsyncSaves membership and accepted Package.SavePublication, plus FinishAsyncSave fallback, remain the retirement obligation until Finish is cleared and owner-list removal completes. DrainAsyncSaves is required before objects/executors retire. Do not treat result readiness as this join. |
+| ThenAsync and fan-in | Core internal external node is admitted before bridge dispatch; dynamic binding and hooks require no later admission. | Dynamic dependency and forwarded result pins preserve inner task retirement/module ownership; scheduler graph drain remains authoritative. Keep internal results on task storage, including move-only values. |
+
+### Frozen private adapter boundary
+
+Retain registered external task nodes in Core's private implementation namespace;
+remove public source construction after caller migration. Only composition and
+audited typed save adapters construct them. Domain adapters retain existing
+`TTask<Result>` signatures, attribution and cancellation queries. Registration
+precedes external work; one publication wins, unresolved producer destruction
+fails with AbandonedSource, and cancellation requests do not settle or retire the
+producer. Rejection must resolve every registered node. No detached constructor
+is available to domains. A registered node accounts for pending result delivery;
+where publication precedes capture destruction, the specific accepted producer
+or owner join in the table remains mandatory. No extra waiting worker, polling
+task, late submission, or public promise facade is introduced.
 
 ## Goal
 
@@ -188,15 +348,15 @@ with the existing safe result/module ownership guarantees.
 
 ### Stage 0: Freeze contracts and producer ownership
 
-- [ ] Refresh the complete workspace symbol/alias inventory, including RHI
+- [x] Refresh the complete workspace symbol/alias inventory, including RHI
   `GetTaskHandle` consumers, save-task cancellation, Tool handlers, and tests.
-- [ ] Freeze Future failure, void, ownership, observation, and lifetime-pin APIs;
+- [x] Freeze Future failure, void, ownership, observation, and lifetime-pin APIs;
   document intentional differences from UE and `std::future`.
-- [ ] For each external producer, record its admission point, signal point,
+- [x] For each external producer, record its admission point, signal point,
   capture-destruction point, owner join, and process/module shutdown placement.
   Identify the precise accepted handle or private retirement registration that
   closes the signal-to-retirement gap. Resolve any missing join before migration.
-- [ ] Freeze the narrow private external adapter contract and its cancellation,
+- [x] Freeze the narrow private external adapter contract and its cancellation,
   failure, abandonment, accounting, and producer-retirement transitions. It must
   not become a new public completion-source facade.
 
@@ -207,12 +367,12 @@ unresolved shutdown or result-publication contract. No API migration precedes it
 
 Depends on Stage 0.
 
-- [ ] Implement `Threading/Future.h` and Core-owned support without task-node
+- [x] Implement `Threading/Future.h` and Core-owned support without task-node
   construction. Add ready future construction and required observation/pin APIs.
-- [ ] Validate move-only and void results, repeated publication, abandonment,
+- [x] Validate move-only and void results, repeated publication, abandonment,
   consume/share invalidation, timed waits, publication/subscription races,
   detached observation, reentrant callbacks, and retained immutable views.
-- [ ] Validate creation and completion before startup, after shutdown, and across
+- [x] Validate creation and completion before startup, after shutdown, and across
   scheduler restart with no change to scheduler pending-node counters.
 
 Completion: Future semantics pass focused Core tests independently of a scheduler.
@@ -221,12 +381,12 @@ Completion: Future semantics pass focused Core tests independently of a schedule
 
 Depends on Stage 1.
 
-- [ ] Migrate all Tool aliases, native handlers, service receipts, and integrations
+- [x] Migrate all Tool aliases, native handlers, service receipts, and integrations
   in the same API change across all workspace projects.
-- [ ] Preserve result accounting/pins, cancellation diagnostics, immediate and
+- [x] Preserve result accounting/pins, cancellation diagnostics, immediate and
   pending providers, close during dispatch, observer detachment, and late producer
   completion after editor closure without accessing retired host state.
-- [ ] Verify provider module/work-gate ownership independently from receipt
+- [x] Verify provider module/work-gate ownership independently from receipt
   completion; test abandonment and retained receipts after service destruction.
 
 Completion: no Tool result is a detached task; Core Tool and affected editor/MCP/
@@ -236,13 +396,13 @@ Python integration coverage passes with the existing provider shutdown contract.
 
 Depends on Stage 0; use Stage 1 only where actual data delivery requires it.
 
-- [ ] Migrate Texture, cooked Texture, RHI observers, and package admission using
+- [x] Migrate Texture, cooked Texture, RHI observers, and package admission using
   the row-specific outcome and retirement rules above.
-- [ ] Move typed package/asset save completion behind private tracked adapters;
+- [x] Move typed package/asset save completion behind private tracked adapters;
   preserve public typed-task signatures and cancellation behavior.
-- [ ] Verify producer/observer cancel races, rejected setup, exceptions,
+- [x] Verify producer/observer cancel races, rejected setup, exceptions,
   disappeared owners, duplicate/late signals, and immediate completion.
-- [ ] Verify shutdown begun before producer completion requires no new submission,
+- [x] Verify shutdown begun before producer completion requires no new submission,
   still pumps accepted deferred publication, and waits for capture retirement.
 
 Completion: all production public-source uses are gone; affected CoreDObject,
@@ -252,16 +412,16 @@ Engine, RHI, and rendering lifecycle coverage demonstrates the drain invariant.
 
 Depends on Stages 2 and 3.
 
-- [ ] Privatize remaining composition/source machinery, migrate tests by purpose,
+- [x] Privatize remaining composition/source machinery, migrate tests by purpose,
   and resolve ready-task helper semantics. Search all workspace source/test roots
   for the removed public type, aliases, detached nodes, and old access patterns.
-- [ ] Validate flatten/fan-in behavior, failure propagation, shutdown with dropped
+- [x] Validate flatten/fan-in behavior, failure propagation, shutdown with dropped
   handles, delayed producer acknowledgement, module retirement, and retained
   results; preserve cancellation requests separately from producer outcomes.
-- [ ] Add deterministic drain race tests using barriers/latches rather than
+- [x] Add deterministic drain race tests using barriers/latches rather than
   sleeps: admission closes before signal, signal precedes capture destruction,
   observation cancels before shared producer exit, and admission setup fails.
-- [ ] Update lasting contracts in TaskSystem, Tool, runtime lifecycle, and module
+- [x] Update lasting contracts in TaskSystem, Tool, runtime lifecycle, and module
   retirement documentation as applicable; record evidence and close this plan
   only after the final gates pass.
 

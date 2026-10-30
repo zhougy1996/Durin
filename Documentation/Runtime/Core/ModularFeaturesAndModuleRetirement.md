@@ -4,7 +4,7 @@ Summary: Define typed feature invocation, module-owned cleanup, and explicit nat
 
 Modules: Core
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-30
 
 ## Feature Contract
 
@@ -136,6 +136,13 @@ waits the tasks it owns, and releases callbacks, results and resources. Core
 does not register module task scopes, collect descendants, or pump selected
 module queues. There is no shared operation-group replacement. Modules without
 asynchronous work require no task-specific shutdown boundary.
+
+Standalone futures and result-free events describe delivery/ordering, not producer
+retirement. Detaching a readiness subscription or releasing a result does not
+cancel or join provider work. Owners retain the accepted producer task/command
+or explicit domain join through callback and capture destruction, independently
+of an early result or observer-cancellation signal. Retained result views may
+outlive service closure only with safe ownership of their data and deleter code.
 
 ## Specialized Registries and Explicit Unload
 

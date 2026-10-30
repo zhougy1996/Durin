@@ -157,6 +157,7 @@ durin_add_native_test(CoreConcurrencyTests
 		Private/ModularFeatureTests.cpp
 		Private/ProcessCrashContextTests.cpp
 		Private/ThreadingTests.cpp
+		Private/FutureTests.cpp
 		Private/TaskCompositionTests.cpp
 		Private/TaskCloseTests.cpp
 	LIBRARIES Core

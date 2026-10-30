@@ -111,11 +111,11 @@ namespace Durin
 			EToolInvocationState State = EToolInvocationState::Queued;
 			bool Dispatching = false;
 			FToolFuture Raw;
-			FToolCompletionSource Completion = FToolCompletionSource::CreateDetached();
-			FToolFuture Future = Completion.TakeTask();
+			FToolPromise Completion = FToolPromise{};
+			FToolFuture Future = Completion.GetFuture().Share();
 			std::shared_ptr<FCharge> Charge;
-			Tasks::FTaskSubscription Observation;
-			Tasks::FTaskReadiness Ready;
+			FFutureSubscription Observation;
+			FFutureReadiness Ready;
 			size_t Bytes = 0;
 			FClock::time_point Completed;
 		};
@@ -249,9 +249,9 @@ namespace Durin
 		auto Resolve(FInvocation& Entry, bool AvailabilityOnly = false) -> FToolResult
 		{
 			if (!Entry.Raw.IsValid()) return Failure(EToolError::InvalidOutput, "Provider returned an invalid Future.");
-			if (!Entry.Raw.IsCompleted()) return Failure(EToolError::InvalidOutput, "Synchronous provider returned a pending Future; effects are not rolled back.");
+			if (!Entry.Raw.IsReady()) return Failure(EToolError::InvalidOutput, "Synchronous provider returned a pending Future; effects are not rolled back.");
 			if (auto Value = Entry.Raw.GetResultShared()) return ValidateResult(Entry, *Value, AvailabilityOnly);
-			if (Entry.Raw.GetState() == ETaskState::Canceled) return Failure(EToolError::Cancelled, "Provider acknowledged cancellation.");
+			if (Entry.Raw.GetState() == EFutureState::Canceled) return Failure(EToolError::Cancelled, "Provider acknowledged cancellation.");
 			return Failure(EToolError::InternalError, "Provider completion failed or was abandoned.");
 		}
 		auto ReserveTerminal(FInvocation& Entry) -> bool
@@ -275,9 +275,9 @@ namespace Durin
 		{
 			auto& Entry = *Invocations.at(Id);
 			Entry.Raw = std::move(Raw); Entry.Dispatching = false;
-			if (!Open() && Entry.Raw.IsValid() && !Entry.Raw.IsCompleted())
+			if (!Open() && Entry.Raw.IsValid() && !Entry.Raw.IsReady())
 			{ Complete(Id, Failure(EToolError::Cancelled, "Editor closed during dispatch; pending completion detached."), EToolInvocationState::Cancelled); return; }
-			if (!Entry.Raw.IsValid() || Entry.Raw.IsCompleted() || !Entry.Route->Descriptor.bMayPend) Complete(Id, Resolve(Entry));
+			if (!Entry.Raw.IsValid() || Entry.Raw.IsReady() || !Entry.Route->Descriptor.bMayPend) Complete(Id, Resolve(Entry));
 			else Entry.Observation = Entry.Raw.ObserveReady(Entry.Ready);
 		}
 		auto ValidateResult(const FInvocation& Entry, const FToolResult& Result, bool AvailabilityOnly = false) -> FToolResult
@@ -600,7 +600,7 @@ namespace Durin
 			std::scoped_lock Lock(Impl->Mutex);
 			std::vector<uint64> Ready;
 			for (auto& [Id, Entry] : Impl->Invocations)
-				if (Entry->State == EToolInvocationState::Running && Entry->Ready.IsReady() && Entry->Raw.IsCompleted()) Ready.push_back(Id);
+				if (Entry->State == EToolInvocationState::Running && Entry->Ready.IsReady() && Entry->Raw.IsReady()) Ready.push_back(Id);
 			for (auto Id : Ready) Impl->Complete(Id, Impl->Resolve(*Impl->Invocations.at(Id)));
 		}
 		const auto Start = FClock::now();

@@ -570,8 +570,8 @@ TEST_F(FEditorToolTests, PendingCompletionPublishesOnlyOnTickAndSynchronousAdmis
 {
 	FTestToolset Toolset;
 	Toolset.Descriptors.front().bMayPend = true;
-	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Source.TakeTask();
+	auto Source = FToolPromise{};
+	auto Raw = Source.GetFuture().Share();
 	FToolContext Copied;
 	int AvailabilityCalls = 0;
 	Toolset.Availability = [&](const auto&, const auto&) { ++AvailabilityCalls; return FToolAvailability{}; };
@@ -590,7 +590,7 @@ TEST_F(FEditorToolTests, PendingCompletionPublishesOnlyOnTickAndSynchronousAdmis
 	EXPECT_TRUE(Endpoint->Cancel(*Id));
 	EXPECT_TRUE(Copied.Cancellation.IsCancellationRequested());
 	EXPECT_EQ(nullptr, GetToolEditor(Copied));
-	std::thread Producer([Source] {
+	std::thread Producer([Source = std::move(Source)] {
 		EXPECT_TRUE(Source.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{{"enabled", true}}}));
 		EXPECT_FALSE(Source.TrySetValue({EToolStatus::Failed}));
 	});
@@ -606,8 +606,8 @@ TEST_F(FEditorToolTests, PendingCompletionPublishesOnlyOnTickAndSynchronousAdmis
 TEST_F(FEditorToolTests, SynchronousPendingViolationFailsOnceAfterEffectsWithoutRetry)
 {
 	FTestToolset Toolset;
-	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Source.TakeTask();
+	auto Source = FToolPromise{};
+	auto Raw = Source.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -626,8 +626,8 @@ TEST_F(FEditorToolTests, SynchronousPendingViolationFailsOnceAfterEffectsWithout
 TEST_F(FEditorToolTests, PendingCapacityDefersDispatchAndCompletionRecoversCapacity)
 {
 	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
-	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Source.TakeTask();
+	auto Source = FToolPromise{};
+	auto Raw = Source.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -679,8 +679,8 @@ TEST_F(FEditorToolTests, ConsumerPinsRemainChargedAfterReceiptExpiryAndReleaseRe
 TEST_F(FEditorToolTests, ClosedHostDetachesPendingCompletionAndLateProducerCannotReviveIt)
 {
 	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
-	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Source.TakeTask();
+	auto Source = FToolPromise{};
+	auto Raw = Source.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Host = MakeHost(); auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -695,11 +695,37 @@ TEST_F(FEditorToolTests, ClosedHostDetachesPendingCompletionAndLateProducerCanno
 	EXPECT_EQ(EToolError::Cancelled, Future->GetResultShared()->Diagnostics.front().Code);
 }
 
+TEST_F(FEditorToolTests, RetainedReceiptAndLateProducerSurviveServiceDestruction)
+{
+	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
+	FToolPromise Producer;
+	auto Raw = Producer.GetFuture().Share();
+	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
+	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto* Host = MakeHost(); auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
+	auto Endpoint = Tools->GetService();
+	std::weak_ptr<FEditorToolService> Weak = Endpoint;
+	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id);
+	auto Receipt = Endpoint->RetainInvocation(*Id); ASSERT_TRUE(Receipt);
+	Tools->TickTools();
+	Host->PrepareForShutdown();
+	MarkObjectHierarchyAsGarbage(Host); Hosts.clear(); CollectGarbage();
+	Endpoint.reset();
+	EXPECT_TRUE(Weak.expired());
+	auto View = Receipt->GetResultShared(); ASSERT_TRUE(View);
+	*Receipt = {};
+	std::thread Late([Producer = std::move(Producer)] {
+		Producer.SetValue({EToolStatus::Succeeded, FToolValue::FObject{{"enabled", true}}});
+	});
+	Late.join();
+	EXPECT_EQ(EToolError::Cancelled, View->Diagnostics.front().Code);
+}
+
 TEST_F(FEditorToolTests, DelayedOutputValidationAndAbandonmentUseOneFinalBoundary)
 {
 	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
-	std::optional<FToolCompletionSource> Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Source->TakeTask();
+	std::optional<FToolPromise> Source = FToolPromise{};
+	auto Raw = Source->GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -707,7 +733,7 @@ TEST_F(FEditorToolTests, DelayedOutputValidationAndAbandonmentUseOneFinalBoundar
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id); Tools->TickTools();
 	Source->TrySetValue({EToolStatus::Succeeded, "invalid schema"}); Tools->TickTools();
 	EXPECT_EQ(EToolError::InvalidOutput, Endpoint->GetInvocation(*Id)->Result->Diagnostics.front().Code);
-	Source = FToolCompletionSource::CreateDetached(); Raw = Source->TakeTask();
+	Source = FToolPromise{}; Raw = Source->GetFuture().Share();
 	auto Abandoned = Endpoint->Submit(Request()); ASSERT_TRUE(Abandoned); Tools->TickTools();
 	Source.reset(); Tools->TickTools();
 	EXPECT_EQ(EToolError::InternalError, Endpoint->GetInvocation(*Abandoned)->Result->Diagnostics.front().Code);
@@ -716,8 +742,8 @@ TEST_F(FEditorToolTests, DelayedOutputValidationAndAbandonmentUseOneFinalBoundar
 TEST_F(FEditorToolTests, PendingRemovalCancellationAndByteLimitsRemainDetachedAndBounded)
 {
 	FTestToolset Toolset; Toolset.Descriptors.front().bMayPend = true;
-	auto Source = FToolCompletionSource::CreateDetached();
-	auto Raw = Source.TakeTask();
+	auto Source = FToolPromise{};
+	auto Raw = Source.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -734,7 +760,7 @@ TEST_F(FEditorToolTests, PendingRemovalCancellationAndByteLimitsRemainDetachedAn
 	EXPECT_EQ(EToolError::Cancelled, Endpoint->GetInvocation(*Id)->Result->Diagnostics.front().Code);
 	Toolset.Descriptors.front().Output = FToolSchema(EToolValueType::String);
 	Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
-	Source = FToolCompletionSource::CreateDetached(); Raw = Source.TakeTask();
+	Source = FToolPromise{}; Raw = Source.GetFuture().Share();
 	Limits.MaxCompletedBytes = 2048;
 	ASSERT_TRUE(Endpoint->Configure(Limits)); (void)Tools->ListToolsets();
 	auto Oversized = Endpoint->Submit(Request()); ASSERT_TRUE(Oversized); Tools->TickTools();

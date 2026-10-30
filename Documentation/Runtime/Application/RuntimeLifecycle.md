@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-10-30
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -403,7 +403,9 @@ references:
 CPU-work owners close admission and join work that can publish render/RHI commands
 during host/service or module teardown, before render admission closes. The task
 system remains open through render/RHI teardown because render fences create
-task events. Work that accesses objects must finish during host/service
+task events. Standalone future readiness and observer events do not replace
+owner producer joins; accepted task/command captures must retire before their
+resources or modules are released. Work that accesses objects must finish during host/service
 or object teardown before those objects are collected; retaining the executors
 for later module cleanup does not extend object lifetimes. Owners are responsible
 for their manager mailboxes, providers, caches, objects, render and RHI work. The

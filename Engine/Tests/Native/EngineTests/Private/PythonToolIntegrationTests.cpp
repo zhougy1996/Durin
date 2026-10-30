@@ -755,7 +755,7 @@ def other():
             EXPECT_TRUE(Resolved->Modify()); Resolved->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             ++Revision; return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
-        auto Source = FToolCompletionSource::CreateDetached(); RegisterPending(Source.TakeTask(), Schema);
+        auto Source = FToolPromise{}; RegisterPending(Source.GetFuture().Share(), Schema);
         auto Job = Submit(R"PY(
 import durin
 try: durin.tools.call('python.pending', 'read', {})
@@ -797,7 +797,7 @@ def prepare():
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
-        auto Source = FToolCompletionSource::CreateDetached(); RegisterPending(Source.TakeTask());
+        auto Source = FToolPromise{}; RegisterPending(Source.GetFuture().Share());
         auto Job = Submit(R"PY(
 import durin
 @durin.defer
@@ -822,7 +822,7 @@ def edit():
 
     TEST_F(FPythonToolIntegrationTests, SuspendedCancellationClosesFinallyAndDetachesLateResultsWithoutRollback)
     {
-        auto Source = FToolCompletionSource::CreateDetached(); RegisterPending(Source.TakeTask());
+        auto Source = FToolPromise{}; RegisterPending(Source.GetFuture().Share());
         auto Job = Submit(R"PY(
 import durin
 @durin.defer
@@ -881,7 +881,7 @@ def work():
 
     TEST_F(FPythonToolIntegrationTests, PendingFailureIsThrownIntoGeneratorAndForeignYieldFails)
     {
-        auto Source = FToolCompletionSource::CreateDetached(); RegisterPending(Source.TakeTask());
+        auto Source = FToolPromise{}; RegisterPending(Source.GetFuture().Share());
         auto Job = Submit(R"PY(
 import durin
 @durin.defer
@@ -913,7 +913,7 @@ def work():
             Target->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
-        auto Source = FToolCompletionSource::CreateDetached(); RegisterPending(Source.TakeTask());
+        auto Source = FToolPromise{}; RegisterPending(Source.GetFuture().Share());
         auto OtherSession = Runtime.CreateSession(Tools->GetService()); ASSERT_TRUE(OtherSession);
         const std::string Code = R"PY(
 import durin
@@ -942,7 +942,7 @@ def edit():
     }
     TEST_F(FPythonToolIntegrationTests, UnconsumedPendingInvocationKeepsJobLiveUntilSettlement)
     {
-        auto Source = FToolCompletionSource::CreateDetached(); RegisterPending(Source.TakeTask());
+        auto Source = FToolPromise{}; RegisterPending(Source.GetFuture().Share());
         auto Job = Submit("import durin\ndurin.tools.submit('python.pending', 'read', {})\nprint('submitted')");
         Tools->TickScripts(); EXPECT_EQ(EPythonJobState::Running, Runtime.GetJobResult(Job)->State);
         EXPECT_EQ("submitted\n", Runtime.GetJobResult(Job)->Output);
@@ -1080,7 +1080,7 @@ def edit():
             EXPECT_TRUE(Resolved->Modify()); Resolved->SetRelativeLocation({static_cast<double>(std::get<int64>(Args.at("value").Data)), 0, 0});
             ++Revision; ++Effects; return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
-        auto Preparation = FToolCompletionSource::CreateDetached(); RegisterPending(Preparation.TakeTask(), Schema);
+        auto Preparation = FToolPromise{}; RegisterPending(Preparation.GetFuture().Share(), Schema);
         auto Stale = Submit(R"PY(
 import durin
 @durin.defer
@@ -1106,7 +1106,7 @@ def prepare():
         EXPECT_EQ(2.0, Object->GetRelativeLocation().x); EXPECT_EQ(1u, Host->GetTransactor()->GetQueueLength());
 
         PendingRegistration.Reset(); PendingToolset.reset();
-        auto Pending = FToolCompletionSource::CreateDetached(); RegisterPending(Pending.TakeTask(), Schema);
+        auto Pending = FToolPromise{}; RegisterPending(Pending.GetFuture().Share(), Schema);
         auto Cancelled = Submit(R"PY(
 import durin
 @durin.defer

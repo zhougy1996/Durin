@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Modules/ModularFeature.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Future.h"
 
 namespace Durin
 {
@@ -180,9 +180,9 @@ namespace Durin
 		FToolValue Data;
 		std::vector<FToolDiagnostic> Diagnostics;
 	};
-	using FToolFuture = Tasks::TTask<FToolResult>;
-	using FToolCompletionSource = Tasks::TCompletionSource<FToolResult>;
-	inline auto ReadyToolResult(FToolResult Result) -> FToolFuture { return Tasks::MakeReadyTask(std::move(Result)); }
+	using FToolFuture = TSharedFuture<FToolResult>;
+	using FToolPromise = TPromise<FToolResult>;
+	inline auto ReadyToolResult(FToolResult Result) -> FToolFuture { return MakeReadyFuture(std::move(Result)).Share(); }
 
 	struct FToolAvailability
 	{
@@ -195,7 +195,7 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Durin.Toolset";
-		static constexpr uint32 FeatureVersion = 2;
+		static constexpr uint32 FeatureVersion = 3;
 		virtual auto DescribeToolset() const -> FToolsetDescriptor = 0;
 		virtual auto CheckAvailability(const FToolRequest&, const FToolContext&) -> FToolAvailability = 0;
 		// The caller validates/normalizes Arguments once before availability and execution.
