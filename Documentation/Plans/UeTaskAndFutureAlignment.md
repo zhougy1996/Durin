@@ -9,6 +9,31 @@ Completed: 2026-10-30
 
 ## Current Status
 
+Follow-up Stage 5 removed `ThenAsync`: the workspace had no production callers.
+Task composition now uses explicit prerequisites and `AddNested`, with child
+results retained separately. Automatic task flattening and inner failure/result
+forwarding are no longer selected contracts. Save adapters and empty fan-in keep
+their private registered result machinery in this stage. Stages 0–4 evidence
+below describes the original acceptance; Stage 5 acceptance is recorded next.
+
+Stage 5 passed on tested `Engine` subtree
+`671af5510dc612a1bb028baa9d49541dd0fe6b9b`, based on `3ec6fa02c`, using
+`windows-msvc-x64` / `Win64-Debug-DurinEditor`, MSVC 14.44 and 14 build jobs:
+
+- CoreConcurrencyTests: 239 passed; report
+  `Build/UeTaskAndFutureAlignment/Stage5-Core.xml`.
+- Nested composition, dependent result views and void fan-in: 19 cases passed
+  serial isolation; report `Build/UeTaskAndFutureAlignment/Stage5-Isolated.xml`.
+  Events synchronize pending-child and deferred-executor cases without sleeps.
+- Incremental workspace `build all` passed, including Engine, Sandbox and
+  RoadWeaver; log `Build/.agent-state/logs/20261030-173940-247048-4832-cmake.log`.
+- Source/test audit found no remaining `ThenAsync` or `TInnerTask` across the
+  three workspace projects. Runtime bodies and domain save adapters are unchanged;
+  fresh execution is bounded to Core composition/lifecycle coverage, with all
+  template consumers compiled. Original integration receipts remain historical.
+- Changed-document and all-plan validation passed. Only documentation evidence
+  changed after runtime verification; no Stage 5 gates remain.
+
 Stage 0 contract and ownership audit completed against
 `d724be255599a8e532e2719701fc4e8e9dda3e59`. The refreshed source/test inventory
 is retained in ignored `Build/UeTaskAndFutureAlignment/Stage0Inventory.txt`.
@@ -65,7 +90,7 @@ thread. RDG already uses LaunchIndependentTask and helping waits; update the
 fixture to check independent CPU authority and ordered result delivery instead
 of OS thread identity. No RDG scheduling implementation or wait policy changes.
 
-### Final acceptance
+### Original acceptance (Stages 0–4)
 
 Stages 0–4 are complete. Final tested source/test inputs are the `Engine` Git
 subtree `33ebf2e13a8c983ce7ef1aef3c7ae8053037778e`, based on implementation revision
@@ -164,7 +189,7 @@ attaching an ownership pin does not itself install a module unload protocol.
 | RHI pipeline observer | MakeObserver precedes queue insertion; Publish stores Published/Outcome before signaling. Observer Cancel stores Canceled then signals without canceling compilation. | LastDrain owns Drain and compiler inputs; StopAndWait closes queue admission, clears queued entries and joins LastDrain before ReleaseResources. Observer completion is only a wake dependency. RHICommandList and RHIPipelineCreationTests subscribe for wakeups; PipelineStateCache uses completion only. All read domain state/result for outcomes. |
 | Package admission | Register disk task behind event, then publication task and AsyncSaves owner entry before setting explicit admitted=true and triggering. Rejection leaves decision=false and triggers. | Disk owns Save; FinishAsyncSave clears Write and moves/calls/clears Finish on GameThread before erasing AsyncSaves. Poll/DrainAsyncSaves handles canceled publication. Host save drain precedes object/executor teardown. |
 | Package and asset typed saves | Register private external result node before SubmitAsyncSave. Finish callback reads domain token plus returned-task cancellation, performs Complete/Cancel and resets Operation before result publication. Setup rejection settles the registered node. | Result-ready can precede Finish capture destruction. AsyncSaves membership and accepted Package.SavePublication, plus FinishAsyncSave fallback, remain the retirement obligation until Finish is cleared and owner-list removal completes. DrainAsyncSaves is required before objects/executors retire. Do not treat result readiness as this join. |
-| ThenAsync and fan-in | Core internal external node is admitted before bridge dispatch; dynamic binding and hooks require no later admission. | Dynamic dependency and forwarded result pins preserve inner task retirement/module ownership; scheduler graph drain remains authoritative. Keep internal results on task storage, including move-only values. |
+| Task composition and fan-in | Use prerequisites for known work and AddNested inside running bodies for dynamically selected children. Empty fan-in retains its private registered result node. | Nested dependencies extend completion only; child results and outcomes remain explicit. Scheduler graph drain and owning result views preserve retirement. |
 
 ### Frozen private adapter boundary
 
@@ -291,7 +316,7 @@ names.
 | `Engine/Source/Runtime/CoreDObject/Private/DObject/PackagePersistence.cpp`: `Package.SaveAdmission` | Replace the void source with an event plus explicit admission decision, written before triggering. Disk work checks that decision, not event task state. Rejected setup must release the gate and skip writes; injected rejection and canceled publication must remain deterministic. |
 | Same file: `FSavePackageContext::SaveAsync`, `Package.SaveAsync` | Preserve the public `TTask<FPackageSaveResult>` return and task-handle cancellation in this migration. Use a private registered external result adapter until the domain save pipeline can return a real publication task with identical semantics. Do not change the return to Future or a success-only event wrapper. Settle the result once after operation cleanup, and retain producer retirement through `FinishAsyncSave` capture release and owner-list removal. |
 | `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp`: `FAssetPackageSaveContext::SaveAsync`, `Asset.SaveAsync` | Apply the same private typed adapter strategy, preserving `FAssetWriteResult`, cancellation requested through the returned task or domain token, GameThread commit, failure effects, and cleanup. Preserve admission-failure behavior without leaving an unacknowledged registered node. |
-| `Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h`: `ThenAsync`, empty `BuildFanIn`, `FCompletionSourceAccess` | Keep the machinery private; preserve dynamic dependency binding, nested/module lifetime pins, shared move-only results, failure/cancel propagation, and iterative retirement. Do not route internal graph operations through scheduler-independent futures. |
+| `Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h`: task composition and empty `BuildFanIn` | Stage 5 removes automatic task flattening. Use explicit dependencies and nested tasks; retain results independently. Keep empty fan-in and save-result machinery private without routing graph operations through standalone futures. |
 | Same file: `MakeReadyTask` | Separate ready task construction from ready future construction. Tool results use the latter. Retain an actual ready-task helper only for task consumers that need it, with explicit scheduler-lifetime/dependency rules; do not retain detached observation-only tasks under a generic task name. |
 
 Tests also constitute callers. Migrate source fixtures in CoreTests
@@ -427,6 +452,21 @@ Depends on Stages 2 and 3.
 
 Completion: no public `TCompletionSource`, no detached data-only `TTask` escape,
 and no producer lifetime protected only by a ready result or event.
+
+### Stage 5: Replace task flattening with explicit composition
+
+Depends on Stage 4. This follow-up supersedes the original flattening contract;
+Stages 0–4 acceptance evidence remains historical.
+
+- [x] Remove `ThenAsync` and its inner-task type trait; no production callers
+  exist across Engine, Sandbox or RoadWeaver.
+- [x] Replace flattening tests with explicit prerequisites, nested completion,
+  independently retained result views, local cancellation and capture retirement.
+- [x] Document that nested completion does not forward child results or outcomes.
+- [x] Validate CoreConcurrencyTests, workspace template consumers and changed docs.
+
+Completion: task flattening is absent from the public API and current contracts;
+explicit composition coverage passes. Save adapters and empty fan-in remain private.
 
 ## Validation And Handoff
 

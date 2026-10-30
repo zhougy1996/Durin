@@ -587,55 +587,6 @@ namespace Durin::Tasks
 			template<typename T> static auto SetTaskResult(const TExternalResultSource<T>& Source, const TTask<T>& Task) -> bool
 			{ return Source.TrySetTaskResult(Task); }
 		};
-		template<typename T> struct TInnerTask;
-		template<typename T> struct TInnerTask<TTask<T>> { using Type = T; };
-	}
-
-	// Flatten an inner task by retaining its result, without consuming any alias.
-	template<typename T, typename F, typename R = typename Detail::TThenResult<T, std::decay_t<F>>::Type,
-		typename U = typename Detail::TInnerTask<R>::Type>
-	auto ThenAsync(const TTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTask<U>
-	{
-		if (!Input.IsValid()) Detail::FailConstruction({ETaskConstructionErrorCode::InvalidPrerequisite});
-		try
-		{
-			const FTask Predecessor = Input;
-			auto Source = Detail::FExternalResultAccess::Create<U>(Options);
-			auto Output = Source.TakeTask();
-			auto InvokeInner = [Source, Function = std::forward<F>(Function)](auto&&... Args) mutable
-				requires std::is_invocable_v<std::decay_t<F>&, decltype(Args)...> {
-				auto Inner = std::invoke(Function, std::forward<decltype(Args)>(Args)...);
-				if (auto Error = Durin::Private::FTaskRuntimeAccess::BindDynamicDependency(Source.GetTaskHandle(), Inner))
-				{
-					requiref(Error->Code != ETaskConstructionErrorCode::AllocationFailure, "Dynamic task dependency allocation failed.");
-					Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, *Error, ETaskFailureCode::DependencyBindingFailed});
-					return;
-				}
-				auto Hook = std::make_shared<Durin::Private::FTaskTerminalHook>();
-				Hook->Function = [Source, Inner](ETaskState Terminal) {
-					if (Terminal == ETaskState::Succeeded) Detail::FExternalResultAccess::SetTaskResult(Source, Inner);
-					// Hooks precede public terminal visibility; GetFailure() is not valid here.
-					else if (Terminal == ETaskState::Failed) Source.TrySetFailure(Durin::Private::FTaskRuntimeAccess::GetFailure(Inner));
-					else Source.TrySetCanceled();
-				};
-				Durin::Private::FTaskRuntimeAccess::BindTerminal(Inner, std::move(Hook));
-			};
-			auto Runner = Then(Input, Executor, Options, std::move(InvokeInner));
-			auto Hook = std::make_shared<Durin::Private::FTaskTerminalHook>();
-			Hook->Function = [Source, Predecessor, Runner](ETaskState Terminal) {
-				if (Terminal == ETaskState::Failed) Source.TrySetFailure(Durin::Private::FTaskRuntimeAccess::GetFailure(Runner));
-				else if (Terminal == ETaskState::Canceled)
-				{
-					if (Predecessor.GetState() == ETaskState::Failed)
-						Source.TrySetFailure(Detail::ReadFailure(Predecessor));
-					else Source.TrySetCanceled();
-				}
-			};
-			Durin::Private::FTaskRuntimeAccess::BindTerminal(Runner, std::move(Hook));
-			return Output;
-		}
-		catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
 	}
 
 	namespace Detail

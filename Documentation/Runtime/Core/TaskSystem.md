@@ -208,7 +208,6 @@ All ordinary composition returns task handles directly:
 | `Then(const TTask<T>&, Executor, Options, F)` | Observe a shared successful result by reference; void inputs omit the value; callbacks may take a cancellation token first |
 | `Then(FTask or FTaskEvent, Executor, Options, F)` | Success edge with a completion handle and no input value |
 | `ThenCompleted(const TTask<T>&, Executor, Options, F)` | Receive the task in any terminal state; inspect before accessing a result |
-| `ThenAsync(const TTask<T>&, Executor, Options, F)` | Flatten a returned task by retaining its node and result without moving the value |
 | `WhenAll(const vector<TTask<T>>&)` | Owning result views (completion handles for void) in input order, including duplicate positions |
 | `WhenAll(const tuple<TTask<Ts>...>&)` | Heterogeneous owning result views; void positions hold generic `FTask` completion handles |
 
@@ -233,7 +232,13 @@ CookedMesh completion records retire only after their worker task is terminal.
 The RHI device queue captures a weak scheduler identity and rejects reuse after
 a scheduler restart; this read-only binding creates no task node.
 
-Then rejects task-returning callbacks; ThenAsync is explicit flattening.
+Then rejects task-returning callbacks. For known work, launch the next task with
+explicit prerequisites and return its own result. For children selected inside a
+running body, call `AddNested(Child)` to extend parent completion without blocking
+its worker. Nested completion does not forward child results, failure or
+cancellation. Retain the child handle or an owning domain result explicitly;
+share a cancellation token only when cancellation should be shared. There is no
+automatic task-flattening API.
 Empty fan-in without additional prerequisites is immediately successful in
 the current scheduler lifetime. Additional
 prerequisites retain their dependency and executor requirements.
@@ -243,14 +248,8 @@ independently observable. Requesting cancellation of an observing edge does not
 suppress its callback or cancel its inputs. The callback may honor its token;
 mandatory cleanup still belongs to the owner lifecycle boundary.
 
-ThenAsync binds and cycle-checks its dynamic dependency before clearing unknown
-execution requirements. Canceling the outer observer does not implicitly cancel
-the shared inner task. Callers can explicitly share a cancellation token when
-that behavior is required. Caller prerequisites bind on the runner before returning
-and their borrowed span is not retained in the later observer. An inner user exception remains
-execution failure, not a scheduler admission result.
-Copying and flattening preserve the original failure reason, code, dependency
-error and input identity. A flattening callback exception remains a callback
+Copying task handles preserves the original failure reason, code, dependency
+error and input identity. A continuation callback exception remains a callback
 failure; it is not relabeled as a failed prerequisite. Detailed composition failure
 metadata is allocated only when needed and belongs to the task node; typed
 handles do not own a separate failure object. Internal terminal hooks can read
@@ -402,12 +401,12 @@ prerequisites are completion dependencies: the body becomes runnable once every
 prerequisite finishes, including Failed and Canceled outcomes. They do not
 forward failure or cancellation. Consumers requiring successful admission or
 usable predecessor data must check that outcome explicitly or use `Then`.
-`Then` and `ThenAsync` invoke user work only after their primary input succeeds;
+`Then` invokes user work only after their primary input succeeds;
 failure or an explicitly canceled producer outcome suppresses the callback and
 propagates that outcome. A cancellation request alone does neither.
 Generic `FTask` and typed inputs use the same success-continuation logic.
 Additional `Options.Prerequisites` only constrain ordering, including on `Then`,
-`ThenCompleted`, `ThenAsync` and `WhenAll`; they do not become additional success
+`ThenCompleted` and `WhenAll`; they do not become additional success
 conditions. Fan-in still checks the outcomes of its actual input collection.
 The kernel supports completion dependencies only; success checks belong to composition.
 Registration racing node closure either joins the open dependent list or observes
