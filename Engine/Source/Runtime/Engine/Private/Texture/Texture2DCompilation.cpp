@@ -371,14 +371,6 @@ namespace Durin
 		return Progress ? Progress->Read() : FTexture2DCompilationDiagnostic{};
 	}
 
-	auto FTextureCompilingManager::GetBuildStatus(const DTexture2D& Texture) const
-		-> FTexture2DBuildStatus
-	{
-		const auto Diagnostic = GetDiagnostic(Texture);
-		return {.Phase = Diagnostic.Phase, .bPending = HasPending(Texture),
-			.FailureMessage = Diagnostic.Phase == ETexture2DCompilationPhase::Failed ? "Texture build failed." : ""};
-	}
-
 	auto FTextureCompilingManager::SubmitPlatformCache(DTexture& Texture,
 		std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool
 	{
@@ -575,7 +567,7 @@ namespace Durin
 		CheckGameThread();
 		if (IsPendingKill())
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		// A retired request's completion callback may have begun teardown.
 		if (IsPendingKill())
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
@@ -648,11 +640,6 @@ namespace Durin
 		return Manager ? Manager->GetDiagnostic(Texture) : FTexture2DCompilationDiagnostic{};
 	}
 
-	auto DTexture2D::GetBuildStatus() const -> FTexture2DBuildStatus
-	{
-		const auto Manager = GetTextureCompilingManager();
-		return Manager ? Manager->GetBuildStatus(*this) : FTexture2DBuildStatus{};
-	}
 }
 
 #else

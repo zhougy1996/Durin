@@ -20,6 +20,7 @@
 #include "RHICommandList.h"
 #include "RendererModule.h"
 #include "RenderingThread.h"
+#include "RenderResourcePreparation.h"
 #include "SceneViewProjection.h"
 #include "SceneTestAccess.h"
 #include "Texture/Texture2D.h"
@@ -95,7 +96,11 @@ auto SetDensity(DVolumeTexture& Texture, uint8 Value) -> void
 	ASSERT_TRUE(Prepared);
 	Texture.SetSource(std::move(*Prepared));
 	Texture.PostLoad();
-	ASSERT_TRUE(Texture.FinishReloadResourcePreparation());
+	ASSERT_TRUE(Texture.FinishCachePlatformData());
+	FRenderCommandFence ResourceFence;
+	ResourceFence.BeginFence();
+	ResourceFence.Wait();
+	ASSERT_FALSE(Texture.HasPendingRenderResourceInitialization());
 }
 
 auto SetWeather(DTexture2D& Texture, uint8 Value) -> void
@@ -108,7 +113,11 @@ auto SetWeather(DTexture2D& Texture, uint8 Value) -> void
 	ASSERT_TRUE(Source.Init2D(Pixels.GetView(), 4));
 	Texture.SetSource(std::move(Source));
 	Texture.PostLoad();
-	ASSERT_TRUE(Texture.FinishReloadResourcePreparation());
+	ASSERT_TRUE(Texture.FinishCachePlatformData());
+	FRenderCommandFence ResourceFence;
+	ResourceFence.BeginFence();
+	ResourceFence.Wait();
+	ASSERT_FALSE(Texture.HasPendingRenderResourceInitialization());
 }
 
 auto SaveEvidence(std::string_view Name, const FByteBuffer& Pixels) -> void
@@ -176,21 +185,47 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	auto Render = [&]() {
 		FByteBuffer Pixels;
 		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
-		EnqueueRenderCommand("RenderPackageReloadScene", [&](FRHICommandListImmediate& Commands) {
-			auto Output = GDynamicRHI->RHICreateTexture(Commands,
-				FRHITextureCreateDesc::Create2D("ReloadSceneOutput", 96, 64, EPixelFormat::SRGBA8_UNORM)
-				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource
-					| ETextureCreateFlags::CPUReadback));
-			if (!Output) return;
-			++GRenderFrameCounterRenderThread;
-			GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-			auto View = MakeSceneCloudView(96, 64);
-			Result = Renderer.RenderView(Commands, {Scene, View, Output, false, {}});
-			GDynamicRHI->RHIEndFrame_RenderThread(Commands);
-			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-			EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, Pixels));
-		});
-		FlushRenderingCommands();
+		FTextureRHIRef Output;
+		const auto Preparation = FRenderResourcePreparation::Create();
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+		Result = ERenderViewResult::RendererResourcesPending;
+		do
+		{
+			EnqueueRenderCommand("RenderPackageReloadScene", [&](FRHICommandListImmediate& Commands) {
+				if (!Output)
+					Output = GDynamicRHI->RHICreateTexture(Commands,
+						FRHITextureCreateDesc::Create2D("ReloadSceneOutput", 96, 64, EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource
+							| ETextureCreateFlags::CPUReadback));
+				if (!Output) { Result = ERenderViewResult::InvalidOutput; return; }
+				++GRenderFrameCounterRenderThread;
+				Commands.SwitchPipeline(ERHIPipeline::Graphics);
+				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				auto View = MakeSceneCloudView(96, 64);
+				const auto Progress = Renderer.PrepareViewResources(Commands, {Scene, View, Output, false, {}}, Preparation);
+				if (Progress.State == ERenderResourcePreparationState::Ready)
+				{
+					Result = Renderer.RenderView(Commands, {Scene, View, Output, false, {}});
+					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+					if (Result == ERenderViewResult::Success)
+						EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, Pixels));
+				}
+				else if (Progress.State != ERenderResourcePreparationState::Pending)
+					Result = ERenderViewResult::RendererResourcesUnavailable;
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			});
+			FlushRenderingCommands();
+			if (Result != ERenderViewResult::RendererResourcesPending) break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		} while (std::chrono::steady_clock::now() < Deadline);
+		if (Result == ERenderViewResult::RendererResourcesPending)
+		{
+			Preparation.RequestCancel();
+			EnqueueRenderCommand("RetireReloadViewPreparation", [&](FRHICommandListImmediate&) {
+				Preparation.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
+			});
+			FlushRenderingCommands();
+		}
 		EXPECT_EQ(Result, ERenderViewResult::Success);
 		EXPECT_EQ(Pixels.size(), 96u * 64u * 4u);
 		return Pixels;

@@ -40,20 +40,6 @@ namespace Durin::Editor::Texture
 			return std::format("{} x {}", Width, Height);
 		}
 
-		auto DescribeBuildPhase(ETexture2DCompilationPhase Phase) -> const char*
-		{
-			switch (Phase)
-			{
-			case ETexture2DCompilationPhase::Queued: return "Queued";
-			case ETexture2DCompilationPhase::Building: return "Building";
-			case ETexture2DCompilationPhase::AwaitingApply: return "Awaiting Apply";
-			case ETexture2DCompilationPhase::Ready: return "Ready";
-			case ETexture2DCompilationPhase::Failed: return "Failed";
-			case ETexture2DCompilationPhase::Canceled: return "Cancelled";
-			default: return "Not Submitted";
-			}
-		}
-
 		auto PayloadStageName(ETexturePayloadStage Stage) -> const char*
 		{
 			switch (Stage)
@@ -353,16 +339,16 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void
 	{
-		const FTexture2DBuildStatus Status = Texture->GetBuildStatus();
-		if (Status.bPending) ImGui::BeginDisabled();
+		const bool bPending = !Texture->IsAsyncCacheComplete();
+		if (bPending) ImGui::BeginDisabled();
 		if (ImGui::Button("Save")) SaveTexture(Texture);
-		if (Status.bPending) ImGui::EndDisabled();
+		if (bPending) ImGui::EndDisabled();
 		ImGui::SameLine();
 		if (ImGui::Button("Refresh"))
 		{
 			Texture->PostLoad();
 		}
-		if (Status.bPending)
+		if (bPending)
 		{
 			ImGui::SameLine();
 			if (ImGui::Button("Cancel Build"))
@@ -374,12 +360,8 @@ namespace Durin::Editor::Texture
 		ImGui::TextUnformatted(Document.ResourceId.c_str());
 
 		const bool bReady = Texture->HasPlatformData();
-		const bool bFailed = Status.Phase == ETexture2DCompilationPhase::Failed;
-		const std::string StatusName = Status.bPending ? DescribeBuildPhase(Status.Phase)
-			: bFailed ? "Build Failed" : bReady ? "CPU Ready" : "Not Built";
-		const ImVec4 StatusColor = bFailed
-			? ImVec4(1.0f, 0.48f, 0.35f, 1.0f)
-			: bReady ? ImVec4(0.40f, 0.85f, 0.52f, 1.0f)
+		const std::string StatusName = bPending ? "Building" : bReady ? "CPU Ready" : "Not Built";
+		const ImVec4 StatusColor = bReady ? ImVec4(0.40f, 0.85f, 0.52f, 1.0f)
 			: ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
 		const float StatusWidth = ImGui::CalcTextSize(StatusName.c_str()).x;
 		const float RightX = ImGui::GetWindowContentRegionMax().x - StatusWidth;
@@ -458,14 +440,14 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
 	{
-		const FTexture2DBuildStatus Status = Texture->GetBuildStatus();
+		const bool bPending = !Texture->IsAsyncCacheComplete();
 		const bool bResourceFailed = Texture->GetResource() && !Texture->HasPendingRenderResourceInitialization()
 			&& !Texture->GetResource()->GetTextureRHI_GameThread();
-		if ((Status.bPending || Status.Phase != ETexture2DCompilationPhase::Failed)
+		if ((bPending || Texture->HasPlatformData() || !Texture->GetSource().IsValid())
 			&& !bResourceFailed) return;
-		const char* Title = "Build Error";
+		const char* Title = "Platform Data Unavailable";
 		ImVec4 TitleColor(1.0f, 0.5f, 0.3f, 1.0f); // Amber default
-		std::string Message = Status.FailureMessage;
+		std::string Message;
 		if (bResourceFailed)
 		{
 			Title = "GPU Texture Update Failed";
@@ -473,7 +455,7 @@ namespace Durin::Editor::Texture
 		}
 		else if (Message.empty())
 		{
-			Message = "The platform texture data could not be built.";
+			Message = "The platform texture data is not available. Rebuild the texture; see the log if it fails.";
 		}
 
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.08f, 0.08f, 0.5f));

@@ -1,4 +1,5 @@
 #include "Texture/Texture2D.h"
+#include "Texture/TexturePlatformCache.h"
 #include "Logging/LogMacros.h"
 #include "Texture/TextureCookedData.h"
 
@@ -196,7 +197,7 @@ namespace Durin
 		ImportState.SourceData.Normalize();
 		if (const auto Validation = ImportState.Validate(); !Validation)
 			return std::unexpected(FormatAssetImportDataError(Validation.error()));
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		auto* ImportData = GetAssetImportData();
 		if (!ImportData) ImportData = NewObject<DAssetImportData>(this, "AssetImportData");
 		if (!ImportData) return std::unexpected(std::string("Could not allocate Texture2D import metadata."));
@@ -220,7 +221,7 @@ namespace Durin
 		ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void
 	{
 		CheckGameThread();
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		Usage = InUsage;
 		bSRGB = bInSRGB;
 		MaxResolution = InMaxResolution;

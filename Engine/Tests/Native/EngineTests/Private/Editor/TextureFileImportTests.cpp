@@ -638,9 +638,8 @@ TEST_F(FTextureImportQueueTests, FailedBatchSaveRetainsAssetForRetryWithoutSourc
 	ASSERT_NE(Package, nullptr);
 	auto* Texture = Cast<DTexture2D>(Package->FindTopLevelAsset("wall_normal"));
 	ASSERT_NE(Texture, nullptr);
-	const auto BuildStatus = Texture->GetBuildStatus();
-	EXPECT_EQ(BuildStatus.Phase, ETexture2DCompilationPhase::Ready);
-	EXPECT_TRUE(BuildStatus.FailureMessage.empty());
+	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+	EXPECT_TRUE(Texture->HasPlatformData());
 	ASSERT_TRUE(std::filesystem::remove(Source));
 	PumpGameThreadDeferredWork();
 	Importer.Tick(false);

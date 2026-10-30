@@ -45,8 +45,6 @@ namespace Durin
 		// GameThread only. Assigns validated settings and cancels pending authored builds.
 		ENGINE_API auto SetBuildSettings(
 			FVolumeTextureBuildSettings Value) -> void;
-
-		ENGINE_API auto CreateBuildInput() const -> FVolumeTextureSourceData;
 #endif
 
 		// Returns installed CPU data only; never loads bulk data or updates resources.

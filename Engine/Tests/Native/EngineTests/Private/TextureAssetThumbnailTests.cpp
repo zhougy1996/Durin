@@ -194,6 +194,37 @@ TEST(FTextureAssetThumbnailTests, VolumePreviewPreservesRGBAAndClampsSlice)
 	EXPECT_TRUE(std::ranges::equal(Slice.Pixels, Mip.Voxels));
 }
 
+TEST(FTextureAssetThumbnailTests, VolumePreviewReadsCanonicalSourceAndRejectsOtherShapes)
+{
+	auto Image = Durin::Image::FImage::TryCreate({.Width = 2, .Height = 1, .Depth = 2,
+		.Format = Durin::Image::ERawImageFormat::G8},
+		Durin::FByteBuffer{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}});
+	ASSERT_TRUE(Image);
+	Durin::FTextureSource Source;
+	ASSERT_TRUE(Source.InitVolume(Image->GetView()));
+	const auto Identity = Source.GetIdentity();
+	const auto Payload = Source.GetBulkData().GetInstanceId();
+	const auto Slice = Durin::Editor::Texture::ExtractVolumeTexturePreviewSlice(
+		Source, Durin::Editor::Texture::EVolumeTexturePreviewAxis::XY, 99);
+	ASSERT_TRUE(Slice.IsValid());
+	EXPECT_EQ(Slice.Width, 2u);
+	EXPECT_EQ(Slice.Height, 1u);
+	EXPECT_EQ(Slice.Pixels[0], std::byte{3});
+	EXPECT_EQ(Slice.Pixels[4], std::byte{4});
+	EXPECT_EQ(Slice.Pixels[3], std::byte{255});
+	EXPECT_EQ(Source.GetIdentity(), Identity);
+	EXPECT_EQ(Source.GetBulkData().GetInstanceId(), Payload);
+	EXPECT_FALSE(Durin::Editor::Texture::ExtractVolumeTexturePreviewSlice(
+		Durin::FTextureSource{}, Durin::Editor::Texture::EVolumeTexturePreviewAxis::XY, 0).IsValid());
+	auto Flat = Durin::Image::FImage::TryCreate({.Width = 2, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::G8}, Durin::FByteBuffer(2));
+	ASSERT_TRUE(Flat);
+	Durin::FTextureSource Source2D;
+	ASSERT_TRUE(Source2D.Init2D(Flat->GetView(), 1));
+	EXPECT_FALSE(Durin::Editor::Texture::ExtractVolumeTexturePreviewSlice(
+		Source2D, Durin::Editor::Texture::EVolumeTexturePreviewAxis::XY, 0).IsValid());
+}
+
 TEST(FTextureAssetThumbnailTests, RendererConflictRollsBackWholeIntegration)
 {
 	InitializeDObjectSystem();

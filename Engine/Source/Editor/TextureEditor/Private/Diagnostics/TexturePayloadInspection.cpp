@@ -340,24 +340,21 @@ namespace Durin
 			.Diagnostic = bImportedDataValid
 				? "Canonical imported pixels are authored; the optional source hint was not probed."
 				: "Canonical imported pixels are missing or invalid."});
-		const FTexture2DBuildStatus Compilation = Texture.GetBuildStatus();
 		const FTexturePlatformData* PlatformData =
 			Texture.GetPlatformData();
 		const bool bPlatformReady = PlatformData && PlatformData->IsValid();
 		const bool bCachePending = !Texture.IsAsyncCacheComplete();
-		const bool bCompilationFailed =
-			Compilation.Phase == ETexture2DCompilationPhase::Failed;
 		Result.Entries.push_back({
 			.Domain = "Texture2D", .Stage = ETexturePayloadStage::DerivedData,
 			.State = bPlatformReady ? ETexturePayloadState::Available
-				: bCompilationFailed ? ETexturePayloadState::Failed
 				: ETexturePayloadState::Missing,
 			.Repair = bPlatformReady || bCachePending
 				? ETexturePayloadRepairAction::None : ETexturePayloadRepairAction::RebuildDerivedData,
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
 			.Placement = "DerivedDataCache",
-			.Diagnostic = bCachePending ? "Platform data is being prepared." : Compilation.FailureMessage});
+			.Diagnostic = bCachePending ? "Platform data is being prepared."
+				: bPlatformReady ? "" : "Platform data is unavailable; rebuild the texture and check the log."});
 		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
 			"Texture2D", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent

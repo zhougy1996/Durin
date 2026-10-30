@@ -1915,7 +1915,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		{
 			auto* Hdr = Cast<DTextureCube>(Asset);
 			ASSERT_NE(Hdr, nullptr);
-			EXPECT_EQ(Hdr->GetBuiltPixelFormat(), EPixelFormat::RGBA32_FLOAT);
+			EXPECT_EQ(Hdr->GetPixelFormat(), EPixelFormat::RGBA32_FLOAT);
 			float Value = 0;
 			std::memcpy(&Value, Hdr->GetPlatformData()->Faces[0].Mips[0].Pixels.data(), sizeof(float));
 			EXPECT_FLOAT_EQ(Value, 4.0f);

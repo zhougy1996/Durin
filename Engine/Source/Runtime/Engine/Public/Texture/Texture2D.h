@@ -4,7 +4,6 @@
 
 #include "EngineAPI.h"
 #include "Texture/Texture2DData.h"
-#include "Texture/Texture2DCompilationTypes.h"
 #include "Texture/TextureBuildOperation.h"
 #include "RHIResources.h"
 #include "Texture/Texture.h"
@@ -69,8 +68,6 @@ namespace Durin
 		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
 		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
-		// GameThread snapshot. Ready means installed CPU data, independently of GPU readiness.
-		ENGINE_API auto GetBuildStatus() const -> FTexture2DBuildStatus;
 		// GameThread only. Cancels and finishes pending work before assigning validated settings.
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,

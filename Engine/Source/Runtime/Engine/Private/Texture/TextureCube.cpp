@@ -303,20 +303,20 @@ namespace Durin
 			PlatformData.get(), FName("Durin::DTextureCube"), "TextureCube");
 	}
 
-	auto DTextureCube::GetBuiltFaceDimension() const -> uint32
+	auto DTextureCube::GetSizeX() const -> uint32
 	{
 		if (PlatformData && !PlatformData->Faces[0].Mips.empty())
 			return PlatformData->Faces[0].Mips[0].Width;
 		return 0;
 	}
 
-	auto DTextureCube::GetBuiltMipCount() const -> uint32
+	auto DTextureCube::GetNumMips() const -> uint32
 	{
 		return PlatformData && PlatformData->IsValid()
 			? static_cast<uint32>(PlatformData->Faces[0].Mips.size()) : 0;
 	}
 
-	auto DTextureCube::GetBuiltPixelFormat() const -> EPixelFormat
+	auto DTextureCube::GetPixelFormat() const -> EPixelFormat
 	{
 		return PlatformData && PlatformData->IsValid() ? PlatformData->PixelFormat : EPixelFormat::Unknown;
 	}
@@ -339,21 +339,6 @@ namespace Durin
 			PlatformData);
 	}
 
-#if DURIN_WITH_EDITOR
-	auto DTextureCube::RebuildPlatformData() -> bool
-	{
-		CheckGameThread();
-		if (IsPendingKill()) return false;
-		BlockOnAnyAsyncBuild();
-		if (IsPendingKill()) return false;
-		auto Built = FCubeCacheInput(*this).Build();
-		if (!Built) { (void)TexturePrivate::ReportBuildFailure(Built.error()); return false; }
-		SetPlatformData(std::move(*Built));
-		UpdateResource();
-		MarkPackageDirty();
-		return true;
-	}
-#endif
 
 	auto DTextureCube::BuildPlatformDataForLoad(bool bAsyncCache) -> void
 	{
@@ -364,7 +349,7 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': TextureCube cache admission failed.", GetObjectPath());
 			return;
 		}
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		auto Built = FCubeCacheInput(*this).Build();
 		if (!Built) { (void)TexturePrivate::ReportBuildFailure(Built.error()); return; }
 		SetPlatformData(std::move(*Built));
@@ -430,7 +415,7 @@ namespace Durin
 		bool bInSRGB, ETextureCubeOutput InOutput) -> void
 	{
 		CheckGameThread();
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		SourceLayout = InSourceLayout;
 		PanoramaFaceDimension = InPanoramaFaceDimension;
 		PanoramaExposureEV = InPanoramaExposureEV;

@@ -323,14 +323,14 @@ namespace
 		EXPECT_FALSE(Cubes[1]->IsAsyncCacheComplete());
 		ReleaseCallback.Trigger();
 		ASSERT_TRUE(Cubes[1]->FinishCachePlatformData());
-		EXPECT_EQ(2u, Cubes[1]->GetBuiltFaceDimension());
+		EXPECT_EQ(2u, Cubes[1]->GetSizeX());
 		EXPECT_FALSE(Cubes[2]->HasPlatformData());
 		EXPECT_FALSE(Cubes[2]->IsAsyncCacheComplete());
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		EXPECT_FALSE(Cubes[0]->HasPlatformData());
 		EXPECT_TRUE(Cubes[0]->IsAsyncCacheComplete());
 		EXPECT_TRUE(Cubes[2]->HasPlatformData());
-		EXPECT_EQ(2u, Cubes[2]->GetBuiltFaceDimension());
+		EXPECT_EQ(2u, Cubes[2]->GetSizeX());
 		EXPECT_EQ(3u, Cache->Reads.load());
 		EXPECT_EQ(2u, Cache->Writes.load());
 		EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
@@ -362,9 +362,9 @@ namespace
 		ASSERT_EQ(6u, Cache->Reads.load());
 		Cache->Release.Trigger();
 		ASSERT_TRUE(Cubes[1]->FinishCachePlatformData());
-		EXPECT_EQ(4u, Cubes[1]->GetBuiltFaceDimension());
+		EXPECT_EQ(4u, Cubes[1]->GetSizeX());
 		FAssetCompilingManager::Get().FinishAllCompilation();
-		EXPECT_EQ(4u, Cubes[1]->GetBuiltFaceDimension());
+		EXPECT_EQ(4u, Cubes[1]->GetSizeX());
 		EXPECT_EQ(3u, Cache->Writes.load());
 	}
 	// The aggregate has terminal shutdown, so this target owns one full lifecycle.

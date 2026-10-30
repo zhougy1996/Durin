@@ -201,7 +201,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		{.FaceDimension = 64, .ExposureEV = 1.0f, .Output = Durin::ETextureCubeOutput::HDR}
 	);
 	ASSERT_TRUE(HdrCubeResult) << HdrCubeResult.Message;
-	ASSERT_EQ(HdrCubeResult.Asset->GetBuiltPixelFormat(), Durin::EPixelFormat::RGBA32_FLOAT);
+	ASSERT_EQ(HdrCubeResult.Asset->GetPixelFormat(), Durin::EPixelFormat::RGBA32_FLOAT);
 	auto HdrCubeReference = HdrCubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(HdrCubeReference, nullptr);
 	auto HdrPlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*HdrCubeResult.Asset->GetPlatformData());
@@ -293,7 +293,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::PumpGameThreadDeferredWork();
 	ASSERT_FALSE(CubeResult.Asset->HasPendingRenderResourceInitialization());
 
-	ASSERT_TRUE(CubeResult.Asset->RebuildPlatformData());
+	CubeResult.Asset->PostEditChange();
+	ASSERT_TRUE(CubeResult.Asset->FinishCachePlatformData());
 	EXPECT_EQ(CubeResult.Asset->GetTextureReferenceRHI(), CubeReference);
 	Durin::FlushRenderingCommands();
 	Durin::PumpGameThreadDeferredWork();

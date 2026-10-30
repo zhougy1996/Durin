@@ -11,6 +11,19 @@
 
 namespace Durin
 {
+	// Internal dispatch/application progress, not an asset lifecycle state.
+	enum class ETexture2DCompilationPhase : uint8
+	{
+		None,
+		Queued,
+		Building,
+		AwaitingApply,
+		Ready,
+		Failed,
+		Canceled,
+	};
+
+
 	// Records wall-clock build timing and conservative versus observed retained bytes.
 	struct FTexture2DCompilationMetrics
 	{

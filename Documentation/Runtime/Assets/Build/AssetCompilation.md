@@ -215,8 +215,9 @@ Cube platform-cache inputs dispatch through the same build request owner. Canoni
 six-face and HDR panorama sources can query cache before reading pixels.
 Noncanonical panoramas acquire source bytes and normalize on the dispatch worker,
 then submit their canonical source to the asynchronous session. Source validation,
-normalization and output assembly are shared with synchronous Cube adapters;
-`RebuildPlatformData` remains a synchronous explicit boundary. Cube result objects
+normalization and output assembly are shared with synchronous Cube adapters.
+Current-asset caching and full-object edits use the common texture entry points;
+there is no Cube-only rebuild boundary. Cube result objects
 apply only after successful work and live-owner validation. Mutations finish the
 previous request before changing source or settings.
 
@@ -280,17 +281,16 @@ outcome. A texture has at most one active request; replacing a request first
 cancels, waits for callback retirement, and delivers its canceled terminal result.
 
 `FTextureOperationResult` identifies one terminal outcome with
-`DerivedData::EStatus` (`Ok`, `Error`, or `Canceled`) and one owned diagnostic. An
-accepted request invokes its `FTexture2DCompilationCompletion` exactly once on
+`ETextureCompilationStatus` (`Succeeded`, `Failed`, or `Canceled`) and one owned
+diagnostic. An accepted request invokes its `FTextureCompilationCompletion` exactly once on
 GameThread. Rejection before acceptance is returned synchronously without
 invoking completion.
 
-`DTexture2D::GetBuildStatus` supplies the editor with the current phase, pending
-state and a user-facing failure message. Terminal status reflects GameThread
-result application as well as worker execution; a new request clears the old
-failure. The detailed compilation snapshot is available only through the
-`AssetPrivate` test hook for qualification and regression coverage. `Ready`
-means CPU platform data was applied, not GPU readiness. Object consumers use
+Compiler phases and detailed diagnostics remain private; the `AssetPrivate`
+test hook exposes a bounded snapshot for qualification and regression coverage.
+Its `Ready` phase means CPU platform data was applied, not GPU readiness.
+Editor availability and retry presentation use installed data and completion
+queries, without retaining a second object-level build status. Object consumers use
 `IsAsyncCacheComplete` for completion (including failure/cancellation), and
 `FinishCachePlatformData(TimeoutSeconds)` for an explicit selected wait and Apply.
 The aggregate `FAssetCompilingManager::OnAssetPostCompile` emits successful
@@ -300,9 +300,13 @@ A full-object `PostEditChange` retires prior work and triggers compilation;
 named-property notifications retain their validated application path and do not
 restart a completed build.
 
-Source/settings setters and synchronous builds use `DTexture::BlockOnAnyAsyncBuild`
-before mutation. The barrier cancels and finishes only that texture, delivers the
-old observer as `Canceled`, and retires its request before returning. Cancellation is not an error and carries no cancellation-reason code.
+`DTexture::BlockOnAnyAsyncBuild` finishes the selected texture through the asset
+compiling manager, including GameThread result application. It does not cancel,
+clear terminal diagnostics, start another build, or wait for GPU initialization.
+Source/settings setters and synchronous replacement builds use the existing
+private mutation barrier: it cancels and finishes only that texture, delivers
+the old observer as `Canceled`, and retires its request before returning.
+Cancellation is not an error and carries no cancellation-reason code.
 Texture2D imports commit Source/settings/import metadata before starting DDC work.
 Build failure or cancellation does not undo that authored commit. The import
 result describes the commit, while compiler status describes platform-data

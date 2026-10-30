@@ -217,7 +217,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	SourceOnly->SetSource(Source);
 	ASSERT_TRUE(SourceOnly->GetSource().IsValid());
 	EXPECT_EQ(SourceOnly->GetPlatformData(), nullptr);
-	EXPECT_EQ(SourceOnly->GetBuiltFaceDimension(), 0u);
+	EXPECT_EQ(SourceOnly->GetSizeX(), 0u);
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 	{
 		ExpectCubeSourcePath(*Result.Asset, GetSourceHint(*Result.Asset, FaceRoles[FaceIndex]),
@@ -251,7 +251,8 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	EXPECT_EQ(Loaded->GetSource().GetBulkData().GetPayloadId(), StoredId);
 	EXPECT_EQ(Loaded->GetSource().GetCompression(), StoredCodec);
 	const auto LoadedInstance = Loaded->GetSource().GetBulkData().GetInstanceId();
-	ASSERT_TRUE(Loaded->RebuildPlatformData());
+	Loaded->PostEditChange();
+	ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	EXPECT_EQ(Loaded->GetSource().GetBulkData().GetInstanceId(), LoadedInstance);
 	ASSERT_TRUE(Durin::SavePackage(Loaded->GetPackage()));
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
@@ -414,7 +415,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	EXPECT_NE(Texture->GetSource().GetBulkData().GetPayloadId(), InitialSourceId);
 	EXPECT_NE(Texture->GetPlatformDataShared(), InitialPlatformDataIdentity);
-	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
+	EXPECT_EQ(Texture->GetPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ExpectCubeSourcePath(*Texture,
 		GetSourceHint(*Texture, FaceRoles[5]), Transparent);
 	EXPECT_TRUE(std::filesystem::is_regular_file(
@@ -439,7 +440,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	EXPECT_EQ(Texture->GetSource().GetBulkData().GetPayloadId(), ValidSourceId);
 	EXPECT_EQ(Texture->GetPlatformDataShared(), ValidPlatformDataIdentity);
 	EXPECT_TRUE(Texture->IsSRGB());
-	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
+	EXPECT_EQ(Texture->GetPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
 }
 
 TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedData)
@@ -490,9 +491,9 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	EXPECT_TRUE(GetSourceHint(*Result.Asset, FaceRoles[0]).empty());
 	EXPECT_EQ(Result.Asset->GetOriginalSourceWidth(), 8u);
 	EXPECT_EQ(Result.Asset->GetOriginalSourceHeight(), 4u);
-	EXPECT_EQ(Result.Asset->GetBuiltFaceDimension(), 2u);
-	EXPECT_EQ(Result.Asset->GetBuiltMipCount(), 2u);
-	EXPECT_EQ(Result.Asset->GetBuiltPixelFormat(), Durin::EPixelFormat::BC1_UNORM_SRGB);
+	EXPECT_EQ(Result.Asset->GetSizeX(), 2u);
+	EXPECT_EQ(Result.Asset->GetNumMips(), 2u);
+	EXPECT_EQ(Result.Asset->GetPixelFormat(), Durin::EPixelFormat::BC1_UNORM_SRGB);
 	ASSERT_TRUE(std::filesystem::is_regular_file(Panorama));
 	const Durin::FTextureCubePlatformData ExpectedPlatform = *Result.Asset->GetPlatformData();
 
@@ -538,7 +539,7 @@ TEST(FTextureCubeTests, HDRPanoramaPreservesRadianceAcrossRebuildAndReload)
 		{.FaceDimension = 4, .Output = Durin::ETextureCubeOutput::HDR});
 	ASSERT_TRUE(Result) << Result.Message;
 	auto* Texture = Result.Asset;
-	ASSERT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::RGBA32_FLOAT);
+	ASSERT_EQ(Texture->GetPixelFormat(), Durin::EPixelFormat::RGBA32_FLOAT);
 	EXPECT_FALSE(Texture->IsSRGB());
 	const auto Expected = *Texture->GetPlatformData();
 	float Peak = 0.0f;
@@ -553,7 +554,8 @@ TEST(FTextureCubeTests, HDRPanoramaPreservesRadianceAcrossRebuildAndReload)
 			}
 	EXPECT_GT(Peak, 1.0f);
 	ASSERT_TRUE(std::filesystem::remove(Source));
-	ASSERT_TRUE(Texture->RebuildPlatformData());
+	Texture->PostEditChange();
+	ASSERT_TRUE(Texture->FinishCachePlatformData());
 	ASSERT_TRUE(Durin::SavePackage(Texture->GetPackage()));
 	EXPECT_EQ(Texture->GetOutput(), Durin::ETextureCubeOutput::HDR);
 	Durin::FPackagePath Path;
@@ -736,7 +738,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	EXPECT_EQ(Texture->GetPanoramaFaceDimension(), 4u);
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 2.0f);
-	EXPECT_EQ(Texture->GetBuiltFaceDimension(), 4u);
+	EXPECT_EQ(Texture->GetSizeX(), 4u);
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		GetPanoramaFixture("AnalyticalHDR.hdr")));
 
@@ -778,7 +780,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"),
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	ASSERT_TRUE(Loaded->FinishCachePlatformData());
-	EXPECT_EQ(Loaded->GetBuiltFaceDimension(), 4u);
+	EXPECT_EQ(Loaded->GetSizeX(), 4u);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));

@@ -25,6 +25,7 @@
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Texture/Texture2D.h"
+#include "Texture/Texture2DCompilationTestSupport.h"
 #include "Texture/VolumeTexture.h"
 #include "Threading/Task.h"
 
@@ -218,6 +219,50 @@ TEST_F(FAssetPackageReloadTests, Texture2DDiscardRestoresSceneReferenceAndPreser
 	std::string Error;
 	ASSERT_TRUE(SetSource(*Texture, std::byte{17}, Error)) << Error;
 	VerifyDiscard(Texture);
+}
+
+TEST_F(FAssetPackageReloadTests, FailedTextureCompilationRejectsReloadWithoutImplicitRetry)
+{
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AssetDiscardTests/FailedTextureCompilation", Path));
+	DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
+	std::string Error;
+	ASSERT_TRUE(SetSource(*Texture, std::byte{17}, Error)) << Error;
+	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
+	ASSERT_TRUE(SetSource(*Texture, std::byte{29}, Error)) << Error;
+	Texture->MarkPackageDirty();
+	const auto EditedIdentity = Texture->GetSource().GetIdentity();
+	const FObjectKey Original(Texture);
+	Cloud->SetWeatherTexture(Texture);
+	std::atomic_uint32_t Builds = 0;
+	struct FResetPhaseHook
+	{
+		~FResetPhaseHook() { AssetPrivate::SetTexture2DCompilationPhaseHookForTests({}); }
+	} ResetPhaseHook;
+	AssetPrivate::SetTexture2DCompilationPhaseHookForTests([&](uint64, ETexture2DCompilationPhase Phase) {
+		if (Phase == ETexture2DCompilationPhase::Building)
+		{
+			++Builds;
+			throw std::runtime_error("Injected reload texture compilation failure");
+		}
+	});
+	const auto Result = ReloadPackages({.Packages = {Texture->GetPackage()}}).Wait();
+	EXPECT_EQ(Result.Status, EPackageReloadStatus::Failed);
+	EXPECT_EQ(Result.Failure, EPackageReloadFailure::ResourcePreparationFailed);
+	ASSERT_EQ(Result.Diagnostics.size(), 1u);
+	EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::PrepareRuntimeProducts);
+	EXPECT_EQ(Result.Diagnostics[0].Reason, EPackageReloadReason::TexturePreparation);
+	EXPECT_EQ(Builds.load(), 1u);
+	EXPECT_EQ(ResolveObjectKey(Original), Texture);
+	EXPECT_EQ(Cloud->GetWeatherTexture(), Texture);
+	EXPECT_EQ(Texture->GetSource().GetIdentity(), EditedIdentity);
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
+	Cloud->SetWeatherTexture(nullptr);
+	AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
+	EXPECT_TRUE(UnloadPackage(Path));
 }
 
 TEST_F(FAssetPackageReloadTests, VolumeDiscardRestoresSceneReferenceAndPreservesSavedContent)

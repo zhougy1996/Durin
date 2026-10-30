@@ -174,7 +174,7 @@ namespace Durin
 		CheckGameThread();
 		if (IsPendingKill())
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		if (IsPendingKill())
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
 		auto Result = BuildVolumeTextureWithDiagnostic(Request);
@@ -204,7 +204,7 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': VolumeTexture cache admission failed.", GetObjectPath());
 			return;
 		}
-		BlockOnAnyAsyncBuild();
+		PrepareTextureForMutation(*this);
 		auto Result = BuildVolumeTextureWithDiagnostic({.Source = GetSource().CopyTornOff(), .Settings = BuildSettings});
 		if (!Result) { (void)TexturePrivate::ReportBuildFailure(Result.error()); return; }
 		SetPlatformData(std::move(*Result));
