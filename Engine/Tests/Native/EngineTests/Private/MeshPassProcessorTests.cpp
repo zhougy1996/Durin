@@ -1,8 +1,32 @@
 #include "Renderers/MeshPassProcessor.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Materials/MaterialRenderProxy.h"
+#include "Rendering/StaticMeshBatchBinding.h"
+
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
+#include "RenderingThread.h"
+#include "Threading/Task.h"
 
 #include <gtest/gtest.h>
+
+namespace
+{
+    class FMeshPassRenderingThreadScope
+    {
+    public:
+        FMeshPassRenderingThreadScope()
+        {
+            if (!Durin::GIsGameThreadIdInitialized) {
+                Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+                Durin::GIsGameThreadIdInitialized = true;
+            }
+            if (!Durin::IsTaskSchedulerRunning()) require(Durin::InitializeTaskScheduler(2));
+            Durin::InitRenderingThread();
+        }
+        ~FMeshPassRenderingThreadScope() { Durin::ShutdownRenderingThread(); }
+    };
+}
 
 TEST(FRendererSceneContractTests, MeshPassProcessorsExposeUECollectorArgumentsAndSelectDrawShaders)
 {
@@ -112,4 +136,115 @@ TEST(FRendererSceneContractTests, PassProcessorFactoriesCreateIndependentInstanc
 	});
 	for (auto& Worker : Workers) Worker.join();
 	EXPECT_TRUE(Valid.load());
+}
+
+TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrCommands)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FMeshPassRenderingThreadScope RenderingThread;
+    EnqueueRenderCommand("AddMeshBatchFiltering", [](FRHICommandListImmediate&) {
+        const auto Factory = FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
+        ASSERT_TRUE(Factory);
+        for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
+        for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
+        for (bool Main : {false, true})
+        for (bool Shadow : {false, true})
+        for (bool GBuffer : {false, true})
+        for (const auto Pass : FPassProcessorManager::GetRegisteredPasses()) {
+            FMaterialPlanningPassIdentity Material;
+            Material.ShaderMap.BlendMode = Blend; Material.ShaderMap.ShadingModel = Shading;
+            const bool Translucent = Blend == EMaterialBlendMode::Translucent;
+            const bool Deferred = !Translucent && Shading == EMaterialShadingModel::Lit && GBuffer;
+            bool Relevant = Main;
+            if (Pass == EMeshPipelinePass::ShadowDepth) Relevant = Shadow && !Translucent;
+            else if (Pass == EMeshPipelinePass::GBuffer) Relevant = Main && Deferred;
+            else if (Pass == EMeshPipelinePass::HybridRetainedForward) Relevant = Main && !Translucent && !Deferred;
+            else if (Pass == EMeshPipelinePass::SortedTranslucency) Relevant = Main && Translucent;
+            const FMeshPassProcessorBatch Batch{Material, *Factory, {}, EGeometryTopology::TriangleList, {Shadow, Main}, GBuffer};
+            FMeshPassShaders Empty;
+            FPSOPrecacheDataArray Initializers(1);
+            FMeshPassDrawListContext Context(Empty, nullptr, Initializers, true, EPSOPrecachePriority::Medium);
+            FPassProcessorManager::GetMeshPassProcessor(Pass).AddMeshBatch(Batch, Context);
+            // Applicable elements reach context validation; excluded elements must
+            // leave it untouched without requiring RHI, shaders or declarations.
+            EXPECT_EQ(Context.GetResult().Status, Relevant ? EShaderBuildStatus::Error : EShaderBuildStatus::Canceled);
+            EXPECT_EQ(Initializers.size(), 1u);
+            EXPECT_EQ(Initializers.front().GraphicsInitializer.BoundShaders.VertexShader, nullptr);
+        }
+    });
+    FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, RetainedMeshCommandsValidateInputsAndKeyPublishedResources)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FMeshPassRenderingThreadScope RenderingThread;
+    EnqueueRenderCommand("RetainedMeshCommandReview", [](FRHICommandListImmediate&) {
+        auto Input = std::make_shared<FStaticMeshBatchBinding>();
+        const auto Factory = FindMeshVertexFactory(Input->GetFactoryKey()); ASSERT_TRUE(Factory);
+        FMaterialPlanningPassIdentity Material;
+        auto Description = std::make_shared<FMeshDrawDescription>();
+        Description->Material.PlanningPassIdentity = Material;
+        Description->PipelineKey.Material = Material;
+        Description->PipelineKey.FactoryKey = Input->GetFactoryKey();
+        Description->PipelineKey.LayoutKey = Input->GetLayoutKey();
+        FPreparedStaticMeshPrimitive Primitive;
+        Primitive.PrimitiveId = FPrimitiveComponentId(17); Primitive.BatchId = 23;
+        Primitive.CollectedBinding = Input;
+        FPreparedStaticMeshDraw Draw; Draw.Command = Description; Draw.MaterialUniformIndex = 0;
+        FResolvedStaticMeshView View; View.Draws.resize(1); View.Draws[0].bReady = true;
+        View.PrimitiveUniforms.resize(1); View.MaterialUniforms.resize(1);
+        auto ViewBindings = std::make_shared<FPreparedSurfaceMaterialBindings>();
+        auto StableBindings = std::make_shared<FPreparedSurfaceMaterialBindings>();
+        View.Draws[0].VertexPassBindings = ViewBindings;
+        View.Draws[0].FragmentPassBindings = ViewBindings;
+        View.Draws[0].SurfaceBindings = StableBindings;
+        // Opaque pipeline identity only: no native object is dereferenced here.
+        auto OptionalOwner = std::make_shared<int>(0);
+        View.Draws[0].GBufferGPUCullingPipeline = std::shared_ptr<const FGBufferPipeline>(OptionalOwner,
+            reinterpret_cast<const FGBufferPipeline*>(OptionalOwner.get()));
+        const auto RequestedKey = FMeshDrawCommand::MakeKey(Description.get(), Primitive.PrimitiveId, Primitive.BatchId, View.Draws[0]);
+        // Optional binding failure removes the GPU route before command publication.
+        View.Draws[0].GBufferGPUCullingPipeline.reset();
+        FMeshPassProcessorBatch Batch{Material, *Factory,
+            {Description->PipelineKey.Rasterizer, Description->PipelineKey.Depth, Description->PipelineKey.ColorBlend},
+            Description->PipelineKey.Topology, {}};
+        const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::Forward);
+        std::shared_ptr<const FMeshDrawCommand> Published;
+        FMeshPassDrawListContext Context(Primitive, Draw, View, Published);
+        Processor.AddMeshBatch(Batch, Context);
+        ASSERT_TRUE(Context.GetResult()); ASSERT_TRUE(Published);
+        EXPECT_NE(Published->GetKey(), RequestedKey);
+        EXPECT_EQ(Published->GetKey(), FMeshDrawCommand::MakeKey(Description.get(), Primitive.PrimitiveId, Primitive.BatchId, View.Draws[0]));
+        EXPECT_EQ(Published->Record.SurfaceBindings, StableBindings);
+        EXPECT_FALSE(Published->Record.VertexPassBindings); EXPECT_FALSE(Published->Record.FragmentPassBindings);
+        const auto* Original = Published.get();
+        auto ExpectRejected = [&] {
+            FMeshPassDrawListContext Mismatch(Primitive, Draw, View, Published);
+            Processor.AddMeshBatch(Batch, Mismatch);
+            EXPECT_EQ(Mismatch.GetResult().Status, EShaderBuildStatus::Error);
+            EXPECT_EQ(Published.get(), Original);
+        };
+        Material.ShaderMap.BlendMode = EMaterialBlendMode::Translucent; ExpectRejected(); Material = Description->Material.PlanningPassIdentity;
+        const auto FactoryKey = Description->PipelineKey.FactoryKey;
+        Description->PipelineKey.FactoryKey = {}; ExpectRejected(); Description->PipelineKey.FactoryKey = FactoryKey;
+        const auto LayoutKey = Description->PipelineKey.LayoutKey;
+        Description->PipelineKey.LayoutKey = {}; ExpectRejected(); Description->PipelineKey.LayoutKey = LayoutKey;
+        Batch.Topology = EGeometryTopology::LineList; ExpectRejected(); Batch.Topology = Description->PipelineKey.Topology;
+        Batch.PipelineState.Depth.bEnableWrite = !Batch.PipelineState.Depth.bEnableWrite; ExpectRejected();
+        Batch.PipelineState.Depth = Description->PipelineKey.Depth;
+        View.Draws[0].bReady = false; ExpectRejected();
+        const auto PublishedKey = Published->GetKey(); Primitive.BatchId++;
+        EXPECT_EQ(Published->GetKey(), PublishedKey);
+        std::weak_ptr<const FMeshDrawDescription> DescriptionLifetime = Description;
+        std::weak_ptr<const FVertexFactoryInputBinding> InputLifetime = Input;
+        std::weak_ptr<const FPreparedSurfaceMaterialBindings> ViewLifetime = ViewBindings, StableLifetime = StableBindings;
+        View = {}; Draw.Command.reset(); Description.reset(); Primitive.CollectedBinding.reset(); Input.reset();
+        ViewBindings.reset(); StableBindings.reset();
+        EXPECT_TRUE(ViewLifetime.expired());
+        EXPECT_FALSE(DescriptionLifetime.expired()); EXPECT_FALSE(InputLifetime.expired()); EXPECT_FALSE(StableLifetime.expired());
+        Published.reset();
+        EXPECT_TRUE(DescriptionLifetime.expired()); EXPECT_TRUE(InputLifetime.expired()); EXPECT_TRUE(StableLifetime.expired());
+    });
+    FlushRenderingCommands();
 }

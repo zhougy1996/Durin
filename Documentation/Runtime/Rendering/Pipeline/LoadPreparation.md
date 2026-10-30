@@ -350,6 +350,13 @@ input binding, primitive state/uniform, selected draw resources and material par
 packets. The cache owner supplies prepared packets and owns retention/eviction; the
 processor removes per-view packets before publishing the immutable command, preserving
 view-local binding refresh and the existing multi-route cache representation.
+The retained context validates the captured material, factory/layout, topology and
+effective pipeline state against the admitted batch before publication. Commands
+own their primitive/batch identity and derive cache keys from the resources actually
+published in their snapshot. Optional GPU binding fallback therefore caches only
+the direct-route snapshot and cannot suppress a later GPU-route retry. The snapshot
+retains its geometry/input and stable bindings independently of the source view;
+view-local packets are released when their view expires.
 Filtered, pending or failed attempts leave the output payload untouched; cached payloads retain the ShaderMap
 that owns their compiled fragment layout. Each context is confined to its call on
 the render thread; shared draw prototypes keep no request-specific context.

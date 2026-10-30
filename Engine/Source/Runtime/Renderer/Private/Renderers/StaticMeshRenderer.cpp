@@ -70,13 +70,11 @@ namespace Durin
 		std::map<std::pair<uint64, uint64>, FPrimitiveUniform> PrimitiveUniforms;
 		std::map<uint64, FMaterialUniform> MaterialUniforms;
 		std::map<std::tuple<FGuid, bool, uint64>, FCollectionUniform> CollectionUniforms;
-		using FDrawKey = std::array<uint64, 7>;
+		using FDrawKey = FMeshDrawCommand::FKey;
 		static auto MakeDrawKey(const FPreparedStaticMeshDraw& Draw,
 			const FPreparedStaticMeshPrimitive& Primitive, const FResolvedMeshDrawRecord& Record) -> FDrawKey
 		{
-			return {reinterpret_cast<uint64>(Draw.Command.get()), Primitive.PrimitiveId.Value, Primitive.BatchId,
-				reinterpret_cast<uint64>(Record.Pipeline.get()), reinterpret_cast<uint64>(Record.HybridPipeline.get()),
-				reinterpret_cast<uint64>(Record.GBufferPipeline.get()), reinterpret_cast<uint64>(Record.GBufferGPUCullingPipeline.get())};
+			return FMeshDrawCommand::MakeKey(Draw.Command.get(), Primitive.PrimitiveId, Primitive.BatchId, Record);
 		}
 		auto IsCacheable(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive) const -> bool
 		{
@@ -763,7 +761,6 @@ namespace Durin
 				const auto& CommandMaterial = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][CommandPass];
 				if (!CommandMaterial) { DURIN_ERROR("Mesh command has no material slot {}", CommandPass); return false; }
 				const bool bCacheable = State->IsCacheable(Draw, *Primitive);
-				const auto CommandKey = FState::MakeDrawKey(Draw, *Primitive, Record);
 				auto PreparePasses = [&]() {
 					auto Vertex = [&](const std::shared_ptr<const FMeshVertexShaderBinding>& Shader, uint32 Pass, FBindings& Out) {
 						if (!Shader || !Shader->GetReflection()) return false;
@@ -848,6 +845,9 @@ namespace Durin
 					FMeshPassDrawListContext Context(*Primitive, Draw, ResolvedView, Command);
 					FPassProcessorManager::GetMeshPassProcessor(Pass).AddMeshBatch(Batch, Context);
 					if (!Context.GetResult()) return false;
+					// Optional binding preparation may have removed a pipeline. Publish
+					// only under the key of resources actually retained by the snapshot.
+					const auto CommandKey = Command->GetKey();
 					State->DrawCommands.insert_or_assign(CommandKey, FState::FCommandEntry{std::move(Command), ++State->CacheSerial});
 					FState::TrimCache(State->DrawCommands);
 					return true;
