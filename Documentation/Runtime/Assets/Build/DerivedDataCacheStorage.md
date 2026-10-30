@@ -4,7 +4,7 @@ Summary: Specify Durin CB manifests, versioned value attachments, selective loca
 
 Modules: DerivedDataCache
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-10-30
 
 Build ownership and completion belong to the [build protocol](DerivedDataBuild.md).
 This contract owns persistent storage, not asset assembly policy.
@@ -49,16 +49,35 @@ untrusted backend requires a new cryptographic digest version and namespace,
 including verification against raw bytes, before it can be admitted. Unsupported
 attachment versions never alias a current path or alter existing action hashes.
 
-Synchronous Get defaults to `FullRecord`. `MetadataOnly` returns the manifest,
-including all value descriptors, without opening blobs. `SelectedValues` accepts
-unique non-null required IDs in any order, resolves only those blobs, and leaves
-other values as references. An empty selection is equivalent to metadata-only.
-Unknown required IDs or missing selected blobs return `MissingValue`; an absent
-manifest remains a normal miss. Invalid or duplicate selections fail before I/O.
-All modes validate the entire manifest against generic record limits; selection
-narrows physical reads and resident data, not the output schema's validity bounds.
-Partial records cannot convert to complete build outputs. Build execution always
-requests a full record and retains its existing rejected-record rebuild fallback.
+Both public and private Get requests own an immutable `FCacheRecordPolicy`.
+`DerivedDataCachePolicy.h` provides the supported local read-policy subset:
+`None`, `QueryLocal`/`Query`, `Default` (query), and `SkipData`. A uniform default
+queries the manifest and fetches every value. The builder accepts a base policy
+and ID-specific overrides, sorts those overrides, drops redundant entries, and
+becomes unusable after Build. Null/duplicate IDs, unsupported flags and builder
+reuse are programming errors. Policies own their overrides and can be copied
+across asynchronous request lifetimes without retaining caller arrays.
+
+| Policy | Get behavior |
+| --- | --- |
+| Default | Fetch all values and return metadata. |
+| Query with SkipData | Return metadata and descriptors after checking each queried blob exists; do not read or decompress its payload. |
+| None plus Default overrides | Fetch the overridden values that occur in the record; leave other values as references. |
+| Default plus a None override | Fetch other values and ignore that value's data availability. |
+| Default plus a Query/SkipData override | Require that value's blob to exist, but leave its data as a reference. |
+| Uniform None | Return a normal miss without storage access. |
+
+Record query permission is combined from the base and value policies. Overrides
+apply to values present in the manifest; an override is not a list of required
+IDs. A typed asset consumer checks its own required values after querying.
+Missing queried blobs return `MissingValue` without a partial successful record;
+a missing manifest remains a normal miss. Presence checks use the same file-type
+and bucket-containment checks as payload reads. SkipData does not validate blob
+contents. Every queried manifest is validated against generic record limits,
+even when most data is skipped. A record containing unresolved references cannot
+convert to a complete build output. Build execution uses the default policy and
+retains its rejected-record rebuild fallback. Put still accepts complete records;
+this data-selection change does not alter persistence formats or replacement rules.
 
 Get cooperatively checks borrowed cancellation at entry, between manifest/blob
 reads, and after decoding. It returns `Canceled` without publishing a partial

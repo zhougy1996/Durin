@@ -84,8 +84,6 @@ namespace Durin::StaticMeshPrivate
 		}
 		auto ReadLayout(const FBuildOutput& Output) -> std::expected<FLayout, std::string>
 		{
-			const std::function<bool()> NoCancellation;
-			AssetPrivate::FPayloadBuildControl Control{NoCancellation};
 			if (Output.GetSchema() != StaticMeshRenderOutputType || Output.GetSchemaVersion() != StaticMeshRenderOutputSchemaVersion
 				|| !Output.CheckLimits({.MaximumTotalBytes = MaximumStaticMeshPayloadBytes}))
 				return std::unexpected("StaticMesh output schema or size is invalid.");
@@ -138,7 +136,7 @@ namespace Durin::StaticMeshPrivate
 			if (!Reader.IsAtEnd() || Output.GetValues().size() != ValueCount)
 				return std::unexpected("StaticMesh output contains extra metadata or streams.");
 			FStaticMeshPayloadBounds Bounds;
-			if (auto Valid = ValidatePayload(Layout, Control, &Bounds); !Valid) return std::unexpected(FormatStaticMeshPayloadError(Valid.error()));
+			if (auto Valid = ValidatePayload(Layout, &Bounds); !Valid) return std::unexpected(FormatStaticMeshPayloadError(Valid.error()));
 			Layout.LocalBounds = Bounds.LocalBounds;
 			for (size_t Index = 0; Index < Layout.LODs.size(); ++Index)
 			{

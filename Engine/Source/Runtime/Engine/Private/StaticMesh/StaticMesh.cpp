@@ -1,4 +1,5 @@
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMeshPayloadPrivate.h"
 #include "StaticMeshBuildPrivate.h"
 
 #include "Asset/CookedMeshLoadManager.h"
@@ -733,9 +734,9 @@ namespace Durin
 			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
 				return std::unexpected(std::string("StaticMesh replacement exceeds the texture coordinate limit."));
 		}
-		if (const auto Result = ValidateStaticMeshRenderData(*InRenderData); !Result)
+		if (const auto Result = StaticMeshPrivate::TryValidateStaticMeshRenderData(*InRenderData); !Result)
 		{
-			return std::unexpected(FormatStaticMeshPayloadError(Result.error()));
+			return std::unexpected(StaticMeshPrivate::FormatStaticMeshPayloadError(Result.error()));
 		}
 		for (size_t Index = 0; Index < InMaterialSlots.size(); ++Index)
 		{

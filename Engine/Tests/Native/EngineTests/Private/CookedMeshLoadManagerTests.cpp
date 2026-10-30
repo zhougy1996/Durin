@@ -494,9 +494,7 @@ TEST(FCookedMeshLoadManagerTests, TerminalRetainsWorkerAndPublisherCauses)
 			Generation == 1 ? &WorkerError : Generation == 2 ? &PublishError : &ReadError);
 		if (Generation == 1)
 			Request.Worker = [](std::span<const FSharedByteBuffer>, const FTaskCancellationToken&) -> FCookedMeshWorkerResult {
-				return {.Error = {.Code = ECookedMeshLoadError::Product,
-					.ProductCause = std::make_shared<FCookedMeshProductError>(FCookedMeshProductError{
-						.Code = ECookedMeshProductError::MaterialSlotCount, .Actual = 7, .Expected = 2})}};
+				return {.Error = {.Code = ECookedMeshLoadError::Product, .Diagnostic = "Static-mesh material slot count does not match package metadata."}};
 			};
 		else if (Generation == 2)
 			Request.Publish = [](DObject&, const FCookedMeshLoadIdentity&,
@@ -517,10 +515,7 @@ TEST(FCookedMeshLoadManagerTests, TerminalRetainsWorkerAndPublisherCauses)
 	CollectGarbage();
 	EXPECT_EQ(WorkerError.Owner, OwnerKey);
 	EXPECT_EQ(WorkerError.Code, ECookedMeshLoadError::Product);
-	ASSERT_NE(WorkerError.ProductCause, nullptr);
-	EXPECT_EQ(WorkerError.ProductCause->Code, ECookedMeshProductError::MaterialSlotCount);
-	EXPECT_EQ(WorkerError.ProductCause->Actual, 7u);
-	EXPECT_EQ(WorkerError.ProductCause->Expected, 2u);
+	EXPECT_EQ(WorkerError.Diagnostic, "Static-mesh material slot count does not match package metadata.");
 	EXPECT_EQ(PublishError.Owner, OwnerKey);
 	EXPECT_EQ(PublishError.Code, ECookedMeshLoadError::InvalidProduct);
 	EXPECT_EQ(PublishError.Actual, 9u);

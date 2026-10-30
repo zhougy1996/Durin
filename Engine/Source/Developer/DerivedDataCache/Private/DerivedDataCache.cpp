@@ -91,16 +91,8 @@ namespace Durin::DerivedData
 				} Publish{Stats, Destination, Start};
 				const auto Canceled = [&] { return Request.ShouldCancel && Request.ShouldCancel(); };
 				const auto CancelError = [] { return std::unexpected(FCacheError{ECacheError::Canceled, "Cache query canceled."}); };
-				if (Request.Mode > ECacheGetMode::SelectedValues
-					|| (Request.Mode != ECacheGetMode::SelectedValues && !Request.RequiredValues.empty())
-					|| Request.RequiredValues.size() > std::min<uint32>(Request.RecordLimits.MaximumValues, 4096))
-					return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache query mode or selection count is invalid."});
-				std::vector<FValueId> Required(Request.RequiredValues.begin(), Request.RequiredValues.end());
-				std::ranges::sort(Required);
-				if (std::ranges::any_of(Required, [](const auto& Id) { return Id.IsNull(); })
-					|| std::adjacent_find(Required.begin(), Required.end()) != Required.end())
-					return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Selected value IDs must be valid and unique."});
 				if (Canceled()) return CancelError();
+				if (!HasCachePolicy(Request.Policy.GetRecordPolicy(), ECachePolicy::Query)) return std::optional<FCacheRecord>{};
 				auto Lease = Private::AcquireCacheStorageOwnership();
 				if (!Lease) return std::unexpected(std::move(Lease.error()));
 				auto Stored = GCacheStorage.Get({Request.Key,
@@ -113,17 +105,27 @@ namespace Durin::DerivedData
 				auto Record = Private::DecodeCacheManifest(Request.Key, std::move(**Stored), Request.RecordLimits, Request.MaximumEncodedBytes);
 				if (!Record) return std::unexpected(std::move(Record.error()));
 				if (Canceled()) return CancelError();
-				for (const auto& Id : Required)
-					if (!Record->FindValue(Id)) return std::unexpected(FCacheError{ECacheError::MissingValue, "Required value is absent from manifest."});
 				uint64 EncodedBytes = ManifestBytes, ResidentBytes = ManifestBytes;
 				std::vector<FValueWithId> Values;
 				std::unordered_map<FBlobContentKey, FValue, FBlobContentKeyHash> Resolved;
+				std::unordered_set<FBlobContentKey, FBlobContentKeyHash> Present;
 				for (const auto& Item : Record->GetValues())
 				{
-					if (Request.Mode == ECacheGetMode::MetadataOnly
-						|| (Request.Mode == ECacheGetMode::SelectedValues && !std::ranges::binary_search(Required, Item.Id))) continue;
+					const auto Policy = Request.Policy.GetValuePolicy(Item.Id);
+					if (!HasCachePolicy(Policy, ECachePolicy::Query)) continue;
 					if (Canceled()) return CancelError();
 					const FBlobContentKey Identity{Private::BlobIdentity(Item.Value), Item.Value.GetRawSize()};
+					if (HasCachePolicy(Policy, ECachePolicy::SkipData))
+					{
+						if (!Resolved.contains(Identity) && Present.insert(Identity).second)
+						{
+							const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
+							auto Exists = GCacheStorage.Exists(Key, ECacheStorageNamespace::Values, **Lease);
+							if (!Exists) return std::unexpected(std::move(Exists.error()));
+							if (!*Exists) return std::unexpected(FCacheError{ECacheError::MissingValue, "Queried value data is unavailable."});
+						}
+						continue;
+					}
 					if (const auto Existing = Resolved.find(Identity); Existing != Resolved.end())
 					{
 						Values.push_back({Item.Id, Existing->second});
@@ -138,7 +140,7 @@ namespace Durin::DerivedData
 					Stats.ReadBytes += ReadBytes;
 					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + ReadBytes);
 					if (!Blob) return std::unexpected(std::move(Blob.error()));
-					if (!*Blob) return std::unexpected(FCacheError{Request.Mode == ECacheGetMode::SelectedValues ? ECacheError::MissingValue : ECacheError::Corrupt, "Manifest references a missing value blob."});
+					if (!*Blob) return std::unexpected(FCacheError{ECacheError::MissingValue, "Manifest references a missing value blob."});
 					const uint64 BlobBytes = (**Blob).GetSize(); EncodedBytes += BlobBytes;
 					++Stats.ValuesRead;
 					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + BlobBytes);
@@ -158,7 +160,8 @@ namespace Durin::DerivedData
 					Resolved.emplace(Identity, *Value);
 					Values.push_back({Item.Id, std::move(*Value)});
 				}
-				auto Complete = Request.Mode == ECacheGetMode::FullRecord ? Record->WithValues(Values) : Record->WithSelectedValues(Values);
+				if (Canceled()) return CancelError();
+				auto Complete = Record->WithSelectedValues(Values);
 				if (!Complete) return std::unexpected(std::move(Complete.error()));
 				return std::optional<FCacheRecord>{std::move(*Complete)};
 			}
@@ -339,6 +342,11 @@ namespace Durin::DerivedData
 	auto FCacheKey::ToString() const -> std::string
 	{
 		return IsValid() ? Hash.ToString() : std::string{};
+	}
+
+	auto FCacheStorage::Exists(const FCacheKey& Key, ECacheStorageNamespace Namespace, const Private::FCacheStorageLease& Lease) const -> std::expected<bool, FCacheError>
+	{
+		return FFileSystemCacheBackend(Lease).Exists(Key, Namespace);
 	}
 
 	auto FCacheStorage::Get(const FCacheStorageGetRequest& Request) const

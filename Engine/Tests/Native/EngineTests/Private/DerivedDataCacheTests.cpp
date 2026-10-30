@@ -35,6 +35,14 @@ namespace
 {
 	using namespace Durin;
 	using namespace Durin::DerivedData;
+	auto SelectValues(std::span<const FValueId> Ids) -> FCacheRecordPolicy
+	{
+		FCacheRecordPolicyBuilder Builder(ECachePolicy::None);
+		for (const auto& Id : Ids)
+			Builder.AddValuePolicy(Id, ECachePolicy::Default);
+		return Builder.Build();
+	}
+
 	auto EnsureCacheTaskGameThread() -> void
 	{
 		if (!GIsGameThreadIdInitialized)
@@ -121,7 +129,9 @@ namespace
 		auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 		{
 			++Gets; if (Throw) throw std::runtime_error("fixture");
-			ObservedIds.assign(Request.RequiredValues.begin(), Request.RequiredValues.end());
+			ObservedIds.clear();
+			for (const auto& Value : Request.Policy.GetValuePolicies())
+				ObservedIds.push_back(Value.Id);
 			if (Request.Stats) Request.Stats->ReadBytes = 17;
 			return std::optional<FCacheRecord>{};
 		}
@@ -573,7 +583,7 @@ TEST(FAsyncCacheTests, OldestRequestPreventsStarvationUnderHighPriorityArrivals)
 	EXPECT_EQ(High.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Low.Wait(), ERequestWaitResult::Completed);
 }
 
-TEST(FAsyncCacheTests, RetainedAdmissionDeduplicatesRecordBackingAndChargesCopiedSelections)
+TEST(FAsyncCacheTests, RetainedAdmissionDeduplicatesRecordBackingAndChargesPolicyOverrides)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
 	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .MaximumRetainedBytes = 14000});
@@ -585,7 +595,7 @@ TEST(FAsyncCacheTests, RetainedAdmissionDeduplicatesRecordBackingAndChargesCopie
 	Scheduler->Run(); EXPECT_EQ(Backend->Puts, 1u);
 	std::vector<FValueId> Ids; Ids.reserve(4096);
 	for (uint32 Index = 0; Index < 4096; ++Index) Ids.push_back(FValueId::FromName("Selection").MakeIndexed(Index));
-	const std::array Reads{FCacheGetBackendRequest{.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids}};
+	const std::array Reads{FCacheGetBackendRequest{.Key = Key, .Policy = SelectValues(Ids)}};
 	auto Rejected = Async->Get(Reads, Owner, [](auto, auto, auto) { ADD_FAILURE(); });
 	ASSERT_FALSE(Rejected); EXPECT_EQ(Rejected.error().Code, ECacheError::Capacity);
 	EXPECT_TRUE(Owner.Poll()); EXPECT_TRUE(Scheduler->Work.empty()); EXPECT_EQ(Backend->Gets, 0u);
@@ -756,7 +766,7 @@ TEST(FAsyncCacheTests, ItemAndByteCapacityAreDistinctFromBackendFailure)
 	ASSERT_FALSE(Overflow); EXPECT_EQ(Overflow.error().Code, ECacheError::Capacity); EXPECT_TRUE(Other.Poll());
 	Scheduler->Run();
 	auto ZeroBytes = CreateAsyncCache(Backend, Scheduler, {.MaximumRetainedBytes = 0});
-	// A selection-free Get retains no queued data; fixed overhead uses item admission.
+	// A uniform-policy Get retains no queued data; fixed overhead uses item admission.
 	ASSERT_TRUE(ZeroBytes->Get(Requests, Other, [](auto, auto, auto) {}));
 	Scheduler->Run(); EXPECT_TRUE(Other.Poll());
 	const std::array Writes{FCachePutBackendRequest{RecordWith(Requests[0].Key, {FSharedByteBuffer::Take(Bytes({1}))})}};
@@ -764,13 +774,13 @@ TEST(FAsyncCacheTests, ItemAndByteCapacityAreDistinctFromBackendFailure)
 	ASSERT_FALSE(Rejected); EXPECT_EQ(Rejected.error().Code, ECacheError::Capacity); EXPECT_TRUE(Other.Poll());
 }
 
-TEST(FAsyncCacheTests, OwnsBatchSelectionsAndBoundsConcurrencyAndAdmission)
+TEST(FAsyncCacheTests, OwnsBatchPoliciesAndBoundsConcurrencyAndAdmission)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
 	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .Capacity = 3}); FRequestOwner Owner(ERequestPriority::High);
 	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'a');
 	std::vector<FValueId> Ids{FValueId::FromName("Selected")}; const auto Original = Ids;
-	std::array Requests{FCacheGetBackendRequest{.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids}, FCacheGetBackendRequest{.Key = Key}};
+	std::array Requests{FCacheGetBackendRequest{.Key = Key, .Policy = SelectValues(Ids)}, FCacheGetBackendRequest{.Key = Key}};
 	uint32 Callbacks = 0; uint32 Indices = 0; FCacheQueryStats Borrowed; Requests[0].Stats = &Borrowed;
 	ASSERT_TRUE(Async->Get(Requests, Owner, [&](uint32 Index, auto Result, auto Stats) { EXPECT_TRUE(Result); EXPECT_EQ(Stats.ReadBytes, 17u); ++Callbacks; Indices |= 1 << Index; }));
 	Ids.clear(); Requests = {}; EXPECT_FALSE(Owner.Poll()); EXPECT_EQ(Scheduler->Work.size(), 1u);
@@ -928,6 +938,88 @@ TEST(FAsyncCacheTests, CanceledPersistenceNeverPublishesReplacementManifest)
 	}
 }
 
+TEST(FCacheRecordPolicyTests, DefaultsAndOwnedOverridesAreCanonical)
+{
+	const auto A = FValueId::FromName("PolicyA"), B = FValueId::FromName("PolicyB");
+	FCacheRecordPolicy Default;
+	EXPECT_TRUE(Default.IsDefault());
+	EXPECT_TRUE(Default.IsUniform());
+	EXPECT_EQ(Default.GetValuePolicy(A), ECachePolicy::Default);
+	FCacheRecordPolicy Descriptors(ECachePolicy::Query | ECachePolicy::SkipData);
+	EXPECT_EQ(Descriptors.GetRecordPolicy(), ECachePolicy::Query);
+	EXPECT_EQ(Descriptors.GetValuePolicy(A), ECachePolicy::Query | ECachePolicy::SkipData);
+	FCacheRecordPolicy Policy;
+	{
+		FCacheRecordPolicyBuilder Builder(ECachePolicy::None);
+		Builder.AddValuePolicy(B, ECachePolicy::Query | ECachePolicy::SkipData);
+		Builder.AddValuePolicy(A, ECachePolicy::Default);
+		Policy = Builder.Build();
+	}
+	EXPECT_EQ(Policy.GetBasePolicy(), ECachePolicy::None);
+	EXPECT_TRUE(HasCachePolicy(Policy.GetRecordPolicy(), ECachePolicy::Query));
+	EXPECT_TRUE(std::ranges::is_sorted(Policy.GetValuePolicies(), {}, &FCacheValuePolicy::Id));
+	EXPECT_EQ(Policy.GetValuePolicy(B), ECachePolicy::Query | ECachePolicy::SkipData);
+	EXPECT_EQ(Policy.GetValuePolicy(FValueId::FromName("Unspecified")), ECachePolicy::None);
+	auto Copy = Policy;
+	Policy = ECachePolicy::None;
+	EXPECT_EQ(Copy.GetValuePolicy(A), ECachePolicy::Default);
+	EXPECT_FALSE(Copy.IsUniform());
+	FCacheRecordPolicyBuilder Redundant;
+	Redundant.AddValuePolicy(A, ECachePolicy::Default);
+	EXPECT_TRUE(Redundant.Build().IsDefault());
+}
+
+TEST(FCacheRecordPolicyDeathTests, InvalidPoliciesAndConsumedBuildersAreRejected)
+{
+	EXPECT_DEATH({ FCacheRecordPolicy Policy(static_cast<ECachePolicy>(0x80)); }, "Unsupported cache policy");
+	EXPECT_DEATH({ FCacheRecordPolicyBuilder Builder; Builder.AddValuePolicy({}, ECachePolicy::Default); }, "valid Value ID");
+	EXPECT_DEATH({
+		FCacheRecordPolicyBuilder Builder;
+		const auto Id = FValueId::FromName("Duplicate");
+		Builder.AddValuePolicy(Id, ECachePolicy::None); Builder.AddValuePolicy(Id, ECachePolicy::SkipData); Builder.Build(); }, "Duplicate cache value policy");
+	EXPECT_DEATH({ FCacheRecordPolicyBuilder Builder; Builder.Build(); Builder.Build(); }, "no longer usable");
+	EXPECT_DEATH({
+		FCacheRecordPolicyBuilder Builder; Builder.Build();
+		Builder.AddValuePolicy(FValueId::FromName("AfterBuild"), ECachePolicy::Default); }, "no longer usable");
+}
+
+TEST(FCacheSelectionTests, DefaultAndValueOverridesDistinguishSkippedDataFromDisabledQueries)
+{
+	FScopedCacheDirectory Directory("cache-value-policy");
+	const auto Key = MakeKey(FCacheBucket::FromString("Policy"), 'b');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1})), FSharedByteBuffer::Take(Bytes({2})), FSharedByteBuffer::Take(Bytes({3}))});
+	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	const auto Values = Record.GetValues();
+	FCacheRecordPolicyBuilder Builder;
+	Builder.AddValuePolicy(Values[1].Id, ECachePolicy::Query | ECachePolicy::SkipData);
+	Builder.AddValuePolicy(Values[2].Id, ECachePolicy::None);
+	const auto Policy = Builder.Build();
+	std::filesystem::remove(EntryPath(Directory, BlobKey(Values[2].Value), "values/v1"));
+	FCacheQueryStats Stats;
+	auto Loaded = GetCacheBackend().Get({.Key = Key, .Policy = Policy, .Stats = &Stats});
+	ASSERT_TRUE(Loaded && *Loaded);
+	EXPECT_EQ(Stats.ValuesRead, 1u);
+	EXPECT_TRUE((**Loaded).FindValue(Values[0].Id)->HasData());
+	EXPECT_FALSE((**Loaded).FindValue(Values[1].Id)->HasData());
+	EXPECT_FALSE((**Loaded).FindValue(Values[2].Id)->HasData());
+	const auto SkippedPath = EntryPath(Directory, BlobKey(Values[1].Value), "values/v1");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes({9}), SkippedPath));
+	// Presence is checked, but skipped data is neither read nor integrity-validated.
+	ASSERT_TRUE(GetCacheBackend().Get({.Key = Key, .Policy = Policy}));
+	std::filesystem::remove(SkippedPath);
+	auto Missing = GetCacheBackend().Get({.Key = Key, .Policy = Policy});
+	ASSERT_FALSE(Missing);
+	EXPECT_EQ(Missing.error().Code, ECacheError::MissingValue);
+	std::filesystem::create_directory(SkippedPath);
+	auto InvalidEntry = GetCacheBackend().Get({.Key = Key, .Policy = Policy});
+	ASSERT_FALSE(InvalidEntry);
+	EXPECT_EQ(InvalidEntry.error().Code, ECacheError::StorageFailure);
+	auto Disabled = GetCacheBackend().Get({.Key = Key, .Policy = ECachePolicy::None, .Stats = &Stats});
+	ASSERT_TRUE(Disabled);
+	EXPECT_FALSE(*Disabled);
+	EXPECT_EQ(Stats.ReadBytes, 0u);
+}
+
 TEST(FCacheSelectionTests, MetadataAndSelectionLeaveOtherValuesAsReferences)
 {
 	FScopedCacheDirectory Directory("cache-selection");
@@ -936,14 +1028,14 @@ TEST(FCacheSelectionTests, MetadataAndSelectionLeaveOtherValuesAsReferences)
 		FSharedByteBuffer::Take(Bytes({2, 3})), FSharedByteBuffer{}});
 	ASSERT_TRUE(GetCacheBackend().Put({Record}));
 	FCacheQueryStats Stats;
-	auto Metadata = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::MetadataOnly, .Stats = &Stats});
+	auto Metadata = GetCacheBackend().Get({.Key = Key, .Policy = ECachePolicy::Query | ECachePolicy::SkipData, .Stats = &Stats});
 	ASSERT_TRUE(Metadata && *Metadata); EXPECT_EQ(Stats.ValuesRead, 0u); EXPECT_EQ(Stats.DecodedBytes, 0u);
 	EXPECT_EQ(Stats.ReadBytes, Durin::DerivedData::Private::EncodeCacheManifest(Record)->GetSize());
 	EXPECT_EQ(GetBuildMetadataPayload(**Metadata).GetSize(), 2u);
 	EXPECT_FALSE(Durin::DerivedData::Private::ReadBuildOutput(Key, (**Metadata)));
 	for (const auto& Item : (**Metadata).GetValues()) EXPECT_FALSE(Item.Value.HasData());
 	const std::array Selected{FValueId::FromName("Block").MakeIndexed(2), FValueId::FromName("Block").MakeIndexed(1)};
-	auto Partial = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected, .Stats = &Stats});
+	auto Partial = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected), .Stats = &Stats});
 	ASSERT_TRUE(Partial && *Partial); EXPECT_EQ(Stats.ValuesRead, 2u); EXPECT_EQ(Stats.DecodedBytes, 2u);
 	EXPECT_FALSE((**Partial).FindValue(FValueId::FromName("Block").MakeIndexed(0))->HasData());
 	EXPECT_TRUE((**Partial).FindValue(Selected[0])->HasData()); // Empty data remains resident.
@@ -954,46 +1046,42 @@ TEST(FCacheSelectionTests, MetadataAndSelectionLeaveOtherValuesAsReferences)
 	EXPECT_TRUE(Durin::DerivedData::Private::ReadBuildOutput(Key, (**Full)));
 	std::vector<FValueId> All;
 	for (const auto& Value : Record.GetValues()) All.push_back(Value.Id);
-	auto AllSelected = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = All});
+	auto AllSelected = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(All)});
 	ASSERT_TRUE(AllSelected && *AllSelected);
 	EXPECT_TRUE(Durin::DerivedData::Private::ReadBuildOutput(Key, (**AllSelected)));
-	auto EmptySelected = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .Stats = &Stats});
+	auto EmptySelected = GetCacheBackend().Get({.Key = Key, .Policy = ECachePolicy::Query | ECachePolicy::SkipData, .Stats = &Stats});
 	ASSERT_TRUE(EmptySelected && *EmptySelected); EXPECT_EQ(Stats.ValuesRead, 0u);
 }
 
-TEST(FCacheSelectionTests, RejectsInvalidSelectionAndDistinguishesMissFromMissingValue)
+TEST(FCacheSelectionTests, OverridesIgnoreAbsentIdsButQueriedBlobsMustExist)
 {
 	FScopedCacheDirectory Directory("cache-selection-errors");
 	const auto Key = MakeKey(FCacheBucket::FromString("Selection"), 'b');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1})), FSharedByteBuffer::Take(Bytes({2}))});
 	const std::array Selected{Record.GetValues()[0].Id};
-	auto Miss = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected});
+	auto Miss = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected)});
 	ASSERT_TRUE(Miss); EXPECT_FALSE(*Miss);
 	ASSERT_TRUE(GetCacheBackend().Put({Record}));
-	const std::array Duplicate{Selected[0], Selected[0]};
-	const std::array Null{FValueId{}};
-	for (const auto& Request : {FCacheGetBackendRequest{.Key = Key, .RequiredValues = Selected}, FCacheGetBackendRequest{.Key = Key, .Mode = ECacheGetMode::MetadataOnly, .RequiredValues = Selected}, FCacheGetBackendRequest{.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Duplicate}, FCacheGetBackendRequest{.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Null}})
-	{
-		auto Result = GetCacheBackend().Get(Request);
-		ASSERT_FALSE(Result);
-		EXPECT_EQ(Result.error().Code, ECacheError::InvalidRequest);
-	}
 	const std::array Unknown{FValueId::FromName("Unknown")}; FCacheQueryStats Stats;
-	auto Missing = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Unknown, .Stats = &Stats});
-	ASSERT_FALSE(Missing); EXPECT_EQ(Missing.error().Code, ECacheError::MissingValue); EXPECT_EQ(Stats.ValuesRead, 0u);
+	auto Missing = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Unknown), .Stats = &Stats});
+	ASSERT_TRUE(Missing && *Missing);
+	EXPECT_EQ(Stats.ValuesRead, 0u);
+	for (const auto& Value : (**Missing).GetValues())
+		EXPECT_FALSE(Value.Value.HasData());
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes({9}), EntryPath(Directory, BlobKey(Record.GetValues()[1].Value), "values/v1")));
-	auto Undamaged = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected});
+	auto Undamaged = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected)});
 	ASSERT_TRUE(Undamaged && *Undamaged);
 	EXPECT_FALSE(GetCacheBackend().Get({Key}));
 	std::filesystem::remove(EntryPath(Directory, BlobKey(Record.GetValues()[1].Value), "values/v1"));
-	auto Partial = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected});
+	auto Partial = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected)});
 	ASSERT_TRUE(Partial && *Partial);
 	EXPECT_FALSE(GetCacheBackend().Get({Key}));
 	std::filesystem::remove(EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1"));
-	Missing = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected});
+	Missing = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected)});
 	ASSERT_FALSE(Missing); EXPECT_EQ(Missing.error().Code, ECacheError::MissingValue);
-	auto Metadata = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::MetadataOnly});
-	ASSERT_TRUE(Metadata && *Metadata);
+	auto Metadata = GetCacheBackend().Get({.Key = Key, .Policy = ECachePolicy::Query | ECachePolicy::SkipData});
+	ASSERT_FALSE(Metadata);
+	EXPECT_EQ(Metadata.error().Code, ECacheError::MissingValue);
 }
 
 TEST(FCacheSelectionTests, EnforcesSelectedBudgetsAndCooperativeCancellation)
@@ -1004,20 +1092,20 @@ TEST(FCacheSelectionTests, EnforcesSelectedBudgetsAndCooperativeCancellation)
 	ASSERT_TRUE(GetCacheBackend().Put({Record}));
 	const std::array Selected{FValueId::FromName("Block").MakeIndexed(1)};
 	// Logical output bounds still validate every descriptor, not only resident values.
-	EXPECT_FALSE(GetCacheBackend().Get({.Key = Key, .RecordLimits = {.MaximumTotalBytes = 1024}, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected}));
+	EXPECT_FALSE(GetCacheBackend().Get({.Key = Key, .RecordLimits = {.MaximumTotalBytes = 1024}, .Policy = SelectValues(Selected)}));
 	FCacheQueryStats Stats;
-	auto Partial = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected, .Stats = &Stats});
+	auto Partial = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected), .Stats = &Stats});
 	ASSERT_TRUE(Partial && *Partial);
-	EXPECT_TRUE(GetCacheBackend().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes, .MaximumWorkingSetBytes = Stats.PeakWorkingSetBytes, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected}));
-	EXPECT_FALSE(GetCacheBackend().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes - 1, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected}));
+	EXPECT_TRUE(GetCacheBackend().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes, .MaximumWorkingSetBytes = Stats.PeakWorkingSetBytes, .Policy = SelectValues(Selected)}));
+	EXPECT_FALSE(GetCacheBackend().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes - 1, .Policy = SelectValues(Selected)}));
 	EXPECT_FALSE(GetCacheBackend().Get({.Key = Key, .MaximumWorkingSetBytes = Stats.PeakWorkingSetBytes}));
 	uint32 TotalChecks = 0;
-	ASSERT_TRUE(GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected, .ShouldCancel = [&] { ++TotalChecks; return false; }}));
+	ASSERT_TRUE(GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected), .ShouldCancel = [&] { ++TotalChecks; return false; }}));
 	bool SawDecodedCancellation = false;
 	for (uint32 StopAt = 1; StopAt <= TotalChecks; ++StopAt)
 	{
 		uint32 Checks = 0;
-		auto Canceled = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected, .ShouldCancel = [&] { return ++Checks >= StopAt; }, .Stats = &Stats});
+		auto Canceled = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected), .ShouldCancel = [&] { return ++Checks >= StopAt; }, .Stats = &Stats});
 		ASSERT_FALSE(Canceled); EXPECT_EQ(Canceled.error().Code, ECacheError::Canceled);
 		if (StopAt == 1) EXPECT_EQ(Stats.ReadBytes, 0u);
 		EXPECT_LE(Stats.ValuesRead, 1u); EXPECT_LE(Stats.DecodedBytes, 1u);
@@ -1120,7 +1208,7 @@ TEST(FCacheTests, RejectsMissingOrDamagedBlobsAndRepairsThemOnPut)
 	ASSERT_TRUE(std::filesystem::remove(EntryPath(Directory, Blob, "values/v1")));
 	auto Missing = GetCacheBackend().Get({Key});
 	ASSERT_FALSE(Missing);
-	EXPECT_EQ(Missing.error().Code, ECacheError::Corrupt);
+	EXPECT_EQ(Missing.error().Code, ECacheError::MissingValue);
 	ASSERT_TRUE(GetCacheBackend().Put({Record}));
 	EXPECT_TRUE(GetCacheBackend().Get({Key}).value().has_value());
 }
@@ -1638,7 +1726,7 @@ TEST(FCacheTests, RepeatedBlobIdentitiesShareReadDecodeAndPhysicalBudgets)
 		if (Size) EXPECT_FALSE(GetCacheBackend().Get({.Key = Key, .RecordLimits = {.MaximumTotalBytes = Size * 2}}));
 		const std::array Selected{Values[0].Id, Values[2].Id};
 		FCacheQueryStats SelectedStats;
-		auto Partial = GetCacheBackend().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected, .Stats = &SelectedStats});
+		auto Partial = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected), .Stats = &SelectedStats});
 		ASSERT_TRUE(Partial && *Partial); EXPECT_EQ(SelectedStats.ValuesRead, 1u);
 		EXPECT_TRUE((**Partial).FindValue(Selected[0])->GetData().SharesStorageWith((**Partial).FindValue(Selected[1])->GetData()));
 		std::cout << "[BlobReuse] raw=" << Size << " reads=" << Stats.ValuesRead
@@ -1982,6 +2070,39 @@ TEST(FPublicCacheTests, BackendResourceLimitsApplyWithoutRequestStorageOptions)
 		ASSERT_TRUE(Retained && *Retained);
 		EXPECT_EQ((**Retained).GetValues()[0].Value.GetRawHash(), Record.GetValues()[0].Value.GetRawHash());
 	}
+}
+
+TEST(FPublicCacheTests, PolicyOutlivesCallerStorageAndSelectsResidentData)
+{
+	FScopedCacheDirectory Directory("PublicCachePolicyLifetime");
+	const auto Key = MakeKey(FCacheBucket::FromString("PublicPolicy"), 'a');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1})), FSharedByteBuffer::Take(Bytes({2}))});
+	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	const auto Selected = Record.GetValues()[0].Id, Skipped = Record.GetValues()[1].Id;
+	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend({}, CreateAsyncCache({}, Scheduler));
+	FRequestOwner Owner;
+	uint32 Calls = 0;
+	{
+		FCacheRecordPolicyBuilder Builder(ECachePolicy::None);
+		Builder.AddValuePolicy(Selected, ECachePolicy::Default);
+		const std::array Requests{FCacheGetRequest{.Key = Key, .Policy = Builder.Build()}};
+		Cache->Get(Requests, Owner, [&](auto Response) {
+			++Calls;
+			EXPECT_EQ(Response.Status, EStatus::Ok);
+			ASSERT_NE(Response.Record.FindValue(Selected), nullptr);
+			ASSERT_NE(Response.Record.FindValue(Skipped), nullptr);
+			EXPECT_TRUE(Response.Record.FindValue(Selected)->HasData());
+			EXPECT_FALSE(Response.Record.FindValue(Skipped)->HasData());
+			EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
+		});
+	}
+	EXPECT_FALSE(Owner.Poll());
+	EXPECT_EQ(Calls, 0u);
+	ASSERT_EQ(Scheduler->Work.size(), 1u);
+	Scheduler->Run();
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Calls, 1u);
 }
 
 TEST(FPublicCacheTests, ResponsesCarryIdentityAndNestedCallbacksStayOwned)

@@ -1,13 +1,17 @@
 #include "Physics/PhysicsDerivedData.h"
 #include "Asset/CookedMeshProducts.h"
+#include "CookedMeshProductsPrivate.h"
+#include "Logging/LogMacros.h"
 
 #include "Serialization/Archive.h"
+#include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin
 {
+	using namespace AssetPrivate;
 	namespace
 	{
-		auto ArchiveFailure(ECookedMeshProductError Code, const FArchive& Ar, uint64 ByteCount) -> FCookedMeshProductResult
+		auto ArchiveFailure(ECookedMeshProductError Code, const FArchive& Ar, uint64 ByteCount) -> std::expected<void, FCookedMeshProductError>
 		{
 			FCookedMeshProductError Error{.Code = Code, .ByteOffset = Ar.Tell(), .ByteCount = ByteCount};
 			if (const auto* Failure = Ar.GetFailure())
@@ -15,16 +19,16 @@ namespace Durin
 				Error.ArchiveCode = Failure->Code;
 				Error.ArchivePath = Failure->Path;
 			}
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 
 		auto RestoreStaticMeshRuntimeMetadata(
 			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-			FStaticMeshRenderData& RenderData) -> FCookedMeshProductResult
+			FStaticMeshRenderData& RenderData
+		) -> std::expected<void, FCookedMeshProductError>
 		{
 			if (RenderData.MaterialSlots.size() != MaterialSlots.size())
-				return {{.Code = ECookedMeshProductError::RuntimeMaterialSlotCount,
-					.Actual = RenderData.MaterialSlots.size(), .Expected = MaterialSlots.size()}};
+				return std::unexpected(FCookedMeshProductError{.Code = ECookedMeshProductError::RuntimeMaterialSlotCount, .Actual = RenderData.MaterialSlots.size(), .Expected = MaterialSlots.size()});
 			for (size_t SlotIndex = 0; SlotIndex < MaterialSlots.size(); ++SlotIndex)
 			{
 				const FMeshMaterialSlotDefinition& Definition = MaterialSlots[SlotIndex];
@@ -48,11 +52,10 @@ namespace Durin
 		}
 	}
 
-	auto FormatCookedMeshProductError(const FCookedMeshProductError& Error) -> std::string
+	auto AssetPrivate::FormatCookedMeshProductError(const FCookedMeshProductError& Error) -> std::string
 	{
 		switch (Error.Code)
 		{
-		case ECookedMeshProductError::None: return {};
 		case ECookedMeshProductError::MissingCollision: return "Cooked static-mesh collision payload is missing.";
 		case ECookedMeshProductError::CollisionArchive:
 		case ECookedMeshProductError::RenderArchive:
@@ -63,9 +66,9 @@ namespace Durin
 			return std::format("DCOL mode ({}) does not match cooked BodySetup metadata ({}).",
 				static_cast<int>(Error.ActualMode), static_cast<int>(Error.ExpectedMode));
 		case ECookedMeshProductError::CollisionConstruction:
-			return Error.CollisionCause ? FormatPhysicsCollisionPayloadError(*Error.CollisionCause) : "Cooked collision construction failed.";
+			return Error.CollisionCause ? PhysicsPrivate::FormatPhysicsCollisionPayloadError(*Error.CollisionCause) : "Cooked collision construction failed.";
 		case ECookedMeshProductError::RenderConstruction:
-			return Error.RenderCause ? FormatStaticMeshPayloadError(*Error.RenderCause) : "Cooked render construction failed.";
+			return Error.RenderCause ? StaticMeshPrivate::FormatStaticMeshPayloadError(*Error.RenderCause) : "Cooked render construction failed.";
 		case ECookedMeshProductError::MaterialSlotCount:
 		case ECookedMeshProductError::RuntimeMaterialSlotCount:
 			return std::format("Static-mesh material slot count {} does not match package metadata count {}.", Error.Actual, Error.Expected);
@@ -73,13 +76,14 @@ namespace Durin
 		return {};
 	}
 
-	auto DecodeStaticMeshCookedProduct(
+	auto AssetPrivate::TryDecodeStaticMeshCookedProduct(
 		FByteView RenderBytes,
 		FByteView CollisionBytes,
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
 		FStaticMeshCookedProduct& OutProduct,
-		ECookTargetPlatform TargetPlatform) -> FCookedMeshProductResult
+		ECookTargetPlatform TargetPlatform
+	) -> std::expected<void, FCookedMeshProductError>
 	{
 		const FArchiveTarget ArchiveTarget{.Platform = TargetPlatform == ECookTargetPlatform::MacOS
 			? "MacOS" : "Win64", .Profile = "Game"};
@@ -87,8 +91,7 @@ namespace Durin
 		if (CollisionMode != EBodySetupCollisionSourceMode::None)
 		{
 			if (CollisionBytes.empty())
-				return {{.Code = ECookedMeshProductError::MissingCollision,
-					.ExpectedMode = CollisionMode}};
+				return std::unexpected(FCookedMeshProductError{.Code = ECookedMeshProductError::MissingCollision, .ExpectedMode = CollisionMode});
 			FPhysicsCollisionPayloadData CollisionPayload;
 			FCanonicalMemoryReader CollisionAr(
 				CollisionBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
@@ -97,13 +100,12 @@ namespace Durin
 				return ArchiveFailure(ECookedMeshProductError::CollisionArchive, CollisionAr, CollisionBytes.size());
 			if (CollisionPayload.SourceMode != CollisionMode)
 			{
-				return {{.Code = ECookedMeshProductError::CollisionMetadata,
-					.ActualMode = CollisionPayload.SourceMode, .ExpectedMode = CollisionMode}};
+				return std::unexpected(FCookedMeshProductError{.Code = ECookedMeshProductError::CollisionMetadata, .ActualMode = CollisionPayload.SourceMode, .ExpectedMode = CollisionMode});
 			}
 			FCollisionGeometryRef Geometry;
-			if (const auto Built = MakePhysicsCollisionGeometry(CollisionPayload, Geometry); !Built)
+			if (const auto Built = PhysicsPrivate::TryMakePhysicsCollisionGeometry(CollisionPayload, Geometry); !Built)
 			{
-				return {{.Code = ECookedMeshProductError::CollisionConstruction, .CollisionCause = Built.error()}};
+				return std::unexpected(FCookedMeshProductError{.Code = ECookedMeshProductError::CollisionConstruction, .CollisionCause = Built.error()});
 			}
 			if (CollisionMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 				Candidate.SimpleCollision = std::move(Geometry);
@@ -119,16 +121,24 @@ namespace Durin
 		if (PayloadAr.IsError() || !RequireArchiveEnd(PayloadAr))
 			return ArchiveFailure(ECookedMeshProductError::RenderArchive, PayloadAr, RenderBytes.size());
 		if (Payload.MaterialSlotCount != MaterialSlots.size())
-			return {{.Code = ECookedMeshProductError::MaterialSlotCount,
-				.Actual = Payload.MaterialSlotCount, .Expected = MaterialSlots.size()}};
-		if (const auto Result = MakeStaticMeshRenderData(Payload, Candidate.RenderData); !Result)
+			return std::unexpected(FCookedMeshProductError{.Code = ECookedMeshProductError::MaterialSlotCount, .Actual = Payload.MaterialSlotCount, .Expected = MaterialSlots.size()});
+		if (const auto Result = StaticMeshPrivate::TryMakeStaticMeshRenderData(Payload, Candidate.RenderData); !Result)
 		{
-			return {{.Code = ECookedMeshProductError::RenderConstruction, .RenderCause = Result.error()}};
+			return std::unexpected(FCookedMeshProductError{.Code = ECookedMeshProductError::RenderConstruction, .RenderCause = Result.error()});
 		}
 		if (const auto Result = RestoreStaticMeshRuntimeMetadata(MaterialSlots, *Candidate.RenderData); !Result)
 			return Result;
 		Candidate.RenderData->RecalculateBounds();
 		OutProduct = std::move(Candidate);
 		return {};
+	}
+	auto DecodeStaticMeshCookedProduct(FByteView RenderBytes, FByteView CollisionBytes, std::span<const FMeshMaterialSlotDefinition> MaterialSlots, EBodySetupCollisionSourceMode CollisionMode, FStaticMeshCookedProduct& OutProduct, ECookTargetPlatform TargetPlatform) -> bool
+	{
+		if (const auto Result = AssetPrivate::TryDecodeStaticMeshCookedProduct(RenderBytes, CollisionBytes, MaterialSlots, CollisionMode, OutProduct, TargetPlatform); !Result)
+		{
+			DURIN_ERROR_CATEGORY("CookedMesh", "{}", AssetPrivate::FormatCookedMeshProductError(Result.error()));
+			return false;
+		}
+		return true;
 	}
 }

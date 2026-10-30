@@ -423,8 +423,6 @@ namespace Durin
 		ENGINE_API auto GetNumInitializedResources() const -> size_t;
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
-		// Detached construction only: false leaves partial bounds that must not be published.
-		ENGINE_API auto RecalculateBounds(const std::function<bool()>& ShouldCancel) -> bool;
 	};
 
 	enum class EStaticMeshLODPolicyError : uint8 { None, Empty, InvalidScreenSize, NotDescending, MissingFinalZero };

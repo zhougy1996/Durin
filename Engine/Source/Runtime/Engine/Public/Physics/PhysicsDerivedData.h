@@ -31,43 +31,10 @@ namespace Durin
 		std::vector<uint32> LeafTriangles;
 
 		// Loads in place; discard failures. The byte owner checks completion before publication.
-		ENGINE_API auto Serialize(
-			FArchive& Ar,
-			const std::function<bool()>& ShouldCancel = {}) -> void;
+		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
-	enum class EPhysicsCollisionPayloadOperation : uint8 { Extract, Construct };
-	enum class EPhysicsCollisionPayloadError : uint8
-	{
-		None, InvalidGeometry, InvalidVertex, FloatStorage, InvalidTriangle, InvalidNode,
-		InvalidMembership, InconsistentCounts, NonFinitePosition, UnexpectedBvh,
-		DuplicateOrdinal, UnknownOrdinal, InvalidSourceMode, InvalidTopology, Cancelled,
-	};
-	struct FPhysicsCollisionPayloadError
-	{
-		EPhysicsCollisionPayloadError Code = EPhysicsCollisionPayloadError::None;
-		EPhysicsCollisionPayloadOperation Operation = EPhysicsCollisionPayloadOperation::Construct;
-		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
-		std::optional<ECollisionGeometryKind> GeometryKind;
-		uint64 VertexCount = 0;
-		uint64 IndexCount = 0;
-		uint64 OrdinalCount = 0;
-		uint64 NodeCount = 0;
-		uint64 LeafCount = 0;
-		uint64 Index = 0;
-		uint32 Ordinal = 0;
-		FVector3 Position = FVector3(0);
-	};
-
-	ENGINE_API auto FormatPhysicsCollisionPayloadError(const FPhysicsCollisionPayloadError& Error) -> std::string;
-
-	ENGINE_API auto MakePhysicsCollisionPayloadData(
-		const FCollisionGeometryRef& Geometry,
-		FPhysicsCollisionPayloadData& OutPayload,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FPhysicsCollisionPayloadError>;
-	ENGINE_API auto MakePhysicsCollisionGeometry(
-		const FPhysicsCollisionPayloadData& Payload,
-		FCollisionGeometryRef& OutGeometry,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FPhysicsCollisionPayloadError>;
-
+	// Synchronous conversions commit complete products only; failure leaves outputs unchanged.
+	ENGINE_API auto MakePhysicsCollisionPayloadData(const FCollisionGeometryRef& Geometry, FPhysicsCollisionPayloadData& OutPayload) -> bool;
+	ENGINE_API auto MakePhysicsCollisionGeometry(const FPhysicsCollisionPayloadData& Payload, FCollisionGeometryRef& OutGeometry) -> bool;
 }

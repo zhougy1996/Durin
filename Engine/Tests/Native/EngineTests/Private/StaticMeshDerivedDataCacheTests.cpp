@@ -1643,12 +1643,13 @@ TEST(FStaticMeshAuthoredCompilationTests, CacheWarningsDoNotFailBuild)
 	EXPECT_TRUE(Error.empty());
 }
 
-TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinalizationScratch)
+TEST(FStaticMeshAuthoredCompilationTests, SynchronousPayloadConversionAndSerializationComplete)
 {
 	using namespace Durin;
 	FScopedDerivedDataCacheRestore RestoreCache;
 	FPaths::SetDerivedDataCacheDirForTests(
-		(Testing::GetTestWorkDirectory() / "PayloadCancellationCache").generic_string());
+		(Testing::GetTestWorkDirectory() / "SynchronousPayloadCache").generic_string()
+	);
 	auto Input = MakeResidencyGeometry();
 	auto& Section = Input.Sections.front();
 	Section.Positions.clear();
@@ -1674,67 +1675,25 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 	FPhysicsCollisionPayloadData CollisionPayload;
 	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Collision->Complex, CollisionPayload));
 
-	// Measure callback counts first, then interrupt each codec in the middle of its work.
-	// A one-shot callback also verifies that a caught cancellation cannot become a cache miss.
 	const auto CheckCodec = [&](auto& Value) {
 		FByteBuffer Bytes;
-		uint32 Count = 0;
 		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-		Value.Serialize(Writer, [&] { ++Count; return false; });
+		Value.Serialize(Writer);
 		ASSERT_FALSE(Writer.IsError());
-		ASSERT_GT(Count, 20u);
-		const uint32 StopAt = Count / 2;
-		Count = 0;
-		FByteBuffer CancelledBytes;
-		FCanonicalMemoryWriter CancelledWriter(CancelledBytes,
-			EArchivePurpose::DerivedDataPayload,
-			{.Target = {"Win64", "Game"}});
-		Value.Serialize(CancelledWriter, [&] { return ++Count == StopAt; });
-		EXPECT_TRUE(CancelledWriter.IsError());
-		EXPECT_TRUE(CancelledBytes.empty());
-
 		using TPayload = std::remove_cvref_t<decltype(Value)>;
 		TPayload Decoded;
-		Count = 0;
 		FCanonicalMemoryReader Reader(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-		Decoded.Serialize(Reader, [&] { ++Count; return false; });
-		ASSERT_FALSE(Reader.IsError());
-		ASSERT_GT(Count, 20u);
-		const uint32 ReadStopAt = Count / 2;
-		Count = 0;
-		TPayload CancelledDecoded;
-		FCanonicalMemoryReader CancelledReader(Bytes,
-			EArchivePurpose::DerivedDataPayload,
-			{.Target = {"Win64", "Game"}});
-		CancelledDecoded.Serialize(CancelledReader,
-			[&] { return ++Count == ReadStopAt; });
-		EXPECT_TRUE(CancelledReader.IsError());
-		EXPECT_NE(CancelledReader.GetError().find("cancelled"), std::string_view::npos);
-		// Ordinary loading may leave partial storage. The operation owns and
-		// discards that unpublished candidate, then may retry into fresh storage.
-		CancelledDecoded = {};
-		FCanonicalMemoryReader Retry(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-		CancelledDecoded.Serialize(Retry);
-		EXPECT_FALSE(Retry.IsError()) << Retry.GetError();
-		EXPECT_TRUE(RequireArchiveEnd(Retry));
+		Decoded.Serialize(Reader);
+		ASSERT_FALSE(Reader.IsError()) << Reader.GetError();
+		ASSERT_TRUE(RequireArchiveEnd(Reader));
+		FByteBuffer RoundTrip;
+		FCanonicalMemoryWriter Reencoded(RoundTrip, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+		Decoded.Serialize(Reencoded);
+		ASSERT_FALSE(Reencoded.IsError());
+		EXPECT_EQ(Bytes, RoundTrip);
 	};
 	CheckCodec(Payload);
 	CheckCodec(CollisionPayload);
-	uint32 Checks = 0;
-	FStaticMeshPayloadData Unchanged;
-	Unchanged.MaterialSlotCount = 123;
-	EXPECT_FALSE(MakeStaticMeshPayloadData(*(*Render), Unchanged,
-		[&] { return ++Checks == 8; }));
-	EXPECT_EQ(Unchanged.MaterialSlotCount, 123u);
-	EXPECT_TRUE(Unchanged.LODs.empty());
-	Checks = 0;
-	FCollisionGeometryRef UnchangedGeometry = Collision->Complex;
-	EXPECT_FALSE(MakePhysicsCollisionGeometry(CollisionPayload, UnchangedGeometry,
-		[&] { return ++Checks == 8; }));
-	EXPECT_EQ(UnchangedGeometry.GetIdentity(), Collision->Complex.GetIdentity());
-	Checks = 0;
-	EXPECT_FALSE((*Render)->RecalculateBounds([&] { return ++Checks == 8; }));
-	EXPECT_EQ(Checks, 8u);
 	(*Render)->RecalculateBounds();
 
 	FStaticMeshBuildRequest CachedRequest;
@@ -3134,17 +3093,15 @@ TEST(FStaticMeshCookedLoadTests, BlockingFailureRetainsDecodeCauseAcrossRetry)
 	EXPECT_EQ(Failed.Status.CpuPhase, ECookedMeshCpuPhase::Failed);
 	EXPECT_EQ(Failed.Error.Code, ECookedMeshLoadError::Product);
 	EXPECT_EQ(Failed.Error.Owner, Owner);
-	ASSERT_NE(Failed.Error.ProductCause, nullptr);
-	EXPECT_EQ(Failed.Error.ProductCause->Code, ECookedMeshProductError::RenderArchive);
-	EXPECT_TRUE(Failed.Error.ProductCause->ArchiveCode.has_value());
+	EXPECT_NE(Failed.Error.Diagnostic.find("render payload decoding failed"), std::string::npos);
+	EXPECT_FALSE(Failed.Error.Diagnostic.empty());
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	ASSERT_TRUE(InitializeCookedMeshLoadManager());
 	const auto AsyncFailed = Mesh->EnsureRenderDataLoadedBlocking();
 	EXPECT_FALSE(AsyncFailed);
 	EXPECT_EQ(AsyncFailed.Error.Code, ECookedMeshLoadError::Product);
 	EXPECT_EQ(AsyncFailed.Error.Owner, Owner);
-	ASSERT_NE(AsyncFailed.Error.ProductCause, nullptr);
-	EXPECT_EQ(AsyncFailed.Error.ProductCause->Code, ECookedMeshProductError::RenderArchive);
+	EXPECT_NE(AsyncFailed.Error.Diagnostic.find("render payload decoding failed"), std::string::npos);
 	ShutdownCookedMeshLoadManager();
 	Payload = FBulkData{};
 	const auto Retried = Mesh->EnsureRenderDataLoadedBlocking();
@@ -3154,7 +3111,7 @@ TEST(FStaticMeshCookedLoadTests, BlockingFailureRetainsDecodeCauseAcrossRetry)
 	EXPECT_GT(Retried.Status.Generation, Failed.Status.Generation);
 	ASSERT_TRUE(Runtime.Restore());
 	EXPECT_EQ(Failed.Error.Owner, Owner);
-	EXPECT_EQ(Failed.Error.ProductCause->Code, ECookedMeshProductError::RenderArchive);
+	EXPECT_NE(Failed.Error.Diagnostic.find("render payload decoding failed"), std::string::npos);
 	EXPECT_FALSE(FormatCookedMeshLoadError(Failed.Error).empty());
 }
 
@@ -4744,7 +4701,7 @@ TEST(FPhysicsCookTests, QuerySettingsReuseGeometryCacheAndPreservePublicationPol
 		ASSERT_FALSE(Writer.IsError());
 		FStaticMeshCookedProduct Product;
 		const auto Decoded = DecodeStaticMeshCookedProduct(RenderBytes, Bytes, Slots, Mode, Product);
-		ASSERT_TRUE(Decoded) << FormatCookedMeshProductError(Decoded.Error);
+		ASSERT_TRUE(Decoded);
 		ASSERT_TRUE(Body->InstallPhysicsMeshes(Product.SimpleCollision, Product.ComplexCollision));
 		const auto Identity = Geometry.GetIdentity();
 		const auto Generation = Body->GetPhysicsMeshRequestGeneration();

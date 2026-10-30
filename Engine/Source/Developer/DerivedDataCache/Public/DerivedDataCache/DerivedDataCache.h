@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "DerivedDataCacheRecord.h"
+#include "DerivedDataCachePolicy.h"
 #include "DerivedDataStatus.h"
 
 namespace Durin::DerivedData
@@ -10,17 +11,10 @@ namespace Durin::DerivedData
 	{
 		struct FCacheAccess;
 	}
-	enum class ECacheGetMode : uint8
-	{
-		FullRecord,
-		MetadataOnly,
-		SelectedValues
-	};
 	struct FCacheGetRequest
 	{
 		FCacheKey Key;
-		ECacheGetMode Mode = ECacheGetMode::FullRecord;
-		std::span<const FValueId> RequiredValues;
+		FCacheRecordPolicy Policy;
 		std::string Name;
 		uint64 UserData = 0;
 	};

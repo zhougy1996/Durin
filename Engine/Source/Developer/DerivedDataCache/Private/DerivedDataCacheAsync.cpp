@@ -13,7 +13,6 @@ namespace Durin::DerivedData::Private
 		bool Active = false; // Protected by Cache->Mutex.
 		std::shared_ptr<FAsyncCacheState> Cache;
 		FCacheGetBackendRequest GetRequest;
-		std::vector<FValueId> Ids;
 		std::optional<FCachePutBackendRequest> PutRequest;
 		FCacheGetCallback GetCallback;
 		FCachePutCallback PutCallback;
@@ -56,7 +55,10 @@ namespace Durin::DerivedData::Private
 				if (GetCallback) GetCallback(Index, std::move(GetResult), Stats);
 				else if (PutCallback) PutCallback(Index, std::move(PutResult));
 			} catch (...) {}
-			GetCallback = {}; PutCallback = {}; GetRequest = {}; std::vector<FValueId>().swap(Ids); PutRequest.reset();
+			GetCallback = {};
+			PutCallback = {};
+			GetRequest = {};
+			PutRequest.reset();
 			{ std::lock_guard Lock(Cache->Mutex); if (Active) { --Cache->Active; Active = false; } }
 		}, Cache->Scheduler->IsInline() ? nullptr : Cache.get());
 		// Inline dispatch returns to the existing pump, which advances the batch.
@@ -94,7 +96,7 @@ namespace Durin::DerivedData::Private
 				}
 				else
 				{
-					GetRequest.RequiredValues = Ids; GetRequest.Stats = &Stats;
+					GetRequest.Stats = &Stats;
 					GetRequest.ShouldCancel = [this, External = std::move(GetRequest.ShouldCancel)] { return IsCanceled() || (External && External()); };
 					Result = Cache->Backend->Get(GetRequest);
 				}
@@ -176,7 +178,7 @@ namespace Durin::DerivedData::Private
 				};
 				// Fixed request/table overhead is bounded by item and record limits.
 				// This budget covers queued data, not total allocation overhead.
-				if (!Charge(Op->Ids.size() * sizeof(FValueId)))
+				if (!Charge(Op->GetRequest.Policy.GetValuePolicies().size() * sizeof(FCacheValuePolicy)))
 					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-request byte capacity exhausted."});
 				if (!Op->PutRequest) continue;
 				const auto& Record = Op->PutRequest->Record;
@@ -234,9 +236,7 @@ namespace Durin::DerivedData::Private
 			std::vector<std::shared_ptr<FCacheOperation>> Ops; Ops.reserve(Requests.size());
 			for (uint32 I = 0; I < Requests.size(); ++I)
 			{
-				if (Requests[I].RequiredValues.size() > 4096) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Selection is unbounded."});
 				auto Op = std::make_shared<FCacheOperation>(); Op->Index = I; Op->GetRequest = Requests[I]; Op->GetRequest.Stats = nullptr;
-				Op->GetRequest.RequiredValues = {}; Op->Ids.assign(Requests[I].RequiredValues.begin(), Requests[I].RequiredValues.end());
 				Op->GetCallback = Callback; Ops.push_back(std::move(Op));
 			}
 			auto Result = Admit(std::move(Ops), Owner);
@@ -327,7 +327,7 @@ namespace Durin::DerivedData
 		Tags->reserve(Requests.size());
 		for (const auto& Request : Requests)
 		{
-			BackendRequests.push_back({.Key = Request.Key, .RecordLimits = State->ResourceLimits.Record, .MaximumEncodedBytes = State->ResourceLimits.MaximumEncodedBytes, .MaximumWorkingSetBytes = State->ResourceLimits.MaximumWorkingSetBytes, .Mode = Request.Mode, .RequiredValues = Request.RequiredValues});
+			BackendRequests.push_back({.Key = Request.Key, .RecordLimits = State->ResourceLimits.Record, .MaximumEncodedBytes = State->ResourceLimits.MaximumEncodedBytes, .MaximumWorkingSetBytes = State->ResourceLimits.MaximumWorkingSetBytes, .Policy = Request.Policy});
 			Tags->emplace_back(Request.Name, Request.UserData);
 		}
 		auto Result = State->Dispatcher(false)->Get(BackendRequests, Owner, [Tags, Notify](uint32 Index, FCacheGetResult Result, FCacheQueryStats) mutable {

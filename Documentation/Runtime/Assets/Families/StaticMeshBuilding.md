@@ -4,20 +4,17 @@ Summary: Define StaticMesh source ownership, detached builds, payload validation
 
 Modules: Engine, MeshBuilder, AssetForgeBuiltins
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-10-30
 
 ## Source ownership and publication
 
-Source, application, payload, key, and derived-build APIs return
-`std::expected<T, E>` directly, with operation-owned failure context and no
-redundant success flag. Commands and conversions retaining caller-owned outputs
-return `std::expected<void, E>` and preserve their documented output behavior.
-Source acquisition and key factories return their successful values by value.
-Read `error()` only on failure; cancellation remains a distinct error code.
-Low-level operations retain their own structured context. The authored build boundary
-keeps codes needed by compilation control flow. The synchronous object-facing
-boundary exposes only owned diagnostic strings, so callers
-need not understand build stages or the lower-level error tree.
+Source acquisition and key factories use `std::expected<T, E>` when callers
+need a value or a classified failure. Read `error()` only on failure. The
+synchronous object-facing build boundary exposes owned diagnostic strings.
+Public payload conversions and cooked-product decoding use `bool` with
+caller-owned outputs, committing only complete candidates. Detailed validation
+errors belong to private helpers; callers do not depend on codec stages,
+rejected attributes, BVH internals, or nested construction causes.
 
 `StaticMeshSource.h/.cpp` owns canonical source storage and its codec;
 `MeshDescription/MeshDescription.h` defines detached triangle topology and material
@@ -198,30 +195,31 @@ entrypoint; assembly and finalization retain their existing validation boundarie
 Source acquisition returns `std::expected<FMeshDescriptionReadHandle, FStaticMeshSourceError>`, retaining resource-read causes, Archive code/path and owned validation
 counts, mesh/field identity and rejected values. It supports a borrowed cancellation
 predicate under its residency lock; the predicate must not reenter that source. A canceled decode never publishes
-partial residency. Render/collision payload conversion, encoding,
-decoding and validation also accept borrowed predicates and check at most every
-256 scalar/record work units. Collision payload extraction and reconstruction
-return `std::expected<void, FPhysicsCollisionPayloadError>`, owning geometry/mode, counts, rejected
-indices/ordinals and vertex context. Construction latches cancellation across
-the physics builder so it cannot become a topology rejection. Both APIs
-preserve output on failure. Archive/build adapters format explicitly; CookedMesh product errors retain
-`CollisionCause`. Render conversion returns `std::expected<void, FStaticMeshPayloadError>` with owned
-LOD/stream/section indices, rejected attribute values, bounds and actual/expected
-counts or ranges. It preserves outputs on rejection/cancellation; CookedMesh product errors retain `RenderCause`.
-Cooked product decoding returns `FCookedMeshProductResult`, preserving Archive
-code/path/byte position, metadata differences and both construction causes; it
-publishes only a complete candidate. Async workers retain `ProductCause`.
-Ordinary payload Archive loading instead fills an unpublished
-destination in place: cancellation reports an error and the caller discards the
-incomplete value. Successful loading clears obsolete optional UV/color streams
-and collision leaf data. The standalone payload codecs latch cancellation, so an interrupted decode
-cannot become a successful decode. Render build shared-output validation and
-assembly run to completion and do not accept cancellation controls. The cancellable
-bounds overload is for detached construction only: false can leave partial bounds,
-and the caller must discard that candidate. No callback survives its synchronous
-call. Contiguous allocation/copy, container hashing/packing, archive I/O and
-compression remain indivisible library calls; cooperative cancellation has no
-hard wall-clock deadline and includes scratch destruction before return.
+partial residency.
+
+Render/collision payload conversion, validation, serialization and bounds
+finalization run synchronously to completion and accept no cancellation control.
+`MakeStaticMeshPayloadData`, `MakeStaticMeshRenderData`,
+`ValidateStaticMeshRenderData`, `MakePhysicsCollisionPayloadData`, and
+`MakePhysicsCollisionGeometry` report success or failure with `bool`. Conversion
+failure leaves the caller's existing output unchanged. Private helpers retain
+owned LOD/stream/section indices, rejected values, geometry/mode, ordinals and
+actual/expected counts for validation and diagnostics. Public adapters log a
+failure without returning this structured context.
+
+`DecodeStaticMeshCookedProduct` likewise returns `bool` and commits a complete
+render/collision candidate. Its private decoder retains Archive positions,
+metadata differences and construction causes. Async loading reports the stable
+load error category plus owned `Diagnostic` text; no private product-error object
+crosses the public boundary.
+
+Both payload types expose `void Serialize(FArchive&)`. Archive errors report
+malformed or unsupported data, not canceled operations. Loading fills an
+unpublished destination in place; callers discard failed candidates and require
+complete consumption before publication. Successful loading clears obsolete
+optional UV/color streams and collision leaf data. The asynchronous owner may
+withdraw queued work and reject a completed result after cancellation, while
+already started synchronous conversion and serialization are allowed to finish.
 
 ## Error-handling boundaries
 
@@ -232,7 +230,7 @@ inventing another wrapper. Diagnostic detail alone does not require a new type.
 | Boundary | Caller responsibility |
 | --- | --- |
 | Source acquisition, collision input preparation, build/cook | Stop on invalid or unavailable input; preserve the original reason and cancellation. |
-| Payload validation and cooked loading | Reject malformed data; keep structured validation details available to non-cache callers. |
+| Payload validation and cooked loading | Reject malformed data; use success/failure and owned diagnostics while structured validation details remain private. |
 | Cache read/decode/write | Rebuild rejected cache entries; report recoverable warnings without failing a valid product on cache write failure. |
 | Async admission | Report whether work was accepted; accepted work has a separate completion. |
 | Async completion | Distinguish success, failure, cancellation and supersession; ordinary failure carries its cause. |

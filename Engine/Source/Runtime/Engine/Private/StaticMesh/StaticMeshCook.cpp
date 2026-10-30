@@ -5,6 +5,9 @@
 #include "Asset/CookedPreparation.h"
 #include "Logging/LogMacros.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMeshPayloadPrivate.h"
+#include "Physics/PhysicsPayloadPrivate.h"
+#include "Asset/CookedMeshProductsPrivate.h"
 #include "StaticMesh/StaticMeshCustomVersion.h"
 
 #include "DObject/Package.h"
@@ -242,8 +245,8 @@ namespace Durin
 			{
 				if (!Mesh.GetRenderData()) return std::unexpected("StaticMesh cooked render data is unavailable.");
 				Projection.emplace();
-				if (const auto Made = MakeStaticMeshPayloadData(*Mesh.GetRenderData(), *Projection); !Made)
-					return std::unexpected(FormatStaticMeshPayloadError(Made.error()));
+				if (const auto Made = StaticMeshPrivate::TryMakeStaticMeshPayloadData(*Mesh.GetRenderData(), *Projection); !Made)
+					return std::unexpected(StaticMeshPrivate::FormatStaticMeshPayloadError(Made.error()));
 			}
 			std::unique_ptr<FPhysicsMeshInputTask> Physics;
 			FCookBodySetupInfo CookInfo;
@@ -268,8 +271,8 @@ namespace Durin
 					if (Control.IsCancelled()) return std::unexpected("Cook render construction was cancelled.");
 					if (!Built) return std::unexpected(Built.error());
 					Projection.emplace();
-					if (const auto Made = MakeStaticMeshPayloadData(**Built, *Projection); !Made)
-						return std::unexpected(FormatStaticMeshPayloadError(Made.error()));
+					if (const auto Made = StaticMeshPrivate::TryMakeStaticMeshPayloadData(**Built, *Projection); !Made)
+						return std::unexpected(StaticMeshPrivate::FormatStaticMeshPayloadError(Made.error()));
 				}
 #endif
 				std::string Error;
@@ -293,8 +296,8 @@ namespace Durin
 					if (!Built) return std::unexpected(Built.error());
 					const auto& Geometry = Input->GetMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Built->Simple : Built->Complex;
 					FPhysicsCollisionPayloadData Payload;
-					if (const auto Made = MakePhysicsCollisionPayloadData(Geometry, Payload); !Made)
-						return std::unexpected(FormatPhysicsCollisionPayloadError(Made.error()));
+					if (const auto Made = PhysicsPrivate::TryMakePhysicsCollisionPayloadData(Geometry, Payload); !Made)
+						return std::unexpected(PhysicsPrivate::FormatPhysicsCollisionPayloadError(Made.error()));
 					FByteBuffer Bytes;
 					FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
 					Payload.Serialize(Writer);
@@ -473,8 +476,7 @@ namespace Durin
 			return Error.ReadCause ? FormatPackageResourceReadError(*Error.ReadCause)
 				: !Error.Diagnostic.empty() ? Error.Diagnostic : "Cooked mesh payload read failed.";
 		case ECookedMeshLoadError::Product:
-			return Error.ProductCause ? FormatCookedMeshProductError(*Error.ProductCause)
-				: "Cooked mesh product decoding failed.";
+			return !Error.Diagnostic.empty() ? Error.Diagnostic : "Cooked mesh product decoding failed.";
 		case ECookedMeshLoadError::Publication:
 			return !Error.Diagnostic.empty() ? Error.Diagnostic
 				: "Cooked mesh publication failed.";
@@ -505,12 +507,9 @@ namespace Durin
 		const EBodySetupCollisionSourceMode CollisionMode = bRequiresCollision
 			? BodySetup->GetCollisionSourceMode()
 			: EBodySetupCollisionSourceMode::None;
-		if (const auto Result = DecodeStaticMeshCookedProduct(Bytes, CollisionBytes, MaterialSlots,
-			CollisionMode, Product,
-			GetAssetRuntimeConfiguration().GetCookTargetPlatform()); !Result)
+		if (const auto Result = AssetPrivate::TryDecodeStaticMeshCookedProduct(Bytes, CollisionBytes, MaterialSlots, CollisionMode, Product, GetAssetRuntimeConfiguration().GetCookTargetPlatform()); !Result)
 		{
-			return {.Error = {.Code = ECookedMeshLoadError::Product, .Owner = FObjectKey(this),
-				.ProductCause = std::make_shared<FCookedMeshProductError>(Result.Error)}};
+			return {.Error = {.Code = ECookedMeshLoadError::Product, .Owner = FObjectKey(this), .Diagnostic = AssetPrivate::FormatCookedMeshProductError(Result.error())}};
 		}
 		CollisionRead.reset();
 		Read->Reset();
@@ -576,12 +575,9 @@ namespace Durin
 				auto Result = std::make_unique<FStaticMeshManagerProduct>();
 				const FByteView CollisionBytes = bRequiresCollision
 					? Buffers[1].GetBytes() : FByteView{};
-				if (const auto Decoded = DecodeStaticMeshCookedProduct(Buffers[0].GetBytes(),
-					CollisionBytes, SlotSnapshot, CollisionMode,
-					Result->Product, TargetPlatform); !Decoded)
+				if (const auto Decoded = AssetPrivate::TryDecodeStaticMeshCookedProduct(Buffers[0].GetBytes(), CollisionBytes, SlotSnapshot, CollisionMode, Result->Product, TargetPlatform); !Decoded)
 				{
-					return {.Error = {.Code = ECookedMeshLoadError::Product,
-						.ProductCause = std::make_shared<FCookedMeshProductError>(Decoded.Error)}};
+					return {.Error = {.Code = ECookedMeshLoadError::Product, .Diagnostic = AssetPrivate::FormatCookedMeshProductError(Decoded.error())}};
 				}
 				uint64 RetainedBytes = Buffers[0].GetSize();
 				if (bRequiresCollision)

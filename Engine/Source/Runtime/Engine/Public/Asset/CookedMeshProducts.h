@@ -1,46 +1,16 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Physics/PhysicsDerivedData.h"
+#include "Collision/CollisionGeometry.h"
 
 #include "EngineAPI.h"
 #include "Materials/MeshMaterialSlot.h"
-#include "Physics/BodySetup.h"
-#include "StaticMesh/StaticMeshDerivedData.h"
+#include "Physics/BodySetupTypes.h"
+#include "StaticMesh/StaticMeshResources.h"
 #include "Asset/CookedAsset.h"
 
 namespace Durin
 {
-	enum class EArchiveFailureCode : uint8;
-	enum class ECookedMeshProductError : uint8
-	{
-		None, MissingCollision, CollisionArchive, CollisionMetadata,
-		CollisionConstruction, RenderArchive, MaterialSlotCount,
-		RenderConstruction, RuntimeMaterialSlotCount
-	};
-
-	struct FCookedMeshProductError
-	{
-		ECookedMeshProductError Code = ECookedMeshProductError::None;
-		std::optional<EArchiveFailureCode> ArchiveCode;
-		std::string ArchivePath;
-		uint64 ByteOffset = 0;
-		uint64 ByteCount = 0;
-		uint64 Actual = 0;
-		uint64 Expected = 0;
-		EBodySetupCollisionSourceMode ActualMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionSourceMode ExpectedMode = EBodySetupCollisionSourceMode::None;
-		std::optional<FPhysicsCollisionPayloadError> CollisionCause;
-		std::optional<FStaticMeshPayloadError> RenderCause;
-	};
-
-	struct FCookedMeshProductResult
-	{
-		FCookedMeshProductError Error;
-		explicit operator bool() const { return Error.Code == ECookedMeshProductError::None; }
-	};
-	ENGINE_API auto FormatCookedMeshProductError(const FCookedMeshProductError& Error) -> std::string;
-
 	struct FStaticMeshCookedProduct
 	{
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
@@ -58,5 +28,6 @@ namespace Durin
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
 		FStaticMeshCookedProduct& OutProduct,
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64) -> FCookedMeshProductResult;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64
+	) -> bool;
 }
