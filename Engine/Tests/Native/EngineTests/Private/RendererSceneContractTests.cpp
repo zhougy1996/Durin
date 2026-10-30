@@ -5,6 +5,7 @@
 #include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/MaterialPSOPrecacheCollector.h"
 #include "Renderers/MeshPassRelevance.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "HitProxy.h"
 #include "PSOPrecache.h"
 #include "RenderResourceCreation.h"
@@ -5368,4 +5369,41 @@ TEST(FRendererSceneContractTests, PreparationConfigSnapshotParticipatesInSharing
 	EXPECT_FALSE(First.GetProgress().bRequiredReady);
 	EXPECT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	EXPECT_EQ(First.GetDiagnostic(), "Fixture collection failure");
+}
+
+TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrCommands)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FRenderingThreadScope RenderingThread;
+    EnqueueRenderCommand("AddMeshBatchFiltering", [](FRHICommandListImmediate&) {
+        const auto Factory = FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
+        ASSERT_TRUE(Factory);
+        for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
+        for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
+        for (bool Main : {false, true})
+        for (bool Shadow : {false, true})
+        for (bool GBuffer : {false, true})
+        for (const auto Pass : FPassProcessorManager::GetRegisteredPasses()) {
+            FMaterialPlanningPassIdentity Material;
+            Material.ShaderMap.BlendMode = Blend; Material.ShaderMap.ShadingModel = Shading;
+            const bool Translucent = Blend == EMaterialBlendMode::Translucent;
+            const bool Deferred = !Translucent && Shading == EMaterialShadingModel::Lit && GBuffer;
+            bool Relevant = Main;
+            if (Pass == EMeshPipelinePass::ShadowDepth) Relevant = Shadow && !Translucent;
+            else if (Pass == EMeshPipelinePass::GBuffer) Relevant = Main && Deferred;
+            else if (Pass == EMeshPipelinePass::HybridRetainedForward) Relevant = Main && !Translucent && !Deferred;
+            else if (Pass == EMeshPipelinePass::SortedTranslucency) Relevant = Main && Translucent;
+            const FMeshPassProcessorBatch Batch{Material, *Factory, {}, EGeometryTopology::TriangleList, {Shadow, Main}, GBuffer};
+            FMeshPassShaders Empty;
+            FPSOPrecacheDataArray Initializers(1);
+            FMeshPassDrawListContext Context(Empty, nullptr, Initializers, true, EPSOPrecachePriority::Medium);
+            FPassProcessorManager::GetMeshPassProcessor(Pass).AddMeshBatch(Batch, Context);
+            // Applicable elements reach context validation; excluded elements must
+            // leave it untouched without requiring RHI, shaders or declarations.
+            EXPECT_EQ(Context.GetResult().Status, Relevant ? EShaderBuildStatus::Error : EShaderBuildStatus::Canceled);
+            EXPECT_EQ(Initializers.size(), 1u);
+            EXPECT_EQ(Initializers.front().GraphicsInitializer.BoundShaders.VertexShader, nullptr);
+        }
+    });
+    FlushRenderingCommands();
 }

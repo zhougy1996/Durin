@@ -11,6 +11,228 @@
 
 namespace Durin::RendererPrivate
 {
+	FMeshPassDrawListContext::FMeshPassDrawListContext(const FRenderResourceGeneration& InGeneration,
+		const FMaterialCompilerResult* InProgram, const FShaderCompileOptions& InOptions, FMeshPassShaders& InOutShaders)
+		: Generation(InGeneration), Program(InProgram), Options(InOptions), OutShaders(&InOutShaders) {}
+	FMeshPassDrawListContext::FMeshPassDrawListContext(FName InName, const FMeshPassShaders& InShaders,
+		FRHIVertexDeclaration* InDeclaration, FMeshPassPipeline& InOutCommand)
+		: Shaders(&InShaders), Declaration(InDeclaration), OutCommand(&InOutCommand), Name(InName) {}
+	FMeshPassDrawListContext::FMeshPassDrawListContext(const FMeshPassShaders& InShaders,
+		FRHIVertexDeclaration* InDeclaration, FPSOPrecacheDataArray& InOutInitializers, bool InRequired, EPSOPrecachePriority InPriority)
+		: Shaders(&InShaders), Declaration(InDeclaration), OutInitializers(&InOutInitializers), bRequired(InRequired), Priority(InPriority) {}
+
+	FMeshPassDrawListContext::FMeshPassDrawListContext(const FPreparedStaticMeshPrimitive& InPrimitive,
+		const FPreparedStaticMeshDraw& InDraw, const FResolvedStaticMeshView& InResolvedView,
+		std::shared_ptr<const FMeshDrawCommand>& InOutCommand)
+		: Primitive(&InPrimitive), Draw(&InDraw), ResolvedView(&InResolvedView), OutRetainedCommand(&InOutCommand) {}
+
+	auto FMeshPassProcessor::BuildMeshDrawCommands(const FMeshPassProcessorBatch& Batch, FMeshPassDrawListContext& DrawContext) const -> void
+	{
+		CheckRenderingThread();
+		DrawContext.Result = FShaderCompletion::Canceled();
+		DrawContext.FailureCategory = ERenderResourceCreateErrorCategory::InvalidConfiguration;
+		const auto& Factory = Batch.Factory;
+		const auto MeshPass = GetVertexFactoryPass(Batch.bGPUCulling);
+		if (!SupportsVertexFactory(Factory) || !Factory.GetShaderType(MeshPass)
+			|| !IsMeshRelevant(Batch.Material, Batch.Participation, Batch.bSupportsGBuffer && Factory.GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return;
+		const auto Fragment = GetFragmentShader(Batch.Material.ShaderMap.BlendMode);
+		if (!Fragment.Type || !Fragment.Resolve)
+		{ DrawContext.Result = FShaderCompletion::Failure("Unsupported mesh pass fragment shader."); return; }
+		if (DrawContext.OutRetainedCommand)
+		{
+			const auto& Primitive = *DrawContext.Primitive;
+			const auto& Draw = *DrawContext.Draw;
+			const auto& View = *DrawContext.ResolvedView;
+			if (!Primitive.CollectedBinding || !Draw.Command || Draw.ResolvedIndex >= View.Draws.size()
+				|| Draw.PrimitiveIndex >= View.PrimitiveUniforms.size() || Draw.MaterialUniformIndex >= View.MaterialUniforms.size()
+				|| !View.IsReady(Draw))
+			{ DrawContext.Result = FShaderCompletion::Failure("Cannot retain an incomplete mesh draw command."); return; }
+			auto Command = std::make_shared<FMeshDrawCommand>();
+			Command->Description = Draw.Command;
+			Command->Input = Primitive.CollectedBinding;
+			Command->PrimitiveUniform = View.PrimitiveUniforms[Draw.PrimitiveIndex];
+			Command->Record = View.Draws[Draw.ResolvedIndex];
+			Command->PrimitiveState = FMeshDrawPrimitiveState::Capture(Primitive);
+			Command->Materials = View.MaterialUniforms[Draw.MaterialUniformIndex];
+			Command->Record.VertexPassBindings.reset();
+			Command->Record.HybridVertexPassBindings.reset();
+			Command->Record.GBufferVertexPassBindings.reset();
+			Command->Record.FragmentPassBindings.reset();
+			Command->Record.HybridFragmentPassBindings.reset();
+			Command->Record.GBufferFragmentPassBindings.reset();
+			Command->Record.GBufferGPUCullingFragmentPassBindings.reset();
+			*DrawContext.OutRetainedCommand = std::move(Command);
+			DrawContext.Result = FShaderCompletion{};
+			return;
+		}
+		if (DrawContext.OutShaders)
+		{
+			FMeshPassShaders Candidate;
+			DrawContext.FailureCategory = ERenderResourceCreateErrorCategory::ShaderCompile;
+			DrawContext.Result = InitializeMaterialShaderMap(*Factory.GetShaderType(MeshPass), *Fragment.Type,
+				Factory.GetType(), MeshPass, Batch.Material.ShaderMap, DrawContext.Generation,
+				DrawContext.Program, DrawContext.Options, Candidate.ShaderMap);
+			if (!DrawContext.Result) return;
+			const auto DeferredBefore = FRenderResourceAdmissionScope::GetDeferredAdmissions();
+			Candidate.VertexShader = Factory.Resolve(Candidate.ShaderMap, MeshPass);
+			Candidate.FragmentShader = Fragment.Resolve(Candidate.ShaderMap);
+			if (!Candidate.VertexShader || !Candidate.VertexShader->GetRHIShader(false) || !Candidate.FragmentShader)
+			{
+				DrawContext.FailureCategory = ERenderResourceCreateErrorCategory::RHIResource;
+				DrawContext.Result = FRenderResourceAdmissionScope::GetDeferredAdmissions() != DeferredBefore
+					? FShaderCompletion::Pending() : FShaderCompletion::Failure("Mesh pass shader creation failed.");
+				return;
+			}
+			Candidate.FragmentLayout = Fragment.ResolveLayout ? Fragment.ResolveLayout(Candidate.ShaderMap) : nullptr;
+			Candidate.VertexFactoryPass = MeshPass;
+			Candidate.FragmentType = Fragment.Type;
+			Candidate.FactoryKey = Factory.GetType().GetStableKey();
+			Candidate.LayoutKey = Factory.GetLayoutKey();
+			*DrawContext.OutShaders = std::move(Candidate);
+			return;
+		}
+		const auto* Shaders = DrawContext.Shaders;
+		if (!Shaders || !DrawContext.Declaration || !Shaders->ShaderMap
+			|| Shaders->ShaderMap.GetIdentity() != Batch.Material.ShaderMap
+			|| Shaders->FactoryKey != Factory.GetType().GetStableKey() || Shaders->LayoutKey != Factory.GetLayoutKey()
+			|| Shaders->VertexFactoryPass != MeshPass
+			|| Shaders->FragmentType != Fragment.Type || !Shaders->VertexShader || !Shaders->FragmentShader
+			|| !Shaders->VertexShader->GetRHIShader(false))
+		{ DrawContext.Result = FShaderCompletion::Failure("Mesh draw context does not match the selected pass shaders."); return; }
+		const auto Description = DescribeMeshDraw(Batch.PipelineState, Batch.Topology,
+			Batch.Material.ShaderMap.BlendMode, Batch.bReversedZ);
+		const auto Initializer = Description.MakeInitializer(Shaders->VertexShader->GetRHIShader(false), Shaders->FragmentShader,
+			DrawContext.Declaration, Shaders->ShaderMap.GetPipelineLayout());
+		if (DrawContext.OutInitializers)
+			DrawContext.OutInitializers->emplace_back(Initializer, DrawContext.bRequired, DrawContext.Priority);
+		else
+		{
+			FMeshPassPipeline Candidate;
+			static_cast<FMeshPassShaders&>(Candidate) = *Shaders;
+			Candidate.VertexDeclaration = DrawContext.Declaration;
+			DrawContext.FailureCategory = ERenderResourceCreateErrorCategory::GraphicsPipeline;
+			Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(DrawContext.Name, Initializer);
+			if (!Candidate.PipelineState)
+			{ DrawContext.Result = FShaderCompletion::Failure("Mesh pass pipeline creation failed."); return; }
+			*DrawContext.OutCommand = std::move(Candidate);
+		}
+		DrawContext.Result = FShaderCompletion{};
+	}
+
+	namespace
+	{
+		constexpr size_t MeshPassSlotCount = static_cast<size_t>(EMeshPipelinePass::HitProxy) + 1;
+		struct FPassProcessorEntry
+		{
+			PassProcessorCreateFunction Create = nullptr;
+			std::unique_ptr<FMeshPassProcessor> Prototype;
+		};
+		struct FPassProcessorRegistry
+		{
+			std::mutex Mutex;
+			std::array<FPassProcessorEntry, MeshPassSlotCount> Entries;
+		};
+		auto PassProcessorRegistry() -> FPassProcessorRegistry&
+		{
+			static FPassProcessorRegistry Registry;
+			return Registry;
+		}
+		auto IsValidMeshPass(EMeshPipelinePass Pass) -> bool
+		{ return static_cast<size_t>(Pass) < MeshPassSlotCount; }
+	}
+
+	FRegisterPassProcessorCreateFunction::FRegisterPassProcessorCreateFunction(
+		PassProcessorCreateFunction InCreateFunction, EMeshPipelinePass InPass)
+		: CreateFunction(InCreateFunction), Pass(InPass)
+	{
+		if (!CreateFunction || !IsValidMeshPass(Pass)) return;
+		auto& Registry = PassProcessorRegistry();
+		std::lock_guard Lock(Registry.Mutex);
+		auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
+		if (Entry.Create) return;
+		Entry.Create = CreateFunction;
+		bRegistered = true;
+	}
+	FRegisterPassProcessorCreateFunction::~FRegisterPassProcessorCreateFunction()
+	{
+		if (!bRegistered) return;
+		std::unique_ptr<FMeshPassProcessor> Retired;
+		{
+			auto& Registry = PassProcessorRegistry();
+			std::lock_guard Lock(Registry.Mutex);
+			auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
+			if (Entry.Create != CreateFunction) return;
+			Retired = std::move(Entry.Prototype);
+			Entry.Create = nullptr;
+		}
+	}
+	auto FPassProcessorManager::IsRegistered(EMeshPipelinePass Pass) -> bool
+	{
+		if (!IsValidMeshPass(Pass)) return false;
+		auto& Registry = PassProcessorRegistry();
+		std::lock_guard Lock(Registry.Mutex);
+		return Registry.Entries[static_cast<size_t>(Pass)].Create != nullptr;
+	}
+	auto FPassProcessorManager::GetRegisteredPasses() -> std::vector<EMeshPipelinePass>
+	{
+		auto& Registry = PassProcessorRegistry();
+		std::lock_guard Lock(Registry.Mutex);
+		std::vector<EMeshPipelinePass> Passes;
+		for (size_t Index = 0; Index < Registry.Entries.size(); ++Index)
+			if (Registry.Entries[Index].Create) Passes.push_back(static_cast<EMeshPipelinePass>(Index));
+		return Passes;
+	}
+	auto FPassProcessorManager::CreateMeshPassProcessor(EMeshPipelinePass Pass, FMeshPSOCollectorContext Context)
+		-> std::unique_ptr<FMeshPassProcessor>
+	{
+		if (!IsValidMeshPass(Pass)) return {};
+		PassProcessorCreateFunction Create = nullptr;
+		{
+			auto& Registry = PassProcessorRegistry();
+			std::lock_guard Lock(Registry.Mutex);
+			Create = Registry.Entries[static_cast<size_t>(Pass)].Create;
+		}
+		// Factories can query other passes; never invoke them under the registry lock.
+		auto Processor = Create ? Create(Context) : nullptr;
+		if (Processor && Processor->GetPass() != Pass) return {};
+		return Processor;
+	}
+	auto FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass Pass) -> const FMeshPassProcessor&
+	{
+		requiref(IsValidMeshPass(Pass), "Invalid mesh pass processor index.");
+		auto& Registry = PassProcessorRegistry();
+		PassProcessorCreateFunction Create = nullptr;
+		{
+			std::lock_guard Lock(Registry.Mutex);
+			const auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
+			if (Entry.Prototype) return *Entry.Prototype;
+			Create = Entry.Create;
+		}
+		requiref(Create != nullptr, "Unregistered mesh pass processor.");
+		auto Prototype = Create({});
+		requiref(Prototype && Prototype->GetPass() == Pass, "Mesh pass factory returned an incompatible processor.");
+		std::lock_guard Lock(Registry.Mutex);
+		auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
+		requiref(Entry.Create == Create, "Mesh pass registration changed during lookup.");
+		if (!Entry.Prototype) Entry.Prototype = std::move(Prototype);
+		return *Entry.Prototype;
+	}
+
+	auto FMeshPassProcessor::RasterVariants(const FSceneRenderPreparationConfig& Config, const FPSOPrecacheParams& Params,
+		uint8 Count, bool bShadow, bool bPicking) -> std::vector<FMeshPSOPrecacheVariant>
+	{
+		std::vector<FMeshPSOPrecacheVariant> Result;
+		for (uint8 Variant = 0; Variant < Count; ++Variant)
+		{
+			const FMeshPipelineRasterOptions Raster{(Variant & 4) != 0, (Variant & 1) != 0,
+				Params.bOrientationChanging, (Variant & 2) != 0};
+			if (Raster.bWireframe && !Config.bSupportsWireframe) continue;
+			Result.push_back({Raster, bShadow || (!bPicking
+				&& Raster.bWireframe == Params.bWireframe && Raster.bReversedZ == Params.bReversedZ)});
+		}
+		return Result;
+	}
+
 	struct FMeshPassProcessor::FState
 	{
 		std::expected<bool, std::string> Result = false;
@@ -20,9 +242,7 @@ namespace Durin::RendererPrivate
 		std::array<bool, 2> Requested{};
 		bool bVariantsCollected = false, bShadersReady = false;
 		FVertexDeclarationRHIRef Declaration;
-		FMeshMaterialShaderMap ShaderMap;
-		std::shared_ptr<const FMeshVertexShaderBinding> Vertex;
-		FRHIShader* Fragment = nullptr;
+		FMeshPassShaders Shaders;
 	};
 	FMeshPassProcessor::FMeshPassProcessor(FMeshPSOCollectorContext InContext) : Context(InContext) {}
 	FMeshPassProcessor::~FMeshPassProcessor() = default;
@@ -103,16 +323,12 @@ namespace Durin::RendererPrivate
 		FPreparedShaderMapScope Prepared;
 		if (!State->bShadersReady)
 		{
-			const auto Completion = InitializeMaterialShaderMap(*Factory->GetShaderType(MeshPass), *Fragment.Type,
-				Factory->GetType(), MeshPass, Identity.ShaderMap, Context.Generation, Material.CompiledProgram.get(), {}, State->ShaderMap);
+			const FMeshPassProcessorBatch Batch{Identity, *Factory, {}, Params.Topology, Params.Participation};
+			FMeshPassDrawListContext DrawContext(Context.Generation, Material.CompiledProgram.get(), {}, State->Shaders);
+			AddMeshBatch(Batch, DrawContext);
+			const auto& Completion = DrawContext.GetResult();
 			if (Completion.Status == EShaderBuildStatus::Pending) return;
 			if (!Completion) { Fail(Completion.Error.empty() ? "Mesh pass shader collection was canceled." : std::string(Completion.Error)); return; }
-			const auto DeferredBefore = FRenderResourceAdmissionScope::GetDeferredAdmissions();
-			State->Vertex = Factory->Resolve(State->ShaderMap, MeshPass);
-			State->Fragment = Fragment.Resolve(State->ShaderMap);
-			const auto* Vertex = State->Vertex ? State->Vertex->GetRHIShader(false) : nullptr;
-			if ((!Vertex || !State->Fragment) && FRenderResourceAdmissionScope::GetDeferredAdmissions() != DeferredBefore) return;
-			if (!Vertex || !State->Fragment) { Fail("Mesh pass material shader creation failed."); return; }
 			State->bShadersReady = true;
 		}
 		if (!State->Declaration)
@@ -125,10 +341,11 @@ namespace Durin::RendererPrivate
 		while (Next < Variants.size())
 		{
 			const auto& Variant = Variants[Next];
-			const auto Description = DescribeMeshDraw(MakeMeshPipelineState(Identity, Variant.Raster),
-				Params.Topology, Identity.ShaderMap.BlendMode, Variant.Raster.bReversedZ);
-			Out.emplace_back(Description.MakeInitializer(State->Vertex->GetRHIShader(false), State->Fragment,
-				State->Declaration, State->ShaderMap.GetPipelineLayout()), Variant.bRequired, Context.Priority);
+			const FMeshPassProcessorBatch Batch{Identity, *Factory, MakeMeshPipelineState(Identity, Variant.Raster),
+				Params.Topology, Params.Participation, true, false, Variant.Raster.bReversedZ};
+			FMeshPassDrawListContext DrawContext(State->Shaders, State->Declaration, Out, Variant.bRequired, Context.Priority);
+			AddMeshBatch(Batch, DrawContext);
+			if (!DrawContext.GetResult()) { Fail("Mesh pass initializer construction failed."); return; }
 			++Next;
 		}
 		State->Result = true;

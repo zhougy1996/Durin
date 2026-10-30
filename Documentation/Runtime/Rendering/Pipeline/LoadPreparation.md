@@ -327,9 +327,46 @@ Additional requests wait without expanding their pipeline resources.
 `FMeshPassProcessor` implementations own eligibility, shader selection, raster
 variants, required classification and draw pipeline descriptions for Forward,
 ShadowDepth, GBuffer, hybrid retained, sorted translucency and HitProxy. Actual
-mesh preparation and pipeline creation use those same processors and existing
-`FMeshPipelineDescription` values; geometry visibility, bindings and recording
-remain with the draw owners.
+mesh preparation and pipeline creation enter each processor through `AddMeshBatch`.
+`FMeshPassProcessorBatch` borrows the accepted material, Vertex Factory and effective
+state from an admitted prepared batch element, avoiding a second geometry capture.
+The pass performs final material/participation/factory filtering, selects its vertex
+and fragment stages and describes pipeline state. Shared `BuildMeshDrawCommands`
+logic initializes the ShaderMap, resolves the selected shader bindings and builds
+owned `FMeshPassPipeline` resources containing the ShaderMap, vertex binding, fragment
+shader/layout, declaration and native pipeline. Geometry visibility, uniform/parameter
+packet caches and command-list recording remain with their existing owners.
+
+`FMeshPassDrawListContext` adapts command construction to the existing asynchronous
+ShaderMap and pipeline caches: a shader context publishes a complete shader payload;
+a draw context consumes it and creates a native pipeline through the existing
+request service. A precache context consumes the same payload and appends only an
+initializer, without creating a pipeline or recording a draw. Both output paths
+use the same final filtering, shader selection and `FMeshPipelineDescription`.
+Material ShaderMap identity, factory/layout and selected shader stages must match
+the supplied payload before either path can emit output. A retained-command context
+also assembles the complete existing `FMeshDrawCommand` snapshot: geometry description,
+input binding, primitive state/uniform, selected draw resources and material parameter
+packets. The cache owner supplies prepared packets and owns retention/eviction; the
+processor removes per-view packets before publishing the immutable command, preserving
+view-local binding refresh and the existing multi-route cache representation.
+Filtered, pending or failed attempts leave the output payload untouched; cached payloads retain the ShaderMap
+that owns their compiled fragment layout. Each context is confined to its call on
+the render thread; shared draw prototypes keep no request-specific context.
+
+Concrete processors and their creation-function registrations live with their
+passes: Base Scene owns Forward, hybrid retained and sorted translucency;
+Directional Shadow, GBuffer and HitProxy own their corresponding processors.
+`MeshPassProcessor.h/.cpp` contains only the base, shared collection helpers and
+the registration manager. `FRegisterPassProcessorCreateFunction` registers a
+factory for an existing `EMeshPipelinePass`; `FPassProcessorManager` enumerates,
+looks up and creates processors through that registry. Duplicate, null and
+out-of-range registrations cannot replace an existing factory. Creation callbacks
+execute outside the registry lock, and each collection gets independent state.
+Draw lookups lazily retain an immutable prototype. Registration belongs to module
+initialization; unregistering requires quiescent users and retires that prototype.
+The project pass enum already distinguishes its routes, so this registry does not
+introduce an additional ShadingPath index.
 
 Engine's `IPSOCollector::CollectPSOInitializers` follows the UE append interface:
 it takes the scene configuration, accepted `FMaterialResource`, Vertex Factory

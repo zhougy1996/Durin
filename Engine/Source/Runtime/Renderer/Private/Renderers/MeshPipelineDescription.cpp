@@ -39,7 +39,7 @@ namespace Durin::RendererPrivate
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,
 		FMaterialShaderBlendModeKey BlendMode, bool bReversedZ) -> FMeshPipelineDescription
 	{
-		return GetMeshPassProcessor(Pass).DescribeMeshDraw(State, Topology, BlendMode, bReversedZ);
+		return FPassProcessorManager::GetMeshPassProcessor(Pass).DescribeMeshDraw(State, Topology, BlendMode, bReversedZ);
 	}
 
 	auto FMeshPipelineDescription::MakeInitializer(FRHIShader* Vertex, FRHIShader* Fragment,

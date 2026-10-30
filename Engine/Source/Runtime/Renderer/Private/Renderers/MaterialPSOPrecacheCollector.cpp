@@ -20,8 +20,9 @@ namespace Durin::RendererPrivate
 		bool bSupportsGBuffer, const FSceneRenderPreparationConfig& Config) -> std::vector<FMaterialPSOPrecachePass>
 	{
 		std::vector<FMaterialPSOPrecachePass> Result;
-		for (const auto* Processor : GetMeshPassProcessors())
+		for (const auto Pass : FPassProcessorManager::GetRegisteredPasses())
 		{
+			const auto* Processor = &FPassProcessorManager::GetMeshPassProcessor(Pass);
 			if (!Processor->IsEnabled(Config) || !Processor->IsMeshRelevant(Params.Material, Params.PrecachePSOParams.Participation, bSupportsGBuffer)) continue;
 			for (const auto& Variant : Processor->GetPSOPrecacheVariants(Config, Params.PrecachePSOParams))
 				Result.push_back({Processor->GetPass(), Variant.Raster, Variant.bRequired});
@@ -33,8 +34,8 @@ namespace Durin::RendererPrivate
 		const FMeshVertexFactoryImplementation& Factory, const FSceneRenderPreparationConfig& Config) -> std::vector<FMaterialPSOPrecachePass>
 	{
 		auto Result = SelectMaterialPSOPrecachePasses(Params,
-			Factory.GetShaderType(GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass()) != nullptr, Config);
-		std::erase_if(Result, [&](const auto& Entry) { return !GetMeshPassProcessor(Entry.Pass).SupportsVertexFactory(Factory); });
+			Factory.GetShaderType(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass()) != nullptr, Config);
+		std::erase_if(Result, [&](const auto& Entry) { return !FPassProcessorManager::GetMeshPassProcessor(Entry.Pass).SupportsVertexFactory(Factory); });
 		return Result;
 	}
 	auto CollectMaterialPSOs(const FMaterialPSOPrecacheParams& Params, FMaterialPSOPrecacheCollection& Collection,
@@ -47,8 +48,12 @@ namespace Durin::RendererPrivate
 		if (!Collection.Resources)
 		{
 			auto Resources = std::make_shared<FCollectedMaterialPSOs>();
-			for (const auto* Processor : GetMeshPassProcessors())
-				Resources->Processors.push_back(Processor->CreatePSOCollector({Generation, Params.Priority}));
+			for (const auto Pass : FPassProcessorManager::GetRegisteredPasses())
+			{
+				auto Processor = FPassProcessorManager::CreateMeshPassProcessor(Pass, {Generation, Params.Priority});
+				if (!Processor) return std::unexpected(std::string("Registered mesh pass factory failed to create a collector."));
+				Resources->Processors.push_back(std::move(Processor));
+			}
 			FMaterialStaticProperties Properties;
 			Properties.BlendMode = static_cast<EMaterialBlendMode>(Params.Material.ShaderMap.BlendMode.Value);
 			Properties.ShadingModel = static_cast<EMaterialShadingModel>(Params.Material.ShaderMap.ShadingModel.Value);
