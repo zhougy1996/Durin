@@ -47,7 +47,16 @@ namespace Durin::RendererPrivate
 				|| Draw.PrimitiveIndex >= View.PrimitiveUniforms.size() || Draw.MaterialUniformIndex >= View.MaterialUniforms.size()
 				|| !View.IsReady(Draw))
 			{ DrawContext.Result = FShaderCompletion::Failure("Cannot retain an incomplete mesh draw command."); return; }
+			const auto& Key = Draw.Command->PipelineKey;
+			if (Draw.Command->Material.PlanningPassIdentity != Batch.Material || Key.Material != Batch.Material
+				|| Key.FactoryKey != Factory.GetType().GetStableKey() || Key.LayoutKey != Factory.GetLayoutKey()
+				|| Primitive.CollectedBinding->GetFactoryKey() != Key.FactoryKey || Primitive.CollectedBinding->GetLayoutKey() != Key.LayoutKey
+				|| Key.Topology != Batch.Topology || Key.Rasterizer != Batch.PipelineState.Rasterizer
+				|| Key.Depth != Batch.PipelineState.Depth || Key.ColorBlend != Batch.PipelineState.ColorBlend)
+			{ DrawContext.Result = FShaderCompletion::Failure("Retained mesh draw context does not match the admitted batch."); return; }
 			auto Command = std::make_shared<FMeshDrawCommand>();
+			Command->PrimitiveId = Primitive.PrimitiveId;
+			Command->BatchId = Primitive.BatchId;
 			Command->Description = Draw.Command;
 			Command->Input = Primitive.CollectedBinding;
 			Command->PrimitiveUniform = View.PrimitiveUniforms[Draw.PrimitiveIndex];

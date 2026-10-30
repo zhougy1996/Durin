@@ -74,6 +74,17 @@ namespace Durin::RendererPrivate
 	// Complete retained draw snapshot. Per-view bindings are refreshed separately.
 	struct FMeshDrawCommand
 	{
+		using FKey = std::array<uint64, 7>;
+		static auto MakeKey(const FMeshDrawDescription* Description, FPrimitiveComponentId PrimitiveId,
+			uint64 BatchId, const FResolvedMeshDrawRecord& Record) -> FKey
+		{
+			return {reinterpret_cast<uint64>(Description), PrimitiveId.Value, BatchId,
+				reinterpret_cast<uint64>(Record.Pipeline.get()), reinterpret_cast<uint64>(Record.HybridPipeline.get()),
+				reinterpret_cast<uint64>(Record.GBufferPipeline.get()), reinterpret_cast<uint64>(Record.GBufferGPUCullingPipeline.get())};
+		}
+		auto GetKey() const -> FKey { return MakeKey(Description.get(), PrimitiveId, BatchId, Record); }
+		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
+		uint64 BatchId = 0;
 		std::shared_ptr<const FMeshDrawDescription> Description;
 		std::shared_ptr<const FVertexFactoryInputBinding> Input;
 		FRHIUniformBufferRange PrimitiveUniform;
