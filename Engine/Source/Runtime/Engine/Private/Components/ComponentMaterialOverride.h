@@ -38,10 +38,10 @@ namespace Durin
 			DMaterialInterface* DefaultMaterial) -> DMaterialInterface*;
 		auto TrimTrailingNulls(
 			std::vector<TObjectPtr<DMaterialInterface>>& Overrides) -> void;
-		auto ResolveRenderProxy(DMaterialInterface* Material) -> FMaterialRenderProxyRef;
+		auto ResolveRenderProxy(DMaterialInterface* Material, std::optional<ERHIFeatureLevel> FeatureLevel = {}) -> FMaterialRenderProxyRef;
 		auto BuildRenderProxyBindingUpdate(
 			uint32 SlotIndex,
 			DMaterialInterface* Material,
-			FMaterialRenderProxyBindingUpdate& OutUpdate) -> void;
+			FMaterialRenderProxyBindingUpdate& OutUpdate, std::optional<ERHIFeatureLevel> FeatureLevel = {}) -> void;
 	}
 }

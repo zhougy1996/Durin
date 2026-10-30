@@ -11,7 +11,7 @@
 
 namespace Durin::Editor
 {
-	FPreviewScene::FPreviewScene(FName Name)
+	FPreviewScene::FPreviewScene(FName Name, std::optional<ERHIFeatureLevel> FeatureLevel)
 	{
 		checkf(IsInGameThread(), "Preview scenes must be created on the game thread.");
 		if (GEngine == nullptr || GEngine->GetRendererModule() == nullptr)
@@ -20,7 +20,7 @@ namespace Durin::Editor
 			return;
 		}
 
-		RenderScene = GEngine->GetRendererModule()->CreateScene();
+		RenderScene = FeatureLevel ? GEngine->GetRendererModule()->CreateScene(*FeatureLevel) : GEngine->GetRendererModule()->CreateScene();
 		if (RenderScene == nullptr)
 		{
 			Error = "The renderer could not create a preview scene.";

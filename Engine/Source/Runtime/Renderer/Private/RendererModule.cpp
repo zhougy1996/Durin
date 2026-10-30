@@ -59,9 +59,21 @@ namespace Durin
 	FRendererModule::FRendererModule() = default;
 
 	FRendererModule::~FRendererModule() = default;
+	auto FRendererModule::GetSceneRenderPreparationConfig(ERHIFeatureLevel FeatureLevel) const -> FSceneRenderPreparationConfig
+	{
+		CheckGameThread();
+		return RenderingService ? RenderingService->GetPreparationConfig_GameThread(FeatureLevel) : FSceneRenderPreparationConfig{};
+	}
+	auto FRendererModule::SetPreparationSettings(const FRendererPreparationSettings& Settings) -> bool
+	{
+		CheckGameThread();
+		return RenderingService && RenderingService->SetPreparationSettings_GameThread(Settings);
+	}
 	auto FRendererModule::PrecacheMaterialPSOs(FMaterialPSOPrecacheParams Params) -> FMaterialPSOPrecacheRequestID
 	{
 		CheckGameThread();
+		Params.PreparationConfig = GetSceneRenderPreparationConfig(Params.FeatureLevel);
+		if (!Params.PreparationConfig.Version) return FMaterialPSOPrecacheRequestID::Rejected("Renderer has no preparation configuration for this feature level.");
 		return RenderingService ? RenderingService->MaterialPSORequests.PrecachePSOs(std::move(Params))
 			: FMaterialPSOPrecacheRequestID::Rejected("Renderer is not initialized.");
 	}
@@ -169,6 +181,13 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		return FScenePtr(new FScene(RenderingService.get(), RenderingService ? this : nullptr), FSceneDeleter(&FScene::DestroyScene));
+	}
+
+	auto FRendererModule::CreateScene(ERHIFeatureLevel FeatureLevel) -> FScenePtr
+	{
+		check(IsInGameThread());
+		if (FeatureLevel > FSceneInterface::GetDefaultFeatureLevel()) return {};
+		return FScenePtr(new FScene(RenderingService.get(), RenderingService ? this : nullptr, FeatureLevel), FSceneDeleter(&FScene::DestroyScene));
 	}
 
 	auto FRendererModule::CreateViewState() -> FSceneViewStateOwner

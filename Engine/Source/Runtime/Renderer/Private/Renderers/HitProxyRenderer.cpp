@@ -1,7 +1,7 @@
 #include "Renderers/SceneRenderingService.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Renderers/MeshPipelineDescription.h"
-#include "Renderers/MaterialPSOPrecacheCollector.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Shader/ShaderCookedLibrary.h"
@@ -16,7 +16,7 @@ namespace Durin
 	namespace
 	{
 		auto MakeHitProxyMapKey(FScene* Scene, const FHitProxyRenderRequest& Request, const FRenderResourceGeneration& RendererGeneration,
-			bool bFrameDependent, FXxHash128 Materials) -> FXxHash128
+			bool bFrameDependent, FXxHash128 Materials, const FSceneRenderPreparationConfig& Config) -> FXxHash128
 		{
 			FXxHash128Builder Hash;
 			const auto Add = [&]<typename T>(const T& Value) { Hash.UpdateValue(Value); };
@@ -27,14 +27,16 @@ namespace Durin
 			Add(reinterpret_cast<uintptr_t>(Scene));
 			Add(Scene ? Scene->GetHitProxyRevision_RenderThread() : 0);
 			Add(Materials);
+			Add(Config.Version);
 			Add(RendererGeneration.Shader); Add(RendererGeneration.Device); Add(RendererGeneration.Manual);
 			Add(bFrameDependent);
 			if (bFrameDependent) Add(GRenderFrameCounterRenderThread);
-			const auto& View = Request.View;
+			auto View = Request.View;
+			View.FeatureLevel = Config.FeatureLevel;
 			Matrix(View.ViewMatrix); Matrix(View.ProjectionMatrix); Matrix(View.ViewProjectionMatrix);
 			Add(View.ViewLocation.x); Add(View.ViewLocation.y); Add(View.ViewLocation.z);
 			Add(View.ViewportX); Add(View.ViewportY); Add(View.ViewportWidth); Add(View.ViewportHeight);
-			Add(View.MaterialTimeSeconds); Add(View.DepthConvention);
+			Add(View.MaterialTimeSeconds); Add(View.DepthConvention); Add(View.FeatureLevel);
 			Add(View.AspectRatioConstraint); Add(View.bDiscardHistory);
 			Add(View.NearClipDistance); Add(View.FarClipDistance); Add(View.ViewFadeStart); Add(View.ViewRenderDistance);
 			Add(View.Settings.Mode.VisibilityMode); Add(View.Settings.Mode.LODMode);
@@ -120,7 +122,7 @@ namespace Durin
 		};
 	}
 
-	auto RendererPrivate::GetHitProxyPSOPrecacheFragmentShader() -> FMaterialPSOFragmentShader
+	auto RendererPrivate::GetHitProxyMeshPassFragmentShader() -> FMeshPassFragmentShader
 	{
 		return {&FHitProxyFragmentShader::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<FHitProxyFragmentShader>(Map).GetRHIShader(false); }};
 	}
@@ -129,7 +131,10 @@ namespace Durin
 		FScene* Scene, const FHitProxyRenderRequest& Request) -> std::shared_ptr<const FHitProxyMap>
 	{
 		check(IsInRenderingThread());
-		const auto& View = Request.View;
+		auto View = Request.View;
+		View.FeatureLevel = Scene ? Scene->GetFeatureLevel() : PreparationConfigRenderThread.FeatureLevel;
+		const auto Config = GetPreparationConfig_RenderThread(View.GetFeatureLevel());
+		if (!Config.Version || !Config.Settings.bHitProxy) return {};
 		const uint64 Width = uint64(View.ViewportX) + View.ViewportWidth;
 		const uint64 Height = uint64(View.ViewportY) + View.ViewportHeight;
 		if ((Request.bSceneGeometry && !Scene) || !View.ViewportWidth || !View.ViewportHeight || !FHitProxyMap::IsValidExtent(Width, Height) || Commands.IsInsideRenderPass()) { return {}; }
@@ -162,7 +167,7 @@ namespace Durin
 		});
 		const auto MaterialKey = MaterialHash.Finalize();
 		const auto CacheKey = MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(),
-			Request.Cache && Request.Cache->IsFrameDependent_RenderThread(), MaterialKey);
+			Request.Cache && Request.Cache->IsFrameDependent_RenderThread(), MaterialKey, Config);
 		if (!View.bDiscardHistory && Request.Cache)
 			if (auto Map = Request.Cache->Find_RenderThread(CacheKey))
 			{
@@ -198,8 +203,11 @@ namespace Durin
 						bFrameDependent |= EnumHasAnyFlags(Texture->GetReferencedTexture_RenderThread()->GetFlags(), ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::Storage);
 				FShaderCompileOptions Options;
 				const auto& Identity = Draw.Command->Material.PlanningPassIdentity.ShaderMap;
-				const auto ShaderCompletion = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward), FHitProxyFragmentShader::StaticType(),
-					Factory->GetType(), MaterialMeshPassForward, Identity, Coordinator.GetGeneration_RenderThread(),
+				const auto& Processor = GetMeshPassProcessor(EMeshPipelinePass::HitProxy);
+				const auto MeshPass = Processor.GetVertexFactoryPass();
+				const auto Fragment = Processor.GetFragmentShader(Identity.BlendMode);
+				const auto ShaderCompletion = InitializeMaterialShaderMap(*Factory->GetShaderType(MeshPass), *Fragment.Type,
+					Factory->GetType(), MeshPass, Identity, Coordinator.GetGeneration_RenderThread(),
 					Draw.Command->Material.CompiledProgram.get(), Options, Item.ShaderMap);
 				if (ShaderCompletion.Status == EShaderBuildStatus::Pending) { PreparationScope.MarkPending(); FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
 				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { bReady = false; break; }
@@ -210,7 +218,7 @@ namespace Durin
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding, {})
 						.Prepare(ESurfaceMaterialPass::MaskedShadow, nullptr, nullptr, Item.Material)) { bReady = false; break; }
-				const auto Description = DescribeMeshPipeline(EMeshPipelinePass::HitProxy,
+				const auto Description = Processor.DescribeMeshDraw(
 					{Draw.Command->PipelineKey.Rasterizer, {}, {}}, Draw.Command->PipelineKey.Topology,
 					Identity.BlendMode, View.DepthConvention == ESceneDepthConvention::ReversedZ);
 				const auto Pipeline = Description.MakeInitializer(Item.Vertex->GetRHIShader(), Item.Fragment.GetRHIShader(),
@@ -354,7 +362,7 @@ namespace Durin
 		const auto Map = FHitProxyMap::Create(uint32(Width), uint32(Height), std::move(Pixels));
 		if (!Map) return {};
 		if (Request.Cache)
-			Request.Cache->Publish_RenderThread(MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(), bFrameDependent, MaterialKey), Map, bFrameDependent, std::move(TextureLeases));
+			Request.Cache->Publish_RenderThread(MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(), bFrameDependent, MaterialKey, Config), Map, bFrameDependent, std::move(TextureLeases));
 		return Map;
 	}
 }

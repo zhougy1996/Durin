@@ -5,6 +5,7 @@
 #include "Engine/Engine.h"
 #include "IRendererModule.h"
 #include "PSOPrecacheComponent.h"
+#include "Rendering/SceneInterface.h"
 #include "RenderingThread.h"
 
 namespace Durin
@@ -34,10 +35,17 @@ namespace Durin
 		const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
 		std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>
 	{
+		return PrecachePSOs(Renderer, FSceneInterface::GetDefaultFeatureLevel(), VertexFactoryDataList, PrecacheParams, Priority, OutMaterialPSORequestIDs);
+	}
+	auto DMaterialInterface::PrecachePSOs(IRendererModule& Renderer, ERHIFeatureLevel FeatureLevel,
+		std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList, const FPSOPrecacheParams& PrecacheParams,
+		EPSOPrecachePriority Priority, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>
+	{
 		CheckGameThread();
 		if (IsPendingKill() || VertexFactoryDataList.empty() || VertexFactoryDataList.size() > FPSOPrecacheComponentData::MaximumRequests)
 			return std::unexpected(std::string("Material PSO precache requires a live material and a bounded Vertex Factory list."));
-		const auto Material = GetMaterialResource();
+		if (FeatureLevel > FSceneInterface::GetDefaultFeatureLevel()) return std::unexpected(std::string("Material PSO feature level exceeds RHI capability."));
+		const auto Material = GetMaterialResource(FeatureLevel);
 		if (!Material.HasValidGameThreadShaderMap())
 			return std::unexpected(std::string("Material PSO precache requires an accepted material program."));
 		const auto Properties = Material.GetStaticProperties();
@@ -50,7 +58,7 @@ namespace Durin
 		std::vector<FMaterialPSOPrecacheRequestID> Requests;
 		for (const auto& Factory : VertexFactoryDataList)
 		{
-			auto Request = Renderer.PrecacheMaterialPSOs({Identity, Material.CompiledProgram, Factory, PrecacheParams, Priority});
+			auto Request = Renderer.PrecacheMaterialPSOs({Identity, Material.CompiledProgram, Factory, PrecacheParams, Priority, FeatureLevel});
 			if (!Request.GetValue()) return std::unexpected(Request.GetDiagnostic());
 			Requests.push_back(PSOPrecacheOwner.Observe(Request));
 		}

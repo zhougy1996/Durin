@@ -1,6 +1,6 @@
 #include "Profiling/Profiling.h"
 #include "Renderers/StaticMeshRenderer.h"
-#include "Renderers/MeshPassRelevance.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "Renderers/MeshPipelineDescription.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Renderers/StaticMeshSectionResources.h"
@@ -199,7 +199,7 @@ namespace Durin
 				const bool bNeedsForwardPipeline =
 					Pass == EMeshBasePass::Translucent
 					|| bPrepareLitOpaqueForward
-					|| !IsMeshPassRelevant(EMeshPipelinePass::GBuffer, Item.Command->Material.PlanningPassIdentity, {}, Item.Command->bSupportsGBuffer);
+					|| !GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Item.Command->Material.PlanningPassIdentity, {}, Item.Command->bSupportsGBuffer);
 				const bool bReady = PrepareSectionResources_RenderThread(
 					Primitive, Item, Record,
 					bNeedsForwardPipeline ? EStaticMeshSectionResourcePolicy::Forward : EStaticMeshSectionResourcePolicy::SamplersOnly,
@@ -224,7 +224,7 @@ namespace Durin
 			&ResolvedView, &bReady](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
-				if (IsMeshPassRelevant(EMeshPipelinePass::GBuffer, Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
+				if (GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
 					continue;
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
@@ -367,7 +367,7 @@ namespace Durin
 		const FMaterialRenderData& Material = Item.Command->Material;
 		const FVertexFactoryInputBinding& VertexFactory = *Primitive.CollectedBinding;
 		const auto Factory = FindMeshVertexFactory(Item.Command->PipelineKey.FactoryKey);
-		const uint32 MeshPass = bShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward;
+		const uint32 MeshPass = GetMeshPassProcessor(bShadowDepth ? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward).GetVertexFactoryPass();
 		if (!Factory || Factory->GetLayoutKey() != Item.Command->PipelineKey.LayoutKey || !Factory->GetShaderType(MeshPass)) return false;
 
 		using FShaderMapResult =
@@ -393,23 +393,13 @@ namespace Durin
 					CompileOptions.bForceRecompile =
 						Coordinator.ShouldForceShaderRecompile_RenderThread();
 					FShaderType& VertexShaderType = *Factory->GetShaderType(MeshPass);
-					FShaderType& FragmentShaderType =
-						FSurfaceFragmentShader::StaticType();
-					FShaderType& ShadowFragmentShaderType =
-						FSurfaceMaskedShadowFragmentShader::StaticType();
-					FShaderType& OpaqueShadowFragmentShaderType =
-						FSurfaceOpaqueShadowFragmentShader::StaticType();
 					FMeshMaterialShaderMap ShaderMap;
-
-					const bool bOpaqueShadow = bShadowDepth
-						&& Identity.BlendMode != EMaterialBlendMode::Masked;
-					const FShaderType& SelectedFragmentType = bOpaqueShadow
-						? OpaqueShadowFragmentShaderType
-						: bShadowDepth ? ShadowFragmentShaderType : FragmentShaderType;
+					const auto Fragment = GetMeshPassProcessor(bShadowDepth ? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward)
+						.GetFragmentShader(Identity.BlendMode);
 					auto ShaderResult = InitializeMaterialShaderMap(
-						VertexShaderType, SelectedFragmentType,
+						VertexShaderType, *Fragment.Type,
 						Factory->GetType(),
-						bShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward,
+						MeshPass,
 						Identity,
 						Coordinator.GetGeneration_RenderThread(),
 						Material.CompiledProgram.get(),
@@ -504,7 +494,7 @@ namespace Durin
 					: !Identity.bHybridRetained ? EMeshPipelinePass::Forward
 					: BlendMode == EMaterialBlendMode::Translucent ? EMeshPipelinePass::SortedTranslucency
 					: EMeshPipelinePass::HybridRetainedForward;
-				const auto Description = DescribeMeshPipeline(Pass,
+				const auto Description = GetMeshPassProcessor(Pass).DescribeMeshDraw(
 					{Identity.Rasterizer, Identity.Depth, Identity.ColorBlend}, Identity.Topology, BlendMode);
 				const auto Initializer = Description.MakeInitializer(Candidate.VertexShader->GetRHIShader(),
 					bShadowDepth ? (BlendMode == EMaterialBlendMode::Masked
@@ -583,7 +573,7 @@ namespace Durin
 				if (bShadow) Required[2] = true;
 				else
 				{
-					const bool bDeferredDraw = IsMeshPassRelevant(EMeshPipelinePass::GBuffer, Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer);
+					const bool bDeferredDraw = GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer);
 					Required[0] |= !bProductionDeferred || !bDeferredDraw;
 					Required[1] |= bGBuffer && bDeferredDraw;
 				}
@@ -1196,7 +1186,7 @@ namespace Durin
 		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer, &PreparedView, &ResolvedView, &RecordFamily, &bComplete, &bRenderedGeometry, &BindingGroup, IndirectArgumentByResolvedDraw, IndirectArguments, VisibleInstances, InstanceTransforms](const auto& Bucket) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
-				if (!IsMeshPassRelevant(EMeshPipelinePass::GBuffer, Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
+				if (!GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
 				{
 					++ResolvedView.Observations.GBufferSkippedDraws;
 					RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalSkippedDraws, &FStaticMeshRenderObservations::GBufferSplineSkippedDraws);
@@ -1264,7 +1254,7 @@ namespace Durin
 		ForEachShadowBucket(PreparedView, [&](const auto& Bucket) {
 			for (const auto& Item : Bucket)
 			{
-				if (!IsMeshPassRelevant(EMeshPipelinePass::GBuffer, Item.Command->Material.PlanningPassIdentity, {}, Item.Command->bSupportsGBuffer)) continue;
+				if (!GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Item.Command->Material.PlanningPassIdentity, {}, Item.Command->bSupportsGBuffer)) continue;
 				const auto* Primitive = PreparedView.GetPrimitive(Item);
 				if (!Primitive) { ResolvedView.Draws[Item.ResolvedIndex].bReady = false; Ready = false; continue; }
 				const FStaticMeshGeometryBinding Geometry(*Primitive, Item);

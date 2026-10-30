@@ -19,10 +19,13 @@ namespace Durin
 		RENDERER_API ~FRendererModule() override;
 
 		RENDERER_API auto StartupModule() -> void override;
+		RENDERER_API auto GetSceneRenderPreparationConfig(ERHIFeatureLevel FeatureLevel) const -> FSceneRenderPreparationConfig override;
+		RENDERER_API auto SetPreparationSettings(const FRendererPreparationSettings& Settings) -> bool override;
 		RENDERER_API auto PrecacheMaterialPSOs(FMaterialPSOPrecacheParams Params) -> FMaterialPSOPrecacheRequestID override;
 		RENDERER_API auto ShutdownModule() -> void override;
 		RENDERER_API auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap> override;
 		RENDERER_API auto CreateScene() -> FScenePtr override;
+		RENDERER_API auto CreateScene(ERHIFeatureLevel FeatureLevel) -> FScenePtr override;
 		RENDERER_API auto PrepareSceneThumbnailShaders() -> FShaderMapPreparation override;
 		RENDERER_API auto BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void override;
 		RENDERER_API auto SetViewGPUTimingSink_RenderThread(std::function<void(FGPUTimingQueryRHIRef)> Sink) -> void override;

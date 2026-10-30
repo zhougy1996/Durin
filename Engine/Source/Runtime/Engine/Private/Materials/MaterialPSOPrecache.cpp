@@ -29,6 +29,12 @@ namespace Durin
 		uint64 Id = 0, ShaderGeneration = 0;
 		std::optional<std::string> Target;
 		FMaterialPSOPrecacheParams Params;
+		std::shared_ptr<const std::atomic<uint64>> PreparationConfigVersion;
+		auto IsPreparationConfigCurrent() const -> bool
+		{
+			const auto Version = PreparationConfigVersion ? PreparationConfigVersion->load() : 0;
+			return !Version || Version == Params.PreparationConfig.Version;
+		}
 		FVertexDeclarationElementList Elements{};
 		FMaterialPSOPrecacheCollection Collection;
 		std::vector<FSubmittedMaterialPSO> Submitted;
@@ -44,7 +50,7 @@ namespace Durin
 			const auto CurrentPhase = Phase.load();
 			const auto Completed = Result.load();
 			if (Completed && !*Completed) return EMaterialPSOPrecacheState::Failed;
-			if (CurrentPhase == EPSOPhase::Retired) return EMaterialPSOPrecacheState::Stale;
+			if (CurrentPhase == EPSOPhase::Retired || !IsPreparationConfigCurrent()) return EMaterialPSOPrecacheState::Stale;
 			if (CurrentPhase == EPSOPhase::Completed) return EMaterialPSOPrecacheState::Ready;
 			return EMaterialPSOPrecacheState::Pending;
 		}
@@ -139,6 +145,7 @@ namespace Durin
 		std::vector<std::shared_ptr<FMaterialPSOPrecacheWork>> Pending;
 		bool Closed = false;
 		FMaterialPSOSubmitter Submitter;
+		std::shared_ptr<std::atomic<uint64>> PreparationConfigVersion = std::make_shared<std::atomic<uint64>>(0);
 	};
 
 	auto FMaterialPSOPrecacheRequestID::Rejected(std::string Error) -> FMaterialPSOPrecacheRequestID
@@ -154,6 +161,7 @@ namespace Durin
 	{
 		return Observer && Observer->Override == EMaterialPSOPrecacheState::Pending
 			&& Observer->Work->Phase != EPSOPhase::Retired
+			&& Observer->Work->IsPreparationConfigCurrent()
 			&& (!Observer->Work->Id || Observer->Work->ShaderGeneration == GetShaderReloadGeneration());
 	}
 	auto FMaterialPSOPrecacheRequestID::GetProgress() const -> FMaterialPSOPrecacheProgress
@@ -219,14 +227,16 @@ namespace Durin
 	{
 		const auto Elements = Params.VertexFactoryData.GetVertexElements();
 		const auto& Options = Params.PrecachePSOParams;
-		if (!Elements || Params.Priority >= EPSOPrecachePriority::Num
+		if (!Elements || Params.FeatureLevel > ERHIFeatureLevel::SM6 || Params.Priority >= EPSOPrecachePriority::Num
+			|| (Params.PreparationConfig.Version && Params.PreparationConfig.FeatureLevel != Params.FeatureLevel)
 			|| Options.Topology >= FGraphicsPipelineStateInitializer::EPrimitiveTopology::Count
 			|| !std::isfinite(Params.Material.ShaderMap.OpacityMaskThreshold))
 			return FMaterialPSOPrecacheRequestID::Rejected("Invalid material PSO precache parameters or unsupported Vertex Factory.");
 		uint64 CodeBytes = 0;
 		if (Params.CompiledProgram)
 		{
-			if (!*Params.CompiledProgram || !ValidateMaterialCompilerResult(*Params.CompiledProgram)
+			if (!*Params.CompiledProgram || Params.CompiledProgram->FeatureLevel != Params.FeatureLevel
+				|| !ValidateMaterialCompilerResult(*Params.CompiledProgram)
 				|| Params.CompiledProgram->GetShaderMap().ShaderMapId != Params.Material.ShaderMap.ProgramIdentity
 				|| Params.CompiledProgram->GetShaderMap().Layout.Identity != Params.Material.ShaderMap.RenderLayout)
 				return FMaterialPSOPrecacheRequestID::Rejected("Material PSO request requires a matching accepted program.");
@@ -244,9 +254,13 @@ namespace Durin
 		Result.Observer = std::make_shared<FMaterialPSOPrecacheObserver>();
 		std::erase_if(State->Entries, [](const auto& Entry) { return Entry.expired(); });
 		const auto Target = Params.CompiledProgram ? std::optional{Params.CompiledProgram->GetShaderMap().Target} : std::nullopt;
+		if (const auto Version = State->PreparationConfigVersion->load(); Version && Version != Params.PreparationConfig.Version)
+			return FMaterialPSOPrecacheRequestID::Rejected("Material PSO preparation configuration is stale.");
 		for (const auto& Weak : State->Entries)
 			if (const auto Entry = Weak.lock(); Entry && Entry->Phase != EPSOPhase::Retired && Entry->ShaderGeneration == Generation
-				&& Entry->Params.Material == Params.Material && Entry->Params.PrecachePSOParams == Options
+				&& Entry->Params.Material == Params.Material && Entry->Params.FeatureLevel == Params.FeatureLevel
+				&& Entry->Params.PreparationConfig == Params.PreparationConfig
+				&& Entry->Params.PrecachePSOParams == Options
 				&& Entry->Params.VertexFactoryData.VertexFactoryType == Params.VertexFactoryData.VertexFactoryType
 				&& Entry->Target == Target
 				&& Entry->Elements == *Elements)
@@ -259,6 +273,7 @@ namespace Durin
 		Work->Id = AllocateMaterialPSORequestId();
 		if (!Work->Id) return FMaterialPSOPrecacheRequestID::Rejected("Material PSO request identity exhausted.");
 		Work->ShaderGeneration = Generation; Work->Target = Target;
+		Work->PreparationConfigVersion = State->PreparationConfigVersion;
 		Work->Priority = Params.Priority;
 		Work->Params = std::move(Params); Work->Elements = *Elements;
 		Work->RequiredReady = false;
@@ -288,7 +303,7 @@ namespace Durin
 				FMaterialPSOPrecacheProgress Before;
 				~FNotifyProgress() { if (Before != Work.GetProgress()) Work.Notify(); }
 			} Notify{*Work, Work->GetProgress()};
-			if (Work->ShaderGeneration != GetShaderReloadGeneration())
+			if (Work->ShaderGeneration != GetShaderReloadGeneration() || !Work->IsPreparationConfigCurrent())
 			{
 				Work->Retire();
 				continue;
@@ -432,6 +447,28 @@ namespace Durin
 			std::lock_guard Lock(State->Mutex);
 			for (const auto& Weak : State->Entries) if (auto Entry = Weak.lock()) Retired.push_back(std::move(Entry));
 			State->Entries.clear(); State->Pending.clear();
+		}
+		for (const auto& Entry : Retired) { Entry->Retire(); Entry->Notify(); }
+	}
+	auto FMaterialPSORequestManager::SetPreparationConfigVersion(uint64 Version) -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		require(Version && Version >= State->PreparationConfigVersion->load());
+		State->PreparationConfigVersion->store(Version);
+	}
+	auto FMaterialPSORequestManager::InvalidateOutdatedPreparationConfigs() -> void
+	{
+		std::vector<std::shared_ptr<FMaterialPSOPrecacheWork>> Retired;
+		{
+			std::lock_guard Lock(State->Mutex);
+			std::erase_if(State->Entries, [&](const auto& Weak) {
+				const auto Work = Weak.lock();
+				if (!Work) return true;
+				if (Work->IsPreparationConfigCurrent()) return false;
+				Retired.push_back(Work);
+				return true;
+			});
+			std::erase_if(State->Pending, [](const auto& Work) { return !Work->IsPreparationConfigCurrent(); });
 		}
 		for (const auto& Entry : Retired) { Entry->Retire(); Entry->Notify(); }
 	}

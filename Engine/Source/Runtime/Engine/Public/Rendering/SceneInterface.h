@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
+#include "RHIFeatureLevel.h"
 #include "Misc/Guid.h"
 #include "Rendering/PrimitiveComponentId.h"
 #include "Rendering/PrimitiveCustomData.h"
@@ -24,7 +25,10 @@ namespace Durin
 	class FSceneInterface
 	{
 	public:
-		ENGINE_API FSceneInterface() = default;
+		ENGINE_API FSceneInterface();
+		ENGINE_API explicit FSceneInterface(ERHIFeatureLevel InFeatureLevel);
+		auto GetFeatureLevel() const -> ERHIFeatureLevel { return FeatureLevel; }
+		ENGINE_API static auto GetDefaultFeatureLevel() -> ERHIFeatureLevel;
 		ENGINE_API virtual ~FSceneInterface() = default;
 		virtual auto GetRendererModule() const -> IRendererModule* { return nullptr; }
 
@@ -72,5 +76,7 @@ namespace Durin
 			FPrimitiveComponentId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData
 		) -> void = 0;
+	private:
+		const ERHIFeatureLevel FeatureLevel;
 	};
 } // namespace Durin

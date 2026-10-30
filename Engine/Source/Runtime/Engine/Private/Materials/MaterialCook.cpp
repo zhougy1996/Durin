@@ -161,8 +161,8 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterialInterface::AdmitCookedProgram(const FMaterialStaticProperties& PayloadProperties,
-		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> std::expected<void, std::string>
+	auto DMaterialInterface::ValidatePreparedMaterialProgram(const FMaterialStaticProperties& PayloadProperties,
+		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> std::expected<std::shared_ptr<const FMaterialCompilerResult>, std::string>
 	{
 		auto ExpectedProperties = GetStaticProperties();
 		ExpectedProperties.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(ExpectedProperties).OpacityMaskThreshold;
@@ -201,6 +201,15 @@ namespace Durin
 			ProgramCandidate = std::move(ResolvedProgram);
 		}
 
+		return ProgramCandidate;
+	}
+
+	auto DMaterialInterface::AdmitCookedProgram(const FMaterialStaticProperties& PayloadProperties,
+		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> std::expected<void, std::string>
+	{
+		const auto Validated = ValidatePreparedMaterialProgram(PayloadProperties, std::move(ProgramCandidate));
+		if (!Validated) return std::unexpected(Validated.error());
+		ProgramCandidate = *Validated;
 		CompilationOwner.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
 		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));

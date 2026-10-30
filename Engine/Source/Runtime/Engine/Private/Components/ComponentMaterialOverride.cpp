@@ -59,19 +59,23 @@ namespace Durin::ComponentMaterialOverride
 		while (!Overrides.empty() && !Overrides.back()) Overrides.pop_back();
 	}
 
-	auto ResolveRenderProxy(DMaterialInterface* Material) -> FMaterialRenderProxyRef
+	auto ResolveRenderProxy(DMaterialInterface* Material, std::optional<ERHIFeatureLevel> FeatureLevel) -> FMaterialRenderProxyRef
 	{
-		if (Material) return Material->GetRenderProxy();
-		RecordMaterialFallbackReason(EMaterialFallbackReason::UnassignedDefault);
+		if (!Material)
+		{
+			RecordMaterialFallbackReason(EMaterialFallbackReason::UnassignedDefault);
+			if (FeatureLevel) Material = Durin::GetDefaultMaterial();
+		}
+		if (Material) return FeatureLevel ? Material->GetRenderProxy(*FeatureLevel) : Material->GetRenderProxy();
 		return GetDefaultMaterialRenderProxy();
 	}
 
 	auto BuildRenderProxyBindingUpdate(
 		uint32 SlotIndex,
 		DMaterialInterface* Material,
-		FMaterialRenderProxyBindingUpdate& OutUpdate) -> void
+		FMaterialRenderProxyBindingUpdate& OutUpdate, std::optional<ERHIFeatureLevel> FeatureLevel) -> void
 	{
 		OutUpdate.SlotIndex = SlotIndex;
-		OutUpdate.MaterialProxy = ResolveRenderProxy(Material);
+		OutUpdate.MaterialProxy = ResolveRenderProxy(Material, FeatureLevel);
 	}
 }

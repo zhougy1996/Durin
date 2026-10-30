@@ -5,6 +5,7 @@
 #include "DurinEdAPI.h"
 #include "DObject/ObjectPtr.h"
 #include "SceneOwnership.h"
+#include "RHIFeatureLevel.h"
 
 namespace Durin
 {
@@ -19,7 +20,7 @@ namespace Durin::Editor
 	class FPreviewScene
 	{
 	public:
-		DURINED_API explicit FPreviewScene(FName Name);
+		DURINED_API explicit FPreviewScene(FName Name, std::optional<ERHIFeatureLevel> FeatureLevel = {});
 		DURINED_API ~FPreviewScene();
 
 		FPreviewScene(const FPreviewScene&) = delete;

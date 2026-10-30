@@ -7,6 +7,7 @@
 #include "SceneView.h"
 #include "ViewRenderStatistics.h"
 #include "RHIResources.h"
+#include "RHIFeatureLevel.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "RenderResourcePreparation.h"
 #include "Materials/MaterialPSOPrecache.h"
@@ -43,10 +44,14 @@ namespace Durin
 	class IRendererModule : public IModuleInterface
 	{
 	public:
+		// GameThread. Renderer owns policy, capability capture and version publication.
+		virtual auto GetSceneRenderPreparationConfig(ERHIFeatureLevel) const -> FSceneRenderPreparationConfig { return {}; }
+		virtual auto SetPreparationSettings(const FRendererPreparationSettings&) -> bool { return false; }
 		virtual auto PrecacheMaterialPSOs(FMaterialPSOPrecacheParams) -> FMaterialPSOPrecacheRequestID
 		{ return FMaterialPSOPrecacheRequestID::Rejected("Renderer does not support material PSO precaching."); }
 		virtual auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap> { return {}; }
 		virtual auto CreateScene() -> FScenePtr = 0;
+		virtual auto CreateScene(ERHIFeatureLevel FeatureLevel) -> FScenePtr { return {}; }
 		// Starts CPU-only built-in shader work for the lit scene-thumbnail profile.
 		virtual auto PrepareSceneThumbnailShaders() -> FShaderMapPreparation { return {}; }
 		// Called inside an active RHI frame, independently of viewport submission.

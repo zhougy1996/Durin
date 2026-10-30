@@ -258,6 +258,7 @@ namespace Durin
 		auto FMaterialCompilationLifecycle::MarkCanceled(
 			DMaterialInterface& Material) -> void
 		{
+			Material.CancelFeatureLevelCompilation();
 			Material.CompilationOwner.CookedPreparation.reset();
 			GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
@@ -394,6 +395,9 @@ namespace Durin
 			if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
 		}
 		FinishMaterialCompilation(Owners);
+		for (auto Owner : Owners)
+			if (auto* Material = Cast<DMaterialInterface>(Owner.Get()); IsValid(Material))
+				(void)Material->PumpFeatureLevelResources(true);
 		return Aggregate;
 	}
 	auto FShaderCompilingManager::MarkCompilationAsCanceled(std::span<DObject* const> Objects)
@@ -401,7 +405,7 @@ namespace Durin
 	{
 		for (DObject* Object : Objects)
 			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
-				CancelMaterialCompileDomain(*Material);
+			{ CancelMaterialCompileDomain(*Material); Material->CancelFeatureLevelCompilation(); }
 	}
 	auto FShaderCompilingManager::ProcessAsyncResults(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult
 	{
@@ -419,7 +423,7 @@ namespace Durin
 				{
 					const FMaterialRenderProxyRef Proxy =
 						Material->GetRenderProxy();
-					if (Proxy && Proxy->GetRefCount() > 2)
+					if ((Proxy && Proxy->GetRefCount() > 2) || Material->HasFeatureLevelRenderReferences())
 						RequestMaterialRecompile(*Material, ReloadMode > 1);
 				}
 		}
@@ -436,6 +440,7 @@ namespace Durin
 			Private::MaterialCompileMaxRetryChecks, [this, &Params, &Processed](FWeakObjectPtr Owner) {
 				auto* Material = Cast<DMaterialInterface>(Owner.Get());
 				if (!IsValid(Material)) return false;
+				const bool FeaturePending = Material->PumpFeatureLevelResources();
 				if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 				{
 					if (Processed.ProcessedCompletionCount >= Params.MaximumCompletions
@@ -443,20 +448,20 @@ namespace Durin
 					if (Material->PollCookedProgramPreparation()) return true;
 					++Processed.ProcessedCompletionCount;
 					if (Material->IsComplete()) Processed.SuccessfullyCompiledAssets.emplace_back(Material);
-					return false;
+					return FeaturePending;
 				}
 				const auto IsDeferred = [&] {
 					const auto Status = Material->GetMaterialCompileStatus().State;
 					return Status == EMaterialCompileState::Deferred
 						|| Status == EMaterialCompileState::Scheduled;
 				};
-				if (!IsDeferred()) return false;
+				if (!IsDeferred()) return FeaturePending;
 				if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) return true;
 				if (!IsAcceptingMaterialRequests())
 					Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
 				else
 					Private::FMaterialCompilationLifecycle::RetryDeferred(*Material);
-				return IsDeferred();
+				return IsDeferred() || FeaturePending;
 			});
 		return Processed;
 	}

@@ -1372,3 +1372,84 @@ TEST_F(FMaterialAsyncCompileTests, ShaderCompilerRegistersOnceAndStopsBothReques
 	EXPECT_TRUE(Compiler.Start());
 	EXPECT_TRUE(IsMaterialCompilationAcceptingRequests());
 }
+
+TEST_F(FMaterialAsyncCompileTests, FeatureLevelResourcesSelectBranchesWithoutReplacingTheDefaultProgram)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("FeatureResourceOwner");
+	auto* Low = MakeObject<DMaterialExpressionScalarParameter>("FeatureLowValue");
+	auto* High = MakeObject<DMaterialExpressionScalarParameter>("FeatureHighValue");
+	auto* Select = MakeObject<DMaterialExpressionFeatureLevelSwitch>("FeatureResourceSwitch");
+	Low->Id = FGuid::NewGuid(); Low->Metadata = {.Id = FGuid::NewGuid(), .Name = "LowTierValue"}; Low->DefaultValue = 0.25f;
+	High->Id = FGuid::NewGuid(); High->Metadata = {.Id = FGuid::NewGuid(), .Name = "HighTierValue"}; High->DefaultValue = 0.5f;
+	Select->Id = FGuid::NewGuid();
+	Select->DefaultValue.Connection = {Low->Id};
+	Select->SM5 = {High->Id};
+	Select->SM6 = {High->Id};
+	FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Select->Id};
+	const std::array<DMaterialExpression*, 3> Expressions{Low, High, Select};
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	const auto Default = Material->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(Default);
+	ASSERT_EQ(Default->FeatureLevel, ERHIFeatureLevel::SM5);
+	EXPECT_EQ(Material->GetMaterialResource(ERHIFeatureLevel::ES3_1).CompiledProgram, nullptr);
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	const auto Resource = Material->GetMaterialResource(ERHIFeatureLevel::ES3_1);
+	ASSERT_TRUE(Resource.HasValidGameThreadShaderMap()) << Material->GetMaterialCookDiagnostic(ERHIFeatureLevel::ES3_1);
+	EXPECT_EQ(Resource.CompiledProgram->FeatureLevel, ERHIFeatureLevel::ES3_1);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Default);
+	EXPECT_NE(Resource.CompiledProgram->GetShaderMap().ShaderMapId, Default->GetShaderMap().ShaderMapId);
+	ASSERT_EQ(Resource.Parameters.size(), 1u);
+	EXPECT_EQ(Resource.Parameters.front().Id, Low->Metadata.Id);
+	EXPECT_FLOAT_EQ(std::get<float>(Resource.Parameters.front().Value), 0.25f);
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Material);
+	ASSERT_NE(Dynamic, nullptr);
+	ASSERT_TRUE(Dynamic->SetScalarParameterValue("LowTierValue", 0.75f));
+	const auto DynamicLow = Dynamic->GetMaterialResource(ERHIFeatureLevel::ES3_1);
+	ASSERT_EQ(DynamicLow.Parameters.size(), 1u);
+	EXPECT_EQ(DynamicLow.CompiledProgram, Resource.CompiledProgram);
+	EXPECT_FLOAT_EQ(std::get<float>(DynamicLow.Parameters.front().Value), 0.75f);
+	EXPECT_EQ(Dynamic->GetMaterialResource(ERHIFeatureLevel::SM5).CompiledProgram, Default);
+	MarkAsGarbage(Dynamic);
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1, EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_EQ(Material->GetMaterialResource(ERHIFeatureLevel::ES3_1).CompiledProgram, Resource.CompiledProgram);
+}
+
+TEST_F(FMaterialAsyncCompileTests, FeatureLevelPreparationRejectsStaleAuthoredResultsAndPreservesTheDefaultResource)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("StaleFeatureResourceOwner");
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
+	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.03125f));
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	const auto Selected = Material->GetMaterialResource(ERHIFeatureLevel::ES3_1);
+	ASSERT_TRUE(Selected.HasValidGameThreadShaderMap()) << Material->GetMaterialCookDiagnostic(ERHIFeatureLevel::ES3_1);
+	FMaterialCompilerEnvironment Environment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
+	Environment.FeatureLevel = ERHIFeatureLevel::ES3_1;
+	auto Snapshot = SnapshotMaterialCompilerInput(*Material, std::move(Environment));
+	ASSERT_TRUE(Snapshot);
+	const auto Expected = MIR::Normalize(Snapshot.Snapshot->Input);
+	ASSERT_TRUE(Expected);
+	EXPECT_EQ(Selected.CompiledProgram->GetShaderMap().ShaderMapId, Expected.Identity);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->FeatureLevel, ERHIFeatureLevel::SM5);
+}
+
+TEST_F(FMaterialAsyncCompileTests, CanceledFeatureLevelPreparationCanBeExplicitlyResubmitted)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("CanceledFeatureResourceOwner");
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	const auto Default = Material->GetAcceptedCompiledProgram();
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
+	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
+	EXPECT_EQ(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Canceled);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_EQ(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Canceled);
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1, EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1));
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Default);
+}

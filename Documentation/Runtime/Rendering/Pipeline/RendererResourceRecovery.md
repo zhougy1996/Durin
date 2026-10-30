@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, explicit readine
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-10-30
 
 ## Complete-Or-Null Construction
 
@@ -396,6 +396,11 @@ pool transaction and invalidation rules as production and supported debug
 views.
 
 ## Invalidation And Commands
+
+Renderer route-policy changes use the separate configuration version described
+in [Load preparation](LoadPreparation.md#renderer-preparation-configuration).
+They retire obsolete readiness observations without advancing shader/device
+generations or clearing exact native PSO cache entries.
 
 Renderer owns these development commands:
 

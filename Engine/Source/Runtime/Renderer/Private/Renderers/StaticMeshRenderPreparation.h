@@ -390,6 +390,7 @@ namespace Durin
 		struct FPrimitive
 		{
 			FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
+			ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 			bool bPresent = false;
 			bool bSplineMesh = false;
 			bool bRetainedStaticMesh = false;

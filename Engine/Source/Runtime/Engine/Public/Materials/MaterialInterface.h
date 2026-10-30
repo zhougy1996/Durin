@@ -90,6 +90,7 @@ namespace Durin
 		-> FLoadedMaterialFamilyStatistics;
 
 	// Per-asset compilation state never retains another material owner.
+	struct FMaterialFeatureLevelResource;
 	struct FMaterialCompilationOwnerState
 	{
 		// The render-safe contract remains available while a replacement compiles.
@@ -202,6 +203,16 @@ namespace Durin
 		ENGINE_API auto PrecachePSOs(IRendererModule& Renderer, std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
 			const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
 			std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
+		ENGINE_API auto GetMaterialResource(ERHIFeatureLevel FeatureLevel) const -> FMaterialResource;
+		ENGINE_API auto GetAcceptedCompiledProgram(ERHIFeatureLevel FeatureLevel) const -> std::shared_ptr<const FMaterialCompilerResult>;
+		ENGINE_API auto CacheResourceShadersForRendering(ERHIFeatureLevel FeatureLevel,
+			EMaterialShaderPrecompileMode PrecompileMode = EMaterialShaderPrecompileMode::Default) -> void;
+		ENGINE_API auto GetMaterialCompileStatus(ERHIFeatureLevel FeatureLevel) const -> FMaterialCompileStatus;
+		ENGINE_API auto GetMaterialCookDiagnostic(ERHIFeatureLevel FeatureLevel) const -> std::string;
+		ENGINE_API auto GetRenderProxy(ERHIFeatureLevel FeatureLevel) const -> FMaterialRenderProxyRef;
+		ENGINE_API auto PrecachePSOs(IRendererModule& Renderer, ERHIFeatureLevel FeatureLevel,
+			std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList, const FPSOPrecacheParams& PrecacheParams,
+			EPSOPrecachePriority Priority, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
 		ENGINE_API auto GetRenderProxy() const
 			-> FMaterialRenderProxyRef;
 		// Refreshes native texture bindings after a referenced texture package was
@@ -245,6 +256,15 @@ namespace Durin
 
 	private:
 		auto ResolveResourceProperties() const -> FMaterialStaticProperties;
+		auto BuildMaterialResource(FMaterialResource Accepted) const -> FMaterialResource;
+		auto PublishFeatureLevelResources() const -> void;
+		auto ReleaseFeatureLevelResources() -> void;
+		auto PumpFeatureLevelResources(bool bSynchronous = false) -> bool;
+		auto CancelFeatureLevelCompilation() -> void;
+		auto HasFeatureLevelRenderReferences() const -> bool;
+		auto ValidatePreparedMaterialProgram(const FMaterialStaticProperties& Properties,
+			std::shared_ptr<const FMaterialCompilerResult> Program) -> std::expected<std::shared_ptr<const FMaterialCompilerResult>, std::string>;
+		mutable std::array<std::shared_ptr<FMaterialFeatureLevelResource>, 3> FeatureLevelResources;
 		friend class FShaderCompilingManager;
 		auto PollCookedProgramPreparation(bool bSynchronous = false) -> bool;
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
+#include "RHIFeatureLevel.h"
 #include "Math/Box.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "StaticMesh/StaticMeshLODSelection.h"
@@ -25,6 +26,8 @@ namespace Durin
 	class FPrimitiveSceneProxy
 	{
 	public:
+		auto GetFeatureLevel() const -> ERHIFeatureLevel { return FeatureLevel; }
+		auto SetFeatureLevel(ERHIFeatureLevel Value) -> void { FeatureLevel = Value; }
 		auto GetRenderParticipation() const -> const FPrimitiveRenderParticipation& { return RenderParticipation; }
 		auto SetRenderParticipation(FPrimitiveRenderParticipation Value) -> void { RenderParticipation = Value; }
 		ENGINE_API virtual ~FPrimitiveSceneProxy() = default;
@@ -48,5 +51,6 @@ namespace Durin
 	private:
 		FPrimitiveCustomData CustomPrimitiveData;
 		FPrimitiveRenderParticipation RenderParticipation;
+		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 	};
 }

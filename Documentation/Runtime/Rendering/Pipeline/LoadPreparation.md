@@ -4,7 +4,7 @@ Summary: Prepare cooked material programs and exact scene Shader/PSO resources b
 
 Modules: Engine, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-10-30
 
 ## Object and program readiness
 
@@ -234,17 +234,54 @@ declared activation window; it does not promise universal PSO coverage.
 
 ## Material and component PSO requests
 
+### Renderer preparation configuration
+
+`IRendererModule::GetSceneRenderPreparationConfig(FeatureLevel)` returns a
+Renderer-owned `FSceneRenderPreparationConfig` value snapshot. It combines the
+Scene's immutable level with supported Forward, Hybrid and HitProxy routes,
+the captured device wireframe capability, and a module-local configuration
+version. FeatureLevel selects material programs; it does not force a rendering
+path. Views still select their routes within the supported set.
+
+`SetPreparationSettings` publishes policy on the GameThread and applies the
+same snapshot through the ordered render-command queue. Equal settings preserve
+the version. Changes immediately make old material PSO observers non-current;
+render-thread application retires obsolete collection resources and view
+preparations, and invalidates view histories. Requests admitted with the new
+version survive that retirement and wait for its render-thread snapshot before
+collection. Failed request diagnostics remain available without authorizing reuse.
+
+Scene plans and pass collectors consume these snapshots rather than reading
+capabilities independently. Unsupported view and picking routes reject admission;
+HitProxy cache identity includes the configuration version. This follows the
+explicit scene-configuration boundary of [UE PSO collectors](https://dev.epicgames.com/documentation/unreal-engine/pso-precaching-for-unreal-engine).
+Configuration versions describe coverage, independently of existing shader,
+device and manual resource generations. Equal native PSO descriptions continue
+to reuse the device cache after policy changes. Device capability capture lasts
+for the Renderer module lifetime and is renewed when the module is recreated.
+
+### Material requests
+
 `DMaterialInterface::PrecachePSOs` explicitly snapshots the accepted program and
 effective material planning identity for a bounded list of Vertex Factories.
 `FPSOPrecacheParams` carries primitive participation and geometry/raster facts;
 Renderer owns applicable pass selection and required classification.
+Components prepare and snapshot the material resource for their Scene's
+FeatureLevel. `FMaterialPSOPrecacheParams::FeatureLevel` participates in request
+sharing, and collection rejects a program with a different level. Material
+bindings use the same level's stable proxy; draw preparation rejects mismatched
+programs. Separate Scenes can therefore share material assets while retaining
+different program selections. Cooked selections reuse the bounded decode reader
+and its admission limit; missing variants report failure without substituting
+another level.
 The default overload uses the active engine's Renderer; preview/test owners may
 pass an initialized `IRendererModule` explicitly. Rejection preserves the output
 array and reports an error. Program loading remains a separate readiness step.
 
 `FMaterialPSORequestManager` shares collection and compilation by material
 identity, accepted target, canonical Default vertex elements, factory type and
-`FPSOPrecacheParams`. Explicit and type-provided equal layouts share work.
+`FPSOPrecacheParams`, and the full Renderer preparation snapshot. Explicit and
+type-provided equal layouts share work within that snapshot.
 Each call creates an independent `FMaterialPSOPrecacheRequestID` observer; copies
 alias that observer. Canceling one observer does not cancel another's native
 compilation. Failed collections remain observable rather than retrying each
@@ -286,9 +323,26 @@ sorting uses a stable per-pump snapshot.
 
 The Renderer permits up to eight active material collections across updates,
 including their outstanding native compilation, independently of scene visibility.
-Additional requests wait without expanding their pipeline resources. Its collector uses the normal typed ShaderMaps and shared
-mesh PSO descriptions for explicit Forward, ShadowDepth, GBuffer, hybrid retained,
-sorted translucency and HitProxy routes. Fixed Shader requests are started and
+Additional requests wait without expanding their pipeline resources.
+`FMeshPassProcessor` implementations own eligibility, shader selection, raster
+variants, required classification and draw pipeline descriptions for Forward,
+ShadowDepth, GBuffer, hybrid retained, sorted translucency and HitProxy. Actual
+mesh preparation and pipeline creation use those same processors and existing
+`FMeshPipelineDescription` values; geometry visibility, bindings and recording
+remain with the draw owners.
+
+Engine's `IPSOCollector::CollectPSOInitializers` follows the UE append interface:
+it takes the scene configuration, accepted `FMaterialResource`, Vertex Factory
+data, primitive precache parameters and an output `FPSOPrecacheDataArray`, and
+returns `void`. The project resource/config types retain the existing snapshot
+ownership contracts. A default collection includes required and optional variants.
+Each request creates its own processor instances; immutable prototypes serve
+draw descriptions. Nonblocking ShaderMap readiness is exposed separately through
+`GetPSOCollectionResult`, and repeated pumps preserve the appended prefix without
+duplicating entries. The host invokes required collection across every processor
+before optional collection and publishes required coverage at that boundary.
+The aggregate material collector traverses processors without selecting pass
+shaders or pipeline state itself. Fixed Shader requests are started and
 retained before nonblocking ShaderMap resolution. Inapplicable routes are skipped;
 failed resource creation for applicable routes remains an explicit failure. GPU-culling and global feature PSOs are outside
 this material collector. Native compilation uses the existing service queue;
