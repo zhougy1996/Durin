@@ -1,6 +1,6 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/MeshPipelineDescription.h"
-#include "Renderers/MeshPassRelevance.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include <typeinfo>
@@ -164,9 +164,9 @@ namespace Durin
 				auto& Element = Facts->Elements[Index];
 				const auto& Draw = Inputs->Geometry->GetElements()[Index].Draw;
 				Element.bSupportsPreparation =
-					Facts->Factory->Supports(bShadow ? MaterialMeshPassShadow : MaterialMeshPassForward, Draw);
+					Facts->Factory->Supports(GetMeshPassProcessor(bShadow ? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward).GetVertexFactoryPass(), Draw);
 				if (Element.bSupportsPreparation)
-					Element.bSupportsGBuffer = Facts->Factory->Supports(MaterialMeshPassGBuffer, Draw);
+					Element.bSupportsGBuffer = Facts->Factory->Supports(GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), Draw);
 			}
 		StaticFacts.emplace(Key, FFactsEntry{Facts, true});
 		return Facts;
@@ -248,6 +248,7 @@ namespace Durin
 		Collected->View.ProjectionMatrix = View.ProjectionMatrix;
 		Collected->View.ViewLocation = View.ViewLocation;
 		Collected->View.DepthConvention = View.DepthConvention;
+		Collected->View.FeatureLevel = View.FeatureLevel;
 		Collected->View.Settings.Mode = View.Settings.Mode;
 		Collected->RasterMode = RasterMode;
 		Collected->Mode = Mode;
@@ -279,6 +280,7 @@ namespace Durin
 			auto& Primitive = Collected->Primitives.emplace_back();
 			if (!SceneInfo) continue;
 			Primitive.bPresent = true;
+			Primitive.FeatureLevel = SceneInfo->GetProxy().GetFeatureLevel();
 			Primitive.bRetainedStaticMesh = ViewFact.StaticBatches != nullptr;
 			Primitive.Id = SceneInfo->GetId();
 			Primitive.bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
@@ -347,10 +349,10 @@ namespace Durin
 							Element.Draw, Element.Vertices, Element.InstanceStreams);
 					}
 					if (Facts.InputOutcome != EGeometrySubmissionOutcome::Submitted) continue;
-					Facts.bSupportsPreparation = Factory->Supports(Mode == ERenderPreparationMode::ShadowDepth
-						? MaterialMeshPassShadow : MaterialMeshPassForward, Element.Draw);
+					Facts.bSupportsPreparation = Factory->Supports(GetMeshPassProcessor(Mode == ERenderPreparationMode::ShadowDepth
+						? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward).GetVertexFactoryPass(), Element.Draw);
 					if (Facts.bSupportsPreparation)
-						Facts.bSupportsGBuffer = Factory->Supports(MaterialMeshPassGBuffer, Element.Draw);
+						Facts.bSupportsGBuffer = Factory->Supports(GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), Element.Draw);
 				}
 			}
 		}
@@ -463,6 +465,12 @@ namespace Durin
 					const auto SectionIndex = Element.ElementId;
 					auto& Item = FrozenBatch.Elements[ElementIndex];
 					auto Material = Element.Material;
+					if (Material.CompiledProgram && Material.CompiledProgram->FeatureLevel != Primitive.FeatureLevel)
+					{
+						Item.bMaterialUnavailable = true;
+						bStableMaterials = false;
+						continue;
+					}
 					{
 						DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveMeshMaterial");
 
@@ -515,8 +523,8 @@ namespace Durin
 							Candidate->Material.PlanningPassIdentity.ShaderMap.BlendMode;
 						Candidate->Pass = BlendMode == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
 																														   EMeshBasePass::Opaque;
-						if (!IsMeshPassRelevant(Mode == ERenderPreparationMode::ShadowDepth
-							? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward, Candidate->Material.PlanningPassIdentity))
+						if (!GetMeshPassProcessor(Mode == ERenderPreparationMode::ShadowDepth
+							? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward).IsMeshRelevant(Candidate->Material.PlanningPassIdentity))
 							continue;
 
 						if (!std::isfinite(Candidate->PipelineKey.Material.ShaderMap.OpacityMaskThreshold)) continue;

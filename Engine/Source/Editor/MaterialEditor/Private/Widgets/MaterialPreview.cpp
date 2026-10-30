@@ -124,6 +124,7 @@ namespace Durin::Editor::Material
 				return;
 			}
 
+			PreviewFeatureLevel = Host->GetFeatureLevel();
 			FObjectPath SpherePath;
 			FObjectPath BoxPath;
 			if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::SphereAssetPath, SpherePath); !Validation)
@@ -230,9 +231,16 @@ namespace Durin::Editor::Material
 					if (ImGui::Selectable(FeatureLevelLabel(Candidate),
 						Candidate == PreviewFeatureLevel))
 					{
-						PreviewFeatureLevel = Candidate;
-						if (Material) Material->RequestPreviewProgramCompile(
-							PreviewQuality, PreviewFeatureLevel);
+						if (Host->SetFeatureLevel(Candidate))
+						{
+							PreviewFeatureLevel = Candidate;
+							PreviewMesh = Cast<DStaticMeshComponent>(Host->GetContentActor()->AddInstanceComponent(
+								DStaticMeshComponent::StaticClass(), "PreviewMesh"));
+							CurrentMaterial = nullptr;
+							bProxyDirty = true;
+							if (Material) Material->CacheResourceShadersForRendering(PreviewFeatureLevel);
+						}
+						else Error = Host->GetDiagnostic();
 					}
 				}
 				ImGui::EndCombo();

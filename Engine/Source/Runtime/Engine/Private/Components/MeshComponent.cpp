@@ -1,4 +1,5 @@
 #include "Components/MeshComponent.h"
+#include "Rendering/SceneInterface.h"
 #include "Components/PropertyEditValidation.h"
 
 #include "Components/ComponentMaterialOverride.h"
@@ -141,7 +142,7 @@ namespace Durin
 	{
 		ComponentMaterialOverride::BuildRenderProxyBindingUpdate(
 			PendingMaterialSlotIndex, GetMaterial(PendingMaterialSlotIndex),
-			OutUpdate);
+			OutUpdate, GetRenderScene() ? GetRenderScene()->GetFeatureLevel() : FSceneInterface::GetDefaultFeatureLevel());
 		return true;
 	}
 

@@ -138,6 +138,10 @@ namespace Durin
 		const FSceneRenderPlan& PreparedView = *Context.Logical.PreparedView;
 		Context.Features = BuildSceneFrameFeaturePlan(
 			PreparedView, Options, Width, Height, Qualification);
+		const auto& Settings = PreparedView.PreparationConfig.Settings;
+		if ((Context.Features.RequiresProductionDeferred() ? !Settings.bHybrid : !Settings.bForward)
+			|| ((Context.Features.RequiresDeferredInputs() || Context.Features.GBuffer.IsEnabled()) && !Settings.bHybrid))
+			return ERenderViewResult::RendererResourcesUnavailable;
 		const auto ResourceResult = TraceStage("view resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
 			&FSceneRenderPipeline::PrepareViewResources_RenderThread, bPrepareOnly); });
 		if (ResourceResult != ERenderViewResult::Success) return ResourceResult;

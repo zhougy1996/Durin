@@ -1010,7 +1010,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 	ASSERT_EQ(InitialSlots.Materials.size(), SlotCount);
 	EXPECT_EQ(
 		InitialSlots.MaterialProxies[0],
-		Shared->GetRenderProxy().GetReference());
+		Shared->GetRenderProxy(Harness.Scene->GetFeatureLevel()).GetReference());
 	EXPECT_EQ(
 		CapturePrimitiveCount(),
 		static_cast<size_t>(SharedUserCount));
@@ -1025,7 +1025,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 	}
 
 	Durin::FMaterialRenderProxyRef SharedProxy =
-		Shared->GetRenderProxy();
+		Shared->GetRenderProxy(Harness.Scene->GetFeatureLevel());
 	Durin::FMaterialRenderProxyRef QueuedDestructionProxy;
 	{
 		auto* QueuedDestructionMaterial = MakeExpandedMaterial(

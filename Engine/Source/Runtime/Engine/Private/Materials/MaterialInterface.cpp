@@ -558,6 +558,7 @@ namespace Durin
 	auto DMaterialInterface::BeginDestroy() -> void
 	{
 		PSOPrecacheOwner.Invalidate();
+		ReleaseFeatureLevelResources();
 		CompilationOwner.CookedPreparation.reset();
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
@@ -626,10 +627,17 @@ namespace Durin
 			}
 			return Layer;
 		}
-		FMaterialResource Result;
-		Result.CompiledProgram = GetAcceptedCompiledProgram();
-		Result.StaticProperties = ResolveResourceProperties();
-		Result.bIsCompiling = IsCompiling();
+		auto Accepted = CompilationOwner.RenderLayer;
+		Accepted.CompiledProgram = GetAcceptedCompiledProgram();
+		Accepted.StaticProperties = ResolveResourceProperties();
+		Accepted.bIsCompiling = IsCompiling();
+		return BuildMaterialResource(std::move(Accepted));
+	}
+
+	auto DMaterialInterface::BuildMaterialResource(FMaterialResource Accepted) const -> FMaterialResource
+	{
+		auto Result = Accepted;
+		Result.Parameters.clear();
 		if (!Result.CompiledProgram) return Result;
 		// This context lives only for this build. Validate the chain and index the
 		// declarations once, then visit each owner's typed storage once. Calling
@@ -664,8 +672,8 @@ namespace Durin
 			}
 		}
 		std::unordered_map<FGuid, const FMaterialLocalRenderParameter*> Retained;
-		Retained.reserve(CompilationOwner.RenderLayer.Parameters.size());
-		for (const auto& Parameter : CompilationOwner.RenderLayer.Parameters)
+		Retained.reserve(Accepted.Parameters.size());
+		for (const auto& Parameter : Accepted.Parameters)
 			Retained.emplace(Parameter.Id, &Parameter);
 		Result.Parameters.reserve(Result.CompiledProgram->GetShaderMap().ActiveParameters.size());
 		for (const auto& Parameter : Result.CompiledProgram->GetShaderMap().ActiveParameters)
@@ -708,6 +716,7 @@ namespace Durin
 		if (!bAcceptingMaterialProxyPublications) return;
 		bMaterialProxyPublicationDirty = true;
 		SubmitMaterialRenderProxyState(std::move(LocalLayer));
+		PublishFeatureLevelResources();
 	}
 
 	auto DMaterialInterface::RefreshReloadedAssetBindings() -> void

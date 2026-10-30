@@ -54,6 +54,9 @@ namespace Durin
 		auto UpdateSkyLighting_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void;
 		auto ReleaseSceneResources_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void;
 		FMaterialPSORequestManager MaterialPSORequests;
+		auto GetPreparationConfig_GameThread(ERHIFeatureLevel FeatureLevel) const -> FSceneRenderPreparationConfig;
+		auto GetPreparationConfig_RenderThread(ERHIFeatureLevel FeatureLevel) const -> FSceneRenderPreparationConfig;
+		auto SetPreparationSettings_GameThread(const FRendererPreparationSettings& Settings) -> bool;
 		std::unordered_set<FScene*> PendingSkyScenes;
 		std::function<void(FGPUTimingQueryRHIRef)> ViewGPUTimingSink;
         auto BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void;
@@ -113,6 +116,8 @@ namespace Durin
 		auto AdmitPreparation_RenderThread(FScene* Scene, FRHITexture* Output,
 			const FRenderResourcePreparation& Preparation) -> bool;
 		FRenderResourceAdmissionBudget AdmissionBudget;
+		FSceneRenderPreparationConfig PreparationConfigGameThread;
+		FSceneRenderPreparationConfig PreparationConfigRenderThread;
 		FRendererResourceCoordinator Coordinator;
 		FRendererRDGAllocator RDGAllocator;
 		FDefaultTextureResources DefaultTextures;

@@ -4,8 +4,10 @@
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderTypes.h"
 #include "PSOPrecache.h"
+#include "RHIFeatureLevel.h"
 #include "Rendering/PrimitiveRenderParticipation.h"
 #include "PipelineStateCache.h"
+#include "SceneRenderPreparationConfig.h"
 
 namespace Durin
 {
@@ -25,6 +27,8 @@ namespace Durin
 		FPSOPrecacheVertexFactoryData VertexFactoryData;
 		FPSOPrecacheParams PrecachePSOParams;
 		EPSOPrecachePriority Priority = EPSOPrecachePriority::Medium;
+		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
+		FSceneRenderPreparationConfig PreparationConfig;
 	};
 
 	enum class EMaterialPSOPrecacheState : uint8 { Pending, Ready, Failed, Canceled, Stale };
@@ -107,6 +111,9 @@ namespace Durin
 		ENGINE_API auto PrecachePSOs(FMaterialPSOPrecacheParams Params) -> FMaterialPSOPrecacheRequestID;
 		ENGINE_API auto Pump(const FMaterialPSOCollector& Collector) -> void;
 		ENGINE_API auto Invalidate() -> void;
+		// Publish currentness on the GameThread; retire resources later on the render thread.
+		ENGINE_API auto SetPreparationConfigVersion(uint64 Version) -> void;
+		ENGINE_API auto InvalidateOutdatedPreparationConfigs() -> void;
 		// Close before backend/module shutdown, on the resource-owning thread.
 		ENGINE_API auto Close() -> void;
 		ENGINE_API auto GetPendingRequestCount() const -> size_t;

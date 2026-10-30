@@ -171,7 +171,7 @@ namespace Durin
 		for (uint32 SlotIndex = 0; SlotIndex < RenderData->MaterialSlots.size(); ++SlotIndex)
 		{
 			DMaterialInterface* SlotMaterial = GetMaterial(SlotIndex);
-			MaterialProxies.push_back(ComponentMaterialOverride::ResolveRenderProxy(SlotMaterial));
+			MaterialProxies.push_back(ComponentMaterialOverride::ResolveRenderProxy(SlotMaterial, GetRenderScene() ? GetRenderScene()->GetFeatureLevel() : FSceneInterface::GetDefaultFeatureLevel()));
 		}
 		return std::make_unique<FStaticMeshSceneProxy>(
 			RenderData,

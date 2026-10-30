@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RHIFeatureLevel.h"
 
 #include "Math/DurinMath.h"
 #include "RHIResources.h"
@@ -324,6 +325,8 @@ namespace Durin
 			return ProjectionMatrix * GetTranslatedWorldToView();
 		}
 
+		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
+		auto GetFeatureLevel() const -> ERHIFeatureLevel { return FeatureLevel; }
 		ESceneDepthConvention DepthConvention = ESceneDepthConvention::ForwardZ;
 		double NearClipDistance = 0.1;
 		double FarClipDistance = 500000.0;

@@ -9,6 +9,7 @@
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
+#include "Rendering/SceneInterface.h"
 #include "Widgets/MViewport.h"
 
 namespace Durin::Editor
@@ -32,16 +33,19 @@ namespace Durin::Editor
 	class FAssetPreviewHost::FImpl
 	{
 	public:
-		FImpl(FAssetPreviewHostConfig Config,
+		FImpl(FAssetPreviewHostConfig InConfig,
 			std::unique_ptr<FAssetPreviewViewportClient> InViewportClient)
-			: ViewportClient(std::move(InViewportClient))
+			: Config(std::move(InConfig)), ViewportClient(std::move(InViewportClient))
 		{
 			if (!ViewportClient)
 			{
 				Error = "The asset preview viewport client is unavailable.";
 				return;
 			}
-			PreviewScene = std::make_unique<FPreviewScene>(Config.SceneName);
+			static std::atomic<uint64> SceneSerial = 0;
+			const auto Name = Config.FeatureLevel ? FName(std::format("{}_Feature{}_{}", Config.SceneName.ToString(),
+				static_cast<uint8>(*Config.FeatureLevel), ++SceneSerial)) : Config.SceneName;
+			PreviewScene = std::make_unique<FPreviewScene>(Name, Config.FeatureLevel);
 			if (!PreviewScene->IsAvailable())
 			{
 				Error = PreviewScene->GetDiagnostic();
@@ -91,6 +95,7 @@ namespace Durin::Editor
 			PreviewScene.reset();
 		}
 
+		FAssetPreviewHostConfig Config;
 		std::unique_ptr<FPreviewScene> PreviewScene;
 		std::unique_ptr<FAssetPreviewViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
@@ -121,6 +126,24 @@ namespace Durin::Editor
 
 	auto FAssetPreviewHost::GetDiagnostic() const -> const std::string& { return Impl->Error; }
 	auto FAssetPreviewHost::GetContentActor() const -> AActor* { return Impl->ContentActor.Get(); }
+	auto FAssetPreviewHost::GetFeatureLevel() const -> ERHIFeatureLevel
+	{
+		return Impl->PreviewScene && Impl->PreviewScene->GetRenderScene()
+			? Impl->PreviewScene->GetRenderScene()->GetFeatureLevel() : FSceneInterface::GetDefaultFeatureLevel();
+	}
+
+	auto FAssetPreviewHost::SetFeatureLevel(ERHIFeatureLevel FeatureLevel) -> bool
+	{
+		if (!IsAvailable() || FeatureLevel > FSceneInterface::GetDefaultFeatureLevel()) return false;
+		if (GetFeatureLevel() == FeatureLevel) return true;
+		auto Config = Impl->Config;
+		Config.FeatureLevel = FeatureLevel;
+		auto Client = std::move(Impl->ViewportClient);
+		Impl.reset();
+		Impl = std::make_unique<FImpl>(std::move(Config), std::move(Client));
+		return IsAvailable();
+	}
+
 	auto FAssetPreviewHost::SetVisible(bool bVisible) -> void
 	{
 		if (Impl->ViewportClient) Impl->ViewportClient->SetPreviewEnabled(bVisible);

@@ -31,8 +31,15 @@ namespace Durin
 		const FSceneViewRenderOptions& Options = Context.Logical.Options;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		FSceneRenderPlan PreparedView;
+		if (!Scene) return std::unexpected(ERenderViewResult::RendererResourcesUnavailable);
+		PreparedView.PreparationConfig = Service.GetPreparationConfig_RenderThread(Scene->GetFeatureLevel());
+		if (!PreparedView.PreparationConfig.Version
+			|| (Context.Logical.CallerView->Settings.Mode.RasterMode == ERasterMode::Wireframe
+				&& !PreparedView.PreparationConfig.bSupportsWireframe))
+			return std::unexpected(ERenderViewResult::RendererResourcesUnavailable);
 		PreparedView.View = FitSceneViewToOutput(
 			*Context.Logical.CallerView, Context.Logical.Width, Context.Logical.Height);
+		PreparedView.View.FeatureLevel = PreparedView.PreparationConfig.FeatureLevel;
 		if (!std::isfinite(PreparedView.View.MaterialTimeSeconds)
 			|| PreparedView.View.MaterialTimeSeconds < 0.0)
 			PreparedView.View.MaterialTimeSeconds = FTime::Seconds() - GStartTime;

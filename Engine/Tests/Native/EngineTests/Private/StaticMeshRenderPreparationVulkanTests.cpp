@@ -4,6 +4,8 @@
 #include "PSOPrecacheComponent.h"
 #include "RenderPipelineCreation.h"
 #include "Renderers/MeshVertexFactory.h"
+#include "Renderers/MeshPassProcessor.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "Materials/MaterialShaderMap.h"
 
 #include "GeometrySubmissionTestSupport.h"
@@ -1113,6 +1115,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			{
 				const auto RetainedProxy = std::make_shared<Durin::FStaticMeshSceneProxy>(RenderData.get(),
 					std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent, Opaque});
+				RetainedProxy->SetFeatureLevel(Scene.GetFeatureLevel());
 				Durin::FPrimitiveSceneInfo RetainedInfo(Durin::FPrimitiveComponentId(710), RetainedProxy, Durin::FMatrix(1.0));
 				const std::array<const Durin::FPrimitiveSceneInfo*, 1> RetainedInfos{&RetainedInfo};
 				Durin::FSceneView SourceView;
@@ -1527,6 +1530,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		EXPECT_EQ(Snapshot.Masked.front().Command->Geometry.InstanceCount, 2u);
 		// An independent factory opts into the same persistent path without an asset.
 		auto PublishedProxy = std::make_shared<FProceduralProxy>();
+		PublishedProxy->SetFeatureLevel(Scene.GetFeatureLevel());
 		PublishedProxy->Geometry = Geometries[1];
 		PublishedProxy->Materials = Materials;
 		PublishedProxy->bReverse = true;
@@ -1692,6 +1696,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		Invalid.DeclarationElements[0].Stride = 1;
 		EXPECT_EQ(Invalid.ValidateInputs(Snapshot.Opaque.front().Command->Geometry), EGeometrySubmissionOutcome::InvalidSubmission);
 		const auto MissingProxy = std::make_shared<FProceduralProxy>();
+		MissingProxy->SetFeatureLevel(Scene.GetFeatureLevel());
 		MissingProxy->Geometry = Geometries[0];
 		MissingProxy->Geometry.Binding = std::make_shared<FProceduralBinding>(*Geometries[0].Binding);
 		MissingProxy->Geometry.Binding->Streams.clear();
@@ -3381,7 +3386,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		Pump(1);
 		// Even an already published proxy must preserve unresolved material demand
 		// through normal logical collection, rather than authorizing an error draw.
-		const auto MaterialProxy = Material->GetRenderProxy();
+		const auto MaterialProxy = Material->GetRenderProxy(Scene.GetFeatureLevel());
 		const auto Accepted = Material->GetMaterialResource();
 		FMaterialResource Compiling;
 		Compiling.bIsCompiling = true;
@@ -3857,4 +3862,251 @@ TEST(FStaticMeshRenderPreparationVulkanTests, AuthoredLODsInitializeAllResources
 	FlushRenderingCommands();
 	ShutdownRenderingThread();
 	RHIExit();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentMaterialAndPSOSelection)
+{
+	using namespace Durin; using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints()); ASSERT_TRUE(InitializeAssetManager()); ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext()); ASSERT_NE(GDynamicRHI, nullptr); InitRenderingThread();
+	FRendererModule Renderer; FModuleTestHarness Lifecycle("SceneFeatureLevelIntegration"); Lifecycle.Start(Renderer);
+	struct FRendererCleanup {
+		FModuleTestHarness& Lifecycle;
+		~FRendererCleanup() { Lifecycle.Shutdown(); ShutdownRenderingThread(); RHIExit(); }
+	} RendererCleanup{Lifecycle};
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionScalarParameter> Low(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionScalarParameter> High(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionFeatureLevelSwitch> Select(NewObject<DMaterialExpressionFeatureLevelSwitch>(nullptr, NAME_None));
+	Low->Id = FGuid::NewGuid(); Low->Metadata = {.Id = FGuid::NewGuid(), .Name = "LowSceneValue"}; Low->DefaultValue = 0.25f;
+	High->Id = FGuid::NewGuid(); High->Metadata = {.Id = FGuid::NewGuid(), .Name = "HighSceneValue"}; High->DefaultValue = 0.75f;
+	Select->Id = FGuid::NewGuid(); Select->DefaultValue.Connection = {Low->Id}; Select->SM5 = {High->Id}; Select->SM6 = {High->Id};
+	FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Select->Id};
+	const std::array<DMaterialExpression*, 3> Expressions{Low.Get(), High.Get(), Select.Get()};
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	const auto DefaultProgram = Material->GetAcceptedCompiledProgram(); ASSERT_TRUE(DefaultProgram);
+	auto HighScene = Renderer.CreateScene();
+	auto LowScene = Renderer.CreateScene(ERHIFeatureLevel::ES3_1);
+	ASSERT_TRUE(HighScene && LowScene);
+	EXPECT_EQ(HighScene->GetFeatureLevel(), GDynamicRHI->RHIGetCapabilities()->FeatureLevel);
+	EXPECT_EQ(LowScene->GetFeatureLevel(), ERHIFeatureLevel::ES3_1);
+	EXPECT_FALSE(Renderer.CreateScene(static_cast<ERHIFeatureLevel>(255)));
+	TStrongObjectPtr<DWorld> HighWorld(NewObject<DWorld>(nullptr, NAME_None)), LowWorld(NewObject<DWorld>(nullptr, NAME_None));
+	auto* Mesh = NewObject<DStaticMesh>(nullptr, NAME_None);
+	struct FSceneCleanup {
+		DWorld* High; DWorld* Low; FScenePtr& HighScene; FScenePtr& LowScene; DStaticMesh* Mesh;
+		~FSceneCleanup() {
+			High->Shutdown(); Low->Shutdown(); High->SetRenderScene(nullptr); Low->SetRenderScene(nullptr);
+			HighScene->Release(); LowScene->Release(); HighScene.reset(); LowScene.reset(); FlushRenderingCommands();
+			auto* Data = FStaticMeshTestAccess::GetMutableRenderData(Mesh);
+			if (Data) EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });
+			FlushRenderingCommands(); MarkAsGarbage(Mesh); CollectGarbage(); FlushRenderingCommands();
+		}
+	} Cleanup{HighWorld.Get(), LowWorld.Get(), HighScene, LowScene, Mesh};
+	std::vector<FMeshMaterialSlotDefinition> Slots;
+	for (uint32 Slot = 0; Slot < 4; ++Slot) Slots.push_back({.Name = FName(std::format("FeatureSlot{}", Slot)), .DefaultMaterial = Material.Get()});
+	ASSERT_TRUE(FStaticMeshTestAccess::ReplaceRenderData(Mesh, MakeRenderData(), std::move(Slots)));
+	auto AddComponent = [&](DWorld& World, FSceneInterface& Scene) -> DStaticMeshComponent* {
+		if (!World.InitializeSubsystems()) return nullptr;
+		auto* Level = NewObject<DLevel>(&World, NAME_None);
+		if (!World.SetCurrentLevel(Level)) return nullptr;
+		World.SetRenderScene(&Scene);
+		auto* Actor = Level->SpawnActor<AActor>();
+		auto* Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(DStaticMeshComponent::StaticClass()));
+		Component->SetStaticMesh(Mesh);
+		return Component;
+	};
+	auto* HighComponent = AddComponent(*HighWorld, *HighScene);
+	auto* LowComponent = AddComponent(*LowWorld, *LowScene);
+	ASSERT_TRUE(HighComponent && LowComponent);
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	bool Ready = false;
+	while (!Ready && std::chrono::steady_clock::now() < Deadline) {
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			++GRenderFrameCounterRenderThread; Renderer.BeginFrame_RenderThread(Commands);
+		});
+		FlushRenderingCommands(); DPrimitiveComponent::ProcessPSOPrecacheRequests(HighWorld.Get()); DPrimitiveComponent::ProcessPSOPrecacheRequests(LowWorld.Get());
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+			Ready = static_cast<FScene*>(HighScene.get())->GetPrimitiveSceneInfos().size() == 1
+				&& static_cast<FScene*>(LowScene.get())->GetPrimitiveSceneInfos().size() == 1;
+		});
+		FlushRenderingCommands(); if (!Ready) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_TRUE(Ready) << HighComponent->GetPSOPrecacheDiagnostic() << "; " << LowComponent->GetPSOPrecacheDiagnostic();
+	const auto HighResource = Material->GetMaterialResource(HighScene->GetFeatureLevel());
+	const auto LowResource = Material->GetMaterialResource(LowScene->GetFeatureLevel());
+	ASSERT_TRUE(HighResource.HasValidGameThreadShaderMap() && LowResource.HasValidGameThreadShaderMap());
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), DefaultProgram);
+	EXPECT_EQ(LowResource.CompiledProgram->FeatureLevel, ERHIFeatureLevel::ES3_1);
+	if (HighScene->GetFeatureLevel() != ERHIFeatureLevel::ES3_1)
+		EXPECT_NE(HighResource.CompiledProgram->GetShaderMap().ShaderMapId, LowResource.CompiledProgram->GetShaderMap().ShaderMapId);
+	const auto Factory = RendererPrivate::FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey()); ASSERT_TRUE(Factory);
+	const std::array Factories{FPSOPrecacheVertexFactoryData(&Factory->GetType())};
+	std::vector<FMaterialPSOPrecacheRequestID> Repeated;
+	ASSERT_TRUE(Material->PrecachePSOs(Renderer, ERHIFeatureLevel::ES3_1, Factories, {}, EPSOPrecachePriority::Medium, Repeated));
+	ASSERT_EQ(Repeated.size(), 1u);
+	ASSERT_EQ(LowComponent->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().size(), 1u);
+	EXPECT_EQ(Repeated[0].GetValue(), LowComponent->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs()[0].GetValue());
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		for (auto* Scene : {static_cast<FScene*>(HighScene.get()), static_cast<FScene*>(LowScene.get())}) {
+			FSceneView View; View.ViewportWidth = View.ViewportHeight = 64; View.FeatureLevel = Scene->GetFeatureLevel();
+			const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Scene->GetPrimitiveSceneInfos(), View, ERasterMode::Solid);
+			ASSERT_GT(Prepared.GetNumSections(), 0u);
+			for (const auto& Draw : Prepared.Opaque) {
+				ASSERT_TRUE(Draw.Command->Material.CompiledProgram);
+				EXPECT_EQ(Draw.Command->Material.CompiledProgram->FeatureLevel, Scene->GetFeatureLevel());
+			}
+		}
+	});
+	FlushRenderingCommands();
+	const auto InitialConfig = Renderer.GetSceneRenderPreparationConfig(LowScene->GetFeatureLevel());
+	ASSERT_NE(InitialConfig.Version, 0u);
+	EXPECT_EQ(InitialConfig.FeatureLevel, LowScene->GetFeatureLevel());
+	EXPECT_EQ(InitialConfig.bSupportsWireframe, GDynamicRHI->RHIGetCapabilities()->bSupportsNonSolidFill);
+	ASSERT_TRUE(Renderer.SetPreparationSettings(InitialConfig.Settings));
+	EXPECT_EQ(Renderer.GetSceneRenderPreparationConfig(LowScene->GetFeatureLevel()), InitialConfig);
+	std::unique_ptr<RendererPrivate::FMeshPassProcessor> DirectCollector;
+	FPSOPrecacheDataArray DirectInitializers;
+	DirectInitializers.emplace_back(); // The append interface must preserve its prefix.
+	struct FDirectCollectorCleanup {
+		std::unique_ptr<RendererPrivate::FMeshPassProcessor>& Processor;
+		FPSOPrecacheDataArray& Initializers;
+		~FDirectCollectorCleanup() {
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([this](FRHICommandListImmediate&) { Initializers.clear(); Processor.reset(); });
+			FlushRenderingCommands();
+		}
+	} DirectCleanup{DirectCollector, DirectInitializers};
+	bool DirectReady = false;
+	std::string DirectError;
+	const auto DirectDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	do {
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			FGeometryQualificationFrame Frame(Commands);
+			if (!DirectCollector) DirectCollector = RendererPrivate::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::Forward)
+				.CreatePSOCollector({Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation, EPSOPrecachePriority::High});
+			const auto Draws = Commands.GetNumRecordedDrawCommands();
+			IPSOCollector& Collector = *DirectCollector;
+			Collector.CollectPSOInitializers(InitialConfig, LowResource, Factories.front(), {}, DirectInitializers);
+			const auto Result = DirectCollector->GetPSOCollectionResult();
+			if (!Result) DirectError = Result.error();
+			else DirectReady = *Result;
+			EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
+			if (DirectReady) {
+				const auto Count = DirectInitializers.size();
+				Collector.CollectPSOInitializers(InitialConfig, LowResource, Factories.front(), {}, DirectInitializers);
+				EXPECT_EQ(DirectInitializers.size(), Count);
+			}
+		});
+		FlushRenderingCommands();
+		if (!DirectReady) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	} while (!DirectReady && DirectError.empty() && std::chrono::steady_clock::now() < DirectDeadline);
+	ASSERT_TRUE(DirectReady) << DirectError;
+	ASSERT_EQ(DirectInitializers.size(), 1u + (InitialConfig.bSupportsWireframe ? 8u : 4u));
+	const auto DirectEntries = std::span(DirectInitializers).subspan(1);
+	EXPECT_EQ(std::ranges::count_if(DirectEntries, [](const auto& Entry) { return Entry.bRequired; }), 2);
+	EXPECT_TRUE(std::ranges::any_of(DirectEntries, [](const auto& Entry) { return !Entry.bRequired; }));
+
+	FTextureRHIRef ConfigTarget;
+	struct FConfigTargetCleanup {
+		FTextureRHIRef& Target;
+		~FConfigTargetCleanup() {
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&Target = Target](FRHICommandListImmediate&) { Target = {}; });
+			FlushRenderingCommands();
+		}
+	} TargetCleanup{ConfigTarget};
+	FSceneView ConfigView;
+	ConfigView.ViewportWidth = ConfigView.ViewportHeight = 64;
+	const auto ViewPreparation = FRenderResourcePreparation::Create();
+	const auto PrepareDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	do {
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			FGeometryQualificationFrame Frame(Commands);
+			Renderer.BeginFrame_RenderThread(Commands);
+			if (!ConfigTarget) ConfigTarget = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("PreparationConfigCoverage", 64, 64, EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
+			ASSERT_TRUE(ConfigTarget);
+			Renderer.PrepareViewResources(Commands, {LowScene.get(), ConfigView, ConfigTarget}, ViewPreparation);
+		});
+		FlushRenderingCommands();
+		if (ViewPreparation.GetProgress().State != ERenderResourcePreparationState::Pending) break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	} while (std::chrono::steady_clock::now() < PrepareDeadline);
+	ASSERT_EQ(ViewPreparation.GetProgress().State, ERenderResourcePreparationState::Ready);
+	ASSERT_TRUE(Renderer.SetPreparationSettings(InitialConfig.Settings));
+	FlushRenderingCommands();
+	EXPECT_EQ(ViewPreparation.GetProgress().State, ERenderResourcePreparationState::Ready);
+	std::shared_ptr<const FHitProxyMap> SceneLessPicking;
+	FHitProxyRenderRequest SceneLessRequest;
+	SceneLessRequest.View = ConfigView;
+	SceneLessRequest.bSceneGeometry = false;
+	const auto PickingDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	do {
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			FGeometryQualificationFrame Frame(Commands);
+			SceneLessPicking = Renderer.RenderHitProxies(Commands, nullptr, SceneLessRequest);
+		});
+		FlushRenderingCommands();
+		if (!SceneLessPicking) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	} while (!SceneLessPicking && std::chrono::steady_clock::now() < PickingDeadline);
+	ASSERT_TRUE(SceneLessPicking);
+	std::vector<FMaterialPSOPrecacheRequestID> UpdatedRequests;
+	FScopedRenderThreadBlocker ConfigUpdateBlocker;
+	struct FConfigUpdateDrain {
+		FScopedRenderThreadBlocker& Blocker;
+		~FConfigUpdateDrain() { Blocker.Release(); FlushRenderingCommands(); }
+	} ConfigUpdateDrain{ConfigUpdateBlocker};
+	// This frame is queued before the policy update but sees the future admission.
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		FGeometryQualificationFrame Frame(Commands);
+		Renderer.BeginFrame_RenderThread(Commands);
+		ASSERT_EQ(UpdatedRequests.size(), 1u);
+		EXPECT_EQ(UpdatedRequests[0].GetProgress().State, EMaterialPSOPrecacheState::Pending);
+		EXPECT_FALSE(UpdatedRequests[0].GetProgress().bRequiredReady);
+	});
+	auto Settings = InitialConfig.Settings;
+	Settings.bHybrid = false;
+	ASSERT_TRUE(Renderer.SetPreparationSettings(Settings));
+	Settings.bHitProxy = false;
+	ASSERT_TRUE(Renderer.SetPreparationSettings(Settings));
+	EXPECT_FALSE(Repeated[0].IsCurrent());
+	EXPECT_FALSE(Repeated[0].GetProgress().bRequiredReady);
+	const auto Updated = Renderer.GetSceneRenderPreparationConfig(LowScene->GetFeatureLevel());
+	EXPECT_GT(Updated.Version, InitialConfig.Version);
+	// Admit before the queued render-thread update: it must survive old-work retirement.
+	ASSERT_TRUE(Material->PrecachePSOs(Renderer, LowScene->GetFeatureLevel(), Factories, {}, EPSOPrecachePriority::Medium, UpdatedRequests));
+	ASSERT_EQ(UpdatedRequests.size(), 1u);
+	EXPECT_NE(UpdatedRequests[0].GetValue(), Repeated[0].GetValue());
+	ConfigUpdateBlocker.Release();
+	FlushRenderingCommands();
+	EXPECT_TRUE(UpdatedRequests[0].IsCurrent());
+	EXPECT_EQ(ViewPreparation.GetProgress().State, ERenderResourcePreparationState::Stale);
+	const auto UpdatedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	while (!UpdatedRequests[0].GetProgress().bRequiredReady && std::chrono::steady_clock::now() < UpdatedDeadline) {
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			FGeometryQualificationFrame Frame(Commands);
+			Renderer.BeginFrame_RenderThread(Commands);
+		});
+		FlushRenderingCommands();
+		DPrimitiveComponent::ProcessPSOPrecacheRequests(LowWorld.Get());
+		DPrimitiveComponent::ProcessPSOPrecacheRequests(HighWorld.Get());
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_TRUE(UpdatedRequests[0].GetProgress().bRequiredReady) << UpdatedRequests[0].GetDiagnostic();
+	Settings.bForward = false;
+	ASSERT_TRUE(Renderer.SetPreparationSettings(Settings));
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		FGeometryQualificationFrame Frame(Commands);
+		EXPECT_EQ(Renderer.RenderView(Commands, {LowScene.get(), ConfigView, ConfigTarget}), ERenderViewResult::RendererResourcesUnavailable);
+		FHitProxyRenderRequest Picking;
+		Picking.View = ConfigView;
+		EXPECT_FALSE(Renderer.RenderHitProxies(Commands, LowScene.get(), Picking));
+	});
+	FlushRenderingCommands();
 }

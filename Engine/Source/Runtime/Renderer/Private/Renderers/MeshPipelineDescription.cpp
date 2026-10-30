@@ -1,7 +1,6 @@
 #include "Renderers/MeshPipelineDescription.h"
 
-#include "HitProxy.h"
-#include "Resources/RenderTargetLayouts.h"
+#include "Renderers/MeshPassProcessor.h"
 
 namespace Durin::RendererPrivate
 {
@@ -40,40 +39,7 @@ namespace Durin::RendererPrivate
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,
 		FMaterialShaderBlendModeKey BlendMode, bool bReversedZ) -> FMeshPipelineDescription
 	{
-		FMeshPipelineDescription Result{.Topology = Topology, .Rasterizer = State.Rasterizer, .Depth = State.Depth};
-		switch (Pass)
-		{
-		case EMeshPipelinePass::Forward:
-		case EMeshPipelinePass::HybridRetainedForward:
-		case EMeshPipelinePass::SortedTranslucency:
-			Result.RenderTargets = Pass == EMeshPipelinePass::Forward ? RenderTargetLayouts::MakeGraphSceneTargets()
-				: Pass == EMeshPipelinePass::HybridRetainedForward ? RenderTargetLayouts::MakeGraphHybridRetainedForward()
-				: RenderTargetLayouts::MakeGraphSortedTranslucency();
-			Result.ColorBlends[0] = State.ColorBlend;
-			if (BlendMode == EMaterialBlendMode::Translucent) Result.ColorBlends[1].ColorWriteMask = ERHIColorWriteMask::None;
-			break;
-		case EMeshPipelinePass::ShadowDepth:
-		{
-			const auto Shadow = MakeShadowMeshPipelineState(State);
-			Result.Rasterizer = Shadow.Rasterizer;
-			Result.Depth = Shadow.Depth;
-			Result.RenderTargets = RenderTargetLayouts::MakeDirectionalShadowDepth();
-			break;
-		}
-		case EMeshPipelinePass::GBuffer:
-			Result.RenderTargets = RenderTargetLayouts::MakeGBufferTargets();
-			break;
-		case EMeshPipelinePass::HitProxy:
-			Result.RenderTargets = RenderTargetLayouts::MakeSceneTargets();
-			Result.RenderTargets.ColorAttachments[0].RenderTarget.Format = FHitProxyPixel::Format;
-			Result.Rasterizer.PolygonMode = ERHIPolygonMode::Fill;
-			Result.Depth = {};
-			Result.Depth.bEnableTest = true;
-			Result.Depth.bEnableWrite = true;
-			Result.Depth.CompareOp = bReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual;
-			break;
-		}
-		return Result;
+		return GetMeshPassProcessor(Pass).DescribeMeshDraw(State, Topology, BlendMode, bReversedZ);
 	}
 
 	auto FMeshPipelineDescription::MakeInitializer(FRHIShader* Vertex, FRHIShader* Fragment,

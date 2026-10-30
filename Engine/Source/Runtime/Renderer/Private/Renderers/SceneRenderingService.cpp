@@ -10,6 +10,8 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
+#include "Rendering/SceneInterface.h"
+#include "RHICapabilities.h"
 
 namespace Durin
 {
@@ -35,6 +37,40 @@ namespace Durin
 
 	FSceneRenderingService::~FSceneRenderingService() = default;
 
+	auto FSceneRenderingService::GetPreparationConfig_GameThread(ERHIFeatureLevel FeatureLevel) const -> FSceneRenderPreparationConfig
+	{
+		CheckGameThread();
+		if (FeatureLevel > PreparationConfigGameThread.FeatureLevel) return {};
+		auto Config = PreparationConfigGameThread;
+		Config.FeatureLevel = FeatureLevel;
+		return Config;
+	}
+	auto FSceneRenderingService::GetPreparationConfig_RenderThread(ERHIFeatureLevel FeatureLevel) const -> FSceneRenderPreparationConfig
+	{
+		CheckRenderingThread();
+		if (FeatureLevel > PreparationConfigRenderThread.FeatureLevel) return {};
+		auto Config = PreparationConfigRenderThread;
+		Config.FeatureLevel = FeatureLevel;
+		return Config;
+	}
+	auto FSceneRenderingService::SetPreparationSettings_GameThread(const FRendererPreparationSettings& Settings) -> bool
+	{
+		CheckGameThread();
+		if (!PreparationConfigGameThread.Version) return false;
+		if (PreparationConfigGameThread.Settings == Settings) return true;
+		require(PreparationConfigGameThread.Version != UINT64_MAX);
+		PreparationConfigGameThread.Settings = Settings;
+		++PreparationConfigGameThread.Version;
+		MaterialPSORequests.SetPreparationConfigVersion(PreparationConfigGameThread.Version);
+		EnqueueRenderCommand("UpdateRendererPreparationConfig", [this, Config = PreparationConfigGameThread](FRHICommandListImmediate&) {
+			PreparationConfigRenderThread = Config;
+			MaterialPSORequests.InvalidateOutdatedPreparationConfigs();
+			RetirePreparations_RenderThread();
+			ViewStates.InvalidateAll(ESceneViewDiscontinuity::ManualInvalidation);
+		});
+		return true;
+	}
+
     auto FSceneRenderingService::BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void
     {
         CheckRenderingThread();
@@ -43,6 +79,10 @@ namespace Durin
         PrunePreparations_RenderThread();
         if (GDynamicRHI) Retirement.Collect(GDynamicRHI->RHIGetQueueCapabilities());
 		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection) {
+			// Admission can observe a newer GameThread snapshot before its ordered
+			// render command executes. Wait for that version rather than collecting it early.
+			if (Params.PreparationConfig.Version != PreparationConfigRenderThread.Version)
+				return std::expected<bool, std::string>(false);
 			return RendererPrivate::CollectMaterialPSOs(Params, Collection, Coordinator.GetGeneration_RenderThread());
 		});
         for (auto* Scene : PendingSkyScenes)
@@ -69,6 +109,13 @@ namespace Durin
 		FConsoleCommandRegistry& Registry
 	) -> bool
 	{
+		CheckGameThread();
+		PreparationConfigGameThread.FeatureLevel = FSceneInterface::GetDefaultFeatureLevel();
+		const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		PreparationConfigGameThread.bSupportsWireframe = Caps && Caps->bSupportsNonSolidFill;
+		PreparationConfigGameThread.Version = 1;
+		PreparationConfigRenderThread = PreparationConfigGameThread;
+		MaterialPSORequests.SetPreparationConfigVersion(1);
 		return Coordinator.Start(
 			Registry,
 			[this](ERendererResourceInvalidationCause Cause) {

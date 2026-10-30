@@ -469,8 +469,10 @@ namespace Durin
 			GMaterialDynamicParameterCounters.NoOpCommitCount.fetch_add(1);
 			return {};
 		}
-		const auto Program = GetAcceptedCompiledProgram();
-		std::shared_ptr<const FMaterialParameterReachability> Reachability;
+		auto Program = GetAcceptedCompiledProgram();
+		if (!Program)
+			for (const auto Level : {ERHIFeatureLevel::ES3_1, ERHIFeatureLevel::SM5, ERHIFeatureLevel::SM6})
+				if (auto Selected = GetAcceptedCompiledProgram(Level)) { Program = std::move(Selected); break; }
 
 		auto CandidateScalars = ScalarParameterValues;
 		auto CandidateVectors = VectorParameterValues;
@@ -516,13 +518,19 @@ namespace Durin
 			const EMaterialParameterType Type = Update.Value.GetType();
 			if (Program)
 			{
-				if (!Reachability) Reachability = GetParameterReachability();
-				const auto Active = std::ranges::find(Program->GetShaderMap().ActiveParameters,
-					Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
-				if (!Reachability || !Reachability->Validation || Active == Program->GetShaderMap().ActiveParameters.end()
-					|| !Reachability->ParameterIds.contains(Update.ParameterId))
+				bool bActive = false;
+				for (const auto Level : {ERHIFeatureLevel::ES3_1, ERHIFeatureLevel::SM5, ERHIFeatureLevel::SM6})
+				{
+					const auto Selected = GetAcceptedCompiledProgram(Level);
+					if (!Selected) continue;
+					const auto Active = std::ranges::find(Selected->GetShaderMap().ActiveParameters,
+						Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
+					if (Active == Selected->GetShaderMap().ActiveParameters.end()) continue;
+					if (Active->Type != Type) return Reject("Material declaration type is invalid.", Index, Update.ParameterId);
+					bActive = true;
+				}
+				if (!bActive)
 					return Reject("The parameter is not reachable from the material outputs.", Index, Update.ParameterId);
-				if (Active->Type != Type) return Reject("Material declaration type is invalid.", Index, Update.ParameterId);
 			}
 			if (Definition->Type != Type)
 			{

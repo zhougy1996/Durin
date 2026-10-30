@@ -14,6 +14,7 @@
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Renderers/ForwardLighting.h"
 #include "SceneView.h"
+#include "SceneRenderPreparationConfig.h"
 
 namespace Durin
 {
@@ -87,6 +88,7 @@ namespace Durin
 	// Command-local owner of immutable feature-bounded logical preparation.
 	struct FSceneRenderPlan
 	{
+		FSceneRenderPreparationConfig PreparationConfig;
 		FSceneView View;
 		std::optional<FPreparedEnvironment> Environment;
 		FPreparedLighting Lighting;

@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-28
+Last reviewed: 2026-10-30
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -337,8 +337,9 @@ parameters, resources, functions, limits, source, and code.
 
 Every compile request names Low or High quality, an accepted RHI feature level
 of ES3_1, SM5, or SM6, and the sorted effective static-bool configuration.
-Renderer requests use the process quality and active RHI capability; editor
-previews may request another supported configuration explicitly. Program identity
+Renderer requests use the process quality and the Scene's immutable FeatureLevel,
+bounded by the active RHI capability. Editor previews recreate their Scene when
+the selected FeatureLevel changes. Program identity
 comes from the selected normalized program and environment, allowing equivalent
 selections to reuse one immutable compiler result while family diagnostics retain
 the distinct requested and static-configuration counts.
@@ -921,6 +922,22 @@ recreates device-dependent RHI resources from the retained accepted compiler
 result; neither operation reinterprets the authored program.
 
 ## Renderer Boundary
+
+`FSceneInterface::GetFeatureLevel` supplies the selection shared by primitive
+proxies, views, material bindings and PSO requests. `CreateScene(FeatureLevel)`
+rejects levels above the device capability; the no-argument overload selects the
+device level. FeatureLevel does not select Forward, Hybrid or GBuffer passes.
+
+`CacheResourceShadersForRendering(FeatureLevel)` explicitly prepares a resource
+using the existing compiler queue or cooked-program reader. Different levels
+retain independent accepted programs and stable render proxies on one material.
+`GetMaterialResource(FeatureLevel)`, `GetAcceptedCompiledProgram(FeatureLevel)`
+and `GetRenderProxy(FeatureLevel)` only select prepared state. Scene consumers use
+these explicit overloads; legacy no-argument queries retain the default resource.
+Dynamic instances inherit the selected parent's program and apply local values;
+parameter mutation accepts parameters active in any prepared level. Edits,
+dependency changes and shader reload refresh requested resources through the
+existing material lifecycle. Finish, cancel and destruction cover these requests.
 
 `DMaterialInterface::GetMaterialResource` returns the active configuration's
 effective `FMaterialResource` without fallback. It owns the accepted program,

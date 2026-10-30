@@ -1,8 +1,7 @@
 #include "Renderers/SurfaceMaterial.h"
 #include "Renderers/GBufferRenderer.h"
-#include "Renderers/MeshPassRelevance.h"
 #include "Renderers/MeshPipelineDescription.h"
-#include "Renderers/MaterialPSOPrecacheCollector.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/MeshVertexFactory.h"
 
@@ -96,7 +95,7 @@ namespace Durin
 		}
 	} // namespace
 
-	auto RendererPrivate::GetGBufferPSOPrecacheFragmentShader() -> FMaterialPSOFragmentShader
+	auto RendererPrivate::GetGBufferMeshPassFragmentShader() -> FMeshPassFragmentShader
 	{
 		return {&FGBufferFragmentShader::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<FGBufferFragmentShader>(Map).GetRHIShader(false); }};
 	}
@@ -168,16 +167,15 @@ namespace Durin
 		if (Request.bGPUCulling && Request.Failure
 			== EGPUCullingFailure::PipelineUnavailable) return nullptr;
 		if (Request.VertexDeclaration == nullptr
-			|| !RendererPrivate::IsMeshPassRelevant(RendererPrivate::EMeshPipelinePass::GBuffer, Request.Material))
+			|| !RendererPrivate::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::GBuffer).IsMeshRelevant(Request.Material))
 		{
 			return nullptr;
 		}
 
 		const auto Factory = RendererPrivate::FindMeshVertexFactory(Request.FactoryKey);
 		if (!Factory || Factory->GetLayoutKey() != Request.LayoutKey
-			|| !Factory->GetShaderType(Request.bGPUCulling
-				? RendererPrivate::MaterialMeshPassGBufferGPUCulling
-				: RendererPrivate::MaterialMeshPassGBuffer)) return nullptr;
+			|| !Factory->GetShaderType(RendererPrivate::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::GBuffer)
+				.GetVertexFactoryPass(Request.bGPUCulling))) return nullptr;
 		const FGBufferShaderMapKey ShaderKey{
 			.Material = Request.Material.ShaderMap,
 			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey,
@@ -192,12 +190,10 @@ namespace Durin
 				FShaderCompileOptions Options;
 				Options.bForceRecompile =
 					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				const uint32 MeshPass = ShaderKey.bGPUCulling
-					? RendererPrivate::MaterialMeshPassGBufferGPUCulling
-					: RendererPrivate::MaterialMeshPassGBuffer;
+				const auto& Processor = RendererPrivate::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::GBuffer);
+				const uint32 MeshPass = Processor.GetVertexFactoryPass(ShaderKey.bGPUCulling);
 				FShaderType* VertexType = Factory->GetShaderType(MeshPass);
-				FShaderType& FragmentType =
-					FGBufferFragmentShader::StaticType();
+				FShaderType& FragmentType = *Processor.GetFragmentShader(ShaderKey.Material.BlendMode).Type;
 				FMeshMaterialShaderMap ShaderMap;
 
 				auto ShaderResult = RendererPrivate::InitializeMaterialShaderMap(
@@ -270,7 +266,7 @@ namespace Durin
 				Candidate->VertexDeclaration = VertexDeclaration;
 				Candidate->FactoryKey = PipelineKey.FactoryKey;
 				Candidate->LayoutKey = PipelineKey.LayoutKey;
-				const auto Description = RendererPrivate::DescribeMeshPipeline(RendererPrivate::EMeshPipelinePass::GBuffer,
+				const auto Description = RendererPrivate::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::GBuffer).DescribeMeshDraw(
 					{PipelineKey.Rasterizer, PipelineKey.Depth, {}}, PipelineKey.Topology);
 				const auto Initializer = Description.MakeInitializer(Candidate->Vertex->GetRHIShader(),
 					Candidate->Fragment.GetRHIShader(), VertexDeclaration, Candidate->ShaderMap.GetPipelineLayout());

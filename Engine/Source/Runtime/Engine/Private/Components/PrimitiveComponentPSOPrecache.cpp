@@ -63,6 +63,7 @@ namespace Durin
 		};
 		PSOPrecacheComponentData.Reset();
 		PSOPrecacheDiagnostic.clear(); bPSOPrecacheSubmissionPending = false;
+		const auto FeatureLevel = GetRenderScene() ? GetRenderScene()->GetFeatureLevel() : FSceneInterface::GetDefaultFeatureLevel();
 		FComponentPSOPrecacheParamsList Params;
 		FPSOPrecacheParams PrecacheParams;
 		SetupPrecachePSOParams(PrecacheParams);
@@ -80,19 +81,21 @@ namespace Durin
 		// program must not discard and resubmit an already accepted prefix.
 		for (const auto& Param : Params)
 		{
+			if (Renderer && GDynamicRHI && GDynamicRHI->RHIGetCapabilities() && Param.MaterialInterface)
+				Param.MaterialInterface->CacheResourceShadersForRendering(FeatureLevel);
 			if (!Renderer || !GDynamicRHI || !GDynamicRHI->RHIGetCapabilities()
-				|| !Param.MaterialInterface || !Param.MaterialInterface->GetAcceptedCompiledProgram())
+				|| !Param.MaterialInterface || !Param.MaterialInterface->GetAcceptedCompiledProgram(FeatureLevel))
 			{
 				auto* StatusOwner = Param.MaterialInterface;
 				while (StatusOwner && StatusOwner->IsDynamicInstance() && StatusOwner->GetParent()) StatusOwner = StatusOwner->GetParent();
-				const auto State = StatusOwner ? StatusOwner->GetMaterialCompileStatus().State : EMaterialCompileState::NeverRequested;
+				const auto State = StatusOwner ? StatusOwner->GetMaterialCompileStatus(FeatureLevel).State : EMaterialCompileState::NeverRequested;
 				const bool Failed = State == EMaterialCompileState::Failed || State == EMaterialCompileState::Rejected
 					|| State == EMaterialCompileState::Canceled;
 				if (Renderer && GDynamicRHI && Param.MaterialInterface
-					&& (Failed || (StatusOwner && !StatusOwner->GetMaterialCookDiagnostic().empty())))
+					&& (Failed || (StatusOwner && !StatusOwner->GetMaterialCookDiagnostic(FeatureLevel).empty())))
 				{
 					PSOPrecacheDiagnostic = std::format("Material '{}' has no accepted program: {}",
-						Param.MaterialInterface->GetObjectPath(), Param.MaterialInterface->GetMaterialCookDiagnostic());
+						Param.MaterialInterface->GetObjectPath(), Param.MaterialInterface->GetMaterialCookDiagnostic(FeatureLevel));
 					SetRequests({FMaterialPSOPrecacheRequestID::Rejected(PSOPrecacheDiagnostic)});
 					return;
 				}
@@ -104,7 +107,7 @@ namespace Durin
 		for (const auto& Param : Params)
 		{
 			std::vector<FMaterialPSOPrecacheRequestID> MaterialRequests;
-			const auto Submitted = Param.MaterialInterface->PrecachePSOs(*Renderer, Param.VertexFactoryDataList,
+			const auto Submitted = Param.MaterialInterface->PrecachePSOs(*Renderer, FeatureLevel, Param.VertexFactoryDataList,
 				Param.PSOPrecacheParams, Param.Priority, MaterialRequests);
 			if (!Submitted)
 			{

@@ -70,6 +70,7 @@ namespace Durin
 			const FMaterialPropertyOverrides& Overrides) -> bool;
 		ENGINE_API auto GetParent() const -> DMaterialInterface* override;
 		ENGINE_API auto GetStaticProperties() const -> const FMaterialStaticProperties& override;
+		using DMaterialInterface::GetAcceptedCompiledProgram;
 		ENGINE_API auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult> override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;

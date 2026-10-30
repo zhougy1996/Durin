@@ -49,8 +49,8 @@ namespace Durin
 		}
 	} // namespace
 
-	FScene::FScene(FSceneRenderingService* InRenderer, IRendererModule* InModule)
-		: Renderer(InRenderer), Lights(std::make_unique<FLightSceneRegistry>())
+	FScene::FScene(FSceneRenderingService* InRenderer, IRendererModule* InModule, ERHIFeatureLevel FeatureLevel)
+		: FSceneInterface(FeatureLevel), Renderer(InRenderer), Lights(std::make_unique<FLightSceneRegistry>())
 		, SkyBoxes(std::make_unique<FSkyBoxSceneRegistry>())
 		, VolumetricClouds(std::make_unique<FVolumetricCloudSceneRegistry>())
 	{
@@ -458,6 +458,7 @@ namespace Durin
 		requiref(PrimitiveId != InvalidPrimitiveComponentId, "AddPrimitiveProxy requires a valid primitive ID.");
 		requiref(Proxy != nullptr, "AddPrimitiveProxy requires a proxy.");
 		requiref(Math::IsFinite(Transform), "AddPrimitiveProxy requires a finite transform.");
+		Proxy->SetFeatureLevel(GetFeatureLevel());
 		std::shared_ptr<FPrimitiveSceneProxy> SharedProxy(std::move(Proxy));
 		EnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
 			++HitProxyRevision;

@@ -2311,9 +2311,11 @@ TEST(FRendererSceneContractTests, DirectionalShadowCandidatesStartFromSceneAndKe
 	Light.Direction = {0.0, 0.0, -1.0};
 	Light.Intensity = 1.0f;
 	Durin::FPreparedDirectionalShadowView Shadow;
+	View.FeatureLevel = Durin::ERHIFeatureLevel::ES3_1;
 	ASSERT_TRUE(Durin::TryPrepareDirectionalShadowView(
 		View, Durin::FLightComponentId(8), Light, Shadow
 	));
+	EXPECT_EQ(Shadow.Cascades[0].CasterView.GetFeatureLevel(), View.GetFeatureLevel());
 	const Durin::FDirectionalShadowCasterTable Table =
 		Durin::PrepareDirectionalShadowCasterTable(Scene, Shadow);
 	const Durin::FDirectionalShadowCasterCandidates& Casters = Table.Cascades[0];
@@ -5045,8 +5047,8 @@ TEST(FRendererSceneContractTests, MaterialPSOPassSelectionUsesParticipationPaths
     Plan = SelectMaterialPSOPrecachePasses(Params, false);
     EXPECT_EQ(Count(Plan, EMeshPipelinePass::HybridRetainedForward), 8);
     EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 0);
-    FMaterialPSOPrecacheConfig Config;
-    Config.bHybrid = Config.bHitProxy = Config.bSupportsWireframe = false;
+    FSceneRenderPreparationConfig Config;
+    Config.Settings.bHybrid = Config.Settings.bHitProxy = Config.bSupportsWireframe = false;
     Params.PrecachePSOParams.bReversedZ = true;
     Plan = SelectMaterialPSOPrecachePasses(Params, true, Config);
     EXPECT_EQ(Plan.size(), 6u);
@@ -5057,7 +5059,7 @@ TEST(FRendererSceneContractTests, MaterialPSOPassSelectionUsesParticipationPaths
         if (Entry.bRequired) EXPECT_EQ(Entry.Raster.bReversedZ, Entry.Pass != EMeshPipelinePass::ShadowDepth);
     }
     Config = {};
-    Config.bForward = false;
+    Config.Settings.bForward = false;
     Plan = SelectMaterialPSOPrecachePasses(Params, true, Config);
     EXPECT_EQ(Count(Plan, EMeshPipelinePass::Forward), 0);
     EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 8);
@@ -5096,7 +5098,7 @@ TEST(FRendererSceneContractTests, ShadowPSORequirementsUseTheNormalizedDrawingSt
     Params.PrecachePSOParams.Participation = {true, false};
     Params.PrecachePSOParams.bWireframe = true;
     Params.PrecachePSOParams.bReversedZ = true;
-    FMaterialPSOPrecacheConfig Config;
+    FSceneRenderPreparationConfig Config;
     Config.bSupportsWireframe = false;
     const auto Plan = SelectMaterialPSOPrecachePasses(Params, true, Config);
     ASSERT_EQ(Plan.size(), 2u);
@@ -5288,4 +5290,82 @@ TEST(FRendererSceneContractTests, PrecacheExcludesUnavailableVertexFactoryRoutes
     Plan = SelectMaterialPSOPrecachePasses(Params, NoGBuffer);
     EXPECT_EQ(std::ranges::count_if(Plan, [](const auto& Entry) { return Entry.Pass == EMeshPipelinePass::HybridRetainedForward; }), 8);
     EXPECT_EQ(std::ranges::count_if(Plan, [](const auto& Entry) { return Entry.Pass == EMeshPipelinePass::GBuffer; }), 0);
+}
+
+TEST(FRendererSceneContractTests, MaterialPSORequestsDoNotShareDifferentSceneFeatureLevels)
+{
+    using namespace Durin;
+    FMaterialPSORequestManager Manager;
+    auto High = MaterialPSOTestParams();
+    High.FeatureLevel = ERHIFeatureLevel::SM5;
+    auto Low = High;
+    Low.FeatureLevel = ERHIFeatureLevel::ES3_1;
+    auto HighRequest = Manager.PrecachePSOs(High);
+    auto LowRequest = Manager.PrecachePSOs(Low);
+    ASSERT_TRUE(HighRequest.IsValid());
+    ASSERT_TRUE(LowRequest.IsValid());
+    EXPECT_NE(HighRequest.GetValue(), LowRequest.GetValue());
+    EXPECT_EQ(Manager.PrecachePSOs(High).GetValue(), HighRequest.GetValue());
+    EXPECT_EQ(Manager.PrecachePSOs(Low).GetValue(), LowRequest.GetValue());
+    auto Invalid = High;
+    Invalid.FeatureLevel = static_cast<ERHIFeatureLevel>(255);
+    EXPECT_FALSE(Manager.PrecachePSOs(Invalid).IsValid());
+}
+
+TEST(FRendererSceneContractTests, PreparationConfigVersionInvalidatesReadyCoverageBeforeResourceRetirement)
+{
+	using namespace Durin;
+	FMaterialPSORequestManager Manager;
+	Manager.SetPreparationConfigVersion(1);
+	auto Params = MaterialPSOTestParams();
+	Params.PreparationConfig.FeatureLevel = Params.FeatureLevel;
+	Params.PreparationConfig.Version = 1;
+	auto Old = Manager.PrecachePSOs(Params);
+	Manager.Pump([](const auto&, auto& Collection) -> std::expected<bool, std::string> {
+		Collection.bRequiredPSOsCollected = true;
+		return true;
+	});
+	ASSERT_TRUE(Old.GetProgress().bRequiredReady);
+	EXPECT_EQ(Old.GetProgress().State, EMaterialPSOPrecacheState::Ready);
+	Manager.SetPreparationConfigVersion(2);
+	EXPECT_FALSE(Old.IsCurrent());
+	EXPECT_FALSE(Old.GetProgress().bRequiredReady);
+	EXPECT_EQ(Old.GetProgress().State, EMaterialPSOPrecacheState::Stale);
+	EXPECT_FALSE(Manager.PrecachePSOs(Params).IsValid());
+	Params.PreparationConfig.Version = 2;
+	Params.PreparationConfig.Settings.bHybrid = false;
+	auto Current = Manager.PrecachePSOs(Params);
+	ASSERT_TRUE(Current.IsValid());
+	EXPECT_NE(Current.GetValue(), Old.GetValue());
+	Manager.InvalidateOutdatedPreparationConfigs();
+	EXPECT_TRUE(Current.IsCurrent());
+	Manager.Pump([](const auto& Snapshot, auto& Collection) -> std::expected<bool, std::string> {
+		EXPECT_EQ(Snapshot.PreparationConfig.Version, 2u);
+		EXPECT_FALSE(Snapshot.PreparationConfig.Settings.bHybrid);
+		Collection.bRequiredPSOsCollected = true;
+		return true;
+	});
+	EXPECT_TRUE(Current.GetProgress().bRequiredReady);
+}
+
+TEST(FRendererSceneContractTests, PreparationConfigSnapshotParticipatesInSharingAndPreservesFailureDiagnostics)
+{
+	using namespace Durin;
+	FMaterialPSORequestManager Manager;
+	Manager.SetPreparationConfigVersion(1);
+	auto Params = MaterialPSOTestParams();
+	Params.PreparationConfig.Version = 1;
+	Params.PreparationConfig.FeatureLevel = Params.FeatureLevel;
+	auto First = Manager.PrecachePSOs(Params);
+	Params.PreparationConfig.bSupportsWireframe = false;
+	auto Second = Manager.PrecachePSOs(Params);
+	EXPECT_NE(First.GetValue(), Second.GetValue());
+	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { return std::unexpected("Fixture collection failure"); });
+	ASSERT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+	Manager.SetPreparationConfigVersion(2);
+	Manager.InvalidateOutdatedPreparationConfigs();
+	EXPECT_FALSE(First.IsCurrent());
+	EXPECT_FALSE(First.GetProgress().bRequiredReady);
+	EXPECT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+	EXPECT_EQ(First.GetDiagnostic(), "Fixture collection failure");
 }

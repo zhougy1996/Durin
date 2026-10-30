@@ -4,6 +4,7 @@
 
 #include "Client/ViewportClient.h"
 #include "DurinEdAPI.h"
+#include "RHIFeatureLevel.h"
 
 namespace Durin
 {
@@ -45,6 +46,7 @@ namespace Durin::Editor
 		FName LightActorName;
 		FName LightComponentName = "PreviewLight";
 		bool bBeginPlay = false;
+		std::optional<ERHIFeatureLevel> FeatureLevel;
 	};
 
 	// Owns the engine-neutral scene, lighting, offscreen viewport, and teardown
@@ -63,6 +65,8 @@ namespace Durin::Editor
 		DURINED_API auto IsAvailable() const -> bool;
 		DURINED_API auto GetDiagnostic() const -> const std::string&;
 		DURINED_API auto GetContentActor() const -> AActor*;
+		DURINED_API auto SetFeatureLevel(ERHIFeatureLevel FeatureLevel) -> bool;
+		DURINED_API auto GetFeatureLevel() const -> ERHIFeatureLevel;
 		DURINED_API auto SetVisible(bool bVisible) -> void;
 		DURINED_API auto Tick(float DeltaSeconds) -> void;
 		DURINED_API auto DrawViewport(float Width, float Height,

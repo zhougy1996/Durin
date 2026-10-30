@@ -476,6 +476,7 @@ namespace Durin
 					CascadeIndex, NearDepth, FarDepth, TransitionStart,
 					Candidate.Cascades[CascadeIndex])) return false;
 			Candidate.Cascades[CascadeIndex].CasterView.MaterialTimeSeconds = View.MaterialTimeSeconds;
+			Candidate.Cascades[CascadeIndex].CasterView.FeatureLevel = View.GetFeatureLevel();
 		}
 		Candidate.bEnabled = true;
 		for (uint32 Index = 0; Index < Candidate.CascadeCount; ++Index)

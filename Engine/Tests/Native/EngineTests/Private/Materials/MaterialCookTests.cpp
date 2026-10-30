@@ -157,6 +157,13 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	Durin::FShaderCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 1});
 	Cooked->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::Synchronous);
 	ASSERT_TRUE(Cooked->IsComplete()) << Cooked->GetMaterialCookDiagnostic();
+	const auto DefaultProgram = Cooked->GetAcceptedCompiledProgram();
+	Cooked->CacheResourceShadersForRendering(Durin::ERHIFeatureLevel::ES3_1,
+		Durin::EMaterialShaderPrecompileMode::Synchronous);
+	const auto LowProgram = Cooked->GetAcceptedCompiledProgram(Durin::ERHIFeatureLevel::ES3_1);
+	ASSERT_TRUE(LowProgram) << Cooked->GetMaterialCookDiagnostic(Durin::ERHIFeatureLevel::ES3_1);
+	EXPECT_EQ(LowProgram->FeatureLevel, Durin::ERHIFeatureLevel::ES3_1);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), DefaultProgram);
 	{
 		struct FRestoreTasks
 		{

@@ -92,7 +92,8 @@ namespace Durin
 			-> const FVolumetricCloudSceneInfo*;
 
 	private:
-		RENDERER_API explicit FScene(FSceneRenderingService* InRenderer = nullptr, IRendererModule* InModule = nullptr);
+		RENDERER_API explicit FScene(FSceneRenderingService* InRenderer = nullptr, IRendererModule* InModule = nullptr,
+			ERHIFeatureLevel FeatureLevel = FSceneInterface::GetDefaultFeatureLevel());
 		FSceneRenderingService* Renderer = nullptr;
 		IRendererModule* RendererModule = nullptr;
 		uint64 HitProxyRevision = 1;
