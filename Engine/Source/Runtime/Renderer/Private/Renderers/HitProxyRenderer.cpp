@@ -1,4 +1,6 @@
 #include "Renderers/SceneRenderingService.h"
+#include "Resources/RenderTargetLayouts.h"
+#include "Renderers/MeshRendererShared.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/MeshPassProcessor.h"
@@ -106,25 +108,16 @@ namespace Durin
 			return Layout;
 		}
 
-		struct FHitProxyDraw
+		struct FHitProxyDraw : FMeshPassPipeline
 		{
 			const FPreparedStaticMeshPrimitive* Primitive = nullptr;
 			const FPreparedStaticMeshDraw* Draw = nullptr;
-			FMeshMaterialShaderMap ShaderMap;
-			std::shared_ptr<const FMeshVertexShaderBinding> Vertex;
-			TMaterialShaderRef<FHitProxyFragmentShader> Fragment;
-			FGraphicsPipelineStateRHIRef Pipeline;
 			FPreparedStaticMeshSurfaceMaterial Material;
 			FRHIUniformBufferRange Transform;
 			FRHIUniformBufferRange Id;
 			FPreparedSurfaceMaterialBindings FragmentBindings;
 			std::shared_ptr<const FRHIShaderParameterBatch> VertexBindings;
 		};
-	}
-
-	auto RendererPrivate::GetHitProxyMeshPassFragmentShader() -> FMeshPassFragmentShader
-	{
-		return {&FHitProxyFragmentShader::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<FHitProxyFragmentShader>(Map).GetRHIShader(false); }};
 	}
 
 	auto FSceneRenderingService::RenderHitProxies_RenderThread(FRHICommandListImmediate& Commands,
@@ -192,7 +185,7 @@ namespace Durin
 				Item.Draw = &Draw;
 				const auto Factory = FindMeshVertexFactory(Draw.Command->PipelineKey.FactoryKey);
 				FMaterialRenderBinding Binding;
-				if (!Item.Primitive || !Factory || !Factory->GetShaderType(MaterialMeshPassForward)
+				if (!Item.Primitive || !Factory
 					|| !ResolvePreparedMaterialBinding(Draw.Command->Material, Binding, "HitProxyMaterial")) { bReady = false; break; }
 				// Until time dependence is a separate material requirement, conservatively
 				// expire all live view-dependent programs once per render frame.
@@ -201,30 +194,22 @@ namespace Durin
 				for (const auto& Texture : Binding.CompiledTextures)
 					if (Texture && Texture->GetReferencedTexture_RenderThread())
 						bFrameDependent |= EnumHasAnyFlags(Texture->GetReferencedTexture_RenderThread()->GetFlags(), ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::Storage);
-				FShaderCompileOptions Options;
-				const auto& Identity = Draw.Command->Material.PlanningPassIdentity.ShaderMap;
-				const auto& Processor = GetMeshPassProcessor(EMeshPipelinePass::HitProxy);
-				const auto MeshPass = Processor.GetVertexFactoryPass();
-				const auto Fragment = Processor.GetFragmentShader(Identity.BlendMode);
-				const auto ShaderCompletion = InitializeMaterialShaderMap(*Factory->GetShaderType(MeshPass), *Fragment.Type,
-					Factory->GetType(), MeshPass, Identity, Coordinator.GetGeneration_RenderThread(),
-					Draw.Command->Material.CompiledProgram.get(), Options, Item.ShaderMap);
+				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::HitProxy);
+				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory,
+					{Draw.Command->PipelineKey.Rasterizer, {}, {}}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer,
+					false, View.DepthConvention == ESceneDepthConvention::ReversedZ};
+				FMeshPassDrawListContext ShaderContext(Coordinator.GetGeneration_RenderThread(), Program.get(), {}, Item);
+				Processor.AddMeshBatch(Batch, ShaderContext);
+				const auto& ShaderCompletion = ShaderContext.GetResult();
 				if (ShaderCompletion.Status == EShaderBuildStatus::Pending) { PreparationScope.MarkPending(); FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
 				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { bReady = false; break; }
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
-				Item.Vertex = Factory->Resolve(Item.ShaderMap, MaterialMeshPassForward);
-				Item.Fragment = TMaterialShaderRef<FHitProxyFragmentShader>(Item.ShaderMap);
-				if (!Item.Vertex || !Item.Vertex->GetRHIShader(false) || !Item.Fragment.GetRHIShader(false)) { bReady = false; break; }
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding, {})
 						.Prepare(ESurfaceMaterialPass::MaskedShadow, nullptr, nullptr, Item.Material)) { bReady = false; break; }
-				const auto Description = Processor.DescribeMeshDraw(
-					{Draw.Command->PipelineKey.Rasterizer, {}, {}}, Draw.Command->PipelineKey.Topology,
-					Identity.BlendMode, View.DepthConvention == ESceneDepthConvention::ReversedZ);
-				const auto Pipeline = Description.MakeInitializer(Item.Vertex->GetRHIShader(), Item.Fragment.GetRHIShader(),
-					Item.Primitive->CollectedBinding->Declaration, Item.ShaderMap.GetPipelineLayout());
-				Item.Pipeline = FRenderPipelineRequestScope::Graphics("HitProxy", Pipeline);
-				if (!Item.Pipeline) { bReady = false; break; }
+				FMeshPassDrawListContext DrawContext("HitProxy", Item, Item.Primitive->CollectedBinding->Declaration, Item);
+				Processor.AddMeshBatch(Batch, DrawContext);
+				if (!DrawContext.GetResult()) { bReady = false; break; }
 				Item.Transform = FStaticMeshPrimitiveUniformPreparer(Commands).Prepare(*Item.Primitive).Transform;
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
@@ -245,11 +230,11 @@ namespace Durin
 						Collections.push_back(Commands.CreateUniformBufferRange(Payload.data(), Payload.size()));
 					}
 				if (!bReady) break;
-				if (!PrepareCompiledSurfaceMaterial(Item.Fragment.GetRHIShader(false), Item.Fragment.GetShader()->GetSurfaceLayout(),
+				if (!PrepareCompiledSurfaceMaterial(Item.FragmentShader, *Item.FragmentLayout,
 					Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform,
 					Item.Transform, Collections, Item.FragmentBindings)) { bReady = false; break; }
-				Item.VertexBindings = PrepareMeshVertexMaterial(*Item.Vertex,
-					Item.Vertex->Prepare(Commands, Item.Transform, *Item.Primitive->CollectedBinding),
+				Item.VertexBindings = PrepareMeshVertexMaterial(*Item.VertexShader,
+					Item.VertexShader->Prepare(Commands, Item.Transform, *Item.Primitive->CollectedBinding),
 					Item.Material.Surface, Item.Material.Uniform, ViewUniform, Collections);
 				if (!Item.VertexBindings) { bReady = false; break; }
 				Draws.push_back(std::move(Item));
@@ -332,7 +317,7 @@ namespace Durin
 		Commands.SetViewport(float(View.ViewportX), float(View.ViewportY), 0.f, float(Width), float(Height), 1.f);
 		for (const auto& Item : Draws)
 		{
-			Commands.SetGraphicsPipelineState(*Item.Pipeline);
+			Commands.SetGraphicsPipelineState(*Item.PipelineState);
 			FStaticMeshGeometryBinding Geometry(*Item.Primitive, *Item.Draw);
 			Geometry.Bind(Commands);
 			Commands.SetPreparedShaderParameters(Item.VertexBindings);
@@ -364,5 +349,45 @@ namespace Durin
 		if (Request.Cache)
 			Request.Cache->Publish_RenderThread(MakeHitProxyMapKey(Scene, Request, Coordinator.GetGeneration_RenderThread(), bFrameDependent, MaterialKey, Config), Map, bFrameDependent, std::move(TextureLeases));
 		return Map;
+	}
+}
+
+namespace Durin::RendererPrivate
+{
+	namespace
+	{
+		class FHitProxyPassMeshProcessor final : public FMeshPassProcessor
+		{
+		public:
+			using FMeshPassProcessor::FMeshPassProcessor;
+			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, FMeshPassDrawListContext& Context) const -> void override
+			{ BuildMeshDrawCommands(Batch, Context); }
+			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::HitProxy; }
+			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override { return Config.Settings.bHitProxy; }
+			auto GetVertexFactoryPass(bool) const -> uint32 override { return MaterialMeshPassForward; }
+			auto GetFragmentShader(FMaterialShaderBlendModeKey) const -> FMeshPassFragmentShader override
+			{
+				FMeshPassFragmentShader Shader{&FHitProxyFragmentShader::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<FHitProxyFragmentShader>(Map).GetRHIShader(false); }};
+				Shader.FixedModule = "HitProxy"; Shader.FixedRequest = "Surface.HitProxy";
+				Shader.ResolveLayout = +[](const FMeshMaterialShaderMap& Map) -> const FCompiledSurfaceBindingLayout* { return &TMaterialShaderRef<FHitProxyFragmentShader>(Map).GetShader()->GetSurfaceLayout(); };
+				return Shader;
+			}
+			auto GetPSOPrecacheVariants(const FSceneRenderPreparationConfig& Config, const FPSOPrecacheParams& Params) const -> std::vector<FMeshPSOPrecacheVariant> override
+			{ return RasterVariants(Config, Params, 4, false, true); }
+			auto DescribeMeshDraw(const FMeshPipelineState& State, FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,
+				FMaterialShaderBlendModeKey, bool bReversedZ) const -> FMeshPipelineDescription override
+			{
+				FMeshPipelineDescription Result{.RenderTargets = RenderTargetLayouts::MakeSceneTargets(), .Topology = Topology, .Rasterizer = State.Rasterizer};
+				Result.RenderTargets.ColorAttachments[0].RenderTarget.Format = FHitProxyPixel::Format;
+				Result.Rasterizer.PolygonMode = ERHIPolygonMode::Fill;
+				Result.Depth.bEnableTest = Result.Depth.bEnableWrite = true;
+				Result.Depth.CompareOp = bReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual;
+				return Result;
+			}
+		};
+		auto CreatePickingMeshPassProcessor(FMeshPSOCollectorContext Context) -> std::unique_ptr<FMeshPassProcessor>
+		{ return std::make_unique<FHitProxyPassMeshProcessor>(Context); }
+		const FRegisterPassProcessorCreateFunction RegisterPickingMeshPass(&CreatePickingMeshPassProcessor, EMeshPipelinePass::HitProxy);
+
 	}
 }

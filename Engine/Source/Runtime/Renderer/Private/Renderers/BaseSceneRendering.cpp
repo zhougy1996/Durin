@@ -1,4 +1,6 @@
 #include "Renderers/BaseSceneRendering.h"
+#include "Resources/RenderTargetLayouts.h"
+#include "Renderers/MeshRendererShared.h"
 #include "Renderers/MeshPassProcessor.h"
 #include "RDG/RDG.h"
 #include "Renderers/SceneTextureGroupParameters.h"
@@ -233,7 +235,7 @@ namespace Durin
 		{
 			const auto& StaticDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.StaticMeshes.Opaque : Inputs.Receiver.StaticMeshes.Masked;
 			for (const FPreparedStaticMeshDraw& Draw : StaticDraws)
-				if (RendererPrivate::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::HybridRetainedForward).IsMeshRelevant(
+				if (RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::HybridRetainedForward).IsMeshRelevant(
 					Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
@@ -312,3 +314,48 @@ namespace Durin
 		return true;
 	}
 } // namespace Durin
+
+namespace Durin::RendererPrivate
+{
+	namespace
+	{
+		template<typename T> auto FragmentShader() -> FMeshPassFragmentShader
+		{
+			FMeshPassFragmentShader Result{&T::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<T>(Map).GetRHIShader(false); }};
+			if constexpr (std::is_base_of_v<FCompiledSurfaceMaterialShader, T>)
+				Result.ResolveLayout = +[](const FMeshMaterialShaderMap& Map) -> const FCompiledSurfaceBindingLayout* { return &TMaterialShaderRef<T>(Map).GetShader()->GetSurfaceLayout(); };
+			return Result;
+		}
+		template<EMeshPipelinePass Pass> class TBasePassMeshProcessor final : public FMeshPassProcessor
+		{
+		public:
+			using FMeshPassProcessor::FMeshPassProcessor;
+			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, FMeshPassDrawListContext& Context) const -> void override
+			{ BuildMeshDrawCommands(Batch, Context); }
+			auto GetPass() const -> EMeshPipelinePass override { return Pass; }
+			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override
+			{ return Pass == EMeshPipelinePass::Forward ? Config.Settings.bForward : Config.Settings.bHybrid; }
+			auto GetVertexFactoryPass(bool) const -> uint32 override { return MaterialMeshPassForward; }
+			auto GetFragmentShader(FMaterialShaderBlendModeKey) const -> FMeshPassFragmentShader override
+			{ return FragmentShader<FSurfaceFragmentShader>(); }
+			auto GetPSOPrecacheVariants(const FSceneRenderPreparationConfig& Config, const FPSOPrecacheParams& Params) const -> std::vector<FMeshPSOPrecacheVariant> override
+			{ return RasterVariants(Config, Params, 8); }
+			auto DescribeMeshDraw(const FMeshPipelineState& State, FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,
+				FMaterialShaderBlendModeKey Blend, bool) const -> FMeshPipelineDescription override
+			{
+				FMeshPipelineDescription Result{.Topology = Topology, .Rasterizer = State.Rasterizer, .Depth = State.Depth};
+				if constexpr (Pass == EMeshPipelinePass::Forward) Result.RenderTargets = RenderTargetLayouts::MakeGraphSceneTargets();
+				else if constexpr (Pass == EMeshPipelinePass::HybridRetainedForward) Result.RenderTargets = RenderTargetLayouts::MakeGraphHybridRetainedForward();
+				else Result.RenderTargets = RenderTargetLayouts::MakeGraphSortedTranslucency();
+				Result.ColorBlends[0] = State.ColorBlend;
+				if (Blend == EMaterialBlendMode::Translucent) Result.ColorBlends[1].ColorWriteMask = ERHIColorWriteMask::None;
+				return Result;
+			}
+		};
+		template<EMeshPipelinePass Pass> auto CreateBasePassMeshProcessor(FMeshPSOCollectorContext Context) -> std::unique_ptr<FMeshPassProcessor>
+		{ return std::make_unique<TBasePassMeshProcessor<Pass>>(Context); }
+		const FRegisterPassProcessorCreateFunction RegisterForwardBasePass(&CreateBasePassMeshProcessor<EMeshPipelinePass::Forward>, EMeshPipelinePass::Forward);
+		const FRegisterPassProcessorCreateFunction RegisterHybridRetainedForward(&CreateBasePassMeshProcessor<EMeshPipelinePass::HybridRetainedForward>, EMeshPipelinePass::HybridRetainedForward);
+		const FRegisterPassProcessorCreateFunction RegisterSortedTranslucency(&CreateBasePassMeshProcessor<EMeshPipelinePass::SortedTranslucency>, EMeshPipelinePass::SortedTranslucency);
+	}
+}

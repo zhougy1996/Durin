@@ -1,4 +1,6 @@
 #include "Renderers/DirectionalShadowRendering.h"
+#include "Renderers/MeshRendererShared.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "RDG/RDG.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/DirectionalShadowRenderer.h"
@@ -192,3 +194,47 @@ namespace Durin
 		return {.Completion = DirectionalShadow, .Shadow = Inputs.Shadow};
 	}
 } // namespace Durin
+
+namespace Durin::RendererPrivate
+{
+	namespace
+	{
+		template<typename T> auto FragmentShader() -> FMeshPassFragmentShader
+		{
+			FMeshPassFragmentShader Result{&T::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<T>(Map).GetRHIShader(false); }};
+			if constexpr (std::is_base_of_v<FCompiledSurfaceMaterialShader, T>)
+				Result.ResolveLayout = +[](const FMeshMaterialShaderMap& Map) -> const FCompiledSurfaceBindingLayout* { return &TMaterialShaderRef<T>(Map).GetShader()->GetSurfaceLayout(); };
+			return Result;
+		}
+		class FShadowDepthPassMeshProcessor final : public FMeshPassProcessor
+		{
+		public:
+			using FMeshPassProcessor::FMeshPassProcessor;
+			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, FMeshPassDrawListContext& Context) const -> void override
+			{ BuildMeshDrawCommands(Batch, Context); }
+			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::ShadowDepth; }
+			auto IsEnabled(const FSceneRenderPreparationConfig&) const -> bool override { return true; }
+			auto GetVertexFactoryPass(bool) const -> uint32 override { return MaterialMeshPassShadow; }
+			auto GetFragmentShader(FMaterialShaderBlendModeKey Blend) const -> FMeshPassFragmentShader override
+			{
+				if (Blend == EMaterialBlendMode::Masked) return FragmentShader<FSurfaceMaskedShadowFragmentShader>();
+				auto Shader = FragmentShader<FSurfaceOpaqueShadowFragmentShader>();
+				Shader.FixedModule = "SurfaceMaterial"; Shader.FixedRequest = "Surface.OpaqueShadow";
+				return Shader;
+			}
+			auto GetPSOPrecacheVariants(const FSceneRenderPreparationConfig& Config, const FPSOPrecacheParams& Params) const -> std::vector<FMeshPSOPrecacheVariant> override
+			{ return RasterVariants(Config, Params, 2, true); }
+			auto DescribeMeshDraw(const FMeshPipelineState& State, FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,
+				FMaterialShaderBlendModeKey, bool) const -> FMeshPipelineDescription override
+			{
+				const auto Shadow = MakeShadowMeshPipelineState(State);
+				return {.RenderTargets = RenderTargetLayouts::MakeDirectionalShadowDepth(), .Topology = Topology,
+					.Rasterizer = Shadow.Rasterizer, .Depth = Shadow.Depth};
+			}
+		};
+		auto CreateShadowMeshPassProcessor(FMeshPSOCollectorContext Context) -> std::unique_ptr<FMeshPassProcessor>
+		{ return std::make_unique<FShadowDepthPassMeshProcessor>(Context); }
+		const FRegisterPassProcessorCreateFunction RegisterShadowMeshPass(&CreateShadowMeshPassProcessor, EMeshPipelinePass::ShadowDepth);
+
+	}
+}

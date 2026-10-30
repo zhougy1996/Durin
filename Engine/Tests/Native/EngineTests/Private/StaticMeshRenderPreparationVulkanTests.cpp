@@ -3972,24 +3972,28 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	ASSERT_TRUE(Renderer.SetPreparationSettings(InitialConfig.Settings));
 	EXPECT_EQ(Renderer.GetSceneRenderPreparationConfig(LowScene->GetFeatureLevel()), InitialConfig);
 	std::unique_ptr<RendererPrivate::FMeshPassProcessor> DirectCollector;
+	FRenderPipelineRequests DirectCommandRequests;
+	FGraphicsPipelineStateRef ExpectedCommandPipeline;
 	FPSOPrecacheDataArray DirectInitializers;
 	DirectInitializers.emplace_back(); // The append interface must preserve its prefix.
 	struct FDirectCollectorCleanup {
 		std::unique_ptr<RendererPrivate::FMeshPassProcessor>& Processor;
 		FPSOPrecacheDataArray& Initializers;
+		FRenderPipelineRequests& Requests;
+		FGraphicsPipelineStateRef& Expected;
 		~FDirectCollectorCleanup() {
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([this](FRHICommandListImmediate&) { Initializers.clear(); Processor.reset(); });
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([this](FRHICommandListImmediate&) { Initializers.clear(); Processor.reset(); Requests.Reset(); Expected.reset(); });
 			FlushRenderingCommands();
 		}
-	} DirectCleanup{DirectCollector, DirectInitializers};
-	bool DirectReady = false;
+	} DirectCleanup{DirectCollector, DirectInitializers, DirectCommandRequests, ExpectedCommandPipeline};
+	bool DirectReady = false, CommandReady = false;
 	std::string DirectError;
 	const auto DirectDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	do {
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			FGeometryQualificationFrame Frame(Commands);
-			if (!DirectCollector) DirectCollector = RendererPrivate::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::Forward)
-				.CreatePSOCollector({Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation, EPSOPrecachePriority::High});
+			if (!DirectCollector) DirectCollector = RendererPrivate::FPassProcessorManager::CreateMeshPassProcessor(RendererPrivate::EMeshPipelinePass::Forward,
+				{Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation, EPSOPrecachePriority::High});
 			const auto Draws = Commands.GetNumRecordedDrawCommands();
 			IPSOCollector& Collector = *DirectCollector;
 			Collector.CollectPSOInitializers(InitialConfig, LowResource, Factories.front(), {}, DirectInitializers);
@@ -4001,12 +4005,54 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 				const auto Count = DirectInitializers.size();
 				Collector.CollectPSOInitializers(InitialConfig, LowResource, Factories.front(), {}, DirectInitializers);
 				EXPECT_EQ(DirectInitializers.size(), Count);
+				using namespace RendererPrivate;
+				const auto Properties = LowResource.GetStaticProperties();
+				const auto& Map = LowResource.CompiledProgram->GetShaderMap();
+				FMaterialPlanningPassIdentity Identity{
+					.ShaderMap = {.RenderLayout = Map.Layout.Identity, .ProgramIdentity = Map.ShaderMapId,
+						.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel,
+						.OpacityMaskThreshold = Properties.OpacityMaskThreshold},
+					.bTwoSided = Properties.bTwoSided, .DepthWritePolicy = Properties.DepthWritePolicy};
+				const auto Raster = DirectCollector->GetPSOPrecacheVariants(InitialConfig, {}).front().Raster;
+				FMeshPassProcessorBatch Batch{Identity, *Factory, MakeMeshPipelineState(Identity, Raster),
+					EGeometryTopology::TriangleList, {}, true, false, Raster.bReversedZ};
+				FMeshPassShaders Shaders;
+				const auto Generation = Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation;
+				FMeshPassDrawListContext ShaderContext(Generation, LowResource.CompiledProgram.get(), {}, Shaders);
+				DirectCollector->AddMeshBatch(Batch, ShaderContext);
+				ASSERT_TRUE(ShaderContext.GetResult()) << ShaderContext.GetResult().Error;
+				ASSERT_NE(Shaders.FragmentLayout, nullptr);
+				const auto& Initializer = DirectInitializers[1].GraphicsInitializer;
+				if (!ExpectedCommandPipeline) {
+					const auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, "ExpectedPrecachedMeshCommand");
+					ASSERT_TRUE(Request); ExpectedCommandPipeline = *Request;
+				}
+				FRenderPipelineRequestScope Requests(DirectCommandRequests, Generation);
+				FMeshPassPipeline Command;
+				FMeshPassDrawListContext DrawContext("AddMeshBatchCommand", Shaders, Initializer.VertexDeclaration, Command);
+				DirectCollector->AddMeshBatch(Batch, DrawContext);
+				CommandReady = static_cast<bool>(DrawContext.GetResult());
+				if (CommandReady) {
+					EXPECT_EQ(Command.PipelineState, ExpectedCommandPipeline->GetRHIPipeline());
+					EXPECT_EQ(Command.VertexShader->GetRHIShader(false), Initializer.BoundShaders.VertexShader);
+					EXPECT_EQ(Command.FragmentShader, Initializer.BoundShaders.FragmentShader);
+					EXPECT_EQ(Command.VertexDeclaration, Initializer.VertexDeclaration);
+				}
+				else EXPECT_TRUE(Requests.HasPending()) << DrawContext.GetResult().Error;
+				FPSOPrecacheDataArray Rejected;
+				Identity.ShaderMap.BlendMode = EMaterialBlendMode::Translucent;
+				FMeshPassDrawListContext WrongMaterial(Shaders, Initializer.VertexDeclaration, Rejected, true, EPSOPrecachePriority::Medium);
+				DirectCollector->AddMeshBatch(Batch, WrongMaterial);
+				EXPECT_EQ(WrongMaterial.GetResult().Status, EShaderBuildStatus::Error);
+				EXPECT_TRUE(Rejected.empty());
+				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
 			}
 		});
 		FlushRenderingCommands();
-		if (!DirectReady) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	} while (!DirectReady && DirectError.empty() && std::chrono::steady_clock::now() < DirectDeadline);
+		if (!DirectReady || !CommandReady) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	} while ((!DirectReady || !CommandReady) && DirectError.empty() && std::chrono::steady_clock::now() < DirectDeadline);
 	ASSERT_TRUE(DirectReady) << DirectError;
+	ASSERT_TRUE(CommandReady);
 	ASSERT_EQ(DirectInitializers.size(), 1u + (InitialConfig.bSupportsWireframe ? 8u : 4u));
 	const auto DirectEntries = std::span(DirectInitializers).subspan(1);
 	EXPECT_EQ(std::ranges::count_if(DirectEntries, [](const auto& Entry) { return Entry.bRequired; }), 2);
