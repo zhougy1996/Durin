@@ -545,20 +545,15 @@ namespace Durin
 		auto Void = Tasks::Then(Tasks::LaunchTask("TokenVoid", [] {}), Tasks::ETaskExecutor::Worker, {},
 			[](const FTaskCancellationToken& Token) { EXPECT_FALSE(Token.IsCancellationRequested()); return 17; });
 		EXPECT_EQ(std::move(Void.GetResult()), 17);
-		auto Async = Tasks::ThenAsync(Tasks::LaunchTask("TokenAsync", [] { return 19; }),
-			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, int& Input) {
+		Tasks::TTask<int> Child;
+		auto Parent = Tasks::Then(Tasks::LaunchTask("TokenNested", [] { return 19; }),
+			Tasks::ETaskExecutor::Worker, {}, [&](const FTaskCancellationToken& Token, int& Input) {
 				EXPECT_FALSE(Token.IsCancellationRequested());
-				return Tasks::LaunchTask("TokenAsyncInner", [Input] { return Input + 2; }, {.Cancellation = Token});
+				Child = Tasks::LaunchTask("TokenChild", [Input] { return Input + 2; }, {.Cancellation = Token});
+				Tasks::AddNested(Child);
 			});
-		ASSERT_EQ(WaitOffGameThread(Async).TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(std::move(Async.GetResult()), 21);
-		auto AsyncVoid = Tasks::ThenAsync(Tasks::LaunchTask("TokenAsyncVoid", [] {}),
-			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token) {
-				EXPECT_FALSE(Token.IsCancellationRequested());
-				return Tasks::LaunchTask("TokenAsyncVoidInner", [] { return 23; }, {.Cancellation = Token});
-			});
-		ASSERT_EQ(WaitOffGameThread(AsyncVoid).TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(std::move(AsyncVoid.GetResult()), 23);
+		ASSERT_EQ(WaitOffGameThread(Parent).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Child.GetResult(), 21);
 	}
 
 	TEST(FTaskCompositionTests, DirectLaunchAndAddNestedKeepParentPendingWithoutBlockingWorker)
@@ -674,7 +669,7 @@ namespace Durin
 		EXPECT_EQ(Destroyed, 1u);
 	}
 
-	TEST(FTaskCompositionTests, FlattenSharesMoveOnlyResultAndPreservesGenericLifetime)
+	TEST(FTaskCompositionTests, DependentResultViewPreservesMoveOnlyValueAndOwnerLifetime)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -683,14 +678,11 @@ namespace Durin
 		struct FValue { std::atomic<uint32>& Count; ~FValue() { ++Count; } };
 		Tasks::FTask Generic;
 		{
-			auto Source = Tasks::Detail::FExternalResultAccess::Create<std::unique_ptr<FValue>>();
-			auto Inner = Source.TakeTask();
-			Source.TrySetValue(std::make_unique<FValue>(Destroyed));
-			auto Outer = Tasks::ThenAsync(Tasks::LaunchTask("SharedInnerRoot", [] {}),
-				Tasks::ETaskExecutor::Worker, {}, [Inner] { return Inner; });
-			ASSERT_EQ(WaitOffGameThread(Outer).TaskState, ETaskState::Succeeded);
-			EXPECT_EQ(&Outer.GetResult(), &Inner.GetResult());
-			Generic = Outer;
+			auto Inner = Tasks::LaunchTask("SharedValue", [&] { return std::make_unique<FValue>(Destroyed); });
+			auto View = Tasks::LaunchTask("ResultView", [Inner] { return Inner.GetResultShared(); }, Inner);
+			ASSERT_EQ(WaitOffGameThread(View).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(View.GetResult().get(), &Inner.GetResult());
+			Generic = View;
 		}
 		ShutdownTaskScheduler(true);
 		EXPECT_EQ(Destroyed, 0u);
@@ -1817,22 +1809,18 @@ namespace Durin
 		auto Source = Tasks::Detail::FExternalResultAccess::Create<void>();
 		auto Input = Source.TakeTask();
 		auto Propagated = Tasks::Then(Input, Tasks::ETaskExecutor::Worker, {}, [] { ADD_FAILURE(); });
-		auto Flat = Tasks::ThenAsync(Propagated, Tasks::ETaskExecutor::Worker, {}, [] {
-			ADD_FAILURE(); return Tasks::LaunchTask("UnexpectedInner", [] { return 1; });
-		});
+		auto Dependent = Tasks::Then(Propagated, Tasks::ETaskExecutor::Worker, {}, [] { ADD_FAILURE(); });
 		ASSERT_TRUE(Source.TrySetFailure(Expected));
-		ASSERT_EQ(WaitOffGameThread(Flat).TaskState, ETaskState::Failed);
+		ASSERT_EQ(WaitOffGameThread(Dependent).TaskState, ETaskState::Failed);
 		Input = {};
 		Propagated = {};
-		ExpectFailureIdentity(Flat.GetFailure(), Expected);
-		auto Observer = Tasks::ThenCompleted(Flat, Tasks::ETaskExecutor::Worker, {}, [&](const auto& Finished) {
+		ExpectFailureIdentity(Dependent.GetFailure(), Expected);
+		auto Observer = Tasks::ThenCompleted(Dependent, Tasks::ETaskExecutor::Worker, {}, [&](const auto& Finished) {
 			ExpectFailureIdentity(Finished.GetFailure(), Expected);
 			throw std::runtime_error("observer failure");
 		});
-		auto ObserverFlat = Tasks::ThenAsync(Tasks::LaunchTask("ObserverInput", [] { return 0; }), Tasks::ETaskExecutor::Worker, {},
-			[Observer](int&) { return Observer; });
-		ASSERT_EQ(WaitOffGameThread(ObserverFlat).TaskState, ETaskState::Failed);
-		ExpectFailureIdentity(ObserverFlat.GetFailure(), {});
+		ASSERT_EQ(WaitOffGameThread(Observer).TaskState, ETaskState::Failed);
+		ExpectFailureIdentity(Observer.GetFailure(), {});
 	}
 
 	TEST(FTaskCompositionTests, ContinuationDeduplicatesPrimaryAndAdditionalDependencies)
@@ -1877,47 +1865,35 @@ namespace Durin
 		ExpectFailureIdentity(ExplicitShared.GetFailure(), ExplicitFailure);
 	}
 
-	TEST(FTaskCompositionTests, ThenAsyncPreservesPredecessorCallbackAndInnerFailures)
+	TEST(FTaskCompositionTests, NestedCompletionDoesNotForwardChildFailureOrCancellation)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(2));
-		const Tasks::FTaskFailure ExplicitFailure{ETaskTerminalReason::CallbackFailure,
-			Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::DependencyCycle, 53},
-			Tasks::ETaskFailureCode::DependencyBindingFailed, 59, 5};
-		for (uint32 Iteration = 0; Iteration < 128; ++Iteration)
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		for (bool Canceled : {false, true})
 		{
-			auto Predecessor = Tasks::Detail::FExternalResultAccess::Create<void>();
-			if (Iteration % 2 == 0) ASSERT_TRUE(Predecessor.TrySetFailure(ExplicitFailure));
-			auto FromPredecessor = Tasks::ThenAsync(Predecessor.TakeTask(), Tasks::ETaskExecutor::Worker, {}, [] {
-				ADD_FAILURE() << "Failed predecessor must not invoke the callback";
-				return Tasks::LaunchTask("UnreachableInner", [] { return 0; });
+			Tasks::FTaskEvent Gate("NestedOutcome", false);
+			auto Child = Tasks::LaunchTask("NestedOutcomeChild", [Canceled] {
+				if (Canceled) Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
+				else throw std::runtime_error("child failure");
+			}, Gate);
+			FThreadEvent Attached;
+			auto Parent = Tasks::LaunchTask("NestedOutcomeParent", [&] {
+				Tasks::AddNested(Child);
+				Attached.Trigger();
+				return 42;
 			});
-			if (Iteration % 2 != 0) ASSERT_TRUE(Predecessor.TrySetFailure(ExplicitFailure));
-			ASSERT_EQ(WaitOffGameThread(FromPredecessor).TaskState, ETaskState::Failed);
-			ExpectFailureIdentity(FromPredecessor.GetFailure(), ExplicitFailure);
-
-			auto FromCallback = Tasks::ThenAsync(Tasks::LaunchTask("AsyncCallbackInput", [] {}),
-				Tasks::ETaskExecutor::Worker, {}, []() -> Tasks::TTask<int> { throw std::runtime_error("callback failure"); });
-			ASSERT_EQ(WaitOffGameThread(FromCallback).TaskState, ETaskState::Failed);
-			ExpectFailureIdentity(FromCallback.GetFailure(), {});
-
-			auto Inner = Tasks::Detail::FExternalResultAccess::Create<int>();
-			if (Iteration % 2 == 0) ASSERT_TRUE(Inner.TrySetFailure(ExplicitFailure));
-			auto FromInner = Tasks::ThenAsync(Tasks::LaunchTask("AsyncInnerInput", [] {}),
-				Tasks::ETaskExecutor::Worker, {}, [Inner]() mutable { return Inner.TakeTask(); });
-			if (Iteration % 2 != 0) ASSERT_TRUE(Inner.TrySetFailure(ExplicitFailure));
-			ASSERT_EQ(WaitOffGameThread(FromInner).TaskState, ETaskState::Failed);
-			ExpectFailureIdentity(FromInner.GetFailure(), ExplicitFailure);
+			const bool DidAttach = Attached.WaitFor(1.0);
+			EXPECT_FALSE(Parent.IsCompleted());
+			Gate.Trigger();
+			ASSERT_TRUE(DidAttach);
+			EXPECT_EQ(WaitOffGameThread(Parent).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(Parent.GetResult(), 42);
+			EXPECT_EQ(Child.GetState(), Canceled ? ETaskState::Canceled : ETaskState::Failed);
 		}
-		auto FromNativeFailure = Tasks::ThenAsync(
-			Tasks::LaunchTask("ThrowBeforeFlatten", []() -> int { throw std::runtime_error("predecessor failure"); }),
-			Tasks::ETaskExecutor::Worker, {}, [](int) { return Tasks::LaunchTask("UnreachableNativeInner", [] { return 0; }); });
-		ASSERT_EQ(WaitOffGameThread(FromNativeFailure).TaskState, ETaskState::Failed);
-		ExpectFailureIdentity(FromNativeFailure.GetFailure(), {});
 	}
 
-	TEST(FTaskCompositionTests, SharedThenAsyncBindsBorrowedPrerequisitesBeforeReturning)
+	TEST(FTaskCompositionTests, NestedRunnerBindsBorrowedPrerequisitesBeforeReturning)
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
@@ -1928,9 +1904,9 @@ namespace Durin
 				Tasks::FTaskEvent Gate("BorrowedPrerequisiteGate", false);
 				std::vector<Tasks::FTask> Borrowed{Gate};
 				std::atomic<bool> bFactoryRan = false;
-				auto Output = Tasks::ThenAsync(RootSource.TakeTask(), Tasks::ETaskExecutor::Worker,
-					{.DebugName = "BorrowedPrerequisiteFlatten", .Prerequisites = Borrowed}, [&] {
-						bFactoryRan.store(true); return Shared;
+				auto Output = Tasks::Then(RootSource.TakeTask(), Tasks::ETaskExecutor::Worker,
+					{.DebugName = "BorrowedPrerequisiteNested", .Prerequisites = Borrowed}, [&] {
+						Tasks::AddNested(Shared); bFactoryRan.store(true);
 					});
 				// Mutation catches a second binding deterministically; destruction also
 				// exercises the lifetime of the borrowed storage without changing the API.
@@ -1944,7 +1920,7 @@ namespace Durin
 				EXPECT_FALSE(bRanBeforePrerequisite);
 				ASSERT_EQ(WaitOffGameThread(Output).TaskState, ETaskState::Succeeded);
 				EXPECT_TRUE(bFactoryRan.load());
-				if constexpr (!std::is_void_v<T>) EXPECT_EQ(Output.GetResult(), 42);
+				if constexpr (!std::is_void_v<T>) EXPECT_EQ(Shared.GetResult(), 42);
 			}
 		};
 		auto Value = Tasks::LaunchTask("SharedBorrowedValue", [] { return 42; });
@@ -1955,7 +1931,7 @@ namespace Durin
 		Check(Void);
 	}
 
-	TEST(FTaskCompositionTests, SharedFanInDuplicatesAndAsyncCancellationAreLocal)
+	TEST(FTaskCompositionTests, SharedFanInDuplicatesAndNestedCancellationAreLocal)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -1967,7 +1943,7 @@ namespace Durin
 		auto Shared = std::move(SharedAdmission);
 		auto RootAdmission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] {});
 		auto Root = std::move(RootAdmission);
-		auto ObserverAdmission = Tasks::ThenAsync(std::move(Root), Tasks::ETaskExecutor::Worker, {}, [Shared] { return Shared; });
+		auto ObserverAdmission = Tasks::Then(Root, Tasks::ETaskExecutor::Worker, {}, [Shared] { Tasks::AddNested(Shared); });
 		auto Observer = std::move(ObserverAdmission);
 		EXPECT_TRUE(Tasks::Cancel(Observer));
 		std::vector<Tasks::TTask<int>> Inputs{Shared, Shared};
@@ -1983,7 +1959,7 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Succeeded, WaitOffGameThread(Observer).TaskState);
 	}
 
-	TEST(FTaskCompositionTests, ThenAsyncCancellationDoesNotCancelSharedDeferredInner)
+	TEST(FTaskCompositionTests, NestedCancellationDoesNotCancelSharedDeferredChild)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -1995,10 +1971,10 @@ namespace Durin
 		std::atomic<int> Called = 0;
 		FThreadEvent Spawned;
 		Tasks::TTask<int> Inner;
-		auto Admission = Tasks::ThenAsync(std::move(Root), Tasks::ETaskExecutor::Worker, {}, [&] {
+		auto Admission = Tasks::Then(Root, Tasks::ETaskExecutor::Worker, {}, [&] {
 			Inner = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] { ++Called; return 12; });
+			Tasks::AddNested(Inner);
 			Spawned.Trigger();
-			return Inner;
 		});
 		auto Outer = std::move(Admission);
 		ASSERT_TRUE(Spawned.WaitFor(1.0));
@@ -2371,9 +2347,6 @@ namespace Durin
 			const Tasks::FTask Generic = Input;
 			auto Typed = Tasks::Then(Input, Tasks::ETaskExecutor::Worker, {}, [](int&) { ADD_FAILURE(); return 1; });
 			auto Erased = Tasks::Then(Generic, Tasks::ETaskExecutor::Worker, {}, [] { ADD_FAILURE(); return std::make_unique<int>(1); });
-			auto Flat = Tasks::ThenAsync(Input, Tasks::ETaskExecutor::Worker, {}, [](int&) {
-				ADD_FAILURE(); return Tasks::LaunchTask("UnexpectedInner", [] { return 1; });
-			});
 			uint32 CleanupCalls = 0;
 			auto Cleanup = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, {}, [&](const auto& Finished) {
 				EXPECT_EQ(Finished.GetState(), Canceled ? ETaskState::Canceled : ETaskState::Failed); ++CleanupCalls;
@@ -2382,7 +2355,6 @@ namespace Durin
 			const auto Expected = Canceled ? ETaskState::Canceled : ETaskState::Failed;
 			EXPECT_EQ(WaitOffGameThread(Typed).TaskState, Expected);
 			EXPECT_EQ(WaitOffGameThread(Erased).TaskState, Expected);
-			EXPECT_EQ(WaitOffGameThread(Flat).TaskState, Expected);
 			EXPECT_EQ(WaitOffGameThread(Cleanup).TaskState, ETaskState::Succeeded);
 			EXPECT_EQ(CleanupCalls, 1u);
 		}
@@ -2403,19 +2375,18 @@ namespace Durin
 			auto Typed = Tasks::Then(Input, Tasks::ETaskExecutor::Worker, Options, [](int& Value) { return Value + 1; });
 			auto Erased = Tasks::Then(Tasks::FTask(Input), Tasks::ETaskExecutor::Worker, Options, [] { return 7; });
 			auto Cleanup = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, Options, [](const auto& Task) { return Task.GetResult(); });
-			auto Flat = Tasks::ThenAsync(Input, Tasks::ETaskExecutor::Worker, Options, [](int& Value) {
-				return Tasks::LaunchTask("ExtraOrderedInner", [Value] { return Value; });
-			});
+			auto Dependent = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
+				[Input] { return Input.GetResult(); }, Input);
 			auto All = Tasks::WhenAll(std::vector{Input}, Tasks::ETaskExecutor::Worker, Options);
 			auto EmptyAll = Tasks::WhenAll(std::vector<Tasks::TTask<int>>{}, Tasks::ETaskExecutor::Worker, Options);
-			const std::array<Tasks::FTask, 6> Handles{Typed, Erased, Cleanup, Flat, All, EmptyAll};
+			const std::array<Tasks::FTask, 6> Handles{Typed, Erased, Cleanup, Dependent, All, EmptyAll};
 			for (const auto& Task : Handles) EXPECT_EQ(Task.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
 			if (Canceled) Extra.TrySetCanceled(); else Extra.TrySetFailure({});
 			for (const auto& Task : Handles) EXPECT_EQ(WaitOffGameThread(Task).TaskState, ETaskState::Succeeded);
 			EXPECT_EQ(Typed.GetResult(), 42);
 			EXPECT_EQ(Erased.GetResult(), 7);
 			EXPECT_EQ(Cleanup.GetResult(), 41);
-			EXPECT_EQ(Flat.GetResult(), 41);
+			EXPECT_EQ(Dependent.GetResult(), 41);
 			EXPECT_EQ(*All.GetResult().front(), 41);
 			EXPECT_TRUE(EmptyAll.GetResult().empty());
 		}

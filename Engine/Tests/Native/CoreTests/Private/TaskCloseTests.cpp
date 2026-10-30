@@ -208,43 +208,26 @@ namespace Durin
 		EXPECT_EQ(*Result.GetResult(), 61);
 	}
 
-	TEST_F(FTaskCloseTests, DeepAsyncResultsPreserveAliasesAndRetireOwnerLifetimes)
+	TEST_F(FTaskCloseTests, DeepNestedTasksRetireCapturesBeforeShutdownCompletes)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(2));
-		constexpr uint32 Depth = 8192;
+		constexpr uint32 Depth = 2048;
 		std::atomic<uint32> Retired = 0;
-		struct FOwner
+		struct FOwner { std::atomic<uint32>& Count; ~FOwner() { ++Count; } };
+		Tasks::FTaskEvent Gate("NestedChainGate", false);
+		Tasks::FTask Current = Gate;
+		for (uint32 Index = 0; Index < Depth; ++Index)
 		{
-			std::atomic<uint32>& Count;
-			~FOwner() { ++Count; }
-		};
-		auto Seed = Tasks::LaunchTask("ForwardSeed", [] {});
-		Seed.Wait();
-		auto Root = Tasks::LaunchTask("ForwardValue", [] { return std::make_unique<int>(42); });
-		Root.Wait();
-		auto* Address = &Root.GetResult();
-		auto Current = Root;
-		std::thread Producer([&] {
-			for (uint32 Index = 0; Index < Depth; ++Index)
-			{
-				auto Next = Tasks::ThenAsync(Seed, Tasks::ETaskExecutor::Worker, {}, [Current] { return Current; });
-				ASSERT_EQ(Next.Wait().TaskState, ETaskState::Succeeded);
-				Next = Next.WithLifetime(std::shared_ptr<FOwner>(new FOwner{Retired}));
-				Current = std::move(Next);
-			}
-		});
-		Producer.join();
+			Current = Tasks::LaunchTask("NestedChain", [Child = Current,
+				Owner = std::shared_ptr<FOwner>(new FOwner{Retired})] {
+				Tasks::AddNested(Child);
+			});
+		}
+		EXPECT_FALSE(Current.IsCompleted());
+		// Bodies may release captures before their nested completion dependencies.
+		Gate.Trigger();
+		EXPECT_EQ(Current.Wait().TaskState, ETaskState::Succeeded);
 		ShutdownTaskScheduler(false);
-		EXPECT_EQ(&Current.GetResult(), Address);
-		*Current.GetResult() = 73;
-		EXPECT_EQ(*Root.GetResult(), 73);
-		EXPECT_EQ(Retired.load(), 0u);
-		Root = {};
-		auto View = Current.GetResultShared();
-		Current = {};
-		EXPECT_EQ(**View, 73);
-		EXPECT_EQ(Retired.load(), 0u);
-		View.reset();
 		EXPECT_EQ(Retired.load(), Depth);
 	}
 
@@ -334,7 +317,7 @@ namespace Durin
 		EXPECT_EQ(0u, GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
 	}
 
-	TEST_F(FTaskCloseTests, VoidFanInAndDeepFlattenRetainNodeLifetimesAfterShutdown)
+	TEST_F(FTaskCloseTests, VoidFanInRetainsNodeLifetimesAfterShutdown)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		constexpr uint32 Depth = 2048;
@@ -343,15 +326,9 @@ namespace Durin
 		auto Seed = Tasks::LaunchTask("VoidSeed", [] {});
 		Seed.Wait();
 		auto Current = Seed;
-		std::thread Producer([&] {
-			for (uint32 Index = 0; Index < Depth; ++Index)
-			{
-				auto Next = Tasks::ThenAsync(Seed, Tasks::ETaskExecutor::Worker, {}, [Current] { return Current; });
-				ASSERT_EQ(Next.Wait().TaskState, ETaskState::Succeeded);
-				Current = Next.WithLifetime(std::shared_ptr<FOwner>(new FOwner{Retired}));
-			}
-		});
-		Producer.join();
+		for (uint32 Index = 0; Index < Depth; ++Index)
+			Current = Current.WithLifetime(std::shared_ptr<FOwner>(new FOwner{Retired}));
+
 		auto All = Tasks::WhenAll(std::vector{Current, Current});
 		auto Mixed = Tasks::WhenAll(std::tuple{Current, Tasks::LaunchTask("MixedValue", [] { return 42; })});
 		EXPECT_EQ(All.Wait().TaskState, ETaskState::Succeeded);
@@ -360,7 +337,7 @@ namespace Durin
 		EXPECT_EQ(std::get<0>(Mixed.GetResult()).GetTaskId(), Current.GetTaskId());
 		Tasks::FTask Retained = All.GetResult().front();
 		EXPECT_EQ(All.GetResult()[1].GetTaskId(), Retained.GetTaskId());
-		Current = {}; All = {}; Mixed = {};
+		Seed = {}; Current = {}; All = {}; Mixed = {};
 		ShutdownTaskScheduler(false);
 		EXPECT_EQ(Retired.load(), 0u);
 		Retained = {};
