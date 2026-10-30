@@ -15,7 +15,6 @@
 namespace Durin
 {
 	struct FTextureCubeBuildRequest;
-	struct FTextureCubeResultApplicationContext;
 
 	// May synchronously load source pixels; returned images retain shared storage independently.
 #if DURIN_WITH_EDITORONLY_DATA
@@ -41,7 +40,7 @@ namespace Durin
 		using DTexture::CachePlatformData;
 #if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto CachePlatformData(const FTextureCubeBuildRequest& Request,
-			const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>;
+			const FTextureBuildApplicationContext& Context = {}) -> std::expected<void, FTextureBuildOperationError>;
 #endif
 		ENGINE_API explicit DTextureCube(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTextureCube() override;
@@ -86,7 +85,7 @@ namespace Durin
 			std::unique_ptr<FTextureCubePlatformData> Data) -> void;
 
 	protected:
-		auto CreateRenderResourceCandidate(
+		auto CreateResource(
 			FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureResource> override;
 

@@ -384,8 +384,7 @@ namespace Durin::AssetForge::Builtins
 		return Texture.BeginCachePlatformData({
 			.Build = std::move(*Build),
 			.ResultApplication = {
-				.bMarkPackageDirty = true,
-				.bReportLoadMutation = false},
+				.bMarkPackageDirty = true},
 			.Priority = Priority}, std::move(Completion));
 	}
 

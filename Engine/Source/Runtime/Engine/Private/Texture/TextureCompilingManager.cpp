@@ -85,9 +85,9 @@ namespace Durin
 
 		auto Submit(FTexture2DCompilationWork Request, FTexture2DCompilationWorkCompletion Completion) -> uint64
 		{
+			const auto& Source = Request.PlatformCache ? Request.PlatformCache->Source : Request.Build.Source;
 			if (!Completion || IsObjectKeyNull(Request.Owner)
-				|| Request.AssetIdentity.empty() || (!Request.Build.Source.IsValid() && !Request.PlatformCache)
-				|| Request.Build.Source.GetIdentity().IsZero()) return 0;
+				|| Request.AssetIdentity.empty() || !Source.IsValid() || Source.GetIdentity().IsZero()) return 0;
 			auto RequestState = std::make_shared<FRequestState>();
 			RequestState->Request = std::move(Request);
 			RequestState->Progress = std::move(RequestState->Request.Progress);
@@ -209,7 +209,7 @@ namespace Durin
 			}
 			const std::shared_ptr<FQueueState> Self = shared_from_this();
 			Tasks::FTaskExecutionOptions Options;
-			Options.DebugName = "Texture2D.Build";
+			Options.DebugName = "Texture.Build";
 			Options.Attribution = Attribution;
 			Options.Priority = RequestState->Request.Priority == ETexture2DCompilationPriority::Interactive
 				? ETaskPriority::High : ETaskPriority::Low;
@@ -232,7 +232,8 @@ namespace Durin
 				.Status = Status,
 				.Diagnostic = std::move(Diagnostic),
 				.Metrics = {.EstimatedBytes = RequestState.EstimatedBytes},
-				.SourceIdentity = RequestState.Request.Build.Source.GetIdentity(),
+				.SourceIdentity = (RequestState.Request.PlatformCache ? RequestState.Request.PlatformCache->Source
+					: RequestState.Request.Build.Source).GetIdentity(),
 				.Settings = RequestState.Request.Build.Settings};
 		}
 

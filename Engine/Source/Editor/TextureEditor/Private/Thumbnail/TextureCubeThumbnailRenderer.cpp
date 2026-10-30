@@ -32,7 +32,7 @@ namespace Durin::Editor::Texture
 		auto CheckTextureCubeReadiness(
 			DTextureCube* TextureCube) -> std::expected<bool, std::string>
 		{
-			if (TextureCube == nullptr)
+			if (TextureCube == nullptr || TextureCube->IsPendingKill())
 			{
 				return std::unexpected("The TextureCube asset is unavailable.");
 			}
@@ -45,17 +45,13 @@ namespace Durin::Editor::Texture
 			{
 				return std::unexpected("The TextureCube has no texture reference.");
 			}
-			const auto State = TextureCube->GetResourceUpdateState();
-			if (TextureCube->IsResourceUpdatePending()) return false;
-			if (State == ETextureResourceUpdateState::Failed && !TextureCube->HasUsableResource())
+			if (TextureCube->HasPendingRenderResourceInitialization()) return false;
+			const auto* Resource = TextureCube->GetResource();
+			if (!Resource || !Resource->GetTextureRHI_GameThread())
 			{
-				return std::unexpected("The TextureCube render resource failed.");
+				return std::unexpected("The TextureCube render resource is unavailable.");
 			}
-			if (State == ETextureResourceUpdateState::Closed)
-			{
-				return std::unexpected("The TextureCube render resource was released.");
-			}
-			return TextureCube->HasUsableResource();
+			return true;
 		}
 
 		auto MakeTextureCubeThumbnailView() -> ::Durin::Editor::FThumbnailPreviewView
@@ -169,7 +165,7 @@ namespace Durin::Editor::Texture
 				auto Readiness = CheckTextureCubeReadiness(TextureCube.Get());
 				if (!Readiness) return std::unexpected(std::move(Readiness.error()));
 				if (!*Readiness) return std::unexpected("The TextureCube render resource is not ready.");
-				Snapshot = TextureCube.Get()->GetPublishedTexture();
+				Snapshot = TextureCube.Get()->GetResource()->GetTextureRHI_GameThread();
 				const FRHITextureReferenceRef TextureReference = Snapshot
 					? FTextureReference(Snapshot).GetTextureReferenceRHI() : FRHITextureReferenceRef{};
 				if (TextureReference == nullptr)
@@ -190,7 +186,7 @@ namespace Durin::Editor::Texture
 				if (!*Readiness || !TextureCube.IsValid()
 					|| (TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0) != AssetRevision
 					|| TextureCube.Get()->GetSource().GetIdentity() != SourceIdentity
-					|| !Snapshot || TextureCube.Get()->GetPublishedTexture() != Snapshot)
+					|| !Snapshot || TextureCube.Get()->GetResource()->GetTextureRHI_GameThread() != Snapshot)
 				{
 					return std::unexpected("The TextureCube changed while its thumbnail was being generated.");
 				}

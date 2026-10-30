@@ -200,14 +200,14 @@ namespace Durin
 			return Result;
 		}
 
-		auto MakeRoutedBatches(std::span<DObject* const> Objects)
+		auto MakeRoutedBatches(std::span<DObject* const> Objects, bool bIncludePendingKill = false)
 			-> std::vector<FRoutedBatch>
 		{
 			std::vector<FRoutedBatch> Result;
 			std::lock_guard Lock(GAssetCompilingMutex);
 			for (DObject* Object : Objects)
 			{
-				if (!IsValid(Object)) continue;
+				if (!Object || (!bIncludePendingKill && !IsValid(Object))) continue;
 				FName CompilerName;
 				for (DClass* Class = Object->GetClass(); Class; Class = Class->GetSuperClass())
 				{
@@ -499,7 +499,8 @@ namespace Durin
 		std::span<DObject* const> Objects) -> void
 	{
 		if (!IsSupportedThread()) return;
-		for (FRoutedBatch& Batch : MakeRoutedBatches(Objects))
+		// GC sets BeginDestroyed before calling the object's BeginDestroy hook.
+		for (FRoutedBatch& Batch : MakeRoutedBatches(Objects, true))
 			Batch.Entry.Manager->MarkCompilationAsCanceled(Batch.Objects);
 	}
 

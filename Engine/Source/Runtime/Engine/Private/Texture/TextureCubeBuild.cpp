@@ -10,11 +10,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, std::unique_ptr<FTextureCubePlatformData> Product, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
-	}
-
 	auto TexturePrivate::PrepareTextureCubeBuild(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FPreparedTextureCubeBuild, FTextureBuildError>
 	{
@@ -81,58 +76,29 @@ namespace Durin
 		return std::move(*Result);
 	}
 
-	auto DTextureCube::CachePlatformData(const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
+	auto DTextureCube::CachePlatformData(const FTextureCubeBuildRequest& Request, const FTextureBuildApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
 	{
-		auto& Texture = *this;
 		CheckGameThread();
-		Texture.BlockOnAnyAsyncBuild();
-		auto Result = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
-		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
-		auto Applied = ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput),
-			std::make_unique<FTextureCubePlatformData>(std::move(Result->PlatformData)), Context);
-		if (!Applied) return std::unexpected(TexturePrivate::ReportBuildFailure(Applied.error()));
+		if (IsPendingKill())
+			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
+		BlockOnAnyAsyncBuild();
+		if (IsPendingKill())
+			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Unavailable});
+		auto Prepared = TexturePrivate::PrepareTextureCubeBuild(Request);
+		if (!Prepared) return std::unexpected(TexturePrivate::ReportBuildFailure(Prepared.error()));
+		const auto& CanonicalInput = Prepared->CanonicalInput;
+		auto Product = TexturePrivate::BuildTextureCubeSource(Prepared->Source, CanonicalInput.GetSRGB(),
+			CanonicalInput.PanoramaFaceDimension, CanonicalInput.PanoramaExposureEV,
+			Request.TargetPlatform, Request.TargetProfile, Request.bPersistDerivedData, &CanonicalInput);
+		if (!Product) return std::unexpected(TexturePrivate::ReportBuildFailure(Product.error()));
+		SetSource(std::move(Prepared->Source));
+		SetBuildSettings(CanonicalInput.GetSourceLayout(), CanonicalInput.PanoramaFaceDimension,
+			CanonicalInput.PanoramaExposureEV, CanonicalInput.OriginalSourceWidth,
+			CanonicalInput.OriginalSourceHeight, CanonicalInput.GetSRGB(), CanonicalInput.GetOutput());
+		SetPlatformData(std::move(*Product));
+		UpdateResource();
+		if (Context.bMarkPackageDirty) MarkPackageDirty();
 		return {};
-	}
-
-	namespace
-	{
-		auto ApplyTextureCubeBuildResult(
-			DTextureCube& Texture,
-			FTextureCubeCanonicalBuildInput CanonicalInput,
-			std::unique_ptr<FTextureCubePlatformData> Product,
-			const FTextureCubeResultApplicationContext& Context
-		) -> std::expected<void, FTextureBuildError>
-		{
-			CheckGameThread();
-#if !DURIN_WITH_EDITORONLY_DATA
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Apply,
-				"Texture authoring requires editor-only data."});
-#else
-			require(Product != nullptr);
-			// The build boundary has already validated these value contracts.
-			const auto* LDR = std::get_if<FTextureCubeLDRCanonicalInput>(&CanonicalInput.Pixels);
-			check(!LDR || LDR->FaceImages.IsValid());
-			check(Product->IsValid());
-			auto PlatformData = std::move(Product);
-			if (!Context.bPreserveSource)
-			{
-				auto Source = CanonicalInput.GetAuthoredPanorama().IsValid()
-					? PrepareTextureCubePanoramaSource(CanonicalInput.GetAuthoredPanorama().GetView(),
-						Image::GetRawImageFormatInfo(CanonicalInput.GetAuthoredPanorama().GetInfo().Format).ChannelCount, 0)
-					: PrepareTextureCubeSource(LDR->FaceImages);
-				if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
-					Source.error()});
-				Texture.SetSource(std::move(*Source));
-			}
-			Texture.SetBuildSettings(CanonicalInput.GetSourceLayout(), CanonicalInput.PanoramaFaceDimension,
-				CanonicalInput.PanoramaExposureEV, CanonicalInput.OriginalSourceWidth,
-				CanonicalInput.OriginalSourceHeight, CanonicalInput.GetSRGB(), CanonicalInput.GetOutput());
-			Texture.SetPlatformData(std::move(PlatformData));
-			Texture.UpdateResource();
-			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
-			return {};
-#endif
-	}
 	}
 }
 

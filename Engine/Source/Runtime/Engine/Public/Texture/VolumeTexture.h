@@ -14,7 +14,6 @@
 namespace Durin
 {
 	struct FVolumeTextureBuildRequest;
-	struct FVolumeTextureResultApplicationContext;
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Payload-backed input may require a synchronous read.
@@ -34,7 +33,7 @@ namespace Durin
 		using DTexture::CachePlatformData;
 #if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto CachePlatformData(const FVolumeTextureBuildRequest& Request,
-			const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>;
+			const FTextureBuildApplicationContext& Context = {}) -> std::expected<void, FTextureBuildOperationError>;
 #endif
 		ENGINE_API explicit DVolumeTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DVolumeTexture() override;
@@ -66,7 +65,7 @@ namespace Durin
 			std::unique_ptr<FVolumeTexturePlatformData> Data) -> void;
 
 	protected:
-		auto CreateRenderResourceCandidate(FTextureReference* TextureReference)
+		auto CreateResource(FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureResource> override;
 
 	private:

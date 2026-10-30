@@ -154,19 +154,6 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
-TEST(FTexture2DTests, RenderStatusEnumExposesSharedDisplayMetadata)
-{
-	InitializeDObjectSystem();
-	Durin::DEnum* ResourceStateEnum = Durin::FindEnumByQualifiedName("Durin::ETextureResourceUpdateState");
-	ASSERT_NE(ResourceStateEnum, nullptr);
-	EXPECT_EQ(ResourceStateEnum->GetDisplayName(), "Texture Resource Update State");
-
-	const Durin::FEnumValue* Building = ResourceStateEnum->FindValueRecordByValue(
-		static_cast<uint64>(Durin::ETextureResourceUpdateState::Building));
-	ASSERT_NE(Building, nullptr);
-	EXPECT_EQ(Building->DisplayName, "Building");
-	EXPECT_EQ(ResourceStateEnum->FindValueRecordByValue(255), nullptr);
-}
 
 TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 {
@@ -646,10 +633,8 @@ TEST(FTextureResourceAdmissionTests, MissingPlatformDataDoesNotAdmitWork)
 
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "MissingPlatformData");
 	Texture->UpdateResource();
-	EXPECT_FALSE(Texture->IsResourceUpdatePending());
-	EXPECT_FALSE(Texture->HasUsableResource());
-	EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
-	EXPECT_FALSE(Texture->GetResourceUpdateError().empty());
+	EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());
+	EXPECT_EQ(Texture->GetResource(), nullptr);
 }
 
 TEST(FTextureResourceAdmissionTests, MissingRHIRejectsSynchronouslyWithoutTaskExecutor)
@@ -661,7 +646,7 @@ TEST(FTextureResourceAdmissionTests, MissingRHIRejectsSynchronouslyWithoutTaskEx
 	for (int Attempt = 0; Attempt < 3; ++Attempt)
 	{
 		Texture->UpdateResource();
-		EXPECT_FALSE(Texture->IsResourceUpdatePending());
-		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
+		EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());
+		EXPECT_EQ(Texture->GetResource(), nullptr);
 	}
 }

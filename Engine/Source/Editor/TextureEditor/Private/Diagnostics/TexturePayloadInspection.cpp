@@ -1,4 +1,5 @@
 #include "Diagnostics/TexturePayloadInspection.h"
+#include "RenderResource.h"
 
 #include "Asset/CookedAsset.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -147,10 +148,13 @@ namespace Durin
 
 		auto MapResourceState(const DTexture& Texture) -> ETexturePayloadState
 		{
-			if (Texture.HasUsableResource()) return ETexturePayloadState::Available;
-			if (Texture.IsResourceUpdatePending()) return ETexturePayloadState::Unknown;
-			if (Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed)
-				return ETexturePayloadState::Failed;
+			if (Texture.IsPendingKill()) return ETexturePayloadState::NotPresent;
+			if (Texture.HasPendingRenderResourceInitialization()) return ETexturePayloadState::Unknown;
+			const auto* Resource = Texture.GetResource();
+			if (Resource && Resource->GetTextureRHI_GameThread()) return ETexturePayloadState::Available;
+			if (!Texture.IsAsyncCacheComplete())
+				return ETexturePayloadState::Unknown;
+			if (Resource) return ETexturePayloadState::Failed;
 			return ETexturePayloadState::NotPresent;
 		}
 	}
@@ -340,6 +344,7 @@ namespace Durin
 		const FTexturePlatformData* PlatformData =
 			Texture.GetPlatformData();
 		const bool bPlatformReady = PlatformData && PlatformData->IsValid();
+		const bool bCachePending = !Texture.IsAsyncCacheComplete();
 		const bool bCompilationFailed =
 			Compilation.Phase == ETexture2DCompilationPhase::Failed;
 		Result.Entries.push_back({
@@ -347,12 +352,12 @@ namespace Durin
 			.State = bPlatformReady ? ETexturePayloadState::Available
 				: bCompilationFailed ? ETexturePayloadState::Failed
 				: ETexturePayloadState::Missing,
-			.Repair = bPlatformReady
+			.Repair = bPlatformReady || bCachePending
 				? ETexturePayloadRepairAction::None : ETexturePayloadRepairAction::RebuildDerivedData,
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
 			.Placement = "DerivedDataCache",
-			.Diagnostic = Compilation.FailureMessage});
+			.Diagnostic = bCachePending ? "Platform data is being prepared." : Compilation.FailureMessage});
 		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
 			"Texture2D", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent
@@ -367,7 +372,7 @@ namespace Durin
 			.Domain = "Texture2D", .Stage = ETexturePayloadStage::Decoded,
 			.State = bPlatformReady
 				? ETexturePayloadState::Available : ETexturePayloadState::NotPresent,
-			.Repair = bPlatformReady ? ETexturePayloadRepairAction::None
+			.Repair = bPlatformReady || bCachePending ? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RebuildDerivedData,
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
@@ -375,10 +380,10 @@ namespace Durin
 		Result.Entries.push_back({
 			.Domain = "Texture2D", .Stage = ETexturePayloadStage::RuntimeResource,
 			.State = MapResourceState(Texture),
-			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
+			.Repair = MapResourceState(Texture) == ETexturePayloadState::Failed
 				? ETexturePayloadRepairAction::RetryRuntimeResource : ETexturePayloadRepairAction::None,
 			.Placement = "GPU",
-			.Diagnostic = Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
+			.Diagnostic = MapResourceState(Texture) == ETexturePayloadState::Failed
 				? "GPU texture update failed. See the log for details." : std::string{}});
 		return Result;
 	}
@@ -404,17 +409,18 @@ namespace Durin
 		const FVolumeTexturePlatformData* PlatformData =
 			Texture.GetPlatformData();
 		const bool bDerivedReady = PlatformData && PlatformData->IsValid();
+		const bool bCachePending = !Texture.IsAsyncCacheComplete();
 		Result.Entries.push_back({
 			.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::DerivedData,
 			.State = bDerivedReady ? ETexturePayloadState::Available : ETexturePayloadState::Missing,
-			.Repair = bDerivedReady ? ETexturePayloadRepairAction::None
+			.Repair = bDerivedReady || bCachePending ? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RebuildDerivedData,
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
 			.Placement = "DerivedDataCache",
 			.Diagnostic = bDerivedReady
 				? "Platform data is installed; DDC provenance is operation-owned."
-				: "No platform data is installed."});
+				: bCachePending ? "Platform data is being prepared." : "No platform data is installed."});
 		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
 			"VolumeTexture", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent
@@ -429,7 +435,7 @@ namespace Durin
 			.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::Decoded,
 			.State = bDerivedReady
 				? ETexturePayloadState::Available : ETexturePayloadState::NotPresent,
-			.Repair = bDerivedReady ? ETexturePayloadRepairAction::None
+			.Repair = bDerivedReady || bCachePending ? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RebuildDerivedData,
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
@@ -437,10 +443,10 @@ namespace Durin
 		Result.Entries.push_back({
 			.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::RuntimeResource,
 			.State = MapResourceState(Texture),
-			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
+			.Repair = MapResourceState(Texture) == ETexturePayloadState::Failed
 				? ETexturePayloadRepairAction::RetryRuntimeResource : ETexturePayloadRepairAction::None,
 			.Placement = "GPU",
-			.Diagnostic = Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
+			.Diagnostic = MapResourceState(Texture) == ETexturePayloadState::Failed
 				? "GPU texture update failed. See the log for details." : std::string{}});
 		return Result;
 	}
@@ -464,27 +470,29 @@ namespace Durin
 			.Placement = "EditorPackage"});
 		const FTextureCubePlatformData* PlatformData = Texture.GetPlatformData();
 		const bool bReady = PlatformData && PlatformData->IsValid();
+		const bool bCachePending = !Texture.IsAsyncCacheComplete();
 		Result.Entries.push_back({
 			.Domain = "TextureCube", .Stage = ETexturePayloadStage::DerivedData,
 			.State = bReady ? ETexturePayloadState::Available : ETexturePayloadState::Missing,
-			.Repair = bReady ? ETexturePayloadRepairAction::None
+			.Repair = bReady || bCachePending ? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RebuildDerivedData,
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
-			.Placement = "DerivedDataCache"});
+			.Placement = "DerivedDataCache",
+			.Diagnostic = bCachePending ? "Platform data is being prepared." : std::string{}});
 		Result.Entries.push_back(MakeCookedFieldEntry(
 			"TextureCube", Texture.GetCookedPlatformData()));
 		Result.Entries.push_back({
 			.Domain = "TextureCube", .Stage = ETexturePayloadStage::Decoded,
 			.State = bReady ? ETexturePayloadState::Available : ETexturePayloadState::NotPresent,
-			.Repair = bReady ? ETexturePayloadRepairAction::None
+			.Repair = bReady || bCachePending ? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RebuildDerivedData,
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData), .Placement = "ResidentMemory"});
 		Result.Entries.push_back({
 			.Domain = "TextureCube", .Stage = ETexturePayloadStage::RuntimeResource,
 			.State = MapResourceState(Texture),
-			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
+			.Repair = MapResourceState(Texture) == ETexturePayloadState::Failed
 				? ETexturePayloadRepairAction::RetryRuntimeResource
 				: ETexturePayloadRepairAction::None,
 			.Placement = "GPU"});

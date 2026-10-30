@@ -503,7 +503,7 @@ TEST(FTexture2DTests, CompilationAdmissionRetainsInputCauseWithoutPublishing)
 	EXPECT_EQ(Missing.error().Code, Durin::ETextureBuildOperationFailure::InvalidInput);
 	EXPECT_FALSE(!Texture->IsAsyncCacheComplete());
 
-	const auto Invalid = Texture->CachePlatformData(Durin::MakeTexture2DBuildRequest(Source, {.Usage = static_cast<Durin::ETextureUsage>(255)}).value(), {});
+	const auto Invalid = Texture->CachePlatformData(Durin::MakeTexture2DBuildRequest(Source, {.Usage = static_cast<Durin::ETextureUsage>(255)}).value());
 	EXPECT_FALSE(Invalid);
 	EXPECT_EQ(Invalid.error().Code, Durin::ETextureBuildOperationFailure::InvalidInput);
 	EXPECT_EQ(Invalid.error().InputReason, "Texture2D build settings are invalid.");
@@ -535,20 +535,35 @@ TEST(FTexturePlatformDataTests, SynchronousCacheUsesCurrentSourceWithoutAnAsyncR
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	ASSERT_TRUE(EnsureTextureCompilingManager());
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "SynchronousTextureSourceCache");
 	auto Image = Durin::Image::FImage::TryCreate({.Width = 4, .Height = 4,
 		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(64, std::byte{0x80}));
 	ASSERT_TRUE(Image);
 	auto Check = []<typename TTexture>(Durin::FTextureSource Source) {
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::is_same_v<TTexture, Durin::DTexture2D>
-			? "/TextureImportTests/SyncSource2D" : "/TextureImportTests/SyncSourceCube", Path));
+			? "/TextureImportTests/SyncSource2D" : std::is_same_v<TTexture, Durin::DVolumeTexture>
+				? "/TextureImportTests/SyncSourceVolume" : Source.GetKind() == Durin::ETextureSourceKind::LongLatCube
+					? "/TextureImportTests/SyncSourceHDRCube" : "/TextureImportTests/SyncSourceCube", Path));
 		TTexture* Texture = nullptr;
 		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Texture));
 		if constexpr (std::is_same_v<TTexture, Durin::DTextureCube>)
-			Texture->SetBuildSettings(Durin::ETextureCubeSourceLayout::SixFaces, 4, 0.0f, 4, 4, true);
+		{
+			const bool bHDR = Source.GetKind() == Durin::ETextureSourceKind::LongLatCube;
+			Texture->SetBuildSettings(bHDR ? Durin::ETextureCubeSourceLayout::EquirectangularPanorama
+				: Durin::ETextureCubeSourceLayout::SixFaces, 4, 0.0f, Source.GetWidth(), Source.GetHeight(), !bHDR,
+				bHDR ? Durin::ETextureCubeOutput::HDR : Durin::ETextureCubeOutput::LDR);
+		}
+		if constexpr (std::is_same_v<TTexture, Durin::DVolumeTexture>)
+			Texture->SetBuildSettings({.OutputFormat = Durin::EVolumeTextureFormat::RGBA8_UNORM});
+		Source.ReleaseSourceMemory();
+		const auto Probe = Durin::Testing::AttachBuildSourceReadProbe(Source, Source.GetBulkData(), "Payload");
+		ASSERT_TRUE(Probe);
 		Texture->SetSource(std::move(Source));
 		Texture->GetPackage()->ClearDirty();
 		const auto Identity = Texture->GetSource().GetIdentity();
+		const auto SourceInstance = Texture->GetSource().GetBulkData().GetInstanceId();
 		EXPECT_FALSE(Texture->FinishCachePlatformData());
 		EXPECT_FALSE(Texture->HasPlatformData());
 		Texture->CachePlatformData(false);
@@ -560,6 +575,17 @@ TEST(FTexturePlatformDataTests, SynchronousCacheUsesCurrentSourceWithoutAnAsyncR
 		Texture->BeginCachePlatformData();
 		EXPECT_EQ(Texture->GetPlatformDataShared(), Installed);
 		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+		// A warm synchronous cache must resolve descriptors before source bytes,
+		// retaining the authored storage instance and package state for every family.
+		const auto Reads = Probe->GetReadStats().RequestCount;
+		Texture->GetSource().ReleaseSourceMemory();
+		Texture->SetPlatformData(nullptr);
+		Texture->CachePlatformData(false);
+		ASSERT_TRUE(Texture->HasPlatformData());
+		EXPECT_EQ(Probe->GetReadStats().RequestCount, Reads);
+		EXPECT_EQ(Texture->GetSource().GetIdentity(), Identity);
+		EXPECT_EQ(Texture->GetSource().GetBulkData().GetInstanceId(), SourceInstance);
+		EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 		Durin::MarkObjectHierarchyAsGarbage(Texture->GetPackage());
 		Durin::CollectGarbage();
 	};
@@ -571,6 +597,335 @@ TEST(FTexturePlatformDataTests, SynchronousCacheUsesCurrentSourceWithoutAnAsyncR
 	Durin::FTextureSource SourceCube;
 	ASSERT_TRUE(SourceCube.InitCube(Faces, 4));
 	Check.template operator()<Durin::DTextureCube>(std::move(SourceCube));
+	auto HDRImage = Durin::Image::FImage::TryCreate({.Width = 8, .Height = 4,
+		.Format = Durin::Image::ERawImageFormat::RGBA32F}, Durin::FByteBuffer(8 * 4 * 16));
+	ASSERT_TRUE(HDRImage);
+	Durin::FTextureSource SourceHDR;
+	ASSERT_TRUE(SourceHDR.InitLongLatCube(HDRImage->GetView(), 4));
+	Check.template operator()<Durin::DTextureCube>(std::move(SourceHDR));
+	auto VolumeImage = Durin::Image::FImage::TryCreate({.Width = 4, .Height = 4, .Depth = 2,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(128, std::byte{0x80}));
+	ASSERT_TRUE(VolumeImage);
+	Durin::FTextureSource SourceVolume;
+	ASSERT_TRUE(SourceVolume.InitVolume(VolumeImage->GetView()));
+	Check.template operator()<Durin::DVolumeTexture>(std::move(SourceVolume));
+}
+
+namespace
+{
+	template<typename TTexture>
+	auto CheckAsyncTextureCache(Durin::FTextureSource Source, const char* PackageName) -> void
+	{
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(PackageName, Path));
+		TTexture* Texture = nullptr;
+		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Texture));
+		if constexpr (std::is_same_v<TTexture, Durin::DTextureCube>)
+			Texture->SetBuildSettings(Durin::ETextureCubeSourceLayout::SixFaces, 4, 0.0f, 4, 4, true);
+		Source.ReleaseSourceMemory();
+		const auto Probe = Durin::Testing::AttachBuildSourceReadProbe(Source, Source.GetBulkData(), "Payload");
+		ASSERT_TRUE(Probe);
+		Texture->SetSource(std::move(Source));
+		Texture->GetPackage()->ClearDirty();
+		const auto SourceIdentity = Texture->GetSource().GetIdentity();
+		const auto SourceInstance = Texture->GetSource().GetBulkData().GetInstanceId();
+		std::atomic_bool bEntered = false, bRelease = false;
+		std::atomic_bool bFailDispatch = false;
+		std::atomic_uint32_t Computed = 0;
+		uint32 Notifications = 0;
+		struct FCompileScope
+		{
+			std::atomic_bool& Release;
+			Durin::FDelegateHandle Handle;
+			~FCompileScope()
+			{
+				Release.store(true);
+				Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+				Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+				Durin::FAssetCompilingManager::Get().OnAssetPostCompile().Remove(Handle);
+			}
+		} Scope{bRelease, Durin::FAssetCompilingManager::Get().OnAssetPostCompile().AddLambda(
+			[&](const Durin::FAssetPostCompileData& Data) {
+				for (const auto& Asset : Data.Assets) if (Asset.Get() == Texture)
+				{
+					++Notifications;
+					EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+					EXPECT_TRUE(Texture->HasPlatformData());
+				}
+			})};
+		Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests(
+			[&](uint64, Durin::ETexture2DCompilationPhase Phase) {
+				if (Phase == Durin::ETexture2DCompilationPhase::Building)
+				{
+					if (bFailDispatch.exchange(false)) throw std::runtime_error("Shared texture cache dispatch failure");
+					bEntered.store(true);
+					while (!bRelease.load()) std::this_thread::yield();
+				}
+				if (Phase == Durin::ETexture2DCompilationPhase::AwaitingApply) ++Computed;
+			});
+		const auto WaitUntil = [](auto Predicate) {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+			while (!Predicate() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+			return Predicate();
+		};
+		Texture->BeginCachePlatformData();
+		ASSERT_TRUE(WaitUntil([&] { return bEntered.load(); }));
+		EXPECT_EQ(Probe->GetReadStats().RequestCount, 0u);
+		EXPECT_FALSE(Texture->IsAsyncCacheComplete());
+		EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());
+		EXPECT_EQ(Texture->GetResource(), nullptr);
+		Texture->BeginCachePlatformData(); // Reuses the active request.
+		Texture->PostLoad(); // Repeated PostLoad also preserves the active request.
+		EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetNumRemainingAssets(), 1u);
+		const auto PendingInspection = Durin::InspectTexturePayloads(*Texture);
+		for (const auto& Entry : PendingInspection.Entries)
+			if (Entry.Stage == Durin::ETexturePayloadStage::DerivedData || Entry.Stage == Durin::ETexturePayloadStage::Decoded)
+				EXPECT_EQ(Entry.Repair, Durin::ETexturePayloadRepairAction::None);
+		EXPECT_EQ(Probe->GetReadStats().RequestCount, 0u);
+		EXPECT_FALSE(Texture->FinishCachePlatformData(1e-6));
+		EXPECT_FALSE(Texture->IsAsyncCacheComplete());
+		bRelease.store(true);
+		ASSERT_TRUE(WaitUntil([&] { return Computed.load() >= 1; }));
+		EXPECT_FALSE(Texture->HasPlatformData()); // A worker never installs into the object.
+		EXPECT_FALSE(Texture->FinishCachePlatformData(0.0));
+		EXPECT_EQ(Notifications, 0u);
+		ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+		EXPECT_EQ(Notifications, 1u);
+		const auto Installed = Texture->GetPlatformDataShared();
+		Texture->PostLoad();
+		ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+		EXPECT_EQ(Texture->GetPlatformDataShared(), Installed);
+		EXPECT_EQ(Notifications, 1u);
+		EXPECT_EQ(Texture->GetSource().GetIdentity(), SourceIdentity);
+		EXPECT_EQ(Texture->GetSource().GetBulkData().GetInstanceId(), SourceInstance);
+		EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+
+		const auto Reads = Probe->GetReadStats().RequestCount;
+		Texture->GetSource().ReleaseSourceMemory();
+		Texture->SetPlatformData(nullptr);
+		Texture->BeginCachePlatformData();
+		ASSERT_TRUE(WaitUntil([&] { return Computed.load() >= 2; }));
+		EXPECT_EQ(Probe->GetReadStats().RequestCount, Reads); // Warm DDC reads no source bytes.
+		Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+		EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
+		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+		EXPECT_FALSE(Texture->HasPlatformData());
+		EXPECT_EQ(Notifications, 1u);
+		Texture->BeginCachePlatformData();
+		ASSERT_TRUE(WaitUntil([&] {
+			Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+			return Texture->IsAsyncCacheComplete();
+		}));
+		EXPECT_TRUE(Texture->HasPlatformData());
+		EXPECT_EQ(Notifications, 2u); // Tick and explicit wait share one application.
+
+		Texture->SetPlatformData(nullptr);
+		const auto BeforeInstall = Computed.load();
+		Texture->BeginCachePlatformData();
+		ASSERT_TRUE(WaitUntil([&] { return Computed.load() > BeforeInstall; }));
+		using FPlatformData = std::remove_cvref_t<decltype(*Texture->GetPlatformData())>;
+		Texture->SetPlatformData(std::make_unique<FPlatformData>(*Installed));
+		const auto Replacement = Texture->GetPlatformDataShared();
+		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+		ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+		Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EXPECT_EQ(Texture->GetPlatformDataShared(), Replacement);
+		EXPECT_EQ(Notifications, 2u); // The retired worker cannot overwrite an external install.
+
+		Texture->SetPlatformData(nullptr);
+		const auto BeforeMutation = Computed.load();
+		Texture->BeginCachePlatformData();
+		ASSERT_TRUE(WaitUntil([&] { return Computed.load() > BeforeMutation; }));
+		Texture->SetSource(Texture->GetSource().CopyTornOff());
+		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+		EXPECT_FALSE(Texture->HasPlatformData());
+		Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EXPECT_FALSE(Texture->HasPlatformData());
+		EXPECT_EQ(Notifications, 2u);
+		Texture->BeginCachePlatformData();
+		ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+		EXPECT_EQ(Notifications, 3u);
+		uint32 ExpectedNotifications = 3;
+		Texture->SetPlatformData(nullptr);
+		bFailDispatch.store(true);
+		Texture->BeginCachePlatformData();
+		EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
+		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+		EXPECT_FALSE(Texture->HasPlatformData());
+		Texture->CachePlatformData(false);
+		ASSERT_TRUE(Texture->HasPlatformData());
+		EXPECT_TRUE(Texture->FinishCachePlatformData(10.0));
+		EXPECT_EQ(Notifications, ExpectedNotifications);
+		if constexpr (std::is_same_v<TTexture, Durin::DVolumeTexture>)
+		{
+			Texture->SetBuildSettings({.OutputFormat = Durin::EVolumeTextureFormat::RGBA8_UNORM});
+			Texture->BeginCachePlatformData(); // The G8 source cannot build RGBA8 output.
+			EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
+			EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+			EXPECT_FALSE(Texture->HasPlatformData());
+			EXPECT_EQ(Texture->GetSource().GetIdentity(), SourceIdentity);
+			EXPECT_EQ(Notifications, ExpectedNotifications);
+			Texture->SetBuildSettings({});
+			Texture->BeginCachePlatformData();
+			ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+			EXPECT_EQ(Notifications, ++ExpectedNotifications);
+		}
+
+		Texture->SetPlatformData(nullptr);
+		bEntered.store(false);
+		bRelease.store(false);
+		Texture->BeginCachePlatformData();
+		ASSERT_TRUE(WaitUntil([&] { return bEntered.load(); }));
+		Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+		bRelease.store(true);
+		EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
+		EXPECT_FALSE(Texture->HasPlatformData());
+		EXPECT_EQ(Notifications, ExpectedNotifications);
+		Texture->BeginCachePlatformData();
+		ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+		EXPECT_EQ(Notifications, ++ExpectedNotifications);
+
+		Texture->SetPlatformData(nullptr);
+		Texture->BeginCachePlatformData();
+		Texture->BeginDestroy();
+		Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+		EXPECT_FALSE(Texture->HasPlatformData());
+		EXPECT_TRUE(Texture->IsPendingKill());
+		EXPECT_EQ(Notifications, ExpectedNotifications);
+		if constexpr (std::is_same_v<TTexture, Durin::DTexture2D>)
+		{
+			const auto Request = Durin::MakeTexture2DBuildRequest(Texture->GetSource()).value();
+			const auto Built = Texture->CachePlatformData(Request);
+			ASSERT_FALSE(Built);
+			EXPECT_EQ(Built.error().Code, Durin::ETextureBuildOperationFailure::Unavailable);
+			bool bCalled = false;
+			EXPECT_FALSE(Texture->BeginCachePlatformData({.Build = Request},
+				[&](Durin::FTextureOperationResult) { bCalled = true; }));
+			EXPECT_FALSE(bCalled);
+		}
+		else if constexpr (std::is_same_v<TTexture, Durin::DTextureCube>)
+		{
+			const auto Built = Texture->CachePlatformData(Durin::FTextureCubeBuildRequest{});
+			ASSERT_FALSE(Built);
+			EXPECT_EQ(Built.error().Code, Durin::ETextureBuildOperationFailure::Unavailable);
+			EXPECT_FALSE(Texture->RebuildPlatformData());
+		}
+		else
+		{
+			const auto Built = Texture->CachePlatformData({.Source = Texture->GetSource().CopyTornOff(),
+				.Settings = Texture->GetBuildSettings()});
+			ASSERT_FALSE(Built);
+			EXPECT_EQ(Built.error().Code, Durin::ETextureBuildOperationFailure::Unavailable);
+		}
+		Texture->PostLoad();
+		Texture->BeginCachePlatformData();
+		EXPECT_FALSE(Texture->HasPlatformData());
+		EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetNumRemainingAssets(), 0u);
+		auto* Closed = Durin::NewObject<TTexture>(Texture->GetPackage(), "ClosedCompletionProbe");
+		ASSERT_NE(Closed, nullptr);
+		Closed->SetPlatformData(std::make_unique<FPlatformData>(*Installed));
+		Closed->BeginDestroy();
+		EXPECT_TRUE(Closed->HasPlatformData());
+		EXPECT_FALSE(Closed->FinishCachePlatformData(0.0));
+		EXPECT_FALSE(Closed->FinishCachePlatformData(10.0));
+		Durin::MarkObjectHierarchyAsGarbage(Texture->GetPackage());
+		Durin::CollectGarbage();
+	}
+}
+
+TEST(FTexturePlatformDataTests, AsyncCacheSharesCompletionCancellationAndMutationSemantics)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "SharedAsyncTextureCache");
+	auto Image = Durin::Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(64, std::byte{0x80}));
+	ASSERT_TRUE(Image);
+	Durin::FTextureSource Source2D;
+	ASSERT_TRUE(Source2D.Init2D(Image->GetView(), 4));
+	CheckAsyncTextureCache<Durin::DTexture2D>(std::move(Source2D), "/TextureImportTests/SharedAsync2D");
+	std::array<Durin::Image::FImageView, 6> Faces;
+	Faces.fill(Image->GetView());
+	Durin::FTextureSource SourceCube;
+	ASSERT_TRUE(SourceCube.InitCube(Faces, 4));
+	CheckAsyncTextureCache<Durin::DTextureCube>(std::move(SourceCube), "/TextureImportTests/SharedAsyncCube");
+	auto Volume = Durin::Image::FImage::TryCreate({.Width = 4, .Height = 4, .Depth = 2,
+		.Format = Durin::Image::ERawImageFormat::G8}, Durin::FByteBuffer(32, std::byte{0x80}));
+	ASSERT_TRUE(Volume);
+	Durin::FTextureSource SourceVolume;
+	ASSERT_TRUE(SourceVolume.InitVolume(Volume->GetView()));
+	CheckAsyncTextureCache<Durin::DVolumeTexture>(std::move(SourceVolume), "/TextureImportTests/SharedAsyncVolume");
+}
+
+TEST(FTexturePlatformDataTests, TeardownDuringRetirementRejectsReplacement)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	struct FDrainRequests
+	{
+		~FDrainRequests() { Durin::FAssetCompilingManager::Get().FinishAllCompilation(); }
+	} Drain;
+	auto Image = Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4));
+	ASSERT_TRUE(Image);
+	Durin::FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image->GetView(), 4));
+	const auto Request = Durin::MakeTexture2DBuildRequest(Source).value();
+	for (const bool bAsync : {false, true})
+	{
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(bAsync
+			? "/TextureImportTests/ClosedAsyncReplacement" : "/TextureImportTests/ClosedSyncReplacement", Path));
+		Durin::DTexture2D* Texture = nullptr;
+		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Texture));
+		Texture->SetSource(Source.CopyTornOff());
+		ASSERT_TRUE(Texture->BeginCachePlatformData({.Build = Request},
+			[Texture](Durin::FTextureOperationResult Result) {
+				EXPECT_EQ(Result.Status, Durin::ETextureCompilationStatus::Canceled);
+				Texture->BeginDestroy();
+			}));
+		if (bAsync) EXPECT_FALSE(Texture->BeginCachePlatformData({.Build = Request}));
+		else
+		{
+			const auto Built = Texture->CachePlatformData(Request);
+			ASSERT_FALSE(Built);
+			EXPECT_EQ(Built.error().Code, Durin::ETextureBuildOperationFailure::Unavailable);
+		}
+		EXPECT_TRUE(Texture->IsPendingKill());
+		EXPECT_FALSE(Texture->HasPlatformData());
+		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+		EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetNumRemainingAssets(), 0u);
+		Durin::MarkObjectHierarchyAsGarbage(Texture->GetPackage());
+		Durin::CollectGarbage();
+	}
+}
+
+TEST(FTexturePlatformDataTests, ObjectDestroyFlagsStillRouteCancellation)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	auto Image = Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4));
+	ASSERT_TRUE(Image);
+	Durin::FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image->GetView(), 4));
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "DestroyedTextureCancellation");
+	std::optional<Durin::FTextureOperationResult> Terminal;
+	ASSERT_TRUE(Texture->BeginCachePlatformData({.Build = Durin::MakeTexture2DBuildRequest(Source).value()},
+		[&](Durin::FTextureOperationResult Result) { Terminal = std::move(Result); }));
+	// The object lifecycle marks BeginDestroyed before invoking the override.
+	Texture->SetInternalFlags(Durin::EObjectInternalFlags::BeginDestroyed);
+	Texture->BeginDestroy();
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	ASSERT_TRUE(Terminal);
+	EXPECT_EQ(Terminal->Status, Durin::ETextureCompilationStatus::Canceled);
+	EXPECT_FALSE(Texture->HasPlatformData());
+	Durin::MarkObjectHierarchyAsGarbage(Texture);
+	Durin::CollectGarbage();
 }
 
 TEST(FTexture2DBuildModuleTests, KeepsProductsValueOwned)
@@ -1058,7 +1413,7 @@ TEST(FTexture2DTests, SamePathReplacementCannotReceiveDestroyedOwnerCompletion)
 	}
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	ASSERT_TRUE(FirstResult.has_value());
-	EXPECT_EQ(FirstResult->Status, Durin::ETextureCompilationStatus::Failed);
+	EXPECT_EQ(FirstResult->Status, Durin::ETextureCompilationStatus::Canceled);
 	ASSERT_TRUE(ReplacementResult.has_value());
 	EXPECT_EQ(ReplacementResult->Status, Durin::ETextureCompilationStatus::Failed);
 	const auto Diagnostic = Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Replacement);
@@ -1392,6 +1747,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	Texture = Loaded.value_or(nullptr);
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 	ASSERT_NE(Texture, nullptr);
+	ASSERT_TRUE(Texture->FinishCachePlatformData());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_TRUE(std::ranges::equal(Texture->GetPlatformData()->Mips.front().Voxels,
 		Expected.Mips.front().Voxels));
@@ -1602,6 +1958,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	Texture = Loaded.value_or(nullptr);
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 	ASSERT_NE(Texture, nullptr);
+	ASSERT_TRUE(Texture->FinishCachePlatformData()); // Populate DDC before testing a separate warm load.
 	ASSERT_TRUE(Durin::UnloadPackage(
 		AssetPath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	Texture = nullptr;
@@ -1610,6 +1967,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 		Texture = WarmLoaded.value_or(nullptr);
 	ASSERT_TRUE(WarmLoaded) << (WarmLoaded ? std::string{} : WarmLoaded.error().Message);
 	ASSERT_NE(Texture, nullptr);
+	ASSERT_TRUE(Texture->FinishCachePlatformData());
 	const Durin::FPackageResourceHandle WarmResource =
 		Durin::GetPackageResourceManager().FindPackage(AssetPath.ToString());
 	ASSERT_TRUE(WarmResource);

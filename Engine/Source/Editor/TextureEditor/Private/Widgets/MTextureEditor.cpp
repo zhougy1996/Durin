@@ -1,4 +1,5 @@
 #include "Widgets/MTextureEditor.h"
+#include "RenderResource.h"
 #include "PropertyEditor/DetailPanel.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -458,7 +459,8 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
 	{
 		const FTexture2DBuildStatus Status = Texture->GetBuildStatus();
-		const bool bResourceFailed = Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed;
+		const bool bResourceFailed = Texture->GetResource() && !Texture->HasPendingRenderResourceInitialization()
+			&& !Texture->GetResource()->GetTextureRHI_GameThread();
 		if ((Status.bPending || Status.Phase != ETexture2DCompilationPhase::Failed)
 			&& !bResourceFailed) return;
 		const char* Title = "Build Error";
@@ -487,15 +489,6 @@ namespace Durin::Editor::Texture
 		{
 			if (bResourceFailed) Texture->UpdateResource();
 			else Texture->PostLoad();
-		}
-
-		if (bResourceFailed)
-		{
-			ImGui::SameLine();
-			const ETextureResourceUpdateState RState =
-				Texture->GetResourceUpdateState();
-			const std::string StateName = GetEnumValueDisplayName("Durin::ETextureResourceUpdateState", static_cast<uint64>(RState));
-			ImGui::TextDisabled("(GPU state: %s)", StateName.c_str());
 		}
 
 		ImGui::EndChild();

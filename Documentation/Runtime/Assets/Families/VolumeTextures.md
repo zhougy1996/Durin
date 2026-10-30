@@ -5,7 +5,7 @@ and owned GPU-resource update contracts for package-backed volume textures.
 
 Modules: Engine, TextureCompressor, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-30
 
 ## Asset boundary
 
@@ -115,6 +115,14 @@ PostLoad queries from metadata before acquiring voxels. A valid hit reads no
 source payload. Only misses invoke the volume recipe, with best-effort persistence
 and GameThread result application. TextureCompressor never receives cache policy or mutates a
 `DVolumeTexture`.
+
+Authored PostLoad and `BeginCachePlatformData()` submit through the shared texture
+compiling manager. Source/settings mutation cancels and retires the old request;
+worker completion only produces detached platform data. Explicit finish and the
+normal completion pump install once on GameThread, preserving source storage and
+package dirty state. Cancellation and destruction discard unapplied results.
+The shared [texture cache contract](TextureSystem.md#derived-platform-data) defines
+timeout, retry and synchronous-cache behavior for all three texture families.
 
 ## Authored source bulk data
 

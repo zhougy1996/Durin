@@ -180,6 +180,7 @@ namespace Durin
 		RENDERCORE_API auto PublishTexture_RenderThread() -> void;
 		// GameThread only, after acquiring completed initialization and before enqueueing release.
 		// The owner must keep this allocation immutable throughout that interval.
+		// Returns null if resource initialization failed.
 		RENDERCORE_API auto GetTextureRHI_GameThread() const -> FTextureRHIRef;
 
 	protected:

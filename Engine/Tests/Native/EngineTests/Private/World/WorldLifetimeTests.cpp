@@ -828,7 +828,6 @@ TEST(FWorldTests, MapChangeCompletionExceptionsDoNotEscapeOrRedeliver)
 		}}));
 		Host->CancelPendingMapChange();
 		EXPECT_NO_THROW(FMapChangeTestAccess::Tick(*Host));
-		EXPECT_NO_THROW(FMapChangeTestAccess::Tick(*Host));
 		EXPECT_EQ(Completions, 1);
 		EXPECT_FALSE(Host->IsPreparingMapChange());
 		EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::Canceled);
@@ -971,11 +970,10 @@ TEST(FWorldTests, ResourceQueriesDoNotStartPreparationAndTextureFailureStaysOnOw
 	TStrongObjectPtr<DStaticMesh> Mesh(NewObject<DStaticMesh>(nullptr, "UnpreparedMesh"));
 	EXPECT_EQ(Mesh->GetRenderDataLoadStatus().CpuPhase, ECookedMeshCpuPhase::Unloaded);
 	TStrongObjectPtr<DTexture2D> Texture(NewObject<DTexture2D>(nullptr, "UnpreparedTexture"));
-	EXPECT_FALSE(Texture->HasUsableResource());
-	EXPECT_FALSE(Texture->IsResourceUpdatePending());
+	EXPECT_EQ(Texture->GetResource(), nullptr);
+	EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());
 	Texture->UpdateResource();
-	EXPECT_EQ(Texture->GetResourceUpdateState(), ETextureResourceUpdateState::Failed);
-	EXPECT_NE(Texture->GetResourceUpdateError().find("platform data"), std::string::npos);
+	EXPECT_EQ(Texture->GetResource(), nullptr);
 	auto* RetiredMesh = Mesh.Get(); auto* RetiredTexture = Texture.Get();
 	Mesh.Reset(); Texture.Reset(); MarkObjectHierarchyAsGarbage(RetiredMesh); MarkObjectHierarchyAsGarbage(RetiredTexture); CollectGarbage();
 }

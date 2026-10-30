@@ -1,4 +1,5 @@
 #include "TextureBuildSettingsDetails.h"
+#include "RenderResource.h"
 #include "DObject/Class.h"
 #include "Misc/StringHelper.h"
 #include "PixelFormat.h"
@@ -77,11 +78,13 @@ namespace Durin::Editor::Texture
 							DrawInfoRow("CPU Status", "Platform data unavailable");
 						}
 
-						DrawInfoRow("GPU Availability", Texture->HasUsableResource() ? "Available" : "Unavailable");
+						const auto* Resource = Texture->GetResource();
+						const bool bPending = Texture->HasPendingRenderResourceInitialization();
+						DrawInfoRow("GPU Availability", Resource && !bPending && Resource->GetTextureRHI_GameThread()
+							? "Available" : "Unavailable");
 
-						DrawInfoRow("Resource Update", GetEnumValueDisplayName(
-							"Durin::ETextureResourceUpdateState",
-							static_cast<uint64>(Texture->GetResourceUpdateState())));
+						DrawInfoRow("GPU Initialization", bPending
+							? "Pending" : Resource ? "Complete" : "Not initialized");
 
 						return false;
 					});

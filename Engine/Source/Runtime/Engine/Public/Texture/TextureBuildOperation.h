@@ -6,6 +6,13 @@
 namespace Durin
 {
 #if DURIN_WITH_EDITORONLY_DATA
+	// Object application policy for explicit source builds. Caching the current
+	// asset preserves its source and package state without caller-supplied policy.
+	struct FTextureBuildApplicationContext
+	{
+		bool bMarkPackageDirty = true;
+	};
+
 	enum class ETextureCompilationStatus : uint8 { Succeeded, Failed, Canceled };
 	struct FTextureOperationResult
 	{

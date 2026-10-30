@@ -143,7 +143,7 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 			if (!std::visit([&](auto&& Decoded) {
-					auto BuildResult = Texture.CachePlatformData({.Input = FTextureCubePanoramaBuildInput{.Image = std::move(Decoded), .Settings = Settings}}, {});
+					auto BuildResult = Texture.CachePlatformData({.Input = FTextureCubePanoramaBuildInput{.Image = std::move(Decoded), .Settings = Settings}});
 					OutError = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 					return static_cast<bool>(BuildResult);
 				},
@@ -174,7 +174,7 @@ namespace Durin::AssetForge::Builtins
 			FTextureCubeFaceImages SourceData;
 			if (!TranslateTextureCubeFaceSources(Encoded, SourceData, OutError))
 				return false;
-			auto BuildResult = Texture.CachePlatformData({.Input = FTextureCubeFacesBuildInput{.FaceImages = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}}, {});
+			auto BuildResult = Texture.CachePlatformData({.Input = FTextureCubeFacesBuildInput{.FaceImages = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
 			OutError = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 			if (!BuildResult
 				|| !PublishCubeImportData(Texture, Sources, ETextureCubeSourceLayout::SixFaces, OutError)) return false;

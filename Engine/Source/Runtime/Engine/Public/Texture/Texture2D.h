@@ -17,7 +17,6 @@ namespace Durin
 	struct FTexture2DBuildRequest;
 	struct FTexture2DBuildSettings;
 	struct FTexture2DInputError;
-	struct FTexture2DResultApplicationContext;
 	struct FTexture2DCompilationRequest;
 	struct FAssetImportDataState;
 
@@ -25,6 +24,13 @@ namespace Durin
 	class FTextureCompilingManager;
 
 #if DURIN_WITH_EDITORONLY_DATA
+	struct FTexture2DResultApplicationContext
+	{
+		// Empty for rebuilds. Authored replacements stay on the GameThread.
+		std::optional<FTextureSource> SourceReplacement;
+		bool bMarkPackageDirty = true;
+	};
+
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{
@@ -81,8 +87,8 @@ namespace Durin
 		ENGINE_API auto BeginCachePlatformData(FTexture2DCompilationRequest Request,
 			FTextureCompilationCompletion Completion = {}) -> std::expected<void, FTextureBuildOperationError>;
 		// Explicit blocking construction/application for tools and owner-thread operations.
-		ENGINE_API auto CachePlatformData(FTexture2DBuildRequest Request,
-			const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>;
+		ENGINE_API auto CachePlatformData(const FTexture2DBuildRequest& Request,
+			const FTexture2DResultApplicationContext& Context = {}) -> std::expected<void, FTextureBuildOperationError>;
 
 		// Captures a detached source snapshot without reading or decompressing its payload.
 		ENGINE_API auto CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
@@ -105,7 +111,7 @@ namespace Durin
 			std::unique_ptr<FTexturePlatformData> Data) -> void;
 
 	protected:
-		auto CreateRenderResourceCandidate(
+		auto CreateResource(
 			FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureResource> override;
 

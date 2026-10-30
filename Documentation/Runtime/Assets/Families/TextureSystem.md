@@ -31,16 +31,16 @@ data, payload validation, resource publication, and compilation readiness querie
   individual mips. `ReleaseSourceMemory` explicitly evicts the cache; existing
   handles remain valid through immutable shared ownership. Source replacement
   installs fresh cache state rather than comparing a separate cache identity.
-- Texture2D request assembly synchronously reads `FTextureSource::FMipData`
-  and captures `Image::FImage` values for the source mip chain together with
-  `FTexture2DBuildSettings`. Images share immutable decoded allocations, but
-  retain no texture, source object, mip handle, or package-read handle. There is
-  no intermediate imported-data or snapshot type. Cube recipes likewise consume
+- Texture2D request assembly captures a torn-off `FTextureSource` and
+  `FTexture2DBuildSettings` without reading source bytes. Cache-miss execution
+  acquires `FTextureSource::FMipData` and supplies shared `Image::FImage` values
+  to the recipe. These images retain immutable decoded allocations without
+  retaining a texture or package-read handle. Cube recipes likewise consume
   shared decoded images through `FTextureCubeFaceImages`; their storage and
   identity boundary is described in [Cube Textures](CubeTextures.md). Volume
   adapters retain their family-specific recipe inputs.
-- A Texture2D build request carries source identity separately from its images
-  and settings. Workers return platform data and diagnostics, never source
+- A Texture2D build request carries source identity in its retained source
+  snapshot alongside settings. Workers return platform data and diagnostics, never source
   pixels for installation. Optional source replacements belong to the
   GameThread result-application context. Rebuilds preserve the existing source;
   Texture2D import/reimport commits validated Source, settings and metadata before
@@ -92,6 +92,9 @@ inspection never read cooked bulk, deserialize data, or update render resources.
 `CachePlatformData(bAsyncCache)` prepares the current texture's CPU platform
 data. False selects synchronous preparation; true requests background work.
 `BeginCachePlatformData()` is the background convenience entry point.
+Current-asset caching preserves authored source storage and package dirty state.
+Canonical cube faces and HDR panoramas use the same source identity and DDC path
+for synchronous and asynchronous caching, without decoding source bytes on a hit.
 `FinishCachePlatformData(TimeoutSeconds)` only completes existing authored
 compilation or a cooked read/decode request and installs its result on GameThread;
 it never starts a new request. With no work or installed data it returns false.
@@ -200,6 +203,12 @@ Object-level platform-data work follows the UE cache lifecycle names:
 `DTexture2D::BeginCachePlatformData(Request, Completion)` admits explicit asynchronous
 work; `DTexture2D::CachePlatformData`, `DTextureCube::CachePlatformData` and
 `DVolumeTexture::CachePlatformData` synchronously construct and apply platform data.
+All explicit synchronous build overloads borrow their request and default their
+application options. Cube and volume builds share `FTextureBuildApplicationContext`
+for dirty marking; source preservation is internal to current-asset caching,
+not a caller policy. Texture2D retains its optional `SourceReplacement` for
+transactional edits that validate and commit a different source on GameThread.
+Cube import reuses its normalized source for both building and installation.
 The base texture's no-argument `BeginCachePlatformData` and `FinishCachePlatformData`
 remain the ordinary metadata-driven lifecycle operations.
 Admission, synchronous application and editor rebuild helpers return
@@ -225,6 +234,11 @@ Engine registers `DTexture` to the `Durin.Texture` manager in its
 Engine captures definitions and immutable inputs, then executes the texture-family
 shared-output session. DDC owns record lookup, integrity validation, fallback,
 and best-effort persistence; Engine owns typed output assembly and application.
+Authored Texture2D, TextureCube and VolumeTexture caching use this same manager,
+request-owner cancellation, completion mailbox and GameThread application path.
+Volume inputs capture source metadata and build settings without acquiring voxels;
+its synchronous and asynchronous paths share definition validation, cache policy
+and output assembly. No volume-specific queue or persistent request state exists.
 Registered Engine functions invoke TextureCompressor's pure synchronous module on a
 cache miss. TextureCompressor stays resident until editor shutdown; consumers drain
 work before module unload. See the
@@ -325,8 +339,11 @@ an explicit override. Committed edits dirty the package through the shared
 reflected transaction path. Direct source and build-setting setters cancel authored work and invalidate
 installed platform data, obsolete cooked bytes, and GPU publication. They do not
 build or mark the package dirty themselves; the operation applying those values
-owns rebuilding and dirty marking. `SetPlatformData()` invalidates GPU publication
-before adopting its CPU input. Call `UpdateResource()` to upload installed data.
+owns rebuilding and dirty marking. `SetPlatformData()` cancels and retires active
+CPU preparation and invalidates GPU publication before adopting its CPU input.
+Compiler application detaches the active request before installation, so it never
+joins itself. Synchronous caching retires previous operation diagnostics before
+retrying. Call `UpdateResource()` to upload installed data.
 
 ## Render-Thread Boundary
 
@@ -334,10 +351,10 @@ before adopting its CPU input. Call `UpdateResource()` to upload installed data.
 `DTextureCube`, and `DVolumeTexture`. It cannot be instantiated as a concrete
 asset type. It provides the common source and render-resource contract. Each
 leaf retains its typed build settings, installed platform data, family codec,
-and resource-construction hook. The base retains the sole reflected source and
-  import pointer plus the sole cooked bulk slot; there are no forwarding accessors
-  or duplicate family storage fields. Authored saves emit only the canonical base
-  identities.
+and `CreateResource` construction hook. The base retains the sole reflected source
+and import pointer plus the sole cooked bulk slot; there are no forwarding
+accessors or duplicate family storage fields. Authored saves emit only the
+canonical base identities.
 
 `DTexture` directly owns the current `FTextureResource`, a stable
 `FTextureReference`, and one `FRenderCommandFence` for resource readiness.
@@ -370,15 +387,19 @@ The resource fence confirms that initialization and publication have been ordere
 not that GPU execution has finished. Later device/replay failures are not
 recoverable per-texture update results.
 
-`HasUsableResource()` checks the current allocation only after its fence completes.
-`IsResourceUpdatePending()` combines the existing CPU request with pending GPU
-initialization; no terminal-but-unconsumed GPU state exists. GPU progress/result
-is derived from the fence and resource, while the existing preparation/admission
-state preserves CPU failures and rejected requests. Getters never advance work.
-`GetResourceUpdateError()` exposes preparation/admission diagnostics or the failed
-GPU allocation result. Missing platform data and closed render admission reject
-before initialization. Invalid descriptions, allocation failures and exceptions
-are logged. CPU data remains available for an explicit retry. Descriptor support
+`GetResource()` borrows the current render representation on GameThread;
+it returns null after release or when no resource was created.
+`HasPendingRenderResourceInitialization()` checks only that resource's initialization
+fence, returning false for a nonexistent resource. CPU caching is queried separately
+through `IsAsyncCacheComplete()`. After initialization completes, callers can read
+the allocation through `FTextureResource::GetTextureRHI_GameThread()`. None of
+these queries advances work.
+There is no combined update-state enum, retained update-error string or independent
+texture teardown flag. Object `BeginDestroyed`/garbage flags own admission and
+destruction checks; editor diagnostics combine resource and cache facts locally.
+Missing platform data and closed render admission reject before initialization.
+Preparation, invalid descriptions, allocation failures and exceptions are logged.
+CPU data remains available for an explicit retry. Descriptor support
 is checked before allocation; see
 [RHI Capabilities and Vulkan Startup](../../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
 
@@ -386,11 +407,17 @@ is checked before allocation; see
 resource's fence. It does not flush the global render queue or pump GameThread
 callbacks. Headless reload accepts valid CPU data without requiring a GPU resource.
 
-`BeginDestroy()` closes admission and cancels CPU preparation. Existing generic
+`BeginDestroy()` closes admission and cancels CPU preparation. All build/cache
+entry points reject closed textures, including teardown
+begun by a completion callback during request retirement. Completion queries do
+not report success from retained CPU data after teardown. Existing generic
 deferred cleanup owns each resource through its queued initialization, release
 and deletion, followed by retirement of the stable reference. No render command
 captures the texture UObject, and destruction never joins GPU initialization.
 Initialized owners must retire before RenderCore closes cleanup admission.
+Cancellation routing accepts objects already marked for destruction, since the
+object lifecycle sets `BeginDestroyed` before invoking the override. The compiler
+uses the object's serial key to retire work even after its weak reference expires.
 
 Material and scene bindings retain counted copies of the stable reference and
 observe replacements without reacquiring the asset. Delayed release resets that
@@ -398,9 +425,10 @@ target only when it still matches the released allocation, so retiring an old
 resource cannot unbind its replacement. Failed direct updates leave fallback,
 which may be null under the existing family binding policy.
 
-`GetPublishedTexture()` is a GameThread-only capture of the current allocation
-after its fence completes. The counted `FTextureRHIRef` retains neither a UObject
-nor a C++ resource and does not follow replacements. GameThread never reads the
+Fixed-input work captures `FTextureResource::GetTextureRHI_GameThread()` after
+checking resource presence and completed initialization. The counted
+`FTextureRHIRef` retains neither a UObject nor a C++ resource and does not follow
+replacements. GameThread never reads the
 stable reference's mutable RenderThread target. Ordinary long-lived bindings use
 `GetTextureReferenceRHI()` instead.
 
@@ -409,7 +437,7 @@ allocation. Material thumbnail sessions retain allocation refs for all eight
 built-in texture roles and reject delayed output if an observed dependency
 changes. No asset-owned snapshot wrapper or eagerly allocated fixed reference
 exists. Editor CPU previews compare source identity and weak ownership of
-immutable platform data. Upload candidates share that installed data until
+immutable platform data. Upload resources share that installed data until
 initialization completes, avoiding a second pixel-buffer copy. Thumbnail
 sessions validate weak asset identity, asset revisions and the actual captured
 GPU allocation. Direct invalidation clears the captured allocation, invalidating dependent
@@ -441,6 +469,8 @@ installed platform data, any available manager operation diagnostic, cooked
 bulk, and current resource availability and update result. Package summaries are construct-free and
 join reflected domain fields with Engine storage inspection; neither form opens
 DDC, rebuilds, or creates runtime resources merely to inspect state.
+While CPU caching is pending, live summaries suppress derived/decoded rebuild
+actions and show preparation progress instead of suggesting another rebuild.
 
 Engine exposes the underlying texture, storage, compilation, and render-resource
 facts but does not own the combined editor diagnostic or its repair guidance.

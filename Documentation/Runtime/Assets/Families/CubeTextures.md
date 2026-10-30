@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureCompressor, Renderer, RHI
 
-Last reviewed: 2026-10-10
+Last reviewed: 2026-10-30
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -31,7 +31,9 @@ The image collection and `ITextureCompressorModule` interface are available only
 has no reflected fields, bulk storage, schema, or independent content identity. `ReadTextureCubeFaces`
 reads the installed `FTextureSource` and returns images sharing its decoded
 allocation; they remain valid after source-memory release or source destruction.
-Rebuild requests carry the installed Source identity separately from images.
+Current-asset cache requests retain a torn-off `FTextureSource`. Canonical faces
+and HDR panoramas query DDC before acquiring images in both synchronous and
+asynchronous paths, preserving authored source storage and settings.
 For imports, Engine prepares canonical `FTextureSource` values for DDC identity
 and authored installation. Recipes consume image values without package reads. HDR recipes
 continue to consume the linear panorama directly.

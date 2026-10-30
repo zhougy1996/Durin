@@ -653,7 +653,7 @@ TEST(FTextureCubeTests, RejectsInvalidAuthoredSettingsBeforeSourceReplacement)
 		if (InvalidField == 1) Input.PanoramaExposureEV = std::numeric_limits<float>::infinity();
 		if (InvalidField == 2) Input.OriginalSourceWidth = 0;
 		if (InvalidField == 3) Input.OriginalSourceHeight = 0;
-		const auto Result = Texture->CachePlatformData({.Input = std::move(Input)}, {});
+		const auto Result = Texture->CachePlatformData({.Input = std::move(Input)});
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Result.error().Code, Durin::ETextureBuildOperationFailure::InvalidInput);
 		EXPECT_FALSE(Result.error().InputReason.empty());
