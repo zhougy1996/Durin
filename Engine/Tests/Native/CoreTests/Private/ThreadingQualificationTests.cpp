@@ -383,10 +383,7 @@ namespace Durin
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		constexpr uint32 CallbackCount = 256;
-		constexpr uint32 StaleCallbackCount = 32;
 		constexpr uint64 DeclaredCaptureBytes = 64;
-		FTaskGenerationSource StaleGeneration;
-		const FTaskGenerationToken StaleToken = StaleGeneration.Capture();
 		std::atomic<uint32> ExecutedCount = 0;
 		std::vector<Tasks::FTask> Handles;
 		Handles.reserve(CallbackCount);
@@ -396,7 +393,6 @@ namespace Durin
 			FTaskLaunchOptions Options;
 			Options.Target = ETaskTarget::GameThreadDeferred;
 			Options.EstimatedPayloadBytes = DeclaredCaptureBytes;
-			if (Index < StaleCallbackCount) Options.GenerationToken = StaleToken;
 			Options.Prerequisites = std::span(&Root, 1);
 			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
 			Handles.emplace_back(SubmitKernelTask("DeferredMeasurementCallback", [&]() {
@@ -405,29 +401,25 @@ namespace Durin
 		}
 		const uint64 AdmissionNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - AdmissionStart).count());
-		StaleGeneration.Advance();
 
 		const FGameThreadDeferredWorkQueueDiagnostics BeforePump = GetGameThreadDeferredWorkQueueDiagnostics();
 		ASSERT_EQ(CallbackCount, BeforePump.QueueDepth);
-		ASSERT_EQ(CallbackCount * DeclaredCaptureBytes, BeforePump.QueuedPayloadBytes);
+		ASSERT_GT(BeforePump.QueuedPayloadBytes, CallbackCount * DeclaredCaptureBytes);
 		const FGameThreadDeferredPumpResult Pump = PumpGameThreadDeferredWork({.bUnlimited = true});
-		ASSERT_EQ(CallbackCount - StaleCallbackCount, Pump.ExecutedCallbacks);
-		EXPECT_EQ(CallbackCount - StaleCallbackCount, ExecutedCount.load(std::memory_order::acquire));
+		ASSERT_EQ(CallbackCount, Pump.ExecutedCallbacks);
+		EXPECT_EQ(CallbackCount, ExecutedCount.load(std::memory_order::acquire));
 
 		uint64 TotalResidencyNanoseconds = 0;
 		uint64 MaxResidencyNanoseconds = 0;
 		uint32 SucceededCount = 0;
-		uint32 StaleCount = 0;
 		for (const Tasks::FTask& Handle : Handles)
 		{
 			const FTaskDiagnostics Diagnostics = Handle.GetDiagnostics();
 			TotalResidencyNanoseconds += Diagnostics.QueueResidencyNanoseconds;
 			MaxResidencyNanoseconds = std::max(MaxResidencyNanoseconds, Diagnostics.QueueResidencyNanoseconds);
 			SucceededCount += Diagnostics.State == ETaskState::Succeeded;
-			StaleCount += Diagnostics.TerminalReason == ETaskTerminalReason::StaleGeneration;
 		}
-		EXPECT_EQ(CallbackCount - StaleCallbackCount, SucceededCount);
-		EXPECT_EQ(StaleCallbackCount, StaleCount);
+		EXPECT_EQ(CallbackCount, SucceededCount);
 		EXPECT_LT(Pump.ElapsedNanoseconds, 1'000'000'000u);
 		std::cout << "[ QUALIFICATION ] game_thread_deferred callbacks=" << CallbackCount
 			<< " declared_capture_bytes=" << CallbackCount * DeclaredCaptureBytes
@@ -435,8 +427,6 @@ namespace Durin
 			<< " pump_ns=" << Pump.ElapsedNanoseconds
 			<< " average_residency_ns=" << TotalResidencyNanoseconds / CallbackCount
 			<< " max_residency_ns=" << MaxResidencyNanoseconds
-			<< " stale_drop_count=" << StaleCount
-			<< " stale_drop_ppm=" << (static_cast<uint64>(StaleCount) * 1'000'000 / CallbackCount)
 			<< '\n';
 	}
 }

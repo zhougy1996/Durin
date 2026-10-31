@@ -962,26 +962,33 @@ TEST_F(FPackagePersistenceTests, FailedIoStillRunsTypedPublication)
 	EXPECT_EQ(Calls, 1u);
 }
 
-TEST_F(FPackagePersistenceTests, DiscardedPublicationRetiresOwnerOnGameThread)
+TEST_F(FPackagePersistenceTests, FailedPublicationRetiresOwnerOnGameThread)
 {
-	FTaskGenerationSource Generation;
 	Tasks::FTask Publication;
-	uint32 Cleaned = 0, Destroyed = 0;
+	uint32 Invoked = 0, Cleaned = 0, Destroyed = 0;
 	{
 		auto Owner = std::shared_ptr<int>(new int(1), [&](int* Value) {
 			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
 		});
 		auto Admission = PackageSavePrivate::SubmitAsyncSaveTask(1, [Owner] {},
 			[&](const Tasks::FTask& Disk, const std::shared_ptr<PackageSavePrivate::FAsyncSaveState>&) {
-				Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
-					{.GenerationToken = Generation.Capture()}, [] { ADD_FAILURE(); }, Disk);
+				Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] {
+					EXPECT_TRUE(IsInGameThread());
+					++Invoked;
+					throw std::runtime_error("save publication failure");
+				}, Disk);
 				return Publication;
 			}, [&, Owner] { EXPECT_TRUE(IsInGameThread()); ++Cleaned; });
 		ASSERT_TRUE(Admission);
 	}
-	Generation.Advance();
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_EQ(Publication.GetState(), ETaskState::Failed);
+	EXPECT_EQ(Publication.GetDiagnostics().TerminalReason, ETaskTerminalReason::CallbackFailure);
+	EXPECT_NE(Publication.GetDiagnostic().find("save publication failure"), std::string::npos);
+	EXPECT_EQ(Invoked, 1u);
+	EXPECT_EQ(Cleaned, 1u);
+	EXPECT_EQ(Destroyed, 1u);
+	PackageSavePrivate::PollAsyncSaves();
 	EXPECT_EQ(Cleaned, 1u);
 	EXPECT_EQ(Destroyed, 1u);
 }
@@ -1000,32 +1007,45 @@ TEST_F(FPackagePersistenceTests, DrainFromDeferredCallbackReturnsBusyWithoutStea
 	EXPECT_TRUE(Save.GetResult());
 }
 
-TEST_F(FPackagePersistenceTests, FallbackCleanupMayPumpOtherAcceptedPublications)
+TEST_F(FPackagePersistenceTests, BusinessSkippedPublicationCleanupMayPumpOtherAcceptedPublications)
 {
-	FTaskGenerationSource Generation;
-	Tasks::FTask Discarded;
+	Tasks::FTask Publication;
 	Tasks::TTask<int> Other;
-	bool Cleaned = false;
+	uint64 CurrentSerial = 1;
+	const uint64 SubmittedSerial = CurrentSerial;
+	uint32 Applied = 0, Skipped = 0, Cleaned = 0;
 	auto Admission = PackageSavePrivate::SubmitAsyncSaveTask(1, [] {},
 		[&](const Tasks::FTask& Disk, const std::shared_ptr<PackageSavePrivate::FAsyncSaveState>&) {
-			Discarded = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
-				{.GenerationToken = Generation.Capture()}, [] { ADD_FAILURE(); }, Disk);
-			return Discarded;
+			Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&, SubmittedSerial] {
+				EXPECT_TRUE(IsInGameThread());
+				if (SubmittedSerial != CurrentSerial) { ++Skipped; return; }
+				++Applied;
+			}, Disk);
+			return Publication;
 		}, [&] {
+			EXPECT_TRUE(IsInGameThread());
 			while (!Other.IsCompleted()) PumpGameThreadDeferredWork({.MaxCallbacks = 1});
 			EXPECT_EQ(PackageSavePrivate::CheckAsyncAdmission().Error, EPackageSaveError::Busy);
-			Cleaned = true;
+			++Cleaned;
 		});
 	ASSERT_TRUE(Admission);
-	Generation.Advance();
+	++CurrentSerial;
 	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
-	while (!Discarded.IsCompleted()) PumpGameThreadDeferredWork({.MaxCallbacks = 1});
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+	while (!Publication.IsCompleted() && std::chrono::steady_clock::now() < Deadline)
+		PumpGameThreadDeferredWork({.MaxCallbacks = 1});
+	ASSERT_TRUE(Publication.IsCompleted());
+	EXPECT_EQ(Publication.GetState(), ETaskState::Succeeded);
+	EXPECT_EQ(Applied, 0u);
+	EXPECT_EQ(Skipped, 1u);
 	Other = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [] {},
 		[](bool Success, const FTaskCancellationToken&) { EXPECT_TRUE(Success); return 41; }, Admission);
 	ASSERT_TRUE(Admission);
 	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
 	PackageSavePrivate::PollAsyncSaves();
-	EXPECT_TRUE(Cleaned);
+	EXPECT_EQ(Cleaned, 1u);
 	EXPECT_EQ(Other.GetResult(), 41);
 	EXPECT_TRUE(PackageSavePrivate::CheckAsyncAdmission());
+	PackageSavePrivate::PollAsyncSaves();
+	EXPECT_EQ(Cleaned, 1u);
 }

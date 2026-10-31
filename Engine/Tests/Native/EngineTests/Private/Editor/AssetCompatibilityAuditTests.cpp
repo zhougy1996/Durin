@@ -265,7 +265,7 @@ TEST_F(FAssetCompatibilityAuditTests, StreamsProgressBeforeTypedTerminalPublicat
 	EXPECT_EQ(Durin::ETaskTarget::GameThreadDeferred, Model.GetTerminalTaskDiagnostics().Target);
 }
 
-TEST_F(FAssetCompatibilityAuditTests, ProjectChangeDropsQueuedTerminalPublication)
+TEST_F(FAssetCompatibilityAuditTests, ProjectChangeIgnoresQueuedTerminalPublication)
 {
 	Durin::Editor::FAssetCompatibilityAuditModel Model(
 		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
@@ -287,8 +287,29 @@ TEST_F(FAssetCompatibilityAuditTests, ProjectChangeDropsQueuedTerminalPublicatio
 	EXPECT_GT(Model.GetRequestSerial(), Serial);
 	EXPECT_EQ(Durin::Editor::EAssetCompatibilityAuditState::Idle, Model.GetState());
 	EXPECT_TRUE(Model.GetPresentationRecords().empty());
-	EXPECT_EQ(Durin::ETaskState::Failed, Model.GetTerminalTaskDiagnostics().State);
-	EXPECT_EQ(Durin::ETaskTerminalReason::StaleGeneration, Model.GetTerminalTaskDiagnostics().TerminalReason);
+	EXPECT_EQ(Durin::ETaskState::Succeeded, Model.GetTerminalTaskDiagnostics().State);
+	EXPECT_EQ(Durin::ETaskTerminalReason::None, Model.GetTerminalTaskDiagnostics().TerminalReason);
+}
+
+TEST_F(FAssetCompatibilityAuditTests, ShutdownIgnoresQueuedTerminalPublication)
+{
+	Durin::Editor::FAssetCompatibilityAuditModel Model(
+		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
+	const auto Data = MakeData("/AuditTests/ShutdownQueuedTerminal");
+	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	ASSERT_TRUE(Model.RunAudit(Assets, {}));
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+	while (Durin::GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth == 0
+		&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	ASSERT_EQ(1u, Durin::GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
+	const uint64 Serial = Model.GetRequestSerial();
+	Model.Shutdown();
+	ASSERT_EQ(Durin::Editor::EAssetCompatibilityAuditState::Cancelled, Model.GetState());
+	Durin::PumpGameThreadDeferredWork({.bUnlimited = true});
+	EXPECT_EQ(Serial, Model.GetRequestSerial());
+	EXPECT_EQ(Durin::Editor::EAssetCompatibilityAuditState::Cancelled, Model.GetState());
+	EXPECT_EQ(Durin::ETaskState::Succeeded, Model.GetTerminalTaskDiagnostics().State);
+	EXPECT_EQ(Durin::ETaskTerminalReason::None, Model.GetTerminalTaskDiagnostics().TerminalReason);
 }
 
 TEST_F(FAssetCompatibilityAuditTests, CancellationAfterWorkerCompletionIsHonoredAtPublication)

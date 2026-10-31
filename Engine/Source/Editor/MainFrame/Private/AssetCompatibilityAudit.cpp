@@ -210,7 +210,6 @@ namespace Durin::Editor
 		CancelAndDrain();
 		Failure.clear();
 		++RequestSerial;
-		Generation.Advance();
 		Progress = {.Completed = 0, .Total = Assets.size()};
 		Records.clear();
 		std::vector<FAssetPackageCompatibilityProbeInput> Inputs;
@@ -280,7 +279,6 @@ namespace Durin::Editor
 		TerminalOptions.DebugName = "AssetCompatibility.PublishTerminal";
 		TerminalOptions.Priority = ETaskPriority::Normal;
 		TerminalOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(WorkerTask);
-		TerminalOptions.GenerationToken = Generation.Capture();
 		const std::weak_ptr<FPublicationLifetime> WeakLifetime = PublicationLifetime;
 		TerminalTask = Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, TerminalOptions,
 			[WeakLifetime, Serial, Outcome = WorkerTask] {
@@ -341,7 +339,6 @@ namespace Durin::Editor
 	{
 		CancelAndDrain();
 		++RequestSerial;
-		Generation.Advance();
 		Records.clear();
 		Progress = {};
 		Failure.clear();
@@ -354,7 +351,6 @@ namespace Durin::Editor
 		if (!bAdmissionOpen) return;
 		bAdmissionOpen = false;
 		CancelAndDrain();
-		Generation.Advance();
 		if (PublicationLifetime) PublicationLifetime->Model = nullptr;
 	}
 

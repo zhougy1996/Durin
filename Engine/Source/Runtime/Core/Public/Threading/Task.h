@@ -38,8 +38,6 @@ namespace Durin::Tasks
 		FTaskAttribution Attribution;
 		// Additional ordering dependencies, never implicit success conditions.
 		std::span<const FTask> Prerequisites;
-		FTaskGenerationToken GenerationToken;
-		std::optional<FTaskCoalescingKey> CoalescingKey;
 	};
 
 	enum class EParallelForPolicy : uint8 { Auto, Serial, ExplicitBatch };
@@ -245,8 +243,6 @@ namespace Durin::Tasks
 			Launch.Priority = Options.Priority;
 			Launch.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
 			Launch.Prerequisites = Options.Prerequisites;
-			Launch.GenerationToken = Options.GenerationToken;
-			Launch.CoalescingKey = Options.CoalescingKey;
 			auto Handle = Detail::LaunchWithStorage<T>(Options.DebugName, State,
 				[State, Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
 					auto Invoke = [&]() -> T {

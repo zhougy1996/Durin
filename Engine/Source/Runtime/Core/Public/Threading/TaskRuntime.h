@@ -46,7 +46,6 @@ namespace Durin
 	using FCancelableParallelForFunction = TMoveOnlyFunction<void(uint64, const FParallelForCancellationToken&)>;
 
 	class FTaskCancellationState;
-	class FTaskGenerationState;
 	namespace Tasks
 	{
 		class FPipe;
@@ -114,11 +113,8 @@ namespace Durin
 	enum class ETaskTerminalReason : uint8
 	{
 		None,
-		DependencyFailed,
 		CancellationRequested,
 		DispatchRejected,
-		Superseded,
-		StaleGeneration,
 		CallbackFailure,
 		ShutdownCanceled,
 	};
@@ -126,14 +122,9 @@ namespace Durin
 	namespace Tasks
 	{
 		// Framework failure is distinct from a successful value carrying a domain error.
-		enum class ETaskFailureCode : uint8 { CallableException, DependencyFailed };
 		struct FTaskFailure
 		{
 			ETaskTerminalReason Reason = ETaskTerminalReason::CallbackFailure;
-			std::optional<FTaskConstructionError> DependencyError;
-			ETaskFailureCode Code = ETaskFailureCode::CallableException;
-			uint64 RelatedTaskId = 0;
-			size_t InputIndex = 0;
 		};
 	}
 
@@ -181,9 +172,6 @@ namespace Durin
 		ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
 		uint64 EstimatedPayloadBytes = 0;
 		uint64 EstimatedStorageBytes = 0;
-		uint64 CoalescingOwnerDomain = 0;
-		uint64 CoalescingWorkId = 0;
-		uint64 CoalescingGeneration = 0;
 		bool bHasResultStorage = false;
 		uint16 AttributionOwnerId = 0;
 		uint16 AttributionCategoryId = 0;
@@ -207,8 +195,6 @@ namespace Durin
 		uint64 RejectedCount = 0;
 		uint64 CancellationRequestedCount = 0;
 		uint64 DispatchRejectedCount = 0;
-		uint64 SupersededCount = 0;
-		uint64 StaleGenerationCount = 0;
 		uint64 CallbackFailureCount = 0;
 		uint64 ShutdownCanceledCount = 0;
 		uint64 CurrentWaitingCount = 0;
@@ -272,45 +258,6 @@ namespace Durin
 		std::vector<FTaskOwnerCategoryDiagnostics> OwnerCategoryDiagnostics;
 	};
 
-	struct FTaskCoalescingKey
-	{
-		uint64 OwnerDomain = 0;
-		uint64 WorkId = 0;
-		uint64 Generation = 0;
-
-		auto operator==(const FTaskCoalescingKey&) const -> bool = default;
-	};
-
-	class FTaskGenerationToken
-	{
-	public:
-		FTaskGenerationToken() = default;
-
-		CORE_API auto IsCurrent() const -> bool;
-		CORE_API auto IsConstrained() const -> bool;
-
-	private:
-		FTaskGenerationToken(std::shared_ptr<FTaskGenerationState> InState, uint64 InGeneration);
-
-		friend class FTaskGenerationSource;
-
-		std::shared_ptr<FTaskGenerationState> State;
-		uint64 Generation = 0;
-	};
-
-	class FTaskGenerationSource
-	{
-	public:
-		CORE_API FTaskGenerationSource();
-
-		CORE_API auto Capture() const -> FTaskGenerationToken;
-		CORE_API auto Advance() -> uint64;
-		CORE_API auto GetGeneration() const -> uint64;
-
-	private:
-		std::shared_ptr<FTaskGenerationState> State;
-	};
-
 	struct FGameThreadDeferredWorkQueueConfig
 	{
 		uint32 QueuedEntriesWarningThreshold = 1'024;
@@ -345,9 +292,7 @@ namespace Durin
 		uint64 AcceptedCount = 0;
 		uint64 RejectedCount = 0;
 		uint64 OverloadCrossings = 0;
-		uint64 SupersededCount = 0;
 		uint64 CanceledCount = 0;
-		uint64 ExpiredGenerationCount = 0;
 		uint64 CallbackFailureCount = 0;
 		uint64 PumpCount = 0;
 		uint64 PumpedCallbackCount = 0;
@@ -476,14 +421,12 @@ namespace Durin
 		{
 			// Internal reads are also valid from terminal hooks before public completion.
 			CORE_API static auto GetFailure(const Tasks::FTask& Task) -> Tasks::FTaskFailure;
-			CORE_API static auto SetCurrentFailure(Tasks::FTaskFailure Failure) -> void;
 			CORE_API static auto CreateTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement) -> Tasks::FTask;
 			CORE_API static auto AddTaskEventPrerequisites(const Tasks::FTask& Event, std::span<const Tasks::FTask> Prerequisites) -> std::optional<Tasks::FTaskConstructionError>;
 			CORE_API static auto TriggerTaskEvent(const Tasks::FTask& Event) -> void;
 			CORE_API static auto PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>;
 			CORE_API static auto GetCurrentTaskId() -> uint64;
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
-			CORE_API static auto IsCancellationRequested(const Tasks::FTask& Task) -> bool;
 			CORE_API static auto SetCurrentCanceledOutcome() -> void;
 			CORE_API static auto GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution;
 			CORE_API static auto BindTerminal(const Tasks::FTask& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
@@ -498,8 +441,6 @@ namespace Durin
 		// Internal ready-time serialization; owned by the caller until completion.
 		Tasks::FPipe* Pipe = nullptr;
 		std::shared_ptr<Tasks::Private::FTaskConcurrencyLimiterState> ConcurrencyLimiter;
-		FTaskGenerationToken GenerationToken;
-		std::optional<FTaskCoalescingKey> CoalescingKey;
 		// Order execution after every nonempty prerequisite completes, regardless of outcome.
 		std::span<const Tasks::FTask> Prerequisites;
 		FTaskCancellationToken CancellationToken;

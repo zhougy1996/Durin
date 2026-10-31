@@ -37,30 +37,13 @@ namespace Durin
 		}
 		// A configured ordinary task, never a manually settled task result source.
 		template<typename T>
-		auto LaunchOutcome(const Tasks::FTask& Gate, T Value, ETaskState Outcome = ETaskState::Succeeded,
-			Tasks::FTaskFailure Failure = {}) -> Tasks::TTask<T>
+		auto LaunchOutcome(const Tasks::FTask& Gate, T Value, ETaskState Outcome = ETaskState::Succeeded) -> Tasks::TTask<T>
 		{
-			return Tasks::LaunchTask("ControlledOutcome", [Value = std::move(Value), Outcome, Failure]() mutable -> T {
-				if (Outcome == ETaskState::Failed) {
-					Private::FTaskRuntimeAccess::SetCurrentFailure(Failure);
-					throw std::runtime_error("expected task failure");
-				}
+			return Tasks::LaunchTask("ControlledOutcome", [Value = std::move(Value), Outcome]() mutable -> T {
+				if (Outcome == ETaskState::Failed) throw std::runtime_error("expected task failure");
 				if (Outcome == ETaskState::Canceled) Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
 				return std::move(Value);
 			}, Gate);
-		}
-		auto ExpectFailureIdentity(const Tasks::FTaskFailure& Actual, const Tasks::FTaskFailure& Expected) -> void
-		{
-			EXPECT_EQ(Actual.Reason, Expected.Reason);
-			EXPECT_EQ(Actual.Code, Expected.Code);
-			EXPECT_EQ(Actual.RelatedTaskId, Expected.RelatedTaskId);
-			EXPECT_EQ(Actual.InputIndex, Expected.InputIndex);
-			ASSERT_EQ(Actual.DependencyError.has_value(), Expected.DependencyError.has_value());
-			if (Actual.DependencyError)
-			{
-				EXPECT_EQ(Actual.DependencyError->Code, Expected.DependencyError->Code);
-				EXPECT_EQ(Actual.DependencyError->RelatedTaskId, Expected.DependencyError->RelatedTaskId);
-			}
 		}
 	}
 	static_assert(!std::is_same_v<Tasks::FTask, Tasks::TTask<void>>);
@@ -1299,20 +1282,21 @@ namespace Durin
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
-		const Tasks::FTaskFailure Failure{ETaskTerminalReason::CallbackFailure,
-			Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::DependencyCycle, 17},
-			Tasks::ETaskFailureCode::DependencyFailed, 321, 4};
 		for (auto Outcome : {ETaskState::Succeeded, ETaskState::Failed, ETaskState::Canceled})
 		{
 			SCOPED_TRACE(static_cast<int>(Outcome));
 			Tasks::FTaskEvent Gate("ObserverOutcome", false);
-			auto Input = LaunchOutcome(Gate, std::make_unique<int>(7), Outcome, Failure);
-			auto MakeObserver = [Input, Outcome, Failure] {
-				return [Capture = std::make_unique<int>(5), Input, Outcome, Failure] {
+			auto Input = LaunchOutcome(Gate, std::make_unique<int>(7), Outcome);
+			auto MakeObserver = [Input, Outcome] {
+				return [Capture = std::make_unique<int>(5), Input, Outcome] {
 					const auto& Task = Input;
 					EXPECT_EQ(Outcome, Task.GetState());
 					if (Outcome == ETaskState::Succeeded) return *Task.GetResult() + *Capture;
-					if (Outcome == ETaskState::Failed) ExpectFailureIdentity(Task.GetFailure(), Failure);
+					if (Outcome == ETaskState::Failed)
+					{
+						EXPECT_EQ(Task.GetFailure().Reason, ETaskTerminalReason::CallbackFailure);
+						EXPECT_NE(Task.GetDiagnostic().find("expected task failure"), std::string::npos);
+					}
 					return *Capture;
 				};
 			};
@@ -1403,7 +1387,7 @@ namespace Durin
 		EXPECT_EQ(Calls.load(), 1u);
 	}
 
-	TEST(FTaskCompositionTests, SharingPreservesNativeAndExplicitFailureIdentity)
+	TEST(FTaskCompositionTests, SharedHandlesRetainNativeFailureAfterOriginalRelease)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -1411,19 +1395,13 @@ namespace Durin
 		auto Failed = Tasks::LaunchTask("ThrowBeforeShare", []() -> int { throw std::runtime_error("expected failure"); });
 		ASSERT_EQ(Failed.Wait().TaskState, ETaskState::Failed);
 		const auto NativeFailure = Failed.GetFailure();
+		const auto Diagnostic = Failed.GetDiagnostic();
 		ASSERT_EQ(NativeFailure.Reason, ETaskTerminalReason::CallbackFailure);
+		EXPECT_NE(Diagnostic.find("expected failure"), std::string::npos);
 		auto Shared = Failed;
-		ExpectFailureIdentity(Shared.GetFailure(), NativeFailure);
-
-		const Tasks::FTaskFailure ExplicitFailure{ETaskTerminalReason::CallbackFailure,
-			Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::DependencyCycle, 37},
-			Tasks::ETaskFailureCode::DependencyFailed, 41, 3};
-		Tasks::FTaskEvent Gate("ExplicitFailure", false);
-		auto Result = LaunchOutcome(Gate, 0, ETaskState::Failed, ExplicitFailure);
-		Gate.Trigger();
-		ASSERT_EQ(Result.Wait().TaskState, ETaskState::Failed);
-		auto ExplicitShared = Result;
-		ExpectFailureIdentity(ExplicitShared.GetFailure(), ExplicitFailure);
+		Failed = {};
+		EXPECT_EQ(Shared.GetFailure().Reason, NativeFailure.Reason);
+		EXPECT_EQ(Shared.GetDiagnostic(), Diagnostic);
 	}
 
 	TEST(FTaskCompositionTests, NestedCompletionDoesNotForwardChildFailureOrCancellation)
@@ -1677,6 +1655,7 @@ namespace Durin
 		PumpGameThreadDeferredWork({.bUnlimited = true});
 		ASSERT_TRUE(Observer.IsCompleted());
 		EXPECT_EQ(&Input.GetResult(), Observer.GetResult().get());
+
 	}
 
 	TEST(FTaskAcceptanceTests, QueuesAboveFormerDefaultsAndDrainsWithExecutorAffinity)
@@ -1860,33 +1839,6 @@ namespace Durin
 			EXPECT_EQ(Task.GetResult(), 42);
 			EXPECT_EQ(Calls, 1u);
 		}
-	}
-
-	TEST(FTaskCompositionTests, RootGenerationAndAdditionalPrerequisitesArePreserved)
-	{
-		EnsureGameThreadForTaskTest();
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-		FTaskGenerationSource Generation;
-		Tasks::FTaskExecutionOptions Options;
-		Options.GenerationToken = Generation.Capture();
-		auto Stale = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, Options, [] { ADD_FAILURE(); });
-		Generation.Advance();
-		PumpGameThreadDeferredWork();
-		EXPECT_EQ(ETaskState::Failed, Stale.GetState());
-		Tasks::FTaskEvent Source("FanInExtraPrerequisite", false);
-		const std::array Dependencies{Tasks::FTask(Source)};
-		Options = {}; Options.Prerequisites = Dependencies;
-		std::vector<Tasks::TTask<int>> Inputs;
-		Inputs.push_back(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] { return 7; }));
-		auto All = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
-			[Inputs] { return Inputs.front().GetResult(); }, Inputs);
-		EXPECT_FALSE(All.IsCompleted());
-		Source.Trigger();
-		ASSERT_EQ(ETaskState::Succeeded, All.Wait().TaskState);
-		EXPECT_EQ(7, All.GetResult());
 	}
 
 	TEST(FTaskAcceptanceTests, ParallelForQueuesAllChunksBeyondWarningThreshold)
