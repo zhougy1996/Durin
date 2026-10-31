@@ -1,3 +1,4 @@
+#include "ComponentPSOPrecacheTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "RenderResource.h"
 #include "Components/PrimitiveComponent.h"
@@ -971,6 +972,7 @@ TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishin
 
 TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSOs)
 {
+	Durin::Tests::FScopedComponentPSOPrecacheMode PrecacheMode(Durin::EComponentPSOPrecacheMode::Enabled);
     using namespace Durin;
     static const FVertexFactoryType Factory("ThumbnailOptionalPSOFixture",
         EVertexFactoryFlags::SupportsPSOPrecaching);
