@@ -1,0 +1,242 @@
+# RHI Creation Contract Tightening Plan
+
+Summary: Require successful native RHI resource creation, exit on OOM, and remove generic upper-layer native-failure recovery while preserving asynchronous scheduling and asset errors.
+
+Last reviewed: 2026-10-31
+
+Status: Active
+Completed:
+
+## Current Status
+
+Planning only. The selected policy is recorded below; no runtime behavior has
+changed and no implementation validation has run. Stage 0 must complete the
+cross-project inventory and select executable validation before source migration.
+Do not treat existing nullable factories or their tests as evidence that a
+recoverable native-creation contract is required.
+
+Initial review found nullable Vulkan texture, buffer, shader, sampler, view and
+pipeline creation; Renderer default/fallback textures and fullscreen geometry
+also use fallible resource slots. RDG rolls back physical allocation failures,
+and generic slots allow repeated native creation attempts. Texture initialization
+catches all exceptions and converts them into fallback. These are migration
+targets, not supported recovery requirements.
+
+## Goal
+
+Make ordinary native resource creation a required-success operation. Keep GPU
+fault policy in RHI and its backend, rather than in each texture, mesh, pass or
+editor consumer. OOM terminates the process after best-effort diagnostics.
+Keep recoverable source/content errors and genuine asynchronous progress under
+their existing owners.
+
+## Selected Contract
+
+### Native creation and terminal failures
+
+- Ordinary `RHICreate*` operations return a complete, usable native resource on
+  normal return. Keep existing reference return types unless a concrete migration
+  requires otherwise; callers must not interpret null as recoverable failure.
+- Native allocation/creation failure, device loss, unexpected backend errors and
+  invalid engine-authored native descriptions enter the common RHI terminal
+  failure boundary. Preserve the original backend diagnostic and resource context.
+- GPU/host OOM encountered in native resource creation exits the process with a
+  nonzero result. No per-resource fallback, next-frame retry, asset retry, device
+  reconstruction or normal asynchronous shutdown is attempted after this failure.
+- The terminal boundary must work on the calling thread, render/replay thread and
+  background PSO creator. A failure cannot become only a failed task or an
+  ordinary request result while the process keeps rendering.
+- Use bounded, best-effort diagnostics that remain viable under memory pressure.
+  Avoid requiring new allocations, worker admission, render/GPU waits, contended
+  subsystem locks or normal teardown to reach process exit. Select the existing
+  platform exit primitive and reporting path during Stage 0; do not invent an
+  application-level recovery coordinator.
+- Remove the generic recoverable-native-error classification as a public policy.
+  Backend helpers may decode result codes for diagnostics and API-specific control
+  flow. Preserve normal swapchain statuses such as resize/out-of-date handling;
+  they are not ordinary resource-creation recovery.
+- Do not introduce a blanket `TryCreate*` family, `AllowFailure` flag or public
+  recoverable/fatal enum. Any future exception requires a concrete caller, bounded
+  recovery action and tests, and an explicit plan decision before implementation.
+
+### Retained asynchronous and asset behavior
+
+| Operation or condition | Retained behavior |
+| --- | --- |
+| PSO work accepted but unfinished | Pending, completion dependencies, priority and first-consumer ordering |
+| Request admission pressure, closure, cancellation or unsupported scheduling mode | Explicit rejection/cancellation; bounded deferred admission where already supported |
+| Invalid external request before native creation | Validation error at the owning input boundary; do not turn malformed assets into native calls |
+| Shader source/material compilation, reflection or content validation | Owned diagnostic; reject candidate, retain accepted content or select the defined ErrorMaterial |
+| Asset I/O, decoding, DDC/build failure or stale candidate | Existing asset result, cancellation and publication rules |
+| Unsupported feature/format determined before creation | Explicit capability or permutation selection; choose a supported path before allocation |
+| Feature disabled or absent optional input | Existing feature policy and neutral bindings |
+| Native creation after valid admission and capability selection | Required success; terminal on failure, including OOM |
+
+An optional feature is not permission to swallow failures of its selected native
+resources. A default material for invalid authored content is retained; a default
+material selected because native PSO creation failed is removed. A draw delayed
+while its PSO is Pending is retained; silently dropping it after native failure
+is removed.
+
+Distinguish bounded engine metadata/request budgets from actual host allocator
+exhaustion. CapacityExceeded remains an admission result where it prevents work
+from starting. Do not broadly catch `std::bad_alloc` and relabel real exhaustion
+as normal pressure. Audit cache-only capacity limits reached after admission:
+eviction/reservation or rejection must happen before required creation, without
+exposing a half-created resource as a recoverable failure.
+
+## Scope and UE Evidence
+
+Owners include RHI, VulkanRHI, MetalRHI, RenderCore, Renderer, Engine and editor
+preview/thumbnail consumers. Search every source/test root declared by
+`Durin.dworkspace`, including Engine, Sandbox and RoadWeaver, when shared APIs or
+contracts change. Preserve GPU-aware retirement and render-resource ownership.
+
+UE evidence retrieved on 2026-10-31:
+
+- [Epic's D3D12 OOM explanation](https://forums.unrealengine.com/t/renderthread-c-exception-on-pre-rtx-dxr-gpus-after-r-raytracing-usereferencebasedresidency-0/2762839)
+  describes UE 5.7 routing OOM through TerminateOnOutOfMemory and process exit,
+  rather than asking asset callers to recover.
+- [UE GPU crash guidance](https://dev.epicgames.com/documentation/en-us/unreal-engine/dealing-with-a-gpu-crash-when-using-unreal-engine)
+  notes that OOM behavior depends on RHI. This plan deliberately selects process
+  exit for Durin's supported backends; it does not claim every UE version/backend
+  has identical failure handling.
+- [UE PSO precaching](https://dev.epicgames.com/documentation/en-us/unreal-engine/pso-precaching-for-unreal-engine)
+  describes delayed proxy creation, skipped draws or default materials while PSOs
+  are still compiling. Retain that asynchronous distinction without treating it
+  as evidence for recovery from native creation failure.
+
+No complete local UE source checkout was available during planning. Pin any later
+source comparison to its exact version/revision and paths; do not copy UE source.
+
+Coordinate overlapping readiness work with
+[Metal load preparation](MetalCookedLibrariesAndLoadPreparation.md) and
+[startup/scene activation](RuntimeStartupAndSceneActivation.md). Their asynchronous
+progress and asset diagnostics remain valid, but must not reintroduce native OOM
+recovery. Broader device recovery, scheduler redesign, allocator tuning and
+render-resource reinitialization redesign are outside this plan.
+
+## Implementation Stages
+
+### Stage 0: Define Contract and Migration Inventory
+
+Dependencies: none.
+
+- [x] Record required-success creation, terminal OOM exit, and retained error boundaries.
+- [ ] Inventory factories, backend result handling, sync/async bridges, nullable
+  consumers, catches, retry commands, fault-injection tests and documentation
+  across all workspace projects. Keep raw inventory under ignored `Build/`.
+- [ ] Map each existing Failed/fallback/retry branch to native creation, asset
+  error, scheduling pressure or feature selection; record deletions and survivors.
+- [ ] Identify the low-allocation terminal reporter/exit primitive and the
+  subprocess test harness. Include startup without Core and background creators.
+- [ ] Resolve backend cache-capacity admission and real host-OOM handling before
+  changing factory contracts. Select owning/consumer test targets from actual code.
+
+Completion: a bounded migration inventory, explicit terminal mechanism and
+validation selection are recorded here; no unresolved policy blocks Stage 1.
+
+### Stage 1: Enforce RHI and Backend Creation Contracts
+
+Dependencies: Stage 0.
+
+- [ ] Implement the common terminal boundary, including OOM diagnostics and
+  nonzero exit, using existing platform facilities where possible.
+- [ ] Migrate Vulkan and Metal texture/buffer/shader/sampler/view/declaration and
+  graphics/compute pipeline factories; cover aliased/transient creation and native
+  dependencies. Remove null returns that represent native failure.
+- [ ] Document normal-return non-null guarantees in RHI headers. Keep capability
+  checks, input validation and scheduling support separate from native creation.
+- [ ] Route async native failures to the same terminal boundary. Preserve Pending,
+  completion edges, cancellation and admission rejection; remove native-failure
+  result plumbing where it no longer describes a reachable nonterminal outcome.
+- [ ] Migrate cache capacity and exception translation so logical budget pressure
+  remains pre-creation admission and actual OOM cannot become CapacityExceeded.
+- [ ] Add subprocess coverage for deterministic injected native failures and OOM
+  in sync and background paths; test real handling boundaries without exhausting
+  the host GPU or killing the test runner.
+
+Completion: ordinary factories cannot return native-failure nulls, and sync/async
+fault probes terminate with the expected diagnostic and nonzero exit.
+
+### Stage 2: Simplify RenderCore and Renderer Preparation
+
+Dependencies: Stage 1.
+
+- [ ] Remove generic ShaderCreationFailed/ResourceCreationFailed/native pipeline
+  and sampler failure propagation, diagnostics fingerprints and retry machinery
+  that exist only for nullable native factories. Preserve shader-content errors.
+- [ ] Simplify resource slots to the states and transitions still needed for
+  demand, asynchronous progress, accepted content and invalidation. Do not blindly
+  delete Failed where asset/shader preparation can still fail.
+- [ ] Remove native-failure fallbacks from default textures, fullscreen geometry,
+  samplers/views, fixed renderers, mesh rendering and editor assistance.
+- [ ] Remove RDG physical-allocation-failure retry/recovery plumbing. Preserve
+  graph validation, planning-budget rejection, single-use builders, reservation
+  consistency and ordinary successful allocation/reuse/aliasing behavior.
+- [ ] Remove native retry behavior from `renderer.retry-resources`; retain or
+  narrow the command only if an explicit shader/asset retry responsibility remains.
+- [ ] Keep deliberate feature selection, neutral resources and PSO Pending draw
+  policies. Audit retained skip branches for accidental masking of fatal failures.
+
+Completion: selected native resources are assumed valid; asynchronous preparation
+and content errors retain explicit outcomes without generic native retry loops.
+
+### Stage 3: Migrate Asset and Editor Consumers
+
+Dependencies: Stage 2.
+
+- [ ] Remove texture catch-all conversion to fallback and native-upload failure
+  queries/branches made obsolete by required-success creation.
+- [ ] Simplify StaticMesh readiness/failure reporting and selected-object waits
+  without merging CPU residency, queued initialization and successful publication.
+- [ ] Migrate package reload, material/texture/mesh previews, thumbnails and other
+  workspace consumers. Preserve source/build/I/O failure, stale result rejection
+  and old-version retention at their asset transaction boundaries.
+- [ ] Keep render-command fences distinct from GPU completion; preserve retained
+  input lifetime, stable references and ordered resource retirement.
+- [ ] Update tests to assert retained asset and asynchronous semantics. Replace
+  native-OOM fallback/retry tests with subprocess terminal tests; do not merely
+  delete failure coverage or turn native failures into asset errors.
+
+Completion: no asset/editor caller classifies native errors, falls back after
+native creation failure or schedules a retry of a failed native allocation.
+
+### Stage 4: Validate Integration and Publish Lasting Contracts
+
+Dependencies: Stages 1-3.
+
+- [ ] Run selected RHI/backend/RenderCore/Renderer and affected asset/editor tests,
+  including Pending-to-ready, admission pressure, cancellation, invalid assets,
+  failed compilation and accepted-version retention.
+- [ ] Verify terminal native failure/OOM from each distinct factory handling path
+  on supported backends, including startup without task scheduling and background
+  PSO creation. Record diagnostic, exit status and bounded completion evidence.
+- [ ] Run a final `all` build on the supported host configuration because shared
+  RHI headers/contracts and removed state/error types affect cross-project consumers.
+  Qualify Metal compilation and execution on macOS; record unavailable coverage
+  explicitly and leave required gates open until evidence exists.
+- [ ] Smoke-test editor startup, scene activation, normal rendering, thumbnails,
+  shader/material editing and package reload; use the Stage 0 selected scenarios.
+- [ ] Update authoritative RHI creation/execution, Renderer recovery/preparation,
+  texture/mesh and material contracts. Remove contradictory native-recovery claims
+  and rename/restructure documents only when their remaining responsibility needs it.
+- [ ] Validate changed documents and all plan lifecycle metadata. Record final
+  tested inputs, result applicability, backend coverage and remaining limitations.
+
+Completion: all required gates have evidence; long-lived documents describe the
+implemented policy and the plan can be marked Completed.
+
+## Validation and Handoff
+
+Follow [build selection](../Agents/BuildAndRun.md),
+[test selection and result reuse](../Agents/Testing.md) and
+[documentation validation](../Agents/Documentation.md). Do not run concurrent
+build trees in the same checkout. Reuse passing results when relevant inputs and
+environment remain unchanged; the final broad build is an explicit acceptance
+gate, not a requirement after every stage.
+
+Each implementation commit updates this plan's evidence-backed status and uses
+`Plan: Documentation/Plans/RHICreationContractTightening.md` and the exact owning
+stage title as Git trailers. Store generated reports and fault-probe logs under
+ignored `Build/` or CI artifacts, with concise evidence summaries in this plan.
