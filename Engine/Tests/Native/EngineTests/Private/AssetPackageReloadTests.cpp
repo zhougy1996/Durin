@@ -1,3 +1,6 @@
+#include "HAL/PlatformLTS.h"
+#include "CoreGlobals.h"
+#include "Asset/AssetObjectLoadTiming.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -879,4 +882,92 @@ TEST_F(FAssetPackageReloadTests, DocumentDiscardPreservesReinstancedHistoryAndTr
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Texture);
 	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST(FObjectLoadTimingTests, SeparatesNestedPackagesAndDeferredPostLoadWithoutDoubleCounting)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/Timing/", Testing::CreateTestFixtureDirectory("ObjectLoadTiming").generic_string() + "/");
+	FPackagePath A, B;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Timing/A", A));
+	ASSERT_TRUE(FPackagePath::TryCreate("/Timing/B", B));
+	static int64 Tick = 0;
+	Tick = 0;
+	FObjectLoadTimingSession Session(A, false, +[]() -> int64 { return Tick; });
+	FObjectLoadTimingSession::RecordPackage(A, 2, 3);
+	FObjectLoadTimingSession::RecordPackage(B, 1, 7);
+	{
+		FScopedObjectLoadPhase Root(A, EObjectLoadPhase::ObjectApplication, 2, 3);
+		Tick = 10;
+		{
+			FScopedObjectLoadPhase Serialize(A, EObjectLoadPhase::SerializeExports, 2, 3);
+			Tick = 20;
+			{
+				FScopedObjectLoadPhase Dependency(B, EObjectLoadPhase::LoadPackage);
+				Tick = 25;
+				{ FScopedObjectLoadPhase Defaults(B, EObjectLoadPhase::InitDefaults, 1); Tick = 35; }
+				Tick = 50;
+			}
+			Tick = 60;
+		}
+		Tick = 70;
+		{ FScopedObjectLoadPhase Validate(A, EObjectLoadPhase::ValidateLoadedGraph, 2); Tick = 80; }
+		Tick = 100;
+		{ FScopedObjectLoadPhase DeferredPostLoad(B, EObjectLoadPhase::PostLoad, 1); Tick = 110; }
+		Tick = 120;
+	}
+	const auto& Packages = Session.GetPackages();
+	ASSERT_EQ(Packages.size(), 2u);
+	const auto& Root = Packages[0].Phases[static_cast<size_t>(EObjectLoadPhase::ObjectApplication)];
+	EXPECT_EQ(Root.Inclusive, 120);
+	EXPECT_EQ(Root.Dependencies, 40);
+	EXPECT_EQ(Root.Children, 70);
+	EXPECT_EQ(Root.Objects, 2u);
+	EXPECT_EQ(Root.Properties, 3u);
+	EXPECT_EQ(Packages[1].Objects, 1u);
+	EXPECT_EQ(Packages[1].Properties, 7u);
+	int64 OwnA = 0, OwnB = 0;
+	for (const auto& Phase : Packages[0].Phases) OwnA += Phase.Inclusive - Phase.Children;
+	for (const auto& Phase : Packages[1].Phases) OwnB += Phase.Inclusive - Phase.Children;
+	EXPECT_EQ(OwnA, 80);
+	EXPECT_EQ(OwnB, 40);
+	EXPECT_EQ(OwnA + OwnB, Root.Inclusive);
+}
+
+TEST(FObjectLoadTimingTests, FailureUnwindsTimingScopesAndPreservesLaterSamples)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/Timing/", Testing::CreateTestFixtureDirectory("ObjectLoadTiming").generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Timing/Failure", Path));
+	static int64 Tick = 0;
+	Tick = 0;
+	FObjectLoadTimingSession Session(Path, false, +[]() -> int64 { return Tick; });
+	EXPECT_THROW(( [&] {
+		FScopedObjectLoadPhase Outer(Path, EObjectLoadPhase::LoadPackage);
+		Tick = 10;
+		FScopedObjectLoadPhase Inner(Path, EObjectLoadPhase::SerializeExports, 1, 4);
+		Tick = 30;
+		throw std::runtime_error("timing unwind");
+	}()), std::runtime_error);
+	Tick = 40;
+	{ FScopedObjectLoadPhase Later(Path, EObjectLoadPhase::PostLoad, 1); Tick = 50; }
+	const auto& Phases = Session.GetPackages()[0].Phases;
+	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackage)].Inclusive, 30);
+	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackage)].Children, 20);
+	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::PostLoad)].Inclusive, 10);
 }

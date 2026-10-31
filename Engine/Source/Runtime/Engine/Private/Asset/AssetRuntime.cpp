@@ -3,6 +3,7 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetAsyncLoadInternal.h"
 #include "AssetLoadTiming.h"
+#include "AssetObjectLoadTiming.h"
 #include "Asset/AsyncLoad.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRegistry/Scan.h"
@@ -450,6 +451,7 @@ namespace Durin
 		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
+		AssetPrivate::FScopedObjectLoadPhase LoadPhase(Path, AssetPrivate::EObjectLoadPhase::LoadPackage);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.Load");
 		if (!bAcceptingRequests)
 		{
@@ -656,6 +658,7 @@ namespace Durin
 		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
+		AssetPrivate::FScopedObjectLoadPhase LoadPhase(Path, AssetPrivate::EObjectLoadPhase::ReadPackage);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
 		if (!ReadAccess) return Error(EAssetReadError::InUse, "Package output is being written.");
@@ -709,7 +712,10 @@ namespace Durin
 			return Result;
 		{
 			FAssetPackageHeader Header;
-			auto Result = Codec->ReadHeader(HeaderContext, Header);
+			auto Result = [&] {
+				AssetPrivate::FScopedObjectLoadPhase Phase(Path, AssetPrivate::EObjectLoadPhase::ReadHeader);
+				return Codec->ReadHeader(HeaderContext, Header);
+			}();
 			if (!Result) return Result;
 			AssetPrivate::FAssetPackageReadContext ReadContext{
 				.PackageBytes = Bytes, .PackagePath = Path,
@@ -731,6 +737,7 @@ namespace Durin
 			auto& Record = *PendingLoads.at(Path);
 			if (Header.BulkSegmentExtent != 0)
 			{
+				AssetPrivate::FScopedObjectLoadPhase Phase(Path, AssetPrivate::EObjectLoadPhase::InspectBulk);
 				FAssetPackageInspection Inspection;
 				Result = Codec->Inspect(ReadContext, Inspection);
 				if (!Result) return Result;

@@ -1,6 +1,7 @@
 #include "AssetPackageLinker.h"
 #include "AssetPackageLinkerSchema.h"
 #include "AssetLiveLoadGuard.h"
+#include "AssetObjectLoadTiming.h"
 
 #include "AssetPackageArchive.h"
 #include "Asset/Load.h"
@@ -292,6 +293,7 @@ namespace Durin::AssetPrivate
 		auto ValidateLinker(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
 			FLinkerApplyDiagnostic& Diagnostic) -> FAssetReadResult
 		{
+			FScopedObjectLoadPhase Phase(Application.Linker.Summary.PackagePath, EObjectLoadPhase::ValidateSchema);
 			auto& Linker = Application.Linker;
 			std::string VersionError;
 			if (!FCustomVersionRegistry::Validate(Linker.CustomVersions, VersionError))
@@ -308,6 +310,9 @@ namespace Durin::AssetPrivate
 			auto& Exports = Application.Exports;
 			if (!BuildExportViews(Linker, Exports, Diagnostic))
 				return {Diagnostic.Error, Diagnostic.Message};
+			uint64 PropertyCount = 0;
+			for (const auto& Export : Exports) PropertyCount += Export.Export->Properties.size();
+			FObjectLoadTimingSession::RecordPackage(Linker.Summary.PackagePath, Exports.size(), PropertyCount);
 			uint64 DiscardedFields = 0;
 			auto& LiveDependencies = Application.LiveDependencies;
 			for (FExportView& Object : Exports)
@@ -375,6 +380,7 @@ namespace Durin::AssetPrivate
 		auto CreateLinkerSkeleton(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
 			FLinkerApplyDiagnostic& Diagnostic, std::vector<FStrongObjectPtr>* Pins = nullptr) -> FAssetReadResult
 		{
+			FScopedObjectLoadPhase Phase(Application.Linker.Summary.PackagePath, EObjectLoadPhase::CreateExports, Application.Exports.size());
 			auto& Exports = Application.Exports;
 			auto& Objects = Application.Objects;
 			auto* Package = Application.Package;
@@ -433,12 +439,16 @@ namespace Durin::AssetPrivate
 			FLinkerApplyDiagnostic& Diagnostic, const FPackageLoadBindings& Bindings) -> FAssetReadResult
 		{
 			const auto& PackagePath = Application.Linker.Summary.PackagePath;
+			uint64 PropertyCount = 0;
+			for (const auto& Export : Application.Exports) PropertyCount += Export.Export->Properties.size();
+			FScopedObjectLoadPhase Phase(PackagePath, EObjectLoadPhase::Preload, Application.Objects.size(), PropertyCount);
 			const auto& Linker = Application.Linker;
 			auto& Exports = Application.Exports;
 			auto& Objects = Application.Objects;
 			auto& Report = Application.Compatibility;
 			if (!Options.bCooked)
 			{
+				FScopedObjectLoadPhase DefaultsTiming(PackagePath, EObjectLoadPhase::InitDefaults, Objects.size());
 				std::vector<DClass*> Classes;
 				std::unordered_set<DObject*> NeedsDefaults;
 				for (size_t Index = 0; Index < Objects.size(); ++Index)
@@ -447,13 +457,18 @@ namespace Durin::AssetPrivate
 						NeedsDefaults.insert(Objects[Index]);
 						Classes.push_back(Objects[Index]->GetClass());
 					}
-				if (!Private::CreateClassDefaultObjectsForBatch(Classes))
+				if (![&] {
+					FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::CreateClassDefaults, Classes.size());
+					return Private::CreateClassDefaultObjectsForBatch(Classes);
+				}())
 					return {EAssetReadError::InvalidObjectGraph, "Default object initialization failed."};
 				std::unordered_set<DObject*> Initialized;
 				for (DObject* Root : Objects)
 				{
 					if (!NeedsDefaults.contains(Root) || Initialized.contains(Root)) continue;
 					const DObject* Default = Root->GetClass()->GetDefaultObject();
+					std::optional<FScopedObjectLoadPhase> MatchTiming(std::in_place,
+						PackagePath, EObjectLoadPhase::MatchDefaultSubobjects, 1);
 					FDefaultObjectGraphMap Graph;
 					FDefaultObjectGraphDiagnostic GraphDiagnostic;
 					if (!Default || !Graph.Build(Default, Root, &GraphDiagnostic))
@@ -462,10 +477,12 @@ namespace Durin::AssetPrivate
 					for (DObject* Object : Objects)
 						if (const DObject* Template = Graph.FindTemplate(Object))
 							References.emplace(const_cast<DObject*>(Template), Object);
+					MatchTiming.reset();
 					for (DObject* Object : Objects)
 						if (const DObject* Template = Graph.FindTemplate(Object))
 						{
 							if (!NeedsDefaults.contains(Object)) continue;
+							FScopedObjectLoadPhase CopyTiming(PackagePath, EObjectLoadPhase::CopyDefaultProperties, 1);
 							const auto CopyResult = InitializeObjectFromDefaults(Template, Object, References);
 							if (!CopyResult)
 								return {EAssetReadError::InvalidObjectGraph, "Cannot initialize loaded defaults: " + ToString(CopyResult.error())};
@@ -473,22 +490,29 @@ namespace Durin::AssetPrivate
 						}
 				}
 			}
-			std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
-			for (const ObjectPackage::FCustomVersion& Version : Linker.CustomVersions)
 			{
-				LoadedCustomVersions.emplace_back(Version.Guid, Version.Version);
-			}
-			for (DObject* Object : Objects) Object->SetLoadedCustomVersions(LoadedCustomVersions);
-			for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
-				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
+				FScopedObjectLoadPhase MetadataTiming(PackagePath, EObjectLoadPhase::RestoreEditorState);
 				{
-					const auto Field = LinkerSchema::FindPropertyByName(
-						*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
-					if (!Options.bCooked && Field->Match.Route == EPropertyLoadRoute::Removed) continue;
-					GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker,
-						PackagePath, Exports[ObjectIndex].Path,
-						Report.DeprecatedRouteEvidence);
+				FScopedObjectLoadPhase VersionsTiming(PackagePath, EObjectLoadPhase::RestoreCustomVersions, Objects.size());
+				std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
+				for (const ObjectPackage::FCustomVersion& Version : Linker.CustomVersions)
+				{
+					LoadedCustomVersions.emplace_back(Version.Guid, Version.Version);
 				}
+				for (DObject* Object : Objects) Object->SetLoadedCustomVersions(LoadedCustomVersions);
+				}
+				FScopedObjectLoadPhase CompatibilityTiming(PackagePath, EObjectLoadPhase::CollectCompatibilityEvidence, Objects.size(), PropertyCount);
+				for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
+					for (const auto& Property : Exports[ObjectIndex].Export->Properties)
+					{
+						const auto Field = LinkerSchema::FindPropertyByName(
+							*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
+						if (!Options.bCooked && Field->Match.Route == EPropertyLoadRoute::Removed) continue;
+						GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker,
+							PackagePath, Exports[ObjectIndex].Path,
+							Report.DeprecatedRouteEvidence);
+					}
+			}
 			for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
 			{
 				if (ShouldFail(Options, ELinkerLoadPhase::ApplyValues, ObjectIndex))
@@ -508,6 +532,8 @@ namespace Durin::AssetPrivate
 					return Loaded;
 				}
 				if (Options.bCooked) continue;
+				FScopedObjectLoadPhase EditorTiming(PackagePath, EObjectLoadPhase::RestoreEditorState, 1, Exports[ObjectIndex].Export->Properties.size());
+				std::optional<FScopedObjectLoadPhase> LedgerTiming(std::in_place, PackagePath, EObjectLoadPhase::BuildOverrideLedger, 1, Exports[ObjectIndex].Export->Properties.size());
 				std::vector<FAuthoredOverrideEntry> LedgerEntries;
 				std::vector<FName> LoadedDeprecatedProperties;
 				size_t PropertyIndex = 0;
@@ -546,6 +572,8 @@ namespace Durin::AssetPrivate
 						return {EAssetReadError::CorruptFile, Diagnostic.Message};
 					}
 				}
+				LedgerTiming.reset();
+				FScopedObjectLoadPhase ApplyLedgerTiming(PackagePath, EObjectLoadPhase::ApplyOverrideLedger, 1, LedgerEntries.size());
 				Objects[ObjectIndex]->SetLoadedDeprecatedProperties(LoadedDeprecatedProperties);
 				FAuthoredOverrideDiagnostic LedgerDiagnostic;
 				if (!Objects[ObjectIndex]->ReplaceAuthoredOverrides(LedgerEntries, &LedgerDiagnostic))
@@ -965,33 +993,37 @@ namespace Durin::AssetPrivate
 		std::vector<FStrongObjectPtr> Pins;
 		Pins.reserve(Objects.size());
 		for (DObject* Object : Objects) Pins.emplace_back(Object);
-		const auto& Dependencies = Options.bCooked ? Application.Linker.Summary.HardPackageDependencies : Application.LiveDependencies;
-		for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 		{
-			if (ShouldFail(Options, ELinkerLoadPhase::ResolveDependency, Index))
+			FScopedObjectLoadPhase DependencyTiming(PackagePath, EObjectLoadPhase::ResolveImports);
+			const auto& Dependencies = Options.bCooked ? Application.Linker.Summary.HardPackageDependencies : Application.LiveDependencies;
+			for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 			{
-				LinkerApplyFail(Diagnostic, EAssetReadError::MissingDependency, "Injected dependency failure.");
-				return Finish({EAssetReadError::MissingDependency, Diagnostic.Message});
+				if (ShouldFail(Options, ELinkerLoadPhase::ResolveDependency, Index))
+				{
+					LinkerApplyFail(Diagnostic, EAssetReadError::MissingDependency, "Injected dependency failure.");
+					return Finish({EAssetReadError::MissingDependency, Diagnostic.Message});
+				}
+				const FPackagePath& Path = Dependencies[Index];
+				DPackage* Dependency = nullptr;
+				FAssetReadResult Result;
+				if (Options.DependencyLoadPolicy)
+					Result = Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency);
+				else
+				{
+					auto Loaded = LoadPackage(Path);
+					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
+					else Dependency = *Loaded;
+				}
+				if (Result && !Dependency)
+					Result = {EAssetReadError::MissingDependency, "Dependency resolver returned no package."};
+				if (!Result)
+				{
+					const EAssetReadError Error = Options.DependencyLoadPolicy ? Result.Error : EAssetReadError::MissingDependency;
+					LinkerApplyFail(Diagnostic, Error, Result.Message);
+					return Finish({Error, Diagnostic.Message});
+				}
 			}
-			const FPackagePath& Path = Dependencies[Index];
-			DPackage* Dependency = nullptr;
-			FAssetReadResult Result;
-			if (Options.DependencyLoadPolicy)
-				Result = Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency);
-			else
-			{
-				auto Loaded = LoadPackage(Path);
-				if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
-				else Dependency = *Loaded;
-			}
-			if (Result && !Dependency)
-				Result = {EAssetReadError::MissingDependency, "Dependency resolver returned no package."};
-			if (!Result)
-			{
-				const EAssetReadError Error = Options.DependencyLoadPolicy ? Result.Error : EAssetReadError::MissingDependency;
-				LinkerApplyFail(Diagnostic, Error, Result.Message);
-				return Finish({Error, Diagnostic.Message});
-			}
+
 		}
 
 		// Choose sources once for this package; object archives only consume them.
@@ -1020,10 +1052,12 @@ namespace Durin::AssetPrivate
 		if (ShouldFail(Options, ELinkerLoadPhase::Publish, 0))
 			return Finish({EAssetReadError::InvalidObjectGraph, "Injected graph publication preparation failure."});
 		if (auto Result = LiveLoadGuard.GetFailure(); !Result) return Finish(Result);
-		auto Validate = [Objects, Pins = std::move(Pins), bCooked = Options.bCooked, bPrivate = Options.bPrivateGraph]() {
+		auto Validate = [Objects, Pins = std::move(Pins), PackagePath, bCooked = Options.bCooked, bPrivate = Options.bPrivateGraph]() {
+			FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::ValidateLoadedGraph, Objects.size());
 			return ValidateLoadedGraphs(Objects, {.bCooked = bCooked, .bPrivateGraph = bPrivate});
 		};
-		auto Notify = [Objects, Package]() {
+		auto Notify = [Objects, Package, PackagePath]() {
+			FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::PostLoad, Objects.size());
 			Package->ClearDirty();
 			for (size_t Reverse = Objects.size(); Reverse > 0; --Reverse)
 			{
