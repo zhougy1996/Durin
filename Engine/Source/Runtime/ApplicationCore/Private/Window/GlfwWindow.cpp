@@ -719,7 +719,7 @@ namespace Durin
 			}
 			else
 			{
-				DURIN_DEBUG("Activated Windows custom title bar.");
+				DURIN_DEBUG("Custom title bar activated: Windows");
 			}
 		}
 #elif defined(__APPLE__)

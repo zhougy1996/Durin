@@ -32,7 +32,7 @@ namespace Durin
 				GCommandListExecutor.GetStats();
 			const char* ExecutorMode = ExecutorStats.Mode
 				== ERHICommandListExecutorMode::Threaded ? "threaded" : "inline";
-			DURIN_DEBUG(
+			DURIN_TRACE(
 				"RHI executor drained (mode: {}): {} command(s), {} payload byte(s), "
 				"{} batch(es), {} submission group(s), {} ns replay, {} wait(s), "
 				"{} synchronous operation(s), "
@@ -53,7 +53,7 @@ namespace Durin
 				ExecutorStats.BackpressureWaitCount,
 				ExecutorStats.RejectedSubmissionCount);
 			const auto UploadStats = GetBufferUploadStats();
-			DURIN_DEBUG("RHI upload/frame bounds: peak queued frames={}, frame-pressure waits={} ({} ns), "
+			DURIN_TRACE("RHI upload/frame bounds: peak queued frames={}, frame-pressure waits={} ({} ns), "
 				"CPU upload live/peak={}/{}, backing reserved live/peak/capacity={}/{}/{}.",
 				ExecutorStats.PeakQueueFrameCount, ExecutorStats.FramePressureWaitCount,
 				ExecutorStats.FramePressureWaitNanoseconds, UploadStats.LiveBytes, UploadStats.PeakBytes,
@@ -91,7 +91,7 @@ namespace Durin
 		{
 			check(IsInRenderingThread());
 			// RHIInit binds the command-list context; context-free tests may still use the render command pipe.
-			DURIN_DEBUG("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
+			DURIN_TRACE("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
 			while (FRenderThreadCommandPipe::Launch())
 			{
 			}
@@ -105,7 +105,7 @@ namespace Durin
 
 		auto Exit() -> void override
 		{
-			DURIN_DEBUG("Rendering thread shut down.");
+			DURIN_TRACE("Rendering thread shut down.");
 		}
 	};
 
@@ -322,7 +322,7 @@ namespace Durin
 			const double Milliseconds = std::chrono::duration<double, std::milli>(
 				std::chrono::steady_clock::now() - Started).count();
 			if (Milliseconds >= 100.0)
-				DURIN_DEBUG("Slow render command: name={}, elapsed_ms={:.3f}", Command.Name, Milliseconds);
+				DURIN_DEBUG("Slow render command: {} | {:.3f} ms", Command.Name, Milliseconds);
 		}
 
 		CommandsToExecute.clear();

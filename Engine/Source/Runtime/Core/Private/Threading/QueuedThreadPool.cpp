@@ -203,7 +203,7 @@ namespace Durin
 				return false;
 			}
 
-			DURIN_DEBUG("Queued thread pool created. (pool: {}, workers: {})", PoolName, WorkerThreads.size());
+			DURIN_DEBUG("Thread pool created: {} | workers={}", PoolName, WorkerThreads.size());
 			return true;
 		}
 
@@ -257,7 +257,7 @@ namespace Durin
 				NotifyIdleIfNeeded();
 			}
 
-			DURIN_DEBUG("Queued thread pool destroyed. (pool: {}, workers: {}, drained: {})", DestroyedPoolName, DestroyedWorkerCount, bWaitForQueuedWork);
+			DURIN_DEBUG("Thread pool destroyed: {} | workers={} | drained={}", DestroyedPoolName, DestroyedWorkerCount, bWaitForQueuedWork);
 		}
 
 		auto StopAcceptingWork() -> void

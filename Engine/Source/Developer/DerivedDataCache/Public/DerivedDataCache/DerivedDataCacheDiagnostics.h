@@ -13,6 +13,7 @@ namespace Durin::DerivedData
 		uint64 ReadBytes = 0, DecodedBytes = 0, WrittenBytes = 0, EncodedRawBytes = 0;
 		uint64 BlobEncodes = 0, BlobsReused = 0, GetNanoseconds = 0, PutNanoseconds = 0;
 		uint64 AsyncStarts = 0, QueueNanoseconds = 0;
+		auto operator==(const FCacheDiagnosticCounters&) const -> bool = default;
 	};
 	struct FCacheBucketDiagnostics { std::string Bucket; FCacheDiagnosticCounters Counters; };
 	struct FCacheDiagnostics

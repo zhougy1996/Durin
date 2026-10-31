@@ -27,7 +27,7 @@ namespace Durin
 		const auto Result = Renderer.RenderView(Commands, Request);
 		const auto Progress = ResourcePreparation.GetProgress();
 		if (!bWasReady && Progress.State == ERenderResourcePreparationState::Ready)
-			DURIN_DEBUG("Scene resources prepared: shaders={}, pipelines={}, objects={}, accounted-bytes={}",
+			DURIN_DEBUG("Scene resources prepared: shaders={} | pipelines={} | objects={} | accounted={} bytes",
 				Progress.ShaderAdmissions, Progress.PipelineAdmissions, Progress.RetainedObjects, Progress.AccountedBytes);
 		return Result;
 	}

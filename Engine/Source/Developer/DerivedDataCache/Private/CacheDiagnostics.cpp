@@ -39,16 +39,39 @@ namespace Durin::DerivedData
 	try
 	{
 		const auto Snapshot = DerivedData::GetCacheDiagnostics();
+		const auto HasActivity = [](const DerivedData::FCacheDiagnosticCounters& C) {
+			return C != FCacheDiagnosticCounters{};
+		};
+		if (!HasActivity(Snapshot.Total)) return;
+
+		const auto& Total = Snapshot.Total;
+		std::string Events;
+		const auto AppendEvent = [&Events](std::string_view Name, uint64 Count) {
+			if (Count) Events += std::format(" | {}={}", Name, Count);
+		};
+		AppendEvent("invalid", Total.InvalidRecords);
+		AppendEvent("schema_rejected", Total.SchemaRejections);
+		AppendEvent("backend_failed", Total.BackendFailures);
+		AppendEvent("request_rejected", Total.RequestRejections);
+		AppendEvent("store_failed", Total.StoreFailures);
+		AppendEvent("capacity_rejected", Total.CapacityRejections);
+		AppendEvent("fallback", Total.BuildFallbacks);
+		AppendEvent("canceled", Total.Canceled);
+		constexpr double BytesPerMiB = 1024.0 * 1024.0;
+		DURIN_INFO_CATEGORY("DDCStats", "Cache summary: {}/{} hits ({:.1f}%) | {} put requests | read {:.2f} MiB, wrote {:.2f} MiB{}",
+			Total.Hits, Total.Gets, Total.Gets ? 100.0 * Total.Hits / Total.Gets : 0.0,
+			Total.Puts, Total.ReadBytes / BytesPerMiB, Total.WrittenBytes / BytesPerMiB, Events);
+
 		const auto Log = [](std::string_view Bucket, const DerivedData::FCacheDiagnosticCounters& C) {
-			DURIN_INFO_CATEGORY("DDCStats", "bucket={} gets={} hits={} misses={} invalid={} schema_rejected={} backend_failed={} request_rejected={} puts={} store_failed={} capacity_rejected={} fallback={} canceled={} read_bytes={} decoded_bytes={} written_bytes={} encoded_raw_bytes={} blob_encodes={} reused={} get_ns={} put_ns={} async_starts={} queue_ns={}",
+			DURIN_TRACE_CATEGORY("DDCStats", "bucket={} gets={} hits={} misses={} invalid={} schema_rejected={} backend_failed={} request_rejected={} puts={} store_failed={} capacity_rejected={} fallback={} canceled={} read_bytes={} decoded_bytes={} written_bytes={} encoded_raw_bytes={} blob_encodes={} reused={} get_ns={} put_ns={} async_starts={} queue_ns={}",
 				Bucket, C.Gets, C.Hits, C.Misses, C.InvalidRecords, C.SchemaRejections, C.BackendFailures, C.RequestRejections, C.Puts, C.StoreFailures, C.CapacityRejections, C.BuildFallbacks, C.Canceled, C.ReadBytes, C.DecodedBytes, C.WrittenBytes, C.EncodedRawBytes, C.BlobEncodes, C.BlobsReused, C.GetNanoseconds, C.PutNanoseconds, C.AsyncStarts, C.QueueNanoseconds);
 		};
-		if (Snapshot.Total.Gets || Snapshot.Total.Puts || Snapshot.Total.AsyncStarts)
+		Log("total", Snapshot.Total);
+		for (const auto& Bucket : Snapshot.Buckets)
 		{
-			Log("total", Snapshot.Total);
-			for (const auto& Bucket : Snapshot.Buckets) Log(Bucket.Bucket, Bucket.Counters);
-			Log("other", Snapshot.OtherBuckets);
+			if (HasActivity(Bucket.Counters)) Log(Bucket.Bucket, Bucket.Counters);
 		}
+		if (HasActivity(Snapshot.OtherBuckets)) Log("other", Snapshot.OtherBuckets);
 	}
 
 	catch (...) {} // Best-effort telemetry must not change host shutdown.

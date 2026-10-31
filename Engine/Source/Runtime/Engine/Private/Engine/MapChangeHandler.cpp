@@ -22,7 +22,7 @@ namespace Durin
 	{
 		if (Phase == Next) return;
 		const auto Now = std::chrono::steady_clock::now();
-		DURIN_DEBUG("Map change {}: {} -> {} (phase elapsed {:.2f} ms)", Id,
+		DURIN_DEBUG("Map change {}: {} -> {} | phase {:.2f} ms", Id,
 			GetMapChangePhaseLabel(Phase), GetMapChangePhaseLabel(Next),
 			std::chrono::duration<double, std::milli>(Now - PhaseStarted).count());
 		Phase = Next; PhaseStarted = Now;
@@ -51,7 +51,7 @@ namespace Durin
 		CheckGameThread();
 		static uint64 NextId = 0;
 		Id = ++NextId;
-		DURIN_DEBUG("Map change {}: loading {}", Id, Path.ToString());
+		DURIN_DEBUG("Map change {}: Loading {}", Id, Path.ToString());
 	}
 	FMapChangeHandler::~FMapChangeHandler() { Cancel(); }
 	auto FMapChangeHandler::GetProgress() const -> FMapChangeProgress
@@ -91,7 +91,7 @@ namespace Durin
 				Loading.bAdvancing = false;
 				const double Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count();
 				if (Milliseconds >= 16.0)
-					DURIN_DEBUG("Map change timing: {} / {} / {:.2f} ms (GameThread).", Loading.Id, GetMapChangePhaseLabel(Phase), Milliseconds);
+					DURIN_DEBUG("Map change {}: {} | tick {:.2f} ms | thread=GameThread", Loading.Id, GetMapChangePhaseLabel(Phase), Milliseconds);
 				if (Loading.bCancelRequested) Loading.Cancel();
 			}
 		} Scope{*this};

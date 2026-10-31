@@ -181,7 +181,11 @@ completion status. Observation allocation failure is ignored without changing a
 cache result. Counts/latencies are cumulative sums, not percentiles, and do not
 measure process RSS or whole-editor elapsed time.
 
-`LogCacheDiagnostics` writes a bounded `DDCStats` summary. The Editor exit path and
+`LogCacheDiagnostics` writes one Info-level `DDCStats` summary with Get/hit counts,
+hit rate, Put count, and read/write MiB. Nonzero rejection, failure, fallback, and
+cancellation counters are appended to that line. Full total and per-bucket counters
+are emitted at Trace level; empty buckets (including the overflow aggregate) are
+omitted. No output is emitted without cache activity. The Editor exit path and
 the offline asset/Cook host call it after draining work and before logger shutdown.
 Cook logs are under its output directory's `Logs/`; JSON Cook stdout is unchanged.
 Other hosts may snapshot or log explicitly at a drained workload boundary. Offline

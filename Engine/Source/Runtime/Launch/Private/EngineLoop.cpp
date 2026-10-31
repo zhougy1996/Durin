@@ -74,7 +74,7 @@ namespace Durin
 		LoggerInit();
 		bLoggerStarted = true;
 		for (const std::string& Warning : RuntimeStorage.Warnings) DURIN_WARN("{}", Warning);
-		DURIN_INFO(STR("Launching Durin Engine {}..."), GetEngineVersionString());
+		DURIN_INFO(STR("Engine starting: Durin {}"), GetEngineVersionString());
 #if DURIN_WITH_TRACY
 		if (const char* TracyPort = std::getenv("TRACY_PORT"))
 			DURIN_WARN("{}", Profiling::FormatPortOverrideDiagnostic(TracyPort));
@@ -280,7 +280,7 @@ namespace Durin
 		}
 		LastTickTime = FTime::Seconds();
 
-		DURIN_INFO(STR("Durin engine initialized."));
+		DURIN_INFO(STR("Engine initialized"));
 		State = EEngineLoopState::Running;
 		GModalLoopFrameOwner = this;
 		SetModalLoopTickCallback([]() {
@@ -490,7 +490,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		ReleaseProjectEditOwnership();
 #endif
-		if (bLoggerStarted) DURIN_INFO(STR("Durin Engine exited."));
+		if (bLoggerStarted) DURIN_INFO(STR("Engine exited"));
 		State = EEngineLoopState::Exited;
 	}
 } // namespace Durin

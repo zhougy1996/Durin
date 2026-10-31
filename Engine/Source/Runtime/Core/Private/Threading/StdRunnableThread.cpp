@@ -107,7 +107,7 @@ namespace Durin
 				ThreadId.store(FPlatformLTS::GetCurrentThreadId(), std::memory_order::release);
 				this->AsCurrentThread();
 				DURIN_PROFILE_THREAD(GetThreadName());
-				DURIN_DEBUG("Thread started. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
+				DURIN_TRACE("Thread started. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
 
 				const bool bInitialized = Runnable->Init();
 				if (bInitialized)
@@ -117,7 +117,7 @@ namespace Durin
 				Runnable->Exit();
 				bCompleted.store(true, std::memory_order::release);
 
-				DURIN_DEBUG("Thread exited. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
+				DURIN_TRACE("Thread exited. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
 			});
 		}
 		catch (const std::exception& Exception)

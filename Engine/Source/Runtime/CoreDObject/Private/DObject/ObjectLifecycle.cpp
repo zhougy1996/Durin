@@ -502,8 +502,8 @@ namespace Durin
 		NotifyGarbageCollectionCompleted(FTime::Seconds(), GLastGarbageCollectionStats);
 		DURIN_INFO_CATEGORY(
 			"GC",
-			"Garbage collection completed in {:.3f} ms (mark {:.3f} ms, sweep {:.3f} ms): "
-			"objects {} -> {}, marked {}, candidates {}, swept {}, deferred {}, pending kill {}.",
+			"Collection completed: {:.3f} ms (mark {:.3f} ms, sweep {:.3f} ms) | "
+			"objects {} -> {} | marked={} | candidates={} | swept={} | deferred={} | pending kill={}",
 			(FTime::Seconds() - CollectionStartTime) * 1000.0,
 			GLastGarbageCollectionStats.MarkMilliseconds,
 			GLastGarbageCollectionStats.SweepMilliseconds,

@@ -524,7 +524,7 @@ namespace Durin::VulkanRHI
 			const std::lock_guard Lock(DisabledRequirementMutex);
 			if (LoggedDisabledRequirements.insert(Requirement.Name).second)
 			{
-				DURIN_DEBUG("Optional Vulkan requirement '{}' is unavailable; startup continues without it.",
+				DURIN_TRACE("Optional Vulkan requirement '{}' is unavailable; startup continues without it.",
 					Requirement.Name);
 			}
 		}

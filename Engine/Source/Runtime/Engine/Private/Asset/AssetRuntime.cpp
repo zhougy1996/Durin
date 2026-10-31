@@ -967,7 +967,7 @@ namespace Durin
 		if (!AssetPrivate::FAssetLiveLoadGuard::Check("StopAcceptingRequests", "")) return;
 		if (!bAcceptingRequests) return;
 		bAcceptingRequests = false;
-		DURIN_DEBUG("Asset manager stopped accepting new requests.");
+		DURIN_DEBUG("Asset manager stopped accepting new requests");
 	}
 
 	auto FAssetLoadService::ResolveSoftObject(

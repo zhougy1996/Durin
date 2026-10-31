@@ -31,7 +31,7 @@ namespace Durin::VulkanRHI
 				DURIN_TRACE("Vulkan diagnostic: {}", Message.Message);
 				break;
 			case EVulkanDebugMessageSeverity::Information:
-				DURIN_DEBUG("Vulkan diagnostic: {}", Message.Message);
+				DURIN_TRACE("Vulkan diagnostic: {}", Message.Message);
 				break;
 			case EVulkanDebugMessageSeverity::Warning:
 				DURIN_WARN("Vulkan diagnostic: {}", Message.Message);

@@ -135,7 +135,7 @@ namespace Durin
 			if (!IsEngineExitRequested() && Request.Automation.ExitAfterTicks
 				&& CompletedTicks >= *Request.Automation.ExitAfterTicks)
 			{
-				DURIN_INFO("Requesting automated engine exit after {} ticks.", CompletedTicks);
+				DURIN_INFO("Engine exit requested: automated | completed ticks={}", CompletedTicks);
 				RequestEngineExit();
 			}
 		}

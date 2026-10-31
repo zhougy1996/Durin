@@ -144,7 +144,7 @@ namespace Durin
 			// The command list exists before the backend; bind its default pipeline
 			// only after the context is valid.
 			FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::Graphics);
-			DURIN_DEBUG("RHI initialized successfully");
+			DURIN_DEBUG("RHI initialized");
 			return true;
 		}
 	}
