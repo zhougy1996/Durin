@@ -24,8 +24,8 @@ namespace Durin
 		EPSOPrecachePriority Priority, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>
 	{
 		CheckGameThread();
-		if (IsPendingKill() || VertexFactoryDataList.empty() || VertexFactoryDataList.size() > FPSOPrecacheComponentData::MaximumRequests)
-			return std::unexpected(std::string("Material PSO precache requires a live material and a bounded Vertex Factory list."));
+		if (IsPendingKill() || VertexFactoryDataList.empty())
+			return std::unexpected(std::string("Material PSO precache requires a live material and a nonempty Vertex Factory list."));
 		if (FeatureLevel > FSceneInterface::GetDefaultFeatureLevel()) return std::unexpected(std::string("Material PSO feature level exceeds RHI capability."));
 		const auto Material = GetMaterialResource(FeatureLevel);
 		if (!Material.HasValidGameThreadShaderMap())

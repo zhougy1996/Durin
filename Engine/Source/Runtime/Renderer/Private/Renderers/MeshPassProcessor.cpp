@@ -384,6 +384,12 @@ namespace Durin::RendererPrivate
 		Candidate.VertexDeclaration = Declaration;
 		Candidate.Description = DescribeMeshDraw(Batch.PipelineState, Batch.Topology, Batch.Material.ShaderMap.BlendMode, Batch.bReversedZ);
 		Candidate.Pass = GetPass(); Candidate.bGPUCulling = Batch.bGPUCulling;
+		if (PSOPrecacheValidation::IsEnabled()) {
+			static constexpr std::array Names{"Forward", "HybridRetainedForward", "SortedTranslucency", "ShadowDepth", "GBuffer", "HitProxy"};
+			const auto CollectorIndex = Batch.bGPUCulling ? -1
+				: FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, Names[static_cast<size_t>(GetPass())]);
+			PSOPrecacheValidation::Check(Initializer, CollectorIndex, &Batch.Factory.GetType());
+		}
 		Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(Name, Initializer);
 		if (!Candidate.PipelineState) return FShaderCompletion::Failure("Mesh pass pipeline creation failed.");
 		Out = std::move(Candidate);
@@ -516,12 +522,25 @@ namespace Durin::RendererPrivate
 		return Factory.GetShaderType(GetVertexFactoryPass())
 			&& (GetPass() == EMeshPipelinePass::ShadowDepth || Factory.GetShaderType(MaterialMeshPassForward));
 	}
-	auto FMeshPassProcessor::CollectPSOInitializers(const FSceneRenderPreparationConfig& Config,
-		const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
-		const FPSOPrecacheParams& Params, FPSOPrecacheDataArray& Out) -> void
+	auto FMeshPassProcessor::PreparePSOResources(const FMaterialPSOPrecacheParams& Params,
+		const FRenderResourceGeneration& Generation, bool bRequired) -> std::expected<EPSOCollectorPreparation, std::string>
+	{
+		if (!PSOCollection) PSOCollection = std::make_unique<FMeshPSOCollectionSession>(*this, Params, Generation);
+		return PSOCollection->Prepare(bRequired ? EPSOPrecacheCollectionPhase::Required : EPSOPrecacheCollectionPhase::Optional);
+	}
+	void FMeshPassProcessor::CollectPSOInitializers(const FSceneRenderPreparationConfig&, const FMaterialResource&,
+		const FPSOPrecacheVertexFactoryData&, const FPSOPrecacheParams&, FPSOPrecacheDataArray& Out)
+	{
+		require(PSOCollection);
+		auto Result = PSOCollection->AppendPrepared(Out);
+		if (!Result) throw std::runtime_error(Result.error());
+	}
+	auto FMeshPassProcessor::AppendPreparedPSOInitializers(const FPreparedMeshPSOCollectorResources& Prepared,
+		const FSceneRenderPreparationConfig& Config, const FMaterialResource& Material,
+		const FPSOPrecacheVertexFactoryData& VertexFactoryData, const FPSOPrecacheParams& Params, FPSOPrecacheDataArray& Out)
+		-> std::expected<void, std::string>
 	{
 		CheckRenderingThread();
-		auto& Prepared = FPreparedMeshPSOCollectorScope::Get();
 		const auto Properties = Material.GetStaticProperties();
 		const auto& Map = Material.CompiledProgram->GetShaderMap();
 		const FMaterialPlanningPassIdentity Identity{
@@ -531,16 +550,19 @@ namespace Durin::RendererPrivate
 			.bTwoSided = Properties.bTwoSided, .DepthWritePolicy = Properties.DepthWritePolicy};
 		const auto Factory = FindMeshVertexFactory(VertexFactoryData.VertexFactoryType->GetStableKey());
 		if (!IsEnabled(Config) || !SupportsVertexFactory(*Factory)
-			|| !IsMeshRelevant(Identity, Params.Participation, Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return;
+			|| !IsMeshRelevant(Identity, Params.Participation, Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return {};
 		for (const auto& Variant : Prepared.Variants)
 		{
 			const FMeshPassProcessorBatch Batch{Identity, *Factory, MakeMeshPipelineState(Identity, Variant.Raster),
 				Params.Topology, Params.Participation, true, false, Variant.Raster.bReversedZ};
 			FGraphicsPipelineStateInitializer Initializer;
 			if (!BuildPSOInitializer(Batch, *Prepared.Shaders, Prepared.Declaration, Initializer))
-			{ Prepared.Error = "Mesh pass initializer construction failed."; return; }
+			{ return std::unexpected(std::string("Mesh pass initializer construction failed.")); }
 			Out.emplace_back(Initializer, Variant.bRequired, Prepared.Priority);
+			Out.back().PSOCollectorIndex = PSOCollectorIndex;
+			Out.back().VertexFactoryType = VertexFactoryData.VertexFactoryType;
 		}
+		return {};
 	}
 
 }

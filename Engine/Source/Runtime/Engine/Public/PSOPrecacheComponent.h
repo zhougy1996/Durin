@@ -36,7 +36,7 @@ namespace Durin
 		FPSOPrecacheComponentData(const FPSOPrecacheComponentData&) = delete;
 		auto operator=(const FPSOPrecacheComponentData&) -> FPSOPrecacheComponentData& = delete;
 		ENGINE_API auto SetMaterialPSOPrecacheData(std::vector<FMaterialPSOPrecacheRequestID> Requests,
-			std::function<void()> Finished = {}, std::function<void()> Changed = {}) -> bool;
+			std::function<void()> Finished = {}, std::function<void()> Changed = {}) -> void;
 		ENGINE_API static auto DispatchOwnerNotifications() -> void;
 		ENGINE_API auto Poll() -> EMaterialPSOPrecacheState;
 		ENGINE_API auto Reset() -> void;
@@ -48,7 +48,6 @@ namespace Durin
 		auto GetLatestJobSet() const -> uint64 { return LatestPSOPrecacheJobSet; }
 		auto GetLatestJobSetCompleted() const -> uint64 { return LatestPSOPrecacheJobSetCompleted; }
 		auto GetMaterialPSOPrecacheRequestIDs() const -> std::span<const FMaterialPSOPrecacheRequestID> { return MaterialPSOPrecacheRequestIDs; }
-		static constexpr size_t MaximumRequests = 256;
 	private:
 		auto GetState() const -> EMaterialPSOPrecacheState;
 		std::vector<FMaterialPSOPrecacheRequestID> MaterialPSOPrecacheRequestIDs;

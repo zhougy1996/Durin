@@ -114,12 +114,6 @@ namespace Durin
 		CollectPSOPrecacheData(PrecacheParams, Params);
 		if (Params.empty()) UntrackPSOPrecache();
 		else TrackPrecacheComponent(this);
-		if (Params.size() > FPSOPrecacheComponentData::MaximumRequests)
-		{
-			PSOPrecacheDiagnostic = "Component PSO collection exceeds its capacity.";
-			SetRequests({FMaterialPSOPrecacheRequestID::Rejected(PSOPrecacheDiagnostic)});
-			return;
-		}
 		std::vector<FMaterialPSOPrecacheRequestID> Requests;
 		auto* Renderer = GetPSOPrecacheRenderer();
 		// Validate readiness for the whole set before admitting any work. A missing
@@ -167,12 +161,6 @@ namespace Durin
 			{
 				Request.BoostPriority(Param.Priority);
 				Requests.push_back(std::move(Request));
-			}
-			if (Requests.size() > FPSOPrecacheComponentData::MaximumRequests)
-			{
-				PSOPrecacheDiagnostic = "Component PSO request set exceeds its capacity.";
-				Requests = {FMaterialPSOPrecacheRequestID::Rejected(PSOPrecacheDiagnostic)};
-				break;
 			}
 		}
 		SetRequests(std::move(Requests));

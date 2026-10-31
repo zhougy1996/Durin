@@ -28,8 +28,6 @@ namespace Durin
 			if (std::ranges::any_of(OutParams, [&](const auto& Existing) {
 				return Existing.MaterialInterface == Material && Existing.PSOPrecacheParams == Options;
 			})) continue;
-			if (OutParams.size() >= FPSOPrecacheComponentData::MaximumRequests)
-			{ OutParams.push_back({}); return; }
 			OutParams.push_back({Material, {FPSOPrecacheVertexFactoryData(Factory)}, Options});
 		}
 	}

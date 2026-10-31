@@ -22,6 +22,7 @@ namespace Durin
 		std::shared_ptr<FPipelineState> Pipeline;
 		bool bRequired = true;
 		ERHIPipelineRequestState CompletedState = ERHIPipelineRequestState::Failed;
+		std::shared_ptr<PSOPrecacheValidation::FRecord> Validation;
 	};
 
 	struct FMaterialPSOPrecacheWork
@@ -232,7 +233,6 @@ namespace Durin
 			|| Options.Topology >= FGraphicsPipelineStateInitializer::EPrimitiveTopology::Count
 			|| !std::isfinite(Params.Material.ShaderMap.OpacityMaskThreshold))
 			return FMaterialPSOPrecacheRequestID::Rejected("Invalid material PSO precache parameters or unsupported Vertex Factory.");
-		uint64 CodeBytes = 0;
 		if (Params.CompiledProgram)
 		{
 			if (!*Params.CompiledProgram || Params.CompiledProgram->FeatureLevel != Params.FeatureLevel
@@ -240,12 +240,6 @@ namespace Durin
 				|| Params.CompiledProgram->GetShaderMap().ShaderMapId != Params.Material.ShaderMap.ProgramIdentity
 				|| Params.CompiledProgram->GetShaderMap().Layout.Identity != Params.Material.ShaderMap.RenderLayout)
 				return FMaterialPSOPrecacheRequestID::Rejected("Material PSO request requires a matching accepted program.");
-			for (const auto& Shader : Params.CompiledProgram->GetShaderMap().CompiledShaders)
-			{
-				if (Shader.Code.size() > MaximumCodeBytes - CodeBytes)
-					return FMaterialPSOPrecacheRequestID::Rejected("Material PSO code budget exceeded.");
-				CodeBytes += Shader.Code.size();
-			}
 		}
 		const auto Generation = GetShaderReloadGeneration();
 		std::lock_guard Lock(State->Mutex);
@@ -294,7 +288,7 @@ namespace Durin
 		std::stable_sort(Entries.begin(), Entries.end(), [](const auto& A, const auto& B) {
 			return A->ScheduledPriority > B->ScheduledPriority;
 		});
-		size_t Active = std::ranges::count_if(Entries, [](const auto& Work) { return Work->Phase == EPSOPhase::Collecting || Work->Phase == EPSOPhase::Compiling; });
+		size_t Active = std::ranges::count_if(Entries, [](const auto& Work) { return Work->Phase == EPSOPhase::Collecting && !Work->Collection.bRequiredPSOsCollected; });
 		for (auto& Work : Entries)
 		{
 			struct FNotifyProgress
@@ -329,8 +323,7 @@ namespace Durin
 					{ Work->RequiredReady = false; Work->Fail("Required PSO collection changed after publication."); continue; }
 					if (Result && *Result && Work->Collection.PSOInitializers.empty() && !Work->Collection.bRequiredPSOsCollected)
 					{ Work->Fail("Material PSO collector completed without declaring coverage."); continue; }
-					if (Work->Collection.PSOInitializers.size() > MaximumPipelinesPerRequest)
-					{ Work->Fail("Material PSO collector exceeded its pipeline capacity."); Work->Collection = {}; continue; }
+
 					if (!Result)
 					{
 						if (!Work->Collection.bRequiredPSOsCollected)
@@ -349,7 +342,9 @@ namespace Durin
 				while (Work->Submitted.size() < Work->Collection.PSOInitializers.size())
 				{
 					auto& Data = Work->Collection.PSOInitializers[Work->Submitted.size()];
+					auto Validation = PSOPrecacheValidation::Track(Data);
 					auto RejectSubmission = [&](std::string Error) -> bool {
+						PSOPrecacheValidation::Update(Validation, ERHIPipelineRequestState::Failed);
 						if (Data.bRequired) { Work->Fail(std::move(Error)); return false; }
 						if (!Work->OptionalError) Work->OptionalError = std::move(Error);
 						// Retain the failed optional slot so required pipelines are still
@@ -387,7 +382,7 @@ namespace Durin
 						break;
 					}
 					(*Pipeline)->BoostPriority(std::max(Priority, Work->Priority.load()));
-					Work->Submitted.push_back({*Pipeline, bRequired});
+					Work->Submitted.push_back({*Pipeline, bRequired, ERHIPipelineRequestState::Pending, std::move(Validation)});
 					Data = {}; // Release admitted initializer layouts; the request owns its inputs.
 				}
 			}
@@ -398,6 +393,7 @@ namespace Durin
 			{
 				if (Pipeline.Pipeline) Pipeline.Pipeline->BoostPriority(Work->Priority.load());
 				const auto Status = Pipeline.Pipeline ? Pipeline.Pipeline->GetState() : Pipeline.CompletedState;
+				PSOPrecacheValidation::Update(Pipeline.Validation, Status);
 				if (Status != ERHIPipelineRequestState::Pending)
 				{
 					Pipeline.CompletedState = Status;

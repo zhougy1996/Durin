@@ -64,8 +64,8 @@ namespace Durin
 		ENGINE_API auto MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags = EPrimitiveRenderStateDirtyFlags::Proxy) -> void;
 		auto GetPSOPrecacheComponentData() -> FPSOPrecacheComponentData& { return PSOPrecacheComponentData; }
 		auto GetPSOPrecacheComponentData() const -> const FPSOPrecacheComponentData& { return PSOPrecacheComponentData; }
-		auto SetMaterialPSOPrecacheData(std::vector<FMaterialPSOPrecacheRequestID> Requests, std::function<void()> Finished = {}) -> bool
-		{ return PSOPrecacheComponentData.SetMaterialPSOPrecacheData(std::move(Requests), std::move(Finished)); }
+		auto SetMaterialPSOPrecacheData(std::vector<FMaterialPSOPrecacheRequestID> Requests, std::function<void()> Finished = {}) -> void
+		{ PSOPrecacheComponentData.SetMaterialPSOPrecacheData(std::move(Requests), std::move(Finished)); }
 		auto IsPSOPrecaching() const -> bool { return bPSOPrecacheSubmissionPending || PSOPrecacheComponentData.IsPSOPrecaching(); }
 		ENGINE_API auto SetCastShadow(bool bValue) -> void;
 		ENGINE_API auto SetRenderInMainPass(bool bValue) -> void;

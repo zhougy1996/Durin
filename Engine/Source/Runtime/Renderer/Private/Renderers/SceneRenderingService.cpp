@@ -143,6 +143,7 @@ namespace Durin
 	auto FSceneRenderingService::ReleaseResources_RenderThread() -> void
 	{
 		MaterialPSORequests.Close();
+		PSOPrecacheValidation::Clear();
 		ReleaseDeviceResources_RenderThread();
 		Retirement.Drain([] {
 			require(GDynamicRHI != nullptr);
@@ -156,6 +157,7 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		MaterialPSORequests.Invalidate();
+		PSOPrecacheValidation::Clear();
 		RetirePreparations_RenderThread();
 		DefaultTextures.ReleaseResources_RenderThread();
 		EnvironmentLighting.ReleaseResources_RenderThread(FRHICommandListImmediate::Get());
@@ -232,6 +234,7 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		MaterialPSORequests.Invalidate();
+		PSOPrecacheValidation::Clear();
 		RetirePreparations_RenderThread();
 		if (Cause == ERendererResourceInvalidationCause::Device)
 			ViewStates.InvalidateAll(

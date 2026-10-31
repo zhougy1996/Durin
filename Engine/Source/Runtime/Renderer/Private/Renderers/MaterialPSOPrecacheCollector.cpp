@@ -14,29 +14,18 @@ namespace Durin::RendererPrivate
 {
     namespace
     {
-        thread_local FPreparedMeshPSOCollectorResources* GPreparedMeshPSOResources = nullptr;
         struct FMaterialPSOCollectionSession
         {
             struct FCollector
             {
                 std::unique_ptr<IPSOCollector> Collector;
-                std::unique_ptr<FMeshPSOCollectionSession> Session;
                 FPSOPrecacheDataArray OptionalDescriptions;
-                bool ImmediateBuilt = false;
+                std::array<bool, 2> Complete{};
             };
             std::vector<FCollector> Collectors;
             FMaterialResource Material;
-            std::array<size_t, 2> Next{};
+
         };
-    }
-    FPreparedMeshPSOCollectorScope::FPreparedMeshPSOCollectorScope(FPreparedMeshPSOCollectorResources& Resources)
-        : Previous(std::exchange(GPreparedMeshPSOResources, &Resources))
-    { CheckRenderingThread(); require(Resources.Shaders && Resources.Declaration); }
-    FPreparedMeshPSOCollectorScope::~FPreparedMeshPSOCollectorScope() { GPreparedMeshPSOResources = Previous; }
-    auto FPreparedMeshPSOCollectorScope::Get() -> FPreparedMeshPSOCollectorResources&
-    {
-        requiref(GPreparedMeshPSOResources, "Mesh PSO output requires prepared collection-session resources.");
-        return *GPreparedMeshPSOResources;
     }
     static auto MakePSOCollectionMaterial(const FMaterialPSOPrecacheParams& Params) -> FMaterialResource
     {
@@ -65,6 +54,7 @@ namespace Durin::RendererPrivate
         FMeshPassShaders Shaders;
         FVertexDeclarationRHIRef Declaration;
         bool Requested = false, ResourcesReady = false;
+        size_t PreparedGroup = 0;
         std::string Error;
         FState(FMeshPassProcessor& InProcessor, const FMaterialPSOPrecacheParams& InParams, const FRenderResourceGeneration& InGeneration)
             : Processor(InProcessor), Params(InParams), Generation(InGeneration)
@@ -77,7 +67,7 @@ namespace Durin::RendererPrivate
             { Error = "Mesh PSO session requires a matching accepted material and scene configuration."; return; }
             Factory = Params.VertexFactoryData.VertexFactoryType ? FindMeshVertexFactory(Params.VertexFactoryData.VertexFactoryType->GetStableKey()) : nullptr;
             if (!Factory || &Factory->GetType() != Params.VertexFactoryData.VertexFactoryType)
-            { Error = "No registered mesh shader implementation for the precache Vertex Factory."; return; }
+            { return; }
             const auto& Map = Params.CompiledProgram->GetShaderMap();
             Identity = Params.Material;
             Identity.ShaderMap.RenderLayout = Map.Layout.Identity;
@@ -119,27 +109,46 @@ namespace Durin::RendererPrivate
     FMeshPSOCollectionSession::FMeshPSOCollectionSession(FMeshPassProcessor& Processor, const FMaterialPSOPrecacheParams& Params,
         const FRenderResourceGeneration& Generation) : State(std::make_unique<FState>(Processor, Params, Generation)) { CheckRenderingThread(); }
     FMeshPSOCollectionSession::~FMeshPSOCollectionSession() { CheckRenderingThread(); }
-    auto FMeshPSOCollectionSession::CollectPSOInitializers(EPSOPrecacheCollectionPhase Phase, FPSOPrecacheDataArray& Out) -> std::expected<bool, std::string>
+    auto FMeshPSOCollectionSession::Prepare(EPSOPrecacheCollectionPhase Phase) -> std::expected<EPSOCollectorPreparation, std::string>
     {
         CheckRenderingThread();
         auto& S = *State;
         if (Phase != EPSOPrecacheCollectionPhase::Required && Phase != EPSOPrecacheCollectionPhase::Optional)
             return std::unexpected(std::string("Invalid PSO collection phase."));
         const size_t Group = Phase == EPSOPrecacheCollectionPhase::Required ? 0 : 1;
-        if (S.Emitted[Group]) return true;
+        if (S.Emitted[Group]) return EPSOCollectorPreparation::Skip;
         if (!S.Error.empty()) return std::unexpected(S.Error);
         if (Group == 1 && !S.Emitted[0]) return std::unexpected(std::string("Required PSO collection must finish before optional collection."));
-        if (S.Variants[Group].empty()) { S.Emitted[Group] = true; return true; }
+        if (S.Variants[Group].empty()) { S.Emitted[Group] = true; return EPSOCollectorPreparation::Skip; }
         if (!S.ResourcesReady) {
             const auto Ready = S.PrepareResources();
             if (!Ready) { S.Error = Ready.error(); return std::unexpected(S.Error); }
-            if (!*Ready) return false;
+            if (!*Ready) return EPSOCollectorPreparation::Pending;
         }
-        FPreparedMeshPSOCollectorResources Resources{&S.Shaders, S.Declaration.GetReference(), S.Params.Priority, S.Variants[Group]};
-        FPreparedMeshPSOCollectorScope Scope(Resources);
-        S.Processor.CollectPSOInitializers(S.Params.PreparationConfig, S.Material, S.Params.VertexFactoryData, S.Params.PrecachePSOParams, Out);
-        if (!Resources.Error.empty()) { S.Error = std::move(Resources.Error); return std::unexpected(S.Error); }
-        S.Emitted[Group] = true; return true;
+        S.PreparedGroup = Group;
+        return EPSOCollectorPreparation::Ready;
+    }
+    auto FMeshPSOCollectionSession::AppendPrepared(FPSOPrecacheDataArray& Out) -> std::expected<void, std::string>
+    {
+        auto& S = *State;
+        CheckRenderingThread();
+        require(S.ResourcesReady && !S.Emitted[S.PreparedGroup]);
+        const FPreparedMeshPSOCollectorResources Resources{&S.Shaders, S.Declaration.GetReference(), S.Params.Priority, S.Variants[S.PreparedGroup]};
+        auto Result = S.Processor.AppendPreparedPSOInitializers(Resources, S.Params.PreparationConfig, S.Material,
+            S.Params.VertexFactoryData, S.Params.PrecachePSOParams, Out);
+        if (!Result) { S.Error = Result.error(); return Result; }
+        S.Emitted[S.PreparedGroup] = true;
+        return {};
+    }
+    auto FMeshPSOCollectionSession::CollectPSOInitializers(EPSOPrecacheCollectionPhase Phase, FPSOPrecacheDataArray& Out) -> std::expected<bool, std::string>
+    {
+        auto Ready = Prepare(Phase);
+        if (!Ready) return std::unexpected(Ready.error());
+        if (*Ready == EPSOCollectorPreparation::Pending) return false;
+        if (*Ready == EPSOCollectorPreparation::Skip) return true;
+        auto Result = AppendPrepared(Out);
+        if (!Result) return std::unexpected(Result.error());
+        return true;
     }
     auto CollectMaterialPSOs(const FMaterialPSOPrecacheParams& Params, FMaterialPSOPrecacheCollection& Collection,
         const FRenderResourceGeneration& Generation) -> std::expected<bool, std::string>
@@ -159,42 +168,39 @@ namespace Durin::RendererPrivate
                 auto Collector = Create(Params.FeatureLevel);
                 if (!Collector || Collector->PSOCollectorIndex != Index)
                     return std::unexpected(std::string("Registered PSO factory returned an incompatible collector."));
-                std::unique_ptr<FMeshPSOCollectionSession> Session;
-                if (auto* MeshProcessor = dynamic_cast<FMeshPassProcessor*>(Collector.get()))
-                    Session = std::make_unique<FMeshPSOCollectionSession>(*MeshProcessor, Params, Generation);
-                Resources->Collectors.push_back({std::move(Collector), std::move(Session)});
+                Resources->Collectors.push_back({std::move(Collector)});
             }
             Collection.Resources = std::move(Resources);
         }
         auto Resources = std::static_pointer_cast<FMaterialPSOCollectionSession>(Collection.Resources);
         for (size_t Group = 0; Group < 2; ++Group) {
-            if (Group == 1) Collection.bRequiredPSOsCollected = true;
-            while (Resources->Next[Group] < Resources->Collectors.size()) {
-                auto& Entry = Resources->Collectors[Resources->Next[Group]];
-                if (Entry.Session) {
-                    const auto Result = Entry.Session->CollectPSOInitializers(
-                        Group == 0 ? EPSOPrecacheCollectionPhase::Required : EPSOPrecacheCollectionPhase::Optional, Collection.PSOInitializers);
-                    if (!Result || !*Result) return Result;
-                } else {
-                    // Ready non-mesh collectors append once; optional descriptions
-                    // stay buffered until the global required boundary.
-                    if (!Entry.ImmediateBuilt) {
-                        FPSOPrecacheDataArray Initializers;
+            bool Complete = true;
+            for (auto& Entry : Resources->Collectors) {
+                if (Entry.Complete[Group]) continue;
+                const auto Ready = Entry.Collector->PreparePSOResources(Params, Generation, Group == 0);
+                if (!Ready) return std::unexpected(Ready.error());
+                if (*Ready == EPSOCollectorPreparation::Pending) { Complete = false; continue; }
+                if (*Ready == EPSOCollectorPreparation::Ready) {
+                    FPSOPrecacheDataArray Initializers;
+                    try {
                         Entry.Collector->CollectPSOInitializers(Params.PreparationConfig, Resources->Material,
                             Params.VertexFactoryData, Params.PrecachePSOParams, Initializers);
-                        for (auto& Data : Initializers) {
-                            if (Data.bRequired) Collection.PSOInitializers.push_back(std::move(Data));
-                            else Entry.OptionalDescriptions.push_back(std::move(Data));
-                        }
-                        Entry.ImmediateBuilt = true;
-                    }
-                    if (Group == 1) {
-                        for (auto& Data : Entry.OptionalDescriptions) Collection.PSOInitializers.push_back(std::move(Data));
-                        Entry.OptionalDescriptions.clear();
+                    } catch (const std::exception& Error) { return std::unexpected(std::string(Error.what())); }
+                    for (auto& Data : Initializers) {
+                        Data.PSOCollectorIndex = Entry.Collector->PSOCollectorIndex;
+                        Data.VertexFactoryType = Params.VertexFactoryData.VertexFactoryType;
+                        if (Group == 0 && !Data.bRequired) Entry.OptionalDescriptions.push_back(std::move(Data));
+                        else Collection.PSOInitializers.push_back(std::move(Data));
                     }
                 }
-                ++Resources->Next[Group];
+                if (Group == 1) {
+                    for (auto& Data : Entry.OptionalDescriptions) Collection.PSOInitializers.push_back(std::move(Data));
+                    Entry.OptionalDescriptions.clear();
+                }
+                Entry.Complete[Group] = true;
             }
+            if (!Complete) return false;
+            if (Group == 0) Collection.bRequiredPSOsCollected = true;
         }
         return true;
     }

@@ -3287,7 +3287,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 		EXPECT_EQ(Duplicate[0].GetProgress().State, EMaterialPSOPrecacheState::Ready);
 		TStrongObjectPtr<DStaticMeshComponent> Component(NewObject<DStaticMeshComponent>(nullptr, NAME_None));
 		uint32 Completions = 0;
-		ASSERT_TRUE(Component->SetMaterialPSOPrecacheData(Dynamic, [&] { ++Completions; }));
+		Component->SetMaterialPSOPrecacheData(Dynamic, [&] { ++Completions; });
 		EXPECT_EQ(Component->GetPSOPrecacheComponentData().Poll(), EMaterialPSOPrecacheState::Ready);
 		EXPECT_EQ(Completions, 1u);
 		Component->MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);

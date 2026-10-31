@@ -26,6 +26,8 @@ namespace Durin
 		EType Type = EType::Graphics;
 		FGraphicsPipelineStateInitializer GraphicsInitializer;
 		FComputePipelineStateInitializer ComputeInitializer;
+		int32 PSOCollectorIndex = -1;
+		const FVertexFactoryType* VertexFactoryType = nullptr;
 		bool bRequired = true;
 		EPSOPrecachePriority Priority = EPSOPrecachePriority::Medium;
 
@@ -48,6 +50,34 @@ namespace Durin
 		}
 	};
 	using FPSOPrecacheDataArray = std::vector<FPSOPrecacheData>;
+
+	// Optional full-identity validation. Records own value keys, never native resources.
+	namespace PSOPrecacheValidation
+	{
+		enum class EResult : uint8 { Untracked, Missed, TooLate, Hit, Failed };
+		struct FStatistics
+		{
+			uint64 Untracked = 0, Missed = 0, TooLate = 0, Hit = 0, Failed = 0;
+		};
+		struct FRecord;
+		struct FCheckResult
+		{
+			EResult Result = EResult::Untracked;
+			int32 PSOCollectorIndex = -1;
+			const FVertexFactoryType* VertexFactoryType = nullptr;
+		};
+		// Enabling starts a new capture. Clear at shader/device invalidation and shutdown.
+		ENGINE_API auto SetEnabled(bool bEnabled) -> void;
+		ENGINE_API auto IsEnabled() -> bool;
+		ENGINE_API auto Clear() -> void;
+		ENGINE_API auto Track(const FPSOPrecacheData& Data) -> std::shared_ptr<FRecord>;
+		ENGINE_API auto Update(const std::shared_ptr<FRecord>& Record, ERHIPipelineRequestState State) -> void;
+		ENGINE_API auto Check(const FGraphicsPipelineStateInitializer& Initializer, int32 CollectorIndex,
+			const FVertexFactoryType* VertexFactoryType) -> FCheckResult;
+		ENGINE_API auto Check(const FComputePipelineStateInitializer& Initializer, int32 CollectorIndex,
+			const FVertexFactoryType* VertexFactoryType = nullptr) -> FCheckResult;
+		ENGINE_API auto GetStatistics() -> FStatistics;
+	}
 
 	enum class EPSOPrecacheVertexFactoryError : uint8
 	{

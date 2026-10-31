@@ -210,6 +210,8 @@ durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
 	HEAVY_RUNTIME_RATIONALE
 		"Exercises view-local StaticMesh material preparation against initialized render resources."
+	RUNTIME_ONLY_TARGETS MeshBuilder
+	RUNTIME_ONLY_RATIONALE "Authored LOD fixtures load MeshBuilder through FModuleManager before building StaticMesh resources."
 )
 
 durin_add_native_test(StaticMeshRenderPreparationQualificationTests

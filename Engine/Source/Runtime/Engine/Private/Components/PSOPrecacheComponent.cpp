@@ -28,10 +28,9 @@ namespace Durin
 		Called = false; Completion = {}; Subscriptions.clear(); MaterialPSOPrecacheRequestIDs.clear();
 	}
 	auto FPSOPrecacheComponentData::SetMaterialPSOPrecacheData(std::vector<FMaterialPSOPrecacheRequestID> Requests,
-		std::function<void()> Finished, std::function<void()> Changed) -> bool
+		std::function<void()> Finished, std::function<void()> Changed) -> void
 	{
 		CheckPrecacheOwnerThread();
-		if (Requests.size() > MaximumRequests) return false;
 		if (!CompletionEpoch) CompletionEpoch = std::make_shared<std::atomic<uint64>>(0);
 		Reset(); Called = true;
 		MaterialPSOPrecacheRequestIDs = std::move(Requests); Completion = std::move(Finished);
@@ -55,7 +54,6 @@ namespace Durin
 					});
 				}));
 		}
-		return true;
 	}
 	auto FPSOPrecacheComponentData::GetState() const -> EMaterialPSOPrecacheState
 	{

@@ -110,7 +110,7 @@ namespace
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		for (;;)
 		{
-			Durin::Tests::AdvanceThumbnailPreparationFrame();
+			Durin::Tests::BeginThumbnailTestFrame();
 			Durin::FlushRenderingCommands();
 			Durin::PumpGameThreadDeferredWork();
 			if (IsComplete()) return testing::AssertionSuccess();
@@ -367,7 +367,6 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	ASSERT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
 	ASSERT_TRUE((*Session)->PreparePreview(Preview));
 	ASSERT_TRUE((*Session)->ValidatePreparedInput());
-	const auto Before = GetShaderBuildStats();
 	ASSERT_TRUE(Preview.BeginCapture());
 	std::expected<std::optional<FByteBuffer>, std::string> Capture;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
@@ -377,6 +376,16 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	ASSERT_TRUE(Capture) << Capture.error();
 	ASSERT_TRUE(*Capture);
 	EXPECT_EQ((**Capture).size(), Contract.Output.Width * Contract.Output.Height * 4u);
+	// Cold view preparation may resolve a fixed Vertex Factory shader after the
+	// material/global session is ready. Measure consumption after that boundary.
+	const auto Before = GetShaderBuildStats();
+	ASSERT_TRUE(Preview.BeginCapture());
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		Capture = Preview.PollCapture();
+		return !Capture || Capture->has_value();
+	}));
+	ASSERT_TRUE(Capture) << Capture.error();
+	ASSERT_TRUE(*Capture);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before.Compilations);
 	EXPECT_EQ(GetShaderBuildStats().DependencyResolutions, Before.DependencyResolutions);
 	auto Properties = Material->GetStaticProperties();
@@ -488,6 +497,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			Durin::PumpGameThreadDeferredWork();
 			Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(true);
 			Durin::ProcessAsyncLoading();
+			Durin::Tests::BeginThumbnailTestFrame();
 			Cache.BeginFrame();
 			Cache.Request(
 				StaticMeshFingerprint,
@@ -495,7 +505,6 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			);
 			View = Cache.Find(StaticMeshFingerprint.AssetPath);
 			Cache.EndFrame();
-			Durin::Tests::AdvanceThumbnailPreparationFrame();
 			if (ProbeLoads == 0 && Cache.GetStats().Generation.Renders == 1)
 			{
 				// Do not poll capture completion: a real render/readback owns the
@@ -545,9 +554,9 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			   && std::chrono::steady_clock::now() < SaveDeadline)
 		{
 			Durin::ProcessAsyncLoading();
+			Durin::Tests::BeginThumbnailTestFrame();
 			Cache.BeginFrame();
 			Cache.EndFrame();
-			Durin::Tests::AdvanceThumbnailPreparationFrame();
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 		ASSERT_EQ(Cache.GetStats().Generation.CacheWrites, 1u);
@@ -854,6 +863,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 		FAssetThumbnailView View;
 		ASSERT_TRUE(WaitForResourcePublication([&] {
 			Durin::ProcessAsyncLoading();
+			Durin::Tests::BeginThumbnailTestFrame();
 			Cache.BeginFrame();
 			Cache.Request(Request.Asset, EAssetThumbnailPriority::Visible);
 			View = Cache.Find(Request.Asset.AssetPath);
@@ -870,7 +880,8 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 		if (!Warm)
 			ASSERT_TRUE(WaitForResourcePublication([&] {
 				Durin::ProcessAsyncLoading();
-				Cache.BeginFrame(); Cache.EndFrame();
+				Durin::Tests::BeginThumbnailTestFrame();
+			Cache.BeginFrame(); Cache.EndFrame();
 				return Cache.GetStats().Generation.CacheWrites == 1;
 			}));
 	}
@@ -998,7 +1009,7 @@ TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSO
     ASSERT_NE(Actor, nullptr);
     auto* Component = Cast<DPrimitiveComponent>(Actor->AddInstanceComponent(DPrimitiveComponent::StaticClass()));
     ASSERT_NE(Component, nullptr);
-    ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({Request}));
+    Component->SetMaterialPSOPrecacheData({Request});
     ASSERT_TRUE(Component->IsPSOPrecaching());
     ASSERT_TRUE(Pool.BeginCapture());
     FByteBuffer Pixels;

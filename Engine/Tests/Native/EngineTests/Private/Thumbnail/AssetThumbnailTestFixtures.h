@@ -7,6 +7,8 @@
 
 #include "CoreMinimal.h"
 #include "CoreGlobals.h"
+#include "Engine/Engine.h"
+#include "IRendererModule.h"
 
 #include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
@@ -33,6 +35,7 @@
 #include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "RenderingThread.h"
+#include "Threading/TaskRuntime.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Texture/Texture2D.h"
@@ -41,22 +44,26 @@
 
 namespace Durin::Tests
 {
-	// Standalone captures still need distinct frames for preparation admission.
-	inline auto AdvanceThumbnailPreparationFrame() -> void
+	// Preparation shares a per-render-frame admission budget with ordinary draws.
+	inline auto BeginThumbnailTestFrame() -> void
 	{
-		ENQUEUE_RENDER_COMMAND(AdvanceThumbnailPreparationFrame)([](FRHICommandListImmediate&) {
+		auto* Renderer = GEngine ? GEngine->GetRendererModule() : nullptr;
+		EnqueueRenderCommand("AdvanceThumbnailCaptureTestFrame", [Renderer](FRHICommandListImmediate& Commands) {
 			++GRenderFrameCounterRenderThread;
+			if (Renderer) Renderer->BeginFrame_RenderThread(Commands);
 		});
 	}
-
-	// Test-only pumping: a render-thread flush no longer implies GPU readback completion.
+	// Standalone capture must publish cold asset/shader work on the owner thread
+	// as well as progress render commands and GPU readback.
 	inline auto FinishThumbnailCapture(Editor::FThumbnailPreviewScenePool& Pool,
 		FByteBuffer& Pixels, std::string& Error) -> Editor::EThumbnailCaptureState
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		for (;;)
 		{
-			AdvanceThumbnailPreparationFrame();
+			PumpGameThreadDeferredWork();
+			FAssetCompilingManager::Get().ProcessAsyncTasks();
+			BeginThumbnailTestFrame();
 			auto Capture = Pool.PollCapture();
 			if (!Capture)
 			{

@@ -866,7 +866,7 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	auto* Mesh = NewObject<DStaticMesh>(Level, "UnpreparedMesh");
 	Component->SetStaticMesh(Mesh);
 	const auto Request = FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed");
-	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({Request}));
+	Component->SetMaterialPSOPrecacheData({Request});
 	ASSERT_TRUE(Host->PrepareMapChange({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
 			++Completions;
@@ -991,7 +991,7 @@ TEST(FWorldTests, ComponentProxyGatePreservesRequiredFailureAndHonorsProxyStrate
 	Host.SetWorld(World);
 	auto* Actor = World->SpawnActor<AStaticMeshActor>("PSOReadinessActor");
 	auto* Component = Actor->GetStaticMeshComponent();
-	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed")}));
+	Component->SetMaterialPSOPrecacheData({FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed")});
 	EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
 	EXPECT_EQ(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs()[0].GetDiagnostic(), "Required pipeline failed");
 	Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
@@ -1048,7 +1048,7 @@ TEST(FWorldTests, DisabledComponentPSOPolicyReleasesFailedObserversWithoutCancel
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DStaticMeshComponent> Component(NewObject<DStaticMeshComponent>(nullptr, NAME_None));
 	auto Request = FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed");
-	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({Request}));
+	Component->SetMaterialPSOPrecacheData({Request});
 	EXPECT_TRUE(Component->IsPSOPrecacheReadyForProxyCreation());
 	EXPECT_TRUE(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().empty());
 	EXPECT_FALSE(Component->CheckPSOPrecachingAndBoostPriority());

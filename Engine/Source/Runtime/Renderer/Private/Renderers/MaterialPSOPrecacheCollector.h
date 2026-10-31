@@ -12,26 +12,13 @@ namespace Durin
 	{
 		class FMeshPassProcessor;
 		struct FMeshPassShaders;
-		// Consumption-only scope around the UE-shaped append interface. Ready native
-		// resources are borrowed from the session; no async work starts inside it.
+		// Explicit ready inputs shared by collection and the pass initializer builder.
 		struct FPreparedMeshPSOCollectorResources
 		{
 			const FMeshPassShaders* Shaders = nullptr;
 			FRHIVertexDeclaration* Declaration = nullptr;
 			EPSOPrecachePriority Priority = EPSOPrecachePriority::Medium;
 			std::span<const FMeshPSOPrecacheVariant> Variants;
-			std::string Error;
-		};
-		class FPreparedMeshPSOCollectorScope
-		{
-		public:
-			RENDERER_API explicit FPreparedMeshPSOCollectorScope(FPreparedMeshPSOCollectorResources& Resources);
-			RENDERER_API ~FPreparedMeshPSOCollectorScope();
-			RENDERER_API static auto Get() -> FPreparedMeshPSOCollectorResources&;
-			FPreparedMeshPSOCollectorScope(const FPreparedMeshPSOCollectorScope&) = delete;
-			auto operator=(const FPreparedMeshPSOCollectorScope&) -> FPreparedMeshPSOCollectorScope& = delete;
-		private:
-			FPreparedMeshPSOCollectorResources* Previous;
 		};
 		enum class EPSOPrecacheCollectionPhase : uint8 { Required, Optional };
 		class FMeshPSOCollectionSession final
@@ -40,6 +27,8 @@ namespace Durin
 			RENDERER_API FMeshPSOCollectionSession(FMeshPassProcessor& Processor, const FMaterialPSOPrecacheParams& Params,
 				const FRenderResourceGeneration& Generation);
 			RENDERER_API ~FMeshPSOCollectionSession();
+			RENDERER_API auto Prepare(EPSOPrecacheCollectionPhase Phase) -> std::expected<EPSOCollectorPreparation, std::string>;
+			RENDERER_API auto AppendPrepared(FPSOPrecacheDataArray& Out) -> std::expected<void, std::string>;
 			RENDERER_API auto CollectPSOInitializers(EPSOPrecacheCollectionPhase Phase, FPSOPrecacheDataArray& Out)
 				-> std::expected<bool, std::string>;
 		private:

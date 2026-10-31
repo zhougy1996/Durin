@@ -222,6 +222,8 @@ namespace Durin::RendererPrivate
 
 	// One pass owns eligibility, shader selection and pipeline description for both
 	// drawing and collection. Geometry visibility and native submission stay outside.
+	class FMeshPSOCollectionSession;
+	struct FPreparedMeshPSOCollectorResources;
 	class FMeshPassProcessor : public IPSOCollector
 	{
 	public:
@@ -253,6 +255,12 @@ namespace Durin::RendererPrivate
 		virtual auto GetPSOPrecacheVariants(const FSceneRenderPreparationConfig& Config,
 			const FPSOPrecacheParams& Params) const -> std::vector<FMeshPSOPrecacheVariant> = 0;
 
+		RENDERER_API auto PreparePSOResources(const FMaterialPSOPrecacheParams& Params,
+			const FRenderResourceGeneration& Generation, bool bRequired) -> std::expected<EPSOCollectorPreparation, std::string> override;
+		RENDERER_API virtual auto AppendPreparedPSOInitializers(const FPreparedMeshPSOCollectorResources& Resources,
+			const FSceneRenderPreparationConfig& Config, const FMaterialResource& Material,
+			const FPSOPrecacheVertexFactoryData& VertexFactoryData, const FPSOPrecacheParams& Params,
+			FPSOPrecacheDataArray& Out) -> std::expected<void, std::string>;
 		RENDERER_API auto CollectPSOInitializers(const FSceneRenderPreparationConfig& SceneConfig,
 			const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
 			const FPSOPrecacheParams& PrecacheParams, FPSOPrecacheDataArray& PSOInitializers) -> void override;
@@ -265,6 +273,7 @@ namespace Durin::RendererPrivate
 			const FPSOPrecacheParams& Params, uint8 Count, bool bShadow = false, bool bPicking = false)
 			-> std::vector<FMeshPSOPrecacheVariant>;
 	private:
+		std::unique_ptr<FMeshPSOCollectionSession> PSOCollection;
 		struct FSelection
 		{
 			uint32 MeshPass = 0;

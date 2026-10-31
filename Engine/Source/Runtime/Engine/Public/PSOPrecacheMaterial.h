@@ -110,8 +110,6 @@ namespace Durin
 		ENGINE_API auto Close() -> void;
 		ENGINE_API auto GetPendingRequestCount() const -> size_t;
 		static constexpr size_t MaximumActiveCollections = 8;
-		static constexpr size_t MaximumPipelinesPerRequest = 64;
-		static constexpr uint64 MaximumCodeBytes = 64 * 1024 * 1024;
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;
@@ -119,13 +117,20 @@ namespace Durin
 	struct FMaterialResource;
 	// Desktop Forward and Hybrid use Deferred; material FeatureLevel is independent.
 	enum class EShadingPath : uint8 { Mobile, Deferred, Num };
+	struct FRenderResourceGeneration;
+	enum class EPSOCollectorPreparation : uint8 { Pending, Ready, Skip };
 	class IPSOCollector
 	{
 	public:
 		explicit IPSOCollector(int32 InPSOCollectorIndex = -1) : PSOCollectorIndex(InPSOCollectorIndex) {}
 		virtual ~IPSOCollector() = default;
 		int32 PSOCollectorIndex;
-		// Stateless append boundary: the session prepares and retains resources.
+		// Durin resolves native shaders asynchronously before the UE append boundary.
+		// Ordinary collectors append once in Required; their optional output is buffered.
+		virtual auto PreparePSOResources(const FMaterialPSOPrecacheParams&, const FRenderResourceGeneration&, bool bRequired)
+			-> std::expected<EPSOCollectorPreparation, std::string>
+		{ return bRequired ? EPSOCollectorPreparation::Ready : EPSOCollectorPreparation::Skip; }
+		// Append boundary: preparation retains the resources used by this call.
 		virtual auto CollectPSOInitializers(const FSceneRenderPreparationConfig& SceneConfig,
 			const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
 			const FPSOPrecacheParams& PrecacheParams, FPSOPrecacheDataArray& PSOInitializers) -> void = 0;

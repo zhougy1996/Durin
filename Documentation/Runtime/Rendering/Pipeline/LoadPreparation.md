@@ -320,7 +320,7 @@ diagnostics remain Failed after invalidation, but cannot authorize an old owner
 even when its required PSOs completed before an optional PSO failed.
 
 `FPSOPrecacheData` in Engine's `PSOPrecache.h` describes a graphics or
-compute initializer with `bRequired` and `Priority`. `FMaterialPSOPrecacheCollection`
+compute initializer with `bRequired`, `Priority`, collector index and Vertex Factory provenance. `FMaterialPSOPrecacheCollection`
 exposes `PSOInitializers`; collectors append descriptions without submitting native
 requests. Its resource owner keeps referenced shaders and declarations alive.
 The request manager submits each description to the shared pipeline cache, consumes
@@ -346,9 +346,11 @@ reuse without erasing failure diagnostics. The first three phases map to public
 Pending. Required readiness remains separate from all-work completion; priority
 sorting uses a stable per-pump snapshot.
 
-The Renderer permits up to eight active material collections across updates,
-including their outstanding native compilation, independently of scene visibility.
-Additional requests wait without expanding their pipeline resources.
+The Renderer permits up to eight material requests that are still collecting
+required coverage across updates. Once required collection finishes, native
+compilation and optional collection no longer occupy those slots. Urgent requests
+can start required collection while earlier requests finish optional warming.
+Native submissions retain the shared per-frame admission budget and queue limits.
 `FMeshPassProcessor` implementations own eligibility, shader selection, raster
 variants, required classification and draw pipeline descriptions for Forward,
 ShadowDepth, GBuffer, hybrid retained, sorted translucency and HitProxy. Actual
@@ -482,35 +484,35 @@ FeatureLevels do not imply a Mobile renderer. Mobile registrations remain isolat
 Engine's `IPSOCollector::CollectPSOInitializers` retains the UE-shaped `void` append
 interface: scene configuration, accepted `FMaterialResource`, Vertex Factory data,
 primitive parameters and an output `FPSOPrecacheDataArray`. `PSOCollectorIndex`
-identifies the contribution. The append implementation is stateless and emits all
-applicable variants from already prepared resources; it never pumps async work.
-Renderer owns the material collection session and per-mesh resource preparation.
-Ready non-mesh collectors append directly, without a mesh-pass registration or
-an Engine session adapter. Mesh sessions own fixed Shader requests, exact ShaderMaps, native declarations,
-immutable material/configuration/generation snapshots, phase variants and
-emission state. The session passes only the current phase variants to the append
-call; mesh initializers are emitted directly without an intermediate result cache. A short consumption-only scope borrows ready mesh resources
-for the append call and restores any outer scope; it retains no asynchronous work.
+identifies the contribution. The append implementation consumes prepared resources;
+it never pumps async work. `PreparePSOResources` is a nonblocking readiness hook
+needed by Durin's render-thread native Shader creation. Ordinary collectors use its
+default Required admission and append once; optional descriptions are buffered.
+Mesh processors own their preparation sessions and use explicit ready Shader,
+declaration and variant inputs in `AppendPreparedPSOInitializers`, without TLS
+scopes or concrete-type dispatch. A Vertex Factory without a registered mesh
+implementation is inapplicable to mesh passes and does not reject independent
+collectors for that factory.
 
-The material collection session advances Required across every collector before
-Optional, publishing `bRequiredPSOsCollected` at that boundary. Optional-only passes
-start no resource work in Required. Per-pass sessions reject out-of-order Optional
-calls and preserve the output prefix without re-emitting completed phases. A completed
-Required phase remains successful when queried after Optional fails; the failed
-phase keeps its diagnostic without appending again. Sessions
-reuse `PrepareShaders`, shared pass filters and `BuildPSOInitializer`, so drawing
-and collection retain one shader/state selection path. Errors stay on the session;
-no pending result, cursor or required/optional switch lives on the processor.
+The material session advances every unfinished collector in a phase on each pump;
+one pending pass does not prevent other passes from starting resource preparation.
+It publishes `bRequiredPSOsCollected` only after every Required contribution finishes,
+then advances Optional. Optional-only passes start no work during Required.
+Completed phases preserve the caller's prefix and never emit twice. Errors in
+Optional do not revoke completed Required coverage. Sessions reuse `PrepareShaders`,
+shared pass filters and `BuildPSOInitializer`.
 Mesh sessions outlive neither their collectors nor the resource-owning render thread.
 Existing request completion, invalidation and shutdown retire their resources.
 GPU-culling and global feature PSOs remain outside this material collector.
 Native compilation uses the existing service queue;
 no additional compile thread pool is introduced.
 
-There is no aggregate material-request count or aggregate Shader-code admission
-limit. Waiting requests share accepted immutable programs; each program remains
-bounded to 64 MiB of Shader code and each collection to 64 pipeline identities.
-Concurrency bounds expanded work, not total queued metadata or process RSS.
+Material requests, initializer arrays and component observer sets have no fixed
+count limit. Waiting requests share accepted immutable programs; PSO admission does
+not impose another code-size cap over the material compiler's validation. Required
+coverage cannot fail merely because optional variants or material slots exceed a
+fixed count. Collection concurrency and the native queue bound expanded work,
+not total queued metadata or process RSS.
 Only pending work participates in the render-thread pump. Completed observers
 retain identity and progress, while terminal pipeline observations, collection
 resources and accepted-program references are released on the render thread.
@@ -536,8 +538,19 @@ withdraw the component's observation without canceling
 peers. Callbacks may reset, replace or destroy their owner. Required-PSO readiness
 is separate from all-work completion: `IsReadyForProxyCreation` checks required
 requests, while `IsPSOPrecaching` includes outstanding optional compilation.
-Failed, canceled and stale required requests never authorize readiness. Component
-sets retain at most 256 observers.
+Failed, canceled and stale required requests never authorize readiness.
+
+`PSOPrecacheValidation::SetEnabled(true)` starts an optional full-identity capture.
+Material submissions register graphics/compute value keys with collector and Vertex
+Factory provenance and publish observed native outcomes before releasing pipeline
+references. Mesh pipeline demand checks the same full key, including attachment,
+vertex input and render state. `Check` returns Untracked, Missed, TooLate, Hit or
+Failed and the contributing collector/factory; `GetStatistics` exposes aggregate
+counts. Successful preparation remains Hit after native eviction. Capture records
+retain no Shader, declaration or pipeline owners. Shader/device/manual invalidation
+and renderer shutdown clear the capture; disabling also releases all validation
+keys. Global/GPU-culling routes remain outside this material coverage, and compute
+demand owners can use the compute `Check` overload.
 
 ## Automatic component collection and proxy publication
 
@@ -569,7 +582,7 @@ defer submission before any prefix is accepted; no partial set authorizes a prox
 Invalid or closed admissions remain terminal and observable. Lower-level capacity
 pressure stays with the accepted material collection rather than resubmitting
 the component's complete set. Proxy readiness checks do not retry deferred submission.
-Oversized sets fail explicitly. `GetPSOPrecacheDiagnostic` exposes submission
+`GetPSOPrecacheDiagnostic` exposes submission
 diagnostics; individual handles separate collection/admission rejection from accepted
 PSO compilation failure. Failed compilation remains observable without per-frame
 retry. Native allocation/device faults terminate through RHI.

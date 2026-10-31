@@ -69,18 +69,13 @@ namespace
         { return Base.DescribeMeshDraw(State, Topology, Blend, ReversedZ); }
         auto GetPSOPrecacheVariants(const Durin::FSceneRenderPreparationConfig& Config, const Durin::FPSOPrecacheParams& Params) const
             -> std::vector<Durin::RendererPrivate::FMeshPSOPrecacheVariant> override { return Base.GetPSOPrecacheVariants(Config, Params); }
-        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig& Config, const Durin::FMaterialResource& Material,
-            const Durin::FPSOPrecacheVertexFactoryData& Factory, const Durin::FPSOPrecacheParams& Params, Durin::FPSOPrecacheDataArray& Out) -> void override
+        auto AppendPreparedPSOInitializers(const Durin::RendererPrivate::FPreparedMeshPSOCollectorResources& Resources,
+            const Durin::FSceneRenderPreparationConfig& Config, const Durin::FMaterialResource& Material,
+            const Durin::FPSOPrecacheVertexFactoryData& Factory, const Durin::FPSOPrecacheParams& Params, Durin::FPSOPrecacheDataArray& Out)
+            -> std::expected<void, std::string> override
         {
-            using namespace Durin::RendererPrivate;
-            auto& Outer = FPreparedMeshPSOCollectorScope::Get();
-            if (!Outer.Variants.front().bRequired) {
-                auto Nested = Outer;
-                { FPreparedMeshPSOCollectorScope Scope(Nested); EXPECT_EQ(&FPreparedMeshPSOCollectorScope::Get(), &Nested); }
-                EXPECT_EQ(&FPreparedMeshPSOCollectorScope::Get(), &Outer);
-                Outer.Error = "Injected optional collection failure."; return;
-            }
-            FMeshPassProcessor::CollectPSOInitializers(Config, Material, Factory, Params, Out);
+            if (!Resources.Variants.front().bRequired) return std::unexpected(std::string("Injected optional collection failure."));
+            return FMeshPassProcessor::AppendPreparedPSOInitializers(Resources, Config, Material, Factory, Params, Out);
         }
     };
     std::atomic<int32> DeferredProbeCalls = 0, MobileProbeCalls = 0;
@@ -103,10 +98,30 @@ namespace
             Out.emplace_back(Initializer, true, Durin::EPSOPrecachePriority::High);
         }
     };
+    // Must be registered before its peer. A serial early-return collector loop
+    // never reaches the peer and cannot satisfy this preparation dependency.
+    class FWaitingProbeCollector final : public Durin::IPSOCollector
+    {
+        int32 Baseline = DeferredProbeCalls.load();
+    public:
+        FWaitingProbeCollector() : IPSOCollector(Durin::FPSOCollectorCreateManager::GetIndex(Durin::EShadingPath::Deferred, "WaitingProbe")) {}
+        auto PreparePSOResources(const Durin::FMaterialPSOPrecacheParams&, const Durin::FRenderResourceGeneration&, bool Required)
+            -> std::expected<Durin::EPSOCollectorPreparation, std::string> override
+        {
+            if (!Required) return Durin::EPSOCollectorPreparation::Skip;
+            return DeferredProbeCalls.load() > Baseline ? Durin::EPSOCollectorPreparation::Ready : Durin::EPSOCollectorPreparation::Pending;
+        }
+        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig&, const Durin::FMaterialResource&,
+            const Durin::FPSOPrecacheVertexFactoryData&, const Durin::FPSOPrecacheParams&, Durin::FPSOPrecacheDataArray&) -> void override {}
+    };
+    auto CreateWaitingProbe(Durin::ERHIFeatureLevel) -> std::unique_ptr<Durin::IPSOCollector>
+    { return std::make_unique<FWaitingProbeCollector>(); }
     auto CreateDeferredCollectionProbe(Durin::ERHIFeatureLevel) -> std::unique_ptr<Durin::IPSOCollector>
     { return std::make_unique<FIndependentProbeCollector>(false); }
     auto CreateMobileCollectionProbe(Durin::ERHIFeatureLevel) -> std::unique_ptr<Durin::IPSOCollector>
     { return std::make_unique<FIndependentProbeCollector>(true); }
+    const Durin::FVertexFactoryType IndependentFactory("IndependentPrecacheOnly",
+        Durin::EVertexFactoryFlags::SupportsPSOPrecaching, &Durin::FLocalVertexFactory::GetPSOPrecacheVertexFetchElements);
     const auto LimitedFactories = [] {
         using namespace Durin; using namespace RendererPrivate;
         std::array<std::shared_ptr<const FMeshVertexFactoryImplementation>, 3> Factories{
@@ -137,6 +152,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
     DeferredProbeCalls = 0; MobileProbeCalls = 0;
     // Temporary contributions are added with no active material sessions and
     // removed after every session has retired. Neither has a draw-pass entry.
+    FRegisterPSOCollectorCreateFunction WaitingProbe(&CreateWaitingProbe, EShadingPath::Deferred, "WaitingProbe");
     FRegisterPSOCollectorCreateFunction DeferredProbe(&CreateDeferredCollectionProbe, EShadingPath::Deferred, "IndependentCollectionProbe");
     FRegisterPSOCollectorCreateFunction MobileProbe(&CreateMobileCollectionProbe, EShadingPath::Mobile, "IndependentCollectionProbe");
     ASSERT_TRUE(DeferredProbe.IsRegistered() && MobileProbe.IsRegistered());
@@ -172,7 +188,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             bool Ready = false;
         };
         std::vector<FCase> Cases;
-        FMaterialPSOPrecacheCollection Aggregate;
+        FMaterialPSOPrecacheCollection Aggregate, IndependentAggregate;
         FMaterialPSOPrecacheParams AggregateParams;
         const auto& Map = Resource.CompiledProgram->GetShaderMap();
         AggregateParams.Material = {.ShaderMap = {.RenderLayout = Map.Layout.Identity, .ProgramIdentity = Map.ShaderMapId,
@@ -185,11 +201,12 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         struct FReleaseCases {
             std::vector<FCase>& Cases;
             FMaterialPSOPrecacheCollection& Aggregate;
+            FMaterialPSOPrecacheCollection& IndependentAggregate;
             ~FReleaseCases() {
-                EnqueueRenderCommand("ReleaseMeshPSOCollectionCases", [this](FRHICommandListImmediate&) { Cases.clear(); Aggregate = {}; });
+                EnqueueRenderCommand("ReleaseMeshPSOCollectionCases", [this](FRHICommandListImmediate&) { Cases.clear(); Aggregate = {}; IndependentAggregate = {}; });
                 FlushRenderingCommands();
             }
-        } ReleaseCases{Cases, Aggregate};
+        } ReleaseCases{Cases, Aggregate, IndependentAggregate};
         // Full raster/topology matrix plus focused participation/configuration cases.
         for (uint8 Scenario = 0; Scenario < 19; ++Scenario)
         for (const auto Pass : FPassProcessorManager::GetRegisteredPasses())
@@ -267,6 +284,18 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                 const auto Result = CollectMaterialPSOs(AggregateParams, Aggregate, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation);
                 if (!Result) { Error = Result.error(); return; }
                 AggregateReady = *Result; Complete &= AggregateReady;
+                auto IndependentParams = AggregateParams;
+                IndependentParams.VertexFactoryData = FPSOPrecacheVertexFactoryData(&IndependentFactory);
+                const auto Independent = CollectMaterialPSOs(IndependentParams, IndependentAggregate, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation);
+                if (!Independent) { Error = Independent.error(); return; }
+                Complete &= *Independent;
+                ASSERT_EQ(IndependentAggregate.PSOInitializers.size(), *Independent ? 2u : 1u);
+                for (const auto& Data : IndependentAggregate.PSOInitializers) {
+                    EXPECT_EQ(Data.Type, FPSOPrecacheData::EType::Compute);
+                    EXPECT_EQ(Data.PSOCollectorIndex, DeferredProbe.GetIndex());
+                    EXPECT_EQ(Data.VertexFactoryType, &IndependentFactory);
+                }
+
                 bool OptionalSeen = false;
                 for (const auto& Data : Aggregate.PSOInitializers) {
                     OptionalSeen |= !Data.bRequired;
@@ -348,6 +377,17 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             if (Data.Type == FPSOPrecacheData::EType::Compute) { EXPECT_TRUE(Data.IsValid()); ++ComputeCount; continue; }
             const auto Key = BuildGraphicsPipelineStateKey(Data.GraphicsInitializer, GDynamicRHI->RHIGetCapabilities());
             ASSERT_TRUE(Key); EXPECT_EQ(Data.Priority, EPSOPrecachePriority::High);
+            PSOPrecacheValidation::SetEnabled(true);
+            auto Validation = PSOPrecacheValidation::Track(Data);
+            ASSERT_TRUE(Validation);
+            PSOPrecacheValidation::Update(Validation, ERHIPipelineRequestState::Ready);
+            EXPECT_EQ(PSOPrecacheValidation::Check(Data.GraphicsInitializer, Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
+                PSOPrecacheValidation::EResult::Hit);
+            auto DifferentState = Data.GraphicsInitializer;
+            DifferentState.DepthStencilState.bEnableWrite = !DifferentState.DepthStencilState.bEnableWrite;
+            EXPECT_NE(PSOPrecacheValidation::Check(DifferentState, Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
+                PSOPrecacheValidation::EResult::Hit);
+            PSOPrecacheValidation::SetEnabled(false);
             const auto Found = std::ranges::find(Expected, std::pair{*Key, Data.bRequired});
             ASSERT_NE(Found, Expected.end()); Expected.erase(Found);
         }
@@ -355,7 +395,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         EXPECT_EQ(ComputeCount, 2u);
 
     }
-    EXPECT_EQ(DeferredProbeCalls.load(), 6);
+    EXPECT_EQ(DeferredProbeCalls.load(), 12);
     EXPECT_EQ(MobileProbeCalls.load(), 0);
 
 }
