@@ -179,22 +179,10 @@ Editor commit and recovery belong to
 
 ### Object-load timing
 
-Owner-thread asynchronous object application buffers `AssetLoad` diagnostics and
-emits them after a load taking at least 16 ms. `ObjectLoadTiming` names the root
-request; `ObjectLoadPackage` reports each package's own time and serialized export
-and top-level property-tag counts. Counts exclude the package container and are
-not counts of allocations or recursively nested property values.
-
-`ObjectLoadPhase` uses loading landmarks including `CreateExports`, `Preload`,
-`SerializeExports`, `ResolveImports`, `ResolveReferences` and `PostLoad`, with
-additional schema, default initialization and authored override-ledger phases.
-`inclusive_ms` includes children; `dependency_ms` includes nested other-package
-work; `self_ms` excludes that dependency work. `exclusive_ms` also excludes
-same-package child phases and is the only additive phase measure. Per-phase
-`objects`/`properties` provide package context; `object_visits`/`property_visits`
-count the work attributed to that phase, so repeated visits are not unique counts.
-Deferred graph validation and PostLoad retain their package identity. These
-diagnostics neither make an application preemptible nor change loading order.
+[Object Package Loading](ObjectLoading.md) owns load-local schema binding reuse,
+restoration ordering, buffered phase timing and work counters. Only exclusive
+phase time is additive; repeated visits are not unique fields. These diagnostics
+do not change scheduling or readiness ownership.
 
 ## Storage Classes
 

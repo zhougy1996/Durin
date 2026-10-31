@@ -5,6 +5,8 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Object.h"
+#include "DObject/OverridableManager.h"
+#include "DObject/DefaultDeltaPlan.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "DObject/TransactionObjectReference.h"
@@ -12,6 +14,67 @@
 
 namespace Durin
 {
+	auto FArchiveSerializedPropertyChain::GetVisitorPath() const -> FPropertyVisitorPath
+	{
+		FPropertyVisitorPath Path;
+		Path.State = State;
+		Path.Revision = State->Revision;
+		return Path;
+	}
+	auto FPropertyVisitorPath::IsValid() const -> bool
+	{
+		const auto Current = State.lock();
+		return Current && Current->Revision == Revision;
+	}
+	auto FPropertyVisitorPath::GetSegments() const -> std::span<const FPropertyVisitorSegment>
+	{
+		const auto Current = State.lock();
+		if (!Current || Current->Revision != Revision) return {};
+		return std::span(Current->Segments).subspan(Current->Base, Current->Depth - Current->Base);
+	}
+	auto FPropertyVisitorPath::ToDurablePath() const
+		-> std::expected<FAuthoredOverridePath, EAuthoredOverrideFailureReason>
+	{
+		if (!IsValid()) return std::unexpected(EAuthoredOverrideFailureReason::StaleTraversal);
+		FAuthoredOverridePath Result;
+		for (const auto& Segment : GetSegments())
+		{
+			switch (Segment.Kind)
+			{
+			case EPropertyVisitorSegmentKind::Field:
+				Result.push_back(FAuthoredOverridePathToken::Field(Segment.Field.DeclaringType, Segment.Field.Name)); break;
+			case EPropertyVisitorSegmentKind::FixedArrayElement:
+				Result.push_back(FAuthoredOverridePathToken::FixedArrayElement(Segment.Index)); break;
+			case EPropertyVisitorSegmentKind::ArrayElement:
+				Result.push_back(FAuthoredOverridePathToken::ArrayElement(Segment.Index)); break;
+			case EPropertyVisitorSegmentKind::MapValue:
+				if (Segment.CanonicalMapKey.empty()) return std::unexpected(EAuthoredOverrideFailureReason::MapKeyUnavailable);
+				Result.push_back(FAuthoredOverridePathToken::MapValue(Segment.CanonicalMapKey)); break;
+			case EPropertyVisitorSegmentKind::MapKey:
+				return std::unexpected(EAuthoredOverrideFailureReason::InvalidToken);
+			}
+		}
+		return Result;
+	}
+	auto FArchiveSerializedPropertyChain::Push(EPropertyVisitorSegmentKind Kind, uint64 Index,
+		const FArchiveFieldDescriptor* Field) -> void
+	{
+		if (State->Depth == State->Segments.size()) State->Segments.emplace_back();
+		auto& Segment = State->Segments[State->Depth];
+		Segment.Kind = Kind;
+		Segment.Index = Index;
+		Segment.CanonicalMapKey.clear();
+		if (Field) Segment.Field = *Field;
+		if (Kind == EPropertyVisitorSegmentKind::MapValue && State->Depth > State->Base)
+			Segment.CanonicalMapKey = State->Segments[State->Depth - 1].CanonicalMapKey;
+		++State->Depth;
+		++State->Revision;
+	}
+	auto FArchiveSerializedPropertyChain::Pop() -> void
+	{
+		if (State->Depth > State->Base) --State->Depth;
+		++State->Revision;
+	}
 	auto FObjectArchive::FailValidation(const FObjectValidationError& Error) -> void
 	{
 		if (IsError()) return;
@@ -1214,6 +1277,46 @@ namespace Durin
 		EnableCapabilities(EArchiveCapability::StructuredFields
 			| EArchiveCapability::SoftObjectReferences);
 	}
+	auto FObjectArchive::PrepareOverriddenPropertyRestoration(DObject& Object) -> void
+	{
+		OverrideRestoration.reset(new FOverriddenPropertyRestoreContext(Object, *this));
+	}
+	auto FObjectArchive::ObserveOverriddenProperty() -> void
+	{
+		if (!OverrideRestoration) return;
+		auto& Context = *OverrideRestoration;
+		if (Context.Reason != EOverrideRestoreFallbackReason::None) return;
+		auto Path = PropertyChain.GetVisitorPath().ToDurablePath();
+		if (IsError() || ObjectScopes.empty() || !Path || Path->empty()
+			|| Path->size() > DefaultDeltaMaxDepth || Context.Candidates.size() >= DefaultDeltaMaxFields
+			|| Path->back().Kind != EAuthoredOverridePathTokenKind::Field)
+		{
+			Context.Reason = EOverrideRestoreFallbackReason::UnsupportedPath;
+			Context.Candidates.clear();
+			return;
+		}
+		for (const auto& Candidate : Context.Candidates)
+			if (IsAuthoredOverridePathPrefix(Candidate.Path, *Path)) return;
+		Context.PathVisits += Path->size();
+		Context.Candidates.push_back({std::move(*Path), EAuthoredOverrideProvenance::Forced});
+	}
+	auto FObjectArchive::TakeOverriddenPropertyRestoration() -> std::unique_ptr<FOverriddenPropertyRestoreContext>
+	{
+		if (OverrideRestoration)
+		{
+			OverrideRestoration->bComplete = OverrideRestoration->bSawObject && !IsError() && ObjectScopes.empty();
+			OverrideRestoration->Traversal = PropertyChain.State;
+			OverrideRestoration->TraversalRevision = PropertyChain.State->Revision;
+			if (!OverrideRestoration->bComplete) OverrideRestoration->Reason = EOverrideRestoreFallbackReason::ArchiveFailure;
+		}
+		return std::move(OverrideRestoration);
+	}
+	auto FOverriddenPropertyRestoreContext::IsEligible() const -> bool
+	{
+		const auto Current = Traversal.lock();
+		return bComplete && Reason == EOverrideRestoreFallbackReason::None
+			&& Current && Current->Revision == TraversalRevision;
+	}
 
 	auto FObjectArchive::EnterObject(DObject& Object) -> FArchiveObjectScope
 	{
@@ -1225,8 +1328,19 @@ namespace Durin
 		const std::string ClassName = Object.GetClass() ? Object.GetClass()->GetQualifiedName().ToString() : "?";
 		PushPath(std::format("Object[?:{}:{}]", ClassName, Object.GetObjectPath()));
 		ObjectScopes.emplace_back();
+		if (OverrideRestoration)
+		{
+			auto& Context = *OverrideRestoration;
+			if (Context.bSawObject || ResolveObjectKey(Context.Target) != &Object)
+				Context.Reason = EOverrideRestoreFallbackReason::ArchiveFailure;
+			Context.bSawObject = true;
+		}
+		ObjectScopes.back().PreviousChainBase = PropertyChain.State->Base;
+		PropertyChain.State->Base = PropertyChain.State->Depth;
+		++PropertyChain.State->Revision;
+		FArchiveObjectScope Result(this);
 		OnEnterObject(Object);
-		return FArchiveObjectScope(this);
+		return Result;
 	}
 
 	auto FObjectArchive::EnterField(const FArchiveFieldDescriptor& Field) -> FArchiveFieldScope
@@ -1249,37 +1363,52 @@ namespace Durin
 		}
 		PushPath(std::format(".Field[{}]", Identity));
 		FieldScopes.push_back(true);
+		PropertyChain.Push(EPropertyVisitorSegmentKind::Field, 0, &Field);
+		FArchiveFieldScope Result(this);
 		OnEnterField(Field);
-		return FArchiveFieldScope(this);
+		return Result;
 	}
 	auto FObjectArchive::EnterFixedArrayElement(uint64 Index) -> FArchivePathScope
 	{
 		PushPath(std::format(".Fixed[{}]", Index));
+		PropertyChain.Push(EPropertyVisitorSegmentKind::FixedArrayElement, Index);
+		FArchivePathScope Result(this);
 		OnEnterFixedArrayElement(Index);
-		return FArchivePathScope(this);
+		return Result;
 	}
 	auto FObjectArchive::EnterArrayElement(uint64 Index) -> FArchivePathScope
 	{
 		PushPath(std::format(".Array[{}]", Index));
+		PropertyChain.Push(EPropertyVisitorSegmentKind::ArrayElement, Index);
+		FArchivePathScope Result(this);
 		OnEnterArrayElement(Index);
-		return FArchivePathScope(this);
+		return Result;
 	}
 	auto FObjectArchive::EnterMapKey(uint64 Index) -> FArchivePathScope
 	{
 		PushPath(std::format(".MapKey[{}]", Index));
+		PropertyChain.Push(EPropertyVisitorSegmentKind::MapKey, Index);
+		FArchivePathScope Result(this);
 		OnEnterMapKey(Index);
-		return FArchivePathScope(this);
+		return Result;
 	}
 	auto FObjectArchive::EnterMapValue(uint64 Index) -> FArchivePathScope
 	{
 		PushPath(std::format(".MapValue[{}]", Index));
+		PropertyChain.Push(EPropertyVisitorSegmentKind::MapValue, Index);
+		FArchivePathScope Result(this);
 		OnEnterMapValue(Index);
-		return FArchivePathScope(this);
+		return Result;
 	}
 
 	auto FObjectArchive::NotifyCanonicalMapKey(uint64 Index, FByteView Token) -> void
 	{
-		if (!IsError()) OnCanonicalMapKey(Index, Token);
+		if (IsError()) return;
+		auto& Chain = *PropertyChain.State;
+		if (Chain.Depth > Chain.Base)
+			Chain.Segments[Chain.Depth - 1].CanonicalMapKey.assign(Token.begin(), Token.end());
+		++Chain.Revision;
+		OnCanonicalMapKey(Index, Token);
 	}
 
 	auto FObjectArchive::MarkBaseReflectedFieldsSerialized() -> void
@@ -1302,11 +1431,12 @@ namespace Durin
 			return;
 		}
 		OnLeaveField();
+		PropertyChain.Pop();
 		FieldScopes.pop_back();
 		if (!ObjectScopes.empty() && ObjectScopes.back().ActiveFieldDepth > 0) --ObjectScopes.back().ActiveFieldDepth;
 		PopPath();
 	}
-	auto FObjectArchive::ClosePathScope() -> void { OnLeavePath(); PopPath(); }
+	auto FObjectArchive::ClosePathScope() -> void { OnLeavePath(); PropertyChain.Pop(); PopPath(); }
 
 	auto FObjectArchive::CloseObjectScope() -> void
 	{
@@ -1321,6 +1451,9 @@ namespace Durin
 		else if (!Scope.bBaseMarked)
 			Fail(EArchiveFailureCode::MissingBaseReflectedFields, "The base reflected field walk was not serialized.");
 		OnLeaveObject();
+		PropertyChain.State->Depth = PropertyChain.State->Base;
+		PropertyChain.State->Base = Scope.PreviousChainBase;
+		++PropertyChain.State->Revision;
 		ObjectScopes.pop_back();
 		PopPath();
 	}
@@ -2505,7 +2638,7 @@ namespace Durin
 		for (DObject* Source : Sources)
 		{
 			FAuthoredOverrideDiagnostic LedgerDiagnostic;
-			if (!Duplicates[Source]->CopyAuthoredOverridesFrom(*Source, &LedgerDiagnostic))
+			if (!FOverridableManager::CopyOverriddenProperties(*Duplicates[Source], *Source, &LedgerDiagnostic))
 			{
 				DiscardDuplicates();
 				return ObjectGraphFailure({.Code = EObjectGraphError::AuthoredOverrides, .ObjectName = Source->GetObjectPath(),

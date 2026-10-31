@@ -1,5 +1,6 @@
 #include "AssetPackageLinker.h"
 #include "AssetPackageLinkerSchema.h"
+#include "DObject/OverridableManager.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetObjectLoadTiming.h"
 
@@ -70,7 +71,7 @@ namespace Durin::AssetPrivate
 
 		auto RestoreNestedReplacements(const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value,
-			const ObjectPackage::FLinkerTables& Linker, FAuthoredOverridePath& Path,
+			const ObjectPackage::FLinkerTables& Linker, LinkerSchema::FLoadSchemaBindings& SchemaBindings, FAuthoredOverridePath& Path,
 			std::vector<FAuthoredOverrideEntry>& Entries,
 			FLinkerApplyDiagnostic& Diagnostic) -> bool
 		{
@@ -85,7 +86,7 @@ namespace Durin::AssetPrivate
 					return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct ledger projection is invalid.");
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
-					const auto It = LinkerSchema::FindPropertyByName(*Schema, Value.FieldNames[Index]);
+					const auto It = SchemaBindings.FindProperty(*Schema, Value.FieldNames[Index]);
 					if (!It) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct ledger field is missing.");
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					const auto Route = It->Match.Route;
@@ -93,7 +94,7 @@ namespace Durin::AssetPrivate
 					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Descriptor->Name)));
 					if (Value.Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced)
 						Entries.push_back({Path, EAuthoredOverrideProvenance::Forced});
-					else if (!RestoreNestedReplacements(ChildType, Value.Elements[Index], Linker, Path,
+					else if (!RestoreNestedReplacements(ChildType, Value.Elements[Index], Linker, SchemaBindings, Path,
 						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
@@ -106,7 +107,7 @@ namespace Durin::AssetPrivate
 					Path.push_back(Type.Kind == K::FixedArray
 						? FAuthoredOverridePathToken::FixedArrayElement(Index)
 						: FAuthoredOverridePathToken::ArrayElement(Index));
-					if (!RestoreNestedReplacements(Type.Children[0], Value.Elements[Index], Linker, Path,
+					if (!RestoreNestedReplacements(Type.Children[0], Value.Elements[Index], Linker, SchemaBindings, Path,
 						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
@@ -122,7 +123,7 @@ namespace Durin::AssetPrivate
 						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
 							ObjectPackage::ToString(Result.error()));
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
-					if (!RestoreNestedReplacements(Type.Children[1], Value.Elements[Index + 1], Linker, Path,
+					if (!RestoreNestedReplacements(Type.Children[1], Value.Elements[Index + 1], Linker, SchemaBindings, Path,
 						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
@@ -131,7 +132,7 @@ namespace Durin::AssetPrivate
 		}
 
 		auto GatherLiveValueDependencies(const ObjectPackage::FSerializedType& Type,
-			const ObjectPackage::FSerializedValue& Value, const ObjectPackage::FLinkerTables& Linker,
+			const ObjectPackage::FSerializedValue& Value, const ObjectPackage::FLinkerTables& Linker, LinkerSchema::FLoadSchemaBindings& SchemaBindings,
 			std::vector<FPackagePath>& Dependencies, uint64& DiscardedFields,
 			FLinkerApplyDiagnostic& Diagnostic) -> bool
 		{
@@ -145,7 +146,7 @@ namespace Durin::AssetPrivate
 						"Serialized struct is unavailable or has an invalid schema.");
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
-					const auto Field = LinkerSchema::FindPropertyByName(*Schema, Value.FieldNames[Index]);
+					const auto Field = SchemaBindings.FindProperty(*Schema, Value.FieldNames[Index]);
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					if (!Field || Field->Descriptor->Type != ChildType)
 						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
@@ -156,20 +157,20 @@ namespace Durin::AssetPrivate
 						return LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
 							std::format("Serialized struct field {}::{} is incompatible with the live schema.",
 								Schema->QualifiedName, Field->Descriptor->Name));
-					if (!GatherLiveValueDependencies(ChildType, Value.Elements[Index], Linker,
+					if (!GatherLiveValueDependencies(ChildType, Value.Elements[Index], Linker, SchemaBindings,
 						Dependencies, DiscardedFields, Diagnostic)) return false;
 				}
 			}
 			else if ((Type.Kind == K::Array || Type.Kind == K::FixedArray) && Type.Children.size() == 1)
 			{
 				for (const auto& Element : Value.Elements)
-					if (!GatherLiveValueDependencies(Type.Children[0], Element, Linker,
+					if (!GatherLiveValueDependencies(Type.Children[0], Element, Linker, SchemaBindings,
 						Dependencies, DiscardedFields, Diagnostic)) return false;
 			}
 			else if (Type.Kind == K::Map && Type.Children.size() == 2)
 			{
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-					if (!GatherLiveValueDependencies(Type.Children[Index % 2], Value.Elements[Index], Linker,
+					if (!GatherLiveValueDependencies(Type.Children[Index % 2], Value.Elements[Index], Linker, SchemaBindings,
 						Dependencies, DiscardedFields, Diagnostic)) return false;
 			}
 			else if (Type.Kind == K::HardReference && Value.Reference.IsImport())
@@ -185,7 +186,7 @@ namespace Durin::AssetPrivate
 		auto GatherNestedDeprecatedRouteEvidence(
 			const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value,
-			const ObjectPackage::FLinkerTables& Linker,
+			const ObjectPackage::FLinkerTables& Linker, LinkerSchema::FLoadSchemaBindings& SchemaBindings,
 			const FPackagePath& PackagePath,
 			std::string_view ObjectPath, std::vector<FAssetDeprecatedRouteEvidence>& Out) -> void
 		{
@@ -197,7 +198,7 @@ namespace Durin::AssetPrivate
 					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size()) return;
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
-					const auto Field = LinkerSchema::FindPropertyByName(*Schema, Value.FieldNames[Index]);
+					const auto Field = SchemaBindings.FindProperty(*Schema, Value.FieldNames[Index]);
 					if (!Field) continue;
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					const auto& Binding = Field->Match;
@@ -210,20 +211,20 @@ namespace Durin::AssetPrivate
 							.DeprecatedPropertyName = Binding.Property->NamePrivate.ToString()});
 					}
 					else GatherNestedDeprecatedRouteEvidence(ChildType, Value.Elements[Index],
-						Linker, PackagePath, ObjectPath, Out);
+						Linker, SchemaBindings, PackagePath, ObjectPath, Out);
 				}
 			}
 			else if ((Type.Kind == K::FixedArray || Type.Kind == K::Array)
 				&& Type.Children.size() == 1)
 			{
 				for (const auto& Element : Value.Elements)
-					GatherNestedDeprecatedRouteEvidence(Type.Children[0], Element, Linker,
+					GatherNestedDeprecatedRouteEvidence(Type.Children[0], Element, Linker, SchemaBindings,
 						PackagePath, ObjectPath, Out);
 			}
 			else if (Type.Kind == K::Map && Type.Children.size() == 2)
 			{
 				for (size_t Index = 1; Index < Value.Elements.size(); Index += 2)
-					GatherNestedDeprecatedRouteEvidence(Type.Children[1], Value.Elements[Index], Linker,
+					GatherNestedDeprecatedRouteEvidence(Type.Children[1], Value.Elements[Index], Linker, SchemaBindings,
 						PackagePath, ObjectPath, Out);
 			}
 		}
@@ -283,6 +284,7 @@ namespace Durin::AssetPrivate
 		struct FLinkerApplication
 		{
 			ObjectPackage::FLinkerTables Linker;
+			std::optional<LinkerSchema::FLoadSchemaBindings> SchemaBindings;
 			std::vector<FExportView> Exports;
 			std::vector<FPackagePath> LiveDependencies;
 			std::vector<DObject*> Objects;
@@ -307,6 +309,8 @@ namespace Durin::AssetPrivate
 				LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
 				return Result;
 			}
+			Application.SchemaBindings.emplace(Linker);
+			auto& SchemaBindings = *Application.SchemaBindings;
 			auto& Exports = Application.Exports;
 			if (!BuildExportViews(Linker, Exports, Diagnostic))
 				return {Diagnostic.Error, Diagnostic.Message};
@@ -327,7 +331,7 @@ namespace Durin::AssetPrivate
 				for (const ObjectPackage::FPropertyTag& Property : Object.Export->Properties)
 				{
 					const auto* Schema = LinkerSchema::FindSchema(Linker, Property.DeclaringType);
-					const auto Field = Schema ? LinkerSchema::FindPropertyByName(*Schema, Property.FieldName) : std::nullopt;
+					const auto Field = Schema ? SchemaBindings.FindProperty(*Schema, Property.FieldName) : nullptr;
 					if (!Schema || !Field || Field->Descriptor->Type != Property.Type)
 					{
 						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
@@ -361,7 +365,7 @@ namespace Durin::AssetPrivate
 						return {EAssetReadError::UnsupportedProperty, Diagnostic.Message};
 					}
 					if (!Options.bCooked && !GatherLiveValueDependencies(Property.Type, Property.Value,
-						Linker, LiveDependencies, DiscardedFields, Diagnostic))
+						Linker, SchemaBindings, LiveDependencies, DiscardedFields, Diagnostic))
 						return {Diagnostic.Error, Diagnostic.Message};
 				}
 			}
@@ -443,9 +447,12 @@ namespace Durin::AssetPrivate
 			for (const auto& Export : Application.Exports) PropertyCount += Export.Export->Properties.size();
 			FScopedObjectLoadPhase Phase(PackagePath, EObjectLoadPhase::Preload, Application.Objects.size(), PropertyCount);
 			const auto& Linker = Application.Linker;
+			auto& SchemaBindings = *Application.SchemaBindings;
 			auto& Exports = Application.Exports;
 			auto& Objects = Application.Objects;
 			auto& Report = Application.Compatibility;
+			auto ObjectBindings = Bindings;
+			ObjectBindings.SchemaBindings = &SchemaBindings;
 			if (!Options.bCooked)
 			{
 				FScopedObjectLoadPhase DefaultsTiming(PackagePath, EObjectLoadPhase::InitDefaults, Objects.size());
@@ -505,10 +512,16 @@ namespace Durin::AssetPrivate
 				for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
 					for (const auto& Property : Exports[ObjectIndex].Export->Properties)
 					{
-						const auto Field = LinkerSchema::FindPropertyByName(
+						const auto Field = SchemaBindings.FindProperty(
 							*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
+						if (!Field)
+						{
+							LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
+								"Reflection metadata changed during package loading.", 0, Exports[ObjectIndex].Path);
+							return {EAssetReadError::UnsupportedProperty, Diagnostic.Message};
+						}
 						if (!Options.bCooked && Field->Match.Route == EPropertyLoadRoute::Removed) continue;
-						GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker,
+						GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker, SchemaBindings,
 							PackagePath, Exports[ObjectIndex].Path,
 							Report.DeprecatedRouteEvidence);
 					}
@@ -524,63 +537,78 @@ namespace Durin::AssetPrivate
 				LoadContext.bCooking = Options.bCooked;
 				LoadContext.bFilterEditorOnly = Options.bCooked;
 				LoadContext.Target = Options.Target;
+				const FPackageOverrideRestore RestoreOverrides = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Restoration) -> FAssetReadResult {
+					const bool bFastRestoration = Restoration && Restoration->IsEligible();
+					FScopedObjectLoadPhase EditorTiming(PackagePath, EObjectLoadPhase::RestoreEditorState, 1, Exports[ObjectIndex].Export->Properties.size());
+					std::optional<FScopedObjectLoadPhase> LedgerTiming(std::in_place, PackagePath, EObjectLoadPhase::BuildOverrideLedger, 1, Exports[ObjectIndex].Export->Properties.size());
+					std::vector<FAuthoredOverrideEntry> LedgerEntries;
+					std::vector<FName> LoadedDeprecatedProperties;
+					size_t PropertyIndex = 0;
+					for (const auto& Property : Exports[ObjectIndex].Export->Properties)
+					{
+						const auto Field = SchemaBindings.FindProperty(
+							*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
+						if (!Field) return {EAssetReadError::UnsupportedProperty, "Reflection metadata changed during package loading."};
+						const auto& Binding = Field->Match;
+						if (Binding.Route == EPropertyLoadRoute::Removed) continue;
+						if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, ++PropertyIndex))
+						{
+							LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Injected ledger restoration failure.");
+							return {EAssetReadError::CorruptFile, Diagnostic.Message};
+						}
+						if (Binding.Route == EPropertyLoadRoute::Deprecated)
+						{
+							LoadedDeprecatedProperties.push_back(Binding.Property->NamePrivate);
+							FAssetDeprecatedRouteEvidence Evidence{
+								.PackagePath = PackagePath,
+								.ObjectPath = Exports[ObjectIndex].Path,
+								.DeclaringType = Property.DeclaringType,
+								.StoredFieldName = Property.FieldName,
+								.DeprecatedPropertyName = Binding.Property->NamePrivate.ToString()};
+							Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
+							continue;
+						}
+						if (bFastRestoration) continue;
+						if (Property.Provenance != ObjectPackage::EPropertyProvenance::Forced
+							&& !HasNestedReplacement(Property.Value)) continue;
+						FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
+							FName(Property.DeclaringType), FName(Property.FieldName))};
+						if (Property.Provenance == ObjectPackage::EPropertyProvenance::Forced)
+							LedgerEntries.push_back({Path, EAuthoredOverrideProvenance::Forced});
+						else if (!RestoreNestedReplacements(Property.Type, Property.Value, Linker, SchemaBindings, Path,
+							LedgerEntries, Diagnostic))
+						{
+							return {EAssetReadError::CorruptFile, Diagnostic.Message};
+						}
+					}
+					LedgerTiming.reset();
+					FScopedObjectLoadPhase ApplyLedgerTiming(PackagePath, EObjectLoadPhase::ApplyOverrideLedger, 1, bFastRestoration ? Restoration->GetCandidateCount() : LedgerEntries.size());
+					Objects[ObjectIndex]->SetLoadedDeprecatedProperties(LoadedDeprecatedProperties);
+					FAuthoredOverrideDiagnostic LedgerDiagnostic;
+					FAuthoredOverrideValidationWork Work;
+					const auto Reason = Restoration ? Restoration->GetFallbackReason() : EOverrideRestoreFallbackReason::ArchiveFailure;
+					bool bRestored = false;
+					if (bFastRestoration)
+					{
+						Work.PathVisits = Restoration->GetPathVisits();
+						bRestored = FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Restoration), &LedgerDiagnostic);
+					}
+					else bRestored = FOverridableManager::RestoreOverriddenPropertyOperation(*Objects[ObjectIndex], LedgerEntries, &LedgerDiagnostic, &Work);
+					FObjectLoadTimingSession::RecordOverrideRestoration(PackagePath, bFastRestoration, Reason, Work);
+					if (!bRestored)
+					{
+						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
+							"Could not restore authored intent.", 0, LedgerDiagnostic.LogicalPath);
+						return {EAssetReadError::CorruptFile, Diagnostic.Message};
+					}
+					return {};
+				};
 				auto Loaded = LoadPackageObject(*Objects[ObjectIndex], Exports[ObjectIndex].Export->Properties, Linker, Objects,
-					Bindings, LoadContext);
+					ObjectBindings, LoadContext, Options.bCooked ? FPackageOverrideRestore{} : RestoreOverrides);
 				if (!Loaded)
 				{
 					LinkerApplyFail(Diagnostic, Loaded.Error, Loaded.Message, 0, Exports[ObjectIndex].Path);
 					return Loaded;
-				}
-				if (Options.bCooked) continue;
-				FScopedObjectLoadPhase EditorTiming(PackagePath, EObjectLoadPhase::RestoreEditorState, 1, Exports[ObjectIndex].Export->Properties.size());
-				std::optional<FScopedObjectLoadPhase> LedgerTiming(std::in_place, PackagePath, EObjectLoadPhase::BuildOverrideLedger, 1, Exports[ObjectIndex].Export->Properties.size());
-				std::vector<FAuthoredOverrideEntry> LedgerEntries;
-				std::vector<FName> LoadedDeprecatedProperties;
-				size_t PropertyIndex = 0;
-				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
-				{
-					const auto Field = LinkerSchema::FindPropertyByName(
-						*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
-					const auto& Binding = Field->Match;
-					if (Binding.Route == EPropertyLoadRoute::Removed) continue;
-					if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, ++PropertyIndex))
-					{
-						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Injected ledger restoration failure.");
-						return {EAssetReadError::CorruptFile, Diagnostic.Message};
-					}
-					if (Binding.Route == EPropertyLoadRoute::Deprecated)
-					{
-						LoadedDeprecatedProperties.push_back(Binding.Property->NamePrivate);
-						FAssetDeprecatedRouteEvidence Evidence{
-							.PackagePath = PackagePath,
-							.ObjectPath = Exports[ObjectIndex].Path,
-							.DeclaringType = Property.DeclaringType,
-							.StoredFieldName = Property.FieldName,
-							.DeprecatedPropertyName = Binding.Property->NamePrivate.ToString()};
-						Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
-						continue;
-					}
-					if (Property.Provenance != ObjectPackage::EPropertyProvenance::Forced
-						&& !HasNestedReplacement(Property.Value)) continue;
-					FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
-						FName(Property.DeclaringType), FName(Property.FieldName))};
-					if (Property.Provenance == ObjectPackage::EPropertyProvenance::Forced)
-						LedgerEntries.push_back({Path, EAuthoredOverrideProvenance::Forced});
-					else if (!RestoreNestedReplacements(Property.Type, Property.Value, Linker, Path,
-						LedgerEntries, Diagnostic))
-					{
-						return {EAssetReadError::CorruptFile, Diagnostic.Message};
-					}
-				}
-				LedgerTiming.reset();
-				FScopedObjectLoadPhase ApplyLedgerTiming(PackagePath, EObjectLoadPhase::ApplyOverrideLedger, 1, LedgerEntries.size());
-				Objects[ObjectIndex]->SetLoadedDeprecatedProperties(LoadedDeprecatedProperties);
-				FAuthoredOverrideDiagnostic LedgerDiagnostic;
-				if (!Objects[ObjectIndex]->ReplaceAuthoredOverrides(LedgerEntries, &LedgerDiagnostic))
-				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
-						"Could not restore authored intent.", 0, LedgerDiagnostic.LogicalPath);
-					return {EAssetReadError::CorruptFile, Diagnostic.Message};
 				}
 			}
 			return {};

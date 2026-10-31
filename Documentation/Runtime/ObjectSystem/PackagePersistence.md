@@ -8,6 +8,12 @@ Last reviewed: 2026-10-31
 
 ## Ownership and Entry Points
 
+Authored replacement intent is independent of save emission mode and of
+non-mutating save overrides. Its sole state/facade and validated restoration
+contract are defined in [Authored Property Overrides](PropertyOverrides.md).
+Engine's [object loader](../Assets/Packages/ObjectLoading.md) owns package-tag
+interpretation and load-local bindings; this substrate remains Engine-independent.
+
 `DPackage::Save(FPackageSaveOptions)` and
 `SaveAsync(Admission, FSavePackageContext{Options})` persist
 ordinary reflected package files without Engine or an initialized asset registry.

@@ -397,47 +397,12 @@ values, malformed serializers, or limit violations still fail before output.
 
 ### Authored Override Intent
 
-Ordinary authored-package loading restores values without creating override
-state. Enabled planning compares values with defaults again, so an ordinary
-value changed back to its default can be omitted. The Engine SavePackage entry
-selects v10 delta saving; explicit `EAssetPackageSaveMode::Complete` selects NoDelta; emission mode and
-persistent replacement state are independent. A saved Explicit tag is evidence of a value
-in that package, not a persistent request to keep overriding the default.
+The immutable `FOverriddenPropertySet`, `FOverridableManager` facade, durable
+replacement semantics and restricted load restoration are defined in
+[Authored Property Overrides](PropertyOverrides.md). Ordinary Explicit values,
+Forced complete-field intent and NoDelta emission remain distinct.
 
-A `DObject` may opt into complete field replacement through
-`SetAuthoredOverride(..., Forced)`. It lazily owns an `FAuthoredOverrideLedger`;
-ordinary objects allocate none and templates reject marks. The ledger uses
-copy-on-write immutable snapshots and contains no object, property, schema, or
-memory pointer. Each stored path contains declaring-type/field-name tokens.
-Mutation validates the full supplied discovery/value route, token form, depth,
-length, provenance, container bounds, and canonical Map key before publication.
-Indexed routes normalize to the owning container field. A parent replacement
-subsumes children; Arrays, fixed arrays, and Maps therefore remain replacements
-across insertion, removal, sorting, and key changes. Bulk replacement rejects
-exact duplicate input paths transactionally before normalizing/coalescing.
-
-Forced fields emit their complete supported value, including default-valued
-children. A nested Struct replacement causes its parents to be emitted with
-ordinary Explicit tags, without promoting them into independent replacements.
-Only replacement boundaries receive Forced tags. NoDelta writes complete values
-without manufacturing overrides and retains explicitly requested boundaries;
-cooked planning/loading does not carry runtime override state.
-
-Canonical loading restores only Forced boundaries and stops below a replaced
-field. Existing Explicit values remain readable but may be omitted on a later
-ordinary resave if equal to defaults. Historical Forced tags do not distinguish
-old NoDelta emission from user intent; preserve them conservatively as complete
-replacement boundaries. Do not infer intent or require a bulk asset rewrite.
-Struct reconstruction uses the explicit baseline rules above.
-
-Clear, subtree clear, and reset change intent only, never values. Indexed clear
-routes normalize to their container. Clearing a child cannot carve an exception
-out of a replaced parent; clear the parent first. Removed fields are ignored
-while planning; incompatible surviving routes fail closed. `DuplicateObject`
-copies and revalidates sparse marks after constructing the destination graph.
-GC ignores pointer-free tokens, destruction releases snapshots, and default
-teardown cannot invalidate them. General callers and forced package restoration
-retain validated publication; no unchecked setter is exposed.
+### Struct Serialization and PostDeserialize
 
 Structs use the shared reflected save-selected field walk by default. A declared
 `FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "DObject/AssetPath.h"
+#include "DObject/OverriddenPropertyRestore.h"
 #include "Logging/LogMacros.h"
 
 namespace Durin::AssetPrivate
@@ -25,6 +26,9 @@ namespace Durin::AssetPrivate
 	{
 		FPackagePath Path;
 		uint64 Objects = 0, Properties = 0;
+		uint64 BindingBuilds = 0, BindingReuses = 0;
+		uint64 RestoreFastObjects = 0, RestoreFallbackObjects = 0, RestoreCaptures = 0, RestorePathVisits = 0;
+		std::array<uint64, static_cast<size_t>(EOverrideRestoreFallbackReason::Count)> RestoreFallbackReasons{};
 		std::array<FObjectLoadPhaseTiming, static_cast<size_t>(EObjectLoadPhase::Count)> Phases{};
 	};
 	class FScopedObjectLoadPhase;
@@ -62,6 +66,15 @@ namespace Durin::AssetPrivate
 				for (const auto& Phase : Package.Phases) Own += Phase.Inclusive - Phase.Children;
 				DURIN_DEBUG_CATEGORY("AssetLoad", "ObjectLoadPackage root={} package={} own_ms={:.3f} objects={} properties={}",
 					Root.ToString(), Package.Path.ToString(), Milliseconds(Own), Package.Objects, Package.Properties);
+				DURIN_DEBUG_CATEGORY("AssetLoad", "ObjectLoadBindings root={} package={} builds={} reuses={}",
+					Root.ToString(), Package.Path.ToString(), Package.BindingBuilds, Package.BindingReuses);
+				DURIN_DEBUG_CATEGORY("AssetLoad", "ObjectLoadOverrideRestore root={} package={} fast_objects={} fallback_objects={} full_captures={} path_visits={}",
+					Root.ToString(), Package.Path.ToString(), Package.RestoreFastObjects, Package.RestoreFallbackObjects,
+					Package.RestoreCaptures, Package.RestorePathVisits);
+				for (size_t Reason = 1; Reason < Package.RestoreFallbackReasons.size(); ++Reason)
+					if (Package.RestoreFallbackReasons[Reason])
+						DURIN_DEBUG_CATEGORY("AssetLoad", "ObjectLoadOverrideFallback root={} package={} reason={} objects={}",
+							Root.ToString(), Package.Path.ToString(), Reason, Package.RestoreFallbackReasons[Reason]);
 				for (size_t Index = 0; Index < Package.Phases.size(); ++Index)
 				{
 					const auto& Phase = Package.Phases[Index];
@@ -82,6 +95,28 @@ namespace Durin::AssetPrivate
 			auto& Package = Current->Packages[Current->FindPackage(Path)];
 			Package.Objects = Objects;
 			Package.Properties = Properties;
+		}
+		static auto RecordBindingWork(const FPackagePath& Path, uint64 Builds, uint64 Reuses) -> void
+		{
+			if (!Current) return;
+			auto& Package = Current->Packages[Current->FindPackage(Path)];
+			Package.BindingBuilds += Builds;
+			Package.BindingReuses += Reuses;
+		}
+		static auto RecordOverrideRestoration(const FPackagePath& Path, bool bFast, EOverrideRestoreFallbackReason Reason,
+			const FAuthoredOverrideValidationWork& Work) -> void
+		{
+			if (!Current) return;
+			auto& Package = Current->Packages[Current->FindPackage(Path)];
+			if (bFast) ++Package.RestoreFastObjects;
+			else
+			{
+				++Package.RestoreFallbackObjects;
+				const auto Index = static_cast<size_t>(Reason);
+				if (Index < Package.RestoreFallbackReasons.size()) ++Package.RestoreFallbackReasons[Index];
+			}
+			Package.RestoreCaptures += Work.FullCaptures;
+			Package.RestorePathVisits += Work.PathVisits;
 		}
 	private:
 		static auto Now() -> int64

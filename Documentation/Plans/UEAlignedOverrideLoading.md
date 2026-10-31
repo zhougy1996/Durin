@@ -4,15 +4,71 @@ Summary: Align property traversal and override-state interfaces with UE responsi
 
 Last reviewed: 2026-10-31
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-31
 
 ## Current Status
 
-Planning only. No implementation stage in this plan has started. Existing
-startup batch budgets, on-demand post-processing preparation, and detailed
-object-load timing are prerequisites already implemented, not unfinished work
-in this plan. All checklists below remain open until their evidence exists.
+Stages 0-5 are complete. The supported manager/set interface, checked traversal
+views, load-local bindings and one-shot reflected restoration have shipped with
+semantic and integration validation. Architecture and semantic preservation took
+priority over performance qualification, per the execution request. Startup batch
+budgets, post-processing preparation and readiness policy are unchanged.
+
+### Execution decisions
+
+- Alignment reference: Epic's public UE 5.8 API surface retrieved on 2026-10-31
+  for `FPropertyVisitorPath`, `FOverriddenPropertySet`, and the manager query.
+  This pins documented responsibilities, not an unavailable Epic source commit.
+- Support only `None` and `Replace` operations. Query results separately report
+  inherited replacement and descendant boundaries; structural ancestors are not
+  `Modified`. Provenance remains a separate enum. No element mutation API exists.
+- Object-aware archives own chains; Core byte archives remain independent.
+  Native descriptors remain first-class. Visitor views expire on any traversal
+  mutation or archive destruction; durable conversion copies pointer-free tokens.
+  The initial visitor segments intentionally use logical descriptors for both
+  reflected and native fields; they expose no raw property binding that could
+  survive metadata replacement. Load bindings own their separate bounded scope.
+- Initial fast restoration requires a compiled constructor-type proof that the concrete
+  class inherits `DObject::Serialize`, plus complete reflected nested schemas with
+  neither custom serializers nor PostDeserialize callbacks. Unproven classes,
+  custom structs, callbacks and filtered contexts use strict validation. A load
+  observation alone never establishes a class-level shape proof.
+  `InternalConstructor<T>` records this proof before construction; exact RTTI
+  matching prevents a constructor thunk for another concrete type from qualifying.
+  This avoids adding generator-specific trust annotations or a caller-set flag.
+- Keep restoration immediately after each export's value traversal, before graph
+  validation and PostLoad. Struct PostDeserialize runs inside traversal before
+  restoration. Graph-private candidates are discarded on failure; migration-owned
+  PostLoad edits must remain authoritative. No later cached observation is applied.
+  Publication executes in a synchronous successful-load callback while its archive
+  is alive. Evidence holds a weak traversal lease and becomes invalid after any
+  traversal change or archive destruction, even if a caller retains the context.
+- Consumer inventory spans Engine, Sandbox and RoadWeaver source/test roots.
+  Direct authored-intent consumers are CoreDObject's archive, delta planner,
+  package capture and duplication, Engine's package linker, reflection tests,
+  package tests and material persistence/qualification tests. Project modules
+  have no direct authored-intent use; their archive/object ABI still needs builds.
+- Public archive/object layout changes require one final `all` build: bounded
+  tests do not cover all project DLLs or downstream public-header compilation.
+- Performance measurements are diagnostic. Three-before/three-after timing and
+  statistically repeatable startup gains are no longer completion gates. Retain
+  work counters, semantic coverage and startup smoke; do not claim a speedup
+  without comparable samples. This changes performance acceptance only.
+
+Stage 0 evidence (Win64 Debug DurinEditor, 2026-10-31): `CoreObjectTests`
+passed 175/175 at the unchanged implementation base. Existing ledger regression
+fixtures cover equal defaults, nested boundaries, indexed normalization,
+duplicate/template rejection, immutable readers, duplication and NoDelta.
+Raw receipt: `Build/UEAlignedOverrideLoading/baseline-core.xml`.
+Pre-change startup diagnostic: `Build/.agent-state/logs/20261031-170520-319474-45268-DurinEditor.log`,
+Sandbox GrayboxStage15, `--exit-after-ticks=3`, warm DDC (31/31 hits), Tracy enabled.
+This existing binary is a diagnostic only, not a freshly built performance arm.
+Inventory: `Build/override-inventory.txt`. Selected validation: CoreObjectTests,
+CorePropertyValueSnapshotTests, CoreTransactionContractTests, AssetPackageTests,
+AssetPackageReloadTests and affected material persistence/editor consumers.
+Public Epic references above identify UE 5.8 documentation; source-level parity
+and experimental container-operation behavior are deliberately not promised.
 
 The selected first optimization is to restore complete-field override intent
 from validated load traversal, rather than recapture each loaded object twice.
@@ -68,14 +124,15 @@ costs.
    retain strict validation for general callers and unproven custom serializers.
 4. Reuse load-local field bindings across schema checks, serialization,
    compatibility evidence, and override restoration where their contexts match.
-5. Prove the improvement with work counters, semantic tests, and comparable
-   editor-startup measurements rather than shifting cost beyond Ready.
+5. Validate reduced redundant work with counters and semantic tests, and record
+   editor-startup diagnostics without shifting cost beyond Ready. Performance
+   qualification remains optional under the architecture-first execution decision.
 
 ## Scope and Ownership
 
 | Owner | Responsibility / principal starting points |
 | --- | --- |
-| CoreDObject | `DObject/Archive.h`, `AuthoredOverrideLedger.h`, `AuthoredOverrideLedger.cpp`, `DefaultDeltaPlan.cpp`; traversal paths, validation contracts, immutable object state, public facade |
+| CoreDObject | `DObject/Archive.h`, `AuthoredOverridePath.h`, `OverriddenPropertySet.h`, `OverridableManager.h`, `OverridableManager.cpp`, `DefaultDeltaPlan.cpp`; traversal paths, validation contracts, immutable object state, public facade |
 | Engine | `AssetPackageLinkerSchema.h`, `AssetPackageLoadArchive.cpp`, `AssetPackageLinkerLoader.cpp`; package bindings, compatibility routing, validated restore context, publication integration |
 | Editor and other consumers | Override editing/querying, transactions, duplication, reload, save/cook, and custom serializer consumers discovered by symbol search |
 | Native tests | Owning CoreDObject and Engine suites, asset package/reload tests, affected editor and project consumers |
@@ -221,48 +278,57 @@ logs or perform a second object walk.
 
 Dependencies: current timing implementation and existing serialization contracts.
 
-- [ ] Inventory all override, traversal, load/restore, save/cook, transaction,
+- [x] Inventory all override, traversal, load/restore, save/cook, transaction,
   duplication, and reload consumers across the three workspace projects.
-- [ ] Pin the UE reference revision/API surface used for alignment; record
+- [x] Pin the UE reference revision/API surface used for alignment; record
   intentional differences and experimental API limitations.
-- [ ] Define operation/query semantics, inherited-result reporting, unsupported
+- [x] Define operation/query semantics, inherited-result reporting, unsupported
   operations, native-field path representation, and metadata lifetime rules.
-- [ ] Trace current restore/fixup/callback/publication ordering and select a
+- [x] Trace current restore/fixup/callback/publication ordering and select a
   reflected-path eligibility proof that preserves the shape invariant.
-- [ ] Add focused semantic regression fixtures for the matrix above, including
+- [x] Establish focused semantic regression fixtures for the matrix above, including
   currently supported malformed-route rejection and rollback behavior.
-- [ ] Capture at least three comparable pre-change startup samples at the
-  instrumented implementation base; record settings and artifact locations.
+- [x] Record a pre-change startup diagnostic and settings; performance
+  qualification is optional under the architecture-first execution decision.
 
 Completion: reviewed design decisions resolve the choices above; baseline
-semantic tests pass and raw baseline samples are retrievable. Record actual
+semantic tests pass and the diagnostic baseline is retrievable. Record actual
 target selection and fixture coverage before proceeding.
 
 ### Stage 1: Add traversal chains and transient visitor paths
 
 Dependencies: Stage 0 contracts.
 
-- [ ] Implement scoped serialized-property chains and non-allocating access.
-- [ ] Add visitor-path construction/query and durable canonical conversion,
+- [x] Implement scoped serialized-property chains and non-allocating access.
+- [x] Add visitor-path construction/query and durable canonical conversion,
   preserving logical descriptors for native fields.
-- [ ] Integrate existing archive callbacks without extra Serialize invocations.
-- [ ] Test nested Struct/container traversal, inherited fields, canonical Map
+- [x] Integrate existing archive callbacks without extra Serialize invocations.
+- [x] Test nested Struct/container traversal, inherited fields, canonical Map
   keys, missing reflection bindings, stale-view boundaries, and unwind cleanup.
 
 Completion: existing archive behavior and diagnostics remain equivalent; chains
 are balanced on success/failure, and steady traversal adds no per-field heap
 allocation. Validate the owning module and discovered affected consumers.
 
+Evidence: `CoreObjectTests FCoreDObjectReflectionTests.*` passed 106/106 on
+Win64 Debug DurinEditor, including two new chain tests. They exercise nested
+logical/native fields, array/fixed/Map selectors, canonical keys, Map-key rejection,
+durable identity, callback exceptions, archive failure and expired views. Existing
+reflection/inheritance and serialization fixtures passed unchanged. Chain storage
+retains slots by depth; access returns spans, and field pushes reuse descriptor
+storage. No reflection pointer is exported. Final `all` covers remaining consumers.
+Receipt: `Build/UEAlignedOverrideLoading/stage1-core.xml`.
+
 ### Stage 2: Introduce override set and manager interfaces
 
 Dependencies: Stage 1 paths and Stage 0 semantic tests.
 
-- [ ] Implement the set and manager with one underlying immutable state source.
-- [ ] Implement effective-operation queries with ancestor/inherited reporting,
+- [x] Implement the set and manager with one underlying immutable state source.
+- [x] Implement effective-operation queries with ancestor/inherited reporting,
   validated edit/clear/reset, and restricted transactional restore staging.
-- [ ] Forward existing entry points temporarily and migrate runtime/editor
+- [x] Forward existing entry points temporarily and migrate runtime/editor
   consumers, including transaction, duplication, and default-relative planning.
-- [ ] Test equal-default Forced values, nested boundaries, indexed normalization,
+- [x] Test equal-default Forced values, nested boundaries, indexed normalization,
   duplicate rejection, template rejection, empty/lazy state, snapshot readers,
   failures, and default changes.
 
@@ -270,61 +336,151 @@ Completion: semantic tests pass through the new facade; all workspace consumers
 are accounted for. Saved content and cooked behavior remain unchanged. No new
 unchecked mutation route or second authoritative state exists.
 
+Facade evidence: `CoreObjectTests FCoreDObjectReflectionTests.*` passed 107/107
+on Win64 Debug DurinEditor (`Build/UEAlignedOverrideLoading/stage2-core.xml`).
+The new manager test covers structural ancestors, effective inherited replacement,
+separate provenance, retained snapshot readers, invalid live routes and stale
+visitor rejection. Existing semantic fixtures run through forwarding DObject
+methods into the same implementation. Duplication and package restoration call the
+manager in this stage; Stage 5 finishes default planning and removes all forwarding
+entry points. Final integration validates the completed migration.
+
 ### Stage 3: Share load-local field bindings
 
 Dependencies: Stage 1; may be implemented before Stage 2 completes, but changes
 in this checkout remain sequential under the single-writer rule.
 
-- [ ] Introduce scoped schema/reflection bindings with bounded ownership and
+- [x] Introduce scoped schema/reflection bindings with bounded ownership and
   no global property-pointer cache.
-- [ ] Reuse bindings in schema validation, field application, compatibility
+- [x] Reuse bindings in schema validation, field application, compatibility
   evidence, and candidate override construction where contexts are equivalent.
-- [ ] Preserve per-instance consumed bits, validation limits, typed errors,
+- [x] Preserve per-instance consumed bits, validation limits, typed errors,
   alias collision detection, deprecated routing, and removed-field policy.
-- [ ] Test shared schemas across objects, different archive/filter contexts,
+- [x] Test shared schemas across objects, different archive/filter contexts,
   schema rejection, reload invalidation, and native serializer fallbacks.
 
 Completion: counters show one resolution per distinct eligible binding rather
 than repeated consumer lookups; compatibility diagnostics and loaded values are
 unchanged. Existing relevant package tests and new binding tests pass.
 
+Evidence: `AssetPackageTests` passed 208/208 on Win64 Debug DurinEditor;
+receipt `Build/UEAlignedOverrideLoading/stage3-packages.xml`. One new binding
+fixture verifies stable reused bindings, foreign-schema rejection, missing fields
+and independent reload contexts. Existing fixtures exercise shared schema objects,
+aliases, removed/deprecated nested routes, cooked/native serializers, prepared
+batch lifetime and callback failure. Registered metadata uses managed identity
+plus current name ownership; hand-built metadata without a managed key is
+deliberately re-resolved. It cannot borrow the managed-lifetime reuse proof.
+Binding build/reuse counters are buffered once per package alongside timing.
+
 ### Stage 4: Restore overrides from validated load traversal
 
 Dependencies: Stages 2 and 3; Stage 0 eligibility proof.
 
-- [ ] Collect minimal observations and Forced candidates in the load archive.
-- [ ] Implement validated normalization and atomic restore at the established
+- [x] Collect minimal observations and Forced candidates in the load archive.
+- [x] Implement validated normalization and atomic restore at the established
   boundary, preserving subsequent migration-owned changes and rollback.
-- [ ] Route eligible reflected loads through observation-based restoration;
+- [x] Route eligible reflected loads through observation-based restoration;
   retain strict capture validation with explicit reasons for unproven cases.
-- [ ] Keep general edit/duplication validation strict unless separately proven;
+- [x] Keep general edit/duplication validation strict unless separately proven;
   do not broaden eligibility merely to improve startup statistics.
-- [ ] Add counters and test SCC dependencies, references, callback rejection,
+- [x] Add counters and test SCC dependencies, references, callback rejection,
   cancellation/reload failure, nested custom serialization, and malformed tags.
-- [ ] Compare fast and strict results with test-only differential fixtures:
+- [x] Compare fast and strict results with test-only differential fixtures:
   values, canonical paths, effective operations, errors, and publication state.
 
 Completion: eligible restoration performs zero full Discovery/AuthoredPackage
 captures attributable to override restoration. Fallback cases remain correct
 and visible; diagnostics and failure atomicity pass differential coverage.
 
-### Stage 5: Finish migration and verify startup improvement
+Evidence: `AssetPackageTests` passed 210/210 on Win64 Debug DurinEditor;
+receipt `Build/UEAlignedOverrideLoading/stage4-packages.xml`. New scalar and
+nested-container differential fixtures compare canonical state and values with
+strict restoration (two measured strict captures), exercise parent/child
+boundaries, indexed normalization, fixed arrays and canonical Map keys, and
+reject escaped/consumed/filtered evidence without changing the prior snapshot.
+Existing native-purpose, malformed-consumption, compatibility, callback rejection,
+SCC and private-preparation fixtures still pass. Fast publication calls only
+normalization and snapshot publication; it performs no logical capture. Metadata
+proof traversal is bounded by depth/type limits and excludes callback-bearing
+schemas even for currently empty containers. Reload/cancellation integration and
+final cross-consumer tests remain final-stage gates.
+
+### Stage 5: Finish migration and verify startup behavior
 
 Dependencies: Stages 0-4 acceptance evidence.
 
-- [ ] Remove redundant load-time walks and transitional API implementations
+- [x] Remove redundant load-time walks and transitional API implementations
   proven unnecessary; retain strict validation wherever still required.
-- [ ] Complete the cross-project symbol inventory and affected-consumer builds.
-- [ ] Run the final semantic/package/reload regression selection and editor
-  startup comparison described below.
-- [ ] Publish lasting API, semantic, lifetime, compatibility, and load-order
+- [x] Complete the cross-project symbol inventory and affected-consumer builds.
+- [x] Run the final semantic/package/reload regression selection and editor
+  startup diagnostic described below; comparison is optional.
+- [x] Publish lasting API, semantic, lifetime, compatibility, and load-order
   contracts in the owning runtime documents; keep only execution history here.
-- [ ] Record final evidence, remaining fallback reasons, risks, and follow-up
+- [x] Record final evidence, remaining fallback reasons, risks, and follow-up
   candidates. Close the plan only after every required gate passes.
 
 Completion: one supported interface/state model remains, final evidence covers
 the shipped inputs, and no unsupported UE operation has silently changed content
 semantics or package interpretation.
+
+### Final acceptance evidence
+
+Final relevant source is the Stage 5 commit containing this evidence, based on
+`5f843e9ec`. All native receipts use Win64 Debug DurinEditor, MSVC 14.44.35207,
+Tracy enabled. Validation artifacts remain under ignored
+`Build/UEAlignedOverrideLoading/` and DevTool's ignored command logs.
+
+- `build all` passed: `Build/.agent-state/logs/20261031-174403-837508-8808-cmake.log`.
+  The final incremental `all` also passed after adding a typed rejection for an
+  expired binding in compatibility-evidence collection:
+  `Build/.agent-state/logs/20261031-180410-194156-47904-cmake.log`.
+  These cover Engine, Sandbox, RoadWeaver and RoadWeaverEditor against the final
+  public headers/layout and production implementation. Subsequent source edits
+  were unnecessary; the final tests and startup use this implementation.
+- All 18 targets selected by `@domain=reflection+asset-package+material-editing-persistence+material-package+property-editor+editor-operation`
+  passed with four target scheduling slots. The selection includes object,
+  snapshot, transaction, package codec/persistence, reload/cancellation,
+  property/editor operation, material persistence/package and Python integration
+  consumers. Receipt: `final-regressions.xml`; exact selection:
+  `final-selection.txt`. CTest truncates successful target stdout, so this receipt
+  establishes target results without claiming a complete per-case count.
+- `AssetCookTests` passed 37/37 (`final-cook.xml`). Its helper still referenced
+  deleted texture resource-update APIs. Removing those two obsolete assertions
+  restored compilation; CPU-data absence, path-qualified warning, retry lease and
+  payload validation assertions remain. No texture production behavior changed.
+- `MaterialQualificationTests` compiled successfully after its API migration;
+  performance qualification was not executed or required.
+- The final source/test inventory across every workspace project contains zero
+  retired authored-override API or ledger-type/header references. Raw inventory:
+  `final-consumers.txt` and `retired-symbols.txt`. Durable paths now live in
+  `AuthoredOverridePath.h`; the implementation lives in `OverridableManager.cpp`.
+- Editor startup/automatic exit passed for Sandbox `/Game/Levels/GrayboxStage15`
+  with `--exit-after-ticks=3`, warm DDC 31/31 hits, unchanged GPU startup policy,
+  and no warning/error records. Logs: `baseline-startup.log`, `final-startup.log`;
+  reproduction parser/output: `summarize-startup.py`, `startup-summary.json`.
+  Final counts were 6 packages, 28 exports and 167 top-level tags. Bindings built
+  214 times and reused 1,288 times. Eighteen eligible objects restored with zero
+  restoration captures; ten strict objects attempted twenty captures. The strict
+  reasons were one custom object serializer and nine PostDeserialize-bearing
+  schemas. These conservative fallback proofs remain intentional.
+- Final diagnostic object application was 190.707 ms (root own 93.965 ms,
+  dependency own 96.731 ms); additive exclusive phases totaled 190.699 ms.
+  Restore/build exclusive totals were 49.447/2.228 ms. First shell-frame metric
+  was 989.5 ms, HostReady 1,847.116 ms, commit-to-ready tail 337.591 ms.
+  The original diagnostic binary's freshness was not verified and no three-sample
+  before/after qualification was performed: these numbers do not establish a speedup.
+- Changed-document and all-plan validation passed. Lasting contracts are
+  [Property Overrides](../Runtime/ObjectSystem/PropertyOverrides.md) and
+  [Object Loading](../Runtime/Assets/Packages/ObjectLoading.md), linked by the
+  existing serialization, reflection, persistence and lifecycle authorities.
+
+Remaining limits: only Win64 Debug execution was validated; no cross-platform or
+GPU qualification claim is made. This change adds no platform-specific path.
+General queries/edits and duplication remain strict; callback/native serializer
+eligibility must not be widened without an equivalent shape/lifetime proof.
+Any further speed qualification or broader custom-serializer proof is follow-up
+work, not an outstanding acceptance gate for this architecture-first execution.
 
 ## Validation and Performance Gates
 
@@ -351,7 +507,7 @@ running it. Do not repeat broad builds at each stage. A platform-specific path
 must either be validated on that platform or recorded as an unresolved gate;
 passing Win64 tests do not establish cross-platform coverage.
 
-For timing, run at least three valid samples before and three after with the
+For optional performance qualification, run at least three valid samples before and three after with the
 same machine, build configuration, project/map, startup exit condition, cache
 state, GPU policy, and timing instrumentation. Use warm caches for the primary
 comparison; report cold starts separately if collected. A stale historical
@@ -364,13 +520,11 @@ phase totals, restore captures/fallbacks, first shell frame, HostReady, and
 post-commit readiness tail. Keep diagnostic overhead equivalent between arms.
 Do not compare the sum of nested phase times or count deferred work as savings.
 
-Acceptance requires semantic equivalence, zero redundant restoration captures
-for eligible objects, and a repeatable reduction in restoration and total
-object-application time. First shell frame and HostReady must show no repeatable
-regression beyond observed run variability. If distributions overlap or a
-regression appears, investigate and collect more samples before claiming a win;
-report inconclusive results explicitly. There is no precommitted millisecond
-saving based on the single 68.592 ms observation.
+Acceptance requires semantic equivalence and zero redundant restoration captures
+for eligible objects. Startup timings are diagnostic under the architecture-first
+execution decision. A performance claim still requires repeatable improvements
+without readiness regressions; overlapping distributions are inconclusive.
+There is no precommitted millisecond saving from the 68.592 ms observation.
 
 For documentation, run changed-document validation and all-plan validation when
 adding or completing this plan, as required by the

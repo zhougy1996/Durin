@@ -297,6 +297,12 @@ Runtime nested metadata can be walked with `ForEachNestedProperty(...)`. The hel
 
 ## Serialized Property Aliases
 
+Load-local bindings reuse canonical schema identity and typed compatibility routes,
+while container positions and consumption remain per object. Reflection metadata
+must remain immutable during a load; replacement invalidates its scoped bindings.
+Ownership and unregistered-metadata fallback are defined in
+[Object Package Loading](../Assets/Packages/ObjectLoading.md#binding-ownership).
+
 A durable reflected field may declare read-only compatibility names when its C++
 member is renamed:
 
@@ -359,7 +365,7 @@ be distinguished by reflection, not for every semantic version change.
 Deprecated fields are load-only: current Archive saves, default deltas,
 canonical schemas, Details panels, and current authored ledgers exclude them.
 Migration code owns both value conversion and any authored-intent transfer. It
-can call `SetAuthoredOverride` for each current path whose explicit or forced
+can call `FOverridableManager::OverrideProperty` for each current path whose explicit or forced
 state must survive the resave; splits, merges, and conditional targets therefore
 remain ordinary migration logic rather than reflection metadata. Compatibility
 and canonical-resave reports expose each consumed route as remaining migration

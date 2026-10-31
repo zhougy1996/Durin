@@ -4,10 +4,11 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/PropertyDiagnostic.h"
-#include "DObject/AuthoredOverrideLedger.h"
+#include "DObject/AuthoredOverridePath.h"
 #include "DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "DObject/ObjectKey.h"
+#include "DObject/OverriddenPropertyRestore.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Serialization/Archive.h"
 
@@ -63,6 +64,59 @@ namespace Durin
 		FArchiveLogicalTypeDescriptor LogicalType;
 		uint32 ArrayDimension = 1;
 		EPropertyFlags PropertyFlags = EPropertyFlags::None;
+	};
+
+	// Logical traversal segments borrow no reflection pointers. Selectors are transient.
+	enum class EPropertyVisitorSegmentKind : uint8 { Field, FixedArrayElement, ArrayElement, MapKey, MapValue };
+	struct FPropertyVisitorSegment
+	{
+		EPropertyVisitorSegmentKind Kind = EPropertyVisitorSegmentKind::Field;
+		FArchiveFieldDescriptor Field;
+		uint64 Index = 0;
+		FByteBuffer CanonicalMapKey;
+	};
+
+	struct FSerializedPropertyChainState
+	{
+		std::vector<FPropertyVisitorSegment> Segments;
+		size_t Base = 0;
+		size_t Depth = 0;
+		uint64 Revision = 0;
+	};
+
+	class FPropertyVisitorPath;
+	// Archive-owned reusable storage. Reading the active chain never copies a vector.
+	class FArchiveSerializedPropertyChain final
+	{
+	public:
+		FArchiveSerializedPropertyChain() = default;
+		FArchiveSerializedPropertyChain(const FArchiveSerializedPropertyChain&) = delete;
+		auto operator=(const FArchiveSerializedPropertyChain&) -> FArchiveSerializedPropertyChain& = delete;
+		auto GetSegments() const -> std::span<const FPropertyVisitorSegment>
+		{ return std::span(State->Segments).subspan(State->Base, State->Depth - State->Base); }
+		COREDOBJECT_API auto GetVisitorPath() const -> FPropertyVisitorPath;
+	private:
+		std::shared_ptr<FSerializedPropertyChainState> State = std::make_shared<FSerializedPropertyChainState>();
+		COREDOBJECT_API auto Push(EPropertyVisitorSegmentKind Kind, uint64 Index = 0,
+			const FArchiveFieldDescriptor* Field = nullptr) -> void;
+		COREDOBJECT_API auto Pop() -> void;
+		friend class FObjectArchive;
+		friend class FPropertyVisitorPath;
+	};
+
+	// A checked view, invalid after any chain mutation or its archive's destruction.
+	// Durable conversion explicitly copies canonical tokens; native fields keep logical identity.
+	class FPropertyVisitorPath final
+	{
+	public:
+		FPropertyVisitorPath() = default;
+		COREDOBJECT_API auto IsValid() const -> bool;
+		COREDOBJECT_API auto GetSegments() const -> std::span<const FPropertyVisitorSegment>;
+		COREDOBJECT_API auto ToDurablePath() const -> std::expected<FAuthoredOverridePath, EAuthoredOverrideFailureReason>;
+	private:
+		std::weak_ptr<const FSerializedPropertyChainState> State;
+		uint64 Revision = 0;
+		friend class FArchiveSerializedPropertyChain;
 	};
 
 	// Selects the effective source for one reflected field during a save.
@@ -140,6 +194,7 @@ namespace Durin
 	public:
 
 		COREDOBJECT_API auto EnterObject(DObject& Object) -> FArchiveObjectScope;
+		auto GetSerializedPropertyChain() const -> const FArchiveSerializedPropertyChain& { return PropertyChain; }
 		COREDOBJECT_API auto EnterField(const FArchiveFieldDescriptor& Field) -> FArchiveFieldScope;
 		COREDOBJECT_API auto EnterFixedArrayElement(uint64 Index) -> FArchivePathScope;
 		COREDOBJECT_API auto EnterArrayElement(uint64 Index) -> FArchivePathScope;
@@ -163,6 +218,10 @@ namespace Durin
 		virtual COREDOBJECT_API auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void;
 
 	protected:
+		// A derived load archive supplies Forced intent; Core proves eligibility and owns staging.
+		COREDOBJECT_API auto PrepareOverriddenPropertyRestoration(DObject& Object) -> void;
+		COREDOBJECT_API auto ObserveOverriddenProperty() -> void;
+		COREDOBJECT_API auto TakeOverriddenPropertyRestoration() -> std::unique_ptr<FOverriddenPropertyRestoreContext>;
 		virtual COREDOBJECT_API auto OnEnterObject(DObject& Object) -> void;
 		virtual COREDOBJECT_API auto OnLeaveObject() -> void;
 		virtual COREDOBJECT_API auto OnEnterField(const FArchiveFieldDescriptor& Field) -> void;
@@ -187,6 +246,7 @@ namespace Durin
 	private:
 		struct FObjectScopeState
 		{
+			size_t PreviousChainBase = 0;
 			bool bBaseMarked = false;
 			uint32 ActiveFieldDepth = 0;
 			std::unordered_set<std::string> Fields;
@@ -197,6 +257,8 @@ namespace Durin
 		COREDOBJECT_API auto ClosePathScope() -> void;
 		std::vector<FObjectScopeState> ObjectScopes;
 		std::vector<bool> FieldScopes;
+		FArchiveSerializedPropertyChain PropertyChain;
+		std::unique_ptr<FOverriddenPropertyRestoreContext> OverrideRestoration;
 
 		friend class FArchiveObjectScope;
 		friend class FArchiveFieldScope;

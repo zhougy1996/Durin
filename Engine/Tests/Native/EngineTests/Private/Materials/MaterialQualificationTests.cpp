@@ -1,4 +1,5 @@
 #include "Shader/ShaderCompilingManager.h"
+#include "DObject/OverridableManager.h"
 #include "Shader/ShaderDiagnostics.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialShaderMap.h"
@@ -530,13 +531,13 @@ TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
 		const auto LoadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Begin).count();
 		std::cout << "[ MATERIAL BASELINE ] nodes=65 round=" << Round
 			<< " complete_bytes=" << CompleteBytes << " delta_bytes=" << DeltaBytes
-			<< " load_ms=" << LoadMs << " ledger_allocated=" << Material->HasAllocatedAuthoredOverrideLedger() << '\n';
+			<< " load_ms=" << LoadMs << " ledger_allocated=" << Durin::FOverridableManager::HasOverriddenProperties(*Material) << '\n';
 		ASSERT_NE(Material, nullptr);
-		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Material));
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 66u);
 		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy").value());
 		ASSERT_NE(Copy, nullptr);
-		EXPECT_FALSE(Copy->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Copy));
 		EXPECT_EQ(Copy->GetExpressionCollection().Expressions.size(), 66u);
 		MarkObjectHierarchyAsGarbage(Copy);
 	}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include <typeinfo>
 
 #include "StructBase.h"
 #include "Function.h"
@@ -92,6 +93,9 @@ namespace Durin
 		using CookSchemaFunctionType = void (*)(FObjectCookContext&);
 		CookSchemaFunctionType CookSchema = nullptr;
 		COREDOBJECT_API auto AppendCookSchema(FObjectCookContext& Context) const -> void;
+		// Exact native constructor type plus inherited base Serialize proves a value-independent walk.
+		auto UsesDefaultObjectSerializer(const DObject& Object) const -> bool
+		{ return DefaultSerializerType && *DefaultSerializerType == typeid(Object); }
 
 		// the Outer is nullptr now , it will be set to a package later maybe
 		DClass(
@@ -153,6 +157,8 @@ namespace Durin
 		auto FailDefaultObjectConstruction(EClassDefaultObjectReason Reason) -> DObject*;
 		auto ReleaseDefaultObjectOwnership() -> DObject*;
 
+		const std::type_info* DefaultSerializerType = nullptr;
+		template<class T> friend void InternalConstructor(const FObjectInitializer&);
 		EClassFlags ClassFlags = EClassFlags::None;
 		std::vector<DFunction*> Functions;
 		std::vector<const DFunction*> EffectiveFunctions;
@@ -319,6 +325,9 @@ namespace Durin
 	template<class T>
 	void InternalConstructor(const FObjectInitializer& X)
 	{
+		if constexpr (requires { &T::Serialize; })
+			if constexpr (std::is_same_v<decltype(&T::Serialize), decltype(&DObject::Serialize)>)
+				if (X.Class) X.Class->DefaultSerializerType = &typeid(T);
 		T::__DefaultConstructor(X);
 	}
 

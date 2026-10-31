@@ -63,6 +63,7 @@ namespace Durin
 		MapKeyNotFound,
 		SchemaMismatch,
 		ArchiveFailure,
+		StaleTraversal,
 	};
 
 	struct FAuthoredOverrideDiagnostic
@@ -72,16 +73,10 @@ namespace Durin
 
 		auto Reset() -> void { *this = {}; }
 	};
-
-	// Immutable sparse replacement boundaries. Parents subsume children; stored paths contain fields only.
-	class FAuthoredOverrideLedger final
+	struct FAuthoredOverrideValidationWork
 	{
-	public:
-		auto GetEntries() const -> const std::vector<FAuthoredOverrideEntry>& { return Entries; }
-
-	private:
-		std::vector<FAuthoredOverrideEntry> Entries;
-		friend class DObject;
+		uint64 FullCaptures = 0;
+		uint64 PathVisits = 0;
 	};
 
 	COREDOBJECT_API auto CompareAuthoredOverridePaths(
@@ -97,5 +92,6 @@ namespace Durin
 	COREDOBJECT_API auto ValidateAuthoredOverrideEntries(
 		DObject* Object,
 		std::span<const FAuthoredOverrideEntry> Entries,
-		FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr,
+		FAuthoredOverrideValidationWork* Work = nullptr) -> bool;
 }

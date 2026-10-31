@@ -4,6 +4,7 @@
 #include "Asset/Load.h"
 #include "DObject/PackageFormat.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/ObjectKey.h"
 
 namespace Durin { class DStructBase; class DClass; }
 
@@ -37,6 +38,30 @@ namespace Durin::AssetPrivate::LinkerSchema
 		-> const ObjectPackage::FSerializedSchema*;
 	auto FindPropertyByName(const ObjectPackage::FSerializedSchema& Schema, std::string_view Name)
 		-> std::optional<FPropertyLoadInfo>;
+
+	// One normalized linker and owner-thread reflection snapshot; never retained globally.
+	// Traversal consumed bits and object values are deliberately outside this cache.
+	class ENGINE_API FLoadSchemaBindings final
+	{
+	public:
+		explicit FLoadSchemaBindings(const ObjectPackage::FLinkerTables& InLinker) : Linker(InLinker) {}
+		~FLoadSchemaBindings();
+		FLoadSchemaBindings(const FLoadSchemaBindings&) = delete;
+		auto operator=(const FLoadSchemaBindings&) -> FLoadSchemaBindings& = delete;
+		auto FindProperty(const ObjectPackage::FSerializedSchema& Schema, std::string_view Name) -> const FPropertyLoadInfo*;
+		auto GetBuildCount() const -> uint64 { return Builds; }
+		auto GetReuseCount() const -> uint64 { return Reuses; }
+	private:
+		struct FEntry
+		{
+			FPropertyLoadInfo Info;
+			FObjectKey Owner;
+			DStructBase* OwnerPointer = nullptr;
+		};
+		const ObjectPackage::FLinkerTables& Linker;
+		std::unordered_map<const ObjectPackage::FSerializedField*, FEntry> Entries;
+		uint64 Builds = 0, Reuses = 0;
+	};
 
 	// Fixups precede object construction and preserve original identities as
 	// evidence. A failed candidate is discarded; evidence is replaced on success.
