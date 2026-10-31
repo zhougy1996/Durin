@@ -4103,7 +4103,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 				const auto ShaderContext = DirectCollector->PrepareShaders(Batch, Generation, LowResource.CompiledProgram.get(), {}, Shaders);
 				ASSERT_TRUE(ShaderContext) << ShaderContext.Error;
 				ASSERT_NE(Shaders.FragmentLayout, nullptr);
-				const auto& Initializer = DirectInitializers[1].GraphicsInitializer;
+				const auto& Initializer = DirectInitializers[1].GetGraphicsInitializer();
 				if (!ExpectedCommandPipeline) {
 					const auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, "ExpectedPrecachedMeshCommand");
 					ASSERT_TRUE(Request); ExpectedCommandPipeline = *Request;

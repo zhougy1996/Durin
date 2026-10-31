@@ -996,7 +996,7 @@ TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSO
     Params.VertexFactoryData = FPSOPrecacheVertexFactoryData(&Factory, Elements);
     FMaterialPSORequestManager OptionalWork;
     auto Request = OptionalWork.PrecachePSOs(Params);
-    OptionalWork.Pump([](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    OptionalWork.Pump([](const auto&, auto& Out, EPSOPrecacheCollectionPhase) -> std::expected<bool, std::string> {
         Out.bRequiredPSOsCollected = true;
         return false;
     });

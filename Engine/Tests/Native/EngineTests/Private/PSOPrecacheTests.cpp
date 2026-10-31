@@ -83,7 +83,7 @@ namespace
 			-> std::expected<std::shared_ptr<Durin::FPipelineState>, Durin::ERHIPipelineRequestRejection>
 		{
 			using namespace Durin;
-			const auto& Input = Data.ComputeInitializer;
+			const auto& Input = Data.GetComputeInitializer();
 			const uint32 Size = Input.PipelineLayout.PushConstantRanges.empty() ? 0 : Input.PipelineLayout.PushConstantRanges.front().Size;
 			if (Size == 12) return std::unexpected(ERHIPipelineRequestRejection::InvalidDescription);
 			auto Result = Cache->GetCompute(Input, Size == 12 ? "failed" : Size == 8 ? "gated" : "ready");
@@ -194,15 +194,15 @@ TEST(FPSOPrecacheTests, PSOPrecacheDataValidatesSelectedInitializerAndPriority)
     FMaterialPSOTestPipelines Pipelines;
     auto Native = Pipelines.Request(false);
     auto Data = Pipelines.Describe(Native, false);
-    EXPECT_EQ(Data.Type, FPSOPrecacheData::EType::Compute);
+    EXPECT_EQ(Data.GetType(), FPSOPrecacheData::EType::Compute);
     EXPECT_FALSE(Data.bRequired);
     Data.Priority = EPSOPrecachePriority::Highest;
     EXPECT_TRUE(Data.IsValid());
-    Data.Type = FPSOPrecacheData::EType::Graphics;
+    Data.SetGraphicsInitializer({});
     EXPECT_FALSE(Data.IsValid());
-    Data.Type = static_cast<FPSOPrecacheData::EType>(255);
+    Data.SetComputeInitializer({});
     EXPECT_FALSE(Data.IsValid());
-    Data.Type = FPSOPrecacheData::EType::Compute;
+    Data.SetComputeInitializer(Pipelines.Describe(Native).GetComputeInitializer());
     Data.Priority = EPSOPrecachePriority::NotSet;
     EXPECT_FALSE(Data.IsValid());
 }
@@ -216,7 +216,7 @@ TEST(FPSOPrecacheTests, MaterialPSOInitializerValidationAndInvalidationPrecedePu
         ++Submissions; return std::unexpected(ERHIPipelineRequestRejection::InvalidDescription);
     });
     auto Request = Invalid.PrecachePSOs(MaterialPSOTestParams());
-    Invalid.Pump([](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Invalid.Pump([](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.emplace_back(); return true;
     });
     EXPECT_EQ(Submissions, 0u);
@@ -232,7 +232,7 @@ TEST(FPSOPrecacheTests, MaterialPSOInitializerValidationAndInvalidationPrecedePu
     });
     Current = &Retiring;
     Request = Retiring.PrecachePSOs(MaterialPSOTestParams());
-    Retiring.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Retiring.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.push_back(Pipelines.Describe(Ready)); return true;
     });
     EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Stale);
@@ -272,14 +272,14 @@ TEST(FPSOPrecacheTests, RejectedOptionalPSODiagnosticsDoNotAuthorizeAnInvalidate
     auto Shared = Manager.PrecachePSOs(MaterialPSOTestParams());
     FMaterialPSOPrecacheOwner Owner;
     auto Request = Owner.Observe(Shared);
-    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers = {Pipelines.Describe(Ready, true), Pipelines.Describe(Failed, false)};
         return true;
     });
     const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (Request.GetProgress().State == EMaterialPSOPrecacheState::Pending && std::chrono::steady_clock::now() < Deadline)
     {
-        Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+        Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
         std::this_thread::yield();
     }
     EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
@@ -345,7 +345,7 @@ TEST(FPSOPrecacheTests, MaterialPSORequestsShareWorkWithoutSharingCancellationOr
 	First.Cancel();
 	EXPECT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Canceled);
 	uint32 Collections = 0;
-	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+	Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 		++Collections; Out.PSOInitializers.push_back(Pipelines.Describe(Ready, true)); return true;
 	});
 	EXPECT_EQ(Collections, 1u);
@@ -370,7 +370,7 @@ TEST(FPSOPrecacheTests, ComponentPSOSetsSeparateRequiredReadinessFromAllWorkAndI
 	auto Gated = Pipelines.Request(true);
 	FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
 	auto First = Manager.PrecachePSOs(MaterialPSOTestParams());
-	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+	Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 		Out.PSOInitializers = {Pipelines.Describe(Ready, true), Pipelines.Describe(Gated, false)}; return true;
 	});
 	ASSERT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Pending);
@@ -385,13 +385,13 @@ TEST(FPSOPrecacheTests, ComponentPSOSetsSeparateRequiredReadinessFromAllWorkAndI
 	EXPECT_EQ(Component.Poll(), EMaterialPSOPrecacheState::Pending);
 	auto Params = MaterialPSOTestParams(); Params.PrecachePSOParams.bReversedZ = true;
 	auto New = Manager.PrecachePSOs(Params);
-	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> { Out.PSOInitializers = {Pipelines.Describe(Ready, true)}; return true; });
+	Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { Out.PSOInitializers = {Pipelines.Describe(Ready, true)}; return true; });
 	Component.SetMaterialPSOPrecacheData({New}, [&] { ++NewCallbacks; });
 	EXPECT_EQ(Component.Poll(), EMaterialPSOPrecacheState::Ready);
 	EXPECT_EQ(NewCallbacks, 1u);
 	Component.Poll(); EXPECT_EQ(NewCallbacks, 1u);
 	Pipelines.Release(); ASSERT_TRUE(Gated->Wait());
-	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 	EXPECT_FALSE(Component.SetLatestJobSetCompleted(OldBatch));
 	EXPECT_EQ(OldCallbacks, 0u);
 	EXPECT_EQ(Peer.Poll(), EMaterialPSOPrecacheState::Ready);
@@ -414,7 +414,7 @@ TEST(FPSOPrecacheTests, MaterialPSOFailuresRemainObservableAndRequestsHaveNoAggr
 	auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
 	FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
 	auto Failure = Manager.PrecachePSOs(MaterialPSOTestParams());
-	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { return std::unexpected(std::string("fixture collection failure")); });
+	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { return std::unexpected(std::string("fixture collection failure")); });
 	EXPECT_EQ(Failure.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	EXPECT_FALSE(Failure.GetProgress().bRequiredReady);
 	EXPECT_EQ(Failure.GetDiagnostic(), "fixture collection failure");
@@ -427,11 +427,11 @@ TEST(FPSOPrecacheTests, MaterialPSOFailuresRemainObservableAndRequestsHaveNoAggr
 	(void)RejectedInput->Wait();
 	ASSERT_EQ(RejectedInput->GetState(), ERHIPipelineRequestState::Ready);
 	Failure = Manager.PrecachePSOs(MaterialPSOTestParams());
-	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> { Out.PSOInitializers = {Pipelines.Describe(RejectedInput, true)}; return true; });
+	Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { Out.PSOInitializers = {Pipelines.Describe(RejectedInput, true)}; return true; });
 	const auto NativeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 	while (Failure.GetProgress().State == EMaterialPSOPrecacheState::Pending && std::chrono::steady_clock::now() < NativeDeadline)
 	{
-		Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+		Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 		std::this_thread::yield();
 	}
 	EXPECT_EQ(Failure.GetProgress().State, EMaterialPSOPrecacheState::Failed);
@@ -450,7 +450,7 @@ TEST(FPSOPrecacheTests, MaterialPSOFailuresRemainObservableAndRequestsHaveNoAggr
 	EXPECT_NE(Manager.PrecachePSOs(MaterialPSOTestParams()).GetValue(), 0u);
 	uint32 Collections = 0;
 	for (size_t Pump = 0; Pump < 64; ++Pump)
-		Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+		Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 			++Collections; Out.PSOInitializers = {Pipelines.Describe(Ready, true)}; return true;
 		});
 	EXPECT_EQ(Collections, 512u);
@@ -458,9 +458,9 @@ TEST(FPSOPrecacheTests, MaterialPSOFailuresRemainObservableAndRequestsHaveNoAggr
 	for (const auto& Request : Requests) EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Ready);
 	// Retaining all completed observations neither occupies active capacity nor
 	// causes their collectors to run on later frames.
-	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 	Requests.clear();
-	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 	EXPECT_NE(Manager.PrecachePSOs(MaterialPSOTestParams()).GetValue(), 0u);
 	Manager.Close();
 }
@@ -475,7 +475,7 @@ TEST(FPSOPrecacheTests, MaterialPSOCompletionReleasesPipelinesAndResourcesButKee
 	std::weak_ptr<int> WeakResources = Resources;
 	FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
 	auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-	Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+	Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 		Out.PSOInitializers.push_back(Pipelines.Describe(Ready, true)); Out.Resources = std::move(Resources); return true;
 	});
 	Ready.reset();
@@ -504,7 +504,7 @@ TEST(FPSOPrecacheTests, CompletedCollectionDoesNotOccupySlotsDuringNativeCompila
 		Requests.push_back(Manager.PrecachePSOs(Params));
 	}
 	uint32 Collections = 0;
-	auto Collect = [&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+	auto Collect = [&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 		++Collections; Out.PSOInitializers = {Pipelines.Describe(Gated, true)}; return true;
 	};
 	for (uint32 Frame = 0; Frame < 5; ++Frame) Manager.Pump(Collect);
@@ -536,7 +536,7 @@ TEST(FPSOPrecacheTests, MaterialPSOResumesAfterNativeCapacityWithoutResubmitting
 	});
 	auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
 	uint32 Collections = 0;
-	auto Collect = [&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+	auto Collect = [&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 		++Collections;
 		Out.PSOInitializers = {Pipelines.DescribeSlot(254), Pipelines.DescribeSlot(255)};
 		return true;
@@ -578,12 +578,12 @@ TEST(FPSOPrecacheTests, MaterialPSOCollectionCannotPublishEmptyOrInvalidatedSucc
 	using namespace Durin;
 	FMaterialPSORequestManager Manager;
 	auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { return true; });
+	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { return true; });
 	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	Manager.Invalidate();
 	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-	Manager.Pump([&](const auto&, auto&) -> std::expected<bool, std::string> { Manager.Invalidate(); return true; });
+	Manager.Pump([&](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { Manager.Invalidate(); return true; });
 	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Stale);
 	EXPECT_FALSE(Request.GetProgress().bRequiredReady);
 }
@@ -596,14 +596,15 @@ TEST(FPSOPrecacheTests, RequiredPSOCollectionDoesNotWaitForOptionalShaders)
     ASSERT_TRUE(Ready->Wait());
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    uint32 Pumps = 0;
-    auto Collect = [&](const auto&, auto& Out) -> std::expected<bool, std::string> {
-        if (++Pumps == 1)
+    bool OptionalReady = false;
+    auto Collect = [&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
+        if (Phase == EPSOPrecacheCollectionPhase::Required)
         {
             Out.PSOInitializers.push_back(Pipelines.Describe(Ready));
             Out.bRequiredPSOsCollected = true;
             return false;
         }
+        if (!OptionalReady) return false;
         Out.PSOInitializers.push_back(Pipelines.Describe(Ready, false));
         return true;
     };
@@ -614,6 +615,7 @@ TEST(FPSOPrecacheTests, RequiredPSOCollectionDoesNotWaitForOptionalShaders)
     Component.SetMaterialPSOPrecacheData({Request});
     EXPECT_TRUE(Component.IsReadyForProxyCreation());
     EXPECT_TRUE(Component.IsPSOPrecaching());
+    OptionalReady = true;
     Manager.Pump(Collect);
     EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Ready);
 
@@ -621,7 +623,7 @@ TEST(FPSOPrecacheTests, RequiredPSOCollectionDoesNotWaitForOptionalShaders)
     Params.PrecachePSOParams.Participation = {false, false};
     auto Optional = Manager.PrecachePSOs(Params);
     EXPECT_FALSE(Optional.GetProgress().bRequiredReady);
-    Manager.Pump([](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.bRequiredPSOsCollected = true;
         return false;
     });
@@ -630,7 +632,7 @@ TEST(FPSOPrecacheTests, RequiredPSOCollectionDoesNotWaitForOptionalShaders)
 
     Manager.Invalidate();
     Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.push_back(Pipelines.Describe(Ready));
         Out.bRequiredPSOsCollected = true;
         return std::unexpected("Optional shader collection failed.");
@@ -642,9 +644,9 @@ TEST(FPSOPrecacheTests, RequiredPSOCollectionDoesNotWaitForOptionalShaders)
 
     Manager.Invalidate();
     EXPECT_FALSE(Component.IsReadyForProxyCreation());
-    Request = Manager.PrecachePSOs(MaterialPSOTestParams()); Pumps = 0;
+    Request = Manager.PrecachePSOs(MaterialPSOTestParams()); OptionalReady = false;
     Manager.Pump(Collect);
-    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.push_back(Pipelines.Describe(Ready)); return true;
     });
     EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
@@ -666,7 +668,7 @@ TEST(FPSOPrecacheTests, EmptyApplicableMaterialPSOSetPublishesReadinessWithoutNa
     auto Request = Manager.PrecachePSOs(Params);
     ASSERT_TRUE(Request.IsValid());
     EXPECT_FALSE(Request.GetProgress().bRequiredReady);
-    Manager.Pump([](const auto& In, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([](const auto& In, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.bRequiredPSOsCollected = true;
         return true;
     });
@@ -719,9 +721,9 @@ TEST(FPSOPrecacheTests, OptionalPSOAdmissionFailuresDoNotWithholdRequiredPipelin
             return std::unexpected(ERHIPipelineRequestRejection::Unsupported);
         });
         auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-        Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+        Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
             auto Optional = Pipelines.Describe(Ready, false);
-            if (Failure == 3) Optional.Type = static_cast<FPSOPrecacheData::EType>(255);
+            if (Failure == 3) Optional.SetComputeInitializer({});
             Out.PSOInitializers = {Pipelines.Describe(Ready), Optional};
             Out.bRequiredPSOsCollected = true;
             return true;
@@ -813,7 +815,7 @@ TEST(FPSOPrecacheTests, ComponentPriorityBoostReachesSharedMaterialCollectionAnd
 	EXPECT_EQ(Peer.GetPriority(), EPSOPrecachePriority::Highest);
 	std::vector<bool> Order;
 	auto Native = Pipelines.Request(true);
-	Manager.Pump([&](const auto& Input, auto& Collection) -> std::expected<bool, std::string> {
+	Manager.Pump([&](const auto& Input, auto& Collection, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 		Order.push_back(Input.PrecachePSOParams.bWireframe);
 		Collection.PSOInitializers.push_back(Pipelines.Describe(Native, true)); return true;
 	});
@@ -821,7 +823,7 @@ TEST(FPSOPrecacheTests, ComponentPriorityBoostReachesSharedMaterialCollectionAnd
 	EXPECT_EQ(Native->GetPriority(), EPSOPrecachePriority::Highest);
 	EXPECT_FALSE(Component.IsReadyForProxyCreation());
 	Pipelines.Release(); EXPECT_TRUE(Native->Wait());
-	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 	EXPECT_TRUE(Component.IsReadyForProxyCreation());
 	EXPECT_FALSE(Component.CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority::Highest));
 }
@@ -841,7 +843,7 @@ TEST(FPSOPrecacheTests, OptionalAdmissionFailureStillObservesPendingAndRejectedR
             return Pipelines.Submit(Data);
         });
         auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-        Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+        Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
             Out.PSOInitializers = {Pipelines.Describe(Required), Pipelines.Describe(Required, false)};
             Out.bRequiredPSOsCollected = true;
             return true;
@@ -852,11 +854,11 @@ TEST(FPSOPrecacheTests, OptionalAdmissionFailureStillObservesPendingAndRejectedR
             EXPECT_EQ(Request.GetProgress().RequiredPending, 1u);
             Pipelines.Release();
             ASSERT_TRUE(Required->Wait());
-            Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+            Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
         }
         const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         while (Request.GetProgress().State == EMaterialPSOPrecacheState::Pending && std::chrono::steady_clock::now() < Deadline) {
-            Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
+            Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
             std::this_thread::yield();
         }
         EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
@@ -874,7 +876,7 @@ TEST(FPSOPrecacheTests, PreparationConfigVersionInvalidatesReadyCoverageBeforeRe
 	Params.PreparationConfig.FeatureLevel = Params.FeatureLevel;
 	Params.PreparationConfig.Version = 1;
 	auto Old = Manager.PrecachePSOs(Params);
-	Manager.Pump([](const auto&, auto& Collection) -> std::expected<bool, std::string> {
+	Manager.Pump([](const auto&, auto& Collection, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 		Collection.bRequiredPSOsCollected = true;
 		return true;
 	});
@@ -892,7 +894,7 @@ TEST(FPSOPrecacheTests, PreparationConfigVersionInvalidatesReadyCoverageBeforeRe
 	EXPECT_NE(Current.GetValue(), Old.GetValue());
 	Manager.InvalidateOutdatedPreparationConfigs();
 	EXPECT_TRUE(Current.IsCurrent());
-	Manager.Pump([](const auto& Snapshot, auto& Collection) -> std::expected<bool, std::string> {
+	Manager.Pump([](const auto& Snapshot, auto& Collection, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
 		EXPECT_EQ(Snapshot.PreparationConfig.Version, 2u);
 		EXPECT_FALSE(Snapshot.PreparationConfig.Settings.bHybrid);
 		Collection.bRequiredPSOsCollected = true;
@@ -913,7 +915,7 @@ TEST(FPSOPrecacheTests, PreparationConfigSnapshotParticipatesInSharingAndPreserv
 	Params.PreparationConfig.bSupportsWireframe = false;
 	auto Second = Manager.PrecachePSOs(Params);
 	EXPECT_NE(First.GetValue(), Second.GetValue());
-	Manager.Pump([](const auto&, auto&) -> std::expected<bool, std::string> { return std::unexpected("Fixture collection failure"); });
+	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { return std::unexpected("Fixture collection failure"); });
 	ASSERT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	Manager.SetPreparationConfigVersion(2);
 	Manager.InvalidateOutdatedPreparationConfigs();
@@ -1024,7 +1026,7 @@ TEST(FPSOPrecacheTests, OptionalCompilationDoesNotBlockNewUrgentRequiredCollecti
         auto Params = MaterialPSOTestParams(); Params.Material.ShaderMap.OpacityMaskThreshold = float(Index);
         Requests.push_back(Manager.PrecachePSOs(Params));
     }
-    auto Collect = [&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    auto Collect = [&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers = {Pipelines.Describe(Ready), Pipelines.Describe(Optional, false)};
         Out.bRequiredPSOsCollected = true;
         return true;
@@ -1046,7 +1048,7 @@ TEST(FPSOPrecacheTests, LargeOptionalCoverageAndComponentSetsDoNotRejectRequired
     auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.push_back(Pipelines.Describe(Ready));
         for (uint32 Index = 0; Index < 128; ++Index) Out.PSOInitializers.push_back(Pipelines.Describe(Ready, false));
         Out.bRequiredPSOsCollected = true;
@@ -1069,35 +1071,35 @@ TEST(FPSOPrecacheTests, FullPSOValidationDistinguishesMissLateHitAndFailureWithP
     auto Data = Pipelines.Describe(Ready);
     Data.PSOCollectorIndex = 3;
     Data.VertexFactoryType = MaterialPSOTestParams().VertexFactoryData.VertexFactoryType;
-    EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Untracked);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Untracked);
     SetEnabled(true);
-    EXPECT_EQ(Check(Data.ComputeInitializer, -1).Result, EResult::Untracked);
-    EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Missed);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), -1).Result, EResult::Untracked);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Missed);
     auto Record = Track(Data); ASSERT_TRUE(Record);
-    EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::TooLate);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::TooLate);
     Observe(Record, std::make_shared<const std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Failed));
-    EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Failed);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Failed);
     auto Successful = Track(Data);
     Observe(Successful, Ready->GetStateObservation());
-    auto Hit = Check(Data.ComputeInitializer, 3);
+    auto Hit = Check(Data.GetComputeInitializer(), 3);
     EXPECT_EQ(Hit.Result, EResult::Hit);
     EXPECT_EQ(Hit.PSOCollectorIndex, 3);
     EXPECT_EQ(Hit.VertexFactoryType, Data.VertexFactoryType);
     auto Canceled = Track(Data);
     Observe(Canceled, std::make_shared<const std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Canceled));
-    EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Hit);
-    EXPECT_EQ(Check(Pipelines.DescribeSlot(7).ComputeInitializer, 3).Result, EResult::Missed);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Hit);
+    EXPECT_EQ(Check(Pipelines.DescribeSlot(7).GetComputeInitializer(), 3).Result, EResult::Missed);
     EXPECT_EQ(GetStatistics().Hit, 0u); // Lookup and preparation are not draw/dispatch usage.
-    RecordUse(Data.ComputeInitializer, 3); RecordUse(Data.ComputeInitializer, 3);
-    RecordUse(Pipelines.DescribeSlot(7).ComputeInitializer, 3);
-    RecordUse(Pipelines.DescribeSlot(8).ComputeInitializer, -1);
+    RecordUse(Data.GetComputeInitializer(), 3); RecordUse(Data.GetComputeInitializer(), 3);
+    RecordUse(Pipelines.DescribeSlot(7).GetComputeInitializer(), 3);
+    RecordUse(Pipelines.DescribeSlot(8).GetComputeInitializer(), -1);
     auto Stats = GetStatistics();
     EXPECT_EQ(Stats.Untracked, 1u); EXPECT_EQ(Stats.Missed, 1u);
     EXPECT_EQ(Stats.TooLate, 0u); EXPECT_EQ(Stats.Failed, 0u); EXPECT_EQ(Stats.Hit, 1u);
     Clear();
-    EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Missed);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Missed);
     Observe(Record, Ready->GetStateObservation()); // Retired capture cannot republish into the new index.
-    EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Missed);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Missed);
 }
 
 TEST(FPSOPrecacheTests, MaterialSubmissionPublishesValidationBeforeReleasingNativeObservations)
@@ -1110,12 +1112,12 @@ TEST(FPSOPrecacheTests, MaterialSubmissionPublishesValidationBeforeReleasingNati
     auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         auto Data = Pipelines.Describe(Ready); Data.PSOCollectorIndex = 9;
         Out.PSOInitializers.push_back(Data); Out.bRequiredPSOsCollected = true; return true;
     });
     ASSERT_TRUE(Request.GetProgress().bRequiredReady);
-    EXPECT_EQ(Check(Pipelines.Describe(Ready).ComputeInitializer, 9).Result, EResult::Hit);
+    EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 9).Result, EResult::Hit);
 }
 
 TEST(FPSOPrecacheTests, PendingRequiredCollectionRemainsBoundedAcrossPumps)
@@ -1128,7 +1130,7 @@ TEST(FPSOPrecacheTests, PendingRequiredCollectionRemainsBoundedAcrossPumps)
         Requests.push_back(Manager.PrecachePSOs(Params));
     }
     std::unordered_set<uint64> Collected;
-    auto Pending = [&](const auto& Params, auto&) -> std::expected<bool, std::string> {
+    auto Pending = [&](const auto& Params, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Collected.insert(static_cast<uint64>(Params.Material.ShaderMap.OpacityMaskThreshold)); return false;
     };
     Manager.Pump(Pending); Manager.Pump(Pending);
@@ -1151,17 +1153,17 @@ TEST(FPSOPrecacheTests, NativeAdmissionPressureIsTrackedAsLateRatherThanMissingC
         return Pipelines.Submit(Data);
     });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    auto Collect = [&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    auto Collect = [&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         auto Data = Pipelines.Describe(Ready); Data.PSOCollectorIndex = 5;
         Out.PSOInitializers.push_back(Data); Out.bRequiredPSOsCollected = true; return true;
     };
     Manager.Pump(Collect);
     EXPECT_FALSE(Request.GetProgress().bRequiredReady);
-    EXPECT_EQ(Check(Pipelines.Describe(Ready).ComputeInitializer, 5).Result, EResult::TooLate);
+    EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 5).Result, EResult::TooLate);
     Admit = true;
     Manager.Pump(Collect);
     EXPECT_TRUE(Request.GetProgress().bRequiredReady);
-    EXPECT_EQ(Check(Pipelines.Describe(Ready).ComputeInitializer, 5).Result, EResult::Hit);
+    EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 5).Result, EResult::Hit);
 }
 
 TEST(FPSOPrecacheTests, RequiredSubmissionPrecedesOlderOptionalWorkAcrossTheFrameBudget)
@@ -1173,7 +1175,7 @@ TEST(FPSOPrecacheTests, RequiredSubmissionPrecedesOlderOptionalWorkAcrossTheFram
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Params = MaterialPSOTestParams(); Params.Priority = EPSOPrecachePriority::Highest;
     auto Old = Manager.PrecachePSOs(Params);
-    auto Collect = [&](const auto& P, auto& Out) -> std::expected<bool, std::string> {
+    auto Collect = [&](const auto& P, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers = {Pipelines.Describe(Ready)};
         if (P.Material.ShaderMap.OpacityMaskThreshold < 1) Out.PSOInitializers.push_back(Pipelines.Describe(Optional, false));
         Out.bRequiredPSOsCollected = true; return true;
@@ -1201,7 +1203,7 @@ TEST(FPSOPrecacheTests, ImmediateCollectionsReturnTheirSlotWithinTheSamePump)
         Requests.push_back(Manager.PrecachePSOs(Params));
     }
     uint32 Count = 0;
-    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         ++Count; Out.bRequiredPSOsCollected = true; return true;
     });
     EXPECT_EQ(Count, Requests.size());
@@ -1218,17 +1220,17 @@ TEST(FPSOPrecacheTests, EntireCollectedSuffixIsTrackedBeforeNativeAdmissionAndWi
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
     FRenderResourceAdmissionBudget Budget(64, 1, std::chrono::seconds(1));
     { FRenderResourceAdmissionScope Scope(Budget, 1);
-      Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+      Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.push_back(Pipelines.Describe(Ready));
         for (uint32 Index = 0; Index < 8; ++Index) { auto Data = Pipelines.DescribeSlot(Index); Data.bRequired = false; Out.PSOInitializers.push_back(Data); }
         Out.bRequiredPSOsCollected = true; return true;
       });
     }
     for (uint32 Index = 0; Index < 8; ++Index)
-        EXPECT_EQ(Check(Pipelines.DescribeSlot(Index).ComputeInitializer, 4).Result, EResult::TooLate);
+        EXPECT_EQ(Check(Pipelines.DescribeSlot(Index).GetComputeInitializer(), 4).Result, EResult::TooLate);
     Request = {};
     Manager.Pump({});
-    EXPECT_EQ(Check(Pipelines.DescribeSlot(7).ComputeInitializer, 4).Result, EResult::Failed);
+    EXPECT_EQ(Check(Pipelines.DescribeSlot(7).GetComputeInitializer(), 4).Result, EResult::Failed);
 }
 
 TEST(FPSOPrecacheTests, NativeCompletionAndCancellationAreVisibleWithoutAnotherMaterialPump)
@@ -1240,21 +1242,21 @@ TEST(FPSOPrecacheTests, NativeCompletionAndCancellationAreVisibleWithoutAnotherM
     const auto Data = Pipelines.Describe(Native);
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& D) { return Pipelines.Submit(D); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.push_back(Data); Out.bRequiredPSOsCollected = true; return true;
     });
-    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::TooLate);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::TooLate);
     Pipelines.Release(); ASSERT_TRUE(Native->Wait());
-    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::Hit);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::Hit);
     Request = {}; Native.reset(); Manager.Pump({});
-    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::Hit);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::Hit);
     // Outcome observation retains readiness independently of the native object.
     auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
     auto A = Track(Pipelines.Describe(Ready)), B = Track(Pipelines.Describe(Ready));
     Withdraw(A);
-    EXPECT_EQ(Check(Pipelines.Describe(Ready).ComputeInitializer, 2).Result, EResult::TooLate);
+    EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 2).Result, EResult::TooLate);
     Observe(B, Ready->GetStateObservation());
-    EXPECT_EQ(Check(Pipelines.Describe(Ready).ComputeInitializer, 2).Result, EResult::Hit);
+    EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 2).Result, EResult::Hit);
 }
 
 TEST(FPSOPrecacheTests, AbandonedAdmittedObserverDoesNotRemainPermanentlyLate)
@@ -1266,12 +1268,12 @@ TEST(FPSOPrecacheTests, AbandonedAdmittedObserverDoesNotRemainPermanentlyLate)
     const auto Data = Pipelines.Describe(Native);
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& D) { return Pipelines.Submit(D); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+    Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.push_back(Data); Out.bRequiredPSOsCollected = true; return true;
     });
-    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::TooLate);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::TooLate);
     Request = {}; Native.reset(); Manager.Pump({});
-    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::Failed);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::Failed);
 }
 
 TEST(FPSOPrecacheTests, InitializerCopiesRetainNativeInputsWithoutACollectorOwner)
@@ -1294,4 +1296,151 @@ TEST(FPSOPrecacheTests, InitializerCopiesRetainNativeInputsWithoutACollectorOwne
     auto Copy = Data;
     Data = {}; RHIFlushDeferredResources(); EXPECT_EQ(Destroyed.load(), 0u);
     Copy = {}; RHIFlushDeferredResources(); EXPECT_EQ(Destroyed.load(), 1u);
+}
+
+TEST(FPSOPrecacheTests, RequiredShaderPreparationPrecedesOlderOptionalPreparationAcrossRequests)
+{
+    using namespace Durin;
+    FMaterialPSORequestManager Manager;
+    auto Params = MaterialPSOTestParams(); Params.Priority = EPSOPrecachePriority::Highest;
+    auto Old = Manager.PrecachePSOs(Params);
+    bool Measure = false;
+    std::vector<std::string> Order;
+    auto Collect = [&](const auto& P, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
+        if (P.Material.ShaderMap.OpacityMaskThreshold < 1) {
+            if (Phase == EPSOPrecacheCollectionPhase::Required) { Out.bRequiredPSOsCollected = true; return false; }
+            if (Measure) { Order.push_back("optional"); return FRenderResourcePreparationScope::TryBeforeShader(); }
+            return false;
+        }
+        Order.push_back("required");
+        if (!FRenderResourcePreparationScope::TryBeforeShader()) return false;
+        Out.bRequiredPSOsCollected = true; return true;
+    };
+    Manager.Pump(Collect);
+    ASSERT_TRUE(Old.GetProgress().bRequiredReady);
+    Params.Material.ShaderMap.OpacityMaskThreshold = 2;
+    auto Urgent = Manager.PrecachePSOs(Params);
+    Measure = true;
+    FRenderResourceAdmissionBudget Budget(1, 64, std::chrono::seconds(1));
+    { FRenderResourceAdmissionScope Scope(Budget, 1); Manager.Pump(Collect); }
+    EXPECT_TRUE(Urgent.GetProgress().bRequiredReady);
+    EXPECT_EQ(Old.GetProgress().State, EMaterialPSOPrecacheState::Pending);
+    EXPECT_EQ(Order, (std::vector<std::string>{"required", "optional"}));
+}
+
+TEST(FPSOPrecacheTests, HigherPriorityRequiredSubmissionPrecedesLowerPriorityPreparation)
+{
+    using namespace Durin;
+    FMaterialPSOTestPipelines Pipelines;
+    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    bool Submitted = false, PreparedLower = false;
+    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) {
+        Submitted = true; return Pipelines.Submit(Data);
+    });
+    auto Params = MaterialPSOTestParams();
+    auto Lower = Manager.PrecachePSOs(Params);
+    Params.Priority = EPSOPrecachePriority::Highest;
+    Params.Material.ShaderMap.OpacityMaskThreshold = 2;
+    auto Higher = Manager.PrecachePSOs(Params);
+    Manager.Pump([&](const auto& P, auto& Out, EPSOPrecacheCollectionPhase) -> std::expected<bool, std::string> {
+        if (P.Priority != EPSOPrecachePriority::Highest) {
+            EXPECT_TRUE(Submitted); PreparedLower = true;
+        }
+        Out.PSOInitializers.push_back(Pipelines.Describe(Ready));
+        Out.bRequiredPSOsCollected = true; return true;
+    });
+    EXPECT_TRUE(PreparedLower);
+    EXPECT_TRUE(Higher.GetProgress().bRequiredReady);
+    EXPECT_TRUE(Lower.GetProgress().bRequiredReady);
+}
+
+TEST(FPSOPrecacheTests, ExistingRequiredPriorityIsForwardedBeforePreparationAndOptionalAdmission)
+{
+    using namespace Durin;
+    FMaterialPSOTestPipelines Pipelines;
+    auto Required = Pipelines.Request(true);
+    bool CheckPromotion = false, Prepared = false, Submitted = false;
+    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) {
+        if (CheckPromotion) { EXPECT_EQ(Required->GetPriority(), EPSOPrecachePriority::Highest); Submitted = true; }
+        return Pipelines.Submit(Data);
+    });
+    auto Params = MaterialPSOTestParams();
+    auto Request = Manager.PrecachePSOs(Params);
+    auto Collect = [&](const auto& P, auto& Out, EPSOPrecacheCollectionPhase) -> std::expected<bool, std::string> {
+        if (CheckPromotion) { EXPECT_EQ(Required->GetPriority(), EPSOPrecachePriority::Highest); Prepared = true; }
+        Out.PSOInitializers.push_back(Pipelines.Describe(Required, P.Material.ShaderMap.OpacityMaskThreshold < 1));
+        Out.bRequiredPSOsCollected = true; return true;
+    };
+    Manager.Pump(Collect);
+    ASSERT_EQ(Required->GetPriority(), EPSOPrecachePriority::Medium);
+    Request.BoostPriority(EPSOPrecachePriority::Highest);
+    Params.Material.ShaderMap.OpacityMaskThreshold = 2;
+    auto Other = Manager.PrecachePSOs(Params);
+    CheckPromotion = true; Manager.Pump(Collect);
+    EXPECT_TRUE(Prepared); EXPECT_TRUE(Submitted);
+}
+
+TEST(FPSOPrecacheTests, InitializerSettersCaptureAndReplaceOwnershipBeforeLocalOwnersDisappear)
+{
+    using namespace Durin;
+    std::atomic<uint32> DestroyedA = 0, DestroyedB = 0;
+    class FObservedShader final : public FRHIShader
+    {
+        std::atomic<uint32>& Destroyed;
+    public:
+        explicit FObservedShader(std::atomic<uint32>& Counter)
+            : FRHIShader(FRHIShaderDesc(EShaderFrequency::Compute, {})), Destroyed(Counter) {}
+        ~FObservedShader() override { ++Destroyed; }
+    };
+    FPSOPrecacheData Data;
+    { auto Shader = MakeRefCount<FObservedShader>(DestroyedA);
+      FComputePipelineStateInitializer Input; Input.ComputeShader = Shader;
+      Data.SetComputeInitializer(Input);
+    }
+    RHIFlushDeferredResources(); EXPECT_EQ(DestroyedA.load(), 0u); ASSERT_TRUE(Data.IsValid());
+    Data.SetComputeInitializer(Data.GetComputeInitializer()); // Borrowed self-input must survive replacement.
+    auto Copy = Data;
+    { auto Shader = MakeRefCount<FObservedShader>(DestroyedB);
+      FComputePipelineStateInitializer Input; Input.ComputeShader = Shader;
+      Data.SetComputeInitializer(Input);
+    }
+    ASSERT_TRUE(Data.IsValid());
+    EXPECT_NE(Data.GetComputeInitializer().ComputeShader, Copy.GetComputeInitializer().ComputeShader);
+    RHIFlushDeferredResources(); EXPECT_EQ(DestroyedA.load(), 0u); EXPECT_EQ(DestroyedB.load(), 0u);
+    Copy = {}; RHIFlushDeferredResources(); EXPECT_EQ(DestroyedA.load(), 1u);
+    Data.SetGraphicsInitializer({});
+    RHIFlushDeferredResources(); EXPECT_EQ(DestroyedB.load(), 1u);
+    EXPECT_EQ(Data.GetType(), FPSOPrecacheData::EType::Graphics); EXPECT_FALSE(Data.IsValid());
+    static_assert(std::is_const_v<std::remove_reference_t<decltype(Data.GetGraphicsInitializer())>>);
+    static_assert(std::is_const_v<std::remove_reference_t<decltype(Data.GetComputeInitializer())>>);
+}
+
+TEST(FPSOPrecacheTests, ValidationCompactsRepeatedSuccessfulCanceledAndConcurrentAttempts)
+{
+    using namespace Durin; using namespace PSOPrecacheValidation;
+    SetEnabled(true); struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
+    FMaterialPSOTestPipelines Pipelines;
+    auto Native = Pipelines.Request(false); ASSERT_TRUE(Native->Wait());
+    const auto Data = Pipelines.Describe(Native);
+    const auto Canceled = std::make_shared<const std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Canceled);
+    for (uint32 Index = 0; Index < 2048; ++Index) {
+        auto Attempt = Track(Data); Withdraw(Attempt);
+        Attempt = Track(Data); Observe(Attempt, Canceled);
+    }
+    EXPECT_EQ(GetStatistics().Identities, 1u); EXPECT_EQ(GetStatistics().RetainedAttempts, 0u);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 1).Result, EResult::Failed);
+    auto A = Track(Data), B = Track(Data);
+    auto Pending = std::make_shared<std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Pending);
+    Observe(A, Pending); Withdraw(B);
+    EXPECT_EQ(GetStatistics().RetainedAttempts, 1u);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 1).Result, EResult::TooLate);
+    Pending->store(ERHIPipelineRequestState::Ready, std::memory_order_release);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 1).Result, EResult::Hit);
+    EXPECT_EQ(GetStatistics().RetainedAttempts, 0u);
+    for (uint32 Index = 0; Index < 2048; ++Index) {
+        Observe(Track(Data), Native->GetStateObservation()); RecordUse(Data.GetComputeInitializer(), 1);
+    }
+    const auto Stats = GetStatistics();
+    EXPECT_EQ(Stats.Identities, 1u); EXPECT_EQ(Stats.RetainedAttempts, 0u); EXPECT_EQ(Stats.Hit, 1u);
+    Clear(); EXPECT_EQ(GetStatistics().Identities, 0u);
 }

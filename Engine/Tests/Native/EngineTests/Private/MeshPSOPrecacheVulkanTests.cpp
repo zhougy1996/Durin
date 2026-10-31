@@ -253,9 +253,9 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                                 FPSOPrecacheDataArray Current;
                                 Case.Processor->CollectPSOInitializers(Case.Config, Changed, Params.VertexFactoryData, ChangedParams, Current);
                                 ASSERT_EQ(Current.size() + 1, Case.Initializers.size());
-                                for (const auto& Data : Current) EXPECT_EQ(Data.GraphicsInitializer.RasterizerState.CullMode, ERHICullMode::None);
+                                for (const auto& Data : Current) EXPECT_EQ(Data.GetGraphicsInitializer().RasterizerState.CullMode, ERHICullMode::None);
                                 EXPECT_EQ(std::ranges::count_if(Current, [&](const auto& Data) {
-                                    return Data.bRequired && Data.GraphicsInitializer.DepthStencilState.CompareOp
+                                    return Data.bRequired && Data.GetGraphicsInitializer().DepthStencilState.CompareOp
                                         == (ChangedParams.bReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less);
                                 }), 2);
                                 Case.Collected = true; Complete = false; continue;
@@ -264,17 +264,17 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                     }
                     Case.Ready = true;
                 }
-                const auto Result = CollectMaterialPSOs(AggregateParams, Aggregate, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation);
+                const auto Result = CollectMaterialPSOs(AggregateParams, Aggregate, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation, Aggregate.bRequiredPSOsCollected ? EPSOPrecacheCollectionPhase::Optional : EPSOPrecacheCollectionPhase::Required);
                 if (!Result) { Error = Result.error(); return; }
                 AggregateReady = *Result; Complete &= AggregateReady;
                 auto IndependentParams = AggregateParams;
                 IndependentParams.VertexFactoryData = FPSOPrecacheVertexFactoryData(&IndependentFactory);
-                const auto Independent = CollectMaterialPSOs(IndependentParams, IndependentAggregate, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation);
+                const auto Independent = CollectMaterialPSOs(IndependentParams, IndependentAggregate, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation, IndependentAggregate.bRequiredPSOsCollected ? EPSOPrecacheCollectionPhase::Optional : EPSOPrecacheCollectionPhase::Required);
                 if (!Independent) { Error = Independent.error(); return; }
                 Complete &= *Independent;
                 ASSERT_EQ(IndependentAggregate.PSOInitializers.size(), *Independent ? 2u : 1u);
                 for (const auto& Data : IndependentAggregate.PSOInitializers) {
-                    EXPECT_EQ(Data.Type, FPSOPrecacheData::EType::Compute);
+                    EXPECT_EQ(Data.GetType(), FPSOPrecacheData::EType::Compute);
                     EXPECT_EQ(Data.PSOCollectorIndex, DeferredProbe.GetIndex());
                     EXPECT_EQ(Data.VertexFactoryType, nullptr);
                 }
@@ -331,7 +331,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                 if (Raster.bWireframe && !Case.Config.bSupportsWireframe) continue;
                 const auto Draw = Case.Processor->DescribeMeshDraw(MakeMeshPipelineState(Identity, Raster), Case.Params.Topology, Blend, Raster.bReversedZ);
                 auto Matches = [&](const FPSOPrecacheData& Data) {
-                    const auto& PSO = Data.GraphicsInitializer;
+                    const auto& PSO = Data.GetGraphicsInitializer();
                     return Data.IsValid() && PSO.PrimitiveTopology == Draw.Topology && PSO.RenderTargetLayout == Draw.RenderTargets
                         && PSO.RasterizerState == Draw.Rasterizer && PSO.DepthStencilState == Draw.Depth && PSO.ColorBlendStates == Draw.ColorBlends;
                 };
@@ -346,24 +346,24 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         for (const auto& Case : Cases) if (Case.Scenario == 0)
             for (size_t Index = 1; Index < Case.Initializers.size(); ++Index) {
                 const auto& Data = Case.Initializers[Index];
-                const auto Key = BuildGraphicsPipelineStateKey(Data.GraphicsInitializer, GDynamicRHI->RHIGetCapabilities());
+                const auto Key = BuildGraphicsPipelineStateKey(Data.GetGraphicsInitializer(), GDynamicRHI->RHIGetCapabilities());
                 ASSERT_TRUE(Key); Expected.emplace_back(*Key, Data.bRequired);
             }
         ASSERT_EQ(Aggregate.PSOInitializers.size(), Expected.size() + 2);
         size_t ComputeCount = 0;
         for (const auto& Data : Aggregate.PSOInitializers) {
-            if (Data.Type == FPSOPrecacheData::EType::Compute) { EXPECT_TRUE(Data.IsValid()); ++ComputeCount; continue; }
-            const auto Key = BuildGraphicsPipelineStateKey(Data.GraphicsInitializer, GDynamicRHI->RHIGetCapabilities());
+            if (Data.GetType() == FPSOPrecacheData::EType::Compute) { EXPECT_TRUE(Data.IsValid()); ++ComputeCount; continue; }
+            const auto Key = BuildGraphicsPipelineStateKey(Data.GetGraphicsInitializer(), GDynamicRHI->RHIGetCapabilities());
             ASSERT_TRUE(Key); EXPECT_EQ(Data.Priority, EPSOPrecachePriority::Medium);
             PSOPrecacheValidation::SetEnabled(true);
             auto Validation = PSOPrecacheValidation::Track(Data);
             ASSERT_TRUE(Validation);
-            const auto Native = PipelineStateCache::PrecacheGraphicsPipelineState(Data.GraphicsInitializer, "ValidationContract");
+            const auto Native = PipelineStateCache::PrecacheGraphicsPipelineState(Data.GetGraphicsInitializer(), "ValidationContract");
             ASSERT_TRUE(Native); ASSERT_TRUE((*Native)->Wait());
             PSOPrecacheValidation::Observe(Validation, (*Native)->GetStateObservation());
-            EXPECT_EQ(PSOPrecacheValidation::Check(Data.GraphicsInitializer, Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
+            EXPECT_EQ(PSOPrecacheValidation::Check(Data.GetGraphicsInitializer(), Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
                 PSOPrecacheValidation::EResult::Hit);
-            auto DifferentState = Data.GraphicsInitializer;
+            auto DifferentState = Data.GetGraphicsInitializer();
             DifferentState.DepthStencilState.bEnableWrite = !DifferentState.DepthStencilState.bEnableWrite;
             EXPECT_NE(PSOPrecacheValidation::Check(DifferentState, Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
                 PSOPrecacheValidation::EResult::Hit);

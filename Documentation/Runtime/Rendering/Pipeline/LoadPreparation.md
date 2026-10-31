@@ -323,8 +323,9 @@ even when its required PSOs completed before an optional PSO failed.
 compute initializer with `bRequired`, `Priority`, collector index and Vertex Factory provenance. `FMaterialPSOPrecacheCollection`
 exposes `PSOInitializers`; collectors append descriptions without submitting native
 requests. Each description owns counted Shader/declaration inputs, so collector reuse cannot invalidate an earlier result.
-The request manager refreshes ownership for descriptions assembled through public
-initializer fields, submits them to the shared pipeline cache, consumes accepted
+Constructors and `SetGraphicsInitializer` / `SetComputeInitializer` capture new
+inputs before releasing previous owners; initializer access is const. The request
+manager submits descriptions to the shared pipeline cache, consumes accepted
 initializer payloads, and retains asynchronous observations privately.
 Capacity pressure retries only the first unsubmitted description, preserving the
 accepted prefix. Invalid descriptions and terminal admission errors remain failures.
@@ -350,10 +351,13 @@ sorting uses a stable per-pump snapshot.
 The Renderer permits up to eight simultaneous requests still collecting required
 coverage. Finishing, failing or retiring required collection returns its slot
 immediately within the same pump; this is not a per-frame request-count quota.
-Native compilation and optional collection do not occupy those slots. Submission
-visits Required across all requests before Optional, using request priority only
-within each group. Only Required observations inherit proxy priority promotions;
-Optional retains its collector-authored priority. Native submissions retain the
+Native compilation and optional collection do not occupy those slots. The manager
+passes an explicit Required or Optional collection phase to the collector. Resource
+preparation and submission visit Required across all requests before Optional,
+using request priority within each group. Each request submits its ready Required
+descriptions before preparing the next request. Existing Required observations
+receive priority promotions before further preparation or submission; Optional
+retains its collector-authored priority. Native submissions retain the
 shared per-frame admission budget and queue limits.
 `FMeshPassProcessor` implementations own eligibility, shader selection, raster
 variants, required classification and draw pipeline descriptions for Forward,
@@ -557,6 +561,10 @@ release and retains no native resources. Abandoned unsubmitted tokens withdraw
 queued status instead of leaving permanent Pending records. Successful outcomes
 remain Hit after native eviction; shader/device/manual invalidation and renderer
 shutdown clear capture identities.
+Each identity owns one coverage and first-use record. Only unresolved attempts
+retain individual metadata; failed, canceled and withdrawn attempts are compacted,
+and success preserves coverage without retaining attempt history. `Identities`
+and `RetainedAttempts` expose current storage independently of first-use counts.
 
 `Check` is read-only and returns Untracked, Missed, TooLate, Hit or Failed with
 collector/factory provenance. Preparation and retries never increment use counts.

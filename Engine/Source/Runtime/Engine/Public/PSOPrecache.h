@@ -23,9 +23,6 @@ namespace Durin
 	struct FPSOPrecacheData
 	{
 		enum class EType : uint8 { Graphics, Compute };
-		EType Type = EType::Graphics;
-		FGraphicsPipelineStateInitializer GraphicsInitializer;
-		FComputePipelineStateInitializer ComputeInitializer;
 		int32 PSOCollectorIndex = -1;
 		const FVertexFactoryType* VertexFactoryType = nullptr;
 		bool bRequired = true;
@@ -34,17 +31,29 @@ namespace Durin
 		FPSOPrecacheData() = default;
 		explicit FPSOPrecacheData(FGraphicsPipelineStateInitializer Initializer,
 			bool bInRequired = true, EPSOPrecachePriority InPriority = EPSOPrecachePriority::Medium)
-			: Type(EType::Graphics), GraphicsInitializer(std::move(Initializer)), bRequired(bInRequired), Priority(InPriority) { RetainInitializerResources(); }
+			: bRequired(bInRequired), Priority(InPriority) { SetGraphicsInitializer(std::move(Initializer)); }
 		explicit FPSOPrecacheData(FComputePipelineStateInitializer Initializer,
 			bool bInRequired = true, EPSOPrecachePriority InPriority = EPSOPrecachePriority::Medium)
-			: Type(EType::Compute), ComputeInitializer(std::move(Initializer)), bRequired(bInRequired), Priority(InPriority) { RetainInitializerResources(); }
-		// Also refresh ownership when a caller assembled the public initializer fields.
-		auto RetainInitializerResources() -> void
+			: bRequired(bInRequired), Priority(InPriority) { SetComputeInitializer(std::move(Initializer)); }
+		auto GetType() const -> EType { return Type; }
+		auto GetGraphicsInitializer() const -> const FGraphicsPipelineStateInitializer& { return GraphicsInitializer; }
+		auto GetComputeInitializer() const -> const FComputePipelineStateInitializer& { return ComputeInitializer; }
+		// Capture every new input before replacing any previous owner, including
+		// replacement from an initializer borrowed from this description itself.
+		auto SetGraphicsInitializer(FGraphicsPipelineStateInitializer Initializer) -> void
 		{
-			VertexShader = Type == EType::Graphics ? GraphicsInitializer.BoundShaders.VertexShader : nullptr;
-			FragmentShader = Type == EType::Graphics ? GraphicsInitializer.BoundShaders.FragmentShader : nullptr;
-			Declaration = Type == EType::Graphics ? GraphicsInitializer.VertexDeclaration : nullptr;
-			ComputeShader = Type == EType::Compute ? ComputeInitializer.ComputeShader : nullptr;
+			FShaderRHIRef Vertex = Initializer.BoundShaders.VertexShader, Fragment = Initializer.BoundShaders.FragmentShader;
+			FVertexDeclarationRHIRef VertexDeclaration = Initializer.VertexDeclaration;
+			GraphicsInitializer = std::move(Initializer); ComputeInitializer = {};
+			VertexShader = std::move(Vertex); FragmentShader = std::move(Fragment); Declaration = std::move(VertexDeclaration);
+			ComputeShader = nullptr; Type = EType::Graphics;
+		}
+		auto SetComputeInitializer(FComputePipelineStateInitializer Initializer) -> void
+		{
+			FShaderRHIRef Shader = Initializer.ComputeShader;
+			ComputeInitializer = std::move(Initializer); GraphicsInitializer = {};
+			ComputeShader = std::move(Shader);
+			VertexShader = nullptr; FragmentShader = nullptr; Declaration = nullptr; Type = EType::Compute;
 		}
 		[[nodiscard]] auto IsValid() const -> bool
 		{
@@ -57,6 +66,9 @@ namespace Durin
 			return false;
 		}
 	private:
+		EType Type = EType::Graphics;
+		FGraphicsPipelineStateInitializer GraphicsInitializer;
+		FComputePipelineStateInitializer ComputeInitializer;
 		FShaderRHIRef VertexShader, FragmentShader, ComputeShader;
 		FVertexDeclarationRHIRef Declaration;
 	};
@@ -69,6 +81,7 @@ namespace Durin
 		struct FStatistics
 		{
 			uint64 Untracked = 0, Missed = 0, TooLate = 0, Hit = 0, Failed = 0;
+			uint64 Identities = 0, RetainedAttempts = 0;
 		};
 		struct FRecord;
 		struct FCheckResult

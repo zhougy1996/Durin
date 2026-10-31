@@ -24,5 +24,5 @@ namespace Durin::RendererPrivate
         std::unique_ptr<FState> State;
     };
     RENDERER_API auto CollectMaterialPSOs(const FMaterialPSOPrecacheParams& Params,
-        FMaterialPSOPrecacheCollection& Collection, const FRenderResourceGeneration& Generation) -> std::expected<bool, std::string>;
+        FMaterialPSOPrecacheCollection& Collection, const FRenderResourceGeneration& Generation, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string>;
 }

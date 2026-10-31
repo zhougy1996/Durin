@@ -81,10 +81,11 @@ namespace Durin
 		bool bRequiredPSOsCollected = false;
 		std::shared_ptr<void> Resources;
 	};
+	enum class EPSOPrecacheCollectionPhase : uint8 { Required, Optional };
 	// Append complete descriptions; the manager consumes entries after admission.
 	// Return false while Shader/resource collection is pending. Never submit or wait here.
 	using FMaterialPSOCollector = std::function<std::expected<bool, std::string>(
-		const FMaterialPSOPrecacheParams&, FMaterialPSOPrecacheCollection&)>;
+		const FMaterialPSOPrecacheParams&, FMaterialPSOPrecacheCollection&, EPSOPrecacheCollectionPhase)>;
 
 	using FMaterialPSOSubmitter = std::function<std::expected<std::shared_ptr<FPipelineState>,
 		ERHIPipelineRequestRejection>(const FPSOPrecacheData&)>;

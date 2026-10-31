@@ -99,7 +99,7 @@ namespace Durin::RendererPrivate
     auto FMeshPSOPrecacheResources::GetDeclaration() const -> FRHIVertexDeclaration*
     { require(State && State->Ready); return State->Declaration; }
     auto CollectMaterialPSOs(const FMaterialPSOPrecacheParams& Params, FMaterialPSOPrecacheCollection& Collection,
-        const FRenderResourceGeneration& Generation) -> std::expected<bool, std::string>
+        const FRenderResourceGeneration& Generation, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string>
     {
         CheckRenderingThread();
         if (!Params.PreparationConfig.Version || Params.PreparationConfig.FeatureLevel != Params.FeatureLevel
@@ -121,35 +121,35 @@ namespace Durin::RendererPrivate
             Collection.Resources = std::move(Resources);
         }
         auto Resources = std::static_pointer_cast<FMaterialPSOCollectionSession>(Collection.Resources);
-        for (size_t Group = 0; Group < 2; ++Group) {
-            bool Complete = true;
-            for (auto& Entry : Resources->Collectors) {
-                if (!Entry.Collected) {
-                    const auto Ready = Entry.Collector->PreparePSOResources(Params, Generation, Group == 0);
-                    if (!Ready) return std::unexpected(Ready.error());
-                    if (*Ready == EPSOCollectorPreparation::Pending) { Complete = false; continue; }
-                    if (*Ready == EPSOCollectorPreparation::Ready) {
-                        FPSOPrecacheDataArray Initializers;
-                        Entry.Collector->CollectPSOInitializers(Params.PreparationConfig, Resources->Material,
-                            Params.VertexFactoryData, Params.PrecachePSOParams, Initializers);
-                        for (auto& Data : Initializers) {
-                            Data.PSOCollectorIndex = Entry.Collector->PSOCollectorIndex;
-                            if (!Data.VertexFactoryType && Data.Type == FPSOPrecacheData::EType::Graphics)
-                                Data.VertexFactoryType = Params.VertexFactoryData.VertexFactoryType;
-                            if (!Data.bRequired) Entry.OptionalDescriptions.push_back(std::move(Data));
-                            else Collection.PSOInitializers.push_back(std::move(Data));
-                        }
-                        Entry.Collected = true;
+        const size_t Group = Phase == EPSOPrecacheCollectionPhase::Required ? 0 : 1;
+        bool Complete = true;
+        for (auto& Entry : Resources->Collectors) {
+            if (!Entry.Collected) {
+                const auto Ready = Entry.Collector->PreparePSOResources(Params, Generation, Group == 0);
+                if (!Ready) return std::unexpected(Ready.error());
+                if (*Ready == EPSOCollectorPreparation::Pending) { Complete = false; continue; }
+                if (*Ready == EPSOCollectorPreparation::Ready) {
+                    FPSOPrecacheDataArray Initializers;
+                    Entry.Collector->CollectPSOInitializers(Params.PreparationConfig, Resources->Material,
+                        Params.VertexFactoryData, Params.PrecachePSOParams, Initializers);
+                    for (auto& Data : Initializers) {
+                        Data.PSOCollectorIndex = Entry.Collector->PSOCollectorIndex;
+                        if (!Data.VertexFactoryType && Data.GetType() == FPSOPrecacheData::EType::Graphics)
+                            Data.VertexFactoryType = Params.VertexFactoryData.VertexFactoryType;
+                        if (!Data.bRequired) Entry.OptionalDescriptions.push_back(std::move(Data));
+                        else Collection.PSOInitializers.push_back(std::move(Data));
                     }
-                }
-                if (Group == 1) {
-                    for (auto& Data : Entry.OptionalDescriptions) Collection.PSOInitializers.push_back(std::move(Data));
-                    Entry.OptionalDescriptions.clear();
+                    Entry.Collected = true;
                 }
             }
-            if (!Complete) return false;
-            if (Group == 0) Collection.bRequiredPSOsCollected = true;
+            if (Group == 1) {
+                for (auto& Data : Entry.OptionalDescriptions) Collection.PSOInitializers.push_back(std::move(Data));
+                Entry.OptionalDescriptions.clear();
+            }
         }
-        return true;
+        if (!Complete) return false;
+        if (Group == 0) Collection.bRequiredPSOsCollected = true;
+        return Phase == EPSOPrecacheCollectionPhase::Optional
+            || std::ranges::all_of(Resources->Collectors, [](const auto& Entry) { return Entry.Collected && Entry.OptionalDescriptions.empty(); });
     }
 }

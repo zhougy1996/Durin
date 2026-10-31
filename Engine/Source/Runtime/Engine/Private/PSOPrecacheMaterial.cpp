@@ -216,13 +216,13 @@ namespace Durin
 	{
 		State->Submitter = Submitter ? std::move(Submitter) : FMaterialPSOSubmitter{
 			[](const FPSOPrecacheData& Data) -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
-				if (Data.Type == FPSOPrecacheData::EType::Graphics)
+				if (Data.GetType() == FPSOPrecacheData::EType::Graphics)
 				{
-					auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Data.GraphicsInitializer, "MaterialPSOPrecache");
+					auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Data.GetGraphicsInitializer(), "MaterialPSOPrecache");
 					if (!Pipeline) return std::unexpected(Pipeline.error());
 					return std::move(*Pipeline);
 				}
-				auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Data.ComputeInitializer, "MaterialPSOPrecache");
+				auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Data.GetComputeInitializer(), "MaterialPSOPrecache");
 				if (!Pipeline) return std::unexpected(Pipeline.error());
 				return std::move(*Pipeline);
 			}};
@@ -302,74 +302,77 @@ namespace Durin
 		size_t Active = std::ranges::count_if(Entries, [](const auto& Work) {
 			return Work->Phase == EPSOPhase::Collecting && !Work->Collection.bRequiredPSOsCollected;
 		});
-		for (auto& Work : Entries) {
-			if (Work->GetState() != EMaterialPSOPrecacheState::Pending) continue;
-			if (Work->Phase == EPSOPhase::Queued) {
-				if (Active >= MaximumActiveCollections) continue;
-				Work->Phase = EPSOPhase::Collecting; ++Active;
-			}
-			if (Work->Phase != EPSOPhase::Collecting) continue;
-			const bool HeldSlot = !Work->Collection.bRequiredPSOsCollected;
-			try {
-				const bool RequiredWasCollected = Work->Collection.bRequiredPSOsCollected;
-				const auto PreviousCount = Work->Collection.PSOInitializers.size();
-				const auto Result = Collector(Work->Params, Work->Collection);
-				if (Work->GetState() == EMaterialPSOPrecacheState::Pending) {
-					if (RequiredWasCollected && (!Work->Collection.bRequiredPSOsCollected
-						|| Work->Collection.PSOInitializers.size() < PreviousCount
-						|| std::ranges::any_of(std::span(Work->Collection.PSOInitializers).subspan(PreviousCount), [](const auto& Data) { return Data.bRequired; }))) {
-						Work->RequiredReady = false; Work->Fail("Required PSO collection changed after publication.");
-					} else if (Result && *Result && Work->Collection.PSOInitializers.empty() && !Work->Collection.bRequiredPSOsCollected) {
-						Work->Fail("Material PSO collector completed without declaring coverage.");
-					} else {
-						// Register the complete collected suffix before any admission budget is consumed.
-						while (Work->Submitted.size() < Work->Collection.PSOInitializers.size()) {
-							auto& Data = Work->Collection.PSOInitializers[Work->Submitted.size()];
-							Data.RetainInitializerResources();
-							auto& Slot = Work->Submitted.emplace_back();
-							Slot.bRequired = Data.bRequired; Slot.Validation = PSOPrecacheValidation::Track(Data);
-						}
-						if (!Result) {
-							if (!Work->Collection.bRequiredPSOsCollected) Work->Fail(Result.error());
-							else { Work->OptionalError = Result.error(); Work->Phase = EPSOPhase::Compiling; }
-						} else if (*Result) Work->Phase = EPSOPhase::Compiling;
+		// Required resource preparation and native submission both precede optional
+		// work across requests. Apply existing promotions before either phase starts.
+		for (const auto CollectionPhase : {EPSOPrecacheCollectionPhase::Required, EPSOPrecacheCollectionPhase::Optional}) {
+			const bool Required = CollectionPhase == EPSOPrecacheCollectionPhase::Required;
+			for (auto& Work : Entries) for (auto& Slot : Work->Submitted)
+				if (Slot.Pipeline && Slot.bRequired) Slot.Pipeline->BoostPriority(Work->Priority.load());
+			for (auto& Work : Entries) {
+				if (Work->GetState() != EMaterialPSOPrecacheState::Pending) continue;
+				if (Required != Work->Collection.bRequiredPSOsCollected
+					&& (Work->Phase == EPSOPhase::Queued || Work->Phase == EPSOPhase::Collecting)) {
+					if (Work->Phase == EPSOPhase::Queued) {
+						if (Active >= MaximumActiveCollections) continue;
+						Work->Phase = EPSOPhase::Collecting; ++Active;
 					}
+					const bool HeldSlot = !Work->Collection.bRequiredPSOsCollected;
+					try {
+						const bool RequiredWasCollected = Work->Collection.bRequiredPSOsCollected;
+						const auto PreviousCount = Work->Collection.PSOInitializers.size();
+						const auto Result = Collector(Work->Params, Work->Collection, CollectionPhase);
+						if (Work->GetState() == EMaterialPSOPrecacheState::Pending) {
+							if (RequiredWasCollected && (!Work->Collection.bRequiredPSOsCollected
+								|| Work->Collection.PSOInitializers.size() < PreviousCount
+								|| std::ranges::any_of(std::span(Work->Collection.PSOInitializers).subspan(PreviousCount), [](const auto& Data) { return Data.bRequired; }))) {
+								Work->RequiredReady = false; Work->Fail("Required PSO collection changed after publication.");
+							} else if (Result && *Result && Work->Collection.PSOInitializers.empty() && !Work->Collection.bRequiredPSOsCollected) {
+								Work->Fail("Material PSO collector completed without declaring coverage.");
+							} else {
+								// Register the complete collected suffix before any admission budget is consumed.
+								while (Work->Submitted.size() < Work->Collection.PSOInitializers.size()) {
+									auto& Data = Work->Collection.PSOInitializers[Work->Submitted.size()];
+									auto& Slot = Work->Submitted.emplace_back();
+									Slot.bRequired = Data.bRequired; Slot.Validation = PSOPrecacheValidation::Track(Data);
+								}
+								if (!Result) {
+									if (!Work->Collection.bRequiredPSOsCollected) Work->Fail(Result.error());
+									else { Work->OptionalError = Result.error(); Work->Phase = EPSOPhase::Compiling; }
+								} else if (*Result) Work->Phase = EPSOPhase::Compiling;
+							}
+						}
+					} catch (const std::exception& Error) { Work->Fail(Error.what()); }
+					if (HeldSlot && (Work->Phase != EPSOPhase::Collecting || Work->Collection.bRequiredPSOsCollected)) --Active;
 				}
-			} catch (const std::exception& Error) { Work->Fail(Error.what()); }
-			if (HeldSlot && (Work->Phase != EPSOPhase::Collecting || Work->Collection.bRequiredPSOsCollected)) --Active;
-		}
-		// Required work across every request precedes optional warming, independently
-		// of request age. Optional native compiles retain only their authored priority.
-		for (const bool Required : {true, false}) for (auto& Work : Entries) {
-			if (Work->GetState() != EMaterialPSOPrecacheState::Pending) continue;
-			for (size_t Index = 0; Index < Work->Submitted.size(); ++Index) {
-				auto& Slot = Work->Submitted[Index];
-				if (Slot.bAdmitted || Slot.bRequired != Required) continue;
-				auto& Data = Work->Collection.PSOInitializers[Index];
-				auto Reject = [&](std::string Error) {
-					PSOPrecacheValidation::Withdraw(Slot.Validation);
-					if (Required) Work->Fail(std::move(Error));
-					else { if (!Work->OptionalError) Work->OptionalError = std::move(Error); Slot.bAdmitted = true; Data = {}; }
-				};
-				if (!Data.IsValid()) { Reject("Invalid PSO precache initializer or priority."); if (Required) break; else continue; }
-				if (!FRenderResourcePreparationScope::TryBeforePipeline()) break;
-				try {
-					auto Pipeline = State->Submitter(Data);
-					if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break;
-					if (!Pipeline && Pipeline.error() == ERHIPipelineRequestRejection::CapacityExceeded) break;
-					if (!Pipeline || !*Pipeline) { Reject("Material PSO pipeline admission failed."); if (Required) break; else continue; }
-					(*Pipeline)->BoostPriority(Required ? std::max(Data.Priority, Work->Priority.load()) : Data.Priority);
-					Slot.Pipeline = *Pipeline; Slot.bAdmitted = true;
-					PSOPrecacheValidation::Observe(Slot.Validation, (*Pipeline)->GetStateObservation());
-					Data = {};
-				} catch (const std::exception& Error) { if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break; Reject(Error.what()); if (Required) break; }
+				if (Work->GetState() != EMaterialPSOPrecacheState::Pending) continue;
+				for (size_t Index = 0; Index < Work->Submitted.size(); ++Index) {
+					auto& Slot = Work->Submitted[Index];
+					if (Slot.bAdmitted || Slot.bRequired != Required) continue;
+					auto& Data = Work->Collection.PSOInitializers[Index];
+					auto Reject = [&](std::string Error) {
+						PSOPrecacheValidation::Withdraw(Slot.Validation);
+						if (Required) Work->Fail(std::move(Error));
+						else { if (!Work->OptionalError) Work->OptionalError = std::move(Error); Slot.bAdmitted = true; Data = {}; }
+					};
+					if (!Data.IsValid()) { Reject("Invalid PSO precache initializer or priority."); if (Required) break; else continue; }
+					if (!FRenderResourcePreparationScope::TryBeforePipeline()) break;
+					try {
+						auto Pipeline = State->Submitter(Data);
+						if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break;
+						if (!Pipeline && Pipeline.error() == ERHIPipelineRequestRejection::CapacityExceeded) break;
+						if (!Pipeline || !*Pipeline) { Reject("Material PSO pipeline admission failed."); if (Required) break; else continue; }
+						(*Pipeline)->BoostPriority(Required ? std::max(Data.Priority, Work->Priority.load()) : Data.Priority);
+						Slot.Pipeline = *Pipeline; Slot.bAdmitted = true;
+						PSOPrecacheValidation::Observe(Slot.Validation, (*Pipeline)->GetStateObservation());
+						Data = {};
+					} catch (const std::exception& Error) { if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break; Reject(Error.what()); if (Required) break; }
+				}
 			}
 		}
 		for (auto& Work : Entries) {
 			if (Work->GetState() != EMaterialPSOPrecacheState::Pending) continue;
 			uint32 Pending = 0, RequiredPending = 0, Failed = 0, RequiredFailed = 0;
 			for (auto& Slot : Work->Submitted) {
-				if (Slot.Pipeline && Slot.bRequired) Slot.Pipeline->BoostPriority(Work->Priority.load());
 				const auto Status = !Slot.bAdmitted ? ERHIPipelineRequestState::Pending
 					: Slot.Pipeline ? Slot.Pipeline->GetState() : Slot.CompletedState;
 				if (Slot.bAdmitted && Status != ERHIPipelineRequestState::Pending) { Slot.CompletedState = Status; Slot.Pipeline.reset(); }

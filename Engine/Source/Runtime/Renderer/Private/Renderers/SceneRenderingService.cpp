@@ -78,12 +78,12 @@ namespace Durin
 		FRenderResourceAdmissionScope Admission(AdmissionBudget, GRenderFrameCounterRenderThread);
         PrunePreparations_RenderThread();
         if (GDynamicRHI) Retirement.Collect(GDynamicRHI->RHIGetQueueCapabilities());
-		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection) {
+		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection, EPSOPrecacheCollectionPhase Phase) {
 			// Admission can observe a newer GameThread snapshot before its ordered
 			// render command executes. Wait for that version rather than collecting it early.
 			if (Params.PreparationConfig.Version != PreparationConfigRenderThread.Version)
 				return std::expected<bool, std::string>(false);
-			return RendererPrivate::CollectMaterialPSOs(Params, Collection, Coordinator.GetGeneration_RenderThread());
+			return RendererPrivate::CollectMaterialPSOs(Params, Collection, Coordinator.GetGeneration_RenderThread(), Phase);
 		});
         // Updates may requeue themselves while dependencies or GPU work are pending.
         const auto SkyScenes = std::exchange(PendingSkyScenes, {});
