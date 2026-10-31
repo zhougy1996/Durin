@@ -62,9 +62,10 @@ namespace Durin
 	class FRenderResourceAdmissionBudget
 	{
 	public:
-		explicit FRenderResourceAdmissionBudget(uint32 InShaders = 8, uint32 InPipelines = 16,
+		FRenderResourceAdmissionBudget() = default;
+		explicit FRenderResourceAdmissionBudget(uint32 InShaders, uint32 InPipelines = 16,
 			std::chrono::microseconds InTime = std::chrono::milliseconds(2))
-			: MaximumShaders(InShaders), MaximumPipelines(InPipelines), TimeBudget(InTime) {}
+			: MaximumShaders(InShaders), MaximumPipelines(InPipelines), TimeBudget(InTime), bUseBatchMode(false) {}
 		RENDERCORE_API auto BeginFrame(uint64 Frame) -> void;
 		auto GetShaderAdmissions() const -> uint32 { return Shaders; }
 		auto GetPipelineAdmissions() const -> uint32 { return Pipelines; }
@@ -72,8 +73,9 @@ namespace Durin
 	private:
 		auto Admit(bool bShader) -> bool;
 		uint64 Frame = UINT64_MAX;
-		uint32 MaximumShaders, MaximumPipelines, Shaders = 0, Pipelines = 0, Deferred = 0;
-		std::chrono::microseconds TimeBudget;
+		uint32 MaximumShaders = 8, MaximumPipelines = 16, Shaders = 0, Pipelines = 0, Deferred = 0;
+		std::chrono::microseconds TimeBudget{std::chrono::milliseconds(2)};
+		bool bUseBatchMode = true;
 		std::chrono::steady_clock::time_point Start;
 		friend class FRenderResourceAdmissionScope;
 		friend class FRenderResourcePreparationScope;
@@ -114,8 +116,8 @@ namespace Durin
 		auto Admit(bool Shader) -> void;
 		std::shared_ptr<FRenderResourcePreparationState> State;
 		FRenderResourcePreparationScope* Previous = nullptr;
-		std::chrono::steady_clock::time_point Start;
-		uint32 Shaders = 0, Pipelines = 0;
+		FRenderResourceAdmissionBudget LocalBudget;
+		FRenderResourceAdmissionBudget* Budget = nullptr;
 		friend class FRenderResourcePreparationUseScope;
 	};
 	// A thumbnail capture may consume completed outputs, never compile on demand.
