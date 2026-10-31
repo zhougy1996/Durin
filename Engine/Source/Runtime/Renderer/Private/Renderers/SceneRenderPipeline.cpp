@@ -75,6 +75,7 @@ namespace Durin
 		const bool bTracePreparation = FRenderResourcePreparationScope::IsActive()
 			&& View.bDiscardHistory && !View.ViewStateId.IsValid();
 		const auto TraceStage = [bTracePreparation](std::string_view Name, auto&& Work) {
+			Profiling::FStartupTimingScope StartupTiming(Name);
 			if (!bTracePreparation) return Work();
 			const auto Started = std::chrono::steady_clock::now();
 			try

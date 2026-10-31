@@ -3220,6 +3220,7 @@ namespace Durin
 
 	auto FRHICommandListExecutor::TryWaitForSerial(uint64 Serial) const -> bool
 	{
+		Profiling::FStartupTimingScope StartupTiming("RHI serial wait");
 		State->WaitCount.fetch_add(1, std::memory_order_relaxed);
 		const auto WaitStart = std::chrono::steady_clock::now();
 		if (IsSerialComplete(Serial))

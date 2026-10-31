@@ -57,6 +57,7 @@ namespace Durin::Profiling
 		NativeViewportReady,
 		FirstPresent,
 		DefaultWorkspaceReady,
+		HostReady,
 		Count,
 	};
 
@@ -66,6 +67,22 @@ namespace Durin::Profiling
 	CORE_API auto RecordEditorShellFirstPresent() noexcept -> bool;
 	CORE_API auto TryLogStartupTimingSummary() -> bool;
 	CORE_API auto GetStartupMilestoneMilliseconds(EStartupMilestone Milestone) noexcept -> double;
+	// Thread-safe diagnostic gate; never use this to advance startup or rendering.
+	CORE_API auto IsPostCommitStartupTimingActive() noexcept -> bool;
+
+	// Records CPU wall time only between initial-document commit and host readiness.
+	// Names must outlive the scope. Nested scopes and different threads overlap.
+	class FStartupTimingScope final
+	{
+	public:
+		CORE_API explicit FStartupTimingScope(std::string_view InName) noexcept;
+		CORE_API ~FStartupTimingScope();
+		FStartupTimingScope(const FStartupTimingScope&) = delete;
+		auto operator=(const FStartupTimingScope&) -> FStartupTimingScope& = delete;
+	private:
+		std::string_view Name;
+		int64 StartNanoseconds = 0;
+	};
 
 	CORE_API auto FormatProgramIdentity(
 		std::string_view RuntimeVariant,

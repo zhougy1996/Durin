@@ -106,5 +106,21 @@ namespace Durin
 			FirstObservation);
 		EXPECT_GE(FirstObservation, 0.0);
 		EXPECT_FALSE(Profiling::TryLogStartupTimingSummary());
+		for (const auto Milestone : {
+			Profiling::EStartupMilestone::ProcessEntry,
+			Profiling::EStartupMilestone::PreInitComplete,
+			Profiling::EStartupMilestone::RHIReady,
+			Profiling::EStartupMilestone::RendererReady,
+			Profiling::EStartupMilestone::EditorShellComplete,
+			Profiling::EStartupMilestone::WorkspaceRegistrationComplete,
+			Profiling::EStartupMilestone::NativeViewportReady,
+			Profiling::EStartupMilestone::FirstPresent,
+			Profiling::EStartupMilestone::DefaultWorkspaceReady})
+			Profiling::RecordStartupMilestone(Milestone);
+		// A shell frame and workspace do not imply that the host can accept work.
+		EXPECT_FALSE(Profiling::TryLogStartupTimingSummary());
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
+		EXPECT_TRUE(Profiling::TryLogStartupTimingSummary());
+		EXPECT_FALSE(Profiling::TryLogStartupTimingSummary());
 	}
 }

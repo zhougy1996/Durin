@@ -6,6 +6,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "IRendererModule.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -17,14 +18,21 @@ namespace Durin
 		FSceneViewRenderRequest Request) -> ERenderViewResult
 	{
 		CheckRenderingThread();
+		Profiling::FStartupTimingScope DrawTiming("scene viewport render");
 		if (bResourcePreparationRequested.exchange(false)
 			|| ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Stale)
 			ResourcePreparation = FRenderResourcePreparation::Create();
 		if (!ResourcePreparation.IsValid()) return Renderer.RenderView(Commands, Request);
 		const bool bWasReady = ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Ready;
 		if (!bWasReady && ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Pending)
+		{
+			Profiling::FStartupTimingScope Timing("scene resource preparation");
 			Renderer.PrepareViewResources(Commands, Request, ResourcePreparation);
-		const auto Result = Renderer.RenderView(Commands, Request);
+		}
+		const auto Result = [&] {
+			Profiling::FStartupTimingScope Timing("scene draw submission");
+			return Renderer.RenderView(Commands, Request);
+		}();
 		const auto Progress = ResourcePreparation.GetProgress();
 		if (!bWasReady && Progress.State == ERenderResourcePreparationState::Ready)
 			DURIN_DEBUG("Scene resources prepared: shaders={} | pipelines={} | objects={} | accounted={} bytes",
