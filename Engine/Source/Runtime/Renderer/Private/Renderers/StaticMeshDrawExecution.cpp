@@ -116,25 +116,4 @@ namespace Durin::RendererPrivate
 		return FVertexDeclarationRHIRef(Primitive.CollectedBinding->Declaration);
 	}
 
-	auto FStaticMeshGeometryBinding::Bind(
-		FRHICommandList& CommandList
-	) const -> void
-	{
-		check(IsValid());
-		for (const auto& Stream : Primitive.CollectedBinding->Streams)
-			CommandList.BindVertexBuffer(Stream.StreamIndex, Stream.VertexBuffer, Stream.Offset);
-		if (Draw.Command->Geometry.bIndexed)
-			CommandList.BindIndexBuffer(Draw.Command->Indices.Buffer, static_cast<uint32>(Draw.Command->Indices.Range.ByteOffset));
-	}
-
-	auto FStaticMeshGeometryBinding::DrawIndexed(
-		FRHICommandList& CommandList
-	) const -> void
-	{
-		check(IsValid());
-		if (Draw.Command->Geometry.bIndexed)
-			CommandList.DrawIndexed(Draw.Command->Geometry.GetIndexedDrawArguments());
-		else
-			CommandList.Draw(Draw.Command->Geometry.GetDrawArguments());
-	}
 } // namespace Durin::RendererPrivate

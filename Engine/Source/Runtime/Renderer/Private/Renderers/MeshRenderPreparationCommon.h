@@ -4,6 +4,7 @@
 
 #include "Materials/MaterialRenderProxy.h"
 #include "RHIResources.h"
+#include "Renderers/MeshPipelineDescription.h"
 
 namespace Durin
 {
@@ -115,15 +116,19 @@ namespace Durin
 	};
 
 
-	struct FResolvedMeshPipeline;
 	class FRHIShaderParameterBatch;
-	struct FGBufferPipeline;
-	namespace RendererPrivate { class FPreparedSurfaceMaterialBindings; struct FMeshDrawCommand; }
+	namespace RendererPrivate { class FPreparedSurfaceMaterialBindings; struct FMeshDrawCommand; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
 
 	// Local to one uninterrupted mesh recording span. Callers reset at pass
 	// boundaries or before any foreign pipeline/parameter commands.
-	struct FMeshDrawBindingGroup
+	struct FMeshDrawCommandStateCache
 	{
+		// Retain the bound resources while their addresses are used as cache keys.
+		std::shared_ptr<const RendererPrivate::FMeshPassPipeline> PipelineOwner;
+		std::shared_ptr<const FRHIShaderParameterBatch> VertexOwner;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> FragmentOwner;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> VertexPass;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> FragmentPass;
 		const void* Pipeline = nullptr;
 		const void* Vertex = nullptr;
 		const void* Fragment = nullptr;
@@ -146,16 +151,21 @@ namespace Durin
 		}
 	};
 
+	// Index into one frame's pass list. The storage identity rejects stale/cross-view handles.
+	struct FMeshDrawCommandHandle
+	{
+		RendererPrivate::FMeshPassKey Pass;
+		size_t Index = std::numeric_limits<size_t>::max();
+		uint64 StorageId = 0;
+		explicit operator bool() const { return StorageId != 0 && Index != std::numeric_limits<size_t>::max(); }
+		auto operator==(const FMeshDrawCommandHandle&) const -> bool = default;
+	};
 	struct FResolvedMeshDrawRecord
 	{
 		std::optional<FMaterialRenderBinding> MaterialBinding;
-		// Own immutable preparation results independently of cache growth/eviction.
-		std::shared_ptr<const FResolvedMeshPipeline> Pipeline;
-		std::shared_ptr<const FResolvedMeshPipeline> HybridPipeline;
-		std::shared_ptr<const FGBufferPipeline> GBufferPipeline;
-		std::shared_ptr<const FGBufferPipeline> GBufferGPUCullingPipeline;
-		// Transient routing only: ordinary/shadow, retained-forward, GBuffer, GPU GBuffer.
-		std::array<std::shared_ptr<const RendererPrivate::FMeshDrawCommand>, 4> Commands;
+		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<const RendererPrivate::FMeshPassPipeline>> Pipelines;
+		// Receipts into frame-owned pass lists; records do not own duplicate command arrays.
+		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> Commands;
 		bool bReady = false;
 	};
 

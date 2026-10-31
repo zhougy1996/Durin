@@ -21,7 +21,7 @@ namespace Durin
 	struct FStaticMeshRenderObservations;
 	struct FPreparedStaticMeshView;
 	struct FResolvedStaticMeshView;
-	struct FResolvedMeshPipeline;
+	namespace RendererPrivate { struct FMeshPassPipeline; }
 	struct FResolvedMeshDrawRecord;
 	struct FPreparedStaticMeshDraw;
 	struct FPreparedStaticMeshPrimitive;
@@ -79,7 +79,7 @@ namespace Durin
 			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView
 		) -> void;
 		auto ExecutePreparedDraw_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView, bool bHybridRetained = false, FMeshDrawBindingGroup* BindingGroup = nullptr
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView, bool bHybridRetained = false, FMeshDrawCommandStateCache* BindingGroup = nullptr
 		) -> void;
 		auto FinalizeExecution_RenderThread(FResolvedStaticMeshView& ResolvedView)
 			-> void;
@@ -112,7 +112,7 @@ namespace Durin
 			const FResolvedStaticMeshView& ResolvedView,
 			bool bShadowDepth = false,
 			bool bHybridRetained = false,
-			FMeshDrawBindingGroup* BindingGroup = nullptr
+			FMeshDrawCommandStateCache* BindingGroup = nullptr
 		) -> bool;
 		auto EnsureMaterialSamplers_RenderThread(
 			const FMaterialRenderBinding& MaterialBinding
@@ -121,7 +121,7 @@ namespace Durin
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
 			const FMaterialRenderBinding& MaterialBinding,
-			std::shared_ptr<const FResolvedMeshPipeline>& OutPipeline,
+			std::shared_ptr<const RendererPrivate::FMeshPassPipeline>& OutPipeline,
 			bool bShadowDepth = false,
 			bool bHybridRetained = false
 		) -> bool;
@@ -132,7 +132,7 @@ namespace Durin
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
 			const FResolvedStaticMeshView& ResolvedView,
-			FMeshDrawBindingGroup& BindingGroup,
+			FMeshDrawCommandStateCache& BindingGroup,
 			FRHIBuffer* IndirectArguments = nullptr,
 			uint64 IndirectArgumentOffset = 0,
 			FRHIBuffer* VisibleInstances = nullptr,

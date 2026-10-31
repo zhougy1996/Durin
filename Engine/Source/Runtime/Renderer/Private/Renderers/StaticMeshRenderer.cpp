@@ -18,7 +18,6 @@ namespace Durin
 {
 	using namespace RendererPrivate;
 
-	struct FResolvedMeshPipeline : FMeshPassPipeline {};
 
 	struct FStaticMeshRenderer::FState
 	{
@@ -37,11 +36,6 @@ namespace Durin
 		{
 			FMaterialRenderRepresentation Owner;
 			FRHIUniformBufferRange Range;
-			uint64 LastUsed = 0;
-		};
-		struct FCommandEntry
-		{
-			std::shared_ptr<const FMeshDrawCommand> Command;
 			uint64 LastUsed = 0;
 		};
 		// Immutable ranges retain their source, so different worlds and in-flight frames
@@ -70,23 +64,23 @@ namespace Durin
 		std::map<std::pair<uint64, uint64>, FPrimitiveUniform> PrimitiveUniforms;
 		std::map<uint64, FMaterialUniform> MaterialUniforms;
 		std::map<std::tuple<FGuid, bool, uint64>, FCollectionUniform> CollectionUniforms;
-		using FDrawKey = FMeshDrawCommand::FKey;
-		static auto GetPipeline(const FResolvedMeshDrawRecord& Record, size_t Slot) -> std::shared_ptr<const FMeshPassPipeline>
+		static auto GetPassKey(const FPreparedStaticMeshDraw& Draw, bool Shadow = false, bool Hybrid = false) -> FMeshPassKey
 		{
-			if (Slot == 0) return Record.Pipeline;
-			if (Slot == 1) return Record.HybridPipeline;
-			return FGBufferRenderer::GetPipelineResources(Slot == 2 ? Record.GBufferPipeline : Record.GBufferGPUCullingPipeline);
+			return {Shadow ? EMeshPipelinePass::ShadowDepth : !Hybrid ? EMeshPipelinePass::Forward
+				: Draw.Command->Material.PlanningPassIdentity.ShaderMap.BlendMode == EMaterialBlendMode::Translucent
+					? EMeshPipelinePass::SortedTranslucency : EMeshPipelinePass::HybridRetainedForward};
 		}
-		static auto MaterialSlot(const FMeshPassPipeline& Pipeline) -> uint32
-		{ return Pipeline.Pass == EMeshPipelinePass::ShadowDepth ? 2u : Pipeline.Pass == EMeshPipelinePass::GBuffer ? 1u : 0u; }
+		static auto MaterialPass(const FMeshPassPipeline& Pipeline) -> ESurfaceMaterialPass
+		{ return Pipeline.Pass == EMeshPipelinePass::ShadowDepth ? ESurfaceMaterialPass::MaskedShadow
+			: Pipeline.Pass == EMeshPipelinePass::GBuffer ? ESurfaceMaterialPass::GBuffer : ESurfaceMaterialPass::Forward; }
 		auto IsCacheable(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive) const -> bool
 		{
 			return bPersistentDraws && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local;
 		}
-		std::map<FDrawKey, FCommandEntry> DrawCommands;
+		FCachedMeshDrawCommandStorage DrawCommands;
 		auto ResetDrawCommands() -> void
 		{
-			DrawCommands.clear();
+			DrawCommands.Reset();
 			PrimitiveUniforms.clear();
 			MaterialUniforms.clear();
 			CollectionUniforms.clear();
@@ -95,7 +89,7 @@ namespace Durin
 
 		using FShaderMapPayload = FMeshPassShaders;
 
-		using FPipelinePayload = std::shared_ptr<const FResolvedMeshPipeline>;
+		using FPipelinePayload = std::shared_ptr<const FMeshPassPipeline>;
 
 		TRendererResourceSlotCache<
 			FMeshShaderMapKey,
@@ -183,7 +177,10 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		bool bReady = true;
-		for (auto& Record : ResolvedView.Draws) Record.HybridPipeline.reset();
+		for (auto& Record : ResolvedView.Draws) {
+			Record.Pipelines.erase({EMeshPipelinePass::HybridRetainedForward});
+			Record.Pipelines.erase({EMeshPipelinePass::SortedTranslucency});
+		}
 		ForEachBasePassBucket(PreparedView, [this, &PreparedView,
 			&ResolvedView, &bReady](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
@@ -197,7 +194,7 @@ namespace Durin
 				auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
 				const bool bDrawReady = Primitive != nullptr && MaterialBinding != nullptr
 					&& EnsureSectionResources_RenderThread(*Primitive, Draw, *MaterialBinding,
-						Record.HybridPipeline, false, true);
+						Record.Pipelines[FState::GetPassKey(Draw, false, true)], false, true);
 				Record.bReady = Record.bReady && bDrawReady;
 				bReady = bDrawReady && bReady;
 			}
@@ -262,7 +259,7 @@ namespace Durin
 			if (const auto Found = ResourceContext->Entries.find(Key); Found != ResourceContext->Entries.end())
 			{
 				Record.MaterialBinding = Found->second.Material;
-				Record.Pipeline = Found->second.Pipeline;
+				if (Found->second.Pipeline) Record.Pipelines[Found->second.Pipeline->GetPassKey()] = Found->second.Pipeline;
 				return true;
 			}
 		}
@@ -273,7 +270,7 @@ namespace Durin
 			return false;
 		Record.MaterialBinding = std::move(MaterialBinding);
 		const bool bReady = Primitive && (Policy != EStaticMeshSectionResourcePolicy::SamplersOnly
-			? EnsureSectionResources_RenderThread(*Primitive, Draw, *Record.MaterialBinding, Record.Pipeline, bShadowDepth)
+			? EnsureSectionResources_RenderThread(*Primitive, Draw, *Record.MaterialBinding, Record.Pipelines[FState::GetPassKey(Draw, bShadowDepth)], bShadowDepth)
 			: EnsureMaterialSamplers_RenderThread(*Record.MaterialBinding));
 
 		if (bReady && bRetained && Generation == Coordinator.GetGeneration_RenderThread() &&
@@ -284,7 +281,8 @@ namespace Durin
 				this, Generation, ReleaseEpoch, SurfaceMaterials.GetResourceRevision_RenderThread());
 			ResourceContext->Entries.emplace(
 				Key, FStaticMeshSectionResourceContext::FEntry{
-						 Draw.Command, *Record.MaterialBinding, Record.Pipeline});
+						 Draw.Command, *Record.MaterialBinding, Policy == EStaticMeshSectionResourcePolicy::SamplersOnly
+						? nullptr : Record.Pipelines.at(FState::GetPassKey(Draw, bShadowDepth))});
 		}
 		return bReady;
 	}
@@ -295,7 +293,7 @@ namespace Durin
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RecordShadow");
 		check(CommandList.IsInsideRenderPass());
-		FMeshDrawBindingGroup BindingGroup;
+		FMeshDrawCommandStateCache BindingGroup;
 		FStaticMeshRenderObservations Observations;
 		Observations.bRecordedOnWorker = !IsInRenderingThread();
 		ForEachShadowBucket(PreparedView, [&](const auto& Bucket) {
@@ -316,7 +314,7 @@ namespace Durin
 		const FPreparedStaticMeshPrimitive& Primitive,
 		const FPreparedStaticMeshDraw& Item,
 		const FMaterialRenderBinding& MaterialBinding,
-		std::shared_ptr<const FResolvedMeshPipeline>& OutPipeline,
+		std::shared_ptr<const FMeshPassPipeline>& OutPipeline,
 		bool bShadowDepth,
 		bool bHybridRetained
 	) -> bool
@@ -358,16 +356,15 @@ namespace Durin
 					FState::FShaderMapPayload Candidate;
 					FShaderCompileOptions Options;
 					Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
-					FMeshPassDrawListContext Context(Coordinator.GetGeneration_RenderThread(), Material.CompiledProgram.get(), Options, Candidate);
-					Processor.AddMeshBatch(Batch, Context);
-					const auto& Result = Context.GetResult();
+					ERenderResourceCreateErrorCategory FailureCategory;
+					const auto Result = Processor.PrepareShaders(Batch, Coordinator.GetGeneration_RenderThread(), Material.CompiledProgram.get(), Options, Candidate, &FailureCategory);
 					if (Result.Status == EShaderBuildStatus::Pending) return FShaderMapResult::Pending();
 					if (Result.Status == EShaderBuildStatus::Canceled) return FShaderMapResult::Canceled();
 					if (!Result) return FShaderMapResult::Failure(MakeRendererResourceCreateError(
-						Context.GetFailureCategory(), "StaticMeshShaderMap",
+						FailureCategory, "StaticMeshShaderMap",
 						GetIdentityText(Material.PlanningPassIdentity.ShaderMap), Result.Error,
 						ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual
-						| (Context.GetFailureCategory() == ERenderResourceCreateErrorCategory::RHIResource
+						| (FailureCategory == ERenderResourceCreateErrorCategory::RHIResource
 							? ERenderResourceGenerationDependency::Device : ERenderResourceGenerationDependency::None)));
 					return FShaderMapResult::Success(std::move(Candidate));
 				},
@@ -394,15 +391,14 @@ namespace Durin
 		FState::FPipelinePayload* Pipeline = PipelineEntry.Slot.Resolve(
 			PipelineGeneration,
 			[&PipelineEntry, ShaderMapPayload, &EffectivePipelineKey, &VertexFactory, &Processor, &Batch]() -> FPipelineResult {
-				FResolvedMeshPipeline Candidate;
-				FMeshPassDrawListContext Context(FName(std::format("StaticMeshPipeline_{}", PipelineEntry.Index)),
+				FMeshPassPipeline Candidate;
+				const auto Preparation = Processor.PreparePipeline(Batch, FName(std::format("StaticMeshPipeline_{}", PipelineEntry.Index)),
 					*ShaderMapPayload, VertexFactory.Declaration, Candidate);
-				Processor.AddMeshBatch(Batch, Context);
-				if (!Context.GetResult()) return FPipelineResult::Failure(MakeRendererResourceCreateError(
+				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::GraphicsPipeline, "StaticMeshPipeline", GetIdentityText(EffectivePipelineKey),
 					ERenderResourceCreateErrorReason::PipelineCreationFailed,
 					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
-				return FPipelineResult::Success(std::make_shared<const FResolvedMeshPipeline>(std::move(Candidate)));
+				return FPipelineResult::Success(std::make_shared<const FMeshPassPipeline>(std::move(Candidate)));
 			},
 			ReportRendererResourceCreateDiagnostic
 		);
@@ -442,7 +438,7 @@ namespace Durin
 		ResolvedView.MaterialUniforms.clear();
 		ResolvedView.MaterialUniforms.resize(PreparedView.MaterialUniformGroups.size());
 		ResolvedView.Observations.SurfaceMaterialPreparations = 0;
-		std::vector<std::array<bool, 3>> Requests(PreparedView.MaterialUniformGroups.size());
+		std::vector<std::set<ESurfaceMaterialPass>> Requests(PreparedView.MaterialUniformGroups.size());
 		std::vector<std::vector<FRHIUniformBufferRange>> GroupCollections(PreparedView.MaterialUniformGroups.size());
 		std::map<std::pair<FGuid, uint64>, FRHIUniformBufferRange> CollectionUniforms;
 		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
@@ -450,12 +446,12 @@ namespace Durin
 			{
 				if (!ResolvedView.IsReady(Draw)) continue;
 				auto& Required = Requests[Draw.MaterialUniformIndex];
-				if (bShadow) Required[2] = true;
+				if (bShadow) Required.insert(ESurfaceMaterialPass::MaskedShadow);
 				else
 				{
 					const bool bDeferredDraw = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer);
-					Required[0] |= !bProductionDeferred || !bDeferredDraw;
-					Required[1] |= bGBuffer && bDeferredDraw;
+					if (!bProductionDeferred || !bDeferredDraw) Required.insert(ESurfaceMaterialPass::Forward);
+					if (bGBuffer && bDeferredDraw) Required.insert(ESurfaceMaterialPass::GBuffer);
 				}
 			}
 		});
@@ -471,7 +467,7 @@ namespace Durin
 		// rather than its world-local version, owns the immutable allocation cache key.
 		for (uint32 Group = 0; Group < Requests.size(); ++Group)
 		{
-			if (!std::ranges::any_of(Requests[Group], [](bool Required) { return Required; })) continue;
+			if (Requests[Group].empty()) continue;
 			const auto& Draw = PreparedView.GetDraw(PreparedView.MaterialUniformGroups[Group].RepresentativeDraw);
 			const auto Program = Draw.Command->Material.CompiledProgram;
 			if (!Program) continue;
@@ -533,37 +529,35 @@ namespace Durin
 			auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
 			Record.Commands = {};
 			bool AllHit = true, Any = false;
-			for (size_t Slot = 0; Slot < Record.Commands.size(); ++Slot)
+			for (const auto& [PassKey, Pipeline] : Record.Pipelines)
 			{
-				const auto Pipeline = FState::GetPipeline(Record, Slot); if (!Pipeline) continue;
+				if (!Pipeline) continue;
 				Any = true;
-				const auto Existing = State->DrawCommands.find(FMeshDrawCommand::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId, *Pipeline));
-				if (Existing == State->DrawCommands.end()) { AllHit = false; continue; }
-				const auto& Cached = *Existing->second.Command;
+				const auto Existing = State->DrawCommands.Find(PassKey, FMeshDrawCommand::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId, *Pipeline));
+				if (!Existing) { AllHit = false; continue; }
+				const auto& Cached = *Existing;
 				if (Cached.Input != Primitive->CollectedBinding || Cached.PrimitiveState != FState::CapturePrimitiveState(*Primitive)
 					|| !SurfaceMaterials.AreStableResourcesCurrent_RenderThread(Cached.Material.Surface))
 				{ AllHit = false; continue; }
-				const uint32 Pass = FState::MaterialSlot(*Pipeline);
+				const auto Pass = FState::MaterialPass(*Pipeline);
 				const auto& CurrentCollections = GroupCollections[Draw.MaterialUniformIndex];
 				const bool SameCollections = std::ranges::equal(Cached.Material.CollectionUniforms, CurrentCollections,
 					[](const auto& A, const auto& B) { return A.Buffer == B.Buffer && A.Offset == B.Offset && A.Size == B.Size; });
 				ResolvedView.PersistentCollectionBindingsChanged[Draw.ResolvedIndex] =
 					ResolvedView.PersistentCollectionBindingsChanged[Draw.ResolvedIndex] || !SameCollections;
-				if (SameCollections) Record.Commands[Slot] = Existing->second.Command;
+
 				ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex] = Cached.PrimitiveUniform;
 				auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
-				if (!Material && Requests[Draw.MaterialUniformIndex][Pass])
+				if (!Material && Requests[Draw.MaterialUniformIndex].contains(Pass))
 				{
 					Material = Cached.Material; Material->CollectionUniforms = CurrentCollections;
-					if (!SurfaceMaterials.RefreshPassResources_RenderThread(Pass == 0 ? ESurfaceMaterialPass::Forward
-						: Pass == 1 ? ESurfaceMaterialPass::GBuffer : ESurfaceMaterialPass::MaskedShadow,
+					if (!SurfaceMaterials.RefreshPassResources_RenderThread(Pass,
 						ResolvedView.Environment, ResolvedView.DirectionalShadowTexture, ResolvedView.DirectionalShadowSampler, Material->Surface))
 					{
 						if (!bAllowPartial) return false;
 						RejectGroup(Draw.MaterialUniformIndex); AllHit = false; break;
 					}
 				}
-				Existing->second.LastUsed = ++State->CacheSerial;
 			}
 			ResolvedView.PersistentCommandsReused[Draw.ResolvedIndex] = Any && AllHit;
 		}
@@ -618,22 +612,20 @@ namespace Durin
 			}
 			ResolvedView.PrimitiveUniforms[Index] = std::move(Range);
 		}
-		for (uint32 Pass = 0; Pass < 3; ++Pass)
+		for (const auto Pass : {ESurfaceMaterialPass::Forward, ESurfaceMaterialPass::GBuffer, ESurfaceMaterialPass::MaskedShadow})
 		{
-			if (!std::ranges::any_of(Requests, [Pass](const auto& Required) { return Required[Pass]; })) continue;
+			if (!std::ranges::any_of(Requests, [Pass](const auto& Required) { return Required.contains(Pass); })) continue;
 			ResolvedView.ViewUniforms[Pass] = PrepareMeshViewUniform(CommandList, View,
-				Pass == 1 || (Pass == 0 && View.Settings.Mode.RenderMode == ERenderMode::Lit));
+				Pass == ESurfaceMaterialPass::GBuffer || (Pass == ESurfaceMaterialPass::Forward && View.Settings.Mode.RenderMode == ERenderMode::Lit));
 			if (!ResolvedView.ViewUniforms[Pass].Buffer) return false;
 		}
 		for (uint32 Group = 0; Group < Requests.size(); ++Group)
 		{
 			bool bNeedsPreparation = false;
-			for (uint32 Pass = 0; Pass < 3; ++Pass)
-				bNeedsPreparation |= Requests[Group][Pass] && !ResolvedView.MaterialUniforms[Group][Pass];
+			for (const auto Pass : {ESurfaceMaterialPass::Forward, ESurfaceMaterialPass::GBuffer, ESurfaceMaterialPass::MaskedShadow})
+				bNeedsPreparation |= Requests[Group].contains(Pass) && !ResolvedView.MaterialUniforms[Group][Pass];
 			if (!bNeedsPreparation) continue;
-			if (!std::ranges::any_of(Requests[Group], [](bool bRequired) {
-				return bRequired;
-			})) continue;
+			if (Requests[Group].empty()) continue;
 			const auto& Draw = PreparedView.GetDraw(PreparedView.MaterialUniformGroups[Group].RepresentativeDraw);
 			const auto* Binding = ResolvedView.GetMaterialBinding(Draw);
 			const auto& RequiredCollections = GroupCollections[Group];
@@ -645,15 +637,15 @@ namespace Durin
 					SharedMaterialUniform = Cached->second.Range;
 					Cached->second.LastUsed = ++State->CacheSerial;
 				}
-			for (uint32 Pass = 0; Pass < 3; ++Pass)
+			for (const auto Pass : {ESurfaceMaterialPass::Forward, ESurfaceMaterialPass::GBuffer, ESurfaceMaterialPass::MaskedShadow})
 			{
-				if (!Requests[Group][Pass] || ResolvedView.MaterialUniforms[Group][Pass]) continue;
+				if (!Requests[Group].contains(Pass) || ResolvedView.MaterialUniforms[Group][Pass]) continue;
 				FPreparedStaticMeshSurfaceMaterial Material;
 				++ResolvedView.Observations.SurfaceMaterialPreparations;
 				if (!FStaticMeshSurfaceMaterialPreparer(CommandList, SurfaceMaterials, Binding, ResolvedView.Environment)
-					.Prepare(Pass == 0 ? ESurfaceMaterialPass::Forward : Pass == 1 ? ESurfaceMaterialPass::GBuffer : ESurfaceMaterialPass::MaskedShadow,
-						Pass == 0 ? ResolvedView.DirectionalShadowTexture : nullptr,
-						Pass == 0 ? ResolvedView.DirectionalShadowSampler : nullptr, Material, SharedMaterialUniform)) {
+					.Prepare(Pass,
+						Pass == ESurfaceMaterialPass::Forward ? ResolvedView.DirectionalShadowTexture : nullptr,
+						Pass == ESurfaceMaterialPass::Forward ? ResolvedView.DirectionalShadowSampler : nullptr, Material, SharedMaterialUniform)) {
 						if (!bAllowPartial) return false;
 						RejectGroup(Group);
 						break;
@@ -684,8 +676,11 @@ namespace Durin
 		const FRHIUniformBufferRange& Lighting, bool bShadow) -> bool
 	{
 		check(IsInRenderingThread());
+		ResolvedView.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
+		for (auto& Record : ResolvedView.Draws) Record.Commands.clear();
 		FMeshDrawCommandBindingCache BindingCache;
 		bool AllReady = true;
+		const auto SameRange = [](const auto& A, const auto& B) { return A.Buffer == B.Buffer && A.Offset == B.Offset && A.Size == B.Size; };
 		for (uint32 Index = 0; Index < PreparedView.GetNumSections(); ++Index)
 		{
 			const auto& Draw = PreparedView.GetDraw(Index);
@@ -697,50 +692,49 @@ namespace Durin
 			if (ResolvedView.PersistentCommandsReused[Draw.ResolvedIndex]) ++ResolvedView.Observations.PersistentCommandHits;
 			else ++ResolvedView.Observations.PersistentCommandMisses;
 			const bool Cacheable = State->IsCacheable(Draw, *Primitive);
-			for (size_t Slot = 0; Slot < Record.Commands.size(); ++Slot)
+			for (auto& [PassKey, Pipeline] : Record.Pipelines)
 			{
-				const auto Pipeline = FState::GetPipeline(Record, Slot); if (!Pipeline) { Record.Commands[Slot].reset(); continue; }
-				const uint32 Pass = FState::MaterialSlot(*Pipeline);
+				if (!Pipeline) continue;
+				const auto Pass = FState::MaterialPass(*Pipeline);
 				const auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
 				bool Ready = Material.has_value();
 				std::string Error = Ready ? std::string{} : "Missing prepared material uniform.";
-				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(Pipeline->Pass);
+				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(PassKey.Pass);
 				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory,
 					{Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend},
-					Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer, Pipeline->bGPUCulling};
-				std::shared_ptr<const FMeshDrawCommand> Cached = Record.Commands[Slot], Dynamic;
-				if (Cached && !Cached->bCached) Cached.reset();
+					Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer, PassKey.bGPUCulling};
+				std::shared_ptr<const FMeshDrawCommand> Cached;
 				if (Ready)
 				{
+					if (Cacheable) Cached = State->DrawCommands.Find(PassKey,
+						FMeshDrawCommand::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId, *Pipeline));
+					if (Cached && (Cached->Input != Primitive->CollectedBinding || Cached->PrimitiveState != FState::CapturePrimitiveState(*Primitive)
+						|| !SurfaceMaterials.AreStableResourcesCurrent_RenderThread(Cached->Material.Surface)
+						|| !SameRange(Cached->PrimitiveUniform, ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex])
+						|| !SameRange(Cached->Material.Uniform, Material->Uniform)
+						|| !std::ranges::equal(Cached->Material.CollectionUniforms, Material->CollectionUniforms, SameRange))) Cached.reset();
 					const FMeshDrawCommandBuildInput Input{CommandList, *Primitive, Draw, Pipeline, *Material,
-						ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], ResolvedView.ViewUniforms[Pass], Lighting, {}, Pass};
+						ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], ResolvedView.ViewUniforms[Pass], Lighting, {}};
 					if (Cacheable && !Cached)
 					{
-						FCachedPassMeshDrawListContext Context(Input, BindingCache, Cached);
-						Processor.AddMeshBatch(Batch, Context); Ready = static_cast<bool>(Context.GetResult());
-						if (!Ready) Error = Context.GetResult().Error;
+						FCachedPassMeshDrawListContext Context(State->DrawCommands, PassKey, Cached);
+						const auto Result = Processor.AddMeshBatch(Batch, Input, BindingCache, Context); Ready = static_cast<bool>(Result);
+						if (!Ready) Error = Result.Error;
 					}
 					if (Ready)
 					{
-						FDynamicPassMeshDrawListContext Context(Input, BindingCache, Dynamic, Cached);
-						Processor.AddMeshBatch(Batch, Context); Ready = static_cast<bool>(Context.GetResult());
-						if (!Ready) Error = Context.GetResult().Error;
+						FMeshDrawCommandHandle Receipt;
+						FDynamicPassMeshDrawListContext Context(*ResolvedView.DrawCommandStorage, PassKey, Receipt);
+						const auto Result = Processor.AddMeshBatch(Batch, Input, BindingCache, Context, Cached); Ready = static_cast<bool>(Result);
+						if (!Ready) Error = Result.Error;
+						else Record.Commands.insert_or_assign(PassKey, Receipt);
 					}
 				}
 				if (!Ready)
 				{
-					Record.Commands[Slot].reset();
-					if (Slot == 3) { Record.GBufferGPUCullingPipeline.reset(); continue; }
-					DURIN_ERROR("Mesh pass binding collection failed: pass={}, error={}", static_cast<uint8>(Pipeline->Pass), Error);
+					if (PassKey.bGPUCulling) { Pipeline.reset(); continue; }
+					DURIN_ERROR("Mesh pass binding collection failed: pass={}, error={}", static_cast<uint8>(PassKey.Pass), Error);
 					Record.bReady = false; AllReady = false; break;
-				}
-				Record.Commands[Slot] = std::move(Dynamic);
-				if (Cached)
-				{
-					const auto Key = Cached->GetKey();
-					State->DrawCommands.insert_or_assign(Key, FState::FCommandEntry{std::move(Cached), ++State->CacheSerial});
-					// Preserve the former budget of up to four passes for 512 draws.
-					FState::TrimCache(State->DrawCommands, 4 * 512);
 				}
 			}
 		}
@@ -758,7 +752,7 @@ namespace Durin
 		FResolvedStaticMeshView& ResolvedView
 	) -> void
 	{
-		FMeshDrawBindingGroup BindingGroup;
+		FMeshDrawCommandStateCache BindingGroup;
 		check(IsInRenderingThread());
 		checkf(CommandList.IsInsideRenderPass(), "StaticMesh execution requires the owning scene render pass.");
 		if (RenderMode != ERenderMode::Unlit
@@ -809,7 +803,7 @@ namespace Durin
 	}
 
 	auto FStaticMeshRenderer::ExecutePreparedDraw_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Item, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView, bool bHybridRetained, FMeshDrawBindingGroup* BindingGroup
+		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Item, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView, bool bHybridRetained, FMeshDrawCommandStateCache* BindingGroup
 	) -> void
 	{
 		check(IsInRenderingThread());
@@ -840,7 +834,7 @@ namespace Durin
 		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView
 	) -> void
 	{
-		FMeshDrawBindingGroup BindingGroup;
+		FMeshDrawCommandStateCache BindingGroup;
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
 		if (RenderMode != ERenderMode::Unlit && RenderMode != ERenderMode::Lit)
@@ -871,7 +865,7 @@ namespace Durin
 		FRHIBuffer* InstanceTransforms
 	) -> FGeometryExecutionResult
 	{
-		FMeshDrawBindingGroup BindingGroup;
+		FMeshDrawCommandStateCache BindingGroup;
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ExecuteGBuffer");
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
@@ -954,8 +948,8 @@ namespace Durin
 	{
 		for (auto& Record : ResolvedView.Draws)
 		{
-			Record.GBufferPipeline.reset();
-			Record.GBufferGPUCullingPipeline.reset();
+			Record.Pipelines.erase({EMeshPipelinePass::GBuffer});
+			Record.Pipelines.erase({EMeshPipelinePass::GBuffer, true});
 		}
 		bool Ready = true;
 		ForEachShadowBucket(PreparedView, [&](const auto& Bucket) {
@@ -969,7 +963,7 @@ namespace Durin
 				auto Pipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .Topology = Item.Command->PipelineKey.Topology});
 				ResolvedView.Draws[Item.ResolvedIndex].bReady = ResolvedView.IsReady(Item) && Pipeline != nullptr;
 				Ready = Pipeline && Ready;
-				ResolvedView.Draws[Item.ResolvedIndex].GBufferPipeline = std::move(Pipeline);
+				ResolvedView.Draws[Item.ResolvedIndex].Pipelines[{EMeshPipelinePass::GBuffer}] = FGBufferRenderer::GetPipelineResources(Pipeline);
 				if (bPrepareGPUCulling && Primitive->VertexDomain
 					== EVertexDeformationDomain::Local
 					&& Item.Command->Geometry.bIndexed
@@ -977,8 +971,7 @@ namespace Durin
 						|| (Item.Command->Material.CompiledProgram->GetShaderMap().RequiredStages & MaterialShaderEntryBit(EMaterialShaderEntry::GPUCullingVertex))))
 				{
 					auto GPUPipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .bGPUCulling = true, .Failure = Failure, .Topology = Item.Command->PipelineKey.Topology});
-					ResolvedView.Draws[Item.ResolvedIndex]
-						.GBufferGPUCullingPipeline = std::move(GPUPipeline);
+					ResolvedView.Draws[Item.ResolvedIndex].Pipelines[{EMeshPipelinePass::GBuffer, true}] = FGBufferRenderer::GetPipelineResources(GPUPipeline);
 				}
 			}
 		});
@@ -992,7 +985,7 @@ namespace Durin
 		const FPreparedStaticMeshPrimitive& Primitive,
 		const FPreparedStaticMeshDraw& Item,
 		const FResolvedStaticMeshView& ResolvedView,
-		FMeshDrawBindingGroup& BindingGroup,
+		FMeshDrawCommandStateCache& BindingGroup,
 		FRHIBuffer* IndirectArguments,
 		uint64 IndirectArgumentOffset,
 		FRHIBuffer* VisibleInstances,
@@ -1000,14 +993,9 @@ namespace Durin
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.DrawGBufferSection");
-		const FStaticMeshGeometryBinding Geometry(Primitive, Item);
-		if (!Geometry.IsValid())
-		{
-			return false;
-		}
 		const auto& Record = ResolvedView.Draws[Item.ResolvedIndex];
 		const bool bGPUCulling = IndirectArguments != nullptr;
-		auto Command = Record.Commands[bGPUCulling ? 3 : 2];
+		auto Command = ResolvedView.GetMeshDrawCommand(Item, {EMeshPipelinePass::GBuffer, bGPUCulling});
 		if (!Command) return false;
 		if (bGPUCulling)
 		{
@@ -1016,19 +1004,16 @@ namespace Durin
 			const FMeshPassProcessorBatch Batch{Item.Command->Material.PlanningPassIdentity, *Factory,
 				{Item.Command->PipelineKey.Rasterizer, Item.Command->PipelineKey.Depth, Item.Command->PipelineKey.ColorBlend},
 				Item.Command->PipelineKey.Topology, {}, Item.Command->bSupportsGBuffer, true};
-			FDynamicPassMeshDrawListContext Context(Command, {VisibleInstances, 0, VisibleInstances->GetSize()},
-				{InstanceTransforms, 0, InstanceTransforms->GetSize()}, Command);
-			FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).AddMeshBatch(Batch, Context);
-			if (!Context.GetResult()) return false;
+			FMeshDrawCommandHandle Completed;
+			FDynamicPassMeshDrawListContext Context(*ResolvedView.DrawCommandStorage, Command->Pipeline->GetPassKey(), Completed,
+				Record.Commands.at(Command->Pipeline->GetPassKey()));
+			const auto Result = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).BuildGPUCullingCommand(
+				Batch, *Command, {VisibleInstances, 0, VisibleInstances->GetSize()},
+				{InstanceTransforms, 0, InstanceTransforms->GetSize()}, IndirectArguments, IndirectArgumentOffset, Context);
+			if (!Result) return false;
+			Command = ResolvedView.DrawCommandStorage->GetCommand(Completed);
 		}
-		if (!BindingGroup.Apply(Command->Pipeline.get(), Command->VertexBindings.get(), Command->FragmentBindings.get(),
-			[&] { return Command->SubmitBindings(CommandList); })) return false;
-		Geometry.Bind(CommandList);
-		if (IndirectArguments != nullptr)
-			CommandList.DrawIndexedIndirect(IndirectArguments, IndirectArgumentOffset);
-		else
-			Geometry.DrawIndexed(CommandList);
-		return true;
+		return Command->SubmitDraw(CommandList, &BindingGroup);
 	}
 
 	auto FStaticMeshRenderer::RecordPreparedSection(
@@ -1037,45 +1022,14 @@ namespace Durin
 		const FPreparedStaticMeshDraw& Item,
 		const FResolvedStaticMeshView& ResolvedView,
 		bool bShadowDepth,
-		bool bHybridRetained, FMeshDrawBindingGroup* BindingGroup
+		bool bHybridRetained, FMeshDrawCommandStateCache* BindingGroup
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.DrawSection");
 		check(CommandList.IsInsideRenderPass());
-		const FStaticMeshGeometryBinding Geometry(Primitive, Item);
-		check(Geometry.IsValid());
-
-		Geometry.Bind(CommandList);
 		if (Item.ResolvedIndex >= ResolvedView.Draws.size()) return false;
-		const auto& Record = ResolvedView.Draws[Item.ResolvedIndex];
-		const auto& Pipeline = !bShadowDepth && bHybridRetained
-			? Record.HybridPipeline : Record.Pipeline;
-		if (Pipeline == nullptr)
-		{
-			return false;
-		}
-
-
-		const auto& Command = Record.Commands[bHybridRetained ? 1 : 0];
-		if (!Command) return false;
-		FMeshDrawBindingGroup SingleDrawGroup;
-		auto& Group = BindingGroup ? *BindingGroup : SingleDrawGroup;
-		if (!Group.Apply(Command->Pipeline.get(), Command->VertexBindings.get(), Command->FragmentBindings.get(),
-			[&] { return Command->SubmitBindings(CommandList); })) return false;
-		if (bShadowDepth)
-		{
-			auto Rasterizer = MakeShadowRasterizerState(Item.Command->PipelineKey.Rasterizer);
-			if (Item.RasterBias)
-			{
-				Rasterizer.DepthBiasConstantFactor = (*Item.RasterBias)[0];
-				Rasterizer.DepthBiasSlopeFactor = (*Item.RasterBias)[1];
-				Rasterizer.DepthBiasClamp = (*Item.RasterBias)[2];
-			}
-			CommandList.SetDepthBias(Rasterizer.DepthBiasConstantFactor, Rasterizer.DepthBiasClamp, Rasterizer.DepthBiasSlopeFactor);
-		}
-
-		Geometry.DrawIndexed(CommandList);
-		return true;
+		const auto Command = ResolvedView.GetMeshDrawCommand(Item, FState::GetPassKey(Item, bShadowDepth, bHybridRetained));
+		return Command && Command->SubmitDraw(CommandList, BindingGroup);
 
 	}
 

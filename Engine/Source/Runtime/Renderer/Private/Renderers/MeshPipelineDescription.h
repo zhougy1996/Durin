@@ -34,6 +34,14 @@ namespace Durin::RendererPrivate
 		HitProxy,
 	};
 
+	// Identifies a mesh pass and its direct or GPU-culling variant without positional slots.
+	struct FMeshPassKey
+	{
+		EMeshPipelinePass Pass = EMeshPipelinePass::Forward;
+		bool bGPUCulling = false;
+		auto operator<=>(const FMeshPassKey&) const = default;
+	};
+
 	// Value-only pass description: no scene, visibility, shader map, native shader,
 	// vertex buffers or command list is needed to collect it. Shader selection and
 	// vertex declaration preparation remain with their respective owners.
@@ -44,6 +52,7 @@ namespace Durin::RendererPrivate
 		FRHIRasterizerState Rasterizer;
 		FRHIDepthStencilState Depth;
 		std::array<FRHIColorBlendState, MaxSimultaneousRenderTargets> ColorBlends{};
+		auto operator==(const FMeshPipelineDescription&) const -> bool = default;
 
 		// The returned initializer borrows shaders/declaration. The caller retains
 		// those resources until the pipeline service has captured the request.

@@ -167,7 +167,7 @@ namespace Durin
 		);
 
 		SetViewRect();
-		FMeshDrawBindingGroup TranslucentBindings;
+		FMeshDrawCommandStateCache TranslucentBindings;
 		for (const FPreparedStaticMeshDraw& Draw :
 			 Inputs.Receiver.StaticMeshes.Translucent)
 		{

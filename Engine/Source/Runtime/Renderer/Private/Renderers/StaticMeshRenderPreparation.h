@@ -342,9 +342,12 @@ namespace Durin
 		std::vector<bool> PersistentCollectionBindingsChanged;
 		// Dense primitive/material indices avoid per-draw pointer-keyed lookups.
 		std::vector<FRHIUniformBufferRange> PrimitiveUniforms;
-		std::array<FRHIUniformBufferRange, 3> ViewUniforms;
-		// Forward, GBuffer, and masked-shadow slots are prepared before recording.
-		std::vector<std::array<std::optional<FMaterialUniform>, 3>> MaterialUniforms;
+		std::map<RendererPrivate::ESurfaceMaterialPass, FRHIUniformBufferRange> ViewUniforms;
+		// Typed surface resources can be shared by compatible mesh passes.
+		std::vector<std::map<RendererPrivate::ESurfaceMaterialPass, std::optional<FMaterialUniform>>> MaterialUniforms;
+		std::shared_ptr<RendererPrivate::FDynamicMeshDrawCommandStorage> DrawCommandStorage;
+		RENDERER_API auto GetMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass) const
+			-> std::shared_ptr<const RendererPrivate::FMeshDrawCommand>;
 		FRHITexture* DirectionalShadowTexture = nullptr;
 		FRHISampler* DirectionalShadowSampler = nullptr;
 		FStaticMeshRenderObservations Observations;
