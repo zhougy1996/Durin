@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Materials/PSOPrecacheMaterial.h"
+#include "PSOPrecacheMaterial.h"
 #include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "RenderResourceCreation.h"

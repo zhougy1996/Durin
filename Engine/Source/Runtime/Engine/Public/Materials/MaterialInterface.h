@@ -13,7 +13,7 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialFunctionInterface.h"
 #include "Delegates/Delegate.h"
-#include "Materials/MaterialPSOPrecache.h"
+#include "PSOPrecacheMaterial.h"
 
 #include "MaterialInterface.gen.h"
 
@@ -191,18 +191,9 @@ namespace Durin
 
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;
-		ENGINE_API auto PrecachePSOs(std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
-			const FPSOPrecacheParams& PrecacheParams, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs)
-			-> std::expected<void, std::string>;
-		ENGINE_API auto PrecachePSOs(IRendererModule& Renderer, std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
-			const FPSOPrecacheParams& PrecacheParams, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs)
-			-> std::expected<void, std::string>;
-		ENGINE_API auto PrecachePSOs(std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
-			const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
-			std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
-		ENGINE_API auto PrecachePSOs(IRendererModule& Renderer, std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
-			const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
-			std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
+		ENGINE_API auto PrecachePSOs(ERHIFeatureLevel FeatureLevel,
+			std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList, const FPSOPrecacheParams& PrecacheParams,
+			EPSOPrecachePriority Priority, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
 		ENGINE_API auto GetMaterialResource(ERHIFeatureLevel FeatureLevel) const -> FMaterialResource;
 		ENGINE_API auto GetAcceptedCompiledProgram(ERHIFeatureLevel FeatureLevel) const -> std::shared_ptr<const FMaterialCompilerResult>;
 		ENGINE_API auto CacheResourceShadersForRendering(ERHIFeatureLevel FeatureLevel,

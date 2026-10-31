@@ -5,19 +5,11 @@
 #include "Materials/MaterialRenderTypes.h"
 #include "PSOPrecache.h"
 #include "RHIFeatureLevel.h"
-#include "Rendering/PrimitiveRenderParticipation.h"
 #include "PipelineStateCache.h"
 #include "SceneRenderPreparationConfig.h"
 
 namespace Durin
 {
-	struct FPSOPrecacheParams
-	{
-		FPrimitiveRenderParticipation Participation;
-		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
-		bool bWireframe = false, bOrientationChanging = false, bReversedZ = false;
-		auto operator==(const FPSOPrecacheParams&) const -> bool = default;
-	};
 
 	// Immutable accepted material snapshot. No DObject or live proxy crosses threads.
 	struct FMaterialPSOPrecacheParams
@@ -123,5 +115,17 @@ namespace Durin
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;
+	};
+	struct FMaterialResource;
+
+	// UE-shaped collection boundary. Implementations append descriptions only;
+	// compilation, submission and request ownership belong to the host.
+	class IPSOCollector
+	{
+	public:
+		virtual ~IPSOCollector() = default;
+		virtual auto CollectPSOInitializers(const FSceneRenderPreparationConfig& SceneConfig,
+			const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
+			const FPSOPrecacheParams& PrecacheParams, FPSOPrecacheDataArray& PSOInitializers) -> void = 0;
 	};
 }

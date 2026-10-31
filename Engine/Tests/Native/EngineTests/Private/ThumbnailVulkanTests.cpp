@@ -3,7 +3,7 @@
 #include "RenderResource.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/Actor.h"
-#include "Materials/MaterialPSOPrecache.h"
+#include "PSOPrecacheMaterial.h"
 #include "VertexFactory.h"
 
 #include "StaticMeshTestAccess.h"

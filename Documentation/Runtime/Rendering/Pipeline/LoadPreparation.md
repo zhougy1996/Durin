@@ -160,7 +160,7 @@ and strides. These layouts do not enable new drawing or Shader routes.
 for mesh-dependent factories. Other stream types still resolve through the type.
 Unsupported factories/streams, missing metadata and malformed declarations return
 explicit errors; empty Default layouts require `SupportsManualVertexFetch`.
-The value lives in RenderCore's `PSOPrecache.h` and retains CPU elements rather
+The value lives in Engine's `PSOPrecache.h` and retains CPU elements rather
 than UE's native custom declaration, so collection requires no device or GPU
 buffer residency. Type registrations must outlive the collected values.
 `MatchesVertexElements` compares canonical input layouts for coverage validation;
@@ -262,6 +262,15 @@ for the Renderer module lifetime and is renewed when the module is recreated.
 
 ### Material requests
 
+Engine's `PSOPrecache.h` owns common collection parameters, initializer data and
+CPU Vertex Factory snapshots; RenderCore owns the Vertex Factory type and element
+callbacks. `PSOPrecacheMaterial.h` owns `IPSOCollector` and material request/owner
+contracts. `PSOPrecacheComponent.h` retains the component policy and observer set.
+Both material submission overloads require an explicit FeatureLevel; the host
+convenience overload resolves only the Renderer and forwards to the same core
+implementation. Renderer collection enumerates registered pass processors directly;
+there is no separate pass-planning interface for tests.
+
 `DMaterialInterface::PrecachePSOs` explicitly snapshots the accepted program and
 effective material planning identity for a bounded list of Vertex Factories.
 `FPSOPrecacheParams` carries primitive participation and geometry/raster facts;
@@ -294,7 +303,7 @@ other materials sharing the same work. Dynamic parameter changes preserve them.
 diagnostics remain Failed after invalidation, but cannot authorize an old owner
 even when its required PSOs completed before an optional PSO failed.
 
-`FPSOPrecacheData` in RenderCore's `PSOPrecache.h` describes a graphics or
+`FPSOPrecacheData` in Engine's `PSOPrecache.h` describes a graphics or
 compute initializer with `bRequired` and `Priority`. `FMaterialPSOPrecacheCollection`
 exposes `PSOInitializers`; collectors append descriptions without submitting native
 requests. Its resource owner keeps referenced shaders and declarations alive.
