@@ -249,6 +249,7 @@ namespace Durin
 			-> FRHIDiagnosticSnapshot;
 		// Owner-thread reset preserving capabilities, capacities, and live state.
 		RHI_API virtual auto RHIResetDiagnosticStatistics() -> void;
+		// Timestamp support is a precondition; supported creation grows storage as needed.
 		RHI_API virtual auto RHICreateGPUTimingQuery() noexcept -> TRefCountPtr<FRHIGPUTimingQuery>;
 		RHI_API virtual auto RHIGetGPUTimingResult(
 			const FRHIGPUTimingQuery* Query) const -> FRHIGPUTimingResult;
@@ -267,8 +268,9 @@ namespace Durin
 		// ordered after earlier draws. Threaded backends retain main-thread entry.
 		virtual auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bIsFullscreen) -> void = 0;
 
+		// Pipeline compilation may return null; this is distinct from device/allocation failure.
 		virtual auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIGraphicsPipelineState> = 0;
-		// Ordinary native factories return complete non-null resources; native failure (including OOM) terminates.
+		// Pipeline compilation may return null; OOM, device faults and unexpected exceptions are terminal.
 		RHI_API virtual auto RHICreateComputePipelineState(FName DebugName, const FComputePipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIComputePipelineState>;
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
 		virtual auto RHIGetViewportBackBuffer(FRHIViewport* InViewportRHI) -> TRefCountPtr<FRHITexture> = 0;
@@ -308,10 +310,12 @@ namespace Durin
 		// caching. Explicit RHICreate*View calls remain creation-only factories.
 		RHI_API virtual auto RHIGetOrCreateBufferView(
 			FRHIBuffer* Buffer,
-			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>;
+			const FRHIBufferViewDesc& Desc
+		) noexcept -> TRefCountPtr<FRHIBufferView>;
 		RHI_API virtual auto RHIGetOrCreateTextureView(
 			FRHITexture* Texture,
-			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>;
+			const FRHITextureViewDesc& Desc
+		) noexcept -> TRefCountPtr<FRHITextureView>;
 		RHI_API auto RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void;
 		// Synchronizes submitted work and returns one tightly packed subresource.

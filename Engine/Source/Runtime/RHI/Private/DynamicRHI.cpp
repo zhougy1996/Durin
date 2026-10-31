@@ -149,14 +149,16 @@ namespace Durin
 
 	auto FDynamicRHI::RHIGetOrCreateBufferView(
 		FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
+		const FRHIBufferViewDesc& Desc
+	) noexcept -> TRefCountPtr<FRHIBufferView>
 	{
 		return RHICreateBufferView(Buffer, Desc);
 	}
 
 	auto FDynamicRHI::RHIGetOrCreateTextureView(
 		FRHITexture* Texture,
-		const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>
+		const FRHITextureViewDesc& Desc
+	) noexcept -> TRefCountPtr<FRHITextureView>
 	{
 		return RHICreateTextureView(Texture, Desc);
 	}

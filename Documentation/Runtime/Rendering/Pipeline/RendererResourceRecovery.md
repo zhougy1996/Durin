@@ -8,23 +8,18 @@ Last reviewed: 2026-10-31
 
 ## Required-Success Native Construction
 
-Ordinary native factories return complete non-null resources. Native creation
-failure and OOM terminate through the common
-[RHI creation boundary](../RHI/RHICommandExecution.md#required-success-resource-creation).
-Renderer does not classify native faults, retain an earlier native payload as
-recovery, skip a draw because native creation failed, or retry native failure.
-Source/content validation, shader compilation and asynchronous admission remain
-separate preparation outcomes.
+Ordinary texture/buffer/shader/view factories require complete non-null resources.
+Known PSO compilation failure may return null and produces an accepted Failed
+pipeline result. OOM, device loss and unexpected failures remain terminal through
+the [RHI creation boundary](../RHI/RHICommandExecution.md#required-success-resource-creation).
+Renderer owns preparation availability and generation-scoped failure suppression,
+not native fault classification. It does not retry a failed compilation each frame.
+Source/content errors and asynchronous admission remain distinct outcomes.
 
-`RHICreateGraphicsPipelineState` returns a complete pipeline; it does
-not promise a distinct object on every call. Vulkan reuses a strongly retained
-pipeline for an equal normalized graphics-pipeline key. `DebugName` labels
-diagnostics and captures and is excluded from that key. Changing the name does
-not require a new pipeline, while changing semantic pipeline state can select
-a different pipeline even with the same name. Compute pipelines follow the
-same Vulkan cache policy. Renderer slots and explicit Renderer-owned payloads
-hold logical ownership; the backend cache and recorded commands can also retain
-references. Cache eviction selects only entries with no external references.
+A successful `RHICreateGraphicsPipelineState` need not produce a distinct object.
+Vulkan reuses an equal normalized pipeline key; DebugName affects diagnostics,
+not identity. Cache eviction releases only the cache reference. Explicit owners
+and recorded commands keep their pipeline/dependency references valid.
 
 Vertex declarations copy immutable CPU descriptions on the caller. Vulkan native
 result codes feed the terminal RHI diagnostic; they are not transported as asset
@@ -36,13 +31,11 @@ shader/declaration references, with render-pass and structural-layout dependenci
 acquired separately. The Vulkan manager serializes cache misses in a creator
 domain. Ready lookup, strong-reference acquisition, LRU, capacity reservation,
 and publication use one short cache/statistics transaction. A full cache reserves
-a cache-only victim before native compilation and restores its retained node on
-failure. Driver compilation holds a separate exclusive driver-cache mutex without
-the table transaction; cache hits do not wait for the creator. Public synchronous
-PSO entries return Ready hits directly with zero replay submissions. With Core
-running, misses join the bounded request channel; a permitted caller waits for
-its result. Startup compatibility without Core runs native creation directly
-on the caller, while asynchronous requests return Unsupported.
+a victim before native compilation and restores its retained node on compilation
+failure. Prefer unused entries; externally owned pipelines remain valid if their
+cache reference is evicted. Driver compilation holds a separate exclusive cache
+mutex. Synchronous misses create directly through the native manager rather than
+joining optional precache admission; ready hits require no replay submission.
 
 Native PSO construction can run away from replay. Published RHI objects still
 retire through the RHI deletion owner: final reference release appends an
@@ -145,8 +138,8 @@ admission before Core construction. Pending native waits reject Core workers,
 RHI replay, and the creator itself. Core is never started implicitly.
 
 Internal completion edges observe terminal notification and carry no native
-resource references. Accepted native creation completes Ready or is canceled by
-its owner/lifetime. Native errors terminate the process from the creator thread.
+resource references. Accepted compilation completes Ready or Failed, or is canceled
+by its owner/lifetime. Native allocation/device errors terminate from the creator.
 Only Ready exposes complete native resources; rejected admission remains explicit.
 
 RHI interns canonical pipeline-layout, vertex-input, and blend descriptions in
@@ -156,14 +149,13 @@ object/node overhead. Keys retain immutable shared descriptions; the last strong
 description owner releases its reservation. Descriptions contain no device or
 shader resources and may survive backend shutdown.
 
-The Vulkan device has a separate 64 MiB CPU metadata budget shared by compact
-PSO keys/results, unfinished creation inputs, structural layouts, descriptor-set
-layouts, and render passes. Reservations charge locally owned data before native
-creation. Their ownership follows the retained result until deletion, including
-evicted objects awaiting owner retirement. This is logical cache accounting,
-not an allocator/driver memory measurement. Resident count limits remain 2,048
-PSOs of each type, 256 structural layouts, 1,024 render passes, and 4,096
-descriptor-set layouts. A full budget rejects recoverably.
+Vulkan optional PSO request metadata has its own 64 MiB admission budget. Native
+pipeline/dependency accounting is separate and does not reject creation at that
+budget. Retained PSO tables remain capped at 2,048 entries per type and structural
+layouts at 256; evicted objects can remain alive under external ownership.
+Descriptor-set layouts and render passes are interned until device teardown,
+without artificial live-object count limits. Accounting is logical CPU metadata,
+not an allocator/driver memory measurement.
 
 `RHIExit` closes request admission and joins the device-owned Core scope before
 release delegates, replay shutdown, or native cache persistence/destruction.
@@ -186,7 +178,7 @@ creation callbacks must never attempt to close their own compile queue.
 return the same shared identity for an equal normalized key while an owner or
 recorded command retains it. Names are diagnostic only. Admission returns an
 `expected` identity or an explicit request rejection; accepted identities expose
-Pending/Ready/Canceled, immutable layout metadata, terminal readiness,
+Pending/Ready/Failed/Canceled, immutable layout metadata, terminal readiness,
 permitted waits, and nullable pipeline results. Raw Core completion handles remain
 internal because they carry cancellation authority. A rejected request is not a
 failed native identity; admission pressure can be retried before creation.
@@ -200,8 +192,9 @@ are capped at 1 MiB. Acquisition prunes expired identities every 60 seconds and
 at entry capacity or metadata pressure.
 
 At frame begin, Vulkan retains at most 64 cache-only graphics and 64 cache-only
-compute PSOs, evicting older entries first. Externally retained PSOs remain
-pinned, and existing GPU-aware retirement protects their native destruction.
+compute PSOs, evicting older entries first. This periodic trim preserves externally
+retained entries; capacity eviction can release their cache reference. External
+owners and GPU-aware retirement protect native lifetime.
 Maintenance skips an active creator rather than waiting for native compilation.
 Evicted PSOs can be recreated using the persistent driver pipeline cache; this
 retention policy trades CPU/driver memory for possible future creation latency.
@@ -306,13 +299,15 @@ shutdown performs the same ordered release.
 Each owner tracks independent shader, device, and manual generations. Successful
 payloads remain cached until a relevant generation changes. Shader preparation
 failures retain their owned cause and retry dependencies, suppressing repeated
-attempts until a relevant generation changes. Native resource and pipeline
-creation failures terminate; no next-preparation native retry exists.
+attempts until a relevant generation changes. This includes recognized PSO
+compilation failures. Native allocation/device faults terminate; no native
+allocation retry exists.
 
 `FRenderResourceCreateError` owns an optional Shader cause plus resource context,
 identity, category and reason. Native error details remain at the backend logging
-boundary. Async native failures terminate rather than publishing an empty
-pipeline result; request scopes retain only admission and preparation outcomes. `FormatRenderResourceCreateError`
+boundary. Accepted async compilation may publish Failed with no pipeline, while
+allocation/device faults terminate. Request scopes preserve this distinction
+from pre-admission rejection. `FormatRenderResourceCreateError`
 formats owner diagnostics when they are reported. Material validation formats its
 own typed error at its logging boundary.
 

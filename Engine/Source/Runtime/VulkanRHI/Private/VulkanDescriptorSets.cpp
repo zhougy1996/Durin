@@ -57,14 +57,12 @@ namespace Durin::VulkanRHI
 			const FVulkanDescriptorSetLayoutEntry& FoundEntry = It->second;
 			return FoundEntry.Handle;
 		}
-		if (DLayoutMap.size() >= 4096)
-			RHITerminateOnFailure("Vulkan native cache", "cache capacity exhausted with pinned resources");
 		// Resident entries remain valid until all creation tasks have joined.
 		vk::DescriptorSetLayoutCreateInfo CreateInfo{};
 		CreateInfo.setBindings(Layout.LayoutBindings);
 
 		FVulkanDescriptorSetLayoutEntry NewEntry;
-		NewEntry.MetadataReservation = Device.ReserveCacheMetadata(512 + Layout.LayoutBindings.capacity() * sizeof(vk::DescriptorSetLayoutBinding));
+		NewEntry.MetadataReservation = Device.ReserveNativeMetadata(512 + Layout.LayoutBindings.capacity() * sizeof(vk::DescriptorSetLayoutBinding));
 		const auto Result = Device.GetHandle().createDescriptorSetLayout(&CreateInfo, nullptr, &NewEntry.Handle);
 		if (Result != vk::Result::eSuccess)
 			TerminateVulkanFailure(Result, "Vulkan descriptor set layout creation");

@@ -12,10 +12,13 @@
 
 namespace Durin
 {
-	FRHIPipelineMetadataBudget::FRHIPipelineMetadataBudget() : Used(std::make_shared<std::atomic<uint64>>(0)) {}
+	FRHIPipelineMetadataBudget::FRHIPipelineMetadataBudget(uint64 InCapacity)
+		: Used(std::make_shared<std::atomic<uint64>>(0))
+		, Capacity(InCapacity)
+	{
+	}
 	auto FRHIPipelineMetadataBudget::Reserve(uint64 Bytes) -> std::shared_ptr<void>
 	{
-		constexpr uint64 Capacity = 64ull * 1024 * 1024;
 		auto Current = Used->load();
 		do
 		{
@@ -360,7 +363,7 @@ namespace Durin
 			}
 			catch (const std::bad_alloc&)
 			{
-				RHITerminateOnFailure("RHI pipeline metadata", "out of memory");
+				RHITerminateOnOutOfMemory("RHI pipeline metadata");
 			}
 			catch (const FRHIResourceCapacityError&) { return Reject(ERHIPipelineRequestRejection::CapacityExceeded); }
 		}
@@ -414,9 +417,7 @@ namespace Durin
 				if (Entry->Key->index() == 0)
 					Result.Graphics = Backend.CreateGraphics(*std::get<0>(Entry->Inputs), std::get<0>(*Entry->Key));
 				else Result.Compute = Backend.CreateCompute(*std::get<1>(Entry->Inputs), std::get<1>(*Entry->Key));
-				if (!Result.Graphics && !Result.Compute)
-					RHITerminateOnFailure("RHI pipeline creator", "native factory returned null");
-				Result.State = ERHIPipelineRequestState::Ready;
+				Result.State = Result.Graphics || Result.Compute ? ERHIPipelineRequestState::Ready : ERHIPipelineRequestState::Failed;
 				CompleteEntry(Entry, std::make_shared<FPipelinePublication>(std::move(Result)));
 			}
 		}

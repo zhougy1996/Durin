@@ -99,10 +99,8 @@ namespace Durin::VulkanRHI
 		auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) noexcept -> FBufferRHIRef override;
 		auto RHICreateBufferView(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) noexcept -> FBufferViewRHIRef override;
 		auto RHICreateTextureView(FRHITexture* Texture, const FRHITextureViewDesc& Desc) noexcept -> FTextureViewRHIRef override;
-		auto RHIGetOrCreateBufferView(FRHIBuffer* Buffer,
-			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef override;
-		auto RHIGetOrCreateTextureView(FRHITexture* Texture,
-			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef override;
+		auto RHIGetOrCreateBufferView(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) noexcept -> FBufferViewRHIRef override;
+		auto RHIGetOrCreateTextureView(FRHITexture* Texture, const FRHITextureViewDesc& Desc) noexcept -> FTextureViewRHIRef override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) noexcept -> FShaderRHIRef override;
 
 

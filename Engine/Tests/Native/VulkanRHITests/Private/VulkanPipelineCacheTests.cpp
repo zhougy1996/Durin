@@ -163,7 +163,7 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	TEST_F(FVulkanPipelineCacheTests, PipelineCapacityEvictsOnlyUnpinnedEntries)
+	TEST_F(FVulkanPipelineCacheTests, PipelineCapacityLimitsRetentionWhileLivePipelinesRemainUsable)
 	{
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {"VertexMain", "FragmentMain", "ComputeMain"};
@@ -204,6 +204,7 @@ namespace Durin::VulkanRHI
 				{
 					auto Access = Device->AccessPipelineCacheStatistics();
 					(bCompute ? Access.Get().ComputePipelines : Access.Get().GraphicsPipelines).Capacity = 2;
+					Access.Get().StructuralLayouts.Capacity = 2;
 				}
 				const auto Create = [&](uint32 Variant) -> TRefCountPtr<FRHIResource> {
 					auto G = Graphics;
@@ -239,22 +240,61 @@ namespace Durin::VulkanRHI
 				auto Hit = Create(0);
 				auto& Commands = GCommandListExecutor.GetImmediateCommandList();
 				EXPECT_EQ(Hit, Warm);
-				Cold = nullptr;
+				// Keep every pipeline alive while the retained cache is full.
 
 				auto Replacement = Create(2);
 				EXPECT_TRUE(Replacement);
 				EXPECT_EQ(Create(0), Warm);
+				EXPECT_TRUE(Cold);
 				const auto Stats = Device->GetPipelineCacheStatistics();
 				const auto& Cache = bCompute ? Stats.ComputePipelines : Stats.GraphicsPipelines;
 				EXPECT_EQ(Cache.Occupancy, 2u);
+				EXPECT_EQ(Stats.StructuralLayouts.Occupancy, 2u);
+				EXPECT_EQ(Stats.StructuralLayouts.FailedCandidates, 0u);
 				EXPECT_EQ(Cache.NativeCreations, 3u);
 				EXPECT_EQ(Cache.FailedCandidates, 0u);
 				EXPECT_EQ(Cache.Evictions, 1u);
 				Warm = nullptr;
 				Hit = nullptr;
 				Replacement = nullptr;
+				Cold = nullptr;
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 			}
+		});
+	}
+	TEST_F(FVulkanPipelineCacheTests, SynchronousCreationDoesNotConsumeOptionalPrecacheBudget)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCoreGuard
+		{
+			~FCoreGuard()
+			{
+				if (GDynamicRHI) RHIExit();
+				ShutdownTaskScheduler();
+			}
+		} CoreGuard;
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		FSlangShaderCompiler Compiler;
+		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR) / "CreationQualification.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			const auto& Input = Compiled.CompiledShaders.front();
+			auto Desc = FRHIShaderCreateDesc::Create(Input.DebugName.c_str(), Input.Frequency, Input.Code, Input.CodeHash);
+			Desc.SetEntryPoint(Input.BinaryEntryPoint.c_str());
+			auto Shader = GDynamicRHI->RHICreateShader(Desc);
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			auto* Device = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
+			auto ExhaustAdmission = Device->ReserveCacheMetadata(64ull * 1024 * 1024);
+			EXPECT_FALSE(PrecachePipelineForTest(Initializer, "optional").IsAccepted());
+			auto Required = GDynamicRHI->RHICreateComputePipelineState("required", Initializer);
+			ASSERT_TRUE(Required);
+			EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().ComputePipelines.NativeCreations, 1u);
 		});
 	}
 }

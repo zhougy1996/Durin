@@ -446,7 +446,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIGetOrCreateBufferView(
 		FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
+		const FRHIBufferViewDesc& Desc
+	) noexcept -> FBufferViewRHIRef
 	{
 		const uint64 FrameNumber = GCommandListExecutor.GetFrameNumber();
 		if (FBufferViewRHIRef Cached = ViewCache->FindBufferView(
@@ -455,14 +456,13 @@ namespace Durin::VulkanRHI
 			return Cached;
 		}
 		FBufferViewRHIRef Candidate = RHICreateBufferView(Buffer, Desc);
-		return Candidate
-			? ViewCache->PublishBufferView(std::move(Candidate), FrameNumber)
-			: nullptr;
+		return ViewCache->PublishBufferView(std::move(Candidate), FrameNumber);
 	}
 
 	auto FVulkanDynamicRHI::RHIGetOrCreateTextureView(
 		FRHITexture* Texture,
-		const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
+		const FRHITextureViewDesc& Desc
+	) noexcept -> FTextureViewRHIRef
 	{
 		const uint64 FrameNumber = GCommandListExecutor.GetFrameNumber();
 		if (FTextureViewRHIRef Cached = ViewCache->FindTextureView(
@@ -471,9 +471,7 @@ namespace Durin::VulkanRHI
 			return Cached;
 		}
 		FTextureViewRHIRef Candidate = RHICreateTextureView(Texture, Desc);
-		return Candidate
-			? ViewCache->PublishTextureView(std::move(Candidate), FrameNumber)
-			: nullptr;
+		return ViewCache->PublishTextureView(std::move(Candidate), FrameNumber);
 	}
 
 	auto FVulkanDynamicRHI::UpdateTexture2D(

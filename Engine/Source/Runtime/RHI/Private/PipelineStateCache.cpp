@@ -95,7 +95,8 @@ namespace Durin
 					if (auto Pipeline = Existing->second.Pipeline.lock())
 					{
 						const auto Status = Pipeline->GetState();
-						if (Status == ERHIPipelineRequestState::Pending || Status == ERHIPipelineRequestState::Ready)
+						if (Status == ERHIPipelineRequestState::Pending || Status == ERHIPipelineRequestState::Ready
+							|| Status == ERHIPipelineRequestState::Failed)
 							return TResult(std::static_pointer_cast<TPipeline>(std::move(Pipeline)));
 					}
 					Entries.erase(Existing);
@@ -125,7 +126,7 @@ namespace Durin
 			catch (const FRHIResourceCapacityError&) { return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
 			catch (const std::bad_alloc&)
 			{
-				RHITerminateOnFailure("RHI pipeline metadata", "out of memory");
+				RHITerminateOnOutOfMemory("RHI pipeline metadata");
 			}
 		}
 

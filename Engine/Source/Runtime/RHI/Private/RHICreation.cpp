@@ -8,10 +8,9 @@
 
 namespace Durin
 {
-	[[noreturn]] auto RHITerminateOnFailure(const char* Operation, const char* Reason, int64 NativeCode) noexcept -> void
+	static auto ReportFailure(const char* Operation, const char* Reason, int64 NativeCode) noexcept -> void
 	{
-		// Avoid the allocating logger, its locks and normal process teardown. Even
-		// a failure to write diagnostics must reach immediate nonzero process exit.
+		// Report without the allocating logger; failure to report must remain terminal.
 		char Message[1024];
 		const int Count = std::snprintf(Message, sizeof(Message), "RHI terminal failure: %.240s: %.640s (native=%lld)\n", Operation ? Operation : "unknown operation", Reason ? Reason : "unknown failure", static_cast<long long>(NativeCode));
 		if (Count > 0)
@@ -24,6 +23,18 @@ namespace Durin
 			(void)::write(STDERR_FILENO, Message, Size);
 #endif
 		}
+	}
+
+	[[noreturn]] auto RHITerminateOnFailure(const char* Operation, const char* Reason, int64 NativeCode) noexcept -> void
+	{
+		ReportFailure(Operation, Reason, NativeCode);
+		// Launch owns the process terminate handler and crash artifacts.
+		std::terminate();
+	}
+
+	[[noreturn]] auto RHITerminateOnOutOfMemory(const char* Operation, int64 NativeCode) noexcept -> void
+	{
+		ReportFailure(Operation, "out of memory", NativeCode);
 #if defined(_WIN32)
 		// ExitProcess (also used by the CRT's _Exit) runs DLL detach callbacks on
 		// this thread. RHI failure must not enter module/render teardown, especially

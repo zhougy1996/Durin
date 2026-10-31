@@ -101,7 +101,7 @@ namespace Durin
 			}
 			catch (const std::bad_alloc&)
 			{
-				RHITerminateOnFailure("render pipeline request", "out of memory");
+				RHITerminateOnOutOfMemory("render pipeline request");
 			}
 		}
 	};

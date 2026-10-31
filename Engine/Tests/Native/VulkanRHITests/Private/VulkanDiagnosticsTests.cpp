@@ -580,5 +580,15 @@ TEST(VulkanCreationTerminalTests, NativeAllocationAndDeviceLossExitWithoutRHI)
 	using namespace Durin::VulkanRHI;
 	EXPECT_EXIT(TerminateVulkanFailure(vk::Result::eErrorOutOfDeviceMemory, "texture allocation"), testing::ExitedWithCode(EXIT_FAILURE), "texture allocation: out of memory");
 	EXPECT_EXIT(TerminateVulkanFailure(vk::Result::eErrorOutOfHostMemory, "buffer allocation"), testing::ExitedWithCode(EXIT_FAILURE), "buffer allocation: out of memory");
-	EXPECT_EXIT(TerminateVulkanFailure(vk::Result::eErrorDeviceLost, "pipeline creation"), testing::ExitedWithCode(EXIT_FAILURE), "pipeline creation: Vulkan operation failed");
+	EXPECT_DEATH(TerminateVulkanFailure(vk::Result::eErrorDeviceLost, "pipeline creation"), "pipeline creation: Vulkan operation failed");
+}
+
+TEST(VulkanPipelineFailureTests, OnlyRecognizedShaderRejectionIsCompilationFailure)
+{
+	using namespace Durin::VulkanRHI;
+	EXPECT_TRUE(IsVulkanPipelineCompilationFailure(vk::Result::eErrorInvalidShaderNV));
+	EXPECT_FALSE(IsVulkanPipelineCompilationFailure(vk::Result::eErrorOutOfDeviceMemory));
+	EXPECT_FALSE(IsVulkanPipelineCompilationFailure(vk::Result::eErrorOutOfHostMemory));
+	EXPECT_FALSE(IsVulkanPipelineCompilationFailure(vk::Result::eErrorDeviceLost));
+	EXPECT_FALSE(IsVulkanPipelineCompilationFailure(vk::Result::eErrorUnknown));
 }

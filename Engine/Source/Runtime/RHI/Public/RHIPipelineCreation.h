@@ -15,11 +15,12 @@ namespace Durin
 	class RHI_API FRHIPipelineMetadataBudget
 	{
 	public:
-		FRHIPipelineMetadataBudget();
+		explicit FRHIPipelineMetadataBudget(uint64 InCapacity = 64ull * 1024 * 1024);
 		auto Reserve(uint64 Bytes) -> std::shared_ptr<void>;
 		auto GetUsedBytes() const -> uint64 { return Used->load(); }
 	private:
 		std::shared_ptr<std::atomic<uint64>> Used;
+		uint64 Capacity;
 	};
 	RHI_API auto IsPipelineCreationPayloadBounded(const FGraphicsPipelineStateInitializer& Initializer,
 		std::string_view DebugName) -> bool;
@@ -49,6 +50,7 @@ namespace Durin
 		const FShaderRHIRef Shader;
 	};
 
+	// For accepted requests, Failed means compilation returned no usable pipeline.
 	enum class ERHIPipelineRequestState : uint8 { Pending, Ready, Failed, Canceled };
 	enum class ERHIPipelineRequestRejection : uint8
 	{
@@ -74,7 +76,7 @@ namespace Durin
 		auto GetRejection() const -> ERHIPipelineRequestRejection { return Rejection; }
 		RHI_API auto GetState() const -> ERHIPipelineRequestState;
 		RHI_API auto GetResult() const -> FRHIPipelineCreationResult;
-		// Completion signal only; inspect GetState/GetResult for failure or cancellation.
+		// Completion signal only; inspect acceptance first, then compilation state/cancellation.
 		RHI_API auto GetTaskHandle() const -> Tasks::FTask;
 		RHI_API auto IsCompute() const -> bool;
 		// Immutable recording metadata is available before the native pipeline.

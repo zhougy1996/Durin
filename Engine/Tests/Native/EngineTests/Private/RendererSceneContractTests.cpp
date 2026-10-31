@@ -3019,7 +3019,7 @@ namespace Durin::Tests
 		private:
 			auto CheckCreation() -> void
 			{
-				if (++Creates == FailOnCreate) RHITerminateOnFailure("RDG native allocation", "out of memory");
+				if (++Creates == FailOnCreate) RHITerminateOnOutOfMemory("RDG native allocation");
 			}
 			FDynamicRHI* Previous;
 		};

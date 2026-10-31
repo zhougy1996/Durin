@@ -524,9 +524,9 @@ identity cache admits 4,096 live entries and metadata remains budgeted. Collecto
 admission pressure preserves completed passes and retries only the unfinished
 suffix. Terminal pipeline references are released even while another pass awaits
 capacity. A completed precache records successful preparation, not permanent
-native residency. Vulkan may evict cache-only pipelines and reuse its driver
-cache on recreation; drawing still acquires a real ready pipeline through normal
-render preparation. Live draw/command references remain protected from eviction.
+native residency. Vulkan can release retained cache entries while live draw/command
+references keep their native objects valid. Recreation can reuse the driver cache;
+drawing still requires a real ready pipeline through normal render preparation.
 
 `FPSOPrecacheComponentData::SetMaterialPSOPrecacheData` replaces one component's
 observer set and advances its JobSet. `Poll` runs on GameThread and invokes the
@@ -570,8 +570,9 @@ Invalid or closed admissions remain terminal and observable. Lower-level capacit
 pressure stays with the accepted material collection rather than resubmitting
 the component's complete set. Proxy readiness checks do not retry deferred submission.
 Oversized sets fail explicitly. `GetPSOPrecacheDiagnostic` exposes submission
-diagnostics; individual request handles expose collection or admission errors. Native
-creation failures terminate through RHI rather than becoming retryable requests.
+diagnostics; individual handles separate collection/admission rejection from accepted
+PSO compilation failure. Failed compilation remains observable without per-frame
+retry. Native allocation/device faults terminate through RHI.
 
 `DPrimitiveComponent` owns reflected `bCastShadow` and `bRenderInMainPass`
 properties. Their setters and property edits retire the old component PSO set

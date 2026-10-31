@@ -557,7 +557,31 @@ namespace Durin
 			ERHIPipelineRequestRejection::CapacityExceeded);
 	}
 
-	TEST_F(FRHIPipelineCreationTests, NativeFailureAndHostOomExitFromBackgroundCreator)
+	TEST_F(FRHIPipelineCreationTests, AcceptedCompilationFailureIsSharedWithoutAutomaticRetry)
+	{
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		std::atomic<uint32> Calls = 0;
+		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
+										 ++Calls;
+										 return nullptr;
+									 }));
+		auto First = Owner.GetCompute(Initializer, "compile failure");
+		ASSERT_TRUE(First);
+		EXPECT_FALSE((*First)->Wait());
+		EXPECT_EQ((*First)->GetState(), ERHIPipelineRequestState::Failed);
+		EXPECT_FALSE((*First)->GetRHIPipeline());
+		auto Again = Owner.GetCompute(Initializer, "same failed compilation");
+		ASSERT_TRUE(Again);
+		EXPECT_EQ(*First, *Again);
+		EXPECT_FALSE((*Again)->Wait());
+		EXPECT_EQ(Calls, 1u);
+		Owner.ReleaseResources();
+		EXPECT_EQ((*First)->GetState(), ERHIPipelineRequestState::Canceled);
+	}
+
+	TEST_F(FRHIPipelineCreationTests, UnexpectedExceptionsRemainTerminalFromBackgroundCreator)
 	{
 		const auto Run = [](int Mode) {
 			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
@@ -571,7 +595,6 @@ namespace Durin
 			auto Request = Owner.RequestCompute(Initializer, "terminal");
 			(void)Request.Wait();
 		};
-		EXPECT_EXIT(Run(0), testing::ExitedWithCode(EXIT_FAILURE), "native factory returned null");
 		EXPECT_DEATH(Run(1), "");
 		EXPECT_DEATH(Run(2), "");
 	}
@@ -617,5 +640,14 @@ namespace Durin
 
 TEST(RHICreationTerminalTests, ExitsWithoutCoreOrTeardown)
 {
-	EXPECT_EXIT(Durin::RHITerminateOnFailure("startup texture", "out of memory", -2), testing::ExitedWithCode(EXIT_FAILURE), "startup texture: out of memory.*native=-2");
+	EXPECT_EXIT(Durin::RHITerminateOnOutOfMemory("startup texture", -2), testing::ExitedWithCode(EXIT_FAILURE), "startup texture: out of memory.*native=-2");
+}
+
+TEST(RHICreationTerminalTests, ReturnedFatalFailureUsesProcessTerminatePolicy)
+{
+	EXPECT_EXIT(([] {
+					std::set_terminate([] { std::_Exit(42); });
+					Durin::RHITerminateOnFailure("pipeline creation", "device lost", -4);
+				})(),
+				testing::ExitedWithCode(42), "pipeline creation: device lost.*native=-4");
 }

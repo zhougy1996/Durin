@@ -1,6 +1,6 @@
 # RHI Creation Contract Tightening Plan
 
-Summary: Require successful native RHI resource creation, exit on OOM, and remove generic upper-layer native-failure recovery while preserving asynchronous scheduling and asset errors.
+Summary: Align RHI creation with UE: keep allocation/device failures terminal, allow pipeline compilation failure, and preserve asynchronous scheduling and asset errors.
 
 Last reviewed: 2026-10-31
 
@@ -9,10 +9,23 @@ Completed:
 
 ## Current Status
 
+User-directed revision after review of `8845f1739`: Stage 5 supersedes the
+overly strict portions of Stages 0-3. UE's public graphics PSO contract permits
+null on compilation failure and permits backend-specific fatal behavior. A
+normal pipeline compilation failure must therefore remain an accepted-work
+Failed result, not be confused with rejection, OOM or device loss. Ordinary
+buffer/texture allocation remains required-success. Cache retention and optional
+precache admission must not impose fatal limits on synchronous required work.
+Returned fatal errors must reach existing process crash reporting; native OOM
+retains the immediate-exit fallback. The historical decisions below describe
+the previous implementation and are superseded by this revision where noted.
+
 Stages 0-3 are implemented. Windows RHI/backend creation, Renderer preparation,
 asset/editor consumers and integration scenarios have passing validation.
 Metal source is migrated; Stage 4 remains open for macOS compilation/runtime
 and terminal-failure evidence. This Windows host cannot close those gates.
+Stage 5 is implemented and validated on Windows. Previous Stage 4 receipts apply
+only to their recorded earlier inputs; revised host evidence is recorded below.
 Do not treat existing nullable factories or their tests as evidence that a
 recoverable native-creation contract is required.
 
@@ -69,36 +82,23 @@ their existing owners.
 
 ### Native creation and terminal failures
 
-- Ordinary `RHICreate*` operations return a complete, usable native resource on
-  normal return. Keep existing reference return types unless a concrete migration
-  requires otherwise; callers must not interpret null as recoverable failure.
-- Native allocation/creation failure, device loss, unexpected backend errors and
-  invalid engine-authored native descriptions enter the common RHI terminal
-  failure boundary. Preserve the original backend diagnostic and resource context.
-- GPU/host OOM encountered in native resource creation exits the process with a
-  nonzero result. No per-resource fallback, next-frame retry, asset retry, device
-  reconstruction or normal asynchronous shutdown is attempted after this failure.
-- The terminal boundary must work on the calling thread, render/replay thread and
-  background PSO creator. A failure cannot become only a failed task or an
-  ordinary request result while the process keeps rendering.
-- Use bounded, best-effort diagnostics that remain viable under memory pressure.
-  Avoid requiring new allocations, worker admission, render/GPU waits, contended
-  subsystem locks or normal teardown to reach process exit. Select the existing
-  platform exit primitive and reporting path during Stage 0; do not invent an
-  application-level recovery coordinator.
-- Per user clarification, native creation APIs and the async creator are
-  `noexcept`: internal exceptions propagate naturally to the existing process
-  terminate policy rather than being caught in every factory. Returned native
-  error codes/null handles use the common immediate-exit checker. Both are
-  terminal; exact diagnostics/exit codes may differ. Do not install a global
-  terminate handler from an unloadable backend.
-- Remove the generic recoverable-native-error classification as a public policy.
-  Backend helpers may decode result codes for diagnostics and API-specific control
-  flow. Preserve normal swapchain statuses such as resize/out-of-date handling;
-  they are not ordinary resource-creation recovery.
-- Do not introduce a blanket `TryCreate*` family, `AllowFailure` flag or public
-  recoverable/fatal enum. Any future exception requires a concrete caller, bounded
-  recovery action and tests, and an explicit plan decision before implementation.
+Ordinary buffer/texture/shader/view factories require success. Graphics/compute
+PSO factories may return null for recognized compilation failure, following
+[UE's public contract](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/RHI/FDynamicRHI/RHICreateGraphicsPipelineState).
+Accepted asynchronous work publishes Ready, Failed or Canceled. Failed means
+compilation rejection, not OOM/device loss. Existing resource slots retain
+generation-scoped suppression without per-frame retry.
+
+Native factories and the async creator remain `noexcept` to keep unexpected
+exceptions terminal. Returned fatal errors use existing process crash reporting
+after bounded diagnostics; real OOM retains immediate nonzero exit without
+teardown. No backend installs a process-global terminate handler.
+
+Synchronous PSO creation bypasses optional async admission. Cache entry retention
+does not limit live resources: release cache references while preserving external
+owners. Interned raw descriptor/render-pass handles may grow until device teardown.
+Optional request/description budgets still reject before admission; native CPU
+metadata accounting does not turn their thresholds into fatal creation limits.
 
 GPU timing queries follow the same creation contract on supported devices. Grow
 query storage when all live slots are occupied; native allocation failure exits.
@@ -115,21 +115,13 @@ Timestamp capability checks and Pending/invalid measurement results remain separ
 | Asset I/O, decoding, DDC/build failure or stale candidate | Existing asset result, cancellation and publication rules |
 | Unsupported feature/format determined before creation | Explicit capability or permutation selection; choose a supported path before allocation |
 | Feature disabled or absent optional input | Existing feature policy and neutral bindings |
-| Native creation after valid admission and capability selection | Required success; terminal on failure, including OOM |
+| Ordinary resource creation after validation | Required success; allocation/device failures terminate |
+| Recognized native PSO compilation failure | Null synchronous result or accepted Failed; no per-frame retry |
 
-An optional feature is not permission to swallow failures of its selected native
-resources. A default material for invalid authored content is retained; a default
-material selected because native PSO creation failed is removed. A draw delayed
-while its PSO is Pending is retained; silently dropping it after native failure
-is removed.
+An optional feature is not permission to swallow OOM/device faults. A failed PSO
+compilation is a separate, backend-recognized outcome. Keep explicit input,
+content, capability and generation ownership; never expose half-created objects.
 
-Distinguish bounded engine metadata/request budgets from actual host allocator
-exhaustion. CapacityExceeded remains an admission result where it prevents work
-from starting. Do not broadly catch `std::bad_alloc` and relabel real exhaustion
-as normal pressure. Audit cache-only capacity limits reached after admission:
-eviction/reservation must preserve bounded ownership; exhausted backend-native
-hard limits are terminal configuration failures. Never expose a half-created
-resource as a recoverable failure.
 
 ## Scope and UE Evidence
 
@@ -275,6 +267,23 @@ Dependencies: Stages 1-3.
 Completion: all required gates have evidence; long-lived documents describe the
 implemented policy and the plan can be marked Completed.
 
+### Stage 5: Align UE Creation Semantics
+
+Dependencies: implemented Stages 0-3; macOS acceptance remains open in Stage 4.
+
+- [x] Allow backend-recognized PSO compilation failure and publish accepted Failed
+  results; retain deterministic failure suppression until content invalidation.
+- [x] Remove optional async admission from synchronous PSO creation and make native
+  cache retention independent of live-object ownership.
+- [x] Unify returned fatal errors with process crash reporting, retain immediate
+  OOM exit, and close cached-view exception boundaries.
+- [x] Validate pipeline failure/ready/cancellation, cache pressure and normal GPU
+  rendering; build all for shared RHI consumer coverage and update lasting contracts.
+- [x] Record Windows evidence; explicitly retain unavailable macOS validation.
+
+Completion: revised contracts and consumers pass host verification; platform
+limitations remain recorded without claiming identical behavior on every UE RHI.
+
 ## Validation and Handoff
 
 Follow [build selection](../Agents/BuildAndRun.md),
@@ -326,3 +335,40 @@ Windows evidence (2026-10-31, implementation based on `78d7751d7`):
   packages and settings are unchanged; later production changes only remove
   swallowed preparation OOM and a native-target null branch, with renderer and
   thumbnail regression rerun. macOS acceptance remains outstanding.
+
+
+Stage 5 Windows evidence (2026-10-31, based on `8845f1739`):
+
+- Revised PSO creation follows UE's documented nullable compilation result,
+  not a universal recoverable native-error interface. Vulkan recognizes shader
+  rejection; Metal recognizes documented compiler error domains/codes. No
+  error-message matching, arbitrary driver-error fallback or per-frame retry.
+- `ue-pipeline.xml`: 21 cases pass, including retained Failed identities,
+  cancellation, unexpected exceptions and a returned-error probe that reaches
+  an installed terminate handler. The explicit OOM checker still requires immediate exit 1; allocator exceptions
+  crossing `noexcept` use the existing process terminate policy.
+- `ue-vulkan.xml`: 6 focused cases pass. `ue-cache-final.xml`: 4 final cache
+  cases pass, including synchronous creation while optional 64 MiB admission is
+  exhausted and eviction while all PSOs/layouts have external references.
+  Native metadata is accounted separately from optional request budgets.
+- `ue-renderer.xml`: all 18 owner-domain targets pass, including full Vulkan
+  integration, RHI/RenderCore contracts, RDG, reload and normal presentation.
+  `ue-thumbnail.xml`: all 8 cases pass. `ue-material.xml`: all 12 feature
+  targets pass, including compilation, editing, runtime and thumbnail lifecycles.
+  Reports are under `Build/RHICreationContract/`.
+- Final Windows `build all` passed (48.10 seconds), receipt
+  `Build/.agent-state/logs/20261031-221559-163086-63464-cmake.log`, covering final
+  RHI declarations and Engine/Sandbox/RoadWeaver consumers. The final preparation
+  diagnostic change also passes all 244 cases in `ue-render-contract-final.xml`.
+  No clean-build claim is made.
+- Editor Sandbox startup/three ticks/normal shutdown passed (2.34 seconds),
+  receipt `Build/.agent-state/logs/20261031-221339-761486-55080-DurinEditor.log`.
+  Profile, device and sandbox workaround match the recorded Windows environment.
+- Changed docs and all-plan metadata validate. Affected discovery expands to
+  `all` for backend platform sources; bounded owner-domain/integration selection
+  covers changed runtime behavior and the all build covers shared consumers.
+  Prior texture/mesh results remain applicable; this revision does not change
+  their asset inputs, ordinary allocation or publication implementation.
+- Metal compilation/runtime remains unverified on this Windows host. Stage 4's
+  macOS gate stays open; public UE contract alignment does not claim identical
+  failure handling across every UE version/RHI.

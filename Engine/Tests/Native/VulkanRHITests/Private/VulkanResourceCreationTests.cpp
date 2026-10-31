@@ -318,7 +318,7 @@ namespace Durin::VulkanRHI
 			{
 				SCOPED_TRACE(static_cast<uint32>(Desc.Dimension));
 				EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Desc));
-				EXPECT_EXIT((void)(GDynamicRHI->RHICreateTexture(RHICmdList, Desc)), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+				EXPECT_DEATH((void)(GDynamicRHI->RHICreateTexture(RHICmdList, Desc)), "RHI terminal failure");
 			}
 
 			FRHITextureCreateDesc Oversized = Texture2D;
@@ -600,7 +600,7 @@ namespace Durin::VulkanRHI
 
 		FGraphicsPipelineStateInitializer InvalidInitializer = Initializer;
 		InvalidInitializer.RasterizerState.FrontFace = ERHIFrontFace::Count;
-		EXPECT_EXIT((void)(GDynamicRHI->RHICreateGraphicsPipelineState("InvalidGraphicsPipeline", InvalidInitializer)), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+		EXPECT_DEATH((void)(GDynamicRHI->RHICreateGraphicsPipelineState("InvalidGraphicsPipeline", InvalidInitializer)), "RHI terminal failure");
 		const FRHIPipelineCacheStatistics CacheStatsAfterCreation =
 			GDynamicRHI->RHIGetPipelineCacheStatistics();
 		EXPECT_GE(CacheStatsAfterCreation.GraphicsPipelines.Hits,

@@ -297,30 +297,47 @@ destruction continues through ordinary ordered and GPU-safe retirement.
 
 ### Required-Success Resource Creation
 
-Ordinary native buffer, texture, shader, sampler, view, vertex-declaration and
-pipeline factories return complete non-null resources on normal return. Validate
-external asset inputs and choose supported capabilities before native creation.
-Cache lookup misses and request admission results remain distinct from creation.
+Ordinary native buffer, texture, shader, sampler, view and vertex-declaration
+factories return complete non-null resources on normal return. Graphics/compute
+pipeline factories may return null for a recognized compilation failure. Native
+OOM, device loss and unknown driver errors are never compilation failure results.
+Validate external asset inputs and select supported capabilities before creation.
+Cache misses and pre-admission rejection remain separate from compilation.
 
-Ordinary native creation APIs and the asynchronous creator execution boundary
-are `noexcept`. Internal C++ exceptions propagate naturally; crossing that
-boundary invokes the process's existing `std::terminate` policy before asset or
-Task catch blocks can turn native failure into a recoverable result. Factories
-do not repeat try/catch blocks. Host `bad_alloc` cannot become a Failed resource.
+Native factories (including cached view creation) and the asynchronous creator
+execution boundary are `noexcept`. Unexpected C++ exceptions reach the existing
+process terminate policy; they cannot become ordinary task/asset failures.
+A known nullable PSO result publishes Failed for accepted async work. A rejected
+request has no accepted work; inspect its rejection before polling completion.
+Failed pipeline identities are shared while retained and Renderer resource slots
+suppress another attempt until the relevant content/generation changes.
 
-Returned native error codes/null handles use the common `RHITerminateOnFailure`
-checker: a bounded stack-buffer diagnostic is written directly to stderr;
-Windows `TerminateProcess` or POSIX `std::_Exit(EXIT_FAILURE)` exits without
-normal teardown. Windows CRT exit is avoided because DLL detach callbacks would
-otherwise execute on the failing worker. Native OOM uses this same boundary.
-The existing process terminate/crash policy owns unhandled C++ exceptions;
-its diagnostic and exit code need not match returned-native-error termination.
-Neither path performs per-resource fallback, retries or device recovery.
+Returned fatal errors use `RHITerminateOnFailure`: bounded diagnostics go directly
+to stderr, then `std::terminate` invokes Launch's existing process crash handler.
+Returned native OOM codes and explicit host OOM checks use
+`RHITerminateOnOutOfMemory`, with the same bounded
+diagnostic and Windows `TerminateProcess` or POSIX `std::_Exit(EXIT_FAILURE)`.
+This immediate-exit path does not require crash capture or normal teardown.
+Allocator exceptions that reach `noexcept` use the process terminate policy,
+without requiring a catch at each factory. Neither terminal path permits device
+recovery or upper-layer retry.
 
-Explicit description/request metadata budgets retain CapacityExceeded before
-admission. Actual host allocator exhaustion is terminal. Backend-native cache
-limits preserve their existing eviction/reservation policy; exhaustion with all
-entries pinned is a terminal configuration failure, not a retryable allocation.
+Synchronous native PSO creation uses the backend native manager directly, without
+optional precache admission or worker waits. Equal native keys still share ready
+pipelines. Optional async requests retain their count/payload/64 MiB metadata
+budgets; actual allocator exhaustion remains terminal. Native cache accounting is
+separate from admission budgets. PSO/layout retention caps bound cache entries,
+not live resources: eviction drops a cache reference even if external owners
+remain. Prefer unused PSOs when selecting a victim. Interned descriptor-set-layout
+and render-pass handles remain device-owned and grow with unique descriptions.
+
+This nullable PSO compilation contract follows
+[UE's public graphics PSO contract](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/RHI/FDynamicRHI/RHICreateGraphicsPipelineState).
+Backends may still treat unsupported runtime compilation as fatal; this is not
+a promise that every native driver error is recoverable. Vulkan recognizes
+`VK_ERROR_INVALID_SHADER_NV`; other unsuccessful native pipeline results remain
+fatal. Metal recognizes pipeline InvalidInput and library CompileFailure errors
+from their documented domains. Neither backend classifies errors by text.
 
 Shader source compilation, asset I/O/decoding, validation, stale candidates,
 Pending PSO work, closure and cancellation retain their owning result contracts.

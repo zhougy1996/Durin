@@ -116,7 +116,7 @@ static auto QualifyImGuiShaderBuild(const Durin::FShaderTargetIdentity& MetalTar
 					auto MissingEntry = Compiled.CompiledShaders[0];
 					MissingEntry.BinaryEntryPoint = "MissingBinaryEntry";
 					MissingEntry.ShaderIdentity = Durin::ShaderFormat::ComputeShaderIdentity(MissingEntry);
-					EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::MakeShaderCreateDesc(MissingEntry))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+					EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::MakeShaderCreateDesc(MissingEntry))), "RHI terminal failure");
 					auto InvalidLibrary = Compiled.CompiledShaders[0];
 					Durin::FByteBuffer Envelope(88);
 					Envelope[0] = std::byte{'M'}; Envelope[1] = std::byte{'T'};
@@ -125,7 +125,7 @@ static auto QualifyImGuiShaderBuild(const Durin::FShaderTargetIdentity& MetalTar
 					InvalidLibrary.CodeHash = Durin::FXxHash128::HashBuffer(InvalidLibrary.Code);
 					InvalidLibrary.ShaderIdentity = Durin::ShaderFormat::ComputeShaderIdentity(InvalidLibrary);
 					ASSERT_TRUE(Durin::ShaderFormat::ValidateShaderCode(InvalidLibrary));
-					EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::MakeShaderCreateDesc(InvalidLibrary))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+					EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::MakeShaderCreateDesc(InvalidLibrary))), "RHI terminal failure");
 					EXPECT_EQ(Durin::GetMetalShaderCreationStatistics().SourceCompileAttempts, ShaderStatsBefore.SourceCompileAttempts);
 				}
 				struct FImGuiVertex
@@ -634,34 +634,34 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 					"MetalCompute", Pipeline));
 				Pipeline.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Type =
 					Durin::ERHIBindingType::UniformBuffer;
-				EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateComputePipelineState("MetalComputeBadLayout", Pipeline)), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+				EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateComputePipelineState("MetalComputeBadLayout", Pipeline)), "RHI terminal failure");
 			}
 			// Native function stage mismatch must reject the candidate library/function.
 			Desc.SetEntryPoint(Frequency == Durin::EShaderFrequency::Vertex
 				? "fragmentMain" : "vertexMain");
-			EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+			EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), "RHI terminal failure");
 			Desc.SetEntryPoint(Entry);
 			Desc.RemapIdentity.HashLow ^= 1;
-			EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+			EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), "RHI terminal failure");
 			Desc.RemapIdentity.HashLow ^= 1;
 			if (!Desc.Bindings.empty())
 			{
 				Desc.Bindings.front().Slot = 1;
 				Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
 					Frequency, Desc.Bindings, Desc.PushSlot);
-				EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+				EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), "RHI terminal failure");
 				Desc.Bindings.front().Slot = 0;
 				Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
 					Frequency, Desc.Bindings, Desc.PushSlot);
 			}
 			Desc.CodeFormat = Durin::EShaderCodeFormat::Spirv15;
-			EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+			EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), "RHI terminal failure");
 			Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 			Desc.Target = Durin::VulkanShaderTarget;
-			EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+			EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), "RHI terminal failure");
 			Desc.Target = Durin::MetalShaderTarget;
 			Desc.SetEntryPoint("missingEntry");
-			EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+			EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc))), "RHI terminal failure");
 		}
 		const std::string InvalidSource = "#include <metal_stdlib>\nusing namespace metal;\nkernel void broken() { invalid_msl; }\n";
 		Durin::FByteBuffer InvalidCode;
@@ -674,7 +674,7 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 		Invalid.SetEntryPoint("broken");
 		Invalid.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
 			Invalid.Frequency, Invalid.Bindings, Invalid.PushSlot);
-		EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Invalid))), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+		EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Invalid))), "RHI terminal failure");
 		// Valid source formatting is decided by the MSL compiler, not a textual prefix.
 		for (const auto& Variant : {std::string("/*") + std::string(512, 'x') + "*/\n" + Source,
 			std::string("#include<metal_stdlib>\n") + Source.substr(Source.find('\n') + 1),

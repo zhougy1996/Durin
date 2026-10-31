@@ -231,9 +231,7 @@ namespace Durin::VulkanRHI
 			return It->second.get();
 		}
 
-		if (RenderPasses.size() >= 1024)
-			RHITerminateOnFailure("Vulkan native cache", "cache capacity exhausted with pinned resources");
-		auto Metadata = Device.ReserveCacheMetadata(512 + sizeof(FVulkanRenderPass) + sizeof(FVulkanRenderPassKey));
+		auto Metadata = Device.ReserveNativeMetadata(512 + sizeof(FVulkanRenderPass) + sizeof(FVulkanRenderPassKey));
 		auto Candidate = std::make_unique<FVulkanRenderPass>(Device, Key);
 		Candidate->MetadataReservation = std::move(Metadata);
 		auto [It, bInserted] = RenderPasses.emplace(Key, std::move(Candidate));

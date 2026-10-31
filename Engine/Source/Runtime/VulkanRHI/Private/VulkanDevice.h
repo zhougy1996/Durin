@@ -278,6 +278,7 @@ namespace Durin::VulkanRHI
 		}
 		auto ResetPipelineCacheStatistics() -> void;
 		VULKANRHI_API auto ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>;
+		auto ReserveNativeMetadata(uint64 Bytes) -> std::shared_ptr<void> { return NativeMetadata.Reserve(Bytes); }
 		auto GetCacheMetadataBytes() const -> uint64 { return CacheMetadata.GetUsedBytes(); }
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
@@ -333,6 +334,7 @@ namespace Durin::VulkanRHI
 		uint32 CurrentFrameIndex = 0;
 
 		FRHIPipelineMetadataBudget CacheMetadata;
+		FRHIPipelineMetadataBudget NativeMetadata{std::numeric_limits<uint64>::max()};
 		FRHIPipelineCacheStatistics PipelineCacheStatistics;
 		mutable std::recursive_mutex PipelineCacheStatisticsMutex;
 

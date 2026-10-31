@@ -37,6 +37,15 @@ namespace Durin
 		}
 	}
 
+	static auto IsMetalPipelineCompilationFailure(const NS::Error* Error) -> bool
+	{
+		if (!Error || !Error->domain()) return false;
+		return (Error->domain()->isEqualToString(MTL::RenderPipelineErrorDomain)
+				&& Error->code() == MTL::RenderPipelineErrorInvalidInput)
+			   || (Error->domain()->isEqualToString(MTL::LibraryErrorDomain)
+				   && Error->code() == MTL::LibraryErrorCompileFailure);
+	}
+
 	static auto ToMetalDepthCompare(ERHIDepthCompareOp Op)
 		-> std::optional<MTL::CompareFunction>
 	{
@@ -215,6 +224,7 @@ namespace Durin
 		if (!Pipeline)
 		{
 			DURIN_ERROR("Metal graphics pipeline creation failed: {}", CopyMetalError(Error));
+			if (IsMetalPipelineCompilationFailure(Error)) return nullptr;
 			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
 		const auto Compare = ToMetalDepthCompare(Initializer.DepthStencilState.CompareOp);
@@ -247,6 +257,7 @@ namespace Durin
 		if (!Pipeline)
 		{
 			DURIN_ERROR("Metal compute pipeline creation failed: {}", CopyMetalError(Error));
+			if (IsMetalPipelineCompilationFailure(Error)) return nullptr;
 			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
 		const auto Group = Shader->GetComputeThreadGroupSize();

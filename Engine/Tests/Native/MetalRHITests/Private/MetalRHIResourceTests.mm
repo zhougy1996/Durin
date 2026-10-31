@@ -386,7 +386,7 @@ TEST(FMetalRHIBufferTests, SamplersCreateWithSupportedState)
 			EXPECT_NE(Durin::GDynamicRHI->RHICreateSampler(CompareDesc).GetReference(), nullptr);
 			auto InvalidDesc = Durin::FRHISamplerDesc::PointClamp();
 			InvalidDesc.bUnnormalizedCoordinates = true;
-			EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateSampler(InvalidDesc).GetReference()), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
+			EXPECT_DEATH((void)(Durin::GDynamicRHI->RHICreateSampler(InvalidDesc).GetReference()), "RHI terminal failure");
 		});
 		Durin::RHIExit();
 	}

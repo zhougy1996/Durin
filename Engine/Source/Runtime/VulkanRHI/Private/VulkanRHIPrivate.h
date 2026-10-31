@@ -15,9 +15,17 @@
 
 namespace Durin::VulkanRHI
 {
+	inline auto IsVulkanPipelineCompilationFailure(vk::Result Result) -> bool
+	{
+		// Recognized shader rejection only; OOM/device loss/unknown errors stay fatal.
+		return Result == vk::Result::eErrorInvalidShaderNV;
+	}
+
 	[[noreturn]] inline auto TerminateVulkanFailure(vk::Result Result, const char* Operation) -> void
 	{
-		RHITerminateOnFailure(Operation, Result == vk::Result::eErrorOutOfDeviceMemory || Result == vk::Result::eErrorOutOfHostMemory ? "out of memory" : "Vulkan operation failed", static_cast<int64>(Result));
+		if (Result == vk::Result::eErrorOutOfDeviceMemory || Result == vk::Result::eErrorOutOfHostMemory)
+			RHITerminateOnOutOfMemory(Operation, static_cast<int64>(Result));
+		RHITerminateOnFailure(Operation, "Vulkan operation failed", static_cast<int64>(Result));
 	}
 
 

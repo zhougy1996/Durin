@@ -735,7 +735,7 @@ namespace Durin
 		catch (const FRHIResourceCapacityError&) { return std::unexpected(ERHIGraphicsPipelineError::CapacityExceeded); }
 		catch (const std::bad_alloc&)
 		{
-			RHITerminateOnFailure("RHI pipeline metadata", "out of memory");
+			RHITerminateOnOutOfMemory("RHI pipeline metadata");
 		}
 	}
 
@@ -871,7 +871,7 @@ namespace Durin
 		catch (const FRHIResourceCapacityError&) { return std::unexpected(ERHIComputePipelineError::CapacityExceeded); }
 		catch (const std::bad_alloc&)
 		{
-			RHITerminateOnFailure("RHI pipeline metadata", "out of memory");
+			RHITerminateOnOutOfMemory("RHI pipeline metadata");
 		}
 	}
 
