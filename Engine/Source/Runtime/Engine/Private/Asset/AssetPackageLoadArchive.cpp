@@ -1,4 +1,5 @@
 #include "AssetPackageArchive.h"
+#include "AssetObjectLoadTiming.h"
 #include "AssetPropertyKindTraits.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetPackageLinkerSchema.h"
@@ -160,6 +161,7 @@ namespace Durin::AssetPrivate
 
 			auto SerializeObjectReference(DObject*& Value) -> void override
 			{
+				FScopedObjectLoadPhase Timing(Linker.Summary.PackagePath, EObjectLoadPhase::ResolveReferences, 0, 1);
 				if (IsError() || !IsCurrentFieldAvailable()) return;
 				auto& Scope = Scopes.back();
 				if (Scope.Type->Kind != K::HardReference || !TakeAtomic(Scope)) { Invalid("Expected one hard reference."); return; }
@@ -486,6 +488,7 @@ namespace Durin::AssetPrivate
 		const FPackageLoadBindings& Bindings,
 		const FArchiveState& Context) -> FAssetReadResult
 	{
+		FScopedObjectLoadPhase Timing(Linker.Summary.PackagePath, EObjectLoadPhase::SerializeExports, 1, Fields.size());
 		FPackageLoadArchive Archive(
 			Object, Fields, Linker, Objects, Bindings, Context);
 		{

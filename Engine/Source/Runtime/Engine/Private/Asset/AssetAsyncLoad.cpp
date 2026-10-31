@@ -1,5 +1,6 @@
 #include "Asset/AsyncLoad.h"
 #include "AssetAsyncLoadInternal.h"
+#include "AssetObjectLoadTiming.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetLiveLoadGuard.h"
 #include "Asset/Redirector.h"
@@ -155,6 +156,8 @@ namespace Durin
 		auto Apply(const std::shared_ptr<FAsyncLoadHandle>& Handle, const FAsyncPackageInputs& Inputs) -> void
 		{
 			if (Handle->IsComplete()) return;
+			AssetPrivate::FObjectLoadTimingSession TimingSession(Handle->Impl->PackagePath);
+			AssetPrivate::FScopedObjectLoadPhase ApplyTiming(Handle->Impl->PackagePath, AssetPrivate::EObjectLoadPhase::ObjectApplication);
 			const auto ApplyStarted = std::chrono::steady_clock::now();
 			auto& Loader = FAssetRuntimeState::Get().GetLoadService();
 			auto& State = *Handle->Impl;
