@@ -1,3 +1,4 @@
+#include "ComponentPSOPrecacheTestSupport.h"
 #include "StaticMeshRenderPreparationTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "PSOPrecache.h"
@@ -3215,6 +3216,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 
 TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWorkAndRetiresChangedOwnersAndComponents)
 {
+	Durin::Tests::FScopedComponentPSOPrecacheMode PrecacheMode(Durin::EComponentPSOPrecacheMode::Enabled);
 	using namespace Durin;
 	using namespace Durin::Tests;
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
@@ -3304,6 +3306,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 
 TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAndGateCurrentProxyBatch)
 {
+	Durin::Tests::FScopedComponentPSOPrecacheMode PrecacheMode(Durin::EComponentPSOPrecacheMode::Enabled);
 	using namespace Durin; using namespace Durin::Tests;
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
 	InitializeDObjectSystem();
@@ -3432,6 +3435,17 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		EXPECT_TRUE(Component->IsPSOPrecaching()); EXPECT_EQ(Count(), 0u);
 		Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
 		EXPECT_EQ(Count(), 1u); EXPECT_TRUE(Component->IsPSOPrecaching());
+		Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::DelayUntilPSOPrecached);
+		EXPECT_EQ(Count(), 0u);
+		SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode::Disabled);
+		DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
+		EXPECT_EQ(Count(), 1u); // Disabling releases a withheld proxy without waiting for the material.
+		EXPECT_FALSE(Component->IsPSOPrecaching());
+		EXPECT_TRUE(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().empty());
+		EXPECT_EQ(DPrimitiveComponent::GetPendingPSOPrecacheComponentCount(), 0u);
+		EXPECT_EQ(OldRequests[0].GetProgress().State, EMaterialPSOPrecacheState::Stale);
+		SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode::Enabled);
+		Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
 		Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::DelayUntilPSOPrecached);
 		EXPECT_EQ(Count(), 0u);
 		ASSERT_TRUE(AddedMaterial->SetStaticProperties(Properties));
@@ -3895,6 +3909,7 @@ namespace
 
 TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentMaterialAndPSOSelection)
 {
+	Durin::Tests::FScopedComponentPSOPrecacheMode PrecacheMode(Durin::EComponentPSOPrecacheMode::Enabled);
 	using namespace Durin; using namespace Durin::Tests;
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
 	InitializeDObjectSystem();

@@ -110,6 +110,7 @@ namespace Durin
 		auto GetPhysicsWorld() const -> DWorld*;
 
 	private:
+		auto ResetPSOPrecacheIfDisabled() -> bool;
 		auto UntrackPSOPrecache() -> void;
 		auto GetPSOPrecacheRenderer() const -> IRendererModule*;
 		auto CreateRenderState() -> void;

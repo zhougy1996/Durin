@@ -6,6 +6,16 @@
 
 namespace Durin
 {
+	// GameThread policy for automatic component requests only. Explicit material
+	// requests and draw-time resource preparation remain independent.
+	// Automatic is off for editor hosts (including PIE), on for game hosts.
+	enum class EComponentPSOPrecacheMode : uint8 { Automatic, Enabled, Disabled };
+	ENGINE_API auto GetComponentPSOPrecacheMode() -> EComponentPSOPrecacheMode;
+	// Wakes existing automatic owners; enabling takes effect on normal requests
+	// rather than withdrawing already published proxies merely for warming.
+	ENGINE_API auto SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode Mode) -> void;
+	ENGINE_API auto IsComponentPSOPrecachingEnabled() -> bool;
+
 	class DMaterialInterface;
 	struct FComponentPSOPrecacheParams
 	{

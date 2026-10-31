@@ -500,6 +500,24 @@ sets retain at most 256 observers.
 
 ## Automatic component collection and proxy publication
 
+`IsComponentPSOPrecachingEnabled` centralizes automatic component admission and
+proxy waiting. `EComponentPSOPrecacheMode::Automatic` uses the engine host's
+initial world type: editor hosts (including their PIE and preview worlds) disable
+automatic requests; game hosts enable them, even in an editor-capable build.
+Before a host exists, the runtime variant supplies the default (editor off,
+game on). `SetComponentPSOPrecacheMode` is GameThread-only and allows an explicit
+Enabled/Disabled override. Changing the mode wakes existing weak automatic
+request owners once; disabling releases their observers at the next owner tick
+or readiness check and allows withheld proxies to publish, without canceling shared work.
+Enabling applies at the next normal component request/registration; it does not
+withdraw already published proxies solely to warm PSOs.
+
+The policy does not gate explicit material PSO requests, material compilation,
+view/draw resource preparation, or shared Shader/pipeline caches. Components still
+publish participation and geometry facts, and Renderer pass processors retain
+the common draw/precache selection and pipeline initializer builders. Disabling
+automatic requests therefore permits proxy publication, not unprepared drawing.
+
 `DPrimitiveComponent::PrecachePSOs` snapshots participation through virtual
 `SetupPrecachePSOParams`, then calls the virtual `CollectPSOPrecacheData`
 with an `FComponentPSOPrecacheParamsList`, checks readiness of the entire set, then submits its
@@ -559,11 +577,12 @@ withdraw affected gated proxies; dynamic numeric parameters preserve them.
 Shader/device stale observations are resubmitted on the next owner tick.
 
 Engine and world ticks call `ProcessPSOPrecacheRequests`, including paused and
-editor worlds. Unsubmitted material/RHI demand is retried by its owner. Accepted
+editor worlds; disabled owners are drained without collecting or submitting work. Unsubmitted material/RHI demand is retried by its owner. Accepted
 requests subscribe to their shared work and material-owner scope; progress,
 required readiness, cancellation and invalidation wake only the subscribed
 components. There is no global invalidation serial, shader-generation polling
-or all-component registry scan. Render-thread notifications enter a coalesced
+or per-frame all-component registry scan. Policy changes wake only weak owners
+of automatic requests. Render-thread notifications enter a coalesced
 mailbox and are delivered on GameThread. GameThread material changes withdraw
 affected gated proxies immediately. Each delivery checks the weak job-set identity,
 so reset, replacement, destruction and unregister reject old notifications.

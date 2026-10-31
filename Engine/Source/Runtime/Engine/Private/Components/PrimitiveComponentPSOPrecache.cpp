@@ -15,18 +15,57 @@ namespace Durin
 {
 	namespace
 	{
+		EComponentPSOPrecacheMode GComponentPSOPrecacheMode = EComponentPSOPrecacheMode::Automatic;
+		// Weak owners of automatic requests; used only to wake them on policy changes.
+		std::unordered_set<FObjectKey> GPrecacheComponentOwners;
 		std::unordered_set<FObjectKey> GPendingPrecacheComponents;
 		bool GProcessingPrecacheComponents = false;
 		auto TrackPrecacheComponent(DPrimitiveComponent* Component) -> void
 		{
 			const FObjectKey Key(Component);
+			GPrecacheComponentOwners.insert(Key);
 			GPendingPrecacheComponents.insert(Key);
 		}
+	}
+	auto GetComponentPSOPrecacheMode() -> EComponentPSOPrecacheMode
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		return GComponentPSOPrecacheMode;
+	}
+	auto SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode Mode) -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (GComponentPSOPrecacheMode == Mode) return;
+		GComponentPSOPrecacheMode = Mode;
+		GPendingPrecacheComponents.insert(GPrecacheComponentOwners.begin(), GPrecacheComponentOwners.end());
+	}
+	auto IsComponentPSOPrecachingEnabled() -> bool
+	{
+		switch (GetComponentPSOPrecacheMode())
+		{
+		case EComponentPSOPrecacheMode::Enabled: return true;
+		case EComponentPSOPrecacheMode::Disabled: return false;
+		default:
+			// Use the host, not the current world: PIE/preview worlds in an
+			// editor host retain the editor policy. Game hosts in editor-capable
+			// builds still get the runtime default.
+			return GEngine ? GEngine->GetInitialWorldType() == EWorldType::Game : !DURIN_WITH_EDITOR;
+		}
+	}
+	auto DPrimitiveComponent::ResetPSOPrecacheIfDisabled() -> bool
+	{
+		if (IsComponentPSOPrecachingEnabled()) return false;
+		UntrackPSOPrecache();
+		if (PSOPrecacheComponentData.IsPSOPrecacheCalled()) PSOPrecacheComponentData.Reset();
+		bPSOPrecacheSubmissionPending = false;
+		PSOPrecacheDiagnostic.clear();
+		return true;
 	}
 	auto DPrimitiveComponent::UntrackPSOPrecache() -> void
 	{
 		const FObjectKey Key(this);
 		GPendingPrecacheComponents.erase(Key);
+		GPrecacheComponentOwners.erase(Key);
 	}
 	auto DPrimitiveComponent::GetPendingPSOPrecacheComponentCount() -> size_t { return GPendingPrecacheComponents.size(); }
 	auto DPrimitiveComponent::GetPSOPrecacheRenderer() const -> IRendererModule*
@@ -37,13 +76,15 @@ namespace Durin
 	auto DPrimitiveComponent::PostLoad() -> void
 	{
 		Super::PostLoad();
-		if (!IsTemplateObject()) { bPSOPrecacheSubmissionPending = true; TrackPrecacheComponent(this); }
+		if (!IsTemplateObject() && !ResetPSOPrecacheIfDisabled())
+		{ bPSOPrecacheSubmissionPending = true; TrackPrecacheComponent(this); }
 	}
 	auto DPrimitiveComponent::CollectPSOPrecacheData(const FPSOPrecacheParams&, FComponentPSOPrecacheParamsList&) -> void {}
 	auto DPrimitiveComponent::PrecachePSOs() -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (IsTemplateObject() || IsPendingKill() || bProcessingPSOPrecache) return;
+		if (ResetPSOPrecacheIfDisabled()) return;
 		bProcessingPSOPrecache = true;
 		struct FScope { bool& Flag; ~FScope() { Flag = false; } } Scope{bProcessingPSOPrecache};
 		const FObjectKey Owner(this);
@@ -52,6 +93,9 @@ namespace Durin
 				auto* Component = Cast<DPrimitiveComponent>(FWeakObjectPtr(Owner).Get());
 				if (!Component || Component->IsPendingKill()) return;
 				GPendingPrecacheComponents.insert(Owner);
+				// Keep the wake-up so the owner tick can release a withheld proxy,
+				// but never withdraw a visible proxy after policy was disabled.
+				if (!IsComponentPSOPrecachingEnabled()) return;
 				const bool Stale = std::ranges::any_of(Component->PSOPrecacheComponentData.GetMaterialPSOPrecacheRequestIDs(),
 					[](const auto& Request) { return !Request.IsCurrent(); });
 				if (!Stale) return;
@@ -68,6 +112,8 @@ namespace Durin
 		FPSOPrecacheParams PrecacheParams;
 		SetupPrecachePSOParams(PrecacheParams);
 		CollectPSOPrecacheData(PrecacheParams, Params);
+		if (Params.empty()) UntrackPSOPrecache();
+		else TrackPrecacheComponent(this);
 		if (Params.size() > FPSOPrecacheComponentData::MaximumRequests)
 		{
 			PSOPrecacheDiagnostic = "Component PSO collection exceeds its capacity.";
@@ -76,7 +122,6 @@ namespace Durin
 		}
 		std::vector<FMaterialPSOPrecacheRequestID> Requests;
 		auto* Renderer = GetPSOPrecacheRenderer();
-		if (!Params.empty()) TrackPrecacheComponent(this);
 		// Validate readiness for the whole set before admitting any work. A missing
 		// program must not discard and resubmit an already accepted prefix.
 		for (const auto& Param : Params)
@@ -134,11 +179,13 @@ namespace Durin
 	}
 	auto DPrimitiveComponent::CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority Priority) -> bool
 	{
+		if (ResetPSOPrecacheIfDisabled()) return false;
 		if (!PSOPrecacheComponentData.IsPSOPrecacheCalled() && !bPSOPrecacheSubmissionPending) PrecachePSOs();
 		return PSOPrecacheComponentData.CheckPSOPrecachingAndBoostPriority(Priority) || bPSOPrecacheSubmissionPending;
 	}
 	auto DPrimitiveComponent::IsPSOPrecacheReadyForProxyCreation() -> bool
 	{
+		if (ResetPSOPrecacheIfDisabled()) return true;
 		const bool bVisible = IsVisible() && (!GetOwner() || !GetOwner()->IsHidden());
 		CheckPSOPrecachingAndBoostPriority(bVisible ? EPSOPrecachePriority::Highest : EPSOPrecachePriority::High);
 		// Custom scenes without a PSO backend retain their existing publication contract.
@@ -163,9 +210,14 @@ namespace Durin
 		{
 			const FWeakObjectPtr Weak(Key);
 			auto* Component = Cast<DPrimitiveComponent>(Weak.Get());
-			if (!Component || Component->IsPendingKill()) { continue; }
+			if (!Component || Component->IsPendingKill()) { GPrecacheComponentOwners.erase(Key); continue; }
 			if (World && Component->GetPhysicsWorld() && Component->GetPhysicsWorld() != World)
 			{ GPendingPrecacheComponents.insert(Key); continue; }
+			if (Component->ResetPSOPrecacheIfDisabled())
+			{
+				if (Component->IsRegistered() && !Component->SceneProxy) Component->CreateRenderState();
+				continue;
+			}
 			const bool Stale = std::ranges::any_of(Component->PSOPrecacheComponentData.GetMaterialPSOPrecacheRequestIDs(),
 				[](const auto& Request) { return !Request.IsCurrent(); });
 			if (Stale || Component->bPSOPrecacheSubmissionPending)

@@ -99,6 +99,7 @@ namespace
 	class FSceneImportRenderEngine final : public Durin::DEngine
 	{
 	public:
+		auto GetInitialWorldType() const -> Durin::EWorldType override { return Durin::EWorldType::Editor; }
 		FSceneImportRenderEngine()
 			: DEngine(Durin::FObjectInitializer::Get())
 		{

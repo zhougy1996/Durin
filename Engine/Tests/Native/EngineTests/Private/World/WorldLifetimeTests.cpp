@@ -1,4 +1,5 @@
 #include "WorldTestSupport.h"
+#include "ComponentPSOPrecacheTestSupport.h"
 #include "Engine/MapChange.h"
 #include "Asset/AsyncLoad.h"
 #include "Texture/Texture2D.h"
@@ -996,4 +997,62 @@ TEST(FWorldTests, ComponentProxyGatePreservesRequiredFailureAndHonorsProxyStrate
 	Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
 	EXPECT_TRUE(Component->IsPSOPrecacheReadyForProxyCreation());
 	Host.PrepareForShutdown(); Host.SetWorld(nullptr); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+}
+
+TEST(FWorldTests, AutomaticComponentPSOPolicyUsesHostInsteadOfWorldOrBuildCapabilities)
+{
+	using namespace Durin;
+	Tests::FScopedComponentPSOPrecacheMode Mode(EComponentPSOPrecacheMode::Automatic);
+	InitializeDObjectSystem();
+	FPreviewLifecycleRenderer Renderer;
+	FPreviewLifecycleEngine GameHost(Renderer);
+	class FEditorHost final : public FPreviewLifecycleEngine
+	{
+	public:
+		using FPreviewLifecycleEngine::FPreviewLifecycleEngine;
+		auto GetInitialWorldType() const -> EWorldType override { return EWorldType::Editor; }
+	} EditorHost(Renderer);
+	auto* PreviousEngine = std::exchange(GEngine, nullptr);
+	struct FRestoreEngine { DEngine* Previous; ~FRestoreEngine() { GEngine = Previous; } } Restore{PreviousEngine};
+	EXPECT_EQ(IsComponentPSOPrecachingEnabled(), !DURIN_WITH_EDITOR);
+	GEngine = &GameHost;
+	EXPECT_TRUE(IsComponentPSOPrecachingEnabled());
+	GEngine = &EditorHost;
+	for (const auto Type : {EWorldType::Editor, EWorldType::Preview, EWorldType::PlayInEditor, EWorldType::Game})
+	{
+		auto* World = CreateWorld(&EditorHost, Type);
+		EditorHost.SetWorld(World);
+		EXPECT_FALSE(IsComponentPSOPrecachingEnabled());
+		auto* Actor = World->SpawnActor<AStaticMeshActor>();
+		auto* Component = Actor->GetStaticMeshComponent();
+		Component->PostLoad();
+		Component->PrecachePSOs();
+		EXPECT_TRUE(Component->IsPSOPrecacheReadyForProxyCreation());
+		EXPECT_FALSE(Component->IsPSOPrecaching());
+		EXPECT_FALSE(Component->GetPSOPrecacheComponentData().IsPSOPrecacheCalled());
+		SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode::Enabled);
+		EXPECT_TRUE(IsComponentPSOPrecachingEnabled());
+		SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode::Automatic);
+		EditorHost.SetWorld(nullptr);
+		MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	}
+	GEngine = &GameHost;
+	SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode::Disabled);
+	EXPECT_FALSE(IsComponentPSOPrecachingEnabled());
+}
+
+TEST(FWorldTests, DisabledComponentPSOPolicyReleasesFailedObserversWithoutCancelingSharedWork)
+{
+	using namespace Durin;
+	Tests::FScopedComponentPSOPrecacheMode Mode(EComponentPSOPrecacheMode::Disabled);
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DStaticMeshComponent> Component(NewObject<DStaticMeshComponent>(nullptr, NAME_None));
+	auto Request = FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed");
+	ASSERT_TRUE(Component->SetMaterialPSOPrecacheData({Request}));
+	EXPECT_TRUE(Component->IsPSOPrecacheReadyForProxyCreation());
+	EXPECT_TRUE(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().empty());
+	EXPECT_FALSE(Component->CheckPSOPrecachingAndBoostPriority());
+	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
+	EXPECT_EQ(Request.GetDiagnostic(), "Required pipeline failed");
+	auto* Retired = Component.Get(); Component.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 }
