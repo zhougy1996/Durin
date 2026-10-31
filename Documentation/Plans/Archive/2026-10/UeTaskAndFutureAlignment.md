@@ -4,7 +4,7 @@ Summary: Separate scheduled tasks, task events, and external result delivery whi
 
 Last reviewed: 2026-10-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-31
 
 ## Current Status
@@ -423,9 +423,9 @@ before producer work begins so closure needs no new task submission.
   producer has stopped accessing resources or executing module code.
 
 Existing implemented contracts remain authoritative until their implementation
-stages land: [CPU task system](../Runtime/Core/TaskSystem.md),
-[runtime lifecycle](../Runtime/Application/RuntimeLifecycle.md), and
-[module retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md).
+stages land: [CPU task system](../../../Runtime/Core/TaskSystem.md),
+[runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md), and
+[module retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md).
 
 ## Selected Design
 
@@ -784,8 +784,8 @@ registered once, and semantic regression passes with no compatibility layer.
 
 ## Validation And Handoff
 
-Follow [build selection](../Agents/BuildAndRun.md) and
-[test selection and result reuse](../Agents/Testing.md). Resolve exact targets
+Follow [build selection](../../../Agents/BuildAndRun.md) and
+[test selection and result reuse](../../../Agents/Testing.md). Resolve exact targets
 from the test registry at implementation time; the inventory above identifies
 semantic coverage, not permission to infer target names from filenames.
 
