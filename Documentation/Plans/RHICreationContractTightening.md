@@ -9,9 +9,8 @@ Completed:
 
 ## Current Status
 
-Planning only. The selected policy is recorded below; no runtime behavior has
-changed and no implementation validation has run. Stage 0 must complete the
-cross-project inventory and select executable validation before source migration.
+Stage 0 is complete. Source migration starts with the RHI/backend terminal boundary;
+no implementation validation has run yet.
 Do not treat existing nullable factories or their tests as evidence that a
 recoverable native-creation contract is required.
 
@@ -21,6 +20,40 @@ also use fallible resource slots. RDG rolls back physical allocation failures,
 and generic slots allow repeated native creation attempts. Texture initialization
 catches all exceptions and converts them into fallback. These are migration
 targets, not supported recovery requirements.
+
+Stage 0 decisions and inventory (2026-10-31, base `74d62a83d`):
+
+- Searched Engine source/tests and Sandbox/RoadWeaver source roots declared by
+  the workspace; raw matches are in `Build/RHICreationContract/inventory.txt`.
+  Direct native-failure machinery belongs to RHI, VulkanRHI, MetalRHI, RenderCore,
+  Renderer, Engine and editor consumers. Project consumers need compilation even
+  where no direct native-error handling exists.
+- Delete ordinary factory nulls, Vulkan recoverable-result translation, native
+  Failed publication/retry, texture catch-all fallback and RDG physical-failure
+  retry. Retain asset/build/compiler errors, cache misses, capability queries,
+  task cancellation/closure and explicit pre-admission metadata limits. GPU timing
+  query pools retain nullable optional instrumentation admission; unavailable
+  swapchain drawables and unsupported scheduling are not native factory failures.
+- Core's platform-misc interface has no suitable guaranteed immediate exit.
+  Add a small exported RHI terminal helper: stack-buffer diagnostic, direct OS
+  stderr write, then `std::_Exit(EXIT_FAILURE)`. No logger, teardown or scheduler
+  is required. Backends supply borrowed operation/reason strings and native code.
+  Use GoogleTest subprocess death/exit assertions already supported by RHITests;
+  cover the common path without Core and injected creator null/throw/OOM paths.
+- Explicit request/description budget reservations retain CapacityExceeded.
+  Actual `std::bad_alloc` terminates rather than becoming budget pressure.
+  Native cache retention limits remain bounded: existing eviction/reservation is
+  preserved; exhaustion with all entries pinned is a terminal internal capacity
+  configuration failure, not a retryable creation result. This deliberately
+  narrows the earlier pre-admission-only capacity rule for backend-owned native
+  caches, whose dependencies are acquired during native creation. No unbounded
+  cache growth or false OOM classification is introduced.
+- Validation targets: RHIPipelineCreationTests, RHIResourceViewValidationTests,
+  RHICommandListTests, RenderResourceCreationTests (confirm registry name),
+  VulkanRHIIntegrationTests and affected texture/mesh/reload/thumbnail suites.
+  Inspect affected selection after migration. Final all build covers shared
+  declarations and workspace consumers. Metal runtime evidence requires macOS;
+  this Windows host cannot satisfy that acceptance gate.
 
 ## Goal
 
@@ -82,8 +115,9 @@ Distinguish bounded engine metadata/request budgets from actual host allocator
 exhaustion. CapacityExceeded remains an admission result where it prevents work
 from starting. Do not broadly catch `std::bad_alloc` and relabel real exhaustion
 as normal pressure. Audit cache-only capacity limits reached after admission:
-eviction/reservation or rejection must happen before required creation, without
-exposing a half-created resource as a recoverable failure.
+eviction/reservation must preserve bounded ownership; exhausted backend-native
+hard limits are terminal configuration failures. Never expose a half-created
+resource as a recoverable failure.
 
 ## Scope and UE Evidence
 
@@ -123,14 +157,14 @@ render-resource reinitialization redesign are outside this plan.
 Dependencies: none.
 
 - [x] Record required-success creation, terminal OOM exit, and retained error boundaries.
-- [ ] Inventory factories, backend result handling, sync/async bridges, nullable
+- [x] Inventory factories, backend result handling, sync/async bridges, nullable
   consumers, catches, retry commands, fault-injection tests and documentation
   across all workspace projects. Keep raw inventory under ignored `Build/`.
-- [ ] Map each existing Failed/fallback/retry branch to native creation, asset
+- [x] Map each existing Failed/fallback/retry branch to native creation, asset
   error, scheduling pressure or feature selection; record deletions and survivors.
-- [ ] Identify the low-allocation terminal reporter/exit primitive and the
+- [x] Identify the low-allocation terminal reporter/exit primitive and the
   subprocess test harness. Include startup without Core and background creators.
-- [ ] Resolve backend cache-capacity admission and real host-OOM handling before
+- [x] Resolve backend cache-capacity admission and real host-OOM handling before
   changing factory contracts. Select owning/consumer test targets from actual code.
 
 Completion: a bounded migration inventory, explicit terminal mechanism and
