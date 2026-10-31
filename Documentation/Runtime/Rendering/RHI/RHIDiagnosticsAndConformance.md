@@ -6,7 +6,7 @@ and diagnostic shutdown ownership.
 
 Modules: RHI, VulkanRHI, MetalRHI, RenderCore, ApplicationCore
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-31
 
 ## Diagnostic Configuration and Lifetime
 
@@ -27,6 +27,13 @@ and returns `VK_FALSE`. It maps Vulkan severity to the engine log, counts every
 set message-type bit, bounds text to 4,096 UTF-8 bytes, and uses a thread-local
 recursion guard. Message content remains in the ordinary log; only saturating
 counters are retained by the diagnostic snapshot.
+
+Routine Vulkan startup emits one Info-level summary naming the selected GPU and
+its Vulkan API version. Device and queue configuration, swapchain creation,
+descriptor-pool allocation, unavailable optional requirements, and informational
+or verbose driver/validation messages use Trace. These details remain available
+in the default non-Shipping file log without filling the default console. Warning
+and error diagnostics and recovery notifications retain their existing levels.
 
 ## Native Names and Recorded Regions
 

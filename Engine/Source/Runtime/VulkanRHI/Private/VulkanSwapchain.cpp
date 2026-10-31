@@ -251,7 +251,7 @@ namespace Durin::VulkanRHI
 			Destroy();
 			throw;
 		}
-		DURIN_DEBUG("Vulkan swapchain {}: extent={}x{}, format={}, colorSpace={}, presentMode={}, images={}, policy={}, windowMode={}.",
+		DURIN_TRACE("Vulkan swapchain {}: extent={}x{}, format={}, colorSpace={}, presentMode={}, images={}, policy={}, windowMode={}.",
 			InOldSwapchain ? "recreated" : "created", Extent.width, Extent.height,
 			vk::to_string(Configuration.SurfaceFormat.format),
 			vk::to_string(Configuration.SurfaceFormat.colorSpace),

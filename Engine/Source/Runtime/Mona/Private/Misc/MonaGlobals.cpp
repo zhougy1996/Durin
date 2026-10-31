@@ -13,7 +13,7 @@ namespace Durin::Mona
 		if (FMonaApplication::IsInitialized()) return true;
 		if (!IsApplicationCoreInitialized()) return false;
 		FMonaApplication::Create();
-		DURIN_DEBUG(STR("Mona platform services initialized successfully."));
+		DURIN_DEBUG(STR("Platform services initialized"));
 		return true;
 	}
 
@@ -21,7 +21,7 @@ namespace Durin::Mona
 	{
 		if (!FMonaApplication::IsInitialized()) return;
 		FMonaApplication::Shutdown();
-		DURIN_DEBUG(STR("Mona shutdown."));
+		DURIN_DEBUG(STR("Application shut down"));
 	}
 
 	auto InitializeRendering(
@@ -32,7 +32,7 @@ namespace Durin::Mona
 
 		FMonaApplication::Get().Initialize(
 			bAdoptInitializationPresentationCandidate);
-		DURIN_DEBUG(STR("Mona rendering services initialized successfully."));
+		DURIN_DEBUG(STR("Rendering services initialized"));
 		return true;
 	}
 

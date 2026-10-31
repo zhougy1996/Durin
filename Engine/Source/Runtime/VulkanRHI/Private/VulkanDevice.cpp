@@ -333,11 +333,11 @@ namespace Durin::VulkanRHI
 
 		QueueFamilyProps = Gpu.getQueueFamilyProperties();
 		CreateDevice();
-		DURIN_INFO("Vulkan initialized: GPU=\"{}\", type={}, API={}.{}.{}, driver=0x{:x}, extensions(instance={}, device={}), queues(graphics={}, compute={} {}, transfer={} {}).",
-			GpuProps.deviceName.data(), vk::to_string(GpuProps.deviceType), vk::apiVersionMajor(GpuProps.apiVersion), vk::apiVersionMinor(GpuProps.apiVersion),
-			vk::apiVersionPatch(GpuProps.apiVersion), GpuProps.driverVersion, EnabledInstanceExtensionCount, DeviceExtensions.size(), GraphicsQueueFamilyIndex,
-			ComputeQueueFamilyIndex, ComputeQueueFamilyIndex == GraphicsQueueFamilyIndex ? "shared" : "separate", TransferQueueFamilyIndex,
-			TransferQueueFamilyIndex == GraphicsQueueFamilyIndex || TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared" : "separate");
+		DURIN_INFO("Device initialized: GPU=\"{}\" | Vulkan {}.{}.{}",
+			GpuProps.deviceName.data(), vk::apiVersionMajor(GpuProps.apiVersion),
+			vk::apiVersionMinor(GpuProps.apiVersion), vk::apiVersionPatch(GpuProps.apiVersion));
+		DURIN_TRACE("Vulkan enabled extensions: instance={}, device={}.",
+			EnabledInstanceExtensionCount, DeviceExtensions.size());
 		MemoryManager.Init(this);
 		QueueCapabilities.DeviceGeneration = DeviceGeneration;
 		const char* SplitPolicy = std::getenv("DURIN_VULKAN_SPLIT_BARRIERS");
@@ -500,7 +500,7 @@ namespace Durin::VulkanRHI
 		}
 		TransferQueue = GraphicsQueue;
 		PresentQueue = GraphicsQueue;
-		DURIN_DEBUG("Vulkan queue selection: graphics=({},0), compute=({},{}), timeline={}; transfer and presentation use graphics.",
+		DURIN_TRACE("Vulkan queue selection: graphics=({},0), compute=({},{}), timeline={}; transfer and presentation use graphics.",
 			GraphicsQueueFamilyIndex, ComputeQueueFamilyIndex, ComputeQueueIndex, bSupportsTimelineSemaphores);
 	}
 

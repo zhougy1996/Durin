@@ -222,7 +222,7 @@ namespace Durin::VulkanRHI
 			++Batch.ExpansionCount;
 			++Device.AccessPipelineCacheStatistics().Get().DescriptorPoolExpansions;
 		}
-		DURIN_DEBUG("Created Vulkan descriptor pool: batch={}, poolCount={}, maxSets={}, expansions={}",
+		DURIN_TRACE("Created Vulkan descriptor pool: batch={}, poolCount={}, maxSets={}, expansions={}",
 			ActiveBatchIndex, Pools.size(), Pools.back()->GetMaxSets(),
 			Batch.ExpansionCount);
 		return *Pools.back();

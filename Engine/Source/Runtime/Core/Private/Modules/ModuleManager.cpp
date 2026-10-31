@@ -270,7 +270,7 @@ namespace Durin
 			throw;
 		}
 		Info->State = EModuleState::StoppedMapped;
-		DURIN_DEBUG(STR("Module shutdown: {}"), InModuleName.ToString());
+		DURIN_DEBUG(STR("Module shut down: {}"), InModuleName.ToString());
 	}
 
 	auto FModuleManager::UnloadModule(const FName& InModuleName) -> bool

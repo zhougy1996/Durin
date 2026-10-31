@@ -16,7 +16,7 @@ namespace Durin::AssetPrivate
 		{
 			const double Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count();
 			if (Milliseconds >= 16.0)
-				DURIN_DEBUG("Asset timing: {} / {} / {:.2f} ms (owner thread).", Path.ToString(), Phase, Milliseconds);
+				DURIN_DEBUG("Asset timing: {} | {} | {:.2f} ms | thread=owner", Path.ToString(), Phase, Milliseconds);
 		}
 	private:
 		const FPackagePath& Path;

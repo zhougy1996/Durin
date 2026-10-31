@@ -2648,7 +2648,7 @@ namespace Durin
 		GLastTaskSchedulerLifetimeAccounting.reset();
 		GTaskSchedulerLifetime = ETaskSchedulerLifetime::Running;
 		DURIN_DEBUG(
-			"Task scheduler initialized. (workers: {}, task warning threshold: {})",
+			"Task scheduler initialized: workers={} | warning threshold={}",
 			Config.NumWorkerThreads > 0 ? Config.NumWorkerThreads : GetDefaultThreadPoolThreadCount(),
 			Config.TaskWarningThreshold);
 		return true;
@@ -3258,7 +3258,7 @@ namespace Durin
 						ElapsedNanoseconds
 					);
 					DURIN_WARN(
-						"Long task wait detected. (waiter: {}, target: {}, target id: {}, state: {}, elapsed milliseconds: {})",
+						"Long task wait: waiter={} | target={} | task={} | state={} | {} ms",
 						WaiterName,
 						TargetDiagnostics.DebugName,
 						TargetDiagnostics.TaskId,

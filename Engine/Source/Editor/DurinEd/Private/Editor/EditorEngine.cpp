@@ -154,7 +154,7 @@ namespace Durin
 				? FConsoleCommandResult::Success(std::format("Applied runtime changes from {} actor(s).", AppliedCount))
 				: FConsoleCommandResult::Failure(std::move(Error));
 		}});
-		DURIN_DEBUG("Editor initialized successfully");
+		DURIN_DEBUG("Editor initialized");
 		return true;
 	}
 

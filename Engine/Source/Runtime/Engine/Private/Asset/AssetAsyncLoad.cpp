@@ -188,7 +188,7 @@ namespace Durin
 			const double ApplyMilliseconds = std::chrono::duration<double, std::milli>(
 				std::chrono::steady_clock::now() - ApplyStarted).count();
 			if (ApplyMilliseconds >= 16.0)
-				DURIN_DEBUG("Package timing: {} / object application / {:.2f} ms (GameThread, {} captured packages).",
+				DURIN_DEBUG("Package timing: {} | object application {:.2f} ms | thread=GameThread | captured packages={}",
 					State.PackagePath.ToString(), ApplyMilliseconds, Inputs.size());
 		}
 
