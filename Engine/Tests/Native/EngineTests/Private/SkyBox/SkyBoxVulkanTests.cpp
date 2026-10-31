@@ -719,17 +719,20 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     OtherLight->SetRefreshPolicy(true,0.25f);
     Sky->SetExposure(4);
     Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
-    Light->SetRefreshPolicy(true,0.25f);
+    Light->SetRefreshPolicy(true,60.0f);
     EnqueueRenderCommand("EndSkySetup",[](FRHICommandListImmediate& Cmd) { GDynamicRHI->RHIEndFrame_RenderThread(Cmd); });
     FlushRenderingCommands();
     bool Ready=false;
     uint64 Revision=0;
     uint64 PublishedRequest=0;
     FByteBuffer Before,After;
-    const auto Pump=[&](bool Read) {
+    const auto Pump=[&](bool Read, bool TickWorlds = true) {
         EnqueueRenderCommand("BeginSkyTick",[](FRHICommandListImmediate& Cmd) { ++GRenderFrameCounterRenderThread; GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
-        World->Tick({.DeltaSeconds=0.02f});
-        OtherWorld->Tick({.DeltaSeconds=0.02f});
+        if (TickWorlds)
+        {
+            World->Tick({.DeltaSeconds=0.02f});
+            OtherWorld->Tick({.DeltaSeconds=0.02f});
+        }
         EnqueueRenderCommand("EndSkyTick",[&](FRHICommandListImmediate& Cmd) {
             Renderer.BeginFrame_RenderThread(Cmd);
             Ready=bool(Scene.SkyLighting->Published);
@@ -747,8 +750,9 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         });
         FlushRenderingCommands();
     };
-    for(int i=0;i<150 && !Ready;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
-    EXPECT_TRUE(Ready) << "Scene tick must generate GPU lighting without any view";
+    for(int i=0;i<150 && !Ready;++i) { Pump(false, false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+    EXPECT_TRUE(Ready) << "Registration must drive first lighting without World Tick, views, or refresh-interval waits";
+    Light->SetRefreshPolicy(true,0.25f);
     if(Ready)
     {
         Pump(true);

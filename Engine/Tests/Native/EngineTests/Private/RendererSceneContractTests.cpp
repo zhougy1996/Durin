@@ -4411,6 +4411,45 @@ namespace Durin
 #endif
 
 #if !defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
+TEST(FRendererSceneContractTests, SkyLightingDependencyPollingDoesNotDelayFirstOrFinalCapture)
+{
+    using namespace Durin;
+    FSkyLightingCaptureSchedule Schedule;
+    FSkyLightingRequestKey Request{1, 1, 1, 1};
+    // Shader and PSO become ready on successive frames. A 60-second automatic
+    // interval must not turn those two Pending results into minute-long waits.
+    EXPECT_TRUE(Schedule.CanAttempt(Request, 0.0, true, 60.0));
+    EXPECT_TRUE(Schedule.CanAttempt(Request, 0.016, true, 60.0));
+    EXPECT_TRUE(Schedule.CanAttempt(Request, 0.032, true, 60.0));
+    Schedule.Submit(0.032);
+    EXPECT_FALSE(Schedule.CanAttempt(Request, 0.048, false, 60.0));
+    // Registration completion or a manual recapture can request a final capture
+    // immediately after an early one; ordinary sky animation remains throttled.
+    ++Request.Request;
+    EXPECT_TRUE(Schedule.CanAttempt(Request, 0.048, true, 60.0));
+    Schedule.Submit(0.048);
+    EXPECT_FALSE(Schedule.CanAttempt(Request, 60.032, false, 60.0));
+    EXPECT_TRUE(Schedule.CanAttempt(Request, 60.048, false, 60.0));
+}
+
+TEST(FRendererSceneContractTests, SkyLightingFailureBackoffDoesNotBlockNewCaptureRequests)
+{
+    using namespace Durin;
+    FSkyLightingCaptureSchedule Schedule;
+    const FSkyLightingRequestKey Failed{1, 1, 1, 1};
+    Schedule.Fail(Failed, 10.0, 1.0);
+    EXPECT_FALSE(Schedule.CanAttempt(Failed, 10.016, true, 1.0));
+    EXPECT_TRUE(Schedule.CanAttempt(Failed, 11.0, true, 1.0));
+    for (const FSkyLightingRequestKey NewRequest : {
+        FSkyLightingRequestKey{2, 1, 1, 1}, FSkyLightingRequestKey{1, 2, 1, 1},
+        FSkyLightingRequestKey{1, 1, 2, 1}, FSkyLightingRequestKey{1, 1, 1, 2}})
+        EXPECT_TRUE(Schedule.CanAttempt(NewRequest, 10.016, true, 1.0));
+    Schedule.Submit(11.0);
+    // A subsequent Pending dependency poll carries no stale failure deadline.
+    EXPECT_TRUE(Schedule.CanAttempt(Failed, 11.016, true, 1.0));
+    EXPECT_FALSE(Schedule.CanAttempt(Failed, 11.016, false, 1.0));
+}
+
 TEST(FRendererSceneContractTests, SkyLightingPublishesOnlyCompletedJobs)
 {
     using namespace Durin;

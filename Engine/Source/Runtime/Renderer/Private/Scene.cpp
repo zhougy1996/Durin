@@ -162,6 +162,7 @@ namespace Durin
 		const auto* Token = Proxy.get();
 		EnqueueRenderCommand("AddSkyLight", [this, Proxy](FRHICommandListImmediate&) {
 			SkyLights.emplace(Proxy.get(), Proxy);
+			if (Renderer) Renderer->PendingSkyScenes.insert(this);
 		});
 		SkyLight->SceneProxy = Token;
 	}
@@ -175,6 +176,7 @@ namespace Durin
 		if (!Token) return;
 		EnqueueRenderCommand("RemoveSkyLight", [this, Token](FRHICommandListImmediate&) {
 			SkyLights.erase(Token);
+			if (Renderer) Renderer->PendingSkyScenes.insert(this);
 		});
 		SkyLight->SceneProxy = nullptr;
 	}
@@ -194,19 +196,19 @@ namespace Durin
 		return Selected;
 	}
 
-	auto FScene::GetSkyLight_RenderThread() const -> std::shared_ptr<const FSkyLightSceneProxy>
+	auto FScene::GetSkyLight_RenderThread(bool bRequireSourceReady) const -> std::shared_ptr<const FSkyLightSceneProxy>
 	{
 		CheckRenderingThread();
 		std::shared_ptr<const FSkyLightSceneProxy> Selected;
 		for (const auto& [Token, Candidate] : SkyLights)
 		{
 			if (!Candidate->bEligible) continue;
-            if (Candidate->SourceMode == ESkyLightSourceMode::CapturedSky && !GetProceduralSky_RenderThread())
+            if (bRequireSourceReady && Candidate->SourceMode == ESkyLightSourceMode::CapturedSky && !GetProceduralSky_RenderThread())
             {
                 Candidate->UpdateStatus->State.store(ESkyLightUpdateState::MissingProvider);
                 continue;
             }
-			if (Candidate->SourceMode == ESkyLightSourceMode::SpecifiedCube)
+			if (bRequireSourceReady && Candidate->SourceMode == ESkyLightSourceMode::SpecifiedCube)
 			{
 				const auto* Texture = Candidate->Texture ? Candidate->Texture->GetReferencedTexture_RenderThread() : nullptr;
 				if (!Texture || Texture->GetDimension() != ETextureDimension::TextureCube

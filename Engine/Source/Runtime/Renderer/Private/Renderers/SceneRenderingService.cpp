@@ -85,18 +85,21 @@ namespace Durin
 				return std::expected<bool, std::string>(false);
 			return RendererPrivate::CollectMaterialPSOs(Params, Collection, Coordinator.GetGeneration_RenderThread());
 		});
-        for (auto* Scene : PendingSkyScenes)
+        // Updates may requeue themselves while dependencies or GPU work are pending.
+        const auto SkyScenes = std::exchange(PendingSkyScenes, {});
+        for (auto* Scene : SkyScenes)
         {
             UpdateSkyLighting_RenderThread(Commands,*Scene);
             Scene->SkyLighting->WorldUpdateFrame=GRenderFrameCounterRenderThread;
         }
-        PendingSkyScenes.clear();
     }
 
     auto FSceneRenderingService::UpdateSkyLighting_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void
     {
 		FPreparedShaderMapScope ShaderScope(true);
         EnvironmentLighting.UpdateScene_RenderThread(Commands, Scene, RDGAllocator, DefaultTextures.GetCube_RenderThread());
+        if (Scene.SkyLighting->bUpdatePending) PendingSkyScenes.insert(&Scene);
+        else PendingSkyScenes.erase(&Scene);
     }
 
 	auto FSceneRenderingService::ReleaseSceneResources_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void

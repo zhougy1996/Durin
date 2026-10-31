@@ -99,15 +99,16 @@ TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
 	auto* B = Second->GetSkyLightComponent();
 	A->SetSource(Durin::ESkyLightSourceMode::CapturedSky, nullptr);
 	B->SetSource(Durin::ESkyLightSourceMode::CapturedSky, nullptr);
-	auto Observe = [&] {
+	auto Observe = [&](bool bRequireSourceReady = true) {
 		std::shared_ptr<const Durin::FSkyLightSceneProxy> Result;
 		Durin::EnqueueRenderCommand<FObserveSkyBoxCommand>([&](Durin::FRHICommandListImmediate&) {
-			Result = Scene->GetSkyLight_RenderThread();
+			Result = Scene->GetSkyLight_RenderThread(bRequireSourceReady);
 		});
 		Durin::FlushRenderingCommands();
 		return Result;
 	};
 	EXPECT_FALSE(Observe());
+	EXPECT_TRUE(Observe(false)) << "A missing provider may delay capture, but must not delay shader preparation.";
 	auto* Provider = World->SpawnActor<Durin::AProceduralSkyActor>("Provider");
 	EXPECT_NE(Provider, nullptr);
 	auto Selected = Observe();
@@ -127,6 +128,16 @@ TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
 	Selected = Observe();
 	ASSERT_TRUE(Selected);
 	EXPECT_EQ(Selected->PersistentId, A->GetPersistentId());
+	A->SetRefreshPolicy(false, 60.0f);
+	Selected = Observe();
+	const uint64 BeforeFinalCapture = Selected->RequestSerial;
+	auto* Level = World->GetCurrentLevel();
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr, false));
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Selected = Observe();
+	ASSERT_TRUE(Selected);
+	EXPECT_GT(Selected->RequestSerial, BeforeFinalCapture)
+		<< "Completing level registration requests final lighting even with automatic refresh disabled.";
 	A->SetEnabled(false);
 	EXPECT_FALSE(Observe());
 	EXPECT_TRUE(Frozen->bEligible);

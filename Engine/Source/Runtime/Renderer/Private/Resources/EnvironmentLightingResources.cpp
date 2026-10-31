@@ -71,6 +71,25 @@ namespace Durin
         : Retirement(InRetirement), State(std::make_unique<FState>()), Coordinator(InCoordinator) {}
     FEnvironmentLightingResources::~FEnvironmentLightingResources() = default;
 
+    auto FSkyLightingCaptureSchedule::CanAttempt(const FSkyLightingRequestKey& Request, double Time,
+        bool bExplicitCapture, double RefreshInterval) const -> bool
+    {
+        if (FailedRequest == Request && Time < RetryAfter) return false;
+        return bExplicitCapture || Time - LastSubmission >= RefreshInterval;
+    }
+
+    auto FSkyLightingCaptureSchedule::Fail(const FSkyLightingRequestKey& Request, double Time, double RetryInterval) -> void
+    {
+        FailedRequest = Request;
+        RetryAfter = Time + RetryInterval;
+    }
+
+    auto FSkyLightingCaptureSchedule::Submit(double Time) -> void
+    {
+        LastSubmission = Time;
+        FailedRequest.reset();
+    }
+
     auto FSkyLightingSceneState::PollJob(bool bCurrentAuthority,
         const std::shared_ptr<FSkyLightUpdateStatus>& Status, double Milliseconds)
         -> std::optional<FSkyLightingJob>
@@ -113,7 +132,8 @@ namespace Durin
             return Completion.Status == EShaderBuildStatus::Pending ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
         State->Shader=TShaderMapRef<FSkyLightingShader>(State->ShaderSet);
         auto* Shader=State->Shader.GetRHIShader(false);
-        if (!Shader) return ERenderResourceAvailability::Failed;
+        if (!Shader)
+            return Requests.HasPending() ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
         FComputePipelineStateInitializer Initializer;
         Initializer.ComputeShader=Shader;
         Initializer.PipelineLayout=State->ShaderSet.GetPipelineLayout();
@@ -145,7 +165,9 @@ namespace Durin
         if (std::none_of(Scenes.begin(), Scenes.end(), [&](const auto& Entry) { return Entry.lock()==Scene.SkyLighting; }))
             Scenes.emplace_back(Scene.SkyLighting);
         auto& S=*Scene.SkyLighting;
+        S.bUpdatePending = false;
         const auto Light=Scene.GetSkyLight_RenderThread();
+        const auto PendingLight=Scene.GetSkyLight_RenderThread(false);
         const auto Sky=Scene.GetProceduralSky_RenderThread();
         const bool Captured=Light && Light->SourceMode==ESkyLightSourceMode::CapturedSky;
         FRHITexture* Source=Light && Light->Texture ? Light->Texture->GetReferencedTexture_RenderThread() : nullptr;
@@ -158,7 +180,7 @@ namespace Durin
         if (S.Published && !HasAuthority(*S.Published))
         {
             RetirePublished_RenderThread(Commands, std::move(S.Published));
-            S.LastRequest.reset();
+            S.Schedule = {};
         }
         if (S.Job)
         {
@@ -169,12 +191,16 @@ namespace Durin
             if (auto Finished = S.PollJob(Current, Light ? Light->UpdateStatus : nullptr,
                 Timing.State == ERHIGPUTimingResultState::Ready ? double(Timing.DurationNanoseconds)/1.e6 : 0.0))
             {
+                if (Current && !Finished->Completion.IsComplete() && Light)
+                    S.Schedule.Fail({Finished->Output->Owner, Finished->Output->SourceEpoch,
+                        Finished->Output->Provider, Finished->Output->Request},
+                        Now(), Light->RefreshInterval);
                 if (S.Published != Previous) RetirePublished_RenderThread(Commands, std::move(Previous));
                 if (Finished->Completion.IsComplete() && Finished->Output->Resources == Generation)
                     State->Lut = Finished->Output->BrdfLut;
                 Retirement.Retire(Finished->Output, Finished->Completion, Finished->Output->RHIDeviceGeneration);
             }
-            if (S.Job) return;
+            if (S.Job) { S.bUpdatePending = true; return; }
         }
         const auto MeasureImages=[&]() {
             std::erase_if(S.Generations,[](const auto& Entry) { return Entry.expired(); });
@@ -192,24 +218,46 @@ namespace Durin
             if (Light) Light->UpdateStatus->RetainedImageBytes.store(LightingBytes);
             return std::pair(LightingBytes,SourceBytes);
         };
-        if (!Light || (Captured && !Sky)) return;
+        // Request shaders/PSOs even while the source texture or sky provider is
+        // loading. The ordinary scene selection still requires valid inputs.
+        const auto PreparationLight = Light ? Light : PendingLight;
+        if (!PreparationLight) return;
         const double Time=Now();
-        const bool Manual=!S.Published || S.Published->Request!=Light->RequestSerial;
+        const bool Manual=!Light || !S.Published || S.Published->Request!=Light->RequestSerial;
         const bool Changed=Captured && S.Published && S.Published->Revision!=Sky->Revision;
-        if (!Manual && !(Light->bAutomaticRefresh && Changed))
+        if (Light && !Manual && !(Light->bAutomaticRefresh && Changed))
         {
+            // A lower-priority ready light may be used while the preferred
+            // source loads. Keep observing its stable texture reference.
+            S.bUpdatePending = PendingLight != Light;
             Light->UpdateStatus->SteadyCPUMilliseconds.store((Now()-CPUStart)*1000);
             return;
         }
-        // Retry creation failures at the same bounded interval as animated updates.
-        const FSkyLightingRequestKey Request{Light->InstanceId, Light->SourceEpoch, Provider, Light->RequestSerial};
-        if (S.LastRequest == Request && Time-S.LastAttempt < Light->RefreshInterval)
+        S.bUpdatePending = true;
+        const FSkyLightingRequestKey Request{PreparationLight->InstanceId, PreparationLight->SourceEpoch,
+            PreparationLight->SourceMode == ESkyLightSourceMode::CapturedSky && Sky ? Sky->InstanceId : 0,
+            PreparationLight->RequestSerial};
+        if (!S.Schedule.CanAttempt(Request, Time, Manual, PreparationLight->RefreshInterval))
         {
-            Light->UpdateStatus->SteadyCPUMilliseconds.store((Now()-CPUStart)*1000);
+            PreparationLight->UpdateStatus->SteadyCPUMilliseconds.store((Now()-CPUStart)*1000);
             return;
         }
-        S.LastAttempt=Time;
-        S.LastRequest=Request;
+        const auto* Caps=GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+        if (!Caps || !Caps->bSupportsSkyLighting)
+        {
+            PreparationLight->UpdateStatus->State = ESkyLightUpdateState::Unsupported;
+            S.bUpdatePending = false;
+            return;
+        }
+        const auto Availability = PrepareResources_RenderThread();
+        if (Availability != ERenderResourceAvailability::Ready || !FallbackCube)
+        {
+            const bool Failed = Availability == ERenderResourceAvailability::Failed;
+            PreparationLight->UpdateStatus->State = Failed ? ESkyLightUpdateState::Failed : ESkyLightUpdateState::Pending;
+            if (Failed) S.Schedule.Fail(Request, Time, PreparationLight->RefreshInterval);
+            return;
+        }
+        if (!Light || (Captured && !Sky)) return;
         // Reserve a conservative 4 MiB including alignment for the fixed output
         // envelope before allocation. Count exports and consumers, not RDG pool entries.
         const auto [LightingBytes,SourceBytes]=MeasureImages();
@@ -224,19 +272,6 @@ namespace Durin
             return;
         }
         Light->UpdateStatus->State.store(ESkyLightUpdateState::Pending);
-        const auto* Caps=GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
-        if (!Caps || !Caps->bSupportsSkyLighting)
-        {
-            Light->UpdateStatus->State = ESkyLightUpdateState::Unsupported;
-            return;
-        }
-        const auto Availability = PrepareResources_RenderThread();
-        if (Availability != ERenderResourceAvailability::Ready || !FallbackCube)
-        {
-            Light->UpdateStatus->State = Availability == ERenderResourceAvailability::Pending
-                ? ESkyLightUpdateState::Pending : ESkyLightUpdateState::Failed;
-            return;
-        }
         auto Candidate=std::make_shared<FSkyLightingGeneration>();
         Candidate->Resources=Generation; Candidate->Owner=Light->InstanceId;
         Candidate->RHIDeviceGeneration=GDynamicRHI->RHIGetQueueCapabilities().DeviceGeneration;
@@ -334,11 +369,17 @@ namespace Durin
         const auto Result=Graph.Execute(Commands,&Allocator);
         if (Query) Commands.EndGPUTimingQuery(Query);
         Commands.SwitchPipeline(ERHIPipeline::Graphics);
-        if (!Result.has_value()) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }
+        if (!Result.has_value())
+        {
+            Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed);
+            S.Schedule.Fail(Request, Time, Light->RefreshInterval);
+            return;
+        }
         auto Completion = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
         Commands.EndGPUSubmission();
         Candidate->BrdfLut = Lut ? std::move(Lut) : State->Lut;
         S.Job = FSkyLightingJob{Candidate, std::move(Completion), std::move(Query)};
+        S.Schedule.Submit(Time);
         S.Generations.push_back(Candidate);
         MeasureImages();
         Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::SubmitToGPU);
@@ -360,7 +401,8 @@ namespace Durin
             Retirement.Retire(S.Job->Output, S.Job->Completion, S.Job->Output->RHIDeviceGeneration);
             S.Job.reset();
         }
-        S.LastRequest.reset();
+        S.Schedule = {};
+        S.bUpdatePending = false;
         // Keep the weak inventory across logical invalidation: physical leases still count.
     }
     auto FEnvironmentLightingResources::ReleaseResources_RenderThread(FRHICommandListImmediate& Commands) -> void
@@ -375,7 +417,8 @@ namespace Durin
                     Retirement.Retire(State->Job->Output, State->Job->Completion, State->Job->Output->RHIDeviceGeneration);
                     State->Job.reset();
                 }
-                State->LastRequest.reset();
+                State->Schedule = {};
+                State->bUpdatePending = false;
             }
         State=std::make_unique<FState>();
     }

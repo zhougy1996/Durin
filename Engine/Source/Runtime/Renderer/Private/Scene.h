@@ -47,8 +47,8 @@ namespace Durin
 		RENDERER_API auto GetProceduralSky_RenderThread() const -> std::shared_ptr<const FProceduralSkySceneProxy>;
 		RENDERER_API auto AddSkyLight(DSkyLightComponent* SkyLight) -> void override;
 		RENDERER_API auto RemoveSkyLight(DSkyLightComponent* SkyLight) -> void override;
-		// Returns an immutable selected candidate with no managed-object ownership.
-		RENDERER_API auto GetSkyLight_RenderThread() const -> std::shared_ptr<const FSkyLightSceneProxy>;
+		// Preparation may select a pending source; drawing/filtering require it ready.
+		RENDERER_API auto GetSkyLight_RenderThread(bool bRequireSourceReady = true) const -> std::shared_ptr<const FSkyLightSceneProxy>;
 		RENDERER_API auto AddVolumetricCloud(
 			DVolumetricCloudComponent* Cloud
 		) -> void override;
