@@ -234,8 +234,11 @@ namespace Durin::RendererPrivate
 					.Rasterizer = Shadow.Rasterizer, .Depth = Shadow.Depth};
 			}
 		};
-		auto CreateShadowMeshPassProcessor(FMeshPSOCollectorContext Context) -> std::unique_ptr<FMeshPassProcessor>
-		{ return std::make_unique<FShadowDepthPassMeshProcessor>(Context); }
+		auto CreateShadowMeshPassProcessor(int32 PSOCollectorIndex) -> std::unique_ptr<FMeshPassProcessor>
+		{ return std::make_unique<FShadowDepthPassMeshProcessor>(PSOCollectorIndex); }
+		auto CreateShadowDepthPSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
+		{ return CreateShadowMeshPassProcessor(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "ShadowDepth")); }
+		const FRegisterPSOCollectorCreateFunction RegisterShadowDepthPSO(&CreateShadowDepthPSOCollector, EShadingPath::Deferred, "ShadowDepth");
 		const FRegisterPassProcessorCreateFunction RegisterShadowMeshPass(&CreateShadowMeshPassProcessor, EMeshPipelinePass::ShadowDepth);
 
 	}

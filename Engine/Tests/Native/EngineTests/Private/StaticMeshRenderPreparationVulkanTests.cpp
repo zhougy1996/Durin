@@ -6,6 +6,7 @@
 #include "RenderPipelineCreation.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Renderers/MeshPassProcessor.h"
+#include "Renderers/MaterialPSOPrecacheCollector.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Materials/MaterialShaderMap.h"
 
@@ -33,6 +34,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"
@@ -3997,6 +3999,35 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	ASSERT_EQ(Repeated.size(), 1u);
 	ASSERT_EQ(LowComponent->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs().size(), 1u);
 	EXPECT_EQ(Repeated[0].GetValue(), LowComponent->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs()[0].GetValue());
+	{
+		class FPrecacheHost final : public DEngine
+		{
+		public:
+			explicit FPrecacheHost(IRendererModule& Module) : DEngine(FObjectInitializer::Get()) { RendererModule = &Module; }
+		} Host(Renderer);
+		auto* PreviousEngine = std::exchange(GEngine, &Host);
+		struct FRestoreHost { DEngine* Previous; ~FRestoreHost() { GEngine = Previous; } } RestoreHost{PreviousEngine};
+		std::vector<FMaterialPSOPrecacheRequestID> ViaHost;
+		ASSERT_TRUE(Material->PrecachePSOs(ERHIFeatureLevel::ES3_1, Factories, {}, EPSOPrecachePriority::Medium, ViaHost));
+		ASSERT_EQ(ViaHost.size(), 1u);
+		EXPECT_EQ(ViaHost[0].GetValue(), Repeated[0].GetValue());
+		if (HighScene->GetFeatureLevel() != ERHIFeatureLevel::ES3_1)
+		{
+			const auto HighRequests = HighComponent->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs();
+			ASSERT_EQ(HighRequests.size(), 1u);
+			EXPECT_NE(ViaHost[0].GetValue(), HighRequests[0].GetValue());
+		}
+		// Rejection must preserve the caller's existing observations.
+		GEngine = nullptr;
+		EXPECT_FALSE(Material->PrecachePSOs(ERHIFeatureLevel::ES3_1, Factories, {}, EPSOPrecachePriority::Medium, ViaHost));
+		ASSERT_EQ(ViaHost.size(), 1u);
+		EXPECT_EQ(ViaHost[0].GetValue(), Repeated[0].GetValue());
+		EXPECT_TRUE(ViaHost[0].IsCurrent());
+		EXPECT_FALSE(Material->PrecachePSOs(Renderer, static_cast<ERHIFeatureLevel>(255), Factories, {}, EPSOPrecachePriority::Medium, ViaHost));
+		ASSERT_EQ(ViaHost.size(), 1u);
+		EXPECT_EQ(ViaHost[0].GetValue(), Repeated[0].GetValue());
+		EXPECT_TRUE(ViaHost[0].IsCurrent());
+	}
 	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 		for (auto* Scene : {static_cast<FScene*>(HighScene.get()), static_cast<FScene*>(LowScene.get())}) {
 			FSceneView View; View.ViewportWidth = View.ViewportHeight = 64; View.FeatureLevel = Scene->GetFeatureLevel();
@@ -4016,38 +4047,50 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	ASSERT_TRUE(Renderer.SetPreparationSettings(InitialConfig.Settings));
 	EXPECT_EQ(Renderer.GetSceneRenderPreparationConfig(LowScene->GetFeatureLevel()), InitialConfig);
 	std::unique_ptr<RendererPrivate::FMeshPassProcessor> DirectCollector;
+	std::unique_ptr<RendererPrivate::FMeshPSOCollectionSession> DirectSession;
 	FRenderPipelineRequests DirectCommandRequests;
 	FGraphicsPipelineStateRef ExpectedCommandPipeline;
 	FPSOPrecacheDataArray DirectInitializers;
 	DirectInitializers.emplace_back(); // The append interface must preserve its prefix.
 	struct FDirectCollectorCleanup {
 		std::unique_ptr<RendererPrivate::FMeshPassProcessor>& Processor;
+		std::unique_ptr<RendererPrivate::FMeshPSOCollectionSession>& Session;
 		FPSOPrecacheDataArray& Initializers;
 		FRenderPipelineRequests& Requests;
 		FGraphicsPipelineStateRef& Expected;
 		~FDirectCollectorCleanup() {
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([this](FRHICommandListImmediate&) { Initializers.clear(); Processor.reset(); Requests.Reset(); Expected.reset(); });
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([this](FRHICommandListImmediate&) { Initializers.clear(); Session.reset(); Processor.reset(); Requests.Reset(); Expected.reset(); });
 			FlushRenderingCommands();
 		}
-	} DirectCleanup{DirectCollector, DirectInitializers, DirectCommandRequests, ExpectedCommandPipeline};
+	} DirectCleanup{DirectCollector, DirectSession, DirectInitializers, DirectCommandRequests, ExpectedCommandPipeline};
 	bool DirectReady = false, CommandReady = false, BindingContextsValidated = false;
 	std::string DirectError;
 	const auto DirectDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	do {
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			FGeometryQualificationFrame Frame(Commands);
-			if (!DirectCollector) DirectCollector = RendererPrivate::FPassProcessorManager::CreateMeshPassProcessor(RendererPrivate::EMeshPipelinePass::Forward,
-				{Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation, EPSOPrecachePriority::High});
+			if (!DirectCollector) {
+				DirectCollector = RendererPrivate::FPassProcessorManager::CreateMeshPassProcessor(RendererPrivate::EMeshPipelinePass::Forward);
+				const auto Properties = LowResource.GetStaticProperties();
+				const auto& Map = LowResource.CompiledProgram->GetShaderMap();
+				FMaterialPSOPrecacheParams Params;
+				Params.Material = {.ShaderMap = {.RenderLayout = Map.Layout.Identity, .ProgramIdentity = Map.ShaderMapId,
+					.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel, .OpacityMaskThreshold = Properties.OpacityMaskThreshold},
+					.bTwoSided = Properties.bTwoSided, .DepthWritePolicy = Properties.DepthWritePolicy};
+				Params.CompiledProgram = LowResource.CompiledProgram; Params.VertexFactoryData = Factories.front();
+				Params.FeatureLevel = InitialConfig.FeatureLevel; Params.PreparationConfig = InitialConfig; Params.Priority = EPSOPrecachePriority::High;
+				DirectSession = std::make_unique<RendererPrivate::FMeshPSOCollectionSession>(*DirectCollector, Params, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation);
+			}
 			const auto Draws = Commands.GetNumRecordedDrawCommands();
-			IPSOCollector& Collector = *DirectCollector;
-			Collector.CollectPSOInitializers(InitialConfig, LowResource, Factories.front(), {}, DirectInitializers);
-			const auto Result = DirectCollector->GetPSOCollectionResult();
+			auto Result = DirectSession->CollectPSOInitializers(RendererPrivate::EPSOPrecacheCollectionPhase::Required, DirectInitializers);
+			if (Result && *Result) Result = DirectSession->CollectPSOInitializers(RendererPrivate::EPSOPrecacheCollectionPhase::Optional, DirectInitializers);
 			if (!Result) DirectError = Result.error();
 			else DirectReady = *Result;
 			EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
 			if (DirectReady) {
 				const auto Count = DirectInitializers.size();
-				Collector.CollectPSOInitializers(InitialConfig, LowResource, Factories.front(), {}, DirectInitializers);
+				EXPECT_TRUE(*DirectSession->CollectPSOInitializers(RendererPrivate::EPSOPrecacheCollectionPhase::Required, DirectInitializers));
+				EXPECT_TRUE(*DirectSession->CollectPSOInitializers(RendererPrivate::EPSOPrecacheCollectionPhase::Optional, DirectInitializers));
 				EXPECT_EQ(DirectInitializers.size(), Count);
 				using namespace RendererPrivate;
 				const auto Properties = LowResource.GetStaticProperties();

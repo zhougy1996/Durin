@@ -354,8 +354,16 @@ namespace Durin::RendererPrivate
 				return Result;
 			}
 		};
-		template<EMeshPipelinePass Pass> auto CreateBasePassMeshProcessor(FMeshPSOCollectorContext Context) -> std::unique_ptr<FMeshPassProcessor>
-		{ return std::make_unique<TBasePassMeshProcessor<Pass>>(Context); }
+		template<EMeshPipelinePass Pass> auto CreateBasePassMeshProcessor(int32 PSOCollectorIndex) -> std::unique_ptr<FMeshPassProcessor>
+		{ return std::make_unique<TBasePassMeshProcessor<Pass>>(PSOCollectorIndex); }
+		template<EMeshPipelinePass Pass> auto CreateBasePSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
+		{
+			constexpr auto Name = Pass == EMeshPipelinePass::Forward ? "Forward" : Pass == EMeshPipelinePass::HybridRetainedForward ? "HybridRetainedForward" : "SortedTranslucency";
+			return CreateBasePassMeshProcessor<Pass>(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, Name));
+		}
+		const FRegisterPSOCollectorCreateFunction RegisterForwardPSO(&CreateBasePSOCollector<EMeshPipelinePass::Forward>, EShadingPath::Deferred, "Forward");
+		const FRegisterPSOCollectorCreateFunction RegisterHybridPSO(&CreateBasePSOCollector<EMeshPipelinePass::HybridRetainedForward>, EShadingPath::Deferred, "HybridRetainedForward");
+		const FRegisterPSOCollectorCreateFunction RegisterSortedPSO(&CreateBasePSOCollector<EMeshPipelinePass::SortedTranslucency>, EShadingPath::Deferred, "SortedTranslucency");
 		const FRegisterPassProcessorCreateFunction RegisterForwardBasePass(&CreateBasePassMeshProcessor<EMeshPipelinePass::Forward>, EMeshPipelinePass::Forward);
 		const FRegisterPassProcessorCreateFunction RegisterHybridRetainedForward(&CreateBasePassMeshProcessor<EMeshPipelinePass::HybridRetainedForward>, EMeshPipelinePass::HybridRetainedForward);
 		const FRegisterPassProcessorCreateFunction RegisterSortedTranslucency(&CreateBasePassMeshProcessor<EMeshPipelinePass::SortedTranslucency>, EMeshPipelinePass::SortedTranslucency);

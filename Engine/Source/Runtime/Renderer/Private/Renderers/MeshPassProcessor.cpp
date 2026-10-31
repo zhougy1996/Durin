@@ -1,4 +1,5 @@
 #include "Renderers/MeshPassProcessor.h"
+#include "Renderers/MaterialPSOPrecacheCollector.h"
 
 #include "DynamicRHI.h"
 #include "Materials/MaterialRenderProxy.h"
@@ -452,7 +453,7 @@ namespace Durin::RendererPrivate
 			if (Registry.Entries[Index].Create) Passes.push_back(static_cast<EMeshPipelinePass>(Index));
 		return Passes;
 	}
-	auto FPassProcessorManager::CreateMeshPassProcessor(EMeshPipelinePass Pass, FMeshPSOCollectorContext Context)
+	auto FPassProcessorManager::CreateMeshPassProcessor(EMeshPipelinePass Pass, int32 PSOCollectorIndex)
 		-> std::unique_ptr<FMeshPassProcessor>
 	{
 		if (!IsValidMeshPass(Pass)) return {};
@@ -463,7 +464,7 @@ namespace Durin::RendererPrivate
 			Create = Registry.Entries[static_cast<size_t>(Pass)].Create;
 		}
 		// Factories can query other passes; never invoke them under the registry lock.
-		auto Processor = Create ? Create(Context) : nullptr;
+		auto Processor = Create ? Create(PSOCollectorIndex) : nullptr;
 		if (Processor && Processor->GetPass() != Pass) return {};
 		return Processor;
 	}
@@ -479,7 +480,7 @@ namespace Durin::RendererPrivate
 			Create = Entry.Create;
 		}
 		requiref(Create != nullptr, "Unregistered mesh pass processor.");
-		auto Prototype = Create({});
+		auto Prototype = Create(-1);
 		requiref(Prototype && Prototype->GetPass() == Pass, "Mesh pass factory returned an incompatible processor.");
 		std::lock_guard Lock(Registry.Mutex);
 		auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
@@ -503,18 +504,7 @@ namespace Durin::RendererPrivate
 		return Result;
 	}
 
-	struct FMeshPassProcessor::FState
-	{
-		std::expected<bool, std::string> Result = false;
-		std::array<std::vector<FMeshPSOPrecacheVariant>, 2> Variants;
-		std::array<size_t, 2> Next{};
-		std::array<FShaderMapPreparation, 2> FixedShaders;
-		std::array<bool, 2> Requested{};
-		bool bVariantsCollected = false, bShadersReady = false;
-		FVertexDeclarationRHIRef Declaration;
-		FMeshPassShaders Shaders;
-	};
-	FMeshPassProcessor::FMeshPassProcessor(FMeshPSOCollectorContext InContext) : Context(InContext) {}
+	FMeshPassProcessor::FMeshPassProcessor(int32 InPSOCollectorIndex) : IPSOCollector(InPSOCollectorIndex) {}
 	FMeshPassProcessor::~FMeshPassProcessor() = default;
 	auto FMeshPassProcessor::IsMeshRelevant(const FMaterialPlanningPassIdentity& Material,
 		const FPrimitiveRenderParticipation& Participation, bool bSupportsGBuffer) const -> bool
@@ -526,31 +516,12 @@ namespace Durin::RendererPrivate
 		return Factory.GetShaderType(GetVertexFactoryPass())
 			&& (GetPass() == EMeshPipelinePass::ShadowDepth || Factory.GetShaderType(MaterialMeshPassForward));
 	}
-	auto FMeshPassProcessor::GetPSOCollectionResult() const -> std::expected<bool, std::string>
-	{ return State ? State->Result : std::expected<bool, std::string>(false); }
-
 	auto FMeshPassProcessor::CollectPSOInitializers(const FSceneRenderPreparationConfig& Config,
 		const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
 		const FPSOPrecacheParams& Params, FPSOPrecacheDataArray& Out) -> void
 	{
-		if (CollectionPhase) { CollectPhase(Config, Material, VertexFactoryData, Params, Out, *CollectionPhase); return; }
-		CollectPhase(Config, Material, VertexFactoryData, Params, Out, true);
-		const auto Required = GetPSOCollectionResult();
-		if (!Required || !*Required) return;
-		CollectPhase(Config, Material, VertexFactoryData, Params, Out, false);
-	}
-	auto FMeshPassProcessor::CollectPhase(const FSceneRenderPreparationConfig& Config,
-		const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
-		const FPSOPrecacheParams& Params, FPSOPrecacheDataArray& Out, bool bRequired) -> void
-	{
 		CheckRenderingThread();
-		if (!State) State = std::make_unique<FState>();
-		if (!State->Result.has_value()) return;
-		State->Result = false;
-		const auto Fail = [&](std::string Error) { State->Result = std::unexpected(std::move(Error)); };
-		if (!Material.CompiledProgram || !Material.CompiledProgram->ShaderMap || !Config.Version
-			|| Config.FeatureLevel != Material.CompiledProgram->FeatureLevel)
-		{ Fail("Mesh pass collection requires a matching accepted material and scene configuration."); return; }
+		auto& Prepared = FPreparedMeshPSOCollectorScope::Get();
 		const auto Properties = Material.GetStaticProperties();
 		const auto& Map = Material.CompiledProgram->GetShaderMap();
 		const FMaterialPlanningPassIdentity Identity{
@@ -558,66 +529,20 @@ namespace Durin::RendererPrivate
 				.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel,
 				.OpacityMaskThreshold = Properties.OpacityMaskThreshold},
 			.bTwoSided = Properties.bTwoSided, .DepthWritePolicy = Properties.DepthWritePolicy};
-		const auto Factory = VertexFactoryData.VertexFactoryType
-			? FindMeshVertexFactory(VertexFactoryData.VertexFactoryType->GetStableKey()) : nullptr;
-		if (!Factory || &Factory->GetType() != VertexFactoryData.VertexFactoryType)
-		{ Fail("No registered mesh shader implementation for the precache Vertex Factory."); return; }
+		const auto Factory = FindMeshVertexFactory(VertexFactoryData.VertexFactoryType->GetStableKey());
 		if (!IsEnabled(Config) || !SupportsVertexFactory(*Factory)
-			|| !IsMeshRelevant(Identity, Params.Participation, Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr))
-		{ State->Result = true; return; }
-		if (!State->bVariantsCollected)
+			|| !IsMeshRelevant(Identity, Params.Participation, Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return;
+		for (const auto& Variant : Prepared.Variants)
 		{
-			for (const auto& Variant : GetPSOPrecacheVariants(Config, Params))
-				State->Variants[Variant.bRequired ? 0 : 1].push_back(Variant);
-			State->bVariantsCollected = true;
-		}
-		const size_t Group = bRequired ? 0 : 1;
-		auto& Next = State->Next[Group];
-		const auto& Variants = State->Variants[Group];
-		if (Next == Variants.size()) { State->Result = true; return; }
-		if (!GDynamicRHI || !IsTaskSchedulerRunning()) { Fail("Mesh pass collection requires RHI and the task scheduler."); return; }
-		const auto Fragment = GetFragmentShader(Identity.ShaderMap.BlendMode);
-		const uint32 MeshPass = GetVertexFactoryPass();
-		if (!Fragment.Type || !Fragment.Resolve) { Fail("Unsupported mesh pass fragment shader."); return; }
-		if (!State->Requested[Group])
-		{
-			auto& Shaders = State->FixedShaders[Group];
-			Shaders = FShaderMapPreparation::Request("MeshVertexFactory", {});
-			if (!Factory->UsesGeneratedMaterialVertexStage(MeshPass)) Shaders.Add("MeshVertexFactory", {Factory->GetRuntimeRequestName(MeshPass)});
-			if (Fragment.FixedModule) Shaders.Add(Fragment.FixedModule, {Fragment.FixedRequest});
-			State->Requested[Group] = true;
-		}
-		const auto FixedReady = State->FixedShaders[Group].Poll();
-		if (!FixedReady) { Fail(FixedReady.error()); return; }
-		if (!*FixedReady) return;
-		FPreparedShaderMapScope Prepared;
-		if (!State->bShadersReady)
-		{
-			const FMeshPassProcessorBatch Batch{Identity, *Factory, {}, Params.Topology, Params.Participation};
-			const auto Completion = PrepareShaders(Batch, Context.Generation, Material.CompiledProgram.get(), {}, State->Shaders);
-			if (Completion.Status == EShaderBuildStatus::Pending) return;
-			if (!Completion) { Fail(Completion.Error.empty() ? "Mesh pass shader collection was canceled." : std::string(Completion.Error)); return; }
-			State->bShadersReady = true;
-		}
-		if (!State->Declaration)
-		{
-			const auto Elements = VertexFactoryData.GetVertexElements();
-			if (!Elements) { Fail("Invalid precache vertex elements."); return; }
-			State->Declaration = GDynamicRHI->RHICreateVertexDeclaration(*Elements);
-			if (!State->Declaration) { Fail("Precache vertex declaration creation failed."); return; }
-		}
-		while (Next < Variants.size())
-		{
-			const auto& Variant = Variants[Next];
 			const FMeshPassProcessorBatch Batch{Identity, *Factory, MakeMeshPipelineState(Identity, Variant.Raster),
 				Params.Topology, Params.Participation, true, false, Variant.Raster.bReversedZ};
 			FGraphicsPipelineStateInitializer Initializer;
-			if (!BuildPSOInitializer(Batch, State->Shaders, State->Declaration, Initializer)) { Fail("Mesh pass initializer construction failed."); return; }
-			Out.emplace_back(Initializer, Variant.bRequired, Context.Priority);
-			++Next;
+			if (!BuildPSOInitializer(Batch, *Prepared.Shaders, Prepared.Declaration, Initializer))
+			{ Prepared.Error = "Mesh pass initializer construction failed."; return; }
+			Out.emplace_back(Initializer, Variant.bRequired, Prepared.Priority);
 		}
-		State->Result = true;
 	}
+
 }
 
 namespace Durin

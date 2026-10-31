@@ -380,8 +380,11 @@ namespace Durin::RendererPrivate
 				return Result;
 			}
 		};
-		auto CreatePickingMeshPassProcessor(FMeshPSOCollectorContext Context) -> std::unique_ptr<FMeshPassProcessor>
-		{ return std::make_unique<FHitProxyPassMeshProcessor>(Context); }
+		auto CreatePickingMeshPassProcessor(int32 PSOCollectorIndex) -> std::unique_ptr<FMeshPassProcessor>
+		{ return std::make_unique<FHitProxyPassMeshProcessor>(PSOCollectorIndex); }
+		auto CreateHitProxyPSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
+		{ return CreatePickingMeshPassProcessor(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "HitProxy")); }
+		const FRegisterPSOCollectorCreateFunction RegisterHitProxyPSO(&CreateHitProxyPSOCollector, EShadingPath::Deferred, "HitProxy");
 		const FRegisterPassProcessorCreateFunction RegisterPickingMeshPass(&CreatePickingMeshPassProcessor, EMeshPipelinePass::HitProxy);
 
 	}

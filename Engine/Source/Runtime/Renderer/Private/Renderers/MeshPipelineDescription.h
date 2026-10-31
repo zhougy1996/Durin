@@ -24,6 +24,12 @@ namespace Durin::RendererPrivate
 		bool bReversedZ = false;
 	};
 
+	struct FMeshPSOPrecacheVariant
+	{
+		FMeshPipelineRasterOptions Raster;
+		bool bRequired = false;
+	};
+
 	enum class EMeshPipelinePass : uint8
 	{
 		Forward,

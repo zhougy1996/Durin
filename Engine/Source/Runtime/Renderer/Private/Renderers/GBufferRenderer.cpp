@@ -364,8 +364,11 @@ namespace Durin::RendererPrivate
 				FMaterialShaderBlendModeKey, bool) const -> FMeshPipelineDescription override
 			{ return {.RenderTargets = RenderTargetLayouts::MakeGBufferTargets(), .Topology = Topology, .Rasterizer = State.Rasterizer, .Depth = State.Depth}; }
 		};
-		auto CreateGBufferMeshPassProcessor(FMeshPSOCollectorContext Context) -> std::unique_ptr<FMeshPassProcessor>
-		{ return std::make_unique<FGBufferPassMeshProcessor>(Context); }
+		auto CreateGBufferMeshPassProcessor(int32 PSOCollectorIndex) -> std::unique_ptr<FMeshPassProcessor>
+		{ return std::make_unique<FGBufferPassMeshProcessor>(PSOCollectorIndex); }
+		auto CreateGBufferPSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
+		{ return CreateGBufferMeshPassProcessor(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "GBuffer")); }
+		const FRegisterPSOCollectorCreateFunction RegisterGBufferPSO(&CreateGBufferPSOCollector, EShadingPath::Deferred, "GBuffer");
 		const FRegisterPassProcessorCreateFunction RegisterGBufferMeshPass(&CreateGBufferMeshPassProcessor, EMeshPipelinePass::GBuffer);
 
 	}

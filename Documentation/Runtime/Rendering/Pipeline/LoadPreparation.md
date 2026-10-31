@@ -280,11 +280,11 @@ for the Renderer module lifetime and is renewed when the module is recreated.
 
 Engine's `PSOPrecache.h` owns common collection parameters, initializer data and
 CPU Vertex Factory snapshots; RenderCore owns the Vertex Factory type and element
-callbacks. `PSOPrecacheMaterial.h` owns `IPSOCollector` and material request/owner
-contracts. `PSOPrecacheComponent.h` retains the component policy and observer set.
+callbacks. `PSOPrecacheMaterial.h` owns `IPSOCollector`, collector registration and material
+request/owner contracts. Collection sessions remain private to Renderer. `PSOPrecacheComponent.h` retains the component policy and observer set.
 Both material submission overloads require an explicit FeatureLevel; the host
 convenience overload resolves only the Renderer and forwards to the same core
-implementation. Renderer collection enumerates registered pass processors directly;
+implementation. Renderer collection enumerates independently registered PSO collectors;
 there is no separate pass-planning interface for tests.
 
 `DMaterialInterface::PrecachePSOs` explicitly snapshots the accepted program and
@@ -463,32 +463,48 @@ thread; immutable draw prototypes keep no request-specific context.
 Concrete processors and their creation-function registrations live with their
 passes: Base Scene owns Forward, hybrid retained and sorted translucency;
 Directional Shadow, GBuffer and HitProxy own their corresponding processors.
-`MeshPassProcessor.h/.cpp` contains the base, shared collection/command helpers and
-the registration manager. `FRegisterPassProcessorCreateFunction` registers a
-factory for an existing `EMeshPipelinePass`; `FPassProcessorManager` enumerates,
-looks up and creates processors through that registry. Duplicate, null and
-out-of-range registrations cannot replace an existing factory. Creation callbacks
-execute outside the registry lock, and each collection gets independent state.
-Draw lookups lazily retain an immutable prototype. Registration belongs to module
-initialization; unregistering requires quiescent users and retires that prototype.
-The project pass enum already distinguishes its routes, so this registry does not
-introduce an additional ShadingPath index.
+`MeshPassProcessor.h/.cpp` contains the base, shared initializer/command helpers
+and draw-pass registry. `FRegisterPassProcessorCreateFunction` and
+`FPassProcessorManager` retain draw factories and immutable description prototypes.
+The independent Engine `FPSOCollectorCreateManager` provides `GetCreateFunction`,
+`GetIndex`, `GetName` and `GetPSOCollectorCount`, keyed by `EShadingPath`, name and
+stable collector index. `FRegisterPSOCollectorCreateFunction` rejects duplicate
+names within a path, null factories and invalid paths. Removal leaves live indices
+unchanged; free slots can be reused and trailing holes are trimmed. Lookups are
+locked; factories are invoked outside locks. Registration completes during module
+initialization before material admission; updates and removal require quiescent
+users, including borrowed names,
+copied factory functions, collectors and sessions. Mesh passes register both
+factories in their own implementation files and share the same processor class.
+Current desktop Forward and Hybrid both collect from Deferred; lower material
+FeatureLevels do not imply a Mobile renderer. Mobile registrations remain isolated.
 
-Engine's `IPSOCollector::CollectPSOInitializers` follows the UE append interface:
-it takes the scene configuration, accepted `FMaterialResource`, Vertex Factory
-data, primitive precache parameters and an output `FPSOPrecacheDataArray`, and
-returns `void`. The project resource/config types retain the existing snapshot
-ownership contracts. A default collection includes required and optional variants.
-Each request creates its own processor instances; immutable prototypes serve
-draw descriptions. Nonblocking ShaderMap readiness is exposed separately through
-`GetPSOCollectionResult`, and repeated pumps preserve the appended prefix without
-duplicating entries. The host invokes required collection across every processor
-before optional collection and publishes required coverage at that boundary.
-The aggregate material collector traverses processors without selecting pass
-shaders or pipeline state itself. Fixed Shader requests are started and
-retained before nonblocking ShaderMap resolution. Inapplicable routes are skipped;
-failed resource creation for applicable routes remains an explicit failure. GPU-culling and global feature PSOs are outside
-this material collector. Native compilation uses the existing service queue;
+Engine's `IPSOCollector::CollectPSOInitializers` retains the UE-shaped `void` append
+interface: scene configuration, accepted `FMaterialResource`, Vertex Factory data,
+primitive parameters and an output `FPSOPrecacheDataArray`. `PSOCollectorIndex`
+identifies the contribution. The append implementation is stateless and emits all
+applicable variants from already prepared resources; it never pumps async work.
+Renderer owns the material collection session and per-mesh resource preparation.
+Ready non-mesh collectors append directly, without a mesh-pass registration or
+an Engine session adapter. Mesh sessions own fixed Shader requests, exact ShaderMaps, native declarations,
+immutable material/configuration/generation snapshots, phase variants and
+emission state. The session passes only the current phase variants to the append
+call; mesh initializers are emitted directly without an intermediate result cache. A short consumption-only scope borrows ready mesh resources
+for the append call and restores any outer scope; it retains no asynchronous work.
+
+The material collection session advances Required across every collector before
+Optional, publishing `bRequiredPSOsCollected` at that boundary. Optional-only passes
+start no resource work in Required. Per-pass sessions reject out-of-order Optional
+calls and preserve the output prefix without re-emitting completed phases. A completed
+Required phase remains successful when queried after Optional fails; the failed
+phase keeps its diagnostic without appending again. Sessions
+reuse `PrepareShaders`, shared pass filters and `BuildPSOInitializer`, so drawing
+and collection retain one shader/state selection path. Errors stay on the session;
+no pending result, cursor or required/optional switch lives on the processor.
+Mesh sessions outlive neither their collectors nor the resource-owning render thread.
+Existing request completion, invalidation and shutdown retire their resources.
+GPU-culling and global feature PSOs remain outside this material collector.
+Native compilation uses the existing service queue;
 no additional compile thread pool is introduced.
 
 There is no aggregate material-request count or aggregate Shader-code admission
