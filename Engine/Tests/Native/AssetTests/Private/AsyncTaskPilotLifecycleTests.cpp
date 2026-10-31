@@ -223,7 +223,7 @@ namespace
 		ASSERT_TRUE(Meshes[1]->Build(EStaticMeshBuildMode::Asynchronous));
 		Cache->Release.Trigger();
 		Meshes[1]->FinishCompilation();
-		EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, GetStaticMeshCompilationDiagnostic(FirstId).Status);
+		EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, GetStaticMeshCompilationDiagnostic(FirstId).Status);
 		EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, Meshes[1]->GetCompilationDiagnostic().Status);
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		EXPECT_EQ(0u, GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);

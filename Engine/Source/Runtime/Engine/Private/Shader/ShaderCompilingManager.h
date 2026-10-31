@@ -96,7 +96,7 @@ namespace Durin
 		auto CancelLatchedMaterialCompiles() -> void;
 		auto ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process) -> uint32;
 		auto CompleteMaterialRequests(const FShaderMapPtr& ShaderMap, MaterialBuildPrivate::FMaterialBuildResult Build) -> void;
-		auto CancelMaterialOwnerLocked(FWeakObjectPtr Owner, bool Superseded) -> bool;
+		auto CancelMaterialOwnerLocked(FWeakObjectPtr Owner) -> bool;
 		static auto MakeMaterialResult(const FMaterialCompileRequest& Request,
 			const MaterialBuildPrivate::FMaterialBuildResult& Build,
 			const MIR::FCompilerInput* DiagnosticInput = nullptr, bool Canceled = false) -> FMaterialCompileResult;

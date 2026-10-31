@@ -15,12 +15,6 @@ namespace Durin::Tasks
 			const auto WaitResult = WaitTask(Handle);
 			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && Handle.GetState() == ETaskState::Succeeded);
 		}
-
-		auto ReadFailure(const Tasks::FTask& Handle) -> FTaskFailure
-		{
-			requiref(Handle.GetState() == ETaskState::Failed, "Failure access requires Failed (task {} {}, state {}).", Handle.GetTaskId(), Handle.GetDebugName(), static_cast<uint32>(Handle.GetState()));
-			return Durin::Private::FTaskRuntimeAccess::GetFailure(Handle);
-		}
 	}
 
 	auto SubscribeTask(const Tasks::FTask& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription

@@ -42,7 +42,6 @@ namespace Durin
 		Ready,
 		Failed,
 		Canceled,
-		Superseded,
 		Rejected,
 		NeedsCompile,
 		Scheduled,
@@ -123,7 +122,6 @@ namespace Durin
 		uint64 CompletedRequests = 0;
 		uint64 FailedRequests = 0;
 		uint64 CanceledRequests = 0;
-		uint64 SupersededRequests = 0;
 		uint64 RetainedHits = 0;
 		uint64 SingleFlightConsumers = 0;
 		uint32 InFlightCount = 0;

@@ -190,7 +190,7 @@ namespace Durin
 				if (Old->Diagnostic.Owner == Record->Diagnostic.Owner && !Old->Terminal)
 				{
 					Old->bRequeue = false;
-					Terminate(*Old, EStaticMeshCompilationStatus::Superseded);
+					Terminate(*Old, EStaticMeshCompilationStatus::Cancelled);
 				}
 			Records.push_back(Record);
 			Enqueue(Record);
@@ -249,7 +249,7 @@ namespace Durin
 				{
 					Record->bRequeue = !Mesh.GetRenderData() && !Record->PreparedMaterialSlots
 									   && Record->RequestedSource.GetIdentity() == Record->Snapshot.SourceIdentity;
-					Terminate(*Record, EStaticMeshCompilationStatus::Superseded);
+					Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
 				}
 #else
 			CheckOwnerThread();
@@ -470,10 +470,10 @@ namespace Durin
 				const bool bImportCurrent = FObjectKey(Mesh->GetAssetImportData()) == Record->ImportData
 											&& (!Record->ImportState || (Mesh->GetAssetImportData() && Mesh->GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState));
 				if (!bImportCurrent)
-					Record->Terminal = EStaticMeshCompilationStatus::Superseded;
+					Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
 				else if (!IsCurrent(*Record, *Mesh))
 				{
-					Record->Terminal = EStaticMeshCompilationStatus::Superseded;
+					Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
 					Record->bRequeue = !Record->PreparedMaterialSlots
 									   && Record->RequestedSource.GetIdentity() == Record->Snapshot.SourceIdentity;
 				}

@@ -457,7 +457,7 @@ TEST(FStaticMeshAuthoredCompilationTests, PreparedSlotsAreDiscardedWhenOwnerChan
 	ASSERT_TRUE(Mesh->RenameMaterialSlot(0, FName("UserEdit")));
 	Barrier.Release();
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
-	EXPECT_EQ(Mesh->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Superseded);
+	EXPECT_EQ(Mesh->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Cancelled);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].Name, FName("UserEdit"));
 	EXPECT_EQ(Mesh->GetRenderData(), PreviousRender);
 	EXPECT_FALSE(Mesh->IsCompiling());
@@ -1736,7 +1736,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerSupersedesOnceAndRetainsLateWor
 	EXPECT_FALSE(InvalidSource.error().empty());
 	Barrier.Release();
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
-	EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, GetStaticMeshCompilationDiagnostic(FirstId).Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, GetStaticMeshCompilationDiagnostic(FirstId).Status);
 	EXPECT_TRUE(GetStaticMeshCompilationDiagnostic(FirstId).Error.empty());
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, GetStaticMeshCompilationDiagnostic(SecondId).Status);
 	EXPECT_NE(nullptr, Mesh->GetRenderData());
@@ -1851,7 +1851,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerRejectsMutationAndDestructionDu
 	Mesh->BeginDestroy();
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, GetStaticMeshCompilationDiagnostic(FirstId).Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, GetStaticMeshCompilationDiagnostic(FirstId).Status);
 	EXPECT_TRUE(GetStaticMeshCompilationDiagnostic(FirstId).Error.empty());
 	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, GetStaticMeshCompilationDiagnostic(SecondId).Status);
 	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords);
@@ -2004,8 +2004,8 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDiscardsSourceMutationAndAccept
 	*Property->ContainerPtrToValuePtr<float>(Mesh) = 3.0f;
 	Barrier.Release();
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
-	EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, Mesh->GetCompilationDiagnostic().Status);
-	EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, InspectCompilationOperation(*Mesh).Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, Mesh->GetCompilationDiagnostic().Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, InspectCompilationOperation(*Mesh).Status);
 	EXPECT_FLOAT_EQ(3.0f, Mesh->GetNormalizedSize());
 	EXPECT_EQ(nullptr, Mesh->GetRenderData());
 
@@ -3220,7 +3220,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ImportedCommitRetiresPriorWorkerAndRej
 	ASSERT_TRUE(Mesh.Build(EStaticMeshBuildMode::Asynchronous, {}));
 	Mesh.GetBodySetup()->CreatePhysicsMeshesAsync(Mesh, false, [&](const auto& Result) {
 		++CollisionCompletions;
-		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded);
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
 		EXPECT_EQ(Mesh.GetSource().GetIdentity(), OldSource);
 		EXPECT_EQ(Mesh.GetAssetImportData(), OldData);
 		EXPECT_TRUE(Mesh.IsCompilationMutationBlocked());
@@ -3326,7 +3326,7 @@ TEST(FStaticMeshAuthoredCompilationTests, RunningCookAbortFinalizesAfterRetireme
 	FStaticMeshWorkerBarrier Barrier;
 	Body->CreatePhysicsMeshesAsync(*Mesh, false, [&](const FPhysicsCookCompletionResult& Result) {
 		++Notifications;
-		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded);
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
 		EXPECT_FALSE(Result.Error);
 		const auto Retiring = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests();
 		EXPECT_EQ(Retiring.EstimatedWorkingSetBytes, 0u);
@@ -3563,7 +3563,7 @@ TEST(FPhysicsMeshLifecycleTests, DetachedProviderBuildsWithoutStaticMeshOrRender
 	const auto Generation = Body->GetPhysicsMeshRequestGeneration();
 	const auto Geometry = Body->GetResidentComplexGeometry();
 	Body->InvalidatePhysicsData();
-	EXPECT_EQ(Body->ApplyPhysicsMeshes(Generation, {}, Geometry), EPhysicsCookCompletionStatus::Superseded);
+	EXPECT_EQ(Body->ApplyPhysicsMeshes(Generation, {}, Geometry), EPhysicsCookCompletionStatus::Cancelled);
 	EXPECT_FALSE(Body->GetPhysicsMeshBuildError());
 	EXPECT_FALSE(Body->GetResidentComplexGeometry());
 	FProvider Provider;
@@ -3579,7 +3579,7 @@ TEST(FPhysicsMeshLifecycleTests, DetachedProviderBuildsWithoutStaticMeshOrRender
 		ASSERT_TRUE(Body->GetPhysicsMeshBuildError());
 		EXPECT_NE(Body->GetPhysicsMeshBuildError()->find("Installation:"), std::string::npos);
 		EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Failed);
-		EXPECT_EQ(Body->ApplyPhysicsMeshes(Generation, {}, Geometry), EPhysicsCookCompletionStatus::Superseded);
+		EXPECT_EQ(Body->ApplyPhysicsMeshes(Generation, {}, Geometry), EPhysicsCookCompletionStatus::Cancelled);
 		EXPECT_NE(Body->GetPhysicsMeshBuildError()->find("Installation:"), std::string::npos);
 		Body->InvalidatePhysicsData();
 		Barrier.Release();
@@ -3589,7 +3589,7 @@ TEST(FPhysicsMeshLifecycleTests, DetachedProviderBuildsWithoutStaticMeshOrRender
 		FStaticMeshWorkerBarrier Barrier;
 		uint32 CancelledCompletions = 0;
 		Body->CreatePhysicsMeshesAsync(Provider, false,
-			[&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded); EXPECT_FALSE(Result.Error); ++CancelledCompletions; });
+			[&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled); EXPECT_FALSE(Result.Error); ++CancelledCompletions; });
 		ASSERT_TRUE(Barrier.Wait(1));
 		Body->InvalidatePhysicsData();
 		Barrier.Release();
@@ -4163,7 +4163,7 @@ TEST(FPhysicsMeshLifecycleTests, ShutdownWaitsForStartedCookAndDiscardsItsResult
 	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	Body->CreatePhysicsMeshesAsync(Provider, false, [&](const auto& Result) {
 		++Notifications;
-		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded);
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
 		EXPECT_FALSE(Result.Error);
 	});
 	ASSERT_TRUE(Barrier.Wait(1));
@@ -4213,7 +4213,7 @@ TEST(FPhysicsMeshLifecycleTests, DdcWaitReleasesMemoryAndAbortLetsCookRetireBefo
 	FDrain Drain{Cache};
 	Body->CreatePhysicsMeshesAsync(Provider, true, [&](const auto& Result) {
 		++Notifications;
-		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded);
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
 		EXPECT_FALSE(Result.Error);
 		EXPECT_FALSE(Body->IsCompiling());
 		Body->FinishPhysicsMeshes();
@@ -4337,7 +4337,7 @@ TEST(FPhysicsMeshLifecycleTests, SupersededCompletionPreservesInstalledGeometryW
 		Body->FinishPhysicsMeshes();
 	}
 	ASSERT_TRUE(Completed);
-	EXPECT_EQ(Completed->Status, EPhysicsCookCompletionStatus::Superseded);
+	EXPECT_EQ(Completed->Status, EPhysicsCookCompletionStatus::Cancelled);
 	EXPECT_FALSE(Completed->Error);
 	EXPECT_FALSE(Body->GetPhysicsMeshBuildError());
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
@@ -4826,7 +4826,7 @@ TEST(FPhysicsMeshLifecycleTests, ExternalPublicationSupersedesAnOlderFailedCook)
 		EXPECT_GT(Body->GetPhysicsMeshRequestGeneration(), Superseded);
 		Barrier.Release(); Body->FinishPhysicsMeshes();
 	}
-	ASSERT_TRUE(Completion); EXPECT_EQ(Completion->Status, EPhysicsCookCompletionStatus::Superseded);
+	ASSERT_TRUE(Completion); EXPECT_EQ(Completion->Status, EPhysicsCookCompletionStatus::Cancelled);
 	EXPECT_FALSE(Body->GetPhysicsMeshBuildError()); EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_EQ(Body->GetResidentComplexGeometry().GetIdentity(), Published.GetIdentity());
 	MarkObjectHierarchyAsGarbage(Body); CollectGarbage();

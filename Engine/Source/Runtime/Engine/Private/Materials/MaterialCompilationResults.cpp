@@ -72,7 +72,7 @@ namespace Durin
 		// bounded by the input contract and belongs to GameThread snapshot capture.
 		{
 			std::scoped_lock Lock(MaterialMutex);
-			(void)CancelMaterialOwnerLocked(Request.Owner, true);
+			(void)CancelMaterialOwnerLocked(Request.Owner);
 			if (!IsAcceptingMaterialRequests()) return EMaterialCompileState::Rejected;
 			if (OutstandingMaterialConsumers >= MaterialCompileMaxConsumers || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileState::Deferred;
 		}
@@ -136,7 +136,7 @@ namespace Durin
 	{
 		CheckMaterialCompileGameThread();
 		bool Canceled;
-		{ std::scoped_lock Lock(MaterialMutex); Canceled = CancelMaterialOwnerLocked(Owner, false); }
+		{ std::scoped_lock Lock(MaterialMutex); Canceled = CancelMaterialOwnerLocked(Owner); }
 		CancelLatchedMaterialCompiles(); return Canceled;
 	}
 
@@ -288,14 +288,14 @@ namespace Durin
 		}
 	}
 
-	auto FShaderCompilingManager::CancelMaterialOwnerLocked(FWeakObjectPtr Owner, bool bSuperseded) -> bool
+	auto FShaderCompilingManager::CancelMaterialOwnerLocked(FWeakObjectPtr Owner) -> bool
 	{
 		bool bFound = false;
 		const auto AccountRemoved = [&](const auto& ShaderMap, size_t Removed, bool Empty) {
 			if (Removed == 0) return;
 			if (!SameOwner(Owner, ShaderMap->InitialOwner)) std::erase_if(ShaderMap->Origins, [&](auto Origin) { return SameOwner(Origin, Owner); });
 			bFound = true; OutstandingMaterialConsumers -= static_cast<uint32>(Removed);
-			if (bSuperseded) MaterialDiagnostics.SupersededRequests += Removed; else MaterialDiagnostics.CanceledRequests += Removed;
+			MaterialDiagnostics.CanceledRequests += Removed;
 			if (Empty) ShaderMap->Cancellation.Cancel();
 		};
 		for (auto& [Key, ShaderMap] : RequestedShaderMaps)
@@ -318,8 +318,7 @@ namespace Durin
 			bFound = true;
 			It = MaterialResults.erase(It);
 			--OutstandingMaterialConsumers;
-			if (bSuperseded) ++MaterialDiagnostics.SupersededRequests;
-			else ++MaterialDiagnostics.CanceledRequests;
+			++MaterialDiagnostics.CanceledRequests;
 		}
 		return bFound;
 	}

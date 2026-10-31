@@ -220,7 +220,7 @@ namespace Durin
 					Candidate.StaticProperties->OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;
 					if (CanonicalizeMaterialShaderProperties(*Candidate.StaticProperties) != ShaderProperties)
 					{
-						Status.State = EMaterialCompileState::Superseded;
+						ScheduleEdit(Material, Context);
 						return false;
 					}
 					for (const auto& Parameter : Candidate.CompiledProgram->GetShaderMap().ActiveParameters)

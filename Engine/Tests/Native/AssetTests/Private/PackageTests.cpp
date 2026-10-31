@@ -4595,6 +4595,25 @@ TEST(FPackageAssetTests, DirectSaveRetiresLazyResourcesButRetainsAuthoredBytesFo
 	EXPECT_TRUE(Results->back()) << Results->back().Message;
 	EXPECT_FALSE(IsAssetRegistryProjectionFenced(Path));
 	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
+	// A throwing notification must not enter the abandonment path a second time
+	// or turn an already-published direct save into an uncertain disk outcome.
+	SetAsyncPackageSaveSink([Results](const auto& SavedPath, const auto& Result) {
+		EXPECT_TRUE(IsInGameThread());
+		const auto Saved = FindAssetExact(SavedPath);
+		EXPECT_TRUE(Saved);
+		if (Saved) EXPECT_TRUE(FPackageFileAccess::TryReadPackage(Saved->PhysicalPath));
+		Results->push_back(Result);
+		throw std::runtime_error("direct save sink failure");
+	});
+	Asset->GetPackage()->MarkDirty();
+	ASSERT_TRUE(SavePackage(Asset->GetPackage(), SAVE_Async));
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	ASSERT_EQ(Results->size(), 3u);
+	EXPECT_TRUE(Results->back());
+	PackageSavePrivate::PollAsyncSaves();
+	EXPECT_EQ(Results->size(), 3u);
+	EXPECT_FALSE(IsAssetRegistryProjectionFenced(Path));
+	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
 }
 
 TEST(FPackageAssetTests, AsyncSaveChecksHardReferenceIdentityButIgnoresDependencyContentAndSoftTargets)

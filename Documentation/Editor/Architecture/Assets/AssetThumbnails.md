@@ -189,7 +189,10 @@ pump advances texture ownership independently of these read-only session checks.
 
 Visible requests outrank prefetch, duplicate keys coalesce, and different
 `FAssetThumbnail` instances for one identity share one entry and one admitted
-job. Each reference increments the entry's pin count. Releasing the final
+job. A request older than the retained serial also returns `Coalesced`: the newer
+work remains unchanged, with no new queue entry or cancellation. Admission means
+work is already represented by an equal or newer request, not that this exact
+request will execute. Each reference increments the entry's pin count. Releasing the final
 reference makes the entry evictable without synchronously releasing an in-use
 RHI resource or affecting a reference held by another panel. Explicit `Prefetch`
 interest keeps background generation alive after the last UI reference is

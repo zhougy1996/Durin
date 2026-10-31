@@ -231,7 +231,6 @@ TEST(FCookedMeshLoadManagerTests,
 	EXPECT_LE(Final.PeakPendingCompletionCount, 8u);
 	EXPECT_LE(Final.PeakPendingCompletionBytes, 32u);
 	EXPECT_EQ(Final.AcceptedCount, 9u);
-	EXPECT_EQ(Final.SupersededCount, 1u);
 	EXPECT_EQ(Final.SucceededCount + Final.FailedCount + Final.CancelledCount
 		+ Final.StaleCount, Final.AcceptedCount);
 	EXPECT_EQ(PublishCount, Final.SucceededCount);
@@ -353,7 +352,6 @@ TEST(FCookedMeshLoadManagerTests,
 		return Manager.GetDiagnostics().InFlightCount == 0;
 	}));
 	EXPECT_EQ(PublishCount, 2u);
-	EXPECT_EQ(Manager.GetDiagnostics().SupersededCount, 1u);
 	EXPECT_EQ(Manager.GetDiagnostics().CancelledCount, 1u);
 
 	// The full identity predicate is the final publication boundary.
@@ -453,7 +451,6 @@ TEST(FCookedMeshLoadManagerTests,
 	EXPECT_EQ(TerminalCount, 2u);
 	EXPECT_EQ(Final.AcceptedCount, 9u);
 	EXPECT_EQ(Final.CoalescedCount, 1u);
-	EXPECT_EQ(Final.SupersededCount, 1u);
 	EXPECT_EQ(Final.RejectedCount, 4u);
 	EXPECT_EQ(Final.SucceededCount + Final.FailedCount + Final.CancelledCount
 		+ Final.StaleCount, Final.AcceptedCount);

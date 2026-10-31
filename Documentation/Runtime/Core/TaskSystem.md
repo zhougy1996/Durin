@@ -81,8 +81,8 @@ The deferred executor retains its frame time/item budget, priorities and FIFO.
 Core does not merge or replace queued tasks by key. Request freshness and request
 coalescing belong to the domain owner: use serial checks in publication bodies,
 or retain the latest payload behind one owner-managed publication task when
-queue reduction is needed. Superseded remains a domain result/status rather than
-a Core terminal reason. Core provides no task generation source/token or
+queue reduction is needed. Domains may skip obsolete work or report business
+cancellation; Core has no supersession terminal reason. Core provides no task generation source/token or
 automatic generation-expiry outcome. `QueuedEntriesWarningThreshold` (1,024),
 `QueuedBytesWarningThreshold` (8 MiB), and `EntryBytesWarningThreshold` (1 MiB)
 only report overload. Accepted entries remain queued beyond them. Storage is
@@ -173,7 +173,8 @@ Empty handles report completed and waits return `Completed` with task state
 `Invalid`. They represent no pending work, not a successful typed result.
 
 `IsCompleted()` includes Succeeded, Failed and Canceled and does not imply a
-successful result. `GetFailure()` requires Failed. `GetResult()` waits for success
+successful result. `GetDiagnostics().TerminalReason` and `GetDiagnostic()` expose
+the native outcome reason and text. `GetResult()` waits for success
 and returns a mutable reference to the node's result without invalidating a handle.
 Callers synchronize mutation. Explicit `std::move(Task.GetResult())` moves the
 stored value and leaves a moved-from value visible to every alias. There is no
@@ -255,12 +256,13 @@ a dependent must retain a producer's owner/category. Otherwise ordinary launch
 inherits the current executing task's attribution, where available.
 
 Copying task handles preserves the native terminal reason and diagnostic text.
-GetFailure returns that reason from the node's outcome, without separate injected
-failure storage or dependency-propagation metadata. A dependent callable exception
-remains its own callback failure; it is not relabeled as a failed prerequisite.
-Internal terminal hooks can read the native outcome before public completion, while
-GetFailure still requires Failed. Canceling a dependent does not cancel its inputs
-or suppress its body; mandatory cleanup remains an owner lifecycle responsibility.
+They are read through ordinary diagnostics, without a separate failure wrapper,
+injected failure storage or dependency-propagation metadata. A dependent callable
+exception remains its own callback failure; it is not relabeled as a failed prerequisite.
+Internal terminal hooks can read native diagnostics before public completion.
+Canceling a dependent does not cancel its inputs or suppress its body; mandatory
+cleanup remains an owner lifecycle responsibility. Completion-edge insertion is
+private to the runtime; callers compose through event prerequisites and `AddNested`.
 
 Task results are produced by ordinary task bodies; there is no externally
 settled task-result source or external scheduler node. External data delivery

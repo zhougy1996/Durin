@@ -152,7 +152,7 @@ namespace Durin::Editor
 			FImpl::FEntry& Entry = Existing->second;
 			if (Request.RequestSerial < Entry.Request.RequestSerial)
 			{
-				return EThumbnailRequestStatus::Superseded;
+				return EThumbnailRequestStatus::Coalesced;
 			}
 			if (Request.RequestSerial == Entry.Request.RequestSerial
 				&& Request.Asset == Entry.Request.Asset

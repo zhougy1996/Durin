@@ -1443,7 +1443,7 @@ namespace Durin
 		EXPECT_FALSE(Scheduler.TakeNext());
 	}
 
-	TEST(FAssetThumbnailContractTests, SchedulerRejectsStaleSerialsAndCancelsReplacedWork)
+	TEST(FAssetThumbnailContractTests, SchedulerKeepsNewerWorkForStaleSerialsAndCancelsReplacedWork)
 	{
 		Editor::DThumbnailManager Registry;
 
@@ -1461,8 +1461,11 @@ namespace Durin
 
 		const Editor::FAssetThumbnailRequest Stale =
 			MakeThumbnailRequest("/ThumbnailTests/Replaced", "DMaterial", 1);
-		EXPECT_EQ(Scheduler.Request(Stale), Editor::EThumbnailRequestStatus::Superseded);
+		EXPECT_EQ(Scheduler.Request(Stale), Editor::EThumbnailRequestStatus::Coalesced);
 		EXPECT_FALSE(Active->GenerationRequest.Cancellation.IsCancelled());
+		EXPECT_EQ(Scheduler.Find(Current.Asset.AssetPath).RequestSerial, 2u);
+		EXPECT_EQ(Scheduler.NumQueued(), 0u);
+		EXPECT_FALSE(Scheduler.TakeNext());
 
 		const Editor::FAssetThumbnailRequest Changed =
 			MakeThumbnailRequest("/ThumbnailTests/Replaced", "DMaterial", 3, Editor::EAssetThumbnailPriority::Visible, 200);

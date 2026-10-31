@@ -38,7 +38,7 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EBodySetupChange)
 
-	enum class EPhysicsCookCompletionStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
+	enum class EPhysicsCookCompletionStatus : uint8 { Succeeded, Failed, Cancelled };
 	struct FPhysicsCookCompletionResult
 	{
 		EPhysicsCookCompletionStatus Status = EPhysicsCookCompletionStatus::Failed;

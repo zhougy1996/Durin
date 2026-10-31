@@ -167,7 +167,7 @@ TEST(FSplineMeshCollisionTests, CollisionLODDefersBodyReplacementAndRejectsPrior
 	EXPECT_FALSE(Component->ContainsPhysicsTriMeshData());
 	Component->UpdateMesh();
 	EXPECT_EQ(GetSplineCollision(Component).GetTriangleCount(), 1u);
-	EXPECT_EQ(Component->GetBodySetup()->ApplyPhysicsMeshes(Generation, {}, Previous), EPhysicsCookCompletionStatus::Superseded);
+	EXPECT_EQ(Component->GetBodySetup()->ApplyPhysicsMeshes(Generation, {}, Previous), EPhysicsCookCompletionStatus::Cancelled);
 	const auto Captured = (*Input)->Execute({.MaximumWorkingSetBytes = (*Input)->GetWorkingSetBytes()});
 	ASSERT_TRUE(Captured);
 	EXPECT_EQ(Captured->Indices.size(), 6u);
@@ -272,7 +272,7 @@ TEST(FSplineMeshCollisionTests, ProxyChangesRebuildCollisionWithoutChangingRende
 	EXPECT_EQ(Component->GetDerivedState(), RenderState);
 	EXPECT_NE(GetSplineCollision(Component).GetIdentity(), FirstGeometry.GetIdentity());
 	EXPECT_EQ(Component->GetBodySetup()->ApplyPhysicsMeshes(Generation, {}, FirstGeometry),
-		EPhysicsCookCompletionStatus::Superseded);
+		EPhysicsCookCompletionStatus::Cancelled);
 	const auto BeforeDeferred = GetSplineCollision(Component);
 	auto Params = Component->GetSplineMeshParams();
 	Params.EndPosition.y += 2;
@@ -344,7 +344,7 @@ TEST(FSplineMeshCollisionTests, ComplexProxyNeverFeedsConvexCookingAndTriangleBo
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	EXPECT_NE(Mesh->GetBodySetup()->GetResidentComplexGeometry().GetIdentity(), OldGeometry.GetIdentity());
 	EXPECT_EQ(Mesh->GetBodySetup()->ApplyPhysicsMeshes(OldGeneration, {}, OldGeometry),
-		EPhysicsCookCompletionStatus::Superseded);
+		EPhysicsCookCompletionStatus::Cancelled);
 }
 
 TEST(FSplineMeshCollisionTests, PrimaryNormalizationChangesRemapProxyAndMirroredGeometrySupportsQueries)
@@ -903,7 +903,7 @@ TEST(FSplineMeshCollisionTests, AppliedDeformationRejectsPriorBodyGeneration)
 	const auto CurrentGeometry = GetSplineCollision(Component);
 	ASSERT_TRUE(CurrentGeometry);
 	EXPECT_GT(Body->GetPhysicsMeshRequestGeneration(), OldGeneration);
-	EXPECT_EQ(Body->ApplyPhysicsMeshes(OldGeneration, {}, OldGeometry), EPhysicsCookCompletionStatus::Superseded);
+	EXPECT_EQ(Body->ApplyPhysicsMeshes(OldGeneration, {}, OldGeometry), EPhysicsCookCompletionStatus::Cancelled);
 	EXPECT_EQ(GetSplineCollision(Component).GetIdentity(), CurrentGeometry.GetIdentity());
 	EXPECT_TRUE(Component->GetCollisionBuildError().empty());
 }

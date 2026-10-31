@@ -121,7 +121,6 @@ namespace Durin::Editor::Material
 			case EMaterialCompileState::Ready: return "Ready";
 			case EMaterialCompileState::Failed: return "Failed";
 			case EMaterialCompileState::Canceled: return "Canceled";
-			case EMaterialCompileState::Superseded: return "Superseded";
 			case EMaterialCompileState::Rejected: return "Rejected";
 			}
 			return "Unknown";

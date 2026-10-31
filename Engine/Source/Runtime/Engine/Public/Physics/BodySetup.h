@@ -81,7 +81,7 @@ namespace Durin
 		}
 		auto GetPhysicsMeshBuildError() const -> const std::optional<std::string>& { return PhysicsMeshError; }
 		auto GetPhysicsMeshRequestGeneration() const -> uint64 { return PhysicsMeshRequestGeneration; }
-		// Stale requests return Superseded without changing the current state or its error.
+		// Stale requests return Cancelled without changing the current state or its error.
 		// A matching request that rejects geometry stores the installation failure once.
 		ENGINE_API auto ApplyPhysicsMeshes(uint64 Generation, const FCollisionGeometryRef& Simple,
 			const FCollisionGeometryRef& Complex) -> EPhysicsCookCompletionStatus;

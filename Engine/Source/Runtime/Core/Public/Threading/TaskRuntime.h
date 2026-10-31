@@ -119,15 +119,6 @@ namespace Durin
 		ShutdownCanceled,
 	};
 
-	namespace Tasks
-	{
-		// Framework failure is distinct from a successful value carrying a domain error.
-		struct FTaskFailure
-		{
-			ETaskTerminalReason Reason = ETaskTerminalReason::CallbackFailure;
-		};
-	}
-
 	namespace Private
 	{
 		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void(const FTaskCancellationToken&)>;
@@ -419,8 +410,6 @@ namespace Durin
 		};
 		struct FTaskRuntimeAccess
 		{
-			// Internal reads are also valid from terminal hooks before public completion.
-			CORE_API static auto GetFailure(const Tasks::FTask& Task) -> Tasks::FTaskFailure;
 			CORE_API static auto CreateTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement) -> Tasks::FTask;
 			CORE_API static auto AddTaskEventPrerequisites(const Tasks::FTask& Event, std::span<const Tasks::FTask> Prerequisites) -> std::optional<Tasks::FTaskConstructionError>;
 			CORE_API static auto TriggerTaskEvent(const Tasks::FTask& Event) -> void;
@@ -430,7 +419,6 @@ namespace Durin
 			CORE_API static auto SetCurrentCanceledOutcome() -> void;
 			CORE_API static auto GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution;
 			CORE_API static auto BindTerminal(const Tasks::FTask& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
-			CORE_API static auto AddCompletionDependency(const Tasks::FTask& Parent, const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>;
 			CORE_API static auto AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>;
 		};
 	}

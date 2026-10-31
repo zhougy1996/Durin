@@ -353,7 +353,6 @@ namespace Durin
 				State->Diagnostics.PeakPendingRequestEstimatedBytes = std::max(
 					State->Diagnostics.PeakPendingRequestEstimatedBytes,
 					State->PendingRequestEstimatedBytes);
-				++State->Diagnostics.SupersededCount;
 				++State->Diagnostics.AcceptedCount;
 				return {};
 			}

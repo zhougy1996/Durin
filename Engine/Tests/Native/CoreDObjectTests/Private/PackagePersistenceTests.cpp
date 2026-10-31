@@ -310,7 +310,8 @@ TEST_F(FPackagePersistenceTests, RejectedPublicationDoesNotWaitForOccupiedIoWork
 	bool ReturnedWithoutIoProgress = false;
 	std::jthread Unblock([&] { ReturnedWithoutIoProgress = Returned.WaitFor(5); Release.Trigger(); });
 	bool Wrote = false, Finished = false;
-	const auto Result = PackageSavePrivate::SubmitAsyncSave(1, [&] { Wrote = true; }, [&](bool) { Finished = true; });
+	const auto Result = PackageSavePrivate::SubmitAsyncSave(1, [&] { Wrote = true; }, [&](bool) { Finished = true; },
+		[&] { ADD_FAILURE() << "Rejected work must not invoke abandonment."; });
 	Returned.Trigger();
 	Unblock.join();
 	EXPECT_TRUE(ReturnedWithoutIoProgress);
@@ -324,7 +325,8 @@ TEST_F(FPackagePersistenceTests, RejectedPublicationCannotStartDiskWorkAndReleas
 {
 	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::RejectAdmission);
 	bool bWrote = false, bFinished = false;
-	auto Result = PackageSavePrivate::SubmitAsyncSave(1, [&] { bWrote = true; }, [&](bool) { bFinished = true; });
+	auto Result = PackageSavePrivate::SubmitAsyncSave(1, [&] { bWrote = true; }, [&](bool) { bFinished = true; },
+		[&] { ADD_FAILURE() << "Rejected work must not invoke abandonment."; });
 	EXPECT_FALSE(Result);
 	EXPECT_FALSE(bWrote);
 	EXPECT_FALSE(bFinished);
@@ -901,22 +903,34 @@ TEST_F(FPackagePersistenceTests, DrainPumpsTypedPublicationAndRejectsReentrantSa
 		EXPECT_EQ(PackageSavePrivate::CheckAsyncAdmission().Error, EPackageSaveError::Busy);
 	});
 	uint32 Destroyed = 0, Calls = 0;
-	std::weak_ptr<int> Weak;
+	std::weak_ptr<int> Weak, IoWeak;
+	std::atomic<bool> IoDestroyed = false;
+	FThreadEvent ReleaseIo;
 	Tasks::TTask<int> Task;
 	{
 		auto Owner = std::shared_ptr<int>(new int(1), [&](int* Value) {
 			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
 		});
 		Weak = Owner;
-		Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [Owner] {},
+		auto IoPayload = std::shared_ptr<int>(new int(2), [&](int* Value) {
+			EXPECT_FALSE(IsInGameThread()); IoDestroyed = true; delete Value;
+		});
+		IoWeak = IoPayload;
+		Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [Owner, IoPayload, &ReleaseIo] { ReleaseIo.Wait(); },
 			[&, Owner](bool Success, const FTaskCancellationToken&) {
 				EXPECT_TRUE(Success); EXPECT_TRUE(IsInGameThread()); ++Calls;
 				EXPECT_EQ(DPackage::DrainAsyncSaves().Error, EPackageSaveError::Busy);
 				EXPECT_EQ(PackageSavePrivate::CheckAsyncAdmission().Error, EPackageSaveError::Busy);
 				return 37;
-			}, Admission);
+			}, [Owner] { ADD_FAILURE() << "Successful publication must not invoke abandonment."; }, Admission);
 	}
+	ReleaseIo.Trigger();
 	ASSERT_TRUE(Admission);
+	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_TRUE(IoDestroyed.load());
+	EXPECT_TRUE(IoWeak.expired());
+	EXPECT_FALSE(Weak.expired());
+	EXPECT_FALSE(Task.IsCompleted());
 	EXPECT_EQ(Task.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
 	auto Subscription = Tasks::SubscribeTask(Task, [&](ETaskState) { EXPECT_TRUE(Weak.expired()); });
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
@@ -932,20 +946,31 @@ TEST_F(FPackagePersistenceTests, PublicationExceptionsRetireCapturesAndReleaseCa
 {
 	PackageSavePrivate::SetAsyncSaveLimitsForTests(1, 1024);
 	FPackageSaveResult Admission;
-	uint32 Calls = 0, Destroyed = 0;
+	uint32 Calls = 0, Abandoned = 0, Destroyed = 0;
 	Tasks::TTask<int> Task;
 	{
 		auto Owner = std::shared_ptr<int>(new int(1), [&](int* Value) {
 			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
 		});
 		Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [Owner] {},
-			[&, Owner](bool, const FTaskCancellationToken&) -> int { ++Calls; throw std::runtime_error("publication failure"); }, Admission);
+			[&, Owner](bool, const FTaskCancellationToken&) -> int { ++Calls; throw std::runtime_error("publication failure"); },
+			[&, Owner] {
+				EXPECT_TRUE(IsInGameThread()); ++Abandoned;
+				throw std::runtime_error("abandonment failure");
+			}, Admission);
 	}
 	ASSERT_TRUE(Admission);
+	auto Subscription = Tasks::SubscribeTask(Task, [&](ETaskState) {
+		EXPECT_EQ(Abandoned, 1u); EXPECT_EQ(Destroyed, 1u);
+	});
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_EQ(Task.GetState(), ETaskState::Failed);
 	EXPECT_EQ(Calls, 1u);
+	EXPECT_EQ(Abandoned, 1u);
 	EXPECT_EQ(Destroyed, 1u);
+	EXPECT_NE(Task.GetDiagnostic().find("publication failure"), std::string::npos);
+	PackageSavePrivate::PollAsyncSaves();
+	EXPECT_EQ(Abandoned, 1u);
 	EXPECT_TRUE(PackageSavePrivate::CheckAsyncAdmission(1));
 }
 
@@ -954,7 +979,8 @@ TEST_F(FPackagePersistenceTests, FailedIoStillRunsTypedPublication)
 	FPackageSaveResult Admission;
 	uint32 Calls = 0;
 	auto Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [] { throw std::runtime_error("I/O failure"); },
-		[&](bool Success, const FTaskCancellationToken&) { EXPECT_FALSE(Success); ++Calls; return -1; }, Admission);
+		[&](bool Success, const FTaskCancellationToken&) { EXPECT_FALSE(Success); ++Calls; return -1; },
+		[] { ADD_FAILURE() << "A handled I/O failure is still a completed publication."; }, Admission);
 	ASSERT_TRUE(Admission);
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
@@ -991,6 +1017,29 @@ TEST_F(FPackagePersistenceTests, FailedPublicationRetiresOwnerOnGameThread)
 	PackageSavePrivate::PollAsyncSaves();
 	EXPECT_EQ(Cleaned, 1u);
 	EXPECT_EQ(Destroyed, 1u);
+}
+
+TEST_F(FPackagePersistenceTests, TerminalPublicationDoesNotRetireRunningProducer)
+{
+	FThreadEvent Started, Release;
+	// Even an already-terminal publication is not proof that its producer exited.
+	Tasks::FTaskEvent Publication("Save.TestPublication");
+	Publication.Trigger();
+	uint32 Cleaned = 0;
+	auto Admission = PackageSavePrivate::SubmitAsyncSaveTask(1,
+		[&] { Started.Trigger(); Release.Wait(); },
+		[&](const Tasks::FTask&, const std::shared_ptr<PackageSavePrivate::FAsyncSaveState>&) { return Tasks::FTask(Publication); },
+		[&] { EXPECT_TRUE(IsInGameThread()); ++Cleaned; });
+	ASSERT_TRUE(Admission);
+	const bool bStarted = Started.WaitFor(5);
+	PackageSavePrivate::PollAsyncSaves();
+	EXPECT_EQ(Cleaned, 0u);
+	Release.Trigger();
+	EXPECT_TRUE(bStarted);
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_EQ(Cleaned, 1u);
+	PackageSavePrivate::PollAsyncSaves();
+	EXPECT_EQ(Cleaned, 1u);
 }
 
 TEST_F(FPackagePersistenceTests, DrainFromDeferredCallbackReturnsBusyWithoutStealingPublication)
@@ -1039,7 +1088,8 @@ TEST_F(FPackagePersistenceTests, BusinessSkippedPublicationCleanupMayPumpOtherAc
 	EXPECT_EQ(Applied, 0u);
 	EXPECT_EQ(Skipped, 1u);
 	Other = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [] {},
-		[](bool Success, const FTaskCancellationToken&) { EXPECT_TRUE(Success); return 41; }, Admission);
+		[](bool Success, const FTaskCancellationToken&) { EXPECT_TRUE(Success); return 41; },
+		[] { ADD_FAILURE(); }, Admission);
 	ASSERT_TRUE(Admission);
 	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
 	PackageSavePrivate::PollAsyncSaves();

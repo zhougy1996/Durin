@@ -800,11 +800,13 @@ namespace Durin
 			EXPECT_EQ(WaitTask(PendingHandle).WaitStatus, ETaskWaitStatus::UnsupportedThread);
 			return true;
 		});
-		const auto LeafHandle = Durin::Tasks::FTask(Leaf);
 		EXPECT_TRUE(Leaf.GetResult());
-		const auto Nested = Private::FTaskRuntimeAccess::AddCompletionDependency(LeafHandle, PendingHandle);
-		ASSERT_TRUE(Nested);
-		EXPECT_EQ(Nested->Code, Tasks::ETaskConstructionErrorCode::InvalidExecutionContract);
+		EXPECT_DEATH({
+			auto Invalid = Tasks::LaunchIndependentTask("ForbiddenNestedParent", [&] {
+				Tasks::AddNested(Pending);
+			});
+			Invalid.Wait();
+		}, "");
 		Pending.Trigger();
 		EXPECT_EQ(Pending.Wait().TaskState, ETaskState::Succeeded);
 	}
