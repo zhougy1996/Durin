@@ -153,10 +153,12 @@ auto QualifyCanceledFlightResubmission() -> void
 			// Force compilation so the second iteration cannot use a retained hit.
 			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
 			const auto Generation = Material->GetMaterialCompileStatus().RequestGeneration;
+			const auto CanceledBefore = GetMaterialCompilationDiagnostics().CanceledRequests;
 			if (bExplicitCancel)
 				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
 			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
 			EXPECT_GT(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
+			EXPECT_GT(GetMaterialCompilationDiagnostics().CanceledRequests, CanceledBefore);
 			EXPECT_TRUE(Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred || Material->GetMaterialCompileStatus().State == EMaterialCompileState::Running);
 		}
 		ASSERT_TRUE(WaitForMaterialCompile(*Material));
@@ -623,6 +625,53 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId,
 		InitialProgram->GetShaderMap().ShaderMapId);
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
+}
+
+TEST_F(FMaterialAsyncCompileTests, PropertyMismatchReschedulesWithoutReplacingAcceptedProgram)
+{
+	using namespace Durin;
+	for (const auto Mode : {EMaterialEditCompileMode::Immediate, EMaterialEditCompileMode::Automatic, EMaterialEditCompileMode::Manual})
+	{
+		SCOPED_TRACE(static_cast<int>(Mode));
+		auto* Material = MakeObject<DMaterial>("PropertyMismatch");
+		ASSERT_TRUE(RequestMaterialRecompile(*Material));
+		ASSERT_TRUE(WaitForMaterialCompile(*Material));
+		const auto Program = Material->GetAcceptedCompiledProgram();
+		ASSERT_TRUE(Program);
+		Material->SetEditCompileMode(Mode);
+		const auto Before = Material->GetMaterialCompileStatus();
+		auto Properties = Material->GetStaticProperties();
+		Properties.BlendMode = EMaterialBlendMode::Masked;
+		FMaterialCompileResult Mismatched{
+			.Owner = FWeakObjectPtr(Material),
+			.AuthoredRevision = Before.AuthoredRevision,
+			.Generation = Before.RequestGeneration,
+			.DependencyRevision = Before.DependencyRevision,
+			.ParentChainRevision = Before.ParentChainRevision,
+			.ProgramIdentity = Before.RequestedIdentity,
+			.StaticProperties = Properties,
+			.Target = Before.Target,
+			.State = EMaterialCompileState::Ready,
+			.CompiledProgram = Program,
+		};
+		EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Mismatched)));
+		EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Program);
+		EXPECT_TRUE(Material->GetMaterialCompileDiagnostics().empty());
+		if (Mode == EMaterialEditCompileMode::Manual)
+		{
+			EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+			EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Before.RequestGeneration);
+			ASSERT_TRUE(Material->CompileEdits());
+		}
+		else if (Mode == EMaterialEditCompileMode::Automatic)
+		{
+			EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Scheduled);
+			EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Before.RequestGeneration);
+		}
+		ASSERT_TRUE(WaitForMaterialCompile(*Material));
+		EXPECT_GT(Material->GetMaterialCompileStatus().RequestGeneration, Before.RequestGeneration);
+		EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	}
 }
 
 TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBoundaries)

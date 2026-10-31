@@ -151,7 +151,7 @@ namespace Durin
 		const FCollisionGeometryRef& Complex) -> EPhysicsCookCompletionStatus
 	{
 		if (Generation != PhysicsMeshRequestGeneration || PhysicsMeshStatus != EPhysicsMeshBuildStatus::Pending)
-			return EPhysicsCookCompletionStatus::Superseded;
+			return EPhysicsCookCompletionStatus::Cancelled;
 		if (PublishPhysicsMeshes(Simple, Complex, false)) return EPhysicsCookCompletionStatus::Succeeded;
 		FailPhysicsMeshes(Generation, MakeAssetBuildDiagnostic("Could not install physics meshes.", "Installation"));
 		return EPhysicsCookCompletionStatus::Failed;

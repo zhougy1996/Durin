@@ -450,8 +450,9 @@ capture, the DDC recipe and CPU assembly complete without caller cancellation;
 the manager decides whether to accept their result at publication. DDC request
 options do not inherit owner/native-task cancellation from a started physics cook.
 The manager clears canceled output and retains no canceled failure diagnostic.
-Superseded remains a detailed stale-publication reason and physics disposition,
-independently of whether its underlying work was canceled.
+StaticMesh and physics report skipped obsolete publication as business cancellation,
+independently of whether underlying work was canceled. Identity and generation
+checks still reject old results without mutating the current owner or its error.
 
 
 Collision records belong to BodySetup, not to its mesh. They own a detached
@@ -550,13 +551,14 @@ failures notify inline; accepted work notifies after retirement. The physics rec
 stores cancellation in its token and forms terminal status locally during finalization.
 Physics owner cancellation withdraws only unstarted cooks. Started cooks continue
 through DDC and CPU consumption; owner generations suppress stale publication,
-which reports Superseded. Owner abort does not cancel a running DDC request.
+which reports Cancelled. Owner abort does not cancel a running DDC request.
 Selected finish and shutdown retain the native-task and callback retirement barrier.
 The asset scheduler owns no products, snapshots or completion callbacks.
 StaticMesh diagnostic `Status` is absent until terminal delivery; pending work
 does not report failure. `Error` retains bounded owned text only for a failed
-terminal, without a cancellation bit or completion wrapper. Successful, cancelled
-and superseded terminals have empty errors. `FormatStaticMeshCompilationDiagnostic`
+terminal, without a cancellation bit or completion wrapper. Successful and cancelled
+terminals have empty errors. Obsolete render facts retain their existing requeue
+policy. `FormatStaticMeshCompilationDiagnostic`
 displays that failure text only.
 The presentation text budget
 is 4096 bytes per record including a producer identity capped at 256 bytes.

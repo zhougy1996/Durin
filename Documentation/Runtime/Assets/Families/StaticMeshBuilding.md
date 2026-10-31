@@ -234,7 +234,7 @@ inventing another wrapper. Diagnostic detail alone does not require a new type.
 | Cache read/decode/write | Rebuild rejected cache entries; report recoverable warnings without failing a valid product on cache write failure. |
 | Async admission | Report whether work was accepted; accepted work has a separate completion. |
 | Async completion | Distinguish success, failure, cancellation and supersession; ordinary failure carries its cause. |
-| Physics installation | Reject stale requests as Superseded without mutation; retain an Installation failure for incompatible current geometry. |
+| Physics installation | Skip stale requests as Cancelled without mutation; retain an Installation failure for incompatible current geometry. |
 | Queries, capture, invalidation and cancellation | Use values or lifecycle operations; do not add nested failure objects. |
 
 Render finalization and public publication still validate externally supplied data.

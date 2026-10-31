@@ -87,7 +87,7 @@ Byte-producing capture still requires exports; the Engine Cook entrypoint report
 omitted packages before invoking it. See [Cooking](../Assets/Build/Cooking.md).
 
 Capture and live-object access run on GameThread. Internally owned BlockingIO
-work stages detached bytes and paths. A registered GameThread continuation
+work stages detached bytes and paths. A registered GameThread publication task
 validates identities, revisions, destination and staged stamps, commits, publishes
 when applicable, and finalizes or rolls back before completing the returned task.
 Normal host ticks advance publication without caller completion calls. Inspect
@@ -104,11 +104,20 @@ Its body checks the caller token and its own cancellation request, performs the
 domain commit/cancel, releases operation captures and returns the save result.
 A successful task may therefore contain a domain `Cancelled` result. Publication
 exceptions remain task failures. Dropped handles leave admitted work tracked.
-Owner records retain a cleanup copy until both I/O and publication are terminal;
-if the executor discards publication before its body runs, GameThread retirement
-invokes the cleanup path with I/O success=false, without changing the failed task
-into a successful result. Owner retirement clears write/cleanup captures before
-removing its accounting entry. No Core external-result adapter is used.
+Publication and abandonment are separate callbacks. The publication callback alone
+produces the typed result; handled I/O failure or cancellation still runs that body.
+If it throws, GameThread invokes abandonment once and preserves the original task
+failure even if abandonment also throws. If the body never runs, the owner invokes
+abandonment only after both I/O and publication are terminal. It never reruns the
+publication callback or manufactures a result for a failed task. Rejected admission
+invokes neither callback and releases setup captures on GameThread.
+The real I/O task owns and releases its write closure on the I/O thread; owner
+records retain only task handles, accounting and the GameThread cleanup hook.
+Callers must keep object-affine ownership in publication/abandonment captures,
+separately from I/O-only payloads. On a running publication path, both sets of
+callback captures retire before terminal notification. Owner retirement consumes
+the remaining cleanup hook before removing accounting. No Core external-result
+adapter is used.
 Submission and drain from within publication/cleanup are rejected. A terminal
 observer runs after the publication body and its operation captures have retired;
 new submissions still obey owner capacity and the active drain guard.
@@ -119,7 +128,7 @@ The shared owner admits at most 64 operations and 256 MiB of detached output
 across direct and protected async saves. Slots and byte accounting remain held
 through terminal publication. Admission requires a running scheduler and an
 accepting GameThread deferred executor. Disk work is gated until the completion
-continuation has been admitted. An event releases the gate only after an
+task has been admitted. An event releases the gate only after an
 explicit admission decision has been written; disk work reads that decision,
 not event success/cancellation. Failed setup also triggers the gate with a
 rejected decision and cannot start a destructive write.
@@ -145,7 +154,7 @@ admission, drains saves and diagnostics, then tears down resources, objects,
 modules and the task system. Engine shutdown and the CoreDObject module teardown
 boundary perform this drain; standalone owners must drain before shutting down
 the scheduler. The owner reaps terminal publications and performs discarded-task cleanup on
-host ticks or drain, so accepted save captures remain owned until GameThread retirement.
+host ticks or drain, so object-affine save captures remain owned until GameThread retirement.
 
 `FPackageSaveOperation` remains a lower-level staged coordinator for file-only
 transactions. Its explicit commit/finalize/rollback methods do not describe the

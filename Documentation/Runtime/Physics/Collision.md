@@ -150,7 +150,8 @@ that request generation; source recipe/input changes supersede it.
 `CreatePhysicsMeshes` also waits, while `FinishPhysicsMeshes` waits for that setup
 only. Accepted asynchronous work delivers `FOnAsyncPhysicsCookFinished` once on
 the owner-thread pump. Its `FPhysicsCookCompletionResult` distinguishes Succeeded,
-Failed, Cancelled and Superseded; only Failed carries diagnostic text.
+Failed and Cancelled; only Failed carries diagnostic text. Cancelled also covers
+obsolete requests whose completed work is skipped at publication.
 The asynchronous interface returns void. Input/admission failures notify once inline,
 as does disabled collision; accepted work notifies after task retirement. A synchronous
 creation waits and exposes its outcome through the setup's status and error queries.
@@ -160,7 +161,7 @@ and withdraws only cooks whose worker has not started. Worker entry and withdraw
 compete through one atomic queued-to-running transition. Withdrawn work reports
 Cancelled without executing its detached input task. Started cooks, including
 DDC waits and CPU consumption, finish normally without owner cancellation being
-forwarded to their task or request owner; stale generations report Superseded and
+forwarded to their task or request owner; stale generations report Cancelled and
 cannot install geometry or overwrite the current error. Abort does not wait.
 Destruction invalidates owner identity/publication while detached records remain
 alive until worker and DDC callback retirement. Selected finish, source-mutation
@@ -173,7 +174,7 @@ consumption reacquires CPU capacity only after both conditions hold. Selected fi
 uses owner `Wait()` after producer completion, without an asset completion event.
 The setup owns `EPhysicsMeshBuildStatus` and an optional diagnostic string;
 there is no second owner-error wrapper. Cancellation clears the stored failure.
-`ApplyPhysicsMeshes` returns Succeeded, Superseded or Failed using the completion
+`ApplyPhysicsMeshes` returns Succeeded, Cancelled or Failed using the completion
 status enum. Stale results do not
 change live state; incompatible geometry on a current request stores an Installation
 failure. Workers never mutate the setup. Physics records retain a shared cancellation

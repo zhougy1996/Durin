@@ -153,7 +153,6 @@ namespace Durin
 		uint64 GameThreadCompletionMicroseconds = 0;
 		uint64 AcceptedCount = 0;
 		uint64 CoalescedCount = 0;
-		uint64 SupersededCount = 0;
 		uint64 RejectedCount = 0;
 		uint64 SucceededCount = 0;
 		uint64 FailedCount = 0;

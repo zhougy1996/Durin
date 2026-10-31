@@ -310,7 +310,6 @@ namespace Durin::Editor::StaticMesh
 					case EStaticMeshCompilationStatus::Succeeded: Phase = "Succeeded"; break;
 					case EStaticMeshCompilationStatus::Failed: Phase = "Failed"; break;
 					case EStaticMeshCompilationStatus::Cancelled: Phase = "Cancelled"; break;
-					case EStaticMeshCompilationStatus::Superseded: Phase = "Superseded"; break;
 					}
 				}
 				ImGui::TextWrapped("Request %llu: %s. %s. This operation record does not establish current settings or payload coherence.",

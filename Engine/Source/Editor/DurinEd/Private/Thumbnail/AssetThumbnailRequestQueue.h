@@ -10,8 +10,8 @@ namespace Durin::Editor
 	enum class EThumbnailRequestStatus : uint8
 	{
 		Accepted,
+		// Existing equal or newer work is retained; no new work is queued.
 		Coalesced,
-		Superseded,
 		QueueFull,
 		Unsupported,
 		ShuttingDown,

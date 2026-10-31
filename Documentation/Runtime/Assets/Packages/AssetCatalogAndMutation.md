@@ -191,6 +191,12 @@ complete after GameThread validation, commit, Registry publication and finalizat
 or rollback. Dropping the task does not cancel publication. The old public
 `FAsyncPackageSave::Begin` / `Complete` protocol is removed. Completion options,
 including optional Registry-failure rollback, are copied at submission.
+Publication and exceptional completion use separate callbacks under the shared
+save owner. Protected operations abandon uncompleted writer state on GameThread;
+they never retry publication to perform cleanup. The real staging task releases
+its write closure, while publication and abandonment retain object ownership
+until GameThread release before terminal notification. Writers keep their existing
+staging, commit, rollback and destruction protocol.
 
 Private scene candidates use `FPreparedAssetSave` for protected staging. `Begin`
 pins and captures a private asset package on GameThread, then submits detached
@@ -202,6 +208,8 @@ the ordinary protected commit and Registry rollback policy. Discarding a ready
 operation removes staging files without publishing. The caller must keep its
 private graph alive and settle staging before abandoning the graph. Graph
 replacement must not be prepared across the asynchronous staging interval.
+Exceptional completion marks the prepared operation ready with a failure and
+releases its writer, so callers cannot wait indefinitely for readiness.
 
 Both ordinary contracts capture the root and hard-dependency catalog participants. Hard
 dependencies must retain catalog presence, physical path, top-level identities,
@@ -236,6 +244,9 @@ fresh capture; successful publication clears the fence. Explicit validated catal
 admission can also reconcile disk content. Other operations remain fenced until
 recovery. `SetAsyncPackageSaveSink` installs a callback copied at submission;
 it receives success or failure exactly once on GameThread after owned cleanup.
+If publication throws or cannot run, exceptional completion preserves dirty-state
+and projection-fencing obligations for potentially written content. A throwing
+sink is not notified again and does not reclassify an already-published success.
 Failures and affected paths are logged independently of the sink. Direct output
 has no rollback or persistent multi-file crash-recovery guarantee.
 

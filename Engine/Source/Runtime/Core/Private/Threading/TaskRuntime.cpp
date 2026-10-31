@@ -687,12 +687,6 @@ namespace Durin
 			}
 		}
 
-		auto GetFailure() const -> Tasks::FTaskFailure
-		{
-			std::lock_guard Lock(Mutex);
-			return {Outcome.Reason};
-		}
-
 		auto Activate() -> void
 		{
 			std::lock_guard Lock(Mutex);
@@ -1046,6 +1040,8 @@ namespace Durin
 		auto GetSchedulerStorageBytes() const -> uint64 { return SchedulerStorageBytes; }
 
 	private:
+		static auto AddCompletionDependency(const std::shared_ptr<FTaskStateData>& Parent,
+			const std::shared_ptr<FTaskStateData>& Child) -> std::optional<Tasks::FTaskConstructionError>;
 		enum class EPhase : uint8 { Open, BodyFinished, Closing, Closed };
 		struct FTaskOutcome
 		{
@@ -2710,6 +2706,42 @@ namespace Durin
 	}
 
 
+	auto FTaskStateData::AddCompletionDependency(const std::shared_ptr<FTaskStateData>& Parent, const std::shared_ptr<FTaskStateData>& Child)
+		-> std::optional<Tasks::FTaskConstructionError>
+	{
+		std::lock_guard GraphLock(GTaskDependencyMutex);
+		if (Parent && Parent->IsTaskEvent() && !Child) return {};
+		if (!Parent || !Child
+			|| (!Parent->IsTaskEvent() && !Child->IsTaskEvent() && Parent->PinScheduler() != Child->PinScheduler()))
+			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidPrerequisite, (Child ? Child->GetTaskId() : 0)};
+		if (Parent->IsIndependentCPU())
+			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
+		// A completed child imposes no dependency, including an already-canceled back-edge.
+		if (IsTerminalState(Child->GetState()))
+		{
+			std::lock_guard Lock(Parent->Mutex);
+			if (Parent->ExecutionState != ETaskState::Running || Parent->Phase != FTaskStateData::EPhase::Open)
+				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
+			return {};
+		}
+		if (Parent == Child || Child->DependsOn(Parent.get()))
+			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::DependencyCycle, Child->GetTaskId()};
+		{
+			std::scoped_lock Lock(Parent->Mutex, Child->Mutex);
+			if (Parent->ExecutionState != ETaskState::Running || Parent->Phase != FTaskStateData::EPhase::Open)
+				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
+			if (Child->Phase == FTaskStateData::EPhase::Closed) return {};
+			// Preserve ordinary admission reservations while adding an unreserved nested edge.
+			Parent->Dependencies.ReserveAdditional();
+			Child->ReserveSubsequentLocked();
+			Parent->Dependencies.Add(Child, Child->GetTaskId(), ETaskDependencyKind::Nested);
+			Child->RegisterDependentLocked(Parent, ETaskDependencyKind::Nested);
+			++Parent->PendingNestedCount;
+		}
+		Parent->NotifyStateChanged();
+		return {};
+	}
+
 	namespace Private
 	{
 		auto SetTaskTerminalPublicationTestHook(std::function<void(uint64)>&& Hook) -> void
@@ -2786,9 +2818,6 @@ namespace Durin
 		}
 
 
-		auto FTaskRuntimeAccess::GetFailure(const Tasks::FTask& Task) -> Tasks::FTaskFailure
-		{ require(Task.State); return Task.State->GetFailure(); }
-
 		auto FTaskRuntimeAccess::PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>
 		{ require(Task.State); return Task.State; }
 
@@ -2816,7 +2845,7 @@ namespace Durin
 			std::lock_guard Lock(Task.State->Event->SignalMutex);
 			requiref(!Task.State->Event->Triggered, "Task event prerequisites must be added before Trigger.");
 			for (const auto& Prerequisite : Prerequisites)
-				if (auto Error = AddCompletionDependency(Task, Prerequisite)) return Error;
+				if (auto Error = FTaskStateData::AddCompletionDependency(Task.State, Prerequisite.State)) return Error;
 			return {};
 		}
 
@@ -2839,47 +2868,11 @@ namespace Durin
 			require(Task.State && Hook && Hook->Function);
 			Task.State->BindTerminal(std::move(Hook));
 		}
-		auto FTaskRuntimeAccess::AddCompletionDependency(const Tasks::FTask& Parent, const Tasks::FTask& Child)
-			-> std::optional<Tasks::FTaskConstructionError>
-		{
-			std::lock_guard GraphLock(GTaskDependencyMutex);
-			if (Parent.State && Parent.State->IsTaskEvent() && !Child.State) return {};
-			if (!Parent.State || !Child.State
-				|| (!Parent.State->IsTaskEvent() && !Child.State->IsTaskEvent() && Parent.State->PinScheduler() != Child.State->PinScheduler()))
-				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidPrerequisite, Child.GetTaskId()};
-			if (Parent.State->IsIndependentCPU())
-				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
-			// A completed child imposes no dependency, including an already-canceled back-edge.
-			if (IsTerminalState(Child.State->GetState()))
-			{
-				std::lock_guard Lock(Parent.State->Mutex);
-				if (Parent.State->ExecutionState != ETaskState::Running || Parent.State->Phase != FTaskStateData::EPhase::Open)
-					return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
-				return {};
-			}
-			if (Parent.State == Child.State || Child.State->DependsOn(Parent.State.get()))
-				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::DependencyCycle, Child.GetTaskId()};
-			{
-				std::scoped_lock Lock(Parent.State->Mutex, Child.State->Mutex);
-				if (Parent.State->ExecutionState != ETaskState::Running || Parent.State->Phase != FTaskStateData::EPhase::Open)
-					return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
-				if (Child.State->Phase == FTaskStateData::EPhase::Closed) return {};
-				// Preserve ordinary admission reservations while adding an unreserved nested edge.
-				Parent.State->Dependencies.ReserveAdditional();
-				Child.State->ReserveSubsequentLocked();
-				Parent.State->Dependencies.Add(Child.State, Child.GetTaskId(), ETaskDependencyKind::Nested);
-				Child.State->RegisterDependentLocked(Parent.State, ETaskDependencyKind::Nested);
-				++Parent.State->PendingNestedCount;
-			}
-			Parent.State->NotifyStateChanged();
-			return {};
-		}
-
 		auto FTaskRuntimeAccess::AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>
 		{
 			if (!GCurrentTaskState || !GCurrentTaskState->IsRunningBody())
 				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
-			return AddCompletionDependency(Tasks::FTask(GCurrentTaskState->shared_from_this()), Child);
+			return FTaskStateData::AddCompletionDependency(GCurrentTaskState->shared_from_this(), Child.State);
 		}
 
 		auto FTaskRuntimeAccess::SetCurrentCanceledOutcome() -> void

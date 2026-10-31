@@ -656,7 +656,11 @@ callers' existing behavior. Loaded instances inherit the root policy. Scheduled
 edits use `Scheduled` state and the manager's bounded retry scan, without taking
 compiler snapshots or advancing request generations until submission. Selected
 finish flushes scheduled automatic work; manual work requires an explicit request.
-Late results cannot replace a material with unsubmitted edits. See
+Late results cannot replace a material with unsubmitted edits. A qualified result
+whose static properties no longer match is skipped and rescheduled through this
+same edit policy, preserving the accepted program. Replacement requests count as
+ordinary canceled consumers; there is no separate supersession state or counter.
+See
 [Material editor lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md#compile-apply-and-save)
 for toolbar and save behavior.
 The editor working copy has no scene dependents. Its compilation and dynamic

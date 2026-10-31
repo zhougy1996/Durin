@@ -993,14 +993,13 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
 		Tasks::FTaskEvent First("CycleFirst"), Second("CycleSecond");
 		First.AddPrerequisites(Second);
-		const auto Cycle = Private::FTaskRuntimeAccess::AddCompletionDependency(Second, First);
-		ASSERT_TRUE(Cycle);
-		EXPECT_EQ(Cycle->Code, Tasks::ETaskConstructionErrorCode::DependencyCycle);
-		const auto Context = Private::FTaskRuntimeAccess::AddNested(First);
-		ASSERT_TRUE(Context);
-		EXPECT_EQ(Context->Code, Tasks::ETaskConstructionErrorCode::InvalidExecutionContract);
-		First.Trigger(); Second.Trigger();
+		EXPECT_DEATH({ Second.AddPrerequisites(First); }, "");
+		EXPECT_DEATH({ Tasks::AddNested(First); }, "");
+		First.Trigger();
+		EXPECT_FALSE(First.IsCompleted());
+		Second.Trigger();
 		EXPECT_EQ(First.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_TRUE(Second.IsCompleted());
 	}
 
 	TEST(FTaskCompositionTests, NestedEventCompletionRacesBodyReturn)
@@ -1294,7 +1293,7 @@ namespace Durin
 					if (Outcome == ETaskState::Succeeded) return *Task.GetResult() + *Capture;
 					if (Outcome == ETaskState::Failed)
 					{
-						EXPECT_EQ(Task.GetFailure().Reason, ETaskTerminalReason::CallbackFailure);
+						EXPECT_EQ(Task.GetDiagnostics().TerminalReason, ETaskTerminalReason::CallbackFailure);
 						EXPECT_NE(Task.GetDiagnostic().find("expected task failure"), std::string::npos);
 					}
 					return *Capture;
@@ -1350,23 +1349,6 @@ namespace Durin
 		EXPECT_EQ(Result.GetResult(), 42);
 	}
 
-	TEST(FTaskCompositionTests, EventCompletionDependenciesRejectCycles)
-	{
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		Tasks::FTaskEvent A("CycleA", false), B("CycleB", false);
-		A.AddPrerequisites(B);
-		auto Cycle = Private::FTaskRuntimeAccess::AddCompletionDependency(B, A);
-		EXPECT_TRUE(Cycle.has_value());
-		if (Cycle) EXPECT_EQ(Tasks::ETaskConstructionErrorCode::DependencyCycle, Cycle->Code);
-		A.Trigger();
-		EXPECT_FALSE(A.IsCompleted());
-		B.Trigger();
-		EXPECT_TRUE(A.IsCompleted());
-		EXPECT_TRUE(B.IsCompleted());
-	}
-
 	TEST(FTaskCompositionTests, OrdinarySubmissionDeduplicatesDependencies)
 	{
 		ShutdownTaskScheduler(false);
@@ -1394,13 +1376,13 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		auto Failed = Tasks::LaunchTask("ThrowBeforeShare", []() -> int { throw std::runtime_error("expected failure"); });
 		ASSERT_EQ(Failed.Wait().TaskState, ETaskState::Failed);
-		const auto NativeFailure = Failed.GetFailure();
+		const auto NativeReason = Failed.GetDiagnostics().TerminalReason;
 		const auto Diagnostic = Failed.GetDiagnostic();
-		ASSERT_EQ(NativeFailure.Reason, ETaskTerminalReason::CallbackFailure);
+		ASSERT_EQ(NativeReason, ETaskTerminalReason::CallbackFailure);
 		EXPECT_NE(Diagnostic.find("expected failure"), std::string::npos);
 		auto Shared = Failed;
 		Failed = {};
-		EXPECT_EQ(Shared.GetFailure().Reason, NativeFailure.Reason);
+		EXPECT_EQ(Shared.GetDiagnostics().TerminalReason, NativeReason);
 		EXPECT_EQ(Shared.GetDiagnostic(), Diagnostic);
 	}
 

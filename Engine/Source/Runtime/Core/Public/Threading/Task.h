@@ -21,8 +21,6 @@ namespace Durin::Tasks
 	{
 		// Result access requires both a supported wait and successful execution in every build.
 		CORE_API auto WaitForSuccess(const FTask& Handle) -> void;
-		// Requires failure; absent stored failure uses the native terminal reason.
-		CORE_API auto ReadFailure(const FTask& Handle) -> FTaskFailure;
 	}
 	namespace Detail
 	{
@@ -148,7 +146,6 @@ namespace Durin::Tasks
 		TTask(TTask&&) noexcept = default;
 		auto operator=(const TTask&) -> TTask& = default;
 		auto operator=(TTask&&) noexcept -> TTask& = default;
-		auto GetFailure() const -> FTaskFailure { return Detail::ReadFailure(*this); }
 		// Moving from this reference is an explicit mutation visible to all aliases.
 		// Callers synchronize mutations of a shared result.
 		auto GetResult() const -> std::add_lvalue_reference_t<T> requires (!std::is_void_v<T>)

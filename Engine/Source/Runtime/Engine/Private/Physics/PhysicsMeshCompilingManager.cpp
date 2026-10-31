@@ -326,7 +326,7 @@ namespace Durin
 				}
 				else if (Body->GetPhysicsMeshRequestGeneration() != Record->Generation
 					|| Body->GetCollisionSourceMode() != Record->Mode)
-					Completion.Status = EPhysicsCookCompletionStatus::Superseded;
+					Completion.Status = EPhysicsCookCompletionStatus::Cancelled;
 				else if (!Outcome)
 				{
 					Body->FailPhysicsMeshes(Record->Generation, Outcome.error());

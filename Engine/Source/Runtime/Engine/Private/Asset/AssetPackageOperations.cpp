@@ -225,6 +225,10 @@ namespace Durin
 			[Operation](bool bSucceeded) {
 				if (!bSucceeded) Operation->State->StagingResult = Error(EAssetWriteError::IoError, "Prepared save staging failed.");
 				Operation->State->bReady = true;
+			}, [Operation] {
+				Operation->State->Prepared.Write.reset();
+				Operation->State->StagingResult = Error(EAssetWriteError::IoError, "Prepared save publication did not complete.");
+				Operation->State->bReady = true;
 			});
 		if (!Submitted) { Admission = Error(EAssetWriteError::InUse, Submitted.Message); return {}; }
 		Admission = {};
@@ -254,6 +258,7 @@ namespace Durin
 		~FProtectedAssetSave() { check(IsInGameThread()); }
 		auto Stage() -> void;
 		auto Complete() -> FAssetWriteResult;
+		auto Abandon() -> void { check(IsInGameThread()); Prepared.Write.reset(); }
 		auto GetDetachedBytes() const -> uint64;
 	private:
 		FProtectedAssetSave() = default;
@@ -344,7 +349,7 @@ namespace Durin
 					: Operation->Complete();
 				Operation.reset();
 				return Result;
-			}, Submitted);
+			}, [Operation] { Operation->Abandon(); }, Submitted);
 		if (!Submitted) { Admission = Error(EAssetWriteError::InUse, Submitted.Message); return {}; }
 		Admission = {};
 		return Task;
@@ -359,6 +364,33 @@ namespace Durin
 			FPackageWriteResult Written;
 			FSaveParticipants Participants;
 			bool bStarted = false;
+			FAsyncPackageSaveSink Sink;
+			bool bNotified = false;
+			auto Notify(FAssetWriteResult Result) -> void
+			{
+				check(IsInGameThread());
+				if (bNotified) return;
+				const auto Path = Prepared.Header.PackagePath;
+				if (!Result && Result.Effect != EAssetWriteEffect::None)
+				{
+					if (!Prepared.Package->IsDirty()) Prepared.Package->MarkDirty();
+					FenceAssetRegistryProjection(std::span(&Path, 1));
+				}
+				if (!Result) DURIN_ERROR("Async save {} failed: {}", Path.ToString(), Result.Message);
+				Prepared = {};
+				Participants.clear();
+				Written = {};
+				bNotified = true;
+				auto NotifySink = std::move(Sink);
+				if (NotifySink) NotifySink(Path, Result);
+			}
+			auto Abandon() -> void
+			{
+				if (bNotified) return;
+				auto Result = Error(EAssetWriteError::IoError, "Direct save publication did not complete; the closure requires reconciliation.");
+				Result.Effect = bStarted ? EAssetWriteEffect::PartiallyWritten : EAssetWriteEffect::None;
+				Notify(std::move(Result));
+			}
 		};
 	}
 	auto SetAsyncPackageSaveSink(FAsyncPackageSaveSink Sink) -> void
@@ -381,13 +413,14 @@ namespace Durin
 			|| FindResidentPackage(Package->GetPackagePathIdentity()) != Package)
 			return Error(EAssetWriteError::InvalidData, "A resident asset package is required.");
 		auto Data = std::make_shared<FDirectAssetSave>();
+		Data->Sink = AsyncSaveSink;
 		if (auto Result = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Mode, Data->Prepared, true); !Result) return Result;
 		Data->Participants.emplace(Data->Prepared.Header.PackagePath, FindAssetExact(Data->Prepared.Header.PackagePath).Data);
 		for (const auto& Dependency : Data->Prepared.Header.Dependencies)
 			Data->Participants.emplace(Dependency, FindAssetExact(Dependency).Data);
 		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Data->Prepared.DetachedBytes,
 			[Data] { Data->bStarted = true; Data->Written = Data->Prepared.Write->Stage(); },
-			[Data, Sink = AsyncSaveSink, bFailPublication = bFailDirectPublication](bool bSucceeded) mutable {
+			[Data, bFailPublication = bFailDirectPublication](bool bSucceeded) {
 				auto& Prepared = Data->Prepared;
 				const auto Path = Prepared.Header.PackagePath;
 				auto Result = ToAssetWriteResult(Data->Written);
@@ -417,18 +450,8 @@ namespace Durin
 						if (Data->Prepared.Package->GetEditRevision() == Prepared.Revision) Data->Prepared.Package->ClearDirty();
 					}
 				}
-				if (!Result && Result.Effect != EAssetWriteEffect::None)
-				{
-					if (!Data->Prepared.Package->IsDirty()) Data->Prepared.Package->MarkDirty();
-					FenceAssetRegistryProjection(std::span(&Path, 1));
-				}
-				Data.reset();
-				if (!Result)
-				{
-					DURIN_ERROR("Async save {} failed: {}", Path.ToString(), Result.Message);
-				}
-				if (Sink) Sink(Path, Result);
-			});
+				Data->Notify(std::move(Result));
+			}, [Data] { Data->Abandon(); });
 		return Submitted ? FAssetWriteResult{} : Error(EAssetWriteError::InUse, Submitted.Message);
 	}
 

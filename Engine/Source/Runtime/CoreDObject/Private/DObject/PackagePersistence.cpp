@@ -15,7 +15,7 @@ namespace Durin
 			uint64 Bytes = 0;
 			Tasks::FTask Disk, Publication;
 			bool bAdmitted = false;
-			std::function<void()> Write, Cleanup;
+			std::function<void()> Cleanup;
 		};
 	}
 	namespace
@@ -39,7 +39,6 @@ namespace Durin
 			check(IsInGameThread());
 			check(Save->Disk.IsCompleted() && Save->Publication.IsCompleted());
 			++SavePublicationDepth;
-			Save->Write = {};
 			auto Cleanup = std::move(Save->Cleanup);
 			try { if (Cleanup) Cleanup(); }
 			catch (...) { DURIN_ERROR("Async package save cleanup threw an exception."); }
@@ -70,7 +69,6 @@ namespace Durin
 			check(IsInGameThread());
 			check(Save->Disk.IsCompleted());
 			++SavePublicationDepth;
-			Save->Write = {};
 		}
 		auto EndAsyncSavePublication() -> void { check(IsInGameThread() && SavePublicationDepth != 0); --SavePublicationDepth; }
 
@@ -81,21 +79,25 @@ namespace Durin
 			// Reserve ownership before creating accepted work; registration below cannot allocate.
 			{ std::lock_guard Lock(AsyncSaveMutex); AsyncSaves.reserve(AsyncSaves.size() + 1); }
 			auto Save = std::make_shared<FAsyncSaveState>();
-			Save->Bytes = Bytes; Save->Write = std::move(Write); Save->Cleanup = std::move(Cleanup);
+			Save->Bytes = Bytes; Save->Cleanup = std::move(Cleanup);
+			// Only submission rollback and the real I/O task share this slot. The
+			// owner retains object cleanup separately, never the write closure.
+			auto WriteBody = std::make_shared<std::function<void()>>(std::move(Write));
 			Tasks::FTaskEvent Gate("Package.SaveAdmission");
 			try
 			{
 				Save->Disk = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
-					{.DebugName = "Package.SaveIO"}, [Save] {
+					{.DebugName = "Package.SaveIO"}, [Save, WriteBody] {
 						if (!Save->bAdmitted) {
 							Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
 							return;
 						}
-						Save->Write();
+						auto Invoke = std::exchange(*WriteBody, {});
+						Invoke();
 					}, Gate);
 				if (PublicationFault == EPublicationFault::RejectAdmission)
 				{
-					Save->Write = {}; Save->Cleanup = {};
+					*WriteBody = {}; Save->Cleanup = {};
 					Gate.Trigger();
 					return Fail(EPackageSaveError::ShuttingDown, "Injected save publication admission failure.");
 				}
@@ -108,17 +110,19 @@ namespace Durin
 			}
 			catch (...)
 			{
-				Save->Write = {}; Save->Cleanup = {};
+				*WriteBody = {}; Save->Cleanup = {};
 				Gate.Trigger();
 				throw;
 			}
 		}
-		auto SubmitAsyncSave(uint64 Bytes, std::function<void()> Write, std::function<void(bool)> Finish)
+		auto SubmitAsyncSave(uint64 Bytes, std::function<void()> Write, std::function<void(bool)> Publish,
+			std::function<void()> Abandon)
 			-> FPackageSaveResult
 		{
 			FPackageSaveResult Admission;
 			(void)SubmitTypedAsyncSave<void>(Bytes, std::move(Write),
-				[Finish = std::move(Finish)](bool bSucceeded, const FTaskCancellationToken&) { Finish(bSucceeded); }, Admission);
+				[Publish = std::move(Publish)](bool bSucceeded, const FTaskCancellationToken&) { Publish(bSucceeded); },
+				std::move(Abandon), Admission);
 			return Admission;
 		}
 		auto PollAsyncSaves() -> void
@@ -417,6 +421,6 @@ namespace Durin
 				if (!bSucceeded) Result = Fail(EPackageSaveError::IoError, "Package I/O task did not succeed.");
 				Operation.reset();
 				return Result;
-			}, Admission);
+			}, [Operation] { (void)Operation->Cancel(); }, Admission);
 	}
 }

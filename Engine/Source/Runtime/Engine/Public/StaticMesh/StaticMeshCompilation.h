@@ -9,7 +9,7 @@ namespace Durin
 {
 	class IAssetCompilingManager;
 
-	enum class EStaticMeshCompilationStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
+	enum class EStaticMeshCompilationStatus : uint8 { Succeeded, Failed, Cancelled };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
 
 	struct FStaticMeshCompilationDiagnostic

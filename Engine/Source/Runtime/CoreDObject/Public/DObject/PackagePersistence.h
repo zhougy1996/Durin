@@ -13,7 +13,7 @@ namespace Durin
 		// Internal detached-work owner shared by file-only and Engine adapters.
 		COREDOBJECT_API auto CheckAsyncAdmission(uint64 Bytes = 0) -> FPackageSaveResult;
 		COREDOBJECT_API auto SubmitAsyncSave(uint64 Bytes, std::function<void()> Write,
-			std::function<void(bool)> Finish) -> FPackageSaveResult;
+			std::function<void(bool)> Publish, std::function<void()> Abandon) -> FPackageSaveResult;
 		struct FAsyncSaveState;
 		using FAsyncSavePublicationFactory = std::function<Tasks::FTask(const Tasks::FTask&,
 			const std::shared_ptr<FAsyncSaveState>&)>;
@@ -23,32 +23,47 @@ namespace Durin
 		COREDOBJECT_API auto EndAsyncSavePublication() -> void;
 
 		// Domain task factory: the result is returned by an ordinary publication body.
-		// Keep a cleanup copy until the owner reaps even an executor-discarded task.
+		// Abandon handles a body that throws or never runs; it never supplies a result.
+		// Both callbacks release their object captures on GameThread before notification
+		// when the body runs, or after producer retirement when the owner reaps it.
 		template<typename TResult, typename F>
-		auto SubmitTypedAsyncSave(uint64 Bytes, std::function<void()> Write, F&& Finish,
+		auto SubmitTypedAsyncSave(uint64 Bytes, std::function<void()> Write, F&& Publish,
+			std::function<void()> Abandon,
 			FPackageSaveResult& Admission) -> Tasks::TTask<TResult>
 		{
-			using FFinish = std::decay_t<F>;
-			auto Callback = std::make_shared<std::optional<FFinish>>(std::forward<F>(Finish));
+			struct FCallbacks
+			{
+				std::optional<std::decay_t<F>> Publish;
+				std::function<void()> Abandon;
+			};
+			auto Callbacks = std::make_shared<FCallbacks>(FCallbacks{std::forward<F>(Publish), std::move(Abandon)});
 			Tasks::TTask<TResult> Task;
 			Admission = SubmitAsyncSaveTask(Bytes, std::move(Write),
-				[&Task, Callback](const Tasks::FTask& Disk, const std::shared_ptr<FAsyncSaveState>& Save) {
+				[&Task, Callbacks](const Tasks::FTask& Disk, const std::shared_ptr<FAsyncSaveState>& Save) {
 					Task = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
 						{.DebugName = "Package.SavePublication"},
-						[Disk, Save, Callback](const FTaskCancellationToken& Token) mutable -> TResult {
+						[Disk, Save, Callbacks](const FTaskCancellationToken& Token) mutable -> TResult {
 							BeginAsyncSavePublication(Save);
 							struct FScope { ~FScope() { EndAsyncSavePublication(); } } Scope;
-							auto Invoke = std::move(**Callback);
-							Callback->reset();
-							return std::invoke(Invoke, Disk.GetState() == ETaskState::Succeeded, Token);
+							auto OnAbandon = std::exchange(Callbacks->Abandon, {});
+							try {
+								auto Invoke = std::move(*Callbacks->Publish);
+								Callbacks->Publish.reset();
+								return std::invoke(Invoke, Disk.GetState() == ETaskState::Succeeded, Token);
+							}
+							catch (...) {
+								Callbacks->Publish.reset();
+								try { if (OnAbandon) OnAbandon(); }
+								catch (...) { DURIN_ERROR("Async save abandonment threw an exception."); }
+								throw;
+							}
 						}, Disk);
 					return Tasks::FTask(Task);
 				},
-				[Callback] {
-					if (!*Callback) return;
-					auto Invoke = std::move(**Callback);
-					Callback->reset();
-					(void)std::invoke(Invoke, false, FTaskCancellationToken{});
+				[Callbacks] {
+					Callbacks->Publish.reset();
+					auto OnAbandon = std::exchange(Callbacks->Abandon, {});
+					if (OnAbandon) OnAbandon();
 				});
 			return Admission ? Task : Tasks::TTask<TResult>{};
 		}
