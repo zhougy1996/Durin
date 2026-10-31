@@ -5,20 +5,86 @@
 TEST(FEngineFramePhaseTests, ForegroundFrameCapIsOptionalAndLifecycleThrottlesRemain)
 {
 	using namespace Durin;
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false), 1.0 / 30.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false), 1.0 / 30.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false), 0.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, true, 60), 1.0 / 60.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, true, 144), 1.0 / 144.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, true, -1), 0.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, true, true, 144), 1.0 / 5.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, false, 144), 1.0 / 10.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false, true, 144), 1.0 / 30.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, false, false, true, 120), 1.0 / 120.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, true), 1.0 / 5.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, true, false, false), 1.0 / 10.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(false, true, false, false), 1.0 / 10.0);
-	EXPECT_DOUBLE_EQ(GetHostFrameInterval(true, false, false), 0.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bStartupReady = false, .bEditor = true}), 1.0 / 30.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true}), 0.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .FrameRateLimit = 60}), 1.0 / 60.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .FrameRateLimit = 144}), 1.0 / 144.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .FrameRateLimit = -1}), 0.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bMinimized = true, .FrameRateLimit = 144}), 1.0 / 5.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false, .FrameRateLimit = 144}), 1.0 / 30.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bStartupReady = false, .bEditor = true, .FrameRateLimit = 144}), 1.0 / 30.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.FrameRateLimit = 120}), 1.0 / 120.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bMinimized = true}), 1.0 / 5.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false}), 1.0 / 30.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bStartupReady = false, .bEditor = true, .bFocused = false}), 1.0 / 30.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({}), 0.0);
+}
+
+TEST(FEngineFramePhaseTests, BackgroundCapCanBeConfiguredOrDisabledWithoutRaisingNormalLimit)
+{
+	using namespace Durin;
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false, .BackgroundFrameRateLimit = 15}), 1.0 / 15.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false, .FrameRateLimit = 20}), 1.0 / 20.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false, .FrameRateLimit = 60, .BackgroundFrameRateLimit = 0}), 1.0 / 60.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false, .BackgroundFrameRateLimit = 0}), 0.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .FrameRateLimit = 144, .BackgroundFrameRateLimit = 15}), 1.0 / 144.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bFocused = false, .FrameRateLimit = 120, .BackgroundFrameRateLimit = 15}), 1.0 / 120.0);
+}
+
+TEST(FEngineFramePhaseTests, ProfilerConnectionSuspendsOnlyBackgroundReduction)
+{
+	using namespace Durin;
+	for (const int32 BackgroundLimit : {0, 15, 30})
+	{
+		EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false, .FrameRateLimit = 144, .BackgroundFrameRateLimit = BackgroundLimit, .bProfilerConnected = true}), 1.0 / 144.0);
+		EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false, .BackgroundFrameRateLimit = BackgroundLimit, .bProfilerConnected = true}), 0.0);
+		EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bMinimized = true, .bFocused = false, .FrameRateLimit = 144, .BackgroundFrameRateLimit = BackgroundLimit, .bProfilerConnected = true}), 1.0 / 5.0);
+		EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bStartupReady = false, .bEditor = true, .bFocused = false, .FrameRateLimit = 144, .BackgroundFrameRateLimit = BackgroundLimit, .bProfilerConnected = true}), 1.0 / 30.0);
+		EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bMinimized = true, .bFocused = false, .FrameRateLimit = 144, .BackgroundFrameRateLimit = BackgroundLimit}), 1.0 / 5.0);
+	}
+	// Disconnecting resumes the configured background cap without changing the normal cap.
+	EXPECT_DOUBLE_EQ(GetHostFrameInterval({.bEditor = true, .bFocused = false, .FrameRateLimit = 144}), 1.0 / 30.0);
+}
+
+TEST(FEngineFramePhaseTests, FocusAndProfilerChangesReleaseTheOldBackgroundDeadline)
+{
+	using namespace Durin;
+	FHostFrameState State{.bEditor = true, .bFocused = false, .FrameRateLimit = 60, .BackgroundFrameRateLimit = 1};
+	constexpr double LastFrameTime = 10.0;
+	constexpr double CurrentTime = 10.1;
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, LastFrameTime, CurrentTime), 0.05);
+	State.bFocused = true;
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, LastFrameTime, CurrentTime), 0.0);
+	State.bFocused = false;
+	State.bProfilerConnected = true;
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, LastFrameTime, CurrentTime), 0.0);
+	State.bProfilerConnected = false;
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, LastFrameTime, CurrentTime), 0.05);
+	State.BackgroundFrameRateLimit = 0;
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, LastFrameTime, CurrentTime), 0.0);
+}
+
+TEST(FEngineFramePhaseTests, RestoringWindowsReleasesMinimizedPacingButRespectsNormalLimit)
+{
+	using namespace Durin;
+	FHostFrameState State{.bEditor = true, .bMinimized = true, .FrameRateLimit = 60};
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, 10.0, 10.1), 0.05);
+	State.bMinimized = false;
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, 10.0, 10.1), 0.0);
+	// A policy change only shortens the deadline to the normal cap, never bypasses it.
+	EXPECT_NEAR(GetHostFrameWaitTimeout(State, 10.0, 10.005), 1.0 / 60.0 - 0.005, 1e-12);
+}
+
+TEST(FEngineFramePhaseTests, InputWakeupsDoNotAdvanceFramesOrPostponeTheirDeadline)
+{
+	using namespace Durin;
+	const FHostFrameState State{.bEditor = true, .bFocused = false, .BackgroundFrameRateLimit = 1};
+	// Simulate repeated input and timeout wakeups throughout one background frame.
+	for (const double Elapsed : {0.001, 0.01, 0.1, 0.5, 0.9})
+		EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, 10.0, 10.0 + Elapsed), 0.05);
+	EXPECT_NEAR(GetHostFrameWaitTimeout(State, 10.0, 10.99), 0.01, 1e-12);
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, 10.0, 11.0), 0.0);
+	EXPECT_DOUBLE_EQ(GetHostFrameWaitTimeout(State, 10.0, 11.1), 0.0);
 }
 
 TEST(FEngineFramePhaseTests, PumpsInputBeforeGameAndTicksUIAfterGame)

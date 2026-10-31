@@ -43,12 +43,12 @@ namespace Durin
 		auto GetCompletedRunningTicks() const -> uint64 { return CompletedRunningTicks; }
 
 	private:
+		auto GetHostFrameState() const -> FHostFrameState;
 		auto TickPostEventFrame(bool bAllowMinimizedWait, bool bAdvanceHost = true) -> void;
 		auto TickModalContinuation() -> void;
 
 		// Previous tick timestamp in the platform clock's seconds domain.
 		double LastTickTime = 0.0;
-		double NextFrameTime = 0.0;
 		uint64 CompletedRunningTicks = 0;
 		EEngineLoopState State = EEngineLoopState::Uninitialized;
 		EInteractiveFrameState FrameState = EInteractiveFrameState::Idle;

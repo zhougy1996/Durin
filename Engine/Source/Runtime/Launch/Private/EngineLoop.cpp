@@ -317,13 +317,30 @@ namespace Durin
 		return GEngine ? GEngine->GetStartupError() : "The engine host is unavailable.";
 	}
 
+	auto FEngineLoop::GetHostFrameState() const -> FHostFrameState
+	{
+		auto& Application = Mona::FMonaApplication::Get();
+		return {
+			.bStartupReady = GetStartupState() == EHostStartupState::Ready,
+			.bEditor = DURIN_WITH_EDITOR != 0,
+			.bMinimized = Application.AreAllWindowsMinimized(),
+			.bFocused = std::ranges::any_of(Application.GetWindows(), [](const auto& Window) {
+				return Window && Window->GetNativeWindow() && Window->GetNativeWindow()->IsFocused();
+			}),
+			.FrameRateLimit = GEngine ? GEngine->GetFrameRateLimit() : 0,
+			.BackgroundFrameRateLimit = GEngine ? GEngine->GetBackgroundFrameRateLimit() : 30,
+			.bProfilerConnected = Profiling::GetConnectionState().bConnected,
+		};
+	}
+
 	auto FEngineLoop::TickPostEventFrame(bool bAllowMinimizedWait, bool bAdvanceHost) -> void
 	{
 		const double CurrentTime = FTime::Seconds();
 		auto& Application = Mona::FMonaApplication::Get();
-		if (CurrentTime < NextFrameTime)
+		const double WaitTimeout = GetHostFrameWaitTimeout(GetHostFrameState(), LastTickTime, CurrentTime);
+		if (WaitTimeout > 0.0)
 		{
-			if (bAllowMinimizedWait) Application.WaitForEvents(NextFrameTime - CurrentTime);
+			if (bAllowMinimizedWait) Application.WaitForEvents(WaitTimeout);
 			return;
 		}
 		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
@@ -382,17 +399,10 @@ namespace Durin
 		}
 
 		CalculateFPSTimings();
-		const bool bAnyWindowFocused = std::ranges::any_of(Application.GetWindows(), [](const auto& Window) {
-			return Window && Window->GetNativeWindow() && Window->GetNativeWindow()->IsFocused();
-		});
-		NextFrameTime = CurrentTime + GetHostFrameInterval(GetStartupState() == EHostStartupState::Ready,
-			DURIN_WITH_EDITOR != 0, bAllWindowsMinimized, bAnyWindowFocused, GEngine ? GEngine->GetFrameRateLimit() : 0);
-		const double RemainingFrameTime = NextFrameTime - FTime::Seconds();
-		if (RemainingFrameTime > 0.0 && bAllowMinimizedWait)
+		const double RemainingWait = GetHostFrameWaitTimeout(GetHostFrameState(), LastTickTime, FTime::Seconds());
+		if (RemainingWait > 0.0 && bAllowMinimizedWait)
 		{
-			// Native input wakes this wait. The next outer event pump services it;
-			// the deadline above prevents an input storm from bypassing render pacing.
-			Application.WaitForEvents(RemainingFrameTime);
+			Application.WaitForEvents(RemainingWait);
 		}
 		PublishTaskSchedulerProfilerPlots();
 		DURIN_PROFILE_FRAME_MARK();

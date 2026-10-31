@@ -6,14 +6,34 @@
 
 namespace Durin
 {
-	// VSync and the optional foreground cap are independent of lifecycle throttles.
-	constexpr auto GetHostFrameInterval(bool bStartupReady, bool bEditor, bool bMinimized, bool bFocused = true, int32 FrameRateLimit = 0) -> double
+	struct FHostFrameState
 	{
-		if (bEditor && bMinimized) return 1.0 / 5.0;
-		if (bEditor && !bFocused) return 1.0 / 10.0;
-		if (bMinimized) return 1.0 / 20.0;
-		if (!bStartupReady) return 1.0 / 30.0;
-		return FrameRateLimit > 0 ? 1.0 / FrameRateLimit : 0.0;
+		bool bStartupReady = true;
+		bool bEditor = false;
+		bool bMinimized = false;
+		bool bFocused = true;
+		int32 FrameRateLimit = 0;
+		int32 BackgroundFrameRateLimit = 30;
+		bool bProfilerConnected = false;
+	};
+
+	// VSync remains a separate presentation policy.
+	constexpr auto GetHostFrameInterval(const FHostFrameState& State) -> double
+	{
+		if (State.bMinimized) return State.bEditor ? 1.0 / 5.0 : 1.0 / 20.0;
+		if (!State.bStartupReady) return 1.0 / 30.0;
+		const double FrameInterval = State.FrameRateLimit > 0 ? 1.0 / State.FrameRateLimit : 0.0;
+		if (State.bEditor && !State.bFocused && !State.bProfilerConnected && State.BackgroundFrameRateLimit > 0)
+			return std::max(FrameInterval, 1.0 / State.BackgroundFrameRateLimit);
+		return FrameInterval;
+	}
+
+	// Recompute from the last admitted frame, so policy changes do not retain an old
+	// deadline and input wakeups cannot reset pacing. Bound waits to observe profiler
+	// connections even when no native event wakes the host.
+	constexpr auto GetHostFrameWaitTimeout(const FHostFrameState& State, double LastFrameTime, double CurrentTime) -> double
+	{
+		return std::clamp(LastFrameTime + GetHostFrameInterval(State) - CurrentTime, 0.0, 0.05);
 	}
 	// Identifies the game-thread frame boundary used to reject recursive continuations.
 	enum class EInteractiveFrameState : uint8
