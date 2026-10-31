@@ -45,19 +45,15 @@ namespace Durin::VulkanRHI
 			vk::CompositeAlphaFlagBitsKHR::eOpaque);
 	}
 
-	TEST(FVulkanSwapchainSelectionTests, UnsynchronizedSelectsPlatformModeAndSupportedFallback)
+	TEST(FVulkanSwapchainSelectionTests, UnsynchronizedPrefersImmediateAndSupportedFallback)
 	{
 		auto Input = MakeInput();
 		Input.PresentationPolicy = EViewportPresentationPolicy::Unsynchronized;
 		Input.PresentModes = {vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eImmediate};
 		auto Result = SelectVulkanSwapchainConfiguration(Input);
 		ASSERT_TRUE(Result) << Result.error();
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eMailbox);
-		EXPECT_EQ(Result->ImageCount, 3u);
-#else
 		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eImmediate);
-#endif
+		EXPECT_EQ(Result->ImageCount, 2u);
 		Input.PresentModes = {vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox};
 		Result = SelectVulkanSwapchainConfiguration(Input);
 		ASSERT_TRUE(Result) << Result.error();
@@ -65,11 +61,7 @@ namespace Durin::VulkanRHI
 		Input.PresentModes = {vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eImmediate};
 		Result = SelectVulkanSwapchainConfiguration(Input);
 		ASSERT_TRUE(Result) << Result.error();
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eFifo);
-#else
 		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eImmediate);
-#endif
 		EXPECT_EQ(Result->ImageCount, 2u);
 		Input.PresentModes = {vk::PresentModeKHR::eFifo};
 		Result = SelectVulkanSwapchainConfiguration(Input);
