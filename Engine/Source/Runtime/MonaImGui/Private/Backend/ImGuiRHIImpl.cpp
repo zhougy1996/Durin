@@ -887,6 +887,7 @@ namespace Durin::MonaImGui
 
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.EndViewport");
+				Profiling::FStartupTimingScope StartupTiming("UI viewport present submission");
 				EndDrawingViewportWithReceipts(CommandList, ViewportRHI, bPresent, std::move(Consumed));
 			}
 		});

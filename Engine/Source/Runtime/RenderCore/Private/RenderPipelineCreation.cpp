@@ -2,6 +2,7 @@
 #include "RenderResourceCreation.h"
 #include "DynamicRHI.h"
 #include "RenderResourcePreparation.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -163,6 +164,8 @@ namespace Durin
 		const auto Status = Pipeline->GetState();
 		if (Status == ERHIPipelineRequestState::Pending)
 		{
+			if (Profiling::IsPostCommitStartupTimingActive())
+				DURIN_DEBUG_CATEGORY("Startup", "Pipeline pending: graphics {}", Name.GetPlainNameView());
 			Current->MarkPending();
 			FRenderPipelinePreparationBatch::Add(Pipeline);
 		}
@@ -186,6 +189,8 @@ namespace Durin
 		const auto Status = Pipeline->GetState();
 		if (Status == ERHIPipelineRequestState::Pending)
 		{
+			if (Profiling::IsPostCommitStartupTimingActive())
+				DURIN_DEBUG_CATEGORY("Startup", "Pipeline pending: compute {}", Name.GetPlainNameView());
 			Current->MarkPending();
 			FRenderPipelinePreparationBatch::Add(Pipeline);
 		}

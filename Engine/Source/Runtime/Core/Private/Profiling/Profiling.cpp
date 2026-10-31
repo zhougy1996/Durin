@@ -133,6 +133,7 @@ namespace Durin::Profiling
 			EStartupMilestone::NativeViewportReady,
 			EStartupMilestone::FirstPresent,
 			EStartupMilestone::DefaultWorkspaceReady,
+			EStartupMilestone::HostReady,
 		};
 		for (const EStartupMilestone Milestone : RequiredMilestones)
 			if (GetStartupNanoseconds(Milestone) < 0) return false;
@@ -149,8 +150,7 @@ namespace Durin::Profiling
 		const double FirstPresentMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::FirstPresent);
 		const double WorkspaceReadyMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::DefaultWorkspaceReady);
 		const double DocumentReadyMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::DefaultDocumentComplete);
-		// Startup is ready once presentation, workspace, and the optional document are all ready.
-		const double ReadyMilliseconds = std::max({FirstPresentMilliseconds, WorkspaceReadyMilliseconds, DocumentReadyMilliseconds});
+		const double ReadyMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::HostReady);
 		DURIN_INFO_CATEGORY("Startup",
 			"Ready ({}): first frame {:.1f} ms | startup {:.1f} ms",
 			bHasProject ? "project" : "project browser", FirstPresentMilliseconds, ReadyMilliseconds);
@@ -169,7 +169,33 @@ namespace Durin::Profiling
 			StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentActivationBegin, EStartupMilestone::DefaultDocumentActivationComplete),
 			GetStartupMilestoneMilliseconds(EStartupMilestone::NativeViewportReady),
 			FirstPresentMilliseconds, WorkspaceReadyMilliseconds, DocumentReadyMilliseconds);
+		DURIN_INFO_CATEGORY("Startup", "Host readiness: {:.3f} ms | document commit to ready {:.3f} ms",
+			ReadyMilliseconds, StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentComplete, EStartupMilestone::HostReady));
 		return true;
+	}
+
+	auto IsPostCommitStartupTimingActive() noexcept -> bool
+	{
+		return GetStartupNanoseconds(EStartupMilestone::DefaultDocumentComplete) >= 0
+			&& GetStartupNanoseconds(EStartupMilestone::HostReady) < 0;
+	}
+
+	FStartupTimingScope::FStartupTimingScope(std::string_view InName) noexcept : Name(InName)
+	{
+		if (IsPostCommitStartupTimingActive())
+			StartNanoseconds = StartupNowNanoseconds();
+	}
+
+	FStartupTimingScope::~FStartupTimingScope()
+	{
+		if (!StartNanoseconds) return;
+		const int64 End = StartupNowNanoseconds();
+		const double Duration = static_cast<double>(End - StartNanoseconds) / 1'000'000.0;
+		if (Duration < 1.0) return;
+		const int64 Origin = GStartupTiming.ProcessStartNanoseconds.load(std::memory_order_acquire);
+		DURIN_DEBUG_CATEGORY("Startup", "PostCommit stage={} begin_ms={:.3f} end_ms={:.3f} duration_ms={:.3f}",
+			Name, static_cast<double>(StartNanoseconds - Origin) / 1'000'000.0,
+			static_cast<double>(End - Origin) / 1'000'000.0, Duration);
 	}
 
 	auto FormatProgramIdentity(

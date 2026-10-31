@@ -174,7 +174,11 @@ namespace Durin
 			StartupPhase = Phase;
 			EditorHost->PublishBootstrapState(Phase, StartupError);
 			const auto Status = GetBootstrapStepStatus(Phase);
-			if (Status == EBootstrapStepStatus::Ready) StartupState = EHostStartupState::Ready;
+			if (Status == EBootstrapStepStatus::Ready)
+			{
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
+				StartupState = EHostStartupState::Ready;
+			}
 			if (Status == EBootstrapStepStatus::Failed) StartupState = EHostStartupState::Failed;
 			if (StartupState != EHostStartupState::Pending) Profiling::TryLogStartupTimingSummary();
 		};

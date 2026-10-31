@@ -5,6 +5,7 @@
 
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Profiling/Profiling.h"
 
 #include "RHICommandList.h"
 #include "VulkanBuffer.h"
@@ -599,6 +600,7 @@ namespace Durin::VulkanRHI
 		const vk::GraphicsPipelineCreateInfo& Info) -> vk::ResultValue<vk::Pipeline>
 	{
 		vk::Pipeline Pipeline{};
+		Profiling::FStartupTimingScope StartupTiming("Vulkan graphics pipeline creation");
 		const auto Result = Device.GetHandle().createGraphicsPipelines(DriverPipelineCache, 1, &Info, nullptr, &Pipeline);
 		return {Result, Pipeline};
 	}
@@ -607,6 +609,7 @@ namespace Durin::VulkanRHI
 		const vk::ComputePipelineCreateInfo& Info) -> vk::ResultValue<vk::Pipeline>
 	{
 		vk::Pipeline Pipeline{};
+		Profiling::FStartupTimingScope StartupTiming("Vulkan compute pipeline creation");
 		const auto Result = Device.GetHandle().createComputePipelines(DriverPipelineCache, 1, &Info, nullptr, &Pipeline);
 		return {Result, Pipeline};
 	}

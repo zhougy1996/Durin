@@ -1,6 +1,7 @@
 #include "RenderResourcePreparation.h"
 #include "RenderingThread.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -24,7 +25,13 @@ namespace Durin
 	{
 		if ((bShader ? Shaders >= MaximumShaders : Pipelines >= MaximumPipelines)
 			|| ((Shaders + Pipelines) != 0 && std::chrono::steady_clock::now() - Start >= TimeBudget))
-		{ ++Deferred; return false; }
+		{
+			if (Profiling::IsPostCommitStartupTimingActive())
+				DURIN_DEBUG_CATEGORY("Startup", "Admission deferred: kind={} shaders={} pipelines={} elapsed_ms={:.3f}",
+					bShader ? "shader" : "pipeline", Shaders, Pipelines,
+					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count());
+			++Deferred; return false;
+		}
 		if (Shaders + Pipelines == 0) Start = std::chrono::steady_clock::now();
 		if (bShader) ++Shaders; else ++Pipelines;
 		return true;
@@ -125,7 +132,13 @@ namespace Durin
 	{
 		if (State->Canceled || (Shader ? Shaders >= 8 : Pipelines >= 16)
 			|| ((Shaders + Pipelines) != 0 && std::chrono::steady_clock::now() - Start >= std::chrono::milliseconds(2)))
+		{
+			if (Profiling::IsPostCommitStartupTimingActive())
+				DURIN_DEBUG_CATEGORY("Startup", "Preparation yielded: canceled={} next={} shaders={} pipelines={} elapsed_ms={:.3f}",
+					State->Canceled.load(), Shader ? "shader" : "pipeline", Shaders, Pipelines,
+					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count());
 			throw FRenderResourcePreparationYield{};
+		}
 		if (Shader) { ++Shaders; ++State->Shaders; }
 		else { ++Pipelines; ++State->Pipelines; }
 	}
