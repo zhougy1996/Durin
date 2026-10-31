@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-10-31
 
 ## Construction And Acceptance
 
@@ -88,8 +88,8 @@ selected module drain see the entire accepted queue.
 It reports current/peak node count, a unified estimate of scheduler-owned task
 storage, current/peak pending nodes and bytes,
 current/peak running bodies, and node-threshold crossings. Pending includes
-external sources awaiting acknowledgement; running bodies exclude them and
-include suspended parents while helping a child. Threshold transitions emit
+admitted tasks awaiting prerequisites or dispatch; events alone do not register
+scheduler work. Running bodies include suspended parents while helping a child. Threshold transitions emit
 power-of-two rate-limited warnings outside internal locks. This accounting
 includes node and callable-wrapper storage, prerequisite references, and the
 concrete callable, completion callback, result-state and value sizes known before
@@ -152,14 +152,13 @@ retained by the limiter.
 publicly as `Tasks::FTask`. All task handles are copyable and movable. Copies
 share one execution node and result; the result type itself may be move-only.
 The node retains successful result storage until its final reference is released,
-including generic `FTask` references and external completion sources. Releasing a
+including generic `FTask` references. Releasing a
 typed handle does not discard a result still retained by another handle.
 Non-void results occupy aligned storage in their result state without a separate
 value allocation. Task nodes store their move-only callback directly; execution
 and capture retirement happen outside the node mutex.
 Result storage, the task body, the completion callback and the node kind are
-bound during construction, including private registered external result nodes
-and events. The node's result-storage binding and kind cannot change afterward.
+bound during construction for executable tasks and events. The node's result-storage binding and kind cannot change afterward.
 Ordinary dependencies accept task/event objects directly. Constructing or assigning
 a generic `FTask` from an lvalue task/event copies observation; an rvalue transfers
 the base handle and leaves the source invalid. Moving a complete typed task
@@ -179,8 +178,9 @@ node; it returns empty before publication or after failure/cancellation.
 Void tasks compose without a value argument and allocate no result state or result
 publication callback. They expose no `GetResult()` or `GetResultShared()`; use
 `Wait()` and inspect its outcome. Retained void handles require neither a submitting module's result destructor
-code nor a module result reservation. Void async flattening retains the inner node
-and its attached lifetimes, with iterative retirement of deep forwarding chains.
+code nor a module result reservation. Nested completion does not alias child
+result storage; retain a child handle or result view explicitly when the value
+must outlive its producer.
 
 Publication/discard precedes externally visible terminal state and dependent
 release. Failed or canceled pending results are destroyed exactly once. Successful
@@ -201,15 +201,10 @@ runnable callback.
 
 ## Composition
 
-All ordinary composition returns task handles directly:
-
-| Operation | Behavior |
-| --- | --- |
-| `Then(const TTask<T>&, Executor, Options, F)` | Observe a shared successful result by reference; void inputs omit the value; callbacks may take a cancellation token first |
-| `Then(FTask or FTaskEvent, Executor, Options, F)` | Success edge with a completion handle and no input value |
-| `ThenCompleted(const TTask<T>&, Executor, Options, F)` | Receive the task in any terminal state; inspect before accessing a result |
-| `WhenAll(const vector<TTask<T>>&)` | Owning result views (completion handles for void) in input order, including duplicate positions |
-| `WhenAll(const tuple<TTask<Ts>...>&)` | Heterogeneous owning result views; void positions hold generic `FTask` completion handles |
+Task graphs use ordinary scheduled tasks and explicit completion dependencies,
+following [UE task composition](https://dev.epicgames.com/documentation/en-us/unreal-engine/tasks-system-references-in-unreal-engine).
+There are no Tasks Then, ThenCompleted or WhenAll helpers, or private continuation
+submission paths. Future continuation API parity is a separate concern.
 
 `LaunchTask(Executor, Options, Callable, Dependency)` accepts a task, event,
 or generic `FTask` directly, or a vector, array, or span of these types. The named
@@ -232,41 +227,40 @@ CookedMesh completion records retire only after their worker task is terminal.
 The RHI device queue captures a weak scheduler identity and rejects reuse after
 a scheduler restart; this read-only binding creates no task node.
 
-Then rejects task-returning callbacks. For known work, launch the next task with
-explicit prerequisites and return its own result. For children selected inside a
-running body, call `AddNested(Child)` to extend parent completion without blocking
-its worker. Nested completion does not forward child results, failure or
-cancellation. Retain the child handle or an owning domain result explicitly;
-share a cancellation token only when cancellation should be shared. There is no
-automatic task-flattening API.
-Empty fan-in without additional prerequisites is immediately successful in
-the current scheduler lifetime. Additional
-prerequisites retain their dependency and executor requirements.
-Fan-in waits for all inputs; failure precedes cancellation and the lowest
-failing input index determines the framework failure. Shared observers are
-independently observable. Requesting cancellation of an observing edge does not
-suppress its callback or cancel its inputs. The callback may honor its token;
-mandatory cleanup still belongs to the owner lifecycle boundary.
+For known work, launch the next task with explicit prerequisites, capture any
+input handles it needs, and return its own result. The callable runs after all
+inputs complete, including failure and cancellation. Check an input's state
+before GetResult; required cleanup must handle every terminal state. To gather
+results, launch an ordinary task behind the input collection and explicitly
+construct the domain result. No framework failure-priority or result-aggregation
+policy is implied. Empty collections follow ordinary task scheduling rules.
 
-Copying task handles preserves the original failure reason, code, dependency
-error and input identity. A continuation callback exception remains a callback
-failure; it is not relabeled as a failed prerequisite. Detailed composition failure
-metadata is allocated only when needed and belongs to the task node; typed
-handles do not own a separate failure object. Internal terminal hooks can read
-that metadata before public completion, while `GetFailure()` still requires Failed.
-Continuation prerequisites are normalized once during submission; fan-in keeps
-its original input order and duplicates for result and failure-index semantics.
+For children selected inside a running body, call `AddNested(Child)` to extend
+parent completion without blocking its worker. Nested completion does not
+forward child results, failure or cancellation. Retain the child handle or an
+owning domain result explicitly; share a cancellation token only when
+cancellation should be shared. There is no automatic task-flattening API.
 
-Registered external result delivery remains private to Core composition and the
-narrow `Threading/Private/ExternalTaskResult.h` save adapter. It admits a counted
-node without occupying a worker. The typed handle is obtained once and can then
-be copied. Publication settles exactly once; unresolved producer destruction
-fails with abandonment. Cancellation requests remain separate from a producer's
-acknowledged outcome and never prove retirement. Known execution requirements
-support empty fan-in and dynamically bound inner tasks. Terminal hooks dispatch
-without new submission. Where result publication precedes callback/capture
-destruction, the domain must retain its accepted producer or explicit owner join
-through that destruction; result readiness alone is insufficient.
+Ordinary submission ignores empty prerequisite handles and normalizes repeated
+nodes once, preserving first-occurrence diagnostic order. Application input
+collections and results retain their own order and duplicate positions.
+Prerequisites do not supply attribution: set Options.Attribution explicitly when
+a dependent must retain a producer's owner/category. Otherwise ordinary launch
+inherits the current executing task's attribution, where available.
+
+Copying task handles preserves the original failure reason, code and diagnostic
+metadata. A dependent callable exception remains its own callback failure; it is
+not relabeled as a failed prerequisite. Failure storage belongs to the task node.
+Internal terminal hooks can read that metadata before public completion, while
+GetFailure still requires Failed. Canceling a dependent does not cancel its inputs
+or suppress its body; mandatory cleanup remains an owner lifecycle responsibility.
+
+Task results are produced by ordinary task bodies; there is no externally
+settled task-result source or external scheduler node. External data delivery
+uses independent promises/futures, while task graphs use `FTaskEvent` for readiness
+and real producer tasks or explicit domain joins for retirement. An event alone
+does not register work for scheduler drain. Terminal hooks dispatch without new
+submission; readiness alone never proves producer/capture retirement.
 
 There is no public completion source or detached data-only task constructor.
 Ready data uses MakeReadyFuture; scheduled work that returns a constant is an
@@ -277,13 +271,12 @@ observation-only MakeReadyTask helper is exposed.
 Notification runs once, possibly inline, on the completing/subscribing thread.
 It runs after result storage publication, before task terminal publication may
 become visible: only mark work runnable, then read readiness at the owner boundary.
-`FTaskReadiness` plus `ObserveReady` supplies a Core-owned data/code marker for
-host observers that must safely detach from late producers. Generic callback owners
-still synchronize in-flight callbacks before unloading their own code.
+Callback owners synchronize in-flight callbacks before unloading their own code.
 Dropping/Resetting observation releases its captures and does not cancel domain
 work; an already in-flight notification may finish. Notification exceptions are
-contained. `WithLifetime(SharedOwner)` attaches ownership to the shared node and
-all its handles and result aliases; this supports accounting that outlives receipt eviction.
+contained. Task handles and `GetResultShared()` views retain the node's own result
+storage. Additional ownership belongs in the task result or the domain owner;
+tasks expose no readiness marker or arbitrary lifetime-pin attachment API.
 
 ## Standalone Futures
 
@@ -400,15 +393,8 @@ Standalone futures are not task prerequisites or nested work. Ordinary launch
 prerequisites are completion dependencies: the body becomes runnable once every
 prerequisite finishes, including Failed and Canceled outcomes. They do not
 forward failure or cancellation. Consumers requiring successful admission or
-usable predecessor data must check that outcome explicitly or use `Then`.
-`Then` invokes user work only after their primary input succeeds;
-failure or an explicitly canceled producer outcome suppresses the callback and
-propagates that outcome. A cancellation request alone does neither.
-Generic `FTask` and typed inputs use the same success-continuation logic.
-Additional `Options.Prerequisites` only constrain ordering, including on `Then`,
-`ThenCompleted` and `WhenAll`; they do not become additional success
-conditions. Fan-in still checks the outcomes of its actual input collection.
-The kernel supports completion dependencies only; success checks belong to composition.
+usable predecessor data must check that outcome explicitly in the task body.
+The kernel supports completion dependencies only; domain code owns success checks.
 Registration racing node closure either joins the open dependent list or observes
 the closed outcome; it never waits for terminal callbacks and cannot lose or
 duplicate dependent release. A task id is process-unique and nonzero; parent
@@ -430,10 +416,10 @@ on that same thread. This covers nested parent notifications and terminal-hook
 cascades without requiring scheduler work or unbounded native recursion.
 
 Execution prerequisites and nested completion have separate phase counters.
-Execution, nested and dynamic dependencies share one phase-aware edge collection.
+Execution and nested dependencies share one phase-aware edge collection.
 Each edge stores its stable task identity, weak backlink and optional owning pin;
 there are no parallel graph and lifetime arrays. Execution edges occupy a fixed
-prefix, while nested and dynamic edges share the completion suffix. Graph walks,
+prefix, while nested edges occupy the completion suffix. Graph walks,
 retraction and executor checks use the same backlink view. Closing trims completion
 edges while preserving execution identities for diagnostics.
 One subsequent list carries both execution-ready and nested-complete notifications.
@@ -447,21 +433,17 @@ Closing makes completion visible before retiring those pins, allowing child-resu
 destructors to observe their parent's completed state.
 A retraction attempt consumes the corresponding execution/nested pins as its
 local traversal takes ownership, even if the target cannot finish in that pass.
-Dynamic inner pins last until the outer node settles; forwarded result ownership
-can independently retain the inner node for as long as the shared result needs it.
 Pins are detached under the node lock and destroyed outside it, so result
 destructors may reenter scheduler diagnostics without taking a held node lock.
 Retraction visits execution backlinks only while prerequisites remain and
 nested backlinks only while children remain. Persistent weak graph metadata
 continues to support cycle, authority and diagnostic checks. An unsuccessful
 attempt leaves unfinished links available to other waiters and later progress.
-Dynamic inner binding is one-shot; a second binding returns
-`InvalidExecutionContract` before mutation. Dynamic edges never forward cancellation.
 
-Nodes notify their waiters after ready-node insertion, dynamic binding, nested
-registration and full terminal publication. Each blocking wait owns a signal;
+Nodes notify their waiters after ready-node insertion, nested registration and
+full terminal publication. Each blocking wait owns a signal;
 the target and dependencies inspected during retraction register weak observers
-of that signal. This lets later nested or dynamic readiness repeat retraction
+of that signal. This lets later nested readiness repeat retraction
 without broadcasting unrelated scheduler activity. Observers expire when the
 wait returns and retain neither task nodes nor schedulers. Notification does not
 imply completion or bypass callable/terminal-hook retirement.
@@ -486,17 +468,17 @@ executing tasks reject unknown external requirements. RenderingThread rejects
 ordinary task waits. It may wait for an explicit independent CPU leaf
 created with `Tasks::LaunchIndependentTask(Name, Callable, Options)`. This entry
 uses Worker execution and ordinary scheduler/owner lifetime. It rejects launch
-prerequisites, external completion and non-Worker targets. An independent leaf
-cannot submit children, acquire dynamic task dependencies, block on nonterminal
-tasks. Construction contract violations are fatal and report
+prerequisites and non-Worker targets. An independent leaf
+cannot submit children, acquire nested completion dependencies or block on
+nonterminal tasks. Construction contract violations are fatal and report
 `InvalidExecutionContract`. Completed values remain readable without blocking.
 The callable must not depend on owner-thread, RHI, I/O or other external progress;
 these ordinary C++ effects remain a caller contract. This explicit declaration
 permits render preparation/recording joins without relaxing general wait policy.
 Cancellation and exceptions still publish the normal terminal state, and result
 access still requires success. Waits do not pump GameThread callbacks.
-Waiting callers, including ordinary threads, help only the waited task and its transitive execution, nested,
-and dynamic dependencies. The task state is the queue execution node; scheduler
+Waiting callers, including ordinary threads, help only the waited task and its
+transitive execution and nested dependencies. The task state is the queue execution node; scheduler
 dispatch adds no callback wrapper or separate queue-node allocation. Ordinary
 pool callbacks use an adapter. Retraction pins the task node and detaches it in
 constant time under the owning pool's lock;
@@ -515,7 +497,7 @@ Wait rechecks authority after retraction, before sleeping, because executed bodi
 can introduce new deferred or external dependencies.
 
 A retraction pass visits prerequisites before attempting the node, then inspects
-dynamic/nested backlinks again to include work added by its body. The local
+nested backlinks again to include work added by its body. The local
 postorder stack, dependency scratch vector and open-addressed task-ID table are
 reused during one wait. Cycle and executor-authority checks share one inspection
 with separate reachability flags for closed ancestors. Both checks still run
@@ -524,8 +506,8 @@ Pins are released between passes; there is no graph
 revision cache or recursion-depth limit. An expired deadline starts no work.
 A started body is not preempted.
 
-`Task.TryRetractAndExecute()` explicitly attempts the target and its execution,
-nested and dynamic dependencies on the caller, without sleeping for work owned
+`Task.TryRetractAndExecute()` explicitly attempts the target and its execution
+and nested dependencies on the caller, without sleeping for work owned
 by another thread. It returns whether the target is complete; an empty handle
 returns true. It uses the same eligible Worker execution path as ordinary waits,
 without waiting for progress. The same thread and dependency restrictions apply;

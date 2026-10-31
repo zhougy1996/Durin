@@ -200,13 +200,15 @@ domain; mesh/source adapters retain only the failed read error, never its full r
 
 Package range roots use `Tasks::LaunchTask` on the blocking-I/O executor, with bounded active
 threads and accepted pending work.
-Transforms use `Tasks::ThenCompleted` to inspect the shared task state and
-convert predecessor failure/cancellation into a domain result. The observing edge can itself be canceled. Copied requests observe the same immutable framework result; repeated
+Transforms launch ordinary Worker tasks with the input task as a completion
+prerequisite. Their bodies inspect the input state and convert predecessor
+failure/cancellation into a domain result. Cancellation requests do not suppress
+that body. Copied requests observe the same immutable framework result; repeated
 `Wait()` calls do not consume it. Synchronously completed validation errors
 remain immediate values. The request binding mutex/CV only coordinates resource
 retirement with initial task installation; Core owns terminal result publication.
-Request lifetimes retain root admission for later transforms and close it when
-the last request owner retires. Sharing is explicit and returns a shared task directly; scheduler saturation
+Request state retains task completion handles; accepted transforms participate
+independently in scheduler drain. Task handles share the result directly; scheduler saturation
 does not become an IoError in the request facade.
 
 `FPackageResourceRequest::Wait()` checks the task wait status before synthesizing

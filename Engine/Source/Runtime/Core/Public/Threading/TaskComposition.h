@@ -9,7 +9,6 @@ namespace Durin::Tasks
 {
 	namespace Detail
 	{
-		struct FExternalResultAccess;
 		// Construction failures are programming/lifetime violations or allocation failure.
 		// This is never used to turn ordinary scheduler saturation into an assertion.
 		[[noreturn]] CORE_API auto FailConstruction(FTaskConstructionError Error) -> void;
@@ -139,17 +138,6 @@ namespace Durin::Tasks
 	};
 
 	CORE_API auto SubscribeTask(const FTask& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription;
-	// Core-owned data and notification code can safely outlive a retired host observer.
-	class FTaskReadiness
-	{
-	public:
-		CORE_API FTaskReadiness();
-		auto IsReady() const -> bool { return State->load(std::memory_order_acquire); }
-	private:
-		std::shared_ptr<std::atomic<bool>> State;
-		friend CORE_API auto ObserveTaskReady(const FTask&, const FTaskReadiness&) -> FTaskSubscription;
-	};
-	CORE_API auto ObserveTaskReady(const FTask& Task, const FTaskReadiness& Readiness) -> FTaskSubscription;
 
 	// Copyable handles share the task node and its result. Erased FTask handles
 	// retain the same result lifetime without exposing a typed accessor.
@@ -177,13 +165,6 @@ namespace Durin::Tasks
 		}
 		auto Subscribe(std::function<void(ETaskState)> Callback) const -> FTaskSubscription
 		{ return SubscribeTask(*this, std::move(Callback)); }
-		auto ObserveReady(const FTaskReadiness& Readiness) const -> FTaskSubscription
-		{ return ObserveTaskReady(*this, Readiness); }
-		auto WithLifetime(std::shared_ptr<void> Lifetime) const -> TTask
-		{
-			Durin::Private::FTaskRuntimeAccess::RetainLifetime(*this, std::move(Lifetime));
-			return *this;
-		}
 	private:
 		friend struct Detail::FTaskAccess;
 		std::conditional_t<std::is_void_v<T>, std::nullptr_t, TTaskResultState<T>*> Storage = nullptr;
@@ -191,19 +172,8 @@ namespace Durin::Tasks
 
 	namespace Detail
 	{
-		struct FPropagationFailure : std::exception
-		{
-			auto what() const noexcept -> const char* override { return "Task prerequisite failed."; }
-		};
 		struct FTaskAccess
 		{
-			template<typename T> static auto GetResultState(const TTask<T>& Task)
-			-> Detail::TResultState<T>
-			{
-				require(Task.IsValid());
-				if constexpr (std::is_void_v<T>) return nullptr;
-				else { require(Task.Storage); return Task.Storage->shared_from_this(); }
-			}
 			template<typename T> static auto Make(FTask Handle, Detail::TResultState<T> State) -> TTask<T>
 			{
 				TTask<T> Task;
@@ -217,11 +187,6 @@ namespace Durin::Tasks
 		template<typename T> struct TIsTask<TTask<T>> : std::true_type {};
 		template<typename F, bool = std::is_invocable_v<F&, const FTaskCancellationToken&>> struct TTokenResult { using Type = std::invoke_result_t<F&>; };
 		template<typename F> struct TTokenResult<F, true> { using Type = std::invoke_result_t<F&, const FTaskCancellationToken&>; };
-		template<typename T, typename F, bool> struct TThenValueResult;
-		template<typename T, typename F> struct TThenValueResult<T, F, false> { using Type = std::invoke_result_t<F&, T&>; };
-		template<typename T, typename F> struct TThenValueResult<T, F, true> { using Type = std::invoke_result_t<F&, const FTaskCancellationToken&, T&>; };
-		template<typename T, typename F> struct TThenResult : TThenValueResult<T, F, std::is_invocable_v<F&, const FTaskCancellationToken&, T&>> {};
-		template<typename F> struct TThenResult<void, F> : TTokenResult<F> {};
 
 		inline auto Target(ETaskExecutor Executor) -> ETaskTarget
 		{
@@ -256,13 +221,6 @@ namespace Durin::Tasks
 			Body&& Function, const FTaskLaunchOptions& Options)
 		{
 			return Durin::Private::LaunchCancelableTaskWithCompletion(Name, std::forward<Body>(Function),
-				MakeResultCompletion<T>(Result), Options, ResultStorageBytes<T, std::decay_t<Body>>(), {Result, !std::is_void_v<T>});
-		}
-		template<typename T, typename Body>
-		auto ContinueWithStorage(const FTask& Predecessor, const char* Name,
-			const TResultState<T>& Result, Body&& Function, const FTaskContinuationOptions& Options)
-		{
-			return Durin::Private::LaunchContinuationTask(Predecessor, Name, std::forward<Body>(Function),
 				MakeResultCompletion<T>(Result), Options, ResultStorageBytes<T, std::decay_t<Body>>(), {Result, !std::is_void_v<T>});
 		}
 
@@ -366,316 +324,4 @@ namespace Durin::Tasks
 			Options, std::forward<F>(Function), true);
 	}
 
-	namespace Detail
-	{
-	// Success continuations check only their primary input; extra prerequisites
-	// constrain ordering independently of their terminal outcomes.
-	template<typename T, typename F, typename U = typename Detail::TThenResult<T, std::decay_t<F>>::Type>
-	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
-	auto ThenImpl(const FTask& Input, Detail::TResultState<T> Source,
-		ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTask<U>
-	{
-		auto& Native = Input;
-		if (!Input.IsValid()) Detail::FailConstruction({ETaskConstructionErrorCode::InvalidPrerequisite});
-
-		FTaskContinuationOptions Edge;
-		Edge.GenerationToken = Options.GenerationToken;
-		Edge.CoalescingKey = Options.CoalescingKey;
-		Edge.Prerequisites = Options.Prerequisites;
-		Edge.Target = Detail::Target(Executor);
-		Edge.Priority = Options.Priority;
-		Edge.CancellationToken = Options.Cancellation;
-		Edge.Attribution = Options.Attribution;
-		Edge.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
-		try
-		{
-			const auto Predecessor = FTask(Native);
-			auto Output = Detail::MakeResultState<U>();
-			auto Handle = Detail::ContinueWithStorage<U>(FTask(Native), Options.DebugName, Output,
-				[Source, Predecessor, Output, Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
-					if (Predecessor.GetState() != ETaskState::Succeeded)
-					{
-						if (Predecessor.GetState() == ETaskState::Failed)
-						{
-							Durin::Private::FTaskRuntimeAccess::SetCurrentFailure(Detail::ReadFailure(Predecessor));
-							throw Detail::FPropagationFailure{};
-						}
-						Durin::Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
-						return;
-					}
-					auto Invoke = [&]() -> U {
-						if constexpr (std::is_void_v<T>)
-						{
-							if constexpr (std::is_invocable_v<std::decay_t<F>&, const FTaskCancellationToken&>) return std::invoke(Function, Token);
-							else return std::invoke(Function);
-						}
-						else
-						{
-							auto Value = Source->PeekPublished();
-							require(Value);
-							if constexpr (std::is_invocable_v<std::decay_t<F>&, const FTaskCancellationToken&, T&>) return std::invoke(Function, Token, *Value);
-							else return std::invoke(Function, *Value);
-						}
-					};
-					if constexpr (std::is_void_v<U>) Invoke();
-					else Output->SetPending(Invoke());
-				},
-				Edge);
-			return Detail::FTaskAccess::Make<U>(std::move(Handle), std::move(Output));
-		}
-		catch (const std::bad_alloc&)
-		{
-			Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure});
-		}
-	}
-
-	} // namespace Detail
-
-	// Generic handles provide success ordering without typed result access.
-	template<typename F>
-	auto Then(const FTask& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-	{
-		return Detail::ThenImpl<void>(Input, {}, Executor, Options, std::forward<F>(Function));
-	}
-
-	// Continuations observe shared input results and never consume their handles.
-	template<typename T, typename F, typename U = typename Detail::TThenResult<T, std::decay_t<F>>::Type>
-	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
-	auto Then(const TTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTask<U>
-	{
-		return Detail::ThenImpl<T>(Input, Detail::FTaskAccess::GetResultState(Input),
-			Executor, Options, std::forward<F>(Function));
-	}
-
-	// Observes a completed task in any terminal state.
-	template<typename T, typename F, typename U = std::invoke_result_t<std::decay_t<F>&, const TTask<T>&>>
-	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
-	auto ThenCompleted(const TTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTask<U>
-	{
-		const auto Predecessor = FTask(Input);
-		if (!Predecessor.IsValid()) Detail::FailConstruction({ETaskConstructionErrorCode::InvalidPrerequisite});
-
-		FTaskContinuationOptions Edge;
-		Edge.GenerationToken = Options.GenerationToken;
-		Edge.CoalescingKey = Options.CoalescingKey;
-		Edge.Prerequisites = Options.Prerequisites;
-		Edge.Target = Detail::Target(Executor);
-		Edge.Priority = Options.Priority;
-		Edge.CancellationToken = Options.Cancellation;
-		Edge.Attribution = Options.Attribution;
-		Edge.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
-		try
-		{
-			auto Output = Detail::MakeResultState<U>();
-			auto Handle = Detail::ContinueWithStorage<U>(Predecessor, Options.DebugName, Output,
-				[Input, Output, Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable {
-					if constexpr (std::is_void_v<U>)
-					{
-						std::invoke(Function, Input);
-					}
-					else Output->SetPending(std::invoke(Function, Input));
-				},
-				Edge);
-			return Detail::FTaskAccess::Make<U>(std::move(Handle), std::move(Output));
-		}
-		catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
-	}
-
-	namespace Detail
-	{
-		// One producer lifetime; cancellation retains external work until explicit acknowledgement.
-		template<typename T>
-		class TExternalResultSource
-		{
-			struct FSource
-			{
-				FTask Handle;
-				Detail::TResultState<T> Storage = {};
-				std::atomic<bool> bResolved = false;
-				std::atomic<bool> bTaskTaken = false;
-				~FSource()
-				{
-					if (Handle.IsValid() && !bResolved.exchange(true))
-					{
-						Durin::Private::FTaskRuntimeAccess::SetFailure(Handle,
-							{ETaskTerminalReason::CallbackFailure, {}, ETaskFailureCode::AbandonedSource});
-						Durin::Private::FTaskRuntimeAccess::CompleteExternal(Handle, ETaskState::Failed);
-					}
-				}
-			};
-		private:
-			friend struct FExternalResultAccess;
-			static auto CreateInternal(const FTaskExecutionOptions& Options, bool bUnknownRequirements)
-				-> TExternalResultSource
-			{
-				try
-				{
-					auto Source = std::make_shared<FSource>();
-					Source->Storage = Detail::MakeResultState<T>();
-					FTaskLaunchOptions Launch;
-					Launch.Attribution = Options.Attribution;
-					Launch.CancellationToken = Options.Cancellation;
-					Launch.bExternalCompletion = true;
-					Launch.bUnknownExecutionRequirement = bUnknownRequirements;
-					auto Handle = Detail::LaunchWithStorage<T>(Options.DebugName, Source->Storage,
-						[](const FTaskCancellationToken&) {}, Launch);
-					Source->Handle = std::move(Handle);
-					return TExternalResultSource(std::move(Source));
-				}
-				catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
-			}
-		public:
-			auto TakeTask() -> TTask<T>
-			{
-				require(Source && !Source->bTaskTaken.exchange(true));
-				return Detail::FTaskAccess::Make<T>(Source->Handle, Source->Storage);
-			}
-			auto GetTaskHandle() const -> FTask { return FTask(Source->Handle); }
-			auto TrySetValue() const -> bool requires std::is_void_v<T>
-			{
-				if (Source->bResolved.exchange(true)) return false;
-				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
-				return true;
-			}
-			template<typename U = T> requires (std::same_as<U, T> && !std::is_void_v<U>)
-			auto TrySetValue(std::type_identity_t<U> Value = {}) const -> bool
-			{
-				if (Source->bResolved.exchange(true)) return false;
-				try { Source->Storage->SetPending(std::move(Value)); }
-				catch (...) { Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Failed); return true; }
-				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
-				return true;
-			}
-			auto TrySetFailure(FTaskFailure Failure) const -> bool
-			{
-				if (Source->bResolved.exchange(true)) return false;
-				Durin::Private::FTaskRuntimeAccess::SetFailure(Source->Handle, std::move(Failure));
-				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Failed);
-				return true;
-			}
-			auto TrySetCanceled() const -> bool
-			{
-				if (Source->bResolved.exchange(true)) return false;
-				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Canceled);
-				return true;
-			}
-		private:
-			auto TrySetTaskResult(const TTask<T>& Task) const -> bool
-			{
-				if (Source->bResolved.exchange(true)) return false;
-				if constexpr (std::is_void_v<T>) Durin::Private::RetainForwardedTask(Source->Handle, Task);
-				else Source->Storage->ForwardResult(Detail::FTaskAccess::GetResultState(Task), FTask(Task));
-				Durin::Private::FTaskRuntimeAccess::CompleteExternal(Source->Handle, ETaskState::Succeeded);
-				return true;
-			}
-			explicit TExternalResultSource(std::shared_ptr<FSource> InSource) : Source(std::move(InSource)) {}
-			std::shared_ptr<FSource> Source;
-		};
-	}
-
-	namespace Detail
-	{
-		struct FExternalResultAccess
-		{
-			template<typename T>
-			static auto Create(const FTaskExecutionOptions& Options = {}, bool bUnknownRequirements = true)
-				-> TExternalResultSource<T>
-			{ return TExternalResultSource<T>::CreateInternal(Options, bUnknownRequirements); }
-			template<typename T> static auto SetTaskResult(const TExternalResultSource<T>& Source, const TTask<T>& Task) -> bool
-			{ return Source.TrySetTaskResult(Task); }
-		};
-	}
-
-	namespace Detail
-	{
-		template<typename Out, typename F>
-		auto BuildFanIn(const std::vector<FTask>& Inputs, ETaskExecutor Executor, FTaskExecutionOptions Options,
-			F&& Gather) -> TTask<Out>
-		{
-			if (Inputs.empty())
-			{
-				if (!Options.Prerequisites.empty()) return LaunchTaskImpl(Executor, Options, std::forward<F>(Gather));
-				auto Source = FExternalResultAccess::Create<Out>(Options, false);
-				auto Result = Source.TakeTask();
-				Source.TrySetValue(Out{});
-				return Result;
-			}
-			const auto Prerequisites = Options.Prerequisites.empty() ? std::vector<FTask>{} : CollectDependencies(Inputs, Options.Prerequisites);
-			FTaskContinuationOptions Edge;
-			Edge.GenerationToken = Options.GenerationToken;
-			Edge.CoalescingKey = Options.CoalescingKey;
-			Edge.Prerequisites = Options.Prerequisites.empty() ? std::span<const FTask>(Inputs) : std::span<const FTask>(Prerequisites);
-			Edge.Target = Target(Executor);
-			Edge.Priority = Options.Priority;
-			Edge.CancellationToken = Options.Cancellation;
-			Edge.Attribution = Options.Attribution;
-			Edge.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
-			auto Output = MakeResultState<Out>();
-			auto Handle = ContinueWithStorage<Out>(Inputs.front(), Options.DebugName, Output,
-				[Inputs, Output, Gather = std::forward<F>(Gather)](const FTaskCancellationToken&) mutable {
-					bool bCanceled = false;
-					for (size_t Index = 0; Index < Inputs.size(); ++Index)
-					{
-						const auto& Input = Inputs[Index];
-						if (Input.GetState() == ETaskState::Failed)
-						{
-							Durin::Private::FTaskRuntimeAccess::SetCurrentFailure(
-							{ETaskTerminalReason::DependencyFailed, {}, ETaskFailureCode::DependencyFailed, Input.GetTaskId(), Index});
-							throw FPropagationFailure{};
-						}
-						bCanceled |= Input.GetState() == ETaskState::Canceled;
-					}
-					if (bCanceled) { Durin::Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome(); return; }
-					Output->SetPending(Gather());
-				}, Edge);
-			return FTaskAccess::Make<Out>(std::move(Handle), std::move(Output));
-		}
-	}
-
-	namespace Detail
-	{
-		template<typename T> using TCompletedTaskView = std::conditional_t<std::is_void_v<T>, FTask, std::shared_ptr<const T>>;
-		template<typename T> auto CompletedTaskView(const TTask<T>& Task) -> TCompletedTaskView<T>
-		{
-			if constexpr (std::is_void_v<T>) return Task;
-			else return Task.GetResultShared();
-		}
-	}
-
-	// Fan-in returns owning immutable views, preserving move-only results and duplicate inputs.
-	template<typename T>
-	auto WhenAll(const std::vector<TTask<T>>& Inputs, ETaskExecutor Executor = ETaskExecutor::Worker,
-		const FTaskExecutionOptions& Options = {}) -> TTask<std::vector<Detail::TCompletedTaskView<T>>>
-	{
-		using FOut = std::vector<Detail::TCompletedTaskView<T>>;
-		try
-		{
-			std::vector<FTask> Handles;
-			for (const auto& Input : Inputs)
-			{
-				if (!Input.IsValid()) Detail::FailConstruction({ETaskConstructionErrorCode::InvalidPrerequisite});
-				Handles.emplace_back(Input);
-			}
-			return Detail::BuildFanIn<FOut>(Handles, Executor, Options, [Inputs] {
-				FOut Values; Values.reserve(Inputs.size());
-				for (const auto& Input : Inputs) Values.emplace_back(Detail::CompletedTaskView(Input));
-				return Values;
-			});
-		}
-		catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
-	}
-
-	template<typename... Ts>
-	auto WhenAll(const std::tuple<TTask<Ts>...>& Inputs, ETaskExecutor Executor = ETaskExecutor::Worker,
-		const FTaskExecutionOptions& Options = {}) -> TTask<std::tuple<Detail::TCompletedTaskView<Ts>...>>
-	{
-		using FOut = std::tuple<Detail::TCompletedTaskView<Ts>...>;
-		const auto Handles = std::apply([](const auto&... Task) { return std::vector<FTask>{Task...}; }, Inputs);
-		for (const auto& Handle : Handles) if (!Handle.IsValid()) Detail::FailConstruction({ETaskConstructionErrorCode::InvalidPrerequisite});
-		return Detail::BuildFanIn<FOut>(Handles, Executor, Options,
-			[Inputs] { return std::apply([](const auto&... Task) { return FOut{Detail::CompletedTaskView(Task)...}; }, Inputs); });
-	}
 }

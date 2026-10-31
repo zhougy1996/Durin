@@ -4,7 +4,7 @@ Summary: Define Engine-free reflected package capture, synchronous and asynchron
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-10-31
 
 ## Ownership and Entry Points
 
@@ -99,13 +99,21 @@ saving does not mark an asset as catalog-published.
 Dropping the handle does not cancel the save. Cancellation is advisory before
 commit and discards stages; a commit already in progress reaches its terminal
 publication/finalization or rollback boundary. A late cancellation does not undo
-committed bytes, even if the task reports Canceled. Operation cleanup runs on GameThread before result delivery. Typed completion
-uses a Core-private registered external result adapter, preserving returned-task
-cancellation checks and domain results. Result publication inside the finish
-callback can precede destruction of that callback's captures: FinishAsyncSave
-clears Write/Finish captures and removes the owner entry before reporting owner
-quiescence. Retain DrainAsyncSaves as that retirement join. Recursive preparation
-and submission from a save terminal callback are rejected.
+committed bytes. `SaveAsync` returns the actual typed GameThread publication task.
+Its body checks the caller token and its own cancellation request, performs the
+domain commit/cancel, releases operation captures and returns the save result.
+A successful task may therefore contain a domain `Cancelled` result. Publication
+exceptions remain task failures. Dropped handles leave admitted work tracked.
+Owner records retain a cleanup copy until both I/O and publication are terminal;
+if the executor discards publication before its body runs, GameThread retirement
+invokes the cleanup path with I/O success=false, without changing the failed task
+into a successful result. Owner retirement clears write/cleanup captures before
+removing its accounting entry. No Core external-result adapter is used.
+Submission and drain from within publication/cleanup are rejected. A terminal
+observer runs after the publication body and its operation captures have retired;
+new submissions still obey owner capacity and the active drain guard.
+Cleanup may pump other already-admitted publications; the publication guard
+remains active until the outermost publication/cleanup returns.
 
 The shared owner admits at most 64 operations and 256 MiB of detached output
 across direct and protected async saves. Slots and byte accounting remain held
@@ -125,13 +133,19 @@ a GameThread wait on an unfinished final save task is unsupported.
 
 Headless hosts initialize the deferred executor and explicitly call GameThread
 `DPackage::DrainAsyncSaves()` to finish a submission cutoff through publication.
+Drain waits its cutoff's I/O, then explicitly pumps deferred work until every
+publication task is terminal, and reaps owner records. It can execute unrelated
+deferred callbacks; recursive drain and new save admission are rejected for the
+duration. Calling drain from an already-running deferred callback returns Busy
+when publication would require recursive pumping. Ordinary Task waits still do
+not pump GameThread.
 This drain reports host-drain success, not aggregate save-domain success; inspect
 individual results. It rejects reentrant publication callbacks. Shutdown closes
 admission, drains saves and diagnostics, then tears down resources, objects,
 modules and the task system. Engine shutdown and the CoreDObject module teardown
 boundary perform this drain; standalone owners must drain before shutting down
-the scheduler. The owner also reaps canceled deferred continuations on host ticks
-or drain, so a worker never destroys the last live-object pin.
+the scheduler. The owner reaps terminal publications and performs discarded-task cleanup on
+host ticks or drain, so accepted save captures remain owned until GameThread retirement.
 
 `FPackageSaveOperation` remains a lower-level staged coordinator for file-only
 transactions. Its explicit commit/finalize/rollback methods do not describe the

@@ -267,13 +267,14 @@ namespace Durin
 				auto Producer = Tasks::LaunchTask("SharedTransferQualification", []() {
 					return Durin::FByteBuffer(ResultBytes, std::byte{1});
 				});
-				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "SharedTransferSink"}, [&ResultBytesObserved](const Durin::FByteBuffer& Value) {
+				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "SharedTransferSink"}, [&ResultBytesObserved, Producer]() {
+					const auto& Value = Producer.GetResult();
 					ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
-				})));
-				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "SharedFanoutSink"},
-					[&ResultBytesObserved](const Durin::FByteBuffer& Value) {
+				}, Producer)));
+				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "SharedFanoutSink"}, [&ResultBytesObserved, Producer]() {
+						const auto& Value = Producer.GetResult();
 						ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
-					})));
+					}, Producer)));
 			}
 			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](const FTaskWaitResult& Result) { return Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded; }));
 		});
@@ -392,11 +393,13 @@ namespace Durin
 		const auto AdmissionStart = std::chrono::steady_clock::now();
 		for (uint32 Index = 0; Index < CallbackCount; ++Index)
 		{
-			FTaskContinuationOptions Options;
+			FTaskLaunchOptions Options;
 			Options.Target = ETaskTarget::GameThreadDeferred;
 			Options.EstimatedPayloadBytes = DeclaredCaptureBytes;
 			if (Index < StaleCallbackCount) Options.GenerationToken = StaleToken;
-			Handles.emplace_back(SubmitKernelContinuation(Root, "DeferredMeasurementCallback", [&]() {
+			Options.Prerequisites = std::span(&Root, 1);
+			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+			Handles.emplace_back(SubmitKernelTask("DeferredMeasurementCallback", [&]() {
 				ExecutedCount.fetch_add(1, std::memory_order::acq_rel);
 			}, Options));
 		}

@@ -620,11 +620,11 @@ namespace Durin
 		Options.Attribution = PackageResourceAttribution();
 		if (Input.State && std::holds_alternative<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result))
 		{
-			State->Bind(Tasks::ThenCompleted(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result),
-				Tasks::ETaskExecutor::Worker, Options,
-				[Function = std::move(Function)](const Tasks::TTask<FPackageResourceReadResult>& Task) mutable {
-					return Function(ReadCompletedPackageTask(Task));
-				}));
+			const auto InputTask = std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result);
+			State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
+				[Function = std::move(Function), InputTask]() mutable {
+					return Function(ReadCompletedPackageTask(InputTask));
+				}, InputTask));
 		}
 		else
 		{
