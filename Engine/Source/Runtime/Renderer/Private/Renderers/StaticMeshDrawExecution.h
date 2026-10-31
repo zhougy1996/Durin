@@ -79,7 +79,7 @@ namespace Durin::RendererPrivate
 		const FPreparedStaticMeshView& Prepared,
 		FResolvedStaticMeshView& Resolved) -> bool;
 
-	// Validates, binds, and submits the geometry referenced by one prepared draw.
+	// Validates geometry and exposes its declaration for pipeline preparation.
 	class FStaticMeshGeometryBinding
 	{
 	public:
@@ -93,8 +93,6 @@ namespace Durin::RendererPrivate
 
 		auto IsValid() const -> bool;
 		auto GetVertexDeclaration() const -> FVertexDeclarationRHIRef;
-		auto Bind(FRHICommandList& CommandList) const -> void;
-		auto DrawIndexed(FRHICommandList& CommandList) const -> void;
 
 	private:
 		const FPreparedStaticMeshPrimitive& Primitive;

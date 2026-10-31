@@ -9,7 +9,7 @@ namespace Durin
 {
 	class FStaticMeshRenderer;
 	struct FMeshDrawDescription;
-	struct FResolvedMeshPipeline;
+	namespace RendererPrivate { struct FMeshPassPipeline; }
 
 	enum class EStaticMeshSectionResourcePolicy : uint8
 	{
@@ -48,7 +48,7 @@ namespace Durin
 			// Description owns GeometryOwner, which retains the immutable binding/declaration.
 			std::shared_ptr<const FMeshDrawDescription> Description;
 			FMaterialRenderBinding Material;
-			std::shared_ptr<const FResolvedMeshPipeline> Pipeline;
+			std::shared_ptr<const RendererPrivate::FMeshPassPipeline> Pipeline;
 		};
 		std::unordered_map<FKey, FEntry, FKeyHash> Entries;
 		const FStaticMeshRenderer* Renderer = nullptr;

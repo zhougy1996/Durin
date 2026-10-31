@@ -3636,6 +3636,17 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	EXPECT_EQ(PreviousPixel.Id.Value, 0xabcdef12u);
 	Scene.UpdatePrimitiveVisibility(FPrimitiveComponentId(501), true);
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	// Two visible draws with the same material share one view cache, but never their request IDs.
+	FMatrix SideTransform = FarTransform;
+	SideTransform[3][1] = 2.0;
+	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(502),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), SideTransform);
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	FHitProxyPixel SidePixel;
+	ASSERT_TRUE(LastMap->ReadPixel(56, 32, SidePixel));
+	EXPECT_EQ(SidePixel.Id.Value, 17u);
+	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(502),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), FarTransform);
 	const FVector3 LargeOrigin{1099511627776.0, -1099511627776.0, 1099511627776.0};
 	const FMatrix LargeTranslation = Math::TranslationMatrix(LargeOrigin);
 	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
@@ -3864,6 +3875,24 @@ TEST(FStaticMeshRenderPreparationVulkanTests, AuthoredLODsInitializeAllResources
 	RHIExit();
 }
 
+namespace
+{
+	using Durin::RendererPrivate::FMeshPassDrawListContext;
+	using Durin::RendererPrivate::FMeshDrawCommand;
+	using Durin::RendererPrivate::FDynamicPassMeshDrawListContext;
+	class FObservedCommandList final : public FDynamicPassMeshDrawListContext
+	{
+	public:
+		using FDynamicPassMeshDrawListContext::FDynamicPassMeshDrawListContext;
+		auto IsCached() const -> bool override { return false; }
+		auto AddCommand(const FMeshDrawCommand& Initializer) -> FMeshDrawCommand& override
+		{ ++Added; return FMeshPassDrawListContext::AddCommand(Initializer); }
+		auto FinalizeCommand() -> void override
+		{ ++Finalized; FDynamicPassMeshDrawListContext::FinalizeCommand(); }
+		uint32 Added = 0, Finalized = 0;
+	};
+}
+
 TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentMaterialAndPSOSelection)
 {
 	using namespace Durin; using namespace Durin::Tests;
@@ -4018,9 +4047,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EGeometryTopology::TriangleList, {}, true, false, Raster.bReversedZ};
 				FMeshPassShaders Shaders;
 				const auto Generation = Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation;
-				FMeshPassDrawListContext ShaderContext(Generation, LowResource.CompiledProgram.get(), {}, Shaders);
-				DirectCollector->AddMeshBatch(Batch, ShaderContext);
-				ASSERT_TRUE(ShaderContext.GetResult()) << ShaderContext.GetResult().Error;
+				const auto ShaderContext = DirectCollector->PrepareShaders(Batch, Generation, LowResource.CompiledProgram.get(), {}, Shaders);
+				ASSERT_TRUE(ShaderContext) << ShaderContext.Error;
 				ASSERT_NE(Shaders.FragmentLayout, nullptr);
 				const auto& Initializer = DirectInitializers[1].GraphicsInitializer;
 				if (!ExpectedCommandPipeline) {
@@ -4029,44 +4057,40 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 				}
 				FRenderPipelineRequestScope Requests(DirectCommandRequests, Generation);
 				FMeshPassPipeline Command;
-				FMeshPassDrawListContext DrawContext("AddMeshBatchCommand", Shaders, Initializer.VertexDeclaration, Command);
-				DirectCollector->AddMeshBatch(Batch, DrawContext);
-				CommandReady = static_cast<bool>(DrawContext.GetResult());
+				const auto DrawContext = DirectCollector->PreparePipeline(Batch, "AddMeshBatchCommand", Shaders, Initializer.VertexDeclaration, Command);
+				CommandReady = static_cast<bool>(DrawContext);
 				if (CommandReady) {
 					EXPECT_EQ(Command.PipelineState, ExpectedCommandPipeline->GetRHIPipeline());
 					EXPECT_EQ(Command.VertexShader->GetRHIShader(false), Initializer.BoundShaders.VertexShader);
 					EXPECT_EQ(Command.FragmentShader, Initializer.BoundShaders.FragmentShader);
 					EXPECT_EQ(Command.VertexDeclaration, Initializer.VertexDeclaration);
 				}
-				else EXPECT_TRUE(Requests.HasPending()) << DrawContext.GetResult().Error;
-				FPSOPrecacheDataArray Rejected;
+				else EXPECT_TRUE(Requests.HasPending()) << DrawContext.Error;
+				FGraphicsPipelineStateInitializer Rejected;
 				Identity.ShaderMap.BlendMode = EMaterialBlendMode::Translucent;
-				FMeshPassDrawListContext WrongMaterial(Shaders, Initializer.VertexDeclaration, Rejected, true, EPSOPrecachePriority::Medium);
-				DirectCollector->AddMeshBatch(Batch, WrongMaterial);
-				EXPECT_EQ(WrongMaterial.GetResult().Status, EShaderBuildStatus::Error);
-				EXPECT_TRUE(Rejected.empty());
+				const auto WrongMaterial = DirectCollector->BuildPSOInitializer(Batch, Shaders, Initializer.VertexDeclaration, Rejected);
+				EXPECT_EQ(WrongMaterial.Status, EShaderBuildStatus::Error);
+				EXPECT_EQ(Rejected.BoundShaders.VertexShader, nullptr);
 				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
 				if (CommandReady && !BindingContextsValidated) {
 					FSceneView BindingView; BindingView.ViewportWidth = BindingView.ViewportHeight = 64;
 					BindingView.FeatureLevel = LowScene->GetFeatureLevel();
 					const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, static_cast<FScene*>(LowScene.get())->GetPrimitiveSceneInfos(), BindingView, ERasterMode::Solid);
 					ASSERT_FALSE(Prepared.Opaque.empty());
-					const auto& BindingDraw = Prepared.Opaque.front();
+					auto BindingDraw = Prepared.Opaque.front();
 					const auto* Primitive = Prepared.GetPrimitive(BindingDraw); ASSERT_TRUE(Primitive && Primitive->CollectedBinding);
 					const auto& PassProcessor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::ShadowDepth);
 					const FMeshPassProcessorBatch ShadowBatch{BindingDraw.Command->Material.PlanningPassIdentity, *Factory,
 						{BindingDraw.Command->PipelineKey.Rasterizer, BindingDraw.Command->PipelineKey.Depth, BindingDraw.Command->PipelineKey.ColorBlend},
 						BindingDraw.Command->PipelineKey.Topology, {}, BindingDraw.Command->bSupportsGBuffer};
 					FMeshPassShaders ShadowShaders;
-					FMeshPassDrawListContext ShaderContext(Generation, LowResource.CompiledProgram.get(), {}, ShadowShaders);
-					PassProcessor.AddMeshBatch(ShadowBatch, ShaderContext);
-					if (ShaderContext.GetResult().Status == EShaderBuildStatus::Pending) { CommandReady = false; return; }
-					ASSERT_TRUE(ShaderContext.GetResult()) << ShaderContext.GetResult().Error;
+					const auto ShaderContext = PassProcessor.PrepareShaders(ShadowBatch, Generation, LowResource.CompiledProgram.get(), {}, ShadowShaders);
+					if (ShaderContext.Status == EShaderBuildStatus::Pending) { CommandReady = false; return; }
+					ASSERT_TRUE(ShaderContext) << ShaderContext.Error;
 					auto Pipeline = std::make_shared<FMeshPassPipeline>();
-					FMeshPassDrawListContext PipelineContext("BindingContextShadow", ShadowShaders, Primitive->CollectedBinding->Declaration, *Pipeline);
-					PassProcessor.AddMeshBatch(ShadowBatch, PipelineContext);
-					if (!PipelineContext.GetResult() && Requests.HasPending()) { CommandReady = false; return; }
-					ASSERT_TRUE(PipelineContext.GetResult()) << PipelineContext.GetResult().Error;
+					const auto PipelineContext = PassProcessor.PreparePipeline(ShadowBatch, "BindingContextShadow", ShadowShaders, Primitive->CollectedBinding->Declaration, *Pipeline);
+					if (!PipelineContext && Requests.HasPending()) { CommandReady = false; return; }
+					ASSERT_TRUE(PipelineContext) << PipelineContext.Error;
 					FMaterialRenderBinding Binding;
 					FMaterialRenderValidationDiagnostic BindingDiagnostic;
 					ASSERT_TRUE(TryGetMaterialRenderBinding(BindingDraw.Command->Material.Representation, Binding, BindingDiagnostic));
@@ -4079,31 +4103,106 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					FMaterialViewUniform ViewParameters;
 					ViewParameters.Viewport = FVector4f(0, 0, 64, 64);
 					FMeshDrawCommandBuildInput Input{Commands, *Primitive, BindingDraw, Pipeline, PassMaterial,
-						PrimitiveUniform, Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters)), {}, {}, 2};
+						PrimitiveUniform, Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters)), {}, {}};
 					FMeshDrawCommandBindingCache CacheA;
 					std::shared_ptr<const FMeshDrawCommand> Cached, DynamicA, DynamicB;
-					FCachedPassMeshDrawListContext CachedContext(Input, CacheA, Cached); PassProcessor.AddMeshBatch(ShadowBatch, CachedContext);
-					ASSERT_TRUE(CachedContext.GetResult()) << CachedContext.GetResult().Error;
+					FCachedMeshDrawCommandStorage Persistent;
+					FDynamicMeshDrawCommandStorage FrameA, FrameB;
+					FMeshDrawCommandHandle DynamicAHandle, DynamicBHandle;
+					FCachedPassMeshDrawListContext CachedContext(Persistent, {EMeshPipelinePass::ShadowDepth}, Cached); const auto CachedContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheA, CachedContext);
+					ASSERT_TRUE(CachedContextResult) << CachedContextResult.Error;
 					ASSERT_TRUE(Cached && Cached->bCached); EXPECT_EQ(Cached->Pipeline->Pass, EMeshPipelinePass::ShadowDepth);
 					EXPECT_FALSE(Cached->VertexPassBindings); EXPECT_FALSE(Cached->FragmentPassBindings); EXPECT_FALSE(Cached->ViewUniform.Buffer);
-					EXPECT_FALSE(Cached->SubmitBindings(Commands));
-					FDynamicPassMeshDrawListContext DynamicContextA(Input, CacheA, DynamicA, Cached); PassProcessor.AddMeshBatch(ShadowBatch, DynamicContextA);
-					ASSERT_TRUE(DynamicContextA.GetResult()) << DynamicContextA.GetResult().Error;
+					EXPECT_FALSE(Cached->SubmitDraw(Commands));
+					ASSERT_TRUE(Cached->bFinalized);
+					EXPECT_EQ(Cached->VertexStreams.size(), Primitive->CollectedBinding->Streams.size());
+					EXPECT_EQ(Cached->IndexBuffer, BindingDraw.Command->Indices.Buffer);
+					EXPECT_EQ(std::get<FRHIDrawIndexedArguments>(Cached->DrawParameters), BindingDraw.Command->Geometry.GetIndexedDrawArguments());
+					BindingDraw.RasterBias = {1.0f, 2.0f, 0.0f};
+					FDynamicPassMeshDrawListContext DynamicContextA(FrameA, {EMeshPipelinePass::ShadowDepth}, DynamicAHandle); const auto DynamicContextAResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheA, DynamicContextA, Cached);
+					ASSERT_TRUE(DynamicContextAResult) << DynamicContextAResult.Error; DynamicA = FrameA.GetCommand(DynamicAHandle);
+					EXPECT_EQ(Persistent.Num(), 1u);
+					EXPECT_EQ(FrameA.Num({EMeshPipelinePass::ShadowDepth}), 1u);
 					ASSERT_TRUE(DynamicA && !DynamicA->bCached && DynamicA->VertexPassBindings);
 					EXPECT_EQ(DynamicA->VertexBindings, Cached->VertexBindings);
+					EXPECT_EQ(DynamicA->DepthBias, *BindingDraw.RasterBias);
+					EXPECT_NE(Cached->DepthBias, DynamicA->DepthBias);
 					ViewParameters.WorldOriginHigh.x += 100;
+					BindingDraw.RasterBias = {3.0f, 4.0f, 0.0f};
 					Input.ViewUniform = Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters));
 					FMeshDrawCommandBindingCache CacheB;
-					FDynamicPassMeshDrawListContext DynamicContextB(Input, CacheB, DynamicB, Cached); PassProcessor.AddMeshBatch(ShadowBatch, DynamicContextB);
-					ASSERT_TRUE(DynamicContextB.GetResult()) << DynamicContextB.GetResult().Error;
+
+					FObservedCommandList DynamicContextB(FrameB, {EMeshPipelinePass::ShadowDepth}, DynamicBHandle);
+					const auto DynamicContextBResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheB, DynamicContextB, Cached);
+					ASSERT_TRUE(DynamicContextBResult) << DynamicContextBResult.Error; DynamicB = FrameB.GetCommand(DynamicBHandle);
+					EXPECT_FALSE(FrameB.GetCommand(DynamicAHandle));
+					EXPECT_EQ(DynamicContextB.Added, 1u); EXPECT_EQ(DynamicContextB.Finalized, 1u);
 					EXPECT_EQ(DynamicB->VertexBindings, Cached->VertexBindings);
 					EXPECT_NE(DynamicB->VertexPassBindings, DynamicA->VertexPassBindings);
+					EXPECT_EQ(DynamicB->DepthBias, *BindingDraw.RasterBias);
+					EXPECT_NE(DynamicA->DepthBias, DynamicB->DepthBias);
 					EXPECT_TRUE(DynamicB->ViewUniform.Buffer != DynamicA->ViewUniform.Buffer || DynamicB->ViewUniform.Offset != DynamicA->ViewUniform.Offset);
 					const auto Original = DynamicB;
+					auto ExpectRejected = [&](std::shared_ptr<const FMeshDrawCommand> Existing) {
+						FMeshDrawCommandBindingCache RejectedCache;
+						FObservedCommandList Context(FrameB, {EMeshPipelinePass::ShadowDepth}, DynamicBHandle);
+						const auto ContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, RejectedCache, Context, std::move(Existing));
+						EXPECT_EQ(ContextResult.Status, EShaderBuildStatus::Error);
+						EXPECT_EQ(Context.Finalized, 0u);
+						EXPECT_EQ(FrameB.GetCommand(DynamicBHandle), Original);
+						EXPECT_EQ(FrameB.Num({EMeshPipelinePass::ShadowDepth}), 1u);
+						EXPECT_EQ(DynamicB, Original);
+					};
+					// Equal primitive values do not make a different captured buffer range interchangeable.
+					Input.PrimitiveUniform = Commands.CreateUniformBufferRange(&Transform, sizeof(Transform));
+					ExpectRejected(Cached); Input.PrimitiveUniform = PrimitiveUniform;
+					const auto OriginalMaterialUniform = PassMaterial.Uniform;
+					PassMaterial.Uniform = PrimitiveUniform;
+					ExpectRejected(Cached); PassMaterial.Uniform = OriginalMaterialUniform;
+					PassMaterial.Surface.CompiledTextures.push_back(nullptr);
+					ExpectRejected(Cached); PassMaterial.Surface.CompiledTextures.clear();
+					// A matching shader/factory/pass is insufficient if the native PSO was built for another state.
+					auto WrongPipeline = std::make_shared<FMeshPassPipeline>(*Pipeline);
+					WrongPipeline->Description.Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
+					Input.Pipeline = WrongPipeline;
+					ExpectRejected({}); Input.Pipeline = Pipeline;
+					// Request-specific HitProxy bindings cannot reuse a view-independent command.
+					Input.HitProxy = PrimitiveUniform;
+					ExpectRejected(Cached); Input.HitProxy = {};
 					PassMaterial.CollectionUniforms.push_back(PrimitiveUniform);
-					FDynamicPassMeshDrawListContext StaleContext(Input, CacheB, DynamicB, Cached); PassProcessor.AddMeshBatch(ShadowBatch, StaleContext);
-					EXPECT_EQ(StaleContext.GetResult().Status, EShaderBuildStatus::Error); EXPECT_EQ(DynamicB, Original);
+					FDynamicPassMeshDrawListContext StaleContext(FrameB, {EMeshPipelinePass::ShadowDepth}, DynamicBHandle); const auto StaleContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheB, StaleContext, Cached);
+					EXPECT_EQ(StaleContextResult.Status, EShaderBuildStatus::Error); EXPECT_EQ(DynamicB, Original);
 					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
+					// Submission consumes captured geometry, not the source view or description.
+					auto Detached = *DynamicB; Detached.Description.reset(); Detached.Input.reset();
+					auto NonIndexedDescription = std::make_shared<FMeshDrawDescription>(*BindingDraw.Command);
+					NonIndexedDescription->Geometry.bIndexed = false;
+					NonIndexedDescription->Geometry.FirstElement = 0;
+					NonIndexedDescription->Geometry.VertexOffset = 0;
+					NonIndexedDescription->Geometry.ElementCount = 3;
+					auto NonIndexedDraw = BindingDraw; NonIndexedDraw.Command = NonIndexedDescription;
+					auto NonIndexed = Detached;
+					ASSERT_TRUE(NonIndexed.SetDrawParametersAndFinalize(*Primitive, NonIndexedDraw));
+					EXPECT_FALSE(NonIndexed.IndexBuffer);
+					EXPECT_EQ(std::get<FRHIDrawArguments>(NonIndexed.DrawParameters).VertexCount, 3u);
+					const auto DepthTarget = GDynamicRHI->RHICreateTexture(Commands,
+						FRHITextureCreateDesc::Create2D("MeshCommandSubmission", 8, 8, EPixelFormat::D32)
+						.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
+					ASSERT_TRUE(DepthTarget);
+					FRHIRenderPassInfo Pass; Pass.RenderTargetLayout = Pipeline->Description.RenderTargets;
+					Pass.DepthStencilRenderTarget = DepthTarget; Pass.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
+					Commands.BeginRenderPass(Pass, "MeshCommandSubmission");
+					Commands.SetViewport(0, 0, 0, 8, 8, 1);
+					FMeshDrawCommandStateCache SubmitCache;
+					EXPECT_FALSE(Cached->SubmitDraw(Commands, &SubmitCache));
+					EXPECT_TRUE(Detached.SubmitDraw(Commands, &SubmitCache));
+					EXPECT_TRUE(NonIndexed.SubmitDraw(Commands, &SubmitCache));
+					EXPECT_EQ(SubmitCache.VertexOwner, Detached.VertexBindings);
+					EXPECT_TRUE(DynamicA->SubmitDraw(Commands, &SubmitCache));
+					EXPECT_EQ(SubmitCache.VertexPass, DynamicA->VertexPassBindings);
+					EXPECT_EQ(SubmitCache.PipelineOwner, DynamicA->Pipeline);
+					Commands.EndRenderPass();
+					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws + 3);
 					BindingContextsValidated = true;
 				}
 			}

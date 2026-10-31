@@ -166,15 +166,14 @@ namespace Durin
 				FState::FShaderMapPayload Candidate;
 				FShaderCompileOptions Options;
 				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
-				RendererPrivate::FMeshPassDrawListContext Context(Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(), Options, Candidate);
-				Processor.AddMeshBatch(Batch, Context);
-				const auto& Result = Context.GetResult();
+				ERenderResourceCreateErrorCategory FailureCategory;
+				const auto Result = Processor.PrepareShaders(Batch, Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(), Options, Candidate, &FailureCategory);
 				if (Result.Status == EShaderBuildStatus::Pending) return FShaderResult::Pending();
 				if (Result.Status == EShaderBuildStatus::Canceled) return FShaderResult::Canceled();
 				if (!Result) return FShaderResult::Failure(MakeRendererResourceCreateError(
-					Context.GetFailureCategory(), "GBufferShaderMap", std::to_string(ShaderKey.FactoryKey.HashValue), Result.Error,
+					FailureCategory, "GBufferShaderMap", std::to_string(ShaderKey.FactoryKey.HashValue), Result.Error,
 					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual
-						| (Context.GetFailureCategory() == ERenderResourceCreateErrorCategory::RHIResource
+						| (FailureCategory == ERenderResourceCreateErrorCategory::RHIResource
 							? ERenderResourceGenerationDependency::Device : ERenderResourceGenerationDependency::None)));
 				return FShaderResult::Success(std::move(Candidate));
 			},
@@ -199,10 +198,9 @@ namespace Durin
 			PipelineGeneration,
 			[&PipelineEntry, Shaders, PipelineKey, &Processor, &Batch, VertexDeclaration = Request.VertexDeclaration]() -> FPipelineResult {
 				auto Candidate = std::make_shared<FPipeline>();
-				RendererPrivate::FMeshPassDrawListContext Context(FName(std::format("GBufferPipeline_{}", PipelineEntry.Index)),
+				const auto Preparation = Processor.PreparePipeline(Batch, FName(std::format("GBufferPipeline_{}", PipelineEntry.Index)),
 					*Shaders, VertexDeclaration, *Candidate);
-				Processor.AddMeshBatch(Batch, Context);
-				if (!Context.GetResult()) return FPipelineResult::Failure(MakeRendererResourceCreateError(
+				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::GraphicsPipeline, "GBufferPipeline", GetGBufferPlanningPassIdentity(PipelineKey),
 					ERenderResourceCreateErrorReason::PipelineCreationFailed,
 					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
@@ -348,8 +346,10 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
-			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, FMeshPassDrawListContext& Context) const -> void override
-			{ BuildMeshDrawCommands(Batch, Context); }
+			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
+				FMeshDrawCommandBindingCache& Cache, FMeshPassDrawListContext& Context,
+				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
+			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::GBuffer; }
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override { return Config.Settings.bHybrid; }
 			auto GetVertexFactoryPass(bool bGPUCulling) const -> uint32 override { return bGPUCulling ? MaterialMeshPassGBufferGPUCulling : MaterialMeshPassGBuffer; }

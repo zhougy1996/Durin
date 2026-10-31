@@ -228,7 +228,7 @@ namespace Durin
 		const auto& View = Inputs.View;
 		check(CommandList.IsInsideRenderPass());
 		SetViewRect(CommandList, View);
-		FMeshDrawBindingGroup RetainedBindings;
+		FMeshDrawCommandStateCache RetainedBindings;
 		for (const EMeshBasePass Pass : {
 				 EMeshBasePass::Opaque, EMeshBasePass::Masked
 			 })
@@ -297,7 +297,7 @@ namespace Durin
 				ResolvedSceneResources.Receiver.StaticMeshes
 			);
 		}
-		FMeshDrawBindingGroup TranslucentBindings;
+		FMeshDrawCommandStateCache TranslucentBindings;
 		for (const FPreparedStaticMeshDraw& Draw :
 			 Inputs.Receiver.StaticMeshes.Translucent)
 		{
@@ -330,8 +330,10 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
-			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, FMeshPassDrawListContext& Context) const -> void override
-			{ BuildMeshDrawCommands(Batch, Context); }
+			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
+				FMeshDrawCommandBindingCache& Cache, FMeshPassDrawListContext& Context,
+				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
+			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return Pass; }
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override
 			{ return Pass == EMeshPipelinePass::Forward ? Config.Settings.bForward : Config.Settings.bHybrid; }

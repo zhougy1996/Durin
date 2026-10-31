@@ -210,8 +210,10 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
-			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, FMeshPassDrawListContext& Context) const -> void override
-			{ BuildMeshDrawCommands(Batch, Context); }
+			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
+				FMeshDrawCommandBindingCache& Cache, FMeshPassDrawListContext& Context,
+				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
+			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::ShadowDepth; }
 			auto IsEnabled(const FSceneRenderPreparationConfig&) const -> bool override { return true; }
 			auto GetVertexFactoryPass(bool) const -> uint32 override { return MaterialMeshPassShadow; }

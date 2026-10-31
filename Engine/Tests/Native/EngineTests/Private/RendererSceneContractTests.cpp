@@ -3619,74 +3619,7 @@ TEST(FRendererSceneContractTests, CompactOrderingMatchesFullKeysAndRetainsTempla
 	EXPECT_EQ(Shared.GetState().VertexFactory.data(), Visible.GetState().VertexFactory.data());
 }
 
-TEST(FRendererSceneContractTests, AdjacentBindingGroupsRebindOnAnyChangeFailureOrBoundary)
-{
-	using namespace Durin;
-	FMeshDrawBindingGroup Group;
-	std::array<int, 6> Owners{};
-	uint32 BindCalls = 0;
-	auto Bind = [&](int Pipeline, int Vertex, int Fragment, bool bSuccess = true) {
-		return Group.Apply(&Owners[Pipeline], &Owners[Vertex], Fragment < 0 ? nullptr : &Owners[Fragment], [&] {
-			++BindCalls;
-			return bSuccess;
-		});
-	};
-	ASSERT_TRUE(Bind(0, 1, 2));
-	ASSERT_TRUE(Bind(0, 1, 2));
-	EXPECT_EQ(BindCalls, 1u);
-	ASSERT_TRUE(Bind(0, 3, 2)); // vertex change must also rebind the complete fragment state
-	ASSERT_TRUE(Bind(0, 3, 4));
-	ASSERT_TRUE(Bind(5, 3, 4));
-	EXPECT_EQ(BindCalls, 4u);
-	EXPECT_FALSE(Bind(0, 1, 2, false));
-	ASSERT_TRUE(Bind(5, 3, 4)); // failed partial binding invalidates even the preceding group
-	EXPECT_EQ(BindCalls, 6u);
-	Group = {}; // new pass or intervening non-mesh work
-	ASSERT_TRUE(Bind(5, 3, 4));
-	EXPECT_EQ(BindCalls, 7u);
-	ASSERT_TRUE(Bind(0, 1, -1));
-	ASSERT_TRUE(Bind(0, 1, -1)); // opaque shadow has no fragment resources
-	EXPECT_EQ(BindCalls, 8u);
-}
 
-TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnFailure)
-{
-	using namespace Durin;
-	using namespace Durin::RendererPrivate;
-	FShaderReflectionData Reflection;
-	Reflection.ResourceBindings = {{.SetIndex = 1, .BindingIndex = 2,
-		.Type = ERHIBindingType::UniformBuffer}};
-	const FCompiledSurfaceBindingLayout Layout(Reflection);
-	FResolvedSurfaceMaterial Material;
-	Material.bCompiledLayout = true;
-	FPreparedSurfaceMaterialBindings Bindings;
-	const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));
-	const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
-		"PreparedSurface", 64, 16, EBufferUsageFlags::UniformBuffer));
-	const FRHIUniformBufferRange Range{Buffer.GetReference(), 16, 32};
-	ASSERT_TRUE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
-		Range, {}, {}, {}, {}, Bindings));
-	ASSERT_EQ(Bindings.GetResources().size(), 1u);
-	EXPECT_EQ(Bindings.GetResources()[0].Offset, 16u);
-	EXPECT_EQ(Bindings.GetResources()[0].Resource->GetResourceType(), ERHIResourceType::BufferView);
-	EXPECT_FALSE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
-		{Buffer.GetReference(), 48, 32}, {}, {}, {}, {}, Bindings));
-	EXPECT_EQ(Bindings.GetShader(), nullptr);
-	EXPECT_TRUE(Bindings.GetResources().empty());
-	FRHICommandList Commands;
-	const auto Uniform = Commands.CreateUniformBuffer({64}, ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(64));
-	ASSERT_TRUE(Uniform);
-	ASSERT_TRUE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
-		{Uniform.GetReference(), 16, 32}, {}, {}, {}, {}, Bindings));
-	ASSERT_EQ(Bindings.GetResources().size(), 1u);
-	EXPECT_EQ(Bindings.GetResources()[0].Resource, Uniform.GetReference());
-	EXPECT_EQ(Bindings.GetResources()[0].Offset, 16u);
-	EXPECT_EQ(Bindings.GetResources()[0].Size, 32u);
-	EXPECT_FALSE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
-		{Uniform.GetReference(), 48, 32}, {}, {}, {}, {}, Bindings));
-	EXPECT_EQ(Bindings.GetShader(), nullptr);
-	EXPECT_TRUE(Bindings.GetResources().empty());
-}
 
 TEST(FRendererSceneContractTests, VertexFactoryPrecacheDescriptionsAreCpuOnlyAndOwnExplicitDefaultLayouts)
 {
@@ -4883,73 +4816,6 @@ TEST(FRendererSceneContractTests, ShadowOnlyPendingComponentIsExcludedFromReceiv
 
 #endif
 
-TEST(FRendererSceneContractTests, MaterialPSOPassSelectionUsesParticipationPathsAndMaterialEligibility)
-{
-    using namespace Durin;
-    using namespace Durin::RendererPrivate;
-    FMaterialPSOPrecacheParams Params;
-    Params.Material.ShaderMap.BlendMode = EMaterialBlendMode::Opaque;
-    Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::Lit;
-    auto Count = [](const auto& Plan, EMeshPipelinePass Pass) {
-        return std::ranges::count_if(Plan, [Pass](const auto& Entry) { return Entry.Pass == Pass; });
-    };
-    auto Plan = SelectMaterialPSOPrecachePasses(Params, true);
-    EXPECT_EQ(Plan.size(), 22u);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 8);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::HybridRetainedForward), 0);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::SortedTranslucency), 0);
-    EXPECT_EQ(std::ranges::count_if(Plan, [](const auto& Entry) { return Entry.bRequired; }), 6);
-    for (const auto& Entry : Plan)
-        if (Entry.bRequired) {
-            EXPECT_FALSE(Entry.Raster.bWireframe);
-            EXPECT_FALSE(Entry.Raster.bReversedZ);
-            EXPECT_NE(Entry.Pass, EMeshPipelinePass::HitProxy);
-        }
-    Params.PrecachePSOParams.Participation.bCastShadow = false;
-    Plan = SelectMaterialPSOPrecachePasses(Params, true);
-    EXPECT_EQ(Plan.size(), 20u);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::ShadowDepth), 0);
-    Params.PrecachePSOParams.Participation = {true, false};
-    Plan = SelectMaterialPSOPrecachePasses(Params, true);
-    ASSERT_EQ(Plan.size(), 2u);
-    for (const auto& Entry : Plan) EXPECT_EQ(Entry.Pass, EMeshPipelinePass::ShadowDepth);
-    Params.Material.ShaderMap.BlendMode = EMaterialBlendMode::Translucent;
-    EXPECT_TRUE(SelectMaterialPSOPrecachePasses(Params, true).empty());
-    Params.PrecachePSOParams.Participation = {false, false};
-    EXPECT_TRUE(SelectMaterialPSOPrecachePasses(Params, true).empty());
-    Params.PrecachePSOParams.Participation = {};
-    Plan = SelectMaterialPSOPrecachePasses(Params, true);
-    EXPECT_EQ(Plan.size(), 20u);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::SortedTranslucency), 8);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::ShadowDepth), 0);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 0);
-    Params.Material.ShaderMap.BlendMode = EMaterialBlendMode::Masked;
-    Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::Unlit;
-    Plan = SelectMaterialPSOPrecachePasses(Params, true);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::HybridRetainedForward), 8);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::ShadowDepth), 2);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 0);
-    Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::Lit;
-    Plan = SelectMaterialPSOPrecachePasses(Params, false);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::HybridRetainedForward), 8);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 0);
-    FSceneRenderPreparationConfig Config;
-    Config.Settings.bHybrid = Config.Settings.bHitProxy = Config.bSupportsWireframe = false;
-    Params.PrecachePSOParams.bReversedZ = true;
-    Plan = SelectMaterialPSOPrecachePasses(Params, true, Config);
-    EXPECT_EQ(Plan.size(), 6u);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::Forward), 4);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::ShadowDepth), 2);
-    for (const auto& Entry : Plan) {
-        EXPECT_FALSE(Entry.Raster.bWireframe);
-        if (Entry.bRequired) EXPECT_EQ(Entry.Raster.bReversedZ, Entry.Pass != EMeshPipelinePass::ShadowDepth);
-    }
-    Config = {};
-    Config.Settings.bForward = false;
-    Plan = SelectMaterialPSOPrecachePasses(Params, true, Config);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::Forward), 0);
-    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 8);
-}
 
 TEST(FRendererSceneContractTests, EmptyApplicableMaterialPSOSetPublishesReadinessWithoutNativeWork)
 {
@@ -5080,61 +4946,6 @@ TEST(FRendererSceneContractTests, OptionalAdmissionFailureStillObservesPendingAn
     }
 }
 
-TEST(FRendererSceneContractTests, PlannedPSOsCoverDrawingStatesAndRequiredNormalizedRoutes)
-{
-    using namespace Durin;
-    using namespace Durin::RendererPrivate;
-    auto SameDescription = [](const auto& A, const auto& B) {
-        return A.Topology == B.Topology && A.RenderTargets == B.RenderTargets
-            && A.Rasterizer == B.Rasterizer && A.Depth == B.Depth && A.ColorBlends == B.ColorBlends;
-    };
-    for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
-    for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
-    for (const auto Topology : {EGeometryTopology::TriangleList, EGeometryTopology::LineList})
-    for (bool bSupportsGBuffer : {false, true})
-    for (bool bOrientationChanging : {false, true})
-    for (bool bTwoSided : {false, true})
-    {
-        SCOPED_TRACE(std::format("blend={} shading={} topology={} gbuffer={} orientation={} two-sided={}",
-            uint8(Blend), uint8(Shading), uint8(Topology), bSupportsGBuffer, bOrientationChanging, bTwoSided));
-        FMaterialPSOPrecacheParams Params;
-        Params.Material.ShaderMap.BlendMode = Blend;
-        Params.Material.ShaderMap.ShadingModel = Shading;
-        Params.Material.bTwoSided = bTwoSided;
-        Params.PrecachePSOParams.bOrientationChanging = bOrientationChanging;
-        Params.PrecachePSOParams.Topology = Topology;
-        const auto Plan = SelectMaterialPSOPrecachePasses(Params, bSupportsGBuffer);
-        std::vector<EMeshPipelinePass> DrawRoutes{EMeshPipelinePass::Forward, EMeshPipelinePass::HitProxy};
-        if (Blend == EMaterialBlendMode::Translucent) DrawRoutes.push_back(EMeshPipelinePass::SortedTranslucency);
-        else {
-            DrawRoutes.push_back(EMeshPipelinePass::ShadowDepth);
-            DrawRoutes.push_back(Shading == EMaterialShadingModel::Lit && bSupportsGBuffer
-                ? EMeshPipelinePass::GBuffer : EMeshPipelinePass::HybridRetainedForward);
-        }
-        for (const auto Route : DrawRoutes)
-        for (uint8 Variant = 0; Variant < 8; ++Variant)
-        {
-            const FMeshPipelineRasterOptions DrawRaster{(Variant & 4) != 0, (Variant & 1) != 0,
-                bOrientationChanging, (Variant & 2) != 0};
-            const auto DrawDescription = DescribeMeshPipeline(Route, MakeMeshPipelineState(Params.Material, DrawRaster),
-                Topology, Blend, DrawRaster.bReversedZ);
-            bool bCovered = false, bRequiredCovered = false;
-            for (const auto& Entry : Plan)
-            {
-                if (Entry.Pass != Route) continue;
-                const auto PrecacheDescription = DescribeMeshPipeline(Entry.Pass, MakeMeshPipelineState(Params.Material, Entry.Raster),
-                    Topology, Blend, Entry.Raster.bReversedZ);
-                if (!SameDescription(DrawDescription, PrecacheDescription)) continue;
-                bCovered = true;
-                bRequiredCovered |= Entry.bRequired;
-            }
-            EXPECT_TRUE(bCovered);
-            if (Route == EMeshPipelinePass::ShadowDepth
-                || (Route != EMeshPipelinePass::HitProxy && !DrawRaster.bWireframe && !DrawRaster.bReversedZ))
-                EXPECT_TRUE(bRequiredCovered);
-        }
-    }
-}
 
 TEST(FRendererSceneContractTests, PrecacheExcludesUnavailableVertexFactoryRoutesBeforeRequiredClassification)
 {

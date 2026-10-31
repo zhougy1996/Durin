@@ -1,4 +1,5 @@
 #include "Renderers/MeshPassProcessor.h"
+#include "Renderers/MaterialPSOPrecacheCollector.h"
 #include "Renderers/GBufferRendering.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Materials/MaterialRenderProxy.h"
@@ -143,7 +144,7 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
 {
     using namespace Durin; using namespace RendererPrivate;
     FMeshPassRenderingThreadScope RenderingThread;
-    EnqueueRenderCommand("AddMeshBatchFiltering", [](FRHICommandListImmediate&) {
+    EnqueueRenderCommand("AddMeshBatchFiltering", [](FRHICommandListImmediate& Commands) {
         const auto Factory = FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
         ASSERT_TRUE(Factory);
         for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
@@ -163,14 +164,20 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
             else if (Pass == EMeshPipelinePass::SortedTranslucency) Relevant = Main && Translucent;
             const FMeshPassProcessorBatch Batch{Material, *Factory, {}, EGeometryTopology::TriangleList, {Shadow, Main}, GBuffer};
             FMeshPassShaders Empty;
-            FPSOPrecacheDataArray Initializers(1);
-            FMeshPassDrawListContext Context(Empty, nullptr, Initializers, true, EPSOPrecachePriority::Medium);
-            FPassProcessorManager::GetMeshPassProcessor(Pass).AddMeshBatch(Batch, Context);
-            // Applicable elements reach context validation; excluded elements must
-            // leave it untouched without requiring RHI, shaders or declarations.
-            EXPECT_EQ(Context.GetResult().Status, Relevant ? EShaderBuildStatus::Error : EShaderBuildStatus::Canceled);
-            EXPECT_EQ(Initializers.size(), 1u);
-            EXPECT_EQ(Initializers.front().GraphicsInitializer.BoundShaders.VertexShader, nullptr);
+            FGraphicsPipelineStateInitializer Initializer;
+            const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(Pass);
+            const auto Preparation = Processor.BuildPSOInitializer(Batch, Empty, nullptr, Initializer);
+            FPreparedStaticMeshPrimitive Primitive; FPreparedStaticMeshDraw Draw;
+            FResolvedStaticMeshView::FMaterialUniform Uniform;
+            const FMeshDrawCommandBuildInput Input{Commands, Primitive, Draw, {}, Uniform};
+            FMeshDrawCommandBindingCache Cache;
+            FDynamicMeshDrawCommandStorage Storage; FMeshDrawCommandHandle Published;
+            FDynamicPassMeshDrawListContext Context(Storage, {Pass}, Published);
+            const auto Result = Processor.AddMeshBatch(Batch, Input, Cache, Context);
+            // Preparation and draw building share eligibility, with no RHI resources needed for exclusion.
+            const auto Expected = Relevant ? EShaderBuildStatus::Error : EShaderBuildStatus::Canceled;
+            EXPECT_EQ(Preparation.Status, Expected); EXPECT_EQ(Result.Status, Expected);
+            EXPECT_EQ(Initializer.BoundShaders.VertexShader, nullptr); EXPECT_FALSE(Published);
         }
     });
     FlushRenderingCommands();
@@ -225,11 +232,13 @@ TEST(FRendererSceneContractTests, CachedAndDynamicMeshContextsRejectUnpreparedPa
         const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::Forward);
         std::shared_ptr<const FMeshDrawCommand> Published = std::make_shared<FMeshDrawCommand>();
         const auto* Original = Published.get();
-        FCachedPassMeshDrawListContext Cached(Input, Cache, Published); Processor.AddMeshBatch(Batch, Cached);
-        EXPECT_EQ(Cached.GetResult().Status, EShaderBuildStatus::Error); EXPECT_EQ(Published.get(), Original);
+        FCachedMeshDrawCommandStorage Persistent;
+        FCachedPassMeshDrawListContext Cached(Persistent, {EMeshPipelinePass::Forward}, Published); const auto CachedResult = Processor.AddMeshBatch(Batch, Input, Cache, Cached);
+        EXPECT_EQ(CachedResult.Status, EShaderBuildStatus::Error); EXPECT_EQ(Published.get(), Original);
         Pipeline->Pass = EMeshPipelinePass::Forward;
-        FDynamicPassMeshDrawListContext Dynamic(Input, Cache, Published); Processor.AddMeshBatch(Batch, Dynamic);
-        EXPECT_EQ(Dynamic.GetResult().Status, EShaderBuildStatus::Error); EXPECT_EQ(Published.get(), Original);
+        FDynamicMeshDrawCommandStorage Frame; FMeshDrawCommandHandle DynamicReceipt;
+        FDynamicPassMeshDrawListContext Dynamic(Frame, {EMeshPipelinePass::Forward}, DynamicReceipt); const auto DynamicResult = Processor.AddMeshBatch(Batch, Input, Cache, Dynamic);
+        EXPECT_EQ(DynamicResult.Status, EShaderBuildStatus::Error); EXPECT_FALSE(DynamicReceipt); EXPECT_EQ(Frame.Num({EMeshPipelinePass::Forward}), 0u);
     });
     FlushRenderingCommands();
 }
@@ -252,16 +261,17 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 	FResolvedStaticMeshView Resolved;
 	Resolved.Draws.resize(1);
 	Resolved.Draws[0].bReady = true;
-	Resolved.Draws[0].GBufferGPUCullingPipeline =
-		std::shared_ptr<const FGBufferPipeline>(
-			reinterpret_cast<const FGBufferPipeline*>(uintptr_t{1}),
-			[](const FGBufferPipeline*) {});
+
 	auto GPUCommand = std::make_shared<RendererPrivate::FMeshDrawCommand>();
 	GPUCommand->FragmentBindings = std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings>(
 			reinterpret_cast<const RendererPrivate::FPreparedSurfaceMaterialBindings*>(
 				uintptr_t{2}),
 			[](const RendererPrivate::FPreparedSurfaceMaterialBindings*) {});
-	Resolved.Draws[0].Commands[3] = std::move(GPUCommand);
+	auto Pipeline = std::make_shared<RendererPrivate::FMeshPassPipeline>();
+	Pipeline->Pass = RendererPrivate::EMeshPipelinePass::GBuffer; Pipeline->bGPUCulling = true;
+	GPUCommand->Pipeline = Pipeline; GPUCommand->bFinalized = true;
+	Resolved.DrawCommandStorage = std::make_shared<RendererPrivate::FDynamicMeshDrawCommandStorage>();
+	Resolved.Draws[0].Commands[Pipeline->GetPassKey()] = Resolved.DrawCommandStorage->Publish(Pipeline->GetPassKey(), std::move(*GPUCommand));
 	Prepared.Primitives[0].CollectedBinding =
 		std::shared_ptr<const FVertexFactoryInputBinding>(
 			reinterpret_cast<const FVertexFactoryInputBinding*>(uintptr_t{3}),
@@ -386,4 +396,259 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 		EXPECT_EQ(TranslatedPlan->Transforms[Index].LocalToWorld, Plan->Transforms[Index].LocalToWorld);
 	}
 
+}
+
+TEST(FRendererSceneContractTests, AdjacentBindingGroupsRebindOnAnyChangeFailureOrBoundary)
+{
+	using namespace Durin;
+	FMeshDrawCommandStateCache Group;
+	std::array<int, 6> Owners{};
+	uint32 BindCalls = 0;
+	auto Bind = [&](int Pipeline, int Vertex, int Fragment, bool bSuccess = true) {
+		return Group.Apply(&Owners[Pipeline], &Owners[Vertex], Fragment < 0 ? nullptr : &Owners[Fragment], [&] {
+			++BindCalls;
+			return bSuccess;
+		});
+	};
+	ASSERT_TRUE(Bind(0, 1, 2));
+	ASSERT_TRUE(Bind(0, 1, 2));
+	EXPECT_EQ(BindCalls, 1u);
+	ASSERT_TRUE(Bind(0, 3, 2)); // vertex change must also rebind the complete fragment state
+	ASSERT_TRUE(Bind(0, 3, 4));
+	ASSERT_TRUE(Bind(5, 3, 4));
+	EXPECT_EQ(BindCalls, 4u);
+	EXPECT_FALSE(Bind(0, 1, 2, false));
+	ASSERT_TRUE(Bind(5, 3, 4)); // failed partial binding invalidates even the preceding group
+	EXPECT_EQ(BindCalls, 6u);
+	Group = {}; // new pass or intervening non-mesh work
+	ASSERT_TRUE(Bind(5, 3, 4));
+	EXPECT_EQ(BindCalls, 7u);
+	ASSERT_TRUE(Bind(0, 1, -1));
+	ASSERT_TRUE(Bind(0, 1, -1)); // opaque shadow has no fragment resources
+	EXPECT_EQ(BindCalls, 8u);
+}
+
+TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnFailure)
+{
+	using namespace Durin;
+	using namespace Durin::RendererPrivate;
+	FShaderReflectionData Reflection;
+	Reflection.ResourceBindings = {{.SetIndex = 1, .BindingIndex = 2,
+		.Type = ERHIBindingType::UniformBuffer}};
+	const FCompiledSurfaceBindingLayout Layout(Reflection);
+	FResolvedSurfaceMaterial Material;
+	Material.bCompiledLayout = true;
+	FPreparedSurfaceMaterialBindings Bindings;
+	const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));
+	const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+		"PreparedSurface", 64, 16, EBufferUsageFlags::UniformBuffer));
+	const FRHIUniformBufferRange Range{Buffer.GetReference(), 16, 32};
+	ASSERT_TRUE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
+		Range, {}, {}, {}, {}, Bindings));
+	ASSERT_EQ(Bindings.GetResources().size(), 1u);
+	EXPECT_EQ(Bindings.GetResources()[0].Offset, 16u);
+	EXPECT_EQ(Bindings.GetResources()[0].Resource->GetResourceType(), ERHIResourceType::BufferView);
+	EXPECT_FALSE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
+		{Buffer.GetReference(), 48, 32}, {}, {}, {}, {}, Bindings));
+	EXPECT_EQ(Bindings.GetShader(), nullptr);
+	EXPECT_TRUE(Bindings.GetResources().empty());
+	FRHICommandList Commands;
+	const auto Uniform = Commands.CreateUniformBuffer({64}, ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(64));
+	ASSERT_TRUE(Uniform);
+	ASSERT_TRUE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
+		{Uniform.GetReference(), 16, 32}, {}, {}, {}, {}, Bindings));
+	ASSERT_EQ(Bindings.GetResources().size(), 1u);
+	EXPECT_EQ(Bindings.GetResources()[0].Resource, Uniform.GetReference());
+	EXPECT_EQ(Bindings.GetResources()[0].Offset, 16u);
+	EXPECT_EQ(Bindings.GetResources()[0].Size, 32u);
+	EXPECT_FALSE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
+		{Uniform.GetReference(), 48, 32}, {}, {}, {}, {}, Bindings));
+	EXPECT_EQ(Bindings.GetShader(), nullptr);
+	EXPECT_TRUE(Bindings.GetResources().empty());
+}
+
+TEST(FRendererSceneContractTests, PlannedPSOsCoverDrawingStatesAndRequiredNormalizedRoutes)
+{
+    using namespace Durin;
+    using namespace Durin::RendererPrivate;
+    auto SameDescription = [](const auto& A, const auto& B) {
+        return A.Topology == B.Topology && A.RenderTargets == B.RenderTargets
+            && A.Rasterizer == B.Rasterizer && A.Depth == B.Depth && A.ColorBlends == B.ColorBlends;
+    };
+    for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
+    for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
+    for (const auto Topology : {EGeometryTopology::TriangleList, EGeometryTopology::LineList})
+    for (bool bSupportsGBuffer : {false, true})
+    for (bool bOrientationChanging : {false, true})
+    for (bool bTwoSided : {false, true})
+    {
+        SCOPED_TRACE(std::format("blend={} shading={} topology={} gbuffer={} orientation={} two-sided={}",
+            uint8(Blend), uint8(Shading), uint8(Topology), bSupportsGBuffer, bOrientationChanging, bTwoSided));
+        FMaterialPSOPrecacheParams Params;
+        Params.Material.ShaderMap.BlendMode = Blend;
+        Params.Material.ShaderMap.ShadingModel = Shading;
+        Params.Material.bTwoSided = bTwoSided;
+        Params.PrecachePSOParams.bOrientationChanging = bOrientationChanging;
+        Params.PrecachePSOParams.Topology = Topology;
+        const auto Plan = SelectMaterialPSOPrecachePasses(Params, bSupportsGBuffer);
+        std::vector<EMeshPipelinePass> DrawRoutes{EMeshPipelinePass::Forward, EMeshPipelinePass::HitProxy};
+        if (Blend == EMaterialBlendMode::Translucent) DrawRoutes.push_back(EMeshPipelinePass::SortedTranslucency);
+        else {
+            DrawRoutes.push_back(EMeshPipelinePass::ShadowDepth);
+            DrawRoutes.push_back(Shading == EMaterialShadingModel::Lit && bSupportsGBuffer
+                ? EMeshPipelinePass::GBuffer : EMeshPipelinePass::HybridRetainedForward);
+        }
+        for (const auto Route : DrawRoutes)
+        for (uint8 Variant = 0; Variant < 8; ++Variant)
+        {
+            const FMeshPipelineRasterOptions DrawRaster{(Variant & 4) != 0, (Variant & 1) != 0,
+                bOrientationChanging, (Variant & 2) != 0};
+            const auto DrawDescription = DescribeMeshPipeline(Route, MakeMeshPipelineState(Params.Material, DrawRaster),
+                Topology, Blend, DrawRaster.bReversedZ);
+            bool bCovered = false, bRequiredCovered = false;
+            for (const auto& Entry : Plan)
+            {
+                if (Entry.Pass != Route) continue;
+                const auto PrecacheDescription = DescribeMeshPipeline(Entry.Pass, MakeMeshPipelineState(Params.Material, Entry.Raster),
+                    Topology, Blend, Entry.Raster.bReversedZ);
+                if (!SameDescription(DrawDescription, PrecacheDescription)) continue;
+                bCovered = true;
+                bRequiredCovered |= Entry.bRequired;
+            }
+            EXPECT_TRUE(bCovered);
+            if (Route == EMeshPipelinePass::ShadowDepth
+                || (Route != EMeshPipelinePass::HitProxy && !DrawRaster.bWireframe && !DrawRaster.bReversedZ))
+                EXPECT_TRUE(bRequiredCovered);
+        }
+    }
+}
+
+TEST(FRendererSceneContractTests, MaterialPSOPassSelectionUsesParticipationPathsAndMaterialEligibility)
+{
+    using namespace Durin;
+    using namespace Durin::RendererPrivate;
+    FMaterialPSOPrecacheParams Params;
+    Params.Material.ShaderMap.BlendMode = EMaterialBlendMode::Opaque;
+    Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::Lit;
+    auto Count = [](const auto& Plan, EMeshPipelinePass Pass) {
+        return std::ranges::count_if(Plan, [Pass](const auto& Entry) { return Entry.Pass == Pass; });
+    };
+    auto Plan = SelectMaterialPSOPrecachePasses(Params, true);
+    EXPECT_EQ(Plan.size(), 22u);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 8);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::HybridRetainedForward), 0);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::SortedTranslucency), 0);
+    EXPECT_EQ(std::ranges::count_if(Plan, [](const auto& Entry) { return Entry.bRequired; }), 6);
+    for (const auto& Entry : Plan)
+        if (Entry.bRequired) {
+            EXPECT_FALSE(Entry.Raster.bWireframe);
+            EXPECT_FALSE(Entry.Raster.bReversedZ);
+            EXPECT_NE(Entry.Pass, EMeshPipelinePass::HitProxy);
+        }
+    Params.PrecachePSOParams.Participation.bCastShadow = false;
+    Plan = SelectMaterialPSOPrecachePasses(Params, true);
+    EXPECT_EQ(Plan.size(), 20u);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::ShadowDepth), 0);
+    Params.PrecachePSOParams.Participation = {true, false};
+    Plan = SelectMaterialPSOPrecachePasses(Params, true);
+    ASSERT_EQ(Plan.size(), 2u);
+    for (const auto& Entry : Plan) EXPECT_EQ(Entry.Pass, EMeshPipelinePass::ShadowDepth);
+    Params.Material.ShaderMap.BlendMode = EMaterialBlendMode::Translucent;
+    EXPECT_TRUE(SelectMaterialPSOPrecachePasses(Params, true).empty());
+    Params.PrecachePSOParams.Participation = {false, false};
+    EXPECT_TRUE(SelectMaterialPSOPrecachePasses(Params, true).empty());
+    Params.PrecachePSOParams.Participation = {};
+    Plan = SelectMaterialPSOPrecachePasses(Params, true);
+    EXPECT_EQ(Plan.size(), 20u);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::SortedTranslucency), 8);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::ShadowDepth), 0);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 0);
+    Params.Material.ShaderMap.BlendMode = EMaterialBlendMode::Masked;
+    Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::Unlit;
+    Plan = SelectMaterialPSOPrecachePasses(Params, true);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::HybridRetainedForward), 8);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::ShadowDepth), 2);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 0);
+    Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::Lit;
+    Plan = SelectMaterialPSOPrecachePasses(Params, false);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::HybridRetainedForward), 8);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 0);
+    FSceneRenderPreparationConfig Config;
+    Config.Settings.bHybrid = Config.Settings.bHitProxy = Config.bSupportsWireframe = false;
+    Params.PrecachePSOParams.bReversedZ = true;
+    Plan = SelectMaterialPSOPrecachePasses(Params, true, Config);
+    EXPECT_EQ(Plan.size(), 6u);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::Forward), 4);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::ShadowDepth), 2);
+    for (const auto& Entry : Plan) {
+        EXPECT_FALSE(Entry.Raster.bWireframe);
+        if (Entry.bRequired) EXPECT_EQ(Entry.Raster.bReversedZ, Entry.Pass != EMeshPipelinePass::ShadowDepth);
+    }
+    Config = {};
+    Config.Settings.bForward = false;
+    Plan = SelectMaterialPSOPrecachePasses(Params, true, Config);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::Forward), 0);
+    EXPECT_EQ(Count(Plan, EMeshPipelinePass::GBuffer), 8);
+}
+
+namespace
+{
+    auto MakeStoredCommand(Durin::RendererPrivate::FMeshPassKey Pass, uint64 Batch, bool Cached)
+        -> Durin::RendererPrivate::FMeshDrawCommand
+    {
+        using namespace Durin; using namespace RendererPrivate;
+        FMeshDrawCommand Command; Command.bFinalized = true; Command.bCached = Cached; Command.BatchId = Batch;
+        auto Pipeline = std::make_shared<FMeshPassPipeline>(); Pipeline->Pass = Pass.Pass; Pipeline->bGPUCulling = Pass.bGPUCulling;
+        Command.Pipeline = std::move(Pipeline); Command.Description = std::make_shared<FMeshDrawDescription>();
+        return Command;
+    }
+}
+TEST(FRendererSceneContractTests, PassCommandListsRetainSnapshotsAndRejectCrossFrameHandles)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    const FMeshPassKey Forward{EMeshPipelinePass::Forward}, Direct{EMeshPipelinePass::GBuffer}, GPU{EMeshPipelinePass::GBuffer, true};
+    std::shared_ptr<const FMeshDrawCommand> Retained;
+    std::weak_ptr<const FMeshPassPipeline> Lifetime;
+    {
+        FDynamicMeshDrawCommandStorage Frame, Other;
+        auto Publish = [&](FMeshPassKey Pass, uint64 Batch) {
+            FMeshDrawCommandHandle Receipt; FDynamicPassMeshDrawListContext Context(Frame, Pass, Receipt);
+            Context.AddCommand(MakeStoredCommand(Pass, Batch, false)); Context.FinalizeCommand(); return Receipt;
+        };
+        const auto A = Publish(Forward, 1), B = Publish(Direct, 2), C = Publish(GPU, 3);
+        Retained = Frame.GetCommand(A); Lifetime = Retained->Pipeline;
+        EXPECT_EQ(Frame.Num(Forward), 1u); EXPECT_EQ(Frame.Num(Direct), 1u); EXPECT_EQ(Frame.Num(GPU), 1u);
+        EXPECT_FALSE(Other.GetCommand(A));
+        const auto OldGPU = Frame.GetCommand(C);
+        FMeshDrawCommandHandle Completed;
+        FDynamicPassMeshDrawListContext Completion(Frame, GPU, Completed, C);
+        Completion.AddCommand(MakeStoredCommand(GPU, 99, false)); Completion.FinalizeCommand();
+        EXPECT_EQ(Completed, C); EXPECT_EQ(Frame.Num(GPU), 1u);
+        EXPECT_EQ(Frame.GetCommand(C)->BatchId, 99u); EXPECT_EQ(OldGPU->BatchId, 3u);
+        for (uint64 I = 0; I < 200; ++I) Publish(Forward, I + 100);
+        EXPECT_EQ(Frame.GetCommand(A), Retained); EXPECT_EQ(Frame.GetCommand(B)->BatchId, 2u);
+        FMeshDrawCommandHandle Unpublished;
+        { FDynamicPassMeshDrawListContext Aborted(Frame, Forward, Unpublished); Aborted.AddCommand(MakeStoredCommand(Forward, 999, false)); }
+        EXPECT_FALSE(Unpublished); EXPECT_EQ(Frame.Num(Forward), 201u);
+    }
+    EXPECT_FALSE(Lifetime.expired()); EXPECT_EQ(Retained->BatchId, 1u);
+    Retained.reset(); EXPECT_TRUE(Lifetime.expired());
+}
+TEST(FRendererSceneContractTests, CachedPassStorageBoundsRetentionAndPreservesEvictedOwners)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FCachedMeshDrawCommandStorage Storage;
+    auto Publish = [&](FMeshPassKey Pass, uint64 Batch) {
+        std::shared_ptr<const FMeshDrawCommand> Out; FCachedPassMeshDrawListContext Context(Storage, Pass, Out);
+        Context.AddCommand(MakeStoredCommand(Pass, Batch, true)); Context.FinalizeCommand(); return Out;
+    };
+    const FMeshPassKey Forward{EMeshPipelinePass::Forward}, GPU{EMeshPipelinePass::GBuffer, true};
+    auto Held = Publish(Forward, 1); const auto Key = Held->GetKey();
+    EXPECT_EQ(Storage.Find(Forward, Key), Held); EXPECT_FALSE(Storage.Find(GPU, Key));
+    std::weak_ptr<const FMeshPassPipeline> Lifetime = Held->Pipeline;
+    for (uint64 I = 0; I < 2050; ++I) Publish(I % 2 ? Forward : GPU, I + 2);
+    EXPECT_EQ(Storage.Num(), 2048u); EXPECT_FALSE(Storage.Find(Forward, Key));
+    EXPECT_EQ(Held->BatchId, 1u); EXPECT_FALSE(Lifetime.expired());
+    Storage.Reset(); EXPECT_EQ(Storage.Num(), 0u); EXPECT_FALSE(Lifetime.expired());
+    Held.reset(); EXPECT_TRUE(Lifetime.expired());
 }

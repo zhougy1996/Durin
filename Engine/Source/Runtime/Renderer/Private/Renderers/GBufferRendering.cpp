@@ -70,15 +70,14 @@ namespace Durin
 				const FVector3f BoundsMax(View.TranslateWorldPosition(Primitive->WorldBounds.Max));
 				if (!Math::IsFinite(BoundsMin) || !Math::IsFinite(BoundsMax))
 				{ ++Diagnostics.IncompatibleCandidates; continue; }
-				const auto& Record = Resolved.Draws[Draw.ResolvedIndex];
-				if (!Record.GBufferGPUCullingPipeline
-					|| !Record.Commands[3] || !Record.Commands[3]->FragmentBindings
+				const auto Command = Resolved.GetMeshDrawCommand(Draw, {RendererPrivate::EMeshPipelinePass::GBuffer, true});
+				if (!Command || !Command->Pipeline || !Command->FragmentBindings
 					|| !Primitive->CollectedBinding)
 				{ ++Diagnostics.PreparationUnavailableCandidates; continue; }
 				const FGroupKey Key{Draw.Command.get(),
 					Primitive->CollectedBinding.get(),
-					Record.GBufferGPUCullingPipeline.get(),
-					Record.Commands[3]->FragmentBindings.get()};
+					Command->Pipeline.get(),
+					Command->FragmentBindings.get()};
 				auto [GroupIt, bInserted] = GroupByKey.try_emplace(
 					Key, Groups.size());
 				if (bInserted) Groups.emplace_back();
