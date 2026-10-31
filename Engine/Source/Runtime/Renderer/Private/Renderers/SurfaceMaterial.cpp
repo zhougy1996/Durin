@@ -1,4 +1,5 @@
 #include "Renderers/SurfaceMaterial.h"
+#include "Profiling/Profiling.h"
 #include "Shader/ShaderCookedLibrary.h"
 
 #include "RendererResourceSlotCache.h"
@@ -411,3 +412,30 @@ namespace Durin::RendererPrivate
 	}
 
 } // namespace Durin::RendererPrivate
+
+namespace Durin::RendererPrivate
+{
+	auto FSurfaceMaterialResources::Prepare_RenderThread(FRHICommandListImmediate& Commands, const FMaterialRenderBinding* Binding,
+		ESurfaceMaterialPass Pass, const std::shared_ptr<const FSkyLightingGeneration>& Environment,
+		FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
+		FPreparedSurfaceMaterial& OutMaterial, const FRHIUniformBufferRange& SharedUniform) const -> bool
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareSurfaceMaterial");
+		if (Binding == nullptr || !Resolve_RenderThread(
+			*Binding, Pass, Environment,
+			DirectionalShadowTexture, DirectionalShadowSampler,
+			OutMaterial.Surface))
+		{
+			return false;
+		}
+		if (OutMaterial.Surface.bCompiledLayout)
+		{
+			OutMaterial.Uniform = SharedUniform.Buffer ? SharedUniform : Commands.CreateUniformBufferRange(
+				OutMaterial.Surface.CompiledUniformPayload.data(),
+				static_cast<uint32>(OutMaterial.Surface.CompiledUniformPayload.size()));
+			return OutMaterial.Uniform.Buffer != nullptr;
+		}
+		return false;
+	}
+
+}

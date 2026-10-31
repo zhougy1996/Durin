@@ -6,9 +6,10 @@
 #include "Renderers/StaticMeshSectionResources.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Renderers/MeshVertexFactory.h"
-#include "Renderers/StaticMeshDrawExecution.h"
+#include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/SceneViewPreparation.h"
+#include "Renderers/SurfaceMaterial.h"
 #include "Renderers/MaterialBindingResolution.h"
-#include "Renderers/MeshRendererExecution.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Materials/MaterialParameterCollection.h"
 
@@ -17,6 +18,46 @@
 namespace Durin
 {
 	using namespace RendererPrivate;
+	namespace
+	{
+		auto FinalizeResourcePreparation(
+			FResolvedStaticMeshView& ResolvedView
+		) -> FGeometryResolutionResult
+		{
+			auto& Observations = ResolvedView.Observations;
+			Observations.ResourcePreparationRejectedDraws =
+				Observations.ResourcePreparationAttemptedDraws
+				- Observations.ResourcePreparationSuccessfulDraws;
+			check(
+				Observations.ResourcePreparationAttemptedDraws
+				== Observations.ResourcePreparationSuccessfulDraws
+					   + Observations.ResourcePreparationRejectedDraws
+			);
+			return {
+				.Status = Observations.ResourcePreparationRejectedDraws == 0
+					? EGeometryResolutionStatus::Complete
+					: EGeometryResolutionStatus::Partial,
+				.AttemptedDraws = Observations.ResourcePreparationAttemptedDraws,
+				.ResolvedDraws = Observations.ResourcePreparationSuccessfulDraws,
+				.RejectedDraws = Observations.ResourcePreparationRejectedDraws
+			};
+		}
+
+		auto FinalizeExecution(
+			FResolvedStaticMeshView& ResolvedView,
+			size_t ExpectedDraws,
+			bool bExpectAllDraws = true
+		) -> void
+		{
+			const auto& Observations = ResolvedView.Observations;
+			check(
+				Observations.AttemptedDraws
+				== Observations.SuccessfulDraws + Observations.RejectedDraws
+			);
+			check(!bExpectAllDraws || Observations.AttemptedDraws == ExpectedDraws);
+		}
+	}
+
 
 
 	struct FStaticMeshRenderer::FState
@@ -640,10 +681,9 @@ namespace Durin
 			for (const auto Pass : {ESurfaceMaterialPass::Forward, ESurfaceMaterialPass::GBuffer, ESurfaceMaterialPass::MaskedShadow})
 			{
 				if (!Requests[Group].contains(Pass) || ResolvedView.MaterialUniforms[Group][Pass]) continue;
-				FPreparedStaticMeshSurfaceMaterial Material;
+				FPreparedSurfaceMaterial Material;
 				++ResolvedView.Observations.SurfaceMaterialPreparations;
-				if (!FStaticMeshSurfaceMaterialPreparer(CommandList, SurfaceMaterials, Binding, ResolvedView.Environment)
-					.Prepare(Pass,
+				if (!SurfaceMaterials.Prepare_RenderThread(CommandList, Binding, Pass, ResolvedView.Environment,
 						Pass == ESurfaceMaterialPass::Forward ? ResolvedView.DirectionalShadowTexture : nullptr,
 						Pass == ESurfaceMaterialPass::Forward ? ResolvedView.DirectionalShadowSampler : nullptr, Material, SharedMaterialUniform)) {
 						if (!bAllowPartial) return false;
@@ -958,9 +998,9 @@ namespace Durin
 				if (!FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Item.Command->Material.PlanningPassIdentity, {}, Item.Command->bSupportsGBuffer)) continue;
 				const auto* Primitive = PreparedView.GetPrimitive(Item);
 				if (!Primitive) { ResolvedView.Draws[Item.ResolvedIndex].bReady = false; Ready = false; continue; }
-				const FStaticMeshGeometryBinding Geometry(*Primitive, Item);
-				if (!Geometry.IsValid()) { ResolvedView.Draws[Item.ResolvedIndex].bReady = false; Ready = false; continue; }
-				auto Pipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .Topology = Item.Command->PipelineKey.Topology});
+				const auto Declaration = ResolveMeshVertexDeclaration(*Primitive, Item);
+				if (!Declaration) { ResolvedView.Draws[Item.ResolvedIndex].bReady = false; Ready = false; continue; }
+				auto Pipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Declaration, .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .Topology = Item.Command->PipelineKey.Topology});
 				ResolvedView.Draws[Item.ResolvedIndex].bReady = ResolvedView.IsReady(Item) && Pipeline != nullptr;
 				Ready = Pipeline && Ready;
 				ResolvedView.Draws[Item.ResolvedIndex].Pipelines[{EMeshPipelinePass::GBuffer}] = FGBufferRenderer::GetPipelineResources(Pipeline);
@@ -970,7 +1010,7 @@ namespace Durin
 					&& (!Item.Command->Material.CompiledProgram
 						|| (Item.Command->Material.CompiledProgram->GetShaderMap().RequiredStages & MaterialShaderEntryBit(EMaterialShaderEntry::GPUCullingVertex))))
 				{
-					auto GPUPipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .bGPUCulling = true, .Failure = Failure, .Topology = Item.Command->PipelineKey.Topology});
+					auto GPUPipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Declaration, .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .bGPUCulling = true, .Failure = Failure, .Topology = Item.Command->PipelineKey.Topology});
 					ResolvedView.Draws[Item.ResolvedIndex].Pipelines[{EMeshPipelinePass::GBuffer, true}] = FGBufferRenderer::GetPipelineResources(GPUPipeline);
 				}
 			}

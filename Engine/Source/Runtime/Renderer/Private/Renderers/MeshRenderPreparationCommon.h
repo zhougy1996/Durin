@@ -8,6 +8,35 @@
 
 namespace Durin
 {
+	enum class EGeometryResolutionStatus : uint8
+	{
+		Complete,
+		Partial
+	};
+
+	struct FGeometryResolutionResult
+	{
+		EGeometryResolutionStatus Status = EGeometryResolutionStatus::Complete;
+		size_t AttemptedDraws = 0;
+		size_t ResolvedDraws = 0;
+		size_t RejectedDraws = 0;
+
+		operator bool() const
+		{
+			return Status == EGeometryResolutionStatus::Complete;
+		}
+	};
+
+	struct FGeometryExecutionResult
+	{
+		bool bComplete = true;
+		bool bRenderedGeometry = false;
+		size_t AttemptedDraws = 0;
+		size_t SuccessfulDraws = 0;
+		size_t RejectedDraws = 0;
+		size_t SkippedDraws = 0;
+	};
+
 	enum class EMeshBasePass : uint8
 	{
 		Opaque,

@@ -128,6 +128,13 @@ namespace Durin
 			FRHISampler* DirectionalShadowSampler = nullptr;
 		};
 
+		// Resolved material state and the immutable uniform shared by compatible draws.
+		struct FPreparedSurfaceMaterial
+		{
+			FResolvedSurfaceMaterial Surface;
+			FRHIUniformBufferRange Uniform;
+		};
+
 		struct FSurfaceMaterialResourceCounters
 		{
 			size_t SamplerLookups = 0;
@@ -202,6 +209,10 @@ namespace Durin
 				FRHITexture* DirectionalShadowTexture,
 				FRHISampler* DirectionalShadowSampler,
 				FResolvedSurfaceMaterial& OutMaterial) const -> bool;
+			auto Prepare_RenderThread(FRHICommandListImmediate& Commands, const FMaterialRenderBinding* Binding,
+				ESurfaceMaterialPass Pass, const std::shared_ptr<const FSkyLightingGeneration>& Environment,
+				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
+				FPreparedSurfaceMaterial& OutMaterial, const FRHIUniformBufferRange& SharedUniform = {}) const -> bool;
 			auto ReleaseResources_RenderThread() -> void;
 			auto AreStableResourcesCurrent_RenderThread(const FResolvedSurfaceMaterial& Material) const -> bool;
 			auto RefreshPassResources_RenderThread(ESurfaceMaterialPass Pass,

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "GBufferContract.h"
-#include "Renderers/StaticMeshDrawExecution.h"
+#include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "Renderers/DisplayMapping.h"
