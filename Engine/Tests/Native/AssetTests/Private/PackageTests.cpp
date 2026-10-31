@@ -10,6 +10,7 @@
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/AssetPackageArchive.h"
+#include "Asset/AssetPackageLinkerSchema.h"
 #include "Asset/AssetPackageLinker.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageEditing.h"
@@ -33,6 +34,7 @@
 #include "AssetRegistry/Publication.h"
 #include "CoreGlobals.h"
 #include "DObject/Archive.h"
+#include "DObject/OverridableManager.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DefaultDeltaPlan.h"
@@ -1421,6 +1423,52 @@ namespace
 		std::vector<AssetStructTest::FDefaultReferenceValue> References;
 	};
 
+	// Pure reflected schema isolates eligibility from the callback-bearing math fixture.
+	class DObservedMathAssetForTest : public Durin::DObject
+	{
+	public:
+		explicit DObservedMathAssetForTest(const Durin::FObjectInitializer& X = Durin::FObjectInitializer::Get()) : DObject(X) {}
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X) { new (X.GetObj()) DObservedMathAssetForTest(X); }
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			using namespace Durin;
+			static DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new DClass(EC_StaticConstructor, "DObservedMathAssetForTest", sizeof(DObservedMathAssetForTest),
+					alignof(DObservedMathAssetForTest), EObjectFlags::NoFlags, EClassFlags::None,
+					EClassCastFlags::DClass, InternalConstructor<DObservedMathAssetForTest>);
+				Class->SetSuperStructBase(DObject::StaticClass());
+				Class->Register(DClass::StaticClass, "", "DObservedMathAssetForTest");
+			}
+			return Class;
+		}
+		static auto StaticClass() -> Durin::DClass*
+		{
+			using namespace Durin;
+			using namespace Durin::DurinCodeGen;
+			static const FStructPropertyParams VectorProp{"Vector", EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DObservedMathAssetForTest, Vector), &Z_Construct_DStruct_FVector3};
+			static const FStructPropertyParams Inner{"Inner", EPropertyFlags::None, 1, 0, &Z_Construct_DStruct_FVector3};
+			static const FArrayPropertyParams ValuesProp{"Values", EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DObservedMathAssetForTest, Values), &Inner, &GVector3VectorHelper};
+			static const FStringPropertyParams Key{"Key", EPropertyFlags::None, 1, 0};
+			static const FMapPropertyParams MapProp{"Map", EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DObservedMathAssetForTest, Map), &Key, &Inner, &GVectorMapHelper};
+			static const FStructPropertyParams FixedProp{"Fixed", EPropertyFlags::None, 2,
+				STRUCT_OFFSET_UINT16(DObservedMathAssetForTest, Fixed), &Z_Construct_DStruct_FVector3};
+			static const FPropertyParamsBase* Properties[]{&VectorProp, &ValuesProp, &MapProp, &FixedProp};
+			static const FClassParams Params{&StaticClassNoRegister, "Tests::DObservedMathAssetForTest",
+				"DObservedMathAssetForTest", Properties, std::size(Properties)};
+			static DClass* Class = ConstructDClass(Params);
+			return Class;
+		}
+		Durin::FVector3 Vector{0.0};
+		std::vector<Durin::FVector3> Values;
+		FVectorMap Map;
+		Durin::FVector3 Fixed[2]{Durin::FVector3(0.0), Durin::FVector3(0.0)};
+	};
+
 	auto InitializeAssetTests() -> void
 	{
 		static const bool Initialized = [] {
@@ -2075,6 +2123,193 @@ TEST_F(FAsyncAssetLoadTests, ConstructorCannotEscapeLiveLoadGuardThroughAsyncReq
 	ASSERT_NE(Escaped, nullptr);
 	EXPECT_EQ((Escaped->GetResult() ? Durin::EAssetReadError::None : Escaped->GetResult().error().Code), EAssetReadError::InUse);
 	EXPECT_EQ(FindResidentPackage(Other), nullptr);
+}
+
+TEST(FPackageAssetTests, ObservedOverrideRestorationMatchesStrictAndRejectsFailedOrFilteredEvidence)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	TStrongObjectPtr<DImportMetadataForTest> Fast(NewObject<DImportMetadataForTest>(nullptr, "ObservedFast"));
+	TStrongObjectPtr<DImportMetadataForTest> Strict(NewObject<DImportMetadataForTest>(nullptr, "ObservedStrict"));
+	const auto Owner = Fast->GetClass()->GetQualifiedName();
+	const FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(Owner, "SchemaVersion")};
+	const FAuthoredOverridePath OldPath{FAuthoredOverridePathToken::Field(Owner, "SourcePath")};
+	ASSERT_TRUE(FOverridableManager::OverrideProperty(*Fast, OldPath));
+	const auto Prior = FOverridableManager::GetOverriddenProperties(*Fast);
+	ObjectPackage::FPropertyTag Field{.DeclaringType = Owner.ToString(), .FieldName = "SchemaVersion",
+		.Type = {.Kind = ObjectPackage::EValueKind::U32}, .Provenance = ObjectPackage::EPropertyProvenance::Forced,
+		.Value = {.Unsigned = 1}};
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Schemas.push_back({Field.DeclaringType, {{Field.FieldName, Field.Type}}});
+	DObject* Objects[] = {Fast.Get()};
+	FAuthoredOverrideDiagnostic Diagnostic;
+	bool bObserved = false;
+	const FPackageOverrideRestore Publish = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> FAssetReadResult {
+		bObserved = true;
+		if (!Evidence || !Evidence->IsEligible()) return {EAssetReadError::CorruptFile, "Expected eligible reflected evidence."};
+		EXPECT_EQ(Evidence->GetPathVisits(), 1u);
+		EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Fast), Prior);
+		EXPECT_TRUE(FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Evidence), &Diagnostic));
+		EXPECT_EQ(Evidence, nullptr);
+		EXPECT_FALSE(FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Evidence), &Diagnostic));
+		return {};
+	};
+	const auto Loaded = LoadPackageObject(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Publish);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	EXPECT_TRUE(bObserved);
+	const auto Published = FOverridableManager::GetOverriddenProperties(*Fast);
+	ASSERT_TRUE(Published);
+	ASSERT_EQ(Published->GetEntries().size(), 1u);
+	EXPECT_EQ(CompareAuthoredOverridePaths(Published->GetEntries()[0].Path, Path), std::strong_ordering::equal);
+	FAuthoredOverrideValidationWork Work;
+	const std::array Entries{FAuthoredOverrideEntry{Path, EAuthoredOverrideProvenance::Forced}};
+	ASSERT_TRUE(FOverridableManager::RestoreOverriddenPropertyOperation(*Strict, Entries, &Diagnostic, &Work));
+	EXPECT_EQ(Work.FullCaptures, 2u);
+	const auto StrictState = FOverridableManager::GetOverriddenProperties(*Strict);
+	ASSERT_TRUE(StrictState);
+	EXPECT_EQ(CompareAuthoredOverridePaths(StrictState->GetEntries()[0].Path, Published->GetEntries()[0].Path), std::strong_ordering::equal);
+	EXPECT_EQ(Fast->SchemaVersion, Strict->SchemaVersion);
+	EXPECT_EQ(Prior->GetEntries().front().Path.back().FieldName, FName("SourcePath"));
+	FArchiveState Filtered;
+	Filtered.bFilterEditorOnly = true;
+	const FPackageOverrideRestore RejectFiltered = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> FAssetReadResult {
+		if (!Evidence) return {EAssetReadError::CorruptFile, "Missing fallback context."};
+		EXPECT_FALSE(Evidence->IsEligible());
+		EXPECT_EQ(Evidence->GetFallbackReason(), EOverrideRestoreFallbackReason::FilteredContext);
+		EXPECT_FALSE(FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Evidence), &Diagnostic));
+		return {};
+	};
+	ASSERT_TRUE(LoadPackageObject(*Fast, std::span{&Field, 1}, Linker, Objects, {}, Filtered, RejectFiltered));
+	EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Fast), Published);
+	std::unique_ptr<FOverriddenPropertyRestoreContext> Escaped;
+	const FPackageOverrideRestore Escape = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> FAssetReadResult {
+		EXPECT_TRUE(Evidence && Evidence->IsEligible());
+		Escaped = std::move(Evidence);
+		return {};
+	};
+	ASSERT_TRUE(LoadPackageObject(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Escape));
+	ASSERT_TRUE(Escaped);
+	EXPECT_FALSE(Escaped->IsEligible());
+	EXPECT_FALSE(FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Escaped), &Diagnostic));
+	EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Fast), Published);
+	Field.FieldName = "Missing";
+	bObserved = false;
+	EXPECT_FALSE(LoadPackageObject(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Publish));
+	EXPECT_FALSE(bObserved);
+	EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Fast), Published);
+}
+
+TEST(FPackageAssetTests, ObservedNestedContainerReplacementsMatchStrictNormalization)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackagePath PackagePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ObservedContainers", PackagePath));
+	DObservedMathAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(PackagePath, Source));
+	struct FCleanup
+	{
+		DPackage* Package;
+		~FCleanup() { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+	} Cleanup{Source->GetPackage()};
+	Source->Vector = FVector3(7.0, 0.0, 0.0);
+	Source->Values = {FVector3(2.0)};
+	Source->Map.emplace("entry", FVector3(3.0));
+	const auto Owner = Source->GetClass()->GetQualifiedName();
+	auto FieldPath = [&](const char* Name) { return FAuthoredOverridePath{FAuthoredOverridePathToken::Field(Owner, Name)}; };
+	auto VectorPath = FieldPath("Vector");
+	VectorPath.push_back(FAuthoredOverridePathToken::Field("Durin::FVector3", "x"));
+	ASSERT_TRUE(FOverridableManager::OverrideProperty(*Source, VectorPath));
+	for (const char* Name : {"Values", "Map", "Fixed"}) ASSERT_TRUE(FOverridableManager::OverrideProperty(*Source, FieldPath(Name)));
+	FAssetPackageEncodedClosure Encoded;
+	const auto Written = TaggedPackage::GetCodec().Write(Source->GetPackage(), Encoded, EDefaultDeltaMode::NoDelta, {});
+	ASSERT_TRUE(Written) << Written.Message;
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Encoded.PackageBytes, Encoded.BulkBytes, PackagePath, Linker));
+	ASSERT_EQ(Linker.Exports.size(), 1u);
+	auto& Fields = Linker.Exports.front().Properties;
+	const auto Vector = *std::ranges::find(Fields, "Vector", &ObjectPackage::FPropertyTag::FieldName);
+	std::vector<FAuthoredOverrideEntry> StrictEntries{{VectorPath}};
+	for (auto& Field : Fields)
+	{
+		if (Field.FieldName == "Vector") continue;
+		Field.Provenance = ObjectPackage::EPropertyProvenance::Explicit;
+		const bool bMap = Field.FieldName == "Map";
+		Field.Type.Children[bMap ? 1 : 0] = Vector.Type;
+		if (bMap) Field.Value.Elements[1] = Vector.Value;
+		else for (auto& Value : Field.Value.Elements) Value = Vector.Value;
+		for (auto& Schema : Linker.Schemas)
+			if (Schema.QualifiedName == Field.DeclaringType)
+				for (auto& Descriptor : Schema.Fields)
+					if (Descriptor.Name == Field.FieldName) Descriptor.Type = Field.Type;
+		const size_t Count = bMap ? 1 : Field.Value.Elements.size();
+		for (size_t Index = 0; Index < Count; ++Index)
+		{
+			auto Path = FieldPath(Field.FieldName.c_str());
+			if (bMap)
+			{
+				FByteBuffer Token;
+				ASSERT_TRUE(ObjectPackage::BuildCanonicalMapKeyToken(Field.Type.Children[0], Field.Value.Elements[0], Token));
+				Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
+			}
+			else Path.push_back(Field.FieldName == "Fixed" ? FAuthoredOverridePathToken::FixedArrayElement(Index)
+				: FAuthoredOverridePathToken::ArrayElement(Index));
+			Path.push_back(VectorPath.back());
+			StrictEntries.push_back({std::move(Path)});
+		}
+	}
+	TStrongObjectPtr<DObservedMathAssetForTest> Fast(NewObject<DObservedMathAssetForTest>(nullptr, "ObservedContainersFast"));
+	TStrongObjectPtr<DObservedMathAssetForTest> Strict(NewObject<DObservedMathAssetForTest>(nullptr, "ObservedContainersStrict"));
+	DObject* Objects[] = {Fast.Get()};
+	const FPackageOverrideRestore Restore = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Context) -> FAssetReadResult {
+		if (!Context || !Context->IsEligible()) return {EAssetReadError::UnsupportedProperty, "Expected pure reflected container proof."};
+		return FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Context))
+			? FAssetReadResult{} : FAssetReadResult{EAssetReadError::CorruptFile, "Observed restore failed."};
+	};
+	const auto Loaded = LoadPackageObject(*Fast, Fields, Linker, Objects, {}, {}, Restore);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_TRUE(LoadPackageObject(*Strict, Fields, Linker, Objects, {}));
+	FAuthoredOverrideValidationWork Work;
+	ASSERT_TRUE(FOverridableManager::RestoreOverriddenPropertyOperation(*Strict, StrictEntries, nullptr, &Work));
+	EXPECT_EQ(Work.FullCaptures, 2u);
+	const auto FastState = FOverridableManager::GetOverriddenProperties(*Fast);
+	const auto StrictState = FOverridableManager::GetOverriddenProperties(*Strict);
+	ASSERT_TRUE(FastState && StrictState);
+	ASSERT_EQ(FastState->GetEntries().size(), 4u);
+	ASSERT_EQ(FastState->GetEntries().size(), StrictState->GetEntries().size());
+	for (size_t Index = 0; Index < FastState->GetEntries().size(); ++Index)
+		EXPECT_EQ(CompareAuthoredOverridePaths(FastState->GetEntries()[Index].Path, StrictState->GetEntries()[Index].Path), std::strong_ordering::equal);
+	EXPECT_EQ(Fast->Vector, Strict->Vector);
+	EXPECT_EQ(Fast->Values, Strict->Values);
+	EXPECT_EQ(Fast->Map, Strict->Map);
+	EXPECT_EQ(Fast->Fixed[0], Strict->Fixed[0]);
+	EXPECT_EQ(Fast->Fixed[1], Strict->Fixed[1]);
+}
+
+TEST(FPackageAssetTests, LoadSchemaBindingsReuseOnlyTheirNormalizedSchemaSnapshot)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate::LinkerSchema;
+	Testing::InitializeDObjectSystemForTests();
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Schemas.push_back({"Tests::NativeProjection", {{"Count", {.Kind = ObjectPackage::EValueKind::I32}}}});
+	FLoadSchemaBindings Bindings(Linker);
+	const auto& Schema = Linker.Schemas.front();
+	const auto* First = Bindings.FindProperty(Schema, "Count");
+	ASSERT_NE(First, nullptr);
+	EXPECT_EQ(First->Match.Route, EPropertyLoadRoute::Incompatible);
+	EXPECT_EQ(Bindings.FindProperty(Schema, "Count"), First);
+	EXPECT_EQ(Bindings.GetBuildCount(), 1u);
+	EXPECT_EQ(Bindings.GetReuseCount(), 1u);
+	EXPECT_EQ(Bindings.FindProperty(Schema, "Missing"), nullptr);
+	const auto Foreign = Schema;
+	EXPECT_EQ(Bindings.FindProperty(Foreign, "Count"), nullptr);
+	FLoadSchemaBindings ReloadBindings(Linker);
+	EXPECT_NE(ReloadBindings.FindProperty(Schema, "Count"), First);
+	EXPECT_EQ(ReloadBindings.GetBuildCount(), 1u);
+	EXPECT_EQ(ReloadBindings.GetReuseCount(), 0u);
 }
 
 TEST(FPackageAssetTests, SchemaInspectionClassifiesReadFailuresAsIoErrors)
@@ -3118,7 +3353,7 @@ TEST(FPackageAssetTests, TypeDefaultReferencesRemainExplicitAndFailedRepairRolls
 	ASSERT_NE(Asset->References[0].Reference.Get(), nullptr);
 	EXPECT_EQ(Asset->References[0].Reference->GetPackage()->GetPackagePath(), DependencyPath.ToString());
 	EXPECT_EQ(AssetStructTest::DefaultReferenceCallbacks, 2u);
-	EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Asset));
 	const std::array Paths{Path, DependencyPath};
 	{ const auto Result = Testing::RemoveAssetPackagesForTests(Paths); EXPECT_TRUE(Result) << Result.Message; }
 }
@@ -3160,7 +3395,7 @@ TEST(FPackageAssetTests, TypeDefaultContainersEvolveAndForcedSnapshotsRemainComp
 	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Sparse, EDefaultDeltaMode::Enabled, {}));
 	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Complete, EDefaultDeltaMode::NoDelta, {}));
 	const FAuthoredOverridePath ContainerPath{FAuthoredOverridePathToken::Field(Asset->GetClass()->GetQualifiedName(), FName("Vectors"))};
-	ASSERT_TRUE(Asset->SetAuthoredOverride(ContainerPath, EAuthoredOverrideProvenance::Forced));
+	ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Asset, ContainerPath, EAuthoredOverrideProvenance::Forced));
 	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Forced, EDefaultDeltaMode::Enabled, {}));
 	ObjectPackage::FLinkerTables Linker;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(Sparse.PackageBytes, Sparse.BulkBytes, Path, Linker));
@@ -3209,10 +3444,10 @@ TEST(FPackageAssetTests, TypeDefaultContainersEvolveAndForcedSnapshotsRemainComp
 		EXPECT_EQ(Asset->VectorGroups[0][1], Encoded == &Complete ? FVector3(8.0, 4.0, 5.0) : FVector3(8.0, 7.0, 9.0));
 		EXPECT_EQ(Asset->VectorMap.at("changed"), Encoded == &Complete ? FVector3(8.0, 4.0, 5.0) : FVector3(8.0, 7.0, 9.0));
 		EXPECT_EQ(Asset->Transforms[0].Translation, FVector3(12.0, 0.0, 0.0));
-		EXPECT_EQ(Asset->HasAllocatedAuthoredOverrideLedger(), Encoded == &Forced);
+		EXPECT_EQ(Durin::FOverridableManager::HasOverriddenProperties(*Asset), Encoded == &Forced);
 	}
 	// Replacing membership preserves insertion, deletion and ordering.
-	ASSERT_TRUE(Asset->ClearAuthoredOverride(ContainerPath));
+	ASSERT_TRUE(Durin::FOverridableManager::ClearOverriddenProperty(*Asset, ContainerPath));
 	Asset->Vectors.erase(Asset->Vectors.begin());
 	std::ranges::reverse(Asset->Vectors);
 	Asset->Vectors.insert(Asset->Vectors.begin(), *TypeDefault);
@@ -3270,8 +3505,8 @@ TEST(FPackageAssetTests, DeltaSavePreservesDynamicOwnedObjectsAndRejectsMissingD
 	EXPECT_EQ(Dynamic->Vector, FVector3(7.0, 40.0, 9.0));
 	ASSERT_NE(Asset->DefaultChild.Get(), nullptr);
 	EXPECT_EQ(Asset->DefaultChild->GetOuter(), Asset);
-	EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
-	EXPECT_FALSE(Dynamic->HasAllocatedAuthoredOverrideLedger());
+	EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Asset));
+	EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Dynamic));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage(), EAssetPackageSaveMode::Complete));
 	ASSERT_TRUE(UnloadPackage(Path));
 	Defaults->Vector = FVector3(1.0, 2.0, 3.0);
@@ -3322,7 +3557,7 @@ TEST(FPackageAssetTests, OrdinaryAndCompleteSavesDoNotCreateOverrides)
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_NE(Asset, nullptr);
-		EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Asset));
 		EXPECT_EQ(Asset->Vector, FVector3(1.0, 2.0, 3.0));
 		EXPECT_EQ(Asset->Vectors, std::vector<FVector3>(65, FVector3(4.0, 0.0, 6.0)));
 		EXPECT_EQ(Asset->VectorMap, (FVectorMap{{"entry", FVector3(0.0, 8.0, 0.0)}}));
@@ -3343,7 +3578,7 @@ TEST(FPackageAssetTests, OrdinaryAndCompleteSavesDoNotCreateOverrides)
 		}
 		EXPECT_EQ(Asset->Vector, FVector3(0.0));
 		EXPECT_TRUE(Asset->Vectors.empty());
-		EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Asset));
 		ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 	}
 }
@@ -3364,7 +3599,7 @@ TEST(FPackageAssetTests, SparseReplacementsRoundTripWithoutPromotingStructParent
 	auto Child = Parent;
 	Child.push_back(FAuthoredOverridePathToken::Field(
 		Z_Construct_DStruct_FVector3()->GetQualifiedName(), FName("x")));
-	ASSERT_TRUE(Asset->SetAuthoredOverride(Child, EAuthoredOverrideProvenance::Forced));
+	ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Asset, Child, EAuthoredOverrideProvenance::Forced));
 	const auto* Codec = &TaggedPackage::GetCodec();
 	for (const auto Mode : {EDefaultDeltaMode::Enabled, EDefaultDeltaMode::NoDelta})
 	{
@@ -3380,12 +3615,12 @@ TEST(FPackageAssetTests, SparseReplacementsRoundTripWithoutPromotingStructParent
 			Asset = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}
-		const auto Entries = Asset->GetAuthoredOverrideEntries();
+		const auto Entries = Durin::FOverridableManager::GetOverriddenPropertyEntries(*Asset);
 		ASSERT_EQ(Entries.size(), 1u);
 		EXPECT_EQ(CompareAuthoredOverridePaths(Entries[0].Path, Child), std::strong_ordering::equal);
 		EXPECT_EQ(Asset->Vector, FVector3(0.0));
 	}
-	ASSERT_TRUE(Asset->SetAuthoredOverride(Parent, EAuthoredOverrideProvenance::Forced));
+	ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Asset, Parent, EAuthoredOverrideProvenance::Forced));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
 		for (auto& Export : Linker.Exports)
@@ -3404,14 +3639,14 @@ TEST(FPackageAssetTests, SparseReplacementsRoundTripWithoutPromotingStructParent
 		Asset = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
-	ASSERT_EQ(Asset->GetAuthoredOverrideEntries().size(), 1u);
-	EXPECT_EQ(CompareAuthoredOverridePaths(Asset->GetAuthoredOverrideEntries()[0].Path, Parent), std::strong_ordering::equal);
+	ASSERT_EQ(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Asset).size(), 1u);
+	EXPECT_EQ(CompareAuthoredOverridePaths(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Asset)[0].Path, Parent), std::strong_ordering::equal);
 	auto* Duplicate = DuplicateObject(Asset, nullptr, "SparseReplacementCopy").value();
 	ASSERT_NE(Duplicate, nullptr);
-	EXPECT_EQ(Duplicate->GetAuthoredOverrideEntries().size(), 1u);
+	EXPECT_EQ(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Duplicate).size(), 1u);
 	MarkObjectHierarchyAsGarbage(Duplicate);
-	EXPECT_TRUE(Asset->ClearAuthoredOverride(Parent));
-	EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	EXPECT_TRUE(Durin::FOverridableManager::ClearOverriddenProperty(*Asset, Parent));
+	EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Asset));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
 	{
@@ -3419,7 +3654,7 @@ TEST(FPackageAssetTests, SparseReplacementsRoundTripWithoutPromotingStructParent
 		Asset = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Asset));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
@@ -3443,7 +3678,7 @@ TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWitho
 	Live[1]->ExternalReference = Live[0]->DefaultChild;
 	const FAuthoredOverridePath ForcedPath{FAuthoredOverridePathToken::Field(
 		FName("Tests::DPackageAssetForTest"), FName("Value"))};
-	ASSERT_TRUE(Live[0]->SetAuthoredOverride(ForcedPath, EAuthoredOverrideProvenance::Forced));
+	ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Live[0], ForcedPath, EAuthoredOverrideProvenance::Forced));
 	for (size_t Index = 0; Index < Sources.size(); ++Index)
 	{
 		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
@@ -3499,7 +3734,7 @@ TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWitho
 	}
 	EXPECT_EQ(Prepared[0]->ExternalReference.Get(), Prepared[1]);
 	EXPECT_EQ(Prepared[1]->ExternalReference.Get(), Prepared[0]->DefaultChild.Get());
-	const auto Ledger = Prepared[0]->GetAuthoredOverrideEntries();
+	const auto Ledger = Durin::FOverridableManager::GetOverriddenPropertyEntries(*Prepared[0]);
 	EXPECT_TRUE(std::ranges::any_of(Ledger, [&](const auto& Entry) {
 		return CompareAuthoredOverridePaths(Entry.Path, ForcedPath) == 0 && Entry.Provenance == EAuthoredOverrideProvenance::Forced;
 	}));

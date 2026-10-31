@@ -32,7 +32,7 @@ namespace Durin::AssetPrivate
 				const ObjectPackage::FLinkerTables& InLinker,
 				std::span<DObject* const> InObjects,
 				const FPackageLoadBindings& InBindings,
-				const FArchiveState& Context)
+				const FArchiveState& Context, LinkerSchema::FLoadSchemaBindings& InSchemaBindings, bool bCollectRestoration)
 				: FObjectArchive({EArchiveDirection::Load,
 					Context.bCooking ? EArchivePurpose::CookedPackage : EArchivePurpose::AuthoredPackage,
 					EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
@@ -45,14 +45,21 @@ namespace Durin::AssetPrivate
 						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), InLinker.FormatVersion}},
 						InLinker.CustomVersions})
 				, Object(InObject), Fields(InFields), Linker(InLinker), Objects(InObjects), Bindings(InBindings),
-				  Consumed(InFields.size(), 0)
+				  Consumed(InFields.size(), 0), SchemaBindings(InSchemaBindings)
 			{
+				if (bCollectRestoration) PrepareOverriddenPropertyRestoration(Object);
 			}
 
 			auto GetStructBaseline() -> EArchiveStructBaseline override
 			{
 				if (!IsCurrentFieldAvailable()) return EArchiveStructBaseline::Complete;
 				return Scopes.back().Value->Baseline;
+			}
+			auto Complete(const FPackageOverrideRestore& OnValidatedValues) -> FAssetReadResult
+			{
+				auto Result = GetResult();
+				if (Result && OnValidatedValues) return OnValidatedValues(TakeOverriddenPropertyRestoration());
+				return Result;
 			}
 
 			auto GetResult() const -> FAssetReadResult
@@ -89,7 +96,7 @@ namespace Durin::AssetPrivate
 					if (Consumed[Index]) continue;
 					const auto& Tag = Fields[Index];
 					const auto* Schema = LinkerSchema::FindSchema(Linker, Tag.DeclaringType);
-					const auto Field = Schema ? LinkerSchema::FindPropertyByName(*Schema, Tag.FieldName) : std::nullopt;
+					const auto Field = Schema ? SchemaBindings.FindProperty(*Schema, Tag.FieldName) : nullptr;
 					if (!IsCooking() && Field && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Removed) continue;
 					return {EAssetReadError::UnsupportedProperty,
 						std::format("Object '{}' has an unconsumed field '{}::{}' of kind '{}'.",
@@ -330,7 +337,7 @@ namespace Durin::AssetPrivate
 				{
 					const std::string& StoredName = bTopLevel ? Fields[Index].FieldName : Parent->Value->FieldNames[Index];
 					if (Used[Index] || StoredName != Name || (bTopLevel && Fields[Index].DeclaringType != Owner)) continue;
-					const auto Field = Schema ? LinkerSchema::FindPropertyByName(*Schema, StoredName) : std::nullopt;
+					const auto Field = Schema ? SchemaBindings.FindProperty(*Schema, StoredName) : nullptr;
 					if (!Field) { Invalid("Stored field is missing from its schema."); break; }
 					const auto& Type = bTopLevel ? Fields[Index].Type : ObjectPackage::StructFieldTypes(*Parent->Type, *Parent->Value)[Index];
 					if (Type != Field->Descriptor->Type) { Invalid("Stored field type differs from its schema."); break; }
@@ -339,7 +346,12 @@ namespace Durin::AssetPrivate
 					if (Field->Kind != ExpectedKind || Field->Signature != ExpectedSignature) continue;
 					Used[Index] = 1;
 					if (Deprecation && Parent) Parent->DeprecatedProperties.push_back(Property->NamePrivate);
+					const bool bForced = bTopLevel
+						? Fields[Index].Provenance == ObjectPackage::EPropertyProvenance::Forced
+						: Index < Parent->Value->Provenances.size()
+							&& Parent->Value->Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced;
 					PushValue(Type, bTopLevel ? Fields[Index].Value : Parent->Value->Elements[Index]);
+					if (bForced && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Current) ObserveOverriddenProperty();
 					return;
 				}
 				Scopes.emplace_back();
@@ -348,7 +360,23 @@ namespace Durin::AssetPrivate
 			auto OnEnterFixedArrayElement(uint64 Index) -> void override { EnterElement(K::FixedArray, Index, 0); }
 			auto OnEnterArrayElement(uint64 Index) -> void override { EnterElement(K::Array, Index, 0); }
 			auto OnEnterMapKey(uint64 Index) -> void override { EnterElement(K::Map, Index, 0); }
-			auto OnEnterMapValue(uint64 Index) -> void override { EnterElement(K::Map, Index, 1); }
+			auto OnEnterMapValue(uint64 Index) -> void override
+			{
+				if (!IsError() && IsCurrentFieldAvailable())
+				{
+					const auto& Parent = Scopes.back();
+					if (Parent.Type->Kind == K::Map && Parent.Type->Children.size() == 2
+						&& Index < Parent.Value->Elements.size() / 2)
+					{
+						FByteBuffer Token;
+						if (const auto Result = ObjectPackage::BuildCanonicalMapKeyToken(
+							Parent.Type->Children[0], Parent.Value->Elements[static_cast<size_t>(Index) * 2], Token); !Result)
+							Invalid(ObjectPackage::ToString(Result.error()));
+						else NotifyCanonicalMapKey(Index, Token);
+					}
+				}
+				EnterElement(K::Map, Index, 1);
+			}
 			auto OnLeavePath() -> void override { LeaveValue(); }
 			auto OnLeaveField() -> void override { LeaveValue(); }
 
@@ -458,7 +486,7 @@ namespace Durin::AssetPrivate
 							{
 								const auto* Schema = LinkerSchema::FindSchema(Linker, Scope.Type->QualifiedName);
 								const auto Field = Schema && Index < Scope.Value->FieldNames.size()
-									? LinkerSchema::FindPropertyByName(*Schema, Scope.Value->FieldNames[Index]) : std::nullopt;
+									? SchemaBindings.FindProperty(*Schema, Scope.Value->FieldNames[Index]) : nullptr;
 								if (Field && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Removed) continue;
 							}
 							FailLoad(EArchiveFailureCode::MalformedSerializer, {EAssetReadError::UnsupportedProperty, "Stored field or container element was not consumed."});
@@ -474,6 +502,7 @@ namespace Durin::AssetPrivate
 			std::span<DObject* const> Objects;
 			const FPackageLoadBindings& Bindings;
 			std::vector<uint8> Consumed;
+			LinkerSchema::FLoadSchemaBindings& SchemaBindings;
 			std::vector<FLoadScope> Scopes;
 			EAssetReadError LoadError = EAssetReadError::None;
 		};
@@ -486,17 +515,21 @@ namespace Durin::AssetPrivate
 		const ObjectPackage::FLinkerTables& Linker,
 		std::span<DObject* const> Objects,
 		const FPackageLoadBindings& Bindings,
-		const FArchiveState& Context) -> FAssetReadResult
+		const FArchiveState& Context,
+		const FPackageOverrideRestore& OnValidatedValues) -> FAssetReadResult
 	{
 		FScopedObjectLoadPhase Timing(Linker.Summary.PackagePath, EObjectLoadPhase::SerializeExports, 1, Fields.size());
+		std::optional<LinkerSchema::FLoadSchemaBindings> LocalBindings;
+		if (!Bindings.SchemaBindings) LocalBindings.emplace(Linker);
+		auto& SchemaBindings = Bindings.SchemaBindings ? *Bindings.SchemaBindings : *LocalBindings;
 		FPackageLoadArchive Archive(
-			Object, Fields, Linker, Objects, Bindings, Context);
+			Object, Fields, Linker, Objects, Bindings, Context, SchemaBindings, bool(OnValidatedValues));
 		{
 			auto Scope = Archive.EnterObject(Object);
 			if (Context.bCooking) Object.SerializeCooked(Archive);
 			else Object.Serialize(Archive);
 		}
-		return Archive.GetResult();
+		return Archive.Complete(OnValidatedValues);
 	}
 	auto DecodeReferenceByteToolValue(
 		FProperty* Property,

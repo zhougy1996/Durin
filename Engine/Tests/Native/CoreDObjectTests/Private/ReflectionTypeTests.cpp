@@ -12,6 +12,7 @@
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Archive.h"
+#include "DObject/OverridableManager.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/AssetPath.h"
@@ -2507,7 +2508,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto Required = std::ranges::find(Fields, FName("Required"), [](const auto& Field) { return Field.Descriptor.Name; });
 		ASSERT_NE(Required, Fields.end());
 		CheckComplete(*Required->Value);
-		ASSERT_TRUE(Owner->SetAuthoredOverride({FAuthoredOverridePathToken::Field(Owner->GetClass()->GetQualifiedName(), FName("Values"))}, EAuthoredOverrideProvenance::Forced));
+		ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Owner, {FAuthoredOverridePathToken::Field(Owner->GetClass()->GetQualifiedName(), FName("Values"))}, EAuthoredOverrideProvenance::Forced));
 		ASSERT_TRUE(BuildDefaultDeltaPlan(Owner, EDefaultDeltaMode::Enabled, Plan));
 		for (const auto& Field : Plan.Objects.front().Fields) CheckComplete(*Field.Value);
 		ASSERT_TRUE(BuildDefaultDeltaPlan(Owner, EDefaultDeltaMode::NoDelta, Plan));
@@ -2947,7 +2948,119 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::CollectGarbage();
 	}
 
-	TEST(FCoreDObjectReflectionTests, AuthoredOverrideLedgerIsCanonicalTransactionalAndCopied)
+	TEST(FCoreDObjectReflectionTests, SerializedPropertyChainBalancesNativeContainersAndInvalidatesViews)
+	{
+		using namespace Durin;
+		FPropertyVisitorPath Escaped;
+		FAuthoredOverridePath Durable;
+		{
+			FByteBuffer Bytes;
+			FObjectMemoryWriter Archive(Bytes);
+			const auto& Chain = Archive.GetSerializedPropertyChain();
+			EXPECT_TRUE(Chain.GetSegments().empty());
+			{
+				auto Field = Archive.EnterField({.DeclaringType = FName("Tests::Native"), .Name = FName("Map")});
+				const FByteBuffer Key{std::byte{7}};
+				Archive.NotifyCanonicalMapKey(0, Key);
+				{
+					auto KeyScope = Archive.EnterMapKey(0);
+					EXPECT_EQ(Chain.GetVisitorPath().ToDurablePath().error(), EAuthoredOverrideFailureReason::InvalidToken);
+				}
+				{
+					auto Value = Archive.EnterMapValue(0);
+					auto Array = Archive.EnterArrayElement(3);
+					auto Fixed = Archive.EnterFixedArrayElement(1);
+					auto Nested = Archive.EnterField({.DeclaringType = FName("Tests::Value"), .Name = FName("Count")});
+					auto View = Chain.GetVisitorPath();
+					ASSERT_TRUE(View.IsValid());
+					const auto Path = View.ToDurablePath();
+					ASSERT_TRUE(Path);
+					Durable = *Path;
+					ASSERT_EQ(Durable.size(), 5u);
+					EXPECT_EQ(Durable[1].MapKeyToken, Key);
+					EXPECT_EQ(Durable[2].Index, 3u);
+					Escaped = View;
+				}
+				EXPECT_FALSE(Escaped.IsValid());
+				EXPECT_EQ(Chain.GetSegments().size(), 1u);
+			}
+			EXPECT_TRUE(Chain.GetSegments().empty());
+			Escaped = Chain.GetVisitorPath();
+			EXPECT_TRUE(Escaped.IsValid());
+		}
+		EXPECT_FALSE(Escaped.IsValid());
+		EXPECT_EQ(Escaped.ToDurablePath().error(), EAuthoredOverrideFailureReason::StaleTraversal);
+		EXPECT_EQ(Durable.back().FieldName, FName("Count"));
+	}
+
+	TEST(FCoreDObjectReflectionTests, SerializedPropertyChainUnwindsOnCallbackExceptionAndArchiveFailure)
+	{
+		using namespace Durin;
+		class FThrowingArchive final : public FObjectArchive
+		{
+		public:
+			FThrowingArchive() : FObjectArchive({EArchiveDirection::Save, EArchivePurpose::Discovery}) {}
+			auto SerializeRawBytes(FMutableByteView) -> void override {}
+		protected:
+			auto OnEnterField(const FArchiveFieldDescriptor&) -> void override { throw 7; }
+		};
+		FThrowingArchive Throwing;
+		EXPECT_THROW(Throwing.EnterField({.Name = FName("Native")}), int);
+		EXPECT_TRUE(Throwing.GetSerializedPropertyChain().GetSegments().empty());
+		FByteBuffer Bytes;
+		FObjectMemoryWriter Archive(Bytes);
+		{
+			auto Scope = Archive.EnterField({.Name = FName("Native")});
+			Archive.SetError("Injected traversal failure");
+		}
+		EXPECT_TRUE(Archive.IsError());
+		EXPECT_TRUE(Archive.GetSerializedPropertyChain().GetSegments().empty());
+	}
+
+	TEST(FCoreDObjectReflectionTests, OverrideManagerReportsStructuralAncestorsAndInheritedReplacement)
+	{
+		using namespace Durin;
+		Testing::InitializeDObjectSystemForTests();
+		auto* Instance = NewObject<DDefaultGraphOwnerForTest>(nullptr, "ManagerQueries");
+		const FAuthoredOverridePath Parent{FAuthoredOverridePathToken::Field(
+			Instance->GetClass()->GetQualifiedName(), FName("ClassSpecific"))};
+		auto Child = Parent;
+		Child.push_back(FAuthoredOverridePathToken::Field(FName("Durin::FVector3"), FName("x")));
+		EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Instance), nullptr);
+		ASSERT_TRUE(FOverridableManager::OverrideProperty(*Instance, Child));
+		auto Structural = FOverridableManager::GetOverriddenPropertyOperation(*Instance, Parent);
+		ASSERT_TRUE(Structural);
+		EXPECT_EQ(Structural->Operation, EOverriddenPropertyOperation::None);
+		EXPECT_TRUE(Structural->bHasOverriddenDescendants);
+		EXPECT_FALSE(Structural->bInherited);
+		const auto Snapshot = FOverridableManager::GetOverriddenProperties(*Instance);
+		ASSERT_TRUE(Snapshot);
+		ASSERT_TRUE(FOverridableManager::OverrideProperty(*Instance, Parent));
+		auto Effective = FOverridableManager::GetOverriddenPropertyOperation(*Instance, Child);
+		ASSERT_TRUE(Effective);
+		EXPECT_EQ(Effective->Operation, EOverriddenPropertyOperation::Replace);
+		EXPECT_TRUE(Effective->bInherited);
+		EXPECT_EQ(Effective->ReplacementDepth, 1u);
+		EXPECT_EQ(Effective->Provenance, EAuthoredOverrideProvenance::Forced);
+		EXPECT_FALSE(FOverridableManager::ClearOverriddenProperty(*Instance, Child));
+		EXPECT_EQ(Snapshot->GetOverriddenPropertyOperation(Parent).Operation, EOverriddenPropertyOperation::None);
+		EXPECT_EQ(Snapshot->GetEntries().front().Path.size(), 2u);
+		FAuthoredOverridePath Invalid = Child;
+		Invalid.back().FieldName = FName("Missing");
+		const auto Rejected = FOverridableManager::GetOverriddenPropertyOperation(*Instance, Invalid);
+		ASSERT_FALSE(Rejected);
+		EXPECT_EQ(Rejected.error().Reason, EAuthoredOverrideFailureReason::FieldNotFound);
+		FPropertyVisitorPath Stale;
+		const auto StaleQuery = FOverridableManager::GetOverriddenPropertyOperation(*Instance, Stale);
+		ASSERT_FALSE(StaleQuery);
+		EXPECT_EQ(StaleQuery.error().Reason, EAuthoredOverrideFailureReason::StaleTraversal);
+		FOverridableManager::ResetOverriddenProperties(*Instance);
+		EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Instance), nullptr);
+		EXPECT_EQ(Snapshot->GetEntries().size(), 1u);
+		MarkObjectHierarchyAsGarbage(Instance);
+	}
+
+	TEST(FCoreDObjectReflectionTests, OverriddenPropertySetIsCanonicalTransactionalAndCopied)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
@@ -2955,7 +3068,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
 		auto* Instance = Durin::NewObject<DDefaultGraphOwnerForTest>(
 			nullptr, Durin::FName("AuthoredLedgerInstance"));
-		ASSERT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
+		ASSERT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Instance));
 
 		const Durin::FName Owner = Class->GetQualifiedName();
 		const Durin::FName Vector = Durin::Z_Construct_DStruct_FVector3()->GetQualifiedName();
@@ -2967,12 +3080,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("Fixed")),
 			Durin::FAuthoredOverridePathToken::FixedArrayElement(1)};
 		Durin::FAuthoredOverrideDiagnostic LedgerDiagnostic;
-		ASSERT_TRUE(Instance->SetAuthoredOverride(
+		ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Instance,
 			NestedPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
-		ASSERT_TRUE(Instance->SetAuthoredOverride(
+		ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Instance,
 			FixedPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
-		EXPECT_TRUE(Instance->HasAllocatedAuthoredOverrideLedger());
-		ASSERT_EQ(Instance->GetAuthoredOverrideEntries().size(), 2u);
+		EXPECT_TRUE(Durin::FOverridableManager::HasOverriddenProperties(*Instance));
+		ASSERT_EQ(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Instance).size(), 2u);
 
 		Durin::FDefaultDeltaPlan Plan, Repeated;
 		Durin::FDefaultDeltaDiagnostic Diagnostic;
@@ -3011,36 +3124,36 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(X->Provenance, Durin::EDefaultDeltaProvenance::Forced);
 		EXPECT_EQ(FixedIt->Provenance, Durin::EDefaultDeltaProvenance::Forced);
 
-		const auto BeforeDuplicateFailure = Instance->GetAuthoredOverrideEntries();
+		const auto BeforeDuplicateFailure = Durin::FOverridableManager::GetOverriddenPropertyEntries(*Instance);
 		const std::array DuplicateEntries{
 			Durin::FAuthoredOverrideEntry{StructPath, Durin::EAuthoredOverrideProvenance::Forced},
 			Durin::FAuthoredOverrideEntry{StructPath, Durin::EAuthoredOverrideProvenance::Forced}};
-		EXPECT_FALSE(Instance->ReplaceAuthoredOverrides(DuplicateEntries, &LedgerDiagnostic));
+		EXPECT_FALSE(Durin::FOverridableManager::RestoreOverriddenPropertyOperation(*Instance, DuplicateEntries, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::DuplicatePath);
-		EXPECT_EQ(Instance->GetAuthoredOverrideEntries().size(), BeforeDuplicateFailure.size());
+		EXPECT_EQ(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Instance).size(), BeforeDuplicateFailure.size());
 
 		const Durin::FAuthoredOverridePath InvalidPath{
 			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("Missing"))};
-		EXPECT_FALSE(Instance->SetAuthoredOverride(
+		EXPECT_FALSE(Durin::FOverridableManager::OverrideProperty(*Instance,
 			InvalidPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::FieldNotFound);
-		EXPECT_FALSE(Instance->SetAuthoredOverride(StructPath,
+		EXPECT_FALSE(Durin::FOverridableManager::OverrideProperty(*Instance, StructPath,
 			static_cast<Durin::EAuthoredOverrideProvenance>(255), &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::InvalidProvenance);
 		auto* DefaultObject = const_cast<Durin::DObject*>(Class->GetDefaultObject());
 		ASSERT_NE(DefaultObject, nullptr);
-		EXPECT_FALSE(DefaultObject->SetAuthoredOverride(
+		EXPECT_FALSE(Durin::FOverridableManager::OverrideProperty(*DefaultObject,
 			StructPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::TemplateObject);
 		Durin::FAuthoredOverridePath Excessive = StructPath;
 		for (uint32 Index = 0; Index < Durin::DefaultDeltaMaxDepth; ++Index)
 			Excessive.push_back(Durin::FAuthoredOverridePathToken::Field(Vector, Durin::FName("x")));
-		EXPECT_FALSE(Instance->SetAuthoredOverride(
+		EXPECT_FALSE(Durin::FOverridableManager::OverrideProperty(*Instance,
 			Excessive, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::DepthLimit);
-		ASSERT_TRUE(Instance->SetAuthoredOverride(
+		ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Instance,
 			StructPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
-		EXPECT_EQ(Instance->GetAuthoredOverrideEntries().size(), 2u);
+		EXPECT_EQ(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Instance).size(), 2u);
 		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
 			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
 		const auto ReplacedStruct = std::ranges::find_if(Plan.Objects.front().Fields, [](const auto& Field) {
@@ -3053,40 +3166,40 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			return Field.Disposition == Durin::EDefaultDeltaDisposition::Emitted
 				&& Field.Provenance == Durin::EDefaultDeltaProvenance::Explicit;
 		}));
-		EXPECT_TRUE(Instance->ClearAuthoredOverride(StructPath));
-		EXPECT_EQ(Instance->GetAuthoredOverrideEntries().size(), 1u);
-		ASSERT_TRUE(Instance->SetAuthoredOverride(NestedPath, Durin::EAuthoredOverrideProvenance::Forced));
+		EXPECT_TRUE(Durin::FOverridableManager::ClearOverriddenProperty(*Instance, StructPath));
+		EXPECT_EQ(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Instance).size(), 1u);
+		ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Instance, NestedPath, Durin::EAuthoredOverrideProvenance::Forced));
 
 		Instance->bEmitOptionalField = true;
 		const Durin::FAuthoredOverridePath RemovedNativePath{
 			Durin::FAuthoredOverridePathToken::Field(
 				Durin::FName("Tests::DDefaultGraphOwnerForTest"), Durin::FName("OptionalField"))};
-		ASSERT_TRUE(Instance->SetAuthoredOverride(RemovedNativePath,
+		ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Instance, RemovedNativePath,
 			Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		Instance->bEmitOptionalField = false;
 		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
 			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
-		EXPECT_TRUE(Instance->ClearAuthoredOverride(RemovedNativePath));
+		EXPECT_TRUE(Durin::FOverridableManager::ClearOverriddenProperty(*Instance, RemovedNativePath));
 
 		auto* NewOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("LedgerDuplicateOuter"));
 		const DDefaultGraphOwnerForTest* ConstInstance = Instance;
 		auto* Duplicate = Durin::DuplicateObject(ConstInstance, NewOuter).value();
 		ASSERT_NE(Duplicate, nullptr);
 		EXPECT_EQ(Duplicate->GetFName(), Instance->GetFName());
-		EXPECT_EQ(Duplicate->GetAuthoredOverrideEntries().size(), 2u);
+		EXPECT_EQ(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Duplicate).size(), 2u);
 		std::atomic<bool> WorkerReadsSucceeded = true;
 		std::thread Worker([&] {
 			for (int Iteration = 0; Iteration < 256; ++Iteration)
-				if (Duplicate->GetAuthoredOverrideEntries().size() != 2u) WorkerReadsSucceeded = false;
+				if (Durin::FOverridableManager::GetOverriddenPropertyEntries(*Duplicate).size() != 2u) WorkerReadsSucceeded = false;
 		});
 		Worker.join();
 		EXPECT_TRUE(WorkerReadsSucceeded.load());
 
-		EXPECT_EQ(Instance->ClearAuthoredOverrideSubtree(StructPath), 1u);
-		EXPECT_FALSE(Instance->ClearAuthoredOverride(StructPath));
-		Instance->ResetAuthoredOverrides();
-		EXPECT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
-		EXPECT_TRUE(Instance->GetAuthoredOverrideEntries().empty());
+		EXPECT_EQ(Durin::FOverridableManager::ClearOverriddenPropertySubtree(*Instance, StructPath), 1u);
+		EXPECT_FALSE(Durin::FOverridableManager::ClearOverriddenProperty(*Instance, StructPath));
+		Durin::FOverridableManager::ResetOverriddenProperties(*Instance);
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Instance));
+		EXPECT_TRUE(Durin::FOverridableManager::GetOverriddenPropertyEntries(*Instance).empty());
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
 		Durin::MarkObjectHierarchyAsGarbage(NewOuter);
@@ -3116,11 +3229,11 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("Lookup")),
 			Durin::FAuthoredOverridePathToken::MapValue(StableToken)};
 		Durin::FAuthoredOverrideDiagnostic LedgerDiagnostic;
-		ASSERT_TRUE(Instance->SetAuthoredOverride(
+		ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Instance,
 			ArrayPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic))
 			<< "reason=" << static_cast<int>(LedgerDiagnostic.Reason)
 			<< " path=" << LedgerDiagnostic.LogicalPath;
-		ASSERT_TRUE(Instance->SetAuthoredOverride(
+		ASSERT_TRUE(Durin::FOverridableManager::OverrideProperty(*Instance,
 			MapPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 
 		Durin::FDefaultDeltaPlan Plan;
@@ -3169,12 +3282,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_NE(StaleArray, Plan.Objects.front().Fields.end());
 		EXPECT_EQ(StaleArray->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
 		EXPECT_EQ(StaleArray->Provenance, Durin::EDefaultDeltaProvenance::Forced);
-		const auto Replacements = Instance->GetAuthoredOverrideEntries();
+		const auto Replacements = Durin::FOverridableManager::GetOverriddenPropertyEntries(*Instance);
 		ASSERT_EQ(Replacements.size(), 2u);
 		EXPECT_TRUE(std::ranges::all_of(Replacements, [](const auto& Entry) { return Entry.Path.size() == 1; }));
-		EXPECT_TRUE(Instance->ClearAuthoredOverride(ArrayPath));
-		EXPECT_EQ(Instance->ClearAuthoredOverrideSubtree(MapPath), 1u);
-		EXPECT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_TRUE(Durin::FOverridableManager::ClearOverriddenProperty(*Instance, ArrayPath));
+		EXPECT_EQ(Durin::FOverridableManager::ClearOverriddenPropertySubtree(*Instance, MapPath), 1u);
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Instance));
 
 		Durin::DClass* NativeClass = DDefaultGraphOwnerForTest::StaticClass();
 		const std::array NativeBatch{NativeClass};
@@ -3186,7 +3299,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				Durin::FName("Tests::DDefaultGraphOwnerForTest"), Durin::FName("NativeMap")),
 			Durin::FAuthoredOverridePathToken::MapValue(
 				{std::byte{1}, std::byte{2}, std::byte{3}})};
-		EXPECT_FALSE(Native->SetAuthoredOverride(UnavailableMapPath,
+		EXPECT_FALSE(Durin::FOverridableManager::OverrideProperty(*Native, UnavailableMapPath,
 			Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::MapKeyUnavailable);
 
@@ -3243,7 +3356,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				ExpectCompleteNode(*Field.Value);
 			}
 		}
-		EXPECT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Instance));
 
 		Instance->bEmitLateField = true;
 		EXPECT_FALSE(Durin::BuildDefaultDeltaPlan(

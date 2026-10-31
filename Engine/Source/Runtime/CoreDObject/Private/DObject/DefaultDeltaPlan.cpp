@@ -1,4 +1,5 @@
 #include "DObject/DefaultDeltaPlan.h"
+#include "DObject/OverridableManager.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -987,7 +988,9 @@ namespace Durin
 		auto GatherValidReplacements(DObject* Live, const std::vector<FDefaultDeltaFieldPlan>& LiveValues,
 			FDefaultDeltaDiagnostic& Diagnostic, std::vector<FAuthoredOverrideEntry>& Entries) -> bool
 		{
-			for (const FAuthoredOverrideEntry& Entry : Live->GetAuthoredOverrideEntries())
+			const auto State = FOverridableManager::GetOverriddenProperties(*Live);
+			if (!State) return true;
+			for (const FAuthoredOverrideEntry& Entry : State->GetEntries())
 			{
 				FAuthoredOverrideDiagnostic LedgerDiagnostic;
 				if (ValidatePathTokens(Entry.Path, LedgerDiagnostic)
@@ -1097,7 +1100,7 @@ namespace Durin
 
 	auto ValidateAuthoredOverrideEntries(DObject* Object,
 		std::span<const FAuthoredOverrideEntry> Entries,
-		FAuthoredOverrideDiagnostic* OutDiagnostic) -> bool
+		FAuthoredOverrideDiagnostic* OutDiagnostic, FAuthoredOverrideValidationWork* Work) -> bool
 	{
 		FAuthoredOverrideDiagnostic Diagnostic;
 		auto Fail = [&]() {
@@ -1115,11 +1118,17 @@ namespace Durin
 			return Fail();
 		}
 		for (const FAuthoredOverrideEntry& Entry : Entries)
+		{
+			if (Work) Work->PathVisits += Entry.Path.size();
 			if (!ValidatePathTokens(Entry.Path, Diagnostic)) return Fail();
+		}
 		FDefaultDeltaDiagnostic CaptureDiagnostic;
 		std::vector<FDefaultDeltaFieldPlan> Discovery, Values;
-		if (!CaptureObject(Object, EArchivePurpose::Discovery, Discovery, CaptureDiagnostic)
-			|| !CaptureObject(Object, EArchivePurpose::AuthoredPackage, Values, CaptureDiagnostic))
+		auto Capture = [&](EArchivePurpose Purpose, std::vector<FDefaultDeltaFieldPlan>& Fields) {
+			if (Work) ++Work->FullCaptures;
+			return CaptureObject(Object, Purpose, Fields, CaptureDiagnostic);
+		};
+		if (!Capture(EArchivePurpose::Discovery, Discovery) || !Capture(EArchivePurpose::AuthoredPackage, Values))
 		{
 			Diagnostic.Reason = EAuthoredOverrideFailureReason::ArchiveFailure;
 			Diagnostic.LogicalPath = CaptureDiagnostic.LogicalPath;

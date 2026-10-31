@@ -12,6 +12,7 @@
 
 namespace Durin::AssetPrivate
 {
+	namespace LinkerSchema { class FLoadSchemaBindings; }
 	struct FAuthoredPackageSummary
 	{
 		std::string AssetClassName;
@@ -27,18 +28,23 @@ namespace Durin::AssetPrivate
 	{
 		FPackageResourceHandle BulkResource;
 		std::function<FAssetReadResult(const FObjectPath&, DObject*&)> ResolveExternalObject;
+		LinkerSchema::FLoadSchemaBindings* SchemaBindings = nullptr;
 	};
+	using FPackageOverrideRestore = std::function<FAssetReadResult(std::unique_ptr<FOverriddenPropertyRestoreContext>)>;
 
 	// Applies fields only; this does not construct a graph, invoke PostLoad, or
 	// roll back serializer writes. Callers preparing a replacement must own the target.
 	// Fields and Linker are borrowed unchanged for the synchronous Serialize call.
+	// OnValidatedValues runs after complete consumption with the archive still alive.
+	// It must consume restore evidence before editing values; escaped evidence expires.
 	ENGINE_API auto LoadPackageObject(
 		DObject& Object,
 		std::span<const ObjectPackage::FPropertyTag> Fields,
 		const ObjectPackage::FLinkerTables& Linker,
 		std::span<DObject* const> Objects,
 		const FPackageLoadBindings& Bindings,
-		const FArchiveState& Context = {}) -> FAssetReadResult;
+		const FArchiveState& Context = {},
+		const FPackageOverrideRestore& OnValidatedValues = {}) -> FAssetReadResult;
 
 	// Byte-tool restoration may resolve external object references. It is a load
 	// operation; construct-free inspection only calls it for explicit typed reads.

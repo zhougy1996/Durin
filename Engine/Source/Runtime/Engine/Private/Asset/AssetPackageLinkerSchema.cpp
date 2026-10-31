@@ -1,10 +1,52 @@
 #include "AssetPackageLinkerSchema.h"
+#include "AssetObjectLoadTiming.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/PackageValueCodec.h"
 
 namespace Durin::AssetPrivate::LinkerSchema
 {
+	FLoadSchemaBindings::~FLoadSchemaBindings()
+	{
+		FObjectLoadTimingSession::RecordBindingWork(Linker.Summary.PackagePath, Builds, Reuses);
+	}
+
+	auto FLoadSchemaBindings::FindProperty(const ObjectPackage::FSerializedSchema& Schema, std::string_view Name)
+		-> const FPropertyLoadInfo*
+	{
+		// Reject a foreign schema rather than caching an unowned descriptor pointer.
+		if (FindSchema(Linker, Schema.QualifiedName) != &Schema) return nullptr;
+		const auto Field = std::ranges::find(Schema.Fields, Name, &ObjectPackage::FSerializedField::Name);
+		if (Field == Schema.Fields.end()) return nullptr;
+		DStructBase* Owner = FindClassByQualifiedName(FName(Schema.QualifiedName));
+		if (!Owner) Owner = FindStructByQualifiedName(FName(Schema.QualifiedName));
+		const auto Existing = Entries.find(&*Field);
+		if (Existing != Entries.end())
+		{
+			auto& Entry = Existing->second;
+			if (Owner != Entry.OwnerPointer) return nullptr;
+			// Hand-built metadata can be registered by name without managed identity.
+			// Re-resolve that unproven lifetime rather than treating a null key as live.
+			if (Owner && Entry.Owner.IsNull())
+			{
+				auto Info = FindPropertyByName(Schema, Name);
+				if (!Info) return nullptr;
+				++Builds;
+				Entry.Info = std::move(*Info);
+			}
+			else
+			{
+				if (Owner && ResolveObjectKey(Entry.Owner) != Owner) return nullptr;
+				++Reuses;
+			}
+			return &Entry.Info;
+		}
+		auto Info = FindPropertyByName(Schema, Name);
+		if (!Info) return nullptr;
+		++Builds;
+		return &Entries.emplace(&*Field, FEntry{std::move(*Info), FObjectKey(Owner), Owner}).first->second.Info;
+	}
+
 	namespace
 	{
 		auto TypeKind(const ObjectPackage::FSerializedType& Input)

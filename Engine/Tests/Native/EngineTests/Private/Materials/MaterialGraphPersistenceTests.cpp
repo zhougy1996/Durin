@@ -1,4 +1,5 @@
 #include "MaterialGraphDocument.h"
+#include "DObject/OverridableManager.h"
 #include "MaterialGraphTestSupport.h"
 
 TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefaultAcrossPackageRoundTrip)
@@ -121,11 +122,11 @@ TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLe
 		Material = LoadResult.value_or(nullptr);
 		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		ASSERT_NE(Material, nullptr);
-		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Material));
 		EXPECT_EQ(CaptureExpressions(*Material), Expected);
 		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy").value());
 		ASSERT_NE(Copy, nullptr);
-		EXPECT_FALSE(Copy->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Copy));
 		EXPECT_EQ(CaptureExpressions(*Copy), Expected);
 		MarkObjectHierarchyAsGarbage(Copy);
 	}

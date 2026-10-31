@@ -61,6 +61,8 @@ requires; do not read unrelated topics or scan an entire directory.
 | Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |
 | Engine-free package saves, async completion, or staged package persistence | [Package persistence](Runtime/ObjectSystem/PackagePersistence.md) |
 | Canonical archives, object serialization, duplication, defaults, or authored override intent | [Serialization](Runtime/ObjectSystem/Serialization.md) |
+| Override manager queries, replacement intent, or validated restoration | [Authored property overrides](Runtime/ObjectSystem/PropertyOverrides.md) |
+| Object package load bindings, restore ordering, or load work counters | [Object package loading](Runtime/Assets/Packages/ObjectLoading.md) |
 | Window decoration modes, custom title bars, or native hit testing | [Window frames](Runtime/Application/WindowFrames.md) |
 | Image decoding, Radiance HDR, or grayscale16 PNG | [Core image codec](Runtime/Core/ImageCodec.md) |
 | Actor or Component Tick registration, groups, ordering, or mutation | [Tick scheduling](Runtime/World/TickScheduling.md) |

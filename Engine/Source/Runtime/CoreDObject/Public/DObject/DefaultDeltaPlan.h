@@ -4,7 +4,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/Archive.h"
-#include "DObject/AuthoredOverrideLedger.h"
+#include "DObject/AuthoredOverridePath.h"
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/Property.h"
 

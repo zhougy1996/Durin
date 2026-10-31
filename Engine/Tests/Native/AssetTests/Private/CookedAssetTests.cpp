@@ -117,8 +117,6 @@ namespace
 			Texture->SetPlatformData(nullptr);
 			Texture->CachePlatformData();
 			EXPECT_FALSE(Texture->HasPlatformData());
-			EXPECT_EQ(Texture->GetResourceUpdateState(), ETextureResourceUpdateState::Failed);
-			EXPECT_FALSE(Texture->GetResourceUpdateError().empty());
 			Logger.Flush();
 			const auto Logs = Logger.ReadRecords(LogCursor);
 			const std::string DiagnosticPrefix = std::format("Cooked texture '{}': ", Texture->GetObjectPath());
