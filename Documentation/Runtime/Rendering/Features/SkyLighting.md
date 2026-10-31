@@ -4,7 +4,7 @@ Summary: Scene-owned Sky Lights consume ordinary HDR cubes or capture a bounded 
 
 Modules: Engine, Renderer, RenderCore, VulkanRHI, MetalRHI, TextureCompressor, DurinEd, Launch
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-10-31
 
 ## Authoring and source selection
 
@@ -62,9 +62,18 @@ candidates so cancellation cannot publish an uninitialized shared LUT.
 
 ## Lifetime and recovery
 
-World Tick coalesces requests even without a viewport. Launch drains them
-after RHI frame begin, before viewport submission, so dynamic upload allocation
-always has a live frame producer. Immutable native snapshots
+Sky Light registration queues an early capture. Completing level registration
+requests a final capture after actor registration and construction scripts; requests
+not yet submitted coalesce. This boundary guarantees object registration, not
+render-resource readiness. Specified-cube captures still wait for an eligible HDR
+texture, and captured-sky captures wait for an eligible procedural provider.
+Shader/PSO preparation can advance while those inputs are pending.
+
+World Tick coalesces subsequent requests even without a viewport. Pending scenes
+remain queued across frames until dependencies and GPU work complete, independently
+of World Tick or viewport submission. Launch drains them after RHI frame begin,
+before viewport submission, so dynamic upload allocation always has a live frame
+producer. Immutable native snapshots
 retain counted texture references and diagnostic mailboxes, never components
 or managed asset pointers. Ownership/source epochs are distinct from animated
 provider revisions. An admitted job is allowed to complete while animation
@@ -108,7 +117,13 @@ resource set. Rendering captures one counted scene lighting binding, including
 its sampler, and passes it through forward/deferred preparation; there is no
 mutable selected-scene context or sequence of unrelated resource getters.
 Shader/PSO preparation preserves Pending versus Failed outcomes.
-Creation failures retry at the bounded refresh interval.
+Pending dependencies and image-budget backpressure are checked each frame without
+consuming a capture interval. Only submitted captures throttle automatic sky
+updates. First, final and explicit recapture requests bypass that automatic-update
+interval. Actual creation or GPU failures retry at the bounded refresh interval;
+changing the owner, source epoch, provider or explicit request bypasses stale failure
+backoff. Automatic Refresh remains change-driven and interval-limited; it is not a
+continuous, time-sliced real-time capture mode.
 
 World-driven scenes admit once at frame start; later views in that frame reuse
 the published result. View-only preview scenes can admit through their render

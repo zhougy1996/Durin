@@ -7,6 +7,7 @@
 #include "Actors/Pawn.h"
 #include "Actors/PlayerController.h"
 #include "Components/ActorComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "ComponentReregisterContext.h"
 #include "ScopedSuspendRerunConstructionScripts.h"
 #include "DObject/ObjectLifecycle.h"
@@ -193,6 +194,18 @@ namespace Durin
 				if (CurrentLevel.Get() != Level || !CanDispatchSubsystems()) break;
 				if (Actor && !Actor->IsPendingKill() && Actor->GetOuter() == Level
 					&& !Actor->IsBeingDestroyed()) Level->OnActorAdded(Actor.Get());
+			}
+			// Registration can enqueue an early capture before every provider exists.
+			// Coalesce a final request after all actors and construction scripts settle.
+			if (CurrentLevel.Get() == Level && CanDispatchSubsystems())
+			{
+				for (const auto& Actor : Level->GetActors())
+				{
+					if (!Actor || Actor->IsPendingKill() || Actor->IsBeingDestroyed()) continue;
+					for (const auto& Component : Actor->GetComponentsSnapshot())
+						if (auto* SkyLight = Cast<DSkyLightComponent>(Component.Get()); SkyLight && SkyLight->IsRegistered())
+							SkyLight->Recapture();
+				}
 			}
 		}
 		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this)

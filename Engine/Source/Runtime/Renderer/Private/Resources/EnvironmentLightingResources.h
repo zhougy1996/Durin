@@ -41,13 +41,27 @@ namespace Durin
         auto operator==(const FSkyLightingRequestKey&) const -> bool = default;
     };
 
+    // Dependency polling never consumes a capture interval. Only submissions
+    // throttle automatic updates; actual failures have their own retry deadline.
+    struct FSkyLightingCaptureSchedule
+    {
+        double LastSubmission = -60;
+        double RetryAfter = 0;
+        std::optional<FSkyLightingRequestKey> FailedRequest;
+
+        RENDERER_API auto CanAttempt(const FSkyLightingRequestKey& Request, double Time,
+            bool bExplicitCapture, double RefreshInterval) const -> bool;
+        RENDERER_API auto Fail(const FSkyLightingRequestKey& Request, double Time, double RetryInterval) -> void;
+        RENDERER_API auto Submit(double Time) -> void;
+    };
+
     // Published is always a completed result. Jobs own unpublished candidates.
     struct FSkyLightingSceneState
     {
         std::shared_ptr<const FSkyLightingGeneration> Published;
         std::optional<FSkyLightingJob> Job;
-        double LastAttempt = -60;
-        std::optional<FSkyLightingRequestKey> LastRequest;
+        FSkyLightingCaptureSchedule Schedule;
+        bool bUpdatePending = false;
         uint64 WorldUpdateFrame=std::numeric_limits<uint64>::max();
         std::vector<std::weak_ptr<const FSkyLightingGeneration>> Generations;
 
