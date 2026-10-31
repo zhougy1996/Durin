@@ -1,5 +1,5 @@
 #include "Threading/Future.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include <gtest/gtest.h>
 #include <barrier>
 #include <latch>

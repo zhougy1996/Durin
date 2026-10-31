@@ -1,4 +1,4 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Source/SourceReferenceIndex.h"
 
 #include "Asset/Asset.h"
@@ -8,7 +8,6 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
-#include "Threading/Task.h"
 
 namespace Durin::Editor
 {

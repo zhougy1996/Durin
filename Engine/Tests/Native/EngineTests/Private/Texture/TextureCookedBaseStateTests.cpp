@@ -1,5 +1,5 @@
 #include "TextureTestSupport.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "DObject/StrongObjectPtr.h"
 
 #include "Asset/PackageInspection.h"

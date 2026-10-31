@@ -20,7 +20,7 @@
 #include "Asset/AssetCompilingManager.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Modules/ModuleManager.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"

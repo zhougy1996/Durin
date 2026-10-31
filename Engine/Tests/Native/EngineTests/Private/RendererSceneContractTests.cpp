@@ -30,7 +30,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "Math/Operations.h"
 #include "RenderingThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Renderers/SceneRenderPipeline.h"

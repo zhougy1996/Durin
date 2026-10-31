@@ -6,7 +6,7 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "Modules/ModularFeature.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Texture/Texture2DCompilation.h"
 #include "Texture2DBuildDiagnostics.h"
 #include "Texture/Texture2DCompilationTestSupport.h"

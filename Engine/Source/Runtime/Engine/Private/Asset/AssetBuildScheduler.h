@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 namespace Durin::AssetPrivate
 {

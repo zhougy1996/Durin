@@ -10,7 +10,7 @@
 #include "Materials/MaterialPreparedProgram.h"
 #include "Materials/MaterialTranslation.h"
 #include "Materials/MaterialTranslationCodec.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Misc/Paths.h"
 #include "Threading/ThreadEvent.h"
 #include "Shader/ShaderDiagnostics.h"

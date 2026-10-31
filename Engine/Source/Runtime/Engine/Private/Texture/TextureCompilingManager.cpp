@@ -9,7 +9,7 @@
 
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

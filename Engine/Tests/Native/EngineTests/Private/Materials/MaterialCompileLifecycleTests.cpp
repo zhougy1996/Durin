@@ -13,7 +13,7 @@
 #include "MaterialCookedProgramTestSupport.h"
 #include "MaterialVariantTestFixture.h"
 #include "MaterialResultFanoutTestSupport.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "MaterialTestSupport.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -25,7 +25,6 @@
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialFunction.h"
 #include "Modules/ModuleManager.h"
-#include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 
 

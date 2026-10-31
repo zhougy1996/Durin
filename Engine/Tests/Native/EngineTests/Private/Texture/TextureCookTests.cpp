@@ -6,7 +6,6 @@
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "../Materials/MaterialCookedProgramTestSupport.h"
 #include "Threading/Task.h"
-#include "Threading/TaskComposition.h"
 #include "Threading/ThreadEvent.h"
 #include "NativeAssetTestSupport.h"
 #include "NativeAssetRuntimeTestSupport.h"

@@ -2,7 +2,7 @@
 #include "CoreMinimal.h"
 #include "DerivedDataRequestOwner.h"
 #include "BuildSchedulerPrivate.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 namespace Durin::DerivedData::Private
 {
 	// External work participates in the same request-end boundary as DDC work.

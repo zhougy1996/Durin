@@ -21,7 +21,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Serialization/BinaryFormat.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"

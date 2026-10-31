@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

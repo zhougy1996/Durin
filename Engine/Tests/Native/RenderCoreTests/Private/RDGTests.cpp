@@ -8,7 +8,7 @@
 #include "Shader/Shader.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Threading/ThreadEvent.h"
 
 #include <gtest/gtest.h>

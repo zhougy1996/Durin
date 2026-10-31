@@ -6,7 +6,7 @@
 #include "Scene.h"
 #include "SceneInfo.h"
 #include "Profiling/Profiling.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

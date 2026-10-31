@@ -8,13 +8,13 @@ Last reviewed: 2026-10-31
 
 ## Construction And Acceptance
 
-`Threading/TaskComposition.h` defines the ordinary API in `Durin::Tasks`.
+`Threading/Task.h` defines the ordinary API in `Durin::Tasks`.
 `LaunchTask(Executor, Options, Callable)` returns `TTask<T>` directly,
 including `TTask<void>` for a void callable. `Tasks::FTask` is the public generic
 completion handle, an alias of `Tasks::Private::FTaskHandle`, and can observe any
 task or event without a typed result accessor. Callables accept no arguments or
-`const FTaskCancellationToken&`. Value continuations may accept the token
-before their input value; void continuations may accept the token alone.
+`const FTaskCancellationToken&`. Dependent bodies capture the input handles
+they need and inspect their states before accessing results.
 `LaunchTask(Name, Callable, Options)`
 is the Worker convenience form. Tasks participate in the process scheduler
 lifetime. Ordinary resource owners keep
@@ -24,8 +24,8 @@ There is no general task-group or group-join facade.
 `LaunchTask(Executor, Options, Callable)` supports a selected executor and
 records the executing parent identity for nested submissions. Package payload
 reads use this form when dispatching file work to BlockingIO.
-Domain queues own their admission policy. External completion tasks retain
-their scheduler participation until their producers acknowledge completion.
+Domain queues own their admission policy. Accepted producer and publication tasks
+retain their scheduler participation through ordinary terminal publication.
 Asset compilation uses explicit operation completion dependencies as
 defined in [Derived Data Build](../Assets/Build/DerivedDataBuild.md).
 Launching a child with `LaunchTask` does not add a
@@ -37,8 +37,8 @@ completion only and does not forward cancellation. There is no context or
 child-launch facade.
 
 A valid submission while its scheduler admission is open is accepted.
-Busy executors queue work. Ordinary roots, continuations, children, fan-in and
-completion sources do not return admission errors or failed surrogate tasks
+Busy executors queue work. Ordinary roots, dependent tasks and children do not
+return admission errors or failed surrogate tasks
 when scheduler thresholds are exceeded. They do not retry, wait for capacity,
 or run a callable inline. Acceptance does not promise execution success.
 
@@ -54,9 +54,10 @@ always-enabled `requiref` failure path, including Shipping. Allocation failure
 in scheduler construction/registration/dispatch/result storage is fatal; it is
 not ordinary task failure. Exceptions from user work produce Failed tasks.
 
-`Threading/Task.h` defines the common task handle, shared result storage, cancellation,
-wait operations, lifecycle and kernel primitives. Internal erased submission and
-continuation construction also return handles directly and use the same fatal
+`Threading/TaskRuntime.h` defines the common task handle, shared result storage,
+cancellation, wait operations, lifecycle and kernel primitives. The ordinary API
+includes this lower-level header in one direction. Internal erased submissions
+also return handles directly and use the same fatal
 construction contract. There is no checked capacity-admission API or admission
 result wrapper. Terminal callbacks remain available internally for owners that
 must settle a domain operation before the task publishes completion.
@@ -626,8 +627,15 @@ See [CPU Profiling](../../Development/Build/Profiling.md).
 
 ## Related Code
 
-- `Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h`
+- `Engine/Source/Runtime/Core/Public/Threading/TaskRuntime.h`
 - `Engine/Source/Runtime/Core/Public/Threading/TaskPipe.h`
 - `Engine/Source/Runtime/Core/Public/Threading/Task.h`
-- `Engine/Source/Runtime/Core/Private/Threading/Task.cpp`
+- `Engine/Source/Runtime/Core/Private/Threading/Task.cpp` (ordinary API adapters)
+- `Engine/Source/Runtime/Core/Private/Threading/TaskRuntime.cpp` (scheduler runtime)
 - `Engine/Source/Runtime/Launch/Private/EngineLoop.cpp`
+
+CoreConcurrencyTests groups ordinary task API coverage in TaskTests.cpp,
+scheduler/diagnostic/deferred execution in TaskSchedulerTests.cpp, and primitive
+thread/event/pool behavior in ThreadingTests.cpp. Pipe, concurrency limiter and
+lifecycle/retirement coverage have separate files. Their existing test suite/case
+names are preserved; moving a test does not change its filter or behavioral contract.

@@ -14,7 +14,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "World/WorldServiceTestSupport.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 inline auto InitializeDObjectSystem() -> void
 {

@@ -8,7 +8,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "RenderingThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 #include <gtest/gtest.h>
 

@@ -1,5 +1,5 @@
 #include "RHIPipelineCreation.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Threading/Private/TaskSchedulerLifetime.h"
 #include "Backend/RHICreation.h"
 #include "PipelineCompileQueue.h"

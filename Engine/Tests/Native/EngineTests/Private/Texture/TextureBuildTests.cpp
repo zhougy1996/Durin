@@ -28,7 +28,7 @@
 #include "Texture/VolumeTextureMipGenerator.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "Asset/EditorBulkDataStorage.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace
 {

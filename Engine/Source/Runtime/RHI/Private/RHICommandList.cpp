@@ -1,7 +1,7 @@
 #include "Backend/RHITextureUpload.h"
 #include "Backend/RHIDynamicBufferWrite.h"
 #include "RHICommandList.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 

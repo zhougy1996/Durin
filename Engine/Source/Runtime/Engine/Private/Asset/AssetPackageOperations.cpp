@@ -20,7 +20,7 @@
 #include "Misc/FileTime.h"
 #include "Misc/MountPaths.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Misc/Guid.h"
 
 namespace Durin

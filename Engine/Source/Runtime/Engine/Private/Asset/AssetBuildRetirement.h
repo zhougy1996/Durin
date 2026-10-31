@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Threading/CancellationToken.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataRequestOwner.h"

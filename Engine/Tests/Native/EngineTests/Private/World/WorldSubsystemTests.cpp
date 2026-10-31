@@ -1,4 +1,4 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "WorldTestSupport.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Actors/EditorActorSubsystem.h"

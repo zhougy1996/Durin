@@ -2,7 +2,7 @@
 
 #include "Image/ImageEncoder.h"
 #include "Image/ImageDecoder.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin::Editor
 {

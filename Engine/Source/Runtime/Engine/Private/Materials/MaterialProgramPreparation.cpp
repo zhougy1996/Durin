@@ -5,7 +5,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Threading/RunnableThread.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialCompilationConfiguration.h"

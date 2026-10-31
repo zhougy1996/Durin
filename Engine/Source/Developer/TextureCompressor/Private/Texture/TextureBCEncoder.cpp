@@ -2,7 +2,7 @@
 #include "Texture/TextureMipBuilder.h"
 #include "Texture/TextureMipView.h"
 
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include <bc7enc.h>
 #include <rgbcx.h>
 

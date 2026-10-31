@@ -37,7 +37,7 @@
 #include "Serialization/CustomVersion.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Physics/BodySetup.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 #include <gtest/gtest.h>
 #include "../../../../Source/Runtime/Engine/Private/Materials/MaterialTranslation.h"

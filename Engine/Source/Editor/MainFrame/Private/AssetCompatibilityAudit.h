@@ -5,7 +5,7 @@
 #include "MainFrameAPI.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 namespace Durin::Editor
 {

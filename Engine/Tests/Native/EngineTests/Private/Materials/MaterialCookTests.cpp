@@ -7,7 +7,7 @@
 #include "Shader/ShaderCompilingManager.h"
 #include "Shader/IShaderBuildModule.h"
 #include "MaterialCookedProgramTestSupport.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 static auto QualifyDefaultMaterialCook(bool Metal) -> void
 {

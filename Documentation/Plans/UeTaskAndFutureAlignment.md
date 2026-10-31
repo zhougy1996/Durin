@@ -9,6 +9,34 @@ Completed: 2026-10-31
 
 ## Current Status
 
+Stage 12 reorganizes task headers, implementation files and tests without changing
+APIs, namespaces or runtime contracts. Task is the ordinary entrypoint; TaskRuntime
+owns lower-level declarations and implementation. No compatibility forwarding
+headers remain. Final tested subtrees, based on `03dec3a29`, are `Engine`
+`f3b543c2fbc1ec6d54c1b0bee4b7225c3e66f636` and `RoadWeaver`
+`4f9f9bde0d53991bb4ad10f746e89f0d9a54b891`, using `windows-msvc-x64` /
+`Win64-Debug-DurinEditor`, 14 build jobs and serial isolation:
+
+- The four renamed Core API/runtime files compare identically to their original
+  declarations/implementations after include-path substitution. All 105 other
+  include consumers compare as include-only changes. No obsolete source/header
+  path or forwarding header remains in workspace source/build references.
+- All 174 moved test bodies and suite/case names are unchanged. Native reports
+  confirm the same complete 225-case inventory as Stage 11; CoreConcurrencyTests
+  passed all 225 cases both in one process and in serial isolated processes.
+- CoreToolTests passed 19 cases, RHIPipelineCreationTests 18, AssetPackageTests 207,
+  TextureImportWorkflowTests 25, EditorAssetWorkflowTests 43 and
+  AsyncTaskPilotLifecycleTests 1. Both real DynamicDllUnload qualification targets
+  passed, retaining module/capture retirement coverage.
+- Reports are under `Build/TaskFileLayout/Stage12-<Target>.xml`; shared Core and
+  isolated Core reports are `Stage12-Core.xml` and `Stage12-Isolated.xml`.
+  The workspace `all` incremental build and CoreConcurrencyQualificationTests
+  compilation passed. No new timing or GPU claim is made.
+- Affected analysis expands to all native tests because source registration and
+  shared test headers changed. Bounded execution covers the moved tests and typed
+  API consumers; the all build validates includes across workspace projects.
+  Changed-document/all-plan validation and staged diff checks passed.
+
 Stage 11 migrates task composition to ordinary launch prerequisites and explicit
 result inspection. Remove Tasks Then/WhenAll/ThenCompleted and the private
 continuation submission path; preserve attribution, subscriptions, event wait
@@ -491,11 +519,12 @@ names.
 | `Engine/Source/Runtime/CoreDObject/Private/DObject/PackagePersistence.cpp`: `Package.SaveAdmission` | Replace the void source with an event plus explicit admission decision, written before triggering. Disk work checks that decision, not event task state. Rejected setup must release the gate and skip writes; injected rejection and canceled publication must remain deterministic. |
 | Same file: `FSavePackageContext::SaveAsync`, `Package.SaveAsync` | Preserve the public `TTask<FPackageSaveResult>` return and task-handle cancellation in this migration. Stage 7 returns a real typed GameThread publication task and explicitly pumps it during save drain. Do not change the return to Future or a success-only event wrapper. Return the domain result after operation cleanup and retain owner accounting until task terminal publication and GameThread reaping. |
 | `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp`: `FAssetPackageSaveContext::SaveAsync`, `Asset.SaveAsync` | Apply the same real publication-task strategy, preserving `FAssetWriteResult`, cancellation requested through the returned task or domain token, GameThread commit, failure effects, and cleanup. Preserve admission-failure behavior without leaving an unacknowledged registered node. |
-| `Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h`: task composition and empty `BuildFanIn` | Stage 5 removes automatic task flattening. Use explicit dependencies and nested tasks; retain results independently. Stage 6 schedules empty fan-in as ordinary work and removes obsolete result forwarding and dynamic edges. Keep save-result machinery private without routing graph operations through standalone futures. |
+| `Engine/Source/Runtime/Core/Public/Threading/Task.h`: ordinary task API (historical composition helpers retired in Stage 11) | Stage 5 removes automatic task flattening. Use explicit dependencies and nested tasks; retain results independently. Stage 6 schedules empty fan-in as ordinary work and removes obsolete result forwarding and dynamic edges. Keep save-result machinery private without routing graph operations through standalone futures. |
 | Same file: `MakeReadyTask` | Separate ready task construction from ready future construction. Tool results use the latter. Retain an actual ready-task helper only for task consumers that need it, with explicit scheduler-lifetime/dependency rules; do not retain detached observation-only tasks under a generic task name. |
 
 Tests also constitute callers. Migrate source fixtures in CoreTests
-`TaskCompositionTests.cpp`, `TaskCloseTests.cpp`, and `ThreadingTests.cpp` by
+`TaskTests.cpp`, `TaskLifecycleTests.cpp`, `TaskPipeTests.cpp`,
+`TaskConcurrencyLimiterTests.cpp`, `TaskSchedulerTests.cpp`, and `ThreadingTests.cpp` by
 semantic purpose: event ordering, scheduler-tracked producer completion, private
 composition, or standalone promise/future behavior. Move detached-result tests
 to Future coverage; keep drain and module-retirement tests on tracked operations.
@@ -735,6 +764,23 @@ task graphs use ordinary launch prerequisites, nested completion and task events
 
 Completion: scheduled work has one submission path, all consumers use explicit
 dependencies, and event/subscription/retirement regression passes.
+
+### Stage 12: Organize task runtime files and test responsibilities
+
+Depends on Stage 11. Preserve declarations, implementation behavior and test names;
+this stage changes file ownership, includes, build references and documentation.
+
+- [x] Rename the ordinary TaskComposition API/implementation to Task and the old
+  lower-level Task files to TaskRuntime; migrate all workspace consumers directly.
+- [x] Separate limiter, pipe and lifecycle tests; retain primitive threading tests
+  in ThreadingTests and move scheduler coverage to TaskSchedulerTests.
+- [x] Preserve every test suite/case and body, register the new sources, and update
+  current contract references without compatibility forwarding headers.
+- [x] Validate Core shared-process/isolation coverage, affected consumers, workspace
+  and qualification harness compilation, and documentation.
+
+Completion: file names reflect current responsibilities, every test remains
+registered once, and semantic regression passes with no compatibility layer.
 
 ## Validation And Handoff
 

@@ -56,7 +56,7 @@
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "DObject/PackageValueCodec.h"
 
 namespace AssetStructTest

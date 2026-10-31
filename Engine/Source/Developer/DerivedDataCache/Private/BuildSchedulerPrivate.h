@@ -1,7 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "DerivedDataBuildScheduler.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 namespace Durin::DerivedData
 {
 	struct FBuildScheduleParams

@@ -9,7 +9,7 @@
 #include "Logging/Logger.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "SlangShaderCompiler.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"

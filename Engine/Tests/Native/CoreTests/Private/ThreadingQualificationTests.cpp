@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/ThreadEvent.h"
 

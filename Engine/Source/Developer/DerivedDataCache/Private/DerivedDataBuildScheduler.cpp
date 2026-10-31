@@ -1,5 +1,5 @@
 #include "BuildSchedulerPrivate.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin::DerivedData
 {

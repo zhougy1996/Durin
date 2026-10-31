@@ -8,7 +8,7 @@
 #include "Asset/CookedMeshProducts.h"
 #include "DObject/ObjectKey.h"
 #include "EngineAPI.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 namespace Durin
 {

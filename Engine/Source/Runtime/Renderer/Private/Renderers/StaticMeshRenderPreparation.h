@@ -11,7 +11,7 @@
 #include "RHIResources.h"
 #include "Scene.h"
 #include "SceneView.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Renderers/ViewPreparationMath.h"
 
 namespace Durin

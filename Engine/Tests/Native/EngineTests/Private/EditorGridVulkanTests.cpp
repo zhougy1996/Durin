@@ -20,7 +20,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "RendererModule.h"
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"

@@ -3,7 +3,7 @@
 #include "Profiling/Profiling.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin::RDGPrivate
 {

@@ -35,7 +35,7 @@
 #include "../Materials/StandardMaterialFunctionTestFixture.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Components/StaticMeshComponent.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace
 {

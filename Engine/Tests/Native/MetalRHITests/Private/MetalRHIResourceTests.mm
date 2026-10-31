@@ -11,7 +11,7 @@
 #include "MetalPipeline.h"
 #include "MetalResourceDescriptors.h"
 #include "MetalSubmission.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "MetalSampler.h"

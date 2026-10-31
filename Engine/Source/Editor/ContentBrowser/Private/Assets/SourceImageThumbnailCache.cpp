@@ -9,7 +9,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Thumbnail/ThumbnailStorage.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {

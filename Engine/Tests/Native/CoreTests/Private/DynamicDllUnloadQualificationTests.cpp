@@ -3,7 +3,7 @@
 #include "CoreGlobals.h"
 #include "Console/ConsoleCommand.h"
 #include "HAL/PlatformLTS.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 #include <gtest/gtest.h>
 

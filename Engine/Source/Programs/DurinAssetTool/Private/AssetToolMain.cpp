@@ -42,7 +42,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialFunction.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"

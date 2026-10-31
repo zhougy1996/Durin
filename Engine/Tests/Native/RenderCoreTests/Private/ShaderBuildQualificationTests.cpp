@@ -7,7 +7,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "NativeQualificationSupport.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include <gtest/gtest.h>
 
 namespace Durin

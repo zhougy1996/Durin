@@ -1,6 +1,6 @@
 #include "CacheDispatchPrivate.h"
 #include "NativeAssetBuildTestSupport.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include <gtest/gtest.h>
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/DObjectGlobals.h"
@@ -8,7 +8,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
-#include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/Texture2DCompilationTestSupport.h"

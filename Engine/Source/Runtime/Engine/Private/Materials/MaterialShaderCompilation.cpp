@@ -1,7 +1,6 @@
 #include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialCompileLifecycle.h"
-#include "Threading/Task.h"
 #include "MaterialPreparedProgram.h"
 
 #if DURIN_WITH_EDITOR
@@ -9,7 +8,7 @@
 	#include "MaterialTranslation.h"
 	#include "MaterialTranslationCodec.h"
 	#include "Shader/IShaderBuildModule.h"
-	#include "Threading/TaskComposition.h"
+	#include "Threading/Task.h"
 #endif
 
 namespace Durin

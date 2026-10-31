@@ -7,7 +7,7 @@
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include <coroutine>
 
 #include "Asset/Asset.h"
