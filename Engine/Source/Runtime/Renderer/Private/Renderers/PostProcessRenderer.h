@@ -45,7 +45,8 @@ namespace Durin
 			-> FPostProcessRenderer& = delete;
 
 		auto EnsureResources_RenderThread(
-			FRHICommandListImmediate& CommandList) -> bool;
+			FRHICommandListImmediate& CommandList, bool bPresentOutput, bool bEnableFXAA,
+			bool bHasEditorAssistance, EPixelFormat OutputFormat) -> bool;
 		static auto DescribeSceneTargets(uint32 Width, uint32 Height)
 			-> std::array<FRHITextureCreateDesc, 2>;
 		auto Draw_RenderThread(

@@ -2,7 +2,7 @@
 
 Summary: Prepare cooked material programs and exact scene Shader/PSO resources before covered drawing, with bounded ownership and explicit readiness.
 
-Modules: Engine, RenderCore, Renderer, LevelEditor
+Modules: Engine, RenderCore, Renderer, DurinEd, LevelEditor
 
 Last reviewed: 2026-10-31
 
@@ -166,24 +166,40 @@ buffer residency. Type registrations must outlive the collected values.
 `MatchesVertexElements` compares canonical input layouts for coverage validation;
 the native request and the precache path share RHI's element validation rules.
 
-One pump admits at most eight missing native Shaders and sixteen new pipeline
-requests. A nominal 2 ms deadline is checked between those operations, allowing
-one operation per pump for progress. A native call is not preemptible and cached
+`FShaderPipelineCache::SetBatchMode(BatchMode::Fast/Background)` selects one
+RenderCore admission policy. Background admits eight missing native Shaders and
+sixteen pipeline requests with a nominal 2 ms interval; Fast admits 32 Shaders
+and 64 pipeline requests with an 8 ms interval. Editor initialization selects
+Fast; host readiness, startup failure and shutdown restore Background. The mode
+does not enable component PSO precaching or alter request priority/readiness.
+Policies are snapshotted at the next frame or standalone preparation pump.
+The time interval starts at the first admitted operation and is checked between
+operations, allowing one operation for progress. A native call is not preemptible and cached
 logical traversal is not a hard frame-time bound. Pending work is revisited by the
 owner. Pipeline requests inherit the existing normal service priority; loading
 owners choose pump order rather than introducing a second scheduling queue. Terminal resource errors produce Failed rather than false readiness.
 
 `PrepareViewResources` owns the budgeted preparation scope and never draws.
 `RenderView` has no preparation observer or loading deadline. Normal resource
-resolution and the material PSO pump share a per-render-frame admission allowance
-across views: eight native Shaders, sixteen pipeline requests and a nominal 2 ms
-between operations. Exhaustion leaves local attempts Pending without throwing or
-failing the view. Cache hits remain usable. The allowance ends before graph
-recording; explicit loading pumps retain their independent per-pump budget.
+resolution, view preparation and the material PSO pump share a per-render-frame
+admission allowance across views. Nested preparation scopes reuse the enclosing
+allowance; standalone scopes use a local pump with the same policy. Re-entering
+the same frame cannot reset or enlarge its allowance. In normal draws, exhaustion
+leaves local attempts Pending without throwing or failing the view; preparation
+maps its control-flow yields to Pending. A deferred single pipeline also marks
+its enclosing resource batch Pending, even before a compile request exists.
+Cache hits remain usable. The allowance ends before graph
+recording. Explicit renderer preparation owners advance the logical render frame
+when pumping another loading frame, including in native test hosts.
 A capture owner
 pumps preparation until Ready before submitting its draw and readback; GPU
 recording and large readbacks cannot change preparation back to Pending.
 Preparation does not permit synchronous Shader compilation or render-thread waits.
+
+Post-process resources are prepared only for the requested Copy/FXAA route,
+RGBA/BGRA output and intermediate/offscreen/present attachment layout. Each
+combination has an independent generation-aware transactional slot. Preparing a
+new combination preserves completed peers and never waits for unused variants.
 
 The handle retains ShaderMap code/resources, successful transactional slot
 payloads and shared pipeline request identities. Resident slots also keep their

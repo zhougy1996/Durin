@@ -158,7 +158,7 @@ namespace Durin
 		}
 		bool RetryAdmission = false;
 		auto Request = Current->Requests.State->Request(Initializer, Name, RetryAdmission);
-		if (RetryAdmission) Current->MarkPending();
+		if (RetryAdmission) MarkResourcePending();
 		if (!Request) return nullptr;
 		const auto& Pipeline = *Request;
 		const auto Status = Pipeline->GetState();
@@ -183,7 +183,7 @@ namespace Durin
 		}
 		bool RetryAdmission = false;
 		auto Request = Current->Requests.State->Request(Initializer, Name, RetryAdmission);
-		if (RetryAdmission) Current->MarkPending();
+		if (RetryAdmission) MarkResourcePending();
 		if (!Request) return nullptr;
 		const auto& Pipeline = *Request;
 		const auto Status = Pipeline->GetState();

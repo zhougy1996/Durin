@@ -1,4 +1,5 @@
 #include "SceneRenderQualification.h"
+#include "CoreGlobals.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialInstance.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -125,6 +126,7 @@ namespace Durin
 				const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
 				const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 				do {
+					++GRenderFrameCounterRenderThread;
 					Renderer.PrepareViewResources(Commands, {Scene.get(), View, Output, false, {}}, Preparation);
 					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 					std::this_thread::yield();

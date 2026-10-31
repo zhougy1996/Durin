@@ -2,6 +2,7 @@
 #include "RenderingThread.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Profiling/Profiling.h"
+#include "ShaderPipelineCache.h"
 
 namespace Durin
 {
@@ -19,6 +20,13 @@ namespace Durin
 	{
 		if (Frame == InFrame) return;
 		Frame = InFrame; Shaders = Pipelines = Deferred = 0;
+		if (bUseBatchMode)
+		{
+			const auto Policy = FShaderPipelineCache::GetBatchBudget();
+			MaximumShaders = Policy.Shaders;
+			MaximumPipelines = Policy.Pipelines;
+			TimeBudget = Policy.Time;
+		}
 		Start = std::chrono::steady_clock::now();
 	}
 	auto FRenderResourceAdmissionBudget::Admit(bool bShader) -> bool
@@ -102,10 +110,13 @@ namespace Durin
 			State->Status = Reason;
 	}
 	FRenderResourcePreparationScope::FRenderResourcePreparationScope(const FRenderResourcePreparation& Preparation)
-		: State(Preparation.State), Previous(CurrentPreparation), Start(std::chrono::steady_clock::now())
+		: State(Preparation.State), Previous(CurrentPreparation)
 	{
 		CheckRenderingThread();
 		require(State != nullptr);
+		LocalBudget.BeginFrame(0);
+		Budget = CurrentPreparation ? CurrentPreparation->Budget
+			: CurrentAdmission ? &CurrentAdmission->Budget : &LocalBudget;
 		if (State->Status == ERenderResourcePreparationState::Ready)
 		{
 			State->Resources.clear();
@@ -130,17 +141,15 @@ namespace Durin
 	}
 	auto FRenderResourcePreparationScope::Admit(bool Shader) -> void
 	{
-		if (State->Canceled || (Shader ? Shaders >= 8 : Pipelines >= 16)
-			|| ((Shaders + Pipelines) != 0 && std::chrono::steady_clock::now() - Start >= std::chrono::milliseconds(2)))
+		if (State->Canceled || !Budget->Admit(Shader))
 		{
 			if (Profiling::IsPostCommitStartupTimingActive())
-				DURIN_DEBUG_CATEGORY("Startup", "Preparation yielded: canceled={} next={} shaders={} pipelines={} elapsed_ms={:.3f}",
-					State->Canceled.load(), Shader ? "shader" : "pipeline", Shaders, Pipelines,
-					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count());
+				DURIN_DEBUG_CATEGORY("Startup", "Preparation yielded: canceled={} next={} shaders={} pipelines={}",
+					State->Canceled.load(), Shader ? "shader" : "pipeline", Budget->Shaders, Budget->Pipelines);
 			throw FRenderResourcePreparationYield{};
 		}
-		if (Shader) { ++Shaders; ++State->Shaders; }
-		else { ++Pipelines; ++State->Pipelines; }
+		if (Shader) ++State->Shaders;
+		else ++State->Pipelines;
 	}
 	auto FRenderResourcePreparationScope::BeforeShader() -> void
 	{

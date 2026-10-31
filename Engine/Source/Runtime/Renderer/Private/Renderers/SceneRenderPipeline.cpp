@@ -242,10 +242,8 @@ namespace Durin
 		auto* Scene = Context.Logical.Scene;
 		const auto& Options = Context.Logical.Options;
 		auto& SkyBoxRenderer = Service.SkyBoxRenderer;
-		auto& PostProcessRenderer = Service.PostProcessRenderer;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.EnsureViewResources");
-			const bool bPostProcessReady = PostProcessRenderer.EnsureResources_RenderThread(CommandList);
 			// Generate before Scene Color. World-driven scenes already admitted work
 			// at frame start; extra views must not move their refresh deadline.
 			// Failure is non-fatal: StaticMeshRenderer binds the complete black
@@ -259,7 +257,7 @@ namespace Durin
 			// entering the Scene Color render pass.
 			const bool bSkyBoxResourcesReady = !Context.Logical.PreparedView->Environment
 				|| SkyBoxRenderer.EnsureResources_RenderThread();
-			if (!bPostProcessReady || (Options.Environment && !bSkyBoxResourcesReady))
+			if (Options.Environment && !bSkyBoxResourcesReady)
 			{
 				return ERenderViewResult::RendererResourcesUnavailable;
 			}
@@ -358,6 +356,10 @@ namespace Durin
 					CommandList, RenderView, EditorAssistanceRequest);
 			const bool bHasEditorAssistance =
 				PreparedEditorAssistance.HasDrawableOperation();
+			if (!Service.PostProcessRenderer.EnsureResources_RenderThread(CommandList,
+				bPresentOutput, RenderView.Settings.PostProcess.bEnableFXAA,
+				bHasEditorAssistance, OutputTarget->GetFormat()))
+				return ERenderViewResult::RendererResourcesUnavailable;
 			if (bHasEditorAssistance)
 				FeaturePlan.EditorAssistance.Purposes =
 					ESceneFeaturePurpose::Production;

@@ -73,6 +73,13 @@ namespace Durin
 			{&FPostProcessVertexShader::StaticType(),
 			 &FFXAAFragmentShader::StaticType()});
 
+		auto GetPostProcessVariantIndex(bool bPresentOutput, bool bEnableFXAA,
+			bool bHasEditorAssistance, EPixelFormat OutputFormat) -> size_t
+		{
+			const size_t Output = bHasEditorAssistance ? 0 : bPresentOutput ? 2 : 1;
+			return Output * 4 + (OutputFormat == EPixelFormat::SBGRA8_UNORM ? 2 : 0) + (bEnableFXAA ? 1 : 0);
+		}
+
 		struct FPostProcessViewUniform
 		{
 			FVector2f InvRenderTargetSize{1.0f, 1.0f};
@@ -108,30 +115,16 @@ namespace Durin
 	{
 		struct FPayload
 		{
-			FGlobalShaderSetRef CopyShaderSet;
-			FGlobalShaderSetRef FXAAShaderSet;
-			TShaderMapRef<FPostProcessVertexShader> CopyVertexShader;
-			TShaderMapRef<FPostProcessVertexShader> FXAAVertexShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FPostProcessVertexShader> VertexShader;
 			TShaderMapRef<FCopySceneColorFragmentShader> CopyFragmentShader;
 			TShaderMapRef<FFXAAFragmentShader> FXAAFragmentShader;
-			FGraphicsPipelineStateRHIRef CopyIntermediatePipelineState;
-			FGraphicsPipelineStateRHIRef FXAAIntermediatePipelineState;
-			FGraphicsPipelineStateRHIRef CopyBGRAIntermediatePipelineState;
-			FGraphicsPipelineStateRHIRef FXAABGRAIntermediatePipelineState;
-			FGraphicsPipelineStateRHIRef CopyOffscreenPipelineState;
-			FGraphicsPipelineStateRHIRef CopyBGRAOffscreenPipelineState;
-			FGraphicsPipelineStateRHIRef CopyPresentPipelineState;
-			FGraphicsPipelineStateRHIRef CopyBGRAPresentPipelineState;
-			FGraphicsPipelineStateRHIRef FXAAOffscreenPipelineState;
-			FGraphicsPipelineStateRHIRef FXAABGRAOffscreenPipelineState;
-			FGraphicsPipelineStateRHIRef FXAAPresentPipelineState;
-			FGraphicsPipelineStateRHIRef FXAABGRAPresentPipelineState;
+			FGraphicsPipelineStateRHIRef Pipeline;
 			FSamplerRHIRef SceneColorSampler;
 		};
-
-		TRenderResourceCreationSlot<FPayload> Slot{
-			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
+		using FSlot = TRenderResourceCreationSlot<FPayload>;
+		// Two shader routes, two formats, and three output attachment layouts.
+		std::array<std::unique_ptr<FSlot>, 12> Slots;
 	};
 
 	FPostProcessRenderer::FPostProcessRenderer(
@@ -146,229 +139,73 @@ namespace Durin
 	FPostProcessRenderer::~FPostProcessRenderer() = default;
 
 	auto FPostProcessRenderer::EnsureResources_RenderThread(
-		FRHICommandListImmediate& CommandList) -> bool
+		FRHICommandListImmediate& CommandList, bool bPresentOutput, bool bEnableFXAA,
+		bool bHasEditorAssistance, EPixelFormat OutputFormat) -> bool
 	{
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
-
-		FPayload* Payload = State->Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[this, &CommandList]() -> FResult {
-				const std::array<const FGlobalShaderType*, 2> CopyShaderTypes = {
+		auto& Slot = State->Slots[GetPostProcessVariantIndex(bPresentOutput,
+			bEnableFXAA, bHasEditorAssistance, OutputFormat)];
+		if (!Slot) Slot = std::make_unique<FState::FSlot>(
+			ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device);
+		return Slot->Resolve(Coordinator.GetGeneration_RenderThread(),
+			[this, &CommandList, bPresentOutput, bEnableFXAA, bHasEditorAssistance, OutputFormat]() -> FResult {
+				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
 					&FPostProcessVertexShader::StaticType(),
-					&FCopySceneColorFragmentShader::StaticType()};
-				const std::array<const FGlobalShaderType*, 2> FXAAShaderTypes = {
-					&FPostProcessVertexShader::StaticType(),
-					&FFXAAFragmentShader::StaticType()};
+					bEnableFXAA ? &FFXAAFragmentShader::StaticType() : &FCopySceneColorFragmentShader::StaticType()};
+				const auto Completion = GetGlobalShaderMap().ResolveShaderSet(
+					bEnableFXAA ? "PostProcess.FXAA" : "PostProcess.Copy", ShaderTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (Completion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
+				if (Completion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!Completion) return FResult::Failure(MakeRendererResourceCreateError(
+					ERenderResourceCreateErrorCategory::ShaderCompile, "PostProcess", bEnableFXAA ? "fxaa" : "copy",
+					ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
+					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
 				FPayload Candidate;
-				const auto CopyShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"PostProcess.Copy", CopyShaderTypes, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (CopyShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (CopyShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
-				if (!CopyShaderSetCompletion)
+				Candidate.ShaderSet = *Completion;
+				Candidate.VertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.ShaderSet);
+				FRHIShader* FragmentRHI = nullptr;
+				if (bEnableFXAA)
 				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderCompile,
-							"PostProcess",
-							"copy",
-							ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
+					Candidate.FXAAFragmentShader = TShaderMapRef<FFXAAFragmentShader>(Candidate.ShaderSet);
+					FragmentRHI = Candidate.FXAAFragmentShader.GetRHIShader(false);
 				}
-				Candidate.CopyShaderSet = *CopyShaderSetCompletion;
-				const auto FXAAShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"PostProcess.FXAA", FXAAShaderTypes, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (FXAAShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (FXAAShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
-				if (!FXAAShaderSetCompletion)
+				else
 				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderCompile,
-							"PostProcess",
-							"fxaa",
-							ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
+					Candidate.CopyFragmentShader = TShaderMapRef<FCopySceneColorFragmentShader>(Candidate.ShaderSet);
+					FragmentRHI = Candidate.CopyFragmentShader.GetRHIShader(false);
 				}
-				Candidate.FXAAShaderSet = *FXAAShaderSetCompletion;
-
-				Candidate.CopyVertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.CopyShaderSet);
-				Candidate.FXAAVertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.FXAAShaderSet);
-				Candidate.CopyFragmentShader = TShaderMapRef<FCopySceneColorFragmentShader>(Candidate.CopyShaderSet);
-				Candidate.FXAAFragmentShader = TShaderMapRef<FFXAAFragmentShader>(Candidate.FXAAShaderSet);
-
-				if (!FullscreenGeometry.EnsureResources_RenderThread(
-						CommandList))
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"PostProcess",
-							"fullscreen-geometry",
-							ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
-
-				Candidate.SceneColorSampler =
-					RHICreateSampler(FRHISamplerDesc::LinearClamp());
-				FRHIShader* CopyVertexRHI =
-					Candidate.CopyVertexShader.GetRHIShader(false);
-				FRHIShader* CopyFragmentRHI =
-					Candidate.CopyFragmentShader.GetRHIShader(false);
-				FRHIShader* FXAAVertexRHI =
-					Candidate.FXAAVertexShader.GetRHIShader(false);
-				FRHIShader* FXAAFragmentRHI =
-					Candidate.FXAAFragmentShader.GetRHIShader(false);
-				if (Candidate.SceneColorSampler == nullptr
-					|| CopyVertexRHI == nullptr || CopyFragmentRHI == nullptr
-					|| FXAAVertexRHI == nullptr || FXAAFragmentRHI == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"PostProcess",
-							"copy+fxaa",
-							ERenderResourceCreateErrorReason::ResourceCreationFailed,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				const FVertexDeclarationRHIRef& VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				auto MakePipeline =
-					[&Candidate, &VertexDeclaration](
-						FName Name,
-						FRHIShader* VertexShader,
-						FRHIShader* FragmentShader,
-						const FPipelineLayoutDesc& Layout,
-						const FRHIRenderTargetLayout& RenderTargetLayout) {
-						return CreatePostProcessPipeline(
-							Name,
-							VertexShader,
-							FragmentShader,
-							VertexDeclaration,
-							Layout,
-							RenderTargetLayout);
-					};
-				Candidate.CopyIntermediatePipelineState = MakePipeline(
-					"PostProcessCopyIntermediatePipeline",
-					CopyVertexRHI,
-					CopyFragmentRHI,
-					Candidate.CopyShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeScenePostProcessOutput());
-				Candidate.FXAAIntermediatePipelineState = MakePipeline(
-					"PostProcessFXAAIntermediatePipeline",
-					FXAAVertexRHI,
-					FXAAFragmentRHI,
-					Candidate.FXAAShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeScenePostProcessOutput());
-				Candidate.CopyBGRAIntermediatePipelineState = MakePipeline(
-					"PostProcessCopyBGRAIntermediatePipeline",
-					CopyVertexRHI,
-					CopyFragmentRHI,
-					Candidate.CopyShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeScenePostProcessOutput(
-						EPixelFormat::SBGRA8_UNORM));
-				Candidate.FXAABGRAIntermediatePipelineState = MakePipeline(
-					"PostProcessFXAABGRAIntermediatePipeline",
-					FXAAVertexRHI,
-					FXAAFragmentRHI,
-					Candidate.FXAAShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeScenePostProcessOutput(
-						EPixelFormat::SBGRA8_UNORM));
-				Candidate.CopyOffscreenPipelineState = MakePipeline(
-					"PostProcessCopyOffscreenPipeline",
-					CopyVertexRHI,
-					CopyFragmentRHI,
-					Candidate.CopyShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Offscreen));
-				Candidate.CopyPresentPipelineState = MakePipeline(
-					"PostProcessCopyPresentPipeline",
-					CopyVertexRHI,
-					CopyFragmentRHI,
-					Candidate.CopyShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Present));
-				Candidate.CopyBGRAOffscreenPipelineState = MakePipeline(
-					"PostProcessCopyBGRAOffscreenPipeline",
-					CopyVertexRHI,
-					CopyFragmentRHI,
-					Candidate.CopyShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Offscreen,
-						EPixelFormat::SBGRA8_UNORM));
-				Candidate.FXAAOffscreenPipelineState = MakePipeline(
-					"PostProcessFXAAOffscreenPipeline",
-					FXAAVertexRHI,
-					FXAAFragmentRHI,
-					Candidate.FXAAShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Offscreen));
-				Candidate.FXAAPresentPipelineState = MakePipeline(
-					"PostProcessFXAAPresentPipeline",
-					FXAAVertexRHI,
-					FXAAFragmentRHI,
-					Candidate.FXAAShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Present));
-				Candidate.FXAABGRAOffscreenPipelineState = MakePipeline(
-					"PostProcessFXAABGRAOffscreenPipeline",
-					FXAAVertexRHI,
-					FXAAFragmentRHI,
-					Candidate.FXAAShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Offscreen,
-						EPixelFormat::SBGRA8_UNORM));
-				Candidate.CopyBGRAPresentPipelineState = MakePipeline(
-					"PostProcessCopyBGRAPresentPipeline",
-					CopyVertexRHI,
-					CopyFragmentRHI,
-					Candidate.CopyShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Present,
-						EPixelFormat::SBGRA8_UNORM));
-				Candidate.FXAABGRAPresentPipelineState = MakePipeline(
-					"PostProcessFXAABGRAPresentPipeline",
-					FXAAVertexRHI,
-					FXAAFragmentRHI,
-					Candidate.FXAAShaderSet.GetPipelineLayout(),
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Present,
-						EPixelFormat::SBGRA8_UNORM));
-				if (Candidate.CopyIntermediatePipelineState == nullptr
-					|| Candidate.FXAAIntermediatePipelineState == nullptr
-					|| Candidate.CopyBGRAIntermediatePipelineState == nullptr
-					|| Candidate.FXAABGRAIntermediatePipelineState == nullptr
-					|| Candidate.CopyOffscreenPipelineState == nullptr
-					|| Candidate.CopyBGRAOffscreenPipelineState == nullptr
-					|| Candidate.CopyPresentPipelineState == nullptr
-					|| Candidate.CopyBGRAPresentPipelineState == nullptr
-					|| Candidate.FXAAOffscreenPipelineState == nullptr
-					|| Candidate.FXAABGRAOffscreenPipelineState == nullptr
-					|| Candidate.FXAAPresentPipelineState == nullptr
-					|| Candidate.FXAABGRAPresentPipelineState == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::
-								GraphicsPipeline,
-							"PostProcess",
-							"copy+fxaa",
-							ERenderResourceCreateErrorReason::PipelineCreationFailed,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
+				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource, "PostProcess", "fullscreen-geometry",
+						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
+						ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
+				Candidate.SceneColorSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
+				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
+				if (!Candidate.SceneColorSampler || !VertexRHI || !FragmentRHI)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource, "PostProcess", bEnableFXAA ? "fxaa" : "copy",
+						ERenderResourceCreateErrorReason::ResourceCreationFailed,
+						ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				const bool bBGRA = OutputFormat == EPixelFormat::SBGRA8_UNORM;
+				const auto Format = bBGRA ? EPixelFormat::SBGRA8_UNORM : EPixelFormat::SRGBA8_UNORM;
+				const auto Layout = bHasEditorAssistance
+					? RenderTargetLayouts::MakeScenePostProcessOutput(Format)
+					: RenderTargetLayouts::MakeFinalScenePostProcessOutput(bPresentOutput
+						? RenderTargetLayouts::EViewportOutput::Present : RenderTargetLayouts::EViewportOutput::Offscreen, Format);
+				const FName Name(std::format("PostProcess{}{}{}Pipeline", bEnableFXAA ? "FXAA" : "Copy",
+					bBGRA ? "BGRA" : "", bHasEditorAssistance ? "Intermediate" : bPresentOutput ? "Present" : "Offscreen"));
+				Candidate.Pipeline = CreatePostProcessPipeline(Name, VertexRHI, FragmentRHI,
+					FullscreenGeometry.GetVertexDeclaration_RenderThread(), Candidate.ShaderSet.GetPipelineLayout(), Layout);
+				if (!Candidate.Pipeline) return FResult::Failure(MakeRendererResourceCreateError(
+					ERenderResourceCreateErrorCategory::GraphicsPipeline, "PostProcess", bEnableFXAA ? "fxaa" : "copy",
+					ERenderResourceCreateErrorReason::PipelineCreationFailed,
+					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device
+						| ERenderResourceGenerationDependency::Manual));
 				return FResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
-		return Payload != nullptr;
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable) != nullptr;
 	}
 
 	auto FPostProcessRenderer::DescribeSceneTargets(uint32 Width, uint32 Height)
@@ -398,36 +235,11 @@ namespace Durin
 		EPixelFormat OutputFormat,
 		float ExposureEV) -> void
 	{
-		const FState::FPayload* Payload = State->Slot.GetPayload();
-		if (Payload == nullptr)
-		{
-			return;
-		}
-
-		const bool bBGRAOutput = OutputFormat == EPixelFormat::SBGRA8_UNORM;
-		FGraphicsPipelineStateRHIRef PipelineState;
-		if (bHasEditorAssistance)
-		{
-			PipelineState = bEnableFXAA
-				? (bBGRAOutput ? Payload->FXAABGRAIntermediatePipelineState
-					: Payload->FXAAIntermediatePipelineState)
-				: (bBGRAOutput ? Payload->CopyBGRAIntermediatePipelineState
-					: Payload->CopyIntermediatePipelineState);
-		}
-		else
-		{
-			PipelineState = bEnableFXAA
-				? (bPresentOutput
-					? (bBGRAOutput ? Payload->FXAABGRAPresentPipelineState
-						: Payload->FXAAPresentPipelineState)
-					: (bBGRAOutput ? Payload->FXAABGRAOffscreenPipelineState
-						: Payload->FXAAOffscreenPipelineState))
-				: (bPresentOutput
-					? (bBGRAOutput ? Payload->CopyBGRAPresentPipelineState
-						: Payload->CopyPresentPipelineState)
-					: (bBGRAOutput ? Payload->CopyBGRAOffscreenPipelineState
-						: Payload->CopyOffscreenPipelineState));
-		}
+		const auto& Slot = State->Slots[GetPostProcessVariantIndex(bPresentOutput,
+			bEnableFXAA, bHasEditorAssistance, OutputFormat)];
+		const FState::FPayload* Payload = Slot ? Slot->GetPayload() : nullptr;
+		if (!Payload) return;
+		const FGraphicsPipelineStateRHIRef& PipelineState = Payload->Pipeline;
 		if (PipelineState == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
@@ -497,6 +309,6 @@ namespace Durin
 
 	auto FPostProcessRenderer::ReleaseResources_RenderThread() -> void
 	{
-		State->Slot.Reset();
+		for (auto& Slot : State->Slots) Slot.reset();
 	}
 } // namespace Durin

@@ -318,6 +318,7 @@ namespace Durin
 		const FRenderResourcePreparation& Preparation) -> void
 	{
 		if (!AdmitPreparation_RenderThread(Scene, OutputTarget, Preparation)) return;
+		FRenderResourceAdmissionScope Admission(AdmissionBudget, GRenderFrameCounterRenderThread);
 		FRenderResourcePreparationScope Scope(Preparation);
 		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 		try

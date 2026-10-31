@@ -1,4 +1,5 @@
 #include "Editor/EditorEngine.h"
+#include "ShaderPipelineCache.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Notifications/Notification.h"
 #include "Notifications/EditorNotificationSubsystem.h"
@@ -112,6 +113,7 @@ namespace Durin
 	auto DEditorEngine::InitEditorInternal(const FEngineInitContext& InitContext)
 		-> bool
 	{
+		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Fast);
 		if (!DEngine::Init(InitContext))
 			return false;
 		EditorWorld = GetWorld();
@@ -180,7 +182,11 @@ namespace Durin
 				StartupState = EHostStartupState::Ready;
 			}
 			if (Status == EBootstrapStepStatus::Failed) StartupState = EHostStartupState::Failed;
-			if (StartupState != EHostStartupState::Pending) Profiling::TryLogStartupTimingSummary();
+			if (StartupState != EHostStartupState::Pending)
+			{
+				FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
+				Profiling::TryLogStartupTimingSummary();
+			}
 		};
 		if (EditorHost->IsShellPresented() && HasCurrentProject() && !bProjectContentReady)
 		{
@@ -319,6 +325,7 @@ namespace Durin
 
 	auto DEditorEngine::PrepareForShutdown() -> void
 	{
+		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
 		Super::PrepareForShutdown();
 		if (bShutdownComplete && GEditor == this) GEditor = nullptr;
 	}

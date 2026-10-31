@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "RenderResourceCreation.h"
+#include "ShaderPipelineCache.h"
 #include "Shader/Shader.h"
 #include "DynamicRHI.h"
 #include "CoreGlobals.h"
@@ -987,6 +988,110 @@ namespace Durin
 			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Task, "PreparationEviction", 0,
 				EThreadPriority::Normal, EThreadRole::RenderingThread));
 			ASSERT_NE(Thread, nullptr); Thread->WaitForCompletion();
+		}
+
+		TEST(FRenderResourceCreationTests, BatchModeChangesApplyAtFrameBoundariesAndKeepCustomBudgets)
+		{
+			const auto Previous = FShaderPipelineCache::GetBatchMode();
+			struct FRestore { FShaderPipelineCache::BatchMode Mode; ~FRestore() { FShaderPipelineCache::SetBatchMode(Mode); } } Restore{Previous};
+			FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
+			FRenderResourceAdmissionBudget Budget;
+			{
+				FRenderResourceAdmissionScope Frame(Budget, 1);
+				for (uint32 Index = 0; Index < 8; ++Index) EXPECT_TRUE(FRenderResourcePreparationScope::TryBeforeShader());
+				EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforeShader());
+			}
+			FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Fast);
+			{
+				FRenderResourceAdmissionScope SameFrame(Budget, 1);
+				EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforeShader());
+			}
+			{
+				FRenderResourceAdmissionScope NextFrame(Budget, 2);
+				for (uint32 Index = 0; Index < 32; ++Index) EXPECT_TRUE(FRenderResourcePreparationScope::TryBeforeShader());
+				EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforeShader());
+			}
+			FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
+			{
+				FRenderResourceAdmissionScope NextFrame(Budget, 3);
+				for (uint32 Index = 0; Index < 8; ++Index) EXPECT_TRUE(FRenderResourcePreparationScope::TryBeforeShader());
+				EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforeShader());
+			}
+			FRenderResourceAdmissionBudget Custom(1, 0, std::chrono::seconds(30));
+			FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Fast);
+			FRenderResourceAdmissionScope CustomFrame(Custom, 4);
+			EXPECT_TRUE(FRenderResourcePreparationScope::TryBeforeShader());
+			EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforeShader());
+			EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforePipeline());
+		}
+
+		TEST(FRenderResourceCreationTests, PreparationAndDrawsShareOneAllowanceAcrossNestedScopes)
+		{
+			class FPreparationTask final : public FRunnable
+			{
+				auto Run() -> uint32 override
+				{
+					FRenderResourceAdmissionBudget Budget(1, 1, std::chrono::seconds(30));
+					auto Owner = FRenderResourcePreparation::Create();
+					auto Other = FRenderResourcePreparation::Create();
+					{
+						FRenderResourceAdmissionScope Frame(Budget, 1);
+						{
+							FRenderResourcePreparationScope Preparation(Owner);
+							EXPECT_NO_THROW(FRenderResourcePreparationScope::BeforeShader());
+							{
+								FRenderResourcePreparationScope Nested(Other);
+								EXPECT_THROW(FRenderResourcePreparationScope::BeforeShader(), FRenderResourcePreparationYield);
+								EXPECT_NO_THROW(FRenderResourcePreparationScope::BeforePipeline());
+							}
+							EXPECT_THROW(FRenderResourcePreparationScope::BeforePipeline(), FRenderResourcePreparationYield);
+						}
+						EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforeShader());
+						EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforePipeline());
+					}
+					{
+						FRenderResourceAdmissionScope NextFrame(Budget, 2);
+						EXPECT_TRUE(FRenderResourcePreparationScope::TryBeforeShader());
+						FRenderResourcePreparationScope Preparation(Owner);
+						EXPECT_THROW(FRenderResourcePreparationScope::BeforeShader(), FRenderResourcePreparationYield);
+						EXPECT_NO_THROW(FRenderResourcePreparationScope::BeforePipeline());
+					}
+					EXPECT_EQ(Owner.GetProgress().ShaderAdmissions, 1u);
+					EXPECT_EQ(Owner.GetProgress().PipelineAdmissions, 1u);
+					EXPECT_EQ(Other.GetProgress().PipelineAdmissions, 1u);
+					return 0;
+				}
+			} Task;
+			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Task, "SharedPreparationBudget", 0,
+				EThreadPriority::Normal, EThreadRole::RenderingThread));
+			ASSERT_NE(Thread, nullptr);
+			Thread->WaitForCompletion();
+		}
+
+		TEST(FRenderResourceCreationTests, DeferredSinglePipelineMarksItsEnclosingBatchPending)
+		{
+			ASSERT_EQ(GDynamicRHI, nullptr);
+			ASSERT_TRUE(InitializeTaskScheduler(1));
+			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+			FPipelineSlotTestRHI RHI;
+			GDynamicRHI = &RHI;
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+				EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
+			FRenderResourceAdmissionBudget Budget(0, 0, std::chrono::seconds(30));
+			FRenderResourceAdmissionScope Admission(Budget, 1);
+			FRenderPipelinePreparationBatch Batch;
+			FSlot Slot;
+			EXPECT_EQ(Slot.Resolve({}, [&] {
+				const auto Pipeline = FRenderPipelineRequestScope::Compute("DeferredSinglePipeline", Initializer);
+				return Pipeline ? FResult::Success(42) : FResult::Failure(MakeError());
+			}, [](const auto&) { ADD_FAILURE() << "Admission deferral is not failure."; }), nullptr);
+			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
+			EXPECT_TRUE(FRenderPipelinePreparationBatch::HasPending());
+			EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::WaitUnavailable);
+			EXPECT_EQ(RHI.Creations.load(), 0u);
 		}
 
 	}

@@ -160,6 +160,38 @@ durin_add_native_test(RendererResourceReloadVulkanTests
 		"Exercises renderer shader recovery and resource-pool reuse with controlled native compute completion."
 )
 
+durin_add_native_test(PostProcessVulkanTests
+	KIND ${_durin_vulkan_integration_kind}
+	DOMAINS renderer shader
+	MODULES engine renderer
+	BACKENDS vulkan
+	STACKS renderer
+	TIMEOUT 900
+	SOURCES Private/PostProcessVulkanTests.cpp
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		DerivedDataCache
+		RenderCore
+		Renderer
+		ShaderBuild
+		Slang_Imported
+		VulkanRHI
+		VulkanRHITestSupport
+		Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Verifies demand-driven post-process PSO variants and cache reuse with native Vulkan creation."
+)
+
 durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS static-mesh
