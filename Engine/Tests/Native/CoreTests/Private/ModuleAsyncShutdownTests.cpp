@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "Modules/ModuleTestSupport.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 
 namespace Durin

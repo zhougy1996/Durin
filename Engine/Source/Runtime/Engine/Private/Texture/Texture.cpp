@@ -16,7 +16,7 @@
 #include "RenderResource.h"
 #include "Texture/TexturePlatformCache.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 namespace Durin
 {

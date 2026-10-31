@@ -1,7 +1,6 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "DynamicUnloadFixtureContract.h"
 
-#include "Threading/Task.h"
 #include "Console/ConsoleCommand.h"
 
 namespace Durin

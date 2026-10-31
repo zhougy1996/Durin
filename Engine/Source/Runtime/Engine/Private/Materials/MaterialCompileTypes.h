@@ -7,7 +7,7 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataRequestOwner.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #endif
 
 namespace Durin { struct FMaterialTranslationInput; struct FMaterialTranslatedProgram; class FShaderBuildHandle; }

@@ -4,7 +4,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/FilePublication.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

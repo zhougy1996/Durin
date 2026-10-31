@@ -1,11 +1,10 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include <gtest/gtest.h>
 
 #include "Assets/SourceImageThumbnailCache.h"
 #include "Assets/SourceImageThumbnailDecoder.h"
 #include "Assets/SourceImageThumbnailDiskCache.h"
 #include "NativeTestSupport.h"
-#include "Threading/Task.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {

@@ -8,7 +8,7 @@
 #include "Components/ProceduralSkyComponent.h"
 #include "Components/SkyLightComponent.h"
 #include <glm/gtc/packing.hpp>
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "RenderResourcePreparation.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"

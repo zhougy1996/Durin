@@ -5,7 +5,7 @@
 #include "ShaderSharedOutput.h"
 #include "ShaderCaptureLimits.h"
 #include "Shader/ShaderCompiledOutput.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

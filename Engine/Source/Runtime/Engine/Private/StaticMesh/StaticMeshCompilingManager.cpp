@@ -1,4 +1,4 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Asset/AssetCompilingManager.h"
 #include "StaticMesh/IMeshBuilderModule.h"
@@ -16,7 +16,6 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/Task.h"
 
 namespace Durin
 {

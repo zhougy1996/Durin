@@ -1,5 +1,5 @@
 #include "AssetTools/Relocation.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
 #include "NativeAssetTestSupport.h"

@@ -24,7 +24,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshSource.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Workspace/LevelEditorContext.h"
 

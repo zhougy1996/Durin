@@ -3,7 +3,7 @@
 #include "DObject/Package.h"
 #include "DObject/Class.h"
 #include "Asset/AssetBuildTaskContext.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin::AssetPrivate
 {

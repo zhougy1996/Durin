@@ -10,7 +10,7 @@
 #include "Misc/MountPaths.h"
 #include "Modules/ModuleManager.h"
 #include "Texture/TextureCubeBuild.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 namespace
 {

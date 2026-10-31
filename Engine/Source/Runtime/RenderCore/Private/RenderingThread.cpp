@@ -2,7 +2,7 @@
 
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 #include "RHICommandList.h"
 #include "RenderResource.h"

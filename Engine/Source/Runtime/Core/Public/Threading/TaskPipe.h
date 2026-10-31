@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin::Tasks
 {

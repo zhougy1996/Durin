@@ -8,7 +8,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
 

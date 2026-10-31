@@ -9,7 +9,6 @@
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
-#include "Threading/TaskComposition.h"
 #include "Threading/ThreadEvent.h"
 #include "Threading/RunnableThread.h"
 #include <gtest/gtest.h>

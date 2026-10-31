@@ -5,7 +5,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "EngineAPI.h"
 #include "Materials/MaterialProgramCompiler.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 namespace Durin
 {

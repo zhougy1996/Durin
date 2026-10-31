@@ -24,7 +24,7 @@
 
 #include "NativeDObjectTestSupport.h"
 #include "DObject/StrongObjectPtr.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"

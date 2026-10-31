@@ -14,7 +14,7 @@
 #include "Hash/CanonicalHash.h"
 #include "ShaderCompileUtilities.h"
 #include "NativeTestSupport.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Runnable.h"

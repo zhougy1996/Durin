@@ -1,4 +1,4 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include <gtest/gtest.h>
 
 #include "Asset/BulkData.h"
@@ -8,7 +8,6 @@
 #include "Asset/PackageResource.h"
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
-#include "Threading/Task.h"
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/ThreadEvent.h"

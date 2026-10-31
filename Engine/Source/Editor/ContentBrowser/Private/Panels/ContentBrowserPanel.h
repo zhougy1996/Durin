@@ -9,7 +9,7 @@
 #include "Operations/ContentBrowserOperationService.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Settings/EditorSettings.h"
 
 namespace Durin::Editor::ContentBrowser::Private

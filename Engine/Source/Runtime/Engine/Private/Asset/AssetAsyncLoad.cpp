@@ -10,7 +10,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Misc/FileHelper.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

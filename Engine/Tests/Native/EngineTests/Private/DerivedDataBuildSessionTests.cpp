@@ -5,7 +5,7 @@
 #include "DerivedDataBuildSession.h"
 #include "CacheDiagnosticsPrivate.h"
 #include "Threading/ThreadEvent.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "CacheDispatchPrivate.h"
 #include <gtest/gtest.h>
 #include <barrier>

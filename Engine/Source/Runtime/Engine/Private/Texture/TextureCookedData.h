@@ -12,7 +12,6 @@
 #include "DynamicRHI.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Threading/Task.h"
-#include "Threading/TaskComposition.h"
 #include "../Asset/CookedArchiveTarget.h"
 
 namespace Durin::TexturePrivate

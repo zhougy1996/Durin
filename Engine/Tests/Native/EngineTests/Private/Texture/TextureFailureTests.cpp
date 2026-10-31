@@ -1,5 +1,5 @@
 #include "AssetForge/Builtins/Texture2DFactory.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "TextureTestSupport.h"

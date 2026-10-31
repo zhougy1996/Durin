@@ -4,7 +4,7 @@
 
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "NativeAssetTestSupport.h"
 #include "Asset/Testing.h"
 #include "VulkanEngineTestSupport.h"

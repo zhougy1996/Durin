@@ -10,7 +10,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "Renderers/SceneViewState.h"
 #include "RendererFeatureTargetTestFixture.h"
 #include "Renderers/VolumetricCloudRenderer.h"

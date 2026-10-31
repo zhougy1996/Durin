@@ -5,7 +5,7 @@
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageInspection.h"
 #include "Misc/FileHelper.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

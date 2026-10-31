@@ -9,7 +9,7 @@
 #include "NativeAssetTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include <gtest/gtest.h>
 
 namespace

@@ -6,7 +6,7 @@
 #include "Engine/Subsystem.h"
 #include "DObject/ObjectPtr.h"
 #include "Engine/TickFunction.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "WorldSubsystem.gen.h"
 
 namespace Durin

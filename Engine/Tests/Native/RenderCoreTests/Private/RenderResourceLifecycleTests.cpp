@@ -1,4 +1,4 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include <gtest/gtest.h>
 
 #include "CoreGlobals.h"
@@ -8,7 +8,6 @@
 #include "RenderResource.h"
 #include "SceneViewState.h"
 #include "RenderingThread.h"
-#include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 
 namespace Durin

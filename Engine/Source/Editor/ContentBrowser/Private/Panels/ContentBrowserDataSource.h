@@ -4,7 +4,7 @@
 
 #include "Panels/ContentBrowserDataTypes.h"
 #include "AssetRegistry/Catalog.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {

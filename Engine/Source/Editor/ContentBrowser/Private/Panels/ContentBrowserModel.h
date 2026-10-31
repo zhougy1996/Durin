@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 #include "Panels/ContentBrowserDataSource.h"
 #include "Operations/ContentBrowserPaths.h"

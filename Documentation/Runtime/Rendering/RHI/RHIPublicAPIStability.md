@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-10-31
 
 ## Directory Contract
 
@@ -93,7 +93,7 @@ failure/cancellation. Individual cancellation signals the observer without
 canceling shared compilation. StopAndWait still joins LastDrain and compiler
 capture retirement before resource release. This erased Core handle contains no native result or cancellation
 authority over shared compilation; request cancellation remains an explicit RHI
-operation. The declaration depends on `Threading/Task.h`, while task/event
+operation. The declaration depends on `Threading/TaskRuntime.h`, while task/event
 composition belongs to the [Core task API](../../Core/TaskSystem.md#composition).
 The request publishes its outcome and native result before notifying terminal
 subscribers, including on cancellation. RHI queue readiness reads this domain

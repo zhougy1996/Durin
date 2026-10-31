@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "DObject/PackageCapture.h"
 #include "Misc/PackageWriter.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

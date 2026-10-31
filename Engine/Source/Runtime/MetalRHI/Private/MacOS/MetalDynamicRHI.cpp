@@ -19,7 +19,7 @@
 #include "RHIThread.h"
 #include "CoreGlobals.h"
 #include "PipelineStateCache.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 namespace Durin
 {

@@ -27,7 +27,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
 #include "Texture/VolumeTexture.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 
 #include <gtest/gtest.h>
 

@@ -9,7 +9,7 @@
 #include "RHICommandList.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {

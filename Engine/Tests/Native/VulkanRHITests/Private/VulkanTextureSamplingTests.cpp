@@ -15,7 +15,7 @@
 #include "RHIResources.h"
 #include "InlineRHITestScope.h"
 #include "RenderingThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "SlangShaderCompiler.h"
 #include "Shader/Shader.h"
 #if DURIN_WITH_EDITOR

@@ -1,4 +1,4 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "AssetCompatibilityAudit.h"
 #include "Misc/StringHelper.h"
 

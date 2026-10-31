@@ -1,4 +1,4 @@
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserChanges.h"
 #include "Panels/ContentBrowserFilesystem.h"

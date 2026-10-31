@@ -8,7 +8,7 @@
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
-#include "Threading/Task.h"
+#include "Threading/TaskRuntime.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "VulkanEngineTestSupport.h"
