@@ -119,6 +119,14 @@ namespace Durin::RendererPrivate
 		}
 		else if (const auto* Indexed = std::get_if<FRHIDrawIndexedArguments>(&DrawParameters)) Commands.DrawIndexed(*Indexed);
 		else Commands.Draw(std::get<FRHIDrawArguments>(DrawParameters));
+		if (PSOPrecacheValidation::IsEnabled()) {
+			static constexpr std::array Names{"Forward", "HybridRetainedForward", "SortedTranslucency", "ShadowDepth", "GBuffer", "HitProxy"};
+			const auto Index = Pipeline->bGPUCulling ? -1 : FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, Names[static_cast<size_t>(Pipeline->Pass)]);
+			const auto Initializer = Pipeline->Description.MakeInitializer(Pipeline->VertexShader->GetRHIShader(false),
+				Pipeline->FragmentShader, Pipeline->VertexDeclaration, Pipeline->ShaderMap.GetPipelineLayout());
+			const auto Factory = FindMeshVertexFactory(Pipeline->FactoryKey);
+			PSOPrecacheValidation::RecordUse(Initializer, Index, Factory ? &Factory->GetType() : nullptr);
+		}
 		return true;
 	}
 
@@ -384,12 +392,6 @@ namespace Durin::RendererPrivate
 		Candidate.VertexDeclaration = Declaration;
 		Candidate.Description = DescribeMeshDraw(Batch.PipelineState, Batch.Topology, Batch.Material.ShaderMap.BlendMode, Batch.bReversedZ);
 		Candidate.Pass = GetPass(); Candidate.bGPUCulling = Batch.bGPUCulling;
-		if (PSOPrecacheValidation::IsEnabled()) {
-			static constexpr std::array Names{"Forward", "HybridRetainedForward", "SortedTranslucency", "ShadowDepth", "GBuffer", "HitProxy"};
-			const auto CollectorIndex = Batch.bGPUCulling ? -1
-				: FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, Names[static_cast<size_t>(GetPass())]);
-			PSOPrecacheValidation::Check(Initializer, CollectorIndex, &Batch.Factory.GetType());
-		}
 		Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(Name, Initializer);
 		if (!Candidate.PipelineState) return FShaderCompletion::Failure("Mesh pass pipeline creation failed.");
 		Out = std::move(Candidate);
@@ -525,20 +527,23 @@ namespace Durin::RendererPrivate
 	auto FMeshPassProcessor::PreparePSOResources(const FMaterialPSOPrecacheParams& Params,
 		const FRenderResourceGeneration& Generation, bool bRequired) -> std::expected<EPSOCollectorPreparation, std::string>
 	{
-		if (!PSOCollection) PSOCollection = std::make_unique<FMeshPSOCollectionSession>(*this, Params, Generation);
-		return PSOCollection->Prepare(bRequired ? EPSOPrecacheCollectionPhase::Required : EPSOPrecacheCollectionPhase::Optional);
+		CheckRenderingThread();
+		const auto* Type = Params.VertexFactoryData.VertexFactoryType;
+		const auto Factory = Type ? FindMeshVertexFactory(Type->GetStableKey()) : nullptr;
+		if (!Factory || &Factory->GetType() != Type || !IsEnabled(Params.PreparationConfig)
+			|| !SupportsVertexFactory(*Factory) || !IsMeshRelevant(Params.Material, Params.PrecachePSOParams.Participation,
+				Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return EPSOCollectorPreparation::Skip;
+		const auto Variants = GetPSOPrecacheVariants(Params.PreparationConfig, Params.PrecachePSOParams);
+		if (Variants.empty() || (bRequired && std::ranges::none_of(Variants, [](const auto& V) { return V.bRequired; })))
+			return EPSOCollectorPreparation::Skip;
+		if (!PSOResources) PSOResources = std::make_unique<FMeshPSOPrecacheResources>();
+		const auto Ready = PSOResources->Prepare(*this, Params, Generation);
+		if (!Ready) return std::unexpected(Ready.error());
+		return *Ready ? EPSOCollectorPreparation::Ready : EPSOCollectorPreparation::Pending;
 	}
-	void FMeshPassProcessor::CollectPSOInitializers(const FSceneRenderPreparationConfig&, const FMaterialResource&,
-		const FPSOPrecacheVertexFactoryData&, const FPSOPrecacheParams&, FPSOPrecacheDataArray& Out)
-	{
-		require(PSOCollection);
-		auto Result = PSOCollection->AppendPrepared(Out);
-		if (!Result) throw std::runtime_error(Result.error());
-	}
-	auto FMeshPassProcessor::AppendPreparedPSOInitializers(const FPreparedMeshPSOCollectorResources& Prepared,
-		const FSceneRenderPreparationConfig& Config, const FMaterialResource& Material,
-		const FPSOPrecacheVertexFactoryData& VertexFactoryData, const FPSOPrecacheParams& Params, FPSOPrecacheDataArray& Out)
-		-> std::expected<void, std::string>
+	auto FMeshPassProcessor::CollectPSOInitializers(const FSceneRenderPreparationConfig& Config,
+		const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
+		const FPSOPrecacheParams& Params, FPSOPrecacheDataArray& Out) -> void
 	{
 		CheckRenderingThread();
 		const auto Properties = Material.GetStaticProperties();
@@ -548,21 +553,21 @@ namespace Durin::RendererPrivate
 				.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel,
 				.OpacityMaskThreshold = Properties.OpacityMaskThreshold},
 			.bTwoSided = Properties.bTwoSided, .DepthWritePolicy = Properties.DepthWritePolicy};
-		const auto Factory = FindMeshVertexFactory(VertexFactoryData.VertexFactoryType->GetStableKey());
-		if (!IsEnabled(Config) || !SupportsVertexFactory(*Factory)
-			|| !IsMeshRelevant(Identity, Params.Participation, Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return {};
-		for (const auto& Variant : Prepared.Variants)
+		const auto* Type = VertexFactoryData.VertexFactoryType;
+		const auto Factory = Type ? FindMeshVertexFactory(Type->GetStableKey()) : nullptr;
+		if (!Factory || &Factory->GetType() != Type || !IsEnabled(Config) || !SupportsVertexFactory(*Factory)
+			|| !IsMeshRelevant(Identity, Params.Participation, Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return;
+		for (const auto& Variant : GetPSOPrecacheVariants(Config, Params))
 		{
 			const FMeshPassProcessorBatch Batch{Identity, *Factory, MakeMeshPipelineState(Identity, Variant.Raster),
 				Params.Topology, Params.Participation, true, false, Variant.Raster.bReversedZ};
 			FGraphicsPipelineStateInitializer Initializer;
-			if (!BuildPSOInitializer(Batch, *Prepared.Shaders, Prepared.Declaration, Initializer))
-			{ return std::unexpected(std::string("Mesh pass initializer construction failed.")); }
-			Out.emplace_back(Initializer, Variant.bRequired, Prepared.Priority);
+			if (!BuildPSOInitializer(Batch, PSOResources->GetShaders(), PSOResources->GetDeclaration(), Initializer))
+			{ requiref(false, "Prepared mesh resources do not match the append inputs."); }
+			Out.emplace_back(Initializer, Variant.bRequired);
 			Out.back().PSOCollectorIndex = PSOCollectorIndex;
 			Out.back().VertexFactoryType = VertexFactoryData.VertexFactoryType;
 		}
-		return {};
 	}
 
 }

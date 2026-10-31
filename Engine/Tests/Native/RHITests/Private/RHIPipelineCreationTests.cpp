@@ -62,6 +62,8 @@ namespace Durin
 			Initializer.ComputeShader = Shader;
 			auto Request = Owner.RequestCompute(Initializer, "terminal observation");
 			ASSERT_TRUE(Request.IsAccepted());
+			const auto Outcome = Request.GetStateObservation();
+			ASSERT_TRUE(Outcome);
 			std::promise<std::pair<ERHIPipelineRequestState, FRHIPipelineCreationResult>> Observation;
 			auto Observed = Observation.get_future();
 			auto Subscription = Tasks::SubscribeTask(Request.GetTaskHandle(),
@@ -75,6 +77,7 @@ namespace Durin
 			if (Ready == std::future_status::ready)
 			{
 				const auto [State, Result] = Observed.get();
+				EXPECT_EQ(Outcome->load(), Expected);
 				EXPECT_EQ(State, Expected);
 				EXPECT_EQ(Result.State, Expected);
 				EXPECT_EQ(Result.Compute != nullptr, Expected == ERHIPipelineRequestState::Ready);
@@ -650,4 +653,36 @@ TEST(RHICreationTerminalTests, ReturnedFatalFailureUsesProcessTerminatePolicy)
 					Durin::RHITerminateOnFailure("pipeline creation", "device lost", -4);
 				})(),
 				testing::ExitedWithCode(42), "pipeline creation: device lost.*native=-4");
+}
+
+namespace Durin
+{
+    TEST_F(FRHIPipelineCreationTests, OutcomeObservationSurvivesObserverAndNativeResourceRetirement)
+    {
+        std::atomic<uint32> Destroyed = 0;
+        class FObservedPipeline final : public FRHIComputePipelineState
+        {
+            std::atomic<uint32>& Destroyed;
+        public:
+            explicit FObservedPipeline(std::atomic<uint32>& InDestroyed) : Destroyed(InDestroyed) {}
+            ~FObservedPipeline() override { ++Destroyed; }
+        };
+        std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> Outcome;
+        {
+            FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
+                return MakeRefCount<FObservedPipeline>(Destroyed);
+            }));
+            auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+            FComputePipelineStateInitializer Initializer; Initializer.ComputeShader = Shader;
+            auto Request = Owner.RequestCompute(Initializer, "outcome lifetime");
+            ASSERT_TRUE(Request.IsAccepted()); Outcome = Request.GetStateObservation();
+            ASSERT_TRUE(Request.Wait());
+            EXPECT_EQ(Outcome->load(), ERHIPipelineRequestState::Ready);
+            Request = {};
+            Owner.ReleaseResources();
+        }
+        RHIFlushDeferredResources();
+        EXPECT_EQ(Destroyed.load(), 1u);
+        EXPECT_EQ(Outcome->load(), ERHIPipelineRequestState::Ready);
+    }
 }

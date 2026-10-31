@@ -322,9 +322,10 @@ even when its required PSOs completed before an optional PSO failed.
 `FPSOPrecacheData` in Engine's `PSOPrecache.h` describes a graphics or
 compute initializer with `bRequired`, `Priority`, collector index and Vertex Factory provenance. `FMaterialPSOPrecacheCollection`
 exposes `PSOInitializers`; collectors append descriptions without submitting native
-requests. Its resource owner keeps referenced shaders and declarations alive.
-The request manager submits each description to the shared pipeline cache, consumes
-accepted initializer payloads, and retains asynchronous observations privately.
+requests. Each description owns counted Shader/declaration inputs, so collector reuse cannot invalidate an earlier result.
+The request manager refreshes ownership for descriptions assembled through public
+initializer fields, submits them to the shared pipeline cache, consumes accepted
+initializer payloads, and retains asynchronous observations privately.
 Capacity pressure retries only the first unsubmitted description, preserving the
 accepted prefix. Invalid descriptions and terminal admission errors remain failures.
 A rejected, null or throwing optional submission records a failed optional slot
@@ -346,11 +347,14 @@ reuse without erasing failure diagnostics. The first three phases map to public
 Pending. Required readiness remains separate from all-work completion; priority
 sorting uses a stable per-pump snapshot.
 
-The Renderer permits up to eight material requests that are still collecting
-required coverage across updates. Once required collection finishes, native
-compilation and optional collection no longer occupy those slots. Urgent requests
-can start required collection while earlier requests finish optional warming.
-Native submissions retain the shared per-frame admission budget and queue limits.
+The Renderer permits up to eight simultaneous requests still collecting required
+coverage. Finishing, failing or retiring required collection returns its slot
+immediately within the same pump; this is not a per-frame request-count quota.
+Native compilation and optional collection do not occupy those slots. Submission
+visits Required across all requests before Optional, using request priority only
+within each group. Only Required observations inherit proxy priority promotions;
+Optional retains its collector-authored priority. Native submissions retain the
+shared per-frame admission budget and queue limits.
 `FMeshPassProcessor` implementations own eligibility, shader selection, raster
 variants, required classification and draw pipeline descriptions for Forward,
 ShadowDepth, GBuffer, hybrid retained, sorted translucency and HitProxy. Actual
@@ -488,20 +492,23 @@ identifies the contribution. The append implementation consumes prepared resourc
 it never pumps async work. `PreparePSOResources` is a nonblocking readiness hook
 needed by Durin's render-thread native Shader creation. Ordinary collectors use its
 default Required admission and append once; optional descriptions are buffered.
-Mesh processors own their preparation sessions and use explicit ready Shader,
-declaration and variant inputs in `AppendPreparedPSOInitializers`, without TLS
-scopes or concrete-type dispatch. A Vertex Factory without a registered mesh
-implementation is inapplicable to mesh passes and does not reject independent
-collectors for that factory.
+Mesh processors retain only reusable native Shader/declaration preparation caches.
+The cache refreshes on accepted program, ShaderMap identity, Vertex Factory input
+or resource generation changes. It retains no collection phase, emission cursor
+or first-request binding. Append consumes the current explicit material, factory,
+participation and raster inputs and emits all applicable variants on every call.
+Repeated calls and reuse with another accepted program or factory are supported.
+Native preparation errors return through the readiness hook; append introduces no
+expected/exception conversion protocol. Unsupported mesh factories are skipped
+without rejecting independent collectors for the same factory.
 
-The material session advances every unfinished collector in a phase on each pump;
-one pending pass does not prevent other passes from starting resource preparation.
-It publishes `bRequiredPSOsCollected` only after every Required contribution finishes,
-then advances Optional. Optional-only passes start no work during Required.
-Completed phases preserve the caller's prefix and never emit twice. Errors in
-Optional do not revoke completed Required coverage. Sessions reuse `PrepareShaders`,
-shared pass filters and `BuildPSOInitializer`.
-Mesh sessions outlive neither their collectors nor the resource-owning render thread.
+The material owner advances every unfinished collector on each pump. It invokes
+each ready collector once for that request, publishes Required contributions and
+buffers Optional descriptions until all Required coverage is known. Optional-only
+passes start no work during Required. The owner publishes `bRequiredPSOsCollected`
+at that boundary; later pumps emit only Optional descriptions. An Optional failure
+does not revoke Required readiness. Preparation and append reuse the same shader
+selection, eligibility filters and `BuildPSOInitializer` as drawing.
 Existing request completion, invalidation and shutdown retire their resources.
 GPU-culling and global feature PSOs remain outside this material collector.
 Native compilation uses the existing service queue;
@@ -541,16 +548,24 @@ requests, while `IsPSOPrecaching` includes outstanding optional compilation.
 Failed, canceled and stale required requests never authorize readiness.
 
 `PSOPrecacheValidation::SetEnabled(true)` starts an optional full-identity capture.
-Material submissions register graphics/compute value keys with collector and Vertex
-Factory provenance and publish observed native outcomes before releasing pipeline
-references. Mesh pipeline demand checks the same full key, including attachment,
-vertex input and render state. `Check` returns Untracked, Missed, TooLate, Hit or
-Failed and the contributing collector/factory; `GetStatistics` exposes aggregate
-counts. Successful preparation remains Hit after native eviction. Capture records
-retain no Shader, declaration or pipeline owners. Shader/device/manual invalidation
-and renderer shutdown clear the capture; disabling also releases all validation
-keys. Global/GPU-culling routes remain outside this material coverage, and compute
-demand owners can use the compute `Check` overload.
+Collection registers the entire graphics/compute suffix before native admission,
+including descriptions deferred by frame or queue capacity. Each admission owns
+an independent validation token; withdrawing one does not cancel peer coverage.
+Accepted submissions attach RHI's shared creation-outcome observation. The scalar
+outcome is authoritative, updates without a material pump, survives observer
+release and retains no native resources. Abandoned unsubmitted tokens withdraw
+queued status instead of leaving permanent Pending records. Successful outcomes
+remain Hit after native eviction; shader/device/manual invalidation and renderer
+shutdown clear capture identities.
+
+`Check` is read-only and returns Untracked, Missed, TooLate, Hit or Failed with
+collector/factory provenance. Preparation and retries never increment use counts.
+`RecordUse` runs after actual mesh draw submission, including cached commands,
+and counts each full graphics/compute identity only once per capture. The first
+use classification remains in `GetStatistics`; a later lookup can still observe
+completion. Full keys include attachment, vertex-input and render state. Global
+and GPU-culling routes remain outside material coverage; compute dispatch owners
+can call the compute `RecordUse` overload. Disabling releases validation keys.
 
 ## Automatic component collection and proxy publication
 
@@ -648,8 +663,8 @@ Neither subscriptions nor worker callbacks retain live component pointers.
 set. `DMaterialInterface::PrecachePSOs` also accepts `EPSOPrecachePriority`.
 Priority is shared by work identity, excluded from the key, and only increases.
 Visible proxy requests use Highest; hidden requests use High. Material collection
-selects urgent work before ordinary work; its pump forwards promotions to native
-PSO observations. The RHI queue selects the most urgent queued compile, preserving
+selects urgent work before ordinary work; its pump forwards promotions only to required native
+PSO observations. Optional warming retains its authored priority. The RHI queue selects the most urgent queued compile, preserving
 FIFO order for ties and never preempting an executing driver call. Direct native
 requests start at Medium, so Low promotion requests do not demote them.
 

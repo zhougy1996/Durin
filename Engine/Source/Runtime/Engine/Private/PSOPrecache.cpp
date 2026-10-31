@@ -62,7 +62,8 @@ namespace Durin::PSOPrecacheValidation
 {
     struct FRecord
     {
-        std::atomic<ERHIPipelineRequestState> State = ERHIPipelineRequestState::Pending;
+        bool Queued = true;
+        std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> Outcome;
         int32 CollectorIndex = -1;
         const FVertexFactoryType* VertexFactoryType = nullptr;
     };
@@ -82,8 +83,9 @@ namespace Durin::PSOPrecacheValidation
         };
         std::atomic_bool Enabled = false;
         std::mutex Mutex;
-        std::unordered_map<FKey, std::shared_ptr<FRecord>, FHash> Records;
+        std::unordered_map<FKey, std::vector<std::shared_ptr<FRecord>>, FHash> Records;
         FStatistics Statistics;
+        std::unordered_set<FKey, FHash> Used;
         template<typename T> auto MakeKey(const T& Initializer) -> std::optional<FKey>
         {
             if constexpr (std::same_as<T, FGraphicsPipelineStateInitializer>) {
@@ -95,7 +97,7 @@ namespace Durin::PSOPrecacheValidation
             }
             return {};
         }
-        template<typename T> auto CheckKey(const T& Initializer, int32 CollectorIndex, const FVertexFactoryType* Factory) -> FCheckResult
+        template<typename T> auto CheckKey(const T& Initializer, int32 CollectorIndex, const FVertexFactoryType* Factory, bool bRecordUse) -> FCheckResult
         {
             FCheckResult Result{EResult::Untracked, CollectorIndex, Factory};
             if (!Enabled.load()) return Result;
@@ -104,12 +106,21 @@ namespace Durin::PSOPrecacheValidation
             if (!Enabled.load()) return Result;
             const auto Found = Key ? Records.find(*Key) : Records.end();
             if (Found != Records.end()) {
-                const auto State = Found->second->State.load();
-                Result.Result = State == ERHIPipelineRequestState::Ready ? EResult::Hit
-                    : State == ERHIPipelineRequestState::Pending ? EResult::TooLate : EResult::Failed;
-                Result.PSOCollectorIndex = Found->second->CollectorIndex;
-                Result.VertexFactoryType = Found->second->VertexFactoryType;
+                bool Ready = false, Pending = false, SourceChosen = false;
+                for (const auto& Record : Found->second) {
+                    const auto State = Record->Outcome ? Record->Outcome->load(std::memory_order_acquire)
+                        : Record->Queued ? ERHIPipelineRequestState::Pending : ERHIPipelineRequestState::Canceled;
+                    Ready |= State == ERHIPipelineRequestState::Ready;
+                    Pending |= State == ERHIPipelineRequestState::Pending;
+                    if (!SourceChosen || State == ERHIPipelineRequestState::Ready) {
+                        SourceChosen = true;
+                        Result.PSOCollectorIndex = Record->CollectorIndex;
+                        Result.VertexFactoryType = Record->VertexFactoryType;
+                    }
+                }
+                Result.Result = Ready ? EResult::Hit : Pending ? EResult::TooLate : EResult::Failed;
             } else if (Key && CollectorIndex >= 0 && (!Factory || Factory->SupportsPSOPrecaching())) Result.Result = EResult::Missed;
+            if (!bRecordUse || !Key || !Used.insert(*Key).second) return Result;
             switch (Result.Result) {
             case EResult::Untracked: ++Statistics.Untracked; break;
             case EResult::Missed: ++Statistics.Missed; break;
@@ -123,13 +134,13 @@ namespace Durin::PSOPrecacheValidation
     auto SetEnabled(bool bEnabled) -> void
     {
         std::lock_guard Lock(Mutex);
-        Enabled = bEnabled; Records.clear(); Statistics = {};
+        Enabled = bEnabled; Records.clear(); Used.clear(); Statistics = {};
     }
     auto IsEnabled() -> bool { return Enabled.load(); }
     auto Clear() -> void
     {
         std::lock_guard Lock(Mutex);
-        Records.clear(); Statistics = {};
+        Records.clear(); Used.clear(); Statistics = {};
     }
     auto Track(const FPSOPrecacheData& Data) -> std::shared_ptr<FRecord>
     {
@@ -138,24 +149,32 @@ namespace Durin::PSOPrecacheValidation
         if (!Key) return {};
         std::lock_guard Lock(Mutex);
         if (!Enabled.load()) return {};
-        auto& Record = Records[*Key];
-        if (!Record) {
-            Record = std::make_shared<FRecord>();
-            Record->CollectorIndex = Data.PSOCollectorIndex;
-            Record->VertexFactoryType = Data.VertexFactoryType;
-        }
+        auto Record = std::make_shared<FRecord>();
+        Record->CollectorIndex = Data.PSOCollectorIndex;
+        Record->VertexFactoryType = Data.VertexFactoryType;
+        Records[*Key].push_back(Record);
         return Record;
     }
-    auto Update(const std::shared_ptr<FRecord>& Record, ERHIPipelineRequestState State) -> void
+    auto Observe(const std::shared_ptr<FRecord>& Record, std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> Outcome) -> void
     {
         if (!Record) return;
-        auto Current = Record->State.load();
-        // A successful precache remains a hit after native cache eviction or a later failed attempt.
-        while (Current != ERHIPipelineRequestState::Ready && !Record->State.compare_exchange_weak(Current, State)) {}
+        std::lock_guard Lock(Mutex);
+        Record->Queued = false;
+        Record->Outcome = std::move(Outcome);
+    }
+    auto Withdraw(const std::shared_ptr<FRecord>& Record) -> void
+    {
+        if (!Record) return;
+        std::lock_guard Lock(Mutex);
+        Record->Queued = false;
     }
     auto Check(const FGraphicsPipelineStateInitializer& Initializer, int32 CollectorIndex, const FVertexFactoryType* Factory) -> FCheckResult
-    { return CheckKey(Initializer, CollectorIndex, Factory); }
+    { return CheckKey(Initializer, CollectorIndex, Factory, false); }
     auto Check(const FComputePipelineStateInitializer& Initializer, int32 CollectorIndex, const FVertexFactoryType* Factory) -> FCheckResult
-    { return CheckKey(Initializer, CollectorIndex, Factory); }
+    { return CheckKey(Initializer, CollectorIndex, Factory, false); }
+    auto RecordUse(const FGraphicsPipelineStateInitializer& Initializer, int32 CollectorIndex, const FVertexFactoryType* Factory) -> FCheckResult
+    { return CheckKey(Initializer, CollectorIndex, Factory, true); }
+    auto RecordUse(const FComputePipelineStateInitializer& Initializer, int32 CollectorIndex, const FVertexFactoryType* Factory) -> FCheckResult
+    { return CheckKey(Initializer, CollectorIndex, Factory, true); }
     auto GetStatistics() -> FStatistics { std::lock_guard Lock(Mutex); return Statistics; }
 }

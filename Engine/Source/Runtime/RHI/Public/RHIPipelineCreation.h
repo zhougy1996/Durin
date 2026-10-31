@@ -75,6 +75,8 @@ namespace Durin
 		auto IsAccepted() const -> bool { return State != nullptr; }
 		auto GetRejection() const -> ERHIPipelineRequestRejection { return Rejection; }
 		RHI_API auto GetState() const -> ERHIPipelineRequestState;
+		// Shares only the authoritative outcome, without retaining native resources.
+		RHI_API auto GetStateObservation() const -> std::shared_ptr<const std::atomic<ERHIPipelineRequestState>>;
 		RHI_API auto GetResult() const -> FRHIPipelineCreationResult;
 		// Completion signal only; inspect acceptance first, then compilation state/cancellation.
 		RHI_API auto GetTaskHandle() const -> Tasks::FTask;

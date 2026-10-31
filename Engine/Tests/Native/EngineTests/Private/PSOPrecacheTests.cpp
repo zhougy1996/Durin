@@ -5,6 +5,7 @@
 #include "Renderers/MeshRendererShared.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "RenderPipelineCreation.h"
+#include "RenderResourcePreparation.h"
 #include "RHICapabilities.h"
 #include "RHICommandList.h"
 #include "Threading/TaskRuntime.h"
@@ -1074,22 +1075,28 @@ TEST(FPSOPrecacheTests, FullPSOValidationDistinguishesMissLateHitAndFailureWithP
     EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Missed);
     auto Record = Track(Data); ASSERT_TRUE(Record);
     EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::TooLate);
-    Update(Record, ERHIPipelineRequestState::Failed);
+    Observe(Record, std::make_shared<const std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Failed));
     EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Failed);
-    Update(Record, ERHIPipelineRequestState::Ready);
+    auto Successful = Track(Data);
+    Observe(Successful, Ready->GetStateObservation());
     auto Hit = Check(Data.ComputeInitializer, 3);
     EXPECT_EQ(Hit.Result, EResult::Hit);
     EXPECT_EQ(Hit.PSOCollectorIndex, 3);
     EXPECT_EQ(Hit.VertexFactoryType, Data.VertexFactoryType);
-    Update(Record, ERHIPipelineRequestState::Canceled);
+    auto Canceled = Track(Data);
+    Observe(Canceled, std::make_shared<const std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Canceled));
     EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Hit);
     EXPECT_EQ(Check(Pipelines.DescribeSlot(7).ComputeInitializer, 3).Result, EResult::Missed);
+    EXPECT_EQ(GetStatistics().Hit, 0u); // Lookup and preparation are not draw/dispatch usage.
+    RecordUse(Data.ComputeInitializer, 3); RecordUse(Data.ComputeInitializer, 3);
+    RecordUse(Pipelines.DescribeSlot(7).ComputeInitializer, 3);
+    RecordUse(Pipelines.DescribeSlot(8).ComputeInitializer, -1);
     auto Stats = GetStatistics();
-    EXPECT_EQ(Stats.Untracked, 1u); EXPECT_EQ(Stats.Missed, 2u);
-    EXPECT_EQ(Stats.TooLate, 1u); EXPECT_EQ(Stats.Failed, 1u); EXPECT_EQ(Stats.Hit, 2u);
+    EXPECT_EQ(Stats.Untracked, 1u); EXPECT_EQ(Stats.Missed, 1u);
+    EXPECT_EQ(Stats.TooLate, 0u); EXPECT_EQ(Stats.Failed, 0u); EXPECT_EQ(Stats.Hit, 1u);
     Clear();
     EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Missed);
-    Update(Record, ERHIPipelineRequestState::Ready); // Retired capture cannot republish into the new index.
+    Observe(Record, Ready->GetStateObservation()); // Retired capture cannot republish into the new index.
     EXPECT_EQ(Check(Data.ComputeInitializer, 3).Result, EResult::Missed);
 }
 
@@ -1155,4 +1162,136 @@ TEST(FPSOPrecacheTests, NativeAdmissionPressureIsTrackedAsLateRatherThanMissingC
     Manager.Pump(Collect);
     EXPECT_TRUE(Request.GetProgress().bRequiredReady);
     EXPECT_EQ(Check(Pipelines.Describe(Ready).ComputeInitializer, 5).Result, EResult::Hit);
+}
+
+TEST(FPSOPrecacheTests, RequiredSubmissionPrecedesOlderOptionalWorkAcrossTheFrameBudget)
+{
+    using namespace Durin;
+    FMaterialPSOTestPipelines Pipelines;
+    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto Optional = Pipelines.Request(true);
+    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
+    auto Params = MaterialPSOTestParams(); Params.Priority = EPSOPrecachePriority::Highest;
+    auto Old = Manager.PrecachePSOs(Params);
+    auto Collect = [&](const auto& P, auto& Out) -> std::expected<bool, std::string> {
+        Out.PSOInitializers = {Pipelines.Describe(Ready)};
+        if (P.Material.ShaderMap.OpacityMaskThreshold < 1) Out.PSOInitializers.push_back(Pipelines.Describe(Optional, false));
+        Out.bRequiredPSOsCollected = true; return true;
+    };
+    FRenderResourceAdmissionBudget Budget(64, 1, std::chrono::seconds(1));
+    auto Pump = [&](uint64 Frame) { FRenderResourceAdmissionScope Scope(Budget, Frame); Manager.Pump(Collect); };
+    Pump(1); ASSERT_TRUE(Old.GetProgress().bRequiredReady);
+    Params.Material.ShaderMap.OpacityMaskThreshold = 2;
+    auto Urgent = Manager.PrecachePSOs(Params);
+    Pump(2);
+    EXPECT_TRUE(Urgent.GetProgress().bRequiredReady);
+    EXPECT_EQ(Old.GetProgress().Pending, 1u);
+    Pump(3);
+    EXPECT_EQ(Optional->GetPriority(), EPSOPrecachePriority::Medium);
+    EXPECT_EQ(Urgent.GetPriority(), EPSOPrecachePriority::Highest);
+}
+
+TEST(FPSOPrecacheTests, ImmediateCollectionsReturnTheirSlotWithinTheSamePump)
+{
+    using namespace Durin;
+    FMaterialPSORequestManager Manager;
+    std::vector<FMaterialPSOPrecacheRequestID> Requests;
+    for (uint32 Index = 0; Index < 64; ++Index) {
+        auto Params = MaterialPSOTestParams(); Params.Material.ShaderMap.OpacityMaskThreshold = float(Index);
+        Requests.push_back(Manager.PrecachePSOs(Params));
+    }
+    uint32 Count = 0;
+    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+        ++Count; Out.bRequiredPSOsCollected = true; return true;
+    });
+    EXPECT_EQ(Count, Requests.size());
+    for (const auto& Request : Requests) EXPECT_TRUE(Request.GetProgress().bRequiredReady);
+}
+
+TEST(FPSOPrecacheTests, EntireCollectedSuffixIsTrackedBeforeNativeAdmissionAndWithdrawnOnAbandonment)
+{
+    using namespace Durin; using namespace PSOPrecacheValidation;
+    SetEnabled(true); struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
+    FMaterialPSOTestPipelines Pipelines;
+    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
+    auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
+    FRenderResourceAdmissionBudget Budget(64, 1, std::chrono::seconds(1));
+    { FRenderResourceAdmissionScope Scope(Budget, 1);
+      Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+        Out.PSOInitializers.push_back(Pipelines.Describe(Ready));
+        for (uint32 Index = 0; Index < 8; ++Index) { auto Data = Pipelines.DescribeSlot(Index); Data.bRequired = false; Out.PSOInitializers.push_back(Data); }
+        Out.bRequiredPSOsCollected = true; return true;
+      });
+    }
+    for (uint32 Index = 0; Index < 8; ++Index)
+        EXPECT_EQ(Check(Pipelines.DescribeSlot(Index).ComputeInitializer, 4).Result, EResult::TooLate);
+    Request = {};
+    Manager.Pump({});
+    EXPECT_EQ(Check(Pipelines.DescribeSlot(7).ComputeInitializer, 4).Result, EResult::Failed);
+}
+
+TEST(FPSOPrecacheTests, NativeCompletionAndCancellationAreVisibleWithoutAnotherMaterialPump)
+{
+    using namespace Durin; using namespace PSOPrecacheValidation;
+    SetEnabled(true); struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
+    FMaterialPSOTestPipelines Pipelines;
+    auto Native = Pipelines.Request(true);
+    const auto Data = Pipelines.Describe(Native);
+    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& D) { return Pipelines.Submit(D); });
+    auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
+    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+        Out.PSOInitializers.push_back(Data); Out.bRequiredPSOsCollected = true; return true;
+    });
+    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::TooLate);
+    Pipelines.Release(); ASSERT_TRUE(Native->Wait());
+    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::Hit);
+    Request = {}; Native.reset(); Manager.Pump({});
+    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::Hit);
+    // Outcome observation retains readiness independently of the native object.
+    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto A = Track(Pipelines.Describe(Ready)), B = Track(Pipelines.Describe(Ready));
+    Withdraw(A);
+    EXPECT_EQ(Check(Pipelines.Describe(Ready).ComputeInitializer, 2).Result, EResult::TooLate);
+    Observe(B, Ready->GetStateObservation());
+    EXPECT_EQ(Check(Pipelines.Describe(Ready).ComputeInitializer, 2).Result, EResult::Hit);
+}
+
+TEST(FPSOPrecacheTests, AbandonedAdmittedObserverDoesNotRemainPermanentlyLate)
+{
+    using namespace Durin; using namespace PSOPrecacheValidation;
+    SetEnabled(true); struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
+    FMaterialPSOTestPipelines Pipelines;
+    auto Native = Pipelines.Request(true);
+    const auto Data = Pipelines.Describe(Native);
+    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& D) { return Pipelines.Submit(D); });
+    auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
+    Manager.Pump([&](const auto&, auto& Out) -> std::expected<bool, std::string> {
+        Out.PSOInitializers.push_back(Data); Out.bRequiredPSOsCollected = true; return true;
+    });
+    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::TooLate);
+    Request = {}; Native.reset(); Manager.Pump({});
+    EXPECT_EQ(Check(Data.ComputeInitializer, 2).Result, EResult::Failed);
+}
+
+TEST(FPSOPrecacheTests, InitializerCopiesRetainNativeInputsWithoutACollectorOwner)
+{
+    using namespace Durin;
+    std::atomic<uint32> Destroyed = 0;
+    class FObservedShader final : public FRHIShader
+    {
+        std::atomic<uint32>& Destroyed;
+    public:
+        explicit FObservedShader(std::atomic<uint32>& InDestroyed)
+            : FRHIShader(FRHIShaderDesc(EShaderFrequency::Compute, {})), Destroyed(InDestroyed) {}
+        ~FObservedShader() override { ++Destroyed; }
+    };
+    auto Shader = MakeRefCount<FObservedShader>(Destroyed);
+    FComputePipelineStateInitializer Initializer; Initializer.ComputeShader = Shader;
+    FPSOPrecacheData Data(Initializer);
+    Shader = nullptr; Initializer.ComputeShader = nullptr;
+    RHIFlushDeferredResources(); EXPECT_EQ(Destroyed.load(), 0u);
+    auto Copy = Data;
+    Data = {}; RHIFlushDeferredResources(); EXPECT_EQ(Destroyed.load(), 0u);
+    Copy = {}; RHIFlushDeferredResources(); EXPECT_EQ(Destroyed.load(), 1u);
 }

@@ -120,10 +120,10 @@ namespace Durin
 		auto Publish(const FPublished& Publication) -> void
 		{
 			std::lock_guard Lock(Lifetime->WaitMutex);
-			if (Outcome.load() != ERHIPipelineRequestState::Pending) return;
+			if (Outcome->load() != ERHIPipelineRequestState::Pending) return;
 			if (Lifetime->Closed.load())
 			{
-				Outcome.store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
+				Outcome->store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
 				Signal.Trigger();
 			}
 			else
@@ -131,7 +131,7 @@ namespace Durin
 				Published.Store(Publication);
 				// Terminal subscriptions run before the Core task publishes its
 				// terminal state. Publish domain readiness before they wake RHI.
-				Outcome.store(Publication->Result.State, std::memory_order_release);
+				Outcome->store(Publication->Result.State, std::memory_order_release);
 				Signal.Trigger();
 			}
 			Lifetime->Changed.notify_all();
@@ -139,8 +139,8 @@ namespace Durin
 		auto Cancel() -> bool
 		{
 			std::lock_guard Lock(Lifetime->WaitMutex);
-			if (Outcome.load() != ERHIPipelineRequestState::Pending) return false;
-			Outcome.store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
+			if (Outcome->load() != ERHIPipelineRequestState::Pending) return false;
+			Outcome->store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
 			Signal.Trigger();
 			Lifetime->Changed.notify_all();
 			return true;
@@ -153,7 +153,7 @@ namespace Durin
 		std::shared_ptr<FRequestLifetime> Lifetime;
 		Tasks::FTaskEvent Signal{"RHI.PipelineObserver"};
 		TAtomicSharedPtr<FPipelinePublication> Published;
-		std::atomic<ERHIPipelineRequestState> Outcome = ERHIPipelineRequestState::Pending;
+		std::shared_ptr<std::atomic<ERHIPipelineRequestState>> Outcome = std::make_shared<std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Pending);
 		// Accessed only under the compile queue mutex, and cleared at publication.
 		std::shared_ptr<const FKey> PendingKey;
 		std::shared_ptr<const FKey> Identity;
@@ -166,17 +166,19 @@ namespace Durin
 		Result.Rejection = Reason;
 		return Result;
 	}
+	auto FRHIPipelineCreationRequest::GetStateObservation() const -> std::shared_ptr<const std::atomic<ERHIPipelineRequestState>>
+	{ return State ? State->Outcome : nullptr; }
 	auto FRHIPipelineCreationRequest::GetState() const -> ERHIPipelineRequestState
 	{
 		if (!State) return ERHIPipelineRequestState::Failed;
 		if (State->Lifetime->Retired.load()) return ERHIPipelineRequestState::Canceled;
-		return State->Outcome.load(std::memory_order_acquire);
+		return State->Outcome->load(std::memory_order_acquire);
 	}
 	auto FRHIPipelineCreationRequest::GetResult() const -> FRHIPipelineCreationResult
 	{
 		if (!State) return {.State = ERHIPipelineRequestState::Failed};
 		if (State->Lifetime->Retired.load()) return {.State = ERHIPipelineRequestState::Canceled};
-		const auto Outcome = State->Outcome.load(std::memory_order_acquire);
+		const auto Outcome = State->Outcome->load(std::memory_order_acquire);
 		if (Outcome == ERHIPipelineRequestState::Ready || Outcome == ERHIPipelineRequestState::Failed)
 			if (const auto Value = State->Published.Load()) return Value->Snapshot();
 		return {.State = Outcome};

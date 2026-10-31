@@ -52,32 +52,6 @@ namespace
             -> std::shared_ptr<const Durin::RendererPrivate::FMeshVertexShaderBinding> override
         { return Pass == Missing ? nullptr : Base->Resolve(Map, Pass); }
     };
-    class FOptionalFailureProcessor final : public Durin::RendererPrivate::FMeshPassProcessor
-    {
-        const FMeshPassProcessor& Base = Durin::RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(Durin::RendererPrivate::EMeshPipelinePass::Forward);
-    public:
-        auto GetPass() const -> Durin::RendererPrivate::EMeshPipelinePass override { return Base.GetPass(); }
-        auto AddMeshBatch(const Durin::RendererPrivate::FMeshPassProcessorBatch& Batch, const Durin::RendererPrivate::FMeshDrawCommandBuildInput& Input,
-            Durin::RendererPrivate::FMeshDrawCommandBindingCache& Cache, Durin::RendererPrivate::FMeshPassDrawListContext& Context,
-            std::shared_ptr<const Durin::RendererPrivate::FMeshDrawCommand> Existing) const -> Durin::FShaderCompletion override
-        { return Base.AddMeshBatch(Batch, Input, Cache, Context, std::move(Existing)); }
-        auto IsEnabled(const Durin::FSceneRenderPreparationConfig& Config) const -> bool override { return Base.IsEnabled(Config); }
-        auto GetVertexFactoryPass(bool GPU = false) const -> uint32 override { return Base.GetVertexFactoryPass(GPU); }
-        auto GetFragmentShader(Durin::FMaterialShaderBlendModeKey Blend) const -> Durin::RendererPrivate::FMeshPassFragmentShader override { return Base.GetFragmentShader(Blend); }
-        auto DescribeMeshDraw(const Durin::RendererPrivate::FMeshPipelineState& State, Durin::FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,
-            Durin::FMaterialShaderBlendModeKey Blend, bool ReversedZ) const -> Durin::RendererPrivate::FMeshPipelineDescription override
-        { return Base.DescribeMeshDraw(State, Topology, Blend, ReversedZ); }
-        auto GetPSOPrecacheVariants(const Durin::FSceneRenderPreparationConfig& Config, const Durin::FPSOPrecacheParams& Params) const
-            -> std::vector<Durin::RendererPrivate::FMeshPSOPrecacheVariant> override { return Base.GetPSOPrecacheVariants(Config, Params); }
-        auto AppendPreparedPSOInitializers(const Durin::RendererPrivate::FPreparedMeshPSOCollectorResources& Resources,
-            const Durin::FSceneRenderPreparationConfig& Config, const Durin::FMaterialResource& Material,
-            const Durin::FPSOPrecacheVertexFactoryData& Factory, const Durin::FPSOPrecacheParams& Params, Durin::FPSOPrecacheDataArray& Out)
-            -> std::expected<void, std::string> override
-        {
-            if (!Resources.Variants.front().bRequired) return std::unexpected(std::string("Injected optional collection failure."));
-            return FMeshPassProcessor::AppendPreparedPSOInitializers(Resources, Config, Material, Factory, Params, Out);
-        }
-    };
     std::atomic<int32> DeferredProbeCalls = 0, MobileProbeCalls = 0;
     class FIndependentProbeCollector final : public Durin::IPSOCollector
     {
@@ -149,6 +123,11 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         FModuleTestHarness& Lifecycle;
         ~FCleanup() { Lifecycle.Shutdown(); ShutdownRenderingThread(); RHIExit(); }
     } Cleanup{Lifecycle};
+	std::unique_ptr<FMeshPassProcessor> ReusableCollector;
+	struct FReuseCleanup {
+		std::unique_ptr<FMeshPassProcessor>& Collector;
+		~FReuseCleanup() { EnqueueRenderCommand("ReleaseReusableCollector", [this](FRHICommandListImmediate&) { Collector.reset(); }); FlushRenderingCommands(); }
+	} ReuseCleanup{ReusableCollector};
     DeferredProbeCalls = 0; MobileProbeCalls = 0;
     // Temporary contributions are added with no active material sessions and
     // removed after every session has retired. Neither has a draw-pass entry.
@@ -183,9 +162,9 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             std::shared_ptr<const FMeshVertexFactoryImplementation> Factory;
             uint8 Scenario;
             std::unique_ptr<FMeshPassProcessor> Processor;
-            std::unique_ptr<FMeshPSOCollectionSession> Session;
+            FMaterialPSOPrecacheParams RequestParams;
             FPSOPrecacheDataArray Initializers;
-            bool Ready = false;
+            bool Ready = false, Collected = false;
         };
         std::vector<FCase> Cases;
         FMaterialPSOPrecacheCollection Aggregate, IndependentAggregate;
@@ -202,11 +181,15 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             std::vector<FCase>& Cases;
             FMaterialPSOPrecacheCollection& Aggregate;
             FMaterialPSOPrecacheCollection& IndependentAggregate;
+            std::unique_ptr<FMeshPassProcessor>& ReusableCollector;
             ~FReleaseCases() {
-                EnqueueRenderCommand("ReleaseMeshPSOCollectionCases", [this](FRHICommandListImmediate&) { Cases.clear(); Aggregate = {}; IndependentAggregate = {}; });
+                EnqueueRenderCommand("ReleaseMeshPSOCollectionCases", [this](FRHICommandListImmediate&) {
+                    for (auto& Case : Cases) if (Case.Scenario == 18) ReusableCollector = std::move(Case.Processor);
+                    Cases.clear(); Aggregate = {}; IndependentAggregate = {};
+                });
                 FlushRenderingCommands();
             }
-        } ReleaseCases{Cases, Aggregate, IndependentAggregate};
+        } ReleaseCases{Cases, Aggregate, IndependentAggregate, ReusableCollector};
         // Full raster/topology matrix plus focused participation/configuration cases.
         for (uint8 Scenario = 0; Scenario < 19; ++Scenario)
         for (const auto Pass : FPassProcessorManager::GetRegisteredPasses())
@@ -239,47 +222,47 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                 for (auto& Case : Cases) {
                     if (Case.Ready) continue;
                     if (!Case.Processor) {
-                        if (Case.Scenario == 18) Case.Processor = std::make_unique<FOptionalFailureProcessor>();
-                        else Case.Processor = FPassProcessorManager::CreateMeshPassProcessor(Case.Pass);
-                        auto Params = AggregateParams;
+                        Case.Processor = Case.Scenario == 18 && ReusableCollector ? std::move(ReusableCollector) : FPassProcessorManager::CreateMeshPassProcessor(Case.Pass);
+                        auto& Params = Case.RequestParams;
+                        Params = AggregateParams;
                         Params.Material.bTwoSided = Case.Material.GetStaticProperties().bTwoSided;
                         Params.PrecachePSOParams = Case.Params; Params.PreparationConfig = Case.Config;
                         Params.VertexFactoryData = FPSOPrecacheVertexFactoryData(&Case.Factory->GetType());
-                        Case.Session = std::make_unique<FMeshPSOCollectionSession>(*Case.Processor, Params, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation);
-                        EXPECT_FALSE(Case.Session->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Optional, Case.Initializers));
-                        EXPECT_EQ(Case.Initializers.size(), 1u);
-                        if (Case.Scenario == 0 && Case.Pass == EMeshPipelinePass::Forward) {
-                            auto Excluded = Params; Excluded.PrecachePSOParams.Participation = {false, false};
-                            auto Peer = std::make_unique<FMeshPSOCollectionSession>(*Case.Processor, Excluded, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation);
-                            FPSOPrecacheDataArray PeerOut(1);
-                            ASSERT_TRUE(*Peer->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Required, PeerOut));
-                            ASSERT_TRUE(*Peer->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Optional, PeerOut));
-                            EXPECT_EQ(PeerOut.size(), 1u);
+                    }
+                    auto Params = Case.RequestParams;
+                    if (Case.Scenario == 18 && Case.Collected) Params.VertexFactoryData = FPSOPrecacheVertexFactoryData(&LimitedFactories[0]->GetType());
+                    const auto Ready = Case.Processor->PreparePSOResources(Params,
+                        Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation, false);
+                    if (!Ready) { Error = Ready.error(); return; }
+                    if (*Ready == EPSOCollectorPreparation::Pending) { Complete = false; continue; }
+                    if (*Ready == EPSOCollectorPreparation::Ready) {
+                        if (Case.Scenario == 18 && Case.Collected) {
+                            FPSOPrecacheDataArray NewFactory;
+                            Case.Processor->CollectPSOInitializers(Case.Config, Case.Material, Params.VertexFactoryData, Case.Params, NewFactory);
+                            ASSERT_FALSE(NewFactory.empty());
+                            for (const auto& Data : NewFactory) EXPECT_EQ(Data.VertexFactoryType, &LimitedFactories[0]->GetType());
+                        } else {
+                            Case.Processor->CollectPSOInitializers(Case.Config, Case.Material, Params.VertexFactoryData, Case.Params, Case.Initializers);
+                            FPSOPrecacheDataArray Again(1);
+                            Case.Processor->CollectPSOInitializers(Case.Config, Case.Material, Params.VertexFactoryData, Case.Params, Again);
+                            EXPECT_EQ(Again.size(), Case.Initializers.size());
+                            if (Case.Scenario == 18) {
+                                auto Changed = Case.Material;
+                                auto Properties = Changed.GetStaticProperties(); Properties.bTwoSided = true; Changed.StaticProperties = Properties;
+                                auto ChangedParams = Case.Params; ChangedParams.bReversedZ = !ChangedParams.bReversedZ;
+                                FPSOPrecacheDataArray Current;
+                                Case.Processor->CollectPSOInitializers(Case.Config, Changed, Params.VertexFactoryData, ChangedParams, Current);
+                                ASSERT_EQ(Current.size() + 1, Case.Initializers.size());
+                                for (const auto& Data : Current) EXPECT_EQ(Data.GraphicsInitializer.RasterizerState.CullMode, ERHICullMode::None);
+                                EXPECT_EQ(std::ranges::count_if(Current, [&](const auto& Data) {
+                                    return Data.bRequired && Data.GraphicsInitializer.DepthStencilState.CompareOp
+                                        == (ChangedParams.bReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less);
+                                }), 2);
+                                Case.Collected = true; Complete = false; continue;
+                            }
                         }
                     }
-                    auto Result = Case.Session->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Required, Case.Initializers);
-                    if (!Result) { Error = Result.error(); return; }
-                    if (*Result && Case.Scenario == 18) {
-                        const auto RequiredCount = Case.Initializers.size();
-                        const auto Failed = Case.Session->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Optional, Case.Initializers);
-                        EXPECT_FALSE(Failed.has_value());
-                        if (!Failed) EXPECT_EQ(Failed.error(), "Injected optional collection failure.");
-                        const auto RequiredAgain = Case.Session->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Required, Case.Initializers);
-                        EXPECT_TRUE(RequiredAgain.has_value());
-                        if (RequiredAgain) EXPECT_TRUE(*RequiredAgain);
-                        EXPECT_FALSE(Case.Session->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Optional, Case.Initializers));
-                        EXPECT_EQ(Case.Initializers.size(), RequiredCount);
-                        Case.Ready = true; continue;
-                    }
-                    if (*Result) Result = Case.Session->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Optional, Case.Initializers);
-                    if (!Result) { Error = Result.error(); return; }
-                    Case.Ready = *Result; Complete &= Case.Ready;
-                    if (Case.Ready) {
-                        const auto Count = Case.Initializers.size();
-                        EXPECT_TRUE(*Case.Session->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Required, Case.Initializers));
-                        EXPECT_TRUE(*Case.Session->CollectPSOInitializers(EPSOPrecacheCollectionPhase::Optional, Case.Initializers));
-                        EXPECT_EQ(Case.Initializers.size(), Count);
-                    }
+                    Case.Ready = true;
                 }
                 const auto Result = CollectMaterialPSOs(AggregateParams, Aggregate, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation);
                 if (!Result) { Error = Result.error(); return; }
@@ -293,7 +276,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                 for (const auto& Data : IndependentAggregate.PSOInitializers) {
                     EXPECT_EQ(Data.Type, FPSOPrecacheData::EType::Compute);
                     EXPECT_EQ(Data.PSOCollectorIndex, DeferredProbe.GetIndex());
-                    EXPECT_EQ(Data.VertexFactoryType, &IndependentFactory);
+                    EXPECT_EQ(Data.VertexFactoryType, nullptr);
                 }
 
                 bool OptionalSeen = false;
@@ -315,11 +298,6 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             SCOPED_TRACE(std::format("pass={} topology={} main={} shadow={}", uint8(Case.Pass), uint8(Case.Params.Topology),
                 Case.Params.Participation.bRenderInMainPass, Case.Params.Participation.bCastShadow));
             SCOPED_TRACE(Case.Factory->GetType().GetName());
-            if (Case.Scenario == 18) {
-                ASSERT_EQ(Case.Initializers.size(), 3u);
-                EXPECT_TRUE(Case.Initializers[1].bRequired && Case.Initializers[2].bRequired);
-                continue;
-            }
             FMaterialPlanningPassIdentity Identity; Identity.ShaderMap.BlendMode = Blend; Identity.ShaderMap.ShadingModel = Shading;
             Identity.bTwoSided = Case.Material.GetStaticProperties().bTwoSided;
             const bool Main = Case.Params.Participation.bRenderInMainPass && Case.Factory->GetShaderType(MaterialMeshPassForward);
@@ -343,7 +321,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                 Case.Pass == EMeshPipelinePass::HitProxy ? 0 : 2);
             for (size_t Index = 1; Index < Case.Initializers.size(); ++Index) {
                 EXPECT_TRUE(Case.Initializers[Index].IsValid());
-                EXPECT_EQ(Case.Initializers[Index].Priority, EPSOPrecachePriority::High);
+                EXPECT_EQ(Case.Initializers[Index].Priority, EPSOPrecachePriority::Medium);
                 if (Case.Pass == EMeshPipelinePass::ShadowDepth) EXPECT_TRUE(Case.Initializers[Index].bRequired);
                 if (Case.Pass == EMeshPipelinePass::HitProxy) EXPECT_FALSE(Case.Initializers[Index].bRequired);
             }
@@ -376,11 +354,13 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         for (const auto& Data : Aggregate.PSOInitializers) {
             if (Data.Type == FPSOPrecacheData::EType::Compute) { EXPECT_TRUE(Data.IsValid()); ++ComputeCount; continue; }
             const auto Key = BuildGraphicsPipelineStateKey(Data.GraphicsInitializer, GDynamicRHI->RHIGetCapabilities());
-            ASSERT_TRUE(Key); EXPECT_EQ(Data.Priority, EPSOPrecachePriority::High);
+            ASSERT_TRUE(Key); EXPECT_EQ(Data.Priority, EPSOPrecachePriority::Medium);
             PSOPrecacheValidation::SetEnabled(true);
             auto Validation = PSOPrecacheValidation::Track(Data);
             ASSERT_TRUE(Validation);
-            PSOPrecacheValidation::Update(Validation, ERHIPipelineRequestState::Ready);
+            const auto Native = PipelineStateCache::PrecacheGraphicsPipelineState(Data.GraphicsInitializer, "ValidationContract");
+            ASSERT_TRUE(Native); ASSERT_TRUE((*Native)->Wait());
+            PSOPrecacheValidation::Observe(Validation, (*Native)->GetStateObservation());
             EXPECT_EQ(PSOPrecacheValidation::Check(Data.GraphicsInitializer, Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
                 PSOPrecacheValidation::EResult::Hit);
             auto DifferentState = Data.GraphicsInitializer;

@@ -19,7 +19,7 @@ namespace Durin
 
 
 	// Submission description, separate from the asynchronous pipeline observation.
-	// The collector keeps referenced shaders/declarations alive until admission.
+	// Descriptions retain their native inputs independently of collector reuse.
 	struct FPSOPrecacheData
 	{
 		enum class EType : uint8 { Graphics, Compute };
@@ -34,10 +34,18 @@ namespace Durin
 		FPSOPrecacheData() = default;
 		explicit FPSOPrecacheData(FGraphicsPipelineStateInitializer Initializer,
 			bool bInRequired = true, EPSOPrecachePriority InPriority = EPSOPrecachePriority::Medium)
-			: Type(EType::Graphics), GraphicsInitializer(std::move(Initializer)), bRequired(bInRequired), Priority(InPriority) {}
+			: Type(EType::Graphics), GraphicsInitializer(std::move(Initializer)), bRequired(bInRequired), Priority(InPriority) { RetainInitializerResources(); }
 		explicit FPSOPrecacheData(FComputePipelineStateInitializer Initializer,
 			bool bInRequired = true, EPSOPrecachePriority InPriority = EPSOPrecachePriority::Medium)
-			: Type(EType::Compute), ComputeInitializer(std::move(Initializer)), bRequired(bInRequired), Priority(InPriority) {}
+			: Type(EType::Compute), ComputeInitializer(std::move(Initializer)), bRequired(bInRequired), Priority(InPriority) { RetainInitializerResources(); }
+		// Also refresh ownership when a caller assembled the public initializer fields.
+		auto RetainInitializerResources() -> void
+		{
+			VertexShader = Type == EType::Graphics ? GraphicsInitializer.BoundShaders.VertexShader : nullptr;
+			FragmentShader = Type == EType::Graphics ? GraphicsInitializer.BoundShaders.FragmentShader : nullptr;
+			Declaration = Type == EType::Graphics ? GraphicsInitializer.VertexDeclaration : nullptr;
+			ComputeShader = Type == EType::Compute ? ComputeInitializer.ComputeShader : nullptr;
+		}
 		[[nodiscard]] auto IsValid() const -> bool
 		{
 			if (Priority >= EPSOPrecachePriority::Num) return false;
@@ -48,6 +56,9 @@ namespace Durin
 			}
 			return false;
 		}
+	private:
+		FShaderRHIRef VertexShader, FragmentShader, ComputeShader;
+		FVertexDeclarationRHIRef Declaration;
 	};
 	using FPSOPrecacheDataArray = std::vector<FPSOPrecacheData>;
 
@@ -71,10 +82,17 @@ namespace Durin
 		ENGINE_API auto IsEnabled() -> bool;
 		ENGINE_API auto Clear() -> void;
 		ENGINE_API auto Track(const FPSOPrecacheData& Data) -> std::shared_ptr<FRecord>;
-		ENGINE_API auto Update(const std::shared_ptr<FRecord>& Record, ERHIPipelineRequestState State) -> void;
+		ENGINE_API auto Observe(const std::shared_ptr<FRecord>& Record,
+			std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> Outcome) -> void;
+		ENGINE_API auto Withdraw(const std::shared_ptr<FRecord>& Record) -> void;
 		ENGINE_API auto Check(const FGraphicsPipelineStateInitializer& Initializer, int32 CollectorIndex,
 			const FVertexFactoryType* VertexFactoryType) -> FCheckResult;
 		ENGINE_API auto Check(const FComputePipelineStateInitializer& Initializer, int32 CollectorIndex,
+			const FVertexFactoryType* VertexFactoryType = nullptr) -> FCheckResult;
+		// Record actual draw/dispatch use once per full identity in a capture.
+		ENGINE_API auto RecordUse(const FGraphicsPipelineStateInitializer& Initializer, int32 CollectorIndex,
+			const FVertexFactoryType* VertexFactoryType) -> FCheckResult;
+		ENGINE_API auto RecordUse(const FComputePipelineStateInitializer& Initializer, int32 CollectorIndex,
 			const FVertexFactoryType* VertexFactoryType = nullptr) -> FCheckResult;
 		ENGINE_API auto GetStatistics() -> FStatistics;
 	}

@@ -18,6 +18,7 @@ namespace Durin
 		FPipelineState(const FPipelineState&) = delete;
 		auto operator=(const FPipelineState&) -> FPipelineState& = delete;
 		auto GetState() const -> ERHIPipelineRequestState { return Request.GetState(); }
+		auto GetStateObservation() const -> std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> { return Request.GetStateObservation(); }
 		auto IsComplete() const -> bool { return Request.GetTaskHandle().IsCompleted(); }
 		auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc> { return Request.GetPipelineLayout(); }
 		auto GetResult() const -> FRHIPipelineCreationResult { return Request.GetResult(); }
