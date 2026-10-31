@@ -187,7 +187,7 @@ namespace Durin
 
 	private:
 		friend class DStaticMesh;
-		friend auto PumpCookedMeshLoadManager() -> uint32;
+		friend ENGINE_API auto PumpCookedMeshLoadManager() -> uint32;
 		auto Defer(FObjectKey Owner) -> void;
 		auto RetryDeferred() -> void;
 		struct FState;
@@ -195,7 +195,6 @@ namespace Durin
 	};
 
 	ENGINE_API auto InitializeCookedMeshLoadManager() -> bool;
-	ENGINE_API auto PumpCookedMeshLoadManager() -> uint32;
 	ENGINE_API auto ShutdownCookedMeshLoadManager() -> void;
 	ENGINE_API auto GetCookedMeshLoadManager() -> FCookedMeshLoadManager*;
 }
