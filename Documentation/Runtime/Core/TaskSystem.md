@@ -43,7 +43,7 @@ when scheduler thresholds are exceeded. They do not retry, wait for capacity,
 or run a callable inline. Acceptance does not promise execution success.
 
 Options carry debug name, priority, cancellation, attribution,
-prerequisites, and deferred generation/coalescing identity. Ordinary callers do
+and prerequisites. Ordinary callers do
 not declare scheduler capture/result byte budgets. Actual domain payload limits
 and producer throttling belong to resource owners; see
 [Asset Compilation](../Assets/Build/AssetCompilation.md).
@@ -77,8 +77,13 @@ These are diagnostic thresholds only; neither rejects nor delays tasks. CPU and
 blocking-I/O execution uses the installed thread pools. Explicit limits on a
 selected set of Worker tasks belong to `FTaskConcurrencyLimiter` below.
 
-The deferred executor retains its frame time/item budget, priorities, FIFO,
-generations and coalescing. `QueuedEntriesWarningThreshold` (1,024),
+The deferred executor retains its frame time/item budget, priorities and FIFO.
+Core does not merge or replace queued tasks by key. Request freshness and request
+coalescing belong to the domain owner: use serial checks in publication bodies,
+or retain the latest payload behind one owner-managed publication task when
+queue reduction is needed. Superseded remains a domain result/status rather than
+a Core terminal reason. Core provides no task generation source/token or
+automatic generation-expiry outcome. `QueuedEntriesWarningThreshold` (1,024),
 `QueuedBytesWarningThreshold` (8 MiB), and `EntryBytesWarningThreshold` (1 MiB)
 only report overload. Accepted entries remain queued beyond them. Storage is
 estimated consistently for every entry; callers do not declare admission budgets.
@@ -249,10 +254,11 @@ Prerequisites do not supply attribution: set Options.Attribution explicitly when
 a dependent must retain a producer's owner/category. Otherwise ordinary launch
 inherits the current executing task's attribution, where available.
 
-Copying task handles preserves the original failure reason, code and diagnostic
-metadata. A dependent callable exception remains its own callback failure; it is
-not relabeled as a failed prerequisite. Failure storage belongs to the task node.
-Internal terminal hooks can read that metadata before public completion, while
+Copying task handles preserves the native terminal reason and diagnostic text.
+GetFailure returns that reason from the node's outcome, without separate injected
+failure storage or dependency-propagation metadata. A dependent callable exception
+remains its own callback failure; it is not relabeled as a failed prerequisite.
+Internal terminal hooks can read the native outcome before public completion, while
 GetFailure still requires Failed. Canceling a dependent does not cancel its inputs
 or suppress its body; mandatory cleanup remains an owner lifecycle responsibility.
 
@@ -572,8 +578,9 @@ migration does not unify those command queues.
 
 ContentBrowser and source-reference builds retain generation, navigation and
 registry checks. Asset Compatibility Audit streams serial-tagged value records
-and publishes its shared terminal summary through a generation/weak-lifetime
-checked GameThread observer; CancelAndDrain is the mandatory fallback cleanup.
+and publishes its shared terminal summary through a serial/admission/weak-lifetime
+checked GameThread task. A stale or closed publication returns without updating
+the model and completes normally; CancelAndDrain still owns worker retirement.
 Texture, material and mesh managers retain owner polling, reservations and
 GameThread result delivery. Source-image thumbnails retain visibility priority,
 four decodes, two uploads per frame, the cache budget and serial checks. The
@@ -595,9 +602,10 @@ deferred work without the frame budget and drains the entire graph before
 uninstalling the adapter and joining pools. Cancel first requests cooperative
 cancellation of all accepted nodes, then performs the same drain. Pending external
 signals must still arrive, queued bodies still execute, and deferred work must
-still be pumped on GameThread. Generation expiry, coalescing supersession and
-executor rejection are execution failures with explicit reasons, not cancellation
-requests.
+still be pumped on GameThread. Executor rejection and callable exceptions are
+execution failures with explicit reasons, not cancellation requests. Business
+publication bodies that ignore obsolete requests complete normally. Owners still
+reap every accepted producer and publication, including failed or skipped work.
 The deferred adapter retains internal dispatch until the accepted graph is
 terminal, including completion publications from external producers and capture
 destructors during shutdown. Only then is its queue closed and uninstalled.

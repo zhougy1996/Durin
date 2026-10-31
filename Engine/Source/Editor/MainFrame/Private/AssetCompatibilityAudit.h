@@ -114,7 +114,6 @@ namespace Durin::Editor
 		FTaskCancellationSource Cancellation;
 		Tasks::FTask Task;
 		Tasks::FTask TerminalTask;
-		FTaskGenerationSource Generation;
 		std::shared_ptr<FPublicationLifetime> PublicationLifetime;
 		std::unordered_map<FPackagePath, FAssetPackageCompatibilityRecord> Records;
 		mutable std::vector<FAssetPackageCompatibilityRecord> PresentationRecords;

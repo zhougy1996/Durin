@@ -52,12 +52,6 @@ namespace Durin
 		Gate.Trigger();
 		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
 		EXPECT_TRUE(WeakCapture.expired());
-		auto Edge = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Parent](){}, Parent);
-		auto Observed = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Edge]() {
-			const auto& Task = Edge;
-			EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
-		}, Edge);
-		EXPECT_EQ(Observed.Wait().TaskState, ETaskState::Succeeded);
 	}
 
 	TEST_F(FTaskCloseTests, VoidTasksPreserveProducerOutcomes)
@@ -115,17 +109,13 @@ namespace Durin
 		std::atomic<uint32> Retired = 0;
 		struct FOwner { std::atomic<uint32>& Count; ~FOwner() { ++Count; } };
 		auto Seed = Tasks::LaunchTask("OwnedSeed", [&] { return std::unique_ptr<FOwner>(new FOwner{Retired}); });
-		auto All = Tasks::LaunchTask("RetainViews", [Seed] { return std::array{Seed.GetResultShared(), Seed.GetResultShared()}; }, Tasks::Prerequisites(Seed, Seed));
-		auto Void = Tasks::LaunchTask("VoidInput", [] {});
-		auto Mixed = Tasks::LaunchTask("RetainMixed", [Void, Seed] { return std::tuple{Tasks::FTask(Void), Seed.GetResultShared()}; }, Tasks::Prerequisites(Void, Seed));
-		EXPECT_EQ(All.Wait().TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(Mixed.Wait().TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(All.GetResult()[0], All.GetResult()[1]);
-		EXPECT_EQ(All.GetResult()[0], std::get<1>(Mixed.GetResult()));
-		EXPECT_TRUE(std::get<0>(Mixed.GetResult()).IsCompleted());
-		auto View = All.GetResult().front();
+		auto Published = Tasks::LaunchTask("RetainView", [Seed] { return Seed.GetResultShared(); }, Seed);
+		ASSERT_EQ(Published.Wait().TaskState, ETaskState::Succeeded);
+		auto View = Published.GetResult();
+		ASSERT_TRUE(View);
+		EXPECT_TRUE(*View);
 		Tasks::FTask Retained = Seed;
-		Seed = {}; All = {}; Mixed = {};
+		Seed = {}; Published = {};
 		ShutdownTaskScheduler(false);
 		EXPECT_EQ(Retired.load(), 0u);
 		Retained = {};

@@ -238,8 +238,6 @@ namespace Durin
 			Rejected,
 			CancellationRequested,
 			DispatchRejected,
-			Superseded,
-			StaleGeneration,
 			CallbackFailure,
 			ShutdownCanceled,
 			ParallelForOperation,
@@ -315,8 +313,6 @@ namespace Durin
 				Out.RejectedCount = Counter(ETaskAggregateCounter::Rejected);
 				Out.CancellationRequestedCount = Counter(ETaskAggregateCounter::CancellationRequested);
 				Out.DispatchRejectedCount = Counter(ETaskAggregateCounter::DispatchRejected);
-				Out.SupersededCount = Counter(ETaskAggregateCounter::Superseded);
-				Out.StaleGenerationCount = Counter(ETaskAggregateCounter::StaleGeneration);
 				Out.CallbackFailureCount = Counter(ETaskAggregateCounter::CallbackFailure);
 				Out.ShutdownCanceledCount = Counter(ETaskAggregateCounter::ShutdownCanceled);
 				Out.ParallelForOperationCount = Counter(ETaskAggregateCounter::ParallelForOperation);
@@ -450,14 +446,6 @@ namespace Durin
 
 	private:
 		std::atomic<bool> bCancellationRequested = false;
-	};
-
-
-
-	class FTaskGenerationState
-	{
-	public:
-		std::atomic<uint64> Generation = 1;
 	};
 
 	enum class ETaskDependencyKind : uint8 { Execution, Nested, Pipe };
@@ -628,8 +616,6 @@ namespace Durin
 		uint64 AdditionalStorageBytes = 0;
 		bool bIndependentCPU = false;
 		FTaskAttribution Attribution;
-		FTaskGenerationToken GenerationToken;
-		std::optional<FTaskCoalescingKey> CoalescingKey;
 		ETaskNodeKind Kind = ETaskNodeKind::Executable;
 		bool bUnknownExecutionRequirement = false;
 		Private::FMoveOnlyTaskFunction Function;
@@ -659,8 +645,6 @@ namespace Durin
 			, EstimatedPayloadBytes(Init.EstimatedPayloadBytes)
 			, bIndependentCPU(Init.bIndependentCPU)
 			, Attribution(Init.Attribution)
-			, GenerationToken(Init.GenerationToken)
-			, CoalescingKey(Init.CoalescingKey)
 			, EnqueueTimeNanoseconds(MonotonicNanoseconds())
 		{
 			require(LifetimeAccounting && (!Init.Result.bHasValue || Init.Result.Storage));
@@ -703,19 +687,10 @@ namespace Durin
 			}
 		}
 
-		auto SetFailure(Tasks::FTaskFailure Failure) -> void
-		try
-		{
-			auto Storage = std::make_unique<Tasks::FTaskFailure>(std::move(Failure));
-			std::lock_guard Lock(Mutex);
-			require(!FailureStorage);
-			FailureStorage = std::move(Storage);
-		}
-		catch (const std::bad_alloc&) { Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::AllocationFailure}); }
 		auto GetFailure() const -> Tasks::FTaskFailure
 		{
 			std::lock_guard Lock(Mutex);
-			return FailureStorage ? *FailureStorage : Tasks::FTaskFailure{Outcome.Reason};
+			return {Outcome.Reason};
 		}
 
 		auto Activate() -> void
@@ -1041,12 +1016,6 @@ namespace Durin
 				Snapshot.EstimatedStorageBytes = SchedulerStorageBytes;
 				Snapshot.AttributionOwnerId = Private::FTaskAttributionAccess::GetOwnerId(Attribution);
 				Snapshot.AttributionCategoryId = Private::FTaskAttributionAccess::GetCategoryId(Attribution);
-				if (CoalescingKey)
-				{
-					Snapshot.CoalescingOwnerDomain = CoalescingKey->OwnerDomain;
-					Snapshot.CoalescingWorkId = CoalescingKey->WorkId;
-					Snapshot.CoalescingGeneration = CoalescingKey->Generation;
-				}
 				Snapshot.bHasResultStorage = bHasResultStorage;
 			}
 			std::tie(Snapshot.AttributionOwner, Snapshot.AttributionCategory) = GTaskAttributionRegistry.Resolve(Attribution);
@@ -1075,8 +1044,6 @@ namespace Durin
 		auto GetAttribution() const -> FTaskAttribution { return Attribution; }
 		auto GetEstimatedPayloadBytes() const -> uint64 { return EstimatedPayloadBytes; }
 		auto GetSchedulerStorageBytes() const -> uint64 { return SchedulerStorageBytes; }
-		auto GetGenerationToken() const -> const FTaskGenerationToken& { return GenerationToken; }
-		auto GetCoalescingKey() const -> const std::optional<FTaskCoalescingKey>& { return CoalescingKey; }
 
 	private:
 		enum class EPhase : uint8 { Open, BodyFinished, Closing, Closed };
@@ -1089,7 +1056,6 @@ namespace Durin
 		EPhase Phase = EPhase::Open;
 		FTaskOutcome Outcome;
 		// Detailed composition failures are absent on the successful path.
-		std::unique_ptr<Tasks::FTaskFailure> FailureStorage;
 		auto TryClose() -> void;
 		auto Close() noexcept -> void;
 		friend struct Private::FTaskRuntimeAccess;
@@ -1138,8 +1104,6 @@ namespace Durin
 		const bool bIndependentCPU;
 		uint64 SchedulerStorageBytes = 0;
 		FTaskAttribution Attribution;
-		FTaskGenerationToken GenerationToken;
-		std::optional<FTaskCoalescingKey> CoalescingKey;
 		std::atomic<bool> bCancellationRequested = false;
 		uint64 EnqueueTimeNanoseconds = 0;
 		uint64 DispatchTimeNanoseconds = 0;
@@ -1234,8 +1198,6 @@ namespace Durin
 			ETaskPriority Priority = ETaskPriority::Normal,
 			uint64 EstimatedPayloadBytes = 0,
 			uint64 AdditionalStorageBytes = 0,
-			FTaskGenerationToken GenerationToken = {},
-			std::optional<FTaskCoalescingKey> CoalescingKey = {},
 			Private::FTaskResultStorage Result = {}) -> std::shared_ptr<FTaskStateData>
 		{
 			FTaskNodeInit Init;
@@ -1252,8 +1214,6 @@ namespace Durin
 			Init.AdditionalStorageBytes = AdditionalStorageBytes;
 			Init.bIndependentCPU = Options.bIndependentCPU;
 			Init.Attribution = Options.Attribution;
-			Init.GenerationToken = std::move(GenerationToken);
-			Init.CoalescingKey = std::move(CoalescingKey);
 			Init.Function = std::move(FunctionOwner);
 			Init.Completion = std::move(CompletionFunction);
 			Init.Result = std::move(Result);
@@ -1553,8 +1513,6 @@ namespace Durin
 			{
 			case ETaskTerminalReason::CancellationRequested: Aggregate.Increment(ETaskAggregateCounter::CancellationRequested); break;
 			case ETaskTerminalReason::DispatchRejected: Aggregate.Increment(ETaskAggregateCounter::DispatchRejected); break;
-			case ETaskTerminalReason::Superseded: Aggregate.Increment(ETaskAggregateCounter::Superseded); break;
-			case ETaskTerminalReason::StaleGeneration: Aggregate.Increment(ETaskAggregateCounter::StaleGeneration); break;
 			case ETaskTerminalReason::CallbackFailure: Aggregate.Increment(ETaskAggregateCounter::CallbackFailure); break;
 			case ETaskTerminalReason::ShutdownCanceled: Aggregate.Increment(ETaskAggregateCounter::ShutdownCanceled); break;
 			default: break;
@@ -1826,11 +1784,7 @@ namespace Durin
 			Entry->State = State;
 			Entry->PayloadBytes = sizeof(FEntry) + State->GetSchedulerStorageBytes();
 			Entry->Priority = State->GetPriority();
-			Entry->GenerationToken = State->GetGenerationToken();
-			Entry->CoalescingKey = State->GetCoalescingKey();
 			Entry->EnqueueTimeNanoseconds = MonotonicNanoseconds();
-			std::shared_ptr<FTaskStateData> SupersededState;
-			std::shared_ptr<FEntry> SupersededEntry;
 			std::vector<std::shared_ptr<FEntry>> DetachedEntries;
 			bool bReportOverload = false;
 			{
@@ -1843,43 +1797,15 @@ namespace Durin
 					return false;
 				}
 
-				std::shared_ptr<FEntry> Replacement;
-				if (State->GetCoalescingKey())
-				{
-					for (auto& Queue : Queues)
-					{
-						for (const std::shared_ptr<FEntry>& Candidate : Queue)
-						{
-							if (Candidate->bReserved && Candidate->CoalescingKey == State->GetCoalescingKey())
-							{
-								Replacement = Candidate;
-								break;
-							}
-						}
-						if (Replacement) break;
-					}
-				}
-
-				const uint32 ReplacedEntries = Replacement ? 1u : 0u;
-				const uint64 ReplacedBytes = Replacement ? Replacement->PayloadBytes : 0;
 				const bool bWasOverloaded = ActiveEntryCount > Config.QueuedEntriesWarningThreshold
 					|| QueuedPayloadBytes > Config.QueuedBytesWarningThreshold;
-				const bool bWillOverload = ActiveEntryCount - ReplacedEntries + 1 > Config.QueuedEntriesWarningThreshold
-					|| QueuedPayloadBytes - ReplacedBytes + PayloadBytes > Config.QueuedBytesWarningThreshold;
+				const bool bWillOverload = ActiveEntryCount + 1 > Config.QueuedEntriesWarningThreshold
+					|| QueuedPayloadBytes + PayloadBytes > Config.QueuedBytesWarningThreshold;
 				if ((!bWasOverloaded && bWillOverload) || PayloadBytes > Config.EntryBytesWarningThreshold)
 				{
 					const uint64 Crossings = ++Diagnostics.OverloadCrossings;
 					bReportOverload = (Crossings & (Crossings - 1)) == 0;
 				}
-				if (Replacement)
-				{
-					SupersededState = Replacement->State;
-					SupersededEntry = Replacement;
-					ReleaseReservationLocked(*Replacement);
-					for (auto& Queue : Queues) std::erase(Queue, Replacement);
-					++Diagnostics.SupersededCount;
-				}
-
 				Queues[static_cast<size_t>(Entry->Priority)].emplace_back(std::move(Entry));
 				++ActiveEntryCount;
 				QueuedPayloadBytes += PayloadBytes;
@@ -1890,10 +1816,6 @@ namespace Durin
 			}
 
 			if (bReportOverload) DURIN_WARN("Deferred task storage crossed a configured threshold; valid work remains queued.");
-			if (SupersededState)
-			{
-				SupersededState->FinishBody(ETaskState::Failed, "GameThread deferred task was superseded.", ETaskTerminalReason::Superseded);
-			}
 			return true;
 		}
 
@@ -1917,7 +1839,6 @@ namespace Durin
 			{
 				std::shared_ptr<FEntry> Entry;
 				std::vector<std::shared_ptr<FEntry>> DetachedEntries;
-				bool bExpiredGeneration = false;
 				{
 					std::lock_guard Lock(Mutex);
 					PurgeTerminalEntriesLocked(DetachedEntries, &Result.TerminalEntriesSkipped);
@@ -1932,17 +1853,8 @@ namespace Durin
 						}
 					}
 					if (!Entry) break;
-					bExpiredGeneration = !Entry->GenerationToken.IsCurrent();
 					ReleaseReservationLocked(*Entry);
-					if (bExpiredGeneration) ++Diagnostics.ExpiredGenerationCount;
 					RefreshDepthDiagnosticsLocked();
-				}
-
-				if (bExpiredGeneration)
-				{
-					Entry->State->FinishBody(ETaskState::Failed, "GameThread deferred task generation expired.", ETaskTerminalReason::StaleGeneration);
-					++Result.TerminalEntriesSkipped;
-					continue;
 				}
 
 				const auto CallbackStart = std::chrono::steady_clock::now();
@@ -2040,8 +1952,6 @@ namespace Durin
 		struct FEntry
 		{
 			std::shared_ptr<FTaskStateData> State;
-			FTaskGenerationToken GenerationToken;
-			std::optional<FTaskCoalescingKey> CoalescingKey;
 			uint64 PayloadBytes = 0;
 			uint64 EnqueueTimeNanoseconds = 0;
 			ETaskPriority Priority = ETaskPriority::Normal;
@@ -2446,44 +2356,6 @@ namespace Durin
 		{
 			State->RequestCancellation();
 		}
-	}
-
-	FTaskGenerationToken::FTaskGenerationToken(
-		std::shared_ptr<FTaskGenerationState> InState,
-		uint64 InGeneration)
-		: State(std::move(InState))
-		, Generation(InGeneration)
-	{
-	}
-
-	auto FTaskGenerationToken::IsCurrent() const -> bool
-	{
-		return !State || State->Generation.load(std::memory_order::acquire) == Generation;
-	}
-
-	auto FTaskGenerationToken::IsConstrained() const -> bool
-	{
-		return State != nullptr;
-	}
-
-	FTaskGenerationSource::FTaskGenerationSource()
-		: State(std::make_shared<FTaskGenerationState>())
-	{
-	}
-
-	auto FTaskGenerationSource::Capture() const -> FTaskGenerationToken
-	{
-		return FTaskGenerationToken(State, GetGeneration());
-	}
-
-	auto FTaskGenerationSource::Advance() -> uint64
-	{
-		return State ? State->Generation.fetch_add(1, std::memory_order::acq_rel) + 1 : 0;
-	}
-
-	auto FTaskGenerationSource::GetGeneration() const -> uint64
-	{
-		return State ? State->Generation.load(std::memory_order::acquire) : 0;
 	}
 
 	FParallelForCancellationToken::FParallelForCancellationToken(FTaskCancellationToken InGroupToken, FTaskCancellationToken InExternalToken)
@@ -2904,7 +2776,7 @@ namespace Durin
 				Options.Target,
 				Options.Priority,
 				Options.EstimatedPayloadBytes,
-				AdditionalStorageBytes, Options.GenerationToken, Options.CoalescingKey, std::move(Result)
+				AdditionalStorageBytes, std::move(Result)
 			);
 			return Tasks::FTask(std::move(State));
 		}
@@ -2916,8 +2788,6 @@ namespace Durin
 
 		auto FTaskRuntimeAccess::GetFailure(const Tasks::FTask& Task) -> Tasks::FTaskFailure
 		{ require(Task.State); return Task.State->GetFailure(); }
-		auto FTaskRuntimeAccess::SetCurrentFailure(Tasks::FTaskFailure Failure) -> void
-		{ require(GCurrentTaskState); GCurrentTaskState->SetFailure(std::move(Failure)); }
 
 		auto FTaskRuntimeAccess::PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>
 		{ require(Task.State); return Task.State; }
@@ -3010,11 +2880,6 @@ namespace Durin
 			if (!GCurrentTaskState || !GCurrentTaskState->IsRunningBody())
 				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
 			return AddCompletionDependency(Tasks::FTask(GCurrentTaskState->shared_from_this()), Child);
-		}
-
-		auto FTaskRuntimeAccess::IsCancellationRequested(const Tasks::FTask& Task) -> bool
-		{
-			return Task.State && Task.State->MakeCancellationToken().IsCancellationRequested();
 		}
 
 		auto FTaskRuntimeAccess::SetCurrentCanceledOutcome() -> void

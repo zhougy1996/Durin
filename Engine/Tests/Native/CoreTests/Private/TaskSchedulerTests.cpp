@@ -1563,56 +1563,6 @@ namespace Durin
 		PumpGameThreadDeferredWork({.bUnlimited = true});
 	}
 
-	TEST(FGameThreadDeferredTaskTests, CoalescingAndGenerationChecksPublishStableReasons)
-	{
-		EnsureGameThreadForTaskTest();
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-		Tasks::FTask Root = SubmitKernelTask("DeferredPolicyRoot", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
-
-		FTaskLaunchOptions CoalescedOptions;
-		CoalescedOptions.Target = ETaskTarget::GameThreadDeferred;
-		CoalescedOptions.EstimatedPayloadBytes = 4;
-		CoalescedOptions.CoalescingKey = FTaskCoalescingKey{11, 22, 33};
-		CoalescedOptions.Prerequisites = std::span(&Root, 1);
-		CoalescedOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
-		Tasks::FTask Superseded = SubmitKernelTask("DeferredSuperseded", []() {}, CoalescedOptions);
-		std::atomic<bool> bReplacementRan = false;
-		CoalescedOptions.Prerequisites = std::span(&Root, 1);
-		CoalescedOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
-		Tasks::FTask Replacement = SubmitKernelTask("DeferredReplacement", [&]() { bReplacementRan = true; }, CoalescedOptions);
-		EXPECT_EQ(ETaskState::Failed, Superseded.GetState());
-		EXPECT_EQ(ETaskTerminalReason::Superseded, Superseded.GetDiagnostics().TerminalReason);
-		const FTaskDiagnostics ReplacementDiagnostics = Replacement.GetDiagnostics();
-		EXPECT_EQ(ETaskTarget::GameThreadDeferred, ReplacementDiagnostics.Target);
-		EXPECT_EQ(4u, ReplacementDiagnostics.EstimatedPayloadBytes);
-		EXPECT_EQ(11u, ReplacementDiagnostics.CoalescingOwnerDomain);
-		EXPECT_EQ(22u, ReplacementDiagnostics.CoalescingWorkId);
-		EXPECT_EQ(33u, ReplacementDiagnostics.CoalescingGeneration);
-
-		FTaskGenerationSource Generation;
-		FTaskLaunchOptions StaleOptions;
-		StaleOptions.Target = ETaskTarget::GameThreadDeferred;
-		StaleOptions.EstimatedPayloadBytes = 1;
-		StaleOptions.GenerationToken = Generation.Capture();
-		StaleOptions.Prerequisites = std::span(&Root, 1);
-		StaleOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
-		Tasks::FTask Stale = SubmitKernelTask("DeferredStale", []() {}, StaleOptions);
-		Generation.Advance();
-
-		PumpGameThreadDeferredWork({.bUnlimited = true});
-		EXPECT_EQ(ETaskState::Succeeded, Replacement.GetState());
-		EXPECT_TRUE(bReplacementRan.load());
-		EXPECT_EQ(ETaskState::Failed, Stale.GetState());
-		EXPECT_EQ(ETaskTerminalReason::StaleGeneration, Stale.GetDiagnostics().TerminalReason);
-		const auto Diagnostics = GetGameThreadDeferredWorkQueueDiagnostics();
-		EXPECT_EQ(1u, Diagnostics.SupersededCount);
-		EXPECT_EQ(1u, Diagnostics.ExpiredGenerationCount);
-	}
-
 	TEST(FGameThreadDeferredTaskTests, ReentrantPumpAndCallbackFailureRemainObservable)
 	{
 		EnsureGameThreadForTaskTest();
@@ -1691,7 +1641,7 @@ namespace Durin
 		EXPECT_TRUE(CancelTail.IsCancellationRequested());
 	}
 
-	TEST(FGameThreadDeferredTaskTests, MixedGenerationCallbacksPreserveAccountingAndDropStaleWork)
+	TEST(FGameThreadDeferredTaskTests, DeferredCallbacksPreserveAccounting)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -1705,10 +1655,7 @@ namespace Durin
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		constexpr uint32 CallbackCount = 16;
-		constexpr uint32 StaleCallbackCount = 2;
 		constexpr uint64 DeclaredCaptureBytes = 64;
-		FTaskGenerationSource StaleGeneration;
-		const FTaskGenerationToken StaleToken = StaleGeneration.Capture();
 		std::atomic<uint32> ExecutedCount = 0;
 		std::vector<Tasks::FTask> Handles;
 		Handles.reserve(CallbackCount);
@@ -1717,32 +1664,27 @@ namespace Durin
 			FTaskLaunchOptions Options;
 			Options.Target = ETaskTarget::GameThreadDeferred;
 			Options.EstimatedPayloadBytes = DeclaredCaptureBytes;
-			if (Index < StaleCallbackCount) Options.GenerationToken = StaleToken;
 			Options.Prerequisites = std::span(&Root, 1);
 			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
 			Handles.emplace_back(SubmitKernelTask("DeferredAccountingCallback", [&]() {
 				ExecutedCount.fetch_add(1, std::memory_order::acq_rel);
 			}, Options));
 		}
-		StaleGeneration.Advance();
 
 		const FGameThreadDeferredWorkQueueDiagnostics BeforePump = GetGameThreadDeferredWorkQueueDiagnostics();
 		ASSERT_EQ(CallbackCount, BeforePump.QueueDepth);
 		ASSERT_GT(BeforePump.QueuedPayloadBytes, CallbackCount * DeclaredCaptureBytes);
 		const FGameThreadDeferredPumpResult Pump = PumpGameThreadDeferredWork({.bUnlimited = true});
-		ASSERT_EQ(CallbackCount - StaleCallbackCount, Pump.ExecutedCallbacks);
-		EXPECT_EQ(CallbackCount - StaleCallbackCount, ExecutedCount.load(std::memory_order::acquire));
+		ASSERT_EQ(CallbackCount, Pump.ExecutedCallbacks);
+		EXPECT_EQ(CallbackCount, ExecutedCount.load(std::memory_order::acquire));
 
 		uint32 SucceededCount = 0;
-		uint32 StaleCount = 0;
 		for (const Tasks::FTask& Handle : Handles)
 		{
 			const FTaskDiagnostics Diagnostics = Handle.GetDiagnostics();
 			SucceededCount += Diagnostics.State == ETaskState::Succeeded;
-			StaleCount += Diagnostics.TerminalReason == ETaskTerminalReason::StaleGeneration;
 		}
-		EXPECT_EQ(CallbackCount - StaleCallbackCount, SucceededCount);
-		EXPECT_EQ(StaleCallbackCount, StaleCount);
+		EXPECT_EQ(CallbackCount, SucceededCount);
 	}
 
 	TEST(FTaskTests, InvalidHandlesAreNoOp)
