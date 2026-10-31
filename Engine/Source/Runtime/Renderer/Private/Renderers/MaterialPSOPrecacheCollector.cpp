@@ -16,28 +16,6 @@ namespace Durin::RendererPrivate
 			FMaterialResource Material;
 		};
 	}
-	auto SelectMaterialPSOPrecachePasses(const FMaterialPSOPrecacheParams& Params,
-		bool bSupportsGBuffer, const FSceneRenderPreparationConfig& Config) -> std::vector<FMaterialPSOPrecachePass>
-	{
-		std::vector<FMaterialPSOPrecachePass> Result;
-		for (const auto Pass : FPassProcessorManager::GetRegisteredPasses())
-		{
-			const auto* Processor = &FPassProcessorManager::GetMeshPassProcessor(Pass);
-			if (!Processor->IsEnabled(Config) || !Processor->IsMeshRelevant(Params.Material, Params.PrecachePSOParams.Participation, bSupportsGBuffer)) continue;
-			for (const auto& Variant : Processor->GetPSOPrecacheVariants(Config, Params.PrecachePSOParams))
-				Result.push_back({Processor->GetPass(), Variant.Raster, Variant.bRequired});
-		}
-		std::stable_sort(Result.begin(), Result.end(), [](const auto& A, const auto& B) { return A.bRequired > B.bRequired; });
-		return Result;
-	}
-	auto SelectMaterialPSOPrecachePasses(const FMaterialPSOPrecacheParams& Params,
-		const FMeshVertexFactoryImplementation& Factory, const FSceneRenderPreparationConfig& Config) -> std::vector<FMaterialPSOPrecachePass>
-	{
-		auto Result = SelectMaterialPSOPrecachePasses(Params,
-			Factory.GetShaderType(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass()) != nullptr, Config);
-		std::erase_if(Result, [&](const auto& Entry) { return !FPassProcessorManager::GetMeshPassProcessor(Entry.Pass).SupportsVertexFactory(Factory); });
-		return Result;
-	}
 	auto CollectMaterialPSOs(const FMaterialPSOPrecacheParams& Params, FMaterialPSOPrecacheCollection& Collection,
 		const FRenderResourceGeneration& Generation) -> std::expected<bool, std::string>
 	{

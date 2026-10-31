@@ -3253,9 +3253,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 		const std::array Factories{FPSOPrecacheVertexFactoryData(&Local->GetType()), FPSOPrecacheVertexFactoryData(&Spline->GetType())};
 		FPSOPrecacheParams Options;
 		std::vector<FMaterialPSOPrecacheRequestID> Root, Dynamic, Duplicate;
-		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, Root));
-		ASSERT_TRUE(Instance->PrecachePSOs(Renderer, Factories, Options, Dynamic));
-		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, Duplicate));
+		ASSERT_TRUE(Material->PrecachePSOs(Renderer, FSceneInterface::GetDefaultFeatureLevel(), Factories, Options, EPSOPrecachePriority::Medium, Root));
+		ASSERT_TRUE(Instance->PrecachePSOs(Renderer, FSceneInterface::GetDefaultFeatureLevel(), Factories, Options, EPSOPrecachePriority::Medium, Dynamic));
+		ASSERT_TRUE(Material->PrecachePSOs(Renderer, FSceneInterface::GetDefaultFeatureLevel(), Factories, Options, EPSOPrecachePriority::Medium, Duplicate));
 		ASSERT_EQ(Root.size(), 2u); ASSERT_EQ(Dynamic.size(), 2u);
 		EXPECT_EQ(Root[0].GetValue(), Dynamic[0].GetValue()); EXPECT_EQ(Root[0].GetValue(), Duplicate[0].GetValue());
 		Duplicate[0].Cancel();
@@ -3280,7 +3280,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 		EXPECT_EQ(Root[0].GetProgress().State, EMaterialPSOPrecacheState::Ready);
 		// Completion releases the accepted program and native observations without
 		// changing the deduplication key for another owner of the same program.
-		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, Duplicate));
+		ASSERT_TRUE(Material->PrecachePSOs(Renderer, FSceneInterface::GetDefaultFeatureLevel(), Factories, Options, EPSOPrecachePriority::Medium, Duplicate));
 		EXPECT_EQ(Duplicate[0].GetValue(), Root[0].GetValue());
 		EXPECT_EQ(Duplicate[0].GetProgress().State, EMaterialPSOPrecacheState::Ready);
 		TStrongObjectPtr<DStaticMeshComponent> Component(NewObject<DStaticMeshComponent>(nullptr, NAME_None));
@@ -3295,7 +3295,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 		Properties.bTwoSided = true; ASSERT_TRUE(Material->SetStaticProperties(Properties));
 		EXPECT_EQ(Root[0].GetProgress().State, EMaterialPSOPrecacheState::Stale);
 		EXPECT_EQ(Dynamic[0].GetProgress().State, EMaterialPSOPrecacheState::Stale);
-		ASSERT_TRUE(Material->PrecachePSOs(Renderer, Factories, Options, SurvivingRequests));
+		ASSERT_TRUE(Material->PrecachePSOs(Renderer, FSceneInterface::GetDefaultFeatureLevel(), Factories, Options, EPSOPrecachePriority::Medium, SurvivingRequests));
 		EXPECT_NE(SurvivingRequests[0].GetValue(), Root[0].GetValue());
 		PumpUntilFinished(SurvivingRequests);
 	}

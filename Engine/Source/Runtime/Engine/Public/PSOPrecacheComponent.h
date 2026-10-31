@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
-#include "Materials/MaterialPSOPrecache.h"
+#include "PSOPrecacheMaterial.h"
 
 namespace Durin
 {

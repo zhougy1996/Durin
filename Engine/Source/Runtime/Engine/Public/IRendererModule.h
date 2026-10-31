@@ -10,7 +10,7 @@
 #include "RHIFeatureLevel.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "RenderResourcePreparation.h"
-#include "Materials/MaterialPSOPrecache.h"
+#include "PSOPrecacheMaterial.h"
 
 namespace Durin
 {

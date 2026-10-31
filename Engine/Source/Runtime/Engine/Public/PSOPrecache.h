@@ -1,13 +1,23 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "RenderCoreAPI.h"
+#include "EngineAPI.h"
 #include "RHIPipelineCreation.h"
 #include "RHIResources.h"
 #include "VertexFactory.h"
+#include "Rendering/PrimitiveRenderParticipation.h"
 
 namespace Durin
 {
+	struct FPSOPrecacheParams
+	{
+		FPrimitiveRenderParticipation Participation;
+		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
+		bool bWireframe = false, bOrientationChanging = false, bReversedZ = false;
+		auto operator==(const FPSOPrecacheParams&) const -> bool = default;
+	};
+
+
 	// Submission description, separate from the asynchronous pipeline observation.
 	// The collector keeps referenced shaders/declarations alive until admission.
 	struct FPSOPrecacheData
@@ -60,9 +70,9 @@ namespace Durin
 		FPSOPrecacheVertexFactoryData(const FVertexFactoryType* Type, const FVertexDeclarationElementList& Elements)
 			: VertexFactoryType(Type), CustomDefaultVertexElements(Elements) {}
 
-		RENDERCORE_API auto GetVertexElements(EVertexInputStreamType StreamType = EVertexInputStreamType::Default) const
+		ENGINE_API auto GetVertexElements(EVertexInputStreamType StreamType = EVertexInputStreamType::Default) const
 			-> std::expected<FVertexDeclarationElementList, EPSOPrecacheVertexFactoryError>;
-		RENDERCORE_API auto MatchesVertexElements(const FVertexDeclarationElementList& Elements,
+		ENGINE_API auto MatchesVertexElements(const FVertexDeclarationElementList& Elements,
 			EVertexInputStreamType StreamType = EVertexInputStreamType::Default) const -> bool;
 		auto operator==(const FPSOPrecacheVertexFactoryData&) const -> bool = default;
 	};

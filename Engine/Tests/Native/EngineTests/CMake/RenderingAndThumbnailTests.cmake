@@ -3,7 +3,7 @@ durin_add_native_test(RendererSceneContractTests
 	DOMAINS renderer
 	MODULES engine renderer
 	STACKS renderer
-	SOURCES Private/RendererSceneContractTests.cpp Private/MeshPassProcessorTests.cpp
+	SOURCES Private/RendererSceneContractTests.cpp Private/MeshPassProcessorTests.cpp Private/PSOPrecacheTests.cpp
 	LIBRARIES Core CoreDObject Engine RenderCore Renderer
 	COMPILE_DEFINITIONS DURIN_RENDERER_SOURCE_DIR="${DURIN_PROJECT_SOURCE_DIR}/Runtime/Renderer"
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private

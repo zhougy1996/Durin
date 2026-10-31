@@ -10,32 +10,14 @@
 
 namespace Durin
 {
-	auto DMaterialInterface::PrecachePSOs(std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
-		const FPSOPrecacheParams& PrecacheParams, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs)
-		-> std::expected<void, std::string>
-	{
-		return PrecachePSOs(VertexFactoryDataList, PrecacheParams, EPSOPrecachePriority::Medium, OutMaterialPSORequestIDs);
-	}
-	auto DMaterialInterface::PrecachePSOs(std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
-		const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
-		std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>
+	auto DMaterialInterface::PrecachePSOs(ERHIFeatureLevel FeatureLevel,
+		std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList, const FPSOPrecacheParams& PrecacheParams,
+		EPSOPrecachePriority Priority, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>
 	{
 		CheckGameThread();
 		auto* Renderer = GEngine ? GEngine->GetRendererModule() : nullptr;
 		if (!Renderer) return std::unexpected(std::string("Material PSO precache requires an initialized Renderer."));
-		return PrecachePSOs(*Renderer, VertexFactoryDataList, PrecacheParams, Priority, OutMaterialPSORequestIDs);
-	}
-	auto DMaterialInterface::PrecachePSOs(IRendererModule& Renderer, std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
-		const FPSOPrecacheParams& PrecacheParams, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs)
-		-> std::expected<void, std::string>
-	{
-		return PrecachePSOs(Renderer, VertexFactoryDataList, PrecacheParams, EPSOPrecachePriority::Medium, OutMaterialPSORequestIDs);
-	}
-	auto DMaterialInterface::PrecachePSOs(IRendererModule& Renderer, std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList,
-		const FPSOPrecacheParams& PrecacheParams, EPSOPrecachePriority Priority,
-		std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>
-	{
-		return PrecachePSOs(Renderer, FSceneInterface::GetDefaultFeatureLevel(), VertexFactoryDataList, PrecacheParams, Priority, OutMaterialPSORequestIDs);
+		return PrecachePSOs(*Renderer, FeatureLevel, VertexFactoryDataList, PrecacheParams, Priority, OutMaterialPSORequestIDs);
 	}
 	auto DMaterialInterface::PrecachePSOs(IRendererModule& Renderer, ERHIFeatureLevel FeatureLevel,
 		std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList, const FPSOPrecacheParams& PrecacheParams,
