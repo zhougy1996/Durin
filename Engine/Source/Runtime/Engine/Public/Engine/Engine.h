@@ -62,6 +62,9 @@ namespace Durin
 		// Zero disables the foreground frame cap; lifecycle throttles remain independent.
 		auto GetFrameRateLimit() const -> int32 { return FrameRateLimit; }
 		auto SetFrameRateLimit(int32 FPS) -> void { FrameRateLimit = std::max(0, FPS); }
+		// Zero disables editor focus throttling; minimized pacing remains independent.
+		auto GetBackgroundFrameRateLimit() const -> int32 { return BackgroundFrameRateLimit; }
+		auto SetBackgroundFrameRateLimit(int32 FPS) -> void { BackgroundFrameRateLimit = std::max(0, FPS); }
 
 		virtual auto GetInitialWorldType() const -> EWorldType { return EWorldType::Game; }
 		// Logs initialization errors locally; Launch owns cancellation and process teardown.
@@ -176,6 +179,7 @@ namespace Durin
 		friend class DWorld;
 		auto InitInternal(const FEngineInitContext& Context) -> bool;
 		int32 FrameRateLimit = 0;
+		int32 BackgroundFrameRateLimit = 30;
 		uint32 HostOperationDepth = 0;
 		bool bPreparingShutdown = false;
 		bool bInitStarted = false;

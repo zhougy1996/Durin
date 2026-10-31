@@ -71,6 +71,13 @@ Launching the process requests a connection; it does not claim the handshake
 succeeded. To inspect a separate Game, launch the managed profiler independently
 and select that Game through Tracy discovery.
 
+In Editor Settings > Display, background frame-rate reduction defaults to 30 FPS
+and can be disabled or assigned a different maximum. A connected Tracy profiler
+or capture tool automatically suspends this focus-based reduction; disconnecting
+restores it. The normal user frame-rate limit and VSync still apply during capture.
+When all editor windows are minimized, the 5 FPS limit remains active even while
+Tracy is connected. Keep an editor window visible for representative captures.
+
 If the managed tools are missing, malformed, or version-mismatched, actions that
 need the profiler are disabled and show the status reason. A launch failure
 reports the resolved executable, readable platform error, expected version, and

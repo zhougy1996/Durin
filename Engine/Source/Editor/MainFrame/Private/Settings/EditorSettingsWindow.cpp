@@ -4,7 +4,6 @@
 #include "Settings/HostSettings.h"
 #include "Mona.h"
 #include "Engine/Engine.h"
-#include "Rendering/MonaRenderer.h"
 #include "Widgets/MWindow.h"
 
 namespace Durin::Editor::MainFrame
@@ -66,7 +65,7 @@ namespace Durin::Editor::MainFrame
 					ApplyAppearance(Settings, RootWindow);
 					return true;
 				}, {}},
-			{"editor.display", "Display", "performance vsync vertical synchronization fps frame rate limit unlimited", "Presentation settings for editor windows. Changes take effect immediately.", false,
+			{"editor.display", "Display", "performance vsync vertical synchronization fps frame rate limit unlimited background tracy", "Presentation settings for editor windows. Changes take effect immediately.", false,
 				[&](std::string& OutError) {
 					bool bVSync = Settings.IsVSyncEnabled();
 					ImGui::SeparatorText("Presentation");
@@ -89,26 +88,41 @@ namespace Durin::Editor::MainFrame
 						}
 					}
 					else ImGui::TextDisabled("Unlimited foreground frame rate");
+					ImGui::SeparatorText("Background");
+					bool bLimitBackgroundFrameRate = Settings.IsBackgroundFrameRateLimited();
+					int32 BackgroundFrameRateLimit = Settings.GetBackgroundFrameRateLimit();
+					bChanged |= ImGui::Checkbox("Reduce frame rate in background", &bLimitBackgroundFrameRate);
+					if (bLimitBackgroundFrameRate)
+					{
+						ImGui::SetNextItemWidth(MonaImGui::ScaleUI(200.0f));
+						if (ImGui::InputInt("Background maximum FPS", &BackgroundFrameRateLimit))
+						{
+							BackgroundFrameRateLimit = std::max(1, BackgroundFrameRateLimit);
+							bChanged = true;
+						}
+					}
+					ImGui::TextDisabled("Background reduction pauses while Tracy is connected.");
+					ImGui::TextDisabled("When all editor windows are minimized, the limit remains 5 FPS.");
 					if (!bChanged) return;
 					FHostSettings Next = Settings;
 					Next.SetVSyncEnabled(bVSync);
 					Next.SetFrameRateLimit(FrameRateLimit);
+					Next.SetLimitBackgroundFrameRate(bLimitBackgroundFrameRate);
+					Next.SetBackgroundFrameRateLimit(BackgroundFrameRateLimit);
 					if (!Next.Save()) { OutError = "Could not save display settings."; return; }
 					Settings = Next;
-					if (GEngine) GEngine->SetFrameRateLimit(Settings.GetFrameRateLimit());
-					if (auto* Renderer = Mona::FMonaApplication::Get().GetRenderer())
-						Renderer->SetPresentationPolicyOverride(bVSync ? EViewportPresentationPolicy::FramePaced : EViewportPresentationPolicy::Unsynchronized);
+					ApplyDisplaySettings(Settings, GEngine);
 					OutError.clear();
 				},
 				[&] {
 					FHostSettings Next = Settings;
 					Next.SetVSyncEnabled(true);
 					Next.SetFrameRateLimit(0);
+					Next.SetLimitBackgroundFrameRate(true);
+					Next.SetBackgroundFrameRateLimit(30);
 					if (!Next.Save()) return false;
 					Settings = Next;
-					if (GEngine) GEngine->SetFrameRateLimit(Settings.GetFrameRateLimit());
-					if (auto* Renderer = Mona::FMonaApplication::Get().GetRenderer())
-						Renderer->SetPresentationPolicyOverride(EViewportPresentationPolicy::FramePaced);
+					ApplyDisplaySettings(Settings, GEngine);
 					return true;
 				}, {}}
 		});

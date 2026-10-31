@@ -1,7 +1,10 @@
 #include "Settings/HostSettings.h"
 
 #include "Application/GenericApplication.h"
+#include "Engine/Engine.h"
+#include "Mona.h"
 #include "Misc/Paths.h"
+#include "Rendering/MonaRenderer.h"
 #include "Yaml/Yaml.h"
 
 namespace Durin::Editor::MainFrame
@@ -22,7 +25,22 @@ namespace Durin::Editor::MainFrame
 			Settings.SetWindowMaximized(Display.GetView("WindowMaximized").GetBool(true));
 			Settings.SetFrameRateLimit(static_cast<int32>(std::clamp<int64>(Display.GetView("FrameRateLimit").GetInt(0), 0, std::numeric_limits<int32>::max())));
 			Settings.SetVSyncEnabled(Display.GetView("VSyncEnabled").GetBool(true));
+			Settings.SetLimitBackgroundFrameRate(Display.GetView("LimitBackgroundFrameRate").GetBool(true));
+			Settings.SetBackgroundFrameRateLimit(static_cast<int32>(std::clamp<int64>(
+				Display.GetView("BackgroundFrameRateLimit").GetInt(30), 1, std::numeric_limits<int32>::max())));
 		}
+	}
+
+	auto ApplyDisplaySettings(const FHostSettings& Settings, DEngine* Engine) -> void
+	{
+		if (Engine)
+		{
+			Engine->SetFrameRateLimit(Settings.GetFrameRateLimit());
+			Engine->SetBackgroundFrameRateLimit(Settings.GetEffectiveBackgroundFrameRateLimit());
+		}
+		if (auto* Renderer = Mona::FMonaApplication::Get().GetRenderer())
+			Renderer->SetPresentationPolicyOverride(Settings.IsVSyncEnabled()
+				? EViewportPresentationPolicy::FramePaced : EViewportPresentationPolicy::Unsynchronized);
 	}
 
 	auto FHostSettings::Load() -> bool
@@ -59,6 +77,8 @@ namespace Durin::Editor::MainFrame
 		Display.SetChildValue("WindowMaximized", bWindowMaximized);
 		Display.SetChildValue("VSyncEnabled", bVSyncEnabled);
 		Display.SetChildValue("FrameRateLimit", FrameRateLimit);
+		Display.SetChildValue("LimitBackgroundFrameRate", bLimitBackgroundFrameRate);
+		Display.SetChildValue("BackgroundFrameRateLimit", BackgroundFrameRateLimit);
 		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + HostSettingsFileName))
 		{
 			DURIN_WARN("Failed to save editor host settings.");
