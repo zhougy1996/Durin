@@ -117,15 +117,43 @@ namespace Durin
 		std::unique_ptr<FState> State;
 	};
 	struct FMaterialResource;
-
-	// UE-shaped collection boundary. Implementations append descriptions only;
-	// compilation, submission and request ownership belong to the host.
+	// Desktop Forward and Hybrid use Deferred; material FeatureLevel is independent.
+	enum class EShadingPath : uint8 { Mobile, Deferred, Num };
 	class IPSOCollector
 	{
 	public:
+		explicit IPSOCollector(int32 InPSOCollectorIndex = -1) : PSOCollectorIndex(InPSOCollectorIndex) {}
 		virtual ~IPSOCollector() = default;
+		int32 PSOCollectorIndex;
+		// Stateless append boundary: the session prepares and retains resources.
 		virtual auto CollectPSOInitializers(const FSceneRenderPreparationConfig& SceneConfig,
 			const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
 			const FPSOPrecacheParams& PrecacheParams, FPSOPrecacheDataArray& PSOInitializers) -> void = 0;
+
+	};
+	using PSOCollectorCreateFunction = std::unique_ptr<IPSOCollector> (*)(ERHIFeatureLevel);
+	class FPSOCollectorCreateManager
+	{
+	public:
+		static constexpr int32 MaxPSOCollectorCount = 64;
+		ENGINE_API static auto GetCreateFunction(EShadingPath ShadingPath, int32 Index) -> PSOCollectorCreateFunction;
+		ENGINE_API static auto GetIndex(EShadingPath ShadingPath, std::string_view Name) -> int32;
+		// Borrowed names and copied create functions require quiescent users at module removal.
+		ENGINE_API static auto GetName(EShadingPath ShadingPath, int32 Index) -> std::string_view;
+		ENGINE_API static auto GetPSOCollectorCount(EShadingPath ShadingPath) -> int32;
+	};
+	class FRegisterPSOCollectorCreateFunction
+	{
+	public:
+		ENGINE_API FRegisterPSOCollectorCreateFunction(PSOCollectorCreateFunction Create, EShadingPath ShadingPath, std::string_view Name);
+		ENGINE_API ~FRegisterPSOCollectorCreateFunction();
+		FRegisterPSOCollectorCreateFunction(const FRegisterPSOCollectorCreateFunction&) = delete;
+		auto operator=(const FRegisterPSOCollectorCreateFunction&) -> FRegisterPSOCollectorCreateFunction& = delete;
+		auto IsRegistered() const -> bool { return Index >= 0; }
+		auto GetIndex() const -> int32 { return Index; }
+	private:
+		PSOCollectorCreateFunction Create;
+		EShadingPath ShadingPath;
+		int32 Index = -1;
 	};
 }

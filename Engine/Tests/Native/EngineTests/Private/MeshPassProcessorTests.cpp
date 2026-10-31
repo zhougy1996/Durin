@@ -88,7 +88,7 @@ TEST(FRendererSceneContractTests, PassProcessorRegistrationRejectsDuplicatesWith
 	using namespace Durin::RendererPrivate;
 	const auto Pass = EMeshPipelinePass::Forward;
 	const auto* Original = &FPassProcessorManager::GetMeshPassProcessor(Pass);
-	const auto UnexpectedCreate = +[](FMeshPSOCollectorContext) -> std::unique_ptr<FMeshPassProcessor> {
+	const auto UnexpectedCreate = +[](int32) -> std::unique_ptr<FMeshPassProcessor> {
 		ADD_FAILURE() << "A duplicate factory must not be invoked.";
 		return {};
 	};
@@ -113,7 +113,7 @@ TEST(FRendererSceneContractTests, PassProcessorRegistrationRejectsNullFactoriesA
 	FRegisterPassProcessorCreateFunction Null(nullptr, EMeshPipelinePass::Forward);
 	EXPECT_FALSE(Null.IsRegistered());
 	const auto Invalid = static_cast<EMeshPipelinePass>(255);
-	const auto Create = +[](FMeshPSOCollectorContext) -> std::unique_ptr<FMeshPassProcessor> { return {}; };
+	const auto Create = +[](int32) -> std::unique_ptr<FMeshPassProcessor> { return {}; };
 	FRegisterPassProcessorCreateFunction Registration(Create, Invalid);
 	EXPECT_FALSE(Registration.IsRegistered());
 	EXPECT_FALSE(FPassProcessorManager::IsRegistered(Invalid));

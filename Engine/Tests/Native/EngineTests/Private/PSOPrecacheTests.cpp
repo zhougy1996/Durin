@@ -921,3 +921,92 @@ TEST(FPSOPrecacheTests, PreparationConfigSnapshotParticipatesInSharingAndPreserv
 	EXPECT_EQ(First.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	EXPECT_EQ(First.GetDiagnostic(), "Fixture collection failure");
 }
+
+namespace
+{
+    class FRegistryProbeCollector final : public Durin::IPSOCollector
+    {
+    public:
+        Durin::ERHIFeatureLevel FeatureLevel;
+        FRegistryProbeCollector(int32 Index, Durin::ERHIFeatureLevel Level) : IPSOCollector(Index), FeatureLevel(Level) {}
+        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig&, const Durin::FMaterialResource&,
+            const Durin::FPSOPrecacheVertexFactoryData&, const Durin::FPSOPrecacheParams&, Durin::FPSOPrecacheDataArray&) -> void override {}
+    };
+    auto CreateDeferredProbe(Durin::ERHIFeatureLevel Level) -> std::unique_ptr<Durin::IPSOCollector>
+    { return std::make_unique<FRegistryProbeCollector>(Durin::FPSOCollectorCreateManager::GetIndex(Durin::EShadingPath::Deferred, "RegistryProbe"), Level); }
+    auto CreateMobileProbe(Durin::ERHIFeatureLevel Level) -> std::unique_ptr<Durin::IPSOCollector>
+    { return std::make_unique<FRegistryProbeCollector>(Durin::FPSOCollectorCreateManager::GetIndex(Durin::EShadingPath::Mobile, "RegistryProbe"), Level); }
+}
+
+TEST(FPSOPrecacheTests, CollectorRegistrySeparatesShadingPathsNamesAndIndicesAndRejectsInvalidContributions)
+{
+    using namespace Durin;
+    const auto DeferredCount = FPSOCollectorCreateManager::GetPSOCollectorCount(EShadingPath::Deferred);
+    const auto MobileCount = FPSOCollectorCreateManager::GetPSOCollectorCount(EShadingPath::Mobile);
+    {
+        FRegisterPSOCollectorCreateFunction Deferred(&CreateDeferredProbe, EShadingPath::Deferred, "RegistryProbe");
+        FRegisterPSOCollectorCreateFunction Mobile(&CreateMobileProbe, EShadingPath::Mobile, "RegistryProbe");
+        ASSERT_TRUE(Deferred.IsRegistered()); ASSERT_TRUE(Mobile.IsRegistered());
+        EXPECT_EQ(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "RegistryProbe"), Deferred.GetIndex());
+        EXPECT_EQ(FPSOCollectorCreateManager::GetIndex(EShadingPath::Mobile, "RegistryProbe"), Mobile.GetIndex());
+        EXPECT_EQ(FPSOCollectorCreateManager::GetName(EShadingPath::Deferred, Deferred.GetIndex()), "RegistryProbe");
+        EXPECT_EQ(FPSOCollectorCreateManager::GetCreateFunction(EShadingPath::Mobile, Mobile.GetIndex()), &CreateMobileProbe);
+        {
+            FRegisterPSOCollectorCreateFunction Duplicate(&CreateMobileProbe, EShadingPath::Deferred, "RegistryProbe");
+            EXPECT_FALSE(Duplicate.IsRegistered());
+        }
+        EXPECT_EQ(FPSOCollectorCreateManager::GetCreateFunction(EShadingPath::Deferred, Deferred.GetIndex()), &CreateDeferredProbe);
+        FRegisterPSOCollectorCreateFunction Null(nullptr, EShadingPath::Deferred, "NullCollector");
+        FRegisterPSOCollectorCreateFunction Empty(&CreateMobileProbe, EShadingPath::Mobile, "");
+        FRegisterPSOCollectorCreateFunction Invalid(&CreateMobileProbe, EShadingPath::Num, "InvalidCollector");
+        EXPECT_FALSE(Null.IsRegistered()); EXPECT_FALSE(Empty.IsRegistered()); EXPECT_FALSE(Invalid.IsRegistered());
+        EXPECT_EQ(FPSOCollectorCreateManager::GetCreateFunction(EShadingPath::Num, 0), nullptr);
+        EXPECT_EQ(FPSOCollectorCreateManager::GetCreateFunction(EShadingPath::Deferred, -1), nullptr);
+        EXPECT_EQ(FPSOCollectorCreateManager::GetCreateFunction(EShadingPath::Deferred, FPSOCollectorCreateManager::MaxPSOCollectorCount), nullptr);
+    }
+    EXPECT_EQ(FPSOCollectorCreateManager::GetPSOCollectorCount(EShadingPath::Deferred), DeferredCount);
+    EXPECT_EQ(FPSOCollectorCreateManager::GetPSOCollectorCount(EShadingPath::Mobile), MobileCount);
+    EXPECT_EQ(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "RegistryProbe"), -1);
+}
+
+TEST(FPSOPrecacheTests, CollectorRegistryReusesRemovedSlotsWithoutMovingLiveIndicesAndBoundsCapacity)
+{
+    using namespace Durin;
+    const auto Before = FPSOCollectorCreateManager::GetPSOCollectorCount(EShadingPath::Mobile);
+    auto First = std::make_unique<FRegisterPSOCollectorCreateFunction>(&CreateMobileProbe, EShadingPath::Mobile, "FirstSlot");
+    FRegisterPSOCollectorCreateFunction Second(&CreateMobileProbe, EShadingPath::Mobile, "SecondSlot");
+    const auto FirstIndex = First->GetIndex(); const auto SecondIndex = Second.GetIndex();
+    ASSERT_TRUE(First->IsRegistered() && Second.IsRegistered());
+    First.reset();
+    EXPECT_EQ(FPSOCollectorCreateManager::GetCreateFunction(EShadingPath::Mobile, FirstIndex), nullptr);
+    FRegisterPSOCollectorCreateFunction Reused(&CreateMobileProbe, EShadingPath::Mobile, "ReusedSlot");
+    EXPECT_EQ(Reused.GetIndex(), FirstIndex);
+    EXPECT_EQ(FPSOCollectorCreateManager::GetIndex(EShadingPath::Mobile, "SecondSlot"), SecondIndex);
+    std::vector<std::unique_ptr<FRegisterPSOCollectorCreateFunction>> Full;
+    for (int32 Index = Before + 2; Index < FPSOCollectorCreateManager::MaxPSOCollectorCount; ++Index) {
+        auto Entry = std::make_unique<FRegisterPSOCollectorCreateFunction>(&CreateMobileProbe, EShadingPath::Mobile, std::format("Capacity{}", Index));
+        ASSERT_TRUE(Entry->IsRegistered()); Full.push_back(std::move(Entry));
+    }
+    FRegisterPSOCollectorCreateFunction Overflow(&CreateMobileProbe, EShadingPath::Mobile, "Overflow");
+    EXPECT_FALSE(Overflow.IsRegistered());
+}
+
+TEST(FPSOPrecacheTests, CollectorFactoriesCreateIndependentInstancesAcrossThreadsAndForwardFeatureLevel)
+{
+    using namespace Durin;
+    FRegisterPSOCollectorCreateFunction Registration(&CreateDeferredProbe, EShadingPath::Deferred, "RegistryProbe");
+    ASSERT_TRUE(Registration.IsRegistered());
+    std::vector<std::future<std::unique_ptr<IPSOCollector>>> Created;
+    for (int32 Index = 0; Index < 8; ++Index) Created.push_back(std::async(std::launch::async, [&] {
+        const auto Create = FPSOCollectorCreateManager::GetCreateFunction(EShadingPath::Deferred, Registration.GetIndex());
+        return Create(ERHIFeatureLevel::ES3_1); // factory queries the registry again
+    }));
+    std::vector<std::unique_ptr<IPSOCollector>> Instances;
+    for (auto& Result : Created) {
+        auto Collector = Result.get(); ASSERT_TRUE(Collector);
+        EXPECT_EQ(Collector->PSOCollectorIndex, Registration.GetIndex());
+        EXPECT_EQ(static_cast<FRegistryProbeCollector&>(*Collector).FeatureLevel, ERHIFeatureLevel::ES3_1);
+        for (const auto& Existing : Instances) EXPECT_NE(Existing.get(), Collector.get());
+        Instances.push_back(std::move(Collector));
+    }
+}
