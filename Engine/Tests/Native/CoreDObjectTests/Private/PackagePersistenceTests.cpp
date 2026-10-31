@@ -11,6 +11,7 @@
 #include "Threading/Task.h"
 #include "Threading/TaskComposition.h"
 #include "Threading/ThreadEvent.h"
+#include "Threading/RunnableThread.h"
 #include <gtest/gtest.h>
 
 namespace
@@ -240,6 +241,7 @@ TEST_F(FPackagePersistenceTests, ProtectedTaskCompletesOnHostPumpAndRejectsGameT
 	FPackageSaveResult Admission;
 	auto Task = Package->SaveAsync(Admission, FSavePackageContext{Options});
 	ASSERT_TRUE(Task.IsValid()) << Admission.Message;
+	EXPECT_EQ(Task.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
 	EXPECT_EQ(Task.Wait().WaitStatus, ETaskWaitStatus::UnsupportedThread);
 	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_FALSE(Task.IsCompleted());
@@ -338,7 +340,7 @@ TEST_F(FPackagePersistenceTests, RejectedPublicationCannotStartDiskWorkAndReleas
 	EXPECT_TRUE(FinishSave(Task));
 }
 
-TEST_F(FPackagePersistenceTests, CanceledPublicationStillExecutesOnGameThreadBeforeTaskShutdown)
+TEST_F(FPackagePersistenceTests, CanceledPublicationReturnsDomainCancellationBeforeTaskShutdown)
 {
 	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::CancelContinuation);
 	FPackageSaveResult Admission;
@@ -352,8 +354,9 @@ TEST_F(FPackagePersistenceTests, CanceledPublicationStillExecutesOnGameThreadBef
 	PumpGameThreadDeferredWork({.bUnlimited = true});
 	ASSERT_TRUE(Task.IsCompleted());
 	ASSERT_EQ(Task.GetState(), ETaskState::Succeeded);
-	EXPECT_TRUE(Task.GetResult());
-	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Task.GetResult().Error, EPackageSaveError::Cancelled);
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
 	EXPECT_TRUE(DPackage::DrainAsyncSaves());
 	ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 }
@@ -887,4 +890,143 @@ TEST_F(FPackagePersistenceTests, CapturePreservesOutputOnDefaultDeltaFailure)
 	const auto Result = Context.Capture(Package, Linker);
 	EXPECT_EQ(Result.error().Reason, EPackageCaptureReason::DefaultDelta);
 	EXPECT_EQ(Linker.Names, (std::vector<std::string>{"sentinel"}));
+}
+
+TEST_F(FPackagePersistenceTests, DrainPumpsTypedPublicationAndRejectsReentrantSaves)
+{
+	FPackageSaveResult Admission;
+	bool UnrelatedRan = false;
+	auto Unrelated = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] {
+		UnrelatedRan = true;
+		EXPECT_EQ(DPackage::DrainAsyncSaves().Error, EPackageSaveError::Busy);
+		EXPECT_EQ(PackageSavePrivate::CheckAsyncAdmission().Error, EPackageSaveError::Busy);
+	});
+	uint32 Destroyed = 0, Calls = 0;
+	std::weak_ptr<int> Weak;
+	Tasks::TTask<int> Task;
+	{
+		auto Owner = std::shared_ptr<int>(new int(1), [&](int* Value) {
+			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
+		});
+		Weak = Owner;
+		Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [Owner] {},
+			[&, Owner](bool Success, const FTaskCancellationToken&) {
+				EXPECT_TRUE(Success); EXPECT_TRUE(IsInGameThread()); ++Calls;
+				EXPECT_EQ(DPackage::DrainAsyncSaves().Error, EPackageSaveError::Busy);
+				EXPECT_EQ(PackageSavePrivate::CheckAsyncAdmission().Error, EPackageSaveError::Busy);
+				return 37;
+			}, Admission);
+	}
+	ASSERT_TRUE(Admission);
+	EXPECT_EQ(Task.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
+	auto Subscription = Tasks::SubscribeTask(Task, [&](ETaskState) { EXPECT_TRUE(Weak.expired()); });
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_TRUE(UnrelatedRan);
+	EXPECT_TRUE(Unrelated.IsCompleted());
+	EXPECT_EQ(Task.GetResult(), 37);
+	EXPECT_EQ(Calls, 1u);
+	EXPECT_EQ(Destroyed, 1u);
+	EXPECT_TRUE(PackageSavePrivate::CheckAsyncAdmission());
+}
+
+TEST_F(FPackagePersistenceTests, PublicationExceptionsRetireCapturesAndReleaseCapacity)
+{
+	PackageSavePrivate::SetAsyncSaveLimitsForTests(1, 1024);
+	FPackageSaveResult Admission;
+	uint32 Calls = 0, Destroyed = 0;
+	Tasks::TTask<int> Task;
+	{
+		auto Owner = std::shared_ptr<int>(new int(1), [&](int* Value) {
+			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
+		});
+		Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [Owner] {},
+			[&, Owner](bool, const FTaskCancellationToken&) -> int { ++Calls; throw std::runtime_error("publication failure"); }, Admission);
+	}
+	ASSERT_TRUE(Admission);
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_EQ(Task.GetState(), ETaskState::Failed);
+	EXPECT_EQ(Calls, 1u);
+	EXPECT_EQ(Destroyed, 1u);
+	EXPECT_TRUE(PackageSavePrivate::CheckAsyncAdmission(1));
+}
+
+TEST_F(FPackagePersistenceTests, FailedIoStillRunsTypedPublication)
+{
+	FPackageSaveResult Admission;
+	uint32 Calls = 0;
+	auto Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [] { throw std::runtime_error("I/O failure"); },
+		[&](bool Success, const FTaskCancellationToken&) { EXPECT_FALSE(Success); ++Calls; return -1; }, Admission);
+	ASSERT_TRUE(Admission);
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
+	EXPECT_EQ(Task.GetResult(), -1);
+	EXPECT_EQ(Calls, 1u);
+}
+
+TEST_F(FPackagePersistenceTests, DiscardedPublicationRetiresOwnerOnGameThread)
+{
+	FTaskGenerationSource Generation;
+	Tasks::FTask Publication;
+	uint32 Cleaned = 0, Destroyed = 0;
+	{
+		auto Owner = std::shared_ptr<int>(new int(1), [&](int* Value) {
+			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
+		});
+		auto Admission = PackageSavePrivate::SubmitAsyncSaveTask(1, [Owner] {},
+			[&](const Tasks::FTask& Disk, const std::shared_ptr<PackageSavePrivate::FAsyncSaveState>&) {
+				Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
+					{.GenerationToken = Generation.Capture()}, [] { ADD_FAILURE(); }, Disk);
+				return Publication;
+			}, [&, Owner] { EXPECT_TRUE(IsInGameThread()); ++Cleaned; });
+		ASSERT_TRUE(Admission);
+	}
+	Generation.Advance();
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_EQ(Publication.GetState(), ETaskState::Failed);
+	EXPECT_EQ(Cleaned, 1u);
+	EXPECT_EQ(Destroyed, 1u);
+}
+
+TEST_F(FPackagePersistenceTests, DrainFromDeferredCallbackReturnsBusyWithoutStealingPublication)
+{
+	FPackageSaveResult Nested;
+	auto Callback = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] { Nested = DPackage::DrainAsyncSaves(); });
+	FPackageSaveResult Admission;
+	auto Save = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Admission);
+	PumpGameThreadDeferredWork({.MaxCallbacks = 1});
+	EXPECT_TRUE(Callback.IsCompleted());
+	EXPECT_EQ(Nested.Error, EPackageSaveError::Busy);
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_TRUE(Save.GetResult());
+}
+
+TEST_F(FPackagePersistenceTests, FallbackCleanupMayPumpOtherAcceptedPublications)
+{
+	FTaskGenerationSource Generation;
+	Tasks::FTask Discarded;
+	Tasks::TTask<int> Other;
+	bool Cleaned = false;
+	auto Admission = PackageSavePrivate::SubmitAsyncSaveTask(1, [] {},
+		[&](const Tasks::FTask& Disk, const std::shared_ptr<PackageSavePrivate::FAsyncSaveState>&) {
+			Discarded = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
+				{.GenerationToken = Generation.Capture()}, [] { ADD_FAILURE(); }, Disk);
+			return Discarded;
+		}, [&] {
+			while (!Other.IsCompleted()) PumpGameThreadDeferredWork({.MaxCallbacks = 1});
+			EXPECT_EQ(PackageSavePrivate::CheckAsyncAdmission().Error, EPackageSaveError::Busy);
+			Cleaned = true;
+		});
+	ASSERT_TRUE(Admission);
+	Generation.Advance();
+	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
+	while (!Discarded.IsCompleted()) PumpGameThreadDeferredWork({.MaxCallbacks = 1});
+	Other = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [] {},
+		[](bool Success, const FTaskCancellationToken&) { EXPECT_TRUE(Success); return 41; }, Admission);
+	ASSERT_TRUE(Admission);
+	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
+	PackageSavePrivate::PollAsyncSaves();
+	EXPECT_TRUE(Cleaned);
+	EXPECT_EQ(Other.GetResult(), 41);
+	EXPECT_TRUE(PackageSavePrivate::CheckAsyncAdmission());
 }

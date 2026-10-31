@@ -2,12 +2,192 @@
 
 Summary: Separate scheduled tasks, task events, and external result delivery while preserving cancellation, producer retirement, and shutdown drain guarantees.
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-10-31
 
 Status: Completed
-Completed: 2026-10-30
+Completed: 2026-10-31
 
 ## Current Status
+
+Stage 11 migrates task composition to ordinary launch prerequisites and explicit
+result inspection. Remove Tasks Then/WhenAll/ThenCompleted and the private
+continuation submission path; preserve attribution, subscriptions, event wait
+restrictions and producer retirement. This supersedes the earlier convenience-API
+design statements; the lasting contract is in TaskSystem and BulkData. Final
+tested `Engine` subtree is `e33efa6fed55d1e4ada2b9b52f7047d73d8a729c`, based on
+`71abad2e2`, using `windows-msvc-x64` / `Win64-Debug-DurinEditor` and 14 build jobs:
+
+- CoreConcurrencyTests passed 225 cases; 98 task composition, close, executor,
+  acceptance, construction and deferred-executor cases passed serial isolation.
+- AsyncTaskPilotLifecycleTests passed 1 case, AssetPackageTests 207,
+  TextureImportWorkflowTests 25, EditorAssetWorkflowTests 43, CoreToolTests 19,
+  and RHIPipelineCreationTests 18. Both DynamicDllUnloadQualificationTests and
+  DynamicDllUnloadFailureQualificationTests passed with the real migrated fixture.
+- Reports are under `Build/UeTaskAndFutureAlignment/Stage11-<Target>.xml`, with
+  isolation in `Stage11-Isolated.xml`. The initial migrated storage test exposed
+  a race between public completion and dependent dispatch; restoring its original
+  worker-retirement barrier fixed the fixture before the final passing runs.
+- The workspace `all` incremental build and CoreConcurrencyQualificationTests
+  compilation passed. The final test-only barrier adjustment was rebuilt by the
+  Core test target; runtime sources, qualification harness and consumer inputs did
+  not change after their passing builds. No new timing or GPU claim is made.
+- Production observers retain explicit attribution and run on every predecessor
+  outcome. Ordinary submission deduplicates dependencies; domain gather tasks own
+  their result policy. All removed API/entrypoint symbols are absent from workspace
+  source/tests. Subscriptions, event wait guards and producer retirement remain.
+- Bounded targets replace the affected analysis's whole-Engine test expansion
+  caused by the shared fixture header and Engine/MainFrame ownership. These cover
+  the changed task, PackageResource, audit, module-unload and subscription paths;
+  the all build covers remaining template consumers. Changed-document and
+  all-plan validation passed.
+
+Stage 10 removes unused task readiness markers and arbitrary task lifetime pins,
+while retaining subscriptions, result-node ownership, event wait restrictions and
+producer retirement. Duplicate standalone Future tests are consolidated into
+the canonical ownership, notification and race cases. Final tested `Engine`
+subtree is `3165fc8e5b6f2f1802176fba403c47ca3a3bce22`, based on `245cef6f0`,
+using `windows-msvc-x64` / `Win64-Debug-DurinEditor` and 14 build jobs:
+
+- All 11 affected test targets passed, including CoreConcurrencyTests and
+  CoreToolTests (`Build/UeTaskAndFutureAlignment/Stage10-Affected.xml`).
+- Fifty Future, task-close and event cases passed serial isolation
+  (`Stage10-Isolated.xml` in that directory). RHIPipelineCreationTests passed all
+  18 cases (`Stage10-RHI.xml`), covering the retained RHI subscription consumer.
+- The `all` incremental build passed across workspace consumers. Sandboxed MSVC
+  initially reported the documented C1902 PDB incompatibility; validation then
+  passed outside the sandbox without source or toolchain changes.
+- Task readiness/ObserveReady and WithLifetime/RetainLifetime are absent from
+  workspace source/tests. Future markers and pins retain their production users;
+  SubscribeTask and result-view node pins remain. Task lifetime coverage now uses
+  an actual owned result, retaining aliases and an erased handle through shutdown.
+- Three duplicate Future cases were removed; canonical tests retain publication
+  races, detachable/in-flight observers, late subscription/readiness observation,
+  late pin attachment and producer-held state ownership. Changed-document and
+  all-plan validation passed. No event wait or producer retirement rules changed.
+
+Stage 9 consolidated migration-era Core composition coverage without changing
+runtime contracts. Combine terminal-observer coverage into one outcome/fan-out
+matrix, place duplicate-input assertions in the primary fan-in case, and remove
+legacy admission temporaries and incidental moves from shared results. Dedicated
+wait, race, cancellation and retirement cases remain. Final tested `Engine` subtree is
+`8dd14fd6b32c47829cabe9e755499de06f35208f`, based on `782d463d3`, using
+`windows-msvc-x64` / `Win64-Debug-DurinEditor` and 14 build jobs:
+
+- CoreConcurrencyTests passed 236 cases; report
+  `Build/UeTaskAndFutureAlignment/Stage9-Core.xml`. Ten related cases passed
+  serial isolation (`Stage9-Isolated.xml` in that directory).
+- The two observer cases now share one three-outcome/two-observer matrix with
+  move-only payloads/captures, full failure identity and invalid-executor coverage.
+- Duplicate fan-in positions and shared result addresses are asserted by
+  FanInPreservesCollectionAndHeterogeneousOrder. The removed combined duplicate/
+  cancellation case's cancellation behavior remains in the dedicated nested and
+  completed-edge cases; the deferred child now explicitly checks that no
+  cancellation request propagated, not merely that its outcome was successful.
+- Legacy admission temporaries, incidental result moves and repeated assertions
+  were removed. Intentional rvalue-input and move-only result consumption checks
+  remain. No wait, race or capture-retirement cases were removed.
+- Affected analysis resolves only CoreConcurrencyTests. Production code and build
+  configuration are unchanged; its test build covers this stage without another
+  workspace build or save regression. Changed-document/all-plan validation passed.
+  Only documentation evidence changed after final runtime verification.
+
+Stage 8 migrated remaining Core tests to real scheduled tasks and events, then
+removed private external-result sources and external scheduler nodes. Existing
+Future coverage owns abandonment and competing setters. Events retain their
+scheduler-independent lifetime, unknown-progress wait restrictions and nested
+completion; actual producer tasks/joins retain capture retirement. Final `Engine` subtree is
+`688c5783e28fe23aab524fa0f74eab97c19ee49e`, based on `bd1512eb7`, using
+`windows-msvc-x64` / `Win64-Debug-DurinEditor` and 14 build jobs:
+
+- Migrated tests first passed against the retained implementation: 238 cases in
+  `Build/UeTaskAndFutureAlignment/Stage8-MigratedCore.xml`. Only then were the
+  source/accessor and external-node branches removed. The one removed case's
+  abandonment/competing setters are already covered by existing Future tests;
+  void task outcomes and advisory cancellation retain task-specific coverage.
+- Post-removal CoreConcurrencyTests passed 238 cases (`Stage8-Core.xml`).
+  Composition/close, Future, independent-CPU and migrated executor/accounting
+  cases passed 108 serially isolated cases (`Stage8-Isolated.xml`). Reports are
+  in the same directory. Real producer tasks and capture-destructor signals
+  exercise dispatch after closure and retirement independently of event readiness.
+- PackagePersistenceTests (40) and TextureImportWorkflowTests (25) passed on final
+  inputs; reports `Stage8-Package.xml` and `Stage8-AssetWorkflow.xml`. Save sources
+  are unchanged. Original all-module affected selection expands by Core labels;
+  execution is bounded to task/event/Future semantics and actual save consumers.
+- Incremental workspace `build all` passed across Engine, Sandbox and RoadWeaver;
+  log `Build/.agent-state/logs/20261031-143230-098383-46236-cmake.log`.
+  Whole-Core and workspace results remain applicable across comment-only cleanup
+  of stale Task.h text; subsequent save/isolation builds use that final header.
+  No executable behavior, test fixtures or environment changed after those runs.
+- Workspace source/test audits found no external source/accessor, adapter,
+  completion flag/method, abandoned-source task code or external node predicate.
+  Event unknown-progress checks, nested completion, terminal hooks and ordinary
+  producer ownership remain intact. Changed-document/all-plan validation passed;
+  only documentation evidence changed after final isolation. No gates remain.
+
+Stage 7 replaced Package/Asset external result delivery with real typed
+GameThread publication tasks. Admission events still gate I/O until publication
+is registered. Save drain explicitly pumps the deferred executor through a
+submission cutoff, rejects recursive drain and new saves during the pump, and
+retires owner captures after task completion. Failed/discarded tasks retain a
+GameThread cleanup fallback. Core external-result infrastructure is unchanged.
+Stage 7 passed on tested `Engine` subtree
+`e8f12b3ae4324d3c099b50867ed1bf5f34f97982`, based on `4137d9ff0`, with
+`windows-msvc-x64` / `Win64-Debug-DurinEditor` and 14 build jobs:
+
+- CoreConcurrencyTests (239), PackagePersistenceTests (40),
+  TextureImportWorkflowTests (25), AssetSaveReadinessTests (3) and
+  AssetPackageTests (207) passed. Reports are
+  `Build/UeTaskAndFutureAlignment/Stage7-{Core,Package,AssetWorkflow,Readiness,AssetPackage}.xml`.
+- Seven publication/drain Package cases and the Asset cancellation case passed
+  serial isolation; reports `Stage7-Package-Isolated.xml` and
+  `Stage7-Asset-Isolated.xml` in that directory. Coverage includes true deferred
+  task identity, cancellation, I/O failure, throwing publication, discarded task
+  cleanup, dropped handles, capture retirement before terminal observation,
+  explicit pumping, nested accepted publication during fallback cleanup, and
+  recursive drain/admission rejection.
+- Incremental workspace `build all` passed across Engine, Sandbox and RoadWeaver;
+  log `Build/.agent-state/logs/20261031-141348-829181-51100-cmake.log`.
+- Source/test audits migrated all four production save submitters across the
+  workspace. The prepared/direct void entrypoint shares the same task/owner
+  path. No save producer includes ExternalTaskResult.h or instantiates an
+  external result source; Core source/infrastructure files are unchanged.
+- Affected selection expands by whole Engine/CoreDObject modules. Execution is
+  bounded to the changed save lifecycles and their Core task contract; workspace
+  compilation covers other consumers. Changed-document/all-plan checks passed.
+  CoreConcurrencyTests is reused after the CoreDObject-only guard refinement;
+  its Core source/test inputs are unchanged. Only documentation evidence changed
+  after final save verification; no gates remain.
+
+Stage 6 completed the removal of unreachable result forwarding and the dedicated
+dynamic-edge machinery, and schedules empty fan-in
+as ordinary work. Known work uses prerequisites; runtime-selected children use
+nested completion. Empty fan-in now follows executor, priority and generation
+rules instead of guaranteeing immediate completion. Save pipelines and their
+registered external result adapters remain unchanged.
+
+Stage 6 passed on tested `Engine` subtree
+`77ea9f3d19c8cfcf0099166c20f5bcba0c1dd993`, based on `d2ced9590`, using
+`windows-msvc-x64` / `Win64-Debug-DurinEditor` and 14 build jobs:
+
+- CoreConcurrencyTests: 239 passed; report
+  `Build/UeTaskAndFutureAlignment/Stage6-Core.xml`.
+- Six graph/empty-fan-in cases passed serial isolation, including late event
+  prerequisites, cycle rejection, nested pin release, waiter notifications and
+  independent-CPU restrictions; report `Stage6-Isolated.xml` in that directory.
+  Events control pending dependencies; no sleeps were introduced.
+- Unchanged save consumers passed on final inputs: PackagePersistenceTests (34)
+  and TextureImportWorkflowTests (24); reports `Stage6-Package.xml` and
+  `Stage6-AssetWorkflow.xml` in that directory.
+- Final incremental `build all` passed across Engine, Sandbox and RoadWeaver;
+  log `Build/.agent-state/logs/20261031-134416-085679-35824-cmake.log`.
+- Source/test audits across all workspace projects found no removed forwarding,
+  binding or failure-code symbols. Production `WhenAll` has no callers outside
+  its definitions, and only save adapters still create registered result nodes.
+  Execution was bounded to Core graph/result behavior and those save consumers;
+  all template/ABI consumers were compiled. Package/asset save sources and the
+  private save adapter have no changes.
+- Changed-document and all-plan validation passed. Only documentation evidence
+  changed after runtime verification; no Stage 6 gates remain.
 
 Follow-up Stage 5 removed `ThenAsync`: the workspace had no production callers.
 Task composition now uses explicit prerequisites and `AddNested`, with child
@@ -187,23 +367,19 @@ attaching an ownership pin does not itself install a module unload protocol.
 | Texture initialization | Existing InitTextureResource render command, followed by ResourceFence.BeginFence. | ResourceFence/FlushRenderingCommands joins the accepted command through capture destruction; object destruction waits the resource fence. Module producers flush before render/RHI shutdown. No Future or new event bridge is needed here. |
 | Cooked texture decode | Register GameThreadDeferred publication behind an event before ReloadAsync/Transform; Candidate writes precede signaling on success, error, or exception. | PackageResource.Transform is an accepted ThenCompleted/LaunchTask, whose callable owns the decode captures through retirement. Request completion/Wait joins that task; process CPU drain also tracks it independently of the early event. Publication owns weak object identity and shared Candidate, never a raw retiring texture. Retain revision/request checks. An event does not replace the Transform task or resource I/O ownership. |
 | RHI pipeline observer | MakeObserver precedes queue insertion; Publish stores Published/Outcome before signaling. Observer Cancel stores Canceled then signals without canceling compilation. | LastDrain owns Drain and compiler inputs; StopAndWait closes queue admission, clears queued entries and joins LastDrain before ReleaseResources. Observer completion is only a wake dependency. RHICommandList and RHIPipelineCreationTests subscribe for wakeups; PipelineStateCache uses completion only. All read domain state/result for outcomes. |
-| Package admission | Register disk task behind event, then publication task and AsyncSaves owner entry before setting explicit admitted=true and triggering. Rejection leaves decision=false and triggers. | Disk owns Save; FinishAsyncSave clears Write and moves/calls/clears Finish on GameThread before erasing AsyncSaves. Poll/DrainAsyncSaves handles canceled publication. Host save drain precedes object/executor teardown. |
-| Package and asset typed saves | Register private external result node before SubmitAsyncSave. Finish callback reads domain token plus returned-task cancellation, performs Complete/Cancel and resets Operation before result publication. Setup rejection settles the registered node. | Result-ready can precede Finish capture destruction. AsyncSaves membership and accepted Package.SavePublication, plus FinishAsyncSave fallback, remain the retirement obligation until Finish is cleared and owner-list removal completes. DrainAsyncSaves is required before objects/executors retire. Do not treat result readiness as this join. |
-| Task composition and fan-in | Use prerequisites for known work and AddNested inside running bodies for dynamically selected children. Empty fan-in retains its private registered result node. | Nested dependencies extend completion only; child results and outcomes remain explicit. Scheduler graph drain and owning result views preserve retirement. |
+| Package admission | Register disk work behind an event, then its real publication task and owner entry before admission=true and Trigger. Rejection leaves admission=false and triggers. | Publication consumes the domain finish callback on GameThread. Poll/drain retires terminal owner records and supplies discarded-task cleanup. Drain explicitly pumps its publication cutoff before executor/object teardown. |
+| Package and asset typed saves | Stage 7 registers a real typed GameThread publication task before releasing I/O. Its body checks domain and task tokens, commits/cancels, destroys operation captures and returns its result. | Owner records retain cleanup until I/O and publication are terminal. Discarded tasks remain failed while domain cleanup runs on GameThread. Drain explicitly pumps and reaps its cutoff; no external result bridge is used. |
+| Task composition and fan-in | Use prerequisites for known work and AddNested inside running bodies for dynamically selected children. Empty fan-in uses ordinary scheduled work. | Nested dependencies extend completion only; child results and outcomes remain explicit. Scheduler graph drain and owning result views preserve retirement. |
 
-### Frozen private adapter boundary
+### Frozen task/event boundary
 
-Retain registered external task nodes in Core's private implementation namespace;
-remove public source construction after caller migration. Only composition and
-audited typed save adapters construct them. Domain adapters retain existing
-`TTask<Result>` signatures, attribution and cancellation queries. Registration
-precedes external work; one publication wins, unresolved producer destruction
-fails with AbandonedSource, and cancellation requests do not settle or retire the
-producer. Rejection must resolve every registered node. No detached constructor
-is available to domains. A registered node accounts for pending result delivery;
-where publication precedes capture destruction, the specific accepted producer
-or owner join in the table remains mandatory. No extra waiting worker, polling
-task, late submission, or public promise facade is introduced.
+Stage 8 removes the private external-result source and external scheduler node.
+Task bodies produce task results; signals use task events and external data
+uses independent futures. Actual producer tasks or domain joins cover callback
+and capture retirement. A pending future or an event without an admitted
+consumer does not count as scheduler-owned work. Cancellation requests do not
+prove either result publication or producer retirement. Pre-admit publication
+before producer work begins so closure needs no new task submission.
 
 ## Goal
 
@@ -281,16 +457,15 @@ UE Tasks retain their own shared task/result model; see the
 
 ### Explicit integration with the scheduler
 
-Retain Core's external-completion node machinery as private infrastructure for
-composition and audited domain adapters. Do not mechanically rename the public
-completion source into a public promise that still constructs task nodes.
+Stage 8 removes Core's external-completion node machinery after production and
+test migration. Scheduled work returns task results; external data uses futures.
+Do not introduce a promise facade that constructs task nodes.
 
-An external adapter must register its scheduler-owned lifetime before starting its
-producer. It may expose an `FTaskEvent` signal and/or an existing typed task API,
-but must hold a tracked operation until producer acknowledgement and capture
-retirement. Reuse the current registered external node where needed rather than
-adding an untracked callback, waiting worker, or polling task. Registration and
-publication dispatch must require no new task submission after admission closes.
+Pre-admit task publication before starting an external producer. Its readiness
+may be an `FTaskEvent`, but retain the actual producer task or a domain join
+through acknowledgement and capture retirement. Do not add an untracked callback,
+a waiting worker or a polling task as a substitute. Registration and publication
+dispatch require no new task submission after admission closes.
 
 Result publication and producer retirement are distinct transitions. If the
 callback signals before its captures are destroyed, retain a separate tracked
@@ -314,9 +489,9 @@ names.
 | `Engine/Source/Runtime/Engine/Private/Texture/TextureCookedData.h`: `CookedTextureDecode` | Use an event for decode/publication readiness, retaining `Candidate` as the domain result. Pre-admit publication before `ReloadAsync`. Every success/error/exception/cancel path must signal once after result writes. Replace the current exit guard carefully: callback exit readiness is not proof of capture retirement. Keep request/producer retirement joined separately and preserve revision/owner invalidation checks. |
 | `Engine/Source/Runtime/RHI/Private/RHIPipelineCreation.cpp`: `FState::Source` and `Task` | Replace the observer completion with an event; keep published data and `Outcome` as domain state. `GetTaskHandle()` remains a completion dependency, but clients must inspect request outcome rather than expect `Canceled` from the generic handle. Audit every consumer of that method. Individual observer cancellation signals its event without canceling shared compilation. `StopAndWait()` must still join `LastDrain` and retire compiler captures before resource release. |
 | `Engine/Source/Runtime/CoreDObject/Private/DObject/PackagePersistence.cpp`: `Package.SaveAdmission` | Replace the void source with an event plus explicit admission decision, written before triggering. Disk work checks that decision, not event task state. Rejected setup must release the gate and skip writes; injected rejection and canceled publication must remain deterministic. |
-| Same file: `FSavePackageContext::SaveAsync`, `Package.SaveAsync` | Preserve the public `TTask<FPackageSaveResult>` return and task-handle cancellation in this migration. Use a private registered external result adapter until the domain save pipeline can return a real publication task with identical semantics. Do not change the return to Future or a success-only event wrapper. Settle the result once after operation cleanup, and retain producer retirement through `FinishAsyncSave` capture release and owner-list removal. |
-| `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp`: `FAssetPackageSaveContext::SaveAsync`, `Asset.SaveAsync` | Apply the same private typed adapter strategy, preserving `FAssetWriteResult`, cancellation requested through the returned task or domain token, GameThread commit, failure effects, and cleanup. Preserve admission-failure behavior without leaving an unacknowledged registered node. |
-| `Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h`: task composition and empty `BuildFanIn` | Stage 5 removes automatic task flattening. Use explicit dependencies and nested tasks; retain results independently. Keep empty fan-in and save-result machinery private without routing graph operations through standalone futures. |
+| Same file: `FSavePackageContext::SaveAsync`, `Package.SaveAsync` | Preserve the public `TTask<FPackageSaveResult>` return and task-handle cancellation in this migration. Stage 7 returns a real typed GameThread publication task and explicitly pumps it during save drain. Do not change the return to Future or a success-only event wrapper. Return the domain result after operation cleanup and retain owner accounting until task terminal publication and GameThread reaping. |
+| `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp`: `FAssetPackageSaveContext::SaveAsync`, `Asset.SaveAsync` | Apply the same real publication-task strategy, preserving `FAssetWriteResult`, cancellation requested through the returned task or domain token, GameThread commit, failure effects, and cleanup. Preserve admission-failure behavior without leaving an unacknowledged registered node. |
+| `Engine/Source/Runtime/Core/Public/Threading/TaskComposition.h`: task composition and empty `BuildFanIn` | Stage 5 removes automatic task flattening. Use explicit dependencies and nested tasks; retain results independently. Stage 6 schedules empty fan-in as ordinary work and removes obsolete result forwarding and dynamic edges. Keep save-result machinery private without routing graph operations through standalone futures. |
 | Same file: `MakeReadyTask` | Separate ready task construction from ready future construction. Tool results use the latter. Retain an actual ready-task helper only for task consumers that need it, with explicit scheduler-lifetime/dependency rules; do not retain detached observation-only tasks under a generic task name. |
 
 Tests also constitute callers. Migrate source fixtures in CoreTests
@@ -350,13 +525,13 @@ with the existing safe result/module ownership guarantees.
 4. Scheduler closure rejects new submissions but continues dispatching the
    pre-admitted graph. An accepted consumer waiting on an event remains tracked
    and prevents graph quiescence until signaled and retired. An unconsumed event
-   or standalone future provides no such protection. Private external adapters
-   retain registration until producer acknowledgement/retirement, even when the
-   observation handle was canceled or released.
-5. `FinishAsyncSave` must continue clearing write/finish captures on GameThread
-   before reporting owner quiescence. The save result becoming ready inside its
-   finish callback is not a substitute for this guarantee. Preserve the existing
-   fallback finalization when normal publication fails.
+   or standalone future provides no such protection. Actual producer tasks or domain joins
+   retain ownership through acknowledgement/retirement, even when an observation
+   handle was canceled or released.
+5. Save publication bodies release operation captures on GameThread before
+   returning a result. Owner reaping joins I/O/publication terminal states and
+   retains GameThread fallback cleanup for publications whose bodies never run.
+   Drain explicitly pumps its cutoff while rejecting recursive drain/admission.
 6. ToolService close resolves public receipts and detaches subscriptions without
    waiting on its own GameThread provider. Provider work gates, domain joins, and
    module retirement remain responsible for running producers. No late callback
@@ -467,6 +642,99 @@ Stages 0–4 acceptance evidence remains historical.
 
 Completion: task flattening is absent from the public API and current contracts;
 explicit composition coverage passes. Save adapters and empty fan-in remain private.
+
+### Stage 6: Remove obsolete forwarding and dynamic edges
+
+Depends on Stage 5.
+
+- [x] Remove unused result forwarding storage, publication and iterative release.
+- [x] Remove dynamic-edge binding, state, its unused failure code and
+  traversal/retraction special cases.
+- [x] Migrate graph tests to prerequisites, nested tasks and task events; cover
+  empty fan-in executor and generation behavior as ordinary scheduled work.
+- [x] Update current contracts without changing package/asset save pipelines.
+- [x] Validate Core concurrency and save consumers, workspace builds and docs.
+
+Completion: obsolete symbols have no workspace references, empty fan-in uses
+ordinary tasks, and focused lifecycle/consumer coverage passes.
+
+### Stage 7: Unify save publication and drain with typed tasks
+
+Depends on Stage 6.
+
+- [x] Return real typed publication tasks from Package/Asset SaveAsync.
+- [x] Share admission and owner retirement with direct/prepared saves; retain
+  GameThread cleanup for failed/discarded publications.
+- [x] Drain by explicitly pumping publication tasks, with cutoff and reentry guards.
+- [x] Cover cancellation, rejection, exceptions, dropped handles and retirement;
+  synchronize the plan and lasting contracts without changing Core infrastructure.
+- [x] Validate save consumers, Core concurrency, workspace builds and documents.
+
+Completion: no save producer uses external result access; task completion follows
+normal publication execution and save drain joins its cutoff through retirement.
+
+### Stage 8: Retire Core external-result infrastructure
+
+Depends on Stage 7.
+
+- [x] Migrate Core source-based tests by intent; reuse Future coverage for
+  abandonment/one-shot setters and preserve task graph/retirement coverage.
+- [x] Remove external-result access/source, unused adapter, external node kind,
+  launch flags, direct failure setter and abandoned-source task failure code.
+- [x] Preserve event creation, unknown-progress waits, nested dependencies and
+  terminal hooks; simplify only scheduler-owned external-node special cases.
+- [x] Update contracts and validate Core, event/shutdown isolation, save consumers,
+  workspace builds and documents.
+
+Completion: no external-result/node symbols remain in workspace source/tests;
+ordinary tasks, task events and independent futures retain their own contracts.
+
+### Stage 9: Consolidate migrated composition tests
+
+Depends on Stage 8. This stage changes tests only. Production code and build configuration are
+unchanged, so Core target compilation and execution cover this stage without
+repeating the workspace build.
+
+- [x] Combine observer outcome, fan-out, failure identity and move-only capture
+  coverage without reducing the terminal-state matrix.
+- [x] Consolidate fan-in duplicate ownership checks and retain independent nested
+  cancellation coverage; remove legacy admission scaffolding and incidental moves.
+- [x] Validate CoreConcurrencyTests, focused isolated cases and changed documents.
+
+Completion: simpler tests retain distinct behavioral coverage with no runtime
+changes and pass both shared-process and focused isolated execution.
+
+### Stage 10: Remove unused task observation adapters
+
+Depends on Stage 9. Remove task-only adapters after the Tool migration to Future;
+Future readiness and lifetime pins retain their production consumers.
+
+- [x] Remove task readiness/ObserveReady and WithLifetime/RetainLifetime, including
+  the unused node pin collection; retain SubscribeTask and result-node pins.
+- [x] Replace synthetic task pins with result-owned lifetime coverage and merge
+  duplicate Future tests while preserving late attachment/notification assertions.
+- [x] Validate Core shared-process and isolated tests, workspace consumers and
+  documentation; preserve event wait and producer retirement contracts.
+
+Completion: unused task adapters are absent, canonical tests retain their unique
+assertions, and the existing subscriptions and lifetime boundaries pass regression.
+
+### Stage 11: Unify task composition through ordinary dependencies
+
+Depends on Stage 10. UE Future continuations remain a separate deferred concern;
+task graphs use ordinary launch prerequisites, nested completion and task events.
+
+- [x] Migrate production terminal observers and test/qualification consumers to
+  ordinary tasks, preserving explicit attribution and lifetime boundaries.
+- [x] Remove public composition helpers and private continuation options/entrypoints;
+  normalize repeated dependencies in the ordinary submission path.
+- [x] Remove obsolete propagation/aggregation policy tests while retaining distinct
+  dependency, result ownership, cancellation, shutdown and module-unload coverage.
+- [x] Update contracts and validate Core, affected consumers, workspace builds and
+  documentation. Qualification harness changes require compilation, not timing claims.
+
+Completion: scheduled work has one submission path, all consumers use explicit
+dependencies, and event/subscription/retirement regression passes.
 
 ## Validation And Handoff
 

@@ -279,11 +279,11 @@ namespace Durin::Editor
 		Tasks::FTaskExecutionOptions TerminalOptions;
 		TerminalOptions.DebugName = "AssetCompatibility.PublishTerminal";
 		TerminalOptions.Priority = ETaskPriority::Normal;
+		TerminalOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(WorkerTask);
 		TerminalOptions.GenerationToken = Generation.Capture();
 		const std::weak_ptr<FPublicationLifetime> WeakLifetime = PublicationLifetime;
-		TerminalTask = Durin::Tasks::FTask(Tasks::ThenCompleted(
-			WorkerTask, Tasks::ETaskExecutor::GameThreadDeferred, TerminalOptions,
-			[WeakLifetime, Serial](const Tasks::TTask<FTerminalSummary>& Outcome) {
+		TerminalTask = Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, TerminalOptions,
+			[WeakLifetime, Serial, Outcome = WorkerTask] {
 				const std::shared_ptr<FPublicationLifetime> Lifetime = WeakLifetime.lock();
 				if (!Lifetime || !Lifetime->Model) return;
 				FAssetCompatibilityAuditModel& Model = *Lifetime->Model;
@@ -308,7 +308,7 @@ namespace Durin::Editor
 						: Outcome.GetDiagnostic();
 				}
 				Model.InvalidatePresentation();
-			}));
+			}, WorkerTask));
 
 		return true;
 	}

@@ -136,7 +136,9 @@ namespace Durin
 			std::thread Observer([&] {
 				Start.arrive_and_wait();
 				Observation = Future.Subscribe([&](EFutureState State) {
-					EXPECT_NE(EFutureState::Pending, State); EXPECT_TRUE(Future.IsReady()); ++Calls;
+					EXPECT_NE(EFutureState::Pending, State); EXPECT_TRUE(Future.IsReady());
+					if (State == EFutureState::Succeeded) EXPECT_EQ(5, *Future.GetResultShared());
+					++Calls;
 				});
 			});
 			Start.arrive_and_wait(); Winners += Promise.TrySetCanceled();
@@ -158,6 +160,7 @@ namespace Durin
 			throw std::runtime_error("contained");
 		});
 		FFutureReadiness Ready;
+		EXPECT_FALSE(Ready.IsReady());
 		auto Marker = Future.ObserveReady(Ready);
 		std::latch Entered(1), Exit(1);
 		auto Capture = std::make_shared<int>(1);
@@ -170,6 +173,14 @@ namespace Durin
 		Exit.count_down(); Publisher.join();
 		EXPECT_TRUE(Weak.expired()); EXPECT_TRUE(Ready.IsReady());
 		EXPECT_EQ(0, DetachedCalls); EXPECT_EQ(1, ReentrantCalls);
+		Future.Get(); // Detaching an observer does not cancel the producer's result.
+		FFutureReadiness LateReady;
+		auto LateMarker = Future.ObserveReady(LateReady);
+		EXPECT_TRUE(LateReady.IsReady());
+		auto Late = Future.Subscribe([&](EFutureState State) {
+			EXPECT_EQ(EFutureState::Succeeded, State); ++ReentrantCalls;
+		});
+		EXPECT_EQ(2, ReentrantCalls);
 	}
 
 	TEST(FFutureTests, ResultViewsKeepPinsAfterAllHandlesAndProducerDisappear)
@@ -186,6 +197,17 @@ namespace Durin
 		}
 		EXPECT_FALSE(Weak.expired()); EXPECT_EQ(11, **View);
 		View.reset(); EXPECT_TRUE(Weak.expired());
+
+		// Pins can be attached after publication; the producer also retains the state.
+		TPromise<int> Promise;
+		auto Future = Promise.GetFuture().Share();
+		Promise.SetValue(13);
+		auto Pin = std::make_shared<int>(7); Weak = Pin;
+		auto LateView = Future.WithLifetime(std::move(Pin)).GetResultShared();
+		Future = {};
+		EXPECT_EQ(13, *LateView);
+		LateView.reset(); EXPECT_FALSE(Weak.expired());
+		Promise = TPromise<int>{}; EXPECT_TRUE(Weak.expired());
 	}
 
 	TEST(FFutureTests, TimedWaitAndAbandonmentWakeBlockedConsumers)
@@ -219,71 +241,6 @@ namespace Durin
 			ShutdownTaskScheduler(false);
 			During.SetValue(); Future.Get();
 			EXPECT_EQ(23, Retained.Get());
-		}
-	}
-	TEST(FFutureTests, StandaloneCompletionRetainsValueAndLifetimeWithoutScheduler)
-	{
-		auto Promise = TPromise<std::string>{};
-		auto Future = Promise.GetFuture().Share();
-		EXPECT_FALSE(Future.IsReady());
-		EXPECT_FALSE(Future.GetResultShared());
-		int Calls = 0;
-		FFutureReadiness Signal;
-		auto Observation = Future.ObserveReady(Signal);
-		EXPECT_FALSE(Signal.IsReady());
-		auto Subscription = Future.Subscribe([&](EFutureState State) { EXPECT_EQ(EFutureState::Succeeded, State); ++Calls; });
-		EXPECT_TRUE(Promise.TrySetValue("owned"));
-		EXPECT_FALSE(Promise.TrySetValue("duplicate"));
-		ASSERT_TRUE(Future.IsReady());
-		EXPECT_EQ(1, Calls);
-		EXPECT_TRUE(Signal.IsReady());
-		auto Lifetime = std::make_shared<int>(7);
-		std::weak_ptr<int> Weak = Lifetime;
-		auto Retained = Future.WithLifetime(std::move(Lifetime)).GetResultShared();
-		Future = {};
-		EXPECT_FALSE(Weak.expired());
-		EXPECT_EQ("owned", *Retained);
-		Retained.reset();
-		EXPECT_FALSE(Weak.expired()); // The promise still retains the state.
-		Promise = TPromise<std::string>{};
-		EXPECT_TRUE(Weak.expired());
-		auto Ready = MakeReadyFuture(42).Share();
-		auto Late = Ready.Subscribe([&](EFutureState) { ++Calls; });
-		EXPECT_EQ(2, Calls);
-		EXPECT_EQ(42, *Ready.GetResultShared());
-	}
-
-	TEST(FFutureTests, StandaloneCompletionAbandonmentAndUnsubscribeDoNotCancelDomainWork)
-	{
-		TSharedFuture<int> Abandoned;
-		{
-			auto Promise = TPromise<int>{};
-			Abandoned = Promise.GetFuture().Share();
-		}
-		EXPECT_EQ(EFutureState::Failed, Abandoned.GetState());
-		EXPECT_EQ(EFutureFailure::Abandoned, Abandoned.GetFailure().Code);
-		auto Promise = TPromise<int>{};
-		auto Future = Promise.GetFuture().Share();
-		int Calls = 0;
-		auto Subscription = Future.Subscribe([&](EFutureState) { ++Calls; });
-		Subscription.Reset();
-		EXPECT_TRUE(Promise.TrySetValue(9));
-		EXPECT_EQ(0, Calls);
-		EXPECT_EQ(9, *Future.GetResultShared());
-	}
-
-	TEST(FFutureTests, StandaloneSubscriptionCompletionRaceNotifiesExactlyOnce)
-	{
-		for (int Iteration = 0; Iteration < 128; ++Iteration)
-		{
-			auto Promise = TPromise<int>{};
-			auto Future = Promise.GetFuture().Share();
-			std::atomic<int> Calls{0};
-			std::thread Producer([Promise = std::move(Promise)] { EXPECT_TRUE(Promise.TrySetValue(1)); });
-			auto Subscription = Future.Subscribe([&](EFutureState) { ++Calls; });
-			Producer.join();
-			EXPECT_EQ(1, Calls.load());
-			EXPECT_EQ(1, *Future.GetResultShared());
 		}
 	}
 

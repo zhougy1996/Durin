@@ -1299,17 +1299,14 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
-		Tasks::FTaskExecutionOptions SourceOptions;
-		auto Source = Tasks::Detail::FExternalResultAccess::Create<void>(SourceOptions);
-		auto Pending = Source.TakeTask();
+		Tasks::FTaskEvent Pending("IndependentLeafGate");
 		const Tasks::FTask PendingHandle = Durin::Tasks::FTask(Pending);
-		for (int InvalidKind = 0; InvalidKind < 3; ++InvalidKind)
+		for (int InvalidKind = 0; InvalidKind < 2; ++InvalidKind)
 		{
 			FTaskLaunchOptions Options;
 			Options.bIndependentCPU = true;
 			if (InvalidKind == 0) Options.Prerequisites = std::span<const Tasks::FTask>(&PendingHandle, 1);
-			if (InvalidKind == 1) Options.bExternalCompletion = true;
-			if (InvalidKind == 2) Options.Target = ETaskTarget::BlockingIO;
+			if (InvalidKind == 1) Options.Target = ETaskTarget::BlockingIO;
 			EXPECT_DEATH({ (void)Private::LaunchCancelableTaskWithCompletion("InvalidIndependent",
 				[](const FTaskCancellationToken&) {}, {}, Options); }, "");
 		}
@@ -1325,10 +1322,10 @@ namespace Durin
 		});
 		const auto LeafHandle = Durin::Tasks::FTask(Leaf);
 		EXPECT_TRUE(Leaf.GetResult());
-		const auto Dynamic = Private::FTaskRuntimeAccess::BindDynamicDependency(LeafHandle, PendingHandle);
-		ASSERT_TRUE(Dynamic);
-		EXPECT_EQ(Dynamic->Code, Tasks::ETaskConstructionErrorCode::InvalidExecutionContract);
-		EXPECT_TRUE(Source.TrySetValue());
+		const auto Nested = Private::FTaskRuntimeAccess::AddCompletionDependency(LeafHandle, PendingHandle);
+		ASSERT_TRUE(Nested);
+		EXPECT_EQ(Nested->Code, Tasks::ETaskConstructionErrorCode::InvalidExecutionContract);
+		Pending.Trigger();
 		EXPECT_EQ(Pending.Wait().TaskState, ETaskState::Succeeded);
 	}
 
@@ -1690,7 +1687,7 @@ namespace Durin
 			AllowTaskReturn.Wait();
 		});
 		ASSERT_TRUE(TaskStarted.WaitFor(1.0));
-		Tasks::FTask Waiting = SubmitKernelContinuation(Running, "SnapshotContentionWaiting", []() {});
+		Tasks::FTask Waiting = SubmitKernelTask("SnapshotContentionWaiting", []() {}, {.Prerequisites = std::span(&Running, 1), .Attribution = Private::FTaskRuntimeAccess::GetAttribution(Running)});
 		ASSERT_TRUE(Waiting.IsValid());
 
 		FTaskSchedulerSnapshotTestHookGuard SnapshotHook([&]() {
@@ -1708,7 +1705,7 @@ namespace Durin
 		std::thread SnapshotThread([&]() { Snapshot = GetTaskSchedulerDiagnostics(); });
 		EXPECT_TRUE(SnapshotPinned.WaitFor(1.0));
 		Tasks::FTask Root = SubmitKernelTask("SnapshotContentionRoot", []() {});
-		Tasks::FTask LateContinuation = SubmitKernelContinuation(Running, "SnapshotContentionLateContinuation", []() {});
+		Tasks::FTask LateContinuation = SubmitKernelTask("SnapshotContentionLateContinuation", []() {}, {.Prerequisites = std::span(&Running, 1), .Attribution = Private::FTaskRuntimeAccess::GetAttribution(Running)});
 		EXPECT_TRUE(Root.IsValid());
 		EXPECT_TRUE(LateContinuation.IsValid());
 
@@ -1730,33 +1727,6 @@ namespace Durin
 		EXPECT_TRUE(Snapshot.NonterminalTasks.empty());
 		EXPECT_FALSE(IsTaskSchedulerRunning());
 	}
-
-
-	TEST(FTaskConstructionTests, ContinuationValidatesConstruction)
-	{
-		EnsureGameThreadForTaskTest();
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-		auto Root = SubmitKernelTask("Predecessor", [] {});
-		Root.Wait();
-		auto Continue = [&](const Tasks::FTask& Input, const FTaskContinuationOptions& Options) {
-			return Private::LaunchContinuationTask(Input, "Continuation", [](const FTaskCancellationToken&) {}, {}, Options);
-		};
-		FTaskContinuationOptions Options;
-		Options.Target = static_cast<ETaskTarget>(255);
-		EXPECT_DEATH({ (void)Continue(Root, Options); }, "");
-		Options.Target = ETaskTarget::GameThreadDeferred;
-		auto Deferred = Continue(Root, Options);
-		PumpGameThreadDeferredWork({.bUnlimited = true});
-		EXPECT_EQ(ETaskState::Succeeded, Deferred.Wait().TaskState);
-		EXPECT_EQ(ETaskState::Succeeded, Continue({}, {}).Wait().TaskState);
-		EXPECT_EQ(ETaskState::Succeeded, Continue(Root, {}).Wait().TaskState);
-		ShutdownTaskScheduler(false);
-		EXPECT_DEATH({ (void)Continue(Root, {}); }, "");
-	}
-
 
 
 	TEST(FTaskCapacityTests, ConfigurationValidatesThresholdsWithoutChangingRunningScheduler)
@@ -2010,11 +1980,13 @@ namespace Durin
 
 		std::vector<int> Order;
 		auto Enqueue = [&](int Value, ETaskPriority Priority) {
-			FTaskContinuationOptions Options;
+			FTaskLaunchOptions Options;
 			Options.Target = ETaskTarget::GameThreadDeferred;
 			Options.Priority = Priority;
 			Options.EstimatedPayloadBytes = 1;
-			return SubmitKernelContinuation(Root, "DeferredPriorityEntry", [&, Value]() { Order.push_back(Value); }, Options);
+			Options.Prerequisites = std::span(&Root, 1);
+			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+			return SubmitKernelTask("DeferredPriorityEntry", [&, Value]() { Order.push_back(Value); }, Options);
 		};
 		Tasks::FTask Low = Enqueue(1, ETaskPriority::Low);
 		Tasks::FTask HighFirst = Enqueue(2, ETaskPriority::High);
@@ -2051,10 +2023,12 @@ namespace Durin
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
 		auto Enqueue = [&](uint64 Bytes) {
-			FTaskContinuationOptions Options;
+			FTaskLaunchOptions Options;
 			Options.Target = ETaskTarget::GameThreadDeferred;
 			Options.EstimatedPayloadBytes = Bytes;
-			return SubmitKernelContinuation(Root, "DeferredLimitEntry", []() {}, Options);
+			Options.Prerequisites = std::span(&Root, 1);
+			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+			return SubmitKernelTask("DeferredLimitEntry", []() {}, Options);
 		};
 		Tasks::FTask First = Enqueue(5);
 		Tasks::FTask Second = Enqueue(5);
@@ -2088,13 +2062,17 @@ namespace Durin
 		Tasks::FTask Root = SubmitKernelTask("DeferredTimeBudgetRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
-		FTaskContinuationOptions Options;
+		FTaskLaunchOptions Options;
 		Options.Target = ETaskTarget::GameThreadDeferred;
 		Options.EstimatedPayloadBytes = 1;
-		Tasks::FTask Slow = SubmitKernelContinuation(Root, "DeferredSlowCallback", []() {
+		Options.Prerequisites = std::span(&Root, 1);
+		Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+		Tasks::FTask Slow = SubmitKernelTask("DeferredSlowCallback", []() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(2));
 		}, Options);
-		Tasks::FTask Later = SubmitKernelContinuation(Root, "DeferredLaterCallback", []() {}, Options);
+		Options.Prerequisites = std::span(&Root, 1);
+		Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+		Tasks::FTask Later = SubmitKernelTask("DeferredLaterCallback", []() {}, Options);
 		FGameThreadDeferredPumpBudget Budget;
 		Budget.MaxCallbacks = 64;
 		Budget.MaxSeconds = 0.0001;
@@ -2115,13 +2093,17 @@ namespace Durin
 		Tasks::FTask Root = SubmitKernelTask("DeferredPolicyRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
-		FTaskContinuationOptions CoalescedOptions;
+		FTaskLaunchOptions CoalescedOptions;
 		CoalescedOptions.Target = ETaskTarget::GameThreadDeferred;
 		CoalescedOptions.EstimatedPayloadBytes = 4;
 		CoalescedOptions.CoalescingKey = FTaskCoalescingKey{11, 22, 33};
-		Tasks::FTask Superseded = SubmitKernelContinuation(Root, "DeferredSuperseded", []() {}, CoalescedOptions);
+		CoalescedOptions.Prerequisites = std::span(&Root, 1);
+		CoalescedOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+		Tasks::FTask Superseded = SubmitKernelTask("DeferredSuperseded", []() {}, CoalescedOptions);
 		std::atomic<bool> bReplacementRan = false;
-		Tasks::FTask Replacement = SubmitKernelContinuation(Root, "DeferredReplacement", [&]() { bReplacementRan = true; }, CoalescedOptions);
+		CoalescedOptions.Prerequisites = std::span(&Root, 1);
+		CoalescedOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+		Tasks::FTask Replacement = SubmitKernelTask("DeferredReplacement", [&]() { bReplacementRan = true; }, CoalescedOptions);
 		EXPECT_EQ(ETaskState::Failed, Superseded.GetState());
 		EXPECT_EQ(ETaskTerminalReason::Superseded, Superseded.GetDiagnostics().TerminalReason);
 		const FTaskDiagnostics ReplacementDiagnostics = Replacement.GetDiagnostics();
@@ -2132,11 +2114,13 @@ namespace Durin
 		EXPECT_EQ(33u, ReplacementDiagnostics.CoalescingGeneration);
 
 		FTaskGenerationSource Generation;
-		FTaskContinuationOptions StaleOptions;
+		FTaskLaunchOptions StaleOptions;
 		StaleOptions.Target = ETaskTarget::GameThreadDeferred;
 		StaleOptions.EstimatedPayloadBytes = 1;
 		StaleOptions.GenerationToken = Generation.Capture();
-		Tasks::FTask Stale = SubmitKernelContinuation(Root, "DeferredStale", []() {}, StaleOptions);
+		StaleOptions.Prerequisites = std::span(&Root, 1);
+		StaleOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+		Tasks::FTask Stale = SubmitKernelTask("DeferredStale", []() {}, StaleOptions);
 		Generation.Advance();
 
 		PumpGameThreadDeferredWork({.bUnlimited = true});
@@ -2159,10 +2143,12 @@ namespace Durin
 		Tasks::FTask Root = SubmitKernelTask("DeferredFailureRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 
-		FTaskContinuationOptions Options;
+		FTaskLaunchOptions Options;
 		Options.Target = ETaskTarget::GameThreadDeferred;
 		Options.EstimatedPayloadBytes = 1;
-		Tasks::FTask Failed = SubmitKernelContinuation(Root, "DeferredFailure", []() {
+		Options.Prerequisites = std::span(&Root, 1);
+		Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+		Tasks::FTask Failed = SubmitKernelTask("DeferredFailure", []() {
 			EXPECT_EQ(0u, PumpGameThreadDeferredWork().ExecutedCallbacks);
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			EXPECT_TRUE(IsTaskSchedulerRunning());
@@ -2191,11 +2177,13 @@ namespace Durin
 			DrainRootStarted.Trigger();
 			ReleaseDrainRoot.Wait();
 		});
-		FTaskContinuationOptions Options;
+		FTaskLaunchOptions Options;
 		Options.Target = ETaskTarget::GameThreadDeferred;
 		Options.EstimatedPayloadBytes = 1;
 		std::atomic<bool> bDrainRan = false;
-		Tasks::FTask DrainTail = SubmitKernelContinuation(DrainRoot, "CrossDrainTail", [&]() {
+		Options.Prerequisites = std::span(&DrainRoot, 1);
+		Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(DrainRoot);
+		Tasks::FTask DrainTail = SubmitKernelTask("CrossDrainTail", [&]() {
 			bDrainRan = true;
 			EXPECT_DEATH({ (void)SubmitKernelTask("RejectedShutdownRoot", []() {}); }, "");
 		}, Options);
@@ -2213,7 +2201,9 @@ namespace Durin
 		EXPECT_GT(GetGameThreadDeferredWorkQueueDiagnostics().AdapterGeneration, DrainAdapterGeneration);
 		Tasks::FTask CancelRoot = SubmitKernelTask("CrossCancelRoot", []() {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(CancelRoot).TaskState);
-		Tasks::FTask CancelTail = SubmitKernelContinuation(CancelRoot, "CrossCancelTail", []() {}, Options);
+		Options.Prerequisites = std::span(&CancelRoot, 1);
+		Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(CancelRoot);
+		Tasks::FTask CancelTail = SubmitKernelTask("CrossCancelTail", []() {}, Options);
 		ASSERT_EQ(ETaskState::Queued, CancelTail.GetState());
 		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 		EXPECT_EQ(ETaskState::Succeeded, CancelTail.GetState());
@@ -2244,11 +2234,13 @@ namespace Durin
 		Handles.reserve(CallbackCount);
 		for (uint32 Index = 0; Index < CallbackCount; ++Index)
 		{
-			FTaskContinuationOptions Options;
+			FTaskLaunchOptions Options;
 			Options.Target = ETaskTarget::GameThreadDeferred;
 			Options.EstimatedPayloadBytes = DeclaredCaptureBytes;
 			if (Index < StaleCallbackCount) Options.GenerationToken = StaleToken;
-			Handles.emplace_back(SubmitKernelContinuation(Root, "DeferredAccountingCallback", [&]() {
+			Options.Prerequisites = std::span(&Root, 1);
+			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
+			Handles.emplace_back(SubmitKernelTask("DeferredAccountingCallback", [&]() {
 				ExecutedCount.fetch_add(1, std::memory_order::acq_rel);
 			}, Options));
 		}
@@ -2323,10 +2315,11 @@ namespace Durin
 			return 42;
 		});
 		ASSERT_TRUE(TaskStarted.WaitFor(1.0));
-		Tasks::FTask Dependent = Durin::Tasks::FTask(Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "PublicationBarrierDependent"}, [&](const int& Value) {
+		Tasks::FTask Dependent = Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "PublicationBarrierDependent"}, [&, Producer]() {
+			const auto& Value = Producer.GetResult();
 			EXPECT_EQ(42, Value);
 			bDependentRan.store(true, std::memory_order::release);
-		}));
+		}, Producer));
 		AllowTaskReturn.Trigger();
 		ASSERT_TRUE(CloseStarted.WaitFor(1.0));
 		ASSERT_EQ(Producer.GetTaskId(), HookTaskId.load(std::memory_order::acquire));

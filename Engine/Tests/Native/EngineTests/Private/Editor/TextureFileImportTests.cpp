@@ -799,3 +799,18 @@ TEST_F(FTextureImportQueueTests, TeardownAfterMutationCancellationRetainsReplace
 	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
+
+TEST_F(FTextureImportQueueTests, AsyncSaveReturnsCancelableTypedPublicationTask)
+{
+	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
+	FAssetWriteResult Admission;
+	auto Save = Texture->GetPackage()->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()) << Admission.Message;
+	EXPECT_EQ(Save.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
+	EXPECT_EQ(Save.Wait().WaitStatus, ETaskWaitStatus::UnsupportedThread);
+	EXPECT_TRUE(Tasks::Cancel(Save));
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_EQ(Save.GetState(), ETaskState::Succeeded);
+	EXPECT_EQ(Save.GetResult().Error, EAssetWriteError::Cancelled);
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
+}

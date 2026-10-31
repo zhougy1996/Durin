@@ -372,7 +372,7 @@ namespace
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		auto Root = Durin::Tasks::FTask(Tasks::LaunchTask("TextureSaturationRoot", [] {}));
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
-		auto Deferred = Durin::Tasks::FTask(Tasks::Then(Durin::Tasks::FTask(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}));
+		auto Deferred = Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [Root](){}, Root));
 		ASSERT_TRUE(Deferred.IsValid());
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "LargeContent").generic_string() + "/");
 		ExerciseStaticMeshOwnerBridge();

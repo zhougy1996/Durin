@@ -35,11 +35,6 @@ namespace Durin::Tasks
 		Durin::Private::FTaskRuntimeAccess::BindTerminal(Task, std::move(Hook));
 		return Subscription;
 	}
-	FTaskReadiness::FTaskReadiness() : State(std::make_shared<std::atomic<bool>>(false)) {}
-	auto ObserveTaskReady(const Tasks::FTask& Task, const FTaskReadiness& Readiness) -> FTaskSubscription
-	{
-		return SubscribeTask(Task, [State = Readiness.State](ETaskState) { State->store(true, std::memory_order_release); });
-	}
 
 	auto AddNested(const Tasks::FTask& Completion) -> void
 	{

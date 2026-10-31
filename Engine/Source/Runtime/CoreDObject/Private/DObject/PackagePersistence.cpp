@@ -5,48 +5,46 @@
 #include "Misc/FilePublication.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
-#include "Threading/Private/ExternalTaskResult.h"
 
 namespace Durin
 {
+	namespace PackageSavePrivate
+	{
+		struct FAsyncSaveState
+		{
+			uint64 Bytes = 0;
+			Tasks::FTask Disk, Publication;
+			bool bAdmitted = false;
+			std::function<void()> Write, Cleanup;
+		};
+	}
 	namespace
 	{
 		FPackageDestinationResolver DestinationResolver;
 		std::unordered_set<const DPackage*> PreparingPackages;
 		auto Fail(EPackageSaveError Error, std::string Message) -> FPackageSaveResult
 		{ return {Error, std::move(Message)}; }
-		struct FOwnedAsyncSave
-		{
-			uint64 Bytes = 0;
-			Tasks::FTask Disk, Publication;
-			bool bAdmitted = false; // Published to disk work by the admission event.
-			std::function<void()> Write;
-			std::function<void(bool)> Finish;
-			bool bFinishing = false;
-		};
 		std::mutex AsyncSaveMutex;
-		std::vector<std::shared_ptr<FOwnedAsyncSave>> AsyncSaves;
+		std::vector<std::shared_ptr<PackageSavePrivate::FAsyncSaveState>> AsyncSaves;
 		bool bAcceptAsyncSaves = true;
-		bool bDeliveringSave = false;
+		uint32 SavePublicationDepth = 0;
+		bool bDrainingSaves = false;
 		PackageSavePrivate::EPublicationFault PublicationFault = PackageSavePrivate::EPublicationFault::None;
 		uint32 AsyncSaveMaxOperations = 64;
 		uint64 AsyncSaveMaxBytes = 256ull * 1024 * 1024;
-		auto SnapshotSaves() -> std::vector<std::shared_ptr<FOwnedAsyncSave>>
+		auto SnapshotSaves() -> std::vector<std::shared_ptr<PackageSavePrivate::FAsyncSaveState>>
 		{ std::lock_guard Lock(AsyncSaveMutex); return AsyncSaves; }
-		auto FinishAsyncSave(const std::shared_ptr<FOwnedAsyncSave>& Save) -> void
+		auto RetireAsyncSave(const std::shared_ptr<PackageSavePrivate::FAsyncSaveState>& Save) -> void
 		{
 			check(IsInGameThread());
-			if (Save->bFinishing || !Save->Finish || !Save->Disk.IsCompleted()) return;
-			Save->bFinishing = true;
-			bDeliveringSave = true;
+			check(Save->Disk.IsCompleted() && Save->Publication.IsCompleted());
+			++SavePublicationDepth;
 			Save->Write = {};
-			auto Finish = std::move(Save->Finish);
-			try { Finish(Save->Disk.GetState() == ETaskState::Succeeded); }
-			catch (...) { DURIN_ERROR("Async package save completion threw an exception."); }
-			// Even canceled executor work cannot destroy the last live-object owner
-			// on an I/O thread. Release all adapter captures before exposing quiescence.
-			Finish = {};
-			bDeliveringSave = false;
+			auto Cleanup = std::move(Save->Cleanup);
+			try { if (Cleanup) Cleanup(); }
+			catch (...) { DURIN_ERROR("Async package save cleanup threw an exception."); }
+			Cleanup = {};
+			--SavePublicationDepth;
 			std::lock_guard Lock(AsyncSaveMutex);
 			std::erase(AsyncSaves, Save);
 		}
@@ -59,7 +57,7 @@ namespace Durin
 			if (!bAcceptAsyncSaves || !IsTaskSchedulerRunning()
 				|| !GetGameThreadDeferredWorkQueueDiagnostics().bAccepting)
 				return Fail(EPackageSaveError::ShuttingDown, "Async saves require an accepting GameThread executor.");
-			if (bDeliveringSave) return Fail(EPackageSaveError::Busy, "Reentrant async save submission is unsupported.");
+			if (SavePublicationDepth != 0 || bDrainingSaves) return Fail(EPackageSaveError::Busy, "Async save submission during publication or drain is unsupported.");
 			uint64 Retained = 0;
 			std::lock_guard Lock(AsyncSaveMutex);
 			for (const auto& Save : AsyncSaves) Retained += Save->Bytes;
@@ -67,51 +65,68 @@ namespace Durin
 				return Fail(EPackageSaveError::Busy, "Async save capacity is exhausted.");
 			return {};
 		}
+		auto BeginAsyncSavePublication(const std::shared_ptr<FAsyncSaveState>& Save) -> void
+		{
+			check(IsInGameThread());
+			check(Save->Disk.IsCompleted());
+			++SavePublicationDepth;
+			Save->Write = {};
+		}
+		auto EndAsyncSavePublication() -> void { check(IsInGameThread() && SavePublicationDepth != 0); --SavePublicationDepth; }
+
+		auto SubmitAsyncSaveTask(uint64 Bytes, std::function<void()> Write,
+			FAsyncSavePublicationFactory MakePublication, std::function<void()> Cleanup) -> FPackageSaveResult
+		{
+			if (auto Result = CheckAsyncAdmission(Bytes); !Result) return Result;
+			// Reserve ownership before creating accepted work; registration below cannot allocate.
+			{ std::lock_guard Lock(AsyncSaveMutex); AsyncSaves.reserve(AsyncSaves.size() + 1); }
+			auto Save = std::make_shared<FAsyncSaveState>();
+			Save->Bytes = Bytes; Save->Write = std::move(Write); Save->Cleanup = std::move(Cleanup);
+			Tasks::FTaskEvent Gate("Package.SaveAdmission");
+			try
+			{
+				Save->Disk = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
+					{.DebugName = "Package.SaveIO"}, [Save] {
+						if (!Save->bAdmitted) {
+							Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
+							return;
+						}
+						Save->Write();
+					}, Gate);
+				if (PublicationFault == EPublicationFault::RejectAdmission)
+				{
+					Save->Write = {}; Save->Cleanup = {};
+					Gate.Trigger();
+					return Fail(EPackageSaveError::ShuttingDown, "Injected save publication admission failure.");
+				}
+				Save->Publication = MakePublication(Save->Disk, Save);
+				{ std::lock_guard Lock(AsyncSaveMutex); AsyncSaves.push_back(Save); }
+				if (PublicationFault == EPublicationFault::CancelContinuation) CancelTask(Save->Publication);
+				Save->bAdmitted = true;
+				Gate.Trigger();
+				return {};
+			}
+			catch (...)
+			{
+				Save->Write = {}; Save->Cleanup = {};
+				Gate.Trigger();
+				throw;
+			}
+		}
 		auto SubmitAsyncSave(uint64 Bytes, std::function<void()> Write, std::function<void(bool)> Finish)
 			-> FPackageSaveResult
 		{
-			if (auto Result = CheckAsyncAdmission(Bytes); !Result) return Result;
-			auto Save = std::make_shared<FOwnedAsyncSave>();
-			Save->Bytes = Bytes; Save->Write = std::move(Write); Save->Finish = std::move(Finish);
-			// Register publication before releasing disk work. The owner gate also
-			// prevents writes when publication setup is deliberately canceled.
-			Tasks::FTaskEvent Gate("Package.SaveAdmission");
-			const auto Prerequisites = Tasks::Prerequisites(Gate);
-			Tasks::FTaskExecutionOptions DiskOptions;
-			DiskOptions.DebugName = "Package.SaveIO";
-			DiskOptions.Prerequisites = Prerequisites;
-			auto Disk = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, DiskOptions,
-				[Save](const FTaskCancellationToken&) {
-					if (!Save->bAdmitted) {
-						Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
-						return;
-					}
-					Save->Write();
-				});
-			Save->Disk = std::move(Disk);
-			if (PublicationFault == EPublicationFault::RejectAdmission)
-			{
-				Gate.Trigger();
-				// The closed admission gate prevents Write from being invoked. Retire
-				// caller captures here; accepted I/O work may still await its executor.
-				Save->Write = {}; Save->Finish = {};
-				return Fail(EPackageSaveError::ShuttingDown, "Injected save publication admission failure.");
-			}
-			auto Completion = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
-				{.DebugName = "Package.SavePublication"}, [Save] { FinishAsyncSave(Save); }, Save->Disk);
-			Save->Publication = std::move(Completion);
-			{ std::lock_guard Lock(AsyncSaveMutex); AsyncSaves.push_back(Save); }
-			if (PublicationFault == EPublicationFault::CancelContinuation) CancelTask(Save->Publication);
-			Save->bAdmitted = true;
-			Gate.Trigger();
-			return {};
+			FPackageSaveResult Admission;
+			(void)SubmitTypedAsyncSave<void>(Bytes, std::move(Write),
+				[Finish = std::move(Finish)](bool bSucceeded, const FTaskCancellationToken&) { Finish(bSucceeded); }, Admission);
+			return Admission;
 		}
 		auto PollAsyncSaves() -> void
 		{
 			check(IsInGameThread());
-			if (bDeliveringSave) return;
+			if (SavePublicationDepth != 0) return;
 			for (const auto& Save : SnapshotSaves())
-				if (Save->Disk.IsCompleted() && Save->Publication.IsCompleted()) FinishAsyncSave(Save);
+				if (Save->Disk.IsCompleted() && Save->Publication.IsCompleted()) RetireAsyncSave(Save);
 		}
 		auto SetAsyncSaveAdmission(bool bAccepting) -> void
 		{ if (GIsGameThreadIdInitialized) check(IsInGameThread()); bAcceptAsyncSaves = bAccepting; }
@@ -146,15 +161,28 @@ namespace Durin
 	{
 		// Configuration-only tools may shut down before creating a GameThread.
 		if (!GIsGameThreadIdInitialized && SnapshotSaves().empty()) return {};
-		if (!GIsGameThreadIdInitialized || !IsInGameThread() || bDeliveringSave)
+		if (!GIsGameThreadIdInitialized || !IsInGameThread() || SavePublicationDepth != 0 || bDrainingSaves)
 			return Fail(EPackageSaveError::Busy, "Save publication drain requires a non-reentrant GameThread caller.");
-		for (const auto& Save : SnapshotSaves())
-		{
+		bDrainingSaves = true;
+		struct FScope { ~FScope() { bDrainingSaves = false; } } Scope;
+		const auto Cutoff = SnapshotSaves();
+		for (const auto& Save : Cutoff)
 			if (WaitTask(Save->Disk).WaitStatus != ETaskWaitStatus::Completed)
 				return Fail(EPackageSaveError::Busy, "Save I/O wait is unsupported on this thread.");
-			CancelTask(Save->Publication);
-			FinishAsyncSave(Save);
+		for (const auto& Save : Cutoff)
+		{
+			while (!Save->Publication.IsCompleted())
+			{
+				const auto Before = GetGameThreadDeferredWorkQueueDiagnostics();
+				if (!Before.bInstalled) return Fail(EPackageSaveError::Busy, "Save publication executor is unavailable.");
+				const auto Pumped = PumpGameThreadDeferredWork({.MaxCallbacks = 1});
+				if (!Pumped.ExecutedCallbacks && !Pumped.TerminalEntriesSkipped
+					&& GetGameThreadDeferredWorkQueueDiagnostics().ReentrantPumpCount != Before.ReentrantPumpCount)
+					return Fail(EPackageSaveError::Busy, "Cannot drain saves from a deferred callback.");
+				if (!Pumped.ExecutedCallbacks && !Pumped.TerminalEntriesSkipped) std::this_thread::yield();
+			}
 		}
+		PackageSavePrivate::PollAsyncSaves();
 		return {};
 	}
 	auto SetPackageDestinationResolver(FPackageDestinationResolver Resolver) -> void
@@ -381,19 +409,14 @@ namespace Durin
 		if (!Operation) return {};
 		Admission = PackageSavePrivate::CheckAsyncAdmission(Operation->GetDetachedBytes());
 		if (!Admission) return {};
-		Private::TExternalTaskResult<FPackageSaveResult> Source({.DebugName = "Package.SaveAsync"});
-		auto Task = Source.TakeTask();
-		Admission = PackageSavePrivate::SubmitAsyncSave(Operation->GetDetachedBytes(),
+		return PackageSavePrivate::SubmitTypedAsyncSave<FPackageSaveResult>(Operation->GetDetachedBytes(),
 			[Operation] { Operation->StageDetached(); },
-			[Operation, Source, Cancellation = Options.Cancellation](bool bSucceeded) mutable {
-				const bool bCancelled = Cancellation.IsCancellationRequested()
-					|| Source.IsCancellationRequested();
+			[Operation, Cancellation = Options.Cancellation](bool bSucceeded, const FTaskCancellationToken& Token) mutable {
+				const bool bCancelled = Cancellation.IsCancellationRequested() || Token.IsCancellationRequested();
 				auto Result = !bSucceeded || bCancelled ? Operation->Cancel() : Operation->Complete();
 				if (!bSucceeded) Result = Fail(EPackageSaveError::IoError, "Package I/O task did not succeed.");
 				Operation.reset();
-				Source.TrySetValue(std::move(Result));
-			});
-		if (!Admission) { Source.TrySetValue(Admission); return {}; }
-		return Task;
+				return Result;
+			}, Admission);
 	}
 }

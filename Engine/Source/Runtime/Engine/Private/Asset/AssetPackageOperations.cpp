@@ -21,7 +21,6 @@
 #include "Misc/MountPaths.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
-#include "Threading/Private/ExternalTaskResult.h"
 #include "Misc/Guid.h"
 
 namespace Durin
@@ -335,21 +334,18 @@ namespace Durin
 		if (!Operation) return {};
 		if (auto Result = PackageSavePrivate::CheckAsyncAdmission(Operation->GetDetachedBytes()); !Result)
 		{ Admission = Error(EAssetWriteError::ShuttingDown, Result.Message); return {}; }
-		Private::TExternalTaskResult<FAssetWriteResult> Source({.DebugName = "Asset.SaveAsync"});
-		auto Task = Source.TakeTask();
-		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Operation->GetDetachedBytes(),
+		FPackageSaveResult Submitted;
+		auto Task = PackageSavePrivate::SubmitTypedAsyncSave<FAssetWriteResult>(Operation->GetDetachedBytes(),
 			[Operation] { Operation->Stage(); },
-			[Operation, Source, Cancellation = Cancellation](bool bSucceeded) mutable {
-				const bool bCancelled = Cancellation.IsCancellationRequested()
-					|| Source.IsCancellationRequested();
+			[Operation, Cancellation = Cancellation](bool bSucceeded, const FTaskCancellationToken& Token) mutable {
+				const bool bCancelled = Cancellation.IsCancellationRequested() || Token.IsCancellationRequested();
 				auto Result = bCancelled ? Error(EAssetWriteError::Cancelled, "Save was cancelled before publication.")
 					: !bSucceeded ? Error(EAssetWriteError::IoError, "Save I/O task failed.")
 					: Operation->Complete();
 				Operation.reset();
-				Source.TrySetValue(std::move(Result));
-			});
-		if (!Submitted)
-		{ Admission = Error(EAssetWriteError::InUse, Submitted.Message); Source.TrySetValue(Admission); return {}; }
+				return Result;
+			}, Submitted);
+		if (!Submitted) { Admission = Error(EAssetWriteError::InUse, Submitted.Message); return {}; }
 		Admission = {};
 		return Task;
 	}

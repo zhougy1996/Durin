@@ -256,32 +256,28 @@ namespace Durin
 		Gate.Trigger();
 		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
 		EXPECT_TRUE(WeakCapture.expired());
-		auto Edge = Tasks::Then(Parent, Tasks::ETaskExecutor::Worker, {}, [] {});
-		auto Observed = Tasks::ThenCompleted(Edge, Tasks::ETaskExecutor::Worker, {}, [](const auto& Task) {
+		auto Edge = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Parent](){}, Parent);
+		auto Observed = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Edge]() {
+			const auto& Task = Edge;
 			EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
-		});
+		}, Edge);
 		EXPECT_EQ(Observed.Wait().TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(Tasks::Detail::FTaskAccess::GetResultState(Parent), nullptr);
 	}
 
-	TEST_F(FTaskCloseTests, PrivateVoidResultsPreserveOutcomesAndLatePublication)
+	TEST_F(FTaskCloseTests, VoidTasksPreserveProducerOutcomes)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		for (auto Outcome : {ETaskState::Succeeded, ETaskState::Failed, ETaskState::Canceled})
 		{
-			auto Source = Tasks::Detail::FExternalResultAccess::Create<void>();
-			auto Task = Source.TakeTask();
+			Tasks::FTaskEvent Ready("VoidOutcome", false);
+			auto Task = Tasks::LaunchTask("VoidOutcomeTask", [Outcome] {
+				if (Outcome == ETaskState::Failed) throw std::runtime_error("void task failure");
+				if (Outcome == ETaskState::Canceled) Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
+			}, Ready);
 			EXPECT_FALSE(Task.IsCompleted());
-			if (Outcome == ETaskState::Succeeded) EXPECT_TRUE(Source.TrySetValue());
-			else if (Outcome == ETaskState::Failed) EXPECT_TRUE(Source.TrySetFailure({}));
-			else EXPECT_TRUE(Source.TrySetCanceled());
-			EXPECT_FALSE(Source.TrySetValue());
+			Ready.Trigger();
 			EXPECT_EQ(Task.Wait().TaskState, Outcome);
 		}
-		Tasks::TTask<void> Abandoned;
-		{ auto Source = Tasks::Detail::FExternalResultAccess::Create<void>(); Abandoned = Source.TakeTask(); }
-		EXPECT_EQ(Abandoned.Wait().TaskState, ETaskState::Failed);
-		EXPECT_EQ(Abandoned.GetFailure().Code, Tasks::ETaskFailureCode::AbandonedSource);
 	}
 
 	TEST_F(FTaskCloseTests, ClosedAdmissionDispatchesEventPublicationAndJoinsDroppedProducerCaptures)
@@ -317,31 +313,29 @@ namespace Durin
 		EXPECT_EQ(0u, GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
 	}
 
-	TEST_F(FTaskCloseTests, VoidFanInRetainsNodeLifetimesAfterShutdown)
+	TEST_F(FTaskCloseTests, DependentResultViewsAndErasedHandlesRetainNodesAfterShutdown)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(2));
-		constexpr uint32 Depth = 2048;
 		std::atomic<uint32> Retired = 0;
 		struct FOwner { std::atomic<uint32>& Count; ~FOwner() { ++Count; } };
-		auto Seed = Tasks::LaunchTask("VoidSeed", [] {});
-		Seed.Wait();
-		auto Current = Seed;
-		for (uint32 Index = 0; Index < Depth; ++Index)
-			Current = Current.WithLifetime(std::shared_ptr<FOwner>(new FOwner{Retired}));
-
-		auto All = Tasks::WhenAll(std::vector{Current, Current});
-		auto Mixed = Tasks::WhenAll(std::tuple{Current, Tasks::LaunchTask("MixedValue", [] { return 42; })});
+		auto Seed = Tasks::LaunchTask("OwnedSeed", [&] { return std::unique_ptr<FOwner>(new FOwner{Retired}); });
+		auto All = Tasks::LaunchTask("RetainViews", [Seed] { return std::array{Seed.GetResultShared(), Seed.GetResultShared()}; }, Tasks::Prerequisites(Seed, Seed));
+		auto Void = Tasks::LaunchTask("VoidInput", [] {});
+		auto Mixed = Tasks::LaunchTask("RetainMixed", [Void, Seed] { return std::tuple{Tasks::FTask(Void), Seed.GetResultShared()}; }, Tasks::Prerequisites(Void, Seed));
 		EXPECT_EQ(All.Wait().TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(Mixed.Wait().TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(*std::get<1>(Mixed.GetResult()), 42);
-		EXPECT_EQ(std::get<0>(Mixed.GetResult()).GetTaskId(), Current.GetTaskId());
-		Tasks::FTask Retained = All.GetResult().front();
-		EXPECT_EQ(All.GetResult()[1].GetTaskId(), Retained.GetTaskId());
-		Seed = {}; Current = {}; All = {}; Mixed = {};
+		EXPECT_EQ(All.GetResult()[0], All.GetResult()[1]);
+		EXPECT_EQ(All.GetResult()[0], std::get<1>(Mixed.GetResult()));
+		EXPECT_TRUE(std::get<0>(Mixed.GetResult()).IsCompleted());
+		auto View = All.GetResult().front();
+		Tasks::FTask Retained = Seed;
+		Seed = {}; All = {}; Mixed = {};
 		ShutdownTaskScheduler(false);
 		EXPECT_EQ(Retired.load(), 0u);
 		Retained = {};
-		EXPECT_EQ(Retired.load(), Depth);
+		EXPECT_EQ(Retired.load(), 0u);
+		View.reset();
+		EXPECT_EQ(Retired.load(), 1u);
 	}
 
 	TEST_F(FTaskCloseTests, WideDependenciesKeepAllRegistrations)
@@ -451,10 +445,11 @@ namespace Durin
 			EXPECT_FALSE(Task.IsCompleted());
 			EXPECT_EQ(Task.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
 			EXPECT_EQ(Runs, 0u);
-			auto Next = Tasks::Then(Task, Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, auto& Value) {
+			auto Next = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Task](const FTaskCancellationToken& Token) {
+				auto& Value = Task.GetResult();
 				EXPECT_FALSE(Token.IsCancellationRequested());
 				return *Value + 1;
-			});
+			}, Task);
 			Gate.Trigger();
 			EXPECT_EQ(Next.GetResult(), 43);
 			EXPECT_EQ(Runs, 1u);
@@ -526,58 +521,54 @@ namespace Durin
 		EXPECT_EQ(Dependent.GetResult(), 42);
 	}
 
-	TEST_F(FTaskCloseTests, MixedDependenciesRetainDynamicResultsAndNotifyExecutionWaiters)
+	TEST_F(FTaskCloseTests, NestedRetractionReleasesResultPinsAndNotifiesExecutionWaiters)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		struct FCase { bool bNested; bool bDynamicFirst; };
-		for (const auto [Nested, DynamicFirst] : {FCase{false, false}, FCase{true, false}, FCase{true, true}})
+		for (bool ChildFirst : {false, true})
 		{
-			auto Source = Tasks::Detail::FExternalResultAccess::Create<void>();
-			Tasks::FTask Outer = Source.GetTaskHandle();
+			Tasks::FTaskEvent Outer("MixedDependencyTarget", false);
 			Tasks::FTaskEvent Gate("MixedDependencyGate", false);
+			Tasks::FTaskEvent ChildGate("MixedChildGate", false);
 			std::weak_ptr<int> Weak;
 			{
-				auto InnerSource = Tasks::Detail::FExternalResultAccess::Create<std::shared_ptr<int>>();
-				auto Inner = InnerSource.TakeTask();
-				if (Nested && !DynamicFirst) ASSERT_FALSE(Private::FTaskRuntimeAccess::AddCompletionDependency(Outer, Gate));
-				ASSERT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Outer, Inner));
-				if (Nested && DynamicFirst) ASSERT_FALSE(Private::FTaskRuntimeAccess::AddCompletionDependency(Outer, Gate));
 				auto Value = std::make_shared<int>(42);
 				Weak = Value;
-				ASSERT_TRUE(InnerSource.TrySetValue(std::move(Value)));
+				auto Child = Tasks::LaunchTask("PinnedChild", [Value] { return Value; }, ChildGate);
+				if (!ChildFirst) Outer.AddPrerequisites(Gate);
+				Outer.AddPrerequisites(Child);
+				if (ChildFirst) Outer.AddPrerequisites(Gate);
+				ChildGate.Trigger();
+				ASSERT_EQ(Child.Wait().TaskState, ETaskState::Succeeded);
 			}
+			EXPECT_FALSE(Weak.expired());
 			auto Waiter = Tasks::LaunchTask("MixedDependencyWaiter", [&] {
 				EXPECT_TRUE(Weak.expired());
 				return 42;
 			}, Tasks::Prerequisites(Outer, Gate));
 			EXPECT_FALSE(Outer.TryRetractAndExecute());
 			EXPECT_FALSE(Outer.TryRetractAndExecute());
-			EXPECT_FALSE(Weak.expired());
-			ASSERT_TRUE(Source.TrySetValue());
-			EXPECT_EQ(Outer.IsCompleted(), !Nested);
-			EXPECT_EQ(Weak.expired(), !Nested);
+			EXPECT_TRUE(Weak.expired());
+			Outer.Trigger();
+			EXPECT_FALSE(Outer.IsCompleted());
 			Gate.Trigger();
 			EXPECT_EQ(Waiter.GetResult(), 42);
 			EXPECT_TRUE(Outer.IsCompleted());
-			EXPECT_TRUE(Weak.expired());
 		}
 	}
 
 
-	TEST_F(FTaskCloseTests, NodeNotificationsRevisitBlockedNestedAndDynamicGraphs)
+	TEST_F(FTaskCloseTests, NodeNotificationsRevisitBlockedNestedGraphs)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		for (bool Dynamic : {false, true})
+		for (bool NestedParent : {false, true})
 		{
 			Tasks::FTaskEvent Gate("ReadinessGate", false);
 			Tasks::FTaskEvent Event("NestedWaitTarget", false);
-			auto Source = Tasks::Detail::FExternalResultAccess::Create<void>({}, false);
-			auto Child = Tasks::LaunchTask("LateReadyChild", [&] { Source.TrySetValue(); }, Tasks::Prerequisites(Gate));
+			auto Child = Tasks::LaunchTask("LateReadyChild", [] {}, Tasks::Prerequisites(Gate));
 			Tasks::FTask Target;
-			if (Dynamic)
+			if (NestedParent)
 			{
-				Target = Source.GetTaskHandle();
-				ASSERT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Target, Child));
+				Target = Tasks::LaunchTask("NestedWaitParent", [Child] { Tasks::AddNested(Child); });
 			}
 			else
 			{

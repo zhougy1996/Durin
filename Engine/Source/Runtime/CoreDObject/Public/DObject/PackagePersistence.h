@@ -14,6 +14,44 @@ namespace Durin
 		COREDOBJECT_API auto CheckAsyncAdmission(uint64 Bytes = 0) -> FPackageSaveResult;
 		COREDOBJECT_API auto SubmitAsyncSave(uint64 Bytes, std::function<void()> Write,
 			std::function<void(bool)> Finish) -> FPackageSaveResult;
+		struct FAsyncSaveState;
+		using FAsyncSavePublicationFactory = std::function<Tasks::FTask(const Tasks::FTask&,
+			const std::shared_ptr<FAsyncSaveState>&)>;
+		COREDOBJECT_API auto SubmitAsyncSaveTask(uint64 Bytes, std::function<void()> Write,
+			FAsyncSavePublicationFactory MakePublication, std::function<void()> Cleanup) -> FPackageSaveResult;
+		COREDOBJECT_API auto BeginAsyncSavePublication(const std::shared_ptr<FAsyncSaveState>& Save) -> void;
+		COREDOBJECT_API auto EndAsyncSavePublication() -> void;
+
+		// Domain task factory: the result is returned by an ordinary publication body.
+		// Keep a cleanup copy until the owner reaps even an executor-discarded task.
+		template<typename TResult, typename F>
+		auto SubmitTypedAsyncSave(uint64 Bytes, std::function<void()> Write, F&& Finish,
+			FPackageSaveResult& Admission) -> Tasks::TTask<TResult>
+		{
+			using FFinish = std::decay_t<F>;
+			auto Callback = std::make_shared<std::optional<FFinish>>(std::forward<F>(Finish));
+			Tasks::TTask<TResult> Task;
+			Admission = SubmitAsyncSaveTask(Bytes, std::move(Write),
+				[&Task, Callback](const Tasks::FTask& Disk, const std::shared_ptr<FAsyncSaveState>& Save) {
+					Task = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
+						{.DebugName = "Package.SavePublication"},
+						[Disk, Save, Callback](const FTaskCancellationToken& Token) mutable -> TResult {
+							BeginAsyncSavePublication(Save);
+							struct FScope { ~FScope() { EndAsyncSavePublication(); } } Scope;
+							auto Invoke = std::move(**Callback);
+							Callback->reset();
+							return std::invoke(Invoke, Disk.GetState() == ETaskState::Succeeded, Token);
+						}, Disk);
+					return Tasks::FTask(Task);
+				},
+				[Callback] {
+					if (!*Callback) return;
+					auto Invoke = std::move(**Callback);
+					Callback->reset();
+					(void)std::invoke(Invoke, false, FTaskCancellationToken{});
+				});
+			return Admission ? Task : Tasks::TTask<TResult>{};
+		}
 		COREDOBJECT_API auto PollAsyncSaves() -> void;
 		COREDOBJECT_API auto SetAsyncSaveAdmission(bool bAccepting) -> void;
 		enum class EPublicationFault : uint8 { None, RejectAdmission, CancelContinuation };

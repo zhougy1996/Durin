@@ -24,15 +24,5 @@ namespace Durin
 			return SubmitCancelableKernelTask(Name,
 				[Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable { std::invoke(Function); }, Options);
 		}
-		template<typename F>
-		auto SubmitKernelContinuation(const Tasks::FTask& Input, const char* Name, F&& Function,
-			const FTaskContinuationOptions& Options = {}) -> Tasks::FTask
-		{
-			auto Admission = Private::LaunchContinuationTask(Input, Name,
-				[Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable { std::invoke(Function); },
-				{}, Options);
-			return Admission;
-		}
-
 	}
 }

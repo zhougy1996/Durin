@@ -152,14 +152,15 @@ namespace Durin
 
 			Tasks::FTaskExecutionOptions PublisherOptions;
 			PublisherOptions.DebugName = "DynamicUnloadFixture.Publish";
-			Publisher = Durin::Tasks::FTask(Tasks::ThenCompleted(Worker, Tasks::ETaskExecutor::Worker, PublisherOptions,
-				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial](const Tasks::TTask<uint64>& Outcome) {
+			PublisherOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Worker);
+			Publisher = Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, PublisherOptions,
+				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial, Outcome = Worker] {
 					if (Outcome.GetState() == ETaskState::Succeeded
 						&& Outcome.GetResult() == Serial)
 					{
 						Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::AsyncPublished, Serial});
 					}
-				}));
+				}, Worker));
 			return Publisher.IsValid();
 		}
 
