@@ -184,11 +184,7 @@ namespace Durin
 				Candidate.SceneColorSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
 				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
 				if (!Candidate.SceneColorSampler || !VertexRHI || !FragmentRHI)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource, "PostProcess", bEnableFXAA ? "fxaa" : "copy",
-						ERenderResourceCreateErrorReason::ResourceCreationFailed,
-						ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+					return FResult::Pending();
 				const bool bBGRA = OutputFormat == EPixelFormat::SBGRA8_UNORM;
 				const auto Format = bBGRA ? EPixelFormat::SBGRA8_UNORM : EPixelFormat::SRGBA8_UNORM;
 				const auto Layout = bHasEditorAssistance
@@ -201,9 +197,10 @@ namespace Durin
 					FullscreenGeometry.GetVertexDeclaration_RenderThread(), Candidate.ShaderSet.GetPipelineLayout(), Layout);
 				if (!Candidate.Pipeline) return FResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::GraphicsPipeline, "PostProcess", bEnableFXAA ? "fxaa" : "copy",
-					ERenderResourceCreateErrorReason::PipelineCreationFailed,
+					ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device
-						| ERenderResourceGenerationDependency::Manual));
+						| ERenderResourceGenerationDependency::Manual
+				));
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable) != nullptr;
 	}

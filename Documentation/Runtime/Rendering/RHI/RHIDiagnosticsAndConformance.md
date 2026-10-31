@@ -78,8 +78,9 @@ Vulkan support requires nonzero queue `timestampValidBits` and a finite positive
 timestamp period. Metal probes stage-boundary counter sampling and allocates
 a shared timestamp sample buffer before publishing support. Unsupported backends publish `false` and `0.0`.
 
-`RHICreateGPUTimingQuery` returns one counted interval or null when unsupported
-or the bounded pool is exhausted. Recorded begin/end commands retain it through
+`RHICreateGPUTimingQuery` returns one counted interval on supported devices.
+Callers check timestamp capabilities first; live-slot pressure grows storage
+instead of returning null, and native allocation failure terminates. Recorded begin/end commands retain it through
 replay. Different queries may nest on one command list and must close in strict
 last-in-first-out order; crossed or unclosed intervals are invalid command
 admission. One query cannot overlap, cross command lists, or be reused while
@@ -95,16 +96,16 @@ between CPU replay and native submission is valid. Discarding an unsubmitted
 payload invalidates its intervals and permits recording them again; failed
 submissions retain their query owners in quarantine until device shutdown.
 
-Vulkan lazily allocates at most twenty pages of 64 intervals (128 timestamp
-slots per page, 1,280 live intervals total). Each pair is reset and written in
+Vulkan lazily grows pages of 64 intervals (128 timestamp slots per page) when
+all current slots are live. There is no fixed 1,280-interval admission ceiling. Each pair is reset and written in
 its recording command buffer, retained by the exact submission payload, and
 read without a wait flag after native fence completion, before publishing the
 payload's logical sync points as successfully complete.
 The timing manager owns query slots, conversion and statistics; it does not
 maintain a separate completion timeline or pending-query owner list. Slot reuse requires
-completion and a released query generation. Exhaustion fails without waiting;
-native page-creation failure publishes no partial page. Naming and page-container
-allocation errors retain the terminal exception policy.
+completion and a released query generation. Growth does not wait for the GPU;
+native allocation failure or host OOM terminates through the common RHI boundary.
+Capacity statistics describe currently allocated storage.
 
 Each interval captures its recording queue's timestamp width and requires its
 end on the same physical queue. Timestamp subtraction masks both samples to
@@ -113,7 +114,7 @@ modular unsigned subtraction. Conversion multiplies once in extended precision,
 rounds to the nearest nanosecond, and saturates on overflow. Native ticks,
 query-pool handles, and queue properties remain backend-private.
 
-Metal owns one bounded buffer with 256 interval pairs. Queries retain their pool
+Metal grows shared buffers of 256 interval pairs when existing slots are live. Queries retain their pool
 and slots, including across backend shutdown. Begin/end use timestamp attachments
 at the start of short nonempty blit encoders outside render passes, allowing intervals to span logical submissions on the
 single ordered graphics queue. Native completion resolves the end sample before
@@ -121,7 +122,8 @@ publishing its submission's completion. Unsubmitted cancellation and native
 failure invalidate affected intervals. Successful intervals may be recorded
 again; pending queries cannot be reused. On admitted Apple GPUs, counter ticks
 use `mach_absolute_time`; conversion uses `mach_timebase_info` to produce
-nanoseconds. Exhaustion returns null without waiting. Timing results do not
+nanoseconds. Supported query creation succeeds or terminates on native failure;
+capability checks occur before creation, and result readiness remains asynchronous. Timing results do not
 replace completion markers for renderer update admission or resource retirement.
 
 ## Aggregate Snapshot and Reset

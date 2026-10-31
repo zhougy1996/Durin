@@ -146,19 +146,7 @@ namespace Durin
 					CommandList, "DefaultBlackCube", {0, 0, 0, 255});
 				Candidate.ShadowArray = CreateShadowArrayTexture(
 					CommandList, "DefaultShadowArray");
-				if (Candidate.White == nullptr || Candidate.Black == nullptr
-					|| Candidate.FlatNormal == nullptr
-					|| Candidate.BlackCube == nullptr
-					|| Candidate.ShadowArray == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"DefaultTextureResources",
-						"fallback-set",
-						ERenderResourceCreateErrorReason::ResourceCreationFailed,
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				}
+
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnostic) != nullptr;

@@ -29,8 +29,7 @@ namespace Durin::VulkanRHI
 		if (Result != vk::Result::eSuccess)
 		{
 			BufferView = nullptr;
-			if (!OutResult) ThrowVulkanError(Result, "Vulkan buffer view creation");
-			return;
+			if (!OutResult) TerminateVulkanFailure(Result, "Vulkan buffer view creation");
 		}
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(BufferView,
 			[&] { return std::format("{}.BufferView", Buffer->GetDebugName()); });

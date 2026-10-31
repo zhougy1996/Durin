@@ -287,11 +287,7 @@ namespace Durin
 				if (VertexRHI == nullptr || FragmentRHI == nullptr
 					|| GDynamicRHI == nullptr)
 				{
-					return FCreateResult::Failure(MakeFailure(
-						"VolumetricCloudTemporal", "pipeline",
-						ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceCreateErrorCategory::RHIResource
-					));
+					return FCreateResult::Pending();
 				}
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
@@ -311,7 +307,7 @@ namespace Durin
 				{
 					return FCreateResult::Failure(MakeFailure(
 						"VolumetricCloudTemporal", "pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceCreateErrorCategory::GraphicsPipeline
 					));
 				}
@@ -349,7 +345,7 @@ namespace Durin
 				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
 				if (VertexRHI == nullptr || FragmentRHI == nullptr || GDynamicRHI == nullptr)
-					return FResult::Failure(MakeFailure("VolumetricCloudComposite", "pipeline", ERenderResourceCreateErrorReason::ShaderCreationFailed, ERenderResourceCreateErrorCategory::RHIResource));
+					return FResult::Pending();
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeVolumetricCloudComposite();
@@ -362,7 +358,7 @@ namespace Durin
 					"VolumetricCloudCompositePipeline", Initializer
 				);
 				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudComposite", "pipeline", ERenderResourceCreateErrorReason::PipelineCreationFailed, ERenderResourceCreateErrorCategory::GraphicsPipeline));
+					return FResult::Failure(MakeFailure("VolumetricCloudComposite", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
@@ -380,12 +376,7 @@ namespace Durin
 				FState::FDensitySamplerPayload Candidate{
 					.Sampler = RHICreateSampler(FRHISamplerDesc::LinearClamp())
 				};
-				if (!Candidate.Sampler)
-					return FResult::Failure(MakeFailure(
-						"VolumetricCloud", "density-sampler",
-						ERenderResourceCreateErrorReason::SamplerCreationFailed,
-						ERenderResourceCreateErrorCategory::RHIResource
-					));
+
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
@@ -455,18 +446,14 @@ namespace Durin
 					TShaderMapRef<FCloudComputeShader>(Candidate.ShaderSet);
 				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
 				if (RHIShader == nullptr || GDynamicRHI == nullptr)
-					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
-						"pipeline", ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceCreateErrorCategory::RHIResource));
+					return FResult::Pending();
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = RHIShader;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState = FRenderPipelineRequestScope::Compute(
 					"VolumetricCloudComputePipeline", Initializer);
 				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
-						"pipeline", ERenderResourceCreateErrorReason::PipelineCreationFailed,
-						ERenderResourceCreateErrorCategory::GraphicsPipeline));
+					return FResult::Failure(MakeFailure("VolumetricCloudCompute", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
 			!= nullptr;
@@ -505,9 +492,7 @@ namespace Durin
 				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
 				if (VertexRHI == nullptr || FragmentRHI == nullptr
 					|| GDynamicRHI == nullptr)
-					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
-						"pipeline", ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceCreateErrorCategory::RHIResource));
+					return FResult::Pending();
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeVolumetricCloudOutput();
@@ -520,9 +505,7 @@ namespace Durin
 				Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(
 					"VolumetricCloudFragmentPipeline", Initializer);
 				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
-						"pipeline", ERenderResourceCreateErrorReason::PipelineCreationFailed,
-						ERenderResourceCreateErrorCategory::GraphicsPipeline));
+					return FResult::Failure(MakeFailure("VolumetricCloudFragment", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
 			!= nullptr;
@@ -596,12 +579,7 @@ namespace Durin
 							Candidate.WhiteWeather, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
 							Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 					}
-					if (!Candidate.WhiteWeather)
-						return FFallbackResult::Failure(MakeFailure(
-							"VolumetricCloud", "white-weather",
-							ERenderResourceCreateErrorReason::ResourceCreationFailed,
-							ERenderResourceCreateErrorCategory::RHIResource
-						));
+
 					return FFallbackResult::Success(std::move(Candidate));
 				},
 				ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
@@ -729,7 +707,7 @@ namespace Durin
 		}
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FTimingQuerySink TimingSink = GVolumetricCloudTimingQuerySink.load(std::memory_order_acquire);
-		if (TimingSink != nullptr && GDynamicRHI != nullptr)
+		if (TimingSink != nullptr && GDynamicRHI != nullptr && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
 		{
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);

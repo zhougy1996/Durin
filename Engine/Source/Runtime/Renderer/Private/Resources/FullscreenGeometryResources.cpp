@@ -56,22 +56,7 @@ namespace Durin
 						sizeof(uint32) * Indices.size())};
 				Candidate.IndexBuffer =
 					GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
-				if (Candidate.VertexDeclaration == nullptr
-					|| Candidate.VertexBuffer == nullptr
-					|| Candidate.IndexBuffer == nullptr)
-				{
-					return FResult::Failure({
-						.Category =
-							ERenderResourceCreateErrorCategory::RHIResource,
-						.Reason = ERenderResourceCreateErrorReason::ResourceCreationFailed,
-						.Context = "FullscreenGeometryResources",
-						.Identity = "shared-triangle",
 
-						.RetryDependencies =
-							ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual,
-					});
-				}
 				return FResult::Success(std::move(Candidate));
 			},
 			[](const FRenderResourceCreateDiagnostic& Diagnostic) {

@@ -205,7 +205,6 @@ namespace Durin
 		TPool<FBufferDescriptorKey, FBufferRHIRef> Buffers;
 		std::optional<uint64> DeviceGeneration;
 		uint64 NextSequence = 0;
-		bool bNeedsCollection = false;
 		uint64 PeakActiveBytes = 0;
 		uint64 ReuseHits = 0;
 		uint64 ReuseMisses = 0;
@@ -247,21 +246,14 @@ namespace Durin
 		State->Buffers.clear();
 		State->DeviceGeneration.reset();
 		State->NextSequence = 0;
-		State->bNeedsCollection = false;
 		State->RetainedBytes = 0;
 		State->RetainedResources = 0;
 	}
 
 	auto FRendererRDGAllocator::Allocate(
 		std::span<const FRDGAllocationRequest> Requests,
-		FRDGAllocatedResources& OutResources) -> FRDGAllocationResult
-	{
-		return Allocate(Requests, OutResources, std::nullopt);
-	}
-
-	auto FRendererRDGAllocator::Allocate(
-		std::span<const FRDGAllocationRequest> Requests,
-		FRDGAllocatedResources& OutResources, std::optional<uint32> FailedObservation) -> FRDGAllocationResult
+		FRDGAllocatedResources& OutResources
+	) -> FRDGAllocationResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.AllocateRDGResources");
 		check(IsInRenderingThread());
@@ -360,10 +352,6 @@ namespace Durin
 			return std::unexpected(FRDGAllocationFailure{Reason, ResourceId});
 		};
 
-		if (const auto FailedTag = FailedObservation)
-			for (const auto& Request : Requests)
-				if (Request.ObservationTag == *FailedTag)
-					return Fail(ERDGAllocationError::PhysicalAllocationFailed, Request.ResourceId);
 
 		// Reserve the entire reusable set before eviction, including later requests
 		// with duplicate descriptors. Allocation IDs survive vector compaction.
@@ -470,12 +458,11 @@ namespace Durin
 		if (State->RetainedBytes > FRendererRDGAllocationPolicy::MaximumRetainedBytes - MissingBytes)
 			return Fail(ERDGAllocationError::AllocationRetirementPending);
 		if (MissingBytes != 0
-			&& (State->Evictions != PreviousEvictions || State->bNeedsCollection))
+			&& (State->Evictions != PreviousEvictions))
 		{
 			// Erasing pool references alone does not free native allocations.
 			// Only completed GPU deletions may be reclaimed here; never wait idle.
 			GDynamicRHI->RHICollectCompletedResources();
-			State->bNeedsCollection = false;
 		}
 
 		auto ReserveCandidate = [&](auto& Entries, const auto& Key,
@@ -489,8 +476,6 @@ namespace Durin
 			if (!It)
 			{
 				auto Physical = CreatePhysical();
-				if (!Physical)
-					return Fail(ERDGAllocationError::PhysicalAllocationFailed, Request.ResourceId);
 				It = Entries.Add(typename std::remove_reference_t<decltype(Entries)>::FEntry{
 					.Key = Key, .Physical = std::move(Physical), .Sequence = State->NextSequence++,
 					.LogicalBytes = LogicalBytes, .ObservationTag = Request.ObservationTag});
@@ -536,8 +521,6 @@ namespace Durin
 					Desc.Aliasing = ERHITransientAliasing::Enabled;
 					Candidate.Buffer = GDynamicRHI->RHICreateAliasedBuffer(Desc, Source->Buffer.GetReference());
 				}
-				if (!Candidate.Texture && !Candidate.Buffer)
-					return Fail(ERDGAllocationError::PhysicalAllocationFailed, Request.ResourceId);
 				CandidateIndices.emplace(Candidate.ResourceId, Candidates.size());
 				Candidates.push_back(std::move(Candidate));
 				continue;
@@ -576,15 +559,7 @@ namespace Durin
 			}
 			else return Fail(ERDGAllocationError::AllocationKindInvalid,
 				Request.ResourceId);
-			if (!ReserveResult.has_value())
-			{
-				// Pressure may come from outside this pool even below its ceiling.
-				// Drop idle cache now and collect retirement before the next attempt.
-				EvictUntil(0);
-				State->bNeedsCollection = true;
-				PublishStatistics(0, 0);
-				return ReserveResult;
-			}
+			if (!ReserveResult.has_value()) return ReserveResult;
 			CandidateIndices.emplace(Candidate.ResourceId, Candidates.size());
 			Candidates.push_back(std::move(Candidate));
 		}

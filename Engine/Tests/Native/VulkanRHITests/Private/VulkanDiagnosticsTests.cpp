@@ -414,29 +414,28 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	TEST_F(FVulkanDiagnosticsIntegrationTests,
-		TimingQueryPoolExhaustionAndReuseAreRecoverable)
+	TEST_F(FVulkanDiagnosticsIntegrationTests, TimingQueryPoolGrowsBeyondFormerCapacityAndReusesSlots)
 	{
 		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
 			auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
 			std::vector<FGPUTimingQueryRHIRef> Queries;
-			Queries.reserve(1280);
-			for (uint32 Index = 0; Index < 1280; ++Index)
+			Queries.reserve(1344);
+			for (uint32 Index = 0; Index < 1344; ++Index)
 			{
 				FGPUTimingQueryRHIRef Query =
 					GDynamicRHI->RHICreateGPUTimingQuery();
 				ASSERT_TRUE(Query) << Index;
 				Queries.push_back(std::move(Query));
 			}
-			EXPECT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
+			// Crossing the former 1280-query ceiling allocates another page.
 			auto Statistics = GetVulkanGPUTimingStatisticsForTest(*VulkanRHI);
-			EXPECT_EQ(Statistics.IntervalCapacity, 1280u);
-			EXPECT_EQ(Statistics.AllocatedPages, 20u);
-			EXPECT_EQ(Statistics.LiveIntervals, 1280u);
-			EXPECT_EQ(Statistics.IntervalHighWater, 1280u);
-			EXPECT_EQ(Statistics.ExhaustionCount, 1u);
+			EXPECT_EQ(Statistics.IntervalCapacity, 1344u);
+			EXPECT_EQ(Statistics.AllocatedPages, 21u);
+			EXPECT_EQ(Statistics.LiveIntervals, 1344u);
+			EXPECT_EQ(Statistics.IntervalHighWater, 1344u);
+			EXPECT_EQ(Statistics.ExhaustionCount, 0u);
 
 			Queries.clear();
 			FRHICommandListImmediate::Get().ImmediateFlush(
@@ -475,7 +474,7 @@ namespace Durin::VulkanRHI
 			EXPECT_TRUE(Before.Availability.bDebugUtilsActive);
 			EXPECT_TRUE(Before.Availability.bValidationLayerActive);
 			EXPECT_TRUE(Before.Availability.bMessengerActive);
-			EXPECT_EQ(Before.Timing.IntervalCapacity, 1280u);
+			EXPECT_EQ(Before.Timing.IntervalCapacity, 64u);
 			EXPECT_EQ(Before.Timing.AllocatedPages, 1u);
 			EXPECT_EQ(Before.Timing.LiveIntervals, 1u);
 			EXPECT_EQ(Before.Executor.Mode, ERHICommandListExecutorMode::Threaded);
@@ -574,4 +573,12 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Snapshots[0].PipelineCache.GraphicsPipelines.Capacity,
 			Snapshots[1].PipelineCache.GraphicsPipelines.Capacity);
 	}
+}
+
+TEST(VulkanCreationTerminalTests, NativeAllocationAndDeviceLossExitWithoutRHI)
+{
+	using namespace Durin::VulkanRHI;
+	EXPECT_EXIT(TerminateVulkanFailure(vk::Result::eErrorOutOfDeviceMemory, "texture allocation"), testing::ExitedWithCode(EXIT_FAILURE), "texture allocation: out of memory");
+	EXPECT_EXIT(TerminateVulkanFailure(vk::Result::eErrorOutOfHostMemory, "buffer allocation"), testing::ExitedWithCode(EXIT_FAILURE), "buffer allocation: out of memory");
+	EXPECT_EXIT(TerminateVulkanFailure(vk::Result::eErrorDeviceLost, "pipeline creation"), testing::ExitedWithCode(EXIT_FAILURE), "pipeline creation: Vulkan operation failed");
 }

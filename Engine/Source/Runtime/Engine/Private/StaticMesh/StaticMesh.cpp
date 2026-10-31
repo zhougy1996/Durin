@@ -135,7 +135,7 @@ namespace Durin
 		{
 		case EStaticMeshRenderResourceReadiness::Queued: GpuPhase = ECookedMeshGpuPhase::Queued; break;
 		case EStaticMeshRenderResourceReadiness::Ready: GpuPhase = ECookedMeshGpuPhase::Ready; break;
-		case EStaticMeshRenderResourceReadiness::Failed: GpuPhase = ECookedMeshGpuPhase::Failed; break;
+		case EStaticMeshRenderResourceReadiness::InvalidData: GpuPhase = ECookedMeshGpuPhase::InvalidData; break;
 		case EStaticMeshRenderResourceReadiness::Unavailable: break;
 		}
 		return {.CpuPhase = RenderData ? ECookedMeshCpuPhase::CpuReady
@@ -209,8 +209,7 @@ namespace Durin
 			if (!RenderResourcesFence.IsFenceComplete())
 				Readiness = EStaticMeshRenderResourceReadiness::Queued;
 			else
-				Readiness = RenderData->IsReadyForRendering()
-					? EStaticMeshRenderResourceReadiness::Ready : EStaticMeshRenderResourceReadiness::Failed;
+				Readiness = RenderData->IsReadyForRendering() ? EStaticMeshRenderResourceReadiness::Ready : EStaticMeshRenderResourceReadiness::InvalidData;
 		}
 		return {.Readiness = Readiness, .Revision = RenderResourceRevision};
 	}

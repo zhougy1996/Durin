@@ -62,16 +62,7 @@ namespace Durin::VulkanRHI
 
 	TEST_F(FVulkanResourceIntegrationTests, NativeCreationFailureDiagnosticsLogOneResult)
 	{
-		auto& Logger = FLogger::Get();
-		ASSERT_TRUE(Logger.Initialize({}));
-		struct FLoggerScope { ~FLoggerScope() { FLogger::Get().Shutdown(); } } LoggerScope;
-		Logger.Flush();
-		const auto Cursor = Logger.ReadRecords(1, 0).NewestAvailableSequence + 1;
-		LogVulkanCreationFailure(vk::Result::eErrorOutOfDeviceMemory, "test resource");
-		Logger.Flush();
-		const auto Logs = Logger.ReadRecords(Cursor);
-		ASSERT_EQ(Logs.Records.size(), 1u);
-		EXPECT_EQ(Logs.Records.front().Level, ELogLevel::Error);
+		EXPECT_EXIT(TerminateVulkanFailure(vk::Result::eErrorOutOfDeviceMemory, "test resource"), testing::ExitedWithCode(EXIT_FAILURE), "test resource: out of memory");
 	}
 
 	TEST_F(FVulkanResourceIntegrationTests, DynamicDiscardBuffersSharePageAndPreserveExtendedPatches)
@@ -327,7 +318,7 @@ namespace Durin::VulkanRHI
 			{
 				SCOPED_TRACE(static_cast<uint32>(Desc.Dimension));
 				EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Desc));
-				EXPECT_FALSE(GDynamicRHI->RHICreateTexture(RHICmdList, Desc));
+				EXPECT_EXIT((void)(GDynamicRHI->RHICreateTexture(RHICmdList, Desc)), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
 			}
 
 			FRHITextureCreateDesc Oversized = Texture2D;
@@ -609,8 +600,7 @@ namespace Durin::VulkanRHI
 
 		FGraphicsPipelineStateInitializer InvalidInitializer = Initializer;
 		InvalidInitializer.RasterizerState.FrontFace = ERHIFrontFace::Count;
-		EXPECT_FALSE(GDynamicRHI->RHICreateGraphicsPipelineState(
-			"InvalidGraphicsPipeline", InvalidInitializer));
+		EXPECT_EXIT((void)(GDynamicRHI->RHICreateGraphicsPipelineState("InvalidGraphicsPipeline", InvalidInitializer)), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
 		const FRHIPipelineCacheStatistics CacheStatsAfterCreation =
 			GDynamicRHI->RHIGetPipelineCacheStatistics();
 		EXPECT_GE(CacheStatsAfterCreation.GraphicsPipelines.Hits,

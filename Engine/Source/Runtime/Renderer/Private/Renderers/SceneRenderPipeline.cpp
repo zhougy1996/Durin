@@ -513,21 +513,9 @@ namespace Durin
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ExecuteGraph");
 		FGPUTimingQueryRHIRef Timing;
-		if (Service.ViewGPUTimingSink) Timing=GDynamicRHI->RHICreateGPUTimingQuery();
+		if (Service.ViewGPUTimingSink && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps) Timing = GDynamicRHI->RHICreateGPUTimingQuery();
 		if (Timing) CommandList.BeginGPUTimingQuery(Timing);
-		class FExecutionAllocator final : public FRDGAllocator
-		{
-		public:
-			FExecutionAllocator(FRendererRDGAllocator& InAllocator, std::optional<uint32> InFailedObservation)
-				: Allocator(InAllocator), FailedObservation(InFailedObservation) {}
-			auto SupportsAsyncCompute() const -> bool override { return Allocator.SupportsAsyncCompute(); }
-			auto Allocate(std::span<const FRDGAllocationRequest> Requests, FRDGAllocatedResources& Output)
-				-> FRDGAllocationResult override { return Allocator.Allocate(Requests, Output, FailedObservation); }
-		private:
-			FRendererRDGAllocator& Allocator;
-			const std::optional<uint32> FailedObservation;
-		} Allocator(Service.RDGAllocator, Qualification.FailedAllocationObservation);
-		const auto Result = Graph.Execute(CommandList, &Allocator);
+		const auto Result = Graph.Execute(CommandList, &Service.RDGAllocator);
 		if (Timing)
 		{
 			CommandList.EndGPUTimingQuery(Timing);

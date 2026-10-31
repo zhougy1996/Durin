@@ -45,19 +45,27 @@ namespace Durin
 			auto RHIEndFrame() -> void override {}
 			auto RHICreateViewport(const FRHIViewportCreateInfo&) -> FViewportRHIRef override { return {}; }
 			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
-			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) -> FGraphicsPipelineStateRHIRef override { ADD_FAILURE(); return {}; }
-			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&) -> FComputePipelineStateRHIRef override { ADD_FAILURE(); return {}; }
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) noexcept -> FGraphicsPipelineStateRHIRef override
+			{
+				ADD_FAILURE();
+				return {};
+			}
+			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&) noexcept -> FComputePipelineStateRHIRef override
+			{
+				ADD_FAILURE();
+				return {};
+			}
 			auto RHIGetDefaultContext() -> IRHICommandContext* override { return nullptr; }
 			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
-			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) -> FVertexDeclarationRHIRef override { return {}; }
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) noexcept -> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> FTextureRHIRef override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) noexcept -> FTextureRHIRef override
 			{
 				return {};
 			}
-			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
-			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&) -> FBufferRHIRef override
+			auto RHICreateSampler(const FRHISamplerDesc&) noexcept -> FSamplerRHIRef override { return {}; }
+			auto RHICreateShader(const FRHIShaderCreateDesc&) noexcept -> FShaderRHIRef override { return {}; }
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&) noexcept -> FBufferRHIRef override
 			{
 				return {};
 			}
@@ -101,7 +109,6 @@ namespace Durin
 						Cache.emplace(Key, Result);
 						return Result;
 					},
-					.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); }
 				};
 			}
 		private:
@@ -253,7 +260,8 @@ namespace Durin
 			auto Second = First; Second.Cause = std::string("different wording"); Second.AttemptedGeneration.Shader = 99;
 			EXPECT_EQ(First.GetFingerprint(), Second.GetFingerprint());
 			Second.Identity = "/Other/Source"; EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
-			Second = First; Second.Reason = ERenderResourceCreateErrorReason::PipelineCreationFailed;
+			Second = First;
+			Second.Reason = ERenderResourceCreateErrorReason::PipelinePreparationRejected;
 			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
 		}
 
@@ -320,7 +328,7 @@ namespace Durin
 			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
 			FPipelineSlotTestRHI RHI;
 			GDynamicRHI = &RHI;
-			RHI.FailCreate = [](uint32 Slot) { return Slot == 0; };
+
 			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 			FComputePipelineStateInitializer Initializer;
 			Initializer.ComputeShader = Shader;
@@ -338,8 +346,8 @@ namespace Durin
 				FRenderPipelinePreparationBatch::Add(*Ready);
 				FRenderPipelinePreparationBatch::Add(*Ready);
 				EXPECT_EQ(Batch.GetRequestCount(), 2u);
-				EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::Failed);
-				EXPECT_EQ((*Failed)->GetState(), ERHIPipelineRequestState::Failed);
+				EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::Ready);
+				EXPECT_EQ((*Failed)->GetState(), ERHIPipelineRequestState::Ready);
 				EXPECT_EQ((*Ready)->GetState(), ERHIPipelineRequestState::Ready);
 				{
 					FRenderPipelinePreparationBatch Nested;
@@ -369,45 +377,6 @@ namespace Durin
 			EXPECT_FALSE(FRenderPipelineRequestScope::Compute("no scheduler", Compute));
 			EXPECT_FALSE(FRenderPipelineRequestScope::Graphics("no scheduler", {}));
 			EXPECT_EQ(RHI.Creations, 0u);
-		}
-
-		TEST(FRenderResourceCreationTests, AsyncPipelineFailureHasNoBackendCause)
-		{
-			ASSERT_EQ(GDynamicRHI, nullptr);
-			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-			GIsGameThreadIdInitialized = true;
-			ASSERT_TRUE(InitializeTaskScheduler(1));
-			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
-			FPipelineSlotTestRHI RHI;
-			GDynamicRHI = &RHI;
-			RHI.FailCreate = [](uint32) { return true; };
-			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-			FComputePipelineStateInitializer Initializer;
-			Initializer.ComputeShader = Shader;
-			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
-				EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
-			FSlot Slot;
-			auto Resolve = [&] {
-				return Slot.Resolve({}, [&] {
-					auto Pipeline = FRenderPipelineRequestScope::Compute("native failure", Initializer);
-					if (Pipeline) return FResult::Success(1);
-					auto Error = MakeError();
-					Error.Category = ERenderResourceCreateErrorCategory::GraphicsPipeline;
-					Error.Cause.clear();
-					Error.Reason = ERenderResourceCreateErrorReason::PipelineCreationFailed;
-					return FResult::Failure(std::move(Error));
-				}, [](const auto&) {});
-			};
-			{
-				FRenderPipelinePreparationBatch Batch;
-				EXPECT_EQ(Resolve(), nullptr);
-				Batch.Wait();
-			}
-			EXPECT_EQ(Resolve(), nullptr);
-			ASSERT_NE(Slot.GetFailure(), nullptr);
-			EXPECT_TRUE(Slot.GetFailure()->Cause.empty());
-			EXPECT_EQ(Slot.GetFailure()->Reason, ERenderResourceCreateErrorReason::PipelineCreationFailed);
-			Slot.Reset();
 		}
 
 		TEST(FRenderResourceCreationTests, PendingPipelinesRetryAndLateGenerationsCannotReplaceCurrentPayload)
@@ -476,34 +445,6 @@ namespace Durin
 			EXPECT_NE(*Slot.GetPayload(), Old);
 			EXPECT_EQ(Diagnostics, 0u);
 			Slot.Reset();
-		}
-
-		TEST(FRenderResourceCreationTests, NativeFailureRetriesNextPreparationAndDeduplicatesDiagnostics)
-		{
-			FSlot Slot(EDependency::Device);
-			int Attempts = 0;
-			std::vector<FRenderResourceCreateDiagnostic> Diagnostics;
-			auto Factory = [&]() {
-				if (++Attempts == 3) return FResult::Success(42);
-				return FResult::Failure({
-					.Category = ERenderResourceCreateErrorCategory::RHIResource,
-					.Reason = ERenderResourceCreateErrorReason::ResourceCreationFailed,
-					.Context = "native resource",
-					.Identity = "candidate",
-					.RetryDependencies = EDependency::Device,
-				});
-			};
-			auto Reporter = [&](const auto& Diagnostic) { Diagnostics.push_back(Diagnostic); };
-			EXPECT_EQ(Slot.Resolve({}, Factory, Reporter), nullptr);
-			EXPECT_EQ(Slot.Resolve({}, Factory, Reporter), nullptr);
-			EXPECT_EQ(Attempts, 2);
-			ASSERT_EQ(Diagnostics.size(), 1u);
-			ASSERT_NE(Slot.Resolve({}, Factory, Reporter), nullptr);
-			EXPECT_EQ(*Slot.GetPayload(), 42);
-			ASSERT_EQ(Diagnostics.size(), 2u);
-			EXPECT_EQ(Diagnostics.back().Kind, ERenderResourceCreateDiagnosticKind::Recovery);
-			EXPECT_NE(Slot.Resolve({}, Factory, Reporter), nullptr);
-			EXPECT_EQ(Attempts, 3);
 		}
 
 		TEST(

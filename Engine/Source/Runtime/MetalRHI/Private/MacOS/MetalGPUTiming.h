@@ -7,7 +7,7 @@
 
 namespace Durin
 {
-	// A bounded shared buffer avoids Metal's per-device sample-buffer count limit.
+	// Shared pages amortize native sample-buffer allocations across live queries.
 	struct FMetalGPUTimingPool
 	{
 		static constexpr uint32 Capacity = 256;
@@ -17,6 +17,7 @@ namespace Durin
 		double NanosecondsPerTick = 0;
 		std::mutex Mutex;
 		std::array<bool, Capacity> Used{};
+		std::shared_ptr<FMetalGPUTimingPool> Next;
 		~FMetalGPUTimingPool()
 		{
 			const FMetalAutoreleasePool Pool;

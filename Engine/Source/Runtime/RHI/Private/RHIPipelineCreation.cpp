@@ -37,9 +37,7 @@ namespace Durin
 			std::atomic<uint32> Observers = 0;
 			std::atomic<bool> Closed = false;
 			std::atomic<bool> Retired = false;
-			std::atomic<bool> Failed = false;
 			FRHIPipelineMetadataBudget Metadata;
-			std::exception_ptr TerminalFailure;
 			std::mutex WaitMutex;
 			std::condition_variable Changed;
 		};
@@ -168,15 +166,12 @@ namespace Durin
 	auto FRHIPipelineCreationRequest::GetState() const -> ERHIPipelineRequestState
 	{
 		if (!State) return ERHIPipelineRequestState::Failed;
-		if (State->Lifetime->Failed.load()) return ERHIPipelineRequestState::Failed;
 		if (State->Lifetime->Retired.load()) return ERHIPipelineRequestState::Canceled;
 		return State->Outcome.load(std::memory_order_acquire);
 	}
 	auto FRHIPipelineCreationRequest::GetResult() const -> FRHIPipelineCreationResult
 	{
 		if (!State) return {.State = ERHIPipelineRequestState::Failed};
-		if (State->Lifetime->Failed.load())
-			std::rethrow_exception(State->Lifetime->TerminalFailure);
 		if (State->Lifetime->Retired.load()) return {.State = ERHIPipelineRequestState::Canceled};
 		const auto Outcome = State->Outcome.load(std::memory_order_acquire);
 		if (Outcome == ERHIPipelineRequestState::Ready || Outcome == ERHIPipelineRequestState::Failed)
@@ -279,7 +274,7 @@ namespace Durin
 		auto Request(const T& Initializer, std::string_view Name, TKeyFactory&& MakeKey) -> FRHIPipelineCreationRequest
 		{
 			std::lock_guard Lock(Mutex);
-			if (Lifetime->Closed.load() || Lifetime->Failed.load()) return Reject(ERHIPipelineRequestRejection::Closed);
+			if (Lifetime->Closed.load()) return Reject(ERHIPipelineRequestRejection::Closed);
 			if (!IsTaskSchedulerRunning()) return Reject(ERHIPipelineRequestRejection::Unsupported);
 			const auto CurrentScheduler = Private::GetTaskSchedulerLifetime();
 			if (SchedulerLifetime.owner_before(CurrentScheduler) || CurrentScheduler.owner_before(SchedulerLifetime))
@@ -357,24 +352,16 @@ namespace Durin
 					// Serialize retirement as well as execution. Waiting the last drain
 					// then covers every earlier callable that captured this device owner.
 					const std::span Dependencies(&LastDrain, LastDrain.IsValid() ? 1 : 0);
-					LastDrain = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker,
-						{.DebugName = "RHI.PipelineCreation"}, [this, Ticket] {
-							try { Drain(); }
-							catch (...)
-							{
-								Lifetime->TerminalFailure = std::current_exception();
-								Backend.PublishTerminalFailure(Lifetime->TerminalFailure);
-								Lifetime->Failed.store(true);
-								AbandonDrain();
-								Ticket->Finished = true;
-								throw;
-							}
-							Ticket->Finished = true;
-						}, Dependencies);
+					LastDrain = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "RHI.PipelineCreation"}, [this, Ticket] {
+							Drain();
+							Ticket->Finished = true; }, Dependencies);
 				}
 				return Result;
 			}
-			catch (const std::bad_alloc&) { return Reject(ERHIPipelineRequestRejection::CapacityExceeded); }
+			catch (const std::bad_alloc&)
+			{
+				RHITerminateOnFailure("RHI pipeline metadata", "out of memory");
+			}
 			catch (const FRHIResourceCapacityError&) { return Reject(ERHIPipelineRequestRejection::CapacityExceeded); }
 		}
 		auto CompleteEntry(const std::shared_ptr<FEntry>& Entry, const FPublished& Publication) -> void
@@ -393,7 +380,7 @@ namespace Durin
 		auto AbandonDrain() -> void
 		{
 			std::lock_guard Lock(Mutex);
-			if (!Lifetime->Failed.load()) Lifetime->Closed.store(true);
+			Lifetime->Closed.store(true);
 			for (auto& Weak : Observers) if (auto Observer = Weak.lock())
 			{
 				Observer->Cancel();
@@ -405,7 +392,7 @@ namespace Durin
 			Statistics.UnfinishedDescriptionBytes = 0;
 			DrainActive = false;
 		}
-		auto Drain() -> void
+		auto Drain() noexcept -> void
 		{
 			GInPipelineCreator = true;
 			struct FCreatorScope { ~FCreatorScope() { GInPipelineCreator = false; } } Scope;
@@ -427,7 +414,9 @@ namespace Durin
 				if (Entry->Key->index() == 0)
 					Result.Graphics = Backend.CreateGraphics(*std::get<0>(Entry->Inputs), std::get<0>(*Entry->Key));
 				else Result.Compute = Backend.CreateCompute(*std::get<1>(Entry->Inputs), std::get<1>(*Entry->Key));
-				Result.State = Result.Graphics || Result.Compute ? ERHIPipelineRequestState::Ready : ERHIPipelineRequestState::Failed;
+				if (!Result.Graphics && !Result.Compute)
+					RHITerminateOnFailure("RHI pipeline creator", "native factory returned null");
+				Result.State = ERHIPipelineRequestState::Ready;
 				CompleteEntry(Entry, std::make_shared<FPipelinePublication>(std::move(Result)));
 			}
 		}
@@ -457,7 +446,7 @@ namespace Durin
 	FPipelineCompileQueue::~FPipelineCompileQueue() { ReleaseResources(); }
 	auto FPipelineCompileQueue::IsClosed() const -> bool
 	{
-		return State->Lifetime->Closed.load() || State->Lifetime->Failed.load();
+		return State->Lifetime->Closed.load();
 	}
 	auto FPipelineCompileQueue::RequestGraphicsBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items)
 		-> FRHIPipelineCreationBatch

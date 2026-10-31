@@ -1,3 +1,4 @@
+#include "Backend/RHICreation.h"
 #include "DynamicRHI.h"
 #include "Backend/RHIValidation.h"
 #include "MacOS/MacOSPresentationTarget.h"
@@ -56,10 +57,11 @@ namespace Durin
 		class FMetalDynamicRHI final : public FDynamicRHI
 		{
 		public:
-			auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
-				ERHIBufferLifetimeUsage Usage, FByteView Data, std::span<FRHIResource* const> References)
+			auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout, ERHIBufferLifetimeUsage Usage, FByteView Data, std::span<FRHIResource* const> References)
 				-> TRefCountPtr<FRHIUniformBuffer> override
-			{ return new FMetalUniformBuffer(Device.get(), Layout, Usage, Data, References); }
+			{
+				return new FMetalUniformBuffer(Device.get(), Layout, Usage, Data, References);
+			}
 			~FMetalDynamicRHI() override
 			{
 				// Also cover partially initialized instances after factory exceptions.
@@ -136,7 +138,9 @@ namespace Durin
 							auto Buffer = NS::TransferPtr(Device->newCounterSampleBuffer(Desc.get(), &Error));
 							auto Marker = NS::TransferPtr(Device->newBuffer(4, MTL::ResourceStorageModeShared));
 							mach_timebase_info_data_t Timebase{};
-							if (!Buffer || !Marker || mach_timebase_info(&Timebase) != KERN_SUCCESS || !Timebase.denom) break;
+							if (!Buffer || !Marker) RHITerminateOnFailure("Metal timestamp pool", "native allocation failed");
+							if (mach_timebase_info(&Timebase) != KERN_SUCCESS || !Timebase.denom)
+								RHITerminateOnFailure("Metal timestamps", "invalid timebase");
 							State->TimingPool = std::make_shared<FMetalGPUTimingPool>();
 							State->TimingPool->Buffer = std::move(Buffer);
 							State->TimingPool->Marker = std::move(Marker);
@@ -157,18 +161,49 @@ namespace Durin
 					throw;
 				}
 			}
-			auto RHICreateGPUTimingQuery() -> FGPUTimingQueryRHIRef override
+			auto RHICreateGPUTimingQuery() noexcept -> FGPUTimingQueryRHIRef override
 			{
-				if (!State || !State->TimingPool) return nullptr;
+				const FMetalAutoreleasePool AutoreleasePool;
+				if (!State || !State->TimingPool)
+					RHITerminateOnFailure("Metal timing query", "GPU timestamps are unsupported");
 				auto Pool = State->TimingPool;
-				std::lock_guard Lock(Pool->Mutex);
-				for (uint32 Slot = 0; Slot < FMetalGPUTimingPool::Capacity; ++Slot)
-					if (!Pool->Used[Slot])
+				for (;;)
+				{
+					std::unique_lock Lock(Pool->Mutex);
+					for (uint32 Slot = 0; Slot < FMetalGPUTimingPool::Capacity; ++Slot)
+						if (!Pool->Used[Slot])
+						{
+							auto Query = MakeRefCount<FMetalGPUTimingQuery>(Pool, Slot);
+							Pool->Used[Slot] = true;
+							return Query;
+						}
+					if (!Pool->Next)
 					{
-						Pool->Used[Slot] = true;
-						return new FMetalGPUTimingQuery(Pool, Slot);
+						auto Next = std::make_shared<FMetalGPUTimingPool>();
+						auto* Sets = Device->counterSets();
+						for (NS::UInteger Index = 0; Sets && Index < Sets->count(); ++Index)
+						{
+							auto* Set = Sets->object<MTL::CounterSet>(Index);
+							if (!Set->name()->isEqualToString(MTL::CommonCounterSetTimestamp)) continue;
+							auto Desc = NS::TransferPtr(MTL::CounterSampleBufferDescriptor::alloc()->init());
+							Desc->setCounterSet(Set);
+							Desc->setSampleCount(FMetalGPUTimingPool::Capacity * 2);
+							Desc->setStorageMode(MTL::StorageModeShared);
+							NS::Error* Error = nullptr;
+							Next->Buffer = NS::TransferPtr(Device->newCounterSampleBuffer(Desc.get(), &Error));
+							break;
+						}
+						Next->Marker = NS::TransferPtr(Device->newBuffer(4, MTL::ResourceStorageModeShared));
+						if (!Next->Buffer || !Next->Marker)
+							RHITerminateOnFailure("Metal timestamp pool growth", "native allocation failed");
+						Next->Generation = Pool->Generation;
+						Next->NanosecondsPerTick = Pool->NanosecondsPerTick;
+						Pool->Next = std::move(Next);
 					}
-				return nullptr;
+					auto Next = Pool->Next;
+					Lock.unlock();
+					Pool = std::move(Next);
+				}
 			}
 			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
 			{
@@ -184,13 +219,9 @@ namespace Durin
 						const FMetalAutoreleasePool Pool;
 						return RHICreateGraphicsPipelineState(FName(Inputs.DebugName), Inputs.Initializer);
 					};
-					Backend.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Inputs,
-						const FComputePipelineStateKey&) -> FComputePipelineStateRHIRef {
+					Backend.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Inputs, const FComputePipelineStateKey&) -> FComputePipelineStateRHIRef {
 						const FMetalAutoreleasePool Pool;
 						return RHICreateComputePipelineState(FName(Inputs.DebugName), Inputs.Initializer);
-					};
-					Backend.PublishTerminalFailure = [](std::exception_ptr) {
-						GCommandListExecutor.ReportExternalFailure();
 					};
 					PipelineCache = std::make_unique<FRHIPipelineStateCache>(
 						*RHIGetCapabilities(), std::move(Backend));
@@ -293,7 +324,7 @@ namespace Durin
 			auto RHIEndFrame() -> void override
 			{ CommandContext->RHIEndFrame(); }
 			auto RHICreateViewport(const FRHIViewportCreateInfo& Info)
-			-> TRefCountPtr<FRHIViewport> override
+				-> TRefCountPtr<FRHIViewport> override
 			{
 				if (!GRHIThread) CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
@@ -308,14 +339,15 @@ namespace Durin
 						|| Info.PresentationTarget.GetNativeWindowHandle() != StartupWindow) return nullptr;
 				}
 				const auto Format = Info.PreferredPixelFormat
-					== EPixelFormat::RGBA16_FLOAT
-					? EPixelFormat::RGBA16_FLOAT
-					: Info.PreferredPixelFormat == EPixelFormat::RGBA8_UNORM
-						|| Info.PreferredPixelFormat == EPixelFormat::BGRA8_UNORM
-						? EPixelFormat::BGRA8_UNORM
-						: EPixelFormat::SBGRA8_UNORM;
+											== EPixelFormat::RGBA16_FLOAT ?
+										EPixelFormat::RGBA16_FLOAT :
+									Info.PreferredPixelFormat == EPixelFormat::RGBA8_UNORM
+											|| Info.PreferredPixelFormat == EPixelFormat::BGRA8_UNORM ?
+										EPixelFormat::BGRA8_UNORM :
+										EPixelFormat::SBGRA8_UNORM;
 				auto Viewport = MakeRefCount<FMetalViewport>(
-					Device, std::move(Layer), Info.SizeX, Info.SizeY, Format, Info.PresentationPolicy);
+					Device, std::move(Layer), Info.SizeX, Info.SizeY, Format, Info.PresentationPolicy
+				);
 				if (!Viewport->SnapshotBackBuffer()) return nullptr;
 				if (Info.bAdoptInitializationPresentationCandidate)
 				{
@@ -334,14 +366,14 @@ namespace Durin
 					requiref(MetalViewport->Resize(Width, Height),
 						"Metal viewport back buffer recreation failed.");
 			}
-			auto RHICreateGraphicsPipelineState(FName,
-			const FGraphicsPipelineStateInitializer& Initializer)
-			-> TRefCountPtr<FRHIGraphicsPipelineState> override
-			{ return CreateMetalGraphicsPipeline(Device.get(), Initializer); }
-			auto RHICreateComputePipelineState(FName,
-			const FComputePipelineStateInitializer& Initializer)
-			-> TRefCountPtr<FRHIComputePipelineState> override
-			{ return CreateMetalComputePipeline(Device.get(), Initializer); }
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIGraphicsPipelineState> override
+			{
+				return CreateMetalGraphicsPipeline(Device.get(), Initializer);
+			}
+			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIComputePipelineState> override
+			{
+				return CreateMetalComputePipeline(Device.get(), Initializer);
+			}
 			auto RHIGetDefaultContext() -> IRHICommandContext* override
 			{ return CommandContext.get(); }
 			auto RHIGetViewportBackBuffer(FRHIViewport* Viewport)
@@ -350,8 +382,7 @@ namespace Durin
 				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
 				return MetalViewport ? MetalViewport->SnapshotBackBuffer() : nullptr;
 			}
-			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements)
-			-> TRefCountPtr<FRHIVertexDeclaration> override
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) noexcept -> TRefCountPtr<FRHIVertexDeclaration> override
 			{
 				bool bTail = false;
 				for (const auto& Element : Elements)
@@ -364,8 +395,8 @@ namespace Durin
 					if (bTail || Element.StreamIndex >= 16
 						|| Element.AttributeIndex >= 31
 						|| ToMetalVertexFormat(Element.Type)
-							== MTL::VertexFormatInvalid)
-						return nullptr;
+							   == MTL::VertexFormatInvalid)
+						RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				}
 				return new FMetalVertexDeclaration(Elements);
 			}
@@ -430,45 +461,38 @@ namespace Durin
 					&& (static_cast<uint64>(Desc.Flags)
 						& ~static_cast<uint64>(SupportedFlags)) == 0;
 			}
-			auto RHICreateTexture(FRHICommandListBase&,
-			const FRHITextureCreateDesc& Desc)
-			-> FTextureRHIRef override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) noexcept -> FTextureRHIRef override
 			{
 				const FMetalAutoreleasePool Pool;
 				if (!RHIIsTextureSupported(Desc))
 				{
-					DURIN_ERROR("Failed to create Metal texture '{}': unsupported description",
-						Desc.DebugName ? Desc.DebugName : "<unnamed>");
-					return {};
+					DURIN_ERROR("Failed to create Metal texture '{}': unsupported description", Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				}
 				auto Native = MakeMetalTextureDescriptor(Desc);
-				auto Texture = Native ? NS::TransferPtr(Device->newTexture(Native.get()))
-					: NS::SharedPtr<MTL::Texture>{};
+				auto Texture = Native ? NS::TransferPtr(Device->newTexture(Native.get())) : NS::SharedPtr<MTL::Texture>{};
 				if (!Texture)
 				{
-					DURIN_ERROR("Failed to create Metal texture '{}': native allocation failed",
-						Desc.DebugName ? Desc.DebugName : "<unnamed>");
-					return {};
+					DURIN_ERROR("Failed to create Metal texture '{}': native allocation failed", Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				}
 				return FTextureRHIRef(new FMetalTexture(Desc, std::move(Texture)));
 			}
-			auto RHICreateSampler(const FRHISamplerDesc& Desc)
-			-> TRefCountPtr<FRHISampler> override
+			auto RHICreateSampler(const FRHISamplerDesc& Desc) noexcept -> TRefCountPtr<FRHISampler> override
 			{
 				const FMetalAutoreleasePool Pool;
-				if (!Device) return nullptr;
+				if (!Device) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				auto Native = MakeMetalSamplerDescriptor(Desc);
-				if (!Native) return nullptr;
+				if (!Native) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				auto Sampler = NS::TransferPtr(Device->newSamplerState(Native.get()));
-				return Sampler ? TRefCountPtr<FRHISampler>(
-					new FMetalSampler(std::move(Sampler))) : nullptr;
+				if (!Sampler) RHITerminateOnFailure("Metal sampler", "native allocation failed");
+				return TRefCountPtr<FRHISampler>(new FMetalSampler(std::move(Sampler)));
 			}
-			auto RHICreateShader(const FRHIShaderCreateDesc& Desc)
-			-> TRefCountPtr<FRHIShader> override
-			{ return CreateMetalShader(Device.get(), Desc); }
-			auto RHICreateBuffer(FRHICommandListImmediate&,
-			const FRHIBufferCreateDesc& Desc)
-			-> FBufferRHIRef override
+			auto RHICreateShader(const FRHIShaderCreateDesc& Desc) noexcept -> TRefCountPtr<FRHIShader> override
+			{
+				return CreateMetalShader(Device.get(), Desc);
+			}
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) noexcept -> FBufferRHIRef override
 			{
 				const FMetalAutoreleasePool Pool;
 				if (!Device || Desc.Size == 0 || Desc.Usage == EBufferUsageFlags::None
@@ -476,23 +500,21 @@ namespace Durin
 					|| (Desc.InitialData.Size != 0 && !Desc.InitialData.Data)
 					|| Desc.InitialData.Size > Desc.Size)
 				{
-					DURIN_ERROR("Failed to create Metal buffer '{}': unsupported description",
-						Desc.DebugName ? Desc.DebugName : "<unnamed>");
-					return {};
+					DURIN_ERROR("Failed to create Metal buffer '{}': unsupported description", Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				}
 				if (Desc.Size > Device->maxBufferLength())
 				{
-					DURIN_ERROR("Failed to create Metal buffer '{}': size exceeds device limit",
-						Desc.DebugName ? Desc.DebugName : "<unnamed>");
-					return {};
+					DURIN_ERROR("Failed to create Metal buffer '{}': size exceeds device limit", Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				}
 				auto Buffer = NS::TransferPtr(Device->newBuffer(
-					Desc.Size, MTL::ResourceStorageModeShared));
+					Desc.Size, MTL::ResourceStorageModeShared
+				));
 				if (!Buffer)
 				{
-					DURIN_ERROR("Failed to create Metal buffer '{}': native allocation failed",
-						Desc.DebugName ? Desc.DebugName : "<unnamed>");
-					return {};
+					DURIN_ERROR("Failed to create Metal buffer '{}': native allocation failed", Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				}
 				if (Desc.InitialData.Data && Desc.InitialData.Size)
 					std::memcpy(Buffer->contents(), Desc.InitialData.Data, Desc.InitialData.Size);
@@ -500,23 +522,19 @@ namespace Durin
 				if (Desc.InitialData.Data && Desc.InitialData.Size)
 				{
 					const auto CanonicalAccess = GetMetalCanonicalBufferAccess(Desc.Usage);
-					static_cast<FMetalBuffer*>(Result.GetReference())->GetStateTracker().Apply(
-						0, Desc.InitialData.Size, CanonicalAccess == ERHIAccess::None
-							? ERHIAccess::HostWrite : CanonicalAccess);
+					static_cast<FMetalBuffer*>(Result.GetReference())->GetStateTracker().Apply(0, Desc.InitialData.Size, CanonicalAccess == ERHIAccess::None ? ERHIAccess::HostWrite : CanonicalAccess);
 				}
 				return Result;
 			}
-			auto RHICreateBufferView(FRHIBuffer* Buffer,
-			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView> override
+			auto RHICreateBufferView(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) noexcept -> TRefCountPtr<FRHIBufferView> override
 			{
 				if (!Buffer
 					|| !ValidateBufferViewDesc(Buffer, Desc)
 					|| Desc.Type == ERHIBufferViewType::Formatted)
-					return nullptr;
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				return new FRHIBufferView(Buffer, Desc);
 			}
-			auto RHICreateTextureView(FRHITexture* Texture,
-			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView> override
+			auto RHICreateTextureView(FRHITexture* Texture, const FRHITextureViewDesc& Desc) noexcept -> TRefCountPtr<FRHITextureView> override
 			{
 				const FMetalAutoreleasePool Pool;
 				if (!Texture || !ValidateTextureViewDesc(Texture, Desc)
@@ -526,31 +544,35 @@ namespace Durin
 						&& Desc.Usage != ERHITextureViewUsage::TransferDestination
 						&& Desc.Usage != ERHITextureViewUsage::ColorAttachment
 						&& Desc.Usage != ERHITextureViewUsage::DepthStencilAttachment))
-					return nullptr;
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				if (Desc.Usage == ERHITextureViewUsage::DepthStencilAttachment
 					&& ((Texture->GetDimension() != ETextureDimension::Texture2D
-						&& Texture->GetDimension() != ETextureDimension::Texture2DArray)
+						 && Texture->GetDimension() != ETextureDimension::Texture2DArray)
 						|| Texture->GetFormat() != EPixelFormat::D32
 						|| Desc.Dimension != ERHITextureViewDimension::Texture2D
 						|| Desc.Range.FirstMip != 0 || Desc.Range.NumMips != 1
 						|| Desc.Range.NumArrayLayers != 1))
-					return nullptr;
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				if (Desc.Usage == ERHITextureViewUsage::Sampled
 					|| Desc.Usage == ERHITextureViewUsage::Storage)
 				{
 					auto View = MakeMetalTextureView(
-						static_cast<FMetalTexture*>(Texture)->GetHandle(), Desc);
+						static_cast<FMetalTexture*>(Texture)->GetHandle(), Desc
+					);
 					return View ? TRefCountPtr<FRHITextureView>(
-						new FMetalTextureView(Texture, Desc, std::move(View))) : nullptr;
+									  new FMetalTextureView(Texture, Desc, std::move(View))
+								  ) :
+								  nullptr;
 				}
 				if (Desc.Usage == ERHITextureViewUsage::ColorAttachment
 					&& (!EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::RenderTargetable)
 						|| Texture->GetDimension() != ETextureDimension::Texture2D
 						|| Desc.Range.FirstMip != 0 || Desc.Range.NumMips != 1
 						|| Desc.Range.FirstArrayLayer != 0 || Desc.Range.NumArrayLayers != 1))
-					return nullptr;
+					RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				return new FRHITextureView(Texture, Desc);
 			}
+
 		private:
 			auto ResetDeviceState() -> void
 			{

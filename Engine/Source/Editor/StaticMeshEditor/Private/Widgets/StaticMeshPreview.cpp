@@ -88,9 +88,8 @@ namespace Durin::Editor::StaticMesh
 				CurrentMesh = nullptr;
 				CurrentRevision = 0;
 				SetVisible(false);
-				const char* State = Status.Readiness == EStaticMeshRenderResourceReadiness::Queued ? "resources are still loading"
-					: Status.Readiness == EStaticMeshRenderResourceReadiness::Failed ? "resource initialization failed"
-					: "render data is unavailable";
+				const char* State = Status.Readiness == EStaticMeshRenderResourceReadiness::Queued ? "resources are still loading" : Status.Readiness == EStaticMeshRenderResourceReadiness::InvalidData ? "invalid CPU geometry" :
+																																																		   "render data is unavailable";
 				ImGui::TextWrapped("Preview unavailable: %s.", State);
 				ImGui::EndChild();
 				return;

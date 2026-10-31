@@ -25,7 +25,7 @@ namespace Durin
 		Unavailable,
 		Queued,
 		Ready,
-		Failed
+		InvalidData // Invalid CPU geometry; native creation failures terminate.
 	};
 
 	// One generation-qualified observation returned by blocking and nonblocking mesh APIs.

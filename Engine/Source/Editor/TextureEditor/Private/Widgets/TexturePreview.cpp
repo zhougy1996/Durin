@@ -169,9 +169,7 @@ namespace Durin::Editor::Texture
 					FRHIShader* FragmentRHI =
 						Candidate.FragmentShader.GetRHIShader(false);
 					if (VertexRHI == nullptr || FragmentRHI == nullptr)
-						return FResult::Failure(MakeError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							ERenderResourceCreateErrorReason::ShaderCreationFailed));
+						return FResult::Pending();
 					constexpr uint32 VertexStride =
 						sizeof(FTexturePreviewVertex);
 					FVertexDeclarationElementList VertexElements;
@@ -238,17 +236,12 @@ namespace Durin::Editor::Texture
 					Candidate.PipelineState = FPreparedShaderMapScope::IsActive()
 						? FRenderPipelineRequestScope::Graphics("TexturePreviewChannelPipeline", PipelineInitializer)
 						: GDynamicRHI->RHICreateGraphicsPipelineState("TexturePreviewChannelPipeline", PipelineInitializer);
-					if (Candidate.VertexDeclaration == nullptr
-						|| Candidate.VertexBuffer == nullptr
-						|| Candidate.IndexBuffer == nullptr
-						|| Candidate.Sampler == nullptr)
-						return FResult::Failure(MakeError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							ERenderResourceCreateErrorReason::ResourceCreationFailed));
+
 					if (Candidate.PipelineState == nullptr)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
-							ERenderResourceCreateErrorReason::PipelineCreationFailed));
+							ERenderResourceCreateErrorReason::PipelinePreparationRejected
+						));
 					return FResult::Success(std::move(Candidate));
 				},
 				[](const FRenderResourceCreateDiagnostic& Diagnostic) {

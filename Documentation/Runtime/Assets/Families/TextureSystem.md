@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-10-31
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -408,9 +408,10 @@ There is no combined update-state enum, retained update-error string or independ
 texture teardown flag. Object `BeginDestroyed`/garbage flags own admission and
 destruction checks; editor diagnostics combine resource and cache facts locally.
 Missing platform data and closed render admission reject before initialization.
-Preparation, invalid descriptions, allocation failures and exceptions are logged.
-CPU data remains available for an explicit retry. Descriptor support
-is checked before allocation; see
+Asset preparation errors retain their existing diagnostics and explicit build
+retry. Native allocation failure and OOM terminate through RHI; the texture
+owner does not catch exceptions and convert them into fallback. Descriptor support
+is validated by the RHI creation boundary; see
 [RHI Capabilities and Vulkan Startup](../../Rendering/RHI/RHICapabilitiesAndVulkanStartup.md).
 
 Package reload completes selected compilation through the asset compiling manager
@@ -435,8 +436,9 @@ uses the object's serial key to retire work even after its weak reference expire
 Material and scene bindings retain counted copies of the stable reference and
 observe replacements without reacquiring the asset. Delayed release resets that
 target only when it still matches the released allocation, so retiring an old
-resource cannot unbind its replacement. Failed direct updates leave fallback,
-which may be null under the existing family binding policy.
+resource cannot unbind its replacement. Explicit release may leave a null
+fallback under the existing family binding policy. Native upload allocation
+failure terminates rather than leaving a failed texture for a GPU retry.
 
 Fixed-input work captures `FTextureResource::GetTextureRHI_GameThread()` after
 checking resource presence and completed initialization. The counted

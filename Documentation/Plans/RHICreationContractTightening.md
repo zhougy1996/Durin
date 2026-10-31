@@ -9,8 +9,10 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete. Source migration starts with the RHI/backend terminal boundary;
-no implementation validation has run yet.
+Stages 0-3 are implemented. Windows RHI/backend creation, Renderer preparation,
+asset/editor consumers and integration scenarios have passing validation.
+Metal source is migrated; Stage 4 remains open for macOS compilation/runtime
+and terminal-failure evidence. This Windows host cannot close those gates.
 Do not treat existing nullable factories or their tests as evidence that a
 recoverable native-creation contract is required.
 
@@ -31,12 +33,12 @@ Stage 0 decisions and inventory (2026-10-31, base `74d62a83d`):
 - Delete ordinary factory nulls, Vulkan recoverable-result translation, native
   Failed publication/retry, texture catch-all fallback and RDG physical-failure
   retry. Retain asset/build/compiler errors, cache misses, capability queries,
-  task cancellation/closure and explicit pre-admission metadata limits. GPU timing
-  query pools retain nullable optional instrumentation admission; unavailable
+  task cancellation/closure and explicit pre-admission metadata limits. Per user clarification, supported GPU timing query creation also requires
+  success: grow storage rather than reject at an arbitrary slot ceiling. Unavailable
   swapchain drawables and unsupported scheduling are not native factory failures.
 - Core's platform-misc interface has no suitable guaranteed immediate exit.
-  Add a small exported RHI terminal helper: stack-buffer diagnostic, direct OS
-  stderr write, then `std::_Exit(EXIT_FAILURE)`. No logger, teardown or scheduler
+  Returned native failures use a small exported RHI terminal helper: stack-buffer diagnostic, direct OS
+  stderr write, then Windows `TerminateProcess` or POSIX `std::_Exit(EXIT_FAILURE)`. No logger, teardown or scheduler
   is required. Backends supply borrowed operation/reason strings and native code.
   Use GoogleTest subprocess death/exit assertions already supported by RHITests;
   cover the common path without Core and injected creator null/throw/OOM paths.
@@ -49,7 +51,7 @@ Stage 0 decisions and inventory (2026-10-31, base `74d62a83d`):
   caches, whose dependencies are acquired during native creation. No unbounded
   cache growth or false OOM classification is introduced.
 - Validation targets: RHIPipelineCreationTests, RHIResourceViewValidationTests,
-  RHICommandListTests, RenderResourceCreationTests (confirm registry name),
+  RHICommandListTests, RenderContractTests,
   VulkanRHIIntegrationTests and affected texture/mesh/reload/thumbnail suites.
   Inspect affected selection after migration. Final all build covers shared
   declarations and workspace consumers. Metal runtime evidence requires macOS;
@@ -84,6 +86,12 @@ their existing owners.
   subsystem locks or normal teardown to reach process exit. Select the existing
   platform exit primitive and reporting path during Stage 0; do not invent an
   application-level recovery coordinator.
+- Per user clarification, native creation APIs and the async creator are
+  `noexcept`: internal exceptions propagate naturally to the existing process
+  terminate policy rather than being caught in every factory. Returned native
+  error codes/null handles use the common immediate-exit checker. Both are
+  terminal; exact diagnostics/exit codes may differ. Do not install a global
+  terminate handler from an unloadable backend.
 - Remove the generic recoverable-native-error classification as a public policy.
   Backend helpers may decode result codes for diagnostics and API-specific control
   flow. Preserve normal swapchain statuses such as resize/out-of-date handling;
@@ -91,6 +99,10 @@ their existing owners.
 - Do not introduce a blanket `TryCreate*` family, `AllowFailure` flag or public
   recoverable/fatal enum. Any future exception requires a concrete caller, bounded
   recovery action and tests, and an explicit plan decision before implementation.
+
+GPU timing queries follow the same creation contract on supported devices. Grow
+query storage when all live slots are occupied; native allocation failure exits.
+Timestamp capability checks and Pending/invalid measurement results remain separate.
 
 ### Retained asynchronous and asset behavior
 
@@ -167,26 +179,27 @@ Dependencies: none.
 - [x] Resolve backend cache-capacity admission and real host-OOM handling before
   changing factory contracts. Select owning/consumer test targets from actual code.
 
-Completion: a bounded migration inventory, explicit terminal mechanism and
-validation selection are recorded here; no unresolved policy blocks Stage 1.
+Completion: inventory, terminal mechanism and validation selection are recorded
+above. The GPU timing pool clarification is incorporated: supported creation
+grows storage instead of using optional-admission nulls.
 
 ### Stage 1: Enforce RHI and Backend Creation Contracts
 
 Dependencies: Stage 0.
 
-- [ ] Implement the common terminal boundary, including OOM diagnostics and
+- [x] Implement the common terminal boundary, including OOM diagnostics and
   nonzero exit, using existing platform facilities where possible.
-- [ ] Migrate Vulkan and Metal texture/buffer/shader/sampler/view/declaration and
+- [x] Migrate Vulkan and Metal texture/buffer/shader/sampler/view/declaration and
   graphics/compute pipeline factories; cover aliased/transient creation and native
   dependencies. Remove null returns that represent native failure.
-- [ ] Document normal-return non-null guarantees in RHI headers. Keep capability
+- [x] Document normal-return non-null guarantees in RHI headers. Keep capability
   checks, input validation and scheduling support separate from native creation.
-- [ ] Route async native failures to the same terminal boundary. Preserve Pending,
+- [x] Route async native failures to the same terminal boundary. Preserve Pending,
   completion edges, cancellation and admission rejection; remove native-failure
   result plumbing where it no longer describes a reachable nonterminal outcome.
-- [ ] Migrate cache capacity and exception translation so logical budget pressure
+- [x] Migrate cache capacity and exception translation so logical budget pressure
   remains pre-creation admission and actual OOM cannot become CapacityExceeded.
-- [ ] Add subprocess coverage for deterministic injected native failures and OOM
+- [x] Add subprocess coverage for deterministic injected native failures and OOM
   in sync and background paths; test real handling boundaries without exhausting
   the host GPU or killing the test runner.
 
@@ -197,20 +210,20 @@ fault probes terminate with the expected diagnostic and nonzero exit.
 
 Dependencies: Stage 1.
 
-- [ ] Remove generic ShaderCreationFailed/ResourceCreationFailed/native pipeline
+- [x] Remove generic ShaderCreationFailed/ResourceCreationFailed/native pipeline
   and sampler failure propagation, diagnostics fingerprints and retry machinery
   that exist only for nullable native factories. Preserve shader-content errors.
-- [ ] Simplify resource slots to the states and transitions still needed for
+- [x] Simplify resource slots to the states and transitions still needed for
   demand, asynchronous progress, accepted content and invalidation. Do not blindly
   delete Failed where asset/shader preparation can still fail.
-- [ ] Remove native-failure fallbacks from default textures, fullscreen geometry,
+- [x] Remove native-failure fallbacks from default textures, fullscreen geometry,
   samplers/views, fixed renderers, mesh rendering and editor assistance.
-- [ ] Remove RDG physical-allocation-failure retry/recovery plumbing. Preserve
+- [x] Remove RDG physical-allocation-failure retry/recovery plumbing. Preserve
   graph validation, planning-budget rejection, single-use builders, reservation
   consistency and ordinary successful allocation/reuse/aliasing behavior.
-- [ ] Remove native retry behavior from `renderer.retry-resources`; retain or
+- [x] Remove native retry behavior from `renderer.retry-resources`; retain or
   narrow the command only if an explicit shader/asset retry responsibility remains.
-- [ ] Keep deliberate feature selection, neutral resources and PSO Pending draw
+- [x] Keep deliberate feature selection, neutral resources and PSO Pending draw
   policies. Audit retained skip branches for accidental masking of fatal failures.
 
 Completion: selected native resources are assumed valid; asynchronous preparation
@@ -220,16 +233,16 @@ and content errors retain explicit outcomes without generic native retry loops.
 
 Dependencies: Stage 2.
 
-- [ ] Remove texture catch-all conversion to fallback and native-upload failure
+- [x] Remove texture catch-all conversion to fallback and native-upload failure
   queries/branches made obsolete by required-success creation.
-- [ ] Simplify StaticMesh readiness/failure reporting and selected-object waits
+- [x] Simplify StaticMesh readiness/failure reporting and selected-object waits
   without merging CPU residency, queued initialization and successful publication.
-- [ ] Migrate package reload, material/texture/mesh previews, thumbnails and other
+- [x] Migrate package reload, material/texture/mesh previews, thumbnails and other
   workspace consumers. Preserve source/build/I/O failure, stale result rejection
   and old-version retention at their asset transaction boundaries.
-- [ ] Keep render-command fences distinct from GPU completion; preserve retained
+- [x] Keep render-command fences distinct from GPU completion; preserve retained
   input lifetime, stable references and ordered resource retirement.
-- [ ] Update tests to assert retained asset and asynchronous semantics. Replace
+- [x] Update tests to assert retained asset and asynchronous semantics. Replace
   native-OOM fallback/retry tests with subprocess terminal tests; do not merely
   delete failure coverage or turn native failures into asset errors.
 
@@ -240,22 +253,23 @@ native creation failure or schedules a retry of a failed native allocation.
 
 Dependencies: Stages 1-3.
 
-- [ ] Run selected RHI/backend/RenderCore/Renderer and affected asset/editor tests,
+- [x] Run selected Windows RHI/backend/RenderCore/Renderer and affected asset/editor tests,
   including Pending-to-ready, admission pressure, cancellation, invalid assets,
   failed compilation and accepted-version retention.
-- [ ] Verify terminal native failure/OOM from each distinct factory handling path
-  on supported backends, including startup without task scheduling and background
-  PSO creation. Record diagnostic, exit status and bounded completion evidence.
-- [ ] Run a final `all` build on the supported host configuration because shared
+- [x] Verify Windows terminal native failure/OOM handling, including startup
+  without task scheduling, native Vulkan results and background PSO creation.
+  Record diagnostic, exit status and bounded completion evidence.
+- [x] Run a final `all` build on the supported Windows host configuration because shared
   RHI headers/contracts and removed state/error types affect cross-project consumers.
-  Qualify Metal compilation and execution on macOS; record unavailable coverage
-  explicitly and leave required gates open until evidence exists.
-- [ ] Smoke-test editor startup, scene activation, normal rendering, thumbnails,
+- [ ] Qualify Metal compilation, normal execution and terminal native failure/OOM
+  on macOS. This host has no macOS toolchain or Metal device; source migration
+  and Windows builds do not substitute for that evidence.
+- [x] Smoke-test Windows editor startup, scene activation, normal rendering, thumbnails,
   shader/material editing and package reload; use the Stage 0 selected scenarios.
-- [ ] Update authoritative RHI creation/execution, Renderer recovery/preparation,
+- [x] Update authoritative RHI creation/execution, Renderer recovery/preparation,
   texture/mesh and material contracts. Remove contradictory native-recovery claims
   and rename/restructure documents only when their remaining responsibility needs it.
-- [ ] Validate changed documents and all plan lifecycle metadata. Record final
+- [x] Validate changed documents and all plan lifecycle metadata. Record final
   tested inputs, result applicability, backend coverage and remaining limitations.
 
 Completion: all required gates have evidence; long-lived documents describe the
@@ -274,3 +288,41 @@ Each implementation commit updates this plan's evidence-backed status and uses
 `Plan: Documentation/Plans/RHICreationContractTightening.md` and the exact owning
 stage title as Git trailers. Store generated reports and fault-probe logs under
 ignored `Build/` or CI artifacts, with concise evidence summaries in this plan.
+
+Windows evidence (2026-10-31, implementation based on `78d7751d7`):
+
+- Profile `windows-msvc-x64`, preset `Win64-Debug-DurinEditor`, MSVC; NVIDIA
+  GeForce RTX 3090, Vulkan 1.4.351. Builds/tests ran outside the sandbox after
+  its MSVC PDB service failed with C1902. The final `build all` passed; receipt
+  `Build/.agent-state/logs/20261031-213008-779991-35888-cmake.log` covers final
+  production code and shared API consumers. No clean-build claim is made.
+- Reports under `Build/RHICreationContract/`: `renderer-final.xml` (18 targets),
+  `texture.xml` (4 targets), `static-mesh.xml` (6 targets), `material.xml`
+  (12 feature targets), `asset-reload.xml` (18 cases),
+  `asset-reload-vulkan.xml` (1 qualification target) and `thumbnail.xml`
+  (8 cases) pass. Renderer coverage includes RHI pipeline creation (19 cases),
+  command lists (145), RenderContract (244), native Vulkan integration, RDG,
+  resource reload, scene contracts and normal cloud presentation.
+- Subprocess assertions cover the RHI terminal helper without Core/scheduler,
+  returned Vulkan OOM/device-loss codes, invalid native descriptions, injected
+  null pipeline creation, thrown `bad_alloc` and unexpected creator exceptions.
+  Returned-error assertions require exit code 1 and the operation/reason/native
+  code diagnostic; thrown-exception assertions require process death through
+  `noexcept`. The 19-case pipeline suite completed in about two seconds;
+  native-error probes complete within the bounded native-test execution.
+- Editor startup/first presentation/three ticks/normal shutdown passed via
+  `run --project Sandbox/Sandbox.dproject -- --exit-after-ticks=3` (2.35 seconds),
+  receipt `Build/.agent-state/logs/20261031-212947-742539-77500-DurinEditor.log`.
+  Scene activation, shader/material editing and package reload are covered by
+  automated lifecycle/integration tests, not manual UI editing.
+- Corrected standalone drivers: pending cloud presentation returns acquired
+  swapchain images; thumbnail polling advances frames so retained per-frame
+  preparation budgets refresh. Replaced the failing receipts with passing
+  reruns rather than changing Pending into success or increasing deadlines.
+- Affected discovery expands across shared test headers and backend sources;
+  named owner domains plus explicit reload/thumbnail integration bound runtime
+  coverage. The final all build covers cross-project compilation. Earlier
+  texture/mesh/material receipts remain applicable: their inputs, toolchain,
+  packages and settings are unchanged; later production changes only remove
+  swallowed preparation OOM and a native-target null branch, with renderer and
+  thumbnail regression rerun. macOS acceptance remains outstanding.

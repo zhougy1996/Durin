@@ -43,12 +43,10 @@ namespace Durin
 				if (OnResize) OnResize();
 			}
 			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
-			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&)
-				-> FGraphicsPipelineStateRHIRef override { return {}; }
-			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
-				-> FVertexDeclarationRHIRef override { return {}; }
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) noexcept -> FGraphicsPipelineStateRHIRef override { return {}; }
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) noexcept -> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return true; }
-			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) -> FTextureRHIRef override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) noexcept -> FTextureRHIRef override
 			{
 				++CreationCount;
 				bCreatedOnRenderThread &= IsInRenderingThread();
@@ -57,10 +55,9 @@ namespace Durin
 				if (bFailCreation) return {};
 				return FTextureRHIRef(new FViewportTestTexture(Desc));
 			}
-			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
-			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> FBufferRHIRef override
+			auto RHICreateSampler(const FRHISamplerDesc&) noexcept -> FSamplerRHIRef override { return {}; }
+			auto RHICreateShader(const FRHIShaderCreateDesc&) noexcept -> FShaderRHIRef override { return {}; }
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&) noexcept -> FBufferRHIRef override
 			{
 				return {};
 			}

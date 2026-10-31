@@ -198,18 +198,14 @@ namespace Durin
 					TShaderMapRef<FCloudShadowComputeShader>(Candidate.ShaderSet);
 				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
 				if (!RHIShader || !GDynamicRHI)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadowCompute",
-						"pipeline", ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceCreateErrorCategory::RHIResource));
+					return FResult::Pending();
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = RHIShader;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState = FRenderPipelineRequestScope::Compute(
 					"VolumetricCloudShadowComputePipeline", Initializer);
 				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadowCompute",
-						"pipeline", ERenderResourceCreateErrorReason::PipelineCreationFailed,
-						ERenderResourceCreateErrorCategory::GraphicsPipeline));
+					return FResult::Failure(MakeFailure("VolumetricCloudShadowCompute", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
 			!= nullptr;
@@ -247,9 +243,7 @@ namespace Durin
 				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
 				if (!VertexRHI || !FragmentRHI || !GDynamicRHI)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadow", "pipeline",
-						ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceCreateErrorCategory::RHIResource));
+					return FResult::Pending();
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeVolumetricCloudShadowOutput();
@@ -262,9 +256,7 @@ namespace Durin
 				Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(
 					"VolumetricCloudShadowPipeline", Initializer);
 				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadow", "pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
-						ERenderResourceCreateErrorCategory::GraphicsPipeline));
+					return FResult::Failure(MakeFailure("VolumetricCloudShadow", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
 			!= nullptr;
@@ -386,7 +378,7 @@ namespace Durin
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FTimingQuerySink TimingSink =
 			GVolumetricCloudShadowTimingQuerySink.load(std::memory_order_acquire);
-		if (TimingSink && GDynamicRHI)
+		if (TimingSink && GDynamicRHI && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
 		{
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);

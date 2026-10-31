@@ -281,7 +281,7 @@ namespace Durin::Editor::Material
 						return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 					SphereStatus = Sphere->GetRenderResourceStatus();
 				}
-				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Failed
+				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::InvalidData
 					|| SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,

@@ -80,7 +80,7 @@ namespace Durin
 		RetryResourcesHandle = Registry->RegisterCommand({
 			.Name = "renderer.retry-resources",
 			.Description =
-				"Retries renderer resources that accept explicit recovery.",
+				"Retries failed shader/content preparation; native resource failures terminate.",
 			.Usage = "renderer.retry-resources",
 			.Execute = [State](std::span<const std::string> Args) {
 				if (!Args.empty())
@@ -91,8 +91,9 @@ namespace Durin
 				return QueueRequest(
 					State,
 					ERendererResourceInvalidationCause::ManualRetry,
-					"Queued renderer resource retry; reconstruction remains "
-					"demand-driven.");
+					"Queued shader/content preparation retry; reconstruction remains "
+					"demand-driven."
+				);
 			},
 		});
 		if (ReloadShadersHandle != 0 && RetryResourcesHandle != 0)

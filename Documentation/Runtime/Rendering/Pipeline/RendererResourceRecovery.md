@@ -1,21 +1,22 @@
 # Renderer Resource Recovery
 
-Summary: Define complete-or-null Renderer resource publication, explicit readiness, generation-scoped retries, and device invalidation.
+Summary: Define asynchronous Renderer readiness, asset/shader preparation errors, generation-scoped invalidation, and required-success native creation.
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-10-31
 
-## Complete-Or-Null Construction
+## Required-Success Native Construction
 
-Nullable RHI creation is a complete-or-null boundary. Vulkan buffer, texture,
-shader, graphics-pipeline, sampler, and vertex-declaration factories publish a
-reference only after every required native handle and allocation exists.
-Expected creation failure returns null without failing the RHI executor; device
-loss, command replay, submission, presentation, and invariant failures remain
-terminal.
+Ordinary native factories return complete non-null resources. Native creation
+failure and OOM terminate through the common
+[RHI creation boundary](../RHI/RHICommandExecution.md#required-success-resource-creation).
+Renderer does not classify native faults, retain an earlier native payload as
+recovery, skip a draw because native creation failed, or retry native failure.
+Source/content validation, shader compilation and asynchronous admission remain
+separate preparation outcomes.
 
-`RHICreateGraphicsPipelineState` returns a complete pipeline or null; it does
+`RHICreateGraphicsPipelineState` returns a complete pipeline; it does
 not promise a distinct object on every call. Vulkan reuses a strongly retained
 pipeline for an equal normalized graphics-pipeline key. `DebugName` labels
 diagnostics and captures and is excluded from that key. Changing the name does
@@ -25,17 +26,10 @@ same Vulkan cache policy. Renderer slots and explicit Renderer-owned payloads
 hold logical ownership; the backend cache and recorded commands can also retain
 references. Cache eviction selects only entries with no external references.
 
-Vertex declarations copy immutable CPU descriptions directly on the caller.
-Vulkan nullable factories inspect native `vk::Result` values explicitly and
-log recoverable creation failures locally before returning null. Vulkan-Hpp
-output-handle overloads expose the native result without exception translation;
-buffer and image allocation retain VMA's result-returning interface. No generic
-factory wrapper decides recovery for every resource family. Internal required
-allocations and dependency caches retain their throwing contract; pipeline
-creation translates recoverable dependency/cache failures at its own boundary.
-Device loss and unexpected errors continue to propagate as terminal exceptions.
-Texture views of external images retain ordered RHI
-synchronization because swapchain backing can change during replay.
+Vertex declarations copy immutable CPU descriptions on the caller. Vulkan native
+result codes feed the terminal RHI diagnostic; they are not transported as asset
+errors. Texture views of external images retain ordered synchronization because
+swapchain backing can change during replay.
 
 Native graphics/compute PSO candidates receive owned input copies and retained
 shader/declaration references, with render-pass and structural-layout dependencies
@@ -59,18 +53,17 @@ handles for GPU-completion-aware deletion; a background final release never
 destroys those handles directly. Native graphics/compute creation uses the basic
 Vulkan result-code interface. Its failure branch releases any returned pipeline
 and the earlier pipeline layout before the manager handles its native result.
-Recoverable failures restore any reserved cache victim without publishing a
-candidate; terminal exceptions retain the same rollback before propagation.
+Native failure terminates instead of publishing a failed candidate. Successful
+cache publication and GPU-aware retirement retain their ownership ordering.
 Input descriptions with raw resource fields require a live
 caller-owned reference until the factory has copied and retained them.
 
 Texture assets use the owned update protocol in [Texture System](../../Assets/Families/TextureSystem.md).
-An explicit `UpdateResource()` retries installed immutable input. Availability
-remains true after failed replacement when a prior successful allocation exists;
-retiring an old resource cannot unbind its replacement. Failure
-details are logged, while the update retains only its completion state. These
-assets have no render-request generation, and thumbnail readiness is checked separately
-from last-successful fallback availability.
+`UpdateResource()` uploads installed immutable input in render-command order.
+Explicit release/update invalidates the old allocation; source/build failure
+before that boundary can preserve accepted content. Native allocation failure
+terminates, so there is no per-texture GPU-failure fallback or retry state.
+Thumbnail readiness remains separate from CPU compilation completion.
 
 ## Non-Pipeline Creation Domains
 
@@ -90,8 +83,8 @@ permission to concurrently record into one command list or mutate image backing.
 | Buffer / local texture view | Complete view retaining its source resource | Backing must remain stable during creation; automatic view-cache lookup/publication remains mutex protected |
 
 These categories use ordered ordinary calls rather than a second asynchronous
-service. A caller batch can contain mixed success/null results; Renderer slots
-and RDG retain their all-or-nothing publication and candidate-release policy.
+service. Normal-return native results are complete. Renderer slots and RDG retain
+transactional publication for logical preparation and validation.
 Buffer/texture initial-data commands may already own an unpublished candidate
 after a later batch failure; their references retire in command order. No batch
 failure rewinds submitted GPU work or publishes a partially initialized aggregate.
@@ -102,14 +95,9 @@ heap snapshots use their existing mutex. Naming counters are atomic. Persistent
 mapping does not grant concurrent access to the same byte range: mapped writes,
 normalization/flush/invalidation, transfer arenas, state trackers and reclaim
 remain governed by the existing recording/replay owner protocols. Construction
-rollback protects real recoverable native failures, such as pipeline creation
-after layout creation. Pipeline candidates retain rollback through diagnostic
-naming, so exceptions before member ownership destroy both the native pipeline
-and its layout. Other resource naming and container allocation do not receive
-dedicated rollback for
-terminal exceptions, and no publication-failure injection creates an otherwise
-absent recovery path. Ordinary final release continues through GPU-aware owner
-retirement.
+ownership remains ordered through successful creation and publication. Native
+creation failures terminate; no per-resource native rollback/retry result is
+exposed to Renderer.
 
 Retained synchronous entries have explicit reasons: external/swapchain texture
 views follow mutable replay-owned backing; viewport creation/resize follows
@@ -157,11 +145,9 @@ admission before Core construction. Pending native waits reject Core workers,
 RHI replay, and the creator itself. Core is never started implicitly.
 
 Internal completion edges observe terminal notification and carry no native
-resource references. Candidate Failed is an ordinary completed notification;
-consumers inspect the cached pipeline state before drawing or dispatching.
-Native access returns complete RHI references only for Ready. Device/invariant
-exceptions publish executor failure and wake serial waiters before failing the
-Core creator; native/error access preserves the original terminal exception.
+resource references. Accepted native creation completes Ready or is canceled by
+its owner/lifetime. Native errors terminate the process from the creator thread.
+Only Ready exposes complete native resources; rejected admission remains explicit.
 
 RHI interns canonical pipeline-layout, vertex-input, and blend descriptions in
 weak CPU-only indexes, capped at 4,096 live descriptions per family. Their shared
@@ -200,10 +186,10 @@ creation callbacks must never attempt to close their own compile queue.
 return the same shared identity for an equal normalized key while an owner or
 recorded command retains it. Names are diagnostic only. Admission returns an
 `expected` identity or an explicit request rejection; accepted identities expose
-Pending/Ready/Failed/Canceled, immutable layout metadata, terminal readiness,
+Pending/Ready/Canceled, immutable layout metadata, terminal readiness,
 permitted waits, and nullable pipeline results. Raw Core completion handles remain
-internal because they carry cancellation authority. A failed identity can be
-retried by a later cache acquisition without changing an existing owner's result.
+internal because they carry cancellation authority. A rejected request is not a
+failed native identity; admission pressure can be retried before creation.
 
 The device-owned PipelineStateCache has a weak table capped at 4,096 entries. Keys and
 identity metadata are charged against the device metadata budget; shared
@@ -233,7 +219,7 @@ which records its completion dependency. Cache/precache acquisition returns
 `expected` so the resource owner chooses retry or failure policy. There is no
 initializer-binding helper or scheduler-dependent synchronous fallback. Without
 Core, cache/precache acquisition returns Unsupported; startup tools that require
-native creation must call the complete-or-null RHI factories explicitly.
+native creation must call the required-success RHI factories explicitly.
 Command-list overloads accept typed cache references or complete native RHI
 objects. Recording never waits for native compilation.
 
@@ -257,8 +243,8 @@ at `ResolvePipelineStage_RenderThread`. Only that phase is revisited to publish
 completed slot candidates; scene collection and logical preparation are retained.
 The batch returns Empty, Ready, Failed, WaitUnavailable or CapacityExceeded, rather
 than a boolean that conflates an empty batch with a failed wait. All admitted
-requests are joined even if one fails. Terminal failures are resolved through the
-owning slots so their diagnostics and retry policy remain authoritative.
+requests are joined even if one fails. Preparation and admission errors remain owned by their slots; native creation
+faults cannot reach this batch as recoverable failures.
 Each phase admits at most 4,096 joined observations, including dependent request
 waves; overflow is explicit. A consumed graph is never replayed. Replacements join the same consumption batch
 as initial creation. Multi-PSO groups publish only when all members are Ready.
@@ -312,9 +298,8 @@ not initialize an ordinary map, perform a raw lookup, or cast a shader.
 Shader sets are independently demandable, so one unavailable class skips only
 dependent batches. Output/depth/blend/shader-class pipeline keys retain the
 exact typed shader refs used to create them. Persistent vertex and index upload
-buffers grow to bounded power-of-two capacities; a failed allocation publishes
-no partial batch, reports once for the current device generation, and becomes
-eligible again on the next frame. Device invalidation releases pipelines,
+buffers grow to bounded power-of-two capacities through required-success
+native factories. Device invalidation releases pipelines,
 declarations, atlas resources, and upload buffers before lazy reconstruction;
 shutdown performs the same ordered release.
 
@@ -322,13 +307,12 @@ Each owner tracks independent shader, device, and manual generations. Successful
 payloads remain cached until a relevant generation changes. Shader preparation
 failures retain their owned cause and retry dependencies, suppressing repeated
 attempts until a relevant generation changes. Native resource and pipeline
-creation failures allow another attempt on the next preparation; there is no
-failure classification or generation-based native retry state.
+creation failures terminate; no next-preparation native retry exists.
 
 `FRenderResourceCreateError` owns an optional Shader cause plus resource context,
 identity, category and reason. Native error details remain at the backend logging
-boundary. Async pipeline requests publish Failed with an empty pipeline result;
-request scopes do not forward backend causes. `FormatRenderResourceCreateError`
+boundary. Async native failures terminate rather than publishing an empty
+pipeline result; request scopes retain only admission and preparation outcomes. `FormatRenderResourceCreateError`
 formats owner diagnostics when they are reported. Material validation formats its
 own typed error at its logging boundary.
 
@@ -372,17 +356,17 @@ pass. The pool key contains the complete allocation-compatible descriptor and
 excludes diagnostic names, observation tags, and feature identity. Texture and
 buffer requests share whole-batch reservation, pre-allocation
 eviction, rollback, publication, and error reporting; only typed RHI creation
-differs. `RHICreateTexture` and `RHICreateBuffer` return complete resources or
-null; backend logs retain the native creation diagnostic. RDG reports the failed
-resource identity without transporting a backend cause or classifying failures.
-Device loss and invariant failures remain terminal.
+differs. `RHICreateTexture` and `RHICreateBuffer` return complete resources.
+Native allocation failure terminates; RDG does not report a retryable physical
+allocation failure or inject one into production allocation logic.
 
-A failed batch rolls back every newly materialized candidate, drops unreserved
-idle cache, and publishes no graph allocation or extraction destination. The
+A rejected logical batch rolls back newly retained candidates and publishes
+no graph allocation or extraction destination. The
 graph returns a preparation failure before recording any pass.
 
 The allocator retains no failed-descriptor cache, retry counter, or cooldown.
-A later graph execution may immediately attempt missing allocations again.
+A later graph execution may retry a rejected logical reservation. Native
+allocation failures have no later graph execution in the same process.
 Before a later creation attempt, RHI collects completed retirement without
 prematurely deleting in-flight resources. A new attempt always needs a newly
 authored builder. Compile or preparation failure consumes the current builder; retrying the same builder returns
@@ -409,7 +393,7 @@ Renderer owns these development commands:
 - `renderer.reload-shaders all` advances shader generation and forces
   compilation for each next-demanded shader candidate.
 - `renderer.retry-resources` advances manual generation for eligible failed
-  resources.
+  shader/content preparation; it does not recover native resource failures.
 
 Console callbacks enqueue one render command. Views submitted before that
 command retain the old generation; later views observe the new one. Resource

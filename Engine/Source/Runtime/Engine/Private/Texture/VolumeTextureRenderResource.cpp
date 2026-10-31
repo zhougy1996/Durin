@@ -31,18 +31,10 @@ namespace Durin
 			.SetFormat(Input->PixelFormat)
 			.SetNumMips(static_cast<uint8>(Input->Mips.size()))
 			.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::DestinationCopy);
-		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
-		{
-			DURIN_WARN("VolumeTexture description is unsupported by the RHI (format: {}).", static_cast<uint32>(Desc.Format));
-			return;
-		}
+
 		auto& CommandList = static_cast<FRHICommandListImmediate&>(RHICmdList);
 		FTextureRHIRef NewTexture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
-		if (!NewTexture)
-		{
-			DURIN_WARN("VolumeTexture GPU texture allocation failed.");
-			return;
-		}
+
 		for (uint32 MipIndex = 0; MipIndex < Input->Mips.size(); ++MipIndex)
 		{
 			const FVolumeTextureMipData& Mip = Input->Mips[MipIndex];

@@ -40,7 +40,6 @@ namespace Durin
 		RebuildDerivedData,
 		RestoreEditorCompanion,
 		Recook,
-		RetryRuntimeResource,
 		RemoveOrphan,
 		UpgradeOrResave
 	};

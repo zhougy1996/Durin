@@ -63,7 +63,7 @@ namespace Durin
 		Unavailable,
 		Queued,
 		Ready,
-		Failed
+		InvalidData // Invalid CPU geometry; native creation failures terminate.
 	};
 
 	// Pairs readiness with the asset-local revision that must still match before publication.
@@ -188,7 +188,7 @@ namespace Durin
 		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
 		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
 		// Queues GPU initialization for resident CPU data; query GetRenderResourceStatus()
-		// for readiness. Explicit calls retry failed GPU initialization without reloading CPU data.
+		// for readiness. Invalid CPU data remains diagnosable; native creation failure terminates.
 		ENGINE_API auto InitResources() -> void;
 		// Releases GPU resources in render-command order, retaining resident CPU data.
 		// InitResources() can immediately queue initialization again.

@@ -68,8 +68,8 @@ namespace Durin
 		auto OverrideQualificationAfterAuthoring(uint64) -> void
 		{
 			GRecordingQualificationOverride = std::make_unique<FScopedRendererQualificationPolicy>(
-				FRendererQualificationPolicy{.GPUCullingFailure = EGPUCullingFailure::CommandAdmission,
-					.FailedAllocationObservation = static_cast<uint32>(ERDGAllocationObservation::Scene)});
+				FRendererQualificationPolicy{.GPUCullingFailure = EGPUCullingFailure::CommandAdmission}
+			);
 		}
 
 		FViewRenderTelemetry GSceneCloudTelemetry;
@@ -369,7 +369,7 @@ namespace Durin
 					SelectedPolicy.RasterFailure = Failure;
 					FScopedRendererQualificationPolicy Qualification(SelectedPolicy);
 					const bool bDeliberatelyPending = Policy.PendingFeature != EScenePreparationPending::None || Policy.PendingPrimitive.has_value() || Policy.PendingShadowPrimitive.has_value();
-					const bool Prepare = Failure == ESceneRasterFailure::None && !Policy.FailedAllocationObservation;
+					const bool Prepare = Failure == ESceneRasterFailure::None;
 					Renderer.BeginFrame_RenderThread(CommandList);
 					if (Prepare)
 					{
@@ -410,9 +410,8 @@ namespace Durin
 				if (*Result != ERenderViewResult::RendererResourcesPending) break;
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			} while (std::chrono::steady_clock::now() < Deadline);
-			const auto Expected = Failure == ESceneRasterFailure::HybridBootstrap || Failure == ESceneRasterFailure::Forward
-				? ERenderViewResult::RequiredEnvironmentUnavailable
-				: Failure != ESceneRasterFailure::None || ExtraPolicy.FailedAllocationObservation ? ERenderViewResult::RendererResourcesUnavailable : ERenderViewResult::Success;
+			const auto Expected = Failure == ESceneRasterFailure::HybridBootstrap || Failure == ESceneRasterFailure::Forward ? ERenderViewResult::RequiredEnvironmentUnavailable : Failure != ESceneRasterFailure::None ? ERenderViewResult::RendererResourcesUnavailable :
+																																																						  ERenderViewResult::Success;
 			EXPECT_EQ(*Result, Expected);
 			++OffscreenOrdinal;
 			std::cout << "RDG_SCENE_CASE index=" << OffscreenOrdinal
@@ -518,7 +517,13 @@ namespace Durin
 								: State == ERenderResourcePreparationState::Ready ? Renderer.RenderView(CommandList, Request)
 								: ERenderViewResult::RendererResourcesUnavailable;
 						}
-						CommandList.EndDrawingViewport(Viewport, *Result == ERenderViewResult::Success, false);
+						if (*Result != ERenderViewResult::Success && BackBuffer)
+							CommandList.TransitionTextures(std::array{FRHITextureTransition::Whole(
+								BackBuffer, ERHIAccess::Discard, ERHIAccess::Present
+							)});
+						// Preparation can span frames. Present each acquired image even while
+						// drawing is Pending, otherwise the test exhausts swapchain acquisition.
+						CommandList.EndDrawingViewport(Viewport, true, false);
 						GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					}
 				);
@@ -996,15 +1001,7 @@ namespace Durin
 			EXPECT_EQ(*Reference, *RenderOffscreen(false, false));
 			EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 1u);
 			bOverrideDuringRecording = false;
-			for (const auto Tag : {ERDGAllocationObservation::GPUCullingCandidates, ERDGAllocationObservation::GPUCullingVisible,
-				ERDGAllocationObservation::GPUCullingArguments, ERDGAllocationObservation::GPUCullingTransforms})
-			{
-				ExtraPolicy.FailedAllocationObservation = static_cast<uint32>(Tag);
-				RenderOffscreen(false, false);
-				ExtraPolicy = {};
-				EXPECT_EQ(*Reference, *RenderOffscreen(false, false));
-				EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 1u);
-			}
+
 			for (const auto Cause : {ERendererResourceInvalidationCause::ShaderChanged,
 				ERendererResourceInvalidationCause::Device, ERendererResourceInvalidationCause::ManualRetry})
 			{

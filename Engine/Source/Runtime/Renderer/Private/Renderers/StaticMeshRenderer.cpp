@@ -437,8 +437,9 @@ namespace Durin
 					*ShaderMapPayload, VertexFactory.Declaration, Candidate);
 				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::GraphicsPipeline, "StaticMeshPipeline", GetIdentityText(EffectivePipelineKey),
-					ERenderResourceCreateErrorReason::PipelineCreationFailed,
-					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
+					ERenderResourceCreateErrorReason::PipelinePreparationRejected,
+					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
+				));
 				return FPipelineResult::Success(std::make_shared<const FMeshPassPipeline>(std::move(Candidate)));
 			},
 			ReportRendererResourceCreateDiagnostic

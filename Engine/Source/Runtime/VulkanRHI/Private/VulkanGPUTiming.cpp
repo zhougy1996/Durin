@@ -1,4 +1,5 @@
 #include "VulkanGPUTiming.h"
+#include "Backend/RHICreation.h"
 
 
 #include "RHICommandList.h"
@@ -78,7 +79,7 @@ namespace Durin::VulkanRHI
 		const uint64 Pending = Statistics.PendingIntervals;
 		const uint64 Ready = Statistics.ReadyIntervals;
 		Statistics = {};
-		Statistics.IntervalCapacity = MaxPageCount * IntervalsPerPage;
+		Statistics.IntervalCapacity = Pages.size() * IntervalsPerPage;
 		Statistics.AllocatedPages = PagesValue;
 		Statistics.LiveIntervals = Live;
 		Statistics.PendingIntervals = Pending;
@@ -87,32 +88,23 @@ namespace Durin::VulkanRHI
 		FRHIGPUTimingQuery::ResetInvalidRecordingCount();
 	}
 
-	auto FVulkanGPUTimingManager::AddPage() -> bool
+	auto FVulkanGPUTimingManager::AddPage() -> void
 	{
-		if (Pages.size() >= MaxPageCount) return false;
 		vk::QueryPoolCreateInfo Info;
 		Info.setQueryType(vk::QueryType::eTimestamp)
 			.setQueryCount(IntervalsPerPage * 2);
 		FPage Page;
-		try
-		{
+
 			Page.Handle = Device.GetHandle().createQueryPool(Info);
 			Device.GetRHI().GetDebugUtils().NameObjectLazy(Page.Handle,
 				[&] { return std::format("Durin.TimestampQueryPool.{}", Pages.size()); });
 			Pages.push_back(std::move(Page));
-		}
-		catch (const vk::SystemError& Error)
-		{
-			if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
-			++Statistics.AllocationFailureCount;
-			return false;
-		}
+
 		Statistics.AllocatedPages = Pages.size();
-		return true;
+		Statistics.IntervalCapacity = Pages.size() * IntervalsPerPage;
 	}
 
-	auto FVulkanGPUTimingManager::CreateQuery()
-		-> TRefCountPtr<FVulkanGPUTimingQuery>
+	auto FVulkanGPUTimingManager::CreateQuery() noexcept -> TRefCountPtr<FVulkanGPUTimingQuery>
 	{
 		CheckRHIExecutionThread();
 		for (;;)
@@ -127,18 +119,15 @@ namespace Durin::VulkanRHI
 					const uint32 Generation = ++Page.Generations[Interval];
 					++Statistics.LiveIntervals;
 					Statistics.IntervalHighWater = std::max(
-						Statistics.IntervalHighWater, Statistics.LiveIntervals);
+						Statistics.IntervalHighWater, Statistics.LiveIntervals
+					);
 					if (Generation > 1) ++Statistics.ReuseCount;
 					return new FVulkanGPUTimingQuery(
-						*this, PageIndex, Interval, Generation);
+						*this, PageIndex, Interval, Generation
+					);
 				}
 			}
-			if (Pages.size() >= MaxPageCount)
-			{
-				++Statistics.ExhaustionCount;
-				return nullptr;
-			}
-			if (!AddPage()) return nullptr;
+			AddPage();
 		}
 	}
 

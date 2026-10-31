@@ -78,7 +78,6 @@ namespace Durin::Editor::Texture
 			case ETexturePayloadRepairAction::RebuildDerivedData: return "Rebuild derived data";
 			case ETexturePayloadRepairAction::RestoreEditorCompanion: return "Restore editor companion";
 			case ETexturePayloadRepairAction::Recook: return "Recook";
-			case ETexturePayloadRepairAction::RetryRuntimeResource: return "Retry runtime resource";
 			case ETexturePayloadRepairAction::RemoveOrphan: return "Remove orphan";
 			case ETexturePayloadRepairAction::UpgradeOrResave: return "Upgrade or resave";
 			}
@@ -441,36 +440,23 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
 	{
 		const bool bPending = !Texture->IsAsyncCacheComplete();
-		const bool bResourceFailed = Texture->GetResource() && !Texture->HasPendingRenderResourceInitialization()
-			&& !Texture->GetResource()->GetTextureRHI_GameThread();
-		if ((bPending || Texture->HasPlatformData() || !Texture->GetSource().IsValid())
-			&& !bResourceFailed) return;
+		if (bPending || Texture->HasPlatformData() || !Texture->GetSource().IsValid()) return;
 		const char* Title = "Platform Data Unavailable";
 		ImVec4 TitleColor(1.0f, 0.5f, 0.3f, 1.0f); // Amber default
-		std::string Message;
-		if (bResourceFailed)
-		{
-			Title = "GPU Texture Update Failed";
-			Message = "The texture resource could not be updated. See the log for details.";
-		}
-		else if (Message.empty())
-		{
-			Message = "The platform texture data is not available. Rebuild the texture; see the log if it fails.";
-		}
+		const char* Message = "The platform texture data is not available. Rebuild the texture; see the log if it fails.";
 
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.08f, 0.08f, 0.5f));
 		ImGui::BeginChild("TextureFailureState", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
 		ImGui::TextColored(TitleColor, "%s", Title);
 		ImGui::Spacing();
 		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.9f, 0.85f, 1.0f));
-		ImGui::TextWrapped("%s", Message.c_str());
+		ImGui::TextWrapped("%s", Message);
 		ImGui::PopStyleColor();
 
 		ImGui::Spacing();
-		if (ImGui::Button(bResourceFailed ? "Retry GPU Update" : "Retry Build"))
+		if (ImGui::Button("Retry Build"))
 		{
-			if (bResourceFailed) Texture->UpdateResource();
-			else Texture->PostLoad();
+			Texture->PostLoad();
 		}
 
 		ImGui::EndChild();

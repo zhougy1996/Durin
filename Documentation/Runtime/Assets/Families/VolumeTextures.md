@@ -193,8 +193,8 @@ companions are not a supported production route. Live
 inspection independently reports source, DDC/platform,
 cooked field/segment, decoded CPU, and GPU stages. Missing/corrupt authored bulk
 maps to restore, canonical resave, or reimport; DDC failure maps to rebuild,
-cooked failure maps to recook,
-and GPU failure maps to resource retry.
+cooked failure maps to recook. Native GPU allocation failures terminate through
+RHI; live inspection has no native-failure resource retry action.
 
 `FVolumeTextureResource` creates a public `Texture3D` descriptor with sampled
 usage, qualifies the exact format/extent/mip set, and uploads every mip through

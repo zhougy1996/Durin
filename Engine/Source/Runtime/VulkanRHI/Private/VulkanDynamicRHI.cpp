@@ -1,4 +1,5 @@
 #include "VulkanDynamicRHI.h"
+#include "Backend/RHICreation.h"
 
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
@@ -306,10 +307,10 @@ namespace Durin::VulkanRHI
 			Compute->RHIBeginFrame(Args);
 	}
 
-	auto FVulkanDynamicRHI::RHICreateGPUTimingQuery()
-		-> TRefCountPtr<FRHIGPUTimingQuery>
+	auto FVulkanDynamicRHI::RHICreateGPUTimingQuery() noexcept -> TRefCountPtr<FRHIGPUTimingQuery>
 	{
-		if (!RHIGetCapabilities()->bSupportsGPUTimestamps) return nullptr;
+		if (!RHIGetCapabilities()->bSupportsGPUTimestamps)
+			RHITerminateOnFailure("Vulkan timing query", "GPU timestamps are unsupported");
 		TRefCountPtr<FRHIGPUTimingQuery> Result;
 		if (IsInRHIThread())
 			return Device->GetGPUTimingManager().CreateQuery();

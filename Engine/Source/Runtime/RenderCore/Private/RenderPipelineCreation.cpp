@@ -1,4 +1,5 @@
 #include "RenderPipelineCreation.h"
+#include "Backend/RHICreation.h"
 #include "RenderResourceCreation.h"
 #include "DynamicRHI.h"
 #include "RenderResourcePreparation.h"
@@ -98,7 +99,10 @@ namespace Durin
 				}
 				return Result;
 			}
-			catch (const std::bad_alloc&) { RetryAdmission = true; return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
+			catch (const std::bad_alloc&)
+			{
+				RHITerminateOnFailure("render pipeline request", "out of memory");
+			}
 		}
 	};
 

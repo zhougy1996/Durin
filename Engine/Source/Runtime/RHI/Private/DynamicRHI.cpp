@@ -1,3 +1,4 @@
+#include "Backend/RHICreation.h"
 #include "DynamicRHI.h"
 #include "Backend/RHIValidation.h"
 #include "PipelineStateCache.h"
@@ -16,6 +17,15 @@ namespace Durin
 	{
 		static const FRHIQueueCapabilities Unsupported;
 		return Unsupported;
+	}
+
+	auto FDynamicRHI::RHICreateAliasedTexture(const FRHITextureCreateDesc&, FRHITexture*) noexcept -> FTextureRHIRef
+	{
+		RHITerminateOnFailure("aliased texture creation", "transient aliasing unsupported");
+	}
+	auto FDynamicRHI::RHICreateAliasedBuffer(const FRHIBufferCreateDesc&, FRHIBuffer*) noexcept -> FBufferRHIRef
+	{
+		RHITerminateOnFailure("aliased buffer creation", "transient aliasing unsupported");
 	}
 
 	auto FDynamicRHI::RHICreateQueueTransfer(const FRHIQueueTransferDesc&) -> std::shared_ptr<FRHIQueueTransfer>
@@ -89,8 +99,7 @@ namespace Durin
 			S.Timing.AllocationFailureCount);
 	}
 
-	auto FDynamicRHI::RHICreateGPUTimingQuery()
-		-> TRefCountPtr<FRHIGPUTimingQuery>
+	auto FDynamicRHI::RHICreateGPUTimingQuery() noexcept -> TRefCountPtr<FRHIGPUTimingQuery>
 	{
 		return nullptr;
 	}
@@ -122,17 +131,19 @@ namespace Durin
 
 	auto FDynamicRHI::RHICreateBufferView(
 		FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
+		const FRHIBufferViewDesc& Desc
+	) noexcept -> TRefCountPtr<FRHIBufferView>
 	{
-		if (!ValidateBufferViewDesc(Buffer, Desc)) return nullptr;
+		if (!ValidateBufferViewDesc(Buffer, Desc)) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		return new FRHIBufferView(Buffer, Desc);
 	}
 
 	auto FDynamicRHI::RHICreateTextureView(
 		FRHITexture* Texture,
-		const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>
+		const FRHITextureViewDesc& Desc
+	) noexcept -> TRefCountPtr<FRHITextureView>
 	{
-		if (!ValidateTextureViewDesc(Texture, Desc)) return nullptr;
+		if (!ValidateTextureViewDesc(Texture, Desc)) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		return new FRHITextureView(Texture, Desc);
 	}
 
@@ -157,11 +168,9 @@ namespace Durin
 		return Capabilities ? &*Capabilities : nullptr;
 	}
 
-	auto FDynamicRHI::RHICreateComputePipelineState(FName,
-		const FComputePipelineStateInitializer&)
-		-> TRefCountPtr<FRHIComputePipelineState>
+	auto FDynamicRHI::RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&) noexcept -> TRefCountPtr<FRHIComputePipelineState>
 	{
-		return nullptr;
+		RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 	}
 
 	auto FDynamicRHI::RHIGetPipelineCacheStatistics() const

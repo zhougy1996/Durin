@@ -53,8 +53,8 @@ may report `InvalidDescription`.
 `ToString` formats at presentation boundaries; semantic tests assert codes and
 context, never classify by text. Formatting lives in `RHIErrorStrings.cpp`.
 
-`RHICreateTexture`/`RHICreateBuffer` return a complete resource or null;
-backends log recoverable creation failures locally. Thread work
+`RHICreateTexture`/`RHICreateBuffer` return complete resources; native failures
+terminate through the required-success boundary below. Thread work
 callbacks return `void`; the queue does not catch execution exceptions. An
 exception escaping the RHI worker terminates the process; inline execution
 propagates it to the caller. Explicit external failure notification stops
@@ -66,13 +66,11 @@ exception to the initialization operation's handler. The RHI owner
 then destroys the failed backend and releases its module; it does not call
 runtime `Shutdown` on a partially initialized backend. Device/invariant failures
 stay terminal.
-Vulkan startup propagates original enumeration and native-creation exceptions
-to that initialization boundary. Direct native resource factories translate
-recoverable failures into null resources; ordered synchronous factories
-retain the narrow creation-exception boundary described below. Unpublished
-buffer, image, and view candidates use scope ownership for failure cleanup.
-Vulkan startup and swapchain configuration may use local human-readable reasons;
-success follows result state and native retry policy follows `vk::Result`.
+Vulkan startup propagates original enumeration and initialization exceptions
+to that initialization boundary. Ordinary native resource factories use the
+required-success contract below. Unpublished buffer, image, and view candidates
+retain scope ownership. Vulkan startup and swapchain configuration may use local
+human-readable reasons; swapchain status handling follows `vk::Result`.
 
 ## Command-List Roles
 
@@ -297,32 +295,39 @@ Recorded commands retain their returned view references independently of cache
 eviction, and backend shutdown clears the cache before device teardown so view
 destruction continues through ordinary ordered and GPU-safe retirement.
 
-### Nullable Resource Creation
+### Required-Success Resource Creation
 
-Runtime resource factories return complete references or null. Vulkan translates
-recoverable native errors locally, logging native status without transporting a
-failure classification through RHI or RenderCore. Cache capacity exceptions remain
-internal to construction and request admission. Device loss and invariant errors
-propagate as terminal exceptions.
+Ordinary native buffer, texture, shader, sampler, view, vertex-declaration and
+pipeline factories return complete non-null resources on normal return. Validate
+external asset inputs and choose supported capabilities before native creation.
+Cache lookup misses and request admission results remain distinct from creation.
 
-Allocation failures retain their native result and counters. Resource factories
-own the creation failure log; allocation helpers do not capture heap-budget
-snapshots or repeat that log. Heap budgets remain available through explicit
-memory statistics queries.
+Ordinary native creation APIs and the asynchronous creator execution boundary
+are `noexcept`. Internal C++ exceptions propagate naturally; crossing that
+boundary invokes the process's existing `std::terminate` policy before asset or
+Task catch blocks can turn native failure into a recoverable result. Factories
+do not repeat try/catch blocks. Host `bad_alloc` cannot become a Failed resource.
 
-Buffer, texture, texture-view, shader, graphics-pipeline, compute-pipeline, and
-sampler factories must publish complete resources. A non-null wrapper with an
-invalid native handle or allocation is forbidden. Vertex declarations copy CPU
-descriptions directly. Context-dependent creation uses ordinary synchronous RHI
-execution; the executor does not wrap creation exceptions.
+Returned native error codes/null handles use the common `RHITerminateOnFailure`
+checker: a bounded stack-buffer diagnostic is written directly to stderr;
+Windows `TerminateProcess` or POSIX `std::_Exit(EXIT_FAILURE)` exits without
+normal teardown. Windows CRT exit is avoided because DLL detach callbacks would
+otherwise execute on the failing worker. Native OOM uses this same boundary.
+The existing process terminate/crash policy owns unhandled C++ exceptions;
+its diagnostic and exit code need not match returned-native-error termination.
+Neither path performs per-resource fallback, retries or device recovery.
 
-Pipeline creation returns its native result explicitly. The failure branch
-releases the earlier layout and any returned pipeline before error translation;
-no generic creation guard is involved. Constructors do not
-promise rollback for terminal exceptions from naming or container allocation.
-A later preparation may create a fresh candidate after a recoverable failure.
-Vulkan vertex declarations only copy CPU metadata and are created directly,
-without native-failure translation or RHI-thread replay.
+Explicit description/request metadata budgets retain CapacityExceeded before
+admission. Actual host allocator exhaustion is terminal. Backend-native cache
+limits preserve their existing eviction/reservation policy; exhaustion with all
+entries pinned is a terminal configuration failure, not a retryable allocation.
+
+Shader source compilation, asset I/O/decoding, validation, stale candidates,
+Pending PSO work, closure and cancellation retain their owning result contracts.
+Unsupported optional features are selected before native creation. There is no
+general TryCreate family or recoverable-native-result policy. GPU timing query
+creation on supported devices grows storage as needed; unsupported timestamps
+are handled through capabilities and measurement readiness remains asynchronous.
 
 These readiness postconditions apply to all native buffer factories, including
 structured and byte-address buffers. `CreateUniformBuffer` returns a dedicated
@@ -337,8 +342,8 @@ Graphics-pipeline initialization owns complete portable rasterizer,
 multisample, depth/stencil, per-active-attachment blend/write-mask, structural
 vertex-input, topology, shader, reflected-layout, and render-target state.
 `BuildGraphicsPipelineStateKey` validates and canonicalizes every field before
-fallible backend creation, so the public result is always a compatible complete
-PSO or null. Non-indexed and indexed command records carry exact instance,
+required-success backend creation, so normal return yields a compatible complete
+PSO. Non-indexed and indexed command records carry exact instance,
 first-location, and base-vertex arguments. See
 [Graphics State and Bindings](GraphicsStateAndBindings.md).
 

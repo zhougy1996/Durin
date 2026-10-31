@@ -194,13 +194,7 @@ namespace Durin
 					TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
 				FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
 				if (ComputeRHI == nullptr)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"ContactVisibilityCompute", "pipeline",
-						ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+					return FResult::Pending();
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = ComputeRHI;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
@@ -210,10 +204,11 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"ContactVisibilityCompute", "pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
 			!= nullptr;
@@ -257,13 +252,7 @@ namespace Durin
 				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
 				if (VertexRHI == nullptr || FragmentRHI == nullptr)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"ContactVisibility", "pipeline",
-						ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+					return FResult::Pending();
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeContactVisibilityOutput();
@@ -279,10 +268,11 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"ContactVisibility", "pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
 			!= nullptr;
@@ -395,7 +385,7 @@ namespace Durin
 			if (!Policy.bGraphManagedTextureAccess)
 				CommandList.TransitionTextures(InputTransitions);
 			FGPUTimingQueryRHIRef TimingQuery;
-			if (TimingSink != nullptr && GDynamicRHI != nullptr)
+			if (TimingSink != nullptr && GDynamicRHI != nullptr && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
 			{
 				TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 				if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
@@ -449,7 +439,7 @@ namespace Durin
 		FRHIBuffer* VertexBuffer = FullscreenGeometry.GetVertexBuffer_RenderThread();
 		FRHIBuffer* IndexBuffer = FullscreenGeometry.GetIndexBuffer_RenderThread();
 		FGPUTimingQueryRHIRef TimingQuery;
-		if (TimingSink != nullptr && GDynamicRHI != nullptr)
+		if (TimingSink != nullptr && GDynamicRHI != nullptr && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
 		{
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);

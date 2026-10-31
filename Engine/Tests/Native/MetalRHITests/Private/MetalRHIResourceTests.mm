@@ -386,7 +386,7 @@ TEST(FMetalRHIBufferTests, SamplersCreateWithSupportedState)
 			EXPECT_NE(Durin::GDynamicRHI->RHICreateSampler(CompareDesc).GetReference(), nullptr);
 			auto InvalidDesc = Durin::FRHISamplerDesc::PointClamp();
 			InvalidDesc.bUnnormalizedCoordinates = true;
-			EXPECT_EQ(Durin::GDynamicRHI->RHICreateSampler(InvalidDesc).GetReference(), nullptr);
+			EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateSampler(InvalidDesc).GetReference()), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
 		});
 		Durin::RHIExit();
 	}
@@ -413,8 +413,8 @@ TEST(FMetalRHIBufferTests, BufferViewsValidateRangesAndRetainParent)
 			EXPECT_EQ(View->GetDesc(), ViewDesc);
 			const Durin::FRHIBufferViewDesc InvalidDesc{
 				.Offset = 60, .Size = 16, .Type = Durin::ERHIBufferViewType::Uniform};
-			EXPECT_EQ(Durin::GDynamicRHI->RHICreateBufferView(Buffer.GetReference(), InvalidDesc)
-				.GetReference(), nullptr);
+			EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateBufferView(Buffer.GetReference(), InvalidDesc)
+				.GetReference()), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
 			Buffer = nullptr;
 			ASSERT_NE(View->GetBuffer(), nullptr);
 			EXPECT_NE(static_cast<Durin::FMetalBuffer*>(View->GetBuffer())->GetHandle(), nullptr);
@@ -1110,8 +1110,8 @@ TEST(FMetalRHITextureTests, RecordedBufferTextureRoundTripCompletesOnGPU)
 				ASSERT_NE(View.GetReference(), nullptr);
 				auto SampledViewDesc = ViewDesc;
 				SampledViewDesc.Usage = Durin::ERHITextureViewUsage::Sampled;
-				EXPECT_EQ(Durin::GDynamicRHI->RHICreateTextureView(
-					FirstTexture.GetReference(), SampledViewDesc).GetReference(), nullptr);
+				EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateTextureView(
+					FirstTexture.GetReference(), SampledViewDesc).GetReference()), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
 				auto SourceDesc = Durin::FRHIBufferCreateDesc::Create("Texture source", ByteCount, 1,
 					Durin::EBufferUsageFlags::SourceCopy);
 				SourceDesc.InitialData = {.Data = Pattern, .Size = ByteCount};
@@ -1857,8 +1857,8 @@ TEST(FMetalRHITextureTests, BC5AndBC7UploadPitchedBlockRowsAndMipTails)
 							auto Unsupported = Desc;
 							Unsupported.SetFlags(Desc.Flags | Flag);
 							EXPECT_FALSE(Durin::GDynamicRHI->RHIIsTextureSupported(Unsupported));
-							EXPECT_FALSE(Durin::GDynamicRHI->RHICreateTexture(Commands,
-								Unsupported));
+							EXPECT_EXIT((void)(Durin::GDynamicRHI->RHICreateTexture(Commands,
+								Unsupported)), testing::ExitedWithCode(EXIT_FAILURE), "RHI terminal failure");
 						}
 						auto Created = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
 						if (!bSupportsBC)

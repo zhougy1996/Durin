@@ -157,7 +157,6 @@ namespace Durin
 		FBufferRHIRef IndexBuffer;
 		uint32 VertexCapacity = 0;
 		uint32 IndexCapacity = 0;
-		std::optional<FRenderResourceGeneration> BufferFailureGeneration;
 	};
 
 	FSimpleElementRenderer::FSimpleElementRenderer(
@@ -295,40 +294,14 @@ namespace Durin
 						&& Candidate.SpriteFragmentShader
 						&& Candidate.SpriteVertexDeclaration
 						&& Candidate.EditorIconAtlas && Candidate.Sampler;
-				if (Candidate.LineShaderSet && !bLineReady)
-				{
-					ReportRendererResourceCreateDiagnostic({
-						.Error = MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"SimpleElement", "line-base",
-							ERenderResourceCreateErrorReason::ResourceCreationFailed,
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual),
-					});
-				}
-				if (Candidate.SpriteShaderSet && !bSpriteReady)
-				{
-					ReportRendererResourceCreateDiagnostic({
-						.Error = MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"SimpleElement", "sprite-base",
-							ERenderResourceCreateErrorReason::ResourceCreationFailed,
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual),
-					});
-				}
+
 				if (!bLineReady)
 					Candidate.LineShaderSet = {};
 				if (!bSpriteReady)
 					Candidate.SpriteShaderSet = {};
 				if (!bLineReady && !bSpriteReady)
 				{
-					return FBaseResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"SimpleElement", "base",
-						ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+					return FBaseResult::Pending();
 				}
 				return FBaseResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
@@ -362,21 +335,7 @@ namespace Durin
 			static_cast<uint32>(Vertices.size() * sizeof(FSimpleElementVertex));
 		const uint32 IndexBytes =
 			static_cast<uint32>(Indices.size() * sizeof(uint32));
-		const FRenderResourceGeneration& Generation =
-			Coordinator.GetGeneration_RenderThread();
-		auto ReportBufferFailure = [this, &Generation](std::string Identity) {
-			if (State->BufferFailureGeneration == Generation)
-				return;
-			State->BufferFailureGeneration = Generation;
-			ReportRendererResourceCreateDiagnostic({
-				.Error = MakeRendererResourceCreateError(
-					ERenderResourceCreateErrorCategory::RHIResource,
-					"SimpleElement", std::move(Identity),
-					ERenderResourceCreateErrorReason::ResourceCreationFailed,
-					ERenderResourceGenerationDependency::Device
-						| ERenderResourceGenerationDependency::Manual),
-			});
-		};
+
 		if (VertexBytes > State->VertexCapacity)
 		{
 			const uint32 Capacity = std::bit_ceil(VertexBytes);
@@ -384,11 +343,6 @@ namespace Durin
 				"SimpleElementVertexBuffer", Capacity);
 			Desc.Usage |= EBufferUsageFlags::Dynamic;
 			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(CommandList, Desc);
-			if (!Buffer)
-			{
-				ReportBufferFailure("vertex-buffer");
-				return Prepared;
-			}
 			State->VertexBuffer = std::move(Buffer);
 			State->VertexCapacity = Capacity;
 		}
@@ -399,11 +353,6 @@ namespace Durin
 				"SimpleElementIndexBuffer", Capacity, sizeof(uint32));
 			Desc.Usage |= EBufferUsageFlags::Dynamic;
 			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(CommandList, Desc);
-			if (!Buffer)
-			{
-				ReportBufferFailure("index-buffer");
-				return Prepared;
-			}
 			State->IndexBuffer = std::move(Buffer);
 			State->IndexCapacity = Capacity;
 		}
@@ -417,7 +366,6 @@ namespace Durin
 			FRHIBufferTransition{State->IndexBuffer, 0, IndexBytes,
 				ERHIAccess::TransferWrite, ERHIAccess::IndexBufferRead}};
 		CommandList.TransitionBuffers(BufferTransitions);
-		State->BufferFailureGeneration.reset();
 
 		for (const FPendingDraw& Pending : PendingDraws)
 		{
@@ -477,10 +425,11 @@ namespace Durin
 						return FPipelineResult::Failure(MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
 							"SimpleElement", PipelineName,
-							ERenderResourceCreateErrorReason::PipelineCreationFailed,
+							ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual
+						));
 					}
 					return FPipelineResult::Success({
 						.Pipeline = std::move(Candidate), .ShaderSet = ShaderSet});
@@ -575,6 +524,5 @@ namespace Durin
 		State->IndexBuffer = nullptr;
 		State->VertexCapacity = 0;
 		State->IndexCapacity = 0;
-		State->BufferFailureGeneration.reset();
 	}
 } // namespace Durin

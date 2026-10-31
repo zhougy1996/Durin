@@ -328,7 +328,6 @@ namespace Durin
 		}
 		catch (const FRenderResourcePreparationYield&) { Result = ERenderViewResult::RendererResourcesPending; }
 		catch (const FRenderResourcePreparationCapacityExceeded&) {}
-		catch (const std::bad_alloc&) {}
 		Scope.Complete(Result == ERenderViewResult::Success ? ERenderResourcePreparationState::Ready
 			: Result == ERenderViewResult::RendererResourcesPending ? ERenderResourcePreparationState::Pending
 			: ERenderResourcePreparationState::Failed);

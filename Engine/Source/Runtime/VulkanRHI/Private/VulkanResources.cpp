@@ -1,4 +1,5 @@
 #include "VulkanResources.h"
+#include "Backend/RHICreation.h"
 
 #include "VulkanDynamicRHI.h"
 
@@ -9,7 +10,7 @@ namespace Durin::VulkanRHI
 	{
 	}
 
-	auto FVulkanDynamicRHI::RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration>
+	auto FVulkanDynamicRHI::RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) noexcept -> TRefCountPtr<FRHIVertexDeclaration>
 	{
 		TRefCountPtr<FRHIVertexDeclaration> Result = new FVulkanVertexDeclaration(Elements);
 		return Result;

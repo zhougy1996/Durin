@@ -170,7 +170,7 @@ namespace Durin::Editor::StaticMesh
 				case EStaticMeshRenderResourceReadiness::Queued:
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
-				case EStaticMeshRenderResourceReadiness::Failed:
+				case EStaticMeshRenderResourceReadiness::InvalidData:
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.Diagnostic = QualifyDiagnostic(

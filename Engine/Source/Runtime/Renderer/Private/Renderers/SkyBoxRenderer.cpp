@@ -125,17 +125,7 @@ namespace Durin
 					Candidate.FragmentShader.GetRHIShader(false);
 				if (VertexRHI == nullptr || FragmentRHI == nullptr)
 				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"SkyBox",
-							"default",
-							ERenderResourceCreateErrorReason::ShaderCreationFailed,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual
-						)
-					);
+					return FResult::Pending();
 				}
 
 				const FVertexDeclarationElementList EmptyVertexElements{};
@@ -183,22 +173,7 @@ namespace Durin
 				Candidate.IndexBuffer = RHICreateBuffer(IndexBufferDesc);
 				Candidate.Sampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
-				if (Candidate.VertexDeclaration == nullptr
-					|| Candidate.IndexBuffer == nullptr
-					|| Candidate.Sampler == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"SkyBox",
-							"default",
-							ERenderResourceCreateErrorReason::ResourceCreationFailed,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual
-						)
-					);
-				}
+
 				if (Candidate.PipelineState == nullptr
 					|| Candidate.HybridBootstrapPipelineState == nullptr)
 				{
@@ -207,7 +182,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
 							"SkyBox",
 							"default",
-							ERenderResourceCreateErrorReason::PipelineCreationFailed,
+							ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual

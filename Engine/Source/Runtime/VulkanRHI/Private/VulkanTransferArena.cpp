@@ -160,8 +160,7 @@ namespace Durin::VulkanRHI
 			}
 			catch (const vk::SystemError& Error)
 			{
-				if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
-				return {.AllocationResult = static_cast<vk::Result>(Error.code().value())};
+				TerminateVulkanFailure(static_cast<vk::Result>(Error.code().value()), "Vulkan native allocation");
 			}
 		}
 
@@ -191,8 +190,7 @@ namespace Durin::VulkanRHI
 			}
 			catch (const vk::SystemError& Error)
 			{
-				if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
-				return {.AllocationResult = static_cast<vk::Result>(Error.code().value())};
+				TerminateVulkanFailure(static_cast<vk::Result>(Error.code().value()), "Vulkan native allocation");
 			}
 		}
 

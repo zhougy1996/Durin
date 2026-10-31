@@ -224,17 +224,6 @@ namespace Durin
 			{
 				Resource.InitResource(RHICmdList);
 			}
-			else if constexpr (requires { Resource.GetRHI(); })
-			{
-				if (Resource.GetRHI() == nullptr)
-				{
-					Resource.UpdateRHI(RHICmdList);
-				}
-			}
-			else if (!Resource.IsReady())
-			{
-				Resource.UpdateRHI(RHICmdList);
-			}
 		}
 
 		auto ReleaseStaticMeshResource(

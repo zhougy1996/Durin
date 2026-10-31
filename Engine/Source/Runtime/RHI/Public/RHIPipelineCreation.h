@@ -108,9 +108,7 @@ namespace Durin
 		std::function<FComputePipelineStateRHIRef(const FComputePipelineStateKey&)> FindCompute;
 		std::function<FGraphicsPipelineStateRHIRef(const FRHIGraphicsPipelineCreationInputs&,
 			const FGraphicsPipelineStateKey&)> CreateGraphics;
-		std::function<FComputePipelineStateRHIRef(const FRHIComputePipelineCreationInputs&,
-			const FComputePipelineStateKey&)> CreateCompute;
-		std::function<void(std::exception_ptr)> PublishTerminalFailure;
+		std::function<FComputePipelineStateRHIRef(const FRHIComputePipelineCreationInputs&, const FComputePipelineStateKey&)> CreateCompute;
 		std::function<std::shared_ptr<void>(uint64)> ReserveMetadata;
 	};
 }

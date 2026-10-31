@@ -42,23 +42,20 @@ namespace Durin
 				.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; },
 				.CreateGraphics = [](const auto&, const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
 				.CreateCompute = std::move(Create),
-				.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE() << "Unexpected terminal creation failure."; }
 			};
 		}
 	};
 
 	TEST_F(FRHIPipelineCreationTests, TerminalObserversSeePublishedPipelineOutcome)
 	{
-		for (const auto Expected : {ERHIPipelineRequestState::Ready,
-			ERHIPipelineRequestState::Failed, ERHIPipelineRequestState::Canceled})
+		for (const auto Expected : {ERHIPipelineRequestState::Ready, ERHIPipelineRequestState::Canceled})
 		{
 			SCOPED_TRACE(static_cast<int>(Expected));
 			std::promise<void> Release;
 			auto Released = Release.get_future().share();
 			FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 				Released.wait();
-				return Expected == ERHIPipelineRequestState::Failed
-					? FComputePipelineStateRHIRef{} : MakeRefCount<FRHIComputePipelineState>();
+				return MakeRefCount<FRHIComputePipelineState>();
 			}));
 			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 			FComputePipelineStateInitializer Initializer;
@@ -222,28 +219,27 @@ namespace Durin
 	}
 
 
-
-	TEST_F(FRHIPipelineCreationTests, CacheFailedIdentityRetriesAndDeviceRetirementInvalidatesSurvivingHandles)
+	TEST_F(FRHIPipelineCreationTests, CacheSharesReadyIdentityAndDeviceRetirementInvalidatesSurvivingHandles)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
 		std::atomic<uint32> Calls = 0;
 		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-			if (++Calls == 1) return {};
-			return MakeRefCount<FRHIComputePipelineState>();
-		}));
+										 ++Calls;
+										 return MakeRefCount<FRHIComputePipelineState>();
+									 }));
 		auto& Cache = Owner;
 		auto Failed = Cache.GetCompute(Initializer, "failure");
 		ASSERT_TRUE(Failed);
-		EXPECT_FALSE((*Failed)->Wait());
-		EXPECT_FALSE((*Failed)->GetResult().Compute);
+		EXPECT_TRUE((*Failed)->Wait());
+		EXPECT_TRUE((*Failed)->GetResult().Compute);
 		auto Retried = Cache.GetCompute(Initializer, "retry");
 		ASSERT_TRUE(Retried);
-		EXPECT_NE(*Failed, *Retried);
+		EXPECT_EQ(*Failed, *Retried);
 		EXPECT_TRUE((*Retried)->Wait());
 		EXPECT_TRUE((*Retried)->GetRHIPipeline());
-		EXPECT_EQ(Calls, 2u);
+		EXPECT_EQ(Calls, 1u);
 		Owner.StopAndWait();
 		Owner.StopAndWait();
 		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Ready);
@@ -532,15 +528,14 @@ namespace Durin
 	}
 
 
-
-	TEST_F(FRHIPipelineCreationTests, MixedBatchPreservesPartialResultsAndRecoverableFailuresCanRetry)
+	TEST_F(FRHIPipelineCreationTests, MixedBatchPreservesReadyResultsAndRejectsInvalidDescriptions)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		std::atomic<bool> Fail = true;
 		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto& Inputs, const auto&) -> FComputePipelineStateRHIRef {
-			if (Inputs.DebugName == "fail" && Fail.exchange(false)) return {};
-			return MakeRefCount<FRHIComputePipelineState>();
-		}));
+										(void)Inputs;
+										return MakeRefCount<FRHIComputePipelineState>();
+									}));
 		std::vector<FRHIComputePipelineBatchItem> Items(3);
 		for (uint32 Index = 0; Index < Items.size(); ++Index)
 		{
@@ -553,7 +548,7 @@ namespace Durin
 		auto Batch = Owner.RequestComputeBatch(Items);
 		ASSERT_EQ(Batch.Items.size(), 3u);
 		EXPECT_TRUE(Batch.Items[0].Wait());
-		EXPECT_FALSE(Batch.Items[1].Wait());
+		EXPECT_TRUE(Batch.Items[1].Wait());
 		EXPECT_EQ(Batch.Items[2].GetRejection(), ERHIPipelineRequestRejection::InvalidDescription);
 		EXPECT_TRUE(Owner.RequestCompute(Items[1].Initializer, "retry").Wait());
 		Items.resize(257);
@@ -562,28 +557,23 @@ namespace Durin
 			ERHIPipelineRequestRejection::CapacityExceeded);
 	}
 
-	TEST_F(FRHIPipelineCreationTests, TerminalErrorPublishesBeforeObserversFinishAndPreservesException)
+	TEST_F(FRHIPipelineCreationTests, NativeFailureAndHostOomExitFromBackgroundCreator)
 	{
-		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-		FComputePipelineStateInitializer Initializer;
-		Initializer.ComputeShader = Shader;
-		std::atomic<bool> Published = false;
-		auto Callbacks = Backend([](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-			throw std::logic_error("terminal native invariant");
-		});
-		Callbacks.PublishTerminalFailure = [&](std::exception_ptr Error) {
-			EXPECT_THROW(std::rethrow_exception(Error), std::logic_error);
-			Published = true;
+		const auto Run = [](int Mode) {
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			FPipelineCompileQueue Owner(Capabilities(), Backend([Mode](const auto&, const auto&) -> FComputePipelineStateRHIRef {
+											if (Mode == 1) throw std::bad_alloc();
+											if (Mode == 2) throw std::logic_error("terminal native invariant");
+											return {};
+										}));
+			auto Request = Owner.RequestCompute(Initializer, "terminal");
+			(void)Request.Wait();
 		};
-		FPipelineCompileQueue Owner(Capabilities(), std::move(Callbacks));
-		auto Request = Owner.RequestCompute(Initializer, "terminal");
-		EXPECT_FALSE(Request.Wait());
-		EXPECT_TRUE(Published.load());
-		EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Failed);
-		EXPECT_THROW(Request.GetResult(), std::logic_error);
-		EXPECT_EQ(Owner.RequestCompute(Initializer, "late").GetRejection(), ERHIPipelineRequestRejection::Closed);
-		Owner.ReleaseResources();
-		EXPECT_TRUE(Request.GetTaskHandle().IsCompleted());
+		EXPECT_EXIT(Run(0), testing::ExitedWithCode(EXIT_FAILURE), "native factory returned null");
+		EXPECT_DEATH(Run(1), "");
+		EXPECT_DEATH(Run(2), "");
 	}
 
 	TEST_F(FRHIPipelineCreationTests, CloseCancelsObserversAndJoinsInFlightCreation)
@@ -623,4 +613,9 @@ namespace Durin
 		EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Canceled);
 		EXPECT_TRUE(Request.GetTaskHandle().IsCompleted());
 	}
+}
+
+TEST(RHICreationTerminalTests, ExitsWithoutCoreOrTeardown)
+{
+	EXPECT_EXIT(Durin::RHITerminateOnFailure("startup texture", "out of memory", -2), testing::ExitedWithCode(EXIT_FAILURE), "startup texture: out of memory.*native=-2");
 }

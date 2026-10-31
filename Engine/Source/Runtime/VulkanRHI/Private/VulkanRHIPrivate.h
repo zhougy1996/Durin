@@ -4,6 +4,7 @@
 
 #include "RHI.h"
 #include "RHIThread.h"
+#include "Backend/RHICreation.h"
 
 #include "VulkanPlatform.h"
 
@@ -14,36 +15,11 @@
 
 namespace Durin::VulkanRHI
 {
-	// Unknown results, device loss, and validation failures are never recoverable.
-	inline auto IsRecoverableVulkanCreationError(vk::Result Result) -> bool
+	[[noreturn]] inline auto TerminateVulkanFailure(vk::Result Result, const char* Operation) -> void
 	{
-		switch (Result)
-		{
-		case vk::Result::eErrorOutOfHostMemory:
-		case vk::Result::eErrorOutOfDeviceMemory:
-		case vk::Result::eErrorFormatNotSupported:
-		case vk::Result::eErrorTooManyObjects:
-		case vk::Result::eErrorFragmentedPool:
-		case vk::Result::eErrorOutOfPoolMemory:
-			return true;
-		default:
-			return false;
-		}
+		RHITerminateOnFailure(Operation, Result == vk::Result::eErrorOutOfDeviceMemory || Result == vk::Result::eErrorOutOfHostMemory ? "out of memory" : "Vulkan operation failed", static_cast<int64>(Result));
 	}
 
-	[[noreturn]] inline auto ThrowVulkanError(vk::Result Result, std::string_view Operation) -> void
-	{
-		if (Result == vk::Result::eErrorDeviceLost) throw vk::DeviceLostError(std::string(Operation));
-		throw vk::SystemError(vk::make_error_code(Result), std::string(Operation));
-	}
-
-	// Diagnostics only; each creation path decides whether to return null or throw.
-	inline auto LogVulkanCreationFailure(vk::Result Result, std::string_view Kind,
-		std::string_view DebugName = {}) -> void
-	{
-		DURIN_ERROR("Failed to create Vulkan {} '{}': {} (native code={})", Kind,
-			DebugName.empty() ? "<unnamed>" : DebugName, vk::to_string(Result), static_cast<int32>(Result));
-	}
 
 	class FVulkanDevice;
 	class FVulkanFence;

@@ -1720,21 +1720,21 @@ namespace
 		auto RHIEndFrame() -> void override {}
 		auto RHICreateViewport(const FRHIViewportCreateInfo&) -> FViewportRHIRef override { return {}; }
 		auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
-		auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) -> FGraphicsPipelineStateRHIRef override { return {}; }
+		auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) noexcept -> FGraphicsPipelineStateRHIRef override { return {}; }
 		auto RHIGetDefaultContext() -> IRHICommandContext* override { return nullptr; }
 		auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
-		auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> FVertexDeclarationRHIRef override
+		auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) noexcept -> FVertexDeclarationRHIRef override
 		{
 			return MakeRefCount<FPositionBufferTestDeclaration>(Elements);
 		}
 		auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-		auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> FTextureRHIRef override
+		auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) noexcept -> FTextureRHIRef override
 		{
 			return {};
 		}
-		auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
-		auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-		auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) -> FBufferRHIRef override
+		auto RHICreateSampler(const FRHISamplerDesc&) noexcept -> FSamplerRHIRef override { return {}; }
+		auto RHICreateShader(const FRHIShaderCreateDesc&) noexcept -> FShaderRHIRef override { return {}; }
+		auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) noexcept -> FBufferRHIRef override
 		{
 			++Creates;
 			if (bFailCreation)

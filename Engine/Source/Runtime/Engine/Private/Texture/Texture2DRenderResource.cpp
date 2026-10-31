@@ -30,21 +30,13 @@ namespace Durin
 			Input->PixelFormat)
 			.SetNumMips(static_cast<uint8>(Input->Mips.size()))
 			.SetFlags(ETextureCreateFlags::ShaderResource);
-		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
-		{
-			DURIN_WARN("Texture2D description is unsupported by the RHI (format: {}).", static_cast<uint32>(Desc.Format));
-			return;
-		}
+
 
 		auto& CommandList =
 			static_cast<FRHICommandListImmediate&>(RHICmdList);
 		FTextureRHIRef NewTexture =
 			GDynamicRHI->RHICreateTexture(CommandList, Desc);
-		if (NewTexture == nullptr)
-		{
-			DURIN_WARN("Texture2D GPU texture allocation failed.");
-			return;
-		}
+
 
 		for (uint32 MipIndex = 0;
 			MipIndex < Input->Mips.size(); ++MipIndex)

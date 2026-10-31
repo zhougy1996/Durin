@@ -162,22 +162,17 @@ namespace Durin
 			auto RHIEndFrame() -> void override {}
 			auto RHICreateViewport(const FRHIViewportCreateInfo&) -> FViewportRHIRef override { return {}; }
 			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
-			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&)
-				-> FGraphicsPipelineStateRHIRef override { return {}; }
-			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&)
-				-> FComputePipelineStateRHIRef override { return {}; }
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) noexcept -> FGraphicsPipelineStateRHIRef override { return {}; }
+			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&) noexcept -> FComputePipelineStateRHIRef override { return {}; }
 			auto RHIGetDefaultContext() -> IRHICommandContext* override { return nullptr; }
 			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
-			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
-				-> FVertexDeclarationRHIRef override { return {}; }
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) noexcept -> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
-				-> FTextureRHIRef override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) noexcept -> FTextureRHIRef override
 			{ return {}; }
-			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
-			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> FBufferRHIRef override
+			auto RHICreateSampler(const FRHISamplerDesc&) noexcept -> FSamplerRHIRef override { return {}; }
+			auto RHICreateShader(const FRHIShaderCreateDesc&) noexcept -> FShaderRHIRef override { return {}; }
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&) noexcept -> FBufferRHIRef override
 			{ return {}; }
 		};
 
@@ -186,11 +181,9 @@ namespace Durin
 		public:
 			std::atomic<uint32> GraphicsCreations = 0, ComputeCreations = 0;
 			std::function<void()> BeforeCreate;
-			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&)
-				-> FGraphicsPipelineStateRHIRef override
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) noexcept -> FGraphicsPipelineStateRHIRef override
 			{ ++GraphicsCreations; return MakeRefCount<FRHIGraphicsPipelineState>(); }
-			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&)
-				-> FComputePipelineStateRHIRef override
+			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&) noexcept -> FComputePipelineStateRHIRef override
 			{ ++ComputeCreations; return MakeRefCount<FRHIComputePipelineState>(); }
 			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
 			{
@@ -227,13 +220,10 @@ namespace Durin
 					.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; },
 					.CreateGraphics = [this](const auto&, const auto&) {
 						if (BeforeCreate) BeforeCreate();
-						return RHICreateGraphicsPipelineState({}, {});
-					},
+						return RHICreateGraphicsPipelineState({}, {}); },
 					.CreateCompute = [this](const auto&, const auto&) {
 						if (BeforeCreate) BeforeCreate();
-						return RHICreateComputePipelineState({}, {});
-					},
-					.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); }
+						return RHICreateComputePipelineState({}, {}); },
 				};
 			}
 		private:
@@ -1555,79 +1545,79 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
 		for (const bool bOrderedEvent : {false, true})
-		for (const int Outcome : {0, 1, 2})
-		{
-			SCOPED_TRACE(Outcome);
-			SCOPED_TRACE(bOrderedEvent);
-			FThreadEvent Entered, Release, PrefixReplayed, LaterReplayed;
-			FRHICapabilities Capabilities;
-			Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
-			FRHIPipelineCompileBackend Backend;
-			Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
-			Backend.CreateCompute = [&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-				Entered.Trigger(); Release.Wait();
-				return Outcome == 1 ? FComputePipelineStateRHIRef{} : MakeRefCount<FRHIComputePipelineState>();
-			};
-			Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
-			FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
-			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-			FComputePipelineStateInitializer Initializer;
-			Initializer.ComputeShader = Shader;
-			auto Cached = Cache.GetCompute(Initializer, "prefix-dependency");
-			ASSERT_TRUE(Cached);
-			EXPECT_TRUE(Entered.WaitFor(5.0));
-			FRHIThread Thread;
-			ASSERT_TRUE(Thread.Start());
-			FRecordingCommandContext Context;
-			FRHICommandListExecutor Executor(Context, Thread);
-			auto& Commands = Executor.GetImmediateCommandList();
-			std::vector<int> Order;
-			auto Owner = std::make_shared<int>(1);
-			std::weak_ptr<int> Lifetime = Owner;
-			Commands.BeginGPUSubmission({});
-			Commands.EnqueueLambda([&, Owner] { Order.push_back(*Owner); PrefixReplayed.Trigger(); }, sizeof(int));
-			Commands.EndGPUSubmission();
-			Owner.reset();
-			Commands.BeginGPUSubmission({});
-			FRHICommandList Dependent;
-			Dependent.SwitchPipeline(ERHIPipeline::Compute);
-			Dependent.SetComputePipelineState(*Cached);
-			Dependent.EnqueueLambda([&] { Order.push_back(2); });
-			Dependent.FinishRecording();
-			Commands.QueueCommandList(std::move(Dependent));
-			Commands.EndGPUSubmission();
-			const auto Serial = Executor.Submit({}, bOrderedEvent
-				? ERHISubmitFlags::SubmitToGPU : ERHISubmitFlags::None);
-			auto Fence = Executor.CreateFence(Serial);
-			Commands.EnqueueLambda([&] { Order.push_back(3); LaterReplayed.Trigger(); });
-			Executor.Submit({}, ERHISubmitFlags::None);
-			auto Last = Executor.CreateFence();
-			EXPECT_EQ(PrefixReplayed.WaitFor(bOrderedEvent ? 0.05 : 5.0), !bOrderedEvent);
-			EXPECT_FALSE(Fence.IsComplete());
-			EXPECT_FALSE(LaterReplayed.IsTriggered());
-			EXPECT_FALSE(Lifetime.expired());
-			EXPECT_LT(Executor.GetCompletedSerial(), Serial);
-			if (Outcome == 2)
+			for (const int Outcome : {0, 2})
 			{
-				auto Closing = std::async(std::launch::async, [&] { Cache.StopAndWait(); });
-				Last.Wait();
-				Release.Trigger();
-				Closing.get();
-			}
-			else
-			{
-				Release.Trigger();
-				Last.Wait();
-			}
-			EXPECT_EQ(Fence.GetState(), Outcome == 0 ? ERHICommandBatchState::Succeeded
-				: Outcome == 1 ? ERHICommandBatchState::Failed : ERHICommandBatchState::Canceled);
-			EXPECT_EQ(Order, Outcome == 0 ? std::vector<int>({1, 2, 3})
-				: bOrderedEvent ? std::vector<int>({3}) : std::vector<int>({1, 3}));
-			EXPECT_EQ(std::ranges::count(Context.Operations, "BeginSubmission"), Outcome == 0 ? 2 : bOrderedEvent ? 0 : 1);
-			EXPECT_EQ(std::ranges::count(Context.Operations, "SubmitToGPU"), bOrderedEvent && Outcome == 0 ? 1 : 0);
-			EXPECT_TRUE(Lifetime.expired());
-			Cache.ReleaseResources();
-			Thread.Stop();
+				SCOPED_TRACE(Outcome);
+				SCOPED_TRACE(bOrderedEvent);
+				FThreadEvent Entered, Release, PrefixReplayed, LaterReplayed;
+				FRHICapabilities Capabilities;
+				Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+				FRHIPipelineCompileBackend Backend;
+				Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
+				Backend.CreateCompute = [&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
+					Entered.Trigger();
+					Release.Wait();
+					return MakeRefCount<FRHIComputePipelineState>();
+				};
+				FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
+				auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+				FComputePipelineStateInitializer Initializer;
+				Initializer.ComputeShader = Shader;
+				auto Cached = Cache.GetCompute(Initializer, "prefix-dependency");
+				ASSERT_TRUE(Cached);
+				EXPECT_TRUE(Entered.WaitFor(5.0));
+				FRHIThread Thread;
+				ASSERT_TRUE(Thread.Start());
+				FRecordingCommandContext Context;
+				FRHICommandListExecutor Executor(Context, Thread);
+				auto& Commands = Executor.GetImmediateCommandList();
+				std::vector<int> Order;
+				auto Owner = std::make_shared<int>(1);
+				std::weak_ptr<int> Lifetime = Owner;
+				Commands.BeginGPUSubmission({});
+				Commands.EnqueueLambda([&, Owner] { Order.push_back(*Owner); PrefixReplayed.Trigger(); }, sizeof(int));
+				Commands.EndGPUSubmission();
+				Owner.reset();
+				Commands.BeginGPUSubmission({});
+				FRHICommandList Dependent;
+				Dependent.SwitchPipeline(ERHIPipeline::Compute);
+				Dependent.SetComputePipelineState(*Cached);
+				Dependent.EnqueueLambda([&] { Order.push_back(2); });
+				Dependent.FinishRecording();
+				Commands.QueueCommandList(std::move(Dependent));
+				Commands.EndGPUSubmission();
+				const auto Serial = Executor.Submit({}, bOrderedEvent ? ERHISubmitFlags::SubmitToGPU : ERHISubmitFlags::None);
+				auto Fence = Executor.CreateFence(Serial);
+				Commands.EnqueueLambda([&] { Order.push_back(3); LaterReplayed.Trigger(); });
+				Executor.Submit({}, ERHISubmitFlags::None);
+				auto Last = Executor.CreateFence();
+				EXPECT_EQ(PrefixReplayed.WaitFor(bOrderedEvent ? 0.05 : 5.0), !bOrderedEvent);
+				EXPECT_FALSE(Fence.IsComplete());
+				EXPECT_FALSE(LaterReplayed.IsTriggered());
+				EXPECT_FALSE(Lifetime.expired());
+				EXPECT_LT(Executor.GetCompletedSerial(), Serial);
+				if (Outcome == 2)
+				{
+					auto Closing = std::async(std::launch::async, [&] { Cache.StopAndWait(); });
+					Last.Wait();
+					Release.Trigger();
+					Closing.get();
+				}
+				else
+				{
+					Release.Trigger();
+					Last.Wait();
+				}
+				EXPECT_EQ(Fence.GetState(), Outcome == 0 ? ERHICommandBatchState::Succeeded : Outcome == 1 ? ERHICommandBatchState::Failed :
+																											 ERHICommandBatchState::Canceled);
+				EXPECT_EQ(Order, Outcome == 0 ? std::vector<int>({1, 2, 3}) : bOrderedEvent ? std::vector<int>({3}) :
+																							  std::vector<int>({1, 3}));
+				EXPECT_EQ(std::ranges::count(Context.Operations, "BeginSubmission"), Outcome == 0 ? 2 : bOrderedEvent ? 0 :
+																														1);
+				EXPECT_EQ(std::ranges::count(Context.Operations, "SubmitToGPU"), bOrderedEvent && Outcome == 0 ? 1 : 0);
+				EXPECT_TRUE(Lifetime.expired());
+				Cache.ReleaseResources();
+				Thread.Stop();
 		}
 	}
 
@@ -1637,7 +1627,7 @@ namespace Durin
 		GIsGameThreadIdInitialized = true;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
-		for (int Outcome : {0, 1, 2})
+		for (int Outcome : {0, 1})
 		{
 			SCOPED_TRACE(Outcome);
 			FThreadEvent Entered, Release;
@@ -1646,11 +1636,11 @@ namespace Durin
 			FRHIPipelineCompileBackend Backend;
 			Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
 			Backend.CreateCompute = [&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-				Entered.Trigger(); Release.Wait();
-				if (Outcome == 2) return {};
+				Entered.Trigger();
+				Release.Wait();
+
 				return MakeRefCount<FRHIComputePipelineState>();
 			};
-			Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
 			FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
 			FRHIThread Thread;
 			ASSERT_TRUE(Thread.Start());
@@ -1713,7 +1703,7 @@ namespace Durin
 		}
 	}
 
-	TEST(FRHICommandListTests, InlinePipelineDependencyFailureSkipsCommandsWithoutFailingExecutor)
+	TEST(FRHICommandListTests, InlineCanceledPipelineSkipsCommandsWithoutFailingExecutor)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
@@ -1724,15 +1714,16 @@ namespace Durin
 		FRHIPipelineCompileBackend Backend;
 		Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
 		Backend.CreateCompute = [](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-			return {};
+			return MakeRefCount<FRHIComputePipelineState>();
 		};
-		Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
 		FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
 		auto Cached = Cache.GetCompute(Initializer, "failed");
 		ASSERT_TRUE(Cached);
+		ASSERT_TRUE((*Cached)->Wait());
+		Cache.ReleaseResources();
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
@@ -1744,21 +1735,21 @@ namespace Durin
 		EXPECT_TRUE(Executor.TrySubmit({}, ERHISubmitFlags::None).IsAccepted());
 		auto FailedFence = Executor.CreateFence();
 		EXPECT_FALSE(FailedFence.TryWait());
-		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Failed);
+		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Canceled);
 		EXPECT_FALSE(Replayed);
 		Commands.EnqueueLambda([&] { Replayed = true; });
 		EXPECT_TRUE(Executor.TrySubmit({}, ERHISubmitFlags::None).IsAccepted());
 		EXPECT_TRUE(Executor.CreateFence().TryWait());
 		EXPECT_TRUE(Replayed);
-		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Failed);
-		EXPECT_EQ(Executor.CreateFence(FailedFence.GetTargetSerial()).GetState(), ERHICommandBatchState::Failed);
+		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Canceled);
+		EXPECT_EQ(Executor.CreateFence(FailedFence.GetTargetSerial()).GetState(), ERHICommandBatchState::Canceled);
 		for (uint32 Index = 0; Index < 4096; ++Index)
 		{
 			Commands.EnqueueLambda([] {});
 			Executor.Submit({}, ERHISubmitFlags::None);
 		}
 		EXPECT_EQ(Executor.CreateFence(FailedFence.GetTargetSerial()).GetState(), ERHICommandBatchState::Expired);
-		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Failed);
+		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Canceled);
 	}
 
 	TEST(FRHICommandListTests, FallibleOperationTerminatesOnThreadFailure)

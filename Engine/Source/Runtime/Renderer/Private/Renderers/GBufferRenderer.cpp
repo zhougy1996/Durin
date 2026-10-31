@@ -202,8 +202,9 @@ namespace Durin
 					*Shaders, VertexDeclaration, *Candidate);
 				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::GraphicsPipeline, "GBufferPipeline", GetGBufferPlanningPassIdentity(PipelineKey),
-					ERenderResourceCreateErrorReason::PipelineCreationFailed,
-					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
+					ERenderResourceCreateErrorReason::PipelinePreparationRejected,
+					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
+				));
 				Candidate->FactoryKey = PipelineKey.FactoryKey;
 				Candidate->LayoutKey = PipelineKey.LayoutKey;
 				return FPipelineResult::Success(std::move(Candidate));
@@ -275,13 +276,7 @@ namespace Durin
 					Candidate.ShaderSet);
 				FRHIShader* ComputeRHI = Candidate.Shader.GetRHIShader(false);
 				if (ComputeRHI == nullptr)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"GBufferGPUCulling", "pipeline",
-						ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+					return FResult::Pending();
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = ComputeRHI;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
@@ -291,10 +286,11 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GBufferGPUCulling", "pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
 			!= nullptr;

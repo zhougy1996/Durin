@@ -192,11 +192,12 @@ retries. The sync point is a producer locator, not an independent reuse authorit
 Normal pressure does not wait for unrelated device work. Arena teardown
 drains submitted queues before destroying native pages.
 
-Arena acquisition reports recoverable native allocation failures as `vk::Result`
-without retaining exception objects. `eErrorOutOfPoolMemory` also represents the
-configured per-allocation limit. Upload consumers raise a terminal error;
-readback consumers may reject the request. Device loss and unknown native
-failures propagate directly rather than becoming allocation results.
+Arena acquisition retains explicit configured-capacity pressure and retirement
+waits. `eErrorOutOfPoolMemory` can represent the configured per-allocation limit;
+it is not a native OOM classification. Actual native page allocation errors,
+including host/device OOM, terminate through the common RHI failure boundary.
+Readback may reject logical admission without converting a native allocation
+failure into a recoverable request result.
 
 Static device-local buffer writes and texture updates use upload ranges while
 retaining the public transition/copy authority. Scoped texture readback uses a

@@ -265,13 +265,7 @@ namespace Durin
 					|| FilterRHI == nullptr || HalfFilterRHI == nullptr
 					|| ResolveRHI == nullptr)
 				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"GroundTruthAmbientOcclusion", "raw-shader",
-						ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+					return FResult::Pending();
 				}
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
@@ -291,10 +285,11 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GroundTruthAmbientOcclusion", "raw-pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
@@ -312,10 +307,11 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GroundTruthAmbientOcclusion", "half-raw-pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
@@ -331,10 +327,11 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GroundTruthAmbientOcclusion", "filter-pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				Initializer.BoundShaders.FragmentShader = HalfFilterRHI;
 				Candidate.HalfFilterPipelineState =
@@ -350,10 +347,11 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GroundTruthAmbientOcclusion", "half-filter-resolve-pipeline",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				return FResult::Success(std::move(Candidate));
 			},

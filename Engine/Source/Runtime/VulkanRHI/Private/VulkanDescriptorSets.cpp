@@ -58,7 +58,7 @@ namespace Durin::VulkanRHI
 			return FoundEntry.Handle;
 		}
 		if (DLayoutMap.size() >= 4096)
-			throw FRHIResourceCapacityError("RHI cache capacity exhausted");
+			RHITerminateOnFailure("Vulkan native cache", "cache capacity exhausted with pinned resources");
 		// Resident entries remain valid until all creation tasks have joined.
 		vk::DescriptorSetLayoutCreateInfo CreateInfo{};
 		CreateInfo.setBindings(Layout.LayoutBindings);
@@ -67,7 +67,7 @@ namespace Durin::VulkanRHI
 		NewEntry.MetadataReservation = Device.ReserveCacheMetadata(512 + Layout.LayoutBindings.capacity() * sizeof(vk::DescriptorSetLayoutBinding));
 		const auto Result = Device.GetHandle().createDescriptorSetLayout(&CreateInfo, nullptr, &NewEntry.Handle);
 		if (Result != vk::Result::eSuccess)
-			ThrowVulkanError(Result, "Vulkan descriptor set layout creation");
+			TerminateVulkanFailure(Result, "Vulkan descriptor set layout creation");
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(NewEntry.Handle,
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"); });
 		const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);

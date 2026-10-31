@@ -29,7 +29,7 @@ namespace Durin::Editor::StaticMesh
 			{
 			case EStaticMeshRenderResourceReadiness::Queued: return "Loading";
 			case EStaticMeshRenderResourceReadiness::Ready: return "Ready";
-			case EStaticMeshRenderResourceReadiness::Failed: return "Failed";
+			case EStaticMeshRenderResourceReadiness::InvalidData: return "Invalid CPU Data";
 			case EStaticMeshRenderResourceReadiness::Unavailable: return "Unavailable";
 			}
 			return "Unavailable";
@@ -292,8 +292,8 @@ namespace Durin::Editor::StaticMesh
 			}
 			ImGui::TextWrapped("Load phase: %s (generation %llu).", CpuPhase,
 				static_cast<unsigned long long>(Inspection.CookedLoad.Generation));
-			if (Inspection.Gpu.Readiness == EStaticMeshRenderResourceReadiness::Failed)
-				ImGui::TextWrapped("GPU initialization failed. Retry resource initialization explicitly after correcting the resource failure.");
+			if (Inspection.Gpu.Readiness == EStaticMeshRenderResourceReadiness::InvalidData)
+				ImGui::TextWrapped("CPU geometry validation failed. Correct or rebuild the asset data.");
 			ImGui::SeparatorText("Authored build operation");
 			const auto& Operation = Inspection.Operation;
 			if (!Operation.RequestId)

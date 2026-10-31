@@ -450,7 +450,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		InvalidMesh->GetRenderResourceStatus();
 	EXPECT_EQ(
 		InvalidFailedStatus.Readiness,
-		Durin::EStaticMeshRenderResourceReadiness::Failed);
+		Durin::EStaticMeshRenderResourceReadiness::InvalidData
+	);
 	EXPECT_EQ(InvalidFailedStatus.Revision, InvalidQueuedStatus.Revision);
 	EXPECT_EQ(
 		InvalidMesh->GetRenderData()->GetNumInitializedResources(),

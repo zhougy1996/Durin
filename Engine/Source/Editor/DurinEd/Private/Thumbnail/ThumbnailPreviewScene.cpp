@@ -257,8 +257,6 @@ namespace Durin::Editor
 			);
 			Desc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
 			RenderTarget = RHICreateTexture(Desc);
-			if (RenderTarget == nullptr)
-				Error = "Failed to create the rendered-thumbnail output target.";
 		}
 
 		~FImpl()

@@ -1,4 +1,5 @@
 #include "Backend/RHICompletionBackend.h"
+#include "Backend/RHICreation.h"
 #include "VulkanBuffer.h"
 
 #include "RHICommandList.h"
@@ -92,8 +93,7 @@ namespace Durin::VulkanRHI
 		{
 			Buffer = nullptr;
 			Allocation = {};
-			if (!OutResult) ThrowVulkanError(Result, "Vulkan buffer allocation");
-			return;
+			if (!OutResult) TerminateVulkanFailure(Result, "Vulkan buffer allocation");
 		}
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Buffer, [&] { return std::string_view(DebugName); });
 	}
@@ -332,28 +332,25 @@ namespace Durin::VulkanRHI
 		Device.GetMemoryManager().Invalidate(GetBackingBuffer()->Allocation, Offset, InvalidateSize);
 	}
 
-	auto FVulkanDynamicRHI::RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source) -> FBufferRHIRef
+	auto FVulkanDynamicRHI::RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source) noexcept -> FBufferRHIRef
 	{
 		if (!Source || !FVulkanBuffer::Cast(Source)->IsAliasable()
 			|| EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::Dynamic | EBufferUsageFlags::KeepCPUAccessible)
-			|| Desc.InitialData.Data) return {};
+			|| Desc.InitialData.Data) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		FRHIBufferCreateDesc Normalized = Desc;
 		if (EnumHasAnyFlags(Normalized.Usage, EBufferUsageFlags::Static)) Normalized.Usage |= EBufferUsageFlags::DestinationCopy;
 		if (Source->GetSize() != Normalized.Size || Source->GetStride() != Normalized.Stride
-			|| Source->GetUsage() != Normalized.Usage) return {};
+			|| Source->GetUsage() != Normalized.Usage) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		vk::Result Result;
 		FBufferRHIRef Buffer = new FVulkanBuffer(*Device, Normalized, false, &Result, FVulkanBuffer::Cast(Source));
 		if (Result != vk::Result::eSuccess)
 		{
-			if (!IsRecoverableVulkanCreationError(Result)) ThrowVulkanError(Result, "Vulkan aliased buffer allocation");
-			LogVulkanCreationFailure(Result, "aliased buffer", Desc.DebugName ? Desc.DebugName : "");
+			TerminateVulkanFailure(Result, "Vulkan aliased buffer allocation");
 		}
-		return Result == vk::Result::eSuccess ? Buffer : FBufferRHIRef{};
+		return Buffer;
 	}
 
-	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList,
-		const FRHIBufferCreateDesc& CreateDesc)
-		-> FBufferRHIRef
+	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) noexcept -> FBufferRHIRef
 	{
 		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;
 		if (EnumHasAnyFlags(NormalizedDesc.Usage, EBufferUsageFlags::Static)
@@ -365,10 +362,7 @@ namespace Durin::VulkanRHI
 		FBufferRHIRef Result = new FVulkanBuffer(*Device, NormalizedDesc, false, &CreationResult);
 		if (CreationResult != vk::Result::eSuccess)
 		{
-			if (!IsRecoverableVulkanCreationError(CreationResult))
-				ThrowVulkanError(CreationResult, "Vulkan buffer allocation");
-			LogVulkanCreationFailure(CreationResult, "buffer", CreateDesc.DebugName ? CreateDesc.DebugName : "");
-			return {};
+			TerminateVulkanFailure(CreationResult, "Vulkan buffer allocation");
 		}
 		auto* CreatedBuffer = FVulkanBuffer::Cast(Result.GetReference());
 		CreatedBuffer->InitializeMappedWrites();
@@ -380,7 +374,8 @@ namespace Durin::VulkanRHI
 			if (InitialAccess != ERHIAccess::None)
 			{
 				const std::array Transition{FRHIBufferTransition{
-					CreatedBuffer, 0, InitialData.Size, ERHIAccess::TransferWrite, InitialAccess}};
+					CreatedBuffer, 0, InitialData.Size, ERHIAccess::TransferWrite, InitialAccess
+				}};
 				RHICmdList.TransitionBuffers(Transition);
 			}
 		}

@@ -40,8 +40,7 @@ namespace Durin::VulkanRHI
 		auto Owner = std::make_shared<TRefCountPtr<FVulkanBuffer>>(new FVulkanBuffer(Device, Desc, false, &Result));
 		if (Result != vk::Result::eSuccess)
 		{
-			if (!IsRecoverableVulkanCreationError(Result)) ThrowVulkanError(Result, "Dynamic buffer page allocation");
-			return;
+			TerminateVulkanFailure(Result, "Dynamic buffer page allocation");
 		}
 		void* Mapped = (*Owner)->GetMappedPointer();
 		if (Mapped && Pool.AddPage(Owner, Mapped, Desc.Size))

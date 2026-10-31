@@ -138,13 +138,7 @@ namespace Durin
 					Candidate.FragmentShader.GetRHIShader(false);
 				if (VertexRHI == nullptr || FragmentRHI == nullptr)
 				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"GBufferDebug", "debug",
-						ERenderResourceCreateErrorReason::ShaderCreationFailed,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+					return FResult::Pending();
 				}
 
 				FGraphicsPipelineStateInitializer Initializer;
@@ -165,10 +159,11 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GBufferDebug", "debug",
-						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				return FResult::Success(std::move(Candidate));
 			},

@@ -123,7 +123,10 @@ namespace Durin
 				return TResult(std::move(Pipeline));
 			}
 			catch (const FRHIResourceCapacityError&) { return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
-			catch (const std::bad_alloc&) { return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
+			catch (const std::bad_alloc&)
+			{
+				RHITerminateOnFailure("RHI pipeline metadata", "out of memory");
+			}
 		}
 
 		FRHICapabilities Capabilities;

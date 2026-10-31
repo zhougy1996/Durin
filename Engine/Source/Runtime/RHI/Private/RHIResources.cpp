@@ -733,7 +733,10 @@ namespace Durin
 			return Key;
 		}
 		catch (const FRHIResourceCapacityError&) { return std::unexpected(ERHIGraphicsPipelineError::CapacityExceeded); }
-		catch (const std::bad_alloc&) { return std::unexpected(ERHIGraphicsPipelineError::CapacityExceeded); }
+		catch (const std::bad_alloc&)
+		{
+			RHITerminateOnFailure("RHI pipeline metadata", "out of memory");
+		}
 	}
 
 	auto FGraphicsPipelineStateKeyHasher::operator()(
@@ -866,7 +869,10 @@ namespace Durin
 			return Key;
 		}
 		catch (const FRHIResourceCapacityError&) { return std::unexpected(ERHIComputePipelineError::CapacityExceeded); }
-		catch (const std::bad_alloc&) { return std::unexpected(ERHIComputePipelineError::CapacityExceeded); }
+		catch (const std::bad_alloc&)
+		{
+			RHITerminateOnFailure("RHI pipeline metadata", "out of memory");
+		}
 	}
 
 	auto FComputePipelineStateKeyHasher::operator()(

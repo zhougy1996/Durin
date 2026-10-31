@@ -120,7 +120,9 @@ Shader/PSO preparation preserves Pending versus Failed outcomes.
 Pending dependencies and image-budget backpressure are checked each frame without
 consuming a capture interval. Only submitted captures throttle automatic sky
 updates. First, final and explicit recapture requests bypass that automatic-update
-interval. Actual creation or GPU failures retry at the bounded refresh interval;
+interval. Shader/content preparation failures retain bounded refresh backoff;
+native creation failures and OOM terminate through RHI rather than retrying.
+Canceled or invalidated capture work retains its separate scheduling policy;
 changing the owner, source epoch, provider or explicit request bypasses stale failure
 backoff. Automatic Refresh remains change-driven and interval-limited; it is not a
 continuous, time-sliced real-time capture mode.

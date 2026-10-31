@@ -59,9 +59,6 @@ namespace Durin
 			FRDGAllocatedResources& OutResources)
 			-> FRDGAllocationResult override;
 
-		auto Allocate(std::span<const FRDGAllocationRequest> Requests,
-			FRDGAllocatedResources& OutResources, std::optional<uint32> FailedObservation)
-			-> FRDGAllocationResult;
 
 	private:
 		struct FState;

@@ -151,10 +151,9 @@ namespace Durin
 			if (Texture.IsPendingKill()) return ETexturePayloadState::NotPresent;
 			if (Texture.HasPendingRenderResourceInitialization()) return ETexturePayloadState::Unknown;
 			const auto* Resource = Texture.GetResource();
-			if (Resource && Resource->GetTextureRHI_GameThread()) return ETexturePayloadState::Available;
+			if (Resource) return ETexturePayloadState::Available;
 			if (!Texture.IsAsyncCacheComplete())
 				return ETexturePayloadState::Unknown;
-			if (Resource) return ETexturePayloadState::Failed;
 			return ETexturePayloadState::NotPresent;
 		}
 	}
@@ -374,14 +373,7 @@ namespace Durin
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
 			.Placement = "ResidentMemory"});
-		Result.Entries.push_back({
-			.Domain = "Texture2D", .Stage = ETexturePayloadStage::RuntimeResource,
-			.State = MapResourceState(Texture),
-			.Repair = MapResourceState(Texture) == ETexturePayloadState::Failed
-				? ETexturePayloadRepairAction::RetryRuntimeResource : ETexturePayloadRepairAction::None,
-			.Placement = "GPU",
-			.Diagnostic = MapResourceState(Texture) == ETexturePayloadState::Failed
-				? "GPU texture update failed. See the log for details." : std::string{}});
+		Result.Entries.push_back({.Domain = "Texture2D", .Stage = ETexturePayloadStage::RuntimeResource, .State = MapResourceState(Texture), .Repair = ETexturePayloadRepairAction::None, .Placement = "GPU", .Diagnostic = {}});
 		return Result;
 	}
 
@@ -437,14 +429,7 @@ namespace Durin
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
 			.Placement = "ResidentMemory"});
-		Result.Entries.push_back({
-			.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::RuntimeResource,
-			.State = MapResourceState(Texture),
-			.Repair = MapResourceState(Texture) == ETexturePayloadState::Failed
-				? ETexturePayloadRepairAction::RetryRuntimeResource : ETexturePayloadRepairAction::None,
-			.Placement = "GPU",
-			.Diagnostic = MapResourceState(Texture) == ETexturePayloadState::Failed
-				? "GPU texture update failed. See the log for details." : std::string{}});
+		Result.Entries.push_back({.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::RuntimeResource, .State = MapResourceState(Texture), .Repair = ETexturePayloadRepairAction::None, .Placement = "GPU", .Diagnostic = {}});
 		return Result;
 	}
 
@@ -486,13 +471,7 @@ namespace Durin
 				: ETexturePayloadRepairAction::RebuildDerivedData,
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData), .Placement = "ResidentMemory"});
-		Result.Entries.push_back({
-			.Domain = "TextureCube", .Stage = ETexturePayloadStage::RuntimeResource,
-			.State = MapResourceState(Texture),
-			.Repair = MapResourceState(Texture) == ETexturePayloadState::Failed
-				? ETexturePayloadRepairAction::RetryRuntimeResource
-				: ETexturePayloadRepairAction::None,
-			.Placement = "GPU"});
+		Result.Entries.push_back({.Domain = "TextureCube", .Stage = ETexturePayloadStage::RuntimeResource, .State = MapResourceState(Texture), .Repair = ETexturePayloadRepairAction::None, .Placement = "GPU"});
 		return Result;
 	}
 }

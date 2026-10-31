@@ -128,17 +128,7 @@ namespace Durin
 				}
 				Candidate.Sampler = RHICreateSampler(
 					MakeDirectionalShadowSamplerDesc());
-				const bool bHasAllAttachmentViews = std::ranges::all_of(
-					Candidate.DepthAttachmentViews,
-					[](const FTextureViewRHIRef& View) { return View != nullptr; });
-				if (!Candidate.Target || !Candidate.SampledView
-					|| !bHasAllAttachmentViews || !Candidate.Sampler)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"DirectionalShadow", "3-layer-D32-array",
-						ERenderResourceCreateErrorReason::ResourceCreationFailed,
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+
 				const std::array InitialTransition{FRHITextureTransition::Whole(
 					Candidate.Target, ERHIAccess::Discard,
 					ERHIAccess::GraphicsShaderRead)};
@@ -237,7 +227,7 @@ namespace Durin
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FShadowDepthTimingQuerySink Sink =
 			GShadowDepthTimingQuerySink.load(std::memory_order_acquire);
-		if (Sink != nullptr && GDynamicRHI != nullptr)
+		if (Sink != nullptr && GDynamicRHI != nullptr && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
 		{
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);

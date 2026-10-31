@@ -141,8 +141,9 @@ last owner releases it. Ordinary buffers retain no permanent CPU upload copy.
 `CreateUniformBuffer` returns a counted resource; `UpdateUniformBuffer`,
 and `WriteBuffer` return void. Invalid ranges, resource types,
 or uniform sidecar ownership violate enforced preconditions. Native creation
-uses its existing recoverable result contract. Allocation failures during
-replay follow terminal replay failure handling. Executor backpressure remains
+uses the [required-success contract](RHICommandExecution.md#required-success-resource-creation).
+Native allocation failures and OOM terminate, including deferred allocations
+during consuming replay. Executor backpressure remains
 at the submission boundary; a single payload beyond the queue byte threshold
 runs alone.
 

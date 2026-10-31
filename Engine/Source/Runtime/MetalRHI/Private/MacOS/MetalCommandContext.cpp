@@ -1,3 +1,4 @@
+#include "Backend/RHICreation.h"
 #include "Backend/RHITextureUpload.h"
 #include "MetalCommandContext.h"
 #include "RHIThread.h"
@@ -667,7 +668,7 @@ namespace Durin
 				auto StagingOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
 					Data.data(), Data.size(), MTL::ResourceStorageModeShared));
 				auto* Staging = StagingOwner.get();
-				requiref(Staging != nullptr, "Metal buffer upload staging allocation failed.");
+				if (!Staging) RHITerminateOnFailure("Metal native allocation", "Metal buffer upload staging allocation failed.");
 				auto* Target = static_cast<FMetalBuffer*>(Buffer);
 				auto Encoder = NS::RetainPtr(Active->Command->blitCommandEncoder());
 				requiref(static_cast<bool>(Encoder), "Metal buffer upload encoder creation failed.");
@@ -725,7 +726,7 @@ namespace Durin
 				auto StagingOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
 					ByteCount, MTL::ResourceStorageModeShared));
 				auto* Staging = StagingOwner.get();
-				requiref(Staging != nullptr, "Metal texture upload staging allocation failed.");
+				if (!Staging) RHITerminateOnFailure("Metal native allocation", "Metal texture upload staging allocation failed.");
 				auto* TargetBytes = static_cast<std::byte*>(Staging->contents());
 				CopyTextureUploadData(*Layout, SourceData, {TargetBytes, Layout->Size});
 				if (!Active) RHISubmitCommands();
@@ -796,7 +797,7 @@ namespace Durin
 				auto StagingOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
 					ByteCount, MTL::ResourceStorageModeShared));
 				auto* Staging = StagingOwner.get();
-				requiref(Staging != nullptr, "Metal volume upload staging allocation failed.");
+				if (!Staging) RHITerminateOnFailure("Metal native allocation", "Metal volume upload staging allocation failed.");
 				auto* TargetBytes = static_cast<std::byte*>(Staging->contents());
 				CopyTextureUploadData(*Layout, SourceData, {TargetBytes, Layout->Size});
 				if (!Active) RHISubmitCommands();
@@ -869,7 +870,7 @@ namespace Durin
 					ByteCount, MTL::ResourceStorageModeShared));
 				auto* Readback = ReadbackOwner.get();
 				auto Command = NS::RetainPtr(State->Queue->commandBuffer());
-				if (!Readback || !Command) return false;
+				if (!Readback || !Command) RHITerminateOnFailure("Metal readback allocation", "native buffer/command allocation failed");
 				auto Encoder = NS::RetainPtr(Command->blitCommandEncoder());
 				if (!Encoder) return false;
 				Encoder->copyFromTexture(
@@ -922,11 +923,7 @@ namespace Durin
 				auto Command = Active ? Active->Command : NS::RetainPtr(State->Queue->commandBuffer());
 				auto Encoder = NS::RetainPtr(Command ? Command->blitCommandEncoder() : nullptr);
 				if (!Readback || !Encoder)
-				{
-					if (Encoder) Encoder->endEncoding();
-					Request->Fail();
-					return;
-				}
+					RHITerminateOnFailure("Metal readback allocation", "native buffer/encoder allocation failed");
 				auto* Native = static_cast<FMetalTexture*>(Texture)->GetHandle();
 				Encoder->copyFromTexture(
 					Native,
@@ -1078,7 +1075,7 @@ namespace Durin
 					auto ConstantsOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
 						ComputePush.GetBytes().data(), Push.Extent, MTL::ResourceStorageModeShared));
 					auto* Constants = ConstantsOwner.get();
-					requiref(Constants, "Metal compute push constant allocation failed.");
+					if (!Constants) RHITerminateOnFailure("Metal native allocation", "Metal compute push constant allocation failed.");
 					Encoder->setBuffer(Constants, 0, Push.NativeSlot);
 					Active->NativeResources.push_back(NS::RetainPtr(Constants));
 				}
@@ -1323,7 +1320,7 @@ namespace Durin
 					auto ConstantsOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
 						GraphicsPush[StageIndex].GetBytes().data(), Push.Extent, MTL::ResourceStorageModeShared));
 					auto* Constants = ConstantsOwner.get();
-					requiref(Constants, "Metal graphics push constant allocation failed.");
+					if (!Constants) RHITerminateOnFailure("Metal native allocation", "Metal graphics push constant allocation failed.");
 					if (StageIndex == 0) RenderEncoder->setVertexBuffer(Constants, 0, Push.NativeSlot);
 					else RenderEncoder->setFragmentBuffer(Constants, 0, Push.NativeSlot);
 					Active->NativeResources.push_back(NS::RetainPtr(Constants));

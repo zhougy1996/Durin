@@ -41,7 +41,6 @@ namespace Durin
 		bool bForceFragmentContactVisibility = false;
 		bool bForceFragmentVolumetricCloud = false;
 		EGPUCullingFailure GPUCullingFailure = EGPUCullingFailure::None;
-		std::optional<uint32> FailedAllocationObservation;
 		ESceneRasterFailure RasterFailure = ESceneRasterFailure::None;
 		EScenePreparationPending PendingFeature = EScenePreparationPending::None;
 		std::optional<uint64> PendingPrimitive;
@@ -74,7 +73,7 @@ namespace Durin
 			FRHICommandListImmediate& InCommandList, TimingQuerySink InSink)
 			: CommandList(InCommandList), Sink(InSink)
 		{
-			if (Sink == nullptr || GDynamicRHI == nullptr) return;
+			if (Sink == nullptr || GDynamicRHI == nullptr || !GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps) return;
 			Query = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (Query) CommandList.BeginGPUTimingQuery(Query);
 		}

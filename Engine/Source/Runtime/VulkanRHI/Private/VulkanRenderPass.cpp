@@ -190,7 +190,7 @@ namespace Durin::VulkanRHI
 		CreateInfo.setAttachments(Attachments).setSubpasses(Subpass).setDependencies(Dependencies);
 		const auto Result = Device.GetHandle().createRenderPass(&CreateInfo, nullptr, &RenderPass);
 		if (Result != vk::Result::eSuccess)
-			ThrowVulkanError(Result, "Vulkan render pass creation");
+			TerminateVulkanFailure(Result, "Vulkan render pass creation");
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(RenderPass,
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("RenderPass"); });
 	}
@@ -232,7 +232,7 @@ namespace Durin::VulkanRHI
 		}
 
 		if (RenderPasses.size() >= 1024)
-			throw FRHIResourceCapacityError("RHI cache capacity exhausted");
+			RHITerminateOnFailure("Vulkan native cache", "cache capacity exhausted with pinned resources");
 		auto Metadata = Device.ReserveCacheMetadata(512 + sizeof(FVulkanRenderPass) + sizeof(FVulkanRenderPassKey));
 		auto Candidate = std::make_unique<FVulkanRenderPass>(Device, Key);
 		Candidate->MetadataReservation = std::move(Metadata);

@@ -490,7 +490,8 @@ for GPU readiness. Existing combined async requests still queue GPU initializati
 when published. Blocking loading is not used by getters, component ticks,
 SceneProxy creation, or renderer preparation. Explicit calls to
 `EnsureRenderDataLoadedBlocking()` advance a failed/cancelled CPU generation and
-repeat CPU loading; `InitResources()` also retries failed GPU initialization.
+repeat CPU loading. `InitResources()` queues required-success native creation;
+invalid CPU geometry remains an asset-data error rather than a GPU retry state.
 Ordinary `RequestRenderDataAndResources()` calls retain terminal failures and
 cancellations, so polling does not repeatedly submit failed work. See
 [Render Resource Lifecycle](../../Rendering/Pipeline/RenderResourceLifecycle.md#cooked-mesh-readiness).

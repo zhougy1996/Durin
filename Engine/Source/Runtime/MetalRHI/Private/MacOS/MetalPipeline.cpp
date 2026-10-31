@@ -1,6 +1,7 @@
 #include "MetalShaderFormat.h"
 #include "MetalShaderStatistics.h"
 #include "MetalPipeline.h"
+#include "Backend/RHICreation.h"
 #include "MetalResourceDescriptors.h"
 #include "RHIShaderParameters.h"
 #include <dispatch/dispatch.h>
@@ -106,23 +107,20 @@ namespace Durin
 		const char* Text = Description ? Description->utf8String() : nullptr;
 		return Text ? Text : "unknown error";
 	}
-	auto CreateMetalGraphicsPipeline(MTL::Device* Device, const FGraphicsPipelineStateInitializer& Initializer)
-		-> TRefCountPtr<FRHIGraphicsPipelineState>
+	auto CreateMetalGraphicsPipeline(MTL::Device* Device, const FGraphicsPipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
 		const FMetalAutoreleasePool Pool;
 		if (!Device || !Initializer.BoundShaders.VertexShader
 			|| !Initializer.BoundShaders.FragmentShader
 			|| !Initializer.VertexDeclaration
-			|| (Initializer.PrimitiveTopology !=
-				FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList
-			&& Initializer.PrimitiveTopology !=
-				FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList)
+			|| (Initializer.PrimitiveTopology != FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList
+				&& Initializer.PrimitiveTopology != FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList)
 			|| Initializer.RenderTargetLayout.NumColorRenderTargets > 4
 			|| (Initializer.RenderTargetLayout.NumColorRenderTargets == 0
 				&& !Initializer.RenderTargetLayout.bHasDepthStencil)
 			|| (Initializer.RenderTargetLayout.bHasDepthStencil
 				&& Initializer.RenderTargetLayout.DepthStencilAttachment.Format
-					!= EPixelFormat::D32)
+					   != EPixelFormat::D32)
 			|| Initializer.MultisampleState != FRHIMultisampleState{}
 			|| Initializer.DepthStencilState.bEnableStencil
 			|| (!Initializer.RenderTargetLayout.bHasDepthStencil
@@ -130,35 +128,37 @@ namespace Durin
 			|| Initializer.RasterizerState.PolygonMode != ERHIPolygonMode::Fill
 			|| Initializer.RasterizerState.bEnableDepthClamp
 			|| Initializer.RasterizerState.LineWidth != 1.0f)
-			return nullptr;
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto Key = BuildGraphicsPipelineStateKey(Initializer, nullptr);
-		if (!Key || !IsMetalShaderTarget(Key->Target)) return nullptr;
+		if (!Key || !IsMetalShaderTarget(Key->Target)) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto* Vertex = dynamic_cast<FMetalShader*>(
-			Initializer.BoundShaders.VertexShader);
+			Initializer.BoundShaders.VertexShader
+		);
 		auto* Fragment = dynamic_cast<FMetalShader*>(
-			Initializer.BoundShaders.FragmentShader);
+			Initializer.BoundShaders.FragmentShader
+		);
 		if (!Vertex || !Fragment)
-			return nullptr;
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		const std::array StageBindings{
 			FMetalStageBindings{EShaderFrequency::Vertex, Vertex->GetMetalBindings(), Vertex->GetMetalPushConstantBufferSlot()},
-			FMetalStageBindings{EShaderFrequency::Fragment, Fragment->GetMetalBindings(), Fragment->GetMetalPushConstantBufferSlot()}};
+			FMetalStageBindings{EShaderFrequency::Fragment, Fragment->GetMetalBindings(), Fragment->GetMetalPushConstantBufferSlot()}
+		};
 		auto Bindings = PrepareMetalBindings(*Key->PipelineLayout, StageBindings);
-		if (!Bindings) return nullptr;
+		if (!Bindings) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto Desc = NS::TransferPtr(MTL::RenderPipelineDescriptor::alloc()->init());
 		Desc->setVertexFunction(Vertex->GetFunction());
 		Desc->setFragmentFunction(Fragment->GetFunction());
 		Desc->setSampleCount(1);
 		const bool bLineList = Initializer.PrimitiveTopology
-			== FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
-		Desc->setInputPrimitiveTopology(bLineList
-			? MTL::PrimitiveTopologyClassLine : MTL::PrimitiveTopologyClassTriangle);
+							   == FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
+		Desc->setInputPrimitiveTopology(bLineList ? MTL::PrimitiveTopologyClassLine : MTL::PrimitiveTopologyClassTriangle);
 		for (uint32 Index = 0;
-			Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
+			 Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
 		{
 			const auto Format = Initializer.RenderTargetLayout.ColorAttachments[Index]
-				.RenderTarget.Format;
+									.RenderTarget.Format;
 			if (!IsMetalColorRenderFormat(Format))
-				return nullptr;
+				RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 			Desc->colorAttachments()->object(Index)->setPixelFormat(ToMetalPixelFormat(Format));
 			const auto& Blend = Initializer.ColorBlendStates[Index];
 			auto* NativeBlend = Desc->colorAttachments()->object(Index);
@@ -182,7 +182,7 @@ namespace Durin
 				const auto ColorOp = ToMetalBlendOperation(Blend.ColorOp);
 				const auto AlphaOp = ToMetalBlendOperation(Blend.AlphaOp);
 				if (!SrcColor || !DstColor || !SrcAlpha || !DstAlpha
-					|| !ColorOp || !AlphaOp) return nullptr;
+					|| !ColorOp || !AlphaOp) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 				NativeBlend->setSourceRGBBlendFactor(*SrcColor);
 				NativeBlend->setDestinationRGBBlendFactor(*DstColor);
 				NativeBlend->setRgbBlendOperation(*ColorOp);
@@ -200,84 +200,69 @@ namespace Durin
 			const MTL::VertexFormat Format = ToMetalVertexFormat(Element.Type);
 			if (Format == MTL::VertexFormatInvalid
 				|| Element.StreamIndex >= 16 || Element.AttributeIndex >= 31)
-				return nullptr;
+				RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 			auto* Attribute = VertexDesc->attributes()->object(Element.AttributeIndex);
 			Attribute->setFormat(Format);
 			Attribute->setOffset(Element.Offset);
 			Attribute->setBufferIndex(Element.StreamIndex);
 			auto* Layout = VertexDesc->layouts()->object(Element.StreamIndex);
 			Layout->setStride(Element.Stride);
-			Layout->setStepFunction(Element.InputRate
-				== FRHIVertexElementIdentity::EInputRate::Instance
-				? MTL::VertexStepFunctionPerInstance
-				: MTL::VertexStepFunctionPerVertex);
+			Layout->setStepFunction(Element.InputRate == FRHIVertexElementIdentity::EInputRate::Instance ? MTL::VertexStepFunctionPerInstance : MTL::VertexStepFunctionPerVertex);
 		}
 		Desc->setVertexDescriptor(VertexDesc.get());
 		NS::Error* Error = nullptr;
 		auto Pipeline = NS::TransferPtr(Device->newRenderPipelineState(Desc.get(), &Error));
 		if (!Pipeline)
 		{
-			DURIN_ERROR("Metal graphics pipeline creation failed: {}",
-				CopyMetalError(Error));
-			return nullptr;
+			DURIN_ERROR("Metal graphics pipeline creation failed: {}", CopyMetalError(Error));
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
 		const auto Compare = ToMetalDepthCompare(Initializer.DepthStencilState.CompareOp);
-		if (!Compare) return nullptr;
+		if (!Compare) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto DepthDesc = NS::TransferPtr(MTL::DepthStencilDescriptor::alloc()->init());
 		// Metal validation requires an explicit disabled state for color-only passes.
-		DepthDesc->setDepthCompareFunction(Initializer.RenderTargetLayout.bHasDepthStencil
-			&& Initializer.DepthStencilState.bEnableTest ? *Compare : MTL::CompareFunctionAlways);
-		DepthDesc->setDepthWriteEnabled(Initializer.RenderTargetLayout.bHasDepthStencil
-			&& Initializer.DepthStencilState.bEnableWrite);
+		DepthDesc->setDepthCompareFunction(Initializer.RenderTargetLayout.bHasDepthStencil && Initializer.DepthStencilState.bEnableTest ? *Compare : MTL::CompareFunctionAlways);
+		DepthDesc->setDepthWriteEnabled(Initializer.RenderTargetLayout.bHasDepthStencil && Initializer.DepthStencilState.bEnableWrite);
 		auto DepthStencil = NS::TransferPtr(Device->newDepthStencilState(DepthDesc.get()));
-		if (!DepthStencil) return nullptr;
+		if (!DepthStencil) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		GraphicsPipelinesCreated.fetch_add(1, std::memory_order_relaxed);
-		return new FMetalGraphicsPipelineState(Vertex, Fragment,
-			Initializer.VertexDeclaration, std::move(Pipeline),
-			Initializer.RenderTargetLayout, Initializer.RasterizerState,
-			bLineList ? MTL::PrimitiveTypeLine : MTL::PrimitiveTypeTriangle,
-			std::move(Key->PipelineLayout), std::move(DepthStencil), std::move(Bindings));
+		return new FMetalGraphicsPipelineState(Vertex, Fragment, Initializer.VertexDeclaration, std::move(Pipeline), Initializer.RenderTargetLayout, Initializer.RasterizerState, bLineList ? MTL::PrimitiveTypeLine : MTL::PrimitiveTypeTriangle, std::move(Key->PipelineLayout), std::move(DepthStencil), std::move(Bindings));
 	}
 
-	auto CreateMetalComputePipeline(MTL::Device* Device, const FComputePipelineStateInitializer& Initializer)
-		-> TRefCountPtr<FRHIComputePipelineState>
+	auto CreateMetalComputePipeline(MTL::Device* Device, const FComputePipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIComputePipelineState>
 	{
 		const FMetalAutoreleasePool Pool;
 		if (!Device || !Initializer.ComputeShader
 			|| !IsMetalShaderTarget(Initializer.ComputeShader->GetTarget()))
-			return nullptr;
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto Key = BuildComputePipelineStateKey(Initializer, nullptr);
-		if (!Key) return nullptr;
+		if (!Key) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto* Shader = dynamic_cast<FMetalShader*>(Initializer.ComputeShader);
-		if (!Shader) return nullptr;
-		const std::array StageBindings{FMetalStageBindings{EShaderFrequency::Compute,
-			Shader->GetMetalBindings(), Shader->GetMetalPushConstantBufferSlot()}};
+		if (!Shader) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
+		const std::array StageBindings{FMetalStageBindings{EShaderFrequency::Compute, Shader->GetMetalBindings(), Shader->GetMetalPushConstantBufferSlot()}};
 		auto Bindings = PrepareMetalBindings(*Key->PipelineLayout, StageBindings);
-		if (!Bindings) return nullptr;
+		if (!Bindings) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		NS::Error* Error = nullptr;
 		auto Pipeline = NS::TransferPtr(Device->newComputePipelineState(Shader->GetFunction(), &Error));
 		if (!Pipeline)
 		{
-			DURIN_ERROR("Metal compute pipeline creation failed: {}",
-				CopyMetalError(Error));
-			return nullptr;
+			DURIN_ERROR("Metal compute pipeline creation failed: {}", CopyMetalError(Error));
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
 		const auto Group = Shader->GetComputeThreadGroupSize();
 		if (uint64(Group[0]) * Group[1] * Group[2]
-			> Pipeline->maxTotalThreadsPerThreadgroup()) return nullptr;
+			> Pipeline->maxTotalThreadsPerThreadgroup()) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		ComputePipelinesCreated.fetch_add(1, std::memory_order_relaxed);
-		return new FMetalComputePipelineState(Shader,
-			std::move(Key->PipelineLayout), std::move(Pipeline), std::move(Bindings));
+		return new FMetalComputePipelineState(Shader, std::move(Key->PipelineLayout), std::move(Pipeline), std::move(Bindings));
 	}
 
-	auto CreateMetalShader(MTL::Device* Device, const FRHIShaderCreateDesc& InDesc)
-		-> TRefCountPtr<FRHIShader>
+	auto CreateMetalShader(MTL::Device* Device, const FRHIShaderCreateDesc& InDesc) noexcept -> TRefCountPtr<FRHIShader>
 	{
 		const auto& Desc = InDesc;
 		if (!Device || !IsMetalShaderTarget(Desc.Target) || !Desc.CodeOwner
-			|| !ShaderFormat::ValidateShaderCreateDesc(Desc)) return nullptr;
+			|| !ShaderFormat::ValidateShaderCreateDesc(Desc)) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto Map = ShaderFormat::DecodeMetalMetadata(Desc.Frequency, Desc.CodeOwner->PlatformData.GetBytes());
-		if (!Map) return nullptr;
+		if (!Map) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		const FMetalAutoreleasePool Pool;
 		NS::Error* Error = nullptr;
 		NS::SharedPtr<MTL::Library> Library;
@@ -287,40 +272,35 @@ namespace Durin
 			// The default dispatch-data destructor copies these immutable bytes;
 			// Metal may retain the data independently of this creation descriptor.
 			const auto Data = dispatch_data_create(Desc.Code.data(), Desc.Code.size(), nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
-			if (!Data) return nullptr;
+			if (!Data) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 			BinaryLoadAttempts.fetch_add(1, std::memory_order_relaxed);
 			Library = NS::TransferPtr(Device->newLibrary(Data, &Error));
 			dispatch_release(Data);
-			BinaryLibraryMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::steady_clock::now() - LibraryBegin).count(), std::memory_order_relaxed);
+			BinaryLibraryMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - LibraryBegin).count(), std::memory_order_relaxed);
 		}
 		else
 		{
 			const std::string SourceText(reinterpret_cast<const char*>(Desc.Code.data()), Desc.Code.size());
 			auto Text = NS::TransferPtr(NS::String::alloc()->init(SourceText.c_str(), NS::UTF8StringEncoding));
-			if (!Text) return nullptr;
+			if (!Text) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 			auto Options = NS::TransferPtr(MTL::CompileOptions::alloc()->init());
 			Options->setLanguageVersion(MTL::LanguageVersion2_0);
 			SourceCompileAttempts.fetch_add(1, std::memory_order_relaxed);
 			Library = NS::TransferPtr(Device->newLibrary(Text.get(), Options.get(), &Error));
-			SourceLibraryMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::steady_clock::now() - LibraryBegin).count(), std::memory_order_relaxed);
+			SourceLibraryMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - LibraryBegin).count(), std::memory_order_relaxed);
 		}
 		if (!Library)
 		{
-			DURIN_ERROR("Metal shader library creation failed (format {}): {}", uint32(Desc.CodeFormat),
-				CopyMetalError(Error));
-			return nullptr;
+			DURIN_ERROR("Metal shader library creation failed (format {}): {}", uint32(Desc.CodeFormat), CopyMetalError(Error));
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
 		auto Entry = NS::RetainPtr(NS::String::string(Desc.EntryPoint, NS::UTF8StringEncoding));
-		if (!Entry) return nullptr;
+		if (!Entry) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto Function = NS::TransferPtr(Library->newFunction(Entry.get()));
-		if (!Function) return nullptr;
-		const MTL::FunctionType Expected = Desc.Frequency == EShaderFrequency::Vertex
-			? MTL::FunctionTypeVertex
-			: Desc.Frequency == EShaderFrequency::Fragment
-				? MTL::FunctionTypeFragment : MTL::FunctionTypeKernel;
-		if (Function->functionType() != Expected) return nullptr;
+		if (!Function) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
+		const MTL::FunctionType Expected = Desc.Frequency == EShaderFrequency::Vertex ? MTL::FunctionTypeVertex : Desc.Frequency == EShaderFrequency::Fragment ? MTL::FunctionTypeFragment :
+																																								 MTL::FunctionTypeKernel;
+		if (Function->functionType() != Expected) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		FunctionsCreated.fetch_add(1, std::memory_order_relaxed);
 		return new FMetalShader(Desc, std::move(*Map), std::move(Library), std::move(Function));
 	}

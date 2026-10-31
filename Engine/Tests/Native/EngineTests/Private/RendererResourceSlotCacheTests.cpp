@@ -135,7 +135,8 @@ namespace Durin
 
 		TEST(
 			FRendererResourceSlotCacheTests,
-			FailedKeyRetriesOnNextPreparationWithoutPoisoningOtherKey)
+			ContentFailureRequiresInvalidationWithoutPoisoningOtherKey
+		)
 		{
 			FCache Cache(EDependency::Shader | EDependency::Device);
 			FRenderResourceGeneration Generation;
@@ -154,16 +155,18 @@ namespace Durin
 					},
 					Reporter),
 				nullptr);
-			EXPECT_NE(
+			EXPECT_EQ(
 				FirstEntry.Slot.Resolve(
 					Generation,
 					[&]() {
 						++FirstKeyAttempts;
 						return FResult::Success(11);
 					},
-					Reporter),
-				nullptr);
-			EXPECT_EQ(FirstKeyAttempts, 2);
+					Reporter
+				),
+				nullptr
+			);
+			EXPECT_EQ(FirstKeyAttempts, 1);
 
 			auto& SecondEntry = Cache.FindOrAdd(2);
 			ASSERT_NE(
@@ -188,7 +191,7 @@ namespace Durin
 					Reporter),
 				nullptr);
 			EXPECT_EQ(*StableFirstEntry->Slot.GetPayload(), 11);
-			EXPECT_EQ(FirstKeyAttempts, 3);
+			EXPECT_EQ(FirstKeyAttempts, 2);
 			EXPECT_EQ(*Cache.Find(2)->Slot.GetPayload(), 22);
 		}
 
@@ -260,7 +263,8 @@ namespace Durin
 
 		TEST(
 			FRendererResourceSlotCacheTests,
-			FailedSceneTargetCandidateRecoversOnNextPreparation)
+			ContentCandidateRecoversOnlyAfterExplicitInvalidation
+		)
 		{
 			struct FSceneTargets
 			{
@@ -290,16 +294,18 @@ namespace Durin
 				Entry.Slot.GetAvailability(),
 				ERenderResourceAvailability::Failed);
 
-			EXPECT_NE(
+			EXPECT_EQ(
 				Entry.Slot.Resolve(
 					Generation,
 					[&]() {
 						++Attempts;
 						return FSceneTargetResult::Success({1, 2});
 					},
-					[](const FRenderResourceCreateDiagnostic&) {}),
-				nullptr);
-			EXPECT_EQ(Attempts, 2);
+					[](const FRenderResourceCreateDiagnostic&) {}
+				),
+				nullptr
+			);
+			EXPECT_EQ(Attempts, 1);
 
 			Generation.Advance(EDependency::Manual);
 			FSceneTargets* Recovered = Entry.Slot.Resolve(

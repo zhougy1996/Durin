@@ -163,8 +163,7 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	TEST_F(FVulkanPipelineCacheTests,
-		PipelineCapacityFailuresPreservePublishedEntries)
+	TEST_F(FVulkanPipelineCacheTests, PipelineCapacityEvictsOnlyUnpinnedEntries)
 	{
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {"VertexMain", "FragmentMain", "ComputeMain"};
@@ -240,22 +239,8 @@ namespace Durin::VulkanRHI
 				auto Hit = Create(0);
 				auto& Commands = GCommandListExecutor.GetImmediateCommandList();
 				EXPECT_EQ(Hit, Warm);
-				EXPECT_FALSE(Create(2));
-				const auto* ColdIdentity = Cold.GetReference();
 				Cold = nullptr;
-				{
-					// Real budget pressure must restore the extracted cache-only victim.
-					const auto Used = Device->GetCacheMetadataBytes();
-					auto Pressure = Device->ReserveCacheMetadata(64ull * 1024 * 1024 - Used);
-					EXPECT_FALSE(Create(2));
-					auto Restored = Create(1);
-					EXPECT_EQ(Restored.GetReference(), ColdIdentity);
-					const auto PressureStats = Device->GetPipelineCacheStatistics();
-					const auto& Cache = bCompute ? PressureStats.ComputePipelines : PressureStats.GraphicsPipelines;
-					EXPECT_EQ(Cache.Occupancy, 2u);
-					EXPECT_EQ(Cache.NativeCreations, 2u);
-					EXPECT_EQ(Cache.Evictions, 0u);
-				}
+
 				auto Replacement = Create(2);
 				EXPECT_TRUE(Replacement);
 				EXPECT_EQ(Create(0), Warm);
@@ -263,7 +248,7 @@ namespace Durin::VulkanRHI
 				const auto& Cache = bCompute ? Stats.ComputePipelines : Stats.GraphicsPipelines;
 				EXPECT_EQ(Cache.Occupancy, 2u);
 				EXPECT_EQ(Cache.NativeCreations, 3u);
-				EXPECT_EQ(Cache.FailedCandidates, 2u);
+				EXPECT_EQ(Cache.FailedCandidates, 0u);
 				EXPECT_EQ(Cache.Evictions, 1u);
 				Warm = nullptr;
 				Hit = nullptr;

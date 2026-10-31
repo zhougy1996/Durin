@@ -25,10 +25,7 @@ namespace Durin
 		Unspecified,
 		GlobalShaderUnavailable,
 		ShaderFailure,
-		ShaderCreationFailed,
-		ResourceCreationFailed,
-		PipelineCreationFailed,
-		SamplerCreationFailed,
+		PipelinePreparationRejected,
 		FullscreenGeometryUnavailable,
 	};
 
@@ -368,11 +365,7 @@ namespace Durin
 		auto ShouldSuppressAttempt(
 			const FRenderResourceGeneration& Generation) const -> bool
 		{
-			if (Failure && (Failure->Category == ERenderResourceCreateErrorCategory::RHIResource
-				|| Failure->Category == ERenderResourceCreateErrorCategory::GraphicsPipeline
-				|| Failure->Reason == ERenderResourceCreateErrorReason::ShaderCreationFailed
-				|| Failure->Reason == ERenderResourceCreateErrorReason::SamplerCreationFailed))
-				return false;
+
 			if (Availability != ERenderResourceAvailability::Ready && Availability != ERenderResourceAvailability::Failed)
 			{
 				return false;

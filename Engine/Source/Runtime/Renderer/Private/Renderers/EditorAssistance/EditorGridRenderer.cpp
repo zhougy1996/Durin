@@ -174,10 +174,12 @@ namespace Durin
 								GraphicsPipeline,
 							"EditorGrid",
 							PipelineName,
-							ERenderResourceCreateErrorReason::PipelineCreationFailed,
+							ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual
+						)
+					);
 				}
 				return FPipelineResult::Success({
 					.Pipeline = std::move(Candidate),

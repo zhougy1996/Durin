@@ -159,31 +159,28 @@ namespace Durin
 			auto RHIResizeViewport(
 				FRHIViewport*, uint32, uint32, bool) -> void override {}
 			auto RHICreateGraphicsPipelineState(
-				FName, const FGraphicsPipelineStateInitializer&)
-				-> TRefCountPtr<FRHIGraphicsPipelineState> override { return {}; }
+				FName, const FGraphicsPipelineStateInitializer&
+			) noexcept -> TRefCountPtr<FRHIGraphicsPipelineState> override { return {}; }
 			auto RHIGetDefaultContext() -> IRHICommandContext* override
 			{
 				return &CommandContext;
 			}
 			auto RHIGetViewportBackBuffer(FRHIViewport*)
 				-> TRefCountPtr<FRHITexture> override { return {}; }
-			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
-				-> TRefCountPtr<FRHIVertexDeclaration> override { return {}; }
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) noexcept -> TRefCountPtr<FRHIVertexDeclaration> override { return {}; }
 			auto RHIIsTextureSupported(
 				const FRHITextureCreateDesc&) const -> bool override { return false; }
 			auto RHICreateTexture(
-				FRHICommandListBase&, const FRHITextureCreateDesc&)
-				-> FTextureRHIRef override
+				FRHICommandListBase&, const FRHITextureCreateDesc&
+			) noexcept -> FTextureRHIRef override
 			{
 				return {};
 			}
-			auto RHICreateSampler(const FRHISamplerDesc&)
-				-> TRefCountPtr<FRHISampler> override { return {}; }
-			auto RHICreateShader(const FRHIShaderCreateDesc&)
-				-> TRefCountPtr<FRHIShader> override { return {}; }
+			auto RHICreateSampler(const FRHISamplerDesc&) noexcept -> TRefCountPtr<FRHISampler> override { return {}; }
+			auto RHICreateShader(const FRHIShaderCreateDesc&) noexcept -> TRefCountPtr<FRHIShader> override { return {}; }
 			auto RHICreateBuffer(
-				FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> FBufferRHIRef override
+				FRHICommandListImmediate&, const FRHIBufferCreateDesc&
+			) noexcept -> FBufferRHIRef override
 			{
 				return {};
 			}

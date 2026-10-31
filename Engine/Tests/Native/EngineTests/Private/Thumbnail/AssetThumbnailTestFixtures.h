@@ -6,6 +6,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CoreGlobals.h"
 
 #include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
@@ -40,6 +41,14 @@
 
 namespace Durin::Tests
 {
+	// Standalone captures still need distinct frames for preparation admission.
+	inline auto AdvanceThumbnailPreparationFrame() -> void
+	{
+		ENQUEUE_RENDER_COMMAND(AdvanceThumbnailPreparationFrame)([](FRHICommandListImmediate&) {
+			++GRenderFrameCounterRenderThread;
+		});
+	}
+
 	// Test-only pumping: a render-thread flush no longer implies GPU readback completion.
 	inline auto FinishThumbnailCapture(Editor::FThumbnailPreviewScenePool& Pool,
 		FByteBuffer& Pixels, std::string& Error) -> Editor::EThumbnailCaptureState
@@ -47,6 +56,7 @@ namespace Durin::Tests
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		for (;;)
 		{
+			AdvanceThumbnailPreparationFrame();
 			auto Capture = Pool.PollCapture();
 			if (!Capture)
 			{

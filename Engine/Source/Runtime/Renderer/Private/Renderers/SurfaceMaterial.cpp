@@ -32,18 +32,7 @@ namespace Durin::RendererPrivate
 		{
 			using FResult = TRenderResourceCreateResult<FSamplerRHIRef>;
 			FSamplerRHIRef Candidate = RHICreateSampler(MakeMaterialSamplerDesc(State));
-			if (Candidate != nullptr) return FResult::Success(std::move(Candidate));
-			return FResult::Failure(MakeRendererResourceCreateError(
-				ERenderResourceCreateErrorCategory::RHIResource,
-				"SurfaceMaterialSampler",
-				std::format("min={},mag={},u={},v={}",
-					static_cast<uint8>(State.MinFilter),
-					static_cast<uint8>(State.MagFilter),
-					static_cast<uint8>(State.AddressU),
-					static_cast<uint8>(State.AddressV)),
-				ERenderResourceCreateErrorReason::SamplerCreationFailed,
-				ERenderResourceGenerationDependency::Device
-					| ERenderResourceGenerationDependency::Manual));
+			return FResult::Success(std::move(Candidate));
 		}
 	}
 

@@ -73,11 +73,9 @@ namespace Durin::VulkanRHI
 		auto RHICreateViewport(const FRHIViewportCreateInfo& CreateInfo)
 			-> FViewportRHIRef override;
 		auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void override;
-		auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
-		auto RHICreateComputePipelineState(FName DebugName,
-			const FComputePipelineStateInitializer& Initializer)
-			-> TRefCountPtr<FRHIComputePipelineState> override;
-		auto RHICreateGPUTimingQuery() -> TRefCountPtr<FRHIGPUTimingQuery> override;
+		auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIGraphicsPipelineState> override;
+		auto RHICreateComputePipelineState(FName DebugName, const FComputePipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIComputePipelineState> override;
+		auto RHICreateGPUTimingQuery() noexcept -> TRefCountPtr<FRHIGPUTimingQuery> override;
 		auto RHIGetGPUTimingResult(const FRHIGPUTimingQuery* Query) const
 			-> FRHIGPUTimingResult override;
 		auto RHIGetPipelineCacheStatistics() const -> FRHIPipelineCacheStatistics override;
@@ -90,24 +88,22 @@ namespace Durin::VulkanRHI
 		auto RHIGetCommandContext(ERHIPipeline Pipeline) const -> IRHICommandContext*;
 		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> FTextureRHIRef override;
 
-		auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration> override;
+		auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) noexcept -> TRefCountPtr<FRHIVertexDeclaration> override;
 		auto RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool override;
-		auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef override;
+		auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) noexcept -> FTextureRHIRef override;
 		auto RHISupportsTransientAliasing() const -> bool override { return true; }
-		auto RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source) -> FTextureRHIRef override;
-		auto RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source) -> FBufferRHIRef override;
+		auto RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source) noexcept -> FTextureRHIRef override;
+		auto RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source) noexcept -> FBufferRHIRef override;
 		auto RHICollectCompletedResources() -> void override;
-		auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> override;
-		auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> FBufferRHIRef override;
-		auto RHICreateBufferView(FRHIBuffer* Buffer,
-			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef override;
-		auto RHICreateTextureView(FRHITexture* Texture,
-			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef override;
+		auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) noexcept -> TRefCountPtr<FRHISampler> override;
+		auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) noexcept -> FBufferRHIRef override;
+		auto RHICreateBufferView(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) noexcept -> FBufferViewRHIRef override;
+		auto RHICreateTextureView(FRHITexture* Texture, const FRHITextureViewDesc& Desc) noexcept -> FTextureViewRHIRef override;
 		auto RHIGetOrCreateBufferView(FRHIBuffer* Buffer,
 			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef override;
 		auto RHIGetOrCreateTextureView(FRHITexture* Texture,
 			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef override;
-		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;
+		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) noexcept -> FShaderRHIRef override;
 
 
 		auto InitializeTexture(FVulkanCommandListContext& Context, FRHITexture* Texture) -> void;

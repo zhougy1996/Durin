@@ -364,25 +364,12 @@ namespace Durin
 			? FName(GetPackage()->GetPackagePath()) : FName("<transient DTexture>"));
 #endif
 		const bool bInitializeReference = !bTextureReferenceInitializationQueued;
-		EnqueueRenderCommand("InitTextureResource",
-			[Resource = RenderResource.get(), Reference = TextureReference.get(), bInitializeReference,
-				TextureName = GetObjectPath()]
-			(FRHICommandListImmediate& Commands) {
-				try
-				{
-					if (bInitializeReference) Reference->InitResource(Commands);
-					Reference->ResetToFallback_RenderThread();
-					Resource->InitResource(Commands);
-					if (Resource->GetTextureRHI_RenderThread()) Resource->PublishTexture_RenderThread();
-					else DURIN_WARN("Texture '{}' upload failed; using fallback.", TextureName);
-				}
-				catch (...)
-				{
-					if (Resource->IsInitialized()) Resource->ReleaseResource();
-					Reference->ResetToFallback_RenderThread();
-					DURIN_WARN("Texture '{}' initialization threw an exception; using fallback.", TextureName);
-				}
-			});
+		EnqueueRenderCommand("InitTextureResource", [Resource = RenderResource.get(), Reference = TextureReference.get(), bInitializeReference](FRHICommandListImmediate& Commands) {
+			if (bInitializeReference) Reference->InitResource(Commands);
+			Reference->ResetToFallback_RenderThread();
+			Resource->InitResource(Commands);
+			Resource->PublishTexture_RenderThread();
+		});
 		bTextureReferenceInitializationQueued = true;
 		ResourceFence.BeginFence();
 	}

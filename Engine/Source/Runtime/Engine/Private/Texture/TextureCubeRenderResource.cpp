@@ -35,21 +35,13 @@ namespace Durin
 					Input->Faces[0].Mips.size()))
 				.SetFlags(ETextureCreateFlags::ShaderResource
 					| ETextureCreateFlags::CPUReadback);
-		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
-		{
-			DURIN_WARN("TextureCube description is unsupported by the RHI (format: {}).", static_cast<uint32>(Desc.Format));
-			return;
-		}
+
 
 		auto& CommandList =
 			static_cast<FRHICommandListImmediate&>(RHICmdList);
 		FTextureRHIRef NewTexture =
 			GDynamicRHI->RHICreateTexture(CommandList, Desc);
-		if (NewTexture == nullptr)
-		{
-			DURIN_WARN("TextureCube GPU texture allocation failed.");
-			return;
-		}
+
 
 		for (uint32 FaceIndex = 0;
 			FaceIndex < TextureCubeFaceCount; ++FaceIndex)

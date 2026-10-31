@@ -131,7 +131,7 @@ namespace Durin
 	};
 
 	auto ToMetalVertexFormat(EVertexElementType Type) -> MTL::VertexFormat;
-	auto CreateMetalGraphicsPipeline(MTL::Device* Device, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>;
-	auto CreateMetalComputePipeline(MTL::Device* Device, const FComputePipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIComputePipelineState>;
-	auto CreateMetalShader(MTL::Device* Device, const FRHIShaderCreateDesc& Desc) -> TRefCountPtr<FRHIShader>;
+	auto CreateMetalGraphicsPipeline(MTL::Device* Device, const FGraphicsPipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIGraphicsPipelineState>;
+	auto CreateMetalComputePipeline(MTL::Device* Device, const FComputePipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIComputePipelineState>;
+	auto CreateMetalShader(MTL::Device* Device, const FRHIShaderCreateDesc& Desc) noexcept -> TRefCountPtr<FRHIShader>;
 }

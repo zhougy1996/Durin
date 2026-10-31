@@ -249,8 +249,7 @@ namespace Durin
 			-> FRHIDiagnosticSnapshot;
 		// Owner-thread reset preserving capabilities, capacities, and live state.
 		RHI_API virtual auto RHIResetDiagnosticStatistics() -> void;
-		RHI_API virtual auto RHICreateGPUTimingQuery()
-			-> TRefCountPtr<FRHIGPUTimingQuery>;
+		RHI_API virtual auto RHICreateGPUTimingQuery() noexcept -> TRefCountPtr<FRHIGPUTimingQuery>;
 		RHI_API virtual auto RHIGetGPUTimingResult(
 			const FRHIGPUTimingQuery* Query) const -> FRHIGPUTimingResult;
 
@@ -268,27 +267,22 @@ namespace Durin
 		// ordered after earlier draws. Threaded backends retain main-thread entry.
 		virtual auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bIsFullscreen) -> void = 0;
 
-		virtual auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> = 0;
-		// Creates one complete compute PSO or returns null after a recoverable diagnostic.
-		RHI_API virtual auto RHICreateComputePipelineState(FName DebugName,
-			const FComputePipelineStateInitializer& Initializer)
-			-> TRefCountPtr<FRHIComputePipelineState>;
+		virtual auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIGraphicsPipelineState> = 0;
+		// Ordinary native factories return complete non-null resources; native failure (including OOM) terminates.
+		RHI_API virtual auto RHICreateComputePipelineState(FName DebugName, const FComputePipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIComputePipelineState>;
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
 		virtual auto RHIGetViewportBackBuffer(FRHIViewport* InViewportRHI) -> TRefCountPtr<FRHITexture> = 0;
 
-		virtual auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration> = 0;
+		virtual auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) noexcept -> TRefCountPtr<FRHIVertexDeclaration> = 0;
 		// Checks the exact format and usage contract without allocating a resource.
 		virtual auto RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool = 0;
-		// Creates a complete resource, or logs a recoverable failure and returns null.
-		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc)
-			-> FTextureRHIRef = 0;
+		// Required-success native creation. Check capability support before calling.
+		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) noexcept -> FTextureRHIRef = 0;
 		virtual auto RHISupportsTransientAliasing() const -> bool { return false; }
-		// Source must be aliasable and descriptor-compatible. Null means allocation failure.
+		// Source must be aliasable and descriptor-compatible. Native failure is terminal.
 		// The returned resource owns the shared backing independently of graph lifetime.
-		virtual auto RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source)
-			-> FTextureRHIRef { return {}; }
-		virtual auto RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source)
-			-> FBufferRHIRef { return {}; }
+		RHI_API virtual auto RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source) noexcept -> FTextureRHIRef;
+		RHI_API virtual auto RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source) noexcept -> FBufferRHIRef;
 		// Process CPU retirement and completed GPU deletions without waiting for GPU idle.
 		// Called on the rendering thread before allocating under memory pressure.
 		RHI_API virtual auto RHICollectCompletedResources() -> void;
@@ -297,18 +291,19 @@ namespace Durin
 		RHI_API virtual auto RHIUpdateTextureReference(
 			FRHITextureReference* TextureReference,
 			FRHITexture* NewTexture) -> void;
-		virtual auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> = 0;
-		virtual auto RHICreateShader(const FRHIShaderCreateDesc& CreateDesc) -> TRefCountPtr<FRHIShader> = 0;
-		virtual auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc)
-			-> FBufferRHIRef = 0;
-		// Creates one complete immutable view or returns null after a recoverable diagnostic.
+		virtual auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) noexcept -> TRefCountPtr<FRHISampler> = 0;
+		virtual auto RHICreateShader(const FRHIShaderCreateDesc& CreateDesc) noexcept -> TRefCountPtr<FRHIShader> = 0;
+		virtual auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) noexcept -> FBufferRHIRef = 0;
+		// Required-success immutable view creation; validate external descriptions before calling.
 		RHI_API virtual auto RHICreateBufferView(
 			FRHIBuffer* Buffer,
-			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>;
-		// Creates one complete immutable view or returns null after a recoverable diagnostic.
+			const FRHIBufferViewDesc& Desc
+		) noexcept -> TRefCountPtr<FRHIBufferView>;
+		// Required-success immutable view creation; validate external descriptions before calling.
 		RHI_API virtual auto RHICreateTextureView(
 			FRHITexture* Texture,
-			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>;
+			const FRHITextureViewDesc& Desc
+		) noexcept -> TRefCountPtr<FRHITextureView>;
 		// Reuses an immutable view identity when the backend supports automatic-view
 		// caching. Explicit RHICreate*View calls remain creation-only factories.
 		RHI_API virtual auto RHIGetOrCreateBufferView(

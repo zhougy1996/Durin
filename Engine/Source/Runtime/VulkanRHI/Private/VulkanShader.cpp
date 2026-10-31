@@ -1,4 +1,5 @@
 #include "ShaderFormat.h"
+#include "Backend/RHICreation.h"
 #include "VulkanShader.h"
 
 #include "RHICommandList.h"
@@ -135,19 +136,16 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef
+	auto FVulkanDynamicRHI::RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) noexcept -> FShaderRHIRef
 	{
 		if (!ShaderFormat::ValidateShaderCreateDesc(InCreateDesc) || InCreateDesc.Target != VulkanShaderTarget
 			|| InCreateDesc.CodeFormat != EShaderCodeFormat::Spirv15)
-			return nullptr;
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		vk::Result CreationResult;
 		FShaderRHIRef Shader = new FVulkanShader(*Device, InCreateDesc, CreationResult);
 		if (CreationResult != vk::Result::eSuccess)
 		{
-			if (!IsRecoverableVulkanCreationError(CreationResult))
-				ThrowVulkanError(CreationResult, "Vulkan shader module creation");
-			LogVulkanCreationFailure(CreationResult, "shader", InCreateDesc.DebugName ? InCreateDesc.DebugName : "");
-			return nullptr;
+			TerminateVulkanFailure(CreationResult, "Vulkan shader module creation");
 		}
 		return Shader;
 	}

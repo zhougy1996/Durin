@@ -570,7 +570,8 @@ Invalid or closed admissions remain terminal and observable. Lower-level capacit
 pressure stays with the accepted material collection rather than resubmitting
 the component's complete set. Proxy readiness checks do not retry deferred submission.
 Oversized sets fail explicitly. `GetPSOPrecacheDiagnostic` exposes submission
-diagnostics; individual request handles expose collection/native failures.
+diagnostics; individual request handles expose collection or admission errors. Native
+creation failures terminate through RHI rather than becoming retryable requests.
 
 `DPrimitiveComponent` owns reflected `bCastShadow` and `bRenderInMainPass`
 properties. Their setters and property edits retire the old component PSO set

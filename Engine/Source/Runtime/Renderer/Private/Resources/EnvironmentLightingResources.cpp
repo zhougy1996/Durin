@@ -141,12 +141,11 @@ namespace Durin
         if (!State->Pipeline)
             return Requests.HasPending() ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
         State->Sampler=RHICreateSampler(FRHISamplerDesc::LinearClamp());
-        return State->Sampler ? ERenderResourceAvailability::Ready : ERenderResourceAvailability::Failed;
-    }
+		return ERenderResourceAvailability::Ready;
+	}
 
-    auto FEnvironmentLightingResources::RetirePublished_RenderThread(FRHICommandListImmediate& Commands,
-        std::shared_ptr<const FSkyLightingGeneration> Generation) -> void
-    {
+	auto FEnvironmentLightingResources::RetirePublished_RenderThread(FRHICommandListImmediate& Commands, std::shared_ptr<const FSkyLightingGeneration> Generation) -> void
+	{
         if (!Generation) return;
         // Cover every prior consumer, including views recorded after the filter job.
         auto Completion = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});

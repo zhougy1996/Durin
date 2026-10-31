@@ -1,4 +1,5 @@
 #include "Backend/RHITextureUpload.h"
+#include "Backend/RHICreation.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanTexture.h"
@@ -142,8 +143,7 @@ namespace Durin::VulkanRHI
 		{
 			Image = nullptr;
 			Allocation = {};
-			if (!OutResult) ThrowVulkanError(ImageResult, "Vulkan texture allocation");
-			return;
+			if (!OutResult) TerminateVulkanFailure(ImageResult, "Vulkan texture allocation");
 		}
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Image, [&] { return std::string_view(DebugName); });
 	}
@@ -230,9 +230,9 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source) -> FTextureRHIRef
+	auto FVulkanDynamicRHI::RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source) noexcept -> FTextureRHIRef
 	{
-		if (!Source) return {};
+		if (!Source) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		const auto Normalized = NormalizeTextureCreateDesc(Desc);
 		const auto* NativeSource = static_cast<FVulkanTexture*>(Source);
 		if (!NativeSource->IsAliasable() || !IsNormalizedTextureSupported(Normalized)
@@ -240,42 +240,33 @@ namespace Durin::VulkanRHI
 			|| Source->GetSizeX() != uint32(Normalized.Extent.x) || Source->GetSizeY() != uint32(Normalized.Extent.y)
 			|| Source->GetSizeZ() != Normalized.Depth || Source->GetArraySize() != Normalized.ArraySize
 			|| Source->GetNumMips() != Normalized.NumMips || Source->GetNumSamples() != Normalized.NumSamples
-			|| Source->GetFormat() != Normalized.Format) return {};
+			|| Source->GetFormat() != Normalized.Format) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		vk::Result Result;
-		FTextureRHIRef Texture = new FVulkanTexture(*Device, Normalized, &Result,
-			static_cast<FVulkanTexture*>(Source));
+		FTextureRHIRef Texture = new FVulkanTexture(*Device, Normalized, &Result, static_cast<FVulkanTexture*>(Source));
 		if (Result != vk::Result::eSuccess)
 		{
-			if (!IsRecoverableVulkanCreationError(Result)) ThrowVulkanError(Result, "Vulkan aliased texture allocation");
-			LogVulkanCreationFailure(Result, "aliased texture", Desc.DebugName ? Desc.DebugName : "");
+			TerminateVulkanFailure(Result, "Vulkan aliased texture allocation");
 		}
-		return Result == vk::Result::eSuccess ? Texture : FTextureRHIRef{};
+		return Texture;
 	}
 
-	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList,
-		const FRHITextureCreateDesc& CreateDesc)
-		-> FTextureRHIRef
+	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) noexcept -> FTextureRHIRef
 	{
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCreateDesc(CreateDesc);
-		checkf(ValidationResult,
-			"Invalid RHI texture create description: {}", ToString(ValidationResult.error()));
+		checkf(ValidationResult, "Invalid RHI texture create description: {}", ToString(ValidationResult.error()));
 #endif
 		const FRHITextureCreateDesc NormalizedDesc = NormalizeTextureCreateDesc(CreateDesc);
 		if (!IsNormalizedTextureSupported(NormalizedDesc))
 		{
-			DURIN_ERROR("Failed to create Vulkan texture '{}': unsupported format or usage",
-				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>");
-			return {};
+			DURIN_ERROR("Failed to create Vulkan texture '{}': unsupported format or usage", CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>");
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
 		vk::Result CreationResult;
 		FTextureRHIRef Texture = new FVulkanTexture(*Device, NormalizedDesc, &CreationResult);
 		if (CreationResult != vk::Result::eSuccess)
 		{
-			if (!IsRecoverableVulkanCreationError(CreationResult))
-				ThrowVulkanError(CreationResult, "Vulkan texture allocation");
-			LogVulkanCreationFailure(CreationResult, "texture", CreateDesc.DebugName ? CreateDesc.DebugName : "");
-			return {};
+			TerminateVulkanFailure(CreationResult, "Vulkan texture allocation");
 		}
 		if (EnumHasAnyFlags(NormalizedDesc.Flags, ETextureCreateFlags::Storage))
 		{
@@ -376,88 +367,80 @@ namespace Durin::VulkanRHI
 		}
 		catch (const vk::SystemError& Exception)
 		{
-			if (!IsRecoverableVulkanCreationError(
-					static_cast<vk::Result>(Exception.code().value()))) throw;
-			return false;
+			if (static_cast<vk::Result>(Exception.code().value()) == vk::Result::eErrorFormatNotSupported) return false;
+			TerminateVulkanFailure(static_cast<vk::Result>(Exception.code().value()), "Vulkan format query");
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
+	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) noexcept -> TRefCountPtr<FRHISampler>
 	{
 		vk::Result CreationResult;
 		TRefCountPtr<FRHISampler> Sampler = new FVulkanSampler(*Device, CreateDesc, CreationResult);
 		if (CreationResult != vk::Result::eSuccess)
 		{
-			if (!IsRecoverableVulkanCreationError(CreationResult))
-				ThrowVulkanError(CreationResult, "Vulkan sampler creation");
-			LogVulkanCreationFailure(CreationResult, "sampler");
-			return nullptr;
+			TerminateVulkanFailure(CreationResult, "Vulkan sampler creation");
 		}
 		return Sampler;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateBufferView(
 		FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
+		const FRHIBufferViewDesc& Desc
+	) noexcept -> FBufferViewRHIRef
 	{
 
 		const auto ValidationResult = ValidateBufferViewDesc(Buffer, Desc);
 		if (!ValidationResult)
 		{
 			DURIN_ERROR("Failed to create Vulkan buffer view: {}", ToString(ValidationResult.error()));
-			return nullptr;
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
 		if (Desc.Type == ERHIBufferViewType::Formatted)
 		{
 			const vk::FormatProperties Properties = Device->GetGpu().getFormatProperties(
-				ToVulkan_PixelFormat(Desc.Format));
-			if (!(Properties.bufferFeatures & (vk::FormatFeatureFlagBits::eUniformTexelBuffer
-				| vk::FormatFeatureFlagBits::eStorageTexelBuffer)))
+				ToVulkan_PixelFormat(Desc.Format)
+			);
+			if (!(Properties.bufferFeatures & (vk::FormatFeatureFlagBits::eUniformTexelBuffer | vk::FormatFeatureFlagBits::eStorageTexelBuffer)))
 			{
 				DURIN_ERROR("Failed to create Vulkan formatted buffer view: format has no texel-buffer support.");
-				return nullptr;
+				RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 			}
 		}
 		vk::Result CreationResult;
 		FBufferViewRHIRef View = new FVulkanBufferView(*Device, Buffer, Desc, &CreationResult);
 		if (CreationResult != vk::Result::eSuccess)
 		{
-			if (!IsRecoverableVulkanCreationError(CreationResult))
-				ThrowVulkanError(CreationResult, "Vulkan buffer view creation");
-			LogVulkanCreationFailure(CreationResult, "buffer view");
-			return nullptr;
+			TerminateVulkanFailure(CreationResult, "Vulkan buffer view creation");
 		}
 		return View;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateTextureView(
 		FRHITexture* Texture,
-		const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
+		const FRHITextureViewDesc& Desc
+	) noexcept -> FTextureViewRHIRef
 	{
 		const auto ValidationResult = ValidateTextureViewDesc(Texture, Desc);
 		if (!ValidationResult)
 		{
 			DURIN_ERROR("Failed to create Vulkan texture view: {}", ToString(ValidationResult.error()));
-			return nullptr;
+			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
 		FTextureViewRHIRef Result;
-		auto CreationOperation = [this, Texture, Desc, &Result
-		]() {
+		auto CreationOperation = [this, Texture, Desc, &Result]() {
 			vk::Result CreationResult;
 			FTextureViewRHIRef Candidate = new FVulkanTextureView(*Device, Texture, Desc, CreationResult);
 			if (CreationResult != vk::Result::eSuccess)
 			{
-				if (!IsRecoverableVulkanCreationError(CreationResult))
-					ThrowVulkanError(CreationResult, "Vulkan texture view creation");
-				LogVulkanCreationFailure(CreationResult, "texture view");
-				return;
+				TerminateVulkanFailure(CreationResult, "Vulkan texture view creation");
 			}
 			Result = std::move(Candidate);
 		};
 		// Swapchain backing changes on replay; only stable local images are caller-domain factories.
 		if (static_cast<FVulkanTexture*>(Texture)->HasExternalBacking() && GRHIThread && !IsInRHIThread())
 			GCommandListExecutor.ExecuteSynchronousOperation(false, std::move(CreationOperation));
-		else CreationOperation();
+		else
+			CreationOperation();
 		return Result;
 	}
 

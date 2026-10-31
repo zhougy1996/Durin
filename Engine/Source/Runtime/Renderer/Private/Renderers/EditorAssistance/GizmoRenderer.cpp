@@ -400,14 +400,7 @@ namespace Durin
 					|| Candidate.VertexBuffer == nullptr
 					|| Candidate.IndexBuffer == nullptr)
 				{
-					return FBaseResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"Gizmo",
-							"base",
-							ERenderResourceCreateErrorReason::ResourceCreationFailed,
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
+					return FBaseResult::Pending();
 				}
 				return FBaseResult::Success(std::move(Candidate));
 			},
@@ -483,12 +476,14 @@ namespace Durin
 										GraphicsPipeline,
 									"Gizmo",
 									PipelineName,
-									ERenderResourceCreateErrorReason::PipelineCreationFailed,
+									ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 									ERenderResourceGenerationDependency::Shader
 										| ERenderResourceGenerationDependency::
 											Device
 										| ERenderResourceGenerationDependency::
-											Manual));
+											Manual
+								)
+							);
 						}
 						return FPipelineResult::Success({
 							.Pipeline = std::move(Candidate),

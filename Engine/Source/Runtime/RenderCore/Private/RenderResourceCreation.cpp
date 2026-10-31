@@ -22,10 +22,7 @@ namespace Durin
 		case ERenderResourceCreateErrorReason::Unspecified: return "Renderer resource creation failed.";
 		case ERenderResourceCreateErrorReason::GlobalShaderUnavailable: return "Global shader set is unavailable.";
 		case ERenderResourceCreateErrorReason::ShaderFailure: return "Shader preparation failed.";
-		case ERenderResourceCreateErrorReason::ShaderCreationFailed: return "RHI shader creation returned null.";
-		case ERenderResourceCreateErrorReason::ResourceCreationFailed: return "RHI resource creation returned null.";
-		case ERenderResourceCreateErrorReason::PipelineCreationFailed: return "RHI pipeline creation returned null.";
-		case ERenderResourceCreateErrorReason::SamplerCreationFailed: return "RHI sampler creation returned null.";
+		case ERenderResourceCreateErrorReason::PipelinePreparationRejected: return "Pipeline preparation or request admission was rejected.";
 		case ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable: return "Shared fullscreen geometry is unavailable.";
 		}
 		return "Unknown renderer resource failure.";

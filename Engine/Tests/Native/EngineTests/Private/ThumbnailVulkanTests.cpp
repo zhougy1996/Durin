@@ -110,6 +110,7 @@ namespace
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		for (;;)
 		{
+			Durin::Tests::AdvanceThumbnailPreparationFrame();
 			Durin::FlushRenderingCommands();
 			Durin::PumpGameThreadDeferredWork();
 			if (IsComplete()) return testing::AssertionSuccess();
@@ -494,6 +495,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			);
 			View = Cache.Find(StaticMeshFingerprint.AssetPath);
 			Cache.EndFrame();
+			Durin::Tests::AdvanceThumbnailPreparationFrame();
 			if (ProbeLoads == 0 && Cache.GetStats().Generation.Renders == 1)
 			{
 				// Do not poll capture completion: a real render/readback owns the
@@ -545,6 +547,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			Durin::ProcessAsyncLoading();
 			Cache.BeginFrame();
 			Cache.EndFrame();
+			Durin::Tests::AdvanceThumbnailPreparationFrame();
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 		ASSERT_EQ(Cache.GetStats().Generation.CacheWrites, 1u);
