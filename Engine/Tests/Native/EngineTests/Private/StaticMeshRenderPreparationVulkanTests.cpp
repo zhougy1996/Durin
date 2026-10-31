@@ -57,7 +57,7 @@
 #include "RendererModule.h"
 #include "RenderResourcePreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
-#include "Renderers/StaticMeshDrawExecution.h"
+#include "Renderers/SceneViewPreparation.h"
 #include "SceneTestAccess.h"
 #include "SceneInfo.h"
 #include "StaticMesh/StaticMesh.h"

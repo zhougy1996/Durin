@@ -6,7 +6,7 @@
 
 #include "Misc/CoreTypes.h"
 #include "RendererAPI.h"
-#include "Renderers/MeshRendererExecution.h"
+#include "Renderers/MeshRenderPreparationCommon.h"
 
 namespace Durin
 {

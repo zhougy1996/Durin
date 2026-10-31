@@ -344,6 +344,15 @@ building and late GPU completion validate this description against the admitted 
 Geometry visibility, uniform allocation, cache retention, retirement and render-pass
 orchestration remain with their existing owners.
 
+`SurfaceMaterial` owns resolved surface state and uniform preparation through
+`FSurfaceMaterialResources::Prepare_RenderThread`. `StaticMeshRenderPreparation`
+owns primitive uniform layout/building, admitted-geometry declaration resolution
+and prepared-view bucket traversal. `SceneViewPreparation` owns material view
+uniform layout/building. Geometry outcome values live with common preparation
+data; draw-count conservation checks stay local to the recording renderer.
+These owners replace the former `StaticMeshDrawExecution` and
+`MeshRendererExecution` files without a parallel execution layer.
+
 `FMeshPassDrawListContext` only receives and publishes mesh commands through
 `AddCommand` and `FinalizeCommand`. Cached and dynamic contexts choose stable or
 view-complete output; neither context stores preparation requests, build inputs,

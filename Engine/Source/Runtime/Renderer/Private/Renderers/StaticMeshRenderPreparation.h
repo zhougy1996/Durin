@@ -8,6 +8,7 @@
 #include "Renderers/SurfaceMaterial.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Rendering/MeshBatch.h"
+#include "Rendering/PrimitiveCustomData.h"
 #include "RHIResources.h"
 #include "Scene.h"
 #include "SceneView.h"
@@ -21,6 +22,22 @@ namespace Durin
 	namespace RendererPrivate
 	{
 		class FMeshVertexFactoryImplementation;
+		struct FStaticMeshTransformUniform
+		{
+			FMatrix4f LocalToWorld{1.0f};
+			FMatrix4f NormalToWorld{1.0f};
+			FMatrix4f WorldToLocal{1.0f};
+			FVector4f BoundsCenter{0.0f};
+			FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
+			FVector4f WorldOriginHigh{0.0f};
+			FVector4f WorldOriginLow{0.0f};
+			FPrimitiveCustomData CustomPrimitiveData;
+			FPrimitiveCustomData CustomInstanceData;
+		};
+		static_assert(sizeof(FStaticMeshTransformUniform) == 512);
+		static_assert(offsetof(FStaticMeshTransformUniform, CustomPrimitiveData) == 256);
+		static_assert(offsetof(FStaticMeshTransformUniform, CustomInstanceData) == 384);
+
 	}
 	struct FMeshDrawDescription;
 	struct FStaticMeshSectionFact
@@ -519,3 +536,53 @@ namespace Durin
 		FStaticMeshPreparationCache* SharedCache = nullptr
 	) -> FPreparedStaticMeshView;
 } // namespace Durin
+
+namespace Durin::RendererPrivate
+{
+	RENDERER_API auto BuildMeshTransformUniform(const FPreparedStaticMeshPrimitive& Primitive) -> FStaticMeshTransformUniform;
+	auto PrepareMeshPrimitiveUniform(FRHICommandListImmediate& Commands, const FPreparedStaticMeshPrimitive& Primitive) -> FRHIUniformBufferRange;
+	RENDERER_API auto PrepareStaticMeshPrimitiveUniforms(FRHICommandListImmediate& Commands,
+		const FPreparedStaticMeshView& Prepared, FResolvedStaticMeshView& Resolved) -> bool;
+	// Returns no declaration when the admitted draw's geometry is invalid.
+	auto ResolveMeshVertexDeclaration(const FPreparedStaticMeshPrimitive& Primitive,
+		const FPreparedStaticMeshDraw& Draw) -> FVertexDeclarationRHIRef;
+
+	template<typename TPreparedView>
+	auto GetBasePassBucket(
+		TPreparedView& PreparedView,
+		EMeshBasePass Pass
+	) -> decltype(auto)
+	{
+		return Pass == EMeshBasePass::Opaque ?
+				   (PreparedView.Opaque) :
+			   Pass == EMeshBasePass::Masked ?
+				   (PreparedView.Masked) :
+				   (PreparedView.Translucent);
+	}
+
+	template<typename TPreparedView, typename TFunction>
+	auto ForEachBasePassBucket(
+		TPreparedView& PreparedView,
+		TFunction&& Function
+	) -> void
+	{
+		std::invoke(Function, PreparedView.Opaque, EMeshBasePass::Opaque);
+		std::invoke(Function, PreparedView.Masked, EMeshBasePass::Masked);
+		std::invoke(
+			Function,
+			PreparedView.Translucent,
+			EMeshBasePass::Translucent
+		);
+	}
+
+	template<typename TPreparedView, typename TFunction>
+	auto ForEachShadowBucket(
+		TPreparedView& PreparedView,
+		TFunction&& Function
+	) -> void
+	{
+		std::invoke(Function, PreparedView.Opaque);
+		std::invoke(Function, PreparedView.Masked);
+	}
+
+}

@@ -4,7 +4,9 @@
 #include "Materials/MaterialShaderMap.h"
 #include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/MeshPassProcessor.h"
-#include "Renderers/StaticMeshDrawExecution.h"
+#include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/SceneViewPreparation.h"
+#include "Renderers/SurfaceMaterial.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Logging/Logger.h"
@@ -112,7 +114,7 @@ namespace Durin
 		{
 			const FPreparedStaticMeshPrimitive* Primitive = nullptr;
 			const FPreparedStaticMeshDraw* Draw = nullptr;
-			FPreparedStaticMeshSurfaceMaterial Material;
+			FPreparedSurfaceMaterial Material;
 			FRHIUniformBufferRange Transform;
 			FRHIUniformBufferRange Id;
 			FMeshDrawCommandHandle Command;
@@ -204,10 +206,9 @@ namespace Durin
 				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { bReady = false; break; }
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
-					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding, {})
-						.Prepare(ESurfaceMaterialPass::MaskedShadow, nullptr, nullptr, Item.Material)) { bReady = false; break; }
+					|| !SurfaceMaterials.Prepare_RenderThread(Commands, &Binding, ESurfaceMaterialPass::MaskedShadow, {}, nullptr, nullptr, Item.Material)) { bReady = false; break; }
 				if (!Processor.PreparePipeline(Batch, "HitProxy", Item, Item.Primitive->CollectedBinding->Declaration, Item)) { bReady = false; break; }
-				Item.Transform = FStaticMeshPrimitiveUniformPreparer(Commands).Prepare(*Item.Primitive).Transform;
+				Item.Transform = PrepareMeshPrimitiveUniform(Commands, *Item.Primitive);
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
 				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(0.f)};

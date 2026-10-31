@@ -11,7 +11,7 @@
 #include "RenderingThread.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
-#include "Renderers/StaticMeshDrawExecution.h"
+#include "Renderers/StaticMeshRenderPreparation.h"
 
 namespace Durin
 {

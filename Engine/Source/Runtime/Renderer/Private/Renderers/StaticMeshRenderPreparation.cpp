@@ -4,13 +4,15 @@
 #include "Renderers/MaterialBindingResolution.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include <typeinfo>
-#include "Renderers/MeshRendererExecution.h"
 #include "Renderers/MeshRendererShared.h"
 #include "SceneInfo.h"
 #include "Rendering/MeshBatch.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Profiling/Profiling.h"
+#include "RHICommandList.h"
+#include "Math/Operations.h"
+#include "VertexFactory.h"
 #include "Materials/MaterialProgramCompiler.h"
 
 namespace Durin
@@ -1190,3 +1192,57 @@ namespace Durin
 		return std::move(*Merged);
 	}
 } // namespace Durin
+
+namespace Durin::RendererPrivate
+{
+	auto BuildMeshTransformUniform(
+		const FPreparedStaticMeshPrimitive& Primitive) -> FStaticMeshTransformUniform
+	{
+		FStaticMeshTransformUniform TransformUniform;
+		TransformUniform.CustomPrimitiveData = Primitive.CustomPrimitiveData;
+		TransformUniform.CustomInstanceData = Primitive.CustomInstanceData;
+		const FVector3 Origin(Primitive.LocalToWorld[3]);
+		FMatrix LocalToWorld = Primitive.LocalToWorld;
+		LocalToWorld[3] = FVector4(0.0, 0.0, 0.0, 1.0);
+		TransformUniform.LocalToWorld = Math::TransposeToFloat(LocalToWorld);
+		TransformUniform.NormalToWorld = Primitive.NormalToWorld;
+		TransformUniform.WorldToLocal = Math::TransposeToFloat(
+			Primitive.WorldToLocal * Math::TranslationMatrix(Origin));
+		TransformUniform.BoundsCenter = FVector4f(FVector3f(Primitive.BoundsCenter - Origin), 1.0f);
+		const FVector3f OriginHigh(Origin);
+		TransformUniform.WorldOriginHigh = FVector4f(OriginHigh, 0.0f);
+		TransformUniform.WorldOriginLow = FVector4f(FVector3f(Origin - FVector3(OriginHigh)), 0.0f);
+		TransformUniform.TransformParams.x = Math::LinearDeterminant(Primitive.LocalToWorld) < 0.0 ? -1.0f : 1.0f;
+		return TransformUniform;
+	}
+
+	auto PrepareMeshPrimitiveUniform(FRHICommandListImmediate& Commands, const FPreparedStaticMeshPrimitive& Primitive) -> FRHIUniformBufferRange
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PreparePrimitiveUniform");
+		const auto Uniform = BuildMeshTransformUniform(Primitive);
+		return Commands.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
+	}
+
+	auto PrepareStaticMeshPrimitiveUniforms(FRHICommandListImmediate& CommandList,
+		const FPreparedStaticMeshView& Prepared,
+		FResolvedStaticMeshView& Resolved) -> bool
+	{
+		Resolved.PrimitiveUniforms.clear();
+		Resolved.PrimitiveUniforms.reserve(Prepared.Primitives.size());
+		for (const auto& Primitive : Prepared.Primitives)
+		{
+			const auto Uniform = PrepareMeshPrimitiveUniform(CommandList, Primitive);
+			if (!Uniform.Buffer) return false;
+			Resolved.PrimitiveUniforms.push_back(Uniform);
+			++Resolved.Observations.PrimitiveUniformUploads;
+		}
+		return true;
+	}
+
+	auto ResolveMeshVertexDeclaration(const FPreparedStaticMeshPrimitive& Primitive, const FPreparedStaticMeshDraw& Draw) -> FVertexDeclarationRHIRef
+	{
+		if (!Primitive.CollectedBinding || !Primitive.CollectedBinding->Declaration || !Draw.Command
+			|| Draw.Command->Geometry.Validate(Draw.Command->Vertices.Range, Draw.Command->Indices.Range) != EGeometrySubmissionOutcome::Submitted) return {};
+		return Primitive.CollectedBinding->Declaration;
+	}
+}

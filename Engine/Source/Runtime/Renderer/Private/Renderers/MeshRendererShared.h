@@ -216,35 +216,6 @@ namespace Durin::RendererPrivate
 	};
 
 
-	struct FStaticMeshTransformUniform
-	{
-		FMatrix4f LocalToWorld{1.0f};
-		FMatrix4f NormalToWorld{1.0f};
-		FMatrix4f WorldToLocal{1.0f};
-		FVector4f BoundsCenter{0.0f};
-		FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
-		FVector4f WorldOriginHigh{0.0f};
-		FVector4f WorldOriginLow{0.0f};
-		FPrimitiveCustomData CustomPrimitiveData;
-		FPrimitiveCustomData CustomInstanceData;
-	};
-	static_assert(sizeof(FStaticMeshTransformUniform) == 512);
-	static_assert(offsetof(FStaticMeshTransformUniform, CustomPrimitiveData) == 256);
-	static_assert(offsetof(FStaticMeshTransformUniform, CustomInstanceData) == 384);
-
-	struct FMaterialViewUniform
-	{
-		FVector4f Parameters{0.0f};
-		FVector4f CameraWorldPosition{0.0f};
-		FVector4f Viewport{0.0f};
-		FVector4f ReciprocalViewport{0.0f};
-		FMatrix4f WorldToView{1.0f};
-		FMatrix4f ViewToWorld{1.0f};
-		FMatrix4f WorldToClip{1.0f};
-		FVector4f WorldOriginHigh{0.0f};
-		FVector4f WorldOriginLow{0.0f};
-	};
-
 	struct FSplineMeshUniform
 	{
 		FVector4f StartPosition{0.0f};
