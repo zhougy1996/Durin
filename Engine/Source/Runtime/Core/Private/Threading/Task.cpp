@@ -22,11 +22,7 @@ namespace Durin::Tasks
 		require(Task.IsValid() && Callback);
 		FTaskSubscription Subscription;
 		Subscription.Callback = std::make_shared<std::function<void(ETaskState)>>(std::move(Callback));
-		auto Hook = std::make_shared<Durin::Private::FTaskTerminalHook>();
-		Hook->Function = [Weak = std::weak_ptr(Subscription.Callback)](ETaskState State) {
-			if (auto Pinned = Weak.lock()) { try { (*Pinned)(State); } catch (...) {} }
-		};
-		Durin::Private::FTaskRuntimeAccess::BindTerminal(Task, std::move(Hook));
+		Durin::Private::FTaskRuntimeAccess::ObserveCompletion(Task, Subscription.Callback);
 		return Subscription;
 	}
 
@@ -73,7 +69,9 @@ namespace Durin::Tasks
 		return Durin::ParallelFor(Name, Num, std::move(Function), Native);
 	}
 
-	auto Wait(const Tasks::FTask& Task) -> FTaskWaitResult { return WaitTask(Task); }
-	auto Wait(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult { return WaitTask(Task, TimeoutSeconds); }
+	auto Wait(const Tasks::FTask& Task) -> bool { return Task.Wait(); }
+	auto Wait(const Tasks::FTask& Task, double TimeoutSeconds) -> bool { return Task.Wait(TimeoutSeconds); }
+	auto WaitDetailed(const Tasks::FTask& Task) -> FTaskWaitResult { return WaitTask(Task); }
+	auto WaitDetailed(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult { return WaitTask(Task, TimeoutSeconds); }
 	auto Cancel(const Tasks::FTask& Task) -> bool { return CancelTask(Task); }
 }

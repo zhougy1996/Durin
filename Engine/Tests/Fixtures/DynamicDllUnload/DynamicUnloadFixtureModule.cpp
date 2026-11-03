@@ -112,7 +112,7 @@ namespace Durin
 			ConsoleCommand = 0;
 			if (bRetainResult || (BlockingWorker.IsValid() && !BlockingWorker.IsCompleted()))
 				throw std::runtime_error("Fixture asynchronous cleanup failed");
-			if (Worker.IsValid()) require(Worker.Wait().WaitStatus == ETaskWaitStatus::Completed);
+			if (Worker.IsValid()) require(Worker.Wait());
 			if (Publisher.IsValid()) require(WaitTask(Publisher).WaitStatus == ETaskWaitStatus::Completed);
 			Publisher = {};
 			Worker = {};

@@ -354,7 +354,12 @@ namespace Durin
 	CORE_API auto WaitAll(std::span<const Tasks::FTask> Tasks) -> std::vector<FTaskWaitResult>;
 	CORE_API auto WaitAll(std::span<const Tasks::FTask> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
 
-	namespace Tasks::Detail { struct FTaskAccess; }
+	namespace Tasks::Detail
+	{
+		struct FTaskAccess;
+		CORE_API auto WaitCollection(std::span<const FTask> Tasks, double TimeoutSeconds) -> bool;
+		CORE_API auto WaitAnyCollection(std::span<const FTask> Tasks, double TimeoutSeconds) -> int32;
+	}
 	namespace Tasks::Private
 	{
 		// Shares the execution node and its result lifetime without typed result access.
@@ -376,8 +381,10 @@ namespace Durin
 			CORE_API auto GetTaskId() const -> uint64;
 			CORE_API auto GetDiagnostic() const -> std::string;
 			CORE_API auto GetDiagnostics() const -> FTaskDiagnostics;
-			auto Wait() const -> FTaskWaitResult { return Durin::WaitTask(*this); }
-			auto Wait(double TimeoutSeconds) const -> FTaskWaitResult { return Durin::WaitTask(*this, TimeoutSeconds); }
+			auto Wait() const -> bool { return WaitDetailed().WaitStatus == ETaskWaitStatus::Completed; }
+			auto Wait(double TimeoutSeconds) const -> bool { return WaitDetailed(TimeoutSeconds).WaitStatus == ETaskWaitStatus::Completed; }
+			auto WaitDetailed() const -> FTaskWaitResult { return Durin::WaitTask(*this); }
+			auto WaitDetailed(double TimeoutSeconds) const -> FTaskWaitResult { return Durin::WaitTask(*this, TimeoutSeconds); }
 			// Attempts this task and its dependencies without waiting for other threads.
 			// An executed callable can run arbitrarily long; executor restrictions apply.
 			CORE_API auto TryRetractAndExecute() const -> bool;
@@ -395,6 +402,8 @@ namespace Durin
 			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
 			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
 			friend CORE_API auto Durin::WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
+			friend CORE_API auto Durin::Tasks::Detail::WaitCollection(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> bool;
+			friend CORE_API auto Durin::Tasks::Detail::WaitAnyCollection(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> int32;
 
 			std::shared_ptr<FTaskStateData> State;
 		};
@@ -402,11 +411,12 @@ namespace Durin
 
 	namespace Private
 	{
-		// Binding this preallocated internal hook never admits another scheduled node.
-		struct FTaskTerminalHook
+		// Internal settlement before public completion. Bind before the node closes.
+		// Binding this preallocated hook never admits another scheduled node.
+		struct FTaskBeforeCompletionHook
 		{
 			FTaskCompletionFunction Function;
-			std::shared_ptr<FTaskTerminalHook> Next;
+			std::shared_ptr<FTaskBeforeCompletionHook> Next;
 		};
 		struct FTaskRuntimeAccess
 		{
@@ -418,7 +428,8 @@ namespace Durin
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
 			CORE_API static auto SetCurrentCanceledOutcome() -> void;
 			CORE_API static auto GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution;
-			CORE_API static auto BindTerminal(const Tasks::FTask& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
+			CORE_API static auto BindBeforeCompletion(const Tasks::FTask& Task, std::shared_ptr<FTaskBeforeCompletionHook> Hook) -> void;
+			CORE_API static auto ObserveCompletion(const Tasks::FTask& Task, const std::shared_ptr<std::function<void(ETaskState)>>& Callback) -> void;
 			CORE_API static auto AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>;
 		};
 	}
@@ -436,8 +447,8 @@ namespace Durin
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
-		// Independent CPU leaves may be joined by RenderingThread. No task
-		// dependencies, child submission or blocking waits.
+		// Declares an independent CPU graph that RenderingThread may join.
+		// Inherited by Worker children; unfinished edges/waits require the same contract.
 		bool bIndependentCPU = false;
 	};
 

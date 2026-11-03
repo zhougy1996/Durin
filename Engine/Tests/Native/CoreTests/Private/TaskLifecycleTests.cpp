@@ -22,7 +22,7 @@ namespace Durin
 		EXPECT_FALSE(Current.IsCompleted());
 		// Bodies may release captures before their nested completion dependencies.
 		Gate.Trigger();
-		EXPECT_EQ(Current.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Current.WaitDetailed().TaskState, ETaskState::Succeeded);
 		ShutdownTaskScheduler(false);
 		EXPECT_EQ(Retired.load(), Depth);
 	}
@@ -50,7 +50,7 @@ namespace Durin
 		Barrier.Wait();
 		EXPECT_FALSE(Parent.IsCompleted());
 		Gate.Trigger();
-		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Parent.WaitDetailed().TaskState, ETaskState::Succeeded);
 		EXPECT_TRUE(WeakCapture.expired());
 	}
 
@@ -66,7 +66,7 @@ namespace Durin
 			}, Ready);
 			EXPECT_FALSE(Task.IsCompleted());
 			Ready.Trigger();
-			EXPECT_EQ(Task.Wait().TaskState, Outcome);
+			EXPECT_EQ(Task.WaitDetailed().TaskState, Outcome);
 		}
 	}
 
@@ -110,7 +110,7 @@ namespace Durin
 		struct FOwner { std::atomic<uint32>& Count; ~FOwner() { ++Count; } };
 		auto Seed = Tasks::LaunchTask("OwnedSeed", [&] { return std::unique_ptr<FOwner>(new FOwner{Retired}); });
 		auto Published = Tasks::LaunchTask("RetainView", [Seed] { return Seed.GetResultShared(); }, Seed);
-		ASSERT_EQ(Published.Wait().TaskState, ETaskState::Succeeded);
+		ASSERT_EQ(Published.WaitDetailed().TaskState, ETaskState::Succeeded);
 		auto View = Published.GetResult();
 		ASSERT_TRUE(View);
 		EXPECT_TRUE(*View);
@@ -142,7 +142,7 @@ namespace Durin
 		const bool bRegistered = Registered.WaitFor(5);
 		Gate.Trigger();
 		EXPECT_TRUE(bRegistered);
-		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Parent.WaitDetailed().TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(Runs.load(), Count);
 	}
 
@@ -178,7 +178,7 @@ namespace Durin
 		// Reusing the event in another lifetime also exercises completed-node
 		// registration after all speculative reservations have been rolled back.
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		EXPECT_EQ(Tasks::LaunchTask("AfterPreparedClose", [] {}, Gate).Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Tasks::LaunchTask("AfterPreparedClose", [] {}, Gate).WaitDetailed().TaskState, ETaskState::Succeeded);
 	}
 
 	TEST_F(FTaskCloseTests, CombinedWaitInspectionPreservesCyclePrecedenceAndClosedRequirements)
@@ -191,9 +191,9 @@ namespace Durin
 		for (uint32 Index = 0; Index < 128; ++Index)
 			Tail = Tasks::LaunchTask("SharedInspectionGraph", [] {}, Tasks::Prerequisites(Tail, ClosedUnknown));
 		auto Observer = Tasks::LaunchTask("CheckClosedRequirements", [&] {
-			EXPECT_EQ(Tail.Wait(0.001).WaitStatus, ETaskWaitStatus::TimedOut);
+			EXPECT_EQ(Tail.WaitDetailed(0.001).WaitStatus, ETaskWaitStatus::TimedOut);
 			Gate.Trigger();
-			EXPECT_EQ(Tail.Wait().TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(Tail.WaitDetailed().TaskState, ETaskState::Succeeded);
 		});
 		Observer.Wait();
 
@@ -202,7 +202,7 @@ namespace Durin
 		FThreadEvent Bound;
 		auto Parent = Tasks::LaunchTask("CyclePrecedence", [&] {
 			Bound.Wait();
-			EXPECT_EQ(Cycle.Wait().WaitStatus, ETaskWaitStatus::DependencyCycle);
+			EXPECT_EQ(Cycle.WaitDetailed().WaitStatus, ETaskWaitStatus::DependencyCycle);
 		});
 		Cycle.AddPrerequisites(Tasks::Prerequisites(Parent, Unknown));
 		Cycle.Trigger();
@@ -225,11 +225,11 @@ namespace Durin
 				EXPECT_TRUE(Token.IsCancellationRequested());
 				++Runs;
 				return std::make_unique<int>(42);
-			}, {.Cancellation = Cancellation.GetToken(), .Prerequisites = Tasks::Prerequisites(Gate)});
+			}, {.Cancellation = Cancellation.GetToken(), .Prerequisites = {Gate}});
 			if (!Shared) EXPECT_TRUE(Tasks::Cancel(Task));
 			EXPECT_TRUE(Task.IsCancellationRequested());
 			EXPECT_FALSE(Task.IsCompleted());
-			EXPECT_EQ(Task.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
+			EXPECT_EQ(Task.WaitDetailed(0).WaitStatus, ETaskWaitStatus::TimedOut);
 			EXPECT_EQ(Runs, 0u);
 			auto Next = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Task](const FTaskCancellationToken& Token) {
 				auto& Value = Task.GetResult();
@@ -294,17 +294,209 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		Tasks::FTaskEvent Event("ClosingRegistration", false);
 		Tasks::TTask<int> Dependent;
-		Tasks::FTaskSubscription Late;
 		uint32 Calls = 0;
-		auto Subscription = Tasks::SubscribeTask(Event, [&](ETaskState) {
+		auto Hook = std::make_shared<Private::FTaskBeforeCompletionHook>();
+		Hook->Function = [&](ETaskState) {
 			EXPECT_FALSE(Event.IsCompleted());
 			Dependent = Tasks::LaunchTask("RegisteredDuringClose", [] { return 42; }, Tasks::Prerequisites(Event));
-			Late = Tasks::SubscribeTask(Event, [&](ETaskState) { ++Calls; });
-		});
+			auto Late = std::make_shared<Private::FTaskBeforeCompletionHook>();
+			Late->Function = [&](ETaskState) { EXPECT_FALSE(Event.IsCompleted()); ++Calls; };
+			Private::FTaskRuntimeAccess::BindBeforeCompletion(Event, std::move(Late));
+		};
+		Private::FTaskRuntimeAccess::BindBeforeCompletion(Event, std::move(Hook));
 		Event.Trigger();
 		EXPECT_TRUE(Event.IsCompleted());
 		EXPECT_EQ(Calls, 1u);
 		EXPECT_EQ(Dependent.GetResult(), 42);
+	}
+
+	TEST_F(FTaskCloseTests, PublicCompletionObserversReadResultsAndWaitForReleasedDependents)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Gate("CompletionObserverGate", false);
+		auto Task = Tasks::LaunchTask("ObservedResult", [] { return std::make_unique<int>(42); }, Gate);
+		auto Dependent = Tasks::LaunchTask("ObservedDependent", [] { return 43; }, Task);
+		std::atomic<bool> Settled = false;
+		auto Hook = std::make_shared<Private::FTaskBeforeCompletionHook>();
+		Hook->Function = [&](ETaskState) {
+			EXPECT_FALSE(Task.IsCompleted());
+			EXPECT_FALSE(Task.GetResultShared());
+			Settled = true;
+		};
+		Private::FTaskRuntimeAccess::BindBeforeCompletion(Task, std::move(Hook));
+		FThreadEvent Observed;
+		auto Subscription = Task.Subscribe([&, Task, Dependent](ETaskState Outcome) {
+			EXPECT_TRUE(Settled.load());
+			EXPECT_TRUE(Task.IsCompleted());
+			EXPECT_EQ(Outcome, ETaskState::Succeeded);
+			EXPECT_TRUE(Task.Wait());
+			EXPECT_EQ(*Task.GetResult(), 42);
+			const auto View = Task.GetResultShared();
+			EXPECT_TRUE(View);
+			if (View) EXPECT_EQ(**View, 42);
+			// The producer is closed, so it is no longer a wait-cycle ancestor.
+			EXPECT_TRUE(Dependent.Wait(1));
+			if (Dependent.IsCompleted()) EXPECT_EQ(Dependent.GetResult(), 43);
+			Observed.Trigger();
+		});
+		Gate.Trigger();
+		EXPECT_TRUE(Task.Wait(2));
+		EXPECT_TRUE(Observed.WaitFor(2));
+		ShutdownTaskScheduler(true);
+		bool Inline = false;
+		auto Late = Task.Subscribe([&](ETaskState) { EXPECT_EQ(*Task.GetResult(), 42); Inline = true; });
+		EXPECT_TRUE(Inline);
+		EXPECT_DEATH({
+			auto Invalid = std::make_shared<Private::FTaskBeforeCompletionHook>();
+			Invalid->Function = [](ETaskState) {};
+			Private::FTaskRuntimeAccess::BindBeforeCompletion(Task, std::move(Invalid));
+		}, "must be bound before task completion");
+	}
+
+	TEST_F(FTaskCloseTests, PublicObserversDoNotDelayCompletionAndResetDoesNotJoinInflightCalls)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent Entered, Release;
+		struct FReleaseAndDrain {
+			FThreadEvent& Event;
+			~FReleaseAndDrain() { Event.Trigger(); ShutdownTaskScheduler(true); }
+		} Cleanup{Release};
+		Tasks::FTaskEvent Gate("InflightObserverGate", false);
+		auto Task = Tasks::LaunchTask("InflightObservedTask", [] { return 42; }, Gate);
+		auto Dependent = Tasks::LaunchTask("InflightObserverDependent", [] { return 43; }, Task);
+		auto Capture = std::make_shared<int>(1);
+		std::weak_ptr<int> Weak = Capture;
+		auto Subscription = Task.Subscribe([&, Capture = std::move(Capture), Task](ETaskState) {
+			EXPECT_EQ(Task.GetResult(), 42);
+			Entered.Trigger();
+			Release.Wait();
+		});
+		Gate.Trigger();
+		EXPECT_TRUE(Entered.WaitFor(2));
+		EXPECT_TRUE(Task.Wait(0));
+		EXPECT_TRUE(Dependent.Wait(2));
+		Subscription.Reset();
+		EXPECT_FALSE(Weak.expired());
+		Release.Trigger();
+		ShutdownTaskScheduler(true);
+		EXPECT_TRUE(Weak.expired());
+	}
+
+	TEST_F(FTaskCloseTests, PublicCompletionObserversRegisterDuringPreCompletionWithoutRunningEarly)
+	{
+		Tasks::FTaskEvent Event("PreCompletionObserverRace", false);
+		FThreadEvent Entered, Release;
+		auto Hook = std::make_shared<Private::FTaskBeforeCompletionHook>();
+		Hook->Function = [&](ETaskState) { Entered.Trigger(); Release.Wait(); };
+		Private::FTaskRuntimeAccess::BindBeforeCompletion(Event, std::move(Hook));
+		std::thread Publisher([&] { Event.Trigger(); });
+		EXPECT_TRUE(Entered.WaitFor(2));
+		std::atomic<uint32> Calls = 0;
+		auto Subscription = Tasks::SubscribeTask(Event, [&](ETaskState) {
+			EXPECT_TRUE(Event.IsCompleted()); EXPECT_TRUE(Event.Wait()); ++Calls;
+		});
+		EXPECT_EQ(Calls.load(), 0u);
+		Release.Trigger();
+		Publisher.join();
+		EXPECT_EQ(Calls.load(), 1u);
+	}
+
+	TEST_F(FTaskCloseTests, LatePublicRegistrationDuringPinRetirementWaitsForDependencyRelease)
+	{
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Event("ObserverPinRetirement", false), ChildGate("ObserverChildGate", false);
+		FThreadEvent Started, Release;
+		Tasks::FTaskSubscription Late;
+		Tasks::TTask<int> Dependent;
+		uint32 Calls = 0;
+		struct FCleanup {
+			Tasks::FTaskEvent& Event;
+			Tasks::FTaskEvent& ChildGate;
+			FThreadEvent& Release;
+			~FCleanup() { Event.Trigger(); ChildGate.Trigger(); Release.Trigger(); ShutdownTaskScheduler(true); }
+		} Cleanup{Event, ChildGate, Release};
+		auto Blocker = Tasks::LaunchTask("ObserverOccupiedWorker", [&] { Started.Trigger(); Release.Wait(); });
+		ASSERT_TRUE(Started.WaitFor(2));
+		auto Payload = std::shared_ptr<int>(new int(42), [&](int* Value) {
+			delete Value;
+			EXPECT_TRUE(Event.IsCompleted());
+			Late = Tasks::SubscribeTask(Event, [&](ETaskState) {
+				EXPECT_TRUE(Dependent.Wait(1));
+				++Calls;
+			});
+		});
+		auto Child = Tasks::LaunchTask("ObserverPinnedChild", [Payload = std::move(Payload)] { return Payload; }, ChildGate);
+		Event.AddPrerequisites(Child);
+		ChildGate.Trigger();
+		ASSERT_TRUE(Child.Wait(2));
+		Child = {};
+		Dependent = Tasks::LaunchTask("ObserverReleasedDependent", [] { return 42; }, Event);
+		Event.Trigger();
+		EXPECT_EQ(Calls, 1u);
+		EXPECT_EQ(Dependent.GetResult(), 42);
+		Release.Trigger();
+		EXPECT_TRUE(Blocker.Wait());
+	}
+
+	TEST_F(FTaskCloseTests, PublicCompletionObservationRacesPublicationAndSupportsReentrantRegistration)
+	{
+		for (uint32 Iteration = 0; Iteration < 128; ++Iteration)
+		{
+			Tasks::FTaskEvent Event("CompletionObservationRace", false);
+			FThreadEvent Start;
+			std::atomic<uint32> Calls = 0;
+			Tasks::FTaskSubscription Nested;
+			std::thread Publisher([&] { Start.Wait(); Event.Trigger(); });
+			Start.Trigger();
+			auto Subscription = Tasks::SubscribeTask(Event, [&](ETaskState) {
+				EXPECT_TRUE(Event.IsCompleted());
+				Nested = Tasks::SubscribeTask(Event, [&](ETaskState) { EXPECT_TRUE(Event.Wait()); ++Calls; });
+				++Calls;
+			});
+			Publisher.join();
+			EXPECT_EQ(Calls.load(), 2u);
+		}
+	}
+
+	TEST_F(FTaskCloseTests, PublicObserversPreserveOutcomesAndContainExceptions)
+	{
+		for (auto Outcome : {ETaskState::Succeeded, ETaskState::Failed, ETaskState::Canceled})
+		{
+			ASSERT_TRUE(InitializeTaskScheduler(1));
+			Tasks::FTaskEvent Gate("ObserverOutcomeGate", false);
+			auto Task = Tasks::LaunchTask("ObservedOutcome", [Outcome] {
+				if (Outcome == ETaskState::Failed) throw std::runtime_error("producer failure");
+				if (Outcome == ETaskState::Canceled) Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
+				return 42;
+			}, Gate);
+			FThreadEvent Observed;
+			auto Subscription = Task.Subscribe([&, Task, Outcome](ETaskState State) {
+				EXPECT_TRUE(Task.IsCompleted()); EXPECT_TRUE(Task.Wait());
+				EXPECT_EQ(State, Outcome); EXPECT_EQ(Task.GetState(), Outcome);
+				if (Outcome == ETaskState::Succeeded) EXPECT_EQ(Task.GetResult(), 42);
+				else EXPECT_FALSE(Task.GetResultShared());
+				Observed.Trigger();
+				throw std::runtime_error("observer failure");
+			});
+			Gate.Trigger();
+			EXPECT_TRUE(Task.Wait(2)); EXPECT_TRUE(Observed.WaitFor(2));
+			ShutdownTaskScheduler(true);
+			EXPECT_EQ(Task.GetState(), Outcome);
+		}
+	}
+
+	TEST_F(FTaskCloseTests, DetachingPublicObservationRetiresCapturesWithoutCancelingTheProducer)
+	{
+		Tasks::FTaskEvent Event("DetachedCompletionObserver", false);
+		auto Capture = std::make_shared<int>(1);
+		std::weak_ptr<int> Weak = Capture;
+		uint32 Calls = 0;
+		auto Subscription = Tasks::SubscribeTask(Event, [Capture = std::move(Capture), &Calls](ETaskState) { ++Calls; });
+		Subscription.Reset();
+		EXPECT_TRUE(Weak.expired());
+		EXPECT_FALSE(Event.IsCancellationRequested());
+		Event.Trigger();
+		EXPECT_EQ(Calls, 0u);
 	}
 
 	TEST_F(FTaskCloseTests, NestedRetractionReleasesResultPinsAndNotifiesExecutionWaiters)
@@ -324,7 +516,7 @@ namespace Durin
 				Outer.AddPrerequisites(Child);
 				if (ChildFirst) Outer.AddPrerequisites(Gate);
 				ChildGate.Trigger();
-				ASSERT_EQ(Child.Wait().TaskState, ETaskState::Succeeded);
+				ASSERT_EQ(Child.WaitDetailed().TaskState, ETaskState::Succeeded);
 			}
 			EXPECT_FALSE(Weak.expired());
 			auto Waiter = Tasks::LaunchTask("MixedDependencyWaiter", [&] {
@@ -366,18 +558,18 @@ namespace Durin
 			auto Waiter = Tasks::LaunchTask("OnlyWorkerNodeWaiter", [&] {
 				// This first wait expires with dependencies still blocked. Its signal
 				// must not keep the next wait alive or hide the later ready transition.
-				EXPECT_EQ(Target.Wait(0.005).WaitStatus, ETaskWaitStatus::TimedOut);
+				EXPECT_EQ(Target.WaitDetailed(0.005).WaitStatus, ETaskWaitStatus::TimedOut);
 				Waiting.Trigger();
-				EXPECT_EQ(Target.Wait(2).TaskState, ETaskState::Succeeded);
+				EXPECT_EQ(Target.WaitDetailed(2).TaskState, ETaskState::Succeeded);
 			});
 			EXPECT_TRUE(Waiting.WaitFor(1));
 			std::atomic<bool> UnrelatedRan = false;
 			auto Unrelated = Tasks::LaunchTask("UnrelatedReadyNode", [&] { UnrelatedRan = true; });
 			EXPECT_FALSE(UnrelatedRan.load());
 			Gate.Trigger();
-			EXPECT_EQ(Waiter.Wait(3).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(Waiter.WaitDetailed(3).TaskState, ETaskState::Succeeded);
 			EXPECT_TRUE(Child.IsCompleted());
-			EXPECT_EQ(Unrelated.Wait(1).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(Unrelated.WaitDetailed(1).TaskState, ETaskState::Succeeded);
 		}
 	}
 
@@ -396,9 +588,9 @@ namespace Durin
 				if (Nested) Events[Index].AddPrerequisites(Events[Index + 1]);
 				else
 				{
-					auto Hook = std::make_shared<Private::FTaskTerminalHook>();
+					auto Hook = std::make_shared<Private::FTaskBeforeCompletionHook>();
 					Hook->Function = [Next = Events[Index + 1]](ETaskState) mutable { Next.Trigger(); };
-					Private::FTaskRuntimeAccess::BindTerminal(Events[Index], std::move(Hook));
+					Private::FTaskRuntimeAccess::BindBeforeCompletion(Events[Index], std::move(Hook));
 				}
 			}
 			if (Nested)

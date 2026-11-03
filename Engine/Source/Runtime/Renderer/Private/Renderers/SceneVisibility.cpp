@@ -51,7 +51,7 @@ namespace Durin
 			~FPending()
 			{
 				for (auto& Task : Tasks) Durin::Tasks::Cancel(Task);
-				for (auto& Task : Tasks) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
+				for (auto& Task : Tasks) require(Task.Wait());
 			}
 		} Pending;
 		FSceneVisibilityClassification Result;
@@ -69,7 +69,7 @@ namespace Durin
 		{
 			auto Task = std::move(Pending.Tasks.front());
 			Pending.Tasks.pop_front();
-			const auto Wait = Task.Wait();
+			const auto Wait = Task.WaitDetailed();
 			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
 			// No externally visible effect has occurred: retry the pure classification
 			// inline. Scope exit drains outstanding work before publishing the result.

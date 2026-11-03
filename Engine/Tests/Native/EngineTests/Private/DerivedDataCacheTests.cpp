@@ -191,7 +191,7 @@ TEST(FAsyncCacheTests, BatchCancellationDoesNotCancelSharedOwner)
 		auto Accepted = Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Canceled; });
 		EXPECT_TRUE(Accepted); if (Accepted) Batch = *Accepted;
 	});
-	EXPECT_EQ(Submit.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Submit.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_TRUE(Result); ++Other; }));
 	ASSERT_TRUE(Batch); Batch->RequestCancel(); EXPECT_EQ(Batch->Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Canceled.load(), 1u);
@@ -253,15 +253,15 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_TRUE(Scheduler->Entered.WaitFor(5.0));
 	EXPECT_EQ(Calls.load(), 1u); EXPECT_FALSE(Owner.Poll()); EXPECT_FALSE(Weak.expired());
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Owner.Poll());
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Owner.Poll());
 	auto Waiter = Tasks::LaunchTask("DDCOwnerJoin", [&] {
-		WaitStarted.Trigger(); EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
+		WaitStarted.Trigger(); EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); WaitReturned.Trigger();
 	});
 	EXPECT_TRUE(WaitStarted.WaitFor(5.0)); EXPECT_FALSE(WaitReturned.WaitFor(0.01));
 	Scheduler->Release.Trigger();
-	EXPECT_EQ(Waiter.Wait().WaitStatus, ETaskWaitStatus::Completed);
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Waiter.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_TRUE(Owner.Poll()); EXPECT_TRUE(Weak.expired()); EXPECT_TRUE(WaitReturned.WaitFor(1.0));
 }
 
@@ -284,7 +284,7 @@ TEST(FAsyncCacheTests, RequestOwnerQueuedCancellationNeedsNoBusyOwnerProgress)
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_FALSE(Owner.Poll());
 	Owner.Cancel(); EXPECT_EQ(Calls.load(), 1u); EXPECT_TRUE(Owner.Poll()); EXPECT_FALSE(Busy.Poll());
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	ASSERT_EQ(Scheduler->Work.size(), 1u); Scheduler->Run(); EXPECT_EQ(Backend->Gets, 1u);
 }
 
@@ -312,10 +312,10 @@ TEST(FAsyncCacheTests, RequestOwnerCancellationWaitsForCallbackAndRejectsSelfWai
 	auto Cancel = Tasks::LaunchTask("RequestOwnerCancel", [&] { Operation->Cancel(); CancelReturned.Trigger(); });
 	EXPECT_TRUE(CallbackEntered.WaitFor(5.0));
 	EXPECT_FALSE(CancelReturned.WaitFor(0.01));
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Operation->Poll());
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Operation->Poll());
 	ReleaseCallback.Trigger();
-	EXPECT_EQ(Cancel.Wait().WaitStatus, ETaskWaitStatus::Completed);
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Cancel.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_TRUE(Operation->Poll()); EXPECT_FALSE(Busy.Poll());
 	Scheduler->Run();
 }
@@ -369,7 +369,7 @@ TEST(FAsyncCacheTests, RequestOwnerInlineOwnerPollingDoesNotCloseProducerSubmiss
 			EXPECT_TRUE(Operation->Poll());
 		}
 	});
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Calls, 2u); EXPECT_TRUE(Operation->Poll());
 }
 
@@ -419,9 +419,9 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeHandlePublishedAfterSynchronous
 	EXPECT_TRUE(Submitted.WaitFor(5.0)); Scheduler->Owner = Operation.get();
 	std::exchange(Scheduler->BusyWork, {})();
 	EXPECT_TRUE(Scheduler->TailEntered.WaitFor(5.0));
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Operation->Poll());
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Operation->Poll());
 	Scheduler->ReleaseTail.Trigger();
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Operation->Wait(), ERequestWaitResult::Completed);
 }
 
@@ -450,7 +450,7 @@ TEST(FAsyncCacheTests, RequestOwnerExceptionalProducerStillJoinsQueuedRetirement
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_FALSE(Operation->Poll());
 	Operation->Cancel();
-	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Producer.GetState(), ETaskState::Failed);
 	EXPECT_FALSE(Busy.Poll()); Scheduler->Run();
 }

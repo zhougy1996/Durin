@@ -2,6 +2,7 @@
 
 #include "Misc/CoreStd.h"
 #include "CoreAPI.h"
+#include "Templates/MoveOnlyFunction.h"
 
 namespace Durin
 {
@@ -53,6 +54,7 @@ namespace Durin
 			CORE_API auto Subscribe(std::function<void(EFutureState)> Callback) -> FFutureSubscription;
 			CORE_API auto ObserveReady(const FFutureReadiness& Readiness) -> FFutureSubscription;
 			CORE_API auto AddPin(std::shared_ptr<const void> Pin) -> void;
+			CORE_API auto SetContinuation(TMoveOnlyFunction<void()>&& Callback) -> void;
 			CORE_API auto Claim() -> bool;
 			CORE_API auto Publish(EFutureState Outcome, FFutureFailure Failure = {}) -> void;
 		private:
@@ -62,10 +64,20 @@ namespace Durin
 			FFutureFailure Failure;
 			bool Claimed = false;
 			std::vector<std::weak_ptr<std::function<void(EFutureState)>>> Observers;
+			TMoveOnlyFunction<void()> Continuation;
 			// Destroyed after derived result storage, so deleters retain their ownership pins.
 			std::vector<std::shared_ptr<const void>> Pins;
 		};
-		template<typename T> struct TState : FState { std::optional<T> Value; };
+		template<typename T> struct TState : FState
+		{
+			std::optional<T> Value;
+			auto GetValue() -> T& { return *Value; }
+		};
+		template<typename T> struct TState<T&> : FState
+		{
+			std::optional<std::reference_wrapper<T>> Value;
+			auto GetValue() -> T& { return Value->get(); }
+		};
 		template<> struct TState<void> : FState {};
 
 		template<typename T> class TConsumer
@@ -85,11 +97,18 @@ namespace Durin
 					: Seconds >= Limit ? std::chrono::steady_clock::duration::max()
 					: std::chrono::duration_cast<std::chrono::steady_clock::duration>(Timeout));
 			}
+			template<typename Clock, typename Duration>
+			auto WaitUntil(std::chrono::time_point<Clock, Duration> Deadline) const -> bool
+			{
+				// Subtract in a wide duration so min/max time points cannot overflow.
+				return WaitFor(std::chrono::duration<long double>(Deadline.time_since_epoch())
+					- std::chrono::duration<long double>(Clock::now().time_since_epoch()));
+			}
 			auto GetFailure() const -> FFutureFailure { return Checked()->GetFailure(); }
 			auto Get() const -> std::add_lvalue_reference_t<const T>
 			{
 				Checked()->CheckSuccess();
-				if constexpr (!std::is_void_v<T>) return *State->Value;
+				if constexpr (!std::is_void_v<T>) return State->GetValue();
 			}
 			auto Subscribe(std::function<void(EFutureState)> Callback) const -> FFutureSubscription
 			{ return Checked()->Subscribe(std::move(Callback)); }
@@ -118,17 +137,30 @@ namespace Durin
 		auto operator=(TFuture&&) noexcept -> TFuture& = default;
 		TFuture(const TFuture&) = delete;
 		auto operator=(const TFuture&) -> TFuture& = delete;
-		auto Share() -> TSharedFuture<T> { this->Checked(); return TSharedFuture<T>(std::move(this->State)); }
-		auto GetMutable() -> std::add_lvalue_reference_t<T> requires (!std::is_void_v<T>)
-		{ this->Checked()->CheckSuccess(); return *this->State->Value; }
-		auto Consume() -> T
+		auto Share() -> TSharedFuture<T> { return TSharedFuture<T>(std::move(*this)); }
+		auto GetMutable() -> std::add_lvalue_reference_t<T>
 		{
 			this->Checked()->CheckSuccess();
-			auto Owned = std::move(this->State);
-			if constexpr (!std::is_void_v<T>) return std::move(*Owned->Value);
+			if constexpr (!std::is_void_v<T>) return this->State->GetValue();
+		}
+		auto Consume() -> T
+		{
+			TFuture Local(std::move(*this));
+			if constexpr (std::is_void_v<T>) Local.Get();
+			else if constexpr (std::is_reference_v<T>) return Local.GetMutable();
+			else return std::move(Local.GetMutable());
+		}
+		// Transfers this consumer to the callback. Already-ready inputs run inline.
+		template<typename F> auto Then(F Continuation);
+		template<typename F> auto Next(F Continuation);
+		auto Reset() -> void
+		{
+			if (auto Owned = std::move(this->State)) Owned->SetContinuation({});
 		}
 	private:
 		friend class TPromise<T>;
+		friend class TSharedFuture<T>;
+		template<bool bValueOnly, typename F> auto Continue(F Continuation);
 		explicit TFuture(std::shared_ptr<FuturePrivate::TState<T>> State) : Super(std::move(State)) {}
 	};
 
@@ -137,16 +169,14 @@ namespace Durin
 		using Super = FuturePrivate::TConsumer<T>;
 	public:
 		TSharedFuture() = default;
-		auto GetResultShared() const -> std::shared_ptr<const T> requires (!std::is_void_v<T>)
+		TSharedFuture(TFuture<T>&& Future) : Super(std::move(Future.State)) {}
+		auto GetResultShared() const -> std::shared_ptr<const std::remove_reference_t<T>> requires (!std::is_void_v<T>)
 		{
 			if (this->GetState() != EFutureState::Succeeded) return {};
-			return {this->State, &*this->State->Value};
+			return {this->State, std::addressof(this->State->GetValue())};
 		}
 		auto WithLifetime(std::shared_ptr<const void> Pin) const -> TSharedFuture
 		{ this->Checked()->AddPin(std::move(Pin)); return *this; }
-	private:
-		friend class TFuture<T>;
-		explicit TSharedFuture(std::shared_ptr<FuturePrivate::TState<T>> State) : Super(std::move(State)) {}
 	};
 
 	template<typename T> class TPromise
@@ -200,7 +230,11 @@ namespace Durin
 		template<typename U> auto TryPublishValue(U& Value) const -> bool
 		{
 			if (!Checked()->Claim()) return false;
-			try { State->Value.emplace(std::move(Value)); }
+			try
+			{
+				if constexpr (std::is_reference_v<T>) State->Value.emplace(Value);
+				else State->Value.emplace(std::move(Value));
+			}
 			catch (...) { State->Publish(EFutureState::Failed, {EFutureFailure::Exception, std::current_exception()}); return true; }
 			State->Publish(EFutureState::Succeeded);
 			return true;
@@ -214,11 +248,65 @@ namespace Durin
 		bool Taken = false;
 	};
 
+	template<typename T>
+	template<bool bValueOnly, typename F>
+	auto TFuture<T>::Continue(F Continuation)
+	{
+		this->Checked();
+		using R = std::invoke_result_t<F&, TFuture<T>>;
+		TPromise<R> Promise;
+		auto Result = Promise.GetFuture();
+		TMoveOnlyFunction<void()> Callback = [Promise = std::move(Promise),
+			Continuation = std::move(Continuation), State = this->State]() mutable {
+			if constexpr (bValueOnly)
+			{
+				if (State->GetState() == EFutureState::Canceled)
+				{ Promise.SetCanceled(); State.reset(); return; }
+				if (State->GetState() == EFutureState::Failed)
+				{ Promise.SetFailure(State->GetFailure()); State.reset(); return; }
+			}
+			try
+			{
+				if constexpr (std::is_void_v<R>)
+				{
+					std::invoke(Continuation, TFuture<T>(std::move(State)));
+					Promise.SetValue();
+				}
+				else Promise.SetValue(std::invoke(Continuation, TFuture<T>(std::move(State))));
+			}
+			catch (...) { Promise.SetFailure({EFutureFailure::Exception, std::current_exception()}); }
+		};
+		auto Owned = std::move(this->State);
+		Owned->SetContinuation(std::move(Callback));
+		return Result;
+	}
+
+	template<typename T>
+	template<typename F>
+	auto TFuture<T>::Then(F Continuation)
+	{ return Continue<false>(std::move(Continuation)); }
+
+	template<typename T>
+	template<typename F>
+	auto TFuture<T>::Next(F Continuation)
+	{
+		return Continue<true>([Continuation = std::move(Continuation)](TFuture<T> Self) mutable {
+			// Durin has terminal outcomes in addition to UE's value-only futures.
+			// Keep cancellation and failure intact instead of invoking a value callback.
+			if constexpr (std::is_void_v<T>)
+			{
+				Self.Consume();
+				return std::invoke(Continuation);
+			}
+			else return std::invoke(Continuation, Self.Consume());
+		});
+	}
+
 	template<typename T> auto MakeReadyFuture(T Value) -> TFuture<T>
 	{
 		TPromise<T> Promise;
 		auto Future = Promise.GetFuture();
-		Promise.SetValue(std::move(Value));
+		Promise.SetValue(std::forward<T>(Value));
 		return Future;
 	}
 	inline auto MakeReadyFuture() -> TFuture<void>

@@ -59,7 +59,7 @@ namespace Durin
 			~FPending()
 			{
 				for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task);
-				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
+				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait());
 			}
 		} Pending;
 		FMeshViewPreparationFacts Result;
@@ -77,7 +77,7 @@ namespace Durin
 			}
 			for (auto& Task : Pending.Work)
 			{
-				const auto Wait = Task.Wait();
+				const auto Wait = Task.WaitDetailed();
 				require(Wait.WaitStatus == ETaskWaitStatus::Completed);
 				if (Wait.TaskState != ETaskState::Succeeded) return {BuildRange(0, Owner->size()), Result.TaskCount};
 				auto Facts = std::move(Task.GetResult());
@@ -1133,7 +1133,7 @@ namespace Durin
 	{
 		for (auto& Slot : Active) Tasks::Cancel(Slot.Task);
 		for (auto& Slot : Active)
-			require(Slot.Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
+			require(Slot.Task.Wait());
 	}
 
 	auto StartStaticMeshPreparation(std::shared_ptr<const FStaticMeshPreparationInputs> Inputs,
@@ -1170,7 +1170,7 @@ namespace Durin
 		{
 			auto Slot = std::move(Work.Active.front());
 			Work.Active.pop_front();
-			const auto Wait = Slot.Task.Wait();
+			const auto Wait = Slot.Task.WaitDetailed();
 			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
 			if (!Failure && Wait.TaskState != ETaskState::Succeeded)
 			{

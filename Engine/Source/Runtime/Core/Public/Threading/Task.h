@@ -2,6 +2,7 @@
 
 #include "Misc/CoreStd.h"
 #include "Misc/CoreTypes.h"
+#include "Misc/CoreMiscDefines.h"
 
 #include "Threading/TaskRuntime.h"
 
@@ -34,8 +35,8 @@ namespace Durin::Tasks
 		ETaskPriority Priority = ETaskPriority::Normal;
 		FTaskCancellationToken Cancellation;
 		FTaskAttribution Attribution;
-		// Additional ordering dependencies, never implicit success conditions.
-		std::span<const FTask> Prerequisites;
+		// Owns ordering dependencies so saved options never borrow a temporary collection.
+		std::vector<FTask> Prerequisites;
 	};
 
 	enum class EParallelForPolicy : uint8 { Auto, Serial, ExplicitBatch };
@@ -49,8 +50,11 @@ namespace Durin::Tasks
 	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
 		const FParallelForPolicyOptions& Options = {}) -> FParallelForResult;
 
-	CORE_API auto Wait(const FTask& Task) -> FTaskWaitResult;
-	CORE_API auto Wait(const FTask& Task, double TimeoutSeconds) -> FTaskWaitResult;
+	// Completion includes failed/canceled work and empty handles, independent of success.
+	CORE_API auto Wait(const FTask& Task) -> bool;
+	CORE_API auto Wait(const FTask& Task, double TimeoutSeconds) -> bool;
+	CORE_API auto WaitDetailed(const FTask& Task) -> FTaskWaitResult;
+	CORE_API auto WaitDetailed(const FTask& Task, double TimeoutSeconds) -> FTaskWaitResult;
 	CORE_API auto Cancel(const FTask& Task) -> bool;
 
 	// Completion dependency only: does not forward cancellation or failure to either task.
@@ -59,7 +63,7 @@ namespace Durin::Tasks
 
 	namespace Detail
 	{
-		template<typename T> concept CTaskDependency = std::derived_from<std::remove_cvref_t<T>, FTask>;
+		template<typename T> concept CTaskDependency = std::convertible_to<const std::remove_cvref_t<T>&, FTask>;
 		template<CTaskDependency T> auto DependencyHandle(const T& Task) -> FTask
 		{ return Task; }
 
@@ -83,12 +87,38 @@ namespace Durin::Tasks
 		}
 	}
 
-	// One outcome per input, in input order; does not consume task results.
+	// Waits for all inputs with one deadline, without allocating per-input outcomes.
 	template<Detail::CTaskDependencyCollection R>
-	auto Wait(const R& Inputs) -> std::vector<FTaskWaitResult>
-	{ return WaitAll(Detail::CollectDependencies(Inputs)); }
+	auto Wait(const R& Inputs, double TimeoutSeconds = std::numeric_limits<double>::infinity()) -> bool
+	{
+		if constexpr (std::ranges::forward_range<const R>)
+			if (std::ranges::all_of(Inputs, [](const auto& Input) { return Detail::DependencyHandle(Input).IsCompleted(); })) return true;
+		// Helping can reenter the caller and mutate its collection. Pin a snapshot.
+		return Detail::WaitCollection(Detail::CollectDependencies(Inputs), TimeoutSeconds);
+	}
+
+	// First already-completed input in collection order, or any subsequently observed completion.
+	// Empty collections and unsuccessful waits return INDEX_NONE. Does not help execute inputs.
 	template<Detail::CTaskDependencyCollection R>
-	auto Wait(const R& Inputs, double TimeoutSeconds) -> std::vector<FTaskWaitResult>
+	auto WaitAny(const R& Inputs, double TimeoutSeconds = std::numeric_limits<double>::infinity()) -> int32
+	{
+		if constexpr (std::ranges::forward_range<const R>)
+		{
+			size_t Index = 0;
+			for (const auto& Input : Inputs)
+			{
+				require(Index < static_cast<size_t>(std::numeric_limits<int32>::max()));
+				if (Detail::DependencyHandle(Input).IsCompleted()) return static_cast<int32>(Index);
+				++Index;
+			}
+			if (Index == 0) return INDEX_NONE;
+		}
+		return Detail::WaitAnyCollection(Detail::CollectDependencies(Inputs), TimeoutSeconds);
+	}
+
+	// Extension: one outcome per input, including invalid handles and rejected waits.
+	template<Detail::CTaskDependencyCollection R>
+	auto WaitDetailed(const R& Inputs, double TimeoutSeconds = std::numeric_limits<double>::infinity()) -> std::vector<FTaskWaitResult>
 	{ return WaitAll(Detail::CollectDependencies(Inputs), TimeoutSeconds); }
 
 	// Explicit one-shot signal, optionally joined with other completion dependencies.
@@ -133,12 +163,14 @@ namespace Durin::Tasks
 		std::shared_ptr<std::function<void(ETaskState)>> Callback;
 	};
 
+	// Runs outside the node lock after public completion and kernel dependency release.
+	// Results/state are readable; Wait does not join notifications or their capture retirement.
 	CORE_API auto SubscribeTask(const FTask& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription;
 
 	// Copyable handles share the task node and its result. Erased FTask handles
 	// retain the same result lifetime without exposing a typed accessor.
 	template<typename T>
-	class TTask : public Private::FTaskHandle
+	class TTask
 	{
 	public:
 		TTask() = default;
@@ -146,22 +178,39 @@ namespace Durin::Tasks
 		TTask(TTask&&) noexcept = default;
 		auto operator=(const TTask&) -> TTask& = default;
 		auto operator=(TTask&&) noexcept -> TTask& = default;
+		// Erasure copies or transfers observation, never exposes a writable base subobject.
+		operator FTask() const & { return Handle; }
+		operator FTask() && { return std::move(Handle); }
+		auto IsValid() const -> bool { return Handle.IsValid(); }
+		auto IsCompleted() const -> bool { return Handle.IsCompleted(); }
+		auto IsCancellationRequested() const -> bool { return Handle.IsCancellationRequested(); }
+		auto GetState() const -> ETaskState { return Handle.GetState(); }
+		auto GetDebugName() const -> const char* { return Handle.GetDebugName(); }
+		auto GetTaskId() const -> uint64 { return Handle.GetTaskId(); }
+		auto GetDiagnostic() const -> std::string { return Handle.GetDiagnostic(); }
+		auto GetDiagnostics() const -> FTaskDiagnostics { return Handle.GetDiagnostics(); }
+		auto Wait() const -> bool { return Handle.Wait(); }
+		auto Wait(double TimeoutSeconds) const -> bool { return Handle.Wait(TimeoutSeconds); }
+		auto WaitDetailed() const -> FTaskWaitResult { return Handle.WaitDetailed(); }
+		auto WaitDetailed(double TimeoutSeconds) const -> FTaskWaitResult { return Handle.WaitDetailed(TimeoutSeconds); }
+		auto TryRetractAndExecute() const -> bool { return Handle.TryRetractAndExecute(); }
 		// Moving from this reference is an explicit mutation visible to all aliases.
 		// Callers synchronize mutations of a shared result.
 		auto GetResult() const -> std::add_lvalue_reference_t<T> requires (!std::is_void_v<T>)
 		{
-			Detail::WaitForSuccess(*this);
+			Detail::WaitForSuccess(Handle);
 			return *Storage->PeekPublished();
 		}
 		auto GetResultShared() const -> std::shared_ptr<const T> requires (!std::is_void_v<T>)
 		{
 			if (!IsCompleted() || GetState() != ETaskState::Succeeded) return {};
-			return std::shared_ptr<const T>(Durin::Private::FTaskRuntimeAccess::PinLifetime(*this), Storage->PeekPublished());
+			return std::shared_ptr<const T>(Durin::Private::FTaskRuntimeAccess::PinLifetime(Handle), Storage->PeekPublished());
 		}
 		auto Subscribe(std::function<void(ETaskState)> Callback) const -> FTaskSubscription
-		{ return SubscribeTask(*this, std::move(Callback)); }
+		{ return SubscribeTask(Handle, std::move(Callback)); }
 	private:
 		friend struct Detail::FTaskAccess;
+		FTask Handle;
 		std::conditional_t<std::is_void_v<T>, std::nullptr_t, TTaskResultState<T>*> Storage = nullptr;
 	};
 
@@ -172,14 +221,12 @@ namespace Durin::Tasks
 			template<typename T> static auto Make(FTask Handle, Detail::TResultState<T> State) -> TTask<T>
 			{
 				TTask<T> Task;
-				Task.SetHandle(std::move(Handle));
+				Task.Handle = std::move(Handle);
 				if constexpr (!std::is_void_v<T>) Task.Storage = State.get();
 				return Task;
 			}
 
 		};
-		template<typename T> struct TIsTask : std::false_type {};
-		template<typename T> struct TIsTask<TTask<T>> : std::true_type {};
 		template<typename F, bool = std::is_invocable_v<F&, const FTaskCancellationToken&>> struct TTokenResult { using Type = std::invoke_result_t<F&>; };
 		template<typename F> struct TTokenResult<F, true> { using Type = std::invoke_result_t<F&, const FTaskCancellationToken&>; };
 
@@ -224,7 +271,7 @@ namespace Durin::Tasks
 	namespace Detail
 	{
 	template<typename F, typename T = typename Detail::TTokenResult<std::decay_t<F>>::Type>
-	requires (!std::is_reference_v<T> && !Detail::TIsTask<T>::value)
+	requires (!std::is_reference_v<T>)
 	auto LaunchTaskImpl(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
 		-> TTask<T>
 	{
@@ -276,8 +323,7 @@ namespace Durin::Tasks
 		template<CTaskDependencyCollection R, typename F>
 		auto WithPrerequisites(FTaskExecutionOptions Options, const R& Inputs, F&& Launch)
 		{
-			const auto Handles = CollectDependencies(Inputs, Options.Prerequisites);
-			Options.Prerequisites = Handles;
+			Options.Prerequisites = CollectDependencies(Inputs, Options.Prerequisites);
 			return Launch(Options);
 		}
 	}
@@ -306,9 +352,10 @@ namespace Durin::Tasks
 	auto LaunchTask(const char* Name, F&& Function, const T& Input, FTaskExecutionOptions Options = {})
 	{ return LaunchTask(Name, std::forward<F>(Function), Prerequisites(Input), Options); }
 
-	// Declares a CPU-only leaf: the callable must not depend on owner-thread,
-	// RHI, I/O, or external progress. The scheduler enforces task-level leaf
-	// restrictions; the caller owns the callable's ordinary C++ side effects.
+	// Declares an independent CPU graph: unfinished prerequisites/nested work must
+	// also be independent CPU tasks; completed inputs impose no progress requirements. Children
+	// inherit the contract. Callables must not depend on owner-thread, RHI, I/O or
+	// external progress; the caller owns their ordinary C++ side effects.
 	template<typename F>
 	auto LaunchIndependentTask(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
 	{

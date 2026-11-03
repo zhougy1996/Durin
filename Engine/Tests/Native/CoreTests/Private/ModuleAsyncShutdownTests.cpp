@@ -34,7 +34,7 @@ namespace Durin
 			auto CancelAndWait() -> void
 			{
 				Cancellation.RequestCancellation();
-				if (Worker.IsValid()) require(Worker.Wait().WaitStatus == ETaskWaitStatus::Completed);
+				if (Worker.IsValid()) require(Worker.WaitDetailed().WaitStatus == ETaskWaitStatus::Completed);
 				Worker = {};
 			}
 		private:

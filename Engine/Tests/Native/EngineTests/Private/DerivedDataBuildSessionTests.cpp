@@ -337,7 +337,7 @@ TEST(FBuildContinuationTests, SharedTaskDispatcherCompletesAcrossSessionsWithOne
 		Second->Build(Definition(), Owner, Complete);
 		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	});
-	EXPECT_EQ(Parent.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Parent.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Calls.load(), 2u); EXPECT_EQ(Cache->Gets, 2u);
 	EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
 }
@@ -1027,7 +1027,7 @@ TEST(FBuildSessionTests, TaskSchedulerWaitHelpsNestedBuildWithOneWorker)
 		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 		EXPECT_TRUE(Owner.Poll());
 	});
-	EXPECT_EQ(Parent.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Parent.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Calls.load(), 1u);
 	EXPECT_EQ(Fixture.Function->Builds.load(), 1u);
 }
@@ -1364,7 +1364,7 @@ TEST(FBuildContinuationTests, CompletionAndPersistenceDrainRemainLiveWithOneWork
 		EXPECT_TRUE(RequestStatus.has_value());
 		EXPECT_TRUE(Owner.Poll());
 	});
-	EXPECT_EQ(Parent.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Parent.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Calls.load(), 1u); EXPECT_EQ(Cache->Puts, 1u); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
 }
 
@@ -1407,7 +1407,7 @@ TEST(FRequestOwnerTests, PublicLaunchRetiresNestedWorkWithOneWorker)
 		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 		EXPECT_TRUE(Owner.Poll());
 	});
-	EXPECT_EQ(Parent.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Parent.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Calls, 1u);
 }
 

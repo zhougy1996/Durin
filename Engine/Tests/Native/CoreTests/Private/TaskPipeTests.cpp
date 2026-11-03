@@ -44,7 +44,7 @@ namespace Durin
 		std::atomic<uint32> Sequence = 0;
 		auto Delayed = Pipe.Launch("Delayed", [&] { EXPECT_EQ(Sequence.fetch_add(1), 1u); return 42; }, Gate);
 		auto Ready = Pipe.Launch("Ready", [&] { EXPECT_EQ(Sequence.fetch_add(1), 0u); });
-		EXPECT_EQ(Ready.Wait(2).WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(Ready.WaitDetailed(2).WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_FALSE(Delayed.IsCompleted());
 		EXPECT_TRUE(Pipe.HasWork());
 		EXPECT_FALSE(Pipe.WaitUntilEmpty(0.001));
@@ -95,13 +95,13 @@ namespace Durin
 			EXPECT_TRUE(Other.IsInContext());
 			EXPECT_FALSE(Pipe.IsInContext());
 		});
-		EXPECT_EQ(Independent.Wait(2).WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(Independent.WaitDetailed(2).WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_FALSE(Parent.IsCompleted());
 		EXPECT_FALSE(Next.IsCompleted());
 		EXPECT_FALSE(Pipe.WaitUntilEmpty(0.001));
 		Nested.Trigger();
 		EXPECT_TRUE(bBodyFinished);
-		EXPECT_EQ(Next.Wait(2).WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(Next.WaitDetailed(2).WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_TRUE(Pipe.WaitUntilEmpty(2));
 	}
 
@@ -116,7 +116,7 @@ namespace Durin
 		Tasks::TTask<void> Tail;
 		for (uint32 Index = 0; Index < 64; ++Index)
 			Tail = Pipe.Launch("RetractedPipe", [&] { ++Runs; });
-		const auto Result = Tail.Wait(2);
+		const auto Result = Tail.WaitDetailed(2);
 		Release.Trigger();
 		Blocker.Wait();
 		EXPECT_TRUE(bStarted);
@@ -163,7 +163,7 @@ namespace Durin
 		Tasks::TTask<void> Child;
 		auto Parent = Pipe.Launch("PipeParent", [&] {
 			Child = Pipe.Launch("PipeChild", [] {});
-			EXPECT_EQ(Child.Wait().WaitStatus, ETaskWaitStatus::DependencyCycle);
+			EXPECT_EQ(Child.WaitDetailed().WaitStatus, ETaskWaitStatus::DependencyCycle);
 			const auto Error = Private::FTaskRuntimeAccess::AddNested(Child);
 			ASSERT_TRUE(Error.has_value());
 			EXPECT_EQ(Error->Code, Tasks::ETaskConstructionErrorCode::DependencyCycle);
@@ -171,7 +171,7 @@ namespace Durin
 			EXPECT_TRUE(Pipe.IsInContext());
 		});
 		Parent.Wait();
-		EXPECT_EQ(Child.Wait(2).WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(Child.WaitDetailed(2).WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_TRUE(Pipe.WaitUntilEmpty(2));
 	}
 

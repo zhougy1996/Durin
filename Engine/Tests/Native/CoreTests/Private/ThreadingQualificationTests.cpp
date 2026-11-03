@@ -91,7 +91,7 @@ namespace Durin
 				Observer.Wait();
 				if (Sample >= 0) Times.push_back(Micros);
 				Gate.Trigger();
-				EXPECT_EQ(Tail.Wait().TaskState, ETaskState::Succeeded);
+				EXPECT_EQ(Tail.WaitDetailed().TaskState, ETaskState::Succeeded);
 			}
 			Report("retract_64", Depth, Times);
 		}
@@ -165,7 +165,7 @@ namespace Durin
 			ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
 
 			Tasks::FTaskExecutionOptions WaitingOptions = RootOptions;
-			WaitingOptions.Prerequisites = std::span<const Tasks::FTask>(&Blocker, 1);
+			WaitingOptions.Prerequisites = {Blocker};
 			std::vector<Tasks::FTask> Succeeded;
 			std::vector<Tasks::FTask> Failed;
 			std::vector<Tasks::FTask> Canceled;

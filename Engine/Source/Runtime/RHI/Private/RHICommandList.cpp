@@ -2887,8 +2887,8 @@ namespace Durin
 			for (const auto& Request : SubmissionGroup->Dependencies)
 			{
 				if (Request.GetState() != ERHIPipelineRequestState::Pending) continue;
-				// Every terminal outcome must wake the queue, without waiting for a
-				// success continuation to acquire another Worker execution slot.
+				// Wake after public completion for every outcome. The queue can inspect
+				// completion/results immediately, without scheduling a Worker continuation.
 				SubmissionGroup->WakeSubscriptions.push_back(Tasks::SubscribeTask(Request.GetTaskHandle(),
 					[Wake = State->RHIThread->GetWakeCallback()](ETaskState) { Wake(); }));
 			}

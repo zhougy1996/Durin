@@ -119,30 +119,31 @@ namespace Durin
 		}
 		auto Publish(const FPublished& Publication) -> void
 		{
-			std::lock_guard Lock(Lifetime->WaitMutex);
-			if (Outcome->load() != ERHIPipelineRequestState::Pending) return;
-			if (Lifetime->Closed.load())
 			{
-				Outcome->store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
-				Signal.Trigger();
+				std::lock_guard Lock(Lifetime->WaitMutex);
+				if (Outcome->load() != ERHIPipelineRequestState::Pending) return;
+				if (Lifetime->Closed.load())
+					Outcome->store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
+				else
+				{
+					Published.Store(Publication);
+					Outcome->store(Publication->Result.State, std::memory_order_release);
+				}
 			}
-			else
-			{
-				Published.Store(Publication);
-				// Terminal subscriptions run before the Core task publishes its
-				// terminal state. Publish domain readiness before they wake RHI.
-				Outcome->store(Publication->Result.State, std::memory_order_release);
-				Signal.Trigger();
-			}
+			// Publish domain data before its completion event. Observers can read both
+			// states and reenter request methods without holding the domain wait lock.
 			Lifetime->Changed.notify_all();
+			Signal.Trigger();
 		}
 		auto Cancel() -> bool
 		{
-			std::lock_guard Lock(Lifetime->WaitMutex);
-			if (Outcome->load() != ERHIPipelineRequestState::Pending) return false;
-			Outcome->store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
-			Signal.Trigger();
+			{
+				std::lock_guard Lock(Lifetime->WaitMutex);
+				if (Outcome->load() != ERHIPipelineRequestState::Pending) return false;
+				Outcome->store(ERHIPipelineRequestState::Canceled, std::memory_order_release);
+			}
 			Lifetime->Changed.notify_all();
+			Signal.Trigger();
 			return true;
 		}
 		auto Retire() -> void
@@ -526,8 +527,8 @@ namespace Durin
 		}
 		if (State->LastDrain.IsValid())
 		{
-			const auto Joined = Tasks::Wait(State->LastDrain);
-			checkf(Joined.WaitStatus == ETaskWaitStatus::Completed, "Pipeline creation work could not join.");
+			const bool bJoined = Tasks::Wait(State->LastDrain);
+			checkf(bJoined, "Pipeline creation work could not join.");
 		}
 		State->WorkJoined = true;
 	}

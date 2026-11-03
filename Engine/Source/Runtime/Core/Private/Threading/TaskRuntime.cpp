@@ -712,25 +712,42 @@ namespace Durin
 			return ExecutionState == ETaskState::Running && !IsTaskEvent() && Phase == EPhase::Open;
 		}
 		auto IsTaskEvent() const -> bool { return Event != nullptr; }
-		auto BindTerminal(std::shared_ptr<Private::FTaskTerminalHook> Hook) -> void
+		auto BindBeforeCompletion(std::shared_ptr<Private::FTaskBeforeCompletionHook> Hook) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			requiref(Phase != EPhase::Closed, "Before-completion hooks must be bound before task completion.");
+			Hook->Next = std::move(BeforeCompletionHooks);
+			BeforeCompletionHooks = std::move(Hook);
+		}
+		static auto InvokeCompletionObserver(std::shared_ptr<std::function<void(ETaskState)>> Callback, ETaskState Terminal) -> void
+		{
+			// A closed producer is no longer an executing parent or a wait-cycle ancestor.
+			// Keep the scheduler/thread authority, and preserve a live caller's context.
+			FTaskStateData* Previous = GCurrentTaskState;
+			if (Previous && IsTerminalState(Previous->GetState())) GCurrentTaskState = nullptr;
+			try { (*Callback)(Terminal); } catch (...) {}
+			Callback.reset();
+			GCurrentTaskState = Previous;
+		}
+		auto ObserveCompletion(const std::shared_ptr<std::function<void(ETaskState)>>& Callback) -> void
 		{
 			ETaskState Terminal;
 			{
 				std::lock_guard Lock(Mutex);
-				if (Phase != EPhase::Closed)
+				if (!bCompletionNotificationsReady)
 				{
-					Hook->Next = std::move(TerminalHooks);
-					TerminalHooks = std::move(Hook);
+					std::erase_if(CompletionObservers, [](const auto& Weak) { return Weak.expired(); });
+					CompletionObservers.emplace_back(Callback);
 					return;
 				}
 				Terminal = Outcome.State;
 			}
-			Hook->Function(Terminal);
+			InvokeCompletionObserver(Callback, Terminal);
 		}
 		// Ordinary waits own one signal; concurrent limiter waits share one.
 		// Graph subscriptions are weak and expire when the interested waits return.
 		using FWaitSignal = FTaskWaitSignal;
-		auto RegisterWaiter(const std::shared_ptr<FWaitSignal>& Signal) -> void
+		auto RegisterWaiter(const std::shared_ptr<FWaitSignal>& Signal) const -> void
 		{
 			std::lock_guard Lock(Mutex);
 			std::erase_if(Waiters, [](const auto& Weak) { return Weak.expired(); });
@@ -901,6 +918,7 @@ namespace Durin
 
 		// Inspect one node lock at a time. Terminal ancestors impose no executor
 		// requirement; pinning each frontier keeps concurrent publication safe.
+		// Immutable graph contract: every unfinished dependency also carries this flag.
 		auto IsIndependentCPU() const -> bool { return bIndependentCPU; }
 
 		struct FWaitGraphWork
@@ -910,7 +928,8 @@ namespace Durin
 			FTaskGraphVisited Visited;
 		};
 		struct FWaitRequirements { bool bCycle = false; bool bUnknown = false; bool bGameThread = false; };
-		auto InspectWaitGraph(const FTaskStateData* CycleTarget, FWaitGraphWork& Work) const -> FWaitRequirements
+		auto InspectWaitGraph(const FTaskStateData* CycleTarget, FWaitGraphWork& Work,
+			const std::shared_ptr<FWaitSignal>& Signal = {}) const -> FWaitRequirements
 		{
 			FWaitRequirements Result;
 			Work.Pending.push_back({shared_from_this(), true});
@@ -920,6 +939,7 @@ namespace Durin
 				Work.Pending.pop_back();
 				if (Entry.Node.get() == CycleTarget) { Result.bCycle = true; break; }
 				if (!Work.Visited.Visit(Entry.Node->GetTaskId(), Entry.bRequirements ? 3 : 1)) continue;
+				if (Signal) Entry.Node->RegisterWaiter(Signal);
 				std::lock_guard Lock(Entry.Node->Mutex);
 				const bool bRequirements = Entry.bRequirements && Entry.Node->Phase != EPhase::Closed;
 				if (bRequirements)
@@ -1063,7 +1083,7 @@ namespace Durin
 		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting;
 		std::shared_ptr<FTaskCancellationState> SharedCancellationState;
 		mutable std::mutex Mutex;
-		std::vector<std::weak_ptr<FWaitSignal>> Waiters;
+		mutable std::vector<std::weak_ptr<FWaitSignal>> Waiters;
 		Private::FMoveOnlyTaskFunction PendingFunction;
 		Private::FTaskCompletionFunction CompletionFunction;
 		std::shared_ptr<void> ResultStorage;
@@ -1088,7 +1108,9 @@ namespace Durin
 		std::unique_ptr<FEventData> Event;
 		uint32 PendingNestedCount = 0;
 		bool bUnknownExecutionRequirement = false;
-		std::shared_ptr<Private::FTaskTerminalHook> TerminalHooks;
+		std::shared_ptr<Private::FTaskBeforeCompletionHook> BeforeCompletionHooks;
+		std::vector<std::weak_ptr<std::function<void(ETaskState)>>> CompletionObservers;
+		bool bCompletionNotificationsReady = false;
 		FTaskDependencyEdges Dependencies;
 		std::vector<FTaskSubsequent> Subsequents;
 		uint32 RemainingPrerequisites = 0;
@@ -1208,7 +1230,7 @@ namespace Durin
 			Init.Priority = Priority;
 			Init.EstimatedPayloadBytes = EstimatedPayloadBytes;
 			Init.AdditionalStorageBytes = AdditionalStorageBytes;
-			Init.bIndependentCPU = Options.bIndependentCPU;
+			Init.bIndependentCPU = Options.bIndependentCPU || (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU());
 			Init.Attribution = Options.Attribution;
 			Init.Function = std::move(FunctionOwner);
 			Init.Completion = std::move(CompletionFunction);
@@ -1227,11 +1249,9 @@ namespace Durin
 					for (size_t Index = 0; Index < Count; ++Index) Prerequisites[Index]->ReleaseDependentReservation();
 				}
 			} Reservations{PrerequisiteStates, ReservedDependencyCount};
-			if ((GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
-				|| (Options.ConcurrencyLimiter && (Options.Pipe || Target != ETaskTarget::AnyWorker || Options.bIndependentCPU))
-				|| (Options.Pipe && (Target != ETaskTarget::AnyWorker || Options.bIndependentCPU))
-				|| (Options.bIndependentCPU && (Target != ETaskTarget::AnyWorker
-					|| std::ranges::any_of(Options.Prerequisites, [](const auto& Task) { return Task.IsValid(); }))))
+			if ((Options.ConcurrencyLimiter && (Options.Pipe || Target != ETaskTarget::AnyWorker || Init.bIndependentCPU))
+				|| (Options.Pipe && (Target != ETaskTarget::AnyWorker || Init.bIndependentCPU))
+				|| (Init.bIndependentCPU && Target != ETaskTarget::AnyWorker))
 				Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::InvalidExecutionContract});
 			PrerequisiteStates.reserve(Options.Prerequisites.size());
 			std::unordered_set<FTaskStateData*> SeenPrerequisites;
@@ -1243,6 +1263,9 @@ namespace Durin
 				{
 					Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::InvalidPrerequisite, Prerequisite.GetTaskId()});
 				}
+				if (Init.bIndependentCPU && !Prerequisite.State->IsIndependentCPU()
+					&& !IsTerminalState(Prerequisite.State->GetState()))
+					Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::InvalidExecutionContract, Prerequisite.GetTaskId()});
 				PrerequisiteStates.emplace_back(Prerequisite.State);
 			};
 			for (const Tasks::FTask& Prerequisite : Options.Prerequisites) AppendPrerequisite(Prerequisite);
@@ -2123,10 +2146,10 @@ namespace Durin
 		std::shared_ptr<FTaskStateData> EventLifetime;
 		for (;;)
 		{
-			std::shared_ptr<Private::FTaskTerminalHook> Hooks;
+			std::shared_ptr<Private::FTaskBeforeCompletionHook> Hooks;
 			{
 				std::lock_guard Lock(Mutex);
-				Hooks = std::move(TerminalHooks);
+				Hooks = std::move(BeforeCompletionHooks);
 				if (!Hooks)
 				{
 					// Closing the hook/dependent lists and publishing completion share
@@ -2162,6 +2185,16 @@ namespace Durin
 				else if (Subsequent.Kind == ETaskDependencyKind::Pipe) Pinned->OnPipePredecessorTerminal();
 				else Pinned->OnNestedCompleted();
 			}
+		std::vector<std::weak_ptr<std::function<void(ETaskState)>>> Observers;
+		{
+			std::lock_guard Lock(Mutex);
+			// Late registration before this point joins the notification pass, even
+			// though completion is visible already. Kernel dependency release comes first.
+			bCompletionNotificationsReady = true;
+			Observers.swap(CompletionObservers);
+		}
+		for (const auto& Weak : Observers)
+			if (auto Callback = Weak.lock()) InvokeCompletionObserver(std::move(Callback), Outcome.State);
 		if (auto PinnedScheduler = Scheduler.lock()) PinnedScheduler->OnTaskTerminal(shared_from_this());
 	}
 
@@ -2714,8 +2747,6 @@ namespace Durin
 		if (!Parent || !Child
 			|| (!Parent->IsTaskEvent() && !Child->IsTaskEvent() && Parent->PinScheduler() != Child->PinScheduler()))
 			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidPrerequisite, (Child ? Child->GetTaskId() : 0)};
-		if (Parent->IsIndependentCPU())
-			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
 		// A completed child imposes no dependency, including an already-canceled back-edge.
 		if (IsTerminalState(Child->GetState()))
 		{
@@ -2724,6 +2755,8 @@ namespace Durin
 				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
 			return {};
 		}
+		if (Parent->IsIndependentCPU() && !Child->IsIndependentCPU())
+			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract, Child->GetTaskId()};
 		if (Parent == Child || Child->DependsOn(Parent.get()))
 			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::DependencyCycle, Child->GetTaskId()};
 		{
@@ -2863,10 +2896,15 @@ namespace Durin
 			State->FinishBody(ETaskState::Succeeded);
 		}
 
-		auto FTaskRuntimeAccess::BindTerminal(const Tasks::FTask& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void
+		auto FTaskRuntimeAccess::BindBeforeCompletion(const Tasks::FTask& Task, std::shared_ptr<FTaskBeforeCompletionHook> Hook) -> void
 		{
 			require(Task.State && Hook && Hook->Function);
-			Task.State->BindTerminal(std::move(Hook));
+			Task.State->BindBeforeCompletion(std::move(Hook));
+		}
+		auto FTaskRuntimeAccess::ObserveCompletion(const Tasks::FTask& Task, const std::shared_ptr<std::function<void(ETaskState)>>& Callback) -> void
+		{
+			require(Task.State && Callback && *Callback);
+			Task.State->ObserveCompletion(Callback);
 		}
 		auto FTaskRuntimeAccess::AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>
 		{
@@ -2895,7 +2933,7 @@ namespace Durin
 	namespace
 	{
 		auto GetTaskWaitRestriction(const std::shared_ptr<FTaskStateData>& TaskState,
-			FTaskStateData::FWaitGraphWork& Work) -> std::optional<ETaskWaitStatus>
+			FTaskStateData::FWaitGraphWork& Work, const std::shared_ptr<FTaskWaitSignal>& Signal = {}) -> std::optional<ETaskWaitStatus>
 		{
 			if (GCurrentTaskState == TaskState.get())
 			{
@@ -2905,14 +2943,14 @@ namespace Durin
 
 			const bool bGameThread = GIsGameThreadIdInitialized && IsInGameThread();
 			const auto Requirements = GCurrentTaskState || bGameThread
-				? TaskState->InspectWaitGraph(GCurrentTaskState, Work) : FTaskStateData::FWaitRequirements{};
+				? TaskState->InspectWaitGraph(GCurrentTaskState, Work, Signal) : FTaskStateData::FWaitRequirements{};
 			if (Requirements.bCycle)
 			{
 				DURIN_WARN("Task wait rejected because the target depends on the current task. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
 				return ETaskWaitStatus::DependencyCycle;
 			}
 
-			if (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
+			if (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU() && !TaskState->IsIndependentCPU())
 				return ETaskWaitStatus::UnsupportedThread;
 			if (IsInRenderingThread() && !TaskState->IsIndependentCPU())
 			{
@@ -3071,6 +3109,65 @@ namespace Durin
 
 	auto WaitTask(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult
 	{ return WaitTaskState(Task.State, FTaskWaitDeadline(TimeoutSeconds)); }
+
+	auto Tasks::Detail::WaitCollection(std::span<const Tasks::FTask> Tasks, double TimeoutSeconds) -> bool
+	{
+		const FTaskWaitDeadline Deadline(TimeoutSeconds);
+		auto Completed = [&] { return std::ranges::all_of(Tasks, [](const auto& Task) { return Task.IsCompleted(); }); };
+		if (Completed()) return true;
+		if (Deadline.IsExpired()) return false;
+		auto Signal = std::make_shared<FTaskWaitSignal>();
+		FTaskStateData::FWaitGraphWork WaitGraph;
+		FTaskScheduler::FRetractionWork Retraction;
+		for (;;)
+		{
+			const uint64 Observed = Signal->PrepareWait();
+			bool bRejected = false;
+			for (const auto& Task : Tasks)
+			{
+				const auto& State = Task.State;
+				if (!State) continue;
+				State->RegisterWaiter(Signal);
+				if (IsTerminalState(State->GetState()) || Deadline.IsExpired()) continue;
+				if (GetTaskWaitRestriction(State, WaitGraph)) { bRejected = true; continue; }
+				if (auto Scheduler = GetRetractionScheduler(State)) Scheduler->RetractTask(State, Deadline, Retraction, Signal);
+				if (!IsTerminalState(State->GetState()) && GetTaskWaitRestriction(State, WaitGraph)) bRejected = true;
+			}
+			// Later inputs may signal earlier ones while helping. Recheck the entire set.
+			if (Completed()) return true;
+			if (bRejected || Deadline.IsExpired()) return false;
+			Signal->WaitFor(Observed, Deadline.Remaining());
+		}
+	}
+
+	auto Tasks::Detail::WaitAnyCollection(std::span<const Tasks::FTask> Tasks, double TimeoutSeconds) -> int32
+	{
+		require(Tasks.size() <= static_cast<size_t>(std::numeric_limits<int32>::max()));
+		const FTaskWaitDeadline Deadline(TimeoutSeconds);
+		for (size_t Index = 0; Index < Tasks.size(); ++Index)
+			if (Tasks[Index].IsCompleted()) return static_cast<int32>(Index);
+		if (Tasks.empty() || Deadline.IsExpired()) return INDEX_NONE;
+		auto Signal = std::make_shared<FTaskWaitSignal>();
+		FTaskStateData::FWaitGraphWork WaitGraph;
+		for (;;)
+		{
+			const uint64 Observed = Signal->PrepareWait();
+			bool bEligible = false;
+			for (size_t Index = 0; Index < Tasks.size(); ++Index)
+			{
+				const auto& State = Tasks[Index].State;
+				if (!State) return static_cast<int32>(Index);
+				// Use post-publication node notifications, never pre-completion hooks.
+				State->RegisterWaiter(Signal);
+				if (IsTerminalState(State->GetState())) return static_cast<int32>(Index);
+				// Observe transitive graph changes too: a prerequisite can acquire new
+				// owner-thread requirements while this wait is asleep.
+				if (!GetTaskWaitRestriction(State, WaitGraph, Signal)) bEligible = true;
+			}
+			if (!bEligible || Deadline.IsExpired()) return INDEX_NONE;
+			Signal->WaitFor(Observed, Deadline.Remaining());
+		}
+	}
 
 	auto WaitAll(std::span<const Tasks::FTask> Tasks) -> std::vector<FTaskWaitResult>
 	{ return WaitAll(Tasks, std::numeric_limits<double>::infinity()); }

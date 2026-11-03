@@ -807,7 +807,7 @@ TEST_F(FTextureImportQueueTests, AsyncSaveReturnsCancelableTypedPublicationTask)
 	auto Save = Texture->GetPackage()->SaveAsync(Admission, FAssetPackageSaveContext{});
 	ASSERT_TRUE(Save.IsValid()) << Admission.Message;
 	EXPECT_EQ(Save.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
-	EXPECT_EQ(Save.Wait().WaitStatus, ETaskWaitStatus::UnsupportedThread);
+	EXPECT_EQ(Save.WaitDetailed().WaitStatus, ETaskWaitStatus::UnsupportedThread);
 	EXPECT_TRUE(Tasks::Cancel(Save));
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_EQ(Save.GetState(), ETaskState::Succeeded);

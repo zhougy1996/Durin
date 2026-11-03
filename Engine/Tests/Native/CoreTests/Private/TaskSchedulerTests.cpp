@@ -587,7 +587,7 @@ namespace Durin
 		FTaskLaunchOptions InvalidOptions;
 		InvalidOptions.Prerequisites = InvalidPrerequisites;
 		auto EmptyDependency = SubmitKernelTask("EmptyPrerequisiteTask", []() {}, InvalidOptions);
-		ASSERT_EQ(EmptyDependency.Wait().TaskState, ETaskState::Succeeded);
+		ASSERT_EQ(EmptyDependency.WaitDetailed().TaskState, ETaskState::Succeeded);
 		EXPECT_TRUE(EmptyDependency.GetDiagnostics().PrerequisiteTaskIds.empty());
 
 		Tasks::FTask EarlierLifetimeTask = SubmitKernelTask("EarlierLifetimeTask", []() {});
@@ -772,43 +772,146 @@ namespace Durin
 		}
 	}
 
-	TEST(FTaskTests, IndependentCPUContractRejectsDependenciesChildrenAndBlockingWaits)
+	TEST(FTaskTests, IndependentCPUContractRejectsUnsafeDependenciesChildrenAndWaits)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 
-		Tasks::FTaskEvent Pending("IndependentLeafGate");
-		const Tasks::FTask PendingHandle = Durin::Tasks::FTask(Pending);
-		for (int InvalidKind = 0; InvalidKind < 2; ++InvalidKind)
+		Tasks::FTaskEvent Pending("IndependentUnknownGate"), KnownSignal("IndependentKnownSignal", false);
+		auto Ordinary = Tasks::LaunchTask("UnmarkedWorker", [] {}, KnownSignal);
+		auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] {}, KnownSignal);
+		auto Deferred = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}, KnownSignal);
+		for (const auto& Input : Tasks::Prerequisites(Pending, KnownSignal, Ordinary, Io, Deferred))
 		{
 			FTaskLaunchOptions Options;
 			Options.bIndependentCPU = true;
-			if (InvalidKind == 0) Options.Prerequisites = std::span<const Tasks::FTask>(&PendingHandle, 1);
-			if (InvalidKind == 1) Options.Target = ETaskTarget::BlockingIO;
+			Options.Prerequisites = std::span(&Input, 1);
 			EXPECT_DEATH({ (void)Private::LaunchCancelableTaskWithCompletion("InvalidIndependent",
-				[](const FTaskCancellationToken&) {}, {}, Options); }, "");
+				[](const FTaskCancellationToken&) {}, {}, Options); }, "Task construction failed");
+			EXPECT_DEATH({
+				auto Invalid = Tasks::LaunchIndependentTask("ForbiddenNestedParent", [&] { Tasks::AddNested(Input); });
+				Invalid.Wait();
+			}, "Task construction failed");
+			auto Task = Tasks::LaunchIndependentTask("IndependentWaitContract", [&] {
+				return WaitTask(Input).WaitStatus;
+			});
+			EXPECT_EQ(Task.GetResult(), ETaskWaitStatus::UnsupportedThread);
+		}
+		for (auto Executor : {Tasks::ETaskExecutor::BlockingIO, Tasks::ETaskExecutor::GameThreadDeferred})
+		{
+			EXPECT_DEATH({
+				auto Invalid = Tasks::LaunchIndependentTask("ForbiddenChildParent", [&] {
+					(void)Tasks::LaunchTask(Executor, {}, [] {});
+				});
+				Invalid.Wait();
+			}, "Task construction failed");
 		}
 		EXPECT_DEATH({
-			auto Invalid = Tasks::LaunchIndependentTask("ForbiddenChildParent", [] {
-				(void)Tasks::LaunchTask("ForbiddenChild", [] {});
+			auto Invalid = Tasks::LaunchIndependentTask("ForbiddenChildDependencyParent", [&] {
+				(void)Tasks::LaunchTask("ForbiddenChildDependency", [] {}, Ordinary);
 			});
 			Invalid.Wait();
-		}, "");
-		auto Leaf = Tasks::LaunchIndependentTask("IndependentLeafContract", [&] {
-			EXPECT_EQ(WaitTask(PendingHandle).WaitStatus, ETaskWaitStatus::UnsupportedThread);
-			return true;
-		});
-		EXPECT_TRUE(Leaf.GetResult());
-		EXPECT_DEATH({
-			auto Invalid = Tasks::LaunchIndependentTask("ForbiddenNestedParent", [&] {
-				Tasks::AddNested(Pending);
-			});
-			Invalid.Wait();
-		}, "");
+		}, "Task construction failed");
 		Pending.Trigger();
-		EXPECT_EQ(Pending.Wait().TaskState, ETaskState::Succeeded);
+		KnownSignal.Trigger();
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
+	}
+
+	TEST(FTaskTests, RenderingThreadJoinsIndependentCPUPrerequisitesAndInheritedChildren)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent Started, Release, Returned;
+		struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } Resume{Release};
+		auto Blocker = SubmitKernelTask("IndependentGraphOccupiedWorker", [&] { Started.Trigger(); Release.Wait(); });
+		ASSERT_TRUE(Started.WaitFor(2));
+		std::vector<uint32> ExecutionThreads;
+		auto Record = [&] {
+			EXPECT_TRUE(Private::FTaskRuntimeAccess::IsExecutingIndependentCPU());
+			ExecutionThreads.push_back(FPlatformLTS::GetCurrentThreadId());
+		};
+		auto Prerequisite = Tasks::LaunchIndependentTask("IndependentGraphPrerequisite", [Record] { Record(); return 10; });
+		auto Root = Tasks::LaunchIndependentTask("IndependentGraphRoot", [&, Record, Prerequisite] {
+			Record();
+			auto Child = Tasks::LaunchTask("InheritedCPUChild", [Record] {
+				Record();
+				auto Grandchild = Tasks::LaunchTask("InheritedCPUGrandchild", Record);
+				Tasks::AddNested(Grandchild);
+				return 32;
+			});
+			auto Nested = Tasks::LaunchTask("InheritedCPUNested", Record);
+			Tasks::AddNested(Nested);
+			return Prerequisite.GetResult() + Child.GetResult();
+		}, {.Prerequisites = {Prerequisite}});
+		FWaitTaskRunnable Runnable(Root, Returned);
+		std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Runnable,
+			"IndependentGraphRenderJoin", 0, EThreadPriority::Normal, EThreadRole::RenderingThread));
+		EXPECT_NE(Thread, nullptr);
+		if (Thread) EXPECT_TRUE(Returned.WaitFor(2));
+		Release.Trigger();
+		if (Thread)
+		{
+			Thread->WaitForCompletion();
+			EXPECT_EQ(Runnable.ObservedResult.WaitStatus, ETaskWaitStatus::Completed);
+			EXPECT_EQ(Runnable.ObservedResult.TaskState, ETaskState::Succeeded);
+			ASSERT_EQ(ExecutionThreads.size(), 5u);
+			for (const auto Id : ExecutionThreads) EXPECT_EQ(Id, Thread->GetThreadId());
+		}
+		EXPECT_TRUE(Blocker.Wait());
+		EXPECT_EQ(Root.GetResult(), 42);
+	}
+
+	TEST(FTaskTests, IndependentCPUAcceptsCompletedInputsRegardlessOfTheirFormerExecutor)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Signal("CompletedExternalCPUInput");
+		Signal.Trigger();
+		auto Ordinary = Tasks::LaunchTask("CompletedOrdinaryCPUInput", [] { return 17; });
+		auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 25; });
+		ASSERT_TRUE(Ordinary.Wait());
+		ASSERT_TRUE(Io.Wait());
+		auto Task = Tasks::LaunchIndependentTask("IndependentCompletedInputs", [=] {
+			Tasks::AddNested(Ordinary);
+			Tasks::AddNested(Io);
+			Tasks::AddNested(Signal);
+			EXPECT_TRUE(Tasks::Wait(Tasks::Prerequisites(Ordinary, Io, Signal)));
+			return Ordinary.GetResult() + Io.GetResult();
+		}, {.Prerequisites = {Ordinary, Io, Signal, Tasks::FTask{}}});
+		EXPECT_EQ(Task.GetResult(), 42);
+	}
+
+	TEST(FTaskTests, IndependentCPUChildrenRetainCycleDetection)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent Started, Release;
+		struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } Resume{Release};
+		auto Blocker = SubmitKernelTask("IndependentCycleOccupiedWorker", [&] { Started.Trigger(); Release.Wait(); });
+		ASSERT_TRUE(Started.WaitFor(2));
+		Tasks::TTask<int> Root;
+		Tasks::TTask<void> Child;
+		Root = Tasks::LaunchIndependentTask("IndependentCycleRoot", [&] {
+			Child = Tasks::LaunchTask("IndependentCycleChild", [] {}, Root);
+			EXPECT_EQ(WaitTask(Child).WaitStatus, ETaskWaitStatus::DependencyCycle);
+			const auto Error = Private::FTaskRuntimeAccess::AddNested(Child);
+			EXPECT_TRUE(Error.has_value());
+			if (Error) EXPECT_EQ(Error->Code, Tasks::ETaskConstructionErrorCode::DependencyCycle);
+			return 42;
+		});
+		EXPECT_EQ(Root.GetResult(), 42);
+		EXPECT_TRUE(Child.Wait());
+		Release.Trigger();
+		EXPECT_TRUE(Blocker.Wait());
 	}
 
 	TEST(FTaskTests, RenderingThreadWaitIsRejected)

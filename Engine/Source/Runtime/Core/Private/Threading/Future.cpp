@@ -39,15 +39,34 @@ namespace Durin
 		auto FState::Publish(EFutureState Outcome, FFutureFailure Error) -> void
 		{
 			decltype(Observers) Pending;
+			TMoveOnlyFunction<void()> Callback;
 			{
 				std::lock_guard Lock(Mutex);
 				Failure = std::move(Error);
 				State = Outcome;
 				Pending.swap(Observers);
+				Callback = std::move(Continuation);
 			}
 			Changed.notify_all();
 			for (const auto& Weak : Pending)
 				if (auto Callback = Weak.lock()) { try { (*Callback)(Outcome); } catch (...) {} }
+			if (Callback) Callback();
+		}
+		auto FState::SetContinuation(TMoveOnlyFunction<void()>&& Callback) -> void
+		{
+			TMoveOnlyFunction<void()> Retired;
+			bool Ready;
+			{
+				std::lock_guard Lock(Mutex);
+				Ready = State != EFutureState::Pending;
+				if (!Ready)
+				{
+					Retired = std::move(Continuation);
+					Continuation = std::move(Callback);
+				}
+			}
+			// Retire replaced captures outside the lock; promise destruction can reenter.
+			if (Ready && Callback) Callback();
 		}
 		auto FState::Subscribe(std::function<void(EFutureState)> Callback) -> FFutureSubscription
 		{

@@ -154,8 +154,11 @@ retained by the limiter.
 
 ## Shared Task Results
 
-`TTask<T>` and `FTaskEvent` derive from `Tasks::Private::FTaskHandle`, exposed
-publicly as `Tasks::FTask`. All task handles are copyable and movable. Copies
+`TTask<T>` owns a `Tasks::FTask` handle and converts to it by value;
+`FTaskEvent` derives from `Tasks::Private::FTaskHandle`, exposed publicly as
+`Tasks::FTask`. Typed tasks expose no writable generic base subobject, so generic
+handle assignment cannot replace their execution node independently of result storage.
+All task handles are copyable and movable. Copies
 share one execution node and result; the result type itself may be move-only.
 The node retains successful result storage until its final reference is released,
 including generic `FTask` references. Releasing a
@@ -167,7 +170,7 @@ Result storage, the task body, the completion callback and the node kind are
 bound during construction for executable tasks and events. The node's result-storage binding and kind cannot change afterward.
 Ordinary dependencies accept task/event objects directly. Constructing or assigning
 a generic `FTask` from an lvalue task/event copies observation; an rvalue transfers
-the base handle and leaves the source invalid. Moving a complete typed task
+the execution handle and leaves the source invalid. Moving a complete typed task
 transfers its execution and typed result references together.
 Empty handles report completed and waits return `Completed` with task state
 `Invalid`. They represent no pending work, not a successful typed result.
@@ -211,7 +214,7 @@ runnable callback.
 Task graphs use ordinary scheduled tasks and explicit completion dependencies,
 following [UE task composition](https://dev.epicgames.com/documentation/en-us/unreal-engine/tasks-system-references-in-unreal-engine).
 There are no Tasks Then, ThenCompleted or WhenAll helpers, or private continuation
-submission paths. Future continuation API parity is a separate concern.
+submission paths. Standalone Future continuations are described below.
 
 `LaunchTask(Executor, Options, Callable, Dependency)` accepts a task, event,
 or generic `FTask` directly, or a vector, array, or span of these types. The named
@@ -221,9 +224,17 @@ typed tasks, generic handles, and events; it never consumes a result. These
 overloads append their dependencies to `Options.Prerequisites`, and bind them
 before the supplied collection can go out of scope. `Wait(Task)` and `Cancel(Task)`
 accept task/event facades directly. `Wait(Collection)` accepts the same collections
-and returns one `FTaskWaitResult` per input in input order, including invalid, failed,
-or canceled entries; waiting never consumes results. Empty collections produce no
-dependencies and an empty wait result.
+and returns whether every input is completed. `WaitAny(Collection)` returns a
+completed input's index, or `INDEX_NONE` for an empty collection or unsuccessful wait.
+`WaitDetailed(TaskOrCollection)` is the extension for wait status and terminal state;
+collections return one `FTaskWaitResult` per input in input order, including invalid,
+failed or canceled entries. Waiting never consumes results. Empty collections produce
+no dependencies, Wait succeeds, and WaitDetailed returns an empty result vector.
+
+`FTaskExecutionOptions::Prerequisites` owns a vector of generic task handles.
+Saved, copied and moved options retain their dependencies independently of the
+source collection. Initialize it with `{A, B}` or copy a range with `assign`;
+`Prerequisites(A, B)` remains an owning array for direct launch/event arguments.
 
 Owners combine known work with task prerequisites, `AddNested`, and task events.
 Completion of a resource's business record does not prove its worker callable
@@ -247,6 +258,14 @@ parent completion without blocking its worker. Nested completion does not
 forward child results, failure or cancellation. Retain the child handle or an
 owning domain result explicitly; share a cancellation token only when
 cancellation should be shared. There is no automatic task-flattening API.
+
+A callable may return a task handle as an ordinary value, producing
+`TTask<TTask<T>>`. The returned handle shares its inner node and result lifetime;
+it adds no implicit prerequisite, nested completion, cancellation or failure
+propagation. Waiting on the outer task waits only for that task. GetResult returns
+the handle, which can be inspected or waited on separately. Explicitly call
+`AddNested(Inner)` in the outer body when its completion must include the inner
+task; the result remains a handle and is never automatically flattened.
 
 Ordinary submission ignores empty prerequisite handles and normalizes repeated
 nodes once, preserving first-occurrence diagnostic order. Application input
@@ -278,8 +297,27 @@ observation-only MakeReadyTask helper is exposed.
 
 `TTask::Subscribe(Callback)` returns a move-only `FTaskSubscription`.
 Notification runs once, possibly inline, on the completing/subscribing thread.
-It runs after result storage publication, before task terminal publication may
-become visible: only mark work runnable, then read readiness at the owner boundary.
+`SubscribeTask` uses the same public completion channel. Every callback observes
+IsCompleted true and the published terminal state. Successful results are readable
+through GetResult/GetResultShared, and waiting on the observed task returns
+immediately. Failure/cancellation remain task outcomes, not observer exceptions.
+Internal `FTaskBeforeCompletionHook`/`BindBeforeCompletion` settle domain work
+before the node closes and must be bound before completion. They are distinct
+from public subscriptions; closing hooks may still bind more internal hooks.
+
+Public dispatch follows result/callable/internal-hook retirement, terminal state
+publication, and kernel dependency release. A subscription racing that release
+joins the pending notification pass; subscriptions after dispatch readiness run
+inline. Registration and invocation never hold the node lock across user code.
+A closed producer is no longer an executing parent or wait-cycle ancestor during
+notification; a live caller's task context and actual thread/executor authority
+remain in effect. Notification does not switch threads or submit another task.
+Observers must not wait for other notifications in the same dispatch cascade.
+
+Wait/IsCompleted do not join observer execution or capture retirement. Callbacks
+may still be in flight after completion is observed; their ordering is unspecified.
+The scheduler retains accepted tasks through their original notification pass,
+but late inline subscribers own their own call lifetime.
 Callback owners synchronize in-flight callbacks before unloading their own code.
 Dropping/Resetting observation releases its captures and does not cancel domain
 work; an already in-flight notification may finish. Notification exceptions are
@@ -295,10 +333,14 @@ condition variables: no task node, executor, admission, dependency conversion,
 helping, or GameThread pumping. Unresolved futures do not delay scheduler drain;
 they remain usable before startup, after shutdown, and across restarts.
 
-GetFuture retrieves one consumer. Share transfers it to a shared consumer;
-Consume transfers the value and invalidates an unshared consumer. Get waits and
+GetFuture retrieves one consumer. Share or construction of `TSharedFuture<T>`
+from `TFuture<T>&&` transfers it to a shared consumer; transferring an invalid
+future produces an invalid shared future. Consume invalidates the unshared
+consumer before waiting or transferring the value, including when access throws. Get waits and
 returns a repeatable const reference; unshared GetMutable permits caller-managed
-mutable access. Void supports Get/Consume without a value. Ready construction
+mutable access. Void supports Get/GetMutable/Consume without a value. Reference
+results preserve the referenced object's identity and mutability; their owner
+must outlive every access, including through a shared future or result view. Ready construction
 uses MakeReadyFuture, explicitly Share it for copyable delivery. Invalid access
 throws logic_error. Get on failed/canceled completion throws, rethrowing a stored
 producer exception when available. Failed state distinguishes Exception and
@@ -308,8 +350,35 @@ TrySetValue/TrySetFailure/TrySetCanceled settle once; checked setters reject
 repeated publication. Promise destruction or replacement fails an unresolved
 state with Abandoned and wakes waiters. Cancellation acknowledgement is a
 producer outcome, separate from any domain cancellation request. WaitFor accepts
-chrono durations and returns readiness. A wait never progresses its producer;
+chrono durations; WaitUntil accepts chrono clock time points. Both return readiness,
+including for terminal failure/cancellation and already-ready inputs after a deadline.
+A wait never progresses its producer;
 domain APIs must prohibit waits on threads required for that producer's progress.
+
+`TFuture<T>::Then(Callable)` transfers and invalidates the source consumer and
+returns `TFuture<R>` for the callable's result. The callable receives `TFuture<T>`
+and can inspect any terminal outcome, consume its input, or recover from failure.
+`Next(Callable)` consumes a successful input and passes the value to the callable;
+void inputs call it with no arguments. Move-only values and captures are supported.
+Then preserves a reference return type; Next uses ordinary value return deduction.
+Returning a future stores that future as a result; there is no automatic flattening.
+These ownership and value semantics follow UE 5.8.2 (CL 56702186), `Async/Future.h`.
+Shared futures expose neither Then/Next nor Reset, as in UE.
+
+The state owns one continuation, independently of the returned consumer's lifetime.
+It runs outside the state mutex on the publishing thread, or synchronously on the
+registering thread when the input is already ready. Source readiness precedes the
+callback; downstream readiness does not prove callback/capture retirement.
+There is no scheduler submission, thread switch, or GameThread pumping. Exceptions
+from a continuation fail its result future. Durin's additional terminal outcomes
+are preserved by Next without calling value code: failure retains its original
+failure/exception, cancellation stays Canceled, and abandonment stays Abandoned.
+Then receives these outcomes directly and chooses its own result.
+
+Reset invalidates an unshared consumer and removes an unclaimed continuation from
+that state; an already claimed callback may finish. Resetting or dropping the result
+of Then/Next does not detach the upstream continuation or cancel its producer.
+Promise abandonment still settles the chain and releases retained captures.
 
 Subscribe returns FFutureSubscription. Notifications run outside state locks,
 possibly inline on subscription or publication; exceptions are contained. Reset
@@ -324,8 +393,8 @@ success. WithLifetime attaches a pin to the state, retained by all consumer
 handles and result views through result destruction. Pins do not automatically
 install a module-unload protocol. A ready result is not a producer retirement
 join; domains retain their accepted producer task, command or explicit owner
-drain separately. Futures are not a second task scheduler and expose no implicit
-continuations.
+drain separately. Futures are not a second task scheduler and perform no implicit
+task scheduling.
 
 ## Serial Pipes
 
@@ -353,7 +422,7 @@ wait retraction; `HasWork()` includes all accepted unfinished work.
 `WaitUntilEmpty(TimeoutSeconds)` is a blocking drain without dependency helping
 or executor pumping. Stop producers before draining and ensure prerequisites can
 progress independently. It returns false on timeout or when outstanding work
-cannot be joined from the current pipe, an independent CPU leaf, or RenderingThread.
+cannot be joined from the current pipe, an independent CPU task, or RenderingThread.
 The pipe must outlive every task it launches; destruction checks that it is empty.
 Completed task handles and result aliases may outlive the pipe.
 
@@ -414,11 +483,12 @@ of their execution outcome. BodyFinished records success, failure or acknowledge
 producer cancellation after callable retirement; nested work can still keep the
 node open. Ordinary tasks, events and external producers all use
 the same Close path once the body has finished and no nested work remains.
-Close publishes result storage and retires terminal callbacks before atomically
-closing callback/dependent registration and exposing the terminal outcome.
+Close publishes result storage and retires internal before-completion hooks before
+atomically closing hook/dependent registration and exposing the terminal outcome.
 Public task state remains Waiting, Queued or Running until that point; bound
-result-storage metadata is independent of completion. There is no hidden raw
-terminal state or separate publication-finished flag.
+result-storage metadata is independent of completion. Public observer dispatch has
+its own readiness gate after dependency release; it is not a second task-completion
+condition and does not delay result readability or waiters.
 Synchronous close propagation is limited to 128 levels. Deeper closures retain
 their nodes in a thread-local worklist, drained iteratively by the outermost close
 on that same thread. This covers nested parent notifications and terminal-hook
@@ -457,16 +527,40 @@ without broadcasting unrelated scheduler activity. Observers expire when the
 wait returns and retain neither task nodes nor schedulers. Notification does not
 imply completion or bypass callable/terminal-hook retirement.
 
-`WaitTask` returns wait status separately from task state. Completed means either
-an empty handle or a closed node with a terminal outcome.
-SelfWait, DependencyCycle, UnsupportedThread and TimedOut do not prove completion.
-`Task.Wait(TimeoutSeconds)`, `Tasks::Wait(TaskOrCollection, TimeoutSeconds)`,
-`WaitTask` and `WaitAll` accept a timeout in seconds. Omitting it waits indefinitely.
-A collection shares one steady-clock deadline across all inputs and preserves one
-result per input, including completed or invalid entries after the deadline.
-It attempts progress across all eligible inputs before blocking on a shared signal;
-one unfinished input does not prevent retraction of later inputs. Rejected waits
-remain individual outcomes and do not stop progress on other inputs.
+`Task.Wait()` and `Tasks::Wait(TaskOrCollection)` return bool: true means every
+input is completed, including empty handles and Failed/Canceled outcomes; it does
+not imply success. Incomplete work returns false on timeout or a rejected wait.
+A collection shares one steady-clock deadline and attempts execution across its
+eligible inputs before blocking on a shared signal. Later inputs can release
+earlier ones. Ordinary Wait allocates no vector of per-input outcomes. Pending
+collections retain a handle snapshot before helping, so executed bodies can
+reenter and change the caller's collection. Already-completed forward ranges
+need no collection or waiter allocation.
+
+`Task.WaitDetailed()` and `Tasks::WaitDetailed(TaskOrCollection)` retain the
+extension returning wait status separately from task state. Native `WaitTask` and
+`WaitAll` remain available with the same detailed semantics. Completed means an
+empty handle or a closed node with a terminal outcome. SelfWait, DependencyCycle,
+UnsupportedThread and TimedOut do not prove completion. Detailed collections keep
+one result per input, including completed or invalid entries after their shared
+deadline. Rejected waits remain individual outcomes and do not stop progress on
+other eligible inputs.
+
+`Tasks::WaitAny(Collection)` returns the first already-completed input in collection
+order without allocation; empty handles count as completed, and duplicate input
+positions are preserved. Otherwise it waits for any public completion and returns
+an observed completed index. Concurrent completions have no temporal ordering
+guarantee. Failed/Canceled tasks also satisfy the wait. Empty collections, timeouts,
+or a context with no eligible pending input return `INDEX_NONE` (-1). These completion
+and index semantics follow UE 5.8.2 (CL 56702186), `Tasks/Task.h`.
+Like UE's WaitAny, it does not retract or execute queued candidates; their executors
+must retain capacity to make progress. Durin observes node notifications after
+terminal publication without creating inline continuation tasks. It neither pumps
+owner-thread callbacks nor waits for unrelated work. Unsafe candidates do not stop
+an eligible alternative from completing the wait. Timeout detaches observation;
+it does not cancel or retain the candidate graph.
+
+All wait APIs accept an optional timeout in seconds; omission waits indefinitely.
 Timeout does not request cancellation or consume results. Nonpositive timeouts
 only inspect completion, without executing user code or requiring blocking authority; positive
 timeouts stop starting work after the deadline. Executed callables cannot be
@@ -474,19 +568,32 @@ interrupted, so a helping wait may exceed its timeout. NaN is treated as zero.
 
 GameThread rejects unknown or transitive deferred requirements;
 executing tasks reject unknown external requirements. RenderingThread rejects
-ordinary task waits. It may wait for an explicit independent CPU leaf
+ordinary task waits. It may wait for an explicit independent CPU graph
 created with `Tasks::LaunchIndependentTask(Name, Callable, Options)`. This entry
-uses Worker execution and ordinary scheduler/owner lifetime. It rejects launch
-prerequisites and non-Worker targets. An independent leaf
-cannot submit children, acquire nested completion dependencies or block on
-nonterminal tasks. Construction contract violations are fatal and report
-`InvalidExecutionContract`. Completed values remain readable without blocking.
+uses Worker execution and ordinary scheduler/owner lifetime. Unfinished launch
+prerequisites and nested children must themselves carry the independent CPU
+contract. Ordinary Worker child submissions inherit it, including descendants;
+they can be waited on or registered with AddNested. Launching a child still does
+not implicitly join it or share cancellation. Already-completed inputs, including
+ordinary tasks, I/O tasks and events, impose no CPU-progress requirement; ordinary
+scheduler-lifetime and cycle checks still apply.
+
+The flag is immutable. Admission and nested-edge insertion validate every new
+unfinished edge, preserving the CPU contract transitively without guessing from
+a Worker executor or a callable's C++ body. Unmarked pending Worker tasks and
+pending events (even with a known execution requirement) are not proof of an
+independent CPU producer. They cannot be attached to an independent graph.
+Within such a graph, blocking waits and retraction accept independent CPU work
+or already-completed inputs and retain self/dependency-cycle checks. I/O and
+GameThread submissions, pipe/limiter submissions and pending pipe/limiter joins
+remain outside this contract. Construction violations are fatal and report
+`InvalidExecutionContract`; unsupported waits return their ordinary rejected outcome.
 The callable must not depend on owner-thread, RHI, I/O or other external progress;
 these ordinary C++ effects remain a caller contract. This explicit declaration
 permits render preparation/recording joins without relaxing general wait policy.
 Cancellation and exceptions still publish the normal terminal state, and result
 access still requires success. Waits do not pump GameThread callbacks.
-Waiting callers, including ordinary threads, help only the waited task and its
+Wait/WaitDetailed callers, including ordinary threads, help only the waited task and its
 transitive execution and nested dependencies. The task state is the queue execution node; scheduler
 dispatch adds no callback wrapper or separate queue-node allocation. Ordinary
 pool callbacks use an adapter. Retraction pins the task node and detaches it in

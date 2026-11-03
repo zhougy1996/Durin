@@ -68,6 +68,9 @@ namespace Durin
 			auto Observed = Observation.get_future();
 			auto Subscription = Tasks::SubscribeTask(Request.GetTaskHandle(),
 				[Request, &Observation](ETaskState) {
+					EXPECT_TRUE(Request.GetTaskHandle().IsCompleted());
+					EXPECT_TRUE(Request.GetTaskHandle().Wait(0));
+					EXPECT_FALSE(Request.Cancel());
 					Observation.set_value({Request.GetState(), Request.GetResult()});
 				});
 			if (Expected == ERHIPipelineRequestState::Canceled) EXPECT_TRUE(Request.Cancel());
@@ -310,6 +313,13 @@ namespace Durin
 			return Owner.GetCompute(Initializer, "cpu leaf").error();
 		});
 		EXPECT_EQ(Task.GetResult(), ERHIPipelineRequestRejection::Unsupported);
+		auto Parent = Tasks::LaunchIndependentTask("cache inherited CPU rejection", [&] {
+			auto Child = Tasks::LaunchTask("cache inherited CPU child", [&] {
+				return Owner.GetCompute(Initializer, "cpu child").error();
+			});
+			return Child.GetResult();
+		});
+		EXPECT_EQ(Parent.GetResult(), ERHIPipelineRequestRejection::Unsupported);
 		EXPECT_EQ(Calls, 0u);
 		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 0u);
 	}

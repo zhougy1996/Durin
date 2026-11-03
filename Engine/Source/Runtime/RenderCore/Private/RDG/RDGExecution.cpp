@@ -467,7 +467,7 @@ namespace Durin
 			~FPendingRecordings()
 			{
 				for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task);
-				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
+				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait());
 			}
 		} Pending;
 		struct FCloseRaster final
@@ -482,7 +482,7 @@ namespace Durin
 			if (Pending.Next != Pending.Work.size())
 			{
 				auto& Task = Pending.Work[Pending.Next++];
-				const auto Wait = Task.Wait();
+				const auto Wait = Task.WaitDetailed();
 				require(Wait.WaitStatus == ETaskWaitStatus::Completed);
 				if (Wait.TaskState != ETaskState::Succeeded) return false;
 				ReadyRecordings.push_back(std::move(Task.GetResult()));
@@ -511,7 +511,7 @@ namespace Durin
 			for (uint32 Index = First; Index < End; ++Index)
 				Pending.Work.push_back(Tasks::LaunchIndependentTask("RDG.RecordPass", [RecordOwned, Index] { return RecordOwned(Index); }));
 			auto& Task = Pending.Work[Pending.Next++];
-			const auto Wait = Task.Wait();
+			const auto Wait = Task.WaitDetailed();
 			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
 			if (Wait.TaskState != ETaskState::Succeeded) return false;
 			ReadyRecordings.push_back(std::move(Task.GetResult()));

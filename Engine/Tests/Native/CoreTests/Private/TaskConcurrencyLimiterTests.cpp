@@ -180,7 +180,7 @@ namespace Durin
 			Done.Trigger();
 		});
 		EXPECT_TRUE(Done.WaitFor(5));
-		EXPECT_EQ(ETaskState::Succeeded, Parent.Wait().TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Parent.WaitDetailed().TaskState);
 	}
 
 	TEST(FTaskConcurrencyLimiterTests, WorkerWaitProgressesEverySlotBeforeBlocking)
@@ -200,7 +200,7 @@ namespace Durin
 			Done.Trigger();
 		});
 		EXPECT_TRUE(Done.WaitFor(5));
-		EXPECT_EQ(ETaskState::Succeeded, Parent.Wait().TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Parent.WaitDetailed().TaskState);
 		ShutdownTaskScheduler(true);
 	}
 
