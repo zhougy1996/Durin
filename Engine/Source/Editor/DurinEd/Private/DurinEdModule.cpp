@@ -2,6 +2,8 @@
 #include "Actors/EditorActorSubsystem.h"
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "Tools/EditorToolSubsystem.h"
+#include "Tools/NamePoolToolset.h"
+#include "Modules/ModularFeature.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin
@@ -12,6 +14,8 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
+			NamePool = CreateNamePoolToolset();
+			NamePoolRegistration = FModularFeatureRegistry::Get().RegisterFeature(*NamePool);
 			Actors = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DEditorActorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 			Notifications = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
@@ -25,10 +29,14 @@ namespace Durin
 		auto ShutdownModule() -> void override
 		{
 			require(CanShutdownModule());
+			NamePoolRegistration.Reset();
+			NamePool.reset();
 			AssetEditors.reset(); Tools.reset(); Notifications.reset(); Actors.reset();
 			FEditorSubsystemCollection::SynchronizeActiveEditor();
 		}
 	private:
+		std::unique_ptr<FNativeToolset> NamePool;
+		FModularFeatureRegistration NamePoolRegistration;
 		std::unique_ptr<FEditorSubsystemRegistration> Actors;
 		std::unique_ptr<FEditorSubsystemRegistration> Notifications;
 		std::unique_ptr<FEditorSubsystemRegistration> Tools;

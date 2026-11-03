@@ -4,7 +4,7 @@ Summary: Define Console discovery, typed Toolset invocation, explicit PIE contro
 
 Modules: MainFrame, LevelEditor, DurinEd, Core
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-11-03
 
 ## Ownership and Routing
 
@@ -76,6 +76,22 @@ Closing the panel cancels its queued submissions; running cancellation remains
 cooperative. Host shutdown closes admission and settles pending work through the
 tool service. A retained adapter remains safe after host GC and cannot retarget a
 replacement editor.
+
+## Name Pool Diagnostics
+
+DurinEd registers the module-owned `core.namepool` Toolset and unregisters it
+before destroying its native bindings. Run `core.namepool/stats` without
+arguments for an on-demand process-wide snapshot from Core's `GetNamePoolStats()`.
+The read-only, idempotent tool is available to Console and native callers; it does
+not declare external exposure. Console help and completion use the shared catalog.
+
+Results contain created-entry counts, entry/block/hash-slot byte counts, active
+and allocated block counts, block size and limit, and `comparison`/`display`
+summaries with shard count, created entries, used slots, and capacity. Byte fields
+use bytes; entry storage includes headers and alignment, allocated blocks include
+spare capacity, and hash slots are separate. Each shard is sampled independently,
+so concurrent inserts do not produce a globally atomic snapshot. No sampling
+history, growth rate, per-shard listing, or capacity mutation is retained.
 
 ## PIE Tools
 

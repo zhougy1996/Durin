@@ -5,7 +5,6 @@
 #include "Panels/PythonScriptPanel.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "AssetCompatibilityWindow.h"
-#include "NamePoolDiagnosticsWindow.h"
 
 #include "EditorBranding.h"
 #include "Feedback/SlowTaskWidget.h"
@@ -197,8 +196,6 @@ namespace Durin::Editor::MainFrame
 			std::string ProfilingStatusMessage;
 			bool bProfilingStatusOpen = false;
 			bool bAssetCompatibilityOpen = false;
-			bool bNamePoolDiagnosticsOpen = false;
-			FNamePoolDiagnosticsWindow NamePoolDiagnostics;
 			bool bContentBrowserOpen = false;
 			bool bConsoleOpen = false;
 			bool bPythonOpen = false;
@@ -580,16 +577,10 @@ namespace Durin::Editor::MainFrame
 			const FProfilingToolService& ProfilingTools,
 			std::string& StatusMessage,
 			bool& bStatusOpen,
-			bool& bAssetCompatibilityOpen,
-			bool& bNamePoolDiagnosticsOpen
+			bool& bAssetCompatibilityOpen
 		) -> void
 		{
 			if (!ImGui::BeginMenu("Tools")) return;
-			if (ImGui::BeginMenu("Diagnostics"))
-			{
-				ImGui::MenuItem("Name Pool", nullptr, &bNamePoolDiagnosticsOpen);
-				ImGui::EndMenu();
-			}
 			if (ImGui::BeginMenu("Asset Maintenance"))
 			{
 				if (ImGui::MenuItem("Compatibility Audit")) bAssetCompatibilityOpen = true;
@@ -728,8 +719,7 @@ namespace Durin::Editor::MainFrame
 				ImGui::EndMenu();
 			}
 			DrawProfilingMenu(ProfilingTools, ViewState.ProfilingStatusMessage,
-				ViewState.bProfilingStatusOpen, ViewState.bAssetCompatibilityOpen,
-				ViewState.bNamePoolDiagnosticsOpen);
+				ViewState.bProfilingStatusOpen, ViewState.bAssetCompatibilityOpen);
 			if (ImGui::BeginMenu("Window"))
 			{
 				DrawOpenEditorsMenu(WorkspaceManager);
@@ -1023,7 +1013,6 @@ namespace Durin::Editor::MainFrame
 					WorkspaceManager, ActiveWorkspace, ProfilingTools, ViewState);
 				ImGui::EndMenuBar();
 			}
-			ViewState.NamePoolDiagnostics.Draw(ViewState.bNamePoolDiagnosticsOpen);
 			DrawAboutDialog(ViewState.bAboutDialogOpen);
 			ViewState.SettingsWindow.Draw(HostSettings, RootWindow);
 			DrawProfilingToolStatusDialog(

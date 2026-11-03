@@ -104,6 +104,35 @@ namespace Durin::Editor::MainFrame
 		};
 	}
 
+	TEST_F(FConsoleToolTests, NamePoolStatsAreDiscoverableAndCallableWithoutArguments)
+	{
+		EXPECT_EQ((std::vector<std::string>{"core.namepool/stats"}), Adapter->FindCompletions("core.namepool/"));
+		const auto Help = Adapter->Execute("help core.namepool/stats");
+		ASSERT_TRUE(Help.bSuccess);
+		EXPECT_NE(std::string::npos, Help.Message.find("sampled independently"));
+		auto Descriptor = Tools()->DescribeTool({"core.namepool", "stats"});
+		ASSERT_TRUE(Descriptor);
+		EXPECT_EQ(EToolEffect::ReadOnly, Descriptor->Effects);
+		EXPECT_EQ(EToolRetryPolicy::Idempotent, Descriptor->RetryPolicy);
+		const auto Result = Adapter->Execute("core.namepool/stats");
+		ASSERT_TRUE(Result.bSuccess) << Result.Message;
+		FJsonDocument Output;
+		ASSERT_TRUE(Output.Parse(Result.Message));
+		const auto Root = Output.GetRootView();
+		const auto Comparison = Root.GetView("comparison"), Display = Root.GetView("display");
+		EXPECT_GT(Comparison.GetView("shard_count").GetUInt(), 0u);
+		EXPECT_EQ(Comparison.GetView("shard_count").GetUInt(), Display.GetView("shard_count").GetUInt());
+		EXPECT_EQ(Root.GetView("created_entries").GetUInt(),
+			Comparison.GetView("created_entries").GetUInt() + Display.GetView("created_entries").GetUInt());
+		EXPECT_LE(Comparison.GetView("used_slots").GetUInt(), Comparison.GetView("capacity").GetUInt());
+		EXPECT_LE(Display.GetView("used_slots").GetUInt(), Display.GetView("capacity").GetUInt());
+		EXPECT_LE(Root.GetView("active_blocks").GetUInt(), Root.GetView("allocated_blocks").GetUInt());
+		EXPECT_EQ(Root.GetView("allocated_block_bytes").GetUInt(),
+			Root.GetView("allocated_blocks").GetUInt() * Root.GetView("block_size_bytes").GetUInt());
+		EXPECT_FALSE(Adapter->Execute("core.namepool/stats --unknown true").bSuccess);
+		EXPECT_FALSE(Adapter->Execute("core.namepool/stats unexpected").bSuccess);
+	}
+
 	TEST_F(FConsoleToolTests, ParsesTypedScalarsDefaultsAndPathsWithoutLegacyEscaping)
 	{
 		auto Descriptor = EchoDescriptor();
