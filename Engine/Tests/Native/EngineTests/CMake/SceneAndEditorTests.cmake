@@ -607,7 +607,9 @@ durin_add_native_test(ExternalToolTests
 	PRIVATE_SOURCE_RATIONALE
 		"MainFrame-owned profiling integration white-box coverage avoids exporting the private service implementation."
 	SOURCES Private/ProfilingToolServiceTests.cpp
-	PRIVATE_SOURCES ${_durin_main_frame_private}/ProfilingToolService.cpp
+	PRIVATE_SOURCES
+		${_durin_main_frame_private}/ProfilingToolService.cpp
+		${_durin_main_frame_private}/Tools/TracyToolset.cpp
 	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
 	INCLUDE_DIRECTORIES ${_durin_main_frame_private}
 	COMPILE_DEFINITIONS MAINFRAME_EXPORTS

@@ -1,6 +1,5 @@
 #include "ProfilingToolService.h"
 
-#include "Dialogs/FileDialog.h"
 #include "HAL/Platform.h"
 #include "HAL/PlatformProcess.h"
 #include "Json/Json.h"
@@ -172,11 +171,6 @@ namespace Durin::Editor::MainFrame
 		return Status;
 	}
 
-	auto FProfilingToolService::GetCaptureDirectory() const -> std::string
-	{
-		return (RootDirectory / "Build" / "Profiling" / "Tracy").lexically_normal().generic_string();
-	}
-
 	auto FProfilingToolService::BuildCaptureArguments(std::string_view CapturePath) -> std::vector<std::string>
 	{
 		const auto Path = std::filesystem::path(CapturePath).lexically_normal().generic_u8string();
@@ -265,43 +259,4 @@ namespace Durin::Editor::MainFrame
 		return false;
 	}
 
-	auto FProfilingToolService::SelectAndOpenCapture(void* ParentWindowHandle, std::string* OutError) const -> bool
-	{
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ParentWindowHandle;
-		Request.Title = "Open a Tracy Capture";
-		Request.Filters = {{"Tracy Capture", "*.tracy"}};
-		const std::filesystem::path CaptureDirectory(GetCaptureDirectory());
-		Request.InitialDirectory = std::filesystem::is_directory(CaptureDirectory)
-			? CaptureDirectory.generic_string()
-			: RootDirectory.generic_string();
-		const FFileDialogResult Result = OpenFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return true;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			if (OutError) *OutError = Result.ErrorMessage;
-			return false;
-		}
-		return OpenCapture(Result.FilePath, OutError);
-	}
-
-	auto FProfilingToolService::OpenCaptureDirectory(std::string* OutError) const -> bool
-	{
-		const std::filesystem::path CaptureDirectory(GetCaptureDirectory());
-		std::error_code Error;
-		std::filesystem::create_directories(CaptureDirectory, Error);
-		if (Error)
-		{
-			if (OutError)
-				*OutError = std::format(
-					"Could not create Tracy capture directory \"{}\": {}.",
-					CaptureDirectory.generic_string(),
-					Error.message()
-				);
-			return false;
-		}
-		const auto OpenPathResult = FPlatformProcess::OpenPath(CaptureDirectory.generic_string());
-		if (OutError) *OutError = OpenPathResult ? std::string{} : OpenPathResult.error().ToString();
-		return OpenPathResult.has_value();
-	}
 }

@@ -93,6 +93,25 @@ spare capacity, and hash slots are separate. Each shard is sampled independently
 so concurrent inserts do not produce a globally atomic snapshot. No sampling
 history, growth rate, per-shard listing, or capacity mutation is retained.
 
+## Tracy Tools
+
+MainFrame registers the module-owned `editor.tracy` Toolset independently of
+host-window creation and unregisters it before releasing its native bindings.
+The existing profiling service owns manifest resolution and platform operations;
+no profiler process is owned by editor shutdown. All tools are available to
+Console and native callers without declaring external exposure.
+
+| Tool | Behavior |
+| --- | --- |
+| `editor.tracy/status` | Read-only, idempotent installation and connection-readiness report; unavailable tools remain successful diagnostic data |
+| `editor.tracy/launch` | Launches the managed profiler for this process's actual localhost port; does not claim handshake success |
+| `editor.tracy/open_capture --path "capture.tracy"` | Opens an explicit existing capture in the managed profiler |
+
+Actions declare external effects and unsafe retries. The shared argument schema
+rejects missing/empty capture paths. Domain failures preserve service diagnostics. See the
+[profiling workflow](../../../Development/Build/Profiling.md#editor-tool-workflow)
+for configuration sources and connection constraints.
+
 ## PIE Tools
 
 LevelEditor registers the module-owned `editor.pie` Toolset at module startup and

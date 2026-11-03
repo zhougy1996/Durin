@@ -104,6 +104,27 @@ namespace Durin::Editor::MainFrame
 		};
 	}
 
+	TEST_F(FConsoleToolTests, TracyToolsAreDiscoverableAndStatusUsesStructuredConsoleOutput)
+	{
+		ASSERT_TRUE(FModuleManager::Get().LoadModule("MainFrame"));
+		EXPECT_EQ((std::vector<std::string>{"editor.tracy/launch", "editor.tracy/open_capture",
+			"editor.tracy/status"}), Adapter->FindCompletions("editor.tracy/"));
+		const auto Help = Adapter->Execute("help editor.tracy/open_capture");
+		ASSERT_TRUE(Help.bSuccess);
+		EXPECT_NE(std::string::npos, Help.Message.find("--path"));
+		const auto Result = Adapter->Execute("editor.tracy/status");
+		ASSERT_TRUE(Result.bSuccess) << Result.Message;
+		FJsonDocument Output;
+		ASSERT_TRUE(Output.Parse(Result.Message));
+		EXPECT_FALSE(Output.GetRootView().GetView("message").GetString().empty());
+		EXPECT_FALSE(Adapter->Execute("editor.tracy/status --unknown true").bSuccess);
+		EXPECT_FALSE(Adapter->Execute("editor.tracy/open_capture").bSuccess);
+		EXPECT_FALSE(Adapter->Execute("editor.tracy/open_capture --path ''").bSuccess);
+		const auto Missing = Adapter->Execute("editor.tracy/open_capture --path 'missing.tracy'");
+		EXPECT_FALSE(Missing.bSuccess);
+		EXPECT_NE(std::string::npos, Missing.Message.find("does not exist or is not a .tracy file"));
+	}
+
 	TEST_F(FConsoleToolTests, NamePoolStatsAreDiscoverableAndCallableWithoutArguments)
 	{
 		EXPECT_EQ((std::vector<std::string>{"core.namepool/stats"}), Adapter->FindCompletions("core.namepool/"));

@@ -5,6 +5,7 @@
 #include "NativeTestSupport.h"
 #include "ProfilingToolService.h"
 #include "Profiling/Profiling.h"
+#include "Tools/TracyToolset.h"
 
 
 namespace Durin::Editor::MainFrame
@@ -136,6 +137,46 @@ namespace Durin::Editor::MainFrame
 		EXPECT_FALSE(Status.bAvailable);
 		EXPECT_FALSE(Status.bVersionMatches);
 		EXPECT_NE(Status.Diagnostic.find("does not match"), std::string::npos);
+	}
+
+	TEST_F(FProfilingToolServiceTests, ToolsetReportsMissingInstallationAndRejectsLaunchWithoutSideEffects)
+	{
+		auto Toolset = CreateTracyToolset(std::make_shared<FProfilingToolService>(RootDirectory));
+		const auto Descriptor = Toolset->DescribeToolset();
+		ASSERT_EQ(3u, Descriptor.Tools.size());
+		EXPECT_EQ("editor.tracy", Descriptor.Name);
+		for (const auto& Tool : Descriptor.Tools)
+		{
+			EXPECT_FALSE(Tool.bExposeExternally);
+			if (Tool.Name != "status") EXPECT_EQ(EToolRetryPolicy::Unsafe, Tool.RetryPolicy);
+			FToolRequest Request{{"editor.tracy", Tool.Name}, 1};
+			if (Tool.Name == "open_capture")
+			{
+				EXPECT_FALSE(PrepareToolArguments(Tool, Request));
+				Request.Arguments = FToolValue::FObject{{"path", ""}};
+				EXPECT_FALSE(PrepareToolArguments(Tool, Request));
+				Request.Arguments = FToolValue::FObject{{"path", (RootDirectory / "missing.tracy").generic_string()}};
+			}
+			const auto Prepared = PrepareToolArguments(Tool, Request);
+			ASSERT_TRUE(Prepared);
+			const auto Result = *Toolset->Call(*Prepared, {}).GetResultShared();
+			if (Tool.Name == "status")
+			{
+				ASSERT_EQ(EToolStatus::Succeeded, Result.Status);
+				EXPECT_TRUE(ValidateToolOutput(Tool, Result.Data));
+				const auto& Data = std::get<FToolValue::FObject>(Result.Data.Data);
+				EXPECT_EQ(FToolValue(false), Data.at("available"));
+				EXPECT_EQ(3u, std::get<FToolValue::FArray>(Data.at("missing_files").Data).size());
+			}
+			else
+			{
+				ASSERT_EQ(EToolStatus::Failed, Result.Status);
+				ASSERT_FALSE(Result.Diagnostics.empty());
+				EXPECT_EQ(EToolError::DomainFailure, Result.Diagnostics.front().Code);
+			}
+		}
+		EXPECT_FALSE(std::filesystem::exists(RootDirectory / "Build"));
+		EXPECT_FALSE(std::filesystem::exists(RootDirectory / "Engine/External"));
 	}
 
 	TEST_F(FProfilingToolServiceTests, ReportsMissingFilesWithoutCreatingPackage)

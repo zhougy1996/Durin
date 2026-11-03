@@ -26,15 +26,9 @@ namespace Durin::Editor::MainFrame
 	class FProfilingToolService
 	{
 	public:
-		inline static constexpr std::string_view LaunchProfilerLabel = "Profile This Editor";
-		inline static constexpr std::string_view OpenCaptureLabel = "Open Tracy Capture...";
-		inline static constexpr std::string_view OpenCaptureDirectoryLabel = "Open Capture Directory";
-		inline static constexpr std::string_view ShowStatusLabel = "Tool Status...";
-
 		explicit FProfilingToolService(std::filesystem::path InRootDirectory);
 
 		[[nodiscard]] auto QueryStatus() const -> FTracyToolStatus;
-		[[nodiscard]] auto GetCaptureDirectory() const -> std::string;
 		[[nodiscard]] static auto BuildCaptureArguments(std::string_view CapturePath) -> std::vector<std::string>;
 		[[nodiscard]] static auto BuildConnectionArguments(
 			const Profiling::FConnectionState& Connection,
@@ -43,8 +37,6 @@ namespace Durin::Editor::MainFrame
 
 		auto LaunchProfiler(std::string* OutError = nullptr) const -> bool;
 		auto OpenCapture(std::string_view CapturePath, std::string* OutError = nullptr) const -> bool;
-		auto SelectAndOpenCapture(void* ParentWindowHandle, std::string* OutError = nullptr) const -> bool;
-		auto OpenCaptureDirectory(std::string* OutError = nullptr) const -> bool;
 
 	private:
 		std::filesystem::path RootDirectory;

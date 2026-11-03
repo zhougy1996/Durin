@@ -8,6 +8,7 @@
 namespace Durin::Editor::MainFrame
 {
 	struct FBootstrapContext;
+	struct FTracyToolsetState;
 }
 
 namespace Durin
@@ -19,6 +20,7 @@ namespace Durin
 		FMainFrameModule() = default;
 		~FMainFrameModule() = default;
 
+		auto StartupModule() -> void override;
 		auto ShutdownModule() -> void override;
 		auto CreateEditorHost(
 			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow, std::string InitialProjectError) -> void override;
@@ -31,6 +33,7 @@ namespace Durin
 		auto AdvanceDocumentOperations() -> void override;
 
 	private:
+		std::shared_ptr<Editor::MainFrame::FTracyToolsetState> TracyTools;
 		std::shared_ptr<Editor::MainFrame::FBootstrapContext> BootstrapContext;
 	};
 }

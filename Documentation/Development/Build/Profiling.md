@@ -77,23 +77,33 @@ without rerunning setup:
 .\DevTool.bat dependency prepare tracy tracy-tools
 ```
 
-After opening a project in DurinEditor, use `Tools > Profiling`:
+Use the editor Console Toolset commands (help and completion are available):
 
-- `Profile This Editor` starts the managed official profiler as an independent
-  process and connects to the current Editor on its actual localhost port.
-- `Open Tracy Capture...` selects a `.tracy` file and opens it explicitly in the
-  matching managed profiler.
-- `Open Capture Directory` creates, when needed, and opens the ignored
-  workspace-local `Build/Profiling/Tracy/` directory.
-- `Tool Status...` reports the expected/client versions, resolved managed path,
-  missing required files, and focused repair command.
+```text
+editor.tracy/status
+editor.tracy/launch
+editor.tracy/open_capture --path "D:/Capture Files/frame.tracy"
+```
 
-Both Debug and Release builds support capture by default. `Profile This Editor`
+`status` reports expected/client versions, managed paths, missing files, repair
+commands and current connection readiness. Missing tools are
+reported as successful status data with `available: false`. The tool package and
+profiler paths come from `tracy-tools.json` (`source_dirs_by_platform` and the
+platform's `profiler_path`); C++ does not hard-code an installation version.
+
+`launch` starts the managed profiler for this editor. `open_capture` requires an
+explicit existing `.tracy` path and launches the matching profiler without a file
+dialog.
+These actions have external effects and are not automatically retried. The tools
+do not declare external exposure; they are available to Console and native calls.
+There is no separate Profiling menu or status window.
+
+Both Debug and Release builds support capture by default. `editor.tracy/launch`
 passes `-a 127.0.0.1 -p <actual-port>` to the matching profiler; it does not
-assume port 8086 or select a different Editor/Game process. The action is disabled
+assume port 8086 or select a different Editor/Game process. The action fails
 with a reason when this Editor was built without Tracy, its listener is not ready
-(or failed to bind), or a profiler/capture tool is already connected. `Tool Status`
-and the action tooltip show the local endpoint or connection diagnostic. Opening
+(or failed to bind), or a profiler/capture tool is already connected.
+`editor.tracy/status` reports the local endpoint or connection diagnostic. Opening
 saved captures remains available independently of this Editor's client state.
 Launching the process requests a connection; it does not claim the handshake
 succeeded. To inspect a separate Game, launch the managed profiler independently
@@ -107,7 +117,7 @@ When all editor windows are minimized, the 5 FPS limit remains active even while
 Tracy is connected. Keep an editor window visible for representative captures.
 
 If the managed tools are missing, malformed, or version-mismatched, actions that
-need the profiler are disabled and show the status reason. A launch failure
+need the profiler return a failure with the status reason. A launch failure
 reports the resolved executable, readable platform error, expected version, and
 repair command. Once launched, the profiler is not owned by Editor shutdown, so
 an interactive profiler with an unsaved capture remains open.
@@ -136,8 +146,8 @@ fails if the pinned source no longer matches the bridge patch. This preserves
 automatic port search and explicit overrides for one-click connection.
 Use the discovered port instead of assuming every process is on 8086. An
 explicit `TRACY_PORT` remains a developer-owned override and disables the
-automatic search for that process. Profiling runtimes and the Editor tool-status
-dialog warn when the variable is present. Two processes that inherit the same
+automatic search for that process. Profiling runtimes and `editor.tracy/status`
+warn when the variable is present. Two processes that inherit the same
 fixed port remain alive, but only the first can listen; remove the override or
 give each process a distinct value.
 

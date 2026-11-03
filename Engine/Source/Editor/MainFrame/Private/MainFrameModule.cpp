@@ -10,6 +10,8 @@
 #include "Feedback/SlowTaskWidget.h"
 #include "ProjectBrowser.h"
 #include "ProfilingToolService.h"
+#include "Tools/TracyToolset.h"
+#include "Modules/ModularFeature.h"
 
 #include "Workspace/WorkspaceManager.h"
 #include "Workspace/WorkspaceUI.h"
@@ -90,7 +92,6 @@ namespace Durin::Editor::MainFrame
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		std::shared_ptr<FProjectBrowser> ProjectBrowser;
 		std::unique_ptr<FEditorBrandTexture> BrandTexture;
-		std::shared_ptr<FProfilingToolService> ProfilingTools;
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
 		::Durin::FLevelEditorModule* LevelEditorModule = nullptr;
 		::Durin::FMaterialEditorModule* MaterialEditorModule = nullptr;
@@ -193,8 +194,6 @@ namespace Durin::Editor::MainFrame
 		{
 			bool bAboutDialogOpen = false;
 			FEditorSettingsWindow SettingsWindow;
-			std::string ProfilingStatusMessage;
-			bool bProfilingStatusOpen = false;
 			bool bAssetCompatibilityOpen = false;
 			bool bContentBrowserOpen = false;
 			bool bConsoleOpen = false;
@@ -554,89 +553,13 @@ namespace Durin::Editor::MainFrame
 			Settings.Save();
 		}
 
-		auto DrawProfilingToolStatusDialog(bool& bOpen, const std::string& Message) -> void
-		{
-			if (!bOpen) return;
-			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(620.0f), MonaImGui::ScaleUI(260.0f)), ImGuiCond_Appearing);
-			if (ImGui::Begin(
-				"Tracy Profiling Tool Status###Durin.Profiling.ToolStatus",
-				&bOpen,
-				ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
-			))
-			{
-				ImGui::TextWrapped("%s", Message.c_str());
-				ImGui::Spacing();
-				ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - MonaImGui::ScaleUI(82.0f));
-				if (ImGui::Button("Close", ImVec2(MonaImGui::ScaleUI(82.0f), 0.0f))) bOpen = false;
-			}
-			ImGui::End();
-		}
-
-		auto DrawProfilingMenu(
-			const FProfilingToolService& ProfilingTools,
-			std::string& StatusMessage,
-			bool& bStatusOpen,
-			bool& bAssetCompatibilityOpen
-		) -> void
+		auto DrawToolsMenu(bool& bAssetCompatibilityOpen) -> void
 		{
 			if (!ImGui::BeginMenu("Tools")) return;
 			if (ImGui::BeginMenu("Asset Maintenance"))
 			{
 				if (ImGui::MenuItem("Compatibility Audit")) bAssetCompatibilityOpen = true;
 				if (ImGui::MenuItem("Canonical Resave")) bAssetCompatibilityOpen = true;
-				ImGui::EndMenu();
-			}
-			ImGui::Separator();
-			if (ImGui::BeginMenu("Profiling"))
-			{
-				const FTracyToolStatus Status = ProfilingTools.QueryStatus();
-				const auto ShowFailure = [&](std::string Error) {
-					StatusMessage = std::move(Error);
-					bStatusOpen = true;
-				};
-
-				ImGui::BeginDisabled(!Status.bAvailable || !Status.bCanConnect);
-				const bool bLaunchProfiler = ImGui::MenuItem(FProfilingToolService::LaunchProfilerLabel.data());
-				ImGui::EndDisabled();
-				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-					ImGui::SetTooltip("%s", (Status.bAvailable ? Status.ConnectionDiagnostic : Status.Diagnostic).c_str());
-				if (bLaunchProfiler)
-				{
-					std::string Error;
-					if (!ProfilingTools.LaunchProfiler(&Error)) ShowFailure(std::move(Error));
-				}
-
-				ImGui::BeginDisabled(!Status.bAvailable);
-				const bool bOpenCapture = ImGui::MenuItem(FProfilingToolService::OpenCaptureLabel.data());
-				ImGui::EndDisabled();
-				if (!Status.bAvailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-					ImGui::SetTooltip("%s", Status.Diagnostic.c_str());
-				if (bOpenCapture)
-				{
-					std::string Error;
-					if (!ProfilingTools.SelectAndOpenCapture(ImGui::GetMainViewport()->PlatformHandleRaw, &Error))
-						ShowFailure(std::move(Error));
-				}
-
-				if (ImGui::MenuItem(FProfilingToolService::OpenCaptureDirectoryLabel.data()))
-				{
-					std::string Error;
-					if (!ProfilingTools.OpenCaptureDirectory(&Error)) ShowFailure(std::move(Error));
-				}
-
-				ImGui::Separator();
-				if (ImGui::MenuItem(FProfilingToolService::ShowStatusLabel.data()))
-				{
-					StatusMessage = Status.Diagnostic + "\n" + Status.ConnectionDiagnostic;
-					if (!Status.ExpectedVersion.empty())
-						StatusMessage += std::format("\nExpected Tracy version: {}.", Status.ExpectedVersion);
-					if (!Status.PackagePath.empty())
-						StatusMessage += std::format("\nManaged package: \"{}\".", Status.PackagePath);
-					if (!Status.RepairCommand.empty())
-						StatusMessage += std::format("\nRepair with: {}", Status.RepairCommand);
-					bStatusOpen = true;
-				}
 				ImGui::EndMenu();
 			}
 			ImGui::EndMenu();
@@ -691,7 +614,6 @@ namespace Durin::Editor::MainFrame
 		auto DrawWorkspaceMenus(
 			Editor::FWorkspaceManager& WorkspaceManager,
 			const std::shared_ptr<Editor::IWorkspace>& ActiveWorkspace,
-			const FProfilingToolService& ProfilingTools,
 			FMainFrameViewState& ViewState) -> void
 		{
 			const std::vector<std::shared_ptr<Editor::IWorkspace>> Workspaces = WorkspaceManager.GetRegisteredWorkspaces();
@@ -718,8 +640,7 @@ namespace Durin::Editor::MainFrame
 				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 				ImGui::EndMenu();
 			}
-			DrawProfilingMenu(ProfilingTools, ViewState.ProfilingStatusMessage,
-				ViewState.bProfilingStatusOpen, ViewState.bAssetCompatibilityOpen);
+			DrawToolsMenu(ViewState.bAssetCompatibilityOpen);
 			if (ImGui::BeginMenu("Window"))
 			{
 				DrawOpenEditorsMenu(WorkspaceManager);
@@ -752,7 +673,6 @@ namespace Durin::Editor::MainFrame
 			Editor::FWorkspaceManager& WorkspaceManager,
 			MWindow& RootWindow,
 			const FRHITexture* BrandTexture,
-			const FProfilingToolService& ProfilingTools,
 			bool bDrawWorkspaceMenus,
 			FMainFrameViewState& ViewState) -> void
 		{
@@ -869,7 +789,7 @@ namespace Durin::Editor::MainFrame
 			if (bDrawWorkspaceMenus)
 			{
 				DrawWorkspaceMenus(
-					WorkspaceManager, ActiveWorkspace, ProfilingTools, ViewState);
+					WorkspaceManager, ActiveWorkspace, ViewState);
 			}
 			const float MenuEndX = ImGui::GetCursorScreenPos().x;
 
@@ -946,7 +866,6 @@ namespace Durin::Editor::MainFrame
 			Editor::FWorkspaceManager& WorkspaceManager,
 			FHostSettings& HostSettings,
 			MWindow& RootWindow,
-			const FProfilingToolService& ProfilingTools,
 			FMainFrameViewState& ViewState,
 			FAssetCompatibilityWindow& AssetCompatibilityWindow,
 			ContentBrowser::IContentBrowserTool& ContentBrowserTool,
@@ -1010,13 +929,11 @@ namespace Durin::Editor::MainFrame
 			if (!bCustomTitleBar && ImGui::BeginMenuBar())
 			{
 				DrawWorkspaceMenus(
-					WorkspaceManager, ActiveWorkspace, ProfilingTools, ViewState);
+					WorkspaceManager, ActiveWorkspace, ViewState);
 				ImGui::EndMenuBar();
 			}
 			DrawAboutDialog(ViewState.bAboutDialogOpen);
 			ViewState.SettingsWindow.Draw(HostSettings, RootWindow);
-			DrawProfilingToolStatusDialog(
-				ViewState.bProfilingStatusOpen, ViewState.ProfilingStatusMessage);
 			AssetCompatibilityWindow.Draw(ViewState.bAssetCompatibilityOpen,
 				[&ContentBrowserTool, &ViewState](const FPackagePath& Path) {
 					ViewState.bContentBrowserOpen = true;
@@ -1218,9 +1135,24 @@ namespace Durin
 
 	IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
 
+	struct Editor::MainFrame::FTracyToolsetState
+	{
+		std::unique_ptr<FNativeToolset> Toolset;
+		FModularFeatureRegistration Registration;
+	};
+
+	auto FMainFrameModule::StartupModule() -> void
+	{
+		TracyTools = std::make_shared<FTracyToolsetState>();
+		TracyTools->Toolset = CreateTracyToolset(std::make_shared<FProfilingToolService>(FPaths::RootDir()));
+		TracyTools->Registration = FModularFeatureRegistry::Get().RegisterFeature(*TracyTools->Toolset);
+	}
+
 	auto FMainFrameModule::ShutdownModule() -> void
 	{
 		DestroyEditorHost();
+		TracyTools->Registration.Reset();
+		TracyTools.reset();
 		if (GEditor)
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("ContentBrowser"),
@@ -1255,8 +1187,6 @@ namespace Durin
 		std::string BrandTextureError;
 		if (!Context.BrandTexture->Load(BrandTextureError))
 			DURIN_WARN("Could not load the editor branding texture: {}", BrandTextureError);
-		Context.ProfilingTools =
-			std::make_shared<FProfilingToolService>(FPaths::RootDir());
 		FModuleManager::LoadModuleChecked<FDurinMCPModule>("DurinMCP").StartForEditor(Editor);
 		Context.AssetCompatibilityWindow =
 			std::make_shared<FAssetCompatibilityWindow>();
@@ -1353,7 +1283,6 @@ namespace Durin
 						*Context->WorkspaceManager,
 						*Context->RootWindow,
 						BrandTexture,
-						*Context->ProfilingTools,
 						bReadyWorkspace && !Context->bProjectBrowserOpen,
 						ViewState);
 				}
@@ -1365,7 +1294,6 @@ namespace Durin
 						*Context->WorkspaceManager,
 						*Context->HostSettings,
 						*Context->RootWindow,
-						*Context->ProfilingTools,
 						ViewState,
 						*Context->AssetCompatibilityWindow,
 						*Context->ContentBrowserTool,
