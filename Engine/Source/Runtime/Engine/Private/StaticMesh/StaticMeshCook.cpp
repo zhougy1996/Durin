@@ -86,7 +86,7 @@ namespace Durin
 		auto Bytes = EstimateMeshCookWork(*this);
 		if (!Bytes) { Context.Result = {EObjectCookError::Limit, std::move(Bytes.error())}; return; }
 		if (!Preparation->ReserveWorkingSet(*Bytes)) return;
-		const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken(Context.IsCancelled), .MaximumWorkingSetBytes = *Bytes};
+		const FAssetBuildTaskContext Control{.IsCancellationRequested = [&Context] { return Context.CheckCancellation(); }, .MaximumWorkingSetBytes = *Bytes};
 		auto Captured = CaptureMeshCookWork(*this, Preparation->GetTargetPlatform(), Control);
 		if (!Captured) { Context.Result = {EObjectCookError::Preparation, std::move(Captured.error())}; return; }
 		const auto Metadata = BuildStaticCookedMetadataIdentity(*this);
@@ -566,9 +566,9 @@ namespace Durin
 			.Worker = [SlotSnapshot = std::move(SlotSnapshot), CollisionMode,
 				bRequiresCollision, TargetPlatform](
 				std::span<const FSharedByteBuffer> Buffers,
-				const FTaskCancellationToken& Cancellation)
+				const Tasks::FCancellationToken& Cancellation)
 				-> FCookedMeshWorkerResult {
-				if (Cancellation.IsCancellationRequested()) return {.Error = {.Code = ECookedMeshLoadError::Cancelled}};
+				if (Cancellation.IsCanceled()) return {.Error = {.Code = ECookedMeshLoadError::Cancelled}};
 				if (Buffers.size() != (bRequiresCollision ? 2u : 1u))
 					return {.Error = {.Code = ECookedMeshLoadError::FieldCount,
 						.Actual = Buffers.size(), .Expected = bRequiresCollision ? 2u : 1u}};

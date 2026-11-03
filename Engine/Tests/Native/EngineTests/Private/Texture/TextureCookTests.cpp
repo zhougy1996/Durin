@@ -921,7 +921,7 @@ TEST(FTextureResourceLifetimeIntegrationTests, OrderedUpdatesPublishAndRetireAcr
 	Durin::AddToRoot(Canceled);
 	InstallUpdateInput(*Canceled, std::byte{0x66});
 	Canceled->UpdateResource();
-	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Cancel);
+	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 	Durin::FlushRenderingCommands();
 	ASSERT_NE(Canceled->GetResource(), nullptr);
 	ASSERT_TRUE(Canceled->GetResource()->GetTextureRHI_GameThread());

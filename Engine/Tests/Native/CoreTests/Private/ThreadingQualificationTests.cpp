@@ -184,9 +184,12 @@ namespace Durin
 				}, WaitingOptions)));
 				ASSERT_TRUE(Failed.back().IsValid());
 			}
+			Tasks::FCancellationToken Cancellation;
 			for (uint32 Index = 0; Index < CanceledPerRound; ++Index)
 			{
-				Canceled.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakCanceled", []() {}, WaitingOptions)));
+				Canceled.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakCanceled", [&Cancellation]() {
+					EXPECT_TRUE(Cancellation.IsCanceled());
+				}, WaitingOptions)));
 				ASSERT_TRUE(Canceled.back().IsValid());
 			}
 			for (uint32 Index = 0; Index < OverloadedPerRound; ++Index)
@@ -194,7 +197,7 @@ namespace Durin
 				Succeeded.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakOverload", []() {}, RootOptions)));
 			}
 
-			for (const Tasks::FTask& Task : Canceled) EXPECT_TRUE(CancelTask(Task));
+			Cancellation.Cancel();
 			ReleaseBlocker.Trigger();
 			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
 			for (const Tasks::FTask& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);

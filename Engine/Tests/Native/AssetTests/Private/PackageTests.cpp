@@ -11455,14 +11455,14 @@ TEST(FPackageAssetTests, CancelledProtectedSaveDoesNotPublishAndAllowsRetry)
 	ASSERT_TRUE(BeforeRead) << BeforeRead.error().ToString();
 	Before = std::move(*BeforeRead);
 	Package->MarkDirty();
-	FTaskCancellationSource Cancellation;
+	Tasks::FCancellationToken Cancellation;
 	FAssetPackageSaveContext Context;
-	Context.Cancellation = Cancellation.GetToken();
+	Context.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); };
 	FAssetWriteResult Admission;
 	auto Save = Package->SaveAsync(Admission, Context);
 	ASSERT_TRUE(Save.IsValid()) << Admission.Message;
 	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
-	Cancellation.RequestCancellation();
+	Cancellation.Cancel();
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	const auto& Result = Save.GetResult();
 	EXPECT_EQ(Result.Error, EAssetWriteError::Cancelled);

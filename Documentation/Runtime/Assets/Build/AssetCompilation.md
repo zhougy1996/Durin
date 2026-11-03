@@ -461,7 +461,7 @@ and collision cooking run without render publication. A retry captures fresh sou
 and supersedes the earlier request. Publication checks the BodySetup object key,
 settings revision and request generation,
 then asks BodySetup to apply or reject the result. `FAssetBuildTaskContext` carries
-shared cancellation, borrowed worker-local checkpoint metrics and the working-set
+an owner-backed read-only cancellation predicate, borrowed worker-local checkpoint metrics and the working-set
 bound. Cancellation does not imply task or DDC callback retirement.
 Module sessions guard only render work. Collision admission, cooking and
 installation do not acquire the render build module; its absence or unloading

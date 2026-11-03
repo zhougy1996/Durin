@@ -162,8 +162,8 @@ namespace Durin
 					const auto Prerequisites = Tasks::Prerequisites(Gate);
 					FTaskLaunchOptions Options;
 					Options.Prerequisites = Prerequisites;
-					auto Admission = Private::LaunchCancelableTaskWithCompletion("PreparedClose",
-						[&](const FTaskCancellationToken&) { ++Runs; }, {}, Options);
+					auto Admission = Private::LaunchTaskWithCompletion("PreparedClose",
+						[&]() { ++Runs; }, {}, Options);
 					EXPECT_TRUE(Admission.IsValid());
 					++Accepted;
 				}
@@ -217,23 +217,25 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		for (bool Shared : {false, true})
 		{
-			FTaskCancellationSource Cancellation;
-			if (Shared) Cancellation.RequestCancellation();
+			Tasks::FCancellationToken Cancellation;
+			if (Shared) Cancellation.Cancel();
 			Tasks::FTaskEvent Gate("CanceledPrerequisiteGate", false);
 			uint32 Runs = 0;
-			auto Task = Tasks::LaunchTask("CooperativeRoot", [&](const FTaskCancellationToken& Token) {
-				EXPECT_TRUE(Token.IsCancellationRequested());
+			auto Task = Tasks::LaunchTask("CooperativeRoot", [&]() {
+			const auto& Token = Cancellation;
+				EXPECT_TRUE(Token.IsCanceled());
 				++Runs;
 				return std::make_unique<int>(42);
-			}, {.Cancellation = Cancellation.GetToken(), .Prerequisites = {Gate}});
-			if (!Shared) EXPECT_TRUE(Tasks::Cancel(Task));
-			EXPECT_TRUE(Task.IsCancellationRequested());
+			}, {.Prerequisites = {Gate}});
+			if (!Shared) Cancellation.Cancel();
 			EXPECT_FALSE(Task.IsCompleted());
 			EXPECT_EQ(Task.WaitDetailed(0).WaitStatus, ETaskWaitStatus::TimedOut);
 			EXPECT_EQ(Runs, 0u);
-			auto Next = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Task](const FTaskCancellationToken& Token) {
+			Tasks::FCancellationToken IndependentCancellation;
+			auto Next = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Task, &IndependentCancellation]() {
+				const auto& Token = IndependentCancellation;
 				auto& Value = Task.GetResult();
-				EXPECT_FALSE(Token.IsCancellationRequested());
+				EXPECT_FALSE(Token.IsCanceled());
 				return *Value + 1;
 			}, Task);
 			Gate.Trigger();
@@ -244,7 +246,7 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FTaskCloseTests, CancelingNestedParentRetainsItsValueAndDoesNotCancelChild)
+	TEST_F(FTaskCloseTests, NestedParentRetainsItsValueUntilChildCompletes)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		Tasks::FTaskEvent Gate("CooperativeNestedGate", false);
@@ -255,34 +257,38 @@ namespace Durin
 			return std::make_unique<int>(17);
 		});
 		ASSERT_TRUE(BodyFinished.WaitFor(1));
-		EXPECT_TRUE(Tasks::Cancel(Parent));
+
 		EXPECT_FALSE(Parent.IsCompleted());
-		EXPECT_FALSE(Gate.IsCancellationRequested());
 		Gate.Trigger();
 		EXPECT_EQ(*Parent.GetResult(), 17);
 		EXPECT_EQ(Parent.GetState(), ETaskState::Succeeded);
 	}
 
-	TEST_F(FTaskCloseTests, CancelShutdownDrainsAcceptedWorkerAndDeferredBodies)
+	TEST_F(FTaskCloseTests, ExplicitCancellationBeforeShutdownDrainsAcceptedWorkerAndDeferredBodies)
 	{
+		Tasks::FCancellationToken TestCancellation;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		FThreadEvent Started;
-		auto Running = Tasks::LaunchTask("CooperativeShutdownRunning", [&](const FTaskCancellationToken& Token) {
+		auto Running = Tasks::LaunchTask("CooperativeShutdownRunning", [&]() {
+			const auto& Token = TestCancellation;
 			Started.Trigger();
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-			while (!Token.IsCancellationRequested() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
-			EXPECT_TRUE(Token.IsCancellationRequested());
+			while (!Token.IsCanceled() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+			EXPECT_TRUE(Token.IsCanceled());
 		});
 		ASSERT_TRUE(Started.WaitFor(1));
 		uint32 Runs = 0;
-		auto Deferred = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&](const FTaskCancellationToken& Token) {
-			EXPECT_TRUE(Token.IsCancellationRequested()); ++Runs;
+		auto Deferred = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&]() {
+			const auto& Token = TestCancellation;
+			EXPECT_TRUE(Token.IsCanceled()); ++Runs;
 		});
-		auto Dependent = Tasks::LaunchTask("CooperativeShutdownDependent", [&](const FTaskCancellationToken& Token) {
-			EXPECT_TRUE(Token.IsCancellationRequested()); ++Runs;
+		auto Dependent = Tasks::LaunchTask("CooperativeShutdownDependent", [&]() {
+			const auto& Token = TestCancellation;
+			EXPECT_TRUE(Token.IsCanceled()); ++Runs;
 		}, Tasks::Prerequisites(Deferred));
-		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+		TestCancellation.Cancel();
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		EXPECT_EQ(Runs, 2u);
 		for (Tasks::FTask Task : {Tasks::FTask(Running), Tasks::FTask(Deferred), Tasks::FTask(Dependent)})
 			EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
@@ -494,7 +500,6 @@ namespace Durin
 		auto Subscription = Tasks::SubscribeTask(Event, [Capture = std::move(Capture), &Calls](ETaskState) { ++Calls; });
 		Subscription.Reset();
 		EXPECT_TRUE(Weak.expired());
-		EXPECT_FALSE(Event.IsCancellationRequested());
 		Event.Trigger();
 		EXPECT_EQ(Calls, 0u);
 	}

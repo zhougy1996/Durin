@@ -97,7 +97,7 @@ namespace
 			GCountAllocations.store(false);
 			AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
 			ShutdownAssetCompilingManager();
-			ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}
 	};
 

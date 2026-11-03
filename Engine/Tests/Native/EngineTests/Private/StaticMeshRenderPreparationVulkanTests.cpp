@@ -1640,11 +1640,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			EXPECT_EQ(Parallel->GetDraw(Index).ResolvedIndex, LargeExpected.GetDraw(Index).ResolvedIndex);
 			EXPECT_EQ(Parallel->GetDraw(Index).MaterialUniformIndex, LargeExpected.GetDraw(Index).MaterialUniformIndex);
 		}
-		FTaskCancellationSource Cancellation;
-		Cancellation.RequestCancellation();
+		Tasks::FCancellationToken Cancellation;
+		Cancellation.Cancel();
 		for (auto Policy : {EStaticMeshPreparationPolicy::Inline, EStaticMeshPreparationPolicy::Tasks})
 		{
-			auto Canceled = FinishStaticMeshPreparation(StartStaticMeshPreparation(LargeInputs, Policy, Cancellation.GetToken()));
+			auto Canceled = FinishStaticMeshPreparation(StartStaticMeshPreparation(LargeInputs, Policy, [&Cancellation] { return Cancellation.IsCanceled(); }));
 			ASSERT_FALSE(Canceled);
 			EXPECT_EQ(Canceled.error().State, ETaskState::Canceled);
 		}

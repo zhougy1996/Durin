@@ -369,10 +369,11 @@ stays in Scene's direct prepared transaction, independently of compilation reque
 Import saving reports its own result and does not modify compilation history.
 
 Ordinary failure channels carry diagnostic strings without wrappers or cancellation
-markers. `FAssetBuildTaskContext::Cancellation` is a Core
-`FCancellationToken`; copies share a monotonic atomic flag. Observers bridge existing
-caller, scheduler and request-owner cancellation into that same flag. DDC requests
-and import sessions preserve the token; synchronous render construction and assembly
+markers. `FAssetBuildTaskContext::IsCancellationRequested` is a read-only predicate
+backed by the invocation owner. The owner retains its cancellation flag and callback
+captures until work retires; copying a context does not create or copy a token.
+DDC views query the request and request owner, and import sessions latch external
+cancellation in their own state. Synchronous render construction and assembly
 do not receive it. A canceled request can withdraw queued work or cache acquisition,
 but an already-started CPU build or assembly completes before its owner discards
 the product. Compiler work stores an optional completed outcome: missing work and

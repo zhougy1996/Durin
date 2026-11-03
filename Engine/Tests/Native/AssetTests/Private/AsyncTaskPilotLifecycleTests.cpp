@@ -356,7 +356,7 @@ namespace
 	// The aggregate has terminal shutdown, so this target owns one full lifecycle.
 	struct FPilotLifecycle
 	{
-		~FPilotLifecycle() { ShutdownAssetCompilingManager(); ShutdownTaskSystem(ETaskShutdownMode::Cancel); }
+		~FPilotLifecycle() { ShutdownAssetCompilingManager(); ShutdownTaskSystem(ETaskShutdownMode::Drain); }
 	};
 
 	TEST(FAsyncTaskPilotLifecycleTests, LargeCommitAndSaturatedShutdownPreserveCompletion)
@@ -486,7 +486,6 @@ namespace
 		EXPECT_GT(AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Metrics.ResultBytes, 64u);
 		EXPECT_FALSE(Deferred.IsCompleted());
 		EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
-		CancelTask(Deferred);
 		PumpGameThreadDeferredWork({.bUnlimited = true});
 		WaitTask(Deferred);
 
@@ -504,10 +503,10 @@ namespace
 		uint32 SaturatedCompleted = 0;
 		std::array<uint32, 4> Completed{};
 		std::array<DObject*, 4> PendingTextures{};
-		auto HoldWorker = [&](FThreadEvent& Started, const FTaskCancellationToken& Token) {
+		auto HoldWorker = [&](FThreadEvent& Started) {
 			Started.Trigger();
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-			while (!Token.IsCancellationRequested() && std::chrono::steady_clock::now() < Deadline)
+			while (std::chrono::steady_clock::now() < Deadline)
 				if (Release.WaitFor(0.001)) break;
 		};
 		FScopedOwnerDrain ShutdownDrain{.Caches = {ShutdownCache, ShutdownMeshCache}, .Gates = {&Release},
@@ -557,8 +556,8 @@ namespace
 		ASSERT_EQ(1u, ShutdownMeshCache->Reads.load());
 		EXPECT_EQ(3u, GetMeshBuildDiagnosticsForTests().OutstandingRecords);
 
-		Blockers[0] = Durin::Tasks::FTask(Tasks::LaunchTask("HoldTextureWorkerA", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedA, Token); }));
-		Blockers[1] = Durin::Tasks::FTask(Tasks::LaunchTask("HoldTextureWorkerB", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedB, Token); }));
+		Blockers[0] = Durin::Tasks::FTask(Tasks::LaunchTask("HoldTextureWorkerA", [&] { HoldWorker(StartedA); }));
+		Blockers[1] = Durin::Tasks::FTask(Tasks::LaunchTask("HoldTextureWorkerB", [&] { HoldWorker(StartedB); }));
 		ASSERT_TRUE(StartedA.WaitFor(1.0));
 		ASSERT_TRUE(StartedB.WaitFor(1.0));
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "ShutdownContent").generic_string() + "/");
@@ -587,7 +586,6 @@ namespace
 		EXPECT_EQ(0u, SaturatedCompleted);
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{
-			CancelTask(Blockers[Index]);
 			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blockers[Index]).TaskState);
 		}
 		for (uint32 Index = 0; Index < 4; ++Index)
@@ -623,7 +621,7 @@ namespace
 		ShutdownCache->Release.Trigger();
 		ShutdownMeshCache->Release.Trigger();
 		// Exercise native cancellation without relying on a producer body or deferred callback.
-		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		ShutdownAssetCompilingManager();
 		EXPECT_EQ(1u, HeldCompleted);
 		EXPECT_FALSE(HeldTexture->HasPlatformData());

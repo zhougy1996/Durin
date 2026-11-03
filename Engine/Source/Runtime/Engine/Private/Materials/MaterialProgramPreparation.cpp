@@ -243,7 +243,7 @@ namespace Durin
 		std::shared_ptr<FMaterialProgramPreparationState> Cooked;
 		std::shared_ptr<FMaterialFeatureLevelMailbox> Mailbox;
 		MaterialBuildPrivate::FMaterialProgramCompileHandle Request;
-		FCancellationToken Cancellation;
+		Tasks::FCancellationToken Cancellation;
 		FMaterialRenderProxyRef Proxy;
 		bool bRequested = false;
 		~FMaterialFeatureLevelResource() { Cancellation.Cancel(); }
@@ -458,7 +458,7 @@ namespace Durin
 					State->Functions = std::move(Snapshot.Snapshot->FunctionOwners);
 					State->Mailbox = std::make_shared<FMaterialFeatureLevelMailbox>();
 					const auto Requested = MaterialBuildPrivate::FMaterialCompilation::Compile(
-						std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)), {.Cancellation = State->Cancellation},
+						std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)), {.IsCancellationRequested = [Weak = std::weak_ptr(State)] { auto Owner = Weak.lock(); return !Owner || Owner->Cancellation.IsCanceled(); }},
 						[Weak = std::weak_ptr(State->Mailbox)](MaterialBuildPrivate::FMaterialBuildResult Result) {
 							if (const auto Mailbox = Weak.lock()) { std::lock_guard Lock(Mailbox->Mutex); Mailbox->Result = std::move(Result); }
 						});
@@ -480,7 +480,7 @@ namespace Durin
 				if (Result)
 				{
 					if (!*Result) {
-						const bool Canceled = State->Cancellation.IsCancellationRequested()
+						const bool Canceled = State->Cancellation.IsCanceled()
 							|| (Result->Program && Result->Program->Status == EMaterialProgramStatus::Canceled);
 						Fail(Canceled ? EMaterialCompileState::Canceled : EMaterialCompileState::Failed,
 							Result->Program && !Result->Program->Diagnostics.empty() ? Result->Program->Diagnostics.front().Message : "Material feature-level program compilation failed.");

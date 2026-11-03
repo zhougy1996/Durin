@@ -224,7 +224,7 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
 		public:
 			Tasks::FTask Handle;
 			auto GetTaskHandle() const -> Tasks::FTask override { return Handle; }
-			auto RequestCancel() const -> void override { CancelTask(Handle); }
+			auto RequestCancel() const -> void override {}
 			auto Wait() const -> ERequestWaitResult override
 			{ return WaitTask(Handle).WaitStatus == ETaskWaitStatus::Completed ? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock; }
 		};
@@ -235,8 +235,8 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
 		{
 			auto Scheduled = std::make_shared<FWork>();
 			FTaskLaunchOptions Options;
-			auto Admission = Durin::Private::LaunchCancelableTaskWithCompletion("DDCNativeTail",
-				[this, Work = std::move(Work), Capture = std::exchange(Capture, {})](const FTaskCancellationToken&) {
+			auto Admission = Durin::Private::LaunchTaskWithCompletion("DDCNativeTail",
+				[this, Work = std::move(Work), Capture = std::exchange(Capture, {})]() {
 					Work(); Entered.Trigger(); Release.Wait();
 				}, {}, Options);
 			Scheduled->Handle = std::move(Admission); return Scheduled;
@@ -328,7 +328,7 @@ TEST(FAsyncCacheTests, RequestOwnerUndispatchedRecordDoesNotRetainCoreShutdown)
 	const auto Before = GetTaskSchedulerDiagnostics().NonterminalTaskCount;
 	auto Operation = std::make_shared<FRequestOwner>();
 	ASSERT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, Before);
-	ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+	ShutdownTaskSystem(ETaskShutdownMode::Drain);
 	Operation.reset();
 	EXPECT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
 }
@@ -400,8 +400,8 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeHandlePublishedAfterSynchronous
 			EXPECT_FALSE(Owner->Poll()); // No native handle has been published yet.
 			auto Scheduled = std::make_shared<FWork>();
 			FTaskLaunchOptions Options;
-			auto Native = Durin::Private::LaunchCancelableTaskWithCompletion("OperationDispatchTail",
-				[this, Work = std::move(Work)](const FTaskCancellationToken&) { TailEntered.Trigger(); ReleaseTail.Wait(); }, {}, Options);
+			auto Native = Durin::Private::LaunchTaskWithCompletion("OperationDispatchTail",
+				[this, Work = std::move(Work)]() { TailEntered.Trigger(); ReleaseTail.Wait(); }, {}, Options);
 			Scheduled->Handle = std::move(Native); return Scheduled;
 		}
 	};

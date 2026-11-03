@@ -45,7 +45,7 @@ namespace Durin
 	{
 		std::vector<FShaderMapPtr> Pending;
 		{ std::scoped_lock Lock(MaterialMutex); Pending = CompilingShaderMaps; }
-		for (const auto& ShaderMap : Pending) if (ShaderMap->Cancellation.IsCancellationRequested()) CancelCompilation(ShaderMap);
+		for (const auto& ShaderMap : Pending) if (ShaderMap->Cancellation.IsCanceled()) CancelCompilation(ShaderMap);
 	}
 
 	auto FShaderCompilingManager::RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners) -> void
@@ -93,7 +93,7 @@ namespace Durin
 			std::scoped_lock Lock(MaterialMutex);
 			if (const auto Existing = RequestedShaderMaps.find(Key); Existing != RequestedShaderMaps.end())
 			{
-				if (Existing->second->Cancellation.IsCancellationRequested() || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileState::Deferred;
+				if (Existing->second->Cancellation.IsCanceled() || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileState::Deferred;
 				Request.bSingleFlightConsumer = true;
 				if (!std::ranges::any_of(Existing->second->Origins, [&](auto Origin) { return SameOwner(Origin, Request.Owner); })) Existing->second->Origins.push_back(Request.Owner);
 				Existing->second->CompilingMaterialDependencies.push_back(std::move(Request)); Existing->second->CapturedBytes += Bytes; CapturedMaterialBytes += Bytes;
@@ -112,7 +112,7 @@ namespace Durin
 		const auto Input = NewShaderMap->CompilingMaterialDependencies.front().CompilerInput;
 		NewShaderMap->DiagnosticInput = Input;
 		auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Input,
-			{.bForceRecompile = Key.bForceRecompile, .Cancellation = NewShaderMap->Cancellation,
+			{.bForceRecompile = Key.bForceRecompile,
 				.EncodedInput = std::move(TranslationInput), .Request = NewShaderMap},
 			[this, Weak = std::weak_ptr(NewShaderMap)](MaterialBuildPrivate::FMaterialBuildResult Build) {
 				const auto ShaderMap = Weak.lock(); if (!ShaderMap) return;
@@ -249,7 +249,7 @@ namespace Durin
 			for (const auto& Consumer : Consumers) ShaderMap->CompletingOwners.push_back(Consumer.Owner);
 		}
 		std::vector<FMaterialCompileResult> Results;
-		const bool Canceled = ShaderMap->Cancellation.IsCancellationRequested();
+		const bool Canceled = ShaderMap->Cancellation.IsCanceled();
 		EMaterialCompileState State = EMaterialCompileState::Failed;
 		try {
 			if (const auto Hook = MaterialBuildPrivate::ResultFanoutHook.Load()) (*Hook)();

@@ -2,14 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "DerivedDataBuildSession.h"
-#include "Threading/CancellationToken.h"
 
 namespace Durin::DerivedData::Private
 {
 	struct FBuildExecutionAccess
 	{
-		static auto ObserveCancellation(FCancellationToken Token) -> FBuildCancellation
-		{ return FBuildCancellation(std::move(Token)); }
+		static auto ObserveCancellation(std::function<bool()> Check) -> FBuildCancellation
+		{ return FBuildCancellation(std::move(Check)); }
 		static auto Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
 			-> std::expected<std::vector<FBuildInput>, FBuildInputError>;
 		static auto Configure(const IBuildFunction& Function) -> FBuildFunctionDescriptor;

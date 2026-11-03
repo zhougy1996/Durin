@@ -39,7 +39,7 @@ namespace Durin::AssetPrivate
 			if (Options.PreparationFailure) *Options.PreparationFailure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::EmptyRuntimeRoot, .VirtualPath = Package->GetPackagePath()};
 			return Failure(*Package, "Cook root has no runtime exports.");
 		}
-		const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken([Check = Options.IsCancelled] { return Check && Check(); })};
+		const FAssetBuildTaskContext Control{.IsCancellationRequested = Options.IsCancelled};
 		std::vector<DObject*> Pending(Package->GetTopLevelAssets().begin(), Package->GetTopLevelAssets().end());
 		Revision = Package->GetEditRevision();
 		for (size_t Index = 0; Index < Pending.size(); ++Index)
@@ -204,16 +204,16 @@ namespace Durin
 		}
 		struct FWorkState
 		{
-			FCancellationToken Cancellation;
+			Tasks::FCancellationToken Cancellation;
 			Tasks::FTask Task;
 			std::mutex Mutex;
 			std::expected<FCookPreparationProducts, std::string> Result = std::unexpected("Cook task did not produce a result.");
 		};
 		auto State = std::make_shared<FWorkState>();
-		auto Run = [State, Work = std::move(Work), Bytes = WorkingSetBytes](const FTaskCancellationToken&) mutable {
+		auto Run = [State, Work = std::move(Work), Bytes = WorkingSetBytes]() mutable {
 			std::expected<FCookPreparationProducts, std::string> Result = std::unexpected("Cook task was cancelled.");
 			try {
-				if (!State->Cancellation.IsCancelled()) Result = Work({.Cancellation = State->Cancellation, .MaximumWorkingSetBytes = Bytes});
+				if (!State->Cancellation.IsCanceled()) Result = Work({.IsCancellationRequested = [State] { return State->Cancellation.IsCanceled(); }, .MaximumWorkingSetBytes = Bytes});
 			} catch (const std::exception& Error) { Result = std::unexpected(MakeAssetBuildDiagnostic(Error.what())); }
 			catch (...) { Result = std::unexpected("Cook task failed with an exception."); }
 			std::lock_guard Lock(State->Mutex);
@@ -221,7 +221,7 @@ namespace Durin
 		};
 		if (IsTaskSchedulerRunning()) {
 			State->Task = Tasks::LaunchTask("CookDetachedPreparation", std::move(Run));
-		} else Run({});
+		} else Run();
 		CancelWork = [State] { State->Cancellation.Cancel(); };
 		Lifecycle.WaitForCompletion = [this, State] {
 			if (State->Task.IsValid()) {
@@ -232,7 +232,7 @@ namespace Durin
 				(void)WaitTask(State->Task);
 			}
 			std::lock_guard Lock(State->Mutex);
-			if (Lifecycle.CheckCancellation() || State->Cancellation.IsCancelled()) {
+			if (Lifecycle.CheckCancellation() || State->Cancellation.IsCanceled()) {
 				Lifecycle.Result = {EObjectCookError::Cancelled, {}}; return;
 			}
 			if (!State->Result) { Lifecycle.Result = {EObjectCookError::Preparation, std::move(State->Result.error())}; return; }

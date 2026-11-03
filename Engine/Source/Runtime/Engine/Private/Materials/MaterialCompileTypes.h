@@ -2,7 +2,7 @@
 #include "CoreMinimal.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Materials/MaterialShaderMap.h"
-#include "Threading/CancellationToken.h"
+#include "Threading/Task.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #if DURIN_WITH_EDITOR
@@ -31,7 +31,7 @@ namespace Durin::MaterialBuildPrivate
 	struct FMaterialProgramCompileOptions
 	{
 		bool bForceRecompile = false;
-		FCancellationToken Cancellation;
+		std::function<bool()> IsCancellationRequested;
 		std::shared_ptr<const FMaterialTranslationInput> EncodedInput;
 		FMaterialProgramCompileHandle Request;
 	};
@@ -63,7 +63,10 @@ namespace Durin::MaterialBuildPrivate
 #endif
 			return ShaderMapId;
 		}
-		FCancellationToken Cancellation;
+		Tasks::FCancellationToken Cancellation;
+		std::function<bool()> IsCancellationRequested;
+		std::mutex CancellationMutex;
+		ENGINE_API auto CheckCancellation() -> bool;
 		bool Force = false;
 		FMaterialProgramIdentity CanonicalIdentity;
 		std::vector<FMaterialCompileRequest> CompilingMaterialDependencies;
@@ -79,9 +82,9 @@ namespace Durin::MaterialBuildPrivate
 			std::shared_ptr<const FMaterialCompilerResult> Retained = {}) -> void;
 		mutable std::mutex Mutex;
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
-		FCancellationToken BuildCancellation;
+		Tasks::FCancellationToken BuildCancellation;
 		std::vector<std::shared_ptr<FMaterialCompilation>> CompileDependencies;
-		FTaskCancellationSource CpuCancellation;
+		Tasks::FCancellationToken CpuCancellation;
 		std::shared_ptr<FShaderBuildHandle> ShaderJobs;
 		std::shared_ptr<const MIR::FCompilerInput> Input;
 		std::shared_ptr<const FMaterialTranslationInput> EncodedInput;

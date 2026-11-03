@@ -50,7 +50,7 @@ namespace Durin
 #endif
 			std::optional<std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>> Outcome;
 			uint64 EstimatedWorkingSetBytes = 0;
-			FCancellationToken Cancellation;
+			Tasks::FCancellationToken Cancellation;
 			std::atomic<EWorkPhase> Phase = EWorkPhase::Queued;
 			auto Build() -> void
 			{
@@ -352,8 +352,8 @@ namespace Durin
 		{
 			Tasks::FTaskExecutionOptions Options;
 			Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive ? ETaskPriority::High : ETaskPriority::Low;
-			auto Task = Durin::Tasks::FTask(Tasks::LaunchTask("StaticMesh.Build", [Slot = std::move(Slot), Work = Record->Work, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
-						const auto Cancellation = Work->Cancellation.WithObserver([Token] { return Token.IsCancellationRequested(); });
+			auto Task = Durin::Tasks::FTask(Tasks::LaunchTask("StaticMesh.Build", [Slot = std::move(Slot), Work = Record->Work, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch]() {
+						const auto& Cancellation = Work->Cancellation;
 						try
 						{
 							if (bDispatch && Hook) Hook(Id, EStaticMeshCompilationPhase::Building);
@@ -362,7 +362,7 @@ namespace Durin
 							{
 								Work->Phase.store(EWorkPhase::AwaitingDerivedData, std::memory_order_release);
 								auto Dispatched = StaticMeshPrivate::DispatchRenderBuild(Work->Request, BuilderVersion,
-									*Work->BuildOperation, Cancellation,
+									*Work->BuildOperation, [Work] { return Work->Cancellation.IsCanceled(); },
 									Work->EstimatedWorkingSetBytes, [Work](auto Completion) {
 										try { Work->Completion.emplace(std::move(Completion)); }
 										catch (...) { Work->Fail("StaticMesh cache completion could not be retained."); }
@@ -378,12 +378,12 @@ namespace Durin
 							else
 #endif
 							{
-								if (!Cancellation.IsCancelled()) Work->Build();
+								if (!Cancellation.IsCanceled()) Work->Build();
 							}
 							if (Hook) Hook(Id, EStaticMeshCompilationPhase::Mailbox);
 						}
 						catch (...) { Work->Fail("Asset build worker failed with an exception."); }
-						if (Cancellation.IsCancelled()) Work->ReleaseOutput();
+						if (Cancellation.IsCanceled()) Work->ReleaseOutput();
 						Work->ReleaseInput();
 						Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 						}, Options));
@@ -504,10 +504,10 @@ namespace Durin
 		{
 			auto& Work = *Record.Work;
 			if (!Work.BuildOperation->Poll()) return false;
-			if (!IsTaskSchedulerRunning() || Record.Task.IsCancellationRequested()) Work.Cancellation.Cancel();
-			if (!Record.Terminal && !Work.Cancellation.IsCancelled() && Work.Completion) return false;
+			if (!IsTaskSchedulerRunning()) Work.Cancellation.Cancel();
+			if (!Record.Terminal && !Work.Cancellation.IsCanceled() && Work.Completion) return false;
 			Work.Completion.reset();
-			if (Work.Cancellation.IsCancelled()) Work.ReleaseOutput();
+			if (Work.Cancellation.IsCanceled()) Work.ReleaseOutput();
 			Work.ReleaseInput();
 			Work.Phase.store(EWorkPhase::Complete, std::memory_order_release);
 			return true;
@@ -524,7 +524,6 @@ namespace Durin
 #endif
 				const auto Phase = Record->Work->Phase.load(std::memory_order_acquire);
 				// Retire cooperative cancellation through the owner mailbox.
-				AssetPrivate::ObserveAssetBuildTaskCancellation(Record->Task, Record->Work->Cancellation);
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
 				if (Phase == EWorkPhase::AwaitingDerivedData)
 				{
@@ -535,7 +534,7 @@ namespace Durin
 #endif
 				{
 					if (Phase != EWorkPhase::Running) continue;
-					if (!Record->Work->Cancellation.IsCancelled()) Record->Work->Fail("Asset build task retired before worker completion.");
+					if (!Record->Work->Cancellation.IsCanceled()) Record->Work->Fail("Asset build task retired before worker completion.");
 				}
 				Record->Work->ReleaseInput();
 				Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
@@ -567,7 +566,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
 				[[maybe_unused]] auto DdcCompletion = std::exchange(Record->Work->Completion, std::nullopt);
 #endif
-				if (!Record->Terminal && Record->Work->Cancellation.IsCancelled())
+				if (!Record->Terminal && Record->Work->Cancellation.IsCanceled())
 					Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
 				auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Record->Diagnostic.Owner));
 				if (!Record->Terminal) { require(Outcome.has_value()); CompleteRender(Record, Mesh, *Outcome, Result); }

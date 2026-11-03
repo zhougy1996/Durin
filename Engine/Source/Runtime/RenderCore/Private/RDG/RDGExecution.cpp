@@ -466,7 +466,6 @@ namespace Durin
 			size_t Next = 0;
 			~FPendingRecordings()
 			{
-				for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task);
 				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait());
 			}
 		} Pending;

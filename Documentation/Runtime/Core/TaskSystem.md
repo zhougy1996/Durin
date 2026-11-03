@@ -12,8 +12,8 @@ Last reviewed: 2026-10-31
 `LaunchTask(Executor, Options, Callable)` returns `TTask<T>` directly,
 including `TTask<void>` for a void callable. `Tasks::FTask` is the public generic
 completion handle, an alias of `Tasks::Private::FTaskHandle`, and can observe any
-task or event without a typed result accessor. Callables accept no arguments or
-`const FTaskCancellationToken&`. Dependent bodies capture the input handles
+task or event without a typed result accessor. Callables accept no arguments.
+Cancellation tokens and input handles are captured explicitly. Dependent bodies capture the input handles
 they need and inspect their states before accessing results.
 `LaunchTask(Name, Callable, Options)`
 is the Worker convenience form. Tasks participate in the process scheduler
@@ -31,8 +31,8 @@ defined in [Derived Data Build](../Assets/Build/DerivedDataBuild.md).
 Launching a child with `LaunchTask` does not add a
 parent completion dependency. Use `AddNested` when parent completion must include
 that child.
-Children use the same `LaunchTask` API as roots. Pass a cancellation token in
-the child's options when cancellation should be shared; `AddNested` affects
+Children use the same `LaunchTask` API as roots. Capture the same cancellation token by reference
+when cancellation should be shared; the caller must keep it alive until all captures retire. `AddNested` affects
 completion only and does not forward cancellation. There is no context or
 child-launch facade.
 
@@ -42,7 +42,7 @@ return admission errors or failed surrogate tasks
 when scheduler thresholds are exceeded. They do not retry, wait for capacity,
 or run a callable inline. Acceptance does not promise execution success.
 
-Options carry debug name, priority, cancellation, attribution,
+Options carry debug name, priority, attribution,
 and prerequisites. Ordinary callers do
 not declare scheduler capture/result byte budgets. Actual domain payload limits
 and producer throttling belong to resource owners; see
@@ -55,7 +55,7 @@ in scheduler construction/registration/dispatch/result storage is fatal; it is
 not ordinary task failure. Exceptions from user work produce Failed tasks.
 
 `Threading/TaskRuntime.h` defines the common task handle, shared result storage,
-cancellation, wait operations, lifecycle and kernel primitives. The ordinary API
+wait operations, lifecycle and kernel primitives. The ordinary API
 includes this lower-level header in one direction. Internal erased submissions
 also return handles directly and use the same fatal
 construction contract. There is no checked capacity-admission API or admission
@@ -121,9 +121,9 @@ submission. Event/future creation alone does not register work for drain.
 `Threading/TaskConcurrencyLimiter.h` provides `Tasks::FTaskConcurrencyLimiter`.
 Construct it with `MaxConcurrency` and an optional priority, then call
 `Push(Name, Callable)` and `Wait(TimeoutSeconds)`. The callable receives a slot
-index in `[0, MaxConcurrency)`, unique among active tasks. It may additionally
-accept a cancellation token; pass that token as the optional third `Push`
-argument. Cancellation remains cooperative and exceptions use normal task failure.
+index in `[0, MaxConcurrency)`, unique among active tasks. Capture cancellation
+tokens explicitly, as for ordinary tasks. Cancellation remains cooperative and
+exceptions use normal task failure.
 
 Each push creates one scheduler-tracked void task. Ready tasks wait in the
 limiter's FIFO without occupying a worker or allocating another completion task.
@@ -198,13 +198,23 @@ results remain until the node is released. Captures and results are destroyed ou
 executor queue locks. Before a task exposes terminal state or completes a wait,
 its scheduler-owned callable and completion callback have been released. This
 does not release results or shared captures still owned by callers.
-Executor entries retain task state rather than user callables. Cancellation is
-cooperative: requesting it sets a flag without skipping a body, releasing a
-dependency or changing an outcome. Tasks still wait for prerequisites and execute;
-bodies may inspect their token and return an appropriate result. Ignoring a
-request permits normal successful completion and result retention. Shared tokens
-read one atomic flag without registering nodes. `FTask::IsCancellationRequested()`
-queries the task's own request or its shared token independently of completion.
+Executor entries retain task state rather than user callables. `Tasks::FCancellationToken`
+matches UE's cooperative interface: `Cancel()` sets its atomic flag and `IsCanceled()`
+reads it. The caller owns its lifetime and captures it explicitly. Copies snapshot
+the flag; they do not share cancellation. Capture the same instance by reference,
+or retain it through an owning operation, when multiple tasks should observe one request.
+The scheduler does not know about these tokens. There is no task-handle cancellation,
+launch-time cancellation option, or injected token argument. Tasks still wait for
+prerequisites and execute; bodies choose whether to return early. Ignoring a request
+permits normal successful completion and result retention. `ETaskState::Canceled`
+remains an explicit producer outcome, independent of a token request.
+Business operations embed the same lightweight token in their operation owner.
+Tasks retain that owner, or borrow its token only when the owner drains them before
+destruction. A copied token is never used to share cancellation. Business contexts
+expose read-only cancellation predicates; external predicates are evaluated and
+latched by the owning operation, outside manager/lifecycle locks. DDC cancellation
+views query their request and request owner directly. There is no global shared
+token or observer-composition API.
 Publication follows body exit and callable destruction. Destructors may query task state, but must
 not wait for their own task's completion. A terminal handle does not retain a
 runnable callback.
@@ -222,8 +232,8 @@ Worker overload accepts `LaunchTask(Name, Callable, Dependency, Options)`.
 `Prerequisites(A, B, ...)` creates an owning array of `FTask` handles for mixed
 typed tasks, generic handles, and events; it never consumes a result. These
 overloads append their dependencies to `Options.Prerequisites`, and bind them
-before the supplied collection can go out of scope. `Wait(Task)` and `Cancel(Task)`
-accept task/event facades directly. `Wait(Collection)` accepts the same collections
+before the supplied collection can go out of scope. `Wait(Task)`
+accepts task/event facades directly. `Wait(Collection)` accepts the same collections
 and returns whether every input is completed. `WaitAny(Collection)` returns a
 completed input's index, or `INDEX_NONE` for an empty collection or unsuccessful wait.
 `WaitDetailed(TaskOrCollection)` is the extension for wait status and terminal state;
@@ -433,8 +443,8 @@ task. It must be called from a running, non-independent task body, accepts typed
 tasks, events, or a generic `Tasks::FTask`, and rejects cycles and foreign
 schedulers. The parent publishes its result and terminal state only after its
 body and all registered children finish. Its worker is available after the body
-returns. Failure in the parent still waits for child retirement; cancellation
-while awaiting children remains a request until they complete. Child failure or
+returns. Failure in the parent still waits for child retirement. Canceling a captured
+token does not complete the parent or its children. Child failure or
 cancellation does not change the parent's outcome, and this edge does not forward
 cancellation. Owners request cancellation explicitly.
 
@@ -591,7 +601,7 @@ remain outside this contract. Construction violations are fatal and report
 The callable must not depend on owner-thread, RHI, I/O or other external progress;
 these ordinary C++ effects remain a caller contract. This explicit declaration
 permits render preparation/recording joins without relaxing general wait policy.
-Cancellation and exceptions still publish the normal terminal state, and result
+Explicit producer outcomes and exceptions still publish the normal terminal state, and result
 access still requires success. Waits do not pump GameThread callbacks.
 Wait/WaitDetailed callers, including ordinary threads, help only the waited task and its
 transitive execution and nested dependencies. The task state is the queue execution node; scheduler
@@ -660,6 +670,9 @@ This API retirement does not move existing Worker filesystem workloads to I/O.
 
 ParallelFor keeps its existing CPU policy, cancellation and stable failure
 selection. The native default MinBatchSize remains the serial sentinel.
+Its optional external cancellation token is a borrowed pointer to
+`Tasks::FCancellationToken`; it must outlive the synchronous call and all joined
+chunks. Parallel execution keeps its group flag directly in the shared work owner.
 `Tasks::ParallelFor` offers Auto, Serial and ExplicitBatch; zero explicit batch
 is invalid. Auto uses a 16,384-element threshold and 2,048 minimum batch, at
 most Worker count plus caller chunks, and serial nesting. Chunks use ordinary
@@ -708,8 +721,8 @@ is rejected and scheduler instances never overlap.
 
 `ShutdownTaskSystem(Drain)` closes submission, retains internal dispatch, pumps
 deferred work without the frame budget and drains the entire graph before
-uninstalling the adapter and joining pools. Cancel first requests cooperative
-cancellation of all accepted nodes, then performs the same drain. Pending external
+uninstalling the adapter and joining pools. Owners request cancellation through their
+own tokens before shutdown; shutdown cannot cancel captured user tokens. Pending external
 signals must still arrive, queued bodies still execute, and deferred work must
 still be pumped on GameThread. Executor rejection and callable exceptions are
 execution failures with explicit reasons, not cancellation requests. Business

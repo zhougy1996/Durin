@@ -214,8 +214,8 @@ namespace Durin
 			Options.Priority = RequestState->Request.Priority == ETexture2DCompilationPriority::Interactive
 				? ETaskPriority::High : ETaskPriority::Low;
 			auto Admission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
-				[Self, RequestState](const FTaskCancellationToken& Token) {
-					Self->RunWorker(RequestState, Token);
+				[Self, RequestState]() {
+					Self->RunWorker(RequestState);
 				});
 			std::lock_guard Lock(Mutex);
 			RequestState->Task = std::move(Admission);
@@ -257,16 +257,13 @@ namespace Durin
 		}
 
 		auto IsCancelled(
-			const std::shared_ptr<FRequestState>& RequestState,
-			const FTaskCancellationToken& Token) const -> bool
+			const std::shared_ptr<FRequestState>& RequestState) const -> bool
 		{
-			return RequestState->bCancellationRequested.load(std::memory_order_acquire)
-				|| Token.IsCancellationRequested();
+			return RequestState->bCancellationRequested.load(std::memory_order_acquire);
 		}
 
 		auto RunWorker(
-			const std::shared_ptr<FRequestState>& RequestState,
-			const FTaskCancellationToken& Token) -> void
+			const std::shared_ptr<FRequestState>& RequestState) -> void
 		{
 			require(RequestState->BuildOperation != nullptr);
 			FTexture2DCompilationWorkResult Result = MakeIssueResult(
@@ -277,7 +274,7 @@ namespace Durin
 				RequestState->Progress->BuildStartNanoseconds = BuildStart;
 				RequestState->Progress->Diagnostic.QueuedNanoseconds = BuildStart - RequestState->Progress->EnqueueNanoseconds;
 			}
-			const auto Cancel = [&] { return IsCancelled(RequestState, Token); };
+			const auto Cancel = [&] { return IsCancelled(RequestState); };
 			if (Cancel())
 			{
 				Result.Status = DerivedData::EStatus::Canceled;
@@ -291,7 +288,7 @@ namespace Durin
 			{
 				const auto Self = shared_from_this();
 				RequestState->Request.PlatformCache->Dispatch(*RequestState->BuildOperation,
-					[Self, RequestState, Token] { return Self->IsCancelled(RequestState, Token); },
+					[Self, RequestState] { return Self->IsCancelled(RequestState); },
 					[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), BuildStart]
 					(DerivedData::EStatus Status, std::unique_ptr<FTexturePlatformCacheResult> Product, std::string Diagnostic) mutable {
 						auto& Result = *PendingResult;
@@ -318,7 +315,7 @@ namespace Durin
 			FTexture2DBuildRequest BuildRequest = std::move(RequestState->Request.Build);
 			const auto Self = shared_from_this();
 			TexturePrivate::BuildTexture2DAsync(std::move(BuildRequest), *RequestState->BuildOperation,
-				[Self, RequestState, Token] { return Self->IsCancelled(RequestState, Token); },
+				[Self, RequestState] { return Self->IsCancelled(RequestState); },
 				[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), BuildStart]
 				(DerivedData::EStatus Status, std::unique_ptr<FTexturePlatformData> Product, std::string Diagnostic) mutable {
 					auto& Result = *PendingResult;
@@ -412,7 +409,7 @@ namespace Durin
 					if (!Ready->Mailbox)
 					{
 						// A skipped/failed dispatch body cannot post. Reap it into the same mailbox after retirement.
-						const bool bCanceled = Ready->Task.IsCancellationRequested() || Ready->bCancellationRequested.load();
+						const bool bCanceled = Ready->bCancellationRequested.load();
 						Ready->Mailbox.emplace(MakeIssueResult(*Ready,
 							bCanceled ? DerivedData::EStatus::Canceled : DerivedData::EStatus::Error,
 							bCanceled ? std::string{} : "Texture build task failed."));
@@ -503,7 +500,7 @@ namespace Durin
 		{
 			std::vector<std::shared_ptr<FRequestState>> Queued;
 			std::vector<std::shared_ptr<DerivedData::FRequestOwner>> BuildOperations;
-			std::vector<Tasks::FTask> TasksToCancel;
+
 			{
 				std::lock_guard Lock(Mutex);
 				if (bShutdown) return;
@@ -513,7 +510,7 @@ namespace Durin
 				{
 					RequestState->bCancellationRequested.store(true, std::memory_order_release);
 					if (RequestState->BuildOperation) BuildOperations.push_back(RequestState->BuildOperation);
-					if (RequestState->Task.IsValid()) TasksToCancel.push_back(Durin::Tasks::FTask(RequestState->Task));
+
 				}
 				while (!InteractiveQueue.empty()) { Queued.push_back(std::move(InteractiveQueue.front())); InteractiveQueue.pop_front(); }
 				while (!BackgroundQueue.empty()) { Queued.push_back(std::move(BackgroundQueue.front())); BackgroundQueue.pop_front(); }
@@ -521,7 +518,7 @@ namespace Durin
 			for (const auto& Owner : BuildOperations) Owner->RequestCancel();
 			for (const auto& RequestState : Queued)
 				CompleteWithoutWorker(RequestState, DerivedData::EStatus::Canceled);
-			for (const auto& Task : TasksToCancel) CancelTask(Task);
+
 			// Even tasks canceled before their body runs are consumed by the owner pump.
 			for (;;)
 			{

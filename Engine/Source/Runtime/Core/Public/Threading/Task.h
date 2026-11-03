@@ -8,6 +8,7 @@
 
 namespace Durin::Tasks
 {
+
 	namespace Detail
 	{
 		// Construction failures are programming/lifetime violations or allocation failure.
@@ -33,7 +34,6 @@ namespace Durin::Tasks
 	{
 		const char* DebugName = "Task";
 		ETaskPriority Priority = ETaskPriority::Normal;
-		FTaskCancellationToken Cancellation;
 		FTaskAttribution Attribution;
 		// Owns ordering dependencies so saved options never borrow a temporary collection.
 		std::vector<FTask> Prerequisites;
@@ -44,7 +44,7 @@ namespace Durin::Tasks
 	{
 		EParallelForPolicy Policy = EParallelForPolicy::Auto;
 		uint64 BatchSize = 0;
-		FTaskCancellationToken Cancellation;
+		const FCancellationToken* Cancellation = nullptr;
 		FTaskAttribution Attribution;
 	};
 	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
@@ -55,7 +55,6 @@ namespace Durin::Tasks
 	CORE_API auto Wait(const FTask& Task, double TimeoutSeconds) -> bool;
 	CORE_API auto WaitDetailed(const FTask& Task) -> FTaskWaitResult;
 	CORE_API auto WaitDetailed(const FTask& Task, double TimeoutSeconds) -> FTaskWaitResult;
-	CORE_API auto Cancel(const FTask& Task) -> bool;
 
 	// Completion dependency only: does not forward cancellation or failure to either task.
 	// Must be called from a running task body; its worker is free after the body returns.
@@ -183,7 +182,6 @@ namespace Durin::Tasks
 		operator FTask() && { return std::move(Handle); }
 		auto IsValid() const -> bool { return Handle.IsValid(); }
 		auto IsCompleted() const -> bool { return Handle.IsCompleted(); }
-		auto IsCancellationRequested() const -> bool { return Handle.IsCancellationRequested(); }
 		auto GetState() const -> ETaskState { return Handle.GetState(); }
 		auto GetDebugName() const -> const char* { return Handle.GetDebugName(); }
 		auto GetTaskId() const -> uint64 { return Handle.GetTaskId(); }
@@ -227,9 +225,6 @@ namespace Durin::Tasks
 			}
 
 		};
-		template<typename F, bool = std::is_invocable_v<F&, const FTaskCancellationToken&>> struct TTokenResult { using Type = std::invoke_result_t<F&>; };
-		template<typename F> struct TTokenResult<F, true> { using Type = std::invoke_result_t<F&, const FTaskCancellationToken&>; };
-
 		inline auto Target(ETaskExecutor Executor) -> ETaskTarget
 		{
 			if (Executor == ETaskExecutor::Worker) return ETaskTarget::AnyWorker;
@@ -262,7 +257,7 @@ namespace Durin::Tasks
 		auto LaunchWithStorage(const char* Name, const TResultState<T>& Result,
 			Body&& Function, const FTaskLaunchOptions& Options)
 		{
-			return Durin::Private::LaunchCancelableTaskWithCompletion(Name, std::forward<Body>(Function),
+			return Durin::Private::LaunchTaskWithCompletion(Name, std::forward<Body>(Function),
 				MakeResultCompletion<T>(Result), Options, ResultStorageBytes<T, std::decay_t<Body>>(), {Result, !std::is_void_v<T>});
 		}
 
@@ -270,7 +265,7 @@ namespace Durin::Tasks
 
 	namespace Detail
 	{
-	template<typename F, typename T = typename Detail::TTokenResult<std::decay_t<F>>::Type>
+	template<typename F, typename T = std::invoke_result_t<std::decay_t<F>&>>
 	requires (!std::is_reference_v<T>)
 	auto LaunchTaskImpl(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
 		-> TTask<T>
@@ -282,16 +277,14 @@ namespace Durin::Tasks
 			Launch.Pipe = Pipe;
 			Launch.bIndependentCPU = bIndependentCPU;
 			Launch.Attribution = Options.Attribution;
-			Launch.CancellationToken = Options.Cancellation;
 			Launch.Target = Detail::Target(Executor);
 			Launch.Priority = Options.Priority;
 			Launch.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
 			Launch.Prerequisites = Options.Prerequisites;
 			auto Handle = Detail::LaunchWithStorage<T>(Options.DebugName, State,
-				[State, Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
+				[State, Function = std::forward<F>(Function)]() mutable {
 					auto Invoke = [&]() -> T {
-						if constexpr (std::is_invocable_v<std::decay_t<F>&, const FTaskCancellationToken&>) return std::invoke(Function, Token);
-						else return std::invoke(Function);
+						return std::invoke(Function);
 					};
 					if constexpr (std::is_void_v<T>) Invoke();
 					else State->SetPending(Invoke());

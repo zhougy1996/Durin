@@ -800,15 +800,18 @@ TEST_F(FTextureImportQueueTests, TeardownAfterMutationCancellationRetainsReplace
 	EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST_F(FTextureImportQueueTests, AsyncSaveReturnsCancelableTypedPublicationTask)
+TEST_F(FTextureImportQueueTests, AsyncSaveUsesExplicitCancellationForTypedPublication)
 {
 	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
 	FAssetWriteResult Admission;
-	auto Save = Texture->GetPackage()->SaveAsync(Admission, FAssetPackageSaveContext{});
+	FAssetPackageSaveContext Context;
+	Tasks::FCancellationToken Cancellation;
+	Context.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); };
+	auto Save = Texture->GetPackage()->SaveAsync(Admission, Context);
 	ASSERT_TRUE(Save.IsValid()) << Admission.Message;
 	EXPECT_EQ(Save.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
 	EXPECT_EQ(Save.WaitDetailed().WaitStatus, ETaskWaitStatus::UnsupportedThread);
-	EXPECT_TRUE(Tasks::Cancel(Save));
+	Cancellation.Cancel();
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_EQ(Save.GetState(), ETaskState::Succeeded);
 	EXPECT_EQ(Save.GetResult().Error, EAssetWriteError::Cancelled);

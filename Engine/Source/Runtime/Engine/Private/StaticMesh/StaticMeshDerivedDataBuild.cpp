@@ -129,10 +129,10 @@ namespace Durin
 			return std::move(*Product);
 		}
 		auto DispatchRenderBuild(FStaticMeshBuildRequest& Request, uint64 BuilderVersion,
-			DerivedData::IRequestOwner& Owner, FCancellationToken Cancellation, uint64 MaximumWorkingSetBytes,
+			DerivedData::IRequestOwner& Owner, std::function<bool()> IsCancellationRequested, uint64 MaximumWorkingSetBytes,
 			DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>
 		{
-			if (Cancellation.IsCancelled()) Owner.RequestCancel();
+			if (IsCancellationRequested && IsCancellationRequested()) Owner.RequestCancel();
 			if (auto Validation = ValidateRenderRequest(Request, MaximumWorkingSetBytes); !Validation) return Validation;
 			auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Settings.MaterialSlots.size()), BuilderVersion);
 			if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh build definition is invalid."));

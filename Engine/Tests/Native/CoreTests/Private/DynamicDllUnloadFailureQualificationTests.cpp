@@ -99,7 +99,7 @@ namespace Durin::Tests
 			}
 			~FTaskSystemGuard()
 			{
-				ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+				ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			}
 		};
 
@@ -275,6 +275,6 @@ namespace Durin::Tests
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *RecursiveSerial));
 		EXPECT_TRUE(Manager.UnloadModule(RecursiveName));
 		// Failed modules remain mapped, but their released workers must finish while Host is alive.
-		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 	}
 }

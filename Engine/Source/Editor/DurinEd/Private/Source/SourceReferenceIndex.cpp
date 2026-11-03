@@ -31,7 +31,6 @@ namespace Durin::Editor
 			~FSourceReferenceService()
 			{
 				if (!BuildTask.IsValid()) return;
-				(void)CancelTask(Durin::Tasks::FTask(BuildTask));
 				(void)WaitTask(Durin::Tasks::FTask(BuildTask)).TaskState;
 			}
 

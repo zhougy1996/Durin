@@ -10,7 +10,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserDataSource::CaptureItems(
 		const std::string& PhysicalDirectory,
 		bool bRecursive, std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
-		const FTaskCancellationToken& Cancellation)
+		const Tasks::FCancellationToken& Cancellation)
 		-> FContentBrowserItemsSnapshot
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureItems");
@@ -79,7 +79,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					EEnumerationDiagnosticKind::Traversal,
 					PhysicalDirectory,
 					std::format("Could not enumerate directory: {}", IteratorError.message()));
-			while (!IteratorError && It != End && !Cancellation.IsCancellationRequested())
+			while (!IteratorError && It != End && !Cancellation.IsCanceled())
 			{
 				const std::filesystem::path EntryPath = It->path();
 				AppendFilesystemEntry(*It);
@@ -104,7 +104,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					EEnumerationDiagnosticKind::Traversal,
 					PhysicalDirectory,
 					std::format("Could not enumerate directory: {}", IteratorError.message()));
-			while (!IteratorError && It != End && !Cancellation.IsCancellationRequested())
+			while (!IteratorError && It != End && !Cancellation.IsCanceled())
 			{
 				const std::filesystem::path EntryPath = It->path();
 				if (AppendFilesystemEntry(*It)) It.disable_recursion_pending();
@@ -118,9 +118,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 		}
 
-		if (Cancellation.IsCancellationRequested()) return std::move(Result);
+		if (Cancellation.IsCanceled()) return std::move(Result);
 		RefreshAssetDirectoryIndex(std::move(Catalog), Cancellation);
-		if (Cancellation.IsCancellationRequested()) return std::move(Result);
+		if (Cancellation.IsCanceled()) return std::move(Result);
 		if (!bRecursive)
 		{
 			if (const auto It = AssetDirectoryIndex.find(PhysicalDirectory);
@@ -128,7 +128,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			{
 				for (const FIndexedAsset& Asset : It->second)
 				{
-					if (Cancellation.IsCancellationRequested()) return std::move(Result);
+					if (Cancellation.IsCanceled()) return std::move(Result);
 					AppendAssetItem(*Asset.Path, *Asset.Data, Cancellation);
 				}
 			}
@@ -137,14 +137,14 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			for (const auto& [Directory, Assets] : AssetDirectoryIndex)
 			{
-				if (Cancellation.IsCancellationRequested()) return std::move(Result);
+				if (Cancellation.IsCanceled()) return std::move(Result);
 				if (Directory != PhysicalDirectory
 					&& !FPaths::IsLexicalDescendantPath(
 						Directory, PhysicalDirectory, true))
 					continue;
 				for (const FIndexedAsset& Asset : Assets)
 				{
-					if (Cancellation.IsCancellationRequested()) return std::move(Result);
+					if (Cancellation.IsCanceled()) return std::move(Result);
 					AppendAssetItem(*Asset.Path, *Asset.Data, Cancellation);
 				}
 			}
@@ -154,14 +154,14 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserDataSource::RefreshAssetDirectoryIndex(
 		std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
-		const FTaskCancellationToken& Cancellation) -> void
+		const Tasks::FCancellationToken& Cancellation) -> void
 	{
 		if (AssetCatalogSnapshot == Catalog) return;
 		AssetCatalogSnapshot = std::move(Catalog);
 		AssetDirectoryIndex.clear();
 		for (const auto& [Path, Data] : AssetCatalogSnapshot->Assets)
 		{
-			if (Cancellation.IsCancellationRequested())
+			if (Cancellation.IsCanceled())
 			{
 				AssetDirectoryIndex.clear();
 				AssetCatalogSnapshot.reset();
@@ -177,12 +177,12 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserDataSource::AppendAssetItem(
 		const FPackagePath& Path,
-		const FAssetData& Data, const FTaskCancellationToken& Cancellation) -> void
+		const FAssetData& Data, const Tasks::FCancellationToken& Cancellation) -> void
 	{
 		const bool bSingleAssetPackage = Data.TopLevelAssets.size() == 1;
 		for (const FTopLevelAssetData& AssetData : Data.TopLevelAssets)
 		{
-			if (Cancellation.IsCancellationRequested()) return;
+			if (Cancellation.IsCanceled()) return;
 			FContentBrowserItem Item{
 				AssetData.IsRedirector()
 					? EContentBrowserItemKind::Redirector
@@ -208,7 +208,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserDataSource::CaptureDirectory(const std::string& Physical,
-		const FTaskCancellationToken& Cancellation)
+		const Tasks::FCancellationToken& Cancellation)
 		-> FContentBrowserDirectorySnapshot
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureDirectory");
@@ -226,7 +226,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				EEnumerationDiagnosticKind::Traversal,
 				Physical,
 				std::format("Could not enumerate directory tree node: {}", IteratorError.message()));
-		while (!IteratorError && EntryIt != End && !Cancellation.IsCancellationRequested())
+		while (!IteratorError && EntryIt != End && !Cancellation.IsCanceled())
 		{
 			const std::filesystem::directory_entry& Entry = *EntryIt;
 			const std::filesystem::path EntryPath = Entry.path();

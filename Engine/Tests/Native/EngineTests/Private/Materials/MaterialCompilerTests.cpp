@@ -731,9 +731,9 @@ TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTrans
 	SetTranslationServiceForTests(Service);
 	auto& Manager = FShaderCompilingManager::Get();
 	std::vector<FMaterialProgramCompileHandle> Handles;
-	FCancellationToken Cancellation;
+	Tasks::FCancellationToken Cancellation;
 	struct FRestore {
-		std::shared_ptr<FGate> Cache; std::vector<FMaterialProgramCompileHandle>& Handles; FCancellationToken Cancellation;
+		std::shared_ptr<FGate> Cache; std::vector<FMaterialProgramCompileHandle>& Handles; Tasks::FCancellationToken& Cancellation;
 		~FRestore() {
 			Cancellation.Cancel(); Cache->Release.Trigger();
 			auto& Manager = FShaderCompilingManager::Get();
@@ -744,7 +744,7 @@ TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTrans
 	} Restore{Cache, Handles, Cancellation};
 	std::atomic_uint32_t Completions = 0;
 	for (uint32 Index = 0; Index < 32; ++Index) {
-		auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {.Cancellation = Cancellation}, [&](auto) { ++Completions; });
+		auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, [&](auto) { ++Completions; });
 		ASSERT_TRUE(Compile); Handles.push_back(std::move(*Compile));
 	}
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
@@ -755,7 +755,7 @@ TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTrans
 	for (const auto& Handle : Handles) Manager.FinishCompilation(Handle);
 	EXPECT_EQ(Completions, 32u); Handles.clear();
 	{
-		auto Recovered = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {.Cancellation = Cancellation}, [](auto Result) {
+		auto Recovered = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, [](auto Result) {
 			ASSERT_NE(Result.Program, nullptr); EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		});
 		ASSERT_TRUE(Recovered); Manager.FinishCompilation(*Recovered);
@@ -1054,11 +1054,11 @@ TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedA
 	using namespace MaterialBuildPrivate;
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
 	auto& Manager = FShaderCompilingManager::Get();
-	FCancellationToken Cancellation; Cancellation.Cancel();
-	EXPECT_TRUE(Cancellation.IsCancellationRequested());
+	Tasks::FCancellationToken Cancellation; Cancellation.Cancel();
+	EXPECT_TRUE(Cancellation.IsCanceled());
 	const auto Before = GetTranslationStats();
 	std::atomic_uint32_t Calls = 0;
-	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.Cancellation = Cancellation}, [&](auto Result) {
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, [&](auto Result) {
 		ASSERT_NE(Result.Program, nullptr);
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		EXPECT_FALSE(Result.RetainedHit);
@@ -1066,7 +1066,7 @@ TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedA
 	});
 	ASSERT_TRUE(Compile); Manager.FinishCompilation(*Compile);
 	EXPECT_FALSE(Manager.IsCompiling(*Compile));
-	EXPECT_TRUE(Cancellation.IsCancellationRequested());
+	EXPECT_TRUE(Cancellation.IsCanceled());
 	EXPECT_EQ(Calls, 1u);
 	EXPECT_EQ(GetTranslationStats().Producers, Before.Producers);
 }
@@ -1077,17 +1077,17 @@ TEST(FMaterialProgramOwnershipTests, FinishAllCompilationDrainsCallbackSubmissio
 	using namespace MaterialBuildPrivate;
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
 	auto& Manager = FShaderCompilingManager::Get();
-	FCancellationToken Cancellation; Cancellation.Cancel();
+	Tasks::FCancellationToken Cancellation; Cancellation.Cancel();
 	std::atomic_uint32_t Calls = 0;
 	std::function<void(FMaterialBuildResult)> Completion;
 	Completion = [&](auto Result) {
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		if (Calls.fetch_add(1) + 1 < 8) {
-			auto Followup = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.Cancellation = Cancellation}, Completion);
+			auto Followup = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, Completion);
 			EXPECT_TRUE(Followup);
 		}
 	};
-	auto First = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.Cancellation = Cancellation}, Completion);
+	auto First = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, Completion);
 	ASSERT_TRUE(First);
 	Manager.FinishAllCompilation();
 	const auto CallsAtReturn = Calls.load();
@@ -1104,9 +1104,9 @@ TEST(FMaterialProgramOwnershipTests, CanceledSubmissionSupportsInlineAndTaskExec
 	// This case runs without bootstrap when isolated, and with the suite's scheduler otherwise.
 	const bool Inline = !IsTaskSchedulerRunning();
 	auto& Manager = FShaderCompilingManager::Get();
-	FCancellationToken Cancellation; Cancellation.Cancel();
+	Tasks::FCancellationToken Cancellation; Cancellation.Cancel();
 	std::atomic_uint32_t Calls = 0;
-	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(std::make_shared<const MIR::FCompilerInput>(), {.Cancellation = Cancellation}, [&](auto Result) {
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(std::make_shared<const MIR::FCompilerInput>(), {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, [&](auto Result) {
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled); ++Calls;
 	});
 	ASSERT_TRUE(Compile);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Threading/Task.h"
 
 
 #include "Asset/BulkData.h"
@@ -100,7 +101,7 @@ namespace Durin
 	};
 
 	using FCookedMeshWorker = TMoveOnlyFunction<FCookedMeshWorkerResult(
-		std::span<const FSharedByteBuffer>, const FTaskCancellationToken&)>;
+		std::span<const FSharedByteBuffer>, const Tasks::FCancellationToken&)>;
 	using FCookedMeshCurrentPredicate = std::function<bool(
 		const DObject&, const FCookedMeshLoadIdentity&)>;
 	using FCookedMeshPublisher = TMoveOnlyFunction<FCookedMeshLoadResult(

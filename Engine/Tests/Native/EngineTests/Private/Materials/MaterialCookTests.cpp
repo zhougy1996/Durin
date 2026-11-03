@@ -222,7 +222,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		EXPECT_TRUE(Durin::ShaderFormat::ValidateShaderCode(Shader));
 	}
 	const auto ProgramBeforeCanceledResave = Cooked->GetAcceptedCompiledProgram();
-	const Durin::FAssetBuildTaskContext CanceledControl{.Cancellation = Durin::FCancellationToken([] { return true; })};
+	const Durin::FAssetBuildTaskContext CanceledControl{.IsCancellationRequested = [] { return true; }};
 	const auto CanceledResave = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {}, CanceledControl);
 	EXPECT_EQ(CanceledResave.Status, Durin::EShaderBuildStatus::Canceled);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), ProgramBeforeCanceledResave);

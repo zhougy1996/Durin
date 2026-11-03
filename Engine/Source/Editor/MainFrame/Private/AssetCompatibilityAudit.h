@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Threading/Task.h"
 
 #include "MainFrameAPI.h"
 #include "AssetRegistry/Catalog.h"
@@ -111,7 +112,7 @@ namespace Durin::Editor
 
 		FAssetCompatibilityProbe Probe;
 		std::shared_ptr<FMailbox> Mailbox;
-		FTaskCancellationSource Cancellation;
+		Tasks::FCancellationToken Cancellation;
 		Tasks::FTask Task;
 		Tasks::FTask TerminalTask;
 		std::shared_ptr<FPublicationLifetime> PublicationLifetime;

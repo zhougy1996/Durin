@@ -2,18 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "Threading/TaskRuntime.h"
-#include "Threading/CancellationToken.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataRequestOwner.h"
 #endif
 
 namespace Durin::AssetPrivate
 {
-	inline auto ObserveAssetBuildTaskCancellation(const Tasks::FTask& Task, FCancellationToken& Cancellation) -> void
-	{
-		if (Task.IsCancellationRequested()) Cancellation.Cancel();
-	}
-
 #if DURIN_WITH_EDITOR
 	// Called only after the producer task finishes, so no further submissions can race this join.
 	inline auto WaitForAssetBuildOwner(const Tasks::FTask& Task, DerivedData::FRequestOwner& Owner) -> bool

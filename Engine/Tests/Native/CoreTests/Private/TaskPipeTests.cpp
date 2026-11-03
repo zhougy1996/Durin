@@ -130,14 +130,15 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		Tasks::FPipe Pipe;
 		Tasks::FTaskEvent Gate("PipeCancellation", false);
-		FTaskCancellationSource Cancellation;
-		Cancellation.RequestCancellation();
-		auto Canceled = Pipe.Launch("CooperativePipe", [&](const FTaskCancellationToken& Token) {
-			EXPECT_TRUE(Token.IsCancellationRequested());
+		Tasks::FCancellationToken Cancellation;
+		Cancellation.Cancel();
+		auto Canceled = Pipe.Launch("CooperativePipe", [&]() {
+			const auto& Token = Cancellation;
+			EXPECT_TRUE(Token.IsCanceled());
 			EXPECT_TRUE(Pipe.IsInContext());
 			EXPECT_FALSE(Pipe.WaitUntilEmpty(0));
 			return std::make_unique<int>(17);
-		}, Gate, {.Cancellation = Cancellation.GetToken()});
+		}, Gate, {});
 		FThreadEvent ThrowStarted, AllowThrow;
 		auto Failed = Pipe.Launch("ThrowingPipe", [&] {
 			ThrowStarted.Trigger();

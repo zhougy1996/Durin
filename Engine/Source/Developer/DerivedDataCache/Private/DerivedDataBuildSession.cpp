@@ -6,7 +6,7 @@
 #include "RequestOwnerPrivate.h"
 #include "CacheDiagnosticsPrivate.h"
 #include "DerivedDataCache/DerivedDataCache.h"
-#include "Threading/CancellationToken.h"
+#include "Threading/Task.h"
 
 namespace Durin::DerivedData
 {
@@ -66,7 +66,7 @@ namespace Durin::DerivedData
 		enum class ERequestState { PendingDispatch, Queued, Running, Completing, Done };
 		struct FBuildRequestState : FRequestCompletion, std::enable_shared_from_this<FBuildRequestState>
 		{
-			FCancellationToken Cancellation;
+			Tasks::FCancellationToken Cancellation;
 			ERequestState State = ERequestState::PendingDispatch;
 			uint64 Id = 0;
 			std::weak_ptr<FBuildSessionState> Owner;
@@ -75,7 +75,7 @@ namespace Durin::DerivedData
 
 			auto Finish(FBuildCompleteParams Completion) -> void
 			{
-				const bool bCancelled = Cancellation.IsCancelled();
+				const bool bCancelled = Cancellation.IsCanceled();
 				auto Session = Owner.lock();
 				FBuildCompletionCallback Notify;
 				std::shared_ptr<FRequestData> Retired;
@@ -83,7 +83,7 @@ namespace Durin::DerivedData
 					std::lock_guard Lock(Mutex);
 					if (State == ERequestState::Completing || State == ERequestState::Done) return;
 					State = ERequestState::Completing;
-					if (bCancelled || Cancellation.IsCancellationRequested()) Completion = Private::FBuildCompletionAccess::Canceled(std::move(Completion));
+					if (bCancelled || Cancellation.IsCanceled()) Completion = Private::FBuildCompletionAccess::Canceled(std::move(Completion));
 					if (Completion.GetStatus() == EStatus::Canceled) Cancellation.Cancel();
 					Notify = std::exchange(Callback, {});
 					Retired = std::move(Data);
@@ -154,7 +154,7 @@ namespace Durin::DerivedData
 			auto SetScheduledIfCurrent(std::shared_ptr<IBuildScheduledWork> Work, uint64 Revision) -> void
 			{
 				{ std::lock_guard Lock(Mutex); if (ScheduleRevision != Revision || State == ERequestState::Done) return; Scheduled = Work; StageDispatching = false; }
-				if (Cancellation.IsCancelled() && Work) Work->RequestCancel();
+				if (Cancellation.IsCanceled() && Work) Work->RequestCancel();
 				Changed.notify_all();
 			}
 			auto ReceiveCache(FCacheGetResult Result) -> void
@@ -226,9 +226,12 @@ namespace Durin::DerivedData
 					std::nullopt, EBuildExecutionFlags::None);
 				try
 				{
-					Work->Cancellation = FBuildExecutionAccess::ObserveCancellation(Cancellation.WithObserver([Weak = weak_from_this()] {
-						auto Self = Weak.lock(); return !Self || Self->Group->IsCanceled();
-					}));
+					Work->Cancellation = FBuildExecutionAccess::ObserveCancellation([Weak = weak_from_this()] {
+						auto Self = Weak.lock();
+						if (!Self) return true;
+						if (Self->Group->IsCanceled()) Self->Cancellation.Cancel();
+						return Self->Cancellation.IsCanceled();
+					});
 					StartBuild(std::move(Work));
 					return;
 				}
@@ -247,7 +250,7 @@ namespace Durin::DerivedData
 					if (State == ERequestState::PendingDispatch)
 					{
 						State = ERequestState::Queued;
-						Complete = Cancellation.IsCancellationRequested();
+						Complete = Cancellation.IsCanceled();
 					}
 				}
 				if (Complete) RequestCancel();
@@ -514,7 +517,7 @@ namespace Durin::DerivedData
 				}
 			}
 
-			if (Request->Cancellation.IsCancelled())
+			if (Request->Cancellation.IsCanceled())
 			{
 				Request->Run();
 				return {};

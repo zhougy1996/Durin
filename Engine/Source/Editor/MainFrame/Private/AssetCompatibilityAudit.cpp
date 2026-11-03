@@ -230,15 +230,15 @@ namespace Durin::Editor
 		InvalidatePresentation();
 
 		State = EAssetCompatibilityAuditState::Running;
-		Cancellation = FTaskCancellationSource{};
+		Cancellation = Tasks::FCancellationToken{};
 		Tasks::FTaskExecutionOptions Options;
-		Options.Cancellation = Cancellation.GetToken();
+
 		const uint64 Serial = RequestSerial;
 		const std::shared_ptr<FMailbox> WorkerMailbox = Mailbox;
 		const FAssetCompatibilityProbe WorkerProbe = Probe;
 		auto WorkerTask = Tasks::LaunchTask("AssetCompatibility.Audit",
 			[Serial, WorkerMailbox, WorkerProbe, Inputs = std::move(Inputs),
-				Catalog = std::move(Catalog)](const FTaskCancellationToken& Token) mutable -> FTerminalSummary {
+				Catalog = std::move(Catalog), Token = &Cancellation]() mutable -> FTerminalSummary {
 				auto Queue = [&](FNotice Notice) {
 					std::lock_guard Lock(WorkerMailbox->Mutex);
 					WorkerMailbox->Notices.push_back(std::move(Notice));
@@ -248,7 +248,7 @@ namespace Durin::Editor
 				{
 					const auto Result = RunAssetCompatibilityAudit(
 						Inputs, Catalog,
-						[&Token] { return Token.IsCancellationRequested(); },
+						[Token] { return Token->IsCanceled(); },
 						[&](const FAssetPackageCompatibilityRecord& Record,
 							uint64 Completed, uint64) {
 							ProcessedPackageCount = Completed;
@@ -287,7 +287,7 @@ namespace Durin::Editor
 				FAssetCompatibilityAuditModel& Model = *Lifetime->Model;
 				if (Model.RequestSerial != Serial || !Model.bAdmissionOpen) return;
 				Model.DrainMailbox();
-				if (Model.Cancellation.IsCancellationRequested())
+				if (Model.Cancellation.IsCanceled())
 				{
 					Model.State = EAssetCompatibilityAuditState::Cancelled;
 					Model.Failure.clear();
@@ -314,8 +314,8 @@ namespace Durin::Editor
 	auto FAssetCompatibilityAuditModel::Cancel() -> bool
 	{
 		if (State != EAssetCompatibilityAuditState::Running) return false;
-		Cancellation.RequestCancellation();
-		(void)CancelTask(Task);
+		Cancellation.Cancel();
+
 		return true;
 	}
 
@@ -324,7 +324,7 @@ namespace Durin::Editor
 		if (State == EAssetCompatibilityAuditState::Running)
 		{
 			Cancel();
-			if (TerminalTask.IsValid()) (void)CancelTask(TerminalTask);
+
 			if (Task.IsValid()) (void)WaitTask(Task).TaskState;
 		}
 		DrainMailbox();

@@ -9,7 +9,6 @@ namespace Durin
 	static_assert(!std::is_copy_constructible_v<TPromise<int>>);
 	static_assert(!std::is_copy_constructible_v<TFuture<int>>);
 	static_assert(std::is_copy_constructible_v<TSharedFuture<int>>);
-	static_assert(!Tasks::Detail::CTaskDependency<TSharedFuture<int>>);
 	template<typename T> concept CHasFutureContinuation = requires(T& Future) {
 		Future.Then([](TFuture<int>) { return 1; });
 	};
@@ -257,7 +256,7 @@ namespace Durin
 		EXPECT_THROW(Future.WaitUntil(std::chrono::steady_clock::now()), std::logic_error);
 	}
 
-	TEST(FFutureTests, MoveOnlyResultsShareAndRetainImmutableViews)
+	TEST(FFutureTests, MoveOnlyResultsSupportMutableAccessAndSharing)
 	{
 		TPromise<std::unique_ptr<int>> Promise;
 		auto Future = Promise.GetFuture();
@@ -272,9 +271,7 @@ namespace Durin
 		EXPECT_FALSE(Future.IsValid());
 		const auto Copy = Shared;
 		EXPECT_EQ(&Shared.Get(), &Copy.Get());
-		auto View = Shared.GetResultShared();
-		Shared = {}; Promise = {};
-		EXPECT_EQ(42, **View);
+		EXPECT_EQ(42, *Copy.Get());
 	}
 
 	TEST(FFutureTests, ConsumeInvalidatesAndVoidHasTheSameTerminalContract)

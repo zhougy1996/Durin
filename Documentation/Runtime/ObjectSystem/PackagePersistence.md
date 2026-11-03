@@ -70,6 +70,9 @@ this API does not add a general object loader.
 `FAssetPackageSaveContext` supplies `Tasks::TTask<FAssetWriteResult>` with asset policy
 and Registry publication. There is no default context or implicit file-only
 fallback. Both reject direct-write flags. Options are copied at submission.
+Cancellation is supplied through `IsCancellationRequested`; the operation retains
+the copied callback through publication. Captures must own their state or keep any
+borrowed state alive until the returned task and async-save owner have retired.
 Rejected admission returns an invalid task and a domain error in `Admission`;
 accepted admission is not successful persistence.
 

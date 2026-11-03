@@ -94,7 +94,7 @@ namespace Durin
 	{
 		FAssetBundleSaveOptions Options;
 		EPackageSaveFlags Flags = SAVE_None;
-		FTaskCancellationToken Cancellation;
+		std::function<bool()> IsCancellationRequested;
 		ENGINE_API auto SaveAsync(DPackage*, FAssetWriteResult& Admission) const -> Tasks::TTask<FAssetWriteResult>;
 	};
 	// Owner-thread coordinator for private graph persistence. After IsReady(),

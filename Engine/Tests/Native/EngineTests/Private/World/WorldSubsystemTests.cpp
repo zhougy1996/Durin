@@ -289,7 +289,7 @@ TEST_F(FWorldSubsystemTests, LateDetachedCompletionCannotPublishAfterWorldRetire
 	// This is the owner's GameThread completion boundary; no retired object is resolved.
 	if (Gate->IsOpen()) Published = Payload->Value;
 	EXPECT_EQ(Published, 0);
-	EXPECT_TRUE(Gate->GetCancellationToken().IsCancellationRequested());
+	EXPECT_TRUE(Gate->GetCancellationToken().IsCanceled());
 }
 
 TEST_F(FWorldSubsystemTests, InitializationRetainsUnpublishedWorldDuringCollection)

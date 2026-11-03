@@ -44,7 +44,7 @@ namespace Durin
 			mutable std::mutex Mutex;
 			std::condition_variable Condition;
 			Tasks::FTask Preparation;
-			FTaskCancellationSource PreparationCancellation;
+			Tasks::FCancellationToken PreparationCancellation;
 			std::shared_ptr<FFlight> Flight;
 			std::atomic_bool Canceled = false;
 			enum class EDelivery { Pending, Delivering, Completed };
@@ -287,7 +287,7 @@ namespace Durin
 	{
 		if (Canceled.exchange(true)) return false;
 		NativeOwner.RequestCancel();
-		PreparationCancellation.RequestCancellation();
+		PreparationCancellation.Cancel();
 		std::shared_ptr<FFlight> CancelFlight;
 		if (auto Owner = State.lock())
 		{
@@ -399,13 +399,13 @@ namespace Durin
 		else {
 			EShaderBuildPriority Priority;
 			{ std::lock_guard Lock(Owner->Mutex); Priority = Options.Priority; }
-			auto Dispatch = Private::LaunchCancelableTaskWithCompletion("ShaderPrepare",
-				[Owner, Subscriber](const FTaskCancellationToken& Token) {
-					try { if (Token.IsCancellationRequested()) Subscriber->Finish(CanceledShader()); else Owner->Prepare(Subscriber); }
+			auto Dispatch = Private::LaunchTaskWithCompletion("ShaderPrepare",
+				[Owner, Subscriber]() {
+					try { if (Subscriber->PreparationCancellation.IsCanceled()) Subscriber->Finish(CanceledShader()); else Owner->Prepare(Subscriber); }
 					catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure("Shader entry-point request is invalid.")); }
 				}, [Subscriber](ETaskState State) {
 					if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderCompilerOutput::Failure("Shader preparation task failed."));
-				}, {.CancellationToken = PreparationCancellation.GetToken(), .Priority = static_cast<ETaskPriority>(Priority)});
+				}, {.Priority = static_cast<ETaskPriority>(Priority)});
 			{ std::lock_guard Lock(Mutex); Preparation = std::move(Dispatch); }
 		}
 		Publish();

@@ -32,7 +32,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::InvalidateDirectoryTree() -> void
 	{
 		bActiveTreePublishable = false;
-		if (TreeTask.IsValid()) (void)CancelTask(Durin::Tasks::FTask(TreeTask));
+		TreeCancellation.Cancel();
 		DirectoryChildrenCache.clear();
 		RequestedDirectoryChildrenSnapshots.clear();
 	}
@@ -40,7 +40,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::CancelPendingSnapshots() -> void
 	{
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
-		if (ItemsTask.IsValid()) (void)CancelTask(Durin::Tasks::FTask(ItemsTask));
+		ItemsCancellation.Cancel();
 		ItemsRequest.reset();
 		bSnapshotPublicationSuspended = false;
 		InvalidateDirectoryTree();
@@ -92,13 +92,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			ActiveItemsRequest = ItemsRequest;
 			ActiveItemsRequest->State = EItemsRequestState::Capturing;
+			ItemsCancellation = Tasks::FCancellationToken{};
 			ItemsTask = Tasks::LaunchTask(
 				"ContentBrowser.Items",
-				[Source = DataSource, Request = ActiveItemsRequest, Query = EntryStatusQuery]
-				(const FTaskCancellationToken& Cancellation) {
+				[Source = DataSource, Request = ActiveItemsRequest, Query = EntryStatusQuery, Cancellation = &ItemsCancellation]() {
 					Source->SetEntryStatusQueryForTesting(Query);
 					return std::make_unique<FContentBrowserItemsSnapshot>(Source->CaptureItems(
-						Request->Directory, Request->bRecursive, Request->Catalog, Cancellation));
+						Request->Directory, Request->bRecursive, Request->Catalog, *Cancellation));
 				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Items")});
 
 		}
@@ -127,14 +127,14 @@ namespace Durin::Editor::ContentBrowser::Private
 			ActiveTreeDirectory = *It;
 			RequestedDirectoryChildrenSnapshots.erase(It);
 			bActiveTreePublishable = true;
+			TreeCancellation = Tasks::FCancellationToken{};
 			TreeTask = Tasks::LaunchTask(
 				"ContentBrowser.Directory",
-				[Directory = ActiveTreeDirectory, Query = EntryStatusQuery]
-				(const FTaskCancellationToken& Cancellation) {
+				[Directory = ActiveTreeDirectory, Query = EntryStatusQuery, Cancellation = &TreeCancellation]() {
 					FContentBrowserDataSource Source;
 					Source.SetEntryStatusQueryForTesting(Query);
 					return std::make_unique<FContentBrowserDirectorySnapshot>(
-						Source.CaptureDirectory(Directory, Cancellation));
+						Source.CaptureDirectory(Directory, *Cancellation));
 				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Directory")});
 
 		}
@@ -350,7 +350,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!ActiveTreeDirectory.empty() && Invalidates(ActiveTreeDirectory))
 		{
 			bActiveTreePublishable = false;
-			if (TreeTask.IsValid()) (void)CancelTask(Durin::Tasks::FTask(TreeTask));
+			TreeCancellation.Cancel();
 		}
 		bool bMoved = false;
 		for (const auto& Change : Changes.Changes)
@@ -389,7 +389,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		bSnapshotInjectedForTesting = false;
 		if (bInvalidateDirectoryTree) InvalidateDirectoryTree();
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
-		if (ItemsTask.IsValid()) (void)CancelTask(Durin::Tasks::FTask(ItemsTask));
+		ItemsCancellation.Cancel();
 		if (!Catalog || Catalog->Revision != GetAssetCatalogRevision())
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureCatalog");

@@ -25,14 +25,14 @@ namespace Durin
 		// Bound detached data independently of scheduler queue capacity.
 		constexpr uint64 MaximumClosureBytes = 256ull * 1024 * 1024;
 		constexpr size_t MaximumConcurrentReads = 2;
-		auto ReadInputs(std::vector<FAssetData> Sources, const FTaskCancellationToken& Token)
+		auto ReadInputs(std::vector<FAssetData> Sources, const Tasks::FCancellationToken& Token)
 			-> FAsyncPackageInputs
 		{
 			FAsyncPackageInputs Inputs;
 			uint64 RetainedBytes = 0;
 			for (const auto& Source : Sources)
 			{
-				if (Token.IsCancellationRequested()) break;
+				if (Token.IsCanceled()) break;
 				auto& Input = Inputs[Source.PackagePath];
 				Input.PhysicalPath = Source.PhysicalPath;
 				Input.Access = FPackageFileAccess::TryReadPackage(Input.PhysicalPath);
@@ -129,11 +129,11 @@ namespace Durin
 			uint64 Revision = 0;
 			std::vector<std::shared_ptr<FAsyncLoadHandle>> Handles;
 			Tasks::TTask<FAsyncPackageInputs> Read;
-			FTaskCancellationSource Cancellation;
+			Tasks::FCancellationToken Cancellation;
 		};
 		std::vector<std::shared_ptr<FAsyncLoadHandle>> Pending;
 		std::vector<std::shared_ptr<FAsyncLoadHandle>> Deliveries;
-		std::vector<std::unique_ptr<FJob>> Jobs;
+		std::vector<std::shared_ptr<FJob>> Jobs;
 		bool bProcessing = false;
 
 		auto Complete(const std::shared_ptr<FAsyncLoadHandle>& Handle, FAssetReadResult Result,
@@ -253,13 +253,13 @@ namespace Durin
 			{
 				auto& Job = *Jobs[Index];
 				if (std::ranges::all_of(Job.Handles, [](const auto& H) { return H->IsComplete(); }))
-					Job.Cancellation.RequestCancellation();
+					Job.Cancellation.Cancel();
 				if (!Job.Read.IsCompleted()) { ++Index; continue; }
 				auto Finished = std::move(Jobs[Index]);
 				Jobs.erase(Jobs.begin() + Index);
 				FAssetReadResult Result;
 				FAsyncPackageInputs Inputs;
-				if (Finished->Read.IsCancellationRequested())
+				if (Finished->Cancellation.IsCanceled())
 					Result = {EAssetReadError::Cancelled, "Async package read cancellation was requested."};
 				else if (Finished->Read.GetState() != ETaskState::Succeeded)
 					Result = {Finished->Read.GetState() == ETaskState::Canceled
@@ -304,7 +304,7 @@ namespace Durin
 				}
 				if (FindResidentPackage(Root)) { Apply(Handle, {}); ++Completed; continue; }
 				const auto Existing = std::ranges::find_if(Jobs, [&](const auto& Job) { return Job->Path == Root; });
-				if (Existing != Jobs.end() && !(*Existing)->Cancellation.IsCancellationRequested())
+				if (Existing != Jobs.end() && !(*Existing)->Cancellation.IsCanceled())
 				{
 					(*Existing)->Handles.push_back(Handle);
 					State.State = EAsyncLoadState::Loading;
@@ -316,7 +316,7 @@ namespace Durin
 					Complete(Handle, {EAssetReadError::InUse, "Async loading requires a running task scheduler."});
 					++Completed; continue;
 				}
-				auto Job = std::make_unique<FJob>();
+				auto Job = std::make_shared<FJob>();
 				Job->Path = Root;
 				Job->Revision = GetAssetCatalogRevision();
 				Job->Handles.push_back(Handle);
@@ -334,9 +334,9 @@ namespace Durin
 					Sources.push_back(*Entry);
 				}
 				Job->Read = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
-					{.DebugName = "Asset.PackageRead", .Cancellation = Job->Cancellation.GetToken()},
-					[Sources = std::move(Sources)](const FTaskCancellationToken& Token) mutable {
-						return ReadInputs(std::move(Sources), Token);
+					{.DebugName = "Asset.PackageRead"},
+					[Sources = std::move(Sources), Job]() mutable {
+						return ReadInputs(std::move(Sources), Job->Cancellation);
 					});
 				State.State = EAsyncLoadState::Loading;
 				Jobs.push_back(std::move(Job));
@@ -354,8 +354,7 @@ namespace Durin
 			for (auto& Job : Jobs)
 			{
 				for (auto& Handle : Job->Handles) Handle->Cancel();
-				Job->Cancellation.RequestCancellation();
-				Tasks::Cancel(Job->Read);
+				Job->Cancellation.Cancel();
 				(void)WaitTask(Durin::Tasks::FTask(Job->Read));
 			}
 			Jobs.clear();

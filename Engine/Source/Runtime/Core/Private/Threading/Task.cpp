@@ -73,5 +73,4 @@ namespace Durin::Tasks
 	auto Wait(const Tasks::FTask& Task, double TimeoutSeconds) -> bool { return Task.Wait(TimeoutSeconds); }
 	auto WaitDetailed(const Tasks::FTask& Task) -> FTaskWaitResult { return WaitTask(Task); }
 	auto WaitDetailed(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult { return WaitTask(Task, TimeoutSeconds); }
-	auto Cancel(const Tasks::FTask& Task) -> bool { return CancelTask(Task); }
 }

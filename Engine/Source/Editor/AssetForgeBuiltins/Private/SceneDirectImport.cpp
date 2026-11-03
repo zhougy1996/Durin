@@ -351,7 +351,16 @@ struct FAssetImportSession::FImpl
 	bool bAsync = true;
 	bool bImportRequested = false;
 	bool bReplanRequested = false;
-	FCancellationToken Cancellation;
+	Tasks::FCancellationToken Cancellation;
+	std::function<bool()> ExternalCancellation;
+	std::mutex CancellationMutex;
+	auto CheckCancellation() -> bool
+	{
+		if (Cancellation.IsCanceled()) return true;
+		std::lock_guard Lock(CancellationMutex);
+		if (!Cancellation.IsCanceled() && ExternalCancellation && ExternalCancellation()) Cancellation.Cancel();
+		return Cancellation.IsCanceled();
+	}
 	std::function<bool()> IsCancellationRequested;
 	FSceneImportProgress Progress;
 	FSceneImportResult Result;
@@ -653,20 +662,20 @@ auto FAssetImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 			}
 			FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Output.StaticMeshMaterialSlots),
 				.Source = Output.StaticMeshSource};
-			if (Cancellation.IsCancelled())
+			if (CheckCancellation())
 			{
 				Result = AddError(Result, EImportDiagnosticCategory::Canceled, "scene-build",
 				    "Scene mesh build was cancelled.", Descriptor.StableIdentity);
 				return;
 			}
 			auto Outcome = BuildStaticMeshRenderData(std::move(Request));
-			if (Cancellation.IsCancelled() || !Outcome)
+			if (CheckCancellation() || !Outcome)
 			{
 				Result = AddError(Result,
-				                  Cancellation.IsCancelled()
+				                  CheckCancellation()
 				                      ? EImportDiagnosticCategory::Canceled
 				                      : EImportDiagnosticCategory::CandidateFailure,
-				                  "scene-build", Cancellation.IsCancelled() ? "Scene mesh build was cancelled." : Outcome.error(),
+				                  "scene-build", CheckCancellation() ? "Scene mesh build was cancelled." : Outcome.error(),
 				                  Descriptor.StableIdentity);
 				return;
 			}
@@ -698,8 +707,8 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 		while (bAsync && !bImportRequested)
 		{
 			Progress = {ESceneImportPhase::Ready, "Configure asset outputs"};
-			co_await Step([this] { return bImportRequested || bReplanRequested || Cancellation.IsCancelled(); });
-			if (Cancellation.IsCancelled())
+			co_await Step([this] { return bImportRequested || bReplanRequested || CheckCancellation(); });
+			if (CheckCancellation())
 				co_return AddError(Result, EImportDiagnosticCategory::Canceled, "asset-preview", "Asset import canceled.");
 			if (std::exchange(bReplanRequested, false))
 			{
@@ -1245,7 +1254,7 @@ FAssetImportSession::FAssetImportSession(std::string SourceFile, FPackagePath De
 	Impl->DestinationDirectory = std::move(Destination);
 	Impl->Settings = std::move(Settings);
 	Impl->ImportOptions = std::move(Options);
-	Impl->IsCancellationRequested = [Token = Impl->Cancellation] { return Token.IsCancelled(); };
+	Impl->IsCancellationRequested = [State = Impl.get()] { return State->CheckCancellation(); };
 }
 FAssetImportSession::~FAssetImportSession()
 {
@@ -1264,7 +1273,7 @@ auto FAssetImportSession::Tick() -> void
 {
 	Impl->Tick();
 	// Phase transitions can replace Progress; publish the cancellation fact afterwards.
-	Impl->Progress.bCancellationRequested = Impl->Cancellation.IsCancelled();
+	Impl->Progress.bCancellationRequested = Impl->CheckCancellation();
 }
 auto FAssetImportSession::Cancel() -> void
 {
@@ -1400,8 +1409,7 @@ auto ImportAssetOutputs(std::string_view SourceFile, const FPackagePath& Destina
 	Session.Impl->bImportRequested = true;
 	Session.Impl->MaterialOptions = Materials;
 	Session.Impl->PublicationOptions = Publication;
-	Session.Impl->Cancellation = FCancellationToken(Cancellation);
-	Session.Impl->IsCancellationRequested = [Token = Session.Impl->Cancellation] { return Token.IsCancelled(); };
+	Session.Impl->ExternalCancellation = Cancellation;
 	Session.Tick();
 	return Session.GetResult();
 }
@@ -1417,8 +1425,7 @@ auto ImportSceneAssets(std::string_view SourceFile, const FPackagePath &Destinat
 	Session.Impl->bImportRequested = true;
 	Session.Impl->MaterialOptions = MaterialOptions;
 	Session.Impl->PublicationOptions = PublicationOptions;
-	Session.Impl->Cancellation = FCancellationToken(IsCancellationRequested);
-	Session.Impl->IsCancellationRequested = [Token = Session.Impl->Cancellation] { return Token.IsCancelled(); };
+	Session.Impl->ExternalCancellation = IsCancellationRequested;
 	Session.Tick();
 	return Session.GetResult();
 }

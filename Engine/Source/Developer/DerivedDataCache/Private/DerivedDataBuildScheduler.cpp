@@ -18,7 +18,8 @@ namespace Durin::DerivedData
 		public:
 			Tasks::FTask Task;
 			auto GetTaskHandle() const -> Tasks::FTask override { return Task; }
-			auto RequestCancel() const -> void override { CancelTask(Task); }
+			// The request owner signals domain cancellation; accepted work still runs to retire it.
+			auto RequestCancel() const -> void override {}
 			auto Wait() const -> ERequestWaitResult override
 			{
 				return WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed

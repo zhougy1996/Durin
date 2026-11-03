@@ -32,15 +32,12 @@ namespace Durin
 			auto Bind(Tasks::TTask<FPackageResourceReadResult> Task) -> void
 			{
 				std::variant<FPackageResourceReadResult, FSharedResult> Published = std::move(Task);
-				Durin::Tasks::FTask CompletionToCancel;
 				{
 					std::lock_guard Lock(Mutex);
 					Result = std::move(Published);
 					bBinding = false;
-					if (bCancelled.load(std::memory_order_acquire)) CompletionToCancel = Completion();
 				}
 				Bound.notify_all();
-				if (CompletionToCancel.IsValid()) Tasks::Cancel(CompletionToCancel);
 			}
 		};
 	}
@@ -545,13 +542,7 @@ namespace Durin
 	{
 		if (!State) return;
 		State->bCancelled.store(true, std::memory_order_release);
-		Durin::Tasks::FTask Completion;
-		{
-			std::lock_guard Lock(State->Mutex);
-			if (!State->bBinding) Completion = State->Completion();
-		}
 		if (State->OnCancel) State->OnCancel();
-		if (Completion.IsValid()) Tasks::Cancel(Completion);
 	}
 
 	namespace
@@ -663,9 +654,8 @@ namespace Durin
 		Options.DebugName = "PackageResource.ReadRange";
 		Options.Attribution = PackageResourceAttribution();
 		State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, Options,
-			[Self = std::move(Self), State, Offset, Size](const FTaskCancellationToken& Token) {
-				if (Token.IsCancellationRequested()
-					|| State->bCancelled.load(std::memory_order_acquire))
+			[Self = std::move(Self), State, Offset, Size]() {
+				if (State->bCancelled.load(std::memory_order_acquire))
 					return Result(EPackageResourceReadStatus::Cancelled, {.Message = "Package range request was cancelled."});
 				return Self->ReadRangeImpl(Offset, Size, State->bCancelled);
 			}));

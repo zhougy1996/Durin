@@ -50,7 +50,6 @@ namespace Durin
 			std::deque<Tasks::TTask<std::vector<EClass>>> Tasks;
 			~FPending()
 			{
-				for (auto& Task : Tasks) Durin::Tasks::Cancel(Task);
 				for (auto& Task : Tasks) require(Task.Wait());
 			}
 		} Pending;

@@ -42,14 +42,14 @@ namespace Durin
 				[&Task, Callbacks](const Tasks::FTask& Disk, const std::shared_ptr<FAsyncSaveState>& Save) {
 					Task = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
 						{.DebugName = "Package.SavePublication"},
-						[Disk, Save, Callbacks](const FTaskCancellationToken& Token) mutable -> TResult {
+						[Disk, Save, Callbacks]() mutable -> TResult {
 							BeginAsyncSavePublication(Save);
 							struct FScope { ~FScope() { EndAsyncSavePublication(); } } Scope;
 							auto OnAbandon = std::exchange(Callbacks->Abandon, {});
 							try {
 								auto Invoke = std::move(*Callbacks->Publish);
 								Callbacks->Publish.reset();
-								return std::invoke(Invoke, Disk.GetState() == ETaskState::Succeeded, Token);
+								return std::invoke(Invoke, Disk.GetState() == ETaskState::Succeeded);
 							}
 							catch (...) {
 								Callbacks->Publish.reset();
@@ -69,7 +69,7 @@ namespace Durin
 		}
 		COREDOBJECT_API auto PollAsyncSaves() -> void;
 		COREDOBJECT_API auto SetAsyncSaveAdmission(bool bAccepting) -> void;
-		enum class EPublicationFault : uint8 { None, RejectAdmission, CancelContinuation };
+		enum class EPublicationFault : uint8 { None, RejectAdmission };
 		COREDOBJECT_API auto SetAsyncSavePublicationFaultForTests(EPublicationFault Fault) -> void;
 		COREDOBJECT_API auto SetAsyncSaveLimitsForTests(uint32 MaxOperations, uint64 MaxBytes) -> void;
 	}
@@ -81,7 +81,7 @@ namespace Durin
 		EPackageSaveMode Mode = EPackageSaveMode::Delta;
 		FPackageCaptureOptions Capture;
 		EPackageSaveFlags Flags = SAVE_None;
-		FTaskCancellationToken Cancellation;
+		std::function<bool()> IsCancellationRequested;
 	};
 	struct FSavePackageContext
 	{

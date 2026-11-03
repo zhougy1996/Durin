@@ -20,10 +20,10 @@ namespace Durin
 				: Started(InStarted), bRejectPending(bInRejectPending) {}
 			auto StartupModule() -> void override
 			{
-				Worker = Tasks::LaunchTask("ModuleOwnedWorker", [this](const FTaskCancellationToken& Token) {
+				Worker = Tasks::LaunchTask("ModuleOwnedWorker", [this]() {
 					Started.Trigger();
-					while (!Token.IsCancellationRequested()) std::this_thread::yield();
-				}, {.Cancellation = Cancellation.GetToken()});
+					while (!Cancellation.IsCanceled()) std::this_thread::yield();
+				});
 			}
 			auto SupportsDynamicReloading() const -> bool override { return true; }
 			auto ShutdownModule() -> void override
@@ -33,14 +33,14 @@ namespace Durin
 			}
 			auto CancelAndWait() -> void
 			{
-				Cancellation.RequestCancellation();
+				Cancellation.Cancel();
 				if (Worker.IsValid()) require(Worker.WaitDetailed().WaitStatus == ETaskWaitStatus::Completed);
 				Worker = {};
 			}
 		private:
 			FThreadEvent& Started;
 			bool bRejectPending;
-			FTaskCancellationSource Cancellation;
+			Tasks::FCancellationToken Cancellation;
 			Tasks::FTask Worker;
 		};
 	}

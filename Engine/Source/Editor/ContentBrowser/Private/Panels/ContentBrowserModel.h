@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Threading/Task.h"
 
 #include "Threading/Task.h"
 
@@ -18,6 +19,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Editor panels opt into asynchronous mode and pump before drawing.
 		explicit FContentBrowserModel(bool bAsync = false);
 		~FContentBrowserModel();
+		FContentBrowserModel(const FContentBrowserModel&) = delete;
+		auto operator=(const FContentBrowserModel&) -> FContentBrowserModel& = delete;
 		// Owner-thread, nonblocking frame pump; true means item publication or failure
 		// completed and the panel may repair its selection against current rows.
 		auto PumpPendingSnapshots() -> bool;
@@ -150,6 +153,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::shared_ptr<FItemsRequest> ItemsRequest;
 		std::shared_ptr<FItemsRequest> ActiveItemsRequest;
 		// The model alone consumes these move-only results after worker completion.
+		Tasks::FCancellationToken ItemsCancellation, TreeCancellation;
 		Tasks::TTask<std::unique_ptr<FContentBrowserItemsSnapshot>> ItemsTask;
 		Tasks::TTask<std::unique_ptr<FContentBrowserDirectorySnapshot>> TreeTask;
 		std::string ActiveTreeDirectory;

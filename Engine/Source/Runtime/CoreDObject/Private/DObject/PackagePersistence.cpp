@@ -103,7 +103,6 @@ namespace Durin
 				}
 				Save->Publication = MakePublication(Save->Disk, Save);
 				{ std::lock_guard Lock(AsyncSaveMutex); AsyncSaves.push_back(Save); }
-				if (PublicationFault == EPublicationFault::CancelContinuation) CancelTask(Save->Publication);
 				Save->bAdmitted = true;
 				Gate.Trigger();
 				return {};
@@ -121,7 +120,7 @@ namespace Durin
 		{
 			FPackageSaveResult Admission;
 			(void)SubmitTypedAsyncSave<void>(Bytes, std::move(Write),
-				[Publish = std::move(Publish)](bool bSucceeded, const FTaskCancellationToken&) { Publish(bSucceeded); },
+				[Publish = std::move(Publish)](bool bSucceeded) { Publish(bSucceeded); },
 				std::move(Abandon), Admission);
 			return Admission;
 		}
@@ -415,8 +414,8 @@ namespace Durin
 		if (!Admission) return {};
 		return PackageSavePrivate::SubmitTypedAsyncSave<FPackageSaveResult>(Operation->GetDetachedBytes(),
 			[Operation] { Operation->StageDetached(); },
-			[Operation, Cancellation = Options.Cancellation](bool bSucceeded, const FTaskCancellationToken& Token) mutable {
-				const bool bCancelled = Cancellation.IsCancellationRequested() || Token.IsCancellationRequested();
+			[Operation, IsCancellationRequested = Options.IsCancellationRequested](bool bSucceeded) mutable {
+				const bool bCancelled = IsCancellationRequested && IsCancellationRequested();
 				auto Result = !bSucceeded || bCancelled ? Operation->Cancel() : Operation->Complete();
 				if (!bSucceeded) Result = Fail(EPackageSaveError::IoError, "Package I/O task did not succeed.");
 				Operation.reset();

@@ -50,6 +50,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Keeps worker queues alive independently from the public cache object.
 		struct FAsyncThumbnailState
 		{
+			::Durin::Tasks::FCancellationToken Cancellation;
 			std::mutex Mutex;
 			std::vector<FUploadResult> UploadedResults;
 			std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = std::make_shared<FSourceImageThumbnailDiskCache>();
@@ -163,7 +164,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				{
 					Result.PhysicalPath = Flight->PhysicalPath;
 					Result.Serial = Flight->Serial;
-					Result.Error = Flight->Task.IsCancellationRequested()
+					Result.Error = AsyncState->Cancellation.IsCanceled()
 						? "Thumbnail decoding was canceled." : Flight->Task.GetDiagnostic();
 				}
 				Flight = Tasks.erase(Flight);
@@ -240,11 +241,11 @@ namespace Durin::Editor::ContentBrowser::Private
 				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = State->DiskCache;
 				::Durin::Tasks::FTaskExecutionOptions DecodeOptions;
 				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
-				auto Task = ::Durin::Tasks::LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)](const FTaskCancellationToken& Token) {
+				auto Task = ::Durin::Tasks::LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)]() {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
 					Result.Serial = Serial;
-					if (Token.IsCancellationRequested()) { Result.Error = "Source image thumbnail request canceled."; return Result; }
+					if (State->Cancellation.IsCanceled()) { Result.Error = "Source image thumbnail request canceled."; return Result; }
 					auto Decoded = BypassDisk
 						? DecodeSourceImageThumbnail(PhysicalPath, 256)
 						: DiskCache->LoadOrGenerate(PhysicalPath, FileSize, LastWriteTime);
@@ -431,7 +432,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			Impl->AsyncState->bAcceptingResults = false;
 			Impl->AsyncState->UploadedResults.clear();
 		}
-		for (const auto& Flight : Impl->Tasks) (void)::Durin::Tasks::Cancel(Flight.Task);
+		Impl->AsyncState->Cancellation.Cancel();
 		for (const auto& Flight : Impl->Tasks) (void)Flight.Task.Wait();
 		Impl->Tasks.clear();
 		Impl->ActiveDecodeCount = 0;

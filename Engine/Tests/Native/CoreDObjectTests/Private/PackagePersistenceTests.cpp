@@ -137,6 +137,7 @@ namespace
 		DPackage* Package = nullptr;
 		DPersistedObject* Asset = nullptr;
 		FPackageSaveOptions Options;
+		Tasks::FCancellationToken Cancellation;
 	};
 }
 
@@ -343,10 +344,11 @@ TEST_F(FPackagePersistenceTests, RejectedPublicationCannotStartDiskWorkAndReleas
 
 TEST_F(FPackagePersistenceTests, CanceledPublicationReturnsDomainCancellationBeforeTaskShutdown)
 {
-	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::CancelContinuation);
 	FPackageSaveResult Admission;
+	Options.IsCancellationRequested = [this] { return Cancellation.IsCanceled(); };
 	auto Task = Package->SaveAsync(Admission, FSavePackageContext{Options});
 	ASSERT_TRUE(Task.IsValid());
+	Cancellation.Cancel();
 	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_FALSE(Task.IsCompleted());
 	PackageSavePrivate::SetAsyncSaveAdmission(false);
@@ -359,7 +361,7 @@ TEST_F(FPackagePersistenceTests, CanceledPublicationReturnsDomainCancellationBef
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
 	EXPECT_TRUE(DPackage::DrainAsyncSaves());
-	ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+	ShutdownTaskSystem(ETaskShutdownMode::Drain);
 }
 
 TEST_F(FPackagePersistenceTests, ExternalBulkRoundTripsAndObsoleteCompanionIsRemoved)
@@ -386,12 +388,14 @@ TEST_F(FPackagePersistenceTests, StaleEditsAndCancellationRejectButDroppedHandle
 	EXPECT_EQ(FinishSave(Operation).Error, EPackageSaveError::StaleData);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
+	Options.IsCancellationRequested = [this] { return Cancellation.IsCanceled(); };
 	Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
 	ASSERT_TRUE(Operation.IsValid());
-	EXPECT_TRUE(Tasks::Cancel(Operation));
+	Cancellation.Cancel();
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_EQ(Operation.GetState(), ETaskState::Succeeded);
 	EXPECT_EQ(Operation.GetResult().Error, EPackageSaveError::Cancelled);
+	Cancellation = Tasks::FCancellationToken{};
 	Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
 	ASSERT_TRUE(Operation.IsValid());
 	Operation = {};
@@ -917,7 +921,7 @@ TEST_F(FPackagePersistenceTests, DrainPumpsTypedPublicationAndRejectsReentrantSa
 		});
 		IoWeak = IoPayload;
 		Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [Owner, IoPayload, &ReleaseIo] { ReleaseIo.Wait(); },
-			[&, Owner](bool Success, const FTaskCancellationToken&) {
+			[&, Owner](bool Success) {
 				EXPECT_TRUE(Success); EXPECT_TRUE(IsInGameThread()); ++Calls;
 				EXPECT_EQ(DPackage::DrainAsyncSaves().Error, EPackageSaveError::Busy);
 				EXPECT_EQ(PackageSavePrivate::CheckAsyncAdmission().Error, EPackageSaveError::Busy);
@@ -956,7 +960,7 @@ TEST_F(FPackagePersistenceTests, PublicationExceptionsRetireCapturesAndReleaseCa
 			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
 		});
 		Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [Owner] {},
-			[&, Owner](bool, const FTaskCancellationToken&) -> int { ++Calls; throw std::runtime_error("publication failure"); },
+			[&, Owner](bool) -> int { ++Calls; throw std::runtime_error("publication failure"); },
 			[&, Owner] {
 				EXPECT_TRUE(IsInGameThread()); ++Abandoned;
 				throw std::runtime_error("abandonment failure");
@@ -984,7 +988,7 @@ TEST_F(FPackagePersistenceTests, FailedIoStillRunsTypedPublication)
 	FPackageSaveResult Admission;
 	uint32 Calls = 0;
 	auto Task = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [] { throw std::runtime_error("I/O failure"); },
-		[&](bool Success, const FTaskCancellationToken&) { EXPECT_FALSE(Success); ++Calls; return -1; },
+		[&](bool Success) { EXPECT_FALSE(Success); ++Calls; return -1; },
 		[] { ADD_FAILURE() << "A handled I/O failure is still a completed publication."; }, Admission);
 	ASSERT_TRUE(Admission);
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
@@ -1093,7 +1097,7 @@ TEST_F(FPackagePersistenceTests, BusinessSkippedPublicationCleanupMayPumpOtherAc
 	EXPECT_EQ(Applied, 0u);
 	EXPECT_EQ(Skipped, 1u);
 	Other = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [] {},
-		[](bool Success, const FTaskCancellationToken&) { EXPECT_TRUE(Success); return 41; },
+		[](bool Success) { EXPECT_TRUE(Success); return 41; },
 		[] { ADD_FAILURE(); }, Admission);
 	ASSERT_TRUE(Admission);
 	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);

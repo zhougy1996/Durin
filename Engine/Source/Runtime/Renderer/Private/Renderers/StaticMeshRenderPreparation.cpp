@@ -58,7 +58,6 @@ namespace Durin
 			std::vector<Tasks::TTask<std::vector<FMeshViewPreparationFact>>> Work;
 			~FPending()
 			{
-				for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task);
 				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait());
 			}
 		} Pending;
@@ -1121,7 +1120,7 @@ namespace Durin
 			const size_t First = Work.NextPrimitive;
 			const size_t Count = std::min(MeshPreparationChunkSize, Work.Inputs->Collected->Primitives.size() - First);
 			Tasks::FTaskExecutionOptions Options;
-			Options.Cancellation = Work.Cancellation;
+
 			auto Task = Tasks::LaunchIndependentTask("Renderer.PrepareMeshChunk",
 				[Inputs = Work.Inputs, First, Count] { return PrepareStaticMeshInputChunk(Inputs, First, Count); }, Options);
 			Work.Active.push_back({Work.LaunchedChunks++, std::move(Task)});
@@ -1131,26 +1130,25 @@ namespace Durin
 
 	FStaticMeshPreparationWork::~FStaticMeshPreparationWork()
 	{
-		for (auto& Slot : Active) Tasks::Cancel(Slot.Task);
 		for (auto& Slot : Active)
 			require(Slot.Task.Wait());
 	}
 
 	auto StartStaticMeshPreparation(std::shared_ptr<const FStaticMeshPreparationInputs> Inputs,
-		EStaticMeshPreparationPolicy Policy, FTaskCancellationToken Cancellation) -> FStaticMeshPreparationWork
+		EStaticMeshPreparationPolicy Policy, std::function<bool()> IsCancellationRequested) -> FStaticMeshPreparationWork
 	{
 		check(Inputs && Inputs->Collected);
 		FStaticMeshPreparationWork Work;
 		Work.Inputs = std::move(Inputs);
-		Work.Cancellation = std::move(Cancellation);
-		Work.bCanceled = Work.Cancellation.IsCancellationRequested();
+		Work.IsCancellationRequested = std::move(IsCancellationRequested);
+		Work.bCanceled = (Work.IsCancellationRequested && Work.IsCancellationRequested());
 		if (Work.bCanceled) return Work;
 		const size_t Count = Work.Inputs->Collected->Primitives.size();
 		if (Policy == EStaticMeshPreparationPolicy::Inline || !IsTaskSchedulerRunning()
 			|| Count == 0 || (Policy == EStaticMeshPreparationPolicy::Auto && Count < 256))
 		{
 			Work.InlineOutput = PrepareStaticMeshInputs(*Work.Inputs);
-			Work.bCanceled = Work.Cancellation.IsCancellationRequested();
+			Work.bCanceled = (Work.IsCancellationRequested && Work.IsCancellationRequested());
 			return Work;
 		}
 		while (Work.NextPrimitive < Count && Work.Active.size() < MaxActiveMeshPreparationTasks)
@@ -1168,6 +1166,11 @@ namespace Durin
 		std::optional<FStaticMeshPreparationError> Failure;
 		while (!Work.Active.empty())
 		{
+			if (!Failure && Work.IsCancellationRequested && Work.IsCancellationRequested())
+			{
+				Work.bCanceled = true;
+				Failure = FStaticMeshPreparationError{Work.Active.front().Index, ETaskState::Canceled};
+			}
 			auto Slot = std::move(Work.Active.front());
 			Work.Active.pop_front();
 			const auto Wait = Slot.Task.WaitDetailed();
@@ -1175,7 +1178,7 @@ namespace Durin
 			if (!Failure && Wait.TaskState != ETaskState::Succeeded)
 			{
 				Failure = FStaticMeshPreparationError{Slot.Index, Wait.TaskState};
-				for (auto& Pending : Work.Active) Tasks::Cancel(Pending.Task);
+				Work.bCanceled = true;
 			}
 			if (!Failure)
 			{

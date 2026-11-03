@@ -109,7 +109,7 @@ namespace Durin::Tests
 
 			~FTaskSystemGuard()
 			{
-				ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+				ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			}
 		};
 

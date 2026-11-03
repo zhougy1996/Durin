@@ -493,7 +493,7 @@ namespace Durin
 		std::shared_ptr<const FStaticMeshPreparationInputs> Inputs;
 		std::optional<FPreparedStaticMeshView> InlineOutput;
 		std::deque<FSlot> Active;
-		FTaskCancellationToken Cancellation;
+		std::function<bool()> IsCancellationRequested;
 		bool bCanceled = false;
 		size_t NextPrimitive = 0;
 		size_t LaunchedChunks = 0;
@@ -511,7 +511,7 @@ namespace Durin
 	};
 	RENDERER_API auto StartStaticMeshPreparation(std::shared_ptr<const FStaticMeshPreparationInputs> Inputs,
 		EStaticMeshPreparationPolicy Policy = EStaticMeshPreparationPolicy::Auto,
-		FTaskCancellationToken Cancellation = {}) -> FStaticMeshPreparationWork;
+		std::function<bool()> IsCancellationRequested = {}) -> FStaticMeshPreparationWork;
 	RENDERER_API auto FinishStaticMeshPreparation(FStaticMeshPreparationWork Work)
 		-> std::expected<FPreparedStaticMeshView, FStaticMeshPreparationError>;
 

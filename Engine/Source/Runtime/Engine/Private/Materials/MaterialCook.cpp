@@ -29,7 +29,7 @@ namespace Durin
 		auto* Preparation = FCookPreparationContext::Get(*this, Context);
 		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing material Cook preparation context."}; return; }
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) {
-			const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken(Context.IsCancelled)};
+			const FAssetBuildTaskContext Control{.IsCancellationRequested = [&Context] { return Context.CheckCancellation(); }};
 			auto Built = PrepareCookedProgram(Preparation->GetTargetPlatform(), Preparation->Options.MaterialConfigurations, Control);
 			if (Built.Status == EShaderBuildStatus::Canceled) Context.Result = {EObjectCookError::Cancelled, {}};
 			else if (!Built) Context.Result = {EObjectCookError::Preparation, std::string(Built.Error)};
@@ -54,7 +54,7 @@ namespace Durin
 			std::mutex Mutex;
 			std::atomic<bool> Failed = false;
 			std::string Failure;
-			FCancellationToken Cancellation;
+			Tasks::FCancellationToken Cancellation;
 			auto Cancel() -> void {
 				Cancellation.Cancel();
 				for (const auto& Compile : Compiles) FShaderCompilingManager::Get().CancelCompilation(Compile);
@@ -123,7 +123,7 @@ namespace Durin
 		};
 		for (size_t Index = 0; Index < Inputs.size(); ++Index) {
 			auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Inputs[Index],
-				{.Cancellation = Work->Cancellation},
+				{.IsCancellationRequested = [Weak = std::weak_ptr(Work)] { auto Owner = Weak.lock(); return !Owner || Owner->Cancellation.IsCanceled(); }},
 				[Work, Index](MaterialBuildPrivate::FMaterialBuildResult Build) {
 					const auto& Result = *Build.Program;
 					std::lock_guard Lock(Work->Mutex);

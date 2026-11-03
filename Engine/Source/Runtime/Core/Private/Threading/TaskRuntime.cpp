@@ -434,20 +434,6 @@ namespace Durin
 
 
 
-	class FTaskCancellationState
-	{
-	public:
-		auto IsCancellationRequested() const -> bool
-		{
-			return bCancellationRequested.load(std::memory_order_acquire);
-		}
-
-		auto RequestCancellation() -> void { bCancellationRequested.store(true, std::memory_order_release); }
-
-	private:
-		std::atomic<bool> bCancellationRequested = false;
-	};
-
 	enum class ETaskDependencyKind : uint8 { Execution, Nested, Pipe };
 
 	// Per-walk scratch, never a graph cache. Open addressing retains allocations
@@ -607,7 +593,6 @@ namespace Durin
 		const char* DebugName = "Task";
 		std::weak_ptr<FTaskScheduler> Scheduler;
 		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting;
-		FTaskCancellationToken CancellationToken;
 		std::vector<std::shared_ptr<FTaskStateData>> Prerequisites;
 		uint64 ParentTaskId = 0;
 		ETaskTarget Target = ETaskTarget::AnyWorker;
@@ -633,7 +618,6 @@ namespace Durin
 			, DebugName(Init.DebugName ? Init.DebugName : "Task")
 			, Scheduler(Init.Scheduler)
 			, LifetimeAccounting(Init.LifetimeAccounting)
-			, SharedCancellationState(Init.CancellationToken.SharedState)
 			, bHasResultStorage(Init.Result.bHasValue)
 			, bConstructionPending(Init.Kind == ETaskNodeKind::Executable)
 			, Event(Init.Kind == ETaskNodeKind::Event ? std::make_unique<FEventData>() : nullptr)
@@ -786,7 +770,7 @@ namespace Durin
 		auto OnPrerequisiteTerminal() -> void;
 		// The running body or closing phase exclusively owns the callback. Never
 		// move or destroy user captures under the node mutex.
-		auto InvokeBody(const FTaskCancellationToken& Token) -> void { PendingFunction(Token); }
+		auto InvokeBody() -> void { PendingFunction(); }
 		auto ReleaseBody() -> void { PendingFunction = nullptr; }
 
 		auto PrepareForQueue() -> bool
@@ -875,17 +859,6 @@ namespace Durin
 				ExecutingThreadId = CurrentThread->GetThreadId();
 			}
 			return true;
-		}
-
-		auto MakeCancellationToken() -> FTaskCancellationToken
-		{
-			return FTaskCancellationToken(SharedCancellationState, weak_from_this());
-		}
-
-		auto IsCancellationRequested() const -> bool
-		{
-			return bCancellationRequested.load(std::memory_order_acquire)
-				|| (SharedCancellationState && SharedCancellationState->IsCancellationRequested());
 		}
 
 		auto DependsOn(const FTaskStateData* PotentialPrerequisite) const -> bool
@@ -977,7 +950,6 @@ namespace Durin
 			std::vector<std::shared_ptr<FTaskStateData>> Released;
 			{ std::lock_guard Lock(Mutex); Released = Dependencies.Release(FTaskDependencyEdges::ERelease::ExecutionStarted); }
 		}
-		auto RequestCancellation() -> bool;
 		auto SetCanceledOutcome() -> void
 		{
 			std::lock_guard Lock(Mutex);
@@ -1081,7 +1053,6 @@ namespace Durin
 		std::string DebugName;
 		std::weak_ptr<FTaskScheduler> Scheduler;
 		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting;
-		std::shared_ptr<FTaskCancellationState> SharedCancellationState;
 		mutable std::mutex Mutex;
 		mutable std::vector<std::weak_ptr<FWaitSignal>> Waiters;
 		Private::FMoveOnlyTaskFunction PendingFunction;
@@ -1122,7 +1093,6 @@ namespace Durin
 		const bool bIndependentCPU;
 		uint64 SchedulerStorageBytes = 0;
 		FTaskAttribution Attribution;
-		std::atomic<bool> bCancellationRequested = false;
 		uint64 EnqueueTimeNanoseconds = 0;
 		uint64 DispatchTimeNanoseconds = 0;
 		uint64 StartTimeNanoseconds = 0;
@@ -1224,7 +1194,6 @@ namespace Durin
 			Init.DebugName = Name;
 			Init.Scheduler = weak_from_this();
 			Init.LifetimeAccounting = LifetimeAccounting;
-			Init.CancellationToken = Options.CancellationToken;
 			Init.ParentTaskId = GCurrentTaskState ? GCurrentTaskState->GetTaskId() : 0;
 			Init.Target = Target;
 			Init.Priority = Priority;
@@ -1426,7 +1395,7 @@ namespace Durin
 			std::shared_ptr<Tasks::Private::FTaskConcurrencyLimiterState> LimiterLifetime;
 			try
 			{
-				State->InvokeBody(State->MakeCancellationToken());
+				State->InvokeBody();
 				LimiterLifetime = State->CompleteConcurrencyWork();
 				State->ReleaseBody();
 				ReleaseBodyStorage();
@@ -1459,27 +1428,9 @@ namespace Durin
 			bAcceptingTasks = false;
 		}
 
-		auto RequestCancellation() -> void
-		{
-			std::vector<std::shared_ptr<FTaskStateData>> TasksToCancel;
-			{
-				std::lock_guard Lock(Mutex);
-				TasksToCancel.reserve(ActiveTasks.size());
-				for (const auto& [TaskId, Task] : ActiveTasks)
-				{
-					TasksToCancel.push_back(Task);
-				}
-			}
-			for (const std::shared_ptr<FTaskStateData>& Task : TasksToCancel)
-			{
-				Task->RequestCancellation();
-			}
-		}
-
 		auto Shutdown(bool bWaitForQueuedWork) -> void
 		{
 			CloseAdmission();
-			if (!bWaitForQueuedWork) RequestCancellation();
 
 			{
 				std::unique_lock Lock(Mutex);
@@ -2258,14 +2209,12 @@ namespace Durin
 	auto Tasks::FTaskConcurrencyLimiter::GetCurrentSlot() -> uint32
 	{ return GCurrentTaskState->GetConcurrencySlot(); }
 
-	auto Tasks::FTaskConcurrencyLimiter::PushImpl(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function,
-		FTaskCancellationToken Cancellation) -> void
+	auto Tasks::FTaskConcurrencyLimiter::PushImpl(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function) -> void
 	{
 		FTaskLaunchOptions Options;
 		Options.ConcurrencyLimiter = State;
 		Options.Priority = State->Priority;
-		Options.CancellationToken = std::move(Cancellation);
-		(void)Durin::Private::LaunchCancelableTaskWithCompletion(Name, std::move(Function), {}, Options);
+		(void)Durin::Private::LaunchTaskWithCompletion(Name, std::move(Function), {}, Options);
 	}
 
 	auto Tasks::FPipe::AddTask() -> void
@@ -2324,16 +2273,6 @@ namespace Durin
 		}
 	}
 
-	auto FTaskStateData::RequestCancellation() -> bool
-	{
-		{
-			std::lock_guard Lock(Mutex);
-			if (Phase >= EPhase::Closing) return false;
-			bCancellationRequested = true;
-		}
-		return true;
-	}
-
 	auto FTaskStateData::OnNestedCompleted() -> void
 	{
 		{
@@ -2344,50 +2283,7 @@ namespace Durin
 		TryClose();
 	}
 
-	FTaskCancellationToken::FTaskCancellationToken() = default;
-
-	FTaskCancellationToken::FTaskCancellationToken(
-		std::shared_ptr<FTaskCancellationState> InSharedState,
-		std::weak_ptr<FTaskStateData> InTaskState
-	)
-		: SharedState(std::move(InSharedState))
-		, TaskState(std::move(InTaskState))
-	{
-	}
-
-	auto FTaskCancellationToken::IsCancellationRequested() const -> bool
-	{
-		if (std::shared_ptr<FTaskStateData> PinnedTask = TaskState.lock(); PinnedTask && PinnedTask->IsCancellationRequested())
-		{
-			return true;
-		}
-		return SharedState && SharedState->IsCancellationRequested();
-	}
-
-	FTaskCancellationSource::FTaskCancellationSource()
-		: State(std::make_shared<FTaskCancellationState>())
-	{
-	}
-
-	auto FTaskCancellationSource::GetToken() const -> FTaskCancellationToken
-	{
-		return FTaskCancellationToken(State, {});
-	}
-
-	auto FTaskCancellationSource::IsCancellationRequested() const -> bool
-	{
-		return State && State->IsCancellationRequested();
-	}
-
-	auto FTaskCancellationSource::RequestCancellation() -> void
-	{
-		if (State)
-		{
-			State->RequestCancellation();
-		}
-	}
-
-	FParallelForCancellationToken::FParallelForCancellationToken(FTaskCancellationToken InGroupToken, FTaskCancellationToken InExternalToken)
+	FParallelForCancellationToken::FParallelForCancellationToken(const Tasks::FCancellationToken* InGroupToken, const Tasks::FCancellationToken* InExternalToken)
 		: GroupToken(std::move(InGroupToken))
 		, ExternalToken(std::move(InExternalToken))
 	{
@@ -2395,7 +2291,8 @@ namespace Durin
 
 	auto FParallelForCancellationToken::IsCancellationRequested() const -> bool
 	{
-		return GroupToken.IsCancellationRequested() || ExternalToken.IsCancellationRequested();
+		return (GroupToken && GroupToken->IsCanceled())
+			|| (ExternalToken && ExternalToken->IsCanceled());
 	}
 
 	Tasks::Private::FTaskHandle::FTaskHandle() = default;
@@ -2439,11 +2336,6 @@ namespace Durin
 	{
 		return State ? State->GetDiagnostics() : FTaskDiagnostics{};
 	}
-	auto Tasks::Private::FTaskHandle::IsCancellationRequested() const -> bool
-	{
-		return State && State->IsCancellationRequested();
-	}
-
 	auto InitializeTaskScheduler(uint32 InNumThreads) -> bool
 	{
 		return InitializeTaskScheduler(FTaskSchedulerConfig{.NumWorkerThreads = InNumThreads});
@@ -2568,7 +2460,6 @@ namespace Durin
 			Queue = GGameThreadDeferredQueue;
 		}
 
-		if (Mode == ETaskShutdownMode::Cancel) SchedulerToDestroy->RequestCancellation();
 		const FGameThreadDeferredPumpBudget ShutdownBudget{.bUnlimited = true};
 		const auto ShutdownWaitStart = std::chrono::steady_clock::now();
 		bool bRecordedLongWait = false;
@@ -2623,7 +2514,7 @@ namespace Durin
 		}
 		if (bUseCoordinator)
 		{
-			ShutdownTaskSystem(bWaitForQueuedWork ? ETaskShutdownMode::Drain : ETaskShutdownMode::Cancel);
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			return;
 		}
 
@@ -2798,7 +2689,7 @@ namespace Durin
 			~FSubmissionGuard() { if (Scheduler) Scheduler->EndSubmission(); }
 		};
 
-		auto LaunchCancelableTaskWithCompletion(
+		auto LaunchTaskWithCompletion(
 			const char* Name,
 			FMoveOnlyTaskFunction&& Function,
 			Private::FTaskCompletionFunction&& CompletionFunction,
@@ -2921,11 +2812,6 @@ namespace Durin
 
 
 	} // namespace Private
-
-	auto CancelTask(const Tasks::FTask& Task) -> bool
-	{
-		return Task.State && Task.State->RequestCancellation();
-	}
 
 	auto WaitTask(const Tasks::FTask& Task) -> FTaskWaitResult
 	{ return WaitTask(Task, std::numeric_limits<double>::infinity()); }
@@ -3232,7 +3118,7 @@ namespace Durin
 		{
 			return {ETaskState::Succeeded, {}, 0};
 		}
-		if (Options.CancellationToken.IsCancellationRequested())
+		if (Options.CancellationToken && Options.CancellationToken->IsCanceled())
 		{
 			return {ETaskState::Canceled, "ParallelFor cancellation was requested before execution.", 0};
 		}
@@ -3270,7 +3156,7 @@ namespace Durin
 		const uint64 WorkerLimitedChunks = bSchedulerRunning ? static_cast<uint64>(SchedulerWorkerCount) + 1 : 1;
 		const uint32 ChunkCount = static_cast<uint32>(std::min<uint64>(Num, std::min(BatchLimitedChunks, WorkerLimitedChunks)));
 		const uint32 EffectiveChunkCount = bNested ? 1 : std::max<uint32>(1, ChunkCount);
-		const FTaskCancellationToken ExternalToken = Options.CancellationToken;
+		const auto ExternalToken = Options.CancellationToken;
 		auto Invoke = [](F& Body, uint64 Index, const FParallelForCancellationToken& Token) {
 			if constexpr (std::is_invocable_v<F&, uint64, const FParallelForCancellationToken&>) Body(Index, Token);
 			else Body(Index);
@@ -3299,7 +3185,7 @@ namespace Durin
 		struct FSharedParallelForState
 		{
 			std::mutex Mutex;
-			FTaskCancellationSource CancellationSource;
+			Tasks::FCancellationToken Cancellation;
 			F Function;
 			explicit FSharedParallelForState(F&& InFunction) : Function(std::move(InFunction)) {}
 			uint64 LowestFailedChunkStart = std::numeric_limits<uint64>::max();
@@ -3317,14 +3203,14 @@ namespace Durin
 			}
 		};
 
-		auto ExecuteChunk = [SharedState, ExternalToken, RecordFailure, Invoke](uint64 ChunkStart, uint64 ChunkEnd, const FTaskCancellationToken& TaskToken) {
+		auto ExecuteChunk = [SharedState, ExternalToken, RecordFailure, Invoke](uint64 ChunkStart, uint64 ChunkEnd) {
 			FParallelForDepthScope ChunkDepthScope;
-			const FParallelForCancellationToken CancellationToken(TaskToken, ExternalToken);
+			const FParallelForCancellationToken CancellationToken(&SharedState->Cancellation, ExternalToken);
 			for (uint64 Index = ChunkStart; Index < ChunkEnd; ++Index)
 			{
 				if (CancellationToken.IsCancellationRequested())
 				{
-					SharedState->CancellationSource.RequestCancellation();
+					SharedState->Cancellation.Cancel();
 					return;
 				}
 				try
@@ -3334,19 +3220,19 @@ namespace Durin
 				catch (const std::exception& Exception)
 				{
 					RecordFailure(ChunkStart, ChunkEnd, Exception.what());
-					SharedState->CancellationSource.RequestCancellation();
+					SharedState->Cancellation.Cancel();
 					throw;
 				}
 				catch (...)
 				{
 					RecordFailure(ChunkStart, ChunkEnd, "callable threw an unknown exception.");
-					SharedState->CancellationSource.RequestCancellation();
+					SharedState->Cancellation.Cancel();
 					throw;
 				}
 			}
 			if (CancellationToken.IsCancellationRequested())
 			{
-				SharedState->CancellationSource.RequestCancellation();
+				SharedState->Cancellation.Cancel();
 			}
 		};
 
@@ -3361,15 +3247,14 @@ namespace Durin
 		std::vector<Tasks::FTask> WorkerTasks;
 		WorkerTasks.reserve(EffectiveChunkCount - 1);
 		FTaskLaunchOptions LaunchOptions;
-		LaunchOptions.CancellationToken = SharedState->CancellationSource.GetToken();
 		LaunchOptions.Attribution = SelectedAttribution;
 		for (uint32 ChunkIndex = 1; ChunkIndex < EffectiveChunkCount; ++ChunkIndex)
 		{
 			const auto [ChunkStart, ChunkEnd] = GetChunkRange(ChunkIndex);
-			auto Task = Private::LaunchCancelableTaskWithCompletion(
+			auto Task = Private::LaunchTaskWithCompletion(
 				Name ? Name : "ParallelFor",
-				[ExecuteChunk, ChunkStart, ChunkEnd](const FTaskCancellationToken& TaskToken) {
-					ExecuteChunk(ChunkStart, ChunkEnd, TaskToken);
+				[ExecuteChunk, ChunkStart, ChunkEnd]() {
+					ExecuteChunk(ChunkStart, ChunkEnd);
 				}, {},
 				LaunchOptions
 			);
@@ -3379,7 +3264,7 @@ namespace Durin
 		const auto [CallerChunkStart, CallerChunkEnd] = GetChunkRange(0);
 		try
 		{
-			ExecuteChunk(CallerChunkStart, CallerChunkEnd, SharedState->CancellationSource.GetToken());
+			ExecuteChunk(CallerChunkStart, CallerChunkEnd);
 		}
 		catch (...)
 		{
@@ -3387,7 +3272,8 @@ namespace Durin
 		}
 
 		const std::vector<FTaskWaitResult> WorkerOutcomes = WaitAll(WorkerTasks);
-		bool bAnyCanceled = SharedState->CancellationSource.IsCancellationRequested() || Options.CancellationToken.IsCancellationRequested();
+		bool bAnyCanceled = SharedState->Cancellation.IsCanceled()
+			|| (Options.CancellationToken && Options.CancellationToken->IsCanceled());
 		for (const FTaskWaitResult& Outcome : WorkerOutcomes)
 		{
 			bAnyCanceled = bAnyCanceled

@@ -1477,23 +1477,23 @@ TEST(FStaticMeshSourceResidencyTests, ExistingAuthoredPackageAndDuplicateRetainC
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 
-TEST(FAssetBuildCancellationTests, CopiesAndObserversShareMonotonicCancellation)
+TEST(FAssetBuildCancellationTests, ContextCopiesRetainTheOperationCancellationState)
 {
 	using namespace Durin;
-	uint32 Calls = 0;
-	const FAssetBuildTaskContext Control{.Cancellation = [&] { return ++Calls == 1; }};
+	struct FOperation { Tasks::FCancellationToken Cancellation; uint32 Calls = 0; };
+	auto Operation = std::make_shared<FOperation>();
+	const FAssetBuildTaskContext Control{.IsCancellationRequested = [Operation] {
+		if (!Operation->Cancellation.IsCanceled() && ++Operation->Calls == 1) Operation->Cancellation.Cancel();
+		return Operation->Cancellation.IsCanceled();
+	}};
 	const auto Copy = Control;
 	EXPECT_TRUE(Copy.IsCancelled());
-	EXPECT_TRUE(Control.Cancellation.IsCancelled());
-	EXPECT_EQ(Calls, 1u);
-	FCancellationToken Request;
-	const auto NativeObserver = Request.WithObserver([] { return true; });
-	EXPECT_TRUE(NativeObserver.IsCancelled());
-	EXPECT_TRUE(Request.IsCancelled());
-	FCancellationToken CrossThread;
-	std::thread Worker([Copy = CrossThread] { Copy.Cancel(); });
+	EXPECT_TRUE(Control.IsCancelled());
+	EXPECT_EQ(Operation->Calls, 1u);
+	Tasks::FCancellationToken CrossThread;
+	std::thread Worker([&CrossThread] { CrossThread.Cancel(); });
 	Worker.join();
-	EXPECT_TRUE(CrossThread.IsCancelled());
+	EXPECT_TRUE(CrossThread.IsCanceled());
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, InvalidInputReturnsFailureInsteadOfAnEmptySuccessfulProduct)
@@ -3679,10 +3679,10 @@ TEST(FPhysicsMeshLifecycleTests, CollisionProjectionMatchesRenderNormalizationAn
 	const auto Budget = (*Captured)->Execute({.MaximumWorkingSetBytes = 1});
 	ASSERT_FALSE(Budget);
 
-	const Durin::FAssetBuildTaskContext Control{.Cancellation = [] { return true; }};
+	const Durin::FAssetBuildTaskContext Control{.IsCancellationRequested = [] { return true; }};
 	auto Cancelled = (*Captured)->Execute(Control);
 	ASSERT_TRUE(Cancelled);
-	EXPECT_TRUE(Control.Cancellation.IsCancelled());
+	EXPECT_TRUE(Control.IsCancelled());
 	MarkObjectHierarchyAsGarbage(Mesh);
 }
 
@@ -3728,10 +3728,10 @@ TEST(FPhysicsMeshLifecycleTests, ResidentInputTaskAndCookInfoOwnRepeatableSnapsh
 	EXPECT_EQ(First->Indices, Second->Indices);
 	EXPECT_EQ(First->Indices.size(), 3u);
 	EXPECT_FALSE(Task->Execute({.MaximumWorkingSetBytes = 1}));
-	const Durin::FAssetBuildTaskContext Control{.Cancellation = [] { return true; }};
+	const Durin::FAssetBuildTaskContext Control{.IsCancellationRequested = [] { return true; }};
 	const auto Cancelled = Task->Execute(Control);
 	ASSERT_TRUE(Cancelled);
-	EXPECT_TRUE(Control.Cancellation.IsCancelled());
+	EXPECT_TRUE(Control.IsCancelled());
 
 	auto* Body = NewObject<DBodySetup>(nullptr, FName("CookInfoSnapshot"));
 	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
@@ -3759,7 +3759,9 @@ TEST(FPhysicsCookTests, InputFailuresOwnBoundedTextAndLocalCancellationCannotAbo
 			auto Execute(const FAssetBuildTaskContext& Control) const
 				-> std::expected<FTriMeshCollisionData, std::string> override
 			{
-				Control.Cancellation.Cancel();
+				Tasks::FCancellationToken LocalCancellation;
+				LocalCancellation.Cancel();
+				EXPECT_FALSE(Control.IsCancelled());
 				return FTriMeshCollisionData{{{0, 0, 0}, {2, 0, 0}, {0, 2, 0}}, {0, 1, 2}};
 			}
 		};
@@ -4070,7 +4072,7 @@ TEST(FAssetBuildSchedulerTests, NestedDependencyRetainsRetirementButReleasesExec
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
 }
 
-TEST(FAssetBuildSchedulerTests, NativeCancellationKeepsMemoryUntilCooperativeEntry)
+TEST(FAssetBuildSchedulerTests, ExplicitCancellationKeepsMemoryUntilCooperativeEntry)
 {
 	using namespace Durin;
 	using namespace Durin::AssetPrivate;
@@ -4078,13 +4080,16 @@ TEST(FAssetBuildSchedulerTests, NativeCancellationKeepsMemoryUntilCooperativeEnt
 	Tasks::FTaskEvent Prerequisite("AssetBudget.BlockedEntry", false);
 	struct FRelease { Tasks::FTaskEvent& Event; ~FRelease() { Event.Trigger(); } } Release{Prerequisite};
 	Tasks::FTask Task;
+	Tasks::FCancellationToken Cancellation;
 	bool Entered = false;
 	Scheduler.Enqueue(false, 100, [&](auto Slot) {
-		Task = Tasks::LaunchTask("AssetBudget.Canceled", [Slot = std::move(Slot), &Entered] { Entered = true; }, Prerequisite);
+		Task = Tasks::LaunchTask("AssetBudget.Canceled", [Slot = std::move(Slot), &Entered, &Cancellation] {
+			EXPECT_TRUE(Cancellation.IsCanceled()); Entered = true;
+		}, Prerequisite);
 		return true;
 	});
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 100u);
-	ASSERT_TRUE(CancelTask(Task));
+	Cancellation.Cancel();
 	EXPECT_EQ(WaitTask(Task, 0).WaitStatus, ETaskWaitStatus::TimedOut);
 	EXPECT_FALSE(Entered);
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 100u);

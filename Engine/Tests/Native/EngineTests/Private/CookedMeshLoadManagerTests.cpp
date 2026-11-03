@@ -79,7 +79,7 @@ namespace
 				.MetadataIdentity = 7},
 			.Fields = {std::move(Field)},
 			.Worker = [RetainedBytes](std::span<const FSharedByteBuffer> Buffers,
-				const FTaskCancellationToken&) -> FCookedMeshWorkerResult {
+				const Tasks::FCancellationToken&) -> FCookedMeshWorkerResult {
 				if (Buffers.size() != 1 || Buffers.front().GetSize() != 4)
 					return {.Error = {.Code = ECookedMeshLoadError::FieldCount, .Actual = Buffers.size(), .Expected = 1}};
 				return {.Product = std::make_unique<FTestProduct>(
@@ -490,7 +490,7 @@ TEST(FCookedMeshLoadManagerTests, TerminalRetainsWorkerAndPublisherCauses)
 			&bCurrent, &PublishCount, 4, &TerminalCount, ECookedMeshFamily::StaticMesh,
 			Generation == 1 ? &WorkerError : Generation == 2 ? &PublishError : &ReadError);
 		if (Generation == 1)
-			Request.Worker = [](std::span<const FSharedByteBuffer>, const FTaskCancellationToken&) -> FCookedMeshWorkerResult {
+			Request.Worker = [](std::span<const FSharedByteBuffer>, const Tasks::FCancellationToken&) -> FCookedMeshWorkerResult {
 				return {.Error = {.Code = ECookedMeshLoadError::Product, .Diagnostic = "Static-mesh material slot count does not match package metadata."}};
 			};
 		else if (Generation == 2)

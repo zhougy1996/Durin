@@ -26,7 +26,7 @@ namespace Durin
 			FCookedMeshCurrentPredicate IsCurrent;
 			FCookedMeshPublisher Publish;
 			FCookedMeshTerminalCallback OnTerminal;
-			FTaskCancellationSource Cancellation;
+			Tasks::FCancellationToken Cancellation;
 			Tasks::FTask Task;
 			std::chrono::steady_clock::time_point ReadStartedAt;
 			std::atomic<EFlightPhase> Phase{EFlightPhase::Reading};
@@ -334,9 +334,8 @@ namespace Durin
 				for (const std::shared_ptr<FFlight>& Existing : State->Flights)
 					if (SameAsset(Existing->Identity))
 					{
-						Existing->Cancellation.RequestCancellation();
+						Existing->Cancellation.Cancel();
 						for (FPackageResourceRequest& Read : Existing->Reads) Read.Cancel();
-						if (Existing->Task.IsValid()) CancelTask(Existing->Task);
 					}
 				if (PendingIt != State->PendingRequests.end())
 				{
@@ -439,16 +438,15 @@ namespace Durin
 				auto SharedState = State;
 				Flight->Task = Durin::Tasks::FTask(Tasks::LaunchTask(
 					"CookedMeshDecode",
-					[SharedState, Flight, Buffers = std::move(Buffers)](
-						const FTaskCancellationToken& Token) mutable {
-						if (Token.IsCancellationRequested())
+					[SharedState, Flight, Buffers = std::move(Buffers)]() mutable {
+						if (Flight->Cancellation.IsCanceled())
 						{
 							SharedState->QueueCompletion({Flight, {},
 								ECookedMeshTerminalState::Cancelled});
 							return;
 						}
 						const auto WorkerBegin = std::chrono::steady_clock::now();
-						FCookedMeshWorkerResult Result = Flight->Worker(Buffers, Token);
+						FCookedMeshWorkerResult Result = Flight->Worker(Buffers, Flight->Cancellation);
 						const uint64 WorkerElapsed = static_cast<uint64>(
 							std::chrono::duration_cast<std::chrono::microseconds>(
 								std::chrono::steady_clock::now() - WorkerBegin).count());
@@ -458,15 +456,14 @@ namespace Durin
 						}
 						if (Result && !Result.Product)
 							Result.Error.Code = ECookedMeshLoadError::InvalidProduct;
-						const bool bCancelled = Token.IsCancellationRequested();
+						const bool bCancelled = Flight->Cancellation.IsCanceled();
 						const ECookedMeshTerminalState Terminal = bCancelled
 							? ECookedMeshTerminalState::Cancelled
 							: Result ? ECookedMeshTerminalState::Succeeded
 							: ECookedMeshTerminalState::Failed;
 						SharedState->QueueCompletion(
 							{Flight, std::move(Result), Terminal});
-					}, {.Cancellation = Flight->Cancellation.GetToken(),
-						.Attribution = State->Attribution}));
+					}, {.Attribution = State->Attribution}));
 
 			}
 			else if (Phase == EFlightPhase::Working && Flight->Task.IsCompleted())
@@ -580,9 +577,8 @@ namespace Durin
 		{
 			if (!SameOwner(Flight->Identity.Owner, Owner)) continue;
 			bFound = true;
-			Flight->Cancellation.RequestCancellation();
+			Flight->Cancellation.Cancel();
 			for (FPackageResourceRequest& Read : Flight->Reads) Read.Cancel();
-			if (Flight->Task.IsValid()) CancelTask(Flight->Task);
 		}
 		for (auto It = State->PendingRequests.begin(); It != State->PendingRequests.end();)
 		{
@@ -633,9 +629,8 @@ namespace Durin
 			State->ManagerState = ECookedMeshManagerState::Draining;
 			for (const std::shared_ptr<FFlight>& Flight : State->Flights)
 			{
-				Flight->Cancellation.RequestCancellation();
+				Flight->Cancellation.Cancel();
 				for (FPackageResourceRequest& Read : Flight->Reads) Read.Cancel();
-				if (Flight->Task.IsValid()) CancelTask(Flight->Task);
 			}
 			State->Diagnostics.CancelledCount += State->PendingRequests.size();
 			State->PendingRequests.clear();

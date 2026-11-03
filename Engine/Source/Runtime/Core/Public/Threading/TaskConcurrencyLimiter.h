@@ -16,15 +16,14 @@ namespace Durin::Tasks
 
 		// Slot is unique among active tasks and lies in [0, MaxConcurrency).
 		template<typename F>
-		requires (std::is_invocable_v<F&, uint32> || std::is_invocable_v<F&, uint32, const FTaskCancellationToken&>)
-		auto Push(const char* Name, F&& Function, FTaskCancellationToken Cancellation = {}) -> void
+		requires std::is_invocable_v<F&, uint32>
+		auto Push(const char* Name, F&& Function) -> void
 		try
 		{
-			PushImpl(Name, [Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
+			PushImpl(Name, [Function = std::forward<F>(Function)]() mutable {
 				const uint32 Slot = GetCurrentSlot();
-				if constexpr (std::is_invocable_v<F&, uint32, const FTaskCancellationToken&>) std::invoke(Function, Slot, Token);
-				else std::invoke(Function, Slot);
-			}, std::move(Cancellation));
+				std::invoke(Function, Slot);
+			});
 		}
 
 		catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
@@ -38,8 +37,7 @@ namespace Durin::Tasks
 
 	private:
 		static auto GetCurrentSlot() -> uint32;
-		auto PushImpl(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function,
-			FTaskCancellationToken Cancellation) -> void;
+		auto PushImpl(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function) -> void;
 		std::shared_ptr<Private::FTaskConcurrencyLimiterState> State;
 	};
 }

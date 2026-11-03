@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Threading/Task.h"
 
 #include "Panels/ContentBrowserDataTypes.h"
 #include "AssetRegistry/Catalog.h"
@@ -20,10 +21,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Catalog must be non-null and captured on the registry-owning thread.
 		auto CaptureItems(const std::string& PhysicalDirectory,
 			bool bRecursive, std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
-			const FTaskCancellationToken& Cancellation = {})
+			const Tasks::FCancellationToken& Cancellation = {})
 			-> FContentBrowserItemsSnapshot;
 		auto CaptureDirectory(const std::string& PhysicalDirectory,
-			const FTaskCancellationToken& Cancellation = {})
+			const Tasks::FCancellationToken& Cancellation = {})
 			-> FContentBrowserDirectorySnapshot;
 		auto SetEntryStatusQueryForTesting(FEntryStatusQuery Query) -> void
 		{
@@ -39,9 +40,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto QueryEntryStatus(const std::filesystem::directory_entry& Entry,
 			std::error_code& Error) const -> std::filesystem::file_status;
 		auto RefreshAssetDirectoryIndex(std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
-			const FTaskCancellationToken& Cancellation) -> void;
+			const Tasks::FCancellationToken& Cancellation) -> void;
 		auto AppendAssetItem(const FPackagePath& Path, const FAssetData& Data,
-			const FTaskCancellationToken& Cancellation) -> void;
+			const Tasks::FCancellationToken& Cancellation) -> void;
 		auto AddEnumerationDiagnostic(EEnumerationDiagnosticKind Kind,
 			const std::filesystem::path& Path, std::string Message) -> void;
 

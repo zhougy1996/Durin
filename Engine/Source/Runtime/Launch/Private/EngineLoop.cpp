@@ -482,8 +482,7 @@ namespace Durin
 		}
 		// Producers have retired through host/object/module shutdown. Render fences
 		// still admit task events until the final render and RHI drains complete.
-		ShutdownTaskSystem(bGameThreadDeferredExecutorStarted
-			? ETaskShutdownMode::Drain : ETaskShutdownMode::Cancel);
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		bGameThreadDeferredExecutorStarted = false;
 
 		ShutdownApplicationCore();

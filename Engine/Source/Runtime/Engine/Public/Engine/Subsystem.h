@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Threading/Task.h"
 
 #include "EngineAPI.h"
 #include "DObject/Object.h"
@@ -25,10 +26,10 @@ namespace Durin
 	class FSubsystemWorkGate
 	{
 	public:
-		auto IsOpen() const -> bool { return !Cancellation.IsCancellationRequested(); }
-		auto GetCancellationToken() const -> FTaskCancellationToken { return Cancellation.GetToken(); }
+		auto IsOpen() const -> bool { return !Cancellation.IsCanceled(); }
+		auto GetCancellationToken() const -> const Tasks::FCancellationToken& { return Cancellation; }
 	private:
-		FTaskCancellationSource Cancellation;
+		Tasks::FCancellationToken Cancellation;
 		bool bDeinitialized = false;
 		friend class FSubsystemCollection;
 		friend class DSubsystem;

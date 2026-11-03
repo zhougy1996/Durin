@@ -139,7 +139,7 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		FThreadEvent Started, Release;
-		FTaskCancellationSource Cancellation;
+		Tasks::FCancellationToken Cancellation;
 		std::atomic<int> Runs = 0, Destroyed = 0;
 		{
 			Tasks::FTaskConcurrencyLimiter Limiter(1);
@@ -147,11 +147,11 @@ namespace Durin
 			EXPECT_TRUE(Started.WaitFor(2));
 			Limiter.Push("Throws", [](uint32) { throw std::runtime_error("limiter failure"); });
 			auto Capture = std::shared_ptr<int>(new int(1), [&](int* Value) { delete Value; ++Destroyed; });
-			Limiter.Push("Canceled", [Capture = std::move(Capture), &Runs](uint32, const FTaskCancellationToken& Token) {
-				EXPECT_TRUE(Token.IsCancellationRequested()); ++Runs;
-			}, Cancellation.GetToken());
+			Limiter.Push("Canceled", [Capture = std::move(Capture), &Runs, &Cancellation](uint32) {
+				EXPECT_TRUE(Cancellation.IsCanceled()); ++Runs;
+			});
 			Limiter.Push("Tail", [&](uint32) { ++Runs; });
-			Cancellation.RequestCancellation();
+			Cancellation.Cancel();
 		}
 		Release.Trigger();
 		ShutdownTaskScheduler(true);
@@ -250,20 +250,22 @@ namespace Durin
 		EXPECT_TRUE(Limiter.Wait(0));
 	}
 
-	TEST(FTaskConcurrencyLimiterTests, CancelShutdownDrainsQueuedTasksAndReleasesLimiterState)
+	TEST(FTaskConcurrencyLimiterTests, ExplicitCancellationBeforeShutdownDrainsQueuedTasksAndReleasesLimiterState)
 	{
+		Tasks::FCancellationToken TestCancellation;
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		Tasks::FTaskConcurrencyLimiter Limiter(1);
 		FThreadEvent Started;
 		std::atomic<int> Runs = 0;
-		Limiter.Push("ObserveShutdown", [&](uint32, const FTaskCancellationToken& Token) {
+		Limiter.Push("ObserveShutdown", [&](uint32) {
 			Started.Trigger();
-			while (!Token.IsCancellationRequested()) std::this_thread::yield();
+			while (!TestCancellation.IsCanceled()) std::this_thread::yield();
 		});
 		EXPECT_TRUE(Started.WaitFor(2));
 		for (int Index = 0; Index < 64; ++Index) Limiter.Push("QueuedAtShutdown", [&](uint32) { ++Runs; });
+		TestCancellation.Cancel();
 		ShutdownTaskScheduler(false);
 		EXPECT_TRUE(Limiter.Wait(1));
 		EXPECT_EQ(64, Runs.load());

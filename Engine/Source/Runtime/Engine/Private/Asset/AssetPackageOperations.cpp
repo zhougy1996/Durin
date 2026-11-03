@@ -342,8 +342,8 @@ namespace Durin
 		FPackageSaveResult Submitted;
 		auto Task = PackageSavePrivate::SubmitTypedAsyncSave<FAssetWriteResult>(Operation->GetDetachedBytes(),
 			[Operation] { Operation->Stage(); },
-			[Operation, Cancellation = Cancellation](bool bSucceeded, const FTaskCancellationToken& Token) mutable {
-				const bool bCancelled = Cancellation.IsCancellationRequested() || Token.IsCancellationRequested();
+			[Operation, IsCancellationRequested = IsCancellationRequested](bool bSucceeded) mutable {
+				const bool bCancelled = IsCancellationRequested && IsCancellationRequested();
 				auto Result = bCancelled ? Error(EAssetWriteError::Cancelled, "Save was cancelled before publication.")
 					: !bSucceeded ? Error(EAssetWriteError::IoError, "Save I/O task failed.")
 					: Operation->Complete();

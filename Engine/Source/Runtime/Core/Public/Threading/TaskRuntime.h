@@ -40,14 +40,29 @@ namespace Durin
 
 	CORE_API auto RegisterTaskAttribution(std::string_view Owner, std::string_view Category) -> FTaskAttribution;
 
-	class FTaskCancellationToken;
 	using FParallelForFunction = TMoveOnlyFunction<void(uint64)>;
 	class FParallelForCancellationToken;
 	using FCancelableParallelForFunction = TMoveOnlyFunction<void(uint64, const FParallelForCancellationToken&)>;
 
-	class FTaskCancellationState;
 	namespace Tasks
 	{
+		// Cooperative cancellation; callers own the token lifetime and capture it explicitly.
+		class FCancellationToken
+		{
+		public:
+			FCancellationToken() = default;
+			FCancellationToken(const FCancellationToken& Other) : bCanceled(Other.IsCanceled()) {}
+			FCancellationToken(FCancellationToken&& Other) noexcept : bCanceled(Other.IsCanceled()) {}
+			auto operator=(const FCancellationToken& Other) -> FCancellationToken&
+			{ bCanceled.store(Other.IsCanceled(), std::memory_order_relaxed); return *this; }
+			auto operator=(FCancellationToken&& Other) noexcept -> FCancellationToken&
+			{ return *this = Other; }
+			auto Cancel() -> void { bCanceled.store(true, std::memory_order_relaxed); }
+			auto IsCanceled() const -> bool { return bCanceled.load(std::memory_order_relaxed); }
+		private:
+			std::atomic<bool> bCanceled = false;
+		};
+
 		class FPipe;
 		namespace Private { class FTaskHandle; struct FTaskConcurrencyLimiterState; }
 		// Public generic completion handle for any task or event.
@@ -107,7 +122,6 @@ namespace Durin
 	enum class ETaskShutdownMode : uint8
 	{
 		Drain,
-		Cancel,
 	};
 
 	enum class ETaskTerminalReason : uint8
@@ -121,7 +135,7 @@ namespace Durin
 
 	namespace Private
 	{
-		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void(const FTaskCancellationToken&)>;
+		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void()>;
 
 		using FTaskCompletionFunction = TMoveOnlyFunction<void(ETaskState)>;
 
@@ -133,7 +147,7 @@ namespace Durin
 		};
 
 		// Valid construction returns a handle; contract and allocation failures are fatal.
-		CORE_API auto LaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes = 0, FTaskResultStorage Result = {}) -> Tasks::FTask;
+		CORE_API auto LaunchTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes = 0, FTaskResultStorage Result = {}) -> Tasks::FTask;
 		// Native-test seam for pausing after Close is claimed, before result publication.
 		CORE_API auto SetTaskTerminalPublicationTestHook(std::function<void(uint64)>&& Hook) -> void;
 		// Native-test seam for pausing after the active cohort is pinned and scheduler locks are released.
@@ -298,38 +312,6 @@ namespace Durin
 		bool bAccepting = false;
 	};
 
-	// Observes cancellation requested for one task or a caller-owned task group.
-	class FTaskCancellationToken
-	{
-	public:
-		CORE_API FTaskCancellationToken();
-
-		CORE_API auto IsCancellationRequested() const -> bool;
-
-	private:
-		FTaskCancellationToken(std::shared_ptr<FTaskCancellationState> InSharedState, std::weak_ptr<FTaskStateData> InTaskState);
-
-		friend class FTaskCancellationSource;
-		friend class FTaskStateData;
-
-		std::shared_ptr<FTaskCancellationState> SharedState;
-		std::weak_ptr<FTaskStateData> TaskState;
-	};
-
-	// Requests cooperative cancellation for every task launched with its token.
-	class FTaskCancellationSource
-	{
-	public:
-		CORE_API FTaskCancellationSource();
-
-		CORE_API auto GetToken() const -> FTaskCancellationToken;
-		CORE_API auto IsCancellationRequested() const -> bool;
-		CORE_API auto RequestCancellation() -> void;
-
-	private:
-		std::shared_ptr<FTaskCancellationState> State;
-	};
-
 	// Observes both ParallelFor group cancellation and caller-provided cancellation.
 	class FParallelForCancellationToken
 	{
@@ -337,15 +319,14 @@ namespace Durin
 		CORE_API auto IsCancellationRequested() const -> bool;
 
 	private:
-		FParallelForCancellationToken(FTaskCancellationToken InGroupToken, FTaskCancellationToken InExternalToken);
+		FParallelForCancellationToken(const Tasks::FCancellationToken* InGroupToken, const Tasks::FCancellationToken* InExternalToken);
 
 		friend struct Private::FParallelForAccess;
 
-		FTaskCancellationToken GroupToken;
-		FTaskCancellationToken ExternalToken;
+		const Tasks::FCancellationToken* GroupToken;
+		const Tasks::FCancellationToken* ExternalToken;
 	};
 
-	CORE_API auto CancelTask(const Tasks::FTask& Task) -> bool;
 	CORE_API auto WaitTask(const Tasks::FTask& Task) -> FTaskWaitResult;
 	// Nonpositive seconds only poll. Positive seconds bound blocking/helping attempts,
 	// never an executing callable. Empty handles complete with Invalid task state.
@@ -374,8 +355,6 @@ namespace Durin
 
 			CORE_API auto IsValid() const -> bool;
 			CORE_API auto IsCompleted() const -> bool;
-			// Cancellation is a cooperative request, independent of completion/outcome.
-			CORE_API auto IsCancellationRequested() const -> bool;
 			CORE_API auto GetState() const -> ETaskState;
 			CORE_API auto GetDebugName() const -> const char*;
 			CORE_API auto GetTaskId() const -> uint64;
@@ -397,8 +376,7 @@ namespace Durin
 			friend class Durin::FTaskScheduler;
 			friend struct Durin::Private::FTaskRuntimeAccess;
 			friend struct Durin::Tasks::Detail::FTaskAccess;
-			friend CORE_API auto Durin::Private::LaunchCancelableTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes, Durin::Private::FTaskResultStorage Result) -> FTaskHandle;
-			friend CORE_API auto Durin::CancelTask(const FTaskHandle& Task) -> bool;
+			friend CORE_API auto Durin::Private::LaunchTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes, Durin::Private::FTaskResultStorage Result) -> FTaskHandle;
 			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
 			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
 			friend CORE_API auto Durin::WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
@@ -434,7 +412,7 @@ namespace Durin
 		};
 	}
 
-	// Immutable launch-time relationships and optional shared cancellation.
+	// Immutable launch-time relationships.
 	struct FTaskLaunchOptions
 	{
 		// Internal ready-time serialization; owned by the caller until completion.
@@ -442,7 +420,6 @@ namespace Durin
 		std::shared_ptr<Tasks::Private::FTaskConcurrencyLimiterState> ConcurrencyLimiter;
 		// Order execution after every nonempty prerequisite completes, regardless of outcome.
 		std::span<const Tasks::FTask> Prerequisites;
-		FTaskCancellationToken CancellationToken;
 		FTaskAttribution Attribution;
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
@@ -456,7 +433,7 @@ namespace Durin
 	{
 		// Conservative default remains serial until framework qualification selects a crossover.
 		uint64 MinBatchSize = std::numeric_limits<uint64>::max();
-		FTaskCancellationToken CancellationToken;
+		const Tasks::FCancellationToken* CancellationToken = nullptr;
 		FTaskAttribution Attribution;
 	};
 
