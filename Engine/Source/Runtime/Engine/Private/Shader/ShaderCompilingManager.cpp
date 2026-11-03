@@ -285,7 +285,7 @@ namespace Durin
 		Group->Manager = &Get(); Group->MaterialCompilingId = ShaderMap->CompilingId;
 		Group->Jobs = MakeMaterialShaderStageRequests(*ShaderMap->Translation, ShaderMap->Force);
 		Group->Outputs.resize(Group->Jobs.size()); Group->MaximumBytes = MaterialCompileMaxResultBytes;
-		Group->Options = {.Priority = Priority, .IsCancelled = [Weak = std::weak_ptr(ShaderMap)] { const auto Value = Weak.lock(); return !Value || IsBuildCanceled(Value); }, .bInlineExecution = ShaderMap->Inline};
+		Group->Options = {.Priority = Priority, .IsCancelled = [Weak = std::weak_ptr(ShaderMap)] { const auto Value = Weak.lock(); return !Value || PollBuildCancellation(Value); }, .bInlineExecution = ShaderMap->Inline};
 		Group->Completion =
 			[ShaderMap](FShaderCompilerOutput Output) {
 				ShaderMap->Translation->CompileTime = std::chrono::duration<float>(
@@ -300,7 +300,7 @@ namespace Durin
 		bool HighPriority;
 		{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->ShaderJobs = Jobs; HighPriority = ShaderMap->HighPriority; }
 		if (HighPriority) Jobs->SetPriority(EShaderBuildPriority::High);
-		if (IsBuildCanceled(ShaderMap)) Jobs->RequestCancel();
+		if (PollBuildCancellation(ShaderMap)) Jobs->RequestCancel();
 		Get().SubmitJobs(*Jobs);
 	}
 #endif

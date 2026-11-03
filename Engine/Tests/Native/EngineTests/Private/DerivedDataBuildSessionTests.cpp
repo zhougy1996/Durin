@@ -262,7 +262,7 @@ TEST(FBuildContinuationTests, ServiceTaskSessionsShareAdmissionPriorityAndKeepIn
 TEST(FBuildContinuationTests, SessionCloseDoesNotCancelOtherSessionsAndServiceCloseRetiresAll)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.AsyncCache = CreateAsyncCache(Cache, IO, {.Concurrency = 1})});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO, {.Concurrency = 1})});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
 	auto First = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
 	auto Second = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
@@ -283,7 +283,7 @@ TEST(FBuildContinuationTests, SessionCloseDoesNotCancelOtherSessionsAndServiceCl
 TEST(FBuildContinuationTests, ServiceRetainedByteAdmissionPreservesLocalOutputAndRecoversAfterRetirement)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.AsyncCache = CreateAsyncCache(Cache, IO, {.Concurrency = 1, .MaximumRetainedBytes = 14000})});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO, {.Concurrency = 1, .MaximumRetainedBytes = 14000})});
 	auto Function = std::make_shared<FFunction>(); Function->DataBytes = 8192; ASSERT_TRUE(Service->Register(Function));
 	auto First = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
 	auto Second = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value(); uint32 Calls = 0;
@@ -307,15 +307,15 @@ TEST(FBuildContinuationTests, ServiceRetainedByteAdmissionPreservesLocalOutputAn
 TEST(FBuildContinuationTests, ServiceDoesNotCloseInjectedCacheUsedByOtherOwners)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-	auto Async = CreateAsyncCache(Cache, IO);
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.AsyncCache = Async});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO);
+	auto Service = CreateBuild({.Cache = Async});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>())); auto Session = Service->CreateSession().value();
 	FRequestOwner RequestOwner1;
 	Session->Build(Definition(), RequestOwner1, [](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Canceled); });
 	EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
 	FRequestOwner External; uint32 Calls = 0;
-	const std::array Requests{FCacheGetBackendRequest{.Key = FCacheKey::FromHash(FCacheBucket::FromString("External"), FXxHash128::HashBuffer("key"))}};
-	ASSERT_TRUE(Async->Get(Requests, External, [&](auto, auto Result, auto) { EXPECT_TRUE(Result); ++Calls; }));
+	const std::array Requests{FCacheGetRequest{.Key = FCacheKey::FromHash(FCacheBucket::FromString("External"), FXxHash128::HashBuffer("key"))}};
+	Async->Get(Requests, External, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Calls; });
 	while (!IO->Work.empty()) IO->Run();
 	EXPECT_EQ(Calls, 1u); EXPECT_EQ(External.Wait(), ERequestWaitResult::Completed);
 }
@@ -353,8 +353,8 @@ TEST(FBuildContinuationTests, InvalidCacheExecutionIsRejected)
 TEST(FBuildContinuationTests, IOReleasesProducerQueueAndStoreFailurePreservesLocalOutput)
 {
 	auto Producer = std::make_shared<FStageScheduler>(); auto IO = std::make_shared<FStageScheduler>();
-	auto Cache = std::make_shared<FContinuationCache>(); auto Async = CreateAsyncCache(Cache, IO, {.Concurrency = 1});
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.Cache = Cache, .AsyncCache = Async});
+	auto Cache = std::make_shared<FContinuationCache>(); auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO, {.Concurrency = 1});
+	auto Service = CreateBuild({.Cache = Async});
 	auto Function = std::make_shared<FFunction>();
 	ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession({}, Producer).value();
 	FRequestOwner Owner(ERequestPriority::High); uint32 FirstCallbacks = 0, OtherCallbacks = 0;
@@ -393,7 +393,7 @@ TEST(FBuildContinuationTests, IOReleasesProducerQueueAndStoreFailurePreservesLoc
 TEST(FBuildContinuationTests, FullHitsSkipProducerAndPartialHitsRebuildOnce)
 {
 	auto Producer = std::make_shared<FStageScheduler>(); auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({Cache, CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	auto Function = std::make_shared<FFunction>();
 	ASSERT_TRUE(Service->Register(Function));
 	auto Session = Service->CreateSession({}, Producer).value(); uint32 Callbacks = 0;
@@ -481,7 +481,7 @@ TEST(FBuildContinuationTests, MatchingCachedErrorIsRejectedAndRebuilt)
 TEST(FBuildContinuationTests, CancellationCloseAndDroppedContinuationCompleteOnce)
 {
 	auto Producer = std::make_shared<FStageScheduler>(); auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({Cache, CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	auto Function = std::make_shared<FFunction>();
 	ASSERT_TRUE(Service->Register(Function));
 	auto Session = Service->CreateSession({}, Producer).value(); uint32 Callbacks = 0;
@@ -518,7 +518,7 @@ TEST(FBuildContinuationTests, ReleasesCapturedResolverBeforePersistenceCompletio
 		auto Resolve(std::span<const FBuildInputReference>, const FBuildCancellation&) const -> std::expected<std::vector<FBuildInput>, FBuildInputError> override { return std::vector<FBuildInput>{}; }
 	};
 	auto Producer = std::make_shared<FStageScheduler>(); auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({Cache, CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
 	auto Session = Service->CreateSession({}, Producer).value(); auto Resolver = std::make_shared<FLeaseResolver>(); Resolver->Lease = std::make_shared<int>(7);
 	std::weak_ptr<int> Lease = Resolver->Lease; uint32 Callbacks = 0;
@@ -574,7 +574,7 @@ TEST(FBuildContinuationTests, LaterStageHandleWinsWhenEarlierDispatchReturnsDuri
 	std::promise<void> Release; auto Producer = std::make_shared<FDelayedProducer>(); Producer->Release = Release.get_future().share();
 	auto IO = std::make_shared<FConcurrentIO>(); IO->ResumeEntered = Producer->Entered.get_future().share();
 	auto Cache = std::make_shared<FContinuationCache>();
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({Cache, CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>())); auto Session = Service->CreateSession({}, Producer).value();
 	std::atomic<uint32> Callbacks = 0;
 	FRequestOwner RequestOwner;
@@ -618,8 +618,8 @@ TEST(FBuildContinuationTests, BuildAndCacheShareOwnerAcrossNestedCallbacks)
 	auto Producer = std::make_shared<FStageScheduler>();
 	auto IO = std::make_shared<FStageScheduler>();
 	auto Cache = std::make_shared<FContinuationCache>();
-	auto Async = CreateAsyncCache(Cache, IO, {.Concurrency = 1});
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.Cache = Cache, .AsyncCache = Async});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO, {.Concurrency = 1});
+	auto Service = CreateBuild({.Cache = Async});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
 	auto Session = Service->CreateSession({}, Producer).value();
 	FRequestOwner Owner;
@@ -627,11 +627,11 @@ TEST(FBuildContinuationTests, BuildAndCacheShareOwnerAcrossNestedCallbacks)
 	Session->Build(Definition(), Owner, [&](auto Result) {
 		EXPECT_EQ(Result.GetStatus(), EStatus::Ok);
 		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
-		const std::array Reads{FCacheGetBackendRequest{*Result.GetCacheKey()}};
-		EXPECT_TRUE(Async->Get(Reads, Owner, [&](auto, auto, auto) {
+		const std::array Reads{FCacheGetRequest{*Result.GetCacheKey()}};
+		Async->Get(Reads, Owner, [&](auto Response) {
 			EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
 			++Calls;
-		}));
+		});
 		++Calls;
 	});
 	Producer->Run();
@@ -653,7 +653,7 @@ TEST(FBuildContinuationTests, ExecutionFailureDoesNotSubmitAsyncPutAndCanRetry)
 	auto Cache = std::make_shared<FContinuationCache>();
 	auto Function = std::make_shared<FFunction>();
 	Function->FailExecution = true;
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.Cache = Cache, .AsyncCache = CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	ASSERT_TRUE(Service->Register(Function));
 	auto Session = Service->CreateSession({}, Producer).value();
 	FRequestOwner Owner;
@@ -1185,7 +1185,7 @@ TEST(FBuildContinuationTests, InlineNestedBuildCompletesBeforeOuterCallbackRetur
 TEST(FBuildContinuationTests, CancelRetiresQueuedContinuationWithoutProducerProgress)
 {
 	auto Producer = std::make_shared<FStageScheduler>(); auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({Cache, CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	auto Function = std::make_shared<FFunction>();
 	ASSERT_TRUE(Service->Register(Function));
 	auto Session = Service->CreateSession({}, Producer).value(); FRequestOwner Owner; uint32 Calls = 0;
@@ -1232,7 +1232,7 @@ TEST(FBuildContinuationTests, CompletionWaitsForPersistenceAndRetiresCaptures)
 		auto Producer = std::make_shared<FStageScheduler>(), IO = std::make_shared<FStageScheduler>();
 		auto Cache = std::make_shared<FContinuationCache>();
 		Cache->FailPut = StoreMode == 1; Cache->ThrowPut = StoreMode == 2;
-		auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.AsyncCache = CreateAsyncCache(Cache, IO)});
+		auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 		auto Function = std::make_shared<FFunction>();
 		ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession({}, Producer).value();
 		FRequestOwner Owner; uint32 Calls = 0; std::optional<FBuildOutput> Delivered;
@@ -1265,7 +1265,7 @@ TEST(FBuildContinuationTests, CompletionWaitsForPersistenceAndRetiresCaptures)
 TEST(FBuildContinuationTests, CancellationWhileStoreQueuedDiscardsLocalResultOnce)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.AsyncCache = CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	auto Function = std::make_shared<FFunction>(); ASSERT_TRUE(Service->Register(Function));
 	auto Session = Service->CreateSession().value(); FRequestOwner Owner; uint32 Calls = 0;
 	Session->Build(Definition(), Owner, [&](auto Completion) {
@@ -1281,7 +1281,7 @@ TEST(FBuildContinuationTests, CancellationWhileStoreQueuedDiscardsLocalResultOnc
 TEST(FBuildContinuationTests, CancellationWhileStoreRunningWaitsForStoreRetirement)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>(); Cache->FailPut = false;
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.AsyncCache = CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>())); auto Session = Service->CreateSession().value();
 	FThreadEvent Entered, Release; FRequestOwner Owner; std::atomic<uint32> Calls = 0;
 	auto Capture = std::make_shared<int>(1); std::weak_ptr<int> Weak = Capture;
@@ -1307,7 +1307,7 @@ TEST(FBuildContinuationTests, CloseWhileStorePendingCompletesCanceledOnce)
 	{
 		SCOPED_TRACE(CloseService);
 		auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-		auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.AsyncCache = CreateAsyncCache(Cache, IO)});
+		auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 		ASSERT_TRUE(Service->Register(std::make_shared<FFunction>())); auto Session = Service->CreateSession().value();
 		FRequestOwner Owner; uint32 Calls = 0;
 		Session->Build(Definition(), Owner, [&](auto Completion) {
@@ -1324,7 +1324,7 @@ TEST(FBuildContinuationTests, CloseWhileStorePendingCompletesCanceledOnce)
 TEST(FBuildContinuationTests, CompletionCanCloseSessionAfterPersistenceResponse)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.AsyncCache = CreateAsyncCache(Cache, IO)});
+	auto Service = CreateBuild({.Cache = Durin::DerivedData::Private::CreateCacheForBackend(Cache, IO)});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>())); auto Session = Service->CreateSession().value();
 	uint32 Calls = 0;
 	FRequestOwner RequestOwner;
@@ -1421,4 +1421,45 @@ TEST(FRequestOwnerTests, PublicLaunchStillInvokesBodyForCanceledOwnerAndStoppedS
 	Owner.LaunchTask("CanceledOwnerTask", [&] { ++Calls; EXPECT_TRUE(Owner.IsCanceled()); });
 	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Calls, 2u);
+}
+
+TEST(FBuildContinuationTests, PublicCacheStatusControlsFallbackAndPreservesLocalOutputOnStoreError)
+{
+	class FStatusCache final : public ICache
+	{
+	public:
+		EStatus GetStatus = EStatus::Error, PutStatus = EStatus::Error;
+		uint32 Gets = 0, Puts = 0;
+		auto Get(std::span<const FCacheGetRequest> Requests, IRequestOwner&, FOnCacheGetComplete&& Complete) -> void override
+		{ for (const auto& Request : Requests) { ++Gets; Complete(Request.MakeResponse(GetStatus)); } }
+		auto Put(std::span<const FCachePutRequest> Requests, IRequestOwner&, FOnCachePutComplete&& Complete) -> void override
+		{ for (const auto& Request : Requests) { ++Puts; Complete(Request.MakeResponse(PutStatus)); } }
+	};
+	for (const auto GetStatus : {EStatus::Error, EStatus::Canceled}) for (const auto PutStatus : {EStatus::Ok, EStatus::Error, EStatus::Canceled}) {
+		auto Cache = std::make_shared<FStatusCache>(); Cache->GetStatus = GetStatus; Cache->PutStatus = PutStatus;
+		auto Service = CreateBuild({.Cache = Cache}); auto Function = std::make_shared<FFunction>(); ASSERT_TRUE(Service->Register(Function));
+		auto Session = Service->CreateSession().value(); FRequestOwner Owner; uint32 Calls = 0;
+		Session->Build(Definition(), Owner, [&](auto Result) {
+			const bool Canceled = GetStatus == EStatus::Canceled || PutStatus == EStatus::Canceled;
+			EXPECT_EQ(Result.GetStatus(), Canceled ? EStatus::Canceled : EStatus::Ok);
+			EXPECT_EQ(Result.GetOutput() != nullptr, !Canceled); ++Calls;
+		});
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Calls, 1u);
+		EXPECT_EQ(Function->Builds, GetStatus == EStatus::Canceled ? 0u : 1u);
+		EXPECT_EQ(Cache->Gets, 1u); EXPECT_EQ(Cache->Puts, GetStatus == EStatus::Canceled ? 0u : 1u);
+	}
+}
+
+TEST(FBuildContinuationTests, ParentOwnerPriorityReachesQueuedCacheRequests)
+{
+	auto IO = std::make_shared<FStageScheduler>(); auto Backend = std::make_shared<FContinuationCache>();
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(Backend, IO, {.Concurrency = 1});
+	auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
+	auto Session = Service->CreateSession().value(); FRequestOwner Busy, Owner(ERequestPriority::Low); uint32 Calls = 0;
+	Session->Build(Definition(), Busy, [](auto) {}, {}, {.Policy = EBuildPolicy::Build | EBuildPolicy::CacheQuery});
+	Session->Build(Definition(), Owner, [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls; }, {}, {.Policy = EBuildPolicy::Build | EBuildPolicy::CacheQuery});
+	Owner.SetPriority(ERequestPriority::High);
+	while (!IO->Work.empty()) IO->Run();
+	ASSERT_EQ(IO->Priorities.size(), 2u); EXPECT_EQ(IO->Priorities.back(), ERequestPriority::High);
+	EXPECT_EQ(Calls, 1u); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Busy.Wait(), ERequestWaitResult::Completed);
 }

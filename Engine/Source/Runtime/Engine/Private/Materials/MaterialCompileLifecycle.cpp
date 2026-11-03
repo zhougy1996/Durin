@@ -411,6 +411,7 @@ namespace Durin
 	{
 		CheckMaterialCompileGameThread();
 		if (!Params.MaximumCompletions || (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline)) return {};
+		PollMaterialCancellation();
 		CleanupFinishedShaderMaps();
 		const uint8 ReloadMode = GPendingShaderReloadMode.exchange(
 			0, std::memory_order_acq_rel);

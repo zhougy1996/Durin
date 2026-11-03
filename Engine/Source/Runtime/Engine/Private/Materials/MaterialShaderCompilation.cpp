@@ -16,13 +16,6 @@ namespace Durin
 	using namespace MaterialBuildPrivate;
 	FMaterialCompilation::FMaterialCompilation() = default;
 	FMaterialCompilation::~FMaterialCompilation() = default;
-	auto FMaterialCompilation::CheckCancellation() -> bool
-	{
-		if (Cancellation.IsCanceled() || !IsCancellationRequested) return Cancellation.IsCanceled();
-		std::lock_guard Lock(CancellationMutex);
-		if (!Cancellation.IsCanceled() && IsCancellationRequested()) Cancellation.Cancel();
-		return Cancellation.IsCanceled();
-	}
 	namespace {
 		std::mutex CompletionHookMutex;
 		std::function<void(EMaterialQualityLevel, bool)> CompletionHook;
@@ -86,7 +79,7 @@ namespace Durin
 	auto FShaderCompilingManager::LaunchTask(FShaderMapPtr ShaderMap, std::function<void()> Work) -> void
 	{
 		if (ShaderMap->Inline) {
-			try { if (IsBuildCanceled(ShaderMap)) FMaterialCompilation::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
+			try { if (PollBuildCancellation(ShaderMap)) FMaterialCompilation::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
 			catch (...) { FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial()); }
 			return;
 		}
@@ -95,7 +88,7 @@ namespace Durin
 		{ std::lock_guard Lock(ShaderMap->Mutex); Priority = ShaderMap->HighPriority ? ETaskPriority::High : ETaskPriority::Normal; }
 		auto Dispatch = Private::LaunchTaskWithCompletion("MaterialCompileStage",
 			[ShaderMap, Work = std::move(Work)]() {
-				try { if (ShaderMap->CpuCancellation.IsCanceled() || IsBuildCanceled(ShaderMap)) FMaterialCompilation::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
+				try { if (PollBuildCancellation(ShaderMap)) FMaterialCompilation::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
 				catch (...) { FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial()); }
 			}, [ShaderMap](ETaskState Terminal) {
 				if (Terminal != ETaskState::Succeeded) FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial());
@@ -110,7 +103,20 @@ namespace Durin
 
 
 
-	auto FShaderCompilingManager::IsBuildCanceled(FShaderMapPtr ShaderMap) -> bool
+	auto FShaderCompilingManager::PollCancellation(FShaderMapPtr Request) -> bool
+	{
+		bool Canceled = Request->Cancellation.IsCanceled();
+		if (!Canceled && Request->IsCancellationRequested) {
+			// Only the external observer runs under this lock. Propagation may invoke
+			// callbacks, so it must use the common entry point after releasing it.
+			std::lock_guard Lock(Request->CancellationMutex);
+			Canceled = Request->Cancellation.IsCanceled() || Request->IsCancellationRequested();
+		}
+		if (Canceled) Get().CancelCompilation(Request);
+		return Request->Cancellation.IsCanceled();
+	}
+
+	auto FShaderCompilingManager::PollBuildCancellation(FShaderMapPtr ShaderMap) -> bool
 	{
 		std::vector<FShaderMapPtr> Requests;
 		{
@@ -119,16 +125,9 @@ namespace Durin
 			Requests.push_back(ShaderMap);
 			for (const auto& Subscriber : ShaderMap->CompileDependencies) Requests.push_back(Subscriber);
 		}
-		// Observers can be caller code. Evaluate outside the manager lock, then
-		// recheck latched flags under lock so a newly joined subscriber also wins.
-		for (const auto& Request : Requests) (void)Request->CheckCancellation();
-		std::lock_guard Lock(Get().MaterialMutex);
-		if (!ShaderMap->Cancellation.IsCanceled()) return false;
-		for (const auto& Subscriber : ShaderMap->CompileDependencies)
-			if (!Subscriber->Cancellation.IsCanceled()) return false;
-		ShaderMap->BuildCancellation.Cancel(); return true;
+		for (const auto& Request : Requests) (void)PollCancellation(Request);
+		return ShaderMap->BuildCancellation.IsCanceled();
 	}
-
 
 	auto FShaderCompilingManager::FindOrAddCompilingShaderMap(FShaderMapPtr ShaderMap)
 		-> std::shared_ptr<const FMaterialCompilerResult>
@@ -216,9 +215,19 @@ namespace Durin
 		if (!Handle) return;
 		Handle->Cancellation.Cancel();
 		auto ShaderMap = FindCompilingShaderMap(Handle);
+		{
+			// Joining and the last-subscriber cancellation share the same lock.
+			std::lock_guard Lock(MaterialMutex);
+			if (ShaderMap->BuildCancellation.IsCanceled()) return;
+			if (!ShaderMap->Cancellation.IsCanceled()) return;
+			for (const auto& Subscriber : ShaderMap->CompileDependencies)
+				if (!Subscriber->Cancellation.IsCanceled()) return;
+			ShaderMap->BuildCancellation.Cancel();
+		}
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
 		{ std::lock_guard Lock(ShaderMap->Mutex); Owner = ShaderMap->Owner; }
-		if (Owner && IsBuildCanceled(ShaderMap)) { ShaderMap->CpuCancellation.Cancel(); Owner->RequestCancel(); }
+		// Owner propagation includes shader jobs. Accepted CPU tasks still retire.
+		if (Owner) Owner->RequestCancel();
 	}
 	auto FShaderCompilingManager::IsCompiling(const FMaterialProgramCompileHandle& Handle) const -> bool
 	{
@@ -230,6 +239,7 @@ namespace Durin
 	{
 		if (!Handle) return;
 		PrioritizeCompilation(Handle);
+		(void)PollBuildCancellation(FindCompilingShaderMap(Handle));
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
 		{ std::lock_guard Lock(Handle->Mutex); Owner = Handle->Owner; }
 		if (Owner) require(Owner->Wait() == DerivedData::ERequestWaitResult::Completed);
@@ -347,7 +357,7 @@ namespace Durin
 	}
 	auto MaterialBuildPrivate::FMaterialCompilation::ProcessTranslation(std::shared_ptr<FMaterialCompilation> ShaderMap, FMaterialTranslatedProgram Translation) -> void
 	{
-		if (FShaderCompilingManager::IsBuildCanceled(ShaderMap)) return CompleteCompilation(ShaderMap, FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled});
+		if (FShaderCompilingManager::PollBuildCancellation(ShaderMap)) return CompleteCompilation(ShaderMap, FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled});
 		std::shared_ptr<const FMaterialCompilerResult> Retained;
 		ShaderMap->Sources = std::move(Translation.Sources);
 		if (!Translation) return CompleteCompilation(ShaderMap, FinalizeMaterialShaderMap(std::move(Translation), {}));
@@ -400,7 +410,7 @@ namespace Durin
 			try { FShaderCompilingManager::LaunchTask(Subscriber, [Subscriber, Program = std::move(Program)] { CompleteCompilation(Subscriber, {}, Program); }); } catch (...) {}
 		}
 		if (Hook) Hook(Quality, true);
-		if (ShaderMap->CheckCancellation()) { Build.Program = std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled}); Build.RetainedHit = false; }
+		if (FShaderCompilingManager::PollCancellation(ShaderMap)) { Build.Program = std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled}); Build.RetainedHit = false; }
 		Build.Sources = std::move(ShaderMap->Sources);
 		Callback(std::move(Build));
 		if (Hook) Hook(Quality, false);

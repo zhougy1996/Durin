@@ -8,25 +8,21 @@ namespace Durin::DerivedData
 	thread_local Private::FRequestOwnerScope* Private::FRequestOwnerScope::Current = nullptr;
 	namespace
 	{
-		class FOwnerTask final : public Private::FRequestCompletion, public IBuildScheduledWork
+		class FOwnerTask final : public Private::FRequestCompletion, public IBuildOperation
 		{
 		public:
-			bool Started = false, Canceled = false;
+			bool Started = false;
 			std::function<void()> Work, OnCanceled;
 			auto Run(bool Cancel = false) -> bool
 			{
 				std::function<void()> Invoke, Discard;
-				std::shared_ptr<IBuildScheduledWork> Pending;
 				{
 					std::lock_guard Lock(Mutex);
 					if (Started) return false;
 					Started = true;
-					Canceled = Cancel;
-					if (Cancel) Pending = Scheduled;
 					Invoke = Cancel ? std::move(OnCanceled) : std::move(Work);
 					Discard = Cancel ? std::move(Work) : std::move(OnCanceled);
 				}
-				if (Pending) Pending->RequestCancel();
 				Complete([&] { Discard = {}; try { if (Invoke) Invoke(); } catch (...) {} Invoke = {}; }, nullptr);
 				return true;
 			}
@@ -68,8 +64,9 @@ namespace Durin::DerivedData
 			{
 				require(Value.IsFinished && Value.Wait && Value.RequestCancel);
 				auto Dependency = std::make_shared<const FRequestDependency>(std::move(Value));
-				bool Cancel;
-				{ std::lock_guard Lock(Mutex); Dependencies.push_back(Dependency); ++DependencyRevision; Cancel = Canceled; }
+				bool Cancel; ERequestPriority InheritedPriority;
+				{ std::lock_guard Lock(Mutex); Dependencies.push_back(Dependency); ++DependencyRevision; Cancel = Canceled; InheritedPriority = Priority; }
+				if (Dependency->SetPriority) Dependency->SetPriority(InheritedPriority);
 				if (Cancel) Dependency->RequestCancel();
 			}
 			explicit FOwnerState(ERequestPriority Priority) : Priority(Priority) {}
@@ -128,9 +125,14 @@ namespace Durin::DerivedData
 				return false;
 			}
 			auto GetPriority() const -> ERequestPriority override { std::lock_guard Lock(Mutex); return Priority; }
-			auto SetPriority(ERequestPriority Value) -> void override { std::lock_guard Lock(Mutex); Priority = Value; }
+			auto SetPriority(ERequestPriority Value) -> void override
+			{
+				std::vector<std::shared_ptr<const FRequestDependency>> Snapshot;
+				{ std::lock_guard Lock(Mutex); Priority = Value; Snapshot = Dependencies; }
+				for (const auto& Dependency : Snapshot) if (Dependency->SetPriority) Dependency->SetPriority(Value);
+			}
 			auto LaunchTask(IRequest* Request, IBuildScheduler& Scheduler, std::string_view Name, std::function<void()> Work, std::function<void()> OnCanceled)
-				-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
+				-> std::expected<std::shared_ptr<IBuildOperation>, FBuildAdmissionError> override
 			{
 				FBuildScheduleParams Params; Params.FunctionName = Name;
 				auto Task = std::make_shared<FOwnerTask>(); Task->Group = shared_from_this();
@@ -151,9 +153,7 @@ namespace Durin::DerivedData
 					auto Accepted = Scheduler.Schedule(Params, [Dispatch] { auto Pinned = Dispatch; Pinned->Task->Run(); });
 					if (!Accepted) Task->Reject();
 					else {
-						bool Canceled;
-						{ std::lock_guard Lock(Task->Mutex); Task->Scheduled = *Accepted; Canceled = Task->Canceled; }
-						if (Canceled && *Accepted) (*Accepted)->RequestCancel();
+						std::lock_guard Lock(Task->Mutex); Task->Scheduled = *Accepted;
 					}
 					Task->DispatchReturned();
 					if (!Accepted) return std::unexpected(std::move(Accepted.error()));
@@ -258,7 +258,7 @@ namespace Durin::DerivedData
 	{
 		std::static_pointer_cast<Private::FOwnerState>(Get(Owner))->TrackTask(std::move(Task));
 	}
-	auto Private::FOwnerAccess::TrackDependency(FRequestOwner& Owner, Private::FRequestDependency Dependency) -> void
+	auto Private::FOwnerAccess::TrackDependency(IRequestOwner& Owner, Private::FRequestDependency Dependency) -> void
 	{
 		std::static_pointer_cast<Private::FOwnerState>(Get(Owner))->TrackDependency(std::move(Dependency));
 	}

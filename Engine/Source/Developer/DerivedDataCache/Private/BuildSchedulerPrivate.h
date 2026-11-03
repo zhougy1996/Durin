@@ -15,7 +15,12 @@ namespace Durin::DerivedData
 		virtual ~IBuildScheduledWork() = default;
 		// May help execute tasks. Completed includes executing or dropping the thunk.
 		virtual auto Wait() const -> ERequestWaitResult = 0;
-		virtual auto RequestCancel() const -> void {}
+	};
+	// Business operations may be canceled; scheduler dispatch handles only wait.
+	class IBuildOperation : public IBuildScheduledWork
+	{
+	public:
+		virtual auto RequestCancel() const -> void = 0;
 	};
 	class IBuildScheduler
 	{

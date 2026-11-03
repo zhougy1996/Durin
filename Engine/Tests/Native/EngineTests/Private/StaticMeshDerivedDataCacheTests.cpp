@@ -188,11 +188,6 @@ namespace
 		return Value;
 	}
 
-	auto HasCacheError(const FCacheLogCapture& Capture, std::string_view Operation) -> bool
-	{
-		return Capture.Has(Operation);
-	}
-
 	auto RefreshEnvelopeHeaderHash(Durin::FByteBuffer& Bytes) -> void
 	{
 		const uint64 HeaderBytes = ReadU64(Bytes, 32);
@@ -488,7 +483,6 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	ASSERT_TRUE(std::filesystem::remove(Fixture.SourcePath));
 	ASSERT_TRUE((Product = BuildRenderForTest(Request, UINT64_MAX, &RenderCacheLog))) << Error;
 	EXPECT_TRUE(Request.Source.IsValid());
-	EXPECT_TRUE(HasCacheError(RenderCacheLog, "read"));
 	EXPECT_TRUE(Error.empty());
 	Request.Settings.MaterialSlots.clear();
 	EXPECT_FALSE(BuildStaticMeshRenderData(Request));
@@ -516,15 +510,12 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, false)))) << Error;
 	EXPECT_TRUE(Collision->Complex);
-	EXPECT_TRUE(HasCacheError(CollisionLog, "read"));
 	EXPECT_TRUE(Error.empty());
 	CollisionLog.Reset();
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)))) << Error;
 	EXPECT_TRUE(Collision->Complex);
-	EXPECT_TRUE(HasCacheError(CollisionLog, "read"));
 	EXPECT_LE(CollisionLog.size(), 2u);
-	EXPECT_TRUE(HasCacheError(CollisionLog, "write"));
 	FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
@@ -1638,8 +1629,6 @@ TEST(FStaticMeshAuthoredCompilationTests, CacheWarningsDoNotFailBuild)
 	FPaths::SetDerivedDataCacheDirForTests(CacheFile.generic_string());
 	ASSERT_TRUE((Render = BuildRenderForTest({.Source = Source}, UINT64_MAX, &RenderCacheLog)));
 	EXPECT_NE((*Render), nullptr);
-	EXPECT_TRUE(HasCacheError(RenderCacheLog, "read"));
-	EXPECT_TRUE(HasCacheError(RenderCacheLog, "write"));
 	EXPECT_TRUE(Error.empty());
 }
 
@@ -2193,7 +2182,6 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Fixture.Mesh);
 	const auto FailedCache = InspectCompilationOperation(*Fixture.Mesh);
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, FailedCache.Status);
-	EXPECT_TRUE(HasCacheError(CacheLog, "write"));
 	EXPECT_TRUE(FailedCache.Error.empty());
 	EXPECT_EQ(FailedCache.RenderBuilderVersion, IMeshBuilderModule::Get()->GetBuildVersion());
 	EXPECT_LE(FormatStaticMeshCompilationDiagnostic(FailedCache).size(), 4096u);
@@ -2629,60 +2617,6 @@ TEST(FStaticMeshSourceResidencyTests, InitializationErrorsOwnValuesAndPreserveSo
 	EXPECT_EQ(Source.GetIdentity(), Identity);
 	EXPECT_EQ(Source.AcquireGeometry().value(), Original);
 	EXPECT_EQ(Original->Sections[0].Name, "Fixture");
-}
-
-TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCacheIssues)
-{
-	FCacheLogCapture CollisionLog;
-	using namespace Durin;
-	const FScopedDerivedDataCacheRestore CacheRestore;
-	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshTypedCacheRejection");
-	ASSERT_NE(Fixture.Mesh, nullptr);
-	FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
-		.Source = Fixture.Mesh->GetSource()};
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Render;
-	FCacheLogCapture RenderCacheLog;
-	std::string Error;
-	ASSERT_TRUE((Render = BuildRenderForTest(Request, UINT64_MAX, &RenderCacheLog)));
-	ASSERT_TRUE(std::filesystem::remove(GetObjectPath(Fixture, BuildStaticMeshDerivedDataKey({.SourceHash = Request.Source.GetIdentity(),
-		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Settings.MaterialSlots, Request.Settings.NormalizedSize),
-		.BuilderVersion = IMeshBuilderModule::Get()->GetBuildVersion(),
-		.MaterialSlotCount = uint32(Request.Settings.MaterialSlots.size()),
-		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value().ToString())));
-	const std::array<std::byte, 4> Invalid{};
-	const auto SeedKey = BuildStaticMeshDerivedDataKey({.SourceHash = Request.Source.GetIdentity(),
-		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Settings.MaterialSlots, Request.Settings.NormalizedSize),
-		.BuilderVersion = IMeshBuilderModule::Get()->GetBuildVersion(),
-		.MaterialSlotCount = uint32(Request.Settings.MaterialSlots.size()),
-		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value();
-	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*SeedKey.AsCacheKey(), Invalid, MaximumStaticMeshPayloadBytes, DerivedData::ECacheStorageNamespace::Records}));
-	ASSERT_TRUE((Render = BuildRenderForTest(Request, UINT64_MAX, &RenderCacheLog))) << Error;
-	ASSERT_EQ(RenderCacheLog.size(), 1u);
-	const auto RenderRejection = RenderCacheLog.front();
-	EXPECT_NE(RenderRejection.Message.find("cache read"), std::string::npos);
-	EXPECT_NE(RenderRejection.Message.find("manifest"), std::string::npos);
-	ASSERT_TRUE((Render = BuildRenderForTest(Request, UINT64_MAX, &RenderCacheLog)));
-	EXPECT_TRUE(RenderCacheLog.empty());
-
-	std::expected<FPhysicsCookResult, std::string> Collision;
-	CollisionLog.Reset();
-	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
-		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0))));
-	const auto Key = GetCollisionKey(*Fixture.Mesh->GetRenderData());
-	const auto Path = Fixture.CacheRoot / "records" / "v5" / "StaticMeshCollision"
-					  / Key.ToString().substr(0, 2) / (Key.ToString() + ".bin");
-	ASSERT_TRUE(std::filesystem::remove(Path));
-	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({Key, Invalid, MaximumPhysicsCollisionPayloadBytes, DerivedData::ECacheStorageNamespace::Records}));
-	CollisionLog.Reset();
-	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
-		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0))));
-	ASSERT_EQ(CollisionLog.size(), 1u);
-	const auto CollisionRejection = CollisionLog.front();
-	Collision = {};
-	EXPECT_NE(CollisionRejection.Message.find("cache read"), std::string::npos);
-	EXPECT_NE(CollisionRejection.Message.find("manifest"), std::string::npos);
-	EXPECT_NE(RenderRejection.Message.find("cache read"), std::string::npos);
-	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, ColdAndWarmAssemblyRepairFiniteIncorrectBounds)

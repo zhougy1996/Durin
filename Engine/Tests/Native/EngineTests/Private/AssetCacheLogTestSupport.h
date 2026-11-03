@@ -35,12 +35,6 @@ public:
 		std::erase_if(Records, [this](const auto& Record) { return Record.GetCategory() != Category; });
 		return Records;
 	}
-	auto Has(std::string_view Operation) const -> bool
-	{
-		return std::ranges::any_of(Records(), [&](const auto& Record) {
-			return Record.Message.find(std::string("cache ") + std::string(Operation) + " [") != std::string::npos;
-		});
-	}
 	auto empty() const -> bool { return Records().empty(); }
 	auto size() const -> size_t { return Records().size(); }
 	auto front() const -> Durin::FLogRecord { return Records().front(); }

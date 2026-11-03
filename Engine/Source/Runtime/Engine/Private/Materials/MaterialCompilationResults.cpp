@@ -41,11 +41,11 @@ namespace Durin
 
 	}
 
-	auto FShaderCompilingManager::CancelLatchedMaterialCompiles() -> void
+	auto FShaderCompilingManager::PollMaterialCancellation() -> void
 	{
 		std::vector<FShaderMapPtr> Pending;
 		{ std::scoped_lock Lock(MaterialMutex); Pending = CompilingShaderMaps; }
-		for (const auto& ShaderMap : Pending) if (ShaderMap->Cancellation.IsCanceled()) CancelCompilation(ShaderMap);
+		for (const auto& ShaderMap : Pending) (void)PollCancellation(ShaderMap);
 	}
 
 	auto FShaderCompilingManager::RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners) -> void
@@ -67,12 +67,11 @@ namespace Durin
 		CleanupFinishedShaderMaps();
 		const auto Bytes = EstimateRequestBytes(Request);
 		if (!Request.CompilerInput || Bytes > MaterialCompileMaxRequestBytes) return EMaterialCompileState::Rejected;
-		struct FCancelOnExit { FShaderCompilingManager& Manager; ~FCancelOnExit() { Manager.CancelLatchedMaterialCompiles(); } } CancelOnExit{*this};
+		(void)CancelCompilation(Request.Owner);
 		// Admission precedes encoding and normalization. Captured encoding is
 		// bounded by the input contract and belongs to GameThread snapshot capture.
 		{
 			std::scoped_lock Lock(MaterialMutex);
-			(void)CancelMaterialOwnerLocked(Request.Owner);
 			if (!IsAcceptingMaterialRequests()) return EMaterialCompileState::Rejected;
 			if (OutstandingMaterialConsumers >= MaterialCompileMaxConsumers || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileState::Deferred;
 		}
@@ -136,8 +135,10 @@ namespace Durin
 	{
 		CheckMaterialCompileGameThread();
 		bool Canceled;
-		{ std::scoped_lock Lock(MaterialMutex); Canceled = CancelMaterialOwnerLocked(Owner); }
-		CancelLatchedMaterialCompiles(); return Canceled;
+		std::vector<FShaderMapPtr> Requests;
+		{ std::scoped_lock Lock(MaterialMutex); Canceled = DetachMaterialOwnerLocked(Owner, Requests); }
+		for (const auto& Request : Requests) CancelCompilation(Request);
+		return Canceled;
 	}
 
 	auto FShaderCompilingManager::IsMaterialCompiling(FWeakObjectPtr Owner) const -> bool
@@ -288,7 +289,7 @@ namespace Durin
 		}
 	}
 
-	auto FShaderCompilingManager::CancelMaterialOwnerLocked(FWeakObjectPtr Owner) -> bool
+	auto FShaderCompilingManager::DetachMaterialOwnerLocked(FWeakObjectPtr Owner, std::vector<FShaderMapPtr>& CanceledRequests) -> bool
 	{
 		bool bFound = false;
 		const auto AccountRemoved = [&](const auto& ShaderMap, size_t Removed, bool Empty) {
@@ -296,7 +297,7 @@ namespace Durin
 			if (!SameOwner(Owner, ShaderMap->InitialOwner)) std::erase_if(ShaderMap->Origins, [&](auto Origin) { return SameOwner(Origin, Owner); });
 			bFound = true; OutstandingMaterialConsumers -= static_cast<uint32>(Removed);
 			MaterialDiagnostics.CanceledRequests += Removed;
-			if (Empty) ShaderMap->Cancellation.Cancel();
+			if (Empty) CanceledRequests.push_back(ShaderMap);
 		};
 		for (auto& [Key, ShaderMap] : RequestedShaderMaps)
 		{

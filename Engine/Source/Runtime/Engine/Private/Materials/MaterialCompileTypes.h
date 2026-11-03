@@ -66,7 +66,6 @@ namespace Durin::MaterialBuildPrivate
 		Tasks::FCancellationToken Cancellation;
 		std::function<bool()> IsCancellationRequested;
 		std::mutex CancellationMutex;
-		ENGINE_API auto CheckCancellation() -> bool;
 		bool Force = false;
 		FMaterialProgramIdentity CanonicalIdentity;
 		std::vector<FMaterialCompileRequest> CompilingMaterialDependencies;
@@ -84,7 +83,6 @@ namespace Durin::MaterialBuildPrivate
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
 		Tasks::FCancellationToken BuildCancellation;
 		std::vector<std::shared_ptr<FMaterialCompilation>> CompileDependencies;
-		Tasks::FCancellationToken CpuCancellation;
 		std::shared_ptr<FShaderBuildHandle> ShaderJobs;
 		std::shared_ptr<const MIR::FCompilerInput> Input;
 		std::shared_ptr<const FMaterialTranslationInput> EncodedInput;

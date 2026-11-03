@@ -4,7 +4,7 @@ Summary: Specify Durin CB manifests, versioned value attachments, selective loca
 
 Modules: DerivedDataCache
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-03
 
 Build ownership and completion belong to the [build protocol](DerivedDataBuild.md).
 This contract owns persistent storage, not asset assembly policy.
@@ -12,7 +12,11 @@ This contract owns persistent storage, not asset assembly policy.
 ## Manifests, values, and query limits
 
 Public cache requests use `ICache::Get`/`Put` with an owner and one status-bearing
-response per item. Synchronous hit/miss/error results, cancellation predicates,
+response per item. Get/Put return void and consume move-only completion callbacks.
+Callers decide fallback or continuation from Ok, Error and Canceled; backend
+error categories and diagnostic text do not cross this request boundary.
+Get failures preserve the requested key, and Put responses retain the submitted
+record. Synchronous hit/miss/error results, cancellation predicates,
 per-query statistics, and dispatch handles are private backend concerns.
 Public requests do not carry storage budgets: backend configuration supplies
 `FCacheResourceLimits` for record validation, encoded bytes, and codec working set.

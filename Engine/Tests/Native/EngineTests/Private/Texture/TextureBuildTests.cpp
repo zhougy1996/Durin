@@ -1770,7 +1770,6 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	EXPECT_TRUE(std::ranges::equal(Recovered->Mips.front().Voxels, First->Mips.front().Voxels));
 
 	EXPECT_TRUE(Error.empty());
-	EXPECT_TRUE(CacheLog.Has("read"));
 	CacheLog.Reset();
 	Request.Source.ReleaseSourceMemory();
 	auto BuildResult7 = Durin::BuildVolumeTextureDetached(Request);
@@ -2174,9 +2173,6 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
 	EXPECT_TRUE(!DecodeRequestMips(Request).empty());
 	EXPECT_TRUE(BuildResult->IsValid());
-
-	EXPECT_TRUE(CacheLog.Has("read"));
-	EXPECT_TRUE(CacheLog.Has("write"));
 	EXPECT_EQ(CacheLog.size(), 2u);
 	CacheLog.Reset();
 	ASSERT_TRUE(EnsureTextureCompilingManager());
@@ -2197,8 +2193,6 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 	ASSERT_TRUE(Completion);
 	EXPECT_EQ(CompletionCount, 1u);
 	EXPECT_TRUE(Completion->Succeeded());
-	EXPECT_TRUE(CacheLog.Has("read"));
-	EXPECT_TRUE(CacheLog.Has("write"));
 	EXPECT_EQ(CacheLog.size(), 2u);
 
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);

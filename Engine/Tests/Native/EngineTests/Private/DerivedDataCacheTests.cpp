@@ -147,18 +147,17 @@ TEST(FAsyncCacheTests, CanceledQueuedOwnerCompletesWithoutOtherOwnerProgress)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
 	auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1});
 	FRequestOwner First, Second;
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("CancelQueue"), '1')}};
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("CancelQueue"), '1')}};
 	uint32 Calls = 0;
-	ASSERT_TRUE(Async->Get(Requests, First, [](auto, auto, auto) {}));
-	auto Batch = Async->Get(Requests, Second, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Calls; });
-	ASSERT_TRUE(Batch);
+	Async->Get(Requests, First, [](auto Response) {});
+	Async->Get(Requests, Second, [&](auto Response) { EXPECT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Calls; });
 	Second.Cancel();
 	EXPECT_EQ(Calls, 1u);
 	EXPECT_TRUE(Second.Poll());
 	EXPECT_EQ(Second.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ((*Batch)->Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Second.Wait(), ERequestWaitResult::Completed);
 	EXPECT_FALSE(First.Poll());
 	ASSERT_EQ(Scheduler->Work.size(), 1u);
 	Scheduler->Run();
@@ -168,46 +167,39 @@ TEST(FAsyncCacheTests, CanceledQueuedOwnerCompletesWithoutOtherOwnerProgress)
 TEST(FAsyncCacheTests, AlreadyCanceledOwnerCompletesWithoutTaskDispatch)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
-	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Owner; Owner.Cancel();
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("CancelQueue"), '2')}};
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("CancelQueue"), '2')}};
 	uint32 Calls = 0;
-	ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Calls; }));
+	Async->Get(Requests, Owner, [&](auto Response) { EXPECT_NE(Response.Status, EStatus::Ok); ++Calls; });
 	EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Scheduler->Work.empty()); EXPECT_TRUE(Owner.Poll());
 }
 
-TEST(FAsyncCacheTests, BatchCancellationDoesNotCancelSharedOwner)
+TEST(FAsyncCacheTests, CancellationIsScopedToRequestOwner)
 {
-	EnsureCacheTaskGameThread();
-	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
-	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
-	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>(); auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1});
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("ScopeCancel"), '5')}};
-	FRequestOwner Busy, Owner;
-	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
-	std::atomic<uint32> Canceled = 0; uint32 Other = 0;
-	std::shared_ptr<IBuildScheduledWork> Batch;
-	auto Submit = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [&] {
-		auto Accepted = Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Canceled; });
-		EXPECT_TRUE(Accepted); if (Accepted) Batch = *Accepted;
-	});
-	EXPECT_EQ(Submit.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
-	ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_TRUE(Result); ++Other; }));
-	ASSERT_TRUE(Batch); Batch->RequestCancel(); EXPECT_EQ(Batch->Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Canceled.load(), 1u);
-	EXPECT_FALSE(Owner.IsCanceled()); EXPECT_FALSE(Owner.Poll()); EXPECT_EQ(Other, 0u); EXPECT_FALSE(Busy.Poll());
-	Scheduler->Run(); Scheduler->Run(); EXPECT_EQ(Other, 1u); EXPECT_TRUE(Owner.Poll());
+	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	FRequestOwner Busy, Canceled, Other;
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("ScopeCancel"), '5')}};
+	uint32 CanceledCalls = 0, OtherCalls = 0;
+	Async->Get(Requests, Busy, [](auto) {});
+	Async->Get(Requests, Canceled, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Canceled); ++CanceledCalls; });
+	Async->Get(Requests, Other, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++OtherCalls; });
+	Canceled.Cancel();
+	EXPECT_EQ(CanceledCalls, 1u); EXPECT_FALSE(Other.IsCanceled()); EXPECT_FALSE(Other.Poll());
+	while (!Scheduler->Work.empty()) Scheduler->Run();
+	EXPECT_EQ(OtherCalls, 1u); EXPECT_EQ(Other.Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FAsyncCacheTests, OwnerDestructionCancelsQueuedBatchBeforeReturning)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
-	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("CancelQueue"), '3')}};
-	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("CancelQueue"), '3')}};
+	Async->Get(Requests, Busy, [](auto Response) {});
 	uint32 Calls = 0;
-	{ FRequestOwner Owner; ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Calls; })); }
+	{ FRequestOwner Owner; Async->Get(Requests, Owner, [&](auto Response) { EXPECT_NE(Response.Status, EStatus::Ok); ++Calls; }); }
 	EXPECT_EQ(Calls, 1u); EXPECT_FALSE(Busy.Poll()); Scheduler->Run();
 }
 
@@ -224,7 +216,6 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
 		public:
 			Tasks::FTask Handle;
 			auto GetTaskHandle() const -> Tasks::FTask override { return Handle; }
-			auto RequestCancel() const -> void override {}
 			auto Wait() const -> ERequestWaitResult override
 			{ return WaitTask(Handle).WaitStatus == ETaskWaitStatus::Completed ? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock; }
 		};
@@ -244,11 +235,11 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
 	};
 	auto Scheduler = std::make_shared<FTailScheduler>(); std::weak_ptr<int> Weak = Scheduler->Capture;
 	auto Operation = std::make_shared<FRequestOwner>(); auto& Owner = *Operation; std::atomic<uint32> Calls = 0;
-	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("NativeTail"), '6')}};
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("NativeTail"), '6')}};
 	FThreadEvent Submitted, WaitStarted, WaitReturned;
 	auto Producer = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [&] {
-		EXPECT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_TRUE(Result); ++Calls; }));
+		Async->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Calls; });
 		Submitted.Trigger();
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_TRUE(Scheduler->Entered.WaitFor(5.0));
@@ -271,15 +262,15 @@ TEST(FAsyncCacheTests, RequestOwnerQueuedCancellationNeedsNoBusyOwnerProgress)
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
-	auto Backend = std::make_shared<FAsyncFixtureCache>(); auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1});
+	auto Backend = std::make_shared<FAsyncFixtureCache>(); auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy; auto Operation = std::make_shared<FRequestOwner>(); auto& Owner = *Operation;
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("NestedCancel"), '7')}};
-	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("NestedCancel"), '7')}};
+	Async->Get(Requests, Busy, [](auto Response) {});
 	FThreadEvent Submitted; std::atomic<uint32> Calls = 0;
 	auto Producer = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [&] {
-		EXPECT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) {
-			EXPECT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Calls;
-		}));
+		Async->Get(Requests, Owner, [&](auto Response) {
+			EXPECT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Calls;
+		});
 		Submitted.Trigger();
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_FALSE(Owner.Poll());
@@ -294,18 +285,18 @@ TEST(FAsyncCacheTests, RequestOwnerCancellationWaitsForCallbackAndRejectsSelfWai
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(2));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
-	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
 	auto Operation = std::make_shared<FRequestOwner>();
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("OperationCancel"), '8')}};
-	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationCancel"), '8')}};
+	Async->Get(Requests, Busy, [](auto Response) {});
 	FThreadEvent Submitted, CallbackEntered, ReleaseCallback, CancelReturned;
 	auto Producer = Tasks::LaunchTask("RequestOwnerProducer", [&] {
-		EXPECT_TRUE(Async->Get(Requests, *Operation, [&](auto, auto Result, auto) {
-			EXPECT_FALSE(Result);
+		Async->Get(Requests, *Operation, [&](auto Response) {
+			EXPECT_NE(Response.Status, EStatus::Ok);
 			EXPECT_EQ(Operation->Wait(), ERequestWaitResult::WouldBlock);
 			CallbackEntered.Trigger(); ReleaseCallback.Wait();
-		}));
+		});
 		Submitted.Trigger();
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0));
@@ -320,34 +311,20 @@ TEST(FAsyncCacheTests, RequestOwnerCancellationWaitsForCallbackAndRejectsSelfWai
 	Scheduler->Run();
 }
 
-TEST(FAsyncCacheTests, RequestOwnerUndispatchedRecordDoesNotRetainCoreShutdown)
-{
-	EnsureCacheTaskGameThread();
-	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
-	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
-	const auto Before = GetTaskSchedulerDiagnostics().NonterminalTaskCount;
-	auto Operation = std::make_shared<FRequestOwner>();
-	ASSERT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, Before);
-	ShutdownTaskSystem(ETaskShutdownMode::Drain);
-	Operation.reset();
-	EXPECT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
-}
-
-TEST(FAsyncCacheTests, RequestOwnerDestructionCancelsQueuedRequestWithoutRetainingFacade)
+TEST(FAsyncCacheTests, OwnerDestructionCancelsQueuedRequestWithoutRetainingCache)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
-	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
 	auto Operation = std::make_shared<FRequestOwner>();
 	std::weak_ptr<FRequestOwner> Weak = Operation;
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("OperationDestruction"), 'c')}};
-	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationDestruction"), 'c')}};
+	Async->Get(Requests, Busy, [](auto Response) {});
 	uint32 Calls = 0;
-	auto Batch = Async->Get(Requests, *Operation, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Calls; });
-	ASSERT_TRUE(Batch);
+	Async->Get(Requests, *Operation, [&](auto Response) { EXPECT_NE(Response.Status, EStatus::Ok); ++Calls; });
 	Operation.reset();
 	EXPECT_TRUE(Weak.expired()); EXPECT_EQ(Calls, 1u);
 	EXPECT_FALSE(Busy.Poll()); Scheduler->Run();
@@ -358,14 +335,14 @@ TEST(FAsyncCacheTests, RequestOwnerInlineOwnerPollingDoesNotCloseProducerSubmiss
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
-	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), CreateInlineBuildScheduler(), {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), CreateInlineBuildScheduler(), {.Concurrency = 1});
 	auto Operation = std::make_shared<FRequestOwner>();
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("OperationInline"), '9')}};
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationInline"), '9')}};
 	uint32 Calls = 0;
 	auto Producer = Tasks::LaunchTask("RequestOwnerInline", [&] {
 		for (uint32 Index = 0; Index != 2; ++Index)
 		{
-			EXPECT_TRUE(Async->Get(Requests, *Operation, [&](auto, auto, auto) { ++Calls; }));
+			Async->Get(Requests, *Operation, [&](auto Response) { ++Calls; });
 			EXPECT_TRUE(Operation->Poll());
 		}
 	});
@@ -406,14 +383,14 @@ TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeHandlePublishedAfterSynchronous
 		}
 	};
 	auto Scheduler = std::make_shared<FPublicationScheduler>();
-	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
 	auto Operation = std::make_shared<FRequestOwner>();
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("OperationPublication"), 'a')}};
-	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationPublication"), 'a')}};
+	Async->Get(Requests, Busy, [](auto Response) {});
 	FThreadEvent Submitted;
 	auto Producer = Tasks::LaunchTask("OperationLateDispatch", [&] {
-		EXPECT_TRUE(Async->Get(Requests, *Operation, [](auto, auto, auto) {}));
+		Async->Get(Requests, *Operation, [](auto Response) {});
 		Submitted.Trigger();
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0)); Scheduler->Owner = Operation.get();
@@ -431,16 +408,16 @@ TEST(FAsyncCacheTests, RequestOwnerExceptionalProducerStillJoinsQueuedRetirement
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
-	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
 	auto Operation = std::make_shared<FRequestOwner>();
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("OperationException"), 'b')}};
-	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationException"), 'b')}};
+	Async->Get(Requests, Busy, [](auto Response) {});
 	FThreadEvent Submitted;
 	auto Producer = Tasks::LaunchTask("OperationExceptionalProducer", [&] {
 		try
 		{
-			EXPECT_TRUE(Async->Get(Requests, *Operation, [](auto, auto, auto) {}));
+			Async->Get(Requests, *Operation, [](auto Response) {});
 			throw std::runtime_error("after admission");
 		}
 		catch (...)
@@ -470,111 +447,111 @@ TEST(FAsyncCacheTests, MaximumInlineBatchesKeepDispatchDepthConstant)
 		}
 	};
 	auto Scheduler = std::make_shared<FDepthScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler); FRequestOwner Owner;
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler); FRequestOwner Owner;
 	const auto Key = MakeKey(FCacheBucket::FromString("InlineBatch"), 'a');
-	std::vector<FCacheGetBackendRequest> Gets(4096, FCacheGetBackendRequest{.Key = Key});
+	std::vector<FCacheGetRequest> Gets(4096, FCacheGetRequest{.Key = Key});
 	std::vector<uint32> Calls(Gets.size());
-	auto Read = Async->Get(Gets, Owner, [&](uint32 Index, auto Result, auto) {
-		EXPECT_TRUE(Result); ASSERT_LT(Index, Calls.size()); ++Calls[Index];
+	for (uint64 Index = 0; Index < Gets.size(); ++Index) Gets[Index].UserData = Index;
+	Async->Get(Gets, Owner, [&](auto Response) {
+		EXPECT_EQ(Response.Status, EStatus::Error); ASSERT_LT(Response.UserData, Calls.size()); ++Calls[Response.UserData];
 	});
-	ASSERT_TRUE(Read); EXPECT_EQ((*Read)->Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Scheduler->MaximumDepth, 1u); EXPECT_EQ(Backend->Gets, 4096u);
 	for (auto Count : Calls) EXPECT_EQ(Count, 1u);
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2}))});
-	std::vector<FCachePutBackendRequest> Puts(4096, FCachePutBackendRequest{Record});
+	std::vector<FCachePutRequest> Puts(4096, FCachePutRequest{Record});
 	std::ranges::fill(Calls, 0u);
-	auto Write = Async->Put(Puts, Owner, [&](uint32 Index, auto Result) {
-		EXPECT_TRUE(Result); ASSERT_LT(Index, Calls.size()); ++Calls[Index];
+	for (uint64 Index = 0; Index < Puts.size(); ++Index) Puts[Index].UserData = Index;
+	Async->Put(Puts, Owner, [&](auto Response) {
+		EXPECT_EQ(Response.Status, EStatus::Ok); ASSERT_LT(Response.UserData, Calls.size()); ++Calls[Response.UserData];
 	});
-	ASSERT_TRUE(Write); EXPECT_EQ((*Write)->Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Scheduler->MaximumDepth, 1u); EXPECT_EQ(Backend->Puts, 4096u);
 	for (auto Count : Calls) EXPECT_EQ(Count, 1u);
 	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
 }
 
 TEST(FAsyncCacheTests, SameCacheInlineSubmissionCompletesInsideCallback)
 {
 	auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, CreateInlineBuildScheduler());
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, CreateInlineBuildScheduler());
 	FRequestOwner OuterOwner, InnerOwner;
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("InlineNested"), 'b')}};
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("InlineNested"), 'b')}};
 	uint32 Calls = 0;
-	auto Outer = Async->Get(Requests, OuterOwner, [&](auto, auto Result, auto) {
-		EXPECT_TRUE(Result); ++Calls;
-		auto Inner = Async->Get(Requests, InnerOwner, [&](auto, auto NestedResult, auto) {
-			EXPECT_TRUE(NestedResult); ++Calls;
+	Async->Get(Requests, OuterOwner, [&](auto Response) {
+		EXPECT_EQ(Response.Status, EStatus::Error); ++Calls;
+		Async->Get(Requests, InnerOwner, [&](auto Response) {
+			EXPECT_EQ(Response.Status, EStatus::Error); ++Calls;
 			EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::WouldBlock);
 		});
-		ASSERT_TRUE(Inner); EXPECT_EQ((*Inner)->Wait(), ERequestWaitResult::Completed);
+		EXPECT_EQ(InnerOwner.Wait(), ERequestWaitResult::Completed);
 		EXPECT_EQ(InnerOwner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Calls, 2u);
 	});
-	ASSERT_TRUE(Outer); EXPECT_EQ((*Outer)->Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Calls, 2u); EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
+	EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FAsyncCacheTests, RetainedPayloadCapacityRejectsAtomicallyAndReleasesOnCancellation)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .MaximumRetainedBytes = 14000});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .MaximumRetainedBytes = 14000});
 	FRequestOwner Busy, Pending, Rejected;
 	const auto Key = MakeKey(FCacheBucket::FromString("RetainedCapacity"), 'c');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{3}))});
-	const std::array Writes{FCachePutBackendRequest{Record}};
-	const std::array Batch{FCachePutBackendRequest{Record}, FCachePutBackendRequest{Record}};
+	const std::array Writes{FCachePutRequest{Record}};
+	const std::array Batch{FCachePutRequest{Record}, FCachePutRequest{Record}};
 	uint32 Calls = 0;
-	auto TooLarge = Async->Put(Batch, Rejected, [&](auto, auto) { ADD_FAILURE(); });
-	ASSERT_FALSE(TooLarge); EXPECT_EQ(TooLarge.error().Code, ECacheError::Capacity);
+	Async->Put(Batch, Rejected, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
 	EXPECT_TRUE(Rejected.Poll()); EXPECT_TRUE(Scheduler->Work.empty());
-	const std::array Reads{FCacheGetBackendRequest{.Key = Key}};
-	ASSERT_TRUE(Async->Get(Reads, Busy, [](auto, auto, auto) {}));
-	ASSERT_TRUE(Async->Put(Writes, Pending, [&](auto, auto Result) {
-		ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Calls;
-	}));
+	const std::array Reads{FCacheGetRequest{.Key = Key}};
+	Async->Get(Reads, Busy, [](auto Response) {});
+	Async->Put(Writes, Pending, [&](auto Response) {
+		ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Calls;
+	});
 	EXPECT_EQ(Scheduler->Work.size(), 1u);
-	auto Full = Async->Put(Writes, Rejected, [&](auto, auto) { ADD_FAILURE(); });
-	ASSERT_FALSE(Full); EXPECT_EQ(Full.error().Code, ECacheError::Capacity); EXPECT_TRUE(Rejected.Poll());
+	Async->Put(Writes, Rejected, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
+	EXPECT_TRUE(Rejected.Poll());
 	Pending.Cancel(); EXPECT_EQ(Calls, 1u);
-	ASSERT_TRUE(Async->Put(Writes, Rejected, [&](auto, auto Result) { EXPECT_TRUE(Result); ++Calls; }));
+	Async->Put(Writes, Rejected, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); ++Calls; });
 	while (!Scheduler->Work.empty()) Scheduler->Run();
 	EXPECT_EQ(Calls, 2u); EXPECT_EQ(Backend->Puts, 1u);
-	EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Rejected.Wait(), ERequestWaitResult::Completed);
 	// Admission charges the retained allocation, not merely the one-byte view.
 	const auto Backing = FSharedByteBuffer::Take(FByteBuffer(65536, std::byte{4}));
-	const std::array Sliced{FCachePutBackendRequest{RecordWith(Key, {Backing.MakeView(0, 1)})}};
-	auto Slice = Async->Put(Sliced, Rejected, [&](auto, auto) { ADD_FAILURE(); });
-	ASSERT_FALSE(Slice); EXPECT_EQ(Slice.error().Code, ECacheError::Capacity); EXPECT_TRUE(Rejected.Poll());
+	const std::array Sliced{FCachePutRequest{RecordWith(Key, {Backing.MakeView(0, 1)})}};
+	Async->Put(Sliced, Rejected, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
+	EXPECT_TRUE(Rejected.Poll());
 }
 
 TEST(FAsyncCacheTests, RetainedBytesRemainChargedDuringCallbackAndRecoverAfterward)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .MaximumRetainedBytes = 14000});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .MaximumRetainedBytes = 14000});
 	FRequestOwner Owner, Other;
 	const auto Key = MakeKey(FCacheBucket::FromString("RetainedCallback"), 'd');
-	const std::array Requests{FCachePutBackendRequest{RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{5}))})}};
-	ASSERT_TRUE(Async->Put(Requests, Owner, [&](auto, auto Result) {
-		EXPECT_TRUE(Result);
-		auto Nested = Async->Put(Requests, Other, [&](auto, auto) { ADD_FAILURE(); });
-		ASSERT_FALSE(Nested); EXPECT_EQ(Nested.error().Code, ECacheError::Capacity); EXPECT_TRUE(Other.Poll());
-	}));
+	const std::array Requests{FCachePutRequest{RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{5}))})}};
+	Async->Put(Requests, Owner, [&](auto Response) {
+		EXPECT_EQ(Response.Status, EStatus::Ok);
+		Async->Put(Requests, Other, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
+		EXPECT_TRUE(Other.Poll());
+	});
 	Scheduler->Run(); EXPECT_TRUE(Owner.Poll());
-	ASSERT_TRUE(Async->Put(Requests, Other, [](auto, auto Result) { EXPECT_TRUE(Result); }));
+	Async->Put(Requests, Other, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); });
 	Scheduler->Run(); EXPECT_EQ(Backend->Puts, 2u); EXPECT_TRUE(Other.Poll());
 }
 
 TEST(FAsyncCacheTests, OldestRequestPreventsStarvationUnderHighPriorityArrivals)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .Capacity = 8});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .Capacity = 8});
 	FRequestOwner High(ERequestPriority::High), Low(ERequestPriority::Low);
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("FairQueue"), 'e')}};
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("FairQueue"), 'e')}};
 	uint32 LowCalls = 0;
-	ASSERT_TRUE(Async->Get(Requests, High, [](auto, auto, auto) {}));
-	ASSERT_TRUE(Async->Get(Requests, Low, [&](auto, auto Result, auto) { EXPECT_TRUE(Result); ++LowCalls; }));
+	Async->Get(Requests, High, [](auto Response) {});
+	Async->Get(Requests, Low, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++LowCalls; });
 	for (uint32 Turn = 0; Turn < 33; ++Turn) {
-		ASSERT_TRUE(Async->Get(Requests, High, [](auto, auto, auto) {})); Scheduler->Run();
+		Async->Get(Requests, High, [](auto Response) {}); Scheduler->Run();
 	}
 	ASSERT_EQ(Scheduler->Priorities.size(), 34u);
 	EXPECT_EQ(Scheduler->Priorities[33], ERequestPriority::Low);
@@ -586,47 +563,44 @@ TEST(FAsyncCacheTests, OldestRequestPreventsStarvationUnderHighPriorityArrivals)
 TEST(FAsyncCacheTests, RetainedAdmissionDeduplicatesRecordBackingAndChargesPolicyOverrides)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .MaximumRetainedBytes = 14000});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .MaximumRetainedBytes = 14000});
 	FRequestOwner Owner;
 	const auto Key = MakeKey(FCacheBucket::FromString("RetainedTables"), 'a');
 	const auto Backing = FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{6}));
-	const std::array Writes{FCachePutBackendRequest{RecordWith(Key, {Backing, Backing})}};
-	ASSERT_TRUE(Async->Put(Writes, Owner, [](auto, auto Result) { EXPECT_TRUE(Result); }));
+	const std::array Writes{FCachePutRequest{RecordWith(Key, {Backing, Backing})}};
+	Async->Put(Writes, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); });
 	Scheduler->Run(); EXPECT_EQ(Backend->Puts, 1u);
 	std::vector<FValueId> Ids; Ids.reserve(4096);
 	for (uint32 Index = 0; Index < 4096; ++Index) Ids.push_back(FValueId::FromName("Selection").MakeIndexed(Index));
-	const std::array Reads{FCacheGetBackendRequest{.Key = Key, .Policy = SelectValues(Ids)}};
-	auto Rejected = Async->Get(Reads, Owner, [](auto, auto, auto) { ADD_FAILURE(); });
-	ASSERT_FALSE(Rejected); EXPECT_EQ(Rejected.error().Code, ECacheError::Capacity);
+	const std::array Reads{FCacheGetRequest{.Key = Key, .Policy = SelectValues(Ids)}};
+	Async->Get(Reads, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
 	EXPECT_TRUE(Owner.Poll()); EXPECT_TRUE(Scheduler->Work.empty()); EXPECT_EQ(Backend->Gets, 0u);
 }
 
 TEST(FAsyncCacheTests, MaximumCapacityQueueKeepsOldestProgressUnderPriorityArrivals)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1});
 	FRequestOwner High(ERequestPriority::High), Low(ERequestPriority::Low);
 	const auto Key = MakeKey(FCacheBucket::FromString("FullFairQueue"), 'a');
-	const std::array Requests{FCacheGetBackendRequest{.Key = Key}};
-	std::vector<FCacheGetBackendRequest> Waiting(4094, Requests[0]);
+	const std::array Requests{FCacheGetRequest{.Key = Key}};
+	std::vector<FCacheGetRequest> Waiting(4094, Requests[0]);
 	uint32 Calls = 0;
-	ASSERT_TRUE(Async->Get(Requests, High, [](auto, auto, auto) {}));
-	ASSERT_TRUE(Async->Get(Waiting, Low, [&](auto, auto Result, auto) { EXPECT_TRUE(Result); ++Calls; }));
+	Async->Get(Requests, High, [](auto Response) {});
+	Async->Get(Waiting, Low, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Calls; });
 	for (uint32 Turn = 0; Turn < 33; ++Turn)
 	{
-		ASSERT_TRUE(Async->Get(Requests, High, [](auto, auto, auto) {}));
+		Async->Get(Requests, High, [](auto Response) {});
 		if (Turn == 0)
 		{
-			auto Full = Async->Get(Requests, High, [](auto, auto, auto) { ADD_FAILURE(); });
-			ASSERT_FALSE(Full); EXPECT_EQ(Full.error().Code, ECacheError::Capacity);
-		}
+			Async->Get(Requests, High, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
+			}
 		Scheduler->Run();
 	}
 	ASSERT_EQ(Scheduler->Priorities.size(), 34u);
 	EXPECT_EQ(Scheduler->Priorities[33], ERequestPriority::Low);
 	while (!Scheduler->Work.empty()) Scheduler->Run();
 	EXPECT_EQ(Calls, Waiting.size()); EXPECT_TRUE(Low.Poll()); EXPECT_TRUE(High.Poll());
-	EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
 }
 
 TEST(FAsyncCacheTests, QueuedDataBudgetCoversMetadataAndRecoversAfterDispatchRejection)
@@ -638,19 +612,19 @@ TEST(FAsyncCacheTests, QueuedDataBudgetCoversMetadataAndRecoversAfterDispatchRej
 	ASSERT_TRUE(Builder.AddMessage(EBuildMessageSeverity::Warning, std::string(4096, 'x')));
 	const auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(MakeKey(FCacheBucket::FromString("QueuedData"), 'b'), std::move(Builder).Build().value()).value();
 	const uint64 Bytes = Record.GetMeta().GetBytes().GetRetainedCapacityBytes();
-	const std::array Writes{FCachePutBackendRequest{Record}};
+	const std::array Writes{FCachePutRequest{Record}};
 	FRequestOwner Owner;
-	auto Small = CreateAsyncCache(Backend, Scheduler, {.MaximumRetainedBytes = Bytes - 1});
-	auto Rejected = Small->Put(Writes, Owner, [](auto, auto) { ADD_FAILURE(); });
-	ASSERT_FALSE(Rejected); EXPECT_EQ(Rejected.error().Code, ECacheError::Capacity); EXPECT_TRUE(Owner.Poll());
-	auto Exact = CreateAsyncCache(Backend, Scheduler, {.MaximumRetainedBytes = Bytes});
+	auto Small = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.MaximumRetainedBytes = Bytes - 1});
+	Small->Put(Writes, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
+	EXPECT_TRUE(Owner.Poll());
+	auto Exact = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.MaximumRetainedBytes = Bytes});
 	Scheduler->Reject = true;
-	ASSERT_TRUE(Exact->Put(Writes, Owner, [](auto, auto Result) {
-		ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure);
-	}));
+	Exact->Put(Writes, Owner, [](auto Response) {
+		ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Error);
+	});
 	EXPECT_TRUE(Owner.Poll());
 	Scheduler->Reject = false;
-	ASSERT_TRUE(Exact->Put(Writes, Owner, [](auto, auto Result) { EXPECT_TRUE(Result); }));
+	Exact->Put(Writes, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); });
 	Scheduler->Run(); EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Backend->Puts, 1u);
 }
 
@@ -752,124 +726,125 @@ TEST(FResourceBuildSessionTests, ReplacingScopedTaskServiceDrainsOutsideAcquisit
 	EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
 }
 
-TEST(FAsyncCacheTests, ItemAndByteCapacityAreDistinctFromBackendFailure)
+TEST(FAsyncCacheTests, CapacityAndBackendFailureCompleteThroughStatusResponses)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .Capacity = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .Capacity = 1});
 	FRequestOwner Owner, Other;
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("CapacityCode"), 'f')}};
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("CapacityCode"), 'f')}};
 	Backend->Throw = true;
-	ASSERT_TRUE(Async->Get(Requests, Owner, [](auto, auto Result, auto) {
-		ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure);
-	}));
-	auto Overflow = Async->Get(Requests, Other, [](auto, auto, auto) { ADD_FAILURE(); });
-	ASSERT_FALSE(Overflow); EXPECT_EQ(Overflow.error().Code, ECacheError::Capacity); EXPECT_TRUE(Other.Poll());
+	Async->Get(Requests, Owner, [](auto Response) {
+		ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Error);
+	});
+	Async->Get(Requests, Other, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
+	EXPECT_TRUE(Other.Poll());
 	Scheduler->Run();
-	auto ZeroBytes = CreateAsyncCache(Backend, Scheduler, {.MaximumRetainedBytes = 0});
+	auto ZeroBytes = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.MaximumRetainedBytes = 0});
 	// A uniform-policy Get retains no queued data; fixed overhead uses item admission.
-	ASSERT_TRUE(ZeroBytes->Get(Requests, Other, [](auto, auto, auto) {}));
+	ZeroBytes->Get(Requests, Other, [](auto Response) {});
 	Scheduler->Run(); EXPECT_TRUE(Other.Poll());
-	const std::array Writes{FCachePutBackendRequest{RecordWith(Requests[0].Key, {FSharedByteBuffer::Take(Bytes({1}))})}};
-	auto Rejected = ZeroBytes->Put(Writes, Other, [](auto, auto) { ADD_FAILURE(); });
-	ASSERT_FALSE(Rejected); EXPECT_EQ(Rejected.error().Code, ECacheError::Capacity); EXPECT_TRUE(Other.Poll());
+	const std::array Writes{FCachePutRequest{RecordWith(Requests[0].Key, {FSharedByteBuffer::Take(Bytes({1}))})}};
+	ZeroBytes->Put(Writes, Other, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
+	EXPECT_TRUE(Other.Poll());
 }
 
 TEST(FAsyncCacheTests, OwnsBatchPoliciesAndBoundsConcurrencyAndAdmission)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .Capacity = 3}); FRequestOwner Owner(ERequestPriority::High);
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .Capacity = 3}); FRequestOwner Owner(ERequestPriority::High);
 	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'a');
 	std::vector<FValueId> Ids{FValueId::FromName("Selected")}; const auto Original = Ids;
-	std::array Requests{FCacheGetBackendRequest{.Key = Key, .Policy = SelectValues(Ids)}, FCacheGetBackendRequest{.Key = Key}};
-	uint32 Callbacks = 0; uint32 Indices = 0; FCacheQueryStats Borrowed; Requests[0].Stats = &Borrowed;
-	ASSERT_TRUE(Async->Get(Requests, Owner, [&](uint32 Index, auto Result, auto Stats) { EXPECT_TRUE(Result); EXPECT_EQ(Stats.ReadBytes, 17u); ++Callbacks; Indices |= 1 << Index; }));
+	std::array Requests{FCacheGetRequest{.Key = Key, .Policy = SelectValues(Ids)}, FCacheGetRequest{.Key = Key}};
+	uint32 Callbacks = 0; uint32 Indices = 0;
+	for (uint64 Index = 0; Index < Requests.size(); ++Index) Requests[Index].UserData = Index;
+	Async->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Callbacks; Indices |= 1 << Response.UserData; });
 	Ids.clear(); Requests = {}; EXPECT_FALSE(Owner.Poll()); EXPECT_EQ(Scheduler->Work.size(), 1u);
-	std::array Extra{FCacheGetBackendRequest{Key}, FCacheGetBackendRequest{Key}};
-	EXPECT_FALSE(Async->Get(Extra, Owner, [&](auto, auto, auto) { ADD_FAILURE(); })); // Entire batch is rejected.
+	std::array Extra{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
+	Async->Get(Extra, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); }); // Entire batch is rejected.
 	Scheduler->Run(); EXPECT_EQ(Backend->ObservedIds, Original); EXPECT_EQ(Scheduler->Work.size(), 1u);
-	Scheduler->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Indices, 3u); EXPECT_EQ(Borrowed.ReadBytes, 0u);
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
+	Scheduler->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Indices, 3u);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	for (auto Priority : Scheduler->Priorities) EXPECT_EQ(Priority, ERequestPriority::High);
 }
 
 TEST(FAsyncCacheTests, PrioritizesQueuedOwnersAndDetectsNestedCallbackWaits)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .Capacity = 4}); FRequestOwner Low(ERequestPriority::Low), High(ERequestPriority::High);
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .Capacity = 4}); FRequestOwner Low(ERequestPriority::Low), High(ERequestPriority::High);
 	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'e');
-	const std::array Requests{FCacheGetBackendRequest{Key}, FCacheGetBackendRequest{Key}};
-	ASSERT_TRUE(Async->Get(Requests, Low, [](auto, auto, auto) {})); ASSERT_TRUE(Async->Get(Requests, High, [](auto, auto, auto) {}));
+	const std::array Requests{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
+	Async->Get(Requests, Low, [](auto Response) {}); Async->Get(Requests, High, [](auto Response) {});
 	while (!Scheduler->Work.empty()) Scheduler->Run();
 	EXPECT_EQ(Scheduler->Priorities, (std::vector{ERequestPriority::Low, ERequestPriority::High, ERequestPriority::High, ERequestPriority::Low}));
-	auto Outer = CreateAsyncCache(Backend, CreateInlineBuildScheduler()); auto Inner = CreateAsyncCache(Backend, CreateInlineBuildScheduler());
+	auto Outer = Durin::DerivedData::Private::CreateCacheForBackend(Backend, CreateInlineBuildScheduler()); auto Inner = Durin::DerivedData::Private::CreateCacheForBackend(Backend, CreateInlineBuildScheduler());
 	FRequestOwner OuterOwner, InnerOwner;
 	uint32 Callbacks = 0;
-	const std::array One{FCacheGetBackendRequest{Key}};
-	ASSERT_TRUE(Outer->Get(One, OuterOwner, [&](auto, auto, auto) {
-		ASSERT_TRUE(Inner->Get(One, InnerOwner, [&](auto, auto, auto) { EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::WouldBlock); EXPECT_EQ(Outer->Drain(), ERequestWaitResult::WouldBlock); ++Callbacks; }));
+	const std::array One{FCacheGetRequest{Key}};
+	Outer->Get(One, OuterOwner, [&](auto Response) {
+		Inner->Get(One, InnerOwner, [&](auto Response) { EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::WouldBlock); EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::WouldBlock); ++Callbacks; });
 		++Callbacks;
-	}));
+	});
 	EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(InnerOwner.Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FAsyncCacheTests, CancellationDropsExceptionsAndCallbackRetirementCompleteExactlyOnce)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1});
-	const std::array Requests{FCacheGetBackendRequest{MakeKey(FCacheBucket::FromString("Async"), 'b')}};
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1});
+	const std::array Requests{FCacheGetRequest{MakeKey(FCacheBucket::FromString("Async"), 'b')}};
 	uint32 Callbacks = 0;
 	{
 		FRequestOwner Owner;
-		ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Callbacks; }));
+		Async->Get(Requests, Owner, [&](auto Response) { ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Callbacks; });
 		Owner.Cancel(); Scheduler->Run(); EXPECT_EQ(Backend->Gets, 0u); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	}
 	{
 		FRequestOwner Owner;
-		ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Callbacks; }));
+		Async->Get(Requests, Owner, [&](auto Response) { EXPECT_NE(Response.Status, EStatus::Ok); ++Callbacks; });
 		Scheduler->Work.clear(); EXPECT_TRUE(Owner.Poll());
 	}
 	{
 		Backend->Throw = true; auto Owner = std::make_unique<FRequestOwner>();
-		ASSERT_TRUE(Async->Get(Requests, *Owner, [&](auto, auto Result, auto) {
-			ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure);
-			EXPECT_EQ(Owner->Wait(), ERequestWaitResult::WouldBlock); EXPECT_EQ(Async->Drain(), ERequestWaitResult::WouldBlock);
+		Async->Get(Requests, *Owner, [&](auto Response) {
+			ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Error);
+			EXPECT_EQ(Owner->Wait(), ERequestWaitResult::WouldBlock);
 			Owner->RequestCancel(); ++Callbacks; throw std::runtime_error("callback");
-		}));
+		});
 		Scheduler->Run(); Owner.reset(); EXPECT_FALSE(Owner);
 	}
-	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Callbacks, 3u);
 	FRequestOwner Owner; Scheduler->Reject = true;
-	ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure); ++Callbacks; }));
+	Async->Get(Requests, Owner, [&](auto Response) { ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Error); ++Callbacks; });
 	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Callbacks, 4u);
-	Async->Close(); EXPECT_FALSE(Async->Get(Requests, Owner, [&](auto, auto, auto) { ADD_FAILURE(); }));
+	Owner.RequestCancel(); Async->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Canceled); });
 }
 
-TEST(FAsyncCacheTests, CloseDrainsAcceptedBatchAndRetainsPutPayloads)
+TEST(FAsyncCacheTests, OwnerCancellationRetainsPutPayloadsThroughCompletion)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1}); FRequestOwner Owner;
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1}); FRequestOwner Owner;
 	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'c');
-	std::array Requests{FCachePutBackendRequest{RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2}))})}};
+	std::array Requests{FCachePutRequest{RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2}))})}};
 	uint32 Callbacks = 0;
-	ASSERT_TRUE(Async->Put(Requests, Owner, [&](auto, auto Result) { EXPECT_TRUE(Result); ++Callbacks; }));
+	Async->Put(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); ++Callbacks; });
 	Requests = {}; Scheduler->Run(); EXPECT_EQ(Backend->Puts, 1u);
-	const std::array Reads{FCacheGetBackendRequest{Key}, FCacheGetBackendRequest{Key}};
-	ASSERT_TRUE(Async->Get(Reads, Owner, [&](auto, auto Result, auto) { ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Callbacks; }));
-	Async->Close(); while (!Scheduler->Work.empty()) Scheduler->Run();
-	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Backend->Gets, 0u); EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
+	const std::array Reads{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
+	Async->Get(Reads, Owner, [&](auto Response) { ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Callbacks; });
+	Owner.RequestCancel(); while (!Scheduler->Work.empty()) Scheduler->Run();
+	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Backend->Gets, 0u); EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FAsyncCacheTests, OwnerPriorityChangeReordersQueuedCacheRequests)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
 	auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1});
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1});
 	FRequestOwner First, Promoted(ERequestPriority::Low), Other;
-	const std::array Reads{FCacheGetBackendRequest{MakeKey(FCacheBucket::FromString("Async"), 'e')}};
+	const std::array Reads{FCacheGetRequest{MakeKey(FCacheBucket::FromString("Async"), 'e')}};
 	std::vector<uint32> Order;
-	ASSERT_TRUE(Async->Get(Reads, First, [&](auto, auto, auto) { Order.push_back(0); }));
-	ASSERT_TRUE(Async->Get(Reads, Promoted, [&](auto, auto, auto) { Order.push_back(1); }));
-	ASSERT_TRUE(Async->Get(Reads, Other, [&](auto, auto, auto) { Order.push_back(2); }));
+	Async->Get(Reads, First, [&](auto Response) { Order.push_back(0); });
+	Async->Get(Reads, Promoted, [&](auto Response) { Order.push_back(1); });
+	Async->Get(Reads, Other, [&](auto Response) { Order.push_back(2); });
 	Promoted.SetPriority(ERequestPriority::High);
 	while (!Scheduler->Work.empty()) Scheduler->Run();
 	EXPECT_EQ(Order, (std::vector<uint32>{0, 1, 2}));
@@ -892,15 +867,15 @@ TEST(FAsyncCacheTests, CoreShutdownDrainsRunningAndPendingAcceptedRequests)
 		auto Put(const FCachePutBackendRequest&) const -> FCachePutResult override { return {}; }
 	};
 	std::promise<void> Release; auto Cache = std::make_shared<FBlockingCache>(); Cache->Release = Release.get_future().share();
-	auto Entered = Cache->Entered.get_future(); auto Async = CreateAsyncCache(Cache, {}, {.Concurrency = 1}); FRequestOwner Owner;
+	auto Entered = Cache->Entered.get_future(); auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Cache, CreateTaskCacheScheduler(), {.Concurrency = 1}); FRequestOwner Owner;
 	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'd');
-	const std::array Requests{FCacheGetBackendRequest{Key}, FCacheGetBackendRequest{Key}};
+	const std::array Requests{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
 	std::atomic<uint32> Callbacks = 0;
-	ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Callbacks; }));
+	Async->Get(Requests, Owner, [&](auto Response) { EXPECT_NE(Response.Status, EStatus::Ok); ++Callbacks; });
 	const auto Started = Entered.wait_for(std::chrono::seconds(5));
-	Async->Close(); Release.set_value(); ShutdownTaskScheduler(false);
+	Owner.RequestCancel(); Release.set_value(); ShutdownTaskScheduler(false);
 	EXPECT_EQ(Started, std::future_status::ready); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Cache->Gets, 1u);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Cache->Gets, 1u);
 }
 
 TEST(FAsyncCacheTests, CoalescesOnlyInflightBlobReadsAndReleasesFailures)
@@ -1875,11 +1850,10 @@ TEST(FCacheDiagnosticsTests, BoundsBucketsAndObservesAdmissionWithoutChangingRes
 	auto Stats = GetCacheDiagnostics(); EXPECT_EQ(Stats.Buckets.size(), FCacheDiagnostics::MaximumBuckets);
 	EXPECT_EQ(Stats.Total.Misses, 70u); EXPECT_EQ(Stats.OtherBuckets.Misses, 6u);
 	auto Queue = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Async = CreateAsyncCache(Backend, Queue, {.Concurrency = 1, .Capacity = 1}); FRequestOwner Owner;
-	const std::array Requests{FCacheGetBackendRequest{.Key = MakeKey(FCacheBucket::FromString("Queue"), 'b')}};
-	ASSERT_TRUE(Async->Get(Requests, Owner, [](auto, auto, auto) {}));
-	auto Rejected = Async->Get(Requests, Owner, [](auto, auto, auto) { ADD_FAILURE(); }); ASSERT_FALSE(Rejected);
-	EXPECT_EQ(Rejected.error().Code, ECacheError::Capacity); Queue->Run();
+	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Queue, {.Concurrency = 1, .Capacity = 1}); FRequestOwner Owner;
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("Queue"), 'b')}};
+	Async->Get(Requests, Owner, [](auto Response) {});
+	Async->Get(Requests, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); }); Queue->Run();
 	Stats = GetCacheDiagnostics(); EXPECT_EQ(Stats.Total.CapacityRejections, 1u); EXPECT_EQ(Stats.Total.AsyncStarts, 1u);
 	EXPECT_GT(Stats.Total.QueueNanoseconds, 0u); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 }
@@ -2080,7 +2054,7 @@ TEST(FPublicCacheTests, PolicyOutlivesCallerStorageAndSelectsResidentData)
 	ASSERT_TRUE(GetCacheBackend().Put({Record}));
 	const auto Selected = Record.GetValues()[0].Id, Skipped = Record.GetValues()[1].Id;
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
-	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend({}, CreateAsyncCache({}, Scheduler));
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend({}, Scheduler);
 	FRequestOwner Owner;
 	uint32 Calls = 0;
 	{
@@ -2141,7 +2115,7 @@ TEST(FPublicCacheTests, RejectedBatchCompletesEveryItemAndQueuedCancellationComp
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
 	auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(Backend, CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1, .Capacity = 1}));
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .Capacity = 1});
 	FRequestOwner Pending, Rejected;
 	const auto Key = MakeKey(FCacheBucket::FromString("PublicCache"), 'b');
 	const std::array Requests{FCacheGetRequest{.Key = Key, .UserData = 17}};
@@ -2150,7 +2124,7 @@ TEST(FPublicCacheTests, RejectedBatchCompletesEveryItemAndQueuedCancellationComp
 	std::vector Overflow{Requests[0], FCacheGetRequest{.Key = Key, .UserData = 18}};
 	Cache->Get(Overflow, Rejected, [&](auto Response) {
 		EXPECT_EQ(Response.Status, EStatus::Error);
-		EXPECT_FALSE(Response.Record.IsValid());
+		EXPECT_EQ(Response.Record.GetKey(), Key);
 		EXPECT_EQ(Response.UserData, 17u + Failed);
 		++Failed;
 		if (Failed == 1) std::vector<FCacheGetRequest>().swap(Overflow);
@@ -2215,7 +2189,7 @@ TEST(FPublicCacheTests, AcceptedBatchSharesCallbackStateAndRetainsRequestTags)
 TEST(FPublicCacheTests, RejectedPutBatchRetainsTagsWhenCallbackReleasesRequests)
 {
 	auto Backend = std::make_shared<FAsyncFixtureCache>();
-	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(Backend, CreateAsyncCache(Backend, CreateInlineBuildScheduler(), {.Capacity = 1}));
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(Backend, CreateInlineBuildScheduler(), {.Capacity = 1});
 	const auto Key = MakeKey(FCacheBucket::FromString("PublicCache"), 'e');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({5}))});
 	std::vector Requests{FCachePutRequest{.Record = Record, .UserData = 1}, FCachePutRequest{.Record = Record, .UserData = 2}};
@@ -2277,4 +2251,22 @@ TEST(FGenericCacheRecordTests, BuilderValidatesGenericValuesAndRetainsMetadataWh
 	Duplicate.AddValue(FValueId::FromName("A"), Record->GetValues()[0].Value);
 	EXPECT_FALSE(std::move(Duplicate).Build());
 	EXPECT_FALSE(std::move(FCacheRecordBuilder(FCacheKey{})).Build());
+}
+
+TEST(FPublicCacheTests, MoveOnlyCompletionStateIsSharedAcrossBatchItems)
+{
+	auto Backend = std::make_shared<FAsyncFixtureCache>();
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(Backend);
+	const auto Key = MakeKey(FCacheBucket::FromString("CompletionState"), 'd');
+	const std::array Reads{FCacheGetRequest{.Key = Key}, FCacheGetRequest{.Key = Key}};
+	FRequestOwner Owner; uint32 GetCalls = 0, PutCalls = 0;
+	Cache->Get(Reads, Owner, [State = std::make_unique<uint32>(0), &GetCalls, Key](auto Response) mutable {
+		EXPECT_EQ(Response.Status, EStatus::Error); EXPECT_EQ(Response.Record.GetKey(), Key); GetCalls = ++*State;
+	});
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))});
+	const std::array Writes{FCachePutRequest{Record}, FCachePutRequest{Record}};
+	Cache->Put(Writes, Owner, [State = std::make_unique<uint32>(0), &PutCalls, Key](auto Response) mutable {
+		EXPECT_EQ(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Record.GetKey(), Key); PutCalls = ++*State;
+	});
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(GetCalls, 2u); EXPECT_EQ(PutCalls, 2u);
 }

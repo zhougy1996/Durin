@@ -11,6 +11,7 @@ namespace Durin::DerivedData::Private
 		std::function<bool()> IsFinished;
 		std::function<ERequestWaitResult()> Wait;
 		std::function<void()> RequestCancel;
+		std::function<void(ERequestPriority)> SetPriority;
 	};
 	class IRequestOwnerInternal
 	{
@@ -25,7 +26,7 @@ namespace Durin::DerivedData::Private
 		virtual auto GetPriority() const -> ERequestPriority = 0;
 		virtual auto SetPriority(ERequestPriority Priority) -> void = 0;
 		virtual auto LaunchTask(IRequest* Request, IBuildScheduler& Scheduler, std::string_view Name, std::function<void()> Work, std::function<void()> OnCanceled)
-			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> = 0;
+			-> std::expected<std::shared_ptr<IBuildOperation>, FBuildAdmissionError> = 0;
 		virtual auto Poll() const -> bool = 0;
 		virtual auto Wait() const -> ERequestWaitResult = 0;
 	};
@@ -33,7 +34,7 @@ namespace Durin::DerivedData::Private
 	{
 		static auto Get(IRequestOwner& Owner) -> std::shared_ptr<IRequestOwnerInternal> { return Owner.State; }
 		DERIVEDDATACACHE_API static auto TrackTask(FRequestOwner& Owner, Tasks::FTask Task) -> void;
-		DERIVEDDATACACHE_API static auto TrackDependency(FRequestOwner& Owner, FRequestDependency Dependency) -> void;
+		DERIVEDDATACACHE_API static auto TrackDependency(IRequestOwner& Owner, FRequestDependency Dependency) -> void;
 	};
 	inline auto BeginRequest(IRequestOwner& Owner, std::shared_ptr<IRequest> Request) -> std::shared_ptr<IRequestOwnerInternal>
 	{

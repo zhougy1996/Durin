@@ -145,7 +145,13 @@ Material compilation remains Engine-owned. Its operation captures on GameThread,
 submits detached cached translation, merges normalized program flights, subscribes
 to asynchronous ShaderBuild, and assembles a candidate on CPU before mailbox
 publication. Cancellation is consumer-scoped; last-consumer cancellation latches
-the operation and prevents reattachment. Selected finish raises downstream DDC
+the operation and prevents reattachment. Request cancellation and shared-build
+cancellation are separate scopes; CPU work uses the shared-build state rather
+than another cancellation source. Explicit cancellation, external observers and
+asset-owner detachment enter the same manager cancellation path, which propagates
+to the DDC owner and shader jobs outside manager locks. External observers are
+polled at stage boundaries, result processing and before blocking finish.
+Selected finish raises downstream DDC
 and Shader priority and joins all dispatch publication, cache owners, subscribers
 and CPU tasks. Shutdown closes admission before draining those controls; progress
 before final application requires no GameThread pump. Count and byte reservations

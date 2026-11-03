@@ -845,7 +845,9 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 	using namespace MaterialBuildPrivate;
 	InitializeDObjectSystem();
 	auto& Manager = FShaderCompilingManager::Get();
-	for (int Canceled = -1; Canceled < 3; ++Canceled) {
+	for (bool Observe : {false, true}) for (int Canceled = -1; Canceled < 3; ++Canceled) {
+		SCOPED_TRACE(std::format("observer={}, canceled={}", Observe, Canceled));
+		std::array<Tasks::FCancellationToken, 2> Cancellation;
 		struct FGate final : DerivedData::ICacheBackend
 		{
 			mutable FThreadEvent FirstEntered, SecondEntered, FirstRelease, OthersRelease;
@@ -880,15 +882,24 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 		const auto Before = GetMaterialProgramCompileStatsForTests();
 		std::array<FMaterialBuildResult, 2> Results;
 		std::array<std::atomic_uint32_t, 2> Calls{};
-		auto First = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { Results[0] = std::move(Result); ++Calls[0]; });
+		auto First = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true, .IsCancellationRequested = [&] { return Observe && Cancellation[0].IsCanceled(); }}, [&](auto Result) { Results[0] = std::move(Result); ++Calls[0]; });
 		ASSERT_TRUE(First); ASSERT_TRUE(Cache->FirstEntered.WaitFor(10)); ASSERT_TRUE(Cache->SecondEntered.WaitFor(10));
-		auto Second = MaterialBuildPrivate::FMaterialCompilation::Compile(Other, {.bForceRecompile = true}, [&](auto Result) { Results[1] = std::move(Result); ++Calls[1]; });
+		auto Second = MaterialBuildPrivate::FMaterialCompilation::Compile(Other, {.bForceRecompile = true, .IsCancellationRequested = [&] { return Observe && Cancellation[1].IsCanceled(); }}, [&](auto Result) { Results[1] = std::move(Result); ++Calls[1]; });
 		ASSERT_TRUE(Second);
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (GetMaterialProgramCompileStatsForTests().Joins == Before.Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 		ASSERT_EQ(GetMaterialProgramCompileStatsForTests().Joins, Before.Joins + 1);
-		if (Canceled == 2) { Manager.CancelCompilation(*First); Manager.CancelCompilation(*Second); }
-		else if (Canceled >= 0) Manager.CancelCompilation(Canceled == 0 ? *First : *Second);
+		if (Observe) {
+			if (Canceled == 2) { Cancellation[0].Cancel(); Cancellation[1].Cancel(); }
+			else if (Canceled >= 0) Cancellation[Canceled].Cancel();
+			Manager.ProcessAsyncResults();
+		}
+		else {
+			if (Canceled == 2) { Manager.CancelCompilation(*First); Manager.CancelCompilation(*Second); }
+			else if (Canceled >= 0) Manager.CancelCompilation(Canceled == 0 ? *First : *Second);
+		}
+		EXPECT_EQ((*First)->Owner->IsCanceled(), Canceled == 2);
+		EXPECT_EQ((*First)->BuildCancellation.IsCanceled(), Canceled == 2);
 		Cache->OthersRelease.Trigger();
 		const auto DrainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		if (Canceled != 2) {
@@ -1058,10 +1069,12 @@ TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedA
 	EXPECT_TRUE(Cancellation.IsCanceled());
 	const auto Before = GetTranslationStats();
 	std::atomic_uint32_t Calls = 0;
-	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, [&](auto Result) {
+	auto Request = std::make_shared<FMaterialCompilation>();
+	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }, .Request = Request}, [&](auto Result) {
 		ASSERT_NE(Result.Program, nullptr);
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		EXPECT_FALSE(Result.RetainedHit);
+		EXPECT_TRUE(Request->Owner->IsCanceled());
 		++Calls;
 	});
 	ASSERT_TRUE(Compile); Manager.FinishCompilation(*Compile);
@@ -1069,6 +1082,7 @@ TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedA
 	EXPECT_TRUE(Cancellation.IsCanceled());
 	EXPECT_EQ(Calls, 1u);
 	EXPECT_EQ(GetTranslationStats().Producers, Before.Producers);
+	EXPECT_TRUE((*Compile)->BuildCancellation.IsCanceled());
 }
 
 TEST(FMaterialProgramOwnershipTests, FinishAllCompilationDrainsCallbackSubmissions)

@@ -7,22 +7,22 @@
 namespace Durin::DerivedData
 {
 	class IRequestOwner;
-	namespace Private
-	{
-		struct FCacheAccess;
-	}
+	struct FCacheGetResponse;
+	struct FCachePutResponse;
 	struct FCacheGetRequest
 	{
 		FCacheKey Key;
 		FCacheRecordPolicy Policy;
 		std::string Name;
 		uint64 UserData = 0;
+		DERIVEDDATACACHE_API auto MakeResponse(EStatus Status) const -> FCacheGetResponse;
 	};
 	struct FCachePutRequest
 	{
 		FCacheRecord Record;
 		std::string Name;
 		uint64 UserData = 0;
+		DERIVEDDATACACHE_API auto MakeResponse(EStatus Status) const -> FCachePutResponse;
 	};
 	struct FCacheGetResponse
 	{
@@ -34,12 +34,13 @@ namespace Durin::DerivedData
 	struct FCachePutResponse
 	{
 		std::string Name;
+		FCacheRecord Record;
 		FCacheKey Key;
 		uint64 UserData = 0;
 		EStatus Status = EStatus::Error;
 	};
-	using FOnCacheGetComplete = std::function<void(FCacheGetResponse)>;
-	using FOnCachePutComplete = std::function<void(FCachePutResponse)>;
+	using FOnCacheGetComplete = TMoveOnlyFunction<void(FCacheGetResponse)>;
+	using FOnCachePutComplete = TMoveOnlyFunction<void(FCachePutResponse)>;
 	// Service/backend resource ceilings, never a per-request cache policy.
 	struct FCacheResourceLimits
 	{
@@ -52,16 +53,9 @@ namespace Durin::DerivedData
 	class ICache
 	{
 	public:
-		DERIVEDDATACACHE_API auto Get(std::span<const FCacheGetRequest> Requests, IRequestOwner& Owner, FOnCacheGetComplete Completion) -> void;
-		DERIVEDDATACACHE_API auto Put(std::span<const FCachePutRequest> Requests, IRequestOwner& Owner, FOnCachePutComplete Completion) -> void;
-
-	private:
-		friend struct Private::FCacheAccess;
-		explicit ICache(std::shared_ptr<Private::FCacheAccess> State)
-			: State(std::move(State))
-		{
-		}
-		std::shared_ptr<Private::FCacheAccess> State;
+		virtual ~ICache() = default;
+		virtual auto Get(std::span<const FCacheGetRequest> Requests, IRequestOwner& Owner, FOnCacheGetComplete&& Completion) -> void = 0;
+		virtual auto Put(std::span<const FCachePutRequest> Requests, IRequestOwner& Owner, FOnCachePutComplete&& Completion) -> void = 0;
 	};
 	DERIVEDDATACACHE_API auto GetCache() -> ICache&;
 }
