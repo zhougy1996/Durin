@@ -45,6 +45,19 @@ TEST(FLaunchArgumentsTests, PreservesRepeatedStartupCommandArgumentOrder)
 		(std::vector<std::string>{"first", "", "third"}));
 }
 
+TEST(FLaunchArgumentsTests, StartupDiagnosticsRequireAnExplicitUniqueFlag)
+{
+	const auto Default = Parse({});
+	ASSERT_TRUE(Default);
+	EXPECT_FALSE(Default.Request->bStartupDiagnostics);
+	const auto Enabled = Parse({"--startup-diagnostics", "--exit-after-ticks=3"});
+	ASSERT_TRUE(Enabled);
+	EXPECT_TRUE(Enabled.Request->bStartupDiagnostics);
+	ExpectRejected({"--startup-diagnostics", "--startup-diagnostics"}, "--startup-diagnostics");
+	ExpectRejected({"--startup-diagnostics=true"}, "--startup-diagnostics=true");
+	EXPECT_FALSE(Parse({}).Request->bStartupDiagnostics);
+}
+
 TEST(FLaunchArgumentsTests, RejectsUnknownDuplicateAndMixedProjectForms)
 {
 	ExpectRejected({"--unknown"}, "--unknown");

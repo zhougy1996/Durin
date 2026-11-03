@@ -900,7 +900,7 @@ TEST(FObjectLoadTimingTests, SeparatesNestedPackagesAndDeferredPostLoadWithoutDo
 	ASSERT_TRUE(FPackagePath::TryCreate("/Timing/B", B));
 	static int64 Tick = 0;
 	Tick = 0;
-	FObjectLoadTimingSession Session(A, false, +[]() -> int64 { return Tick; });
+	FObjectLoadTimingSession Session(A, false, +[]() -> int64 { return Tick; }, true);
 	FObjectLoadTimingSession::RecordPackage(A, 2, 3);
 	FObjectLoadTimingSession::RecordPackage(B, 1, 7);
 	{
@@ -941,6 +941,32 @@ TEST(FObjectLoadTimingTests, SeparatesNestedPackagesAndDeferredPostLoadWithoutDo
 	EXPECT_EQ(OwnA + OwnB, Root.Inclusive);
 }
 
+TEST(FObjectLoadTimingTests, DisabledSessionDoesNotReadClockOrRetainStatistics)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	static uint32 ClockReads = 0;
+	ClockReads = 0;
+	EXPECT_FALSE(Profiling::AreStartupDiagnosticsEnabled());
+	const FPackagePath UnusedPath;
+	{
+		FObjectLoadTimingSession Session(UnusedPath, true,
+			+[]() -> int64 { ++ClockReads; return 0; });
+		EXPECT_FALSE(FObjectLoadTimingSession::IsActive());
+		{
+			FScopedObjectLoadPhase Phase(UnusedPath, EObjectLoadPhase::ObjectApplication, 1, 2);
+			FObjectLoadTimingSession::RecordPackage(UnusedPath, 1, 2);
+			FObjectLoadTimingSession::RecordBindingWork(UnusedPath, 3, 4);
+			FObjectLoadTimingSession::RecordOverrideRestoration(UnusedPath, false,
+				EOverrideRestoreFallbackReason::CustomObjectSerializer, {});
+		}
+		EXPECT_TRUE(Session.GetPackages().empty());
+		EXPECT_EQ(Session.GetPackages().capacity(), 0u);
+	}
+	EXPECT_EQ(ClockReads, 0u);
+	EXPECT_FALSE(FObjectLoadTimingSession::IsActive());
+}
+
 TEST(FObjectLoadTimingTests, FailureUnwindsTimingScopesAndPreservesLaterSamples)
 {
 	using namespace Durin;
@@ -956,7 +982,7 @@ TEST(FObjectLoadTimingTests, FailureUnwindsTimingScopesAndPreservesLaterSamples)
 	ASSERT_TRUE(FPackagePath::TryCreate("/Timing/Failure", Path));
 	static int64 Tick = 0;
 	Tick = 0;
-	FObjectLoadTimingSession Session(Path, false, +[]() -> int64 { return Tick; });
+	FObjectLoadTimingSession Session(Path, false, +[]() -> int64 { return Tick; }, true);
 	EXPECT_THROW(( [&] {
 		FScopedObjectLoadPhase Outer(Path, EObjectLoadPhase::LoadPackage);
 		Tick = 10;

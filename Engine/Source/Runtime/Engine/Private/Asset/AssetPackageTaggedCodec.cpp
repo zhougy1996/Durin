@@ -1,5 +1,4 @@
 #include "AssetPackageTaggedCodec.h"
-#include "AssetLoadTiming.h"
 #include "AssetObjectLoadTiming.h"
 #include "AssetPackageByteSource.h"
 #include "AssetPackageLinker.h"
@@ -702,7 +701,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 		{
 			ObjectPackage::FLinkerTables Linker;
 			{
-				FScopedAssetLoadTiming Timing(Context.PackagePath, "detached package decode/validation");
+				DURIN_PROFILE_CPU_ZONE_NAMED("Asset.DecodePackage");
 				FScopedObjectLoadPhase Phase(Context.PackagePath, EObjectLoadPhase::DecodePackage);
 				if (auto Result = ReadLinker(Context, Linker); !Result) return Result;
 			}
@@ -716,7 +715,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 						CollectLoadBulkEntries(Property.Value, Entries);
 				if (auto Result = Context.BindBulkResource(Entries, BulkResource); !Result) return Result;
 			}
-			FScopedAssetLoadTiming Timing(Context.PackagePath, "live linker application");
+			DURIN_PROFILE_CPU_ZONE_NAMED("Asset.ApplyPackage");
 			FScopedObjectLoadPhase Phase(Context.PackagePath, EObjectLoadPhase::LinkerLoad);
 			return ApplyLivePackageLinker(std::move(Linker), Context.PackagePath, OutPackage,
 				OutReport, {.OnSkeletonReady = OnSkeletonReady,

@@ -93,6 +93,8 @@ namespace Durin
 
 	TEST(FProfilingTests, StartupMilestonesRetainTheFirstObservation)
 	{
+		Profiling::ConfigureStartupDiagnostics(true);
+		struct FRestore { ~FRestore() { Profiling::ConfigureStartupDiagnostics(false); } } Restore;
 		EXPECT_TRUE(Profiling::RecordStartupMilestone(
 			Profiling::EStartupMilestone::DefaultDocumentBegin));
 		const double FirstObservation = Profiling::GetStartupMilestoneMilliseconds(
@@ -122,5 +124,21 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
 		EXPECT_TRUE(Profiling::TryLogStartupTimingSummary());
 		EXPECT_FALSE(Profiling::TryLogStartupTimingSummary());
+	}
+
+	TEST(FProfilingTests, DetailedStartupDiagnosticsAreOptInAndIndependentOfTracy)
+	{
+		EXPECT_FALSE(Profiling::AreStartupDiagnosticsEnabled());
+		Profiling::ConfigureStartupDiagnostics(true);
+		EXPECT_TRUE(Profiling::AreStartupDiagnosticsEnabled());
+		Profiling::ConfigureStartupDiagnostics(false);
+		EXPECT_FALSE(Profiling::AreStartupDiagnosticsEnabled());
+	}
+
+	TEST(FProfilingTests, DisabledDiagnosticsIgnoreDetailedMilestones)
+	{
+		EXPECT_FALSE(Profiling::AreStartupDiagnosticsEnabled());
+		EXPECT_FALSE(Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin));
+		EXPECT_LT(Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentActivationBegin), 0.0);
 	}
 }

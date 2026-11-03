@@ -55,11 +55,17 @@ bindings and private graphs; previously published replacement graphs remain inta
 
 ## Object-load timing and work
 
-Owner-thread asynchronous object application buffers `AssetLoad` diagnostics and
+With `--startup-diagnostics`, owner-thread asynchronous object application buffers `AssetLoad` diagnostics and
 emits them after a load taking at least 16 ms. `ObjectLoadTiming` names the root
 request; `ObjectLoadPackage` reports each package's own time, serialized export
 count and top-level property tags. Counts exclude package containers and do not
 count all recursively nested values.
+
+Collection is disabled by default. Disabled sessions do not read their clock,
+copy the root identity, allocate package-statistic storage, enumerate exports for
+diagnostic counts, or collect binding/strict-restoration work counters. Ordinary
+load validation and publication are unchanged. The process flag and retained
+Tracy zones are described in [CPU profiling](../../../Development/Build/Profiling.md#startup-and-load-diagnostics).
 
 `ObjectLoadPhase` retains loading landmarks including `CreateExports`, `Preload`,
 `SerializeExports`, `ResolveImports`, `ResolveReferences` and `PostLoad`, plus

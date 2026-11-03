@@ -1,5 +1,6 @@
 #include "ShaderPipelineCache.h"
 #include "Logging/LogMacros.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -11,7 +12,8 @@ namespace Durin
 	auto FShaderPipelineCache::SetBatchMode(BatchMode Mode) -> void
 	{
 		require(Mode == BatchMode::Background || Mode == BatchMode::Fast);
-		if (CurrentMode.exchange(Mode, std::memory_order_acq_rel) != Mode)
+		if (CurrentMode.exchange(Mode, std::memory_order_acq_rel) != Mode
+			&& Profiling::AreStartupDiagnosticsEnabled())
 			DURIN_DEBUG_CATEGORY("Startup", "Shader pipeline batch mode: {}", Mode == BatchMode::Fast ? "Fast" : "Background");
 	}
 

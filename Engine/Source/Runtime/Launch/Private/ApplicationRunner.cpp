@@ -51,6 +51,7 @@ namespace Durin
 			return Parsed.Error->ExitCode;
 		}
 		FLaunchRequest Request = std::move(*Parsed.Request);
+		Profiling::ConfigureStartupDiagnostics(Request.bStartupDiagnostics);
 
 		FLaunchCrashTestRequest& CrashTest = Request.CrashTest;
 		ConfigureProcessCrashTestOptions(

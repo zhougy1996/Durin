@@ -55,6 +55,7 @@ namespace Durin::Profiling
 		};
 
 		FStartupTimingState GStartupTiming;
+		std::atomic<bool> GStartupDiagnostics{false};
 		std::mutex GProgramIdentityMutex;
 		std::deque<std::string> GProgramIdentityStorage;
 
@@ -81,6 +82,10 @@ namespace Durin::Profiling
 
 	auto RecordStartupMilestone(EStartupMilestone Milestone) noexcept -> bool
 	{
+		if (Milestone != EStartupMilestone::ProcessEntry
+			&& Milestone != EStartupMilestone::FirstPresent
+			&& Milestone != EStartupMilestone::HostReady
+			&& !AreStartupDiagnosticsEnabled()) return false;
 		const int64 NowNanoseconds = StartupNowNanoseconds();
 		int64 ProcessStartNanoseconds = GStartupTiming.ProcessStartNanoseconds.load(std::memory_order_acquire);
 		if (ProcessStartNanoseconds == 0)
@@ -123,6 +128,7 @@ namespace Durin::Profiling
 	auto TryLogStartupTimingSummary() -> bool
 	{
 		const bool bHasProject = GStartupTiming.bHasProject.load(std::memory_order_acquire);
+		const bool bDetailed = AreStartupDiagnosticsEnabled();
 		constexpr std::array RequiredMilestones{
 			EStartupMilestone::ProcessEntry,
 			EStartupMilestone::PreInitComplete,
@@ -136,8 +142,10 @@ namespace Durin::Profiling
 			EStartupMilestone::HostReady,
 		};
 		for (const EStartupMilestone Milestone : RequiredMilestones)
-			if (GetStartupNanoseconds(Milestone) < 0) return false;
-		if (bHasProject
+			if ((bDetailed || Milestone == EStartupMilestone::ProcessEntry
+				|| Milestone == EStartupMilestone::FirstPresent || Milestone == EStartupMilestone::HostReady)
+				&& GetStartupNanoseconds(Milestone) < 0) return false;
+		if (bDetailed && bHasProject
 			&& (GetStartupNanoseconds(EStartupMilestone::DefaultDocumentComplete) < 0
 				|| GetStartupNanoseconds(EStartupMilestone::DefaultMaterialReady) < 0))
 			return false;
@@ -146,14 +154,15 @@ namespace Durin::Profiling
 		if (!GStartupTiming.bSummaryLogged.compare_exchange_strong(
 			bExpected, true, std::memory_order_acq_rel)) return false;
 
-		const char* Mode = bHasProject ? "project" : "project_browser";
 		const double FirstPresentMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::FirstPresent);
-		const double WorkspaceReadyMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::DefaultWorkspaceReady);
-		const double DocumentReadyMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::DefaultDocumentComplete);
 		const double ReadyMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::HostReady);
 		DURIN_INFO_CATEGORY("Startup",
 			"Ready ({}): first frame {:.1f} ms | startup {:.1f} ms",
 			bHasProject ? "project" : "project browser", FirstPresentMilliseconds, ReadyMilliseconds);
+		if (!bDetailed) return true;
+		const char* Mode = bHasProject ? "project" : "project_browser";
+		const double WorkspaceReadyMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::DefaultWorkspaceReady);
+		const double DocumentReadyMilliseconds = GetStartupMilestoneMilliseconds(EStartupMilestone::DefaultDocumentComplete);
 		DURIN_TRACE(
 			"StartupTiming mode={} preinit_ms={:.3f} rhi_ready_ms={:.3f} default_material_ms={:.3f} renderer_ms={:.3f} shell_ms={:.3f} workspace_registration_ms={:.3f} registry_scan_ms={:.3f} default_document_ms={:.3f} default_document_asset_load_ms={:.3f} default_document_activation_ms={:.3f} native_viewport_ready_ms={:.3f} first_present_ms={:.3f} default_workspace_ready_ms={:.3f} default_document_ready_ms={:.3f}",
 			Mode,
@@ -169,33 +178,19 @@ namespace Durin::Profiling
 			StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentActivationBegin, EStartupMilestone::DefaultDocumentActivationComplete),
 			GetStartupMilestoneMilliseconds(EStartupMilestone::NativeViewportReady),
 			FirstPresentMilliseconds, WorkspaceReadyMilliseconds, DocumentReadyMilliseconds);
-		DURIN_INFO_CATEGORY("Startup", "Host readiness: {:.3f} ms | document commit to ready {:.3f} ms",
+		DURIN_DEBUG_CATEGORY("Startup", "Host readiness: {:.3f} ms | document commit to ready {:.3f} ms",
 			ReadyMilliseconds, StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentComplete, EStartupMilestone::HostReady));
 		return true;
 	}
 
-	auto IsPostCommitStartupTimingActive() noexcept -> bool
+	auto ConfigureStartupDiagnostics(bool bEnabled) noexcept -> void
 	{
-		return GetStartupNanoseconds(EStartupMilestone::DefaultDocumentComplete) >= 0
-			&& GetStartupNanoseconds(EStartupMilestone::HostReady) < 0;
+		GStartupDiagnostics.store(bEnabled, std::memory_order_relaxed);
 	}
 
-	FStartupTimingScope::FStartupTimingScope(std::string_view InName) noexcept : Name(InName)
+	auto AreStartupDiagnosticsEnabled() noexcept -> bool
 	{
-		if (IsPostCommitStartupTimingActive())
-			StartNanoseconds = StartupNowNanoseconds();
-	}
-
-	FStartupTimingScope::~FStartupTimingScope()
-	{
-		if (!StartNanoseconds) return;
-		const int64 End = StartupNowNanoseconds();
-		const double Duration = static_cast<double>(End - StartNanoseconds) / 1'000'000.0;
-		if (Duration < 1.0) return;
-		const int64 Origin = GStartupTiming.ProcessStartNanoseconds.load(std::memory_order_acquire);
-		DURIN_DEBUG_CATEGORY("Startup", "PostCommit stage={} begin_ms={:.3f} end_ms={:.3f} duration_ms={:.3f}",
-			Name, static_cast<double>(StartNanoseconds - Origin) / 1'000'000.0,
-			static_cast<double>(End - Origin) / 1'000'000.0, Duration);
+		return GStartupDiagnostics.load(std::memory_order_relaxed);
 	}
 
 	auto FormatProgramIdentity(

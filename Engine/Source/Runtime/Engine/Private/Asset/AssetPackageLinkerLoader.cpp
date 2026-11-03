@@ -314,9 +314,12 @@ namespace Durin::AssetPrivate
 			auto& Exports = Application.Exports;
 			if (!BuildExportViews(Linker, Exports, Diagnostic))
 				return {Diagnostic.Error, Diagnostic.Message};
-			uint64 PropertyCount = 0;
-			for (const auto& Export : Exports) PropertyCount += Export.Export->Properties.size();
-			FObjectLoadTimingSession::RecordPackage(Linker.Summary.PackagePath, Exports.size(), PropertyCount);
+			if (FObjectLoadTimingSession::IsActive())
+			{
+				uint64 PropertyCount = 0;
+				for (const auto& Export : Exports) PropertyCount += Export.Export->Properties.size();
+				FObjectLoadTimingSession::RecordPackage(Linker.Summary.PackagePath, Exports.size(), PropertyCount);
+			}
 			uint64 DiscardedFields = 0;
 			auto& LiveDependencies = Application.LiveDependencies;
 			for (FExportView& Object : Exports)
@@ -590,10 +593,11 @@ namespace Durin::AssetPrivate
 					bool bRestored = false;
 					if (bFastRestoration)
 					{
-						Work.PathVisits = Restoration->GetPathVisits();
+						if (FObjectLoadTimingSession::IsActive()) Work.PathVisits = Restoration->GetPathVisits();
 						bRestored = FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Restoration), &LedgerDiagnostic);
 					}
-					else bRestored = FOverridableManager::RestoreOverriddenPropertyOperation(*Objects[ObjectIndex], LedgerEntries, &LedgerDiagnostic, &Work);
+					else bRestored = FOverridableManager::RestoreOverriddenPropertyOperation(*Objects[ObjectIndex], LedgerEntries, &LedgerDiagnostic,
+						FObjectLoadTimingSession::IsActive() ? &Work : nullptr);
 					FObjectLoadTimingSession::RecordOverrideRestoration(PackagePath, bFastRestoration, Reason, Work);
 					if (!bRestored)
 					{

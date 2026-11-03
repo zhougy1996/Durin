@@ -158,7 +158,6 @@ namespace Durin
 			if (Handle->IsComplete()) return;
 			AssetPrivate::FObjectLoadTimingSession TimingSession(Handle->Impl->PackagePath);
 			AssetPrivate::FScopedObjectLoadPhase ApplyTiming(Handle->Impl->PackagePath, AssetPrivate::EObjectLoadPhase::ObjectApplication);
-			const auto ApplyStarted = std::chrono::steady_clock::now();
 			auto& Loader = FAssetRuntimeState::Get().GetLoadService();
 			auto& State = *Handle->Impl;
 			DPackage* Package = nullptr;
@@ -188,11 +187,6 @@ namespace Durin
 			Complete(Handle, std::move(Result), Package, Object);
 			if (State.State == EAsyncLoadState::Succeeded) State.LoadScope = std::move(LoadScope);
 			else (void)LoadScope.ReleaseResidency();
-			const double ApplyMilliseconds = std::chrono::duration<double, std::milli>(
-				std::chrono::steady_clock::now() - ApplyStarted).count();
-			if (ApplyMilliseconds >= 16.0)
-				DURIN_DEBUG("Package timing: {} | object application {:.2f} ms | thread=GameThread | captured packages={}",
-					State.PackagePath.ToString(), ApplyMilliseconds, Inputs.size());
 		}
 
 	public:

@@ -2,7 +2,6 @@
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetAsyncLoadInternal.h"
-#include "AssetLoadTiming.h"
 #include "AssetObjectLoadTiming.h"
 #include "Asset/AsyncLoad.h"
 #include "AssetLiveLoadGuard.h"
@@ -593,9 +592,9 @@ namespace Durin
 		}
 		for (const auto& Member : Group)
 		{
-			AssetPrivate::FScopedAssetLoadTiming Timing(Member->Path, "component validation");
 			if (Member->Phase != ELoadPhase::ValuesRestored || !Member->Validate || !Member->PostLoad)
 				return Error(EAssetReadError::InvalidObjectGraph, "Load component contains unrestored values.");
+			DURIN_PROFILE_CPU_ZONE_NAMED("Asset.ValidateComponent");
 			if (auto Result = Member->Validate(); !Result) return Result;
 			Member->Phase = ELoadPhase::Validated;
 		}
@@ -608,7 +607,7 @@ namespace Durin
 		for (const auto& Member : Group) Member->Phase = ELoadPhase::PostLoading;
 		for (const auto& Member : Group)
 		{
-			AssetPrivate::FScopedAssetLoadTiming Timing(Member->Path, "component PostLoad");
+			DURIN_PROFILE_CPU_ZONE_NAMED("Asset.PostLoadComponent");
 			Member->PostLoad();
 		}
 		for (const auto& Member : Group)

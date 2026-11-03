@@ -44,7 +44,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 	class ENGINE_API FLoadSchemaBindings final
 	{
 	public:
-		explicit FLoadSchemaBindings(const ObjectPackage::FLinkerTables& InLinker) : Linker(InLinker) {}
+		explicit FLoadSchemaBindings(const ObjectPackage::FLinkerTables& InLinker, bool bCollectStatistics = false);
 		~FLoadSchemaBindings();
 		FLoadSchemaBindings(const FLoadSchemaBindings&) = delete;
 		auto operator=(const FLoadSchemaBindings&) -> FLoadSchemaBindings& = delete;
@@ -61,6 +61,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 		const ObjectPackage::FLinkerTables& Linker;
 		std::unordered_map<const ObjectPackage::FSerializedField*, FEntry> Entries;
 		uint64 Builds = 0, Reuses = 0;
+		bool bCollectStatistics;
 	};
 
 	// Fixups precede object construction and preserve original identities as

@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-03
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -342,6 +342,11 @@ runtime-storage preparation warnings only after the logger is ready. The process
 conditional finalization after engine exit. Record ordering, bounded admission,
 structured history, sink durability, and shutdown behavior are defined by
 [Logging](../Core/Logging.md).
+
+The validated process request accepts the unique `--startup-diagnostics` flag
+before subsystem startup. By default only the first-presentation/host-ready
+summary is emitted; detailed milestone and object-load collection is opt-in.
+See [CPU profiling](../../Development/Build/Profiling.md#startup-and-load-diagnostics).
 
 ## Module Integration
 

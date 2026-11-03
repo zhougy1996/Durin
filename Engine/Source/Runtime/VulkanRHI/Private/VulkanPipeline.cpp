@@ -599,8 +599,8 @@ namespace Durin::VulkanRHI
 	auto FVulkanPipelineManager::CompileGraphicsPipeline(
 		const vk::GraphicsPipelineCreateInfo& Info) -> vk::ResultValue<vk::Pipeline>
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.CompileGraphicsPipeline");
 		vk::Pipeline Pipeline{};
-		Profiling::FStartupTimingScope StartupTiming("Vulkan graphics pipeline creation");
 		const auto Result = Device.GetHandle().createGraphicsPipelines(DriverPipelineCache, 1, &Info, nullptr, &Pipeline);
 		return {Result, Pipeline};
 	}
@@ -608,8 +608,8 @@ namespace Durin::VulkanRHI
 	auto FVulkanPipelineManager::CompileComputePipeline(
 		const vk::ComputePipelineCreateInfo& Info) -> vk::ResultValue<vk::Pipeline>
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.CompileComputePipeline");
 		vk::Pipeline Pipeline{};
-		Profiling::FStartupTimingScope StartupTiming("Vulkan compute pipeline creation");
 		const auto Result = Device.GetHandle().createComputePipelines(DriverPipelineCache, 1, &Info, nullptr, &Pipeline);
 		return {Result, Pipeline};
 	}

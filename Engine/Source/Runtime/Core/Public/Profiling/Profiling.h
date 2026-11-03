@@ -61,28 +61,17 @@ namespace Durin::Profiling
 		Count,
 	};
 
+	// First observations only; detailed milestones are ignored unless diagnostics are enabled.
 	CORE_API auto RecordStartupMilestone(EStartupMilestone Milestone) noexcept -> bool;
 	CORE_API auto SetStartupProjectMode(bool bHasProject) noexcept -> void;
 	CORE_API auto ArmEditorShellFirstPresent() noexcept -> void;
 	CORE_API auto RecordEditorShellFirstPresent() noexcept -> bool;
 	CORE_API auto TryLogStartupTimingSummary() -> bool;
 	CORE_API auto GetStartupMilestoneMilliseconds(EStartupMilestone Milestone) noexcept -> double;
-	// Thread-safe diagnostic gate; never use this to advance startup or rendering.
-	CORE_API auto IsPostCommitStartupTimingActive() noexcept -> bool;
-
-	// Records CPU wall time only between initial-document commit and host readiness.
-	// Names must outlive the scope. Nested scopes and different threads overlap.
-	class FStartupTimingScope final
-	{
-	public:
-		CORE_API explicit FStartupTimingScope(std::string_view InName) noexcept;
-		CORE_API ~FStartupTimingScope();
-		FStartupTimingScope(const FStartupTimingScope&) = delete;
-		auto operator=(const FStartupTimingScope&) -> FStartupTimingScope& = delete;
-	private:
-		std::string_view Name;
-		int64 StartNanoseconds = 0;
-	};
+	// Configure from the validated process request before starting subsystems.
+	// This controls diagnostic collection only, never startup or rendering readiness.
+	CORE_API auto ConfigureStartupDiagnostics(bool bEnabled) noexcept -> void;
+	CORE_API auto AreStartupDiagnosticsEnabled() noexcept -> bool;
 
 	CORE_API auto FormatProgramIdentity(
 		std::string_view RuntimeVariant,

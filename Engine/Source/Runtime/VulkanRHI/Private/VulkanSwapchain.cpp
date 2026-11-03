@@ -297,7 +297,6 @@ namespace Durin::VulkanRHI
 
 		const vk::ResultValue<uint32> Result = [&] {
 			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Presentation.AcquireImage");
-			Profiling::FStartupTimingScope StartupTiming("Vulkan acquire image");
 			return Device.GetHandle().acquireNextImageKHR(Swapchain,
 				GetSwapchainAcquireTimeout(PresentationPolicy),
 				CurrentSemaphore->GetHandle(), nullptr);
@@ -349,7 +348,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore, vk::Fence PresentFence) -> FVulkanPresentOutcome
 	{
-		Profiling::FStartupTimingScope StartupTiming("Vulkan queue present");
 		CheckRHIExecutionThread();
 		if (CurrentImageIndex < 0)
 		{

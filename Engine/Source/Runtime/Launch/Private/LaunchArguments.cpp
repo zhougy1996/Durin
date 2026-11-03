@@ -93,6 +93,7 @@ namespace Durin
 					Parsed.Request.Automation.ExitAfterTicks = TickCount;
 				}
 				else if (Argument == "--project-browser") Parsed.Request.Host.bOpenProjectBrowser = true;
+				else if (Argument == "--startup-diagnostics") Parsed.Request.bStartupDiagnostics = true;
 				else if (Option == "--project" && Equals != std::string_view::npos)
 					Parsed.Request.Host.ProjectFile = std::string(Value);
 				else if (Argument == "--project")

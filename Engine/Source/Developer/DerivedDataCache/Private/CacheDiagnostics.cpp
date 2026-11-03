@@ -1,5 +1,6 @@
 #include "CacheDiagnosticsPrivate.h"
 #include "Logging/LogMacros.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::DerivedData
 {
@@ -62,6 +63,7 @@ namespace Durin::DerivedData
 			Total.Hits, Total.Gets, Total.Gets ? 100.0 * Total.Hits / Total.Gets : 0.0,
 			Total.Puts, Total.ReadBytes / BytesPerMiB, Total.WrittenBytes / BytesPerMiB, Events);
 
+		if (!Profiling::AreStartupDiagnosticsEnabled()) return;
 		const auto Log = [](std::string_view Bucket, const DerivedData::FCacheDiagnosticCounters& C) {
 			DURIN_TRACE_CATEGORY("DDCStats", "bucket={} gets={} hits={} misses={} invalid={} schema_rejected={} backend_failed={} request_rejected={} puts={} store_failed={} capacity_rejected={} fallback={} canceled={} read_bytes={} decoded_bytes={} written_bytes={} encoded_raw_bytes={} blob_encodes={} reused={} get_ns={} put_ns={} async_starts={} queue_ns={}",
 				Bucket, C.Gets, C.Hits, C.Misses, C.InvalidRecords, C.SchemaRejections, C.BackendFailures, C.RequestRejections, C.Puts, C.StoreFailures, C.CapacityRejections, C.BuildFallbacks, C.Canceled, C.ReadBytes, C.DecodedBytes, C.WrittenBytes, C.EncodedRawBytes, C.BlobEncodes, C.BlobsReused, C.GetNanoseconds, C.PutNanoseconds, C.AsyncStarts, C.QueueNanoseconds);

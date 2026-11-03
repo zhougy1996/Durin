@@ -82,12 +82,12 @@ namespace Durin::FShaderPaths
 				{
 					FoundIt->SourceDir = NormalizedSourceDir;
 					FoundIt->CacheDir = NormalizedCacheDir;
-					DURIN_DEBUG("Shader mount point updated: {} -> {} (cache: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedCacheDir);
+					DURIN_DEBUG("Shader mount updated: {} -> {}", NormalizedVirtualRoot, NormalizedSourceDir);
 				}
 				else
 				{
 					MountPoints.push_back({NormalizedVirtualRoot, NormalizedSourceDir, NormalizedCacheDir});
-					DURIN_DEBUG("Shader mount: {} -> {} | cache={}", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedCacheDir);
+					DURIN_DEBUG("Shader mount: {} -> {}", NormalizedVirtualRoot, NormalizedSourceDir);
 				}
 			}
 

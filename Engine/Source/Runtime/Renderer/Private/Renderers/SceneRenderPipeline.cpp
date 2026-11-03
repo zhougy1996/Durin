@@ -72,28 +72,6 @@ namespace Durin
 		FPreparedShaderMapScope ShaderScope(true);
 		std::optional<FRenderResourceAdmissionScope> Admission;
 		if (!bPrepareOnly) Admission.emplace(Service.AdmissionBudget, GRenderFrameCounterRenderThread);
-		const bool bTracePreparation = FRenderResourcePreparationScope::IsActive()
-			&& View.bDiscardHistory && !View.ViewStateId.IsValid();
-		const auto TraceStage = [bTracePreparation](std::string_view Name, auto&& Work) {
-			Profiling::FStartupTimingScope StartupTiming(Name);
-			if (!bTracePreparation) return Work();
-			const auto Started = std::chrono::steady_clock::now();
-			try
-			{
-				auto Result = Work();
-				const double Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count();
-				if constexpr (std::is_same_v<decltype(Result), ERenderViewResult>)
-					DURIN_DEBUG("Candidate view stage {}: {:.2f} ms, result={}", Name, Milliseconds, static_cast<int>(Result));
-				else DURIN_DEBUG("Candidate view stage {}: {:.2f} ms", Name, Milliseconds);
-				return Result;
-			}
-			catch (...)
-			{
-				DURIN_DEBUG("Candidate view stage {} yielded or failed after {:.2f} ms", Name,
-					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Started).count());
-				throw;
-			}
-		};
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
 		FSceneRenderer Submission(Service);
@@ -130,7 +108,7 @@ namespace Durin
 			// Material resolution belongs to logical collection, before the resource
 			// stages. Preserve its pending result with the same preparation batch.
 			FRenderPipelinePreparationBatch Batch;
-			Preparation = TraceStage("collect", [&] { return PrepareView_RenderThread(CommandList, Context); });
+			Preparation = PrepareView_RenderThread(CommandList, Context);
 			if (bPrepareOnly && Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
 			if (bPrepareOnly && FRenderPipelinePreparationBatch::HasPending()) return ERenderViewResult::RendererResourcesPending;
 		}
@@ -143,11 +121,11 @@ namespace Durin
 		if ((Context.Features.RequiresProductionDeferred() ? !Settings.bHybrid : !Settings.bForward)
 			|| ((Context.Features.RequiresDeferredInputs() || Context.Features.GBuffer.IsEnabled()) && !Settings.bHybrid))
 			return ERenderViewResult::RendererResourcesUnavailable;
-		const auto ResourceResult = TraceStage("view resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::PrepareViewResources_RenderThread, bPrepareOnly); });
+		const auto ResourceResult = ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::PrepareViewResources_RenderThread, bPrepareOnly);
 		if (ResourceResult != ERenderViewResult::Success) return ResourceResult;
-		const auto ResolutionResult = TraceStage("scene resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread, bPrepareOnly); });
+		const auto ResolutionResult = ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread, bPrepareOnly);
 		if (ResolutionResult != ERenderViewResult::Success) return ResolutionResult;
 		SelectViewState_RenderThread(Context);
 		// Route preparation only needs the sampling sequence. Do not begin history
@@ -179,8 +157,8 @@ namespace Durin
 			}
 			if (bPrepareOnly) return ERenderViewResult::RendererResourcesPending;
 		}
-		const auto FeatureResult = TraceStage("feature resources", [&] { return ResolvePipelineStage_RenderThread(CommandList, Context,
-			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread, bPrepareOnly); });
+		const auto FeatureResult = ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread, bPrepareOnly);
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
 		if (bPrepareOnly) return ERenderViewResult::Success;
 		RemoveUnreadyStaticMeshPrimitives(Context.Logical.PreparedView->Receiver.StaticMeshes,
@@ -195,9 +173,9 @@ namespace Durin
 		FCloudHistoryCandidateScope CloudHistoryCandidate(ViewState);
 		BeginTemporalState_RenderThread(Context);
 		FRDGBuilder Graph;
-		TraceStage("compose graph", [&] { Submission.Render(Graph); return true; });
-		if (!TraceStage("execute graph", [&] { return ExecuteGraph_RenderThread(
-			Graph, CommandList, OutRenderGraphCapture, Qualification); }))
+		Submission.Render(Graph);
+		if (!ExecuteGraph_RenderThread(
+			Graph, CommandList, OutRenderGraphCapture, Qualification))
 			return ERenderViewResult::RendererResourcesUnavailable;
 		// Report the compiled assignment, independently of the async request bit.
 		if (Telemetry.View.GBuffer.GPUCullingDispatchedViews != 0)

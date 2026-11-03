@@ -2295,7 +2295,7 @@ TEST(FPackageAssetTests, LoadSchemaBindingsReuseOnlyTheirNormalizedSchemaSnapsho
 	Testing::InitializeDObjectSystemForTests();
 	ObjectPackage::FLinkerTables Linker;
 	Linker.Schemas.push_back({"Tests::NativeProjection", {{"Count", {.Kind = ObjectPackage::EValueKind::I32}}}});
-	FLoadSchemaBindings Bindings(Linker);
+	FLoadSchemaBindings Bindings(Linker, true);
 	const auto& Schema = Linker.Schemas.front();
 	const auto* First = Bindings.FindProperty(Schema, "Count");
 	ASSERT_NE(First, nullptr);
@@ -2306,10 +2306,15 @@ TEST(FPackageAssetTests, LoadSchemaBindingsReuseOnlyTheirNormalizedSchemaSnapsho
 	EXPECT_EQ(Bindings.FindProperty(Schema, "Missing"), nullptr);
 	const auto Foreign = Schema;
 	EXPECT_EQ(Bindings.FindProperty(Foreign, "Count"), nullptr);
-	FLoadSchemaBindings ReloadBindings(Linker);
+	FLoadSchemaBindings ReloadBindings(Linker, true);
 	EXPECT_NE(ReloadBindings.FindProperty(Schema, "Count"), First);
 	EXPECT_EQ(ReloadBindings.GetBuildCount(), 1u);
 	EXPECT_EQ(ReloadBindings.GetReuseCount(), 0u);
+	FLoadSchemaBindings Unmeasured(Linker);
+	ASSERT_NE(Unmeasured.FindProperty(Schema, "Count"), nullptr);
+	ASSERT_NE(Unmeasured.FindProperty(Schema, "Count"), nullptr);
+	EXPECT_EQ(Unmeasured.GetBuildCount(), 0u);
+	EXPECT_EQ(Unmeasured.GetReuseCount(), 0u);
 }
 
 TEST(FPackageAssetTests, SchemaInspectionClassifiesReadFailuresAsIoErrors)

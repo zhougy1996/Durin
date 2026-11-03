@@ -4,6 +4,7 @@
 #include "DObject/AssetPath.h"
 #include "DObject/OverriddenPropertyRestore.h"
 #include "Logging/LogMacros.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::AssetPrivate
 {
@@ -39,17 +40,21 @@ namespace Durin::AssetPrivate
 	{
 	public:
 		using FClock = int64 (*)();
-		explicit FObjectLoadTimingSession(const FPackagePath& InRoot, bool bInLog = true, FClock InClock = Now)
-			: Root(InRoot), Clock(InClock), bLog(bInLog), Previous(Current)
+		explicit FObjectLoadTimingSession(const FPackagePath& InRoot, bool bInLog = true, FClock InClock = Now,
+			bool bInEnabled = Profiling::AreStartupDiagnosticsEnabled())
+			: Clock(InClock), bLog(bInLog), bEnabled(bInEnabled), Previous(Current)
 		{
-			Current = this;
+			Current = bEnabled ? this : nullptr;
+			if (!bEnabled) return;
+			Root = InRoot;
 			Started = Clock();
 		}
 		~FObjectLoadTimingSession()
 		{
+			Current = Previous;
+			if (!bEnabled) return;
 			const int64 Elapsed = Clock() - Started;
 			check(Top == nullptr);
-			Current = Previous;
 			if (!bLog || Elapsed < 16'000'000) return;
 			constexpr std::array<std::string_view, static_cast<size_t>(EObjectLoadPhase::Count)> Names{
 				"ObjectApplication", "LoadPackage", "ReadPackage", "ReadHeader", "InspectBulk",
@@ -89,6 +94,7 @@ namespace Durin::AssetPrivate
 		FObjectLoadTimingSession(const FObjectLoadTimingSession&) = delete;
 		auto operator=(const FObjectLoadTimingSession&) -> FObjectLoadTimingSession& = delete;
 		auto GetPackages() const -> const std::vector<FObjectLoadPackageTiming>& { return Packages; }
+		static auto IsActive() -> bool { return Current != nullptr; }
 		static auto RecordPackage(const FPackagePath& Path, uint64 Objects, uint64 Properties) -> void
 		{
 			if (!Current) return;
@@ -133,8 +139,8 @@ namespace Durin::AssetPrivate
 		}
 		FPackagePath Root;
 		FClock Clock;
-		bool bLog;
-		int64 Started;
+		bool bLog, bEnabled;
+		int64 Started = 0;
 		std::vector<FObjectLoadPackageTiming> Packages;
 		FScopedObjectLoadPhase* Top = nullptr;
 		FObjectLoadTimingSession* Previous;

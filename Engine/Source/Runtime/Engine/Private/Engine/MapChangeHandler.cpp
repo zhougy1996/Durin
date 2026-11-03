@@ -8,6 +8,7 @@
 #include "IRendererModule.h"
 #include "Rendering/SceneInterface.h"
 #include "Threading/RunnableThread.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -22,9 +23,10 @@ namespace Durin
 	{
 		if (Phase == Next) return;
 		const auto Now = std::chrono::steady_clock::now();
-		DURIN_DEBUG("Map change {}: {} -> {} | phase {:.2f} ms", Id,
-			GetMapChangePhaseLabel(Phase), GetMapChangePhaseLabel(Next),
-			std::chrono::duration<double, std::milli>(Now - PhaseStarted).count());
+		if (Profiling::AreStartupDiagnosticsEnabled())
+			DURIN_DEBUG("Map change {}: {} -> {} | phase {:.2f} ms", Id,
+				GetMapChangePhaseLabel(Phase), GetMapChangePhaseLabel(Next),
+				std::chrono::duration<double, std::milli>(Now - PhaseStarted).count());
 		Phase = Next; PhaseStarted = Now;
 	}
 	auto FMapChangeHandler::RetireCandidate() -> void
@@ -51,7 +53,8 @@ namespace Durin
 		CheckGameThread();
 		static uint64 NextId = 0;
 		Id = ++NextId;
-		DURIN_DEBUG("Map change {}: Loading {}", Id, Path.ToString());
+		if (Profiling::AreStartupDiagnosticsEnabled())
+			DURIN_DEBUG("Map change {}: Loading {}", Id, Path.ToString());
 	}
 	FMapChangeHandler::~FMapChangeHandler() { Cancel(); }
 	auto FMapChangeHandler::GetProgress() const -> FMapChangeProgress

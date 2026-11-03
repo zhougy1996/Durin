@@ -49,6 +49,7 @@ namespace Durin
 		FEngineStartupParams Host;
 		FLaunchAutomationRequest Automation;
 		FLaunchCrashTestRequest CrashTest;
+		bool bStartupDiagnostics = false;
 	};
 
 	// Classifies a rejected command line with actionable user-facing text.

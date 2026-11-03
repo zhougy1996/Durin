@@ -6,9 +6,12 @@
 
 namespace Durin::AssetPrivate::LinkerSchema
 {
+	FLoadSchemaBindings::FLoadSchemaBindings(const ObjectPackage::FLinkerTables& InLinker, bool bInCollectStatistics)
+		: Linker(InLinker), bCollectStatistics(bInCollectStatistics || FObjectLoadTimingSession::IsActive()) {}
+
 	FLoadSchemaBindings::~FLoadSchemaBindings()
 	{
-		FObjectLoadTimingSession::RecordBindingWork(Linker.Summary.PackagePath, Builds, Reuses);
+		if (bCollectStatistics) FObjectLoadTimingSession::RecordBindingWork(Linker.Summary.PackagePath, Builds, Reuses);
 	}
 
 	auto FLoadSchemaBindings::FindProperty(const ObjectPackage::FSerializedSchema& Schema, std::string_view Name)
@@ -31,19 +34,19 @@ namespace Durin::AssetPrivate::LinkerSchema
 			{
 				auto Info = FindPropertyByName(Schema, Name);
 				if (!Info) return nullptr;
-				++Builds;
+				if (bCollectStatistics) ++Builds;
 				Entry.Info = std::move(*Info);
 			}
 			else
 			{
 				if (Owner && ResolveObjectKey(Entry.Owner) != Owner) return nullptr;
-				++Reuses;
+				if (bCollectStatistics) ++Reuses;
 			}
 			return &Entry.Info;
 		}
 		auto Info = FindPropertyByName(Schema, Name);
 		if (!Info) return nullptr;
-		++Builds;
+		if (bCollectStatistics) ++Builds;
 		return &Entries.emplace(&*Field, FEntry{std::move(*Info), FObjectKey(Owner), Owner}).first->second.Info;
 	}
 

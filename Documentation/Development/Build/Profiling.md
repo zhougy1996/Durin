@@ -4,6 +4,34 @@ Durin includes Tracy CPU instrumentation by default in Debug and Release builds
 of Editor and Game. Game Shipping builds exclude Tracy at compile and link time.
 There is no separate profiling preset or output directory.
 
+## Startup And Load Diagnostics
+
+Normal editor startup emits one `Ready` summary with first-presentation and host
+readiness times. Detailed startup milestones, map-change messages, object-load
+phase/work statistics, and DDC bucket messages require an explicit process flag:
+
+```powershell
+.\DevTool.bat run --project Sandbox/Sandbox.dproject -- --startup-diagnostics --exit-after-ticks=3
+```
+
+The flag enables collection independently of Tracy and log verbosity. Trace/Debug
+sink thresholds still apply to detailed output. Object-load reports are buffered
+on the owner thread and emitted only for applications taking at least 16 ms;
+the flag remains active for later loads in the same process.
+
+Without the flag, only the process-entry, first-presentation and host-ready
+milestones read the startup clock. Detailed object-load sessions do not read
+clocks, retain package statistics, or aggregate bindings and override-validation
+work. Existing scheduler budgets, UI progress, cache service counters and RHI
+lifetime statistics retain their functional owners; this flag does not disable
+them. DDC retains its one-line shutdown summary.
+
+CPU zones remain available through Tracy's on-demand capture. Package decode,
+live application, component validation/PostLoad, RHI serial waits and native
+pipeline compilation use stable zones. Duplicate textual asset/package timing,
+PostCommit spans, candidate-view stage timers, and per-request pending/yield
+messages are not retained. Diagnostics never control readiness or scheduling.
+
 ## Preparation And Presets
 
 Configure and build automatically prepare the pinned Tracy `v0.14.1` client
