@@ -89,260 +89,159 @@ namespace Durin::Editor::MainFrame
 		}
 	}
 
-	auto FAssetCompatibilityWindow::Draw(bool& bOpen, const FRevealAsset& RevealAsset) -> void
+	auto FAssetCompatibilityWindow::Tick(std::string_view ProjectFile, bool bInAllowAssetWrites) -> void
 	{
-		if (!bOpen) return;
-		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(1100.0f), MonaImGui::ScaleUI(720.0f)), ImGuiCond_FirstUseEver);
-		if (!ImGui::Begin("Asset Compatibility & Canonical Resave###Durin.AssetCompatibility", &bOpen))
+		if (ActiveProjectFile != ProjectFile)
 		{
-			ImGui::End();
-			return;
+			ProjectChanged();
+			ActiveProjectFile = ProjectFile;
 		}
-
-		// Comparison only: this does not scan the registry or touch package bytes.
+		bAllowAssetWrites = bInAllowAssetWrites;
+		if (Audit.GetState() == Editor::EAssetCompatibilityAuditState::Idle && !PendingMaintenancePlan) return;
 		Audit.Tick();
-		const uint64 CatalogRevision = GetAssetCatalogRevision();
-		if (!ReconciledCatalogRevision || *ReconciledCatalogRevision != CatalogRevision)
+		const uint64 Revision = GetAssetCatalogRevision();
+		if (!ReconciledCatalogRevision || *ReconciledCatalogRevision != Revision)
 		{
-			const FAssetCatalogSnapshot Snapshot = CaptureAssetCatalogSnapshot();
+			const auto Snapshot = CaptureAssetCatalogSnapshot();
 			Audit.ReconcileAssetCatalog(Snapshot.Assets);
 			ReconciledCatalogRevision = Snapshot.Revision;
 		}
+		if (PendingMaintenancePlan && !bAllowAssetWrites) bCancelMaintenance = true;
 		TickCanonicalResave();
-		const auto State = Audit.GetState();
-		const bool bMaintenanceRunning = PendingMaintenancePlan.has_value();
-		const bool bMaintenancePreviewed = PreviewMaintenancePlan.has_value();
+	}
 
-		ImGui::BeginDisabled(State == Editor::EAssetCompatibilityAuditState::Running
-			|| bMaintenanceRunning || bMaintenancePreviewed);
-		if (ImGui::Button("Refresh Catalog")) RefreshCatalog();
+	auto FAssetCompatibilityWindow::Defer() -> void
+	{
+		Audit.Cancel();
+		if (PendingMaintenancePlan) bCancelMaintenance = true;
+		PreviewMaintenancePlan.reset();
+		PreviewMaintenanceSelection.reset();
+		PreviewMaintenanceScope.clear();
+	}
+
+	auto FAssetCompatibilityWindow::Draw(bool& bOpen, const FRevealAsset& RevealAsset) -> void
+	{
+		if (!bOpen) return;
+		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(1000.0f), MonaImGui::ScaleUI(680.0f)), ImGuiCond_FirstUseEver);
+		if (!ImGui::Begin("Project Asset Upgrade###Durin.AssetCompatibility", &bOpen))
+		{
+			if (!bOpen) Defer();
+			ImGui::End();
+			return;
+		}
+		const auto State = Audit.GetState();
+		const bool bChecking = State == Editor::EAssetCompatibilityAuditState::Running;
+		const bool bApplying = PendingMaintenancePlan.has_value();
+		ImGui::TextWrapped("Check this project's assets, review recommended upgrades, then confirm which files to rewrite. "
+			"Opening a project or this window does not scan or rewrite assets.");
+		ImGui::BeginDisabled(bChecking || bApplying || PreviewMaintenancePlan.has_value());
+		if (ImGui::Button(State == Editor::EAssetCompatibilityAuditState::Idle ? "Check Project Assets" : "Check Again"))
+		{
+			if (RefreshCatalog()) RunAudit();
+		}
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		if (State == Editor::EAssetCompatibilityAuditState::Running)
-		{
-			if (ImGui::Button("Cancel")) Audit.Cancel();
-		}
-		else
-		{
-			ImGui::BeginDisabled(bMaintenanceRunning || bMaintenancePreviewed);
-			if (ImGui::Button(State == Editor::EAssetCompatibilityAuditState::Idle ? "Run Audit" : "Run Again"))
-				RunAudit();
-			ImGui::EndDisabled();
-		}
-		ImGui::SameLine();
-		ImGui::TextDisabled("%s", StateName(State));
-		const auto Progress = Audit.GetProgress();
-		if (State == Editor::EAssetCompatibilityAuditState::Running)
+		if (ImGui::Button(bApplying ? "Cancel and Close" : "Later")) { Defer(); bOpen = false; }
+		if (bChecking)
 		{
 			ImGui::SameLine();
-			const float Fraction = Progress.Total == 0 ? 1.0f
-				: static_cast<float>(Progress.Completed) / static_cast<float>(Progress.Total);
-			const std::string Overlay = std::format("{} / {}", Progress.Completed, Progress.Total);
-			ImGui::ProgressBar(Fraction, ImVec2(MonaImGui::ScaleUI(220.0f), 0.0f), Overlay.c_str());
+			if (ImGui::Button("Cancel Check")) Audit.Cancel();
+			const auto Progress = Audit.GetProgress();
+			const auto Overlay = std::format("Checking {} / {} packages", Progress.Completed, Progress.Total);
+			ImGui::ProgressBar(Progress.Total ? float(Progress.Completed) / float(Progress.Total) : 0.0f,
+				ImVec2(-1.0f, 0.0f), Overlay.c_str());
 		}
-		if (!WindowMessage.empty())
-		{
-			ImGui::SameLine();
-			ImGui::TextDisabled("%s", WindowMessage.c_str());
-		}
-
+		else ImGui::TextDisabled("Check: %s", StateName(State));
+		if (!WindowMessage.empty()) ImGui::TextWrapped("%s", WindowMessage.c_str());
 		const auto& Records = Audit.GetPresentationRecords();
-		const uint64 PresentationRevision = Audit.GetPresentationRevision();
-		if (!SummaryPresentationRevision || *SummaryPresentationRevision != PresentationRevision)
+		const uint64 Revision = Audit.GetPresentationRevision();
+		if (!SummaryPresentationRevision || *SummaryPresentationRevision != Revision)
 		{
 			PresentationCounts = Editor::CountAssetCompatibilityAuditRecords(Records);
-			CanonicalDebt = static_cast<size_t>(std::ranges::count_if(
-				Records, IsCanonicalResaveRecommended));
-			std::erase_if(SelectedPackages, [&](const FPackagePath& Path) {
-				return Audit.FindRecord(Path) == nullptr;
-			});
-			SummaryPresentationRevision = PresentationRevision;
+			CanonicalDebt = static_cast<size_t>(std::ranges::count_if(Records, IsCanonicalResaveRecommended));
+			SummaryPresentationRevision = Revision;
 		}
-		ImGui::Text("Compatible %zu   Incompatible %zu   Unsupported %zu   Failed %zu   Stale %zu   Not checked %zu",
-			static_cast<size_t>(PresentationCounts.Compatible), static_cast<size_t>(PresentationCounts.Incompatible),
-			static_cast<size_t>(PresentationCounts.Unsupported), static_cast<size_t>(PresentationCounts.Failed),
-			static_cast<size_t>(PresentationCounts.Stale), static_cast<size_t>(PresentationCounts.NotChecked));
-		ImGui::SameLine();
-		ImGui::Text("Canonical resave recommended %zu", CanonicalDebt);
-		if (PendingMaintenancePlan)
+		ImGui::Text("Upgrade recommended: %zu   Incompatible: %llu   Unsupported: %llu   Failed: %llu   Stale: %llu",
+			CanonicalDebt, static_cast<unsigned long long>(PresentationCounts.Incompatible),
+			static_cast<unsigned long long>(PresentationCounts.Unsupported), static_cast<unsigned long long>(PresentationCounts.Failed),
+			static_cast<unsigned long long>(PresentationCounts.Stale));
+		ImGui::TextDisabled("Recommendations are optional rewrites. Incompatible or unreadable assets require separate attention.");
+		if (bApplying)
 		{
-			const size_t Total = MaintenanceCompleted + CountCanonicalResaveStatus(*PendingMaintenancePlan,
-				EAssetCanonicalResavePackageStatus::Ready);
-			const FSlowTaskSnapshot Progress{
-				.Title = "Resaving asset packages",
-				.Message = std::format("Resaved {} / {} packages", MaintenanceCompleted, Total),
-				.Fraction = Total ? static_cast<double>(MaintenanceCompleted) / Total : 1.0,
+			const size_t Total = MaintenanceCompleted + CountCanonicalResaveStatus(*PendingMaintenancePlan, EAssetCanonicalResavePackageStatus::Ready);
+			const FSlowTaskSnapshot Progress{.Title = "Upgrading project assets",
+				.Message = std::format("Upgraded {} / {} packages", MaintenanceCompleted, Total),
+				.Fraction = Total ? double(MaintenanceCompleted) / double(Total) : 1.0,
 				.bCanCancel = true, .bCancelRequested = bCancelMaintenance};
 			if (Editor::DrawSlowTaskProgress(Progress, true, false)) bCancelMaintenance = true;
 		}
-		else if (!MaintenanceMessage.empty())
+		if (!MaintenanceMessage.empty())
 		{
 			ImGui::TextWrapped("%s", MaintenanceMessage.c_str());
-			if (ImGui::SmallButton("Copy Maintenance Report"))
-				ImGui::SetClipboardText(MaintenanceMessage.c_str());
-			if (PreviewMaintenanceSelection
-				&& State == Editor::EAssetCompatibilityAuditState::Completed)
-			{
-				ImGui::SameLine();
-				if (ImGui::SmallButton("Preview Last Scope"))
-				{
-					auto Selection = *PreviewMaintenanceSelection;
-					const std::string Scope = PreviewMaintenanceScope;
-					PreviewCanonicalResave(std::move(Selection), Scope);
-				}
-			}
+			if (ImGui::SmallButton("Copy Upgrade Result")) ImGui::SetClipboardText(MaintenanceMessage.c_str());
 		}
-
-		ImGui::SeparatorText("Audit Results");
-		static constexpr const char* FilterNames[] = {
-			"All", "Issues", "Incompatible", "Unsupported", "Failed", "Stale", "Not checked"};
-		int FilterIndex = static_cast<int>(Filter);
-		ImGui::SetNextItemWidth(MonaImGui::ScaleUI(170.0f));
-		if (ImGui::Combo("Filter", &FilterIndex, FilterNames, std::size(FilterNames)))
-			Filter = static_cast<Editor::EAssetCompatibilityAuditFilter>(FilterIndex);
-		ImGui::SameLine();
-		ImGui::Checkbox("Canonical resave recommended only", &bCanonicalDebtOnly);
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(MonaImGui::ScaleUI(260.0f));
-		ImGui::InputTextWithHint("##CompatibilitySearch", "Search paths and diagnostics...",
-			SearchText.data(), SearchText.size());
-		if (!FilteredPresentationRevision || *FilteredPresentationRevision != PresentationRevision
-			|| CachedFilter != Filter || bCachedCanonicalDebtOnly != bCanonicalDebtOnly
-			|| CachedSearchText != SearchText.data())
-		{
-			FilteredRecordIndices.clear();
-			FilteredRecordIndices.reserve(Records.size());
-			FilteredCanonicalDebt = 0;
-			for (size_t Index = 0; Index < Records.size(); ++Index)
-			{
-				const auto& Record = Records[Index];
-				if (!Editor::MatchesAssetCompatibilityAuditFilter(Record, Filter)) continue;
-				if (bCanonicalDebtOnly && !IsCanonicalResaveRecommended(Record)) continue;
-				if (!Editor::MatchesAssetCompatibilityAuditSearch(Record, SearchText.data())) continue;
-				FilteredRecordIndices.push_back(Index);
-				FilteredCanonicalDebt += IsCanonicalResaveRecommended(Record);
-			}
-			FilteredPresentationRevision = PresentationRevision;
-			CachedFilter = Filter;
-			bCachedCanonicalDebtOnly = bCanonicalDebtOnly;
-			CachedSearchText = SearchText.data();
-		}
-
-		ImGui::BeginDisabled(FilteredRecordIndices.empty());
-		if (ImGui::SmallButton("Select Filtered"))
-			for (const size_t Index : FilteredRecordIndices)
-				SelectedPackages.insert(Records[Index].PackagePath);
-		ImGui::SameLine();
-		if (ImGui::SmallButton("Copy Filtered Report")) CopyFilteredReport();
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		ImGui::BeginDisabled(SelectedPackages.empty());
-		if (ImGui::SmallButton("Clear Selection")) SelectedPackages.clear();
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		ImGui::TextDisabled("%zu selected", SelectedPackages.size());
-
-		ImGui::SeparatorText("Canonical Resave");
-		const bool bCanPlanMaintenance = State == Editor::EAssetCompatibilityAuditState::Completed
-			&& !bMaintenanceRunning && !bMaintenancePreviewed;
-		if (State != Editor::EAssetCompatibilityAuditState::Completed)
-			ImGui::TextDisabled("Complete the audit before previewing a canonical resave plan.");
-		else if (!bMaintenanceRunning && !bMaintenancePreviewed)
-			ImGui::TextDisabled("Every write requires a reviewed plan and explicit confirmation.");
-		ImGui::BeginDisabled(!bCanPlanMaintenance || SelectedPackages.empty());
-		if (ImGui::Button("Preview Selected Resaves"))
-		{
-			FAssetCanonicalResaveSelection Selection;
-			Selection.Packages.assign(SelectedPackages.begin(), SelectedPackages.end());
-			PreviewCanonicalResave(std::move(Selection),
-				std::format("{} selected package(s)", SelectedPackages.size()));
-		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		ImGui::BeginDisabled(!bCanPlanMaintenance || FilteredCanonicalDebt == 0);
-		if (ImGui::Button(std::format(
-			"Preview Filtered Recommended ({})", FilteredCanonicalDebt).c_str()))
-		{
-			FAssetCanonicalResaveSelection Selection;
-			for (const size_t Index : FilteredRecordIndices)
-				if (IsCanonicalResaveRecommended(Records[Index]))
-					Selection.Packages.push_back(Records[Index].PackagePath);
-			PreviewCanonicalResave(std::move(Selection), "filtered recommended packages");
-		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		ImGui::BeginDisabled(!bCanPlanMaintenance || CanonicalDebt == 0);
-		if (ImGui::Button("Preview All Recommended"))
+		if (State == Editor::EAssetCompatibilityAuditState::Failed) ImGui::TextWrapped("Check failed: %s", Audit.GetFailure().c_str());
+		if (State == Editor::EAssetCompatibilityAuditState::Cancelled)
+			ImGui::TextDisabled("Check cancelled. Completed results are retained; unchecked assets cannot be upgraded.");
+		if (State == Editor::EAssetCompatibilityAuditState::Completed && Records.empty()) ImGui::TextDisabled("No registered packages to check.");
+		const bool bCanPlan = State == Editor::EAssetCompatibilityAuditState::Completed && !bApplying && !PreviewMaintenancePlan;
+		ImGui::BeginDisabled(!bCanPlan || CanonicalDebt == 0 || !bAllowAssetWrites);
+		if (ImGui::Button("Preview Recommended Upgrades"))
 		{
 			FAssetCanonicalResaveSelection Selection;
 			for (const auto& Record : Records)
 				if (IsCanonicalResaveRecommended(Record)) Selection.Packages.push_back(Record.PackagePath);
-			PreviewCanonicalResave(std::move(Selection), "all project recommendations");
+			PreviewCanonicalResave(std::move(Selection), "project upgrade recommendations");
 		}
 		ImGui::EndDisabled();
-
+		if (!bAllowAssetWrites) ImGui::TextDisabled("Asset upgrades are unavailable while the editor cannot modify assets.");
 		if (PreviewMaintenancePlan) DrawMaintenancePlan();
-
-		if (State == Editor::EAssetCompatibilityAuditState::Idle)
-			ImGui::TextDisabled("Opening this window does not inspect packages. Select Run Audit to begin.");
-		else if (State == Editor::EAssetCompatibilityAuditState::Cancelled)
-			ImGui::TextDisabled("The audit was cancelled. Completed rows are retained; unchecked rows were not inspected.");
-		else if (State == Editor::EAssetCompatibilityAuditState::Failed)
-			ImGui::TextWrapped("Audit failed: %s", Audit.GetFailure().c_str());
-		else if (Records.empty()) ImGui::TextDisabled("No packages are registered for this project.");
-
-		const float DetailsHeight = MonaImGui::ScaleUI(205.0f);
-		if (ImGui::BeginTable("CompatibilityRows", 6,
-			ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
-			ImVec2(0.0f, -DetailsHeight)))
+		ImGui::SeparatorText("Check Results");
+		ImGui::Checkbox("Show unchanged assets", &bShowUnchangedAssets);
+		if (!FilteredPresentationRevision || *FilteredPresentationRevision != Revision || bCachedShowUnchangedAssets != bShowUnchangedAssets)
 		{
-			ImGui::TableSetupColumn("##Select", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(28.0f));
-			ImGui::TableSetupColumn("Package", ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Inspection", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(95.0f));
-			ImGui::TableSetupColumn("Compatibility", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(110.0f));
-			ImGui::TableSetupColumn("Freshness", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(75.0f));
-			ImGui::TableSetupColumn("Findings", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(65.0f));
+			FilteredRecordIndices.clear();
+			for (size_t Index = 0; Index < Records.size(); ++Index)
+			{
+				const auto& Record = Records[Index];
+				if (bShowUnchangedAssets || IsCanonicalResaveRecommended(Record) || !Record.Findings.empty()
+					|| Record.Inspection != EAssetCompatibilityInspection::Ready
+					|| Record.Compatibility != EAssetPackageCompatibility::Compatible || Record.Freshness != EAssetCompatibilityFreshness::Current)
+					FilteredRecordIndices.push_back(Index);
+			}
+			bCachedShowUnchangedAssets = bShowUnchangedAssets;
+			FilteredPresentationRevision = Revision;
+		}
+		if (ImGui::SmallButton("Copy Check Report")) CopyCheckReport();
+		if (State == Editor::EAssetCompatibilityAuditState::Completed && FilteredRecordIndices.empty())
+			ImGui::TextDisabled("No upgrade recommendations or compatibility issues were found.");
+		if (ImGui::BeginTable("CompatibilityRows", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY,
+			ImVec2(0.0f, -MonaImGui::ScaleUI(205.0f))))
+		{
+			for (const auto* Label : {"Package", "Inspection", "Compatibility", "Freshness", "Findings"}) ImGui::TableSetupColumn(Label);
 			ImGui::TableHeadersRow();
 			ImGuiListClipper Clipper;
-			Clipper.Begin(static_cast<int>(std::min(
-				FilteredRecordIndices.size(), static_cast<size_t>(std::numeric_limits<int>::max()))));
-			while (Clipper.Step())
+			Clipper.Begin(static_cast<int>(std::min(FilteredRecordIndices.size(), static_cast<size_t>(std::numeric_limits<int>::max()))));
+			while (Clipper.Step()) for (int Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
 			{
-				for (int RowIndex = Clipper.DisplayStart; RowIndex < Clipper.DisplayEnd; ++RowIndex)
-				{
-					const auto& Record = Records[FilteredRecordIndices[static_cast<size_t>(RowIndex)]];
-					const std::string PackagePath = Record.PackagePath.ToString();
-					ImGui::PushID(PackagePath.c_str());
-					ImGui::TableNextRow();
-					ImGui::TableSetColumnIndex(0);
-					bool bSelectedForMaintenance = SelectedPackages.contains(Record.PackagePath);
-					if (ImGui::Checkbox("##MaintenanceSelected", &bSelectedForMaintenance))
-					{
-						if (bSelectedForMaintenance) SelectedPackages.insert(Record.PackagePath);
-						else SelectedPackages.erase(Record.PackagePath);
-					}
-					ImGui::TableSetColumnIndex(1);
-					if (ImGui::Selectable(PackagePath.c_str(), Record.PackagePath == SelectedPath))
-						SelectedPath = Record.PackagePath;
-					ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(InspectionName(Record.Inspection));
-					ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(CompatibilityName(Record.Compatibility));
-					ImGui::TableSetColumnIndex(4); ImGui::TextUnformatted(
-						Record.Freshness == EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
-					ImGui::TableSetColumnIndex(5); ImGui::Text("%zu + %zu resave", Record.Findings.size(),
-						Record.CanonicalizationEvidence.size() + Record.DeprecatedRouteEvidence.size());
-					ImGui::PopID();
-				}
+				const auto& Record = Records[FilteredRecordIndices[static_cast<size_t>(Row)]];
+				ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
+				if (ImGui::Selectable(Record.PackagePath.ToString().c_str(), Record.PackagePath == SelectedPath)) SelectedPath = Record.PackagePath;
+				ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(InspectionName(Record.Inspection));
+				ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(CompatibilityName(Record.Compatibility));
+				ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(Record.Freshness == EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
+				ImGui::TableSetColumnIndex(4); ImGui::Text("%zu + %zu upgrade", Record.Findings.size(), Record.CanonicalizationEvidence.size() + Record.DeprecatedRouteEvidence.size());
 			}
 			ImGui::EndTable();
 		}
-		DrawDetails(RevealAsset, bCanPlanMaintenance);
+		DrawDetails(RevealAsset);
 		DrawApplyConfirmation();
+		if (!bOpen) Defer();
 		ImGui::End();
 	}
 
 	auto FAssetCompatibilityWindow::DrawDetails(
-		const FRevealAsset& RevealAsset,
-		bool bCanPlanMaintenance) -> void
+		const FRevealAsset& RevealAsset) -> void
 	{
 		const auto* Record = SelectedPath.IsValid() ? Audit.FindRecord(SelectedPath) : nullptr;
 		ImGui::SeparatorText("Details");
@@ -360,48 +259,6 @@ namespace Durin::Editor::MainFrame
 		if (ImGui::SmallButton("Copy Diagnostics")) CopySelectedDiagnostics();
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Show in Content Browser") && RevealAsset) RevealAsset(Record->PackagePath);
-		if (IsCanonicalResaveRecommended(*Record))
-		{
-			ImGui::SameLine();
-			ImGui::BeginDisabled(!bCanPlanMaintenance);
-			if (ImGui::SmallButton("Preview Package Resave"))
-			{
-				FAssetCanonicalResaveSelection Selection{.Packages = {Record->PackagePath}};
-				PreviewCanonicalResave(std::move(Selection), Record->PackagePath.ToString());
-			}
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Preview Folder Recommendations"))
-			{
-				const std::string Path = Record->PackagePath.ToString();
-				std::string Folder = Path.substr(0, Path.rfind('/'));
-				if (Folder.empty()) Folder = "/";
-				std::vector<FPackagePath> Packages;
-				for (const auto& Candidate : Audit.GetPresentationRecords())
-					if (IsCanonicalResaveRecommended(Candidate)
-						&& (Folder == "/" || Candidate.PackagePath.GetView().starts_with(Folder + "/")))
-						Packages.push_back(Candidate.PackagePath);
-				FAssetCanonicalResaveSelection Selection{.Packages = std::move(Packages)};
-				PreviewCanonicalResave(std::move(Selection), std::format("folder {}", Folder));
-			}
-			if (Mount)
-			{
-				ImGui::SameLine();
-				if (ImGui::SmallButton("Preview Mount Recommendations"))
-				{
-					std::vector<FPackagePath> Packages;
-					for (const auto& Candidate : Audit.GetPresentationRecords())
-						if (IsCanonicalResaveRecommended(Candidate)
-							&& Candidate.PackagePath.GetView().starts_with(Mount->Mount->VirtualRoot))
-							Packages.push_back(Candidate.PackagePath);
-					FAssetCanonicalResaveSelection Selection{.Packages = std::move(Packages)};
-					PreviewCanonicalResave(std::move(Selection),
-						std::format("mount {}", Mount->Mount->VirtualRoot));
-				}
-			}
-			ImGui::EndDisabled();
-		}
-		if (Record->Freshness == EAssetCompatibilityFreshness::Stale)
-			ImGui::TextDisabled("This result is stale because the package fingerprint changed. Run the audit again.");
 		ImGui::BeginChild("CompatibilityFindingDetails", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
 		if (Record->Findings.empty()) ImGui::TextDisabled("No compatibility findings.");
 		for (const auto& Finding : Record->Findings)
@@ -439,7 +296,7 @@ namespace Durin::Editor::MainFrame
 			Plan, EAssetCanonicalResavePackageStatus::Skipped);
 		const bool bPlanStale = Plan.RegistryRevision != GetAssetCatalogRevision();
 
-		ImGui::SeparatorText("Canonical Resave Plan");
+		ImGui::SeparatorText("Upgrade Preview");
 		ImGui::Text("Scope: %s", PreviewMaintenanceScope.c_str());
 		ImGui::SameLine();
 		ImGui::Text("Ready %zu   Blocked %zu   Skipped %zu", ReadyCount, BlockedCount, SkippedCount);
@@ -477,7 +334,7 @@ namespace Durin::Editor::MainFrame
 
 		ImGui::BeginDisabled(ReadyCount == 0 || BlockedCount != 0 || bPlanStale);
 		if (ImGui::Button(std::format("Apply {} Package(s)...", ReadyCount).c_str()))
-			ImGui::OpenPopup("Confirm Canonical Resave");
+			ImGui::OpenPopup("Confirm Asset Upgrade");
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 		if (ImGui::Button("Copy Plan Report"))
@@ -503,16 +360,16 @@ namespace Durin::Editor::MainFrame
 
 	auto FAssetCompatibilityWindow::DrawApplyConfirmation() -> void
 	{
-		if (!ImGui::BeginPopupModal("Confirm Canonical Resave", nullptr,
+		if (!ImGui::BeginPopupModal("Confirm Asset Upgrade", nullptr,
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
 		const size_t ReadyCount = PreviewMaintenancePlan
 			? CountCanonicalResaveStatus(*PreviewMaintenancePlan,
 				EAssetCanonicalResavePackageStatus::Ready)
 			: 0;
-		ImGui::Text("Apply canonical resave to %zu package(s)?", ReadyCount);
+		ImGui::Text("Upgrade %zu package(s)?", ReadyCount);
 		ImGui::TextWrapped("This writes authored package files. Check out the listed files in source control "
 			"and review their diffs after completion.");
-		const bool bCanApply = PreviewMaintenancePlan && ReadyCount != 0
+		const bool bCanApply = bAllowAssetWrites && PreviewMaintenancePlan && ReadyCount != 0
 			&& PreviewMaintenancePlan->RegistryRevision == GetAssetCatalogRevision()
 			&& CountCanonicalResaveStatus(*PreviewMaintenancePlan,
 				EAssetCanonicalResavePackageStatus::Blocked) == 0;
@@ -528,17 +385,13 @@ namespace Durin::Editor::MainFrame
 		ImGui::EndPopup();
 	}
 
-	auto FAssetCompatibilityWindow::CopyFilteredReport() const -> void
+	auto FAssetCompatibilityWindow::CopyCheckReport() const -> void
 	{
-		const auto& Records = Audit.GetPresentationRecords();
-		std::vector<FAssetPackageCompatibilityRecord> FilteredRecords;
-		FilteredRecords.reserve(FilteredRecordIndices.size());
-		for (const size_t Index : FilteredRecordIndices) FilteredRecords.push_back(Records[Index]);
-		const std::string Report = Editor::FormatAssetCompatibilityAuditReport(FilteredRecords);
+		const std::string Report = Editor::FormatAssetCompatibilityAuditReport(Audit.GetPresentationRecords());
 		ImGui::SetClipboardText(Report.c_str());
 	}
 
-	auto FAssetCompatibilityWindow::RefreshCatalog() -> void
+	auto FAssetCompatibilityWindow::RefreshCatalog() -> bool
 	{
 		const FAssetCatalogRefreshResult Result = RefreshAssetRegistry();
 		if (!Result)
@@ -546,13 +399,14 @@ namespace Durin::Editor::MainFrame
 			WindowMessage = Result.Errors.empty()
 				? "Asset catalog refresh did not publish a complete result."
 				: FormatAssetRegistryError(Result.Errors.front());
-			return;
+			return false;
 		}
 		const FAssetCatalogSnapshot Snapshot = CaptureAssetCatalogSnapshot();
 		Audit.ReconcileAssetCatalog(Snapshot.Assets);
 		ReconciledCatalogRevision = Snapshot.Revision;
 		WindowMessage = std::format("Catalog refreshed: {} assets reparsed, {} reused.",
 			Result.CatalogStats.Reparsed, Result.CatalogStats.Reused);
+		return true;
 	}
 
 	auto FAssetCompatibilityWindow::RunAudit() -> void
@@ -563,7 +417,6 @@ namespace Durin::Editor::MainFrame
 		MaintenanceMessage.clear();
 		WindowMessage.clear();
 		SelectedPath = {};
-		SelectedPackages.clear();
 		(void)Audit.RunCurrentProjectAudit();
 	}
 
@@ -582,7 +435,7 @@ namespace Durin::Editor::MainFrame
 
 	auto FAssetCompatibilityWindow::BeginCanonicalResave() -> void
 	{
-		if (!PreviewMaintenancePlan) return;
+		if (!bAllowAssetWrites || !PreviewMaintenancePlan) return;
 		if (PreviewMaintenancePlan->RegistryRevision != GetAssetCatalogRevision())
 		{
 			MaintenanceMessage = "The asset catalog changed after planning. Re-plan before applying.";
@@ -591,6 +444,7 @@ namespace Durin::Editor::MainFrame
 		if (CountCanonicalResaveStatus(*PreviewMaintenancePlan,
 			EAssetCanonicalResavePackageStatus::Blocked) != 0) return;
 		PendingMaintenancePlan = std::move(PreviewMaintenancePlan);
+		PreviewMaintenancePlan.reset();
 		MaintenanceCompleted = 0;
 		bCancelMaintenance = false;
 		MaintenanceMessage.clear();
@@ -607,7 +461,6 @@ namespace Durin::Editor::MainFrame
 			bCancelMaintenance = false;
 			if (MaintenanceCompleted != 0)
 			{
-				(void)Audit.RunCurrentProjectAudit();
 				SelectedPath = {};
 			}
 			return;
@@ -622,12 +475,17 @@ namespace Durin::Editor::MainFrame
 				"Canonical resave completed: {} package(s) resaved.", MaintenanceCompleted);
 			PendingMaintenancePlan.reset();
 			bCancelMaintenance = false;
-			(void)Audit.RunCurrentProjectAudit();
 			SelectedPath = {};
 			return;
 		}
 		FAssetCanonicalResavePlan Unit;
-		Unit.RegistryRevision = GetAssetCatalogRevision();
+		if (PendingMaintenancePlan->RegistryRevision != GetAssetCatalogRevision())
+		{
+			MaintenanceMessage = "Asset catalog changed during upgrade. Check again before applying more packages.";
+			PendingMaintenancePlan.reset();
+			return;
+		}
+		Unit.RegistryRevision = PendingMaintenancePlan->RegistryRevision;
 		Unit.Packages.push_back(*Ready);
 		const FReflectionCompatibilityCatalog Catalog =
 			FReflectionCompatibilityCatalog::Capture();
@@ -640,10 +498,10 @@ namespace Durin::Editor::MainFrame
 				MaintenanceCompleted, SerializeAssetCanonicalResaveApplyReport(Applied));
 			PendingMaintenancePlan.reset();
 			bCancelMaintenance = false;
-			(void)Audit.RunCurrentProjectAudit();
 			SelectedPath = {};
 			return;
 		}
+		PendingMaintenancePlan->RegistryRevision = GetAssetCatalogRevision();
 		++MaintenanceCompleted;
 	}
 

@@ -194,7 +194,7 @@ namespace Durin::Editor::MainFrame
 		{
 			bool bAboutDialogOpen = false;
 			FEditorSettingsWindow SettingsWindow;
-			bool bAssetCompatibilityOpen = false;
+			bool bAssetUpgradeOpen = false;
 			bool bContentBrowserOpen = false;
 			bool bConsoleOpen = false;
 			bool bPythonOpen = false;
@@ -553,15 +553,10 @@ namespace Durin::Editor::MainFrame
 			Settings.Save();
 		}
 
-		auto DrawToolsMenu(bool& bAssetCompatibilityOpen) -> void
+		auto DrawToolsMenu(bool& bAssetUpgradeOpen) -> void
 		{
 			if (!ImGui::BeginMenu("Tools")) return;
-			if (ImGui::BeginMenu("Asset Maintenance"))
-			{
-				if (ImGui::MenuItem("Compatibility Audit")) bAssetCompatibilityOpen = true;
-				if (ImGui::MenuItem("Canonical Resave")) bAssetCompatibilityOpen = true;
-				ImGui::EndMenu();
-			}
+			if (ImGui::MenuItem("Project Asset Upgrade...")) bAssetUpgradeOpen = true;
 			ImGui::EndMenu();
 		}
 
@@ -640,7 +635,7 @@ namespace Durin::Editor::MainFrame
 				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 				ImGui::EndMenu();
 			}
-			DrawToolsMenu(ViewState.bAssetCompatibilityOpen);
+			DrawToolsMenu(ViewState.bAssetUpgradeOpen);
 			if (ImGui::BeginMenu("Window"))
 			{
 				DrawOpenEditorsMenu(WorkspaceManager);
@@ -934,7 +929,7 @@ namespace Durin::Editor::MainFrame
 			}
 			DrawAboutDialog(ViewState.bAboutDialogOpen);
 			ViewState.SettingsWindow.Draw(HostSettings, RootWindow);
-			AssetCompatibilityWindow.Draw(ViewState.bAssetCompatibilityOpen,
+			AssetCompatibilityWindow.Draw(ViewState.bAssetUpgradeOpen,
 				[&ContentBrowserTool, &ViewState](const FPackagePath& Path) {
 					ViewState.bContentBrowserOpen = true;
 					(void)ContentBrowserTool.RevealAsset(Path.ToString());
@@ -1389,6 +1384,9 @@ namespace Durin
 	auto FMainFrameModule::AdvanceDocumentOperations() -> void
 	{
 		if (BootstrapContext && BootstrapContext->LevelEditorModule) BootstrapContext->LevelEditorModule->AdvancePendingDocument();
+		if (BootstrapContext && BootstrapContext->AssetCompatibilityWindow)
+			BootstrapContext->AssetCompatibilityWindow->Tick(FPaths::ProjectFile(),
+				GEditor && !GEditor->IsPlaying() && GEditor->CanTransact());
 	}
 
 	auto FMainFrameModule::OpenDefaultDocument(std::string& OutError) -> EHostStartupState

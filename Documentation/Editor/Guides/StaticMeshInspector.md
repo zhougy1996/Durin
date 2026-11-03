@@ -79,7 +79,7 @@ asset revision also replaces obsolete Content Browser thumbnail work; an old
 thumbnail cannot overwrite the new result.
 
 If a package is incompatible, the inspector leaves the current document active
-and directs you to **Tools > Asset Compatibility Audit** for details. Missing
+and directs you to **Tools > Project Asset Upgrade...** for details. Missing
 render resources, empty geometry, invalid bounds, or failed resource builds are
 reported as unavailable rather than displaying stale geometry. Collision facts
 remain inspectable when render initialization is absent, provided the asset's

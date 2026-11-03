@@ -2,9 +2,9 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-11-03
 
-Use canonical resave when the Asset Compatibility window or a package context
+Use canonical resave when the Project Asset Upgrade window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
 it is separate from unsaved authored changes and reimport.
 
@@ -18,9 +18,20 @@ Developer `AssetMaintenance` service shared by the Editor and
 single-package schema validation and atomic package mechanisms used by the
 service.
 
-For project maintenance, open **Tools > Asset Maintenance > Canonical Resave**,
-run the read-only audit, review stored/current identities and blockers, then
-apply the recommended set. The apply is a sequence of bounded atomic package
+For project upgrades, open **Tools > Project Asset Upgrade...** and select
+**Check Project Assets**. Project startup and opening the window do not scan
+package contents or rewrite assets. The explicit check refreshes the catalog and
+runs compatibility inspection asynchronously; its progress supports cancellation.
+Review recommendations and incompatible/unreadable assets separately, select
+**Preview Recommended Upgrades**, review the plan and blockers, then confirm
+application. The result list hides unchanged assets by default.
+
+**Later** closes the window and cancels an active check; during application,
+**Cancel and Close** stops before the next package. Reopen the same menu to review
+retained results or check again. Work advances from editor updates, including
+when the window is collapsed, and switching projects clears old work and plans.
+Asset writes are unavailable during Play or when editor transaction admission
+is closed. After a write, check again explicitly to refresh compatibility results. The apply is a sequence of bounded atomic package
 units, so cancellation or failure can leave earlier packages complete; the
 terminal report is the authority for the outcome.
 

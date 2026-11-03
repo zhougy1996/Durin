@@ -181,6 +181,7 @@ namespace Durin::Editor::MainFrame
 	{
 		static auto Begin(FAssetCompatibilityWindow& Window, bool bHasPackage) -> void
 		{
+			Window.bAllowAssetWrites = true;
 			FAssetCanonicalResavePlan Plan;
 			Plan.RegistryRevision = GetAssetCatalogRevision();
 			if (bHasPackage)
@@ -200,14 +201,65 @@ namespace Durin::Editor::MainFrame
 		static auto Tick(FAssetCompatibilityWindow& Window) -> void { Window.TickCanonicalResave(); }
 		static auto CancellationRequested(const FAssetCompatibilityWindow& Window) -> bool { return Window.bCancelMaintenance; }
 		static auto IsPending(const FAssetCompatibilityWindow& Window) -> bool { return Window.PendingMaintenancePlan.has_value(); }
+		static auto HasPreview(const FAssetCompatibilityWindow& Window) -> bool { return Window.PreviewMaintenancePlan.has_value(); }
 		static auto Message(const FAssetCompatibilityWindow& Window) -> const std::string& { return Window.MaintenanceMessage; }
+		static auto AuditState(const FAssetCompatibilityWindow& Window) -> EAssetCompatibilityAuditState { return Window.Audit.GetState(); }
+		static auto AuditSerial(const FAssetCompatibilityWindow& Window) -> uint64 { return Window.Audit.GetRequestSerial(); }
 	};
+
+	TEST_F(FCanonicalResaveFeedbackTests, HostUpdatesDoNotStartAnAuditAndProjectSwitchRetiresPendingWork)
+	{
+		FAssetCompatibilityWindow Window;
+		Window.Tick("first.dproject", true);
+		const auto Serial = FAssetCompatibilityWindowTestAccess::AuditSerial(Window);
+		Window.Tick("first.dproject", true);
+		EXPECT_EQ(Serial, FAssetCompatibilityWindowTestAccess::AuditSerial(Window));
+		EXPECT_EQ(EAssetCompatibilityAuditState::Idle, FAssetCompatibilityWindowTestAccess::AuditState(Window));
+		FAssetCompatibilityWindowTestAccess::Begin(Window, true);
+		Window.Tick("second.dproject", true);
+		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::IsPending(Window));
+		EXPECT_EQ(EAssetCompatibilityAuditState::Idle, FAssetCompatibilityWindowTestAccess::AuditState(Window));
+	}
+
+	TEST_F(FCanonicalResaveFeedbackTests, DeferringStopsPendingWritesWithoutNeedingAnotherDraw)
+	{
+		FAssetCompatibilityWindow Window;
+		Window.Tick("project.dproject", true);
+		FAssetCompatibilityWindowTestAccess::Begin(Window, true);
+		Window.Defer();
+		Window.Tick("project.dproject", true);
+		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::IsPending(Window));
+		EXPECT_NE(std::string::npos, FAssetCompatibilityWindowTestAccess::Message(Window).find("cancelled after 0"));
+	}
+
+	TEST_F(FCanonicalResaveFeedbackTests, OpeningUpgradeWindowDoesNotStartAnAudit)
+	{
+		auto* Context = ImGui::CreateContext();
+		struct FCleanup { ImGuiContext* Context; ~FCleanup() { ImGui::DestroyContext(Context); } } Cleanup{Context};
+		auto& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(1600.0f, 1000.0f);
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.Fonts->Build();
+		FAssetCompatibilityWindow Window;
+		Window.Tick("project.dproject", true);
+		const auto Serial = FAssetCompatibilityWindowTestAccess::AuditSerial(Window);
+		bool bOpen = true;
+		ImGui::NewFrame();
+		Window.Draw(bOpen, {});
+		ImGui::Render();
+		EXPECT_TRUE(bOpen);
+		EXPECT_EQ(Serial, FAssetCompatibilityWindowTestAccess::AuditSerial(Window));
+		EXPECT_EQ(EAssetCompatibilityAuditState::Idle, FAssetCompatibilityWindowTestAccess::AuditState(Window));
+		EXPECT_NE(nullptr, ImGui::FindWindowByName("Project Asset Upgrade###Durin.AssetCompatibility"));
+	}
 
 	TEST_F(FCanonicalResaveFeedbackTests, CancelStopsBeforeTheNextPackageIsApplied)
 	{
 		FAssetCompatibilityWindow Window;
 		FAssetCompatibilityWindowTestAccess::Begin(Window, true);
 		ASSERT_TRUE(FAssetCompatibilityWindowTestAccess::IsPending(Window));
+		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::HasPreview(Window));
 		FAssetCompatibilityWindowTestAccess::Cancel(Window);
 		FAssetCompatibilityWindowTestAccess::Tick(Window);
 		EXPECT_FALSE(FAssetCompatibilityWindowTestAccess::IsPending(Window));

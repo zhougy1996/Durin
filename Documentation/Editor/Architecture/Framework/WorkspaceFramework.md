@@ -288,16 +288,25 @@ orbit, pan, zoom, framing, and solid/wireframe presentation, and releases its
 mesh component before destroying the scene. Its active document never becomes
 dirty and never enables global Save.
 
-Project-wide compatibility review is an explicit application tool rather than
-a workspace document. `MainFrame` owns the non-modal `Tools > Asset
-Compatibility Audit` window and its presentation actions. The Developer
-`AssetMaintenance` module owns the UI-neutral deterministic audit batch;
-`MainFrame` privately adapts it to the request-scoped worker, cancellation,
-request-serial mailbox, and path-keyed result index. Opening or drawing the window does not start work; only `Run
-Audit` captures the registry and reflection snapshots. The window can reveal a
-selected package through the host-owned Content Browser, but neither the
-presentation adapter nor a concrete asset workspace owns compatibility classification or a write
-action. `DurinGame` does not select or link `AssetMaintenance`.
+Project asset upgrades are an on-demand application flow rather than a
+workspace document. MainFrame owns **Tools > Project Asset Upgrade...**, with an
+explicit read-only check, recommendation preview, confirmed application, and
+retained outcomes. Neither startup nor opening/drawing the window launches an
+audit. **Check Project Assets** refreshes the registry and captures reflection
+and package inputs; worker inspection remains asynchronous and cancellable.
+The result list defaults to recommendations and issues, with unchanged assets
+available on demand. Upgrade plans preserve revision, fingerprint, dirty-package,
+and writable-mount checks in the Developer `AssetMaintenance` service shared
+with offline `DurinAssetTool` commands.
+
+Host document-operation updates reconcile and advance work outside ImGui draw.
+Closing defers the flow and requests cancellation before another package; a
+project identity change drains the old audit and clears old plans. Each package
+is atomically published, so already completed writes survive cancellation or
+later failure. Results remain available on reopening, and a new check is explicit.
+The window can reveal a package through the host-owned Content Browser. There
+is no separate asset-maintenance Toolset or automatic startup scan/cache in this
+flow. `DurinGame` does not select or link `AssetMaintenance`.
 
 The Level workspace composition root constructs panels and document services in
 dependency order, while panel and dialog presenters remain module-private

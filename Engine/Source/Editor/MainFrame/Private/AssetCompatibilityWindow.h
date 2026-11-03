@@ -7,18 +7,21 @@
 
 namespace Durin::Editor::MainFrame
 {
+	// On-demand project upgrade flow; host updates advance work independently of visibility.
 	class FAssetCompatibilityWindow
 	{
 	public:
 		using FRevealAsset = std::function<void(const FPackagePath&)>;
 
 		auto Draw(bool& bOpen, const FRevealAsset& RevealAsset) -> void;
+		// Updates jobs even while hidden; changing projects retires the previous work.
+		auto Tick(std::string_view ProjectFile, bool bAllowAssetWrites) -> void;
+		auto Defer() -> void;
 		auto ProjectChanged() -> void
 		{
 			Audit.ProjectChanged();
 			ReconciledCatalogRevision.reset();
 			SelectedPath = {};
-			SelectedPackages.clear();
 			PreviewMaintenancePlan.reset();
 			PreviewMaintenanceSelection.reset();
 			PreviewMaintenanceScope.clear();
@@ -27,16 +30,18 @@ namespace Durin::Editor::MainFrame
 			MaintenanceMessage.clear();
 			WindowMessage.clear();
 			bCancelMaintenance = false;
+			SummaryPresentationRevision.reset();
+			FilteredPresentationRevision.reset();
 		}
 
 	private:
 		friend struct FAssetCompatibilityWindowTestAccess;
-		auto DrawDetails(const FRevealAsset& RevealAsset, bool bCanPlanMaintenance) -> void;
+		auto DrawDetails(const FRevealAsset& RevealAsset) -> void;
 		auto DrawMaintenancePlan() -> void;
 		auto DrawApplyConfirmation() -> void;
 		auto CopySelectedDiagnostics() const -> void;
-		auto CopyFilteredReport() const -> void;
-		auto RefreshCatalog() -> void;
+		auto CopyCheckReport() const -> void;
+		auto RefreshCatalog() -> bool;
 		auto RunAudit() -> void;
 		auto PreviewCanonicalResave(
 			FAssetCanonicalResaveSelection Selection,
@@ -51,17 +56,13 @@ namespace Durin::Editor::MainFrame
 		Editor::FAssetCompatibilityAuditCounts PresentationCounts;
 		std::vector<size_t> FilteredRecordIndices;
 		size_t CanonicalDebt = 0;
-		size_t FilteredCanonicalDebt = 0;
 		FPackagePath SelectedPath;
-		std::unordered_set<FPackagePath> SelectedPackages;
-		Editor::EAssetCompatibilityAuditFilter Filter = Editor::EAssetCompatibilityAuditFilter::All;
-		Editor::EAssetCompatibilityAuditFilter CachedFilter = Editor::EAssetCompatibilityAuditFilter::All;
-		std::array<char, 256> SearchText{};
-		std::string CachedSearchText;
+		std::string ActiveProjectFile;
 		std::string WindowMessage;
 		std::string MaintenanceMessage;
-		bool bCanonicalDebtOnly = false;
-		bool bCachedCanonicalDebtOnly = false;
+		bool bShowUnchangedAssets = false;
+		bool bCachedShowUnchangedAssets = false;
+		bool bAllowAssetWrites = false;
 		std::optional<FAssetCanonicalResavePlan> PreviewMaintenancePlan;
 		std::optional<FAssetCanonicalResaveSelection> PreviewMaintenanceSelection;
 		std::string PreviewMaintenanceScope;
