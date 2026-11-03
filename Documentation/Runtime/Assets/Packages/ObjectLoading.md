@@ -3,7 +3,7 @@
 Summary: Define load-local schema bindings, override restoration ordering, and buffered object-application diagnostics.
 Modules: Engine, CoreDObject
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-03
 
 ## Binding ownership
 
@@ -21,6 +21,13 @@ with matching managed identity. Replaced metadata rejects the binding. Hand-buil
 metadata lacking managed identity is re-resolved instead of borrowing that proof.
 Separate standalone reads and reloads create separate contexts. Cooking/filtering
 policy remains with the consuming traversal rather than cached object facts.
+
+Ordinary loose-package loading decodes and validates detached tables once. When
+external bulk storage is present, the codec collects resource entries directly
+from those tables and synchronously binds the resource before constructing any
+objects. It does not project a full inspection or decode the package a second
+time for resource registration. Binding failure aborts before skeleton creation;
+later load failure retains the ordinary resource-retirement ownership.
 
 ## Value and intent publication
 

@@ -675,6 +675,26 @@ namespace Durin::AssetPrivate::TaggedPackage
 			return {};
 		}
 
+		auto CollectLoadBulkEntries(const ObjectPackage::FSerializedValue& Value,
+			std::vector<FPackageBulkDataEntry>& Entries) -> void
+		{
+			if (Value.BulkStorage != ObjectPackage::EBulkStorageKind::Unset)
+			{
+				const uint64 Size = Value.bBulkPayloadAvailable ? Value.Bytes.size() : Value.BulkStoredSize;
+				Entries.push_back({
+					.FieldIndex = Entries.size() + 1,
+					.Placement = Value.BulkStorage == ObjectPackage::EBulkStorageKind::External
+						? EPackageBulkDataPlacement::External : EPackageBulkDataPlacement::Inline,
+					.LogicalSize = Size,
+					.StoredSize = Size,
+					.SegmentOffset = Value.BulkStorage == ObjectPackage::EBulkStorageKind::External
+						? Value.BulkOffset : 0,
+					.Alignment = Value.BulkAlignment,
+					.ContentId = Value.bBulkPayloadAvailable ? FXxHash128::HashBuffer(Value.Bytes) : Value.BulkContentHash});
+			}
+			for (const auto& Element : Value.Elements) CollectLoadBulkEntries(Element, Entries);
+		}
+
 		auto Load(const FAssetPackageReadContext& Context, DPackage*& OutPackage,
 			FAssetLoadReport* OutReport,
 			const std::function<FAssetReadResult(DPackage*)>& OnSkeletonReady,
@@ -686,6 +706,16 @@ namespace Durin::AssetPrivate::TaggedPackage
 				FScopedObjectLoadPhase Phase(Context.PackagePath, EObjectLoadPhase::DecodePackage);
 				if (auto Result = ReadLinker(Context, Linker); !Result) return Result;
 			}
+			FPackageResourceHandle BulkResource = Context.BulkResource;
+			if (Context.BindBulkResource)
+			{
+				FScopedObjectLoadPhase BulkPhase(Context.PackagePath, EObjectLoadPhase::InspectBulk);
+				std::vector<FPackageBulkDataEntry> Entries;
+				for (const auto& Export : Linker.Exports)
+					for (const auto& Property : Export.Properties)
+						CollectLoadBulkEntries(Property.Value, Entries);
+				if (auto Result = Context.BindBulkResource(Entries, BulkResource); !Result) return Result;
+			}
 			FScopedAssetLoadTiming Timing(Context.PackagePath, "live linker application");
 			FScopedObjectLoadPhase Phase(Context.PackagePath, EObjectLoadPhase::LinkerLoad);
 			return ApplyLivePackageLinker(std::move(Linker), Context.PackagePath, OutPackage,
@@ -696,7 +726,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 					.Target = Context.bCooked
 						? CookedArchiveTarget(GetAssetRuntimeConfiguration())
 						: FArchiveTarget{},
-					.BulkResource = Context.BulkResource,
+					.BulkResource = std::move(BulkResource),
 					.DependencyLoadPolicy = Context.DependencyLoadPolicy,
 					.bPrivateGraph = Context.bPrivateGraph,
 					.DeferCompletion = Context.DeferCompletion});

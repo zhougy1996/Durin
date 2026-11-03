@@ -12,7 +12,6 @@
 #include "AssetPackageFingerprintInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "Asset/PackageResource.h"
-#include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
@@ -737,44 +736,21 @@ namespace Durin
 			auto& Record = *PendingLoads.at(Path);
 			if (Header.BulkSegmentExtent != 0)
 			{
-				AssetPrivate::FScopedObjectLoadPhase Phase(Path, AssetPrivate::EObjectLoadPhase::InspectBulk);
-				FAssetPackageInspection Inspection;
-				Result = Codec->Inspect(ReadContext, Inspection);
-				if (!Result) return Result;
-				std::vector<FPackageBulkStorageDescriptor> Descriptors;
-				if (auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection); !Storage)
-					return {.Error = EAssetReadError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.error())};
-				else { Descriptors = std::move(*Storage); }
-				std::vector<FPackageBulkDataEntry> Entries;
-				Entries.reserve(Descriptors.size());
-				for (size_t Index = 0; Index < Descriptors.size(); ++Index)
-				{
-					const auto& Descriptor = Descriptors[Index];
-					Entries.push_back({
-						.FieldIndex = Index + 1,
-						.Placement = Descriptor.StorageKind
-							== EPackageBulkStorageKind::External
-							? EPackageBulkDataPlacement::External
-							: EPackageBulkDataPlacement::Inline,
-						.LogicalSize = Descriptor.LogicalByteCount,
-						.StoredSize = Descriptor.StoredByteCount,
-						.SegmentOffset = Descriptor.SegmentOffset,
-						.Alignment = Descriptor.Alignment,
-						.ContentId = Descriptor.ContentHash});
-				}
-				auto Registration = GetPackageResourceManager().RegisterLoosePackage(
-					Path.ToString(), std::filesystem::path(PhysicalPath),
-					{Header.BulkSegmentExtent, Header.BulkSegmentDigest},
-					Entries
-				);
-				if (!Registration)
-				{
-					const EAssetReadError Code = Registration.error().Code == EPackageResourceRegistrationError::ShuttingDown
-						? EAssetReadError::ShuttingDown : EAssetReadError::CorruptFile;
-					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.error())};
-				}
-				Record.bOwnResource = true;
-				ReadContext.BulkResource = std::move((*Registration));
+				ReadContext.BindBulkResource = [&](std::span<const FPackageBulkDataEntry> Entries,
+					FPackageResourceHandle& OutResource) -> FAssetReadResult {
+					auto Registration = GetPackageResourceManager().RegisterLoosePackage(
+						Path.ToString(), std::filesystem::path(PhysicalPath),
+						{Header.BulkSegmentExtent, Header.BulkSegmentDigest}, Entries);
+					if (!Registration)
+					{
+						const EAssetReadError Code = Registration.error().Code == EPackageResourceRegistrationError::ShuttingDown
+							? EAssetReadError::ShuttingDown : EAssetReadError::CorruptFile;
+						return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.error())};
+					}
+					Record.bOwnResource = true;
+					OutResource = std::move(*Registration);
+					return {};
+				};
 			}
 			ReadContext.DependencyLoadPolicy = AssetPrivate::FAssetPackageDependencyLoadPolicy{
 				.ResolvePackage = [this, &Record](const FPackagePath& Dependency, DPackage*& Out) {

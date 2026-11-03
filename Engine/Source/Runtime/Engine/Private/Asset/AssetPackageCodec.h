@@ -8,6 +8,7 @@
 #include "Asset/PackageSchema.h"
 #include "Asset/AssetReadResult.h"
 #include "DObject/PackageFormat.h"
+#include "Asset/PackageBulkData.h"
 #include "Asset/PackageResource.h"
 #include "Asset/PackageEditing.h"
 
@@ -36,6 +37,8 @@ namespace Durin::AssetPrivate
 		bool bPrivateGraph = false;
 		// Ordinary loading transfers candidate completion to its component owner.
 		std::function<void(std::function<FAssetReadResult()>, std::function<void()>)> DeferCompletion;
+		// Bind validated bulk entries before object construction, using the load's decoded tables.
+		std::function<FAssetReadResult(std::span<const FPackageBulkDataEntry>, FPackageResourceHandle&)> BindBulkResource;
 	};
 
 	struct FAssetPackageEncodedClosure

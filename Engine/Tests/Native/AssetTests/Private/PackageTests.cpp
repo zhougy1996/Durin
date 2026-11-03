@@ -6282,6 +6282,69 @@ TEST(FPackageAssetTests, PreservesExternalPayloadBytesAndPlacement)
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 
+TEST(FPackageAssetTests, LoadBindsValidatedBulkBeforeConstructingObjects)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/LoadBulkBinding", Path));
+	DBulkPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	struct FCleanup
+	{
+		DPackage* Package;
+		~FCleanup() { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+	} Cleanup{Asset->GetPackage()};
+	for (const size_t Size : {size_t{17}, size_t{EditorBulkDataExternalThreshold + 17}})
+	{
+		const FByteBuffer Payload(Size, std::byte{0x6b});
+		ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
+		FAssetPackageEncodedClosure Encoded;
+		const auto Written = TaggedPackage::GetCodec().Write(Asset->GetPackage(), Encoded, EDefaultDeltaMode::NoDelta, {});
+		ASSERT_TRUE(Written) << Written.Message;
+		FAssetPackageReadContext Context{.PackageBytes = Encoded.PackageBytes, .PackagePath = Path,
+			.PhysicalBulkBytes = Encoded.BulkBytes.size(), .bResourceBackedBulk = true};
+		FAssetPackageInspection Inspection;
+		ASSERT_TRUE(TaggedPackage::GetCodec().Inspect(Context, Inspection));
+		const auto Descriptors = InspectEditorBulkDataStorageDescriptors(Inspection);
+		ASSERT_TRUE(Descriptors);
+		ASSERT_EQ(Descriptors->size(), 1u);
+		const auto& Expected = Descriptors->front();
+		uint32 Bindings = 0;
+		Context.BindBulkResource = [&](std::span<const FPackageBulkDataEntry> Entries,
+			FPackageResourceHandle&) -> FAssetReadResult {
+			++Bindings;
+			EXPECT_EQ(Entries.size(), 1u);
+			if (Entries.size() != 1) return {EAssetReadError::CorruptFile, "Missing bulk entry."};
+			const auto& Entry = Entries.front();
+			EXPECT_EQ(Entry.FieldIndex, 1u);
+			EXPECT_EQ(Entry.Placement, Encoded.BulkBytes.empty()
+				? EPackageBulkDataPlacement::Inline : EPackageBulkDataPlacement::External);
+			EXPECT_EQ(Entry.LogicalSize, Expected.LogicalByteCount);
+			EXPECT_EQ(Entry.StoredSize, Expected.StoredByteCount);
+			EXPECT_EQ(Entry.SegmentOffset, Expected.SegmentOffset);
+			EXPECT_EQ(Entry.Alignment, Expected.Alignment);
+			EXPECT_EQ(Entry.ContentId, Expected.ContentHash);
+			return {EAssetReadError::StaleData, "Injected resource binding failure."};
+		};
+		uint32 Skeletons = 0;
+		auto OnSkeleton = [&](DPackage*) -> FAssetReadResult { ++Skeletons; return {}; };
+		DPackage* Loaded = nullptr;
+		const auto Result = TaggedPackage::GetCodec().Load(Context, Loaded, nullptr, OnSkeleton, {});
+		EXPECT_EQ(Result.Error, EAssetReadError::StaleData);
+		EXPECT_EQ(Result.Message, "Injected resource binding failure.");
+		EXPECT_EQ(Bindings, 1u);
+		EXPECT_EQ(Skeletons, 0u);
+		EXPECT_EQ(Loaded, nullptr);
+		// Corrupt package bytes must fail before exposing any entries to the binder.
+		Encoded.PackageBytes.back() ^= std::byte{1};
+		EXPECT_FALSE(TaggedPackage::GetCodec().Load(Context, Loaded, nullptr, OnSkeleton, {}));
+		EXPECT_EQ(Bindings, 1u);
+		EXPECT_EQ(Skeletons, 0u);
+	}
+}
+
 TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 {
 	InitializeAssetTests();
