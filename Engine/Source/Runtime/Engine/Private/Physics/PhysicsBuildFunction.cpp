@@ -9,8 +9,8 @@ namespace Durin::PhysicsPrivate
 	using namespace DerivedData;
 	namespace
 	{
-		auto Error(std::string Message) -> FBuildInputError { return {std::move(Message)}; }
-		auto Cancelled() -> FBuildInputError { return Error("Physics cooking was cancelled."); }
+
+
 		auto Reference(FXxHash128 Identity) -> FBuildInputReference
 		{ return {"Geometry", Identity, "CollisionGeometry", 1, "TriangleMesh.PositionsIndices", 1}; }
 		struct FSettings { EBodySetupCollisionSourceMode Mode; };
@@ -27,24 +27,26 @@ namespace Durin::PhysicsPrivate
 		{
 		public:
 			explicit FResolver(FPhysicsCookInput Input) : Input(std::move(Input)) {}
-			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
+			auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
 			{
-				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
+				const auto Sources = Definition.GetSources();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
+				if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				if (Sources.size() != 1 || Sources[0].Name != "Geometry" || Sources[0].Source != "CapturedGeometry" || Input.GetIdentity().IsZero())
-					return std::unexpected(Error("Physics captured source binding is invalid."));
-				return std::vector{Reference(Input.GetIdentity())};
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector{Reference(Input.GetIdentity())}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
-			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
+			auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
 			{
-				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
+				const auto Inputs = Action.GetInputs();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
+				if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				if (Inputs.size() != 1 || Inputs[0] != Reference(Input.GetIdentity()))
-					return std::unexpected(Error("Physics captured identity changed."));
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				const auto Identity = HashInput(Input.GetPositions().GetBytes(), Input.GetIndices().GetBytes());
-				if (Identity != Input.GetIdentity()) return std::unexpected(Error("Physics captured bytes do not match their identity."));
-				return std::vector<FBuildInput>{{.Identity = Inputs[0],
-					.Values = {{"Positions", Input.GetPositions()}, {"Indices", Input.GetIndices()}}}};
+				if (Identity != Input.GetIdentity()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector<FBuildInput>{{.Identity = Inputs[0],
+					.Values = {{"Positions", Input.GetPositions()}, {"Indices", Input.GetIndices()}}}}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
 		private:
 			FPhysicsCookInput Input;

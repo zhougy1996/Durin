@@ -4,6 +4,7 @@
 	#include "BuildServiceBackendPrivate.h"
 	#include "CacheDispatchPrivate.h"
 	#include "DerivedDataBuildSession.h"
+
 	#include "Asset/ResourceBuildSessions.h"
 	#include "PhysicsCookDerivedDataKey.h"
 	#include "PhysicsBuildFunction.h"
@@ -16,25 +17,24 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	namespace
 	{
-		AssetPrivate::FResourceBuildSessions PhysicsSessions;
+		AssetPrivate::FResourceBuildSessions PhysicsSessions([] {
+			DerivedData::FBuildServiceOptions Options;
+			Options.BuildLimits.Input.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
+			Options.BuildLimits.Output.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
+			auto Service = DerivedData::CreateBuild(std::move(Options));
+			require(Service->Register(PhysicsPrivate::MakeCollisionBuildFunction()).has_value());
+			return Service;
+		});
 
-		auto GetPhysicsSession(DerivedData::EBuildCacheExecution Execution)
-			-> std::expected<std::shared_ptr<DerivedData::FBuildSession>, DerivedData::FBuildAdmissionError>
+		auto GetPhysicsSession(std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver)
+			-> DerivedData::FBuildSession
 		{
 			static std::once_flag RegisterOnce;
 			std::call_once(RegisterOnce, [] {
 				if (!DerivedData::GetBuild().Register(PhysicsPrivate::MakeCollisionBuildFunction()))
 					throw std::runtime_error("Failed to register the physics derived-data build function.");
 			});
-			return PhysicsSessions.Get(Execution);
-		}
-		auto MakePhysicsOptions(const FPhysicsCookInput& Input) -> DerivedData::FBuildRequestOptions
-		{
-			DerivedData::FBuildRequestOptions Options;
-			Options.Policy = Input.ShouldPersist() ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
-			Options.Limits.Input.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
-			Options.Limits.Output.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
-			return Options;
+			return PhysicsSessions.Get(std::move(Resolver));
 		}
 
 	}
@@ -48,39 +48,34 @@ namespace Durin
 				Service = DerivedData::Private::CreateBuildForBackend({.Cache = std::move(Cache)});
 				require(Service->Register(MakeCollisionBuildFunction()).has_value());
 			}
-			require(PhysicsSessions.SetTaskService(std::move(Service)) == DerivedData::EBuildDrainResult::Drained);
+			PhysicsSessions.SetService(std::move(Service));
 		}
 		auto DispatchCookBuild(const FPhysicsCookInput& Input, DerivedData::IRequestOwner& Owner,
-			DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>
+			DerivedData::FBuildCompletionCallback Completion) -> void
 		{
 			auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), FCollisionCookedData::GetBuildVersion(), 0, Input.GetTargetPlatform());
-			if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("Physics build definition is invalid.", "Cook"));
-			auto Session = GetPhysicsSession(DerivedData::EBuildCacheExecution::Task);
-			if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description, "Cook"));
-			auto Options = MakePhysicsOptions(Input);
-			Options.InputResolver = MakeCollisionInputResolver(Input);
-			(*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
+			if (!Definition) { Completion(DerivedData::FBuildCompleteParams::Error({}, DerivedData::EBuildExecutionFlags::None, "Physics build definition is invalid.")); return; }
+			auto Session = GetPhysicsSession(PhysicsPrivate::MakeCollisionInputResolver(Input));
 
-			return {};
+		DerivedData::FBuildPolicy Policy = Input.ShouldPersist() ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
+			Session.Build(std::move(*Definition), {}, Policy, Owner, std::move(Completion));
+
 		}
 		auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode,
 			DerivedData::FBuildCompleteParams Completion) -> std::expected<FPhysicsCookResult, std::string>
 		{
-			if (Completion.GetStatus() != DerivedData::EStatus::Ok)
+			if (Completion.Status != DerivedData::EStatus::Ok)
 			{
-				std::string Description = "Physics derived-data build failed.";
-				if (!Completion.GetDiagnostic().empty()) Description = Completion.GetDiagnostic();
-				if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
-				else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
+				auto Description = AssetPrivate::GetBuildFailureDiagnostic(Completion, "Physics derived-data build failed.");
 				return std::unexpected(MakeAssetBuildDiagnostic(std::move(Description), "Cook"));
 			}
-			auto Result = PhysicsPrivate::AssembleSharedOutput(*Completion.GetOutput(), Mode);
+			auto Result = PhysicsPrivate::AssembleSharedOutput(Completion.Output, Mode);
 
 			if (!Result) return std::unexpected(MakeAssetBuildDiagnostic(std::move(Result.error()), "Cook"));
 			return std::move(*Result);
 		}
 		auto ShutdownBuildSessions() -> void
-		{ require(PhysicsSessions.Close() == DerivedData::EBuildDrainResult::Drained); }
+		{ PhysicsSessions.Reset(); }
 	}
 #endif
 
@@ -133,15 +128,14 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), FCollisionCookedData::GetBuildVersion(), 0, Input.GetTargetPlatform());
 		if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("Physics build definition is invalid.", "Cook"));
-		auto Session = GetPhysicsSession(DerivedData::EBuildCacheExecution::Inline);
-		if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description, "Cook"));
-		auto Options = MakePhysicsOptions(Input);
-		Options.InputResolver = PhysicsPrivate::MakeCollisionInputResolver(Input);
+		auto Session = GetPhysicsSession(PhysicsPrivate::MakeCollisionInputResolver(Input));
+
+		DerivedData::FBuildPolicy Policy = Input.ShouldPersist() ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
 		DerivedData::FRequestOwner Owner;
 		std::optional<DerivedData::FBuildCompleteParams> Completion;
-		(*Session)->Build(std::move(*Definition), Owner, [&](auto Value) { Completion.emplace(std::move(Value)); }, {}, std::move(Options));
+		Session.Build(std::move(*Definition), {}, Policy, Owner, [&](auto Value) { Completion.emplace(std::move(Value)); });
 
-		require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
+		Owner.Wait();
 		require(Completion.has_value());
 		return PhysicsPrivate::ConsumeCookBuild(Input.GetMode(), std::move(*Completion));
 #else

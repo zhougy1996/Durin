@@ -6,95 +6,48 @@
 
 namespace Durin::AssetPrivate
 {
-	// Family-owned sessions; the production service still owns cache dispatch.
-	// Callers finish asset compilation before closing these sessions at module unload.
+	// Convert the terminal build diagnostic once at the asset-family boundary.
+	inline auto GetBuildFailureDiagnostic(const DerivedData::FBuildCompleteParams& Completion, std::string_view Fallback) -> std::string
+	{
+		for (const auto& Message : Completion.Output.GetMessages())
+			if (Message.Severity == DerivedData::EBuildMessageSeverity::Error) return Message.Text;
+		for (const auto& Log : Completion.Output.GetLogs())
+			if (Log.Severity == DerivedData::EBuildLogSeverity::Error) return Log.Text;
+		return std::string(Fallback);
+	}
+	// Asset managers retire their request owners before releasing session resources.
 	class FResourceBuildSessions
 	{
 	public:
-		auto Open() -> void { std::lock_guard Lock(Mutex); Closed = false; }
-		auto Get(DerivedData::EBuildCacheExecution Execution)
-			-> std::expected<std::shared_ptr<DerivedData::FBuildSession>, DerivedData::FBuildAdmissionError>
+		explicit FResourceBuildSessions(std::function<std::shared_ptr<DerivedData::IBuild>()> CreateService) : CreateService(std::move(CreateService)) {}
+		auto Get(std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver = {}) -> DerivedData::FBuildSession
 		{
 			std::lock_guard Lock(Mutex);
-			if (Closed) return std::unexpected(DerivedData::FBuildAdmissionError{
-				DerivedData::EBuildAdmissionReason::Closed, "Resource build sessions are closed."});
-			const bool Task = Execution == DerivedData::EBuildCacheExecution::Task;
-			auto& Session = Sessions[Task ? 1 : 0];
-			if (!Session)
-			{
-				auto& Service = Task && TaskService ? *TaskService : DerivedData::GetBuild();
-				auto Created = Service.CreateSession({}, Task ? DerivedData::CreateTaskBuildScheduler()
-					: DerivedData::CreateInlineBuildScheduler(), Execution);
-				if (!Created) return std::unexpected(std::move(Created.error()));
-				Session = std::move(*Created);
-			}
-			return Session;
+			if (!Service) Service = CreateService();
+			return Service->CreateSession("AssetBuild", std::move(Resolver));
 		}
-
-		// Test fixtures scope the injected service and restore it after owner retirement.
-		// Detach before drain so callbacks can reenter session acquisition.
-		auto SetTaskService(std::shared_ptr<DerivedData::IBuild> Service) -> DerivedData::EBuildDrainResult
+		auto SetService(std::shared_ptr<DerivedData::IBuild> Value) -> void
 		{
-			std::shared_ptr<DerivedData::FBuildSession> Retired;
-			std::shared_ptr<DerivedData::IBuild> RetiredService;
-			{
-				std::lock_guard Lock(Mutex);
-				Retired = std::exchange(Sessions[1], {});
-				RetiredService = std::exchange(TaskService, std::move(Service));
-			}
-			if (Retired) Retired->Close();
-			if (RetiredService) RetiredService->Close();
-			if (Retired && Retired->Drain() == DerivedData::EBuildDrainResult::WouldBlock)
-				return DerivedData::EBuildDrainResult::WouldBlock;
-			return RetiredService ? RetiredService->Drain() : DerivedData::EBuildDrainResult::Drained;
+			std::shared_ptr<DerivedData::IBuild> Retired;
+			{ std::lock_guard Lock(Mutex); Retired = std::exchange(Service, std::move(Value)); }
 		}
-
-		auto Close() -> DerivedData::EBuildDrainResult
-		{
-			std::array<std::shared_ptr<DerivedData::FBuildSession>, 2> Retired;
-			std::shared_ptr<DerivedData::IBuild> RetiredService;
-			{
-				std::lock_guard Lock(Mutex);
-				Closed = true; Retired = Sessions;
-				RetiredService = TaskService;
-			}
-			for (const auto& Session : Retired) if (Session) Session->Close();
-			if (RetiredService) RetiredService->Close();
-			for (const auto& Session : Retired)
-				if (Session && Session->Drain() == DerivedData::EBuildDrainResult::WouldBlock)
-					return DerivedData::EBuildDrainResult::WouldBlock;
-			if (RetiredService && RetiredService->Drain() == DerivedData::EBuildDrainResult::WouldBlock)
-				return DerivedData::EBuildDrainResult::WouldBlock;
-			{
-				std::lock_guard Lock(Mutex);
-				if (Sessions == Retired) Sessions = {};
-				if (TaskService == RetiredService) TaskService.reset();
-			}
-			return DerivedData::EBuildDrainResult::Drained;
-		}
-
+		auto Reset() -> void { SetService({}); }
 		auto Build(DerivedData::FBuildDefinition Definition,
 			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-			DerivedData::FBuildRequestOptions Options)
-			-> std::expected<DerivedData::FBuildCompleteParams, DerivedData::FBuildAdmissionError>
+			DerivedData::FBuildPolicy Policy = {}) -> DerivedData::FBuildCompleteParams
 		{
-			auto Session = Get(DerivedData::EBuildCacheExecution::Inline);
-			if (!Session) return std::unexpected(std::move(Session.error()));
-			Options.InputResolver = std::move(Resolver);
+			auto Session = Get(std::move(Resolver));
 			DerivedData::FRequestOwner Owner;
 			std::optional<DerivedData::FBuildCompleteParams> Completion;
-			(*Session)->Build(std::move(Definition), Owner, [&](auto Value) { Completion = std::move(Value); }, {}, std::move(Options));
-
-			require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
+			Session.Build(std::move(Definition), {}, Policy, Owner, [&](auto Value) { Completion = std::move(Value); });
+			Owner.Wait();
 			require(Completion.has_value());
 			return std::move(*Completion);
 		}
-
 	private:
 		std::mutex Mutex;
-		bool Closed = false;
-		std::array<std::shared_ptr<DerivedData::FBuildSession>, 2> Sessions;
-		std::shared_ptr<DerivedData::IBuild> TaskService;
+		std::shared_ptr<DerivedData::IBuild> Service;
+		std::function<std::shared_ptr<DerivedData::IBuild>()> CreateService;
 	};
 }
 #endif

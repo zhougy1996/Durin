@@ -55,6 +55,7 @@ namespace Durin::DerivedData
 
 		class FRecordCache final : public ICacheBackend
 		{
+			mutable std::array<std::mutex, 64> WriteLocks;
 		public:
 			auto Get(const FCacheGetBackendRequest& Request) const -> FCacheGetResult override
 			{
@@ -184,8 +185,7 @@ namespace Durin::DerivedData
 				if (!Request.Record.IsValid())
 					return std::unexpected(FCacheError{ECacheError::InvalidRequest,
 						"Cache put request has no record."});
-				if (auto Valid = Request.Record.CheckLimits(Request.RecordLimits, true); !Valid)
-					return std::unexpected(std::move(Valid.error()));
+				if (auto Valid = Request.Record.CheckLimits(Request.RecordLimits, false); !Valid) return std::unexpected(std::move(Valid.error()));
 				uint64 ResidentBytes = 0;
 				std::vector<FSharedByteBuffer> Backings;
 				auto Retain = [&](FSharedByteBuffer Buffer) -> bool
@@ -195,16 +195,52 @@ namespace Durin::DerivedData
 					ResidentBytes += Buffer.GetRetainedCapacityBytes(); Backings.push_back(std::move(Buffer)); return true;
 				};
 				for (const auto& Item : Request.Record.GetValues())
-					if (!Retain(Item.Value.GetData())) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident value storage exceeds persistence workspace."});
+					if (!Retain(Item.Value.GetData())) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident input storage exceeds persistence workspace."});
 				if (!Retain(Request.Record.GetMeta().GetBytes())) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident metadata exceeds persistence workspace."});
-				auto Manifest = Private::EncodeCacheManifest(Request.Record, Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes - ResidentBytes);
+				std::unique_lock WriteLock(WriteLocks[Request.Record.GetKey().GetHash().HashLow % WriteLocks.size()]);
+				FCacheRecord Canonical = Request.Record;
+				if (HasCachePolicy(Request.Policy.GetRecordPolicy(), ECachePolicy::QueryLocal)) {
+					FCacheQueryStats QueryStats;
+					auto Existing = GetImpl({.Key = Request.Record.GetKey(), .RecordLimits = Request.RecordLimits,
+						.MaximumEncodedBytes = Request.MaximumEncodedBytes, .MaximumWorkingSetBytes = Request.MaximumWorkingSetBytes - ResidentBytes,
+						.Policy = Request.Policy, .ShouldCancel = Request.ShouldCancel}, &QueryStats);
+					Stats.ReadBytes += QueryStats.ReadBytes;
+					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + QueryStats.PeakWorkingSetBytes);
+					if (Existing && *Existing) {
+						const bool KeepRecord = HasCachePolicy(Request.Policy.GetBasePolicy(), ECachePolicy::QueryLocal)
+							&& std::ranges::all_of(Request.Record.GetValues(), [&](const auto& Item) { return HasCachePolicy(Request.Policy.GetValuePolicy(Item.Id), ECachePolicy::QueryLocal); });
+						if (KeepRecord) return std::move(**Existing);
+						FCacheRecordBuilder Builder(Request.Record.GetKey(), Request.RecordLimits);
+						if (!Builder.SetMeta(HasCachePolicy(Request.Policy.GetBasePolicy(), ECachePolicy::QueryLocal) ? (**Existing).GetMeta() : Request.Record.GetMeta()))
+							return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache metadata exceeds record limits."});
+						for (const auto& Item : Request.Record.GetValues()) {
+							const auto* Previous = (**Existing).FindValue(Item.Id);
+							const auto& Value = Previous && HasCachePolicy(Request.Policy.GetValuePolicy(Item.Id), ECachePolicy::QueryLocal) ? *Previous : Item.Value;
+							if (!Builder.AddValue(Item.Id, Value)) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Invalid cache value."});
+						}
+						auto Merged = std::move(Builder).Build();
+						if (!Merged) return std::unexpected(std::move(Merged.error()));
+						Canonical = std::move(*Merged);
+					}
+					else if (!Existing && Existing.error().Code != ECacheError::Corrupt && Existing.error().Code != ECacheError::MissingValue)
+						return std::unexpected(std::move(Existing.error()));
+				}
+				if (!HasCachePolicy(Request.Policy.GetRecordPolicy(), ECachePolicy::StoreLocal))
+					return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache policy does not permit a local store."});
+				if (auto Valid = Canonical.CheckLimits(Request.RecordLimits, false); !Valid)
+					return std::unexpected(std::move(Valid.error()));
+				for (const auto& Item : Canonical.GetValues())
+					if (!Retain(Item.Value.GetData())) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident value storage exceeds persistence workspace."});
+				if (!Retain(Canonical.GetMeta().GetBytes())) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident metadata exceeds persistence workspace."});
+				auto Manifest = Private::EncodeCacheManifest(Canonical, Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes - ResidentBytes);
 				if (!Manifest) return std::unexpected(std::move(Manifest.error()));
 				uint64 EncodedBytes = Manifest->GetSize();
 				const uint64 RetainedBytes = ResidentBytes + Manifest->GetSize();
-				Stats.PeakWorkingSetBytes = RetainedBytes;
+				Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, RetainedBytes);
 				std::unordered_set<FBlobContentKey, FBlobContentKeyHash> Published;
-				for (const auto& Item : Request.Record.GetValues())
+				for (const auto& Item : Canonical.GetValues())
 				{
+					if (!HasCachePolicy(Request.Policy.GetValuePolicy(Item.Id), ECachePolicy::StoreLocal)) continue;
 					if (Canceled()) return CancelError();
 					const FBlobContentKey Identity{Private::BlobIdentity(Item.Value), Item.Value.GetRawSize()};
 					if (!Published.emplace(Identity).second) continue;
@@ -242,6 +278,7 @@ namespace Durin::DerivedData
 					}
 					if (Canceled()) return CancelError();
 					if (Reused) continue;
+					if (!Item.Value.HasData()) return std::unexpected(FCacheError{ECacheError::MissingValue, "A value selected for storage has no data."});
 					uint64 CodecBytes = 0;
 					auto Blob = FCompressedCacheValue::Compress(Item.Value, EncodedBudget, Workspace, &CodecBytes);
 					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, RetainedBytes + CodecBytes);
@@ -255,9 +292,10 @@ namespace Durin::DerivedData
 				}
 				// All required content is complete before the manifest becomes visible.
 				if (Canceled()) return CancelError();
-				auto Saved = GCacheStorage.Put({Request.Record.GetKey(), Manifest->GetBytes(), Manifest->GetSize(), ECacheStorageNamespace::Records}, **Lease);
+				auto Saved = GCacheStorage.Put({Canonical.GetKey(), Manifest->GetBytes(), Manifest->GetSize(), ECacheStorageNamespace::Records}, **Lease);
 				if (Saved) Stats.WrittenBytes += Manifest->GetSize();
-				return Saved;
+				if (!Saved) return std::unexpected(std::move(Saved.error()));
+				return Canonical;
 			}
 			catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache write allocation failed."}); }
 		};

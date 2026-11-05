@@ -402,6 +402,7 @@ namespace Durin
 			CORE_API static auto AddTaskEventPrerequisites(const Tasks::FTask& Event, std::span<const Tasks::FTask> Prerequisites) -> std::optional<Tasks::FTaskConstructionError>;
 			CORE_API static auto TriggerTaskEvent(const Tasks::FTask& Event) -> void;
 			CORE_API static auto PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>;
+			CORE_API static auto SetPriority(const Tasks::FTask& Task, ETaskPriority Priority) -> void;
 			CORE_API static auto GetCurrentTaskId() -> uint64;
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
 			CORE_API static auto SetCurrentCanceledOutcome() -> void;

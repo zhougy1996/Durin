@@ -1,3 +1,4 @@
+#include "RequestOwnerAccess.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMeshBuildPrivate.h"
@@ -8,6 +9,7 @@
 	#include "BuildServiceBackendPrivate.h"
 	#include "CacheDispatchPrivate.h"
 	#include "DerivedDataBuildSession.h"
+
 	#include "Asset/ResourceBuildSessions.h"
 #endif
 #include "StaticMeshSharedOutput.h"
@@ -19,7 +21,14 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	namespace
 	{
-		AssetPrivate::FResourceBuildSessions Sessions;
+		AssetPrivate::FResourceBuildSessions Sessions([] {
+			DerivedData::FBuildServiceOptions Options;
+			Options.BuildLimits.Input.MaximumTotalBytes = MaximumStaticMeshSourceBytes + 64ull * 1024 * 1024;
+			Options.BuildLimits.Output.MaximumTotalBytes = MaximumStaticMeshPayloadBytes;
+			auto Service = DerivedData::CreateBuild(std::move(Options));
+			require(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()).has_value());
+			return Service;
+		});
 		std::mutex CompletionHookMutex;
 		std::function<void()> CompletionHookForTests;
 
@@ -101,27 +110,15 @@ namespace Durin
 			}
 			return {};
 		}
-		auto MakeRenderOptions(bool bPersist)
-			-> DerivedData::FBuildRequestOptions
-		{
-			DerivedData::FBuildRequestOptions Options;
-			Options.Policy = bPersist ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
-			Options.Limits.Input.MaximumTotalBytes = MaximumStaticMeshSourceBytes + 64ull * 1024 * 1024;
-			Options.Limits.Output.MaximumTotalBytes = MaximumStaticMeshPayloadBytes;
-			return Options;
-		}
 		auto ConsumeRenderBuild(const FStaticMeshBuildSettings& Settings, DerivedData::FBuildCompleteParams Completion,
 			uint64 MaximumWorkingSetBytes) -> FRenderBuildResult
 		{
-			if (Completion.GetStatus() != DerivedData::EStatus::Ok)
+			if (Completion.Status != DerivedData::EStatus::Ok)
 			{
-				std::string Description = "StaticMesh derived-data build failed.";
-				if (!Completion.GetDiagnostic().empty()) Description = Completion.GetDiagnostic();
-				if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
-				else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
+				auto Description = AssetPrivate::GetBuildFailureDiagnostic(Completion, "StaticMesh derived-data build failed.");
 				return std::unexpected(MakeAssetBuildDiagnostic(std::move(Description)));
 			}
-			auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion.GetOutput());
+			auto Product = StaticMeshPrivate::AssembleSharedOutput(Completion.Output);
 			if (!Product) return std::unexpected(MakeAssetBuildDiagnostic(std::move(Product.error())));
 			if (auto Metadata = RestoreRuntimeMetadata(Settings.MaterialSlots, **Product); !Metadata)
 				return std::unexpected(MakeAssetBuildDiagnostic(std::move(Metadata.error())));
@@ -130,17 +127,17 @@ namespace Durin
 		}
 		auto DispatchRenderBuild(FStaticMeshBuildRequest& Request, uint64 BuilderVersion,
 			DerivedData::IRequestOwner& Owner, std::function<bool()> IsCancellationRequested, uint64 MaximumWorkingSetBytes,
-			DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>
+			DerivedData::FBuildCompletionCallback Completion) -> void
 		{
-			if (IsCancellationRequested && IsCancellationRequested()) Owner.RequestCancel();
-			if (auto Validation = ValidateRenderRequest(Request, MaximumWorkingSetBytes); !Validation) return Validation;
+			if (IsCancellationRequested && IsCancellationRequested()) { Completion(DerivedData::FBuildCompleteParams::Canceled({}, DerivedData::EBuildExecutionFlags::None)); return; }
+			if (auto Validation = ValidateRenderRequest(Request, MaximumWorkingSetBytes); !Validation) { Completion(DerivedData::FBuildCompleteParams::Error({}, DerivedData::EBuildExecutionFlags::None, std::move(Validation.error()))); return; }
 			auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Settings.MaterialSlots.size()), BuilderVersion);
-			if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh build definition is invalid."));
-			auto Options = MakeRenderOptions(Request.bPersistDerivedData);
-			Options.InputResolver = MakeRenderInputResolver(Request);
+			if (!Definition) { Completion(DerivedData::FBuildCompleteParams::Error({}, DerivedData::EBuildExecutionFlags::None, "StaticMesh build definition is invalid.")); return; }
+			DerivedData::FBuildPolicy Policy = Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
+			auto Resolver = MakeRenderInputResolver(Request);
 			Request.Source.ReleaseGeometry();
-			auto Session = Sessions.Get(DerivedData::EBuildCacheExecution::Task);
-			if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description));
+			auto Session = Sessions.Get(std::move(Resolver));
+
 			std::function<void()> CompletionHook;
 			{
 				std::lock_guard Lock(CompletionHookMutex);
@@ -148,22 +145,21 @@ namespace Durin
 			}
 			if (CompletionHook)
 			{
-				Completion = [Callback = std::move(Completion), Hook = std::move(CompletionHook)](auto Value) {
-					const bool bSuccess = Value.GetStatus() == DerivedData::EStatus::Ok;
+				Completion = [Callback = std::move(Completion), Hook = std::move(CompletionHook)](auto Value) mutable {
+					const bool bSuccess = Value.Status == DerivedData::EStatus::Ok;
 					Callback(std::move(Value));
 					if (bSuccess) Hook();
 				};
 			}
-			(*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
+			Session.Build(std::move(*Definition), {}, Policy, Owner, std::move(Completion));
 
-			return {};
 		}
 	}
 	namespace StaticMeshPrivate
 	{
-		auto OpenBuildSessions() -> void { Sessions.Open(); }
+
 		auto ShutdownBuildSessions() -> void
-		{ require(Sessions.Close() == DerivedData::EBuildDrainResult::Drained); }
+		{ Sessions.Reset(); }
 	}
 	namespace AssetPrivate
 	{
@@ -180,7 +176,7 @@ namespace Durin
 				Service = DerivedData::Private::CreateBuildForBackend({.Cache = std::move(Cache)});
 				require(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()).has_value());
 			}
-			require(Sessions.SetTaskService(std::move(Service)) == DerivedData::EBuildDrainResult::Drained);
+			Sessions.SetService(std::move(Service));
 		}
 	}
 #endif
@@ -204,11 +200,9 @@ namespace Durin
 		auto Inputs = StaticMeshPrivate::MakeRenderInputResolver(Request);
 		// The resolver retains canonical bulk, not the request's optional decoded residency.
 		Request.Source.ReleaseGeometry();
-		auto Options = StaticMeshPrivate::MakeRenderOptions(Request.bPersistDerivedData);
-		auto Built = Sessions.Build(std::move(*Definition), std::move(Inputs), std::move(Options));
-		if (!Built) return std::unexpected(MakeAssetBuildDiagnostic(
-			Built.error().Description));
-		return StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(*Built), MaximumWorkingSetBytes);
+		DerivedData::FBuildPolicy Policy = Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
+		auto Built = Sessions.Build(std::move(*Definition), std::move(Inputs), Policy);
+		return StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(Built), MaximumWorkingSetBytes);
 #endif
 	}
 #endif

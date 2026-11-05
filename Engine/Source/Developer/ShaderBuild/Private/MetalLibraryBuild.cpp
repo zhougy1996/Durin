@@ -133,14 +133,14 @@ namespace Durin
 					|| !Profile || *Profile != MetalLibraryShaderTarget.SettingsDigest)
 					return Context.FailExecution("Invalid Metal library build inputs.");
 			#if defined(__APPLE__)
-				const auto Actual = GetMetalLibraryProducerIdentity([&Context] { return Context.IsCancelled(); });
+				const auto Actual = GetMetalLibraryProducerIdentity([&Context] { return Context.IsCanceled(); });
 				if (!Actual || *Actual != *Producer)
 					return Context.FailExecution(Actual ? "Metal toolchain changed after capture." : Actual.error());
 				{
 					std::unique_lock Lock(ProducerMutex);
 					while (ActiveProducers >= 2)
 					{
-						if (Context.IsCancelled()) return;
+						if (Context.IsCanceled()) return;
 						ProducerChanged.wait_for(Lock, std::chrono::milliseconds(10));
 					}
 					++ActiveProducers;
@@ -164,12 +164,12 @@ namespace Durin
 					if (!File) return Context.FailExecution("Cannot capture Metal compiler source.");
 				}
 				const auto Compile = RunTool({"metal", "-std=macos-metal2.0", "-mmacosx-version-min=14.0", "-O2",
-					"-c", "shader.metal", "-o", "shader.air"}, Scratch, [&Context] { return Context.IsCancelled(); });
+					"-c", "shader.metal", "-o", "shader.air"}, Scratch, [&Context] { return Context.IsCanceled(); });
 				if (!Compile || Compile->Code) return Context.FailExecution(Compile ? Compile->Text : Compile.error());
 				const auto IntermediateSize = std::filesystem::file_size(Scratch / "shader.air", Error);
 				if (Error || IntermediateSize > MaximumLibraryBytes)
 					return Context.FailExecution("Metal intermediate exceeds output limit.");
-				const auto Link = RunTool({"metallib", "shader.air", "-o", "shader.metallib"}, Scratch, [&Context] { return Context.IsCancelled(); });
+				const auto Link = RunTool({"metallib", "shader.air", "-o", "shader.metallib"}, Scratch, [&Context] { return Context.IsCanceled(); });
 				if (!Link || Link->Code) return Context.FailExecution(Link ? Link->Text : Link.error());
 				const auto Size = std::filesystem::file_size(Scratch / "shader.metallib", Error);
 				if (Error || Size > MaximumLibraryBytes) return Context.FailExecution("Metal library exceeds output limit.");

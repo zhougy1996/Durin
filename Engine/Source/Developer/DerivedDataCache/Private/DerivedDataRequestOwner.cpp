@@ -1,269 +1,188 @@
 #include "DerivedDataRequestOwner.h"
 #include "RequestOwnerPrivate.h"
-#include "BuildSchedulerPrivate.h"
-#include "Threading/TaskRuntime.h"
+#include "Threading/Task.h"
 
 namespace Durin::DerivedData
 {
 	thread_local Private::FRequestOwnerScope* Private::FRequestOwnerScope::Current = nullptr;
+	namespace Private
+	{
+		class FRequestOwnerShared final : public IRequestOwner, public IRequest, public ICancelableRequest
+		{
+		public:
+			explicit FRequestOwnerShared(ERequestPriority Value) : Priority(Value) { AddRef(); }
+			auto Begin(IRequest* Request) -> void override
+			{
+				bool Replay;
+				{ std::lock_guard Lock(Mutex);
+					require(Request && (Barriers || !BeginExecuted));
+					const auto [It, Inserted] = Requests.emplace(Request, TRefCountPtr<IRequest>(Request)); require(Inserted);
+					AddRef(); BeginExecuted = true; Replay = PriorityChangedInBarrier;
+				}
+				if (Replay) try { ApplyPriority(*Request); } catch (...) { End(Request); throw; }
+			}
+			auto End(IRequest* Request) -> TRefCountPtr<IRequest> override
+			{
+				TRefCountPtr<IRequest> Retained;
+				{ std::lock_guard Lock(Mutex); auto Node = Requests.extract(Request); require(!Node.empty()); Retained = std::move(Node.mapped()); }
+				Changed.notify_all(); Release(); return Retained;
+			}
+			auto BeginBarrier(const FRequestBarrier& Barrier) -> void override
+			{
+				std::lock_guard Lock(Mutex); AddRef(); ++Barriers;
+				if (Barrier.GetFlags() == ERequestBarrierFlags::Priority) ++PriorityBarriers;
+			}
+			auto EndBarrier(const FRequestBarrier& Barrier) -> void override
+			{
+				{ std::lock_guard Lock(Mutex); require(Barriers); --Barriers;
+					if (Barrier.GetFlags() == ERequestBarrierFlags::Priority && --PriorityBarriers == 0) PriorityChangedInBarrier = false;
+				}
+				Changed.notify_all(); Release();
+			}
+			auto IsCanceled() const -> bool override { return Canceled.load(std::memory_order_relaxed); }
+			auto GetPriority() const -> ERequestPriority override { return Priority.load(std::memory_order_relaxed); }
+			auto SetPriority(ERequestPriority Value) -> void override
+			{
+				std::vector<TRefCountPtr<IRequest>> Snapshot;
+				{ std::lock_guard Lock(Mutex); if (GetPriority() == Value) return;
+					for (const auto& [Key, Request] : Requests) Snapshot.push_back(Request);
+					Priority.store(Value, std::memory_order_relaxed); PriorityChangedInBarrier = PriorityBarriers != 0;
+				}
+				for (const auto& Request : Snapshot) ApplyPriority(*Request);
+			}
+			auto RequestCancel() -> void override
+			{
+				std::vector<TRefCountPtr<IRequest>> Snapshot;
+				{ std::lock_guard Lock(Mutex); Canceled = true; for (const auto& [Key, Request] : Requests) Snapshot.push_back(Request); }
+				for (const auto& Request : Snapshot) FOwnerAccess::RequestCancel(*Request);
+			}
+			auto Cancel() -> void override { Canceled = true; Drain(true); }
+			auto Wait() -> void override { Drain(false); }
+			auto Poll() const -> bool { std::lock_guard Lock(Mutex); return !Barriers && Requests.empty(); }
+			auto KeepAlive() -> void { Retain = true; }
+			auto Destroy() -> void { if (!Retain) Cancel(); Release(); }
+		private:
+			auto ApplyPriority(IRequest& Request) -> void
+			{
+				for (;;) { const auto Value = GetPriority(); Request.SetPriority(Value); if (Value == GetPriority()) return; }
+			}
+			auto Drain(bool Canceling) -> void
+			{
+				for (;;) {
+					TRefCountPtr<IRequest> Request;
+					{ std::unique_lock Lock(Mutex);
+						if (!Requests.empty()) Request = Requests.begin()->second;
+						else if (!Barriers) return;
+						else {
+							requiref(!FRequestBarrier::HasBarrierForOwnerOnCallingThread(*this), "Request owners must be waited outside their callbacks or barriers.");
+							Changed.wait(Lock, [&] { return !Requests.empty() || !Barriers; }); continue;
+						}
+					}
+					if (Canceling) Request->Cancel(); else Request->Wait();
+				}
+			}
+			mutable std::mutex Mutex;
+			std::condition_variable Changed;
+			std::unordered_map<IRequest*, TRefCountPtr<IRequest>> Requests;
+			uint32 Barriers = 0, PriorityBarriers = 0;
+			bool BeginExecuted = false, PriorityChangedInBarrier = false;
+			std::atomic<ERequestPriority> Priority;
+			std::atomic_bool Canceled = false, Retain = false;
+		};
+	}
 	namespace
 	{
-		class FOwnerTask final : public Private::FRequestCompletion, public IBuildOperation
+		auto ToSharedOwner(IRequestOwner& Owner) -> Private::FRequestOwnerShared& { return static_cast<Private::FRequestOwnerShared&>(Owner); }
+		class FOwnerTask final : public Private::FRequestCompletion
 		{
 		public:
 			bool Started = false;
 			std::function<void()> Work, OnCanceled;
-			auto Run(bool Cancel = false) -> bool
+			auto Run(bool Canceled = false) -> void
 			{
 				std::function<void()> Invoke, Discard;
-				{
-					std::lock_guard Lock(Mutex);
-					if (Started) return false;
-					Started = true;
-					Invoke = Cancel ? std::move(OnCanceled) : std::move(Work);
-					Discard = Cancel ? std::move(Work) : std::move(OnCanceled);
-				}
-				Complete([&] { Discard = {}; try { if (Invoke) Invoke(); } catch (...) {} Invoke = {}; }, nullptr);
-				return true;
+				{ std::lock_guard Lock(Mutex); if (Started) return; Started = true; Invoke = Canceled ? std::move(OnCanceled) : std::move(Work); Discard = Canceled ? std::move(Work) : std::move(OnCanceled); }
+				Discard = {};
+				Complete([&] { try { if (Invoke) Invoke(); } catch (...) {} Invoke = {}; }, nullptr);
 			}
-			auto RequestCancel() -> bool override { return Run(true); }
-			auto RequestCancel() const -> void override { const_cast<FOwnerTask*>(this)->RequestCancel(); }
-			auto Wait() const -> ERequestWaitResult override { return const_cast<FOwnerTask*>(this)->Private::FRequestCompletion::Wait(); }
-			auto Reject() -> void
-			{
-				std::function<void()> DiscardWork, DiscardCancellation;
-				{ std::lock_guard Lock(Mutex); if (Started) return; Started = true; DiscardWork = std::move(Work); DiscardCancellation = std::move(OnCanceled); }
-				Complete([&] { DiscardWork = {}; DiscardCancellation = {}; }, nullptr);
-			}
+			auto RequestCancel() -> void override { Run(true); }
 		};
 		struct FTaskDispatch
 		{
-			std::shared_ptr<FOwnerTask> Task;
+			TRefCountPtr<FOwnerTask> Task;
 			~FTaskDispatch() { Task->RequestCancel(); }
 		};
 	}
-	namespace Private
+	auto Private::FOwnerAccess::LaunchTask(IRequestOwner& Owner, IBuildScheduler& Scheduler, std::string_view Name,
+		std::function<void()> Work, std::function<void()> OnCanceled) -> TRefCountPtr<IRequest>
 	{
-		class FOwnerState final : public IRequestOwnerInternal, public std::enable_shared_from_this<FOwnerState>
+		FRequestBarrier Publication(Owner, ERequestBarrierFlags::Priority);
+		auto Task = MakeRefCount<FOwnerTask>(); Task->Group = &Owner;
+		Task->Work = std::move(Work); Task->OnCanceled = std::move(OnCanceled);
+		Owner.Begin(Task);
+		try {
+			auto Dispatch = std::make_shared<FTaskDispatch>(); Dispatch->Task = Task;
+			auto Scheduled = Scheduler.Schedule({Name, Owner.GetPriority()}, [Dispatch] { Dispatch->Task->Run(); });
+			{ std::lock_guard Lock(Task->Mutex); Task->Scheduled = Scheduled; }
+			Task->Changed.notify_all();
+			if (Scheduled) for (;;) {
+				const auto Priority = Owner.GetPriority(); Scheduled->SetPriority(Priority);
+				if (Priority == Owner.GetPriority()) break;
+			}
+			return TRefCountPtr<IRequest>(Task);
+		} catch (...) { Task->RequestCancel(); Task->Wait(); throw; }
+	}
+	static thread_local FRequestBarrier* RequestBarriersByThread = nullptr;
+	FRequestBarrier::FRequestBarrier(IRequestOwner& Owner, ERequestBarrierFlags Flags)
+		: Owner(Owner), NextOnThread(RequestBarriersByThread), Flags(Flags)
+	{ RequestBarriersByThread = this; Owner.BeginBarrier(*this); }
+	FRequestBarrier::~FRequestBarrier()
+	{ Owner.EndBarrier(*this); require(RequestBarriersByThread == this); RequestBarriersByThread = NextOnThread; }
+	auto FRequestBarrier::HasBarrierForOwnerOnCallingThread(IRequestOwner& Owner) -> bool
+	{ for (auto* It = RequestBarriersByThread; It; It = It->NextOnThread) if (&It->Owner == &Owner) return true; return false; }
+	IRequestOwner::~IRequestOwner() = default;
+	auto FRequestOwner::FDeleteOwner::operator()(IRequestOwner* Owner) const -> void { ToSharedOwner(*Owner).Destroy(); }
+	FRequestOwner::FRequestOwner(ERequestPriority Priority) : Owner(new Private::FRequestOwnerShared(Priority)) {}
+	FRequestOwner::~FRequestOwner() = default;
+	FRequestOwner::FRequestOwner(FRequestOwner&& Other) noexcept = default;
+	auto FRequestOwner::operator=(FRequestOwner&& Other) noexcept -> FRequestOwner& = default;
+	auto FRequestOwner::KeepAlive() -> void { ToSharedOwner(*Owner).KeepAlive(); }
+	FRequestOwner::operator IRequestOwner&() const { require(Owner); return *Owner; }
+	FRequestOwner::operator IRequest*() const { require(Owner); return &ToSharedOwner(*Owner); }
+	auto FRequestOwner::Cancel() -> void { ToSharedOwner(*Owner).Cancel(); }
+	auto FRequestOwner::Wait() const -> void { ToSharedOwner(*Owner).Wait(); }
+	auto FRequestOwner::Poll() const -> bool { return ToSharedOwner(*Owner).Poll(); }
+	auto FRequestOwner::SetPriority(ERequestPriority Value) -> void { ToSharedOwner(*Owner).SetPriority(Value); }
+	auto FRequestOwner::GetPriority() const -> ERequestPriority { return Owner->GetPriority(); }
+	auto FRequestOwner::IsCanceled() const -> bool { return Owner->IsCanceled(); }
+	auto FRequestOwner::LaunchTask(std::string_view Name, TMoveOnlyFunction<void()>&& Work) -> void { Owner->LaunchTask(Name, std::move(Work)); }
+	auto Private::FOwnerAccess::Invoke(IRequestOwner& Owner, TMoveOnlyFunction<void()>&& Callback, const void* Domain, IRequest* Request) -> void
+	{ FRequestBarrier Barrier(Owner, ERequestBarrierFlags::Priority); FRequestOwnerScope Scope(Request, Domain); Callback(); }
+	auto Private::FOwnerAccess::End(IRequestOwner& Owner, IRequest* Request, TMoveOnlyFunction<void()>&& Callback, const void* Domain) -> TRefCountPtr<IRequest>
+	{
+		TRefCountPtr<IRequest> Retained;
+		Invoke(Owner, [&] { Retained = Owner.End(Request); Callback(); }, Domain, Request);
+		return Retained;
+	}
+	auto IRequestOwner::LaunchTask(std::string_view Name, TMoveOnlyFunction<void()>&& Work) -> void
+	{
+		struct FTaskRequest final : IRequest
 		{
-		public:
-			mutable std::mutex Mutex;
-			bool Canceled = false;
-			ERequestPriority Priority;
-			struct FEntry { std::shared_ptr<IRequest> Request; std::shared_ptr<FOwnerTask> Dispatch; };
-			std::unordered_map<IRequest*, FEntry> Requests;
-			std::vector<Tasks::FTask> NativeTasks;
-			std::vector<std::shared_ptr<const FRequestDependency>> Dependencies;
-			uint64 DependencyRevision = 0;
-			auto TrackTask(Tasks::FTask Task) -> void
-			{
-				if (!Task.IsValid()) return;
-				std::lock_guard Lock(Mutex); PruneNativeTasks(); NativeTasks.push_back(std::move(Task)); ++DependencyRevision;
-			}
-			auto TrackDependency(FRequestDependency Value) -> void
-			{
-				require(Value.IsFinished && Value.Wait && Value.RequestCancel);
-				auto Dependency = std::make_shared<const FRequestDependency>(std::move(Value));
-				bool Cancel; ERequestPriority InheritedPriority;
-				{ std::lock_guard Lock(Mutex); Dependencies.push_back(Dependency); ++DependencyRevision; Cancel = Canceled; InheritedPriority = Priority; }
-				if (Dependency->SetPriority) Dependency->SetPriority(InheritedPriority);
-				if (Cancel) Dependency->RequestCancel();
-			}
-			explicit FOwnerState(ERequestPriority Priority) : Priority(Priority) {}
-			auto Begin(std::shared_ptr<IRequest> Request) -> std::shared_ptr<IRequestOwnerInternal> override
-			{
-				{ std::lock_guard Lock(Mutex); Requests.emplace(Request.get(), FEntry{Request, {}}); }
-				return shared_from_this();
-			}
-			auto End(IRequest* Request) -> void override
-			{
-				FEntry Retired;
-				{
-					std::lock_guard Lock(Mutex);
-					if (auto Node = Requests.extract(Request); !Node.empty()) Retired = std::move(Node.mapped());
-					if (Retired.Dispatch)
-					{
-						Tasks::FTask Native;
-						{
-							std::lock_guard DispatchLock(Retired.Dispatch->Mutex);
-							if (Retired.Dispatch->Scheduled) Native = Private::GetNativeTask(*Retired.Dispatch->Scheduled);
-						}
-						if (Native.IsValid())
-						{
-							PruneNativeTasks();
-							NativeTasks.push_back(Native);
-						}
-					}
-				}
-				Retired.Request.reset();
-				Retired.Dispatch.reset();
-			}
-			auto RequestCancel() -> void override
-			{
-				std::vector<std::shared_ptr<IRequest>> Snapshot;
-				std::vector<std::shared_ptr<const FRequestDependency>> External;
-				{ std::lock_guard Lock(Mutex); Canceled = true; External = Dependencies; for (const auto& [Key, Request] : Requests) Snapshot.push_back(Request.Request); }
-				for (const auto& Request : Snapshot) Request->RequestCancel();
-				for (const auto& Dependency : External) Dependency->RequestCancel();
-			}
-			auto Cancel() -> void override
-			{
-				requiref(!IsInCallback(), "Request owners must be drained outside their callbacks; use RequestCancel.");
-				RequestCancel();
-				requiref(Wait() == ERequestWaitResult::Completed, "Request owner cancellation must wait for request end.");
-			}
-			auto IsCanceled() const -> bool override { std::lock_guard Lock(Mutex); return Canceled; }
-			auto PruneNativeTasks() -> void
-			{
-				std::erase_if(NativeTasks, [](const auto& Task) { return Task.IsCompleted(); });
-			}
-			auto IsInCallback() const -> bool
-			{
-				std::lock_guard Lock(Mutex);
-				for (auto* Scope = FRequestOwnerScope::Current; Scope; Scope = Scope->Previous)
-					if (Scope->Owner == this || (Scope->Request && Requests.contains(Scope->Request))) return true;
-				return false;
-			}
-			auto GetPriority() const -> ERequestPriority override { std::lock_guard Lock(Mutex); return Priority; }
-			auto SetPriority(ERequestPriority Value) -> void override
-			{
-				std::vector<std::shared_ptr<const FRequestDependency>> Snapshot;
-				{ std::lock_guard Lock(Mutex); Priority = Value; Snapshot = Dependencies; }
-				for (const auto& Dependency : Snapshot) if (Dependency->SetPriority) Dependency->SetPriority(Value);
-			}
-			auto LaunchTask(IRequest* Request, IBuildScheduler& Scheduler, std::string_view Name, std::function<void()> Work, std::function<void()> OnCanceled)
-				-> std::expected<std::shared_ptr<IBuildOperation>, FBuildAdmissionError> override
-			{
-				FBuildScheduleParams Params; Params.FunctionName = Name;
-				auto Task = std::make_shared<FOwnerTask>(); Task->Group = shared_from_this();
-				Task->Work = std::move(Work); Task->OnCanceled = std::move(OnCanceled);
-				bool Cancel;
-				{
-					std::lock_guard Lock(Mutex);
-					const auto It = Requests.find(Request);
-					if (Request && It == Requests.end()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "Request already completed."});
-					Params.Priority = Priority; Cancel = Canceled;
-					Requests.emplace(Task.get(), FEntry{Task, Task});
-				}
-				std::shared_ptr<FTaskDispatch> Dispatch;
-				try
-				{
-					Dispatch = std::make_shared<FTaskDispatch>(); Dispatch->Task = Task;
-					if (Cancel) { Task->RequestCancel(); Task->DispatchReturned(); return Task; }
-					auto Accepted = Scheduler.Schedule(Params, [Dispatch] { auto Pinned = Dispatch; Pinned->Task->Run(); });
-					if (!Accepted) Task->Reject();
-					else {
-						std::lock_guard Lock(Task->Mutex); Task->Scheduled = *Accepted;
-					}
-					Task->DispatchReturned();
-					if (!Accepted) return std::unexpected(std::move(Accepted.error()));
-					return Task;
-				}
-				catch (...) { Task->Reject(); Task->DispatchReturned(); throw; }
-			}
-			auto Poll() const -> bool override
-			{
-				std::vector<std::shared_ptr<const FRequestDependency>> External;
-				uint64 Revision;
-				{
-					std::lock_guard Lock(Mutex);
-					if (!Requests.empty() || !std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsCompleted(); })) return false;
-					External = Dependencies; Revision = DependencyRevision;
-				}
-				if (!std::ranges::all_of(External, [](const auto& Dependency) { return Dependency->IsFinished(); })) return false;
-				std::lock_guard Lock(Mutex);
-				return Requests.empty() && Revision == DependencyRevision && std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsCompleted(); });
-			}
-			auto Wait() const -> ERequestWaitResult override
-			{
-				if (IsInCallback()) return ERequestWaitResult::WouldBlock;
-				for (;;)
-				{
-					std::shared_ptr<IRequest> Request;
-					std::vector<Tasks::FTask> Native;
-					std::vector<std::shared_ptr<const FRequestDependency>> External;
-					{
-						std::lock_guard Lock(Mutex);
-						if (Requests.empty()) { Native = NativeTasks; External = Dependencies; }
-						else Request = Requests.begin()->second.Request;
-					}
-					if (Request) { if (Request->Wait() != ERequestWaitResult::Completed) return ERequestWaitResult::WouldBlock; }
-					else
-					{
-						for (const auto& Task : Native) if (WaitTask(Task).WaitStatus != ETaskWaitStatus::Completed) return ERequestWaitResult::WouldBlock;
-						for (const auto& Dependency : External)
-						{
-							FRequestOwnerScope Scope(const_cast<FOwnerState*>(this));
-							if (Dependency->Wait() != ERequestWaitResult::Completed) return ERequestWaitResult::WouldBlock;
-						}
-						if (Poll()) return ERequestWaitResult::Completed;
-					}
-				}
-			}
+			Tasks::FTask Task;
+			auto Cancel() -> void override { Wait(); }
+			auto Wait() -> void override { requiref(WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed, "Requests must be waited outside their callbacks."); }
+			auto SetPriority(ERequestPriority) -> void override {}
 		};
-	}
-	struct FRequestBarrier::FState
-	{
-		struct FBarrierRequest final : Private::FRequestCompletion
-		{
-			// Cancellation cannot release a submission's unpublished handles.
-			auto RequestCancel() -> bool override { return false; }
-		};
-		static auto Begin(IRequestOwner& Owner) -> std::shared_ptr<FBarrierRequest>
-		{
-			auto Request = std::make_shared<FBarrierRequest>();
-			Request->Group = Private::BeginRequest(Owner, Request);
-			Request->DispatchReturned();
-			return Request;
-		}
-		std::shared_ptr<FBarrierRequest> Request;
-		Private::FRequestOwnerScope Scope;
-		explicit FState(IRequestOwner& Owner) : Request(Begin(Owner)), Scope(Request->Group.get(), Request.get()) {}
-		~FState() { Request->Complete(); }
-	};
-	FRequestBarrier::FRequestBarrier(IRequestOwner& Owner) : State(std::make_unique<FState>(Owner)) {}
-	FRequestBarrier::~FRequestBarrier() = default;
-
-	FRequestOwner::FRequestOwner(ERequestPriority Priority)
-		: IRequestOwner(std::make_shared<Private::FOwnerState>(Priority))
-	{
-	}
-	FRequestOwner::~FRequestOwner() { Cancel(); }
-	auto IRequestOwner::Begin(std::shared_ptr<IRequest> Request) -> void { State->Begin(std::move(Request)); }
-	auto IRequestOwner::End(IRequest* Request) -> void { State->End(Request); }
-	auto IRequestOwner::Cancel() -> void { State->Cancel(); }
-	auto IRequestOwner::RequestCancel() -> void { State->RequestCancel(); }
-	auto IRequestOwner::IsCanceled() const -> bool { return State->IsCanceled(); }
-	auto IRequestOwner::GetPriority() const -> ERequestPriority { return State->GetPriority(); }
-	auto IRequestOwner::SetPriority(ERequestPriority Value) -> void { State->SetPriority(Value); }
-	auto IRequestOwner::Poll() const -> bool { return State->Poll(); }
-	auto IRequestOwner::Wait() const -> ERequestWaitResult { return State->Wait(); }
-	auto IRequestOwner::LaunchTask(std::string_view Name, std::function<void()> Work) -> void
-	{
-		FRequestBarrier Submission(*this);
-		auto Fallback = Work;
-		auto Result = State->LaunchTask(nullptr, *CreateTaskBuildScheduler(), Name, Work, Work);
-		if (!Result)
-		{
-			try
-			{
-				if (Fallback) Fallback();
-			}
-			catch (...)
-			{
-			}
-		}
-	}
-	auto Private::FOwnerAccess::TrackTask(FRequestOwner& Owner, Tasks::FTask Task) -> void
-	{
-		std::static_pointer_cast<Private::FOwnerState>(Get(Owner))->TrackTask(std::move(Task));
-	}
-	auto Private::FOwnerAccess::TrackDependency(IRequestOwner& Owner, Private::FRequestDependency Dependency) -> void
-	{
-		std::static_pointer_cast<Private::FOwnerState>(Get(Owner))->TrackDependency(std::move(Dependency));
-	}
-	auto Private::CreateRequestOwnerState() -> std::shared_ptr<Private::IRequestOwnerInternal>
-	{
-		return std::make_shared<Private::FOwnerState>(ERequestPriority::Normal);
+		if (!IsTaskSchedulerRunning()) { FRequestBarrier Barrier(*this, ERequestBarrierFlags::Priority); Work(); return; }
+		Tasks::FTaskEvent Published("LaunchTaskRequest", false);
+		auto Request = MakeRefCount<FTaskRequest>();
+		const auto Prerequisites = Tasks::Prerequisites(Published);
+		const std::string DebugName(Name);
+		Tasks::FTaskExecutionOptions Options;
+		Options.DebugName = DebugName.c_str(); Options.Prerequisites.assign(Prerequisites.begin(), Prerequisites.end());
+		const auto Priority = GetPriority();
+		Options.Priority = Priority == ERequestPriority::High ? ETaskPriority::High : Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
+		Request->Task = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options, [this, Request, Work = std::move(Work)]() mutable { End(Request, Work); });
+		Begin(Request); Published.Trigger();
 	}
 }

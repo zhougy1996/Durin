@@ -2,40 +2,16 @@
 
 namespace Durin::DerivedData
 {
-	struct FBuildInputs::FState { std::vector<FBuildInputReference> Identities; std::shared_ptr<const IBuildInputResolver> Resolver; };
-	auto Private::FBuildExecutionAccess::Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
-		-> std::expected<std::vector<FBuildInput>, FBuildInputError>
-	{
-		if (!Inputs.State || !Inputs.State->Resolver) return std::unexpected(FBuildInputError{"Build inputs are unavailable."});
-		return Inputs.State->Resolver->Resolve(Inputs.State->Identities, Cancel);
-	}
 	auto Private::FBuildExecutionAccess::Configure(const IBuildFunction& Function) -> FBuildFunctionDescriptor
 	{
 		FBuildConfigContext Context; Context.Descriptor.Name = std::string(Function.GetName()); Context.Descriptor.Version = Function.GetVersion(); Function.Configure(Context); return std::move(Context.Descriptor);
 	}
 	auto Private::FBuildExecutionAccess::MakeContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
-		FBuildOutputBuilder& Output, FBuildCancellation Cancel) -> FBuildContext
-	{ return FBuildContext(Action, Inputs, Output, std::move(Cancel)); }
+		FBuildOutputBuilder& Output, IRequestOwner& Owner) -> FBuildContext
+	{ return FBuildContext(Action, Inputs, Output, Owner); }
 	auto Private::FBuildExecutionAccess::MakeOutputBuilder(std::string Schema, uint32 SchemaVersion,
 		FBuildOutputLimits Limits) -> FBuildOutputBuilder
 	{ return FBuildOutputBuilder(std::move(Schema), SchemaVersion, Limits); }
-
-	auto FBuildInputs::TryCreate(std::span<const FBuildSourceReference> Sources,
-		std::shared_ptr<const IBuildInputResolver> Resolver, const FBuildCancellation& Cancel)
-		-> std::expected<FBuildInputs, FBuildInputError>
-	try
-	{
-		if (!Resolver) return std::unexpected(FBuildInputError{"Build input resolver is missing."});
-		auto Identities = Resolver->Describe(Sources, Cancel); if (!Identities) return std::unexpected(std::move(Identities.error()));
-		if (Cancel.IsCancelled()) return std::unexpected(FBuildInputError{"Build input capture was canceled."});
-		std::ranges::sort(*Identities, {}, &FBuildInputReference::Name);
-		FBuildInputs Result; auto State = std::make_shared<FState>(); State->Identities = std::move(*Identities); State->Resolver = std::move(Resolver); Result.State = std::move(State); return Result;
-	}
-	catch (const std::exception& E) { return std::unexpected(FBuildInputError{E.what()}); }
-	catch (...) { return std::unexpected(FBuildInputError{"Build input description threw an exception."}); }
-	auto FBuildInputs::GetIdentities() const -> std::span<const FBuildInputReference> { return State ? std::span(State->Identities) : std::span<const FBuildInputReference>{}; }
-	auto FBuildInputsBuilder::Build() && -> std::expected<FBuildInputs, FBuildInputError>
-	{ return FBuildInputs::TryCreate(Sources, std::move(Resolver)); }
 
 	auto FBuildContext::FindConstant(std::string_view Name) const -> const FBuildConstantValue*
 	{
@@ -75,9 +51,8 @@ namespace Durin::DerivedData
 	}
 	catch (const std::exception& E) { return std::unexpected(E.what()); }
 	catch (...) { return std::unexpected("Build function registration threw an exception."); }
-	auto Private::FBuildRegistry::Freeze() -> std::expected<FBuildRegistrySnapshot, std::string>
-	try { std::lock_guard Lock(State->Mutex); FBuildRegistrySnapshot Snapshot; Snapshot.Entries = State->Entries; return Snapshot; }
-	catch (...) { return std::unexpected("Build registry snapshot allocation failed."); }
+	auto Private::FBuildRegistry::Freeze() -> FBuildRegistrySnapshot
+	{ std::lock_guard Lock(State->Mutex); FBuildRegistrySnapshot Snapshot; Snapshot.Entries = State->Entries; return Snapshot; }
 	auto Private::FBuildRegistrySnapshot::Find(std::string_view Name) const -> std::shared_ptr<const FRegisteredBuildFunction>
 	{
 		const auto Position = std::ranges::lower_bound(Entries, Name, {}, [](const auto& Item) -> const std::string& { return Item->Descriptor.Name; }); return Position != Entries.end() && (*Position)->Descriptor.Name == Name ? *Position : nullptr;

@@ -4,7 +4,7 @@
 #include "Materials/MaterialPreparedProgram.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #if DURIN_WITH_EDITOR
-	#include "RequestOwnerInternal.h"
+	#include "RequestOwnerAccess.h"
 	#include "Materials/MaterialTranslation.h"
 #endif
 
@@ -31,6 +31,19 @@ namespace Durin
 			return Bytes;
 		}
 	}
+	#if DURIN_WITH_EDITOR
+	class FShaderJobsRequest final : public DerivedData::IRequest, public DerivedData::Private::ICancelableRequest
+	{
+	public:
+		std::shared_ptr<FShaderBuildHandle> Jobs;
+		DerivedData::IRequestOwner* Owner = nullptr;
+		auto RequestCancel() -> void override { Jobs->RequestCancel(); }
+		auto Cancel() -> void override { RequestCancel(); Wait(); }
+		auto Wait() -> void override { require(Jobs->Wait() == EShaderBuildWaitResult::Completed); }
+		auto SetPriority(DerivedData::ERequestPriority Priority) -> void override
+		{ Jobs->SetPriority(static_cast<EShaderBuildPriority>(Priority)); }
+	};
+	#endif
 	// One common dispatch window and ordered result set for a ShaderMap or global request.
 	struct FShaderCompilingManager::FJobGroup final : IShaderBuildRequest, std::enable_shared_from_this<FJobGroup>
 	{
@@ -144,6 +157,7 @@ namespace Durin
 					std::function<bool()> RetiredObserver;
 					std::shared_ptr<const FShaderSourceArtifacts> RetiredSources;
 					{ std::lock_guard Lock(Mutex); Completed = true; RetiredObserver = std::move(Options.IsCancelled); RetiredSources = std::move(MountedOptions.SourceArtifacts); }
+					Callback = {}; RetiredObserver = {}; RetiredSources.reset();
 					Condition.notify_all(); return;
 				}
 				const auto Observer = std::move(RequestOptions.IsCancelled);
@@ -295,8 +309,14 @@ namespace Durin
 						MaterialBuildPrivate::FinalizeMaterialShaderMap(std::move(*ShaderMap->Translation), std::move(Output)));
 				});
 			};
-		auto Jobs = std::make_shared<FShaderBuildHandle>(std::move(Group));
-		Durin::DerivedData::Private::FOwnerAccess::TrackDependency(*ShaderMap->Owner, {.IsFinished = [Jobs] { return Jobs->IsComplete(); }, .Wait = [Jobs] { return Jobs->Wait() == EShaderBuildWaitResult::Completed ? DerivedData::ERequestWaitResult::Completed : DerivedData::ERequestWaitResult::WouldBlock; }, .RequestCancel = [Jobs] { Jobs->RequestCancel(); }});
+		auto Jobs = std::make_shared<FShaderBuildHandle>(Group);
+		auto Request = MakeRefCount<FShaderJobsRequest>(); Request->Jobs = Jobs;
+		Request->Owner = &static_cast<DerivedData::IRequestOwner&>(*ShaderMap->Owner);
+		Request->Owner->Begin(Request.GetReference());
+		auto Notify = std::move(Group->Completion);
+		Group->Completion = [Request, Notify = std::move(Notify)](FShaderCompilerOutput Output) mutable {
+			Request->Owner->End(Request.GetReference(), [&] { Notify(std::move(Output)); Notify = {}; });
+		};
 		bool HighPriority;
 		{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->ShaderJobs = Jobs; HighPriority = ShaderMap->HighPriority; }
 		if (HighPriority) Jobs->SetPriority(EShaderBuildPriority::High);

@@ -3,23 +3,13 @@
 #include "CoreMinimal.h"
 
 #include "DerivedDataBuildDefinition.h"
+#include "DerivedDataRequestOwner.h"
+#include "DerivedDataStatus.h"
 #include "DerivedDataBuildOutput.h"
 
 namespace Durin::DerivedData
 {
 	namespace Private { struct FBuildExecutionAccess; }
-	// Read-only cancellation view supplied by the request owner/execution layer.
-	class FBuildCancellation
-	{
-	public:
-		FBuildCancellation() = default;
-		auto IsCancelled() const -> bool { return Check && Check(); }
-	private:
-		friend struct Private::FBuildExecutionAccess;
-		explicit FBuildCancellation(std::function<bool()> InCheck) : Check(std::move(InCheck)) {}
-		std::function<bool()> Check;
-	};
-
 	struct FBuildInputValue { std::string Name; FSharedByteBuffer Data; };
 	struct FBuildInput
 	{
@@ -28,49 +18,40 @@ namespace Durin::DerivedData
 		FSharedByteBuffer Metadata;
 		std::vector<FBuildInputValue> Values;
 	};
-	struct FBuildInputError { std::string Description; };
-
+	class IRequestOwner;
+	struct FBuildInputMetaResolvedParams { std::vector<FBuildInputReference> Inputs; EStatus Status = EStatus::Error; };
+	struct FBuildInputDataResolvedParams { std::vector<FBuildInput> Inputs; EStatus Status = EStatus::Error; };
+	using FOnBuildInputMetaResolved = TMoveOnlyFunction<void(FBuildInputMetaResolvedParams&&)>;
+	using FOnBuildInputDataResolved = TMoveOnlyFunction<void(FBuildInputDataResolvedParams&&)>;
 	class IBuildInputResolver
 	{
 	public:
 		virtual ~IBuildInputResolver() = default;
-		virtual auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
-			-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> = 0;
-		virtual auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-			-> std::expected<std::vector<FBuildInput>, FBuildInputError> = 0;
+		virtual auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void = 0;
+		virtual auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void = 0;
 	};
-
 	class FBuildInputs
 	{
 	public:
 		FBuildInputs() = default;
-		auto IsValid() const -> bool { return State != nullptr; }
-		DERIVEDDATACACHE_API auto GetIdentities() const -> std::span<const FBuildInputReference>;
+		auto IsValid() const -> bool { return Values != nullptr; }
+		auto GetInputs() const -> std::span<const FBuildInput> { return Values ? std::span<const FBuildInput>(*Values) : std::span<const FBuildInput>{}; }
 	private:
 		friend class FBuildInputsBuilder;
-		friend struct Private::FBuildExecutionAccess;
-		DERIVEDDATACACHE_API static auto TryCreate(std::span<const FBuildSourceReference> Sources,
-			std::shared_ptr<const IBuildInputResolver> Resolver, const FBuildCancellation& Cancel = {})
-			-> std::expected<FBuildInputs, FBuildInputError>;
-		struct FState;
-		std::shared_ptr<const FState> State;
+		std::shared_ptr<const std::vector<FBuildInput>> Values;
 	};
-
 	class FBuildInputsBuilder
 	{
 	public:
-		FBuildInputsBuilder(std::span<const FBuildSourceReference> Sources,
-			std::shared_ptr<const IBuildInputResolver> Resolver)
-			: Sources(Sources.begin(), Sources.end()), Resolver(std::move(Resolver)) {}
-		FBuildInputsBuilder(FBuildInputsBuilder&&) noexcept = default;
-		auto operator=(FBuildInputsBuilder&&) noexcept -> FBuildInputsBuilder& = default;
-		FBuildInputsBuilder(const FBuildInputsBuilder&) = delete;
-		DERIVEDDATACACHE_API auto Build() && -> std::expected<FBuildInputs, FBuildInputError>;
+		auto AddInput(FBuildInput Input) -> void { Values.push_back(std::move(Input)); }
+		auto Build() && -> FBuildInputs
+		{
+			std::ranges::sort(Values, {}, [](const FBuildInput& Input) -> const std::string& { return Input.Identity.Name; });
+			FBuildInputs Result; Result.Values = std::make_shared<const std::vector<FBuildInput>>(std::move(Values)); return Result;
+		}
 	private:
-		std::vector<FBuildSourceReference> Sources;
-		std::shared_ptr<const IBuildInputResolver> Resolver;
+		std::vector<FBuildInput> Values;
 	};
-
 	class FBuildConfigContext
 	{
 	public:
@@ -103,16 +84,16 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto FailExecution(std::string Text) -> void;
 		DERIVEDDATACACHE_API auto AddLog(std::string Category, EBuildLogSeverity Severity,
 			std::string Text) -> bool;
-		auto IsCancelled() const -> bool { return Cancel.IsCancelled(); }
+		auto IsCanceled() const -> bool { return Owner.IsCanceled(); }
 	private:
 		friend struct Private::FBuildExecutionAccess;
 		FBuildContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs, FBuildOutputBuilder& Output,
-			FBuildCancellation Cancel)
-			: Action(Action), Inputs(Inputs), Output(Output), Cancel(std::move(Cancel)) {}
+			IRequestOwner& Owner)
+			: Action(Action), Inputs(Inputs), Output(Output), Owner(Owner) {}
 		const FBuildAction& Action;
 		std::span<const FBuildInput> Inputs;
 		FBuildOutputBuilder& Output;
-		FBuildCancellation Cancel;
+		IRequestOwner& Owner;
 		std::optional<std::string> ExecutionFailure;
 	};
 

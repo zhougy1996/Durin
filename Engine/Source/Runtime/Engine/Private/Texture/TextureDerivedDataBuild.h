@@ -5,6 +5,7 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildSession.h"
+
 #include "Texture/Texture2DBuild.h"
 #include "Texture/TextureCubeBuildTypes.h"
 #include "Texture/VolumeTextureBuild.h"
@@ -40,10 +41,10 @@ namespace Durin::TexturePrivate
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
 		DerivedData::IRequestOwner& Owner,
 		DerivedData::FBuildCompletionCallback Completion,
-		DerivedData::FBuildRequestOptions Options = {}) -> std::expected<void, DerivedData::FBuildAdmissionError>;
+		DerivedData::FBuildPolicy Policy = {}) -> void;
 	ENGINE_API auto Build(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-		DerivedData::FBuildRequestOptions Options = {})
+		DerivedData::FBuildPolicy Policy = {})
 		-> DerivedData::FBuildCompleteParams;
 }
 #endif

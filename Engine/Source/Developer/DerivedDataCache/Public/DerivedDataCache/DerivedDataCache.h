@@ -20,6 +20,7 @@ namespace Durin::DerivedData
 	struct FCachePutRequest
 	{
 		FCacheRecord Record;
+		FCacheRecordPolicy Policy;
 		std::string Name;
 		uint64 UserData = 0;
 		DERIVEDDATACACHE_API auto MakeResponse(EStatus Status) const -> FCachePutResponse;
@@ -49,7 +50,7 @@ namespace Durin::DerivedData
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 	};
 	// Backend-neutral requests complete once per item, including rejection and cancellation.
-	// Callbacks may run inline or on another thread. Owner tracks callback retirement.
+	// Callbacks may run inline or on another thread. Owner tracks callback completion.
 	class ICache
 	{
 	public:

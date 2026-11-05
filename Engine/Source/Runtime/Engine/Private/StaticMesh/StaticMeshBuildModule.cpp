@@ -11,7 +11,7 @@ namespace Durin
 	{
 #if DURIN_WITH_EDITOR
 		StaticMeshPrivate::RegisterBuildFunction();
-		StaticMeshPrivate::OpenBuildSessions();
+
 #endif
 	}
 	auto IMeshBuilderModule::ShutdownModule() -> void

@@ -10,14 +10,17 @@ namespace Durin::DerivedData
 		public:
 			auto IsInline() const -> bool override { return true; }
 			auto Schedule(const FBuildScheduleParams&, std::function<void()> Work)
-				-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
+				-> std::shared_ptr<IBuildScheduledWork> override
 			{ Work(); return std::shared_ptr<IBuildScheduledWork>{}; }
 		};
-		class FTaskWork final : public IBuildScheduledWork, public Private::INativeBuildWork
+		class FTaskWork final : public IBuildScheduledWork
 		{
 		public:
 			Tasks::FTask Task;
-			auto GetTaskHandle() const -> Tasks::FTask override { return Task; }
+			auto SetPriority(ERequestPriority Priority) -> void override
+			{
+				Durin::Private::FTaskRuntimeAccess::SetPriority(Task, Priority == ERequestPriority::High ? ETaskPriority::High : Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal);
+			}
 			auto Wait() const -> ERequestWaitResult override
 			{
 				return WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed
@@ -28,17 +31,16 @@ namespace Durin::DerivedData
 		{
 		public:
 			explicit FTaskScheduler(bool IO = false) : IO(IO) {}
+			auto IsInline() const -> bool override { return !IsTaskSchedulerRunning(); }
 			auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Work)
-				-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
+				-> std::shared_ptr<IBuildScheduledWork> override
 			{
-				if (!IsTaskSchedulerRunning())
-					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected,
-						"Core task scheduler is not running."});
+				if (!IsTaskSchedulerRunning()) { Work(); return std::shared_ptr<IBuildScheduledWork>{}; }
 				auto Scheduled = std::make_shared<FTaskWork>();
 				Tasks::FTaskExecutionOptions Options;
-				const char* Name = IO ? "DerivedDataCacheIO" : "DerivedDataBuild";
+				const std::string Name(Params.FunctionName.empty() ? (IO ? "DerivedDataCacheIO" : "DerivedDataBuild") : Params.FunctionName);
 				// The DDC owner owns work lifetime; queue pumps must not donate their Core scope.
-				Options.DebugName = Name;
+				Options.DebugName = Name.c_str();
 				Options.Priority = Params.Priority == ERequestPriority::High ? ETaskPriority::High
 					: Params.Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
 				Scheduled->Task = Tasks::LaunchTask(IO ? Tasks::ETaskExecutor::BlockingIO : Tasks::ETaskExecutor::Worker,

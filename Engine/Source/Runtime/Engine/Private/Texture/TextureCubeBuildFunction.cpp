@@ -9,7 +9,7 @@ namespace Durin::TexturePrivate
 	using namespace DerivedData;
 	namespace
 	{
-		auto Error(std::string Message) -> FBuildInputError { return {std::move(Message)}; }
+
 		auto Identity(const FTextureSource& Source) -> FBuildInputReference
 		{ return {"Source", Source.GetIdentity(), "TextureSource", TextureSourceSchemaVersion,
 			Source.GetKind() == ETextureSourceKind::LongLatCube ? "Panorama.RGBA32F" : "Cube.RGBA8", 1}; }
@@ -60,32 +60,34 @@ namespace Durin::TexturePrivate
 					Captured->push_back({HDR ? "Panorama" : std::format("Face/{}", Index), Image.GetView().GetBuffer()});
 				}
 			}
-			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
+			auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
 			{
+				const auto Sources = Definition.GetSources();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				if (Sources.size() != 1 || Sources[0].Name != "Source" || Sources[0].Source != "CapturedSource" || !Source.IsValid()
 					|| (Source.GetKind() != ETextureSourceKind::TextureCube && Source.GetKind() != ETextureSourceKind::LongLatCube))
-					return std::unexpected(Error("Cube captured source is invalid."));
-				return std::vector{Identity(Source)};
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector{Identity(Source)}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
-			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
+			auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
 			{
+				const auto Inputs = Action.GetInputs();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				if (Inputs.size() != 1 || Inputs[0] != Identity(Source) || !PreparedValid)
-					return std::unexpected(Error("Cube captured input does not match its identity."));
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				const bool HDR = Source.GetKind() == ETextureSourceKind::LongLatCube;
 				FBuildInput Result{.Identity = Inputs[0]};
 				if (Captured) Result.Values = *Captured;
 				else
 				{
 					const auto Mips = Source.GetMipData();
-					if (!Mips.IsValid()) return std::unexpected(Error("Cube source bytes are unavailable or corrupt."));
+					if (!Mips.IsValid()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 					if (HDR) Result.Values.push_back({"Panorama", Mips.GetMipData(0, 0, 0)});
 					else
 					{
 						const uint64 FaceSize = uint64(Source.GetWidth()) * Source.GetHeight() * 4;
 						if (Mips.GetData().GetSize() != FaceSize * TextureCubeFaceCount)
-							return std::unexpected(Error("Cube face byte count is invalid."));
+							return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 						for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 							Result.Values.push_back({std::format("Face/{}", Index), Mips.GetData().MakeView(Index * FaceSize, FaceSize)});
 					}
@@ -94,17 +96,17 @@ namespace Durin::TexturePrivate
 				uint64 Size = 0;
 				for (const auto& Value : Result.Values)
 				{
-					if (Cancel.IsCancelled()) return std::unexpected(Error("Cube source resolution was canceled."));
-					if (Value.Data.GetSize() > MaximumTextureSourceBytes - Size) return std::unexpected(Error("Cube source exceeds its byte bound."));
+					if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+					if (Value.Data.GetSize() > MaximumTextureSourceBytes - Size) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 					Size += Value.Data.GetSize(); Hash.Update(Value.Data.GetBytes());
 				}
 				if (Size != Source.GetDecodedPayloadSize() || Hash.Finalize() != Source.GetDecodedPayloadHash())
-					return std::unexpected(Error("Cube canonical source checksum changed."));
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				FBinaryWriter Metadata({.MaximumTotalBytes = 16});
 				Metadata.WriteU32(Source.GetWidth()); Metadata.WriteU32(Source.GetHeight());
 				Metadata.WriteU32(Source.GetSourceChannelCount()); Metadata.WriteU32(Source.GetTransparencyMask());
 				Result.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
-				return std::vector<FBuildInput>{std::move(Result)};
+				return OnResolved({std::vector<FBuildInput>{std::move(Result)}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
 		private:
 			FTextureSource Source;
@@ -158,7 +160,7 @@ namespace Durin::TexturePrivate
 				if (HDR) Request.Pixels = FTextureCubeHDRBuildInput{.Panorama = std::cref(Panorama),
 					.FaceDimension = Options->FaceDimension, .ExposureEV = Options->ExposureEV};
 				auto Built = Module->BuildTextureCube(Request);
-				if (Context.IsCancelled()) return;
+				if (Context.IsCanceled()) return;
 				if (!Built) return Context.FailExecution("TextureCube build failed; see TextureCompressor logs for details.");
 				auto Output = MakeTextureCubeSharedOutput(*Built, Options->TargetPlatform, Options->TargetProfile);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));

@@ -7,13 +7,9 @@ namespace Durin::DerivedData::Private
 {
 	struct FBuildExecutionAccess
 	{
-		static auto ObserveCancellation(std::function<bool()> Check) -> FBuildCancellation
-		{ return FBuildCancellation(std::move(Check)); }
-		static auto Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
-			-> std::expected<std::vector<FBuildInput>, FBuildInputError>;
 		static auto Configure(const IBuildFunction& Function) -> FBuildFunctionDescriptor;
 		static auto MakeContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
-			FBuildOutputBuilder& Output, FBuildCancellation Cancel) -> FBuildContext;
+			FBuildOutputBuilder& Output, IRequestOwner& Owner) -> FBuildContext;
 		static auto GetExecutionFailure(const FBuildContext& Context) -> const std::optional<std::string>& { return Context.ExecutionFailure; }
 		static auto MakeOutputBuilder(std::string Schema, uint32 SchemaVersion,
 			FBuildOutputLimits Limits) -> FBuildOutputBuilder;
@@ -47,20 +43,14 @@ namespace Durin::DerivedData::Private
 		FBuildRegistry(const FBuildRegistry&) = delete;
 		auto operator=(const FBuildRegistry&) -> FBuildRegistry& = delete;
 		auto Register(std::shared_ptr<const IBuildFunction> Function) -> std::expected<void, std::string>;
-		auto Freeze() -> std::expected<FBuildRegistrySnapshot, std::string>;
+		auto Freeze() -> FBuildRegistrySnapshot;
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;
 	};
 
 	auto PrepareBuildAction(const std::variant<FBuildDefinition, FBuildAction>& Request,
-		const FBuildRegistrySnapshot& Registry, const std::shared_ptr<const IBuildInputResolver>& Resolver,
-		const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
-		-> std::expected<FBuildAction, FBuildCompleteParams>;
-	auto ExecuteBuildLocal(const FBuildAction& Action,
-		const FBuildRegistrySnapshot& Registry,
-		const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
-		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options,
-		const FBuildCancellation& Cancel)
-		-> FBuildCompleteParams;
+		const FBuildRegistrySnapshot& Registry, std::span<const FBuildInputReference> Identities) -> std::expected<FBuildAction, std::string>;
+	auto ExecuteBuildLocal(const FBuildAction& Action, const FBuildRegistrySnapshot& Registry,
+		std::vector<FBuildInput> Inputs, const FBuildPolicy& Policy, const FBuildRequestLimits& Limits, IRequestOwner& Owner) -> FBuildCompleteParams;
 }

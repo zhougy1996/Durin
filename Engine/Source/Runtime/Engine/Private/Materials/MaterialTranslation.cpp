@@ -1,5 +1,6 @@
 #include "MaterialTranslation.h"
 #if DURIN_WITH_EDITOR
+
 #include "MaterialTranslationCodec.h"
 #include "Asset/ResourceBuildSessions.h"
 #include "CoreGlobals.h"
@@ -10,7 +11,14 @@ namespace Durin::MaterialBuildPrivate
 	using namespace DerivedData;
 	namespace
 	{
-		AssetPrivate::FResourceBuildSessions Sessions;
+		AssetPrivate::FResourceBuildSessions Sessions([] {
+			DerivedData::FBuildServiceOptions Options;
+			Options.BuildLimits.Input.MaximumTotalBytes = TranslationInputBytes;
+			Options.BuildLimits.Output.MaximumTotalBytes = TranslationOutputBytes;
+			auto Service = DerivedData::CreateBuild(std::move(Options));
+			require(Service->Register(MakeTranslationFunction()).has_value());
+			return Service;
+		});
 		std::atomic_uint64_t Producers = 0, Resolutions = 0, Hits = 0, ProducerMicroseconds = 0, GameThreadProducers = 0;
 		auto InputReference(FXxHash128 Identity) -> FBuildInputReference { return {"Input", Identity, "Material.TranslationInput", 1, "Material.MIR", 1}; }
 		auto Failure(std::string Message) -> FMaterialTranslatedProgram
@@ -20,18 +28,22 @@ namespace Durin::MaterialBuildPrivate
 		public:
 			FSharedByteBuffer Bytes;
 			FXxHash128 Identity;
-			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const -> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
+			auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
 			{
-				if (Sources.size() != 1 || Sources.front().Name != "Input" || Sources.front().Source != "CapturedMIR") return std::unexpected(FBuildInputError{"Invalid material input reference."});
-				return std::vector{InputReference(Identity)};
+				const auto Sources = Definition.GetSources();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
+				if (Sources.size() != 1 || Sources.front().Name != "Input" || Sources.front().Source != "CapturedMIR") return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector{InputReference(Identity)}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
-			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancellation) const -> std::expected<std::vector<FBuildInput>, FBuildInputError> override
+			auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
 			{
+				const auto Inputs = Action.GetInputs();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				++Resolutions;
-				if (Cancellation.IsCancelled()) return std::vector<FBuildInput>{};
+				if (Owner.IsCanceled()) return OnResolved({std::vector<FBuildInput>{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 				if (Inputs.size() != 1 || Inputs.front() != InputReference(Identity) || FXxHash128::HashBuffer(Bytes.GetBytes()) != Identity)
-					return std::unexpected(FBuildInputError{"Invalid captured material input."});
-				return std::vector<FBuildInput>{{.Identity = Inputs.front(), .Values = {{"MIR", Bytes}}}};
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector<FBuildInput>{{.Identity = Inputs.front(), .Values = {{"MIR", Bytes}}}}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
 		};
 		class FFunction final : public IBuildFunction
@@ -51,7 +63,7 @@ namespace Durin::MaterialBuildPrivate
 					return Context.FailExecution("Material translation input identity is invalid.");
 				auto Decoded = DecodeTranslationInput(Input->Values.front().Data.GetBytes());
 				if (!Decoded) return Context.FailExecution("Material translation input encoding is invalid.");
-				if (Context.IsCancelled()) return;
+				if (Context.IsCanceled()) return;
 				++Producers; if (GIsGameThreadIdInitialized && IsInGameThread()) ++GameThreadProducers;
 				const auto Begin = std::chrono::steady_clock::now();
 				auto Product = TranslatePreparedMaterialProgram(PrepareMaterialProgram(*Decoded));
@@ -115,21 +127,15 @@ namespace Durin::MaterialBuildPrivate
 			}
 			return {};
 		}
-		auto Options(const std::shared_ptr<const IBuildInputResolver>& Resolver, bool Force, bool Query = true) -> FBuildRequestOptions
-		{
-			FBuildRequestOptions Value; Value.InputResolver = Resolver; Value.Policy = Force || !Query ? EBuildPolicy::Build | EBuildPolicy::CacheStore : EBuildPolicy::Default;
-			Value.Limits.Input.MaximumTotalBytes = TranslationInputBytes; Value.Limits.Output.MaximumTotalBytes = TranslationOutputBytes;
-			return Value;
-		}
 		auto Assemble(const FBuildCompleteParams& Completion, FXxHash128 Identity, const MIR::FCompilerInput& Input) -> std::optional<FMaterialTranslatedProgram>
 		{
-			const auto* Output = Completion.GetOutput();
-			if (!Output || Output->GetSchema() != "Material.Translation" || Output->GetSchemaVersion() != TranslationSchema || Output->GetValues().size() != 1) return {};
-			const auto* Value = Output->FindValue(FValueId::FromName("Product")); if (!Value) return {};
+			const auto& Output = Completion.Output;
+			if (Output.GetSchema() != "Material.Translation" || Output.GetSchemaVersion() != TranslationSchema || Output.GetValues().size() != 1) return {};
+			const auto* Value = Output.FindValue(FValueId::FromName("Product")); if (!Value) return {};
 			auto Product = DecodeTranslationProduct(Value->GetData().GetBytes(), Identity, Input);
 			if (Product)
 			{
-				if (HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)) ++Hits;
+				if (HasBuildExecutionFlag(Completion.BuildStatus, EBuildExecutionFlags::CacheQueryHit)) ++Hits;
 			}
 			return Product;
 		}
@@ -140,60 +146,55 @@ namespace Durin::MaterialBuildPrivate
 	{
 		static std::once_flag Once; std::call_once(Once, [] { require(GetBuild().Register(MakeTranslationFunction()).has_value()); });
 	}
-	auto OpenTranslationSessions() -> void { RegisterTranslation(); Sessions.Open(); }
-	auto SetTranslationServiceForTests(std::shared_ptr<IBuild> Service) -> void { require(Sessions.SetTaskService(std::move(Service)) == EBuildDrainResult::Drained); }
-	auto CloseTranslationSessions() -> void { require(Sessions.Close() == EBuildDrainResult::Drained); }
-	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
-		-> std::expected<void, FBuildAdmissionError>;
+	auto SetTranslationServiceForTests(std::shared_ptr<IBuild> Service) -> void { Sessions.SetService(std::move(Service)); }
+	auto ReleaseTranslationSession() -> void { Sessions.Reset(); }
+	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput)
+		-> void;
 	auto TranslateMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialTranslatedProgram
 	{
 		if (auto Error = ConsumerError(Input); !Error.empty()) return {.Diagnostics = {{.Message = std::move(Error)}}};
 		auto Bytes = EncodeTranslationInput(Input); if (!Bytes) return Failure("Material IR canonical bytes exceed the supported byte bound.");
 		auto Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Bytes, FXxHash128::HashBuffer(Bytes->GetBytes())});
 		FMaterialTranslatedProgram Product; FRequestOwner Owner;
-		auto Admitted = SubmitValidatedTranslation(std::make_shared<const MIR::FCompilerInput>(Input), Force, Owner,
-			[&](auto Value) { Product = std::move(Value); }, true, std::move(Encoded), EBuildCacheExecution::Inline);
-		if (!Admitted) return Failure(Admitted.error().Description);
-		require(Owner.Wait() == ERequestWaitResult::Completed);
+		SubmitValidatedTranslation(std::make_shared<const MIR::FCompilerInput>(Input), Force, Owner,
+			[&](auto Value) { Product = std::move(Value); }, true, std::move(Encoded));
+		Owner.Wait();
 		return Product;
 	}
-	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
-		-> std::expected<void, FBuildAdmissionError>
+	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput)
+		-> void
 	{
-		RegisterTranslation(); auto Request = MakeRequest(*Input, std::move(EncodedInput)); if (!Request) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Material snapshot exceeds the input limit."});
-		auto Session = Sessions.Get(Execution); if (!Session) return std::unexpected(Session.error());
-		(*Session)->Build(Request->Definition, Owner, [Input, Force, &Owner, Completion = std::move(Completion), Query, Execution, Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{Request->Resolver->Bytes, Request->Resolver->Identity}), Identity = Request->Resolver->Identity](FBuildCompleteParams Result) mutable {
-				if (Result.GetStatus() == EStatus::Ok)
+		RegisterTranslation(); auto Request = MakeRequest(*Input, std::move(EncodedInput)); if (!Request) { Completion(Failure("Material snapshot exceeds the input limit.")); return; }
+		auto Session = Sessions.Get(Request->Resolver);
+		Session.Build(Request->Definition, {}, Force || !Query ? EBuildPolicy::Build | EBuildPolicy::CacheStore : EBuildPolicy::Default, Owner, [Input, Force, &Owner, Completion = std::move(Completion), Query, Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{Request->Resolver->Bytes, Request->Resolver->Identity}), Identity = Request->Resolver->Identity](FBuildCompleteParams Result) mutable {
+				if (Result.Status == EStatus::Ok)
 				{
 					if (auto Product = Assemble(Result, Identity, *Input)) return Completion(std::move(*Product));
-					if (Query && HasBuildExecutionFlag(Result.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit))
+					if (Query && HasBuildExecutionFlag(Result.BuildStatus, EBuildExecutionFlags::CacheQueryHit))
 					{
 						// Retry ownership joins the same owner; only the final typed callback is delivered.
-						auto Retried = SubmitValidatedTranslation(Input, Force, Owner, Completion, false, Encoded, Execution);
-						if (Retried) return;
-						return Completion(Failure(Retried.error().Description));
+						SubmitValidatedTranslation(Input, Force, Owner, std::move(Completion), false, Encoded);
+						return;
 					}
 				}
-				if (Result.GetStatus() == EStatus::Canceled) return Completion({.Status = EMaterialProgramStatus::Canceled});
-				std::string Diagnostic(Result.GetDiagnostic());
+				if (Result.Status == EStatus::Canceled) return Completion({.Status = EMaterialProgramStatus::Canceled});
+				std::string Diagnostic((Result.Output.GetLogs().empty() ? std::string_view{} : std::string_view(Result.Output.GetLogs().front().Text)));
 				Diagnostic.resize(std::min<size_t>(Diagnostic.size(), MaterialProgramMaxDiagnosticMessageBytes));
-				if (const auto* Output = Result.GetOutput())
-					for (const auto& Message : Output->GetMessages())
+				for (const auto& Message : Result.Output.GetMessages())
 					{
 						if (Diagnostic.size() >= MaterialProgramMaxDiagnosticMessageBytes) break;
 						if (!Diagnostic.empty()) Diagnostic += '\n';
 						Diagnostic.append(Message.Text, 0, MaterialProgramMaxDiagnosticMessageBytes - Diagnostic.size());
 					}
 				Completion(Failure(Diagnostic.empty() ? "Material IR version, node count, or surface output count is invalid."
-					: std::move(Diagnostic))); }, {}, Options(Request->Resolver, Force, Query));
-		return {};
+					: std::move(Diagnostic))); });
 	}
-	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
-		-> std::expected<void, FBuildAdmissionError>
+	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput)
+		-> void
 	{
 		const auto Error = ConsumerError(*Input);
-		if (!Error.empty()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, Error});
-		return SubmitValidatedTranslation(std::move(Input), Force, Owner, std::move(Completion), Query, std::move(EncodedInput), Execution);
+		if (!Error.empty()) { Completion(Failure(Error)); return; }
+		SubmitValidatedTranslation(std::move(Input), Force, Owner, std::move(Completion), Query, std::move(EncodedInput));
 	}
 
 }

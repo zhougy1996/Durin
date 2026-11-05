@@ -1,3 +1,4 @@
+#include "RequestOwnerAccess.h"
 #include "BuildServiceBackendPrivate.h"
 #include "CacheRecordStorage.h"
 #include "BuildCacheRecordPrivate.h"
@@ -16,7 +17,6 @@
 #include "../../../../Source/Developer/DerivedDataCache/Private/CompressedCacheValue.h"
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "DerivedDataRequestOwner.h"
-#include "../../../../Source/Runtime/Engine/Private/Asset/ResourceBuildSessions.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
@@ -111,11 +111,9 @@ namespace
 	public:
 		std::deque<std::function<void()>> Work;
 		std::vector<ERequestPriority> Priorities;
-		bool Reject = false;
 		auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Task)
-			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
+			-> std::shared_ptr<IBuildScheduledWork> override
 		{
-			if (Reject) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "test rejection"});
 			Priorities.push_back(Params.Priority); Work.push_back(std::move(Task)); return std::shared_ptr<IBuildScheduledWork>{};
 		}
 		auto Run() -> void { auto Task = std::move(Work.front()); Work.pop_front(); Task(); }
@@ -138,7 +136,7 @@ namespace
 		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
 		{
 			++Puts;
-			return Durin::DerivedData::Private::ReadBuildOutput(Request.Record.GetKey(), Request.Record).transform([](auto&&) {});
+			return Durin::DerivedData::Private::ReadBuildOutput(Request.Record.GetKey(), Request.Record).transform([&](auto&&) { return Request.Record; });
 		}
 	};
 }
@@ -156,8 +154,8 @@ TEST(FAsyncCacheTests, CanceledQueuedOwnerCompletesWithoutOtherOwnerProgress)
 	Second.Cancel();
 	EXPECT_EQ(Calls, 1u);
 	EXPECT_TRUE(Second.Poll());
-	EXPECT_EQ(Second.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Second.Wait(), ERequestWaitResult::Completed);
+	Second.Wait();
+	Second.Wait();
 	EXPECT_FALSE(First.Poll());
 	ASSERT_EQ(Scheduler->Work.size(), 1u);
 	Scheduler->Run();
@@ -188,7 +186,7 @@ TEST(FAsyncCacheTests, CancellationIsScopedToRequestOwner)
 	Canceled.Cancel();
 	EXPECT_EQ(CanceledCalls, 1u); EXPECT_FALSE(Other.IsCanceled()); EXPECT_FALSE(Other.Poll());
 	while (!Scheduler->Work.empty()) Scheduler->Run();
-	EXPECT_EQ(OtherCalls, 1u); EXPECT_EQ(Other.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(OtherCalls, 1u); Other.Wait();
 }
 
 TEST(FAsyncCacheTests, OwnerDestructionCancelsQueuedBatchBeforeReturning)
@@ -203,58 +201,7 @@ TEST(FAsyncCacheTests, OwnerDestructionCancelsQueuedBatchBeforeReturning)
 	EXPECT_EQ(Calls, 1u); EXPECT_FALSE(Busy.Poll()); Scheduler->Run();
 }
 
-TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
-{
-	EnsureCacheTaskGameThread();
-	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(2));
-	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
-	class FTailScheduler final : public IBuildScheduler
-	{
-	public:
-		class FWork final : public IBuildScheduledWork, public Durin::DerivedData::Private::INativeBuildWork
-		{
-		public:
-			Tasks::FTask Handle;
-			auto GetTaskHandle() const -> Tasks::FTask override { return Handle; }
-			auto Wait() const -> ERequestWaitResult override
-			{ return WaitTask(Handle).WaitStatus == ETaskWaitStatus::Completed ? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock; }
-		};
-		std::shared_ptr<int> Capture = std::make_shared<int>(42);
-		FThreadEvent Entered, Release;
-		auto Schedule(const FBuildScheduleParams&, std::function<void()> Work)
-			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
-		{
-			auto Scheduled = std::make_shared<FWork>();
-			FTaskLaunchOptions Options;
-			auto Admission = Durin::Private::LaunchTaskWithCompletion("DDCNativeTail",
-				[this, Work = std::move(Work), Capture = std::exchange(Capture, {})]() {
-					Work(); Entered.Trigger(); Release.Wait();
-				}, {}, Options);
-			Scheduled->Handle = std::move(Admission); return Scheduled;
-		}
-	};
-	auto Scheduler = std::make_shared<FTailScheduler>(); std::weak_ptr<int> Weak = Scheduler->Capture;
-	auto Operation = std::make_shared<FRequestOwner>(); auto& Owner = *Operation; std::atomic<uint32> Calls = 0;
-	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
-	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("NativeTail"), '6')}};
-	FThreadEvent Submitted, WaitStarted, WaitReturned;
-	auto Producer = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [&] {
-		Async->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Calls; });
-		Submitted.Trigger();
-	});
-	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_TRUE(Scheduler->Entered.WaitFor(5.0));
-	EXPECT_EQ(Calls.load(), 1u); EXPECT_FALSE(Owner.Poll()); EXPECT_FALSE(Weak.expired());
-	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Owner.Poll());
-	auto Waiter = Tasks::LaunchTask("DDCOwnerJoin", [&] {
-		WaitStarted.Trigger(); EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
-		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); WaitReturned.Trigger();
-	});
-	EXPECT_TRUE(WaitStarted.WaitFor(5.0)); EXPECT_FALSE(WaitReturned.WaitFor(0.01));
-	Scheduler->Release.Trigger();
-	EXPECT_EQ(Waiter.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
-	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
-	EXPECT_TRUE(Owner.Poll()); EXPECT_TRUE(Weak.expired()); EXPECT_TRUE(WaitReturned.WaitFor(1.0));
-}
+
 
 TEST(FAsyncCacheTests, RequestOwnerQueuedCancellationNeedsNoBusyOwnerProgress)
 {
@@ -279,7 +226,7 @@ TEST(FAsyncCacheTests, RequestOwnerQueuedCancellationNeedsNoBusyOwnerProgress)
 	ASSERT_EQ(Scheduler->Work.size(), 1u); Scheduler->Run(); EXPECT_EQ(Backend->Gets, 1u);
 }
 
-TEST(FAsyncCacheTests, RequestOwnerCancellationWaitsForCallbackAndRejectsSelfWait)
+TEST(FAsyncCacheTests, RequestOwnerCancellationWaitsForCallback)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(2));
@@ -294,7 +241,7 @@ TEST(FAsyncCacheTests, RequestOwnerCancellationWaitsForCallbackAndRejectsSelfWai
 	auto Producer = Tasks::LaunchTask("RequestOwnerProducer", [&] {
 		Async->Get(Requests, *Operation, [&](auto Response) {
 			EXPECT_NE(Response.Status, EStatus::Ok);
-			EXPECT_EQ(Operation->Wait(), ERequestWaitResult::WouldBlock);
+
 			CallbackEntered.Trigger(); ReleaseCallback.Wait();
 		});
 		Submitted.Trigger();
@@ -350,57 +297,7 @@ TEST(FAsyncCacheTests, RequestOwnerInlineOwnerPollingDoesNotCloseProducerSubmiss
 	EXPECT_EQ(Calls, 2u); EXPECT_TRUE(Operation->Poll());
 }
 
-TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeHandlePublishedAfterSynchronousCallback)
-{
-	EnsureCacheTaskGameThread();
-	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(2));
-	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
-	class FPublicationScheduler final : public IBuildScheduler
-	{
-	public:
-		class FWork final : public IBuildScheduledWork, public Durin::DerivedData::Private::INativeBuildWork
-		{
-		public:
-			Tasks::FTask Handle;
-			auto GetTaskHandle() const -> Tasks::FTask override { return Handle; }
-			auto Wait() const -> ERequestWaitResult override
-			{ return WaitTask(Handle).WaitStatus == ETaskWaitStatus::Completed ? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock; }
-		};
-		std::function<void()> BusyWork;
-		FRequestOwner* Owner = nullptr;
-		FThreadEvent TailEntered, ReleaseTail;
-		auto Schedule(const FBuildScheduleParams&, std::function<void()> Work)
-			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
-		{
-			if (!Owner) { BusyWork = std::move(Work); return std::shared_ptr<IBuildScheduledWork>{}; }
-			Work();
-			EXPECT_FALSE(Owner->Poll()); // No native handle has been published yet.
-			auto Scheduled = std::make_shared<FWork>();
-			FTaskLaunchOptions Options;
-			auto Native = Durin::Private::LaunchTaskWithCompletion("OperationDispatchTail",
-				[this, Work = std::move(Work)]() { TailEntered.Trigger(); ReleaseTail.Wait(); }, {}, Options);
-			Scheduled->Handle = std::move(Native); return Scheduled;
-		}
-	};
-	auto Scheduler = std::make_shared<FPublicationScheduler>();
-	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
-	FRequestOwner Busy;
-	auto Operation = std::make_shared<FRequestOwner>();
-	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationPublication"), 'a')}};
-	Async->Get(Requests, Busy, [](auto Response) {});
-	FThreadEvent Submitted;
-	auto Producer = Tasks::LaunchTask("OperationLateDispatch", [&] {
-		Async->Get(Requests, *Operation, [](auto Response) {});
-		Submitted.Trigger();
-	});
-	EXPECT_TRUE(Submitted.WaitFor(5.0)); Scheduler->Owner = Operation.get();
-	std::exchange(Scheduler->BusyWork, {})();
-	EXPECT_TRUE(Scheduler->TailEntered.WaitFor(5.0));
-	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Operation->Poll());
-	Scheduler->ReleaseTail.Trigger();
-	EXPECT_EQ(Producer.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
-	EXPECT_EQ(Operation->Wait(), ERequestWaitResult::Completed);
-}
+
 
 TEST(FAsyncCacheTests, RequestOwnerExceptionalProducerStillJoinsQueuedRetirement)
 {
@@ -440,7 +337,7 @@ TEST(FAsyncCacheTests, MaximumInlineBatchesKeepDispatchDepthConstant)
 		uint32 Depth = 0, MaximumDepth = 0;
 		auto IsInline() const -> bool override { return true; }
 		auto Schedule(const FBuildScheduleParams&, std::function<void()> Work)
-			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
+			-> std::shared_ptr<IBuildScheduledWork> override
 		{
 			++Depth; MaximumDepth = std::max(MaximumDepth, Depth);
 			Work(); --Depth; return std::shared_ptr<IBuildScheduledWork>{};
@@ -455,7 +352,7 @@ TEST(FAsyncCacheTests, MaximumInlineBatchesKeepDispatchDepthConstant)
 	Async->Get(Gets, Owner, [&](auto Response) {
 		EXPECT_EQ(Response.Status, EStatus::Error); ASSERT_LT(Response.UserData, Calls.size()); ++Calls[Response.UserData];
 	});
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Owner.Wait();
 	EXPECT_EQ(Scheduler->MaximumDepth, 1u); EXPECT_EQ(Backend->Gets, 4096u);
 	for (auto Count : Calls) EXPECT_EQ(Count, 1u);
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2}))});
@@ -465,10 +362,10 @@ TEST(FAsyncCacheTests, MaximumInlineBatchesKeepDispatchDepthConstant)
 	Async->Put(Puts, Owner, [&](auto Response) {
 		EXPECT_EQ(Response.Status, EStatus::Ok); ASSERT_LT(Response.UserData, Calls.size()); ++Calls[Response.UserData];
 	});
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Owner.Wait();
 	EXPECT_EQ(Scheduler->MaximumDepth, 1u); EXPECT_EQ(Backend->Puts, 4096u);
 	for (auto Count : Calls) EXPECT_EQ(Count, 1u);
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Owner.Wait();
 }
 
 TEST(FAsyncCacheTests, SameCacheInlineSubmissionCompletesInsideCallback)
@@ -482,14 +379,14 @@ TEST(FAsyncCacheTests, SameCacheInlineSubmissionCompletesInsideCallback)
 		EXPECT_EQ(Response.Status, EStatus::Error); ++Calls;
 		Async->Get(Requests, InnerOwner, [&](auto Response) {
 			EXPECT_EQ(Response.Status, EStatus::Error); ++Calls;
-			EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::WouldBlock);
+
 		});
-		EXPECT_EQ(InnerOwner.Wait(), ERequestWaitResult::Completed);
-		EXPECT_EQ(InnerOwner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Calls, 2u);
+		InnerOwner.Wait();
+		InnerOwner.Wait(); EXPECT_EQ(Calls, 2u);
 	});
-	EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Calls, 2u); EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed);
+	OuterOwner.Wait();
+	EXPECT_EQ(Calls, 2u); OuterOwner.Wait();
+	OuterOwner.Wait();
 }
 
 TEST(FAsyncCacheTests, RetainedPayloadCapacityRejectsAtomicallyAndReleasesOnCancellation)
@@ -516,7 +413,7 @@ TEST(FAsyncCacheTests, RetainedPayloadCapacityRejectsAtomicallyAndReleasesOnCanc
 	Async->Put(Writes, Rejected, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); ++Calls; });
 	while (!Scheduler->Work.empty()) Scheduler->Run();
 	EXPECT_EQ(Calls, 2u); EXPECT_EQ(Backend->Puts, 1u);
-	EXPECT_EQ(Rejected.Wait(), ERequestWaitResult::Completed);
+	Rejected.Wait();
 	// Admission charges the retained allocation, not merely the one-byte view.
 	const auto Backing = FSharedByteBuffer::Take(FByteBuffer(65536, std::byte{4}));
 	const std::array Sliced{FCachePutRequest{RecordWith(Key, {Backing.MakeView(0, 1)})}};
@@ -557,7 +454,7 @@ TEST(FAsyncCacheTests, OldestRequestPreventsStarvationUnderHighPriorityArrivals)
 	EXPECT_EQ(Scheduler->Priorities[33], ERequestPriority::Low);
 	Scheduler->Run(); EXPECT_EQ(LowCalls, 1u);
 	while (!Scheduler->Work.empty()) Scheduler->Run();
-	EXPECT_EQ(High.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Low.Wait(), ERequestWaitResult::Completed);
+	High.Wait(); Low.Wait();
 }
 
 TEST(FAsyncCacheTests, RetainedAdmissionDeduplicatesRecordBackingAndChargesPolicyOverrides)
@@ -603,7 +500,7 @@ TEST(FAsyncCacheTests, MaximumCapacityQueueKeepsOldestProgressUnderPriorityArriv
 	EXPECT_EQ(Calls, Waiting.size()); EXPECT_TRUE(Low.Poll()); EXPECT_TRUE(High.Poll());
 }
 
-TEST(FAsyncCacheTests, QueuedDataBudgetCoversMetadataAndRecoversAfterDispatchRejection)
+TEST(FAsyncCacheTests, QueuedDataBudgetCoversMetadataAndReleasesAfterCompletion)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
 	FBuildOutputBuilder Builder("Fixture.Output", 1);
@@ -618,112 +515,8 @@ TEST(FAsyncCacheTests, QueuedDataBudgetCoversMetadataAndRecoversAfterDispatchRej
 	Small->Put(Writes, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
 	EXPECT_TRUE(Owner.Poll());
 	auto Exact = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.MaximumRetainedBytes = Bytes});
-	Scheduler->Reject = true;
-	Exact->Put(Writes, Owner, [](auto Response) {
-		ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Error);
-	});
-	EXPECT_TRUE(Owner.Poll());
-	Scheduler->Reject = false;
 	Exact->Put(Writes, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); });
 	Scheduler->Run(); EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Backend->Puts, 1u);
-}
-
-namespace
-{
-	class FResourceSessionFunction final : public IBuildFunction
-	{
-	public:
-		auto GetName() const -> std::string_view override { return "Resource.SessionFixture"; }
-		auto GetVersion() const -> uint32 override { return 1; }
-		auto Configure(FBuildConfigContext& Context) const -> void override
-		{ Context.SetConstantsSchema(1); Context.SetOutput("Fixture.Output", 1); Context.SetCacheBucket(FCacheBucket::FromString("ResourceSession")); }
-		auto Build(FBuildContext& Context) const -> void override
-		{ Context.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(Bytes({1}))); }
-	};
-	auto ResourceDefinition() -> FBuildDefinition
-	{
-		static std::once_flag Once;
-		std::call_once(Once, [] { require(GetBuild().Register(std::make_shared<FResourceSessionFunction>())); });
-		return std::move(FBuildDefinitionBuilder("Resource.SessionFixture")).Build().value();
-	}
-	auto ResourceOptions() -> FBuildRequestOptions
-	{ return {.Policy = EBuildPolicy::Build}; }
-}
-
-TEST(FResourceBuildSessionTests, InlineNestedBuildAndTypedAdmissionSurviveCloseAndReopen)
-{
-	AssetPrivate::FResourceBuildSessions Sessions;
-	const auto Definition = ResourceDefinition();
-	auto Session = Sessions.Get(EBuildCacheExecution::Inline); ASSERT_TRUE(Session);
-	FRequestOwner Owner; uint32 Calls = 0;
-	(*Session)->Build(Definition, Owner, [&](auto Result) {
-		EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls;
-		auto Nested = Sessions.Build(Definition, {}, ResourceOptions());
-		ASSERT_TRUE(Nested); EXPECT_EQ(Nested->GetStatus(), EStatus::Ok); ++Calls; }, {}, ResourceOptions());
-	EXPECT_EQ(Calls, 2u); EXPECT_TRUE(Owner.Poll());
-	auto Unknown = Sessions.Build(std::move(FBuildDefinitionBuilder("Resource.Unknown")).Build().value(), {}, ResourceOptions());
-	ASSERT_TRUE(Unknown);
-	EXPECT_EQ(Unknown->GetStatus(), EStatus::Error);
-	EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
-	auto Closed = Sessions.Build(Definition, {}, ResourceOptions());
-	ASSERT_FALSE(Closed); EXPECT_EQ(Closed.error().Reason, EBuildAdmissionReason::Closed);
-	Sessions.Open(); ASSERT_TRUE(Sessions.Build(Definition, {}, ResourceOptions()));
-	EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
-}
-
-TEST(FResourceBuildSessionTests, ReentrantCloseRetainsSessionsUntilExternalDrain)
-{
-	AssetPrivate::FResourceBuildSessions Sessions;
-	const auto Definition = ResourceDefinition();
-	auto Session = Sessions.Get(EBuildCacheExecution::Inline); ASSERT_TRUE(Session);
-	FRequestOwner Owner;
-	(*Session)->Build(Definition, Owner, [&](auto) {
-		EXPECT_EQ(Sessions.Close(), EBuildDrainResult::WouldBlock);
-		auto Closed = Sessions.Get(EBuildCacheExecution::Inline);
-		ASSERT_FALSE(Closed); EXPECT_EQ(Closed.error().Reason, EBuildAdmissionReason::Closed); }, {}, ResourceOptions());
-	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
-}
-
-TEST(FResourceBuildSessionTests, ReplacingScopedTaskServiceDrainsOutsideAcquisitionLock)
-{
-	EnsureCacheTaskGameThread();
-	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
-	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
-	AssetPrivate::FResourceBuildSessions Sessions;
-	const auto Definition = ResourceDefinition();
-	const auto MakeService = [] {
-		auto Service = Durin::DerivedData::Private::CreateBuildForBackend();
-		require(Service->Register(std::make_shared<FResourceSessionFunction>()));
-		return Service;
-	};
-	ASSERT_EQ(Sessions.SetTaskService(MakeService()), EBuildDrainResult::Drained);
-	auto Old = Sessions.Get(EBuildCacheExecution::Task); ASSERT_TRUE(Old);
-	FRequestOwner Owner;
-	FThreadEvent Entered, Release; std::atomic<bool> Reenter = true;
-	struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } ReleaseOnExit{Release};
-	(*Old)->Build(Definition, Owner, [&](auto) {
-		Entered.Trigger(); Release.Wait();
-		if (Reenter) EXPECT_TRUE(Sessions.Get(EBuildCacheExecution::Task)); }, {}, ResourceOptions());
-	ASSERT_TRUE(Entered.WaitFor(5.0));
-	auto Replacement = std::async(std::launch::async, [&] { return Sessions.SetTaskService(MakeService()); });
-	auto Acquisition = std::async(std::launch::async, [&] {
-		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-		while (std::chrono::steady_clock::now() < Deadline) {
-			auto Current = Sessions.Get(EBuildCacheExecution::Task);
-			if (!Current || *Current != *Old) return Current.has_value();
-			std::this_thread::yield();
-		}
-		return false;
-	});
-	const auto Status = Acquisition.wait_for(std::chrono::seconds(5));
-	Reenter = Status == std::future_status::ready;
-	EXPECT_EQ(Status, std::future_status::ready);
-	EXPECT_EQ(Replacement.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
-	Release.Trigger();
-	EXPECT_TRUE(Acquisition.get()); EXPECT_EQ(Replacement.get(), EBuildDrainResult::Drained);
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Sessions.SetTaskService({}), EBuildDrainResult::Drained);
-	EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
 }
 
 TEST(FAsyncCacheTests, CapacityAndBackendFailureCompleteThroughStatusResponses)
@@ -763,11 +556,11 @@ TEST(FAsyncCacheTests, OwnsBatchPoliciesAndBoundsConcurrencyAndAdmission)
 	Async->Get(Extra, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); }); // Entire batch is rejected.
 	Scheduler->Run(); EXPECT_EQ(Backend->ObservedIds, Original); EXPECT_EQ(Scheduler->Work.size(), 1u);
 	Scheduler->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Indices, 3u);
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Owner.Wait(); Owner.Wait();
 	for (auto Priority : Scheduler->Priorities) EXPECT_EQ(Priority, ERequestPriority::High);
 }
 
-TEST(FAsyncCacheTests, PrioritizesQueuedOwnersAndDetectsNestedCallbackWaits)
+TEST(FAsyncCacheTests, PrioritizesQueuedOwnersAndSupportsNestedCallbacks)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
 	auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Backend, Scheduler, {.Concurrency = 1, .Capacity = 4}); FRequestOwner Low(ERequestPriority::Low), High(ERequestPriority::High);
@@ -781,10 +574,10 @@ TEST(FAsyncCacheTests, PrioritizesQueuedOwnersAndDetectsNestedCallbackWaits)
 	uint32 Callbacks = 0;
 	const std::array One{FCacheGetRequest{Key}};
 	Outer->Get(One, OuterOwner, [&](auto Response) {
-		Inner->Get(One, InnerOwner, [&](auto Response) { EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::WouldBlock); EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::WouldBlock); ++Callbacks; });
+		Inner->Get(One, InnerOwner, [&](auto Response) {   ++Callbacks; });
 		++Callbacks;
 	});
-	EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(InnerOwner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Callbacks, 2u); OuterOwner.Wait(); InnerOwner.Wait();
 }
 
 TEST(FAsyncCacheTests, CancellationDropsExceptionsAndCallbackRetirementCompleteExactlyOnce)
@@ -796,7 +589,7 @@ TEST(FAsyncCacheTests, CancellationDropsExceptionsAndCallbackRetirementCompleteE
 	{
 		FRequestOwner Owner;
 		Async->Get(Requests, Owner, [&](auto Response) { ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Callbacks; });
-		Owner.Cancel(); Scheduler->Run(); EXPECT_EQ(Backend->Gets, 0u); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+		Owner.Cancel(); Scheduler->Run(); EXPECT_EQ(Backend->Gets, 0u); Owner.Wait();
 	}
 	{
 		FRequestOwner Owner;
@@ -807,16 +600,14 @@ TEST(FAsyncCacheTests, CancellationDropsExceptionsAndCallbackRetirementCompleteE
 		Backend->Throw = true; auto Owner = std::make_unique<FRequestOwner>();
 		Async->Get(Requests, *Owner, [&](auto Response) {
 			ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Error);
-			EXPECT_EQ(Owner->Wait(), ERequestWaitResult::WouldBlock);
-			Owner->RequestCancel(); ++Callbacks; throw std::runtime_error("callback");
+
+			Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner); ++Callbacks; throw std::runtime_error("callback");
 		});
 		Scheduler->Run(); Owner.reset(); EXPECT_FALSE(Owner);
 	}
 	EXPECT_EQ(Callbacks, 3u);
-	FRequestOwner Owner; Scheduler->Reject = true;
-	Async->Get(Requests, Owner, [&](auto Response) { ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Error); ++Callbacks; });
-	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Callbacks, 4u);
-	Owner.RequestCancel(); Async->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Canceled); });
+	FRequestOwner Owner;
+	Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); Async->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Canceled); });
 }
 
 TEST(FAsyncCacheTests, OwnerCancellationRetainsPutPayloadsThroughCompletion)
@@ -830,8 +621,8 @@ TEST(FAsyncCacheTests, OwnerCancellationRetainsPutPayloadsThroughCompletion)
 	Requests = {}; Scheduler->Run(); EXPECT_EQ(Backend->Puts, 1u);
 	const std::array Reads{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
 	Async->Get(Reads, Owner, [&](auto Response) { ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Callbacks; });
-	Owner.RequestCancel(); while (!Scheduler->Work.empty()) Scheduler->Run();
-	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Backend->Gets, 0u); EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); while (!Scheduler->Work.empty()) Scheduler->Run();
+	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Backend->Gets, 0u); EXPECT_TRUE(Owner.Poll()); Owner.Wait();
 }
 
 TEST(FAsyncCacheTests, OwnerPriorityChangeReordersQueuedCacheRequests)
@@ -864,7 +655,7 @@ TEST(FAsyncCacheTests, CoreShutdownDrainsRunningAndPendingAcceptedRequests)
 		mutable std::atomic<uint32> Gets = 0;
 		auto Get(const FCacheGetBackendRequest&) const -> FCacheGetResult override
 		{ if (++Gets == 1) const_cast<FBlockingCache*>(this)->Entered.set_value(); Release.wait(); return std::optional<FCacheRecord>{}; }
-		auto Put(const FCachePutBackendRequest&) const -> FCachePutResult override { return {}; }
+		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override { return Request.Record; }
 	};
 	std::promise<void> Release; auto Cache = std::make_shared<FBlockingCache>(); Cache->Release = Release.get_future().share();
 	auto Entered = Cache->Entered.get_future(); auto Async = Durin::DerivedData::Private::CreateCacheForBackend(Cache, CreateTaskCacheScheduler(), {.Concurrency = 1}); FRequestOwner Owner;
@@ -873,9 +664,9 @@ TEST(FAsyncCacheTests, CoreShutdownDrainsRunningAndPendingAcceptedRequests)
 	std::atomic<uint32> Callbacks = 0;
 	Async->Get(Requests, Owner, [&](auto Response) { EXPECT_NE(Response.Status, EStatus::Ok); ++Callbacks; });
 	const auto Started = Entered.wait_for(std::chrono::seconds(5));
-	Owner.RequestCancel(); Release.set_value(); ShutdownTaskScheduler(false);
-	EXPECT_EQ(Started, std::future_status::ready); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Cache->Gets, 1u);
+	Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); Release.set_value(); ShutdownTaskScheduler(false);
+	EXPECT_EQ(Started, std::future_status::ready); Owner.Wait();
+	Owner.Wait(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Cache->Gets, 1u);
 }
 
 TEST(FAsyncCacheTests, CoalescesOnlyInflightBlobReadsAndReleasesFailures)
@@ -899,12 +690,12 @@ TEST(FAsyncCacheTests, CanceledPersistenceNeverPublishesReplacementManifest)
 {
 	FScopedCacheDirectory Directory("canceled-persistence"); const auto Key = MakeKey(FCacheBucket::FromString("Cancel"), 'a');
 	const auto Original = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Original}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Original, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Replacement = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({2})), FSharedByteBuffer::Take(Bytes({3}))});
 	for (uint32 StopAt : {1u, 2u, 3u, 4u, 5u, 6u})
 	{
 		uint32 Checks = 0;
-		auto Saved = GetCacheBackend().Put({.Record = Replacement, .ShouldCancel = [&] { return ++Checks == StopAt; }});
+		auto Saved = GetCacheBackend().Put({.Record = Replacement, .ShouldCancel = [&] { return ++Checks == StopAt; }, .Policy = Durin::DerivedData::ECachePolicy::Store});
 		ASSERT_FALSE(Saved); EXPECT_EQ(Saved.error().Code, ECacheError::Canceled);
 		auto Found = GetCacheBackend().Get({Key});
 		ASSERT_TRUE(Found && *Found);
@@ -963,7 +754,7 @@ TEST(FCacheSelectionTests, DefaultAndValueOverridesDistinguishSkippedDataFromDis
 	FScopedCacheDirectory Directory("cache-value-policy");
 	const auto Key = MakeKey(FCacheBucket::FromString("Policy"), 'b');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1})), FSharedByteBuffer::Take(Bytes({2})), FSharedByteBuffer::Take(Bytes({3}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Values = Record.GetValues();
 	FCacheRecordPolicyBuilder Builder;
 	Builder.AddValuePolicy(Values[1].Id, ECachePolicy::Query | ECachePolicy::SkipData);
@@ -1001,7 +792,7 @@ TEST(FCacheSelectionTests, MetadataAndSelectionLeaveOtherValuesAsReferences)
 	const auto Key = MakeKey(FCacheBucket::FromString("Selection"), 'a');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{1})),
 		FSharedByteBuffer::Take(Bytes({2, 3})), FSharedByteBuffer{}});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	FCacheQueryStats Stats;
 	auto Metadata = GetCacheBackend().Get({.Key = Key, .Policy = ECachePolicy::Query | ECachePolicy::SkipData, .Stats = &Stats});
 	ASSERT_TRUE(Metadata && *Metadata); EXPECT_EQ(Stats.ValuesRead, 0u); EXPECT_EQ(Stats.DecodedBytes, 0u);
@@ -1036,7 +827,7 @@ TEST(FCacheSelectionTests, OverridesIgnoreAbsentIdsButQueriedBlobsMustExist)
 	const std::array Selected{Record.GetValues()[0].Id};
 	auto Miss = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Selected)});
 	ASSERT_TRUE(Miss); EXPECT_FALSE(*Miss);
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const std::array Unknown{FValueId::FromName("Unknown")}; FCacheQueryStats Stats;
 	auto Missing = GetCacheBackend().Get({.Key = Key, .Policy = SelectValues(Unknown), .Stats = &Stats});
 	ASSERT_TRUE(Missing && *Missing);
@@ -1064,7 +855,7 @@ TEST(FCacheSelectionTests, EnforcesSelectedBudgetsAndCooperativeCancellation)
 	FScopedCacheDirectory Directory("cache-selection-budget");
 	const auto Key = MakeKey(FCacheBucket::FromString("Selection"), 'c');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(1024 * 1024, std::byte{1})), FSharedByteBuffer::Take(Bytes({2}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const std::array Selected{FValueId::FromName("Block").MakeIndexed(1)};
 	// Logical output bounds still validate every descriptor, not only resident values.
 	EXPECT_FALSE(GetCacheBackend().Get({.Key = Key, .RecordLimits = {.MaximumTotalBytes = 1024}, .Policy = SelectValues(Selected)}));
@@ -1135,8 +926,8 @@ TEST(FCacheTests, ReusesContentAcrossBucketsAndRoundTripsCompleteOutputs)
 	const auto B = MakeKey(FCacheBucket::FromString("FamilyB"), 'b');
 	const auto Block = FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{4}));
 	const auto First = RecordWith(A, {Block, {}}), Second = RecordWith(B, {Block});
-	ASSERT_TRUE(GetCacheBackend().Put({First}));
-	ASSERT_TRUE(GetCacheBackend().Put({Second}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = First, .Policy = Durin::DerivedData::ECachePolicy::Store}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Second, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	uint32 Blobs = 0;
 	for (const auto& Entry : std::filesystem::recursive_directory_iterator(Directory.Root / "values/v1"))
 		if (Entry.is_regular_file()) ++Blobs;
@@ -1172,19 +963,19 @@ TEST(FCacheTests, RejectsMissingOrDamagedBlobsAndRepairsThemOnPut)
 	FScopedCacheDirectory Directory("ContentRepair");
 	const auto Key = MakeKey(FCacheBucket::FromString("Repair"), 'c');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Blob = BlobKey(Record.GetValues()[0].Value);
 	ASSERT_TRUE(GetCacheStorage().Put({Blob, Bytes({9}), 4096, ECacheStorageNamespace::Values}));
 	auto Damaged = GetCacheBackend().Get({Key});
 	ASSERT_FALSE(Damaged);
 	EXPECT_EQ(Damaged.error().Code, ECacheError::Corrupt);
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_TRUE(GetCacheBackend().Get({Key}).value().has_value());
 	ASSERT_TRUE(std::filesystem::remove(EntryPath(Directory, Blob, "values/v1")));
 	auto Missing = GetCacheBackend().Get({Key});
 	ASSERT_FALSE(Missing);
 	EXPECT_EQ(Missing.error().Code, ECacheError::MissingValue);
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_TRUE(GetCacheBackend().Get({Key}).value().has_value());
 }
 
@@ -1193,12 +984,12 @@ TEST(FCacheTests, FailedPublicationRetainsOrphansAndExistingReaders)
 	FScopedCacheDirectory Directory("ContentPublicationFailure");
 	const auto ExistingKey = MakeKey(FCacheBucket::FromString("Existing"), 'a');
 	const auto Existing = RecordWith(ExistingKey, {FSharedByteBuffer::Take(Bytes({9}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Existing}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Existing, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Key = MakeKey(FCacheBucket::FromString("Interrupted"), 'd');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1})), FSharedByteBuffer::Take(Bytes({2}))});
 	const auto Blocked = EntryPath(Directory, BlobKey(Record.GetValues()[1].Value), "values/v1");
 	std::filesystem::create_directories(Blocked); // Fail the second blob after the first is published.
-	const auto Failed = GetCacheBackend().Put({Record});
+	const auto Failed = GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store});
 	ASSERT_FALSE(Failed);
 	EXPECT_EQ(Failed.error().Code, ECacheError::StorageFailure);
 	EXPECT_FALSE(GetCacheBackend().Get({Key}).value().has_value());
@@ -1206,7 +997,7 @@ TEST(FCacheTests, FailedPublicationRetainsOrphansAndExistingReaders)
 	EXPECT_TRUE(GetCacheBackend().Get({ExistingKey}).value().has_value());
 	const auto ManifestBlockedKey = MakeKey(FCacheBucket::FromString("ManifestBlocked"), 'e');
 	std::filesystem::create_directories(EntryPath(Directory, ManifestBlockedKey, "records/v5"));
-	EXPECT_FALSE(GetCacheBackend().Put({RecordWith(ManifestBlockedKey, {Existing.GetValues()[0].Value.GetData()})}));
+	EXPECT_FALSE(GetCacheBackend().Put({.Record = RecordWith(ManifestBlockedKey, {Existing.GetValues()[0].Value.GetData()}), .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_TRUE(GetCacheBackend().Get({ExistingKey}).value().has_value());
 }
 
@@ -1215,17 +1006,17 @@ TEST(FCacheTests, EnforcesRawEncodedAndResidentBudgetsBeforePublishingManifest)
 	FScopedCacheDirectory Directory("ContentBudgets");
 	const auto Key = MakeKey(FCacheBucket::FromString("Budgets"), 'f');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(4096, std::byte{8}))});
-	EXPECT_FALSE(GetCacheBackend().Put({Record, 8192, {.MaximumTotalBytes = 100}, 16 * 1024 * 1024}));
-	EXPECT_FALSE(GetCacheBackend().Put({Record, 64, {.MaximumTotalBytes = 8192}, 16 * 1024 * 1024}));
-	EXPECT_FALSE(GetCacheBackend().Put({Record, 8192, {.MaximumTotalBytes = 8192}, 4096}));
+	EXPECT_FALSE(GetCacheBackend().Put({.Record = Record, .MaximumEncodedBytes = 8192, .RecordLimits = {.MaximumTotalBytes = 100}, .MaximumWorkingSetBytes = 16 * 1024 * 1024, .Policy = Durin::DerivedData::ECachePolicy::Store}));
+	EXPECT_FALSE(GetCacheBackend().Put({.Record = Record, .MaximumEncodedBytes = 64, .RecordLimits = {.MaximumTotalBytes = 8192}, .MaximumWorkingSetBytes = 16 * 1024 * 1024, .Policy = Durin::DerivedData::ECachePolicy::Store}));
+	EXPECT_FALSE(GetCacheBackend().Put({.Record = Record, .MaximumEncodedBytes = 8192, .RecordLimits = {.MaximumTotalBytes = 8192}, .MaximumWorkingSetBytes = 4096, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Backing = FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{3}));
-	EXPECT_FALSE(GetCacheBackend().Put({RecordWith(Key, {Backing.MakeView(0, 1)}), 8192, {.MaximumTotalBytes = 8192}, 4096}));
+	EXPECT_FALSE(GetCacheBackend().Put({.Record = RecordWith(Key, {Backing.MakeView(0, 1)}), .MaximumEncodedBytes = 8192, .RecordLimits = {.MaximumTotalBytes = 8192}, .MaximumWorkingSetBytes = 4096, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_FALSE(GetCacheBackend().Get({Key}).value().has_value());
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Manifest = GetCacheStorage().Get({Key, 8192, ECacheStorageNamespace::Records}); ASSERT_TRUE(Manifest); ASSERT_TRUE(*Manifest);
 	const auto Blob = GetCacheStorage().Get({BlobKey(Record.GetValues()[0].Value), 8192, ECacheStorageNamespace::Values}); ASSERT_TRUE(Blob); ASSERT_TRUE(*Blob);
 	const auto AggregateLimit = (**Manifest).GetSize() + (**Blob).GetSize() - 1;
-	EXPECT_FALSE(GetCacheBackend().Put({Record, AggregateLimit}));
+	EXPECT_FALSE(GetCacheBackend().Put({.Record = Record, .MaximumEncodedBytes = AggregateLimit, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_TRUE(GetCacheBackend().Get({Key}).value().has_value()); // Failed replacement preserves the published manifest.
 	EXPECT_FALSE(GetCacheBackend().Get({Key, {}, AggregateLimit}));
 	EXPECT_FALSE(GetCacheBackend().Get({Key, {.MaximumTotalBytes = 100}}));
@@ -1238,13 +1029,13 @@ TEST(FCacheTests, ConcurrentContentWritersAndReadersSeeCompleteRecords)
 	FScopedCacheDirectory Directory("ContentConcurrency");
 	const auto Key = MakeKey(FCacheBucket::FromString("Concurrent"), '7');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{5}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	std::latch Start(1); std::vector<std::thread> Threads;
 	for (uint32 I = 0; I < 8; ++I) Threads.emplace_back([&] {
 		Start.wait();
 		for (uint32 Attempt = 0; Attempt < 8; ++Attempt)
 		{
-			EXPECT_TRUE(GetCacheBackend().Put({Record}));
+			EXPECT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 			auto Loaded = GetCacheBackend().Get({Key});
 			ASSERT_TRUE(Loaded) << Loaded.error().Diagnostic;
 			ASSERT_TRUE(*Loaded);
@@ -1264,7 +1055,7 @@ TEST(FCacheTests, StoresAndLoadsValidatedStructuredRecords)
 	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
 	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
 	ASSERT_TRUE(Record);
-	ASSERT_TRUE(GetCacheBackend().Put({std::move(*Record), 4096}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = std::move(*Record), .MaximumEncodedBytes = 4096, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 
 	auto Loaded = GetCacheBackend().Get({Key, {}, 4096});
 	ASSERT_TRUE(Loaded);
@@ -1496,7 +1287,7 @@ TEST(FCacheTests, RejectsLegacyStorageEnvelopesAndReplacesThemOnPut)
 	auto Rejected = GetCacheBackend().Get({Key, {}, 4096});
 	ASSERT_TRUE(Rejected);
 	EXPECT_FALSE(*Rejected); // Legacy namespaces are cold misses, never decoded.
-	ASSERT_TRUE(GetCacheBackend().Put({*Record, 4096}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = *Record, .MaximumEncodedBytes = 4096, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	auto Loaded = GetCacheBackend().Get({Key, {}, 4096});
 	ASSERT_TRUE(Loaded);
 	ASSERT_TRUE(*Loaded);
@@ -1684,9 +1475,9 @@ TEST(FCacheTests, RepeatedBlobIdentitiesShareReadDecodeAndPhysicalBudgets)
 		const auto Block = FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{4}));
 		const auto Record = RecordWith(Key, {Block, FSharedByteBuffer::Copy(Block.GetBytes()), Block});
 		FCacheStoreStats Cold, Warm;
-		ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Cold}));
+		ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Cold, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 		EXPECT_EQ(Cold.BlobsCompressed, 1u); EXPECT_EQ(Cold.BlobsWritten, 1u);
-		ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Warm}));
+		ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Warm, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 		EXPECT_EQ(Warm.BlobsReused, 1u); EXPECT_EQ(Warm.BlobsCompressed, 0u); EXPECT_EQ(Warm.BlobsWritten, 0u);
 		FCacheQueryStats Stats;
 		auto Loaded = GetCacheBackend().Get({.Key = Key, .Stats = &Stats});
@@ -1723,9 +1514,9 @@ TEST(FCacheTests, MixedBlobIdentitiesDeduplicateOnlyMatchingContent)
 	const auto Record = RecordWith(Key, {Empty, First, SameSize, OtherSize,
 		FSharedByteBuffer::Copy(First.GetBytes()), Empty, SameSize});
 	FCacheStoreStats Cold, Warm;
-	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Cold}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Cold, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_EQ(Cold.BlobsCompressed, 4u); EXPECT_EQ(Cold.BlobsWritten, 4u);
-	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Warm}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Warm, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_EQ(Warm.BlobsReused, 4u); EXPECT_EQ(Warm.BlobsCompressed, 0u); EXPECT_EQ(Warm.BlobsWritten, 0u);
 	FCacheQueryStats Stats;
 	auto Loaded = GetCacheBackend().Get({.Key = Key, .Stats = &Stats});
@@ -1748,11 +1539,11 @@ TEST(FCacheTests, StoredReuseVerifiesRawContentAndDoesNotRepublishValidBlobs)
 	FScopedCacheDirectory Directory("VerifiedReuse");
 	const auto Key = MakeKey(FCacheBucket::FromString("Verified"), 'a');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Path = EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1");
 	const auto Stamp = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
 	std::filesystem::last_write_time(Path, Stamp);
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_EQ(std::filesystem::last_write_time(Path), Stamp);
 	// Keep a valid envelope but damage raw content so envelope-only reuse would fail.
 	auto Encoded = FFileHelper::LoadFileToArray(Path); ASSERT_TRUE(Encoded);
@@ -1761,7 +1552,7 @@ TEST(FCacheTests, StoredReuseVerifiesRawContentAndDoesNotRepublishValidBlobs)
 	Writer.WriteHash128(FXxHash128::HashBuffer(Writer.GetBytes()));
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Writer.GetBytes(), Path));
 	FCacheStoreStats Stats;
-	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Stats}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Stats = &Stats, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_EQ(Stats.BlobsReused, 0u); EXPECT_EQ(Stats.BlobsWritten, 1u);
 	EXPECT_TRUE(GetCacheBackend().Get({Key}).value().has_value());
 }
@@ -1825,7 +1616,7 @@ TEST(FCacheDiagnosticsTests, DistinguishesMissHitCorruptionBackendFailureAndCanc
 	const auto Key = MakeKey(FCacheBucket::FromString("Diagnostics"), 'a');
 	EXPECT_FALSE(GetCacheBackend().Get({Key}).value().has_value());
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	ASSERT_TRUE(GetCacheBackend().Get({Key}).value().has_value());
 	ASSERT_TRUE(GetCacheStorage().Put({BlobKey(Record.GetValues()[0].Value), Bytes({9}), 100, ECacheStorageNamespace::Values}));
 	EXPECT_FALSE(GetCacheBackend().Get({Key}));
@@ -1833,7 +1624,7 @@ TEST(FCacheDiagnosticsTests, DistinguishesMissHitCorruptionBackendFailureAndCanc
 	ASSERT_TRUE(std::filesystem::remove(ManifestPath));
 	std::filesystem::create_directory(ManifestPath);
 	EXPECT_FALSE(GetCacheBackend().Get({Key}));
-	EXPECT_FALSE(GetCacheBackend().Put({.Record = Record, .ShouldCancel = [] { return true; }}));
+	EXPECT_FALSE(GetCacheBackend().Put({.Record = Record, .ShouldCancel = [] { return true; }, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Stats = GetCacheDiagnostics();
 	EXPECT_EQ(Stats.Total.Gets, 4u); EXPECT_EQ(Stats.Total.Misses, 1u); EXPECT_EQ(Stats.Total.Hits, 1u);
 	EXPECT_EQ(Stats.Total.InvalidRecords, 1u); EXPECT_EQ(Stats.Total.BackendFailures, 1u);
@@ -1855,7 +1646,7 @@ TEST(FCacheDiagnosticsTests, BoundsBucketsAndObservesAdmissionWithoutChangingRes
 	Async->Get(Requests, Owner, [](auto Response) {});
 	Async->Get(Requests, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); }); Queue->Run();
 	Stats = GetCacheDiagnostics(); EXPECT_EQ(Stats.Total.CapacityRejections, 1u); EXPECT_EQ(Stats.Total.AsyncStarts, 1u);
-	EXPECT_GT(Stats.Total.QueueNanoseconds, 0u); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_GT(Stats.Total.QueueNanoseconds, 0u); Owner.Wait();
 }
 
 TEST(FCacheStorageTests, RecordTransactionsKeepTheirLeasedRootAcrossAllFiles)
@@ -1875,7 +1666,7 @@ TEST(FCacheStorageTests, RecordTransactionsKeepTheirLeasedRootAcrossAllFiles)
 		}
 		return false;
 	};
-	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .ShouldCancel = SwitchRoot}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .ShouldCancel = SwitchRoot, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	EXPECT_GE(Checks, 2u);
 	auto Other = GetCacheBackend().Get({Key});
 	ASSERT_TRUE(Other);
@@ -1908,7 +1699,7 @@ TEST(FCacheMaintenanceTests, RefusesLiveRootAndNormalAccessRefusesExclusiveMaint
 	auto Lease = Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, true); ASSERT_TRUE(Lease);
 	EXPECT_FALSE(Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, true));
 	EXPECT_FALSE(GetCacheBackend().Get({Key}));
-	EXPECT_FALSE(GetCacheBackend().Put({RecordWith(Key, {})}));
+	EXPECT_FALSE(GetCacheBackend().Put({.Record = RecordWith(Key, {}), .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	uint64 ReadBytes = 99;
 	EXPECT_FALSE(GetCacheStorage().Get({Key, 1024, ECacheStorageNamespace::Records, &ReadBytes}));
 	EXPECT_EQ(ReadBytes, 0u);
@@ -1920,7 +1711,7 @@ TEST(FCacheMaintenanceTests, InspectsVerifiesAndClearsOnlyRecognizedStorage)
 {
 	FScopedCacheDirectory Directory("OfflineRoundTrip"); const auto Key = MakeKey(FCacheBucket::FromString("Nested/Bucket"), 'b');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{3})), {}});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
 	const auto Other = Directory.Root / "unrelated.txt"; ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes({9}), Other));
 	auto Inspection = MaintainCacheStorage({.Root = Directory.Root}); ASSERT_TRUE(Inspection);
@@ -1941,7 +1732,7 @@ TEST(FCacheMaintenanceTests, ReportsCorruptRawContentMissingValuesAndUnsupported
 {
 	FScopedCacheDirectory Directory("OfflineValidation"); const auto Key = MakeKey(FCacheBucket::FromString("Integrity"), 'c');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto BlobPath = EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1");
 	auto BytesOnDisk = FFileHelper::LoadFileToArray(BlobPath).value(); BytesOnDisk[48] ^= std::byte{1};
 	FBinaryWriter Writer; Writer.WriteBytes(FByteView(BytesOnDisk).first(BytesOnDisk.size() - 16)); Writer.WriteHash128(FXxHash128::HashBuffer(Writer.GetBytes()));
@@ -1960,7 +1751,7 @@ TEST(FCacheMaintenanceTests, ReportsCorruptRawContentMissingValuesAndUnsupported
 TEST(FCacheMaintenanceTests, LimitsAndCancellationNeverReportPartialVerificationAsSuccess)
 {
 	FScopedCacheDirectory Directory("OfflineLimits"); const auto Key = MakeKey(FCacheBucket::FromString("Limits"), 'd');
-	ASSERT_TRUE(GetCacheBackend().Put({RecordWith(Key, {FSharedByteBuffer::Take(Bytes({4}))})}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({4}))}), .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
 	for (auto Operation : {ECacheMaintenanceOperation::Inspect, ECacheMaintenanceOperation::Verify, ECacheMaintenanceOperation::Clear})
 	{
@@ -1979,7 +1770,7 @@ TEST(FCacheMaintenanceTests, LimitsAndCancellationNeverReportPartialVerification
 TEST(FCacheMaintenanceTests, RefusesLinksBeforeDeletingAnyContent)
 {
 	FScopedCacheDirectory Directory("OfflineLinks"); const auto Key = MakeKey(FCacheBucket::FromString("Links"), 'e');
-	ASSERT_TRUE(GetCacheBackend().Put({RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))})}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))}), .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
 	const auto Outside = Testing::GetTestWorkDirectory() / "OutsideCache.txt"; ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes({9}), Outside));
 	std::error_code Ec; std::filesystem::create_symlink(Outside, Directory.Root / "values/link.bin", Ec);
@@ -2004,7 +1795,7 @@ TEST(FCacheMaintenanceTests, CanceledClearLeavesValuesUntilManifestsAreRemovedAn
 {
 	FScopedCacheDirectory Directory("OfflineClearResume"); const auto Key = MakeKey(FCacheBucket::FromString("Resume"), 'a');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
 	const auto Manifest = EntryPath(Directory, Key, "records/v5");
 	const auto Blob = EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1");
@@ -2022,7 +1813,7 @@ TEST(FPublicCacheTests, BackendResourceLimitsApplyWithoutRequestStorageOptions)
 	FScopedCacheDirectory Directory("PublicCacheResourceLimits");
 	const auto Key = MakeKey(FCacheBucket::FromString("PublicCache"), 'd');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	FCacheResourceLimits Raw, Metadata, Values, Encoded, Workspace;
 	Raw.Record.MaximumTotalBytes = 1;
 	Metadata.Record.MaximumMetadataBytes = 0;
@@ -2038,7 +1829,7 @@ TEST(FPublicCacheTests, BackendResourceLimitsApplyWithoutRequestStorageOptions)
 		uint32 Calls = 0;
 		Cache->Get(Gets, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Calls; });
 		Cache->Put(Puts, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); ++Calls; });
-		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+		Owner.Wait();
 		EXPECT_EQ(Calls, 2u);
 		auto Retained = GetCacheBackend().Get({Key});
 		ASSERT_TRUE(Retained && *Retained);
@@ -2051,7 +1842,7 @@ TEST(FPublicCacheTests, PolicyOutlivesCallerStorageAndSelectsResidentData)
 	FScopedCacheDirectory Directory("PublicCachePolicyLifetime");
 	const auto Key = MakeKey(FCacheBucket::FromString("PublicPolicy"), 'a');
 	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1})), FSharedByteBuffer::Take(Bytes({2}))});
-	ASSERT_TRUE(GetCacheBackend().Put({Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const auto Selected = Record.GetValues()[0].Id, Skipped = Record.GetValues()[1].Id;
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
 	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend({}, Scheduler);
@@ -2068,14 +1859,14 @@ TEST(FPublicCacheTests, PolicyOutlivesCallerStorageAndSelectsResidentData)
 			ASSERT_NE(Response.Record.FindValue(Skipped), nullptr);
 			EXPECT_TRUE(Response.Record.FindValue(Selected)->HasData());
 			EXPECT_FALSE(Response.Record.FindValue(Skipped)->HasData());
-			EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
+
 		});
 	}
 	EXPECT_FALSE(Owner.Poll());
 	EXPECT_EQ(Calls, 0u);
 	ASSERT_EQ(Scheduler->Work.size(), 1u);
 	Scheduler->Run();
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Owner.Wait();
 	EXPECT_EQ(Calls, 1u);
 }
 
@@ -2094,7 +1885,7 @@ TEST(FPublicCacheTests, ResponsesCarryIdentityAndNestedCallbacksStayOwned)
 		EXPECT_EQ(Response.Key, Key);
 		EXPECT_EQ(Response.Name, "put");
 		EXPECT_EQ(Response.UserData, 41u);
-		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
+
 		const std::array Gets{FCacheGetRequest{.Key = Key, .Name = "get", .UserData = 42}};
 		Cache->Get(Gets, Owner, [&](FCacheGetResponse Value) {
 			++Calls;
@@ -2103,10 +1894,10 @@ TEST(FPublicCacheTests, ResponsesCarryIdentityAndNestedCallbacksStayOwned)
 			EXPECT_EQ(Value.Record.GetKey(), Key);
 			EXPECT_EQ(Value.Name, "get");
 			EXPECT_EQ(Value.UserData, 42u);
-			EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
+
 		});
 	});
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Owner.Wait();
 	EXPECT_TRUE(Owner.Poll());
 	EXPECT_EQ(Calls, 2u);
 }
@@ -2183,7 +1974,7 @@ TEST(FPublicCacheTests, AcceptedBatchSharesCallbackStateAndRetainsRequestTags)
 	});
 	EXPECT_EQ(GetOrder, (std::vector<uint32>{1, 2}));
 	EXPECT_EQ(PutOrder, (std::vector<uint32>{1, 2}));
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Owner.Wait();
 }
 
 TEST(FPublicCacheTests, RejectedPutBatchRetainsTagsWhenCallbackReleasesRequests)
@@ -2220,7 +2011,7 @@ TEST(FGenericCacheRecordTests, StorageRoundTripsOpaqueMetadataWithoutBuildSchema
 	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("OpaqueValue"), Value));
 	auto Record = std::move(Builder).Build();
 	ASSERT_TRUE(Record);
-	ASSERT_TRUE(GetCacheBackend().Put({*Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = *Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	auto Loaded = GetCacheBackend().Get({.Key = Key});
 	ASSERT_TRUE(Loaded && *Loaded);
 	EXPECT_EQ((**Loaded).GetMeta().GetView().Find("Purpose").AsString(), "arbitrary producer data");
@@ -2268,5 +2059,108 @@ TEST(FPublicCacheTests, MoveOnlyCompletionStateIsSharedAcrossBatchItems)
 	Cache->Put(Writes, Owner, [State = std::make_unique<uint32>(0), &PutCalls, Key](auto Response) mutable {
 		EXPECT_EQ(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Record.GetKey(), Key); PutCalls = ++*State;
 	});
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(GetCalls, 2u); EXPECT_EQ(PutCalls, 2u);
+	Owner.Wait(); EXPECT_EQ(GetCalls, 2u); EXPECT_EQ(PutCalls, 2u);
+}
+
+TEST(FPublicCacheTests, PutPolicyReturnsKeptRecordAndStoreExplicitlyReplacesIt)
+{
+	FScopedCacheDirectory Directory("PutPolicy");
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend();
+	const auto Key = MakeKey(FCacheBucket::FromString("PutPolicy"), 'e');
+	const auto First = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))});
+	const auto Second = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({2}))});
+	FRequestOwner Owner; uint32 Calls = 0;
+	const auto Put = [&](FCacheRecord Record, ECachePolicy Policy, const FCacheRecord& Expected) {
+		const std::array Requests{FCachePutRequest{.Record = std::move(Record), .Policy = Policy}};
+		Cache->Put(Requests, Owner, [&](auto Response) {
+			EXPECT_EQ(Response.Status, EStatus::Ok);
+			ASSERT_EQ(Response.Record.GetValues().size(), Expected.GetValues().size());
+			EXPECT_EQ(Response.Record.GetValues()[0].Value.GetRawHash(), Expected.GetValues()[0].Value.GetRawHash()); ++Calls;
+		});
+		Owner.Wait();
+	};
+	Put(First, ECachePolicy::Default, First);
+	Put(Second, ECachePolicy::Default, First);
+	Put(Second, ECachePolicy::Store, Second);
+	const std::array Requests{FCacheGetRequest{.Key = Key}};
+	Cache->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Record.GetValues()[0].Value.GetRawHash(), Second.GetValues()[0].Value.GetRawHash()); ++Calls; });
+	Owner.Wait(); EXPECT_EQ(Calls, 4u);
+}
+
+TEST(FPublicCacheTests, ConcurrentDefaultPutsConvergeOnOneRecordAcrossCacheInstances)
+{
+	FScopedCacheDirectory Directory("ConcurrentPutPolicy");
+	const auto Key = MakeKey(FCacheBucket::FromString("ConcurrentPut"), 'f');
+	const std::array Records{RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))}), RecordWith(Key, {FSharedByteBuffer::Take(Bytes({2}))})};
+	std::array<FCacheRecord, 2> Responses; FRequestOwner Owner; std::latch Start(1);
+	std::array<std::thread, 2> Workers;
+	for (size_t Index = 0; Index < Workers.size(); ++Index) Workers[Index] = std::thread([&, Index] {
+		auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(); const std::array Requests{FCachePutRequest{.Record = Records[Index]}};
+		Start.wait(); Cache->Put(Requests, Owner, [&, Index](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); Responses[Index] = std::move(Response.Record); });
+	});
+	Start.count_down(); for (auto& Worker : Workers) Worker.join();
+	Owner.Wait();
+	ASSERT_TRUE(Responses[0].IsValid()); ASSERT_TRUE(Responses[1].IsValid());
+	EXPECT_EQ(Responses[0].GetValues()[0].Value.GetRawHash(), Responses[1].GetValues()[0].Value.GetRawHash());
+}
+
+TEST(FPublicCacheTests, PutValuePolicyOverwritesOnlySelectedValuesAndSkipDataReturnsReferences)
+{
+	FScopedCacheDirectory Directory("PutValuePolicy"); auto Cache = Durin::DerivedData::Private::CreateCacheForBackend();
+	const auto Key = MakeKey(FCacheBucket::FromString("PutValuePolicy"), 'd');
+	const auto First = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1})), FSharedByteBuffer::Take(Bytes({2}))});
+	const auto Second = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({3})), FSharedByteBuffer::Take(Bytes({4}))});
+	FRequestOwner Owner; const std::array Initial{FCachePutRequest{.Record = First}};
+	Cache->Put(Initial, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); });
+	FCacheRecordPolicyBuilder Builder; Builder.AddValuePolicy(First.GetValues()[0].Id, ECachePolicy::Store);
+	const std::array Updated{FCachePutRequest{.Record = Second, .Policy = Builder.Build()}};
+	Cache->Put(Updated, Owner, [&](auto Response) {
+		EXPECT_EQ(Response.Status, EStatus::Ok); ASSERT_EQ(Response.Record.GetValues().size(), 2u);
+		EXPECT_EQ(Response.Record.GetValues()[0].Value.GetRawHash(), Second.GetValues()[0].Value.GetRawHash());
+		EXPECT_EQ(Response.Record.GetValues()[1].Value.GetRawHash(), First.GetValues()[1].Value.GetRawHash());
+	});
+	const std::array SkipData{FCachePutRequest{.Record = First, .Policy = ECachePolicy::Default | ECachePolicy::SkipData}};
+	Cache->Put(SkipData, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); for (const auto& Item : Response.Record.GetValues()) EXPECT_FALSE(Item.Value.HasData()); });
+	Owner.Wait();
+}
+
+TEST(FPublicCacheTests, StoreReferencesReuseValidatedContentAndRejectMissingContent)
+{
+	FScopedCacheDirectory Directory("PutReferences"); auto Cache = Durin::DerivedData::Private::CreateCacheForBackend();
+	const auto Key = MakeKey(FCacheBucket::FromString("PutReferences"), 'e');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
+	FRequestOwner Owner;
+	const std::array Missing{FCachePutRequest{.Record = Record.RemoveValueData(), .Policy = ECachePolicy::Store}};
+	Cache->Put(Missing, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Error); });
+	const std::array Initial{FCachePutRequest{.Record = Record, .Policy = ECachePolicy::Store}};
+	Cache->Put(Initial, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); });
+	Cache->Put(Missing, Owner, [](auto Response) { EXPECT_EQ(Response.Status, EStatus::Ok); });
+	const std::array Get{FCacheGetRequest{.Key = Key}};
+	Cache->Get(Get, Owner, [&](auto Response) {
+		EXPECT_EQ(Response.Status, EStatus::Ok);
+		ASSERT_EQ(Response.Record.GetValues().size(), 1u);
+		EXPECT_TRUE(Response.Record.GetValues()[0].Value.HasData());
+		EXPECT_EQ(Response.Record.GetValues()[0].Value.GetRawHash(), Record.GetValues()[0].Value.GetRawHash());
+	});
+	Owner.Wait();
+}
+
+
+TEST(FPublicCacheDeathTests, RejectedResponsesRejectSynchronousOwnerWaitAndCancel)
+{
+	for (bool Put : {false, true}) for (bool Overflow : {false, true}) {
+		EXPECT_DEATH(([&] {
+			auto Scheduler = std::make_shared<FCacheQueueScheduler>();
+			auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1, .Capacity = 1});
+			FRequestOwner Busy, Owner;
+			const auto Key = MakeKey(FCacheBucket::FromString("RejectedCallback"), '2');
+			std::vector<FCacheGetRequest> Reads(Overflow ? 2 : 1, FCacheGetRequest{.Key = Key});
+			if (!Overflow) Cache->Get(Reads, Busy, [](auto) {});
+			if (Put) {
+				const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({5}))});
+				std::vector<FCachePutRequest> Writes(Overflow ? 2 : 1, FCachePutRequest{.Record = Record});
+				Cache->Put(Writes, Owner, [&](auto) { Owner.Cancel(); });
+			} else Cache->Get(Reads, Owner, [&](auto) { Owner.Wait(); });
+		}()), "outside their callbacks");
+	}
 }

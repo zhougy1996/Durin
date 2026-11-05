@@ -15,8 +15,8 @@ Public cache requests use `ICache::Get`/`Put` with an owner and one status-beari
 response per item. Get/Put return void and consume move-only completion callbacks.
 Callers decide fallback or continuation from Ok, Error and Canceled; backend
 error categories and diagnostic text do not cross this request boundary.
-Get failures preserve the requested key, and Put responses retain the submitted
-record. Synchronous hit/miss/error results, cancellation predicates,
+Get failures preserve the requested key. Put responses return the effective
+record, including an existing record retained by query policy. Synchronous hit/miss/error results, cancellation predicates,
 per-query statistics, and dispatch handles are private backend concerns.
 Public requests do not carry storage budgets: backend configuration supplies
 `FCacheResourceLimits` for record validation, encoded bytes, and codec working set.
@@ -53,14 +53,23 @@ untrusted backend requires a new cryptographic digest version and namespace,
 including verification against raw bytes, before it can be admitted. Unsupported
 attachment versions never alias a current path or alter existing action hashes.
 
-Both public and private Get requests own an immutable `FCacheRecordPolicy`.
-`DerivedDataCachePolicy.h` provides the supported local read-policy subset:
-`None`, `QueryLocal`/`Query`, `Default` (query), and `SkipData`. A uniform default
+Public Get and Put requests own an immutable `FCacheRecordPolicy`.
+The local backend supports `None`, `QueryLocal`/`Query`, `StoreLocal`/`Store`,
+`Local`, `Default` (query and store), and `SkipData`. A uniform default
 queries the manifest and fetches every value. The builder accepts a base policy
 and ID-specific overrides, sorts those overrides, drops redundant entries, and
 becomes unusable after Build. Null/duplicate IDs, unsupported flags and builder
 reuse are programming errors. Policies own their overrides and can be copied
 across asynchronous request lifetimes without retaining caller arrays.
+
+Put(Default) retains an existing valid record and returns it; Put(Store) explicitly
+overwrites. Per-value policy can preserve queried values while replacing selected
+values. SkipData returns references for retained values. Record-key serialization
+makes competing default puts converge on the same effective record, including
+across cache instances. BuildLocal output uses Store when persisting an authoritative
+rebuild, so rejected build-schema data can be repaired. Unsupported remote cache
+layers and additional UE policy flags are not represented as implemented features.
+
 
 | Policy | Get behavior |
 | --- | --- |

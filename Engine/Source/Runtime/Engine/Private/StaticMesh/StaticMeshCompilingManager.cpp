@@ -1,3 +1,4 @@
+#include "RequestOwnerAccess.h"
 #include "Threading/Task.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Asset/AssetCompilingManager.h"
@@ -340,7 +341,7 @@ namespace Durin
 			Record.Terminal = Status;
 			Record.Work->Cancellation.Cancel();
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-			if (Record.Work->BuildOperation) Record.Work->BuildOperation->RequestCancel();
+			if (Record.Work->BuildOperation) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Record.Work->BuildOperation);
 #endif
 			if (Record.Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Queued)
 			{
@@ -361,19 +362,15 @@ namespace Durin
 							if (bDispatch)
 							{
 								Work->Phase.store(EWorkPhase::AwaitingDerivedData, std::memory_order_release);
-								auto Dispatched = StaticMeshPrivate::DispatchRenderBuild(Work->Request, BuilderVersion,
+								StaticMeshPrivate::DispatchRenderBuild(Work->Request, BuilderVersion,
 									*Work->BuildOperation, [Work] { return Work->Cancellation.IsCanceled(); },
 									Work->EstimatedWorkingSetBytes, [Work](auto Completion) {
 										try { Work->Completion.emplace(std::move(Completion)); }
 										catch (...) { Work->Fail("StaticMesh cache completion could not be retained."); }
-										if (Work->Completion && Work->Completion->GetStatus() == DerivedData::EStatus::Canceled)
+										if (Work->Completion && Work->Completion->Status == DerivedData::EStatus::Canceled)
 											Work->Cancellation.Cancel();
 									});
-								if (Dispatched)
-								{
-									return; // CPU slot is released; the request owner retains DDC retirement.
-								}
-								Work->Outcome = std::unexpected(std::move(Dispatched.error()));
+								return; // CPU slot is released; the request owner retains DDC retirement.
 							}
 							else
 #endif

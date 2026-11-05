@@ -1,4 +1,7 @@
 #include "Misc/Build.h"
+#if DURIN_WITH_EDITOR
+#include "Asset/ResourceBuildSessions.h"
+#endif
 #include "Texture/VolumeTexture.h"
 #include "Logging/LogMacros.h"
 #if DURIN_WITH_EDITORONLY_DATA
@@ -16,6 +19,7 @@
 namespace Durin
 {
 #if DURIN_WITH_EDITOR
+
 	static auto PrepareVolumeDefinition(const FVolumeTextureBuildRequest& Request)
 		-> std::expected<DerivedData::FBuildDefinition, FTextureBuildError>
 	{
@@ -49,33 +53,19 @@ namespace Durin
 		return std::move(*Definition);
 	}
 
-	static auto VolumeBuildOptions(bool bPersist) -> DerivedData::FBuildRequestOptions
-	{
-		DerivedData::FBuildRequestOptions Options;
-		Options.Policy = bPersist ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
-		Options.Limits.Input.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
-		Options.Limits.Output.MaximumTotalBytes = MaximumTexturePayloadBytes;
-		return Options;
-	}
 
 	static auto ConsumeVolumeBuild(const DerivedData::FBuildCompleteParams& Completion,
 		ECookTargetPlatform Platform, ECookTargetProfile Profile)
 		-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError>
 	{
-		if (Completion.GetStatus() == DerivedData::EStatus::Canceled)
+		if (Completion.Status == DerivedData::EStatus::Canceled)
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});
-		if (Completion.GetStatus() == DerivedData::EStatus::Error)
+		if (Completion.Status == DerivedData::EStatus::Error)
 		{
-			std::string Description = "VolumeTexture derived-data build failed.";
-			if (!Completion.GetDiagnostic().empty()) Description = Completion.GetDiagnostic();
-			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
-			else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
-			return std::unexpected(FTextureBuildError{Completion.GetOutput() ? ETextureBuildFailure::InvalidBuilderOutput : ETextureBuildFailure::Unavailable,
-				Completion.GetOutput() ? ETextureBuildStage::Build : ETextureBuildStage::Module, std::move(Description)});
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
+				AssetPrivate::GetBuildFailureDiagnostic(Completion, "VolumeTexture derived-data build failed.")});
 		}
-		if (!Completion.GetOutput()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput,
-			ETextureBuildStage::Build, "VolumeTexture build returned no output."});
-		auto Product = TexturePrivate::AssembleVolumeTextureSharedOutput(*Completion.GetOutput(), Platform, Profile);
+		auto Product = TexturePrivate::AssembleVolumeTextureSharedOutput(Completion.Output, Platform, Profile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
 		return std::move(*Product);
 	}
@@ -91,7 +81,7 @@ namespace Durin
 		auto Definition = PrepareVolumeDefinition(Request);
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
 		auto Completion = TexturePrivate::Build(std::move(*Definition),
-			TexturePrivate::MakeVolumeTextureInputResolver(Request.Source), VolumeBuildOptions(Request.bPersistDerivedData));
+			TexturePrivate::MakeVolumeTextureInputResolver(Request.Source), Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery);
 		return ConsumeVolumeBuild(Completion, Request.TargetPlatform, Request.TargetProfile);
 #endif
 	}
@@ -129,7 +119,7 @@ namespace Durin
 				auto Definition = PrepareVolumeDefinition({.Source = Source, .Settings = Settings});
 				if (!Definition) { Completion(DerivedData::EStatus::Error, {}, std::move(Definition.error().Diagnostic)); return; }
 				auto Callback = [Completion](DerivedData::FBuildCompleteParams Built) {
-					if (Built.GetStatus() == DerivedData::EStatus::Canceled)
+					if (Built.Status == DerivedData::EStatus::Canceled)
 					{
 						Completion(DerivedData::EStatus::Canceled, {}, {});
 						return;
@@ -151,9 +141,9 @@ namespace Durin
 					const auto Status = Result ? DerivedData::EStatus::Ok : DerivedData::EStatus::Error;
 					Completion(Status, std::move(Result), std::move(Diagnostic));
 				};
-				auto Admitted = TexturePrivate::BuildAsync(std::move(*Definition),
-					TexturePrivate::MakeVolumeTextureInputResolver(Source), Owner, std::move(Callback), VolumeBuildOptions(true));
-				if (!Admitted) Completion(DerivedData::EStatus::Error, {}, Admitted.error().Description);
+				TexturePrivate::BuildAsync(std::move(*Definition),
+					TexturePrivate::MakeVolumeTextureInputResolver(Source), Owner, std::move(Callback));
+
 #else
 				Completion(DerivedData::EStatus::Error, {}, "VolumeTexture authored builds require editor support.");
 #endif

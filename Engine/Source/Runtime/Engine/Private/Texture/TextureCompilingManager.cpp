@@ -1,3 +1,4 @@
+#include "RequestOwnerAccess.h"
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/TextureCompilingManager.h"
@@ -383,7 +384,7 @@ namespace Durin
 				Owner = Iterator->second->BuildOperation;
 			}
 			// Signal without joining a producer on GameThread; the pump consumes its mailbox.
-			if (Owner) Owner->RequestCancel();
+			if (Owner) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner);
 			return Changed;
 		}
 
@@ -515,7 +516,7 @@ namespace Durin
 				while (!InteractiveQueue.empty()) { Queued.push_back(std::move(InteractiveQueue.front())); InteractiveQueue.pop_front(); }
 				while (!BackgroundQueue.empty()) { Queued.push_back(std::move(BackgroundQueue.front())); BackgroundQueue.pop_front(); }
 			}
-			for (const auto& Owner : BuildOperations) Owner->RequestCancel();
+			for (const auto& Owner : BuildOperations) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner);
 			for (const auto& RequestState : Queued)
 				CompleteWithoutWorker(RequestState, DerivedData::EStatus::Canceled);
 

@@ -11,7 +11,7 @@ namespace Durin::TexturePrivate
 	using namespace DerivedData;
 	namespace
 	{
-		auto Error(std::string Message) -> FBuildInputError { return {std::move(Message)}; }
+
 		auto Identity(const FTextureSource& Source) -> FBuildInputReference
 		{ return {"Source", Source.GetIdentity(), "TextureSource", TextureSourceSchemaVersion, "Texture2D.RGBA8", 1}; }
 
@@ -47,37 +47,39 @@ namespace Durin::TexturePrivate
 		{
 		public:
 			explicit FTexture2DResolver(const FTextureSource& Source) : Source(Source.CopyTornOff()) {}
-			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
+			auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
 			{
+				const auto Sources = Definition.GetSources();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				if (Sources.size() != 1 || Sources[0].Name != "Source" || Sources[0].Source != "CapturedSource"
 					|| !ValidateTexture2DBuildSource(Source) || Source.GetIdentity().IsZero())
-					return std::unexpected(Error("Texture2D captured source is invalid."));
-				return std::vector{Identity(Source)};
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector{Identity(Source)}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
-			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
+			auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
 			{
+				const auto Inputs = Action.GetInputs();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				if (Inputs.size() != 1 || Inputs[0] != Identity(Source))
-					return std::unexpected(Error("Texture2D source identity changed."));
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				// GetMipData verifies the decoded payload hash against captured semantic metadata.
 				const auto Mips = Source.GetMipData();
-				if (!Mips.IsValid()) return std::unexpected(Error("Texture2D source bytes are unavailable or corrupt."));
+				if (!Mips.IsValid()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				const auto Count = Source.GetLayers()[0].NumMips;
 				FBinaryWriter Metadata({.MaximumTotalBytes = 4 + MaximumTextureMipCount * 12});
 				Metadata.WriteU32(Count);
 				FBuildInput Result{.Identity = Inputs[0]};
 				for (uint32 Index = 0; Index < Count; ++Index)
 				{
-					if (Cancel.IsCancelled()) return std::unexpected(Error("Texture2D source resolution was canceled."));
+					if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 					const auto Info = Mips.GetMipImage(0, 0, Index).GetInfo();
 					Metadata.WriteU32(Info.Width); Metadata.WriteU32(Info.Height);
 					Metadata.WriteU32(Info.GammaSpace == Image::EImageGammaSpace::SRGB ? 2 : Info.GammaSpace == Image::EImageGammaSpace::Linear ? 1 : 0);
 					Result.Values.push_back({std::format("Mip/{}", Index), Mips.GetMipData(0, 0, Index)});
 				}
-				if (Metadata.HasError()) return std::unexpected(Error("Texture2D source metadata exceeds its bound."));
+				if (Metadata.HasError()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				Result.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
-				return std::vector<FBuildInput>{std::move(Result)};
+				return OnResolved({std::vector<FBuildInput>{std::move(Result)}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
 		private:
 			FTextureSource Source;
@@ -125,7 +127,7 @@ namespace Durin::TexturePrivate
 					return Fail(FormatTexture2DInputError(Valid.error()));
 				Input->SourceMips = Mips;
 				auto Built = Module->BuildTexture2D(*Input);
-				if (Context.IsCancelled()) return;
+				if (Context.IsCanceled()) return;
 				if (!Built) return Context.FailExecution("Texture2D build failed; see TextureCompressor logs for details.");
 				auto Output = MakeTexture2DSharedOutput(*Built,
 					Input->TargetPlatform, Input->TargetProfile);

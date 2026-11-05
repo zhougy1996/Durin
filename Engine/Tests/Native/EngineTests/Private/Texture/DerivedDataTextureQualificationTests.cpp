@@ -1,3 +1,4 @@
+#include "RequestOwnerAccess.h"
 #include "Texture/Texture2DBuildDiagnostics.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
@@ -143,23 +144,23 @@ namespace
 			FPaths::SetDerivedDataCacheDirForTests((Root / Fixture).generic_string());
 			Provider->ResetObservation();
 			DerivedData::FRequestOwner Owner;
-			Provider->OnRecipeCompleted = [&] { Owner.RequestCancel(); };
-			auto Session = DerivedData::GetBuild().CreateSession(Resolver).value();
+			Provider->OnRecipeCompleted = [&] { Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); };
+			auto Session = DerivedData::GetBuild().CreateSession("Fixture", Resolver);
 			std::optional<DerivedData::FBuildCompleteParams> Result;
-			Session->Build(Definition, Owner, [&](auto Value) { Result = std::move(Value); });
-			ASSERT_EQ(Owner.Wait(), DerivedData::ERequestWaitResult::Completed);
+			Session.Build(Definition, {}, {}, Owner, [&](auto Value) { Result = std::move(Value); });
+			Owner.Wait();
 			ASSERT_TRUE(Result);
 			const auto& Canceled = *Result;
-			EXPECT_EQ(Canceled.GetStatus(), DerivedData::EStatus::Canceled);
-			EXPECT_EQ(Canceled.GetOutput(), nullptr);
+			EXPECT_EQ(Canceled.Status, DerivedData::EStatus::Canceled);
+			EXPECT_TRUE(Canceled.Output.IsValid());
 			EXPECT_EQ(Provider->BuildCalls, 1u);
 			EXPECT_FALSE(Provider->ReturnedBlocks.empty());
 
 			Provider->OnRecipeCompleted = {};
 			auto Retried = TexturePrivate::Build(Definition, std::move(Resolver));
-			ASSERT_EQ(Retried.GetStatus(), DerivedData::EStatus::Ok);
-			EXPECT_EQ(Retried.GetStatus(), DerivedData::EStatus::Ok);
-			EXPECT_NE(Retried.GetOutput(), nullptr);
+			ASSERT_EQ(Retried.Status, DerivedData::EStatus::Ok);
+			EXPECT_EQ(Retried.Status, DerivedData::EStatus::Ok);
+			EXPECT_TRUE(Retried.Output.IsValid());
 			EXPECT_EQ(Provider->BuildCalls, 2u);
 		}
 		template<typename TBuild>

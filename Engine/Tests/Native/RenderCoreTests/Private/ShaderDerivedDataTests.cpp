@@ -237,9 +237,10 @@ namespace Durin
 		auto InvalidOptions = std::move(Definition).Build();
 		ASSERT_TRUE(InvalidOptions);
 		Request->Definition = std::move(*InvalidOptions);
-		const auto Result = Service.Execute(std::move(*Request), {.Policy = DerivedData::EBuildPolicy::Build});
-		EXPECT_EQ(Result.GetStatus(), DerivedData::EStatus::Error);
-		EXPECT_EQ(Result.GetOutput(), nullptr);
+		const auto Result = Service.Execute(std::move(*Request), DerivedData::EBuildPolicy::Build);
+		EXPECT_EQ(Result.Status, DerivedData::EStatus::Error);
+		EXPECT_TRUE(Result.Output.HasError());
+		EXPECT_TRUE(Result.Output.GetValues().empty());
 	}
 
 	TEST_F(FShaderDerivedDataTests, SingleStagePayloadMatchesGoldenBytes)
@@ -407,12 +408,13 @@ namespace Durin
 			auto Request = MakeShaderSessionRequest(RequestOptions, Variant, BuilderVersion, {}, std::nullopt,
 				[]() -> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, std::string> { return std::make_shared<const FShaderSourceArtifacts>(std::map<std::string, FSharedByteBuffer>{}); });
 			if (!Request) return {};
-			const auto Identities = Request->Resolver->Describe(Request->Definition.GetSources(), {});
-			if (!Identities) return {};
+			DerivedData::FRequestOwner Owner; DerivedData::FBuildInputMetaResolvedParams Metadata;
+			Request->Resolver->ResolveInputMeta(Request->Definition, Owner, [&](auto&& Params) { Metadata = std::move(Params); }); Owner.Wait();
+			if (Metadata.Status != DerivedData::EStatus::Ok) return {};
 			auto Descriptor = GetShaderBuildDescriptor();
 			Descriptor.Version = FunctionVersion;
 			DerivedData::FBuildActionBuilder Builder(Request->Definition, Descriptor);
-			for (const auto& Identity : *Identities) Builder.AddInput(Identity);
+			for (const auto& Identity : Metadata.Inputs) Builder.AddInput(Identity);
 			auto Action = std::move(Builder).Build();
 			return Action ? Action->GetKey() : DerivedData::FCacheKey{};
 		};

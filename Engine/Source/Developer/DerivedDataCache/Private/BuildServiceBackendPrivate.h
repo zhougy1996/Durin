@@ -7,6 +7,7 @@ namespace Durin::DerivedData::Private
 {
 	struct FBuildBackendOptions
 	{
+		std::optional<FBuildRequestLimits> BuildLimits;
 		std::shared_ptr<ICacheBackend> Cache;
 		FCacheDispatchLimits CacheDispatchLimits;
 		FCacheResourceLimits CacheLimits;

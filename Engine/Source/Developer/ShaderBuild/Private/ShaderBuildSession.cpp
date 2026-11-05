@@ -1,6 +1,8 @@
 #include "BuildServiceBackendPrivate.h"
+
 #include "CacheDispatchPrivate.h"
 #include "ShaderBuildSession.h"
+#include "Shader/ShaderCompiledOutput.h"
 #include "MetalLibraryBuild.h"
 #include "ShaderBuildVersion.h"
 #include "ShaderSharedOutput.h"
@@ -29,8 +31,8 @@ namespace Durin
 			const auto Found = std::ranges::lower_bound(Input.Values, Id, {}, &FBuildInputValue::Name);
 			return Found != Input.Values.end() && Found->Name == Id ? &*Found : nullptr;
 		}
-		auto Boundary(std::string Error) -> FBuildInputError { return {std::string(Error)}; }
-		auto Invalid() -> FBuildInputError { return Boundary(std::string("Captured shader paths or bytes exceed canonical input limits.")); }
+		auto Boundary(std::string Error) -> std::string { return {std::string(Error)}; }
+		auto Invalid() -> std::string { return Boundary(std::string("Captured shader paths or bytes exceed canonical input limits.")); }
 		auto Descriptor() -> FBuildFunctionDescriptor { return GetShaderBuildDescriptor(); }
 		auto Reference(const FShaderVariantKey& Variant) -> FBuildInputReference
 			{ return {"Closure", Variant.Value, "ShaderVariant", 9, "Shader.SourceClosure", 2}; }
@@ -108,27 +110,29 @@ namespace Durin
 			std::vector<FShaderPortableDependency> Dependencies;
 			std::optional<std::string> Generated;
 			FShaderArtifactResolver Capture;
-			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
+			auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
 			{
-				if (Cancel.IsCancelled()) return {};
-				if (Sources.size() != 1 || Sources[0] != FBuildSourceReference{"Closure", "CapturedShaderClosure"}) return std::unexpected(Invalid());
-				return std::vector{Identity};
+				const auto Sources = Definition.GetSources();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
+				if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
+				if (Sources.size() != 1 || Sources[0] != FBuildSourceReference{"Closure", "CapturedShaderClosure"}) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector{Identity}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
-			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
+			auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
 			{
-				if (Inputs.size() != 1 || Inputs[0] != Identity || Dependencies.size() > ShaderCaptureLimits::MaximumFiles) return std::unexpected(Invalid());
-				if (Cancel.IsCancelled()) return {};
+				const auto Inputs = Action.GetInputs();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
+				if (Inputs.size() != 1 || Inputs[0] != Identity || Dependencies.size() > ShaderCaptureLimits::MaximumFiles) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 				auto Artifacts = Capture();
-				if (!Artifacts) return std::unexpected(Boundary(std::move(Artifacts.error())));
-				if (!*Artifacts) return std::unexpected(Invalid());
+				if (!Artifacts) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				if (!*Artifacts) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				std::map<std::string, std::pair<std::string, const FSharedByteBuffer*>> Files;
 				for (const auto& [Path, Bytes] : (*Artifacts)->GetFiles())
 				{
 					const auto Name = Portable(Path);
 					if (!Files.emplace(Name, std::pair{Name + (Path.ends_with(".slang") ? ".slang" : ""), &Bytes}).second)
-						return std::unexpected(Invalid());
+						return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				}
 				FBuildInput Input{.Identity = Identity};
 				Input.Values.reserve(Dependencies.size() + 1 + Generated.has_value());
@@ -136,22 +140,22 @@ namespace Durin
 				Metadata.WriteU32(uint32(Dependencies.size())); uint64 Bytes = 0;
 				for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 				{
-					if (Cancel.IsCancelled()) return {};
+					if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 					const auto& Dependency = Dependencies[Index]; const auto Found = Files.find(Dependency.VirtualPath);
-					if (Found == Files.end()) return std::unexpected(Boundary(std::format("Shader dependency '{}' was not captured.", (Dependency.VirtualPath))));
+					if (Found == Files.end()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 					const auto& Data = *Found->second.second;
 					if (Data.size() > ShaderCaptureLimits::MaximumFileBytes || Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes
-						|| Found->second.first.size() > ShaderCaptureLimits::MaximumPathBytes) return std::unexpected(Invalid());
+						|| Found->second.first.size() > ShaderCaptureLimits::MaximumPathBytes) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 					Bytes += Data.size();
-					if (FXxHash64::HashBuffer(Data) != Dependency.ContentHash) return std::unexpected(Boundary(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (Dependency.VirtualPath))));
+					if (FXxHash64::HashBuffer(Data) != Dependency.ContentHash) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 					Metadata.WriteString(Found->second.first);
 					Input.Values.push_back({Indexed("File/", Index), Data});
 				}
 				if (Generated)
 					Input.Values.push_back({"Generated", FSharedByteBuffer::Copy(std::as_bytes(std::span(Generated->data(), Generated->size())))});
-				if (Metadata.HasError()) return std::unexpected(Invalid());
+				if (Metadata.HasError()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				Input.Values.push_back({"FileTable", FSharedByteBuffer::Take(Metadata.TakeBytes())});
-				return std::vector{std::move(Input)};
+				return OnResolved({std::vector{std::move(Input)}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
 		};
 		struct FCompilerService
@@ -177,31 +181,31 @@ namespace Durin
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Service->BuildVersion)
 					return Context.FailExecution("Shader builder identity does not match the build request.");
 				auto Options = ReadOptions(Context); const auto* InputPtr = Context.FindInput("Closure");
-				if (!Options || !InputPtr) return Fail(Invalid().Description);
+				if (!Options || !InputPtr) return Fail(Invalid());
 				Options->Bind(); const auto& Input = *InputPtr;
-				if (Input.Identity != Reference({.Value = Input.Identity.Identity})) return Fail(Invalid().Description);
+				if (Input.Identity != Reference({.Value = Input.Identity.Identity})) return Fail(Invalid());
 				const auto* Table = FindInputValue(Input, "FileTable");
-				if (!Input.Metadata.IsEmpty() || !Table) return Fail(Invalid().Description);
+				if (!Input.Metadata.IsEmpty() || !Table) return Fail(Invalid());
 				FBinaryReader Reader(Table->Data.GetBytes(), {.MaximumTotalBytes = ShaderCaptureLimits::MaximumFileTableBytes}); uint32 Count = 0;
-				if (!Reader.ReadU32(Count) || Count > ShaderCaptureLimits::MaximumFiles || Input.Values.size() != Count + 1 + size_t(Options->Generated)) return Fail(Invalid().Description);
+				if (!Reader.ReadU32(Count) || Count > ShaderCaptureLimits::MaximumFiles || Input.Values.size() != Count + 1 + size_t(Options->Generated)) return Fail(Invalid());
 				std::map<std::string, FSharedByteBuffer> Files; FShaderMetaData Meta;
 				uint64 Bytes = 0;
 				for (uint32 Index = 0; Index < Count; ++Index)
 				{
-					if (Context.IsCancelled()) return;
+					if (Context.IsCanceled()) return;
 					std::string Path;
 					if (!Reader.ReadString(Path, ShaderCaptureLimits::MaximumPathBytes) || Path.empty() || !Path.starts_with('/')
-						|| std::filesystem::path(Path).lexically_normal().generic_string() != Path) return Fail(Invalid().Description);
+						|| std::filesystem::path(Path).lexically_normal().generic_string() != Path) return Fail(Invalid());
 					const auto* Found = FindInputValue(Input, Indexed("File/", Index));
 					if (!Found || Found->Data.size() > ShaderCaptureLimits::MaximumFileBytes
-						|| Found->Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes) return Fail(Invalid().Description);
+						|| Found->Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes) return Fail(Invalid());
 					Bytes += Found->Data.size();
 					const auto Name = Path.ends_with(".slang") ? Path.substr(0, Path.size() - 6) : Path;
-					if (!Meta.PortableDependencies.empty() && Meta.PortableDependencies.back().VirtualPath >= Name) return Fail(Invalid().Description);
+					if (!Meta.PortableDependencies.empty() && Meta.PortableDependencies.back().VirtualPath >= Name) return Fail(Invalid());
 					Meta.PortableDependencies.push_back({Name, FXxHash64::HashBuffer(Found->Data.GetBytes())});
-					if (!Files.emplace(Path, Found->Data).second) return Fail(Invalid().Description);
+					if (!Files.emplace(Path, Found->Data).second) return Fail(Invalid());
 				}
-				if (!Reader.IsAtEnd()) return Fail(Invalid().Description);
+				if (!Reader.IsAtEnd()) return Fail(Invalid());
 				FXxHash128Builder Tree; UpdateCanonicalHashString(Tree, "DurinShaderPortableSourceTree_v1");
 				UpdateCanonicalHash(Tree, uint64(Meta.PortableDependencies.size()));
 				for (const auto& Dependency : Meta.PortableDependencies) { UpdateCanonicalHashString(Tree, Dependency.VirtualPath); UpdateCanonicalHash(Tree, Dependency.ContentHash); }
@@ -210,7 +214,7 @@ namespace Durin
 				if (Options->Generated)
 				{
 					const auto* Found = FindInputValue(Input, "Generated");
-					if (!Found || Found->Data.IsEmpty() || Found->Data.size() > 1024 * 1024) return Fail(Invalid().Description);
+					if (!Found || Found->Data.IsEmpty() || Found->Data.size() > 1024 * 1024) return Fail(Invalid());
 					Generated.assign(reinterpret_cast<const char*>(Found->Data.data()), Found->Data.size());
 					FXxHash128Builder Combined; Combined.Update("DurinGeneratedShaderSourceTree_v1");
 					UpdateCanonicalHash(Combined, FXxHash128::HashBuffer(Generated)); UpdateCanonicalHash(Combined, Meta.SourceTreeSignature);
@@ -220,7 +224,7 @@ namespace Durin
 				if (Variant.Value != Input.Identity.Identity || Options->Value.CompilerEnvironment != Service->Environment)
 					return ShaderSharedOutput::SaveErrors(Context, FShaderCompilerOutput::Failure("Shader virtual dependency resolves to conflicting content.").Errors);
 				Options->Value.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Options->Roots));
-				if (Context.IsCancelled()) return;
+				if (Context.IsCanceled()) return;
 				const auto ProducerBegin = std::chrono::steady_clock::now();
 				auto Product = Options->Generated
 					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile)
@@ -228,7 +232,7 @@ namespace Durin
 				Service->ProducerMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now() - ProducerBegin).count(), std::memory_order_relaxed);
 				if (!Product) return ShaderSharedOutput::SaveErrors(Context, Product.Errors);
-				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCancelled(); });
+				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCanceled(); });
 				if (Output.Status == EShaderBuildStatus::Canceled) return;
 				if (!Output) return ShaderSharedOutput::SaveErrors(Context, FShaderCompilerOutput::Failure(Output.Error).Errors);
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
@@ -354,8 +358,6 @@ namespace Durin
 		std::shared_ptr<FObservedCache> Cache;
 		std::string Environment = Compiler->Environment;
 		std::shared_ptr<IBuild> Service;
-		std::shared_ptr<FBuildSession> Session;
-		std::shared_ptr<FBuildSession> TaskSession;
 		std::mutex Mutex;
 		bool Closed = false;
 		auto Open(DerivedData::Private::FBuildBackendOptions Options) -> void
@@ -363,11 +365,21 @@ namespace Durin
 			Cache = std::make_shared<FObservedCache>();
 			Cache->Backend = Options.Cache ? std::move(Options.Cache) : std::shared_ptr<ICacheBackend>(&GetCacheBackend(), [](ICacheBackend*) {});
 			Options.Cache = Cache;
+			FBuildRequestLimits Limits;
+			Limits.Input.MaximumTotalBytes = ShaderCaptureLimits::MaximumSessionInputBytes;
+			Limits.Input.MaximumValues = uint32(ShaderCaptureLimits::MaximumFiles + 2);
+			Limits.Output.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes;
+			if (Options.BuildLimits) {
+				Limits = *Options.BuildLimits;
+				Limits.Input.MaximumTotalBytes = std::min(Limits.Input.MaximumTotalBytes, ShaderCaptureLimits::MaximumSessionInputBytes);
+				Limits.Input.MaximumValues = std::min(Limits.Input.MaximumValues, uint32(ShaderCaptureLimits::MaximumFiles + 2));
+				Limits.Output.MaximumTotalBytes = std::min(Limits.Output.MaximumTotalBytes, ShaderCompiledOutput::MaximumValueBytes);
+			}
+			Options.BuildLimits = Limits;
 			Service = Durin::DerivedData::Private::CreateBuildForBackend(std::move(Options));
 			require(Service->Register(std::make_shared<FFunction>(Compiler)));
 			require(Service->Register(CreateMetalLibraryBuildFunction()));
-			auto Created = Service->CreateSession({}, CreateInlineBuildScheduler()); require(Created);
-			Session = std::move(*Created); Compiler->ProducerMicroseconds = 0; Closed = false;
+			Compiler->ProducerMicroseconds = 0; Closed = false;
 		}
 	};
 	FShaderBuildService::FShaderBuildService(std::function<void(std::string_view)> Hook, DerivedData::Private::FBuildBackendOptions Options)
@@ -387,45 +399,28 @@ namespace Durin
 	auto FShaderBuildService::GetCompilerEnvironmentIdentity() const -> const std::string& { return State->Environment; }
 	auto FShaderBuildService::GetProducerMicroseconds() const -> uint64 { return State->Compiler->ProducerMicroseconds.load(); }
 	auto FShaderBuildService::GetCacheMicroseconds() const -> uint64 { return State->Cache->Microseconds.load(); }
-	auto FShaderBuildService::Submit(FShaderSessionRequest Request, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildRequestOptions Options, bool bInlineExecution)
-		-> std::expected<void, FBuildAdmissionError>
+	auto FShaderBuildService::Submit(FShaderSessionRequest Request, IRequestOwner& Owner, FBuildCompletionCallback Completion, FBuildPolicy Policy)
+		-> void
 	{
-		std::shared_ptr<FBuildSession> Session;
+		std::shared_ptr<IBuild> Service;
 		{
 			std::lock_guard Lock(State->Mutex);
-			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Shader sessions are closed."});
-			if (bInlineExecution) Session = State->Session;
-			else
-			{
-				if (!State->TaskSession)
-				{
-					auto Created = State->Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task);
-					if (!Created) return std::unexpected(Created.error());
-					State->TaskSession = std::move(*Created);
-				}
-				Session = State->TaskSession;
-			}
+			if (!State->Closed) Service = State->Service;
 		}
-		Options.InputResolver = std::move(Request.Resolver);
-		Session->Build(std::move(Request.Definition), Owner, std::move(Completion), {}, std::move(Options));
-		return {};
+		if (!Service) { Completion(FBuildCompleteParams::Canceled(std::nullopt, EBuildExecutionFlags::None)); return; }
+		auto Session = Service->CreateSession("ShaderBuild", std::move(Request.Resolver));
+		Session.Build(std::move(Request.Definition), {}, Policy, Owner, std::move(Completion));
 	}
-	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options)
+	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildPolicy Policy)
 		-> FBuildCompleteParams
 	{
-		{
-			std::lock_guard Lock(State->Mutex);
-			if (State->Closed || !State->Session)
-				return FBuildCompleteParams::Canceled(std::nullopt, EBuildExecutionFlags::None);
-		}
 		FRequestOwner Owner;
 		std::optional<FBuildCompleteParams> Completion;
-		auto Admitted = Submit(std::move(Request), Owner, [&](auto Result) {
+		Submit(std::move(Request), Owner, [&](auto Result) {
 			Completion = std::move(Result);
-		}, std::move(Options), true);
-		if (!Admitted) return FBuildCompleteParams::Error(std::nullopt, EBuildExecutionFlags::None, Admitted.error().Description);
-		require(Owner.Wait() == ERequestWaitResult::Completed);
-		if (!Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildExecutionFlags::None);
+		}, Policy);
+		Owner.Wait();
+		require(Completion.has_value());
 		return std::move(*Completion);
 	}
 	auto FShaderBuildService::Close() -> void
@@ -437,12 +432,7 @@ namespace Durin
 			State->Closed = true;
 			Retired = State->Service;
 		}
-		if (Retired)
-		{
-			Retired->Close();
-			require(Retired->Drain() == EBuildDrainResult::Drained);
-		}
 		std::lock_guard Lock(State->Mutex);
-		State->Session.reset(); State->TaskSession.reset(); State->Service.reset();
+		State->Service.reset();
 	}
 }

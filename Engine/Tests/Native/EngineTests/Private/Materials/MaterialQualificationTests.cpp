@@ -234,7 +234,7 @@ TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 		for (uint32 Workload = 0; Workload < 3; ++Workload) {
 			if (Workload != 2) {
 				FPaths::SetDerivedDataCacheDirForTests((Root / std::format("cache-{}-{}", Sample, Workload)).generic_string());
-				ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); CloseTranslationSessions(); OpenTranslationSessions();
+				ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); ReleaseTranslationSession(); RegisterTranslation();
 			}
 			const uint32 Count = Workload == 1 ? 4 : 1;
 			std::vector<std::shared_ptr<MIR::FCompilerInput>> Inputs;
@@ -339,7 +339,7 @@ TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
 					Owners.clear();
 					for (uint32 Index = 0; Index < 2; ++Index) { auto* Instance = NewObject<DMaterialInstance>(nullptr, NAME_None); ASSERT_TRUE(Instance->SetParent(Material)); Owners.push_back(Instance); }
 				}
-				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); MaterialBuildPrivate::CloseTranslationSessions(); MaterialBuildPrivate::OpenTranslationSessions(); }
+				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); MaterialBuildPrivate::ReleaseTranslationSession(); MaterialBuildPrivate::RegisterTranslation(); }
 				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
 				{
 					const auto TranslationBefore = MaterialBuildPrivate::GetTranslationStats();
@@ -398,7 +398,7 @@ TEST(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 					Owners.clear();
 					for (uint32 Index = 0; Index < 2; ++Index) { auto* Instance = NewObject<DMaterialInstance>(nullptr, NAME_None); ASSERT_TRUE(Instance->SetParent(Material)); Owners.push_back(Instance); }
 				}
-				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); MaterialBuildPrivate::CloseTranslationSessions(); MaterialBuildPrivate::OpenTranslationSessions(); }
+				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); MaterialBuildPrivate::ReleaseTranslationSession(); MaterialBuildPrivate::RegisterTranslation(); }
 				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
 				{
 					const auto TranslationBefore = MaterialBuildPrivate::GetTranslationStats();

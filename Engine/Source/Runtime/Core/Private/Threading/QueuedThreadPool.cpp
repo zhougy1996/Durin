@@ -303,6 +303,14 @@ namespace Durin
 		auto TryExecuteQueuedTask(const FQueuedWorkHandle& Handle) -> bool
 		{ return TryExecuteNode(Handle.Node.lock()); }
 
+		auto SetPriorityNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node, EQueuedWorkPriority Priority) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			if (!Node || Node->Pool.load() != this || !Node->bQueued || Node->QueuePriority == Priority) return;
+			const auto Sequence = Node->Sequence;
+			Queue.Remove(Node); Node->QueuePriority = Priority; Queue.Enqueue(Node);
+			Node->Sequence = Sequence;
+		}
 		auto TryExecuteNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> bool
 		{
 			if (!Node || Node->Pool.load() != this) return false;
@@ -503,6 +511,9 @@ namespace Durin
 
 	auto FQueuedThreadPool::EnqueueNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node, EQueuedWorkPriority Priority) -> bool
 	{ return Impl->EnqueueNode(Node, Priority); }
+
+	auto FQueuedThreadPool::SetPriorityNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node, EQueuedWorkPriority Priority) -> void
+	{ Impl->SetPriorityNode(Node, Priority); }
 
 	auto FQueuedThreadPool::TryExecuteNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> bool
 	{ return Impl->TryExecuteNode(Node); }

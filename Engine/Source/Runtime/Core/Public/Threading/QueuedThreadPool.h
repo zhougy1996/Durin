@@ -53,6 +53,7 @@ namespace Durin
 		CORE_API auto TryExecuteQueuedTask(const FQueuedWorkHandle& Handle) -> bool;
 		// Internal scheduler path: the task itself owns its queue links and execution.
 		CORE_API auto EnqueueNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node, EQueuedWorkPriority Priority) -> bool;
+		CORE_API auto SetPriorityNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node, EQueuedWorkPriority Priority) -> void;
 		CORE_API auto TryExecuteNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> bool;
 
 		// Returns false instead of deadlocking when called by one of this pool's workers.

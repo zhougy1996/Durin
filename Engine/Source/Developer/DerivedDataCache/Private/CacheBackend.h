@@ -53,9 +53,10 @@ namespace Durin::DerivedData
 		std::function<bool()> ShouldCancel;
 		// Borrowed only by synchronous Put; async dispatch does not retain this pointer.
 		FCacheStoreStats* Stats = nullptr;
+		FCacheRecordPolicy Policy;
 	};
 
-	using FCachePutResult = std::expected<void, FCacheError>;
+	using FCachePutResult = std::expected<FCacheRecord, FCacheError>;
 
 	class ICacheBackend
 	{

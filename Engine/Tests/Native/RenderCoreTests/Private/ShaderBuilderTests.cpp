@@ -282,7 +282,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				return std::optional{Durin::DerivedData::Private::MakeBuildCacheRecord(Request.Key, std::move(Output).Build().value()).value()};
 			}
 			auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
-			{ ++Puts; Record = Request.Record; return {}; }
+			{ ++Puts; Record = Request.Record; return Request.Record; }
 		};
 		auto Cache = std::make_shared<FCache>();
 		auto MakeService = [&] { return std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, Durin::DerivedData::Private::FBuildBackendOptions{.Cache = Cache}); };
@@ -319,8 +319,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				Output.AddMessage(EBuildMessageSeverity::Error, "deterministic shader failure");
 				return std::optional{Durin::DerivedData::Private::MakeBuildCacheRecord(Request.Key, std::move(Output).Build().value()).value()};
 			}
-			auto Put(const FCachePutBackendRequest&) const -> FCachePutResult override
-			{ return {}; }
+			auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
+			{ return Request.Record; }
 		};
 		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, Durin::DerivedData::Private::FBuildBackendOptions{.Cache = std::make_shared<FNegativeCache>()});
 		Builder = std::make_unique<FShaderBuilder>(Service);
@@ -453,7 +453,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		std::atomic_uint32_t FirstCallbacks = 0, SecondCallbacks = 0;
 		auto First = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Errors.empty()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++FirstCallbacks; });
 		ASSERT_TRUE(Cache->Entered.WaitFor(5.0));
-		auto Second = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors); ++SecondCallbacks; });
+		auto Lease = std::make_shared<int>(42); std::weak_ptr<int> Weak = Lease;
+		auto Second = Builder->CompileGenerated(Request, {}, [&, Capture = std::move(Lease)](auto Output) { EXPECT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors); ++SecondCallbacks; });
 		FThreadEvent Unrelated;
 		auto Marker = Tasks::LaunchTask("UnrelatedShaderWork", [&] { Unrelated.Trigger(); });
 		ASSERT_TRUE(Unrelated.WaitFor(5.0));
@@ -463,6 +464,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(SecondCallbacks, 0u);
 		Cache->Release.Trigger();
 		EXPECT_EQ(Second.Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_TRUE(Weak.expired());
 		EXPECT_EQ(SecondCallbacks, 1u);
 		EXPECT_EQ(Builder->GetStats().Compilations, 1u);
 		Builder->Close();

@@ -1,5 +1,6 @@
 #include "TextureDerivedDataBuild.h"
 #if DURIN_WITH_EDITOR
+
 	#include "BuildServiceBackendPrivate.h"
 	#include "CacheDispatchPrivate.h"
 	#include "Asset/ResourceBuildSessions.h"
@@ -9,7 +10,16 @@ namespace Durin::TexturePrivate
 {
 	namespace
 	{
-		AssetPrivate::FResourceBuildSessions Sessions;
+		AssetPrivate::FResourceBuildSessions Sessions([] {
+			DerivedData::FBuildServiceOptions Options;
+			Options.BuildLimits.Input.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
+			Options.BuildLimits.Output.MaximumTotalBytes = MaximumTexturePayloadBytes;
+			auto Service = DerivedData::CreateBuild(std::move(Options));
+			require(Service->Register(MakeTexture2DBuildFunction()).has_value());
+			require(Service->Register(MakeTextureCubeBuildFunction()).has_value());
+			require(Service->Register(MakeVolumeTextureBuildFunction()).has_value());
+			return Service;
+		});
 	}
 
 	auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICacheBackend> Cache) -> void
@@ -22,21 +32,18 @@ namespace Durin::TexturePrivate
 			require(Service->Register(MakeTextureCubeBuildFunction()).has_value());
 			require(Service->Register(MakeVolumeTextureBuildFunction()).has_value());
 		}
-		require(Sessions.SetTaskService(std::move(Service)) == DerivedData::EBuildDrainResult::Drained);
+		Sessions.SetService(std::move(Service));
 	}
 
 	auto BuildAsync(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
 		DerivedData::IRequestOwner& Owner,
 		DerivedData::FBuildCompletionCallback Completion,
-		DerivedData::FBuildRequestOptions Options) -> std::expected<void, DerivedData::FBuildAdmissionError>
+		DerivedData::FBuildPolicy Policy) -> void
 	{
-		auto Persistent = Sessions.Get(DerivedData::EBuildCacheExecution::Task);
-		if (!Persistent) return std::unexpected(std::move(Persistent.error()));
-		Options.InputResolver = std::move(Resolver);
-		(*Persistent)->Build(std::move(Definition), Owner, std::move(Completion), {}, std::move(Options));
+		auto Persistent = Sessions.Get(std::move(Resolver));
+		Persistent.Build(std::move(Definition), {}, Policy, Owner, std::move(Completion));
 
-		return {};
 	}
 
 	auto RegisterBuildFunctions() -> void
@@ -49,20 +56,17 @@ namespace Durin::TexturePrivate
 				|| !Build.Register(MakeTextureCubeBuildFunction()))
 				throw std::runtime_error("Failed to register texture derived-data build functions.");
 		});
-		Sessions.Open();
+
 	}
 	auto ShutdownBuildSessions() -> void
-	{ require(Sessions.Close() == DerivedData::EBuildDrainResult::Drained); }
+	{ Sessions.Reset(); }
 
 	auto Build(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-		DerivedData::FBuildRequestOptions Options)
+		DerivedData::FBuildPolicy Policy)
 		-> DerivedData::FBuildCompleteParams
 	{
-		auto Result = Sessions.Build(std::move(Definition), std::move(Resolver), std::move(Options));
-		if (Result) return std::move(*Result);
-		return DerivedData::FBuildCompleteParams::Error(std::nullopt,
-			DerivedData::EBuildExecutionFlags::None, std::move(Result.error().Description));
+		return Sessions.Build(std::move(Definition), std::move(Resolver), Policy);
 	}
 }
 

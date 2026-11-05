@@ -207,7 +207,7 @@ Dispatch
 failure or cancellation before its body starts also reaches terminal delivery.
 The GameThread pump applies results and invokes observers without another deferred
 task. Diagnostics retain no task handles, build owners or input/result payloads
-after delivery. Synchronous detached/import/Cook adapters retain inline sessions.
+after delivery. Synchronous detached/import/Cook adapters use the same session and wait on their request owner.
 
 Retirement has two boundaries. Compute slots and estimated working bytes are
 released only after producer completion and DDC owner `Poll()` confirms callback

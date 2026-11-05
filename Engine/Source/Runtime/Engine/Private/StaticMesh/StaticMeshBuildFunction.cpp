@@ -14,8 +14,8 @@ namespace Durin::StaticMeshPrivate
 	namespace
 	{
 		constexpr uint64 MaximumReconciliationBytes = uint64(MaximumMeshMaterialSlots) * (8192 + 32) + 8;
-		auto Error(std::string Message) -> FBuildInputError { return {std::move(Message)}; }
-		auto Cancelled() -> FBuildInputError { return Error("StaticMesh build was cancelled."); }
+
+
 		auto SourceReference(FXxHash128 Identity) -> FBuildInputReference
 		{ return {"Source", Identity, "StaticMeshSource", StaticMeshSourceGeometryIdentityVersion, "StaticMesh.AuthoredGeometry", 1}; }
 		auto ReconciliationReference(FXxHash128 Identity) -> FBuildInputReference
@@ -39,50 +39,51 @@ namespace Durin::StaticMeshPrivate
 			{
 				ReconciliationHash = BuildStaticMeshReconciliationHash(Slots, NormalizedSize);
 			}
-			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
+			auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
 			{
+				const auto Sources = Definition.GetSources();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				if (Sources.size() != 2 || SourceHash.IsZero() || ReconciliationHash.IsZero()
 					|| Slots.empty() || Slots.size() > MaximumMeshMaterialSlots)
-					return std::unexpected(Error("StaticMesh captured source or material slots are invalid."));
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				for (const auto& Source : Sources)
 					if (!((Source.Name == "Source" && Source.Source == "CapturedSource")
 						|| (Source.Name == "Reconciliation" && Source.Source == "CapturedReconciliation")))
-						return std::unexpected(Error("StaticMesh source binding is invalid."));
-				return std::vector{SourceReference(SourceHash), ReconciliationReference(ReconciliationHash)};
+						return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector{SourceReference(SourceHash), ReconciliationReference(ReconciliationHash)}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
-			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
+			auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
 			{
+				const auto Inputs = Action.GetInputs();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				if (Inputs.size() != 2 || std::ranges::find(Inputs, SourceReference(SourceHash)) == Inputs.end()
 					|| std::ranges::find(Inputs, ReconciliationReference(ReconciliationHash)) == Inputs.end())
-					return std::unexpected(Error("StaticMesh captured input identity changed."));
-				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				auto Payload = Geometry.GetPayload().Wait();
-				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
-				if (!Payload) return std::unexpected(Error(FormatStaticMeshSourceError(
-					{.Code = EStaticMeshSourceError::Read, .ReadCause = Payload.error()})));
+				if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				if (!Payload) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				if (Payload->GetSize() != Geometry.GetPayloadSize() || Payload->GetSize() > MaximumStaticMeshSourceBytes
 					|| BuildSourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Payload->GetBytes()), LODCount) != SourceHash)
-					return std::unexpected(Error("StaticMesh source bytes do not match captured identity."));
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				FBinaryWriter SourceMetadata; SourceMetadata.WriteU32(SlotCount); SourceMetadata.WriteU32(MeshCount);
 				SourceMetadata.WriteU32(LODCount);
 				FBinaryWriter Settings({.MaximumTotalBytes = MaximumReconciliationBytes});
 				Settings.WriteFloat(NormalizedSize); Settings.WriteU32(uint32(Slots.size()));
 				for (const auto& Slot : Slots)
 				{
-					if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
+					if (Owner.IsCanceled()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 					const auto Name = Slot.Name.ToString();
 					if (Name.size() > 4096 || Slot.SourceName.size() > 4096)
-						return std::unexpected(Error("StaticMesh material name exceeds its bound."));
+						return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 					Settings.WriteString(Name); Settings.WriteString(Slot.SourceName); Settings.WriteU32(Slot.SourceMaterialIndex);
 				}
-				if (Settings.HasError()) return std::unexpected(Error("StaticMesh reconciliation exceeds its bound."));
-				return std::vector<FBuildInput>{
+				if (Settings.HasError()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector<FBuildInput>{
 					{.Identity = SourceReference(SourceHash), .Metadata = FSharedByteBuffer::Take(SourceMetadata.TakeBytes()),
 						.Values = {{"Geometry", *Payload}}},
 					{.Identity = ReconciliationReference(ReconciliationHash),
-						.Values = {{"Settings", FSharedByteBuffer::Take(Settings.TakeBytes())}}}};
+						.Values = {{"Settings", FSharedByteBuffer::Take(Settings.TakeBytes())}}}}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
 		private:
 			FEditorBulkData Geometry;

@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-05
 
 ## Ownership
 
@@ -38,11 +38,9 @@ single-flight.
 
 Texture, StaticMesh, and physics each own a small `FResourceBuildSessions` holder
 that lazily acquires sessions from the DDC production build; it adds no build
-service or worker pool. TextureCompressor and MeshBuilder close/drain their family
-sessions at module shutdown; Engine does the same for physics. Asset compilation
-finishes before producer modules unload. Holder close stops acquisition, drains
-outside its lock, and retains sessions after a reentrant `WouldBlock` until a later
-external drain. Startup reopens a previously drained holder. ShaderBuild retains
+service or worker pool. Asset compilation cancels and joins request owners before
+producer modules unload. Holders then release their session resources outside
+acquisition locks; they have no close/reopen state or drain protocol. ShaderBuild retains
 its isolated service/session so compiler environment and registration lifetime
 remain tied to its module, independently of Engine resource holders.
 
@@ -84,22 +82,19 @@ unchanged.
 
 ## Request inputs and resolution
 
-`FBuildInputsBuilder` captures request metadata through
-`IBuildInputResolver::Describe` and retains the immutable resolver/captured
-generation for possible payload materialization. The resulting request value is
-immutable. `FBuildSession::Build` accepts it beside a definition or action.
-Alternatively, request options may retain a captured `InputResolver`; its
-`Describe` runs inside admitted execution and failures complete through the
-normal status-only completion. The resolver must already own immutable captured
-state when submitted.
+`FBuildInputsBuilder` collects already materialized immutable inputs. It retains
+neither a resolver nor a deferred failure result. `FBuildSession::Build` accepts
+the resulting value beside a definition or action.
 
-`Describe` may inspect captured metadata only. `Resolve` runs only after a miss
-when local build is allowed; it materializes named immutable blocks and verifies
-them against the frozen identity. It must never substitute a current live asset
-or import file for captured state. A session-level resolver is available for
-truly shared inputs, but Engine and ShaderBuild production requests supply their
-own captured request resolvers and reuse persistent sessions. Explicit frozen
-`FBuildInputs` remain supported and are mutually exclusive with a request resolver.
+A session may retain an `IBuildInputResolver` with immutable captured state.
+`ResolveInputMeta` resolves identities before action preparation; `ResolveInputData`
+materializes named blocks only after a miss when local build is allowed. Both
+receive the caller's `IRequestOwner` and a move-only completion callback carrying
+inputs and `EStatus`. They complete once, inline or through owner-tracked work.
+Resolved data must match the frozen identities and must never substitute a live
+asset or import file for captured state. Engine and ShaderBuild create captured
+resolver sessions while reusing the persistent service, scheduler and cache.
+Explicit materialized `FBuildInputs` may be supplied alongside a session resolver.
 
 Before producer invocation, DDC sorts input/value tables, rejects invalid or
 duplicate identifiers, verifies exact identities, and enforces metadata, value,
@@ -167,10 +162,10 @@ UE semantics: `BuildLocal`, `CacheQuery`, and `CacheStoreOnBuild`, with `Build`,
 builds locally on a miss, and stores successful output. `Build | CacheStore`
 forces production by omitting `CacheQuery`; there is no separate force flag.
 `CacheQuery` never runs a producer. Unsupported policy bits fail admission through
-the normal error completion. Remote builds, cache promotion, keep-alive and
+the normal error completion. Remote builds, cache promotion, policy keep-alive and
 per-value overrides are not exposed until supported by the implementation.
 
-`FBuildRequestOptions::Limits` bounds input and output product validation,
+`FBuildServiceOptions::BuildLimits` and internal session profiles bound input and output product validation,
 independently of policy and action identity. `FBuildInputLimits` contains only
 input byte, metadata, and value-count ceilings; output validation uses
 `FBuildOutputLimits`. There is no separate persistence product limit or
@@ -220,24 +215,23 @@ queries the cache and can build again. Previously stored error records are
 rejected and rebuilt when local execution is allowed. Infrastructure failures
 and cancellation are never cached. Execution failures
 may return an observation-only diagnostic output; partial values and metadata
-are discarded. Cancellation has no output.
+are discarded. Cancellation returns a diagnostic output without product values.
 
 ## Completion and failure
 
 Accepted work completes exactly once with `FBuildCompleteParams`:
 
 - `EStatus::Ok` owns one validated output without error messages.
-- `EStatus::Error` owns a deterministic error output, an observation-only
-  execution diagnostic output, or no output for an infrastructure failure.
-- `EStatus::Canceled` owns no output.
+- `EStatus::Error` owns diagnostic output, including for infrastructure failure.
+- `EStatus::Canceled` owns diagnostic output without product values.
 
 There is no family-specific producer failure type or validation receipt in DDC.
 Families interpret status, deterministic messages and their own structured
 completion observations. Message and log text is display data, never control-flow identity. Typed
 assemblers reparse and revalidate immutable output at their trust boundary.
 
-The completion independently exposes its cache key and two `EBuildExecutionFlags` facts
-through `GetExecutionFlags`: cache hit and local build. These flags record the
+The completion exposes `CacheKey`, `Output`, `BuildStatus` and `Status` directly.
+`BuildStatus` contains two `EBuildExecutionFlags` facts: cache hit and local build. These flags record the
 execution path; `EStatus` independently records success, failure or cancellation. Its fields contain no query/store bookkeeping,
 execution report, cache error, metric, timing, or internal phase identifier.
 Optional observations live only in the returned cold output.
@@ -246,69 +240,68 @@ Deterministic producer errors are bounded output messages. Non-deterministic
 producer logs have their own category, severity, and text and make the output
 non-cacheable. `FailExecution` reports resource, environment or unclassified
 recipe failures without a product or persistence. Existing observations may
-accompany the failure; `GetDiagnostic` retains bounded
-completion-only error text for callers. Only input-determined failures
+accompany the failure; bounded diagnostic text lives in Output messages and logs,
+with no separate completion error string. Only input-determined failures
 use `AddError`; neither these errors nor budget and module failures become cache entries.
 Adapter versions are advanced to invalidate previously misclassified failures. Cache and input infrastructure failures are logged by their owning
 layer and are not translated into request-level phase or cause objects.
 Cancellation is a distinct terminal status, controlled through `IRequestOwner`.
-Request options contain no cancellation token or predicate. Each admitted request
-owns an independent private cancellation source; session cancellation cannot latch
-a caller token or cancel another owner's request. Resolvers receive only a
-read-only `FBuildCancellation` view, and build contexts expose a cancellation
-query without access to the source. Cancellation is execution state and never
+Request options contain no cancellation token or predicate. Build stages observe
+the caller owner cancellation state directly; canceling one owner does not affect
+requests submitted through another owner. Resolvers receive `IRequestOwner&`,
+and build contexts query that same owner through `IsCanceled()`. Cancellation is execution state and never
 becomes a deterministic producer error or cache entry. The asynchronous asset
-layer bridges its cancellation source to `Owner.RequestCancel()` and decides
+layer bridges its cancellation source to a private nonblocking owner cancellation signal and decides
 whether to accept completed products. Started synchronous Cook, mesh, and texture
-algorithms may finish. Owner waiting still includes callback retirement.
+algorithms may finish. Owner waiting still includes callback completion.
 
 `FBuildSession::Build` takes an explicit `IRequestOwner` and returns void. Every
-request invokes its completion exactly once, including a closed session, capacity,
-missing function, invalid input, or dispatch rejection. These failures become
+request invokes its completion exactly once, including missing functions, invalid
+inputs, or dispatch rejection. These failures become
 `EStatus::Error` completions with bounded diagnostic text. Scheduler admission
-errors stay inside dispatch; factory/registration errors remain separate from
-request completion. A missing completion callback is a programming error.
+errors stay inside dispatch; registration validates function configuration.
+Session creation returns a session handle directly and has no admission-result wrapper. An empty completion callback is accepted and normalized to a no-op.
 
 ## Persistent sessions and lifecycle
 
 `IBuild` owns registration. Each session captures an immutable registry snapshot
 when it is created; later registration affects later sessions without mutating
 existing sessions. Registered functions and required services remain owned
-through drain.
-`FBuildSession::Build` accepts a definition or action, optional request inputs,
-policy, product limits, an explicit request owner, and completion callback. An omitted scheduler or
+until the last admitted request releases them.
+`FBuildSession::Build` uses the UE parameter order: definition or action, optional
+inputs, policy, request owner, and a move-only completion callback. Resolver and
+resource limits are fixed by session/service configuration; there is no per-request
+configuration or separate failure result.
+One request owns that callback through admission, cancellation and completion;
+there is no copied fallback callback or separate submission-result channel. The default producer scheduler uses Core workers; an explicit
 `CreateInlineBuildScheduler` executes inline. `CreateTaskBuildScheduler` schedules
 on Core workers in scheduler lifetime. Its wait handle uses
 Core cooperative waiting, including single-worker nested builds. Scheduler
-handles expose waiting only; cancellation belongs to owner-managed business
-operations (`IBuildOperation`) for producer continuations. Cache operations use
+handles expose waiting only; cancellation belongs to owner-managed requests. Cache operations use
 their request owner for cancellation and waiting, without returning batch handles.
-Canceling an operation retires its callback, while accepted native dispatch still
-runs or drops its thunk and remains part of owner retirement. A stopped
-Core scheduler rejection produces an error completion; the adapter does not start
-or stop Core. Asset producers explicitly nest their operation completion when parent completion must include it.
+Canceling a queued operation completes its callback. Its stale scheduler thunk may
+subsequently run or drop without retaining producer resources or delaying logical
+owner completion. Before Core starts
+or after it stops, the standard scheduler executes inline without starting or
+stopping Core. Asset producers explicitly nest their operation completion when parent completion must include it.
 
-All sessions use one Prepare, CacheGet, BuildLocal, CachePut, Complete pipeline.
-Action preparation runs once; local execution receives the prepared action and
-owns no cache policy. Skipping the query runs local production on the initial
-producer dispatch without submitting a redundant task. Cold reads resume local
-production on the selected producer scheduler; warm hits skip it.
+All sessions use one ResolveMeta, Prepare, CacheGet, ResolveData, BuildLocal,
+CachePut, Complete pipeline. Action preparation runs once; local execution receives
+the prepared action and resolved inputs. Local production runs on the selected
+producer scheduler; warm hits skip data resolution and local production.
 
-`CreateSession` accepts a producer scheduler and explicit `EBuildCacheExecution`.
-Both default to inline execution. Task consumers select `CreateTaskBuildScheduler`
-and `EBuildCacheExecution::Task`; all task-cache sessions of an `IBuild` share one
-service-owned dispatcher using Core BlockingIO. Cache services accept an optional configured public `ICache`. Backend and cache-scheduler
-injection belong to private integration/fault-injection seams. There is no
-running-Core mode selection.
-Inline sessions share a separate service-owned inline dispatcher over the same
-backend. Its item/byte admission is independent of the task queue; synchronous
-callers never wait on task saturation or help execute sibling asset work. Inline
-dispatch does not apply the task concurrency limit and permits synchronous nested
-submissions. It retains the same bounded item/byte admission through retirement.
-An injected `ICache` is used directly through its public Get/Put contract,
-independently of the service-owned cache execution mode. Session Close cancels only
-its own requests. Service Close/Drain cancels and joins its sessions without
-globally closing an injected cache.
+`CreateSession` accepts a name, input resolver and optional producer scheduler.
+`GetName` exposes the immutable session identity. Cache dispatch is configured by
+the cache implementation; sessions do not choose a cache execution mode. A build
+service shares one cache across its sessions, using Core BlockingIO while Core is
+running and inline execution during bootstrap. Injected `ICache` implementations
+are consumed directly through their public Get/Put contract. Synchronous callers
+submit through the same session and wait on their request owner.
+Sessions are move-only resource handles, not request owners. Releasing a session
+or build service does not cancel admitted work. The request retains the registry,
+resolver, scheduler and cache until completion. Asset and shader managers cancel
+and join their request owners before releasing module services. There are no
+Session/IBuild Close or Drain APIs, request tables, or admission counters.
 
 Public `ICache::Get` and `Put` accept batches, an owner, and a completion callback,
 and return void. Every item receives one `FCacheGetResponse` or `FCachePutResponse`,
@@ -328,14 +321,15 @@ Captured cancellation and callback state must
 remain valid until the request owner drains. Callers stop submitting before owner
 destruction. Build and Cache accept the same `IRequestOwner`. An owner retains mutable priority, cancels current/future work,
 and waits through callbacks and request-buffer/callable release. Same-owner and
-pending same-cache waits anywhere in a nested completion stack return `WouldBlock`;
+pending same-cache waits anywhere in a nested completion stack are rejected;
 reentrant destruction still cancels and leaves shared accounting alive.
 
 `FRequestBarrier` registers a scoped request with the existing owner protocol.
 It keeps `Poll` and external waits pending until submitting code publishes its
 handles, including nested inline submissions. Cancellation cannot release the
-barrier; its submitting-thread scope must end. Waiting from that scope returns
-`WouldBlock`. Priority remains mutable and is sampled by newly dispatched work.
+barrier; the barrier must be released before an external wait can finish. A barrier
+may also span a single-flight subscription. Priority changes propagate to active
+requests and reorder queued native tasks under the queue lock, preserving their age.
 
 Standalone `CreateAsyncCache` without a scheduler uses Core BlockingIO, creates no threads, and admits
 at most 4,096 pending/active items with two active operations.
@@ -346,7 +340,7 @@ ties; after 32 dispatch turns of waiting, the oldest pending item wins. This
 fairness policy is internal, using admission/dispatch turn differences rather
 than updating every queued item. An admitted pending item is dispatched within
 32 plus capacity further dispatch turns,
-provided active work retires. Mutable owner priority is sampled at dispatch.
+provided active work completes. Mutable owner priority is sampled at dispatch.
 Atomic item/byte admission rejection completes every item with `EStatus::Error`
 (or Canceled for a canceled owner). Capacity and backend failure details remain
 in cache diagnostics; request consumers do not branch on those reasons.
@@ -358,8 +352,7 @@ request overhead uses item admission; record tables use existing record limits.
 A uniform-policy Get therefore needs no queued-data bytes even when this budget
 is zero. A slice charges its entire retained allocation;
 shared allocations across separate requests are charged conservatively per request.
-Charges remain through callbacks and dispatch publication and are released on request
-retirement. Request objects, record value-descriptor tables, opaque callable captures,
+Charges remain through callback exit and are released when request buffers are released. Request objects, record value-descriptor tables, opaque callable captures,
 allocator/container spare capacity, backend result data, and active codec workspace
 are excluded; this is a coarse queued-data budget, not an RSS bound.
 Each private backend request receives the configured record/encoded/workspace ceilings. This controls
@@ -401,83 +394,90 @@ output, including while persistence is queued or running. A completed store can
 remain useful in the cache even if its canceled request discards the result.
 There is no early-result notification or separate result-ready state.
 
-The completion callback runs exactly once. Its return is not owner retirement:
-Owner Wait also joins callback captures, cache request buffers, and native dispatch
-captures. Session/service Close cancels pending work, and Drain includes all
-accepted work through retirement. Reentrant waits return WouldBlock. Inline
-execution may complete before Build returns. Wait handles follow each stage and
-use Core helping; close/drain spans every stage and callback.
+The completion callback runs exactly once. Its return is not owner completion:
+Owner Wait includes completion callbacks and release of their business captures
+and cache request buffers. The caller owner is the cancellation and waiting boundary for admitted
+work. Public Wait and Cancel return void and reject self-waits. Inline execution
+may complete before Build returns. Private wait handles use Core helping.
 Callbacks have no fixed thread affinity. Infrastructure failures after action
 preparation retain the known key; deterministic messages and cache diagnostics
-preserve their existing format. Request inputs/resolvers are released after local
-production, before persistence completion.
+preserve their existing format. Materialized inputs are released after local
+production; the session resolver remains available through build completion.
 
-A scheduler rejects without invoking or retaining its thunk, or accepts it for
-at-most-once execution. Dropping accepted work completes it as canceled. Public
-builds expose no request handle: owner cancellation signals pending/running work,
-and owner waiting joins callbacks, resource release, and dispatch retirement.
+A scheduler executes or retains its thunk for at-most-once execution. There is no
+separate dispatch-rejection result channel. Dropping queued build work completes with Error unless the owner was canceled.
+Public builds expose no request handle: owner cancellation signals pending/running
+work, and owner waiting joins the registered requests and their callbacks.
 Internal scheduler wait handles support Core worker helping. Schedulers without
 wait handles require external progress. Completed/canceled requests do not wait
 for stale thunks that retain no producer/resolver resources. Callbacks run without
 session locks; callback exceptions cannot break accounting.
 
-`IRequest` defines cancellation and waiting. `IRequestOwner` tracks Build and
-Cache requests through paired `Begin`/`End`, and owns task dispatch through
-`LaunchTask(Name, Body)`. `Begin` registers a shared request and returns void; shared
-owner leases and registration/publication synchronization remain private. `FRequestOwner` supplies cancellation,
-`Wait`, `Poll`, and mutable priority. Destruction cancels and joins all requests.
-Destroying an owner from its callback is rejected: move that
-destruction outside the callback and drain first. Reentrant waits return
-`WouldBlock`. Callbacks use nonblocking `RequestCancel`; synchronous `Cancel`
-rejects self-waits and returns only after request end.
+`IRequest` exposes intrusive `AddRef`/`Release`, `Cancel`, `Wait` and priority
+updates. `IRequestOwner` registers raw request pointers through `Begin` and returns
+the retained `TRefCountPtr<IRequest>` through `End`. Its callback overload begins a
+barrier, ends tracking, invokes the callback while retaining the request, then
+releases the barrier. Barrier counters and nonblocking cancellation signals remain
+private. Early failure callbacks use the same callback scope and barrier, and
+partial admission failure ends every registered request before reporting errors.
 
-Result readiness means a terminal result is available for consumers. Request end
-means submission has returned, callbacks have exited, buffers/callables have been
-released, and registered native work has ended. Build and Cache share this
-protocol. Owner `Wait` joins request end; `Poll` observes the same boundary.
-`Cancel` signals cancellation and waits for request end; owner cancellation signals all
-requests before joining any of them. Internal propagation and session/cache
-`Close` use nonblocking `RequestCancel`. Queued cache requests retire immediately,
-including their callback, without waiting for another owner's I/O slot. Already
-canceled owners do not dispatch cache work; stale dispatch thunks do no backend
-work. Owner wait joins requests already admitted; concurrent submission windows
-must be protected by submission barriers before publishing handles.
-Private native-task tracking includes accepted handles in this boundary; cancellation stays
-with the task's source. Private dependency tracking includes external work such as Shader
-subscribers, including cancellation for dependencies registered after cancel.
-Dependency queries and waits execute outside owner locks. A wait rechecks the
-owner after joining its snapshot, including work added by a continuation.
+`FRequestOwner` is a movable, noncopyable RAII facade, with conversions to
+`IRequestOwner&` and `IRequest*`. It supplies cancellation, `Wait`, `Poll`, priority
+updates and `LaunchTask`. Destruction cancels and waits unless `KeepAlive` was
+called. KeepAlive leaves requests and barriers owning the internal state after the
+facade is destroyed. Destroying or synchronously waiting on an owner from one of
+its callbacks is rejected. Requests and barriers retain the internal state,
+independently of the facade lifetime.
 
-The complete Build request and producer tasks register with the caller owner.
-Each build request owns a cache-request owner, tracked as a dependency of the
-caller owner through callback and native-dispatch retirement. Cancellation and
-priority changes propagate to that cache owner without affecting sibling builds. Dispatch tasks own the queued/running transition and dropped
-callable handling. Canceling queued producer continuations retires their callback
-without requiring the producer queue to advance; stale thunks perform no work.
-Cache-stage waits join the cache-request owner, avoiding a wait on the
-enclosing build. No cache operation handle is published to the build state machine. All public requests require an explicit owner. Queued cache selection and subsequent stages read the owner's
-latest priority; dispatched Core tasks retain their launch priority. There is no
-per-request priority mirror or scheduler working-set budget. Memory reservations
-and cache raw/encoded/resident size limits remain independent protections.
-Sessions keep their own close/drain authority.
+Owner completion means it has no active requests or barriers. Public
+`IRequestOwner::LaunchTask` uses a native task request and a publication event:
+Begin precedes execution, and the body calls End with the callback. Cancel waits
+for that task; it does not execute an alternate cancellation body. Native waits
+may help execute queued work. There is no retirement subscription or idle observer.
+Private build/cache dispatch requests end at their logical callback boundary;
+stale scheduler thunks do not extend owner completion. Shader jobs end their
+registered request through the group completion callback before publishing completion.
+
+Each Build stage uses the caller's public owner protocol. The pipeline retains
+session resources, data and its unique completion callback. Continuations are
+submitted before the End callback barrier is released. Requests and barriers retain
+the private concrete owner independently of its facade; implementations consuming
+`IRequestOwner&` do not cast it to that concrete type. Begin requires a barrier
+for registration after the first request, matching UE.
+
+Priority propagation snapshots requests under the owner lock and invokes request
+methods outside it. Priority barriers replay changes for late registrations;
+forwarding and task-handle publication converge on the latest owner priority
+without holding a lock across downstream calls. Callback completion and dispatch
+publication have separate responsibilities.
+
+`FBuildSession::Build` takes a definition/action, optional inputs, policy, owner and
+move-only callback, and returns void. Service build budgets are configured through
+`FBuildServiceOptions::BuildLimits`. Internal family session profiles capture their
+resolver and limits before Build; the public Build call carries no request options.
+The session resolver remains available through build completion. Captured inputs
+may be supplied alongside a session resolver. Memory reservations and raw, encoded
+and resident size limits remain independent protections. Typed synchronous
+consumers receive one completion; async consumers receive it through their callback.
+Product validation and assembly may still return domain-specific errors.
 
 DDC admission does not capture a Core scope or allocate per-request scope anchors.
 Engine asset producers use `FRequestOwner` directly. Producer task completion
 establishes that no further submissions can occur; owner `Poll()` then confirms
-request end and completion of registered native dispatch handles.
-`Wait()` joins the same boundary, including native dispatch capture destruction.
-Dispatch publication keeps a request registered until its scheduler has returned
-the native handle, even if its callback completed synchronously. Owner polling
+completion of its registered requests and barriers.
+`Wait()` joins the same registered-request and callback boundary.
+Dispatch publication keeps an owner barrier until its scheduler has returned
+and published the task request handle, even if its body completed synchronously. Owner polling
 alone cannot close a producer that may still submit another inline request.
 Queued requests need no Core worker admission slot, and callback-generated stages
-remain admissible while requests are active. Owners allocate no completion event;
+remain admissible while requests are active. Owners allocate no Core completion event;
 undispatched asset records therefore do not retain Core shutdown. Requests retain
 internal owner state rather than the facade; facade destruction cancels and joins
 its work. Asset managers drain producers and their owners before Core shutdown.
 
 Task completion does not forward cancellation. Render and texture managers signal
 their request owners; physics owner abort withdraws only unstarted cooks and lets
-started work retire normally. Internal batch cancellation affects only that batch; public cancellation is scoped
+started work finish normally. Internal batch cancellation affects only that batch; public cancellation is scoped
 to the request owner. LaunchTask reads
 current owner priority and uses the process scheduler lifetime.
 Schedulers and DDC callbacks must progress without GameThread pumping. Native
@@ -489,23 +489,22 @@ Managers drain DDC before Core scheduler shutdown.
 Inline cache dispatch permits callback reentry and does not use the asynchronous
 queue's concurrency gate. Nested inline builds complete before the enclosing
 callback returns. Asynchronous dispatch retains bounded concurrency and queue
-capacity, and batch handles continue to wait only for their own operations.
+capacity; private operation wait handles cover only their own operations.
 
-`Close` stops admission and cancels accepted work. `Drain` waits for execution,
-callbacks, dispatch return, and callable-owner release. Calling drain from the
-same session execution/completion stack returns `WouldBlock`. Completed handles
-and stale thunks retain no producer/resolver owners.
+Request owners cancel and join accepted builds through registered request completion
+and callback exit. Session release does not cancel requests. Stale
+thunks retain no producer/resolver owners after their request completes.
 
 Texture2D and TextureCube compilation owners submit through a persistent task-scheduled session.
 They release their dispatch worker immediately and retain a build request owner
-until callback retirement, then apply its detached result on GameThread. Owner
+until callback completion, then apply its detached result on GameThread. Owner
 priority follows the request; concurrency and estimated memory stay reserved
 across asynchronous stages. See [Asset Compilation](AssetCompilation.md#initial-compiling-managers).
 Material translation and generated Shader submission also own persistent task
 sessions. Material normalization/generation, Shader preparation and CPU assembly
 are separate detached continuations; neither producer waits for nested cache I/O.
-Other Engine asset families and synchronous texture adapters use inline sessions.
-ShaderBuild retains a separate inline session for explicit synchronous adapters. Each synchronous caller owns a
+Engine asset families and ShaderBuild each reuse one named session for synchronous
+and asynchronous requests. Each synchronous caller owns a
 request group and waits explicitly before typed assembly; it never assumes
 that completion happened before `Build` returned. Captured input description
 runs inside the accepted request. Producer scheduling adds no second asset reservation. Cache working-set limits
@@ -515,12 +514,13 @@ already occupied asset worker can nest unrelated asset tasks and violate their
 mailbox/barrier protocol. Task-scheduled build sessions release producer workers
 while cache work runs on BlockingIO. Further family migrations require the same
 asynchronous bridge at their asset-compilation owner boundary.
-Engine family wrappers share inline submission through their holder and preserve
-`FBuildAdmissionError` until business-error translation. Texture task submission
-also preserves typed rejection instead of returning bool. Native fixture guards
-scope task-cache overrides through owner retirement; replacement services register
-their functions before publication and old sessions/services drain outside the
-acquisition lock. Test overrides do not replace synchronous production sessions.
+Engine family wrappers submit through their holder and deliver failures through
+one completion channel. Texture, mesh, physics, material and shader asynchronous
+adapters return void; synchronous DDC adapters return FBuildCompleteParams. Domain
+product validation and assembly retain their own error results. Native fixture
+guards replace services only after owner completion, publish fully registered
+services, and release old resources outside the acquisition lock. Service
+replacement applies to synchronous and asynchronous requests.
 
 ## Family boundaries
 
@@ -530,10 +530,9 @@ projections, payload codecs and producer versions. The package publisher owns
 CookState reuse identity separately through explicit serializer identity/version. Platform resolution supplies capabilities while the family boundary
 validates its request profile.
 
-Texture2D, TextureCube, and VolumeTexture use a texture-owned inline session for
-import, detached build and Cook. Texture2D owner work (including authored PostLoad
-and editor rebuilds) and Cube platform-cache owner work use a separate task-scheduled
-session. Noncanonical Cube inputs normalize before submission on the dispatch worker.
+Texture2D, TextureCube, and VolumeTexture use one texture-owned session for import,
+detached build, Cook and platform-cache owner work (including authored PostLoad
+and editor rebuilds). Noncanonical Cube inputs normalize before submission on the dispatch worker.
 Completion supplies the cache
 key and hit fact. Recipe timing stays inside producer-local qualification paths;
 it is not part of DDC output or Engine request diagnostics. Their
@@ -600,19 +599,19 @@ for source preservation and application without changing cached representations.
 StaticMesh render and physics collision each use a family-owned session with
 separate definitions/actions and request inputs. StaticMesh render owners use a
 persistent task-backed session; synchronous Build and detached import retain
-an inline session. Cook executes its detached synchronous builder adapter on a
+the same session with owner waiting. Cook executes its detached synchronous builder adapter on a
 worker after owner-thread capture; package admission and teardown follow
 [Cooking](Cooking.md#object-lifecycle-and-selection). Both share input validation, request limits and typed output
 consumption. Owner callbacks retain detached build completions, and the GameThread
-pump dispatches CPU assembly and ray preparation after build-owner retirement.
+pump dispatches CPU assembly and ray preparation after build-owner completion.
 The captured builder version defines the asynchronous request. Physics keeps its
-independent synchronous session and collision worker path. Source/reconciliation
+independent collision session and worker path. Source/reconciliation
 identity, working-set admission, generation checks, typed construction, collision editor
 gating, and publication remain unchanged. Serialized and native physics
 validation protect different trust boundaries and remain separate.
 
 ShaderBuild captures immutable dependency metadata into request inputs, reuses
-persistent inline and task service sessions, and keeps its compiler single-flight, LRU,
+one persistent named service session, and keeps its compiler single-flight, LRU,
 waiter cancellation, filesystem bounds, and dependency-content verification.
 Its nonzero opaque 64-bit build identity composes private producer revisions and
 compiler dependencies. A named `BuilderVersion` constant is checked before recipe
@@ -630,7 +629,7 @@ requesting snapshots restore consumer GUIDs, paths and collection defaults. Type
 validation rejects schema, identity, MIR/layout or requirements disagreement and
 rebuilds a bad hit once without cache query. Force, cancellation and persistence
 failure retain the common session policy. Material compile records retain their DDC
-owners through retirement and close family sessions after compilation drain. Complete
+owners until completion and close family sessions after compilation drain. Complete
 assembled material candidates remain in the shared bounded process cache only.
 
 Cache success never means an asset is current, applied, GPU-ready, or

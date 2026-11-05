@@ -1,20 +1,23 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/RefCounting.h"
 
 namespace Durin::DerivedData
 {
-	enum class ERequestWaitResult : uint8 { Completed, WouldBlock, InvalidRequest };
 	enum class ERequestPriority : uint8 { High, Normal, Low };
 	class IRequest
 	{
 	public:
 		virtual ~IRequest() = default;
-		// Nonblocking signal for cancellation propagation and callbacks.
-		virtual auto RequestCancel() -> bool = 0;
+		auto AddRef() -> void { References.fetch_add(1, std::memory_order_relaxed); }
+		auto Release() -> void { if (References.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this; }
 		// Cancel and Wait wait for request end, including callback exit.
-		// Cancel rejects self-waits.
-		virtual auto Cancel() -> bool = 0;
-		virtual auto Wait() -> ERequestWaitResult = 0;
+		// Waiting or canceling from the request callback is a programming error.
+		virtual auto Cancel() -> void = 0;
+		virtual auto Wait() -> void = 0;
+		virtual auto SetPriority(ERequestPriority Priority) -> void = 0;
+	private:
+		std::atomic<uint32> References = 0;
 	};
 }

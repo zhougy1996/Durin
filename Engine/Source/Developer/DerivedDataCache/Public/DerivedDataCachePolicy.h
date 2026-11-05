@@ -11,7 +11,10 @@ namespace Durin::DerivedData
 		None = 0,
 		QueryLocal = 1 << 0,
 		Query = QueryLocal,
-		Default = Query,
+		StoreLocal = 1 << 2,
+		Store = StoreLocal,
+		Local = (1 << 0) | (1 << 2),
+		Default = Local,
 		SkipData = 1 << 4,
 	};
 	constexpr auto operator|(ECachePolicy A, ECachePolicy B) -> ECachePolicy

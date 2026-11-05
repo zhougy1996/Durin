@@ -9,7 +9,7 @@ namespace Durin::TexturePrivate
 	using namespace DerivedData;
 	namespace
 	{
-		auto Error(std::string Description) -> FBuildInputError { return {std::move(Description)}; }
+
 		auto Identity(const FTextureSource& Source) -> FBuildInputReference
 		{ return {"Source", Source.GetIdentity(), "TextureSource", TextureSourceSchemaVersion, "Volume.Voxels", 1}; }
 		auto ReadConstants(const FBuildContext& Context) -> std::expected<FVolumeTextureBuildKeyInput, std::string>
@@ -40,25 +40,27 @@ namespace Durin::TexturePrivate
 		{
 		public:
 			explicit FVolumeResolver(const FTextureSource& Source) : Source(Source.CopyTornOff()) {}
-			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
+			auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
 			{
+				const auto Sources = Definition.GetSources();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				if (Sources.size() != 1 || Sources[0].Name != "Source" || Sources[0].Source != "CapturedSource"
 					|| !Source.IsValid() || Source.GetKind() != ETextureSourceKind::Volume)
-					return std::unexpected(Error("Volume captured source is invalid."));
-				return std::vector{Identity(Source)};
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
+				return OnResolved({std::vector{Identity(Source)}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
-			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation&) const
-				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
+			auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
 			{
+				const auto Inputs = Action.GetInputs();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 				if (Inputs.size() != 1 || Inputs[0] != Identity(Source))
-					return std::unexpected(Error("Volume source identity changed."));
+					return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				const auto Mips = Source.GetMipData(); // Verifies the captured decoded payload hash.
-				if (!Mips.IsValid()) return std::unexpected(Error("Volume captured bytes are unavailable or corrupt."));
+				if (!Mips.IsValid()) return OnResolved({{}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error});
 				FBinaryWriter Metadata({.MaximumTotalBytes = 16});
 				Metadata.WriteU32(Source.GetWidth()); Metadata.WriteU32(Source.GetHeight()); Metadata.WriteU32(Source.GetDepth());
 				Metadata.WriteU32(static_cast<uint32>(Source.GetFormat()));
-				return std::vector<FBuildInput>{{.Identity = Inputs[0], .Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes()), .Values = {{"Voxels", Mips.GetData()}}}};
+				return OnResolved({std::vector<FBuildInput>{{.Identity = Inputs[0], .Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes()), .Values = {{"Voxels", Mips.GetData()}}}}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 			}
 		private:
 			FTextureSource Source;
@@ -95,7 +97,7 @@ namespace Durin::TexturePrivate
 				if (!Source.Voxels.UpdatePayload(SourceInput->Values[0].Data) || !Source.IsValid()) return Fail("Volume voxel byte count is invalid.");
 				auto Built = Module->BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Constants->Settings,
 					.TargetPlatform = Constants->TargetPlatform, .TargetProfile = Constants->TargetProfile});
-				if (Context.IsCancelled()) return;
+				if (Context.IsCanceled()) return;
 				if (!Built) return Context.FailExecution("VolumeTexture build failed; see TextureCompressor logs for details.");
 				auto Output = MakeVolumeTextureSharedOutput(*Built, Constants->TargetPlatform, Constants->TargetProfile);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));

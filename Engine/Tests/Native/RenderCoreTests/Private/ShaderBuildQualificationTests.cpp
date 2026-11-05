@@ -1,4 +1,5 @@
 #include "ShaderBuilder.h"
+
 #include "MetalLibraryBuild.h"
 #include "MetalShaderFormat.h"
 #include "ShaderBuild/ShaderPaths.h"
@@ -66,19 +67,18 @@ namespace Durin
 		{
 			auto Request = MakeMetalLibraryBuildRequest(Shader, *Producer);
 			ASSERT_TRUE(Request) << Request.error();
-			DerivedData::FBuildRequestOptions Options;
-			Options.Policy = Round < 2 ? DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheStore : DerivedData::EBuildPolicy::Cache;
+			Durin::DerivedData::FBuildPolicy OptionsPolicy = Round < 2 ? DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheStore : DerivedData::EBuildPolicy::Cache;
 			const auto Begin = std::chrono::steady_clock::now();
-			const auto Completion = Service.Execute(std::move(*Request), Options);
-			ASSERT_EQ(Completion.GetStatus(), DerivedData::EStatus::Ok) << Completion.GetDiagnostic();
-			ASSERT_TRUE(Completion.GetOutput());
-			const auto* Library = Completion.GetOutput()->FindValue(DerivedData::FValueId::FromName("Library"));
+			const auto Completion = Service.Execute(std::move(*Request), OptionsPolicy);
+			ASSERT_EQ(Completion.Status, DerivedData::EStatus::Ok) << (Completion.Output.GetLogs().empty() ? std::string_view{} : std::string_view(Completion.Output.GetLogs().front().Text));
+			ASSERT_TRUE(Completion.Output.IsValid());
+			const auto* Library = Completion.Output.FindValue(DerivedData::FValueId::FromName("Library"));
 			ASSERT_TRUE(Library);
 			const auto Data = Library->GetData();
 			ASSERT_TRUE(ShaderFormat::ValidateMetalLibrary(Data.GetBytes()));
 			if (Round) EXPECT_TRUE(std::ranges::equal(Previous.GetBytes(), Data.GetBytes()));
 			Previous = Data;
-			if (Round == 2) EXPECT_TRUE(DerivedData::HasBuildExecutionFlag(Completion.GetExecutionFlags(), DerivedData::EBuildExecutionFlags::CacheQueryHit));
+			if (Round == 2) EXPECT_TRUE(DerivedData::HasBuildExecutionFlag(Completion.BuildStatus, DerivedData::EBuildExecutionFlags::CacheQueryHit));
 			std::cout << "metal_library round=" << Round << " bytes=" << Data.size()
 				<< " elapsed_ms=" << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Begin).count()
 				<< " producer=" << *Producer << std::endl;
@@ -91,9 +91,9 @@ namespace Durin
 		auto RepairRequest = MakeMetalLibraryBuildRequest(Shader, *Producer);
 		ASSERT_TRUE(RepairRequest);
 		const auto Repaired = Service.Execute(std::move(*RepairRequest), {});
-		ASSERT_EQ(Repaired.GetStatus(), DerivedData::EStatus::Ok) << Repaired.GetDiagnostic();
-		ASSERT_TRUE(Repaired.GetOutput());
-		const auto* RepairedValue = Repaired.GetOutput()->FindValue(DerivedData::FValueId::FromName("Library"));
+		ASSERT_EQ(Repaired.Status, DerivedData::EStatus::Ok) << (Repaired.Output.GetLogs().empty() ? std::string_view{} : std::string_view(Repaired.Output.GetLogs().front().Text));
+		ASSERT_TRUE(Repaired.Output.IsValid());
+		const auto* RepairedValue = Repaired.Output.FindValue(DerivedData::FValueId::FromName("Library"));
 		ASSERT_TRUE(RepairedValue);
 		EXPECT_TRUE(std::ranges::equal(Previous.GetBytes(), RepairedValue->GetData().GetBytes()));
 
@@ -104,8 +104,8 @@ namespace Durin
 		auto InvalidRequest = MakeMetalLibraryBuildRequest(InvalidSource, *Producer);
 		ASSERT_TRUE(InvalidRequest);
 		const auto Invalid = Service.Execute(std::move(*InvalidRequest), {});
-		EXPECT_EQ(Invalid.GetStatus(), DerivedData::EStatus::Error);
-		EXPECT_EQ(Invalid.GetOutput(), nullptr);
+		EXPECT_EQ(Invalid.Status, DerivedData::EStatus::Error);
+		EXPECT_TRUE(Invalid.Output.IsValid());
 		std::filesystem::create_directories(Root / "Source");
 		FShaderPaths::RegisterMountPoint("/MetalLibraryQualification/", (Root / "Source").generic_string(), (Root / "Manifest").generic_string());
 		FShaderBuilder Builder;

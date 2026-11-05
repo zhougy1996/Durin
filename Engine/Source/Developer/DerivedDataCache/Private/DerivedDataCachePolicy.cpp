@@ -4,7 +4,7 @@ namespace Durin::DerivedData
 {
 	namespace
 	{
-		constexpr uint8 PolicyMask = uint8(ECachePolicy::Query | ECachePolicy::SkipData);
+		constexpr uint8 PolicyMask = uint8(ECachePolicy::Query | ECachePolicy::Store | ECachePolicy::SkipData);
 		auto CheckPolicy(ECachePolicy Policy) -> void
 		{
 			requiref((uint8(Policy) & ~PolicyMask) == 0, "Unsupported cache policy flags.");
@@ -13,7 +13,7 @@ namespace Durin::DerivedData
 
 	FCacheRecordPolicy::FCacheRecordPolicy(ECachePolicy BasePolicy)
 		: BasePolicy(BasePolicy)
-		, RecordPolicy(BasePolicy & ECachePolicy::Query)
+		, RecordPolicy(BasePolicy & (ECachePolicy::Query | ECachePolicy::Store))
 	{
 		CheckPolicy(BasePolicy);
 	}
@@ -51,7 +51,7 @@ namespace Durin::DerivedData
 		std::erase_if(Values, [&](const auto& Value) { return Value.Policy == BasePolicy; });
 		FCacheRecordPolicy Result(BasePolicy);
 		for (const auto& Value : Values)
-			Result.RecordPolicy = Result.RecordPolicy | (Value.Policy & ECachePolicy::Query);
+			Result.RecordPolicy = Result.RecordPolicy | (Value.Policy & (ECachePolicy::Query | ECachePolicy::Store));
 		if (!Values.empty()) Result.Values = std::make_shared<const std::vector<FCacheValuePolicy>>(std::move(Values));
 		return Result;
 	}

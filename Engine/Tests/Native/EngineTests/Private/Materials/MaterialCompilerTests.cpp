@@ -1,3 +1,4 @@
+#include "RequestOwnerAccess.h"
 #include "BuildServiceBackendPrivate.h"
 #include "BuildCacheRecordPrivate.h"
 #include "CacheDispatchPrivate.h"
@@ -640,7 +641,7 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 			return std::optional{Durin::DerivedData::Private::MakeBuildCacheRecord(Request.Key, std::move(Output).Build().value()).value()};
 		}
 		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override
-		{ if (FailStore) return std::unexpected(FCacheError{ECacheError::StorageFailure, "fixture"}); Record = Request.Record; return {}; }
+		{ if (FailStore) return std::unexpected(FCacheError{ECacheError::StorageFailure, "fixture"}); Record = Request.Record; return Request.Record; }
 	};
 	auto Cache = std::make_shared<FCache>();
 	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.Cache = Cache});
@@ -649,8 +650,8 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); } } Restore;
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
 	auto Run = [&](FMaterialTranslatedProgram& Product, bool Force = false) {
-		FRequestOwner Owner; auto Accepted = SubmitTranslation(Input, Force, Owner, [&](auto Value) { Product = std::move(Value); });
-		EXPECT_TRUE(Accepted); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+		FRequestOwner Owner; SubmitTranslation(Input, Force, Owner, [&](auto Value) { Product = std::move(Value); });
+		Owner.Wait();
 	};
 	FMaterialTranslatedProgram Cold; Run(Cold); ASSERT_TRUE(Cold);
 	const auto Before = GetTranslationStats(); Cache->Corrupt = true;
@@ -659,12 +660,12 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 	Cache->FailStore = true;
 	FMaterialTranslatedProgram Local; Run(Local, true); ASSERT_TRUE(Local);
 	EXPECT_EQ(Local.GeneratedSource, Cold.GeneratedSource);
-	FRequestOwner Canceled; Canceled.RequestCancel(); uint32 Completions = 0;
-	auto Accepted = SubmitTranslation(Input, true, Canceled, [&](auto Product) { EXPECT_FALSE(Product); EXPECT_EQ(Product.Status, EMaterialProgramStatus::Canceled); EXPECT_TRUE(Product.Diagnostics.empty()); ++Completions; });
-	ASSERT_TRUE(Accepted); EXPECT_EQ(Canceled.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Completions, 1u);
+	FRequestOwner Canceled; Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Canceled); uint32 Completions = 0;
+	SubmitTranslation(Input, true, Canceled, [&](auto Product) { EXPECT_FALSE(Product); EXPECT_EQ(Product.Status, EMaterialProgramStatus::Canceled); EXPECT_TRUE(Product.Diagnostics.empty()); ++Completions; });
+	Canceled.Wait(); EXPECT_EQ(Completions, 1u);
 }
 
-TEST(FMaterialTranslationTests, PreservesExecutionAndAdmissionDiagnostics)
+TEST(FMaterialTranslationTests, PreservesExecutionDiagnostics)
 {
 	using namespace Durin; using namespace DerivedData; using namespace MaterialBuildPrivate;
 	InitializeDObjectSystem();
@@ -679,39 +680,15 @@ TEST(FMaterialTranslationTests, PreservesExecutionAndAdmissionDiagnostics)
 	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFailingTranslation>()));
 	SetTranslationServiceForTests(Service);
-	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); OpenTranslationSessions(); } } Restore;
+	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); RegisterTranslation(); } } Restore;
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
 	FMaterialTranslatedProgram Product; FRequestOwner Owner;
-	auto Accepted = SubmitTranslation(Input, true, Owner, [&](auto Value) { Product = std::move(Value); });
-	ASSERT_TRUE(Accepted); ASSERT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	SubmitTranslation(Input, true, Owner, [&](auto Value) { Product = std::move(Value); });
+	Owner.Wait();
 	EXPECT_EQ(Product.Status, EMaterialProgramStatus::Error);
 	ASSERT_FALSE(Product.Diagnostics.empty());
 	EXPECT_EQ(Product.Diagnostics.front().Message, "translation producer diagnostic");
-	CloseTranslationSessions();
-	const auto Rejected = TranslateMaterialInput(*Input, true);
-	EXPECT_EQ(Rejected.Status, EMaterialProgramStatus::Error);
-	ASSERT_FALSE(Rejected.Diagnostics.empty());
-	EXPECT_FALSE(Rejected.Diagnostics.front().Message.empty());
-}
 
-TEST(FMaterialTranslationTests, ClosedSessionsRemainClosedUntilExplicitOpen)
-{
-	using namespace Durin; using namespace DerivedData; using namespace MaterialBuildPrivate;
-	InitializeDObjectSystem();
-	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
-	CloseTranslationSessions();
-	struct FRestore { ~FRestore() { OpenTranslationSessions(); } } Restore;
-	const auto Before = GetTranslationStats(); uint32 Completions = 0;
-	FRequestOwner Owner;
-	for (uint32 Index = 0; Index < 2; ++Index)
-	{
-		auto Accepted = SubmitTranslation(Input, false, Owner, [&](auto) { ++Completions; }, true, {}, EBuildCacheExecution::Inline);
-		ASSERT_FALSE(Accepted); EXPECT_EQ(Accepted.error().Reason, EBuildAdmissionReason::Closed);
-	}
-	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Completions, 0u); EXPECT_EQ(GetTranslationStats().Producers, Before.Producers);
-	OpenTranslationSessions();
-	auto Accepted = SubmitTranslation(Input, false, Owner, [&](auto Product) { EXPECT_TRUE(Product); ++Completions; }, true, {}, EBuildCacheExecution::Inline);
-	ASSERT_TRUE(Accepted); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Completions, 1u);
 }
 
 TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTransitionOverlap)
@@ -779,7 +756,7 @@ TEST(FMaterialTranslationTests, CancellationDuringCacheIOCompletesAndRetiresWith
 			Release.WaitFor(10);
 			return std::optional<FCacheRecord>{};
 		}
-		auto Put(const FCachePutBackendRequest&) const -> FCachePutResult override { return {}; }
+		auto Put(const FCachePutBackendRequest& Request) const -> FCachePutResult override { return Request.Record; }
 	};
 	auto Cache = std::make_shared<FGate>();
 	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({.Cache = Cache});
@@ -886,6 +863,8 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 		ASSERT_TRUE(First); ASSERT_TRUE(Cache->FirstEntered.WaitFor(10)); ASSERT_TRUE(Cache->SecondEntered.WaitFor(10));
 		auto Second = MaterialBuildPrivate::FMaterialCompilation::Compile(Other, {.bForceRecompile = true, .IsCancellationRequested = [&] { return Observe && Cancellation[1].IsCanceled(); }}, [&](auto Result) { Results[1] = std::move(Result); ++Calls[1]; });
 		ASSERT_TRUE(Second);
+		std::shared_ptr<DerivedData::FRequestOwner> FirstOwner;
+		{ std::lock_guard Lock((*First)->Mutex); FirstOwner = (*First)->Owner; }
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (GetMaterialProgramCompileStatsForTests().Joins == Before.Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 		ASSERT_EQ(GetMaterialProgramCompileStatsForTests().Joins, Before.Joins + 1);
@@ -898,7 +877,7 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 			if (Canceled == 2) { Manager.CancelCompilation(*First); Manager.CancelCompilation(*Second); }
 			else if (Canceled >= 0) Manager.CancelCompilation(Canceled == 0 ? *First : *Second);
 		}
-		EXPECT_EQ((*First)->Owner->IsCanceled(), Canceled == 2);
+		EXPECT_EQ(FirstOwner->IsCanceled(), Canceled == 2);
 		EXPECT_EQ((*First)->BuildCancellation.IsCanceled(), Canceled == 2);
 		Cache->OthersRelease.Trigger();
 		const auto DrainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);

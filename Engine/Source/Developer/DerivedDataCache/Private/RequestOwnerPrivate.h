@@ -1,20 +1,17 @@
 #pragma once
 
-#include "RequestOwnerInternal.h"
+#include "RequestOwnerAccess.h"
 
 namespace Durin::DerivedData::Private
 {
-	auto CreateRequestOwnerState() -> std::shared_ptr<IRequestOwnerInternal>;
 	struct FRequestOwnerScope
 	{
-		IRequestOwnerInternal* Owner;
 		IRequest* Request;
 		const void* Domain;
 		FRequestOwnerScope* Previous;
 		static thread_local FRequestOwnerScope* Current;
-		explicit FRequestOwnerScope(IRequestOwnerInternal* Owner, IRequest* Request = nullptr, const void* Domain = nullptr)
-			: Owner(Owner)
-			, Request(Request)
+		explicit FRequestOwnerScope(IRequest* Request = nullptr, const void* Domain = nullptr)
+			: Request(Request)
 			, Domain(Domain)
 			, Previous(Current)
 		{
@@ -28,67 +25,47 @@ namespace Durin::DerivedData::Private
 			return false;
 		}
 	};
-	// Shared callback completion, dispatch publication, and request-end protocol.
-	struct FRequestCompletion : IRequest
+	// Requests own callback completion; dispatch publication belongs to the submitter.
+	struct FRequestCompletion : IRequest, ICancelableRequest
 	{
 		std::mutex Mutex;
 		std::condition_variable Changed;
-		bool Dispatching = true, CompletionReleased = false, OwnerReleased = false, Finished = false, StageDispatching = false;
-		uint64 ScheduleRevision = 0;
-		std::shared_ptr<IRequestOwnerInternal> Group;
+		bool Finished = false;
+		IRequestOwner* Group = nullptr;
 		std::shared_ptr<IBuildScheduledWork> Scheduled;
 		const void* WaitDomain = nullptr;
 		virtual auto OnFinished() -> void {}
-		auto Cancel() -> bool final
+		auto Cancel() -> void final
 		{
 			requiref(!FRequestOwnerScope::Blocks(this, WaitDomain), "Synchronous cancellation cannot wait for its own callback; use RequestCancel.");
-			const bool Changed = RequestCancel();
-			requiref(Wait() == ERequestWaitResult::Completed, "Synchronous cancellation must wait for request end.");
-			return Changed;
+			RequestCancel();
+			requiref(WaitInternal() == ERequestWaitResult::Completed, "Synchronous cancellation must wait for request end.");
 		}
-		auto ReleaseOwner() -> void
+		template <typename F> auto Complete(F&& Callback, const void* Domain) -> void
 		{
-			std::shared_ptr<IRequestOwnerInternal> Owner;
-			{
-				std::lock_guard Lock(Mutex);
-				if (Dispatching || !CompletionReleased || OwnerReleased) return;
-				OwnerReleased = true;
-				Owner = Group;
-			}
-			OnFinished();
-			if (Owner) Owner->End(this);
+			FOwnerAccess::End(*Group, this, [&] {
+				try { Callback(); } catch (...) {}
+				OnFinished();
+			}, Domain);
 			{ std::lock_guard Lock(Mutex); Finished = true; }
 			Changed.notify_all();
 		}
-		auto DispatchReturned() -> void { { std::lock_guard Lock(Mutex); Dispatching = false; } ReleaseOwner(); Changed.notify_all(); }
-		auto Complete() -> void { { std::lock_guard Lock(Mutex); CompletionReleased = true; } ReleaseOwner(); Changed.notify_all(); }
-		template <typename F> auto Complete(F&& Callback, const void* Domain) -> void
+		auto Wait() -> void override { requiref(WaitInternal() == ERequestWaitResult::Completed, "Requests must be waited outside their callbacks."); }
+		auto SetPriority(ERequestPriority Priority) -> void override
 		{
-			FRequestOwnerScope Scope(Group.get(), this, Domain);
-			try { Callback(); } catch (...) {}
-			Complete();
+			std::shared_ptr<IBuildScheduledWork> Work;
+			{ std::lock_guard Lock(Mutex); Work = Scheduled; }
+			if (Work) Work->SetPriority(Priority);
 		}
-		auto Wait() -> ERequestWaitResult override
+		virtual auto WaitInternal() -> ERequestWaitResult
 		{
-			{ std::lock_guard Lock(Mutex); if (Finished) return ERequestWaitResult::Completed; }
 			if (FRequestOwnerScope::Blocks(this, WaitDomain)) return ERequestWaitResult::WouldBlock;
-			for (;;)
-			{
+			for (;;) {
 				std::shared_ptr<IBuildScheduledWork> Work;
-				uint64 Revision;
-				{
-					std::unique_lock Lock(Mutex);
-					Changed.wait(Lock, [&] { return !Dispatching && (!StageDispatching || CompletionReleased); });
-					if (CompletionReleased)
-					{
-						Changed.wait(Lock, [&] { return Finished; });
-						return ERequestWaitResult::Completed;
-					}
-					Work = Scheduled;
-					Revision = ScheduleRevision;
-				}
+				{ std::lock_guard Lock(Mutex); if (Finished) return ERequestWaitResult::Completed; Work = Scheduled; }
 				if (Work && Work->Wait() != ERequestWaitResult::Completed) return ERequestWaitResult::WouldBlock;
-				std::unique_lock Lock(Mutex); Changed.wait(Lock, [&] { return CompletionReleased || ScheduleRevision != Revision; });
+				std::unique_lock Lock(Mutex);
+				Changed.wait(Lock, [&] { return Finished || Scheduled != Work; });
 			}
 		}
 	};

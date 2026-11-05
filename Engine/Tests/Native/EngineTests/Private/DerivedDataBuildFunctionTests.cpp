@@ -1,4 +1,5 @@
 #include "DerivedDataBuildSession.h"
+
 #include <gtest/gtest.h>
 
 namespace
@@ -9,11 +10,12 @@ namespace
 	{ return {"Source", FXxHash128::HashBuffer("source"), "Fixture", 1, "Bytes", 1}; }
 	struct FResolver final : IBuildInputResolver
 	{
-		auto Describe(std::span<const FBuildSourceReference>, const FBuildCancellation&) const
-			-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override { return std::vector{Identity()}; }
-		auto Resolve(std::span<const FBuildInputReference>, const FBuildCancellation&) const
-			-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
-		{ return std::vector<FBuildInput>{{.Identity = Identity(), .Values = {{"Data", FSharedByteBuffer::Take(FByteBuffer(8, std::byte{7}))}}}}; }
+		auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
+			{
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled}); return OnResolved({std::vector{Identity()}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok}); }
+		auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
+			{
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled}); return OnResolved({std::vector<FBuildInput>{{.Identity = Identity(), .Values = {{"Data", FSharedByteBuffer::Take(FByteBuffer(8, std::byte{7}))}}}}, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok}); }
 	};
 	struct FCopy final : IBuildFunction
 	{
@@ -59,16 +61,16 @@ TEST(FBuildFunctionTests, BuildersRejectDuplicatesAndInvalidConstants)
 TEST(FBuildFunctionTests, ContextPublishesValueWarningAndDeterministicError)
 {
 	auto Function = std::make_shared<FCopy>(); auto Resolver = std::make_shared<FResolver>(); auto Service = CreateBuild();
-	ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession(); ASSERT_TRUE(Session);
-	auto DefinitionValue = Definition(); auto Inputs = std::move(FBuildInputsBuilder(DefinitionValue.GetSources(), Resolver)).Build(); ASSERT_TRUE(Inputs);
+	ASSERT_TRUE(Service->Register(Function)); auto Session = std::make_shared<Durin::DerivedData::FBuildSession>(Service->CreateSession("Fixture")); ASSERT_TRUE(Session);
+	auto DefinitionValue = Definition(); FBuildInputsBuilder Builder; Builder.AddInput({.Identity = Identity(), .Values = {{"Data", FSharedByteBuffer::Take(FByteBuffer(8, std::byte{7}))}}}); auto Inputs = std::move(Builder).Build();
 	std::optional<FBuildCompleteParams> Result;
-	FBuildRequestOptions Options{.Policy = EBuildPolicy::Build};
+	Durin::DerivedData::FBuildPolicy OptionsPolicy = EBuildPolicy::Build;
 	FRequestOwner Owner;
-	(*Session)->Build(DefinitionValue, Owner, [&](auto Value) { Result = std::move(Value); }, std::move(*Inputs), Options);
-	ASSERT_TRUE(Result); EXPECT_EQ(Result->GetStatus(), EStatus::Ok); ASSERT_NE(Result->GetOutput(), nullptr);
-	EXPECT_NE(Result->GetOutput()->FindValue(FValueId::FromName("Data")), nullptr); ASSERT_EQ(Result->GetOutput()->GetMessages().size(), 1u);
-	Function->Error = true; Inputs = std::move(FBuildInputsBuilder(DefinitionValue.GetSources(), Resolver)).Build(); Result.reset();
-	(*Session)->Build(DefinitionValue, Owner, [&](auto Value) { Result = std::move(Value); }, std::move(*Inputs), Options);
-	ASSERT_TRUE(Result); EXPECT_EQ(Result->GetStatus(), EStatus::Error); ASSERT_NE(Result->GetOutput(), nullptr);
-	EXPECT_TRUE(Result->GetOutput()->HasError()); EXPECT_TRUE(Result->GetOutput()->GetValues().empty());
+	Session->Build(DefinitionValue, Inputs, OptionsPolicy, Owner, [&](auto Value) { Result = std::move(Value); });
+	ASSERT_TRUE(Result); EXPECT_EQ(Result->Status, EStatus::Ok); ASSERT_TRUE(Result->Output.IsValid());
+	EXPECT_NE(Result->Output.FindValue(FValueId::FromName("Data")), nullptr); ASSERT_EQ(Result->Output.GetMessages().size(), 1u);
+	Function->Error = true;  Result.reset();
+	Session->Build(DefinitionValue, Inputs, OptionsPolicy, Owner, [&](auto Value) { Result = std::move(Value); });
+	ASSERT_TRUE(Result); EXPECT_EQ(Result->Status, EStatus::Error); ASSERT_TRUE(Result->Output.IsValid());
+	EXPECT_TRUE(Result->Output.HasError()); EXPECT_TRUE(Result->Output.GetValues().empty());
 }

@@ -4,6 +4,8 @@
 #include "Threading/TaskRuntime.h"
 namespace Durin::DerivedData
 {
+	// Internal wait restrictions never form a public request result channel.
+	enum class ERequestWaitResult : uint8 { Completed, WouldBlock };
 	struct FBuildScheduleParams
 	{
 		std::string_view FunctionName;
@@ -15,36 +17,16 @@ namespace Durin::DerivedData
 		virtual ~IBuildScheduledWork() = default;
 		// May help execute tasks. Completed includes executing or dropping the thunk.
 		virtual auto Wait() const -> ERequestWaitResult = 0;
-	};
-	// Business operations may be canceled; scheduler dispatch handles only wait.
-	class IBuildOperation : public IBuildScheduledWork
-	{
-	public:
-		virtual auto RequestCancel() const -> void = 0;
+		virtual auto SetPriority(ERequestPriority) -> void {}
 	};
 	class IBuildScheduler
 	{
 	public:
 		virtual ~IBuildScheduler() = default;
 		virtual auto IsInline() const -> bool { return false; }
-		// Reject without invoking/retaining Work, or accept at-most-once execution.
+		// Executes or retains Work for at-most-once execution.
 		// A null wait handle permits externally driven work; dropped work cancels.
 		virtual auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Work)
-			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> = 0;
+			-> std::shared_ptr<IBuildScheduledWork> = 0;
 	};
 }
-namespace Durin::DerivedData::Private
-{
-	// Native dispatch retirement is an implementation concern of owner waiting.
-	class INativeBuildWork
-	{
-	public:
-		virtual ~INativeBuildWork() = default;
-		virtual auto GetTaskHandle() const -> Tasks::FTask = 0;
-	};
-	inline auto GetNativeTask(const IBuildScheduledWork& Work) -> Tasks::FTask
-	{
-		const auto* Native = dynamic_cast<const INativeBuildWork*>(&Work);
-		return Native ? Native->GetTaskHandle() : Tasks::FTask{};
-	}
-} // namespace Durin::DerivedData::Private

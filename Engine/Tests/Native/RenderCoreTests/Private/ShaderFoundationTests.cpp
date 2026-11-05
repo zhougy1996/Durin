@@ -1331,6 +1331,7 @@ namespace Durin
 			auto SetPriority(EShaderBuildPriority Priority) -> void override { if (Priorities) Priorities->push_back(Priority); }
 			auto Wait() -> EShaderBuildWaitResult override { if (WaitCalls) ++*WaitCalls; return EShaderBuildWaitResult::Completed; }
 			auto IsComplete() const -> bool override { return true; }
+
 		};
 		uint32 Compiles = 0;
 		uint32 Waits = 0;

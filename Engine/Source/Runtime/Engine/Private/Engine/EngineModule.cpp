@@ -21,7 +21,7 @@ namespace Durin
 		{
 			RHIReleaseResourcesHandle = GetRHIReleaseResourcesDelegate().AddLambda([] { GetGlobalShaderMap().ReleaseDeviceResources_RenderThread(); });
 #if DURIN_WITH_EDITOR
-			MaterialBuildPrivate::OpenTranslationSessions();
+			MaterialBuildPrivate::RegisterTranslation();
 #endif
 			CollisionDebug = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
 				.Type = DCollisionDebugSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
@@ -36,7 +36,7 @@ namespace Durin
 			GetGlobalShaderMap().Shutdown_RenderThread();
 #if DURIN_WITH_EDITOR
 			PhysicsPrivate::ShutdownBuildSessions();
-			MaterialBuildPrivate::CloseTranslationSessions();
+			MaterialBuildPrivate::ReleaseTranslationSession();
 			FMaterialShaderMap::ClearCache();
 #endif
 			MaterialParameterCollections.reset();

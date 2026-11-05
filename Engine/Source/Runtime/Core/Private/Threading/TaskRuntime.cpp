@@ -1026,12 +1026,15 @@ namespace Durin
 		auto GetTaskId() const -> uint64 { return TaskId; }
 		auto PinScheduler() const -> std::shared_ptr<FTaskScheduler> { return Scheduler.lock(); }
 		auto GetTarget() const -> ETaskTarget { return Target; }
-		auto GetPriority() const -> ETaskPriority { return Priority; }
+		auto GetPriority() const -> ETaskPriority { return Priority.load(); }
+		auto SetPriority(ETaskPriority Value) -> void;
+		std::mutex PriorityMutex;
 		auto GetAttribution() const -> FTaskAttribution { return Attribution; }
 		auto GetEstimatedPayloadBytes() const -> uint64 { return EstimatedPayloadBytes; }
 		auto GetSchedulerStorageBytes() const -> uint64 { return SchedulerStorageBytes; }
 
 	private:
+		friend class FTaskScheduler;
 		static auto AddCompletionDependency(const std::shared_ptr<FTaskStateData>& Parent,
 			const std::shared_ptr<FTaskStateData>& Child) -> std::optional<Tasks::FTaskConstructionError>;
 		enum class EPhase : uint8 { Open, BodyFinished, Closing, Closed };
@@ -1088,7 +1091,7 @@ namespace Durin
 		// Execution progress remains nonterminal; only Closed exposes Outcome.State.
 		ETaskState ExecutionState = ETaskState::Queued;
 		ETaskTarget Target = ETaskTarget::AnyWorker;
-		ETaskPriority Priority = ETaskPriority::Normal;
+		std::atomic<ETaskPriority> Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
 		const bool bIndependentCPU;
 		uint64 SchedulerStorageBytes = 0;
@@ -1314,6 +1317,13 @@ namespace Durin
 			return State;
 		}
 
+		auto SetPriority(const std::shared_ptr<FTaskStateData>& State, ETaskPriority Value) -> void
+		{
+			std::lock_guard PriorityLock(State->PriorityMutex);
+			State->Priority = Value;
+			auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
+			ExecutionPool.SetPriorityNode(State, static_cast<EQueuedWorkPriority>(Value));
+		}
 		auto QueueTask(const std::shared_ptr<FTaskStateData>& State) -> void
 		{
 			try
@@ -1338,7 +1348,8 @@ namespace Durin
 				}
 
 				auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
-				const bool bAccepted = ExecutionPool.EnqueueNode(State, static_cast<EQueuedWorkPriority>(State->GetPriority()));
+				bool bAccepted;
+				{ std::lock_guard PriorityLock(State->PriorityMutex); bAccepted = ExecutionPool.EnqueueNode(State, static_cast<EQueuedWorkPriority>(State->GetPriority())); }
 				if (bAccepted) State->NotifyStateChanged();
 				if (!bAccepted)
 				{
@@ -2149,6 +2160,9 @@ namespace Durin
 		if (auto PinnedScheduler = Scheduler.lock()) PinnedScheduler->OnTaskTerminal(shared_from_this());
 	}
 
+	auto FTaskStateData::SetPriority(ETaskPriority Value) -> void
+	{ if (auto Owner = Scheduler.lock()) Owner->SetPriority(shared_from_this(), Value); }
+
 	auto FTaskStateData::OnPipePredecessorTerminal() -> void
 	{
 		{
@@ -2803,6 +2817,9 @@ namespace Durin
 				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
 			return FTaskStateData::AddCompletionDependency(GCurrentTaskState->shared_from_this(), Child.State);
 		}
+
+		auto FTaskRuntimeAccess::SetPriority(const Tasks::FTask& Task, ETaskPriority Priority) -> void
+		{ if (Task.State) Task.State->SetPriority(Priority); }
 
 		auto FTaskRuntimeAccess::SetCurrentCanceledOutcome() -> void
 		{

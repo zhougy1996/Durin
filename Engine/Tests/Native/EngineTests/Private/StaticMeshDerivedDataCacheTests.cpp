@@ -36,8 +36,10 @@
 #include "Physics/PhysicsCookInputPrivate.h"
 #include "Physics/PhysicsSharedOutput.h"
 #include "DerivedDataBuildSession.h"
+
 #include "Asset/CookedMeshLoadManager.h"
 #include "Asset/CookedMeshProducts.h"
+#include "Asset/ResourceBuildSessions.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
@@ -4476,18 +4478,18 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildFunctionRejectsMismatchedBuilderIden
 	ASSERT_TRUE(Definition);
 	auto Service = Durin::DerivedData::Private::CreateBuildForBackend();
 	ASSERT_TRUE(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()));
-	auto Session = Service->CreateSession();
+	auto Session = std::make_shared<Durin::DerivedData::FBuildSession>(Service->CreateSession("Fixture"));
 	ASSERT_TRUE(Session);
 	std::optional<FBuildCompleteParams> Result;
-	FBuildRequestOptions Options{.Policy = EBuildPolicy::Build};
-	Options.InputResolver = StaticMeshPrivate::MakeRenderInputResolver(Request);
+	Durin::DerivedData::FBuildPolicy OptionsPolicy = EBuildPolicy::Build;
+	*Session = Service->CreateSession("Fixture", StaticMeshPrivate::MakeRenderInputResolver(Request));
 	FRequestOwner Owner;
-	(*Session)->Build(*Definition, Owner, [&](auto Value) { Result = std::move(Value); }, {}, Options);
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Session->Build(*Definition, {}, OptionsPolicy, Owner, [&](auto Value) { Result = std::move(Value); });
+	Owner.Wait();
 	ASSERT_TRUE(Result);
-	EXPECT_EQ(Result->GetStatus(), EStatus::Error);
-	EXPECT_EQ(Result->GetOutput(), nullptr);
-	EXPECT_NE(Result->GetDiagnostic().find("identity does not match"), std::string_view::npos);
+	EXPECT_EQ(Result->Status, EStatus::Error);
+	EXPECT_TRUE(Result->Output.IsValid());
+	EXPECT_NE((Result->Output.GetLogs().empty() ? std::string_view{} : std::string_view(Result->Output.GetLogs().front().Text)).find("identity does not match"), std::string_view::npos);
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, WorkerSettingsCaptureOwnedValuesAndPreserveIdentity)
@@ -4521,18 +4523,18 @@ TEST(FPhysicsCookTests, BuildFunctionRejectsMismatchedIdentityBeforeRecipeDecodi
 	ASSERT_TRUE(Definition);
 	auto Service = Durin::DerivedData::Private::CreateBuildForBackend();
 	ASSERT_TRUE(Service->Register(PhysicsPrivate::MakeCollisionBuildFunction()));
-	auto Session = Service->CreateSession();
+	auto Session = std::make_shared<Durin::DerivedData::FBuildSession>(Service->CreateSession("Fixture"));
 	ASSERT_TRUE(Session);
 	std::optional<FBuildCompleteParams> Result;
-	FBuildRequestOptions Options{.Policy = EBuildPolicy::Build};
-	Options.InputResolver = PhysicsPrivate::MakeCollisionInputResolver(*Input);
+	Durin::DerivedData::FBuildPolicy OptionsPolicy = EBuildPolicy::Build;
+	*Session = Service->CreateSession("Fixture", PhysicsPrivate::MakeCollisionInputResolver(*Input));
 	FRequestOwner Owner;
-	(*Session)->Build(*Definition, Owner, [&](auto Value) { Result = std::move(Value); }, {}, Options);
-	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	Session->Build(*Definition, {}, OptionsPolicy, Owner, [&](auto Value) { Result = std::move(Value); });
+	Owner.Wait();
 	ASSERT_TRUE(Result);
-	EXPECT_EQ(Result->GetStatus(), EStatus::Error);
-	EXPECT_EQ(Result->GetOutput(), nullptr);
-	EXPECT_NE(Result->GetDiagnostic().find("identity does not match"), std::string_view::npos);
+	EXPECT_EQ(Result->Status, EStatus::Error);
+	EXPECT_TRUE(Result->Output.IsValid());
+	EXPECT_NE((Result->Output.GetLogs().empty() ? std::string_view{} : std::string_view(Result->Output.GetLogs().front().Text)).find("identity does not match"), std::string_view::npos);
 }
 
 TEST(FPhysicsCookTests, CapturedTargetRejectsUnsupportedRepresentation)
@@ -4591,7 +4593,7 @@ TEST(FPhysicsCookTests, QuerySettingsReuseGeometryCacheAndPreservePublicationPol
 			const std::lock_guard Lock(Mutex);
 			++Writes;
 			Records.push_back(Request.Record);
-			return {};
+			return Request.Record;
 		}
 	};
 	struct FRestoreCache
@@ -4835,4 +4837,19 @@ TEST(FPhysicsMeshLifecycleTests, ScopedUpdateToleratesOwnerDestructionFromInline
 		}
 		EXPECT_EQ(Completions, 1u); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 	}
+}
+
+TEST(FAssetBuildDiagnosticTests, SelectsOutputErrorMessagesAndExecutionDiagnostics)
+{
+	using namespace Durin::DerivedData;
+	FBuildOutputBuilder Builder("Fixture.Diagnostics", 1);
+	Builder.AddMessage(EBuildMessageSeverity::Error, "business error");
+	Builder.AddMessage(EBuildMessageSeverity::Note, "trailing note");
+	Builder.AddLog("Fixture", EBuildLogSeverity::Display, "trailing log");
+	auto Output = std::move(Builder).Build().value();
+	auto Execution = FBuildCompleteParams::Error({}, EBuildExecutionFlags::None, "execution failure", Output);
+	EXPECT_EQ(Durin::AssetPrivate::GetBuildFailureDiagnostic(Execution, "fallback"), "execution failure");
+	FBuildCompleteParams Business{.Output = std::move(Output), .Status = EStatus::Error};
+	EXPECT_EQ(Durin::AssetPrivate::GetBuildFailureDiagnostic(Business, "fallback"), "business error");
+	EXPECT_EQ(Durin::AssetPrivate::GetBuildFailureDiagnostic(FBuildCompleteParams::Error({}, EBuildExecutionFlags::None), "fallback"), "Build failed.");
 }

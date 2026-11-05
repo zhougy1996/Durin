@@ -4,7 +4,7 @@
 #include "MaterialPreparedProgram.h"
 
 #if DURIN_WITH_EDITOR
-	#include "RequestOwnerInternal.h"
+	#include "RequestOwnerAccess.h"
 	#include "MaterialTranslation.h"
 	#include "MaterialTranslationCodec.h"
 	#include "Shader/IShaderBuildModule.h"
@@ -83,21 +83,10 @@ namespace Durin
 			catch (...) { FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial()); }
 			return;
 		}
-		DerivedData::FRequestBarrier Submission(*ShaderMap->Owner);
-		ETaskPriority Priority;
-		{ std::lock_guard Lock(ShaderMap->Mutex); Priority = ShaderMap->HighPriority ? ETaskPriority::High : ETaskPriority::Normal; }
-		auto Dispatch = Private::LaunchTaskWithCompletion("MaterialCompileStage",
-			[ShaderMap, Work = std::move(Work)]() {
-				try { if (PollBuildCancellation(ShaderMap)) FMaterialCompilation::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
-				catch (...) { FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial()); }
-			}, [ShaderMap](ETaskState Terminal) {
-				if (Terminal != ETaskState::Succeeded) FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial());
-			}, {.Priority = Priority});
-		{
-			std::lock_guard Lock(ShaderMap->Mutex);
-			auto Task = std::move(Dispatch);
-			Durin::DerivedData::Private::FOwnerAccess::TrackTask(*ShaderMap->Owner, std::move(Task));
-		}
+		ShaderMap->Owner->LaunchTask("MaterialCompileStage", [ShaderMap, Work = std::move(Work)] {
+			try { if (PollBuildCancellation(ShaderMap)) FMaterialCompilation::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
+			catch (...) { FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial()); }
+		});
 	}
 
 
@@ -147,7 +136,7 @@ namespace Durin
 			if (Existing && !Existing->BuildCancellation.IsCanceled()) {
 				ShaderMap->SingleFlight = true;
 				ProgramJoins.fetch_add(1);
-				Durin::DerivedData::Private::FOwnerAccess::TrackDependency(*ShaderMap->Owner, {.IsFinished = [Owner = Existing->Owner] { return Owner->Poll(); }, .Wait = [Owner = Existing->Owner] { return Owner->Wait(); }, .RequestCancel = [] {}});
+				{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->Owner->KeepAlive(); ShaderMap->Owner = Existing->Owner; }
 				Existing->CompileDependencies.push_back(ShaderMap);
 				Shared = std::move(Existing);
 			}
@@ -227,7 +216,7 @@ namespace Durin
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
 		{ std::lock_guard Lock(ShaderMap->Mutex); Owner = ShaderMap->Owner; }
 		// Owner propagation includes shader jobs. Accepted CPU tasks still retire.
-		if (Owner) Owner->RequestCancel();
+		if (Owner) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner);
 	}
 	auto FShaderCompilingManager::IsCompiling(const FMaterialProgramCompileHandle& Handle) const -> bool
 	{
@@ -240,9 +229,12 @@ namespace Durin
 		if (!Handle) return;
 		PrioritizeCompilation(Handle);
 		(void)PollBuildCancellation(FindCompilingShaderMap(Handle));
-		std::shared_ptr<DerivedData::FRequestOwner> Owner;
-		{ std::lock_guard Lock(Handle->Mutex); Owner = Handle->Owner; }
-		if (Owner) require(Owner->Wait() == DerivedData::ERequestWaitResult::Completed);
+		for (;;) {
+			std::shared_ptr<DerivedData::FRequestOwner> Owner;
+			{ std::lock_guard Lock(Handle->Mutex); Owner = Handle->Owner; }
+			if (Owner) Owner->Wait();
+			std::lock_guard Lock(Handle->Mutex); if (Owner == Handle->Owner) break;
+		}
 		require(!IsCompiling(Handle));
 		CleanupFinishedShaderMaps();
 	}
@@ -345,15 +337,12 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	auto MaterialBuildPrivate::FMaterialCompilation::Start(std::shared_ptr<FMaterialCompilation> ShaderMap) -> void
 	{
-		auto Admitted = MaterialBuildPrivate::SubmitTranslation(ShaderMap->Input, ShaderMap->Force, *ShaderMap->Owner,
+		MaterialBuildPrivate::SubmitTranslation(ShaderMap->Input, ShaderMap->Force, *ShaderMap->Owner,
 			[ShaderMap](FMaterialTranslatedProgram Product) {
 				try { ProcessTranslation(ShaderMap, std::move(Product)); }
 				catch (...) { CompleteCompilation(ShaderMap, {.Diagnostics = {{
 					.Message = "Material compile admission was rejected."}}}); }
-			}, true, ShaderMap->EncodedInput,
-			ShaderMap->Inline ? DerivedData::EBuildCacheExecution::Inline : DerivedData::EBuildCacheExecution::Task);
-		if (!Admitted) CompleteCompilation(ShaderMap, {.Diagnostics = {{
-			.Message = Admitted.error().Description}}});
+			}, true, ShaderMap->EncodedInput);
 	}
 	auto MaterialBuildPrivate::FMaterialCompilation::ProcessTranslation(std::shared_ptr<FMaterialCompilation> ShaderMap, FMaterialTranslatedProgram Translation) -> void
 	{

@@ -1,9 +1,11 @@
+#include "RequestOwnerAccess.h"
 #include "BuildCacheRecordPrivate.h"
 #include "CacheBackend.h"
 #include "CacheRecordFixtureCodec.h"
 #include "Runtime/Engine/Private/Texture/TextureBuildInternal.h"
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataBuild.h"
 #include "DerivedDataBuildSession.h"
+
 #include "Texture/ITextureCompressorModule.h"
 #include "Texture/Texture2DBuildTypes.h"
 #include "TextureTestSupport.h"
@@ -53,7 +55,7 @@ TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndAvoidsUnselect
 	ASSERT_TRUE(Output) << Output.error();
 	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
 	ASSERT_TRUE(Record);
-	ASSERT_TRUE(GetCacheBackend().Put({*Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = *Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const std::array<uint32, 2> Mips{8, 2};
 	auto Selected = ReadTexture2DCachedMips({FCacheKeyProxy(Key), Mips}); ASSERT_TRUE(Selected && *Selected);
 	EXPECT_EQ((**Selected).OriginalMipCount, 10u); EXPECT_EQ((**Selected).PixelFormat, Product.PixelFormat);
@@ -110,7 +112,7 @@ TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMi
 	ASSERT_TRUE(Output);
 	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
 	ASSERT_TRUE(Record);
-	ASSERT_TRUE(GetCacheBackend().Put({*Record}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = *Record, .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	const std::array<uint32, 2> Duplicate{0, 0}; Request.MipIndices = Duplicate;
 	auto Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::InvalidRequest);
 	const std::array<uint32, 1> OutOfBounds{MaximumTextureMipCount}; Request.MipIndices = OutOfBounds;
@@ -132,7 +134,7 @@ TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMi
 	for (const auto& Meta : Output->GetMetadata()) Failed.AddMeta(Meta.Id, Meta.Object);
 	Failed.AddMessage(EBuildMessageSeverity::Error, "fixture failure");
 	auto FailedOutput = std::move(Failed).Build(); ASSERT_TRUE(FailedOutput);
-	ASSERT_TRUE(GetCacheBackend().Put({Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *FailedOutput).value()}));
+	ASSERT_TRUE(GetCacheBackend().Put({.Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *FailedOutput).value(), .Policy = Durin::DerivedData::ECachePolicy::Store}));
 	// Failed build outputs discard values by contract, so a required mip is missing.
 	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::MissingValue);
 }
@@ -966,22 +968,32 @@ TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalI
 			.BuilderVersion = 0x123456789abcdef0ull,
 			.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}).value();
 	auto Valid = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
-	auto Identities = Valid->Describe(Definition.GetSources(), {}).value();
-	auto Resolved = Valid->Resolve(Identities, {});
-	ASSERT_TRUE(Resolved);
-	EXPECT_TRUE(Resolved->front().Values[0].Data.SharesStorageWith(Views[0].GetBuffer()));
+	FRequestOwner Owner; FBuildInputMetaResolvedParams Metadata;
+	Valid->ResolveInputMeta(Definition, Owner, [&](auto&& Params) { Metadata = std::move(Params); }); Owner.Wait();
+	ASSERT_EQ(Metadata.Status, EStatus::Ok);
+	FBuildActionBuilder ActionBuilder(Definition, GetTextureBuildDescriptor(ETextureBuildKind::TextureCube));
+	for (const auto& Identity : Metadata.Inputs) ActionBuilder.AddInput(Identity);
+	const auto Action = std::move(ActionBuilder).Build().value();
+	const auto Resolve = [&](const std::shared_ptr<const IBuildInputResolver>& Resolver) {
+		FBuildInputDataResolvedParams Result;
+		{ FRequestBarrier Submission(Owner); Resolver->ResolveInputData(Action, Owner, [&](auto&& Params) { Result = std::move(Params); }); }
+		Owner.Wait(); return Result;
+	};
+	auto Resolved = Resolve(Valid);
+	ASSERT_EQ(Resolved.Status, EStatus::Ok);
+	EXPECT_TRUE(Resolved.Inputs.front().Values[0].Data.SharesStorageWith(Views[0].GetBuffer()));
 	Faces.Faces[0] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
 		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{43})).value();
 	auto Invalid = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
-	ASSERT_TRUE(Invalid->Describe(Definition.GetSources(), {}));
-	auto Rejected = Invalid->Resolve(Identities, {});
-	ASSERT_FALSE(Rejected);
-	EXPECT_FALSE(Rejected.error().Description.empty());
+
+	auto Rejected = Resolve(Invalid);
+	ASSERT_EQ(Rejected.Status, EStatus::Error);
+	EXPECT_TRUE(Rejected.Inputs.empty());
 	// The first resolver retained the original blocks independently of the caller.
-	EXPECT_TRUE(Valid->Resolve(Identities, {}));
+	EXPECT_EQ(Resolve(Valid).Status, EStatus::Ok);
 	Prepared.Pixels = FTextureCubeHDRCanonicalInput{.AuthoredPanorama = Faces.Faces[0]};
 	auto WrongMode = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
-	EXPECT_FALSE(WrongMode->Resolve(Identities, {}));
+	EXPECT_EQ(Resolve(WrongMode).Status, EStatus::Error);
 }
 
 TEST(FTexturePlatformSessionTests, PreparedHDRCubeRejectsLDRAlternativeWithMatchingPanorama)
@@ -1000,14 +1012,24 @@ TEST(FTexturePlatformSessionTests, PreparedHDRCubeRejectsLDRAlternativeWithMatch
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}).value();
 	FTextureCubeCanonicalBuildInput Prepared{.Pixels = FTextureCubeHDRCanonicalInput{.AuthoredPanorama = Panorama}};
 	const auto Valid = TexturePrivate::MakeTextureCubeInputResolver(*Source, &Prepared);
-	const auto Identities = Valid->Describe(Definition.GetSources(), {}).value();
-	ASSERT_TRUE(Valid->Resolve(Identities, {}));
+	FRequestOwner Owner; FBuildInputMetaResolvedParams Metadata;
+	Valid->ResolveInputMeta(Definition, Owner, [&](auto&& Params) { Metadata = std::move(Params); }); Owner.Wait();
+	ASSERT_EQ(Metadata.Status, EStatus::Ok);
+	FBuildActionBuilder ActionBuilder(Definition, GetTextureBuildDescriptor(ETextureBuildKind::TextureCube));
+	for (const auto& Identity : Metadata.Inputs) ActionBuilder.AddInput(Identity);
+	const auto Action = std::move(ActionBuilder).Build().value();
+	const auto Resolve = [&](const std::shared_ptr<const IBuildInputResolver>& Resolver) {
+		FBuildInputDataResolvedParams Result;
+		{ FRequestBarrier Submission(Owner); Resolver->ResolveInputData(Action, Owner, [&](auto&& Params) { Result = std::move(Params); }); }
+		Owner.Wait(); return Result;
+	};
+	ASSERT_EQ(Resolve(Valid).Status, EStatus::Ok);
 	// Matching authored bytes do not authorize a different recipe alternative.
 	Prepared.Pixels = FTextureCubeLDRCanonicalInput{.AuthoredPanorama = Panorama,
 		.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama, .bSRGB = false};
 	const auto WrongMode = TexturePrivate::MakeTextureCubeInputResolver(*Source, &Prepared);
-	EXPECT_FALSE(WrongMode->Resolve(Identities, {}));
-	EXPECT_TRUE(Valid->Resolve(Identities, {}));
+	EXPECT_EQ(Resolve(WrongMode).Status, EStatus::Error);
+	EXPECT_EQ(Resolve(Valid).Status, EStatus::Ok);
 }
 
 TEST(FTexturePlatformSessionTests, SyncCompletionCarriesCancellationAndFailureDirectly)
@@ -1022,23 +1044,22 @@ TEST(FTexturePlatformSessionTests, SyncCompletionCarriesCancellationAndFailureDi
 	ASSERT_TRUE(Request);
 	auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(*Request);
 	ASSERT_TRUE(Definition);
-	DerivedData::FRequestOwner Owner; Owner.RequestCancel();
-	auto Session = DerivedData::GetBuild().CreateSession().value();
+	DerivedData::FRequestOwner Owner; Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner);
+	auto Session = std::make_shared<DerivedData::FBuildSession>(DerivedData::GetBuild().CreateSession("Fixture"));
 	std::optional<DerivedData::FBuildCompleteParams> CanceledResult;
-	Session->Build(*Definition, Owner, [&](auto Value) { CanceledResult = std::move(Value); });
-	ASSERT_EQ(Owner.Wait(), DerivedData::ERequestWaitResult::Completed);
+	Session->Build(*Definition, {}, {}, Owner, [&](auto Value) { CanceledResult = std::move(Value); });
+	Owner.Wait();
 	ASSERT_TRUE(CanceledResult);
 	const auto& Canceled = *CanceledResult;
-	EXPECT_EQ(Canceled.GetStatus(), DerivedData::EStatus::Canceled);
-	EXPECT_EQ(Canceled.GetOutput(), nullptr);
-	EXPECT_TRUE(Canceled.GetDiagnostic().empty());
-	DerivedData::FBuildRequestOptions Options;
-	Options.Policy = DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheStore;
+	EXPECT_EQ(Canceled.Status, DerivedData::EStatus::Canceled);
+	EXPECT_TRUE(Canceled.Output.IsValid());
+	EXPECT_TRUE(Canceled.Output.HasError()); EXPECT_FALSE(Canceled.Output.GetLogs().empty());
+	Durin::DerivedData::FBuildPolicy OptionsPolicy = DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheStore;
 	// No resolver is supplied for a definition requiring source inputs.
-	auto Failed = TexturePrivate::Build(*Definition, {}, std::move(Options));
-	EXPECT_EQ(Failed.GetStatus(), DerivedData::EStatus::Error);
-	EXPECT_EQ(Failed.GetOutput(), nullptr);
-	EXPECT_FALSE(Failed.GetDiagnostic().empty());
+	auto Failed = TexturePrivate::Build(*Definition, {}, OptionsPolicy);
+	EXPECT_EQ(Failed.Status, DerivedData::EStatus::Error);
+	EXPECT_TRUE(Failed.Output.IsValid());
+	EXPECT_FALSE((Failed.Output.GetLogs().empty() ? std::string_view{} : std::string_view(Failed.Output.GetLogs().front().Text)).empty());
 }
 
 TEST(FTexturePlatformSessionTests, CancellationPreservesOperationStatus)
@@ -1125,15 +1146,17 @@ TEST(FTextureDerivedDataTests, AdaptersRejectMismatchedBuilderIdentityBeforeRead
 	{
 	public:
 		explicit FResolver(std::span<const FBuildInputReference> Inputs) : Inputs(Inputs.begin(), Inputs.end()) {}
-		auto Describe(std::span<const FBuildSourceReference>, const FBuildCancellation&) const
-			-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override { return Inputs; }
-		auto Resolve(std::span<const FBuildInputReference> Requested, const FBuildCancellation&) const
-			-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
-		{
+		auto ResolveInputMeta(const FBuildDefinition& Definition, IRequestOwner& Owner, FOnBuildInputMetaResolved&& OnResolved) const -> void override
+			{
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled}); return OnResolved({Inputs, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok}); }
+		auto ResolveInputData(const FBuildAction& Action, IRequestOwner& Owner, FOnBuildInputDataResolved&& OnResolved) const -> void override
+			{
+				const auto Requested = Action.GetInputs();
+				if (Owner.IsCanceled()) return OnResolved({{}, EStatus::Canceled});
 			std::vector<FBuildInput> Result;
 			for (const auto& Input : Requested)
 				Result.push_back({.Identity = Input, .Values = {{"Dummy", FSharedByteBuffer::Take(FByteBuffer{std::byte{1}})}}});
-			return Result;
+			return OnResolved({Result, Owner.IsCanceled() ? EStatus::Canceled : EStatus::Ok});
 		}
 	private:
 		std::vector<FBuildInputReference> Inputs;
@@ -1145,18 +1168,18 @@ TEST(FTextureDerivedDataTests, AdaptersRejectMismatchedBuilderIdentityBeforeRead
 		ASSERT_TRUE(Action);
 		auto Service = CreateBuild();
 		ASSERT_TRUE(Service->Register(Function));
-		auto Session = Service->CreateSession();
+		auto Session = std::make_shared<Durin::DerivedData::FBuildSession>(Service->CreateSession("Fixture"));
 		ASSERT_TRUE(Session);
-		FBuildRequestOptions Options{.Policy = EBuildPolicy::Build};
-		Options.InputResolver = std::make_shared<FResolver>(Action->GetInputs());
+		Durin::DerivedData::FBuildPolicy OptionsPolicy = EBuildPolicy::Build;
+		*Session = Service->CreateSession("Fixture", std::make_shared<FResolver>(Action->GetInputs()));
 		std::optional<FBuildCompleteParams> Result;
 		FRequestOwner Owner;
-		(*Session)->Build(*Action, Owner, [&](auto Value) { Result = std::move(Value); }, {}, Options);
-		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+		Session->Build(*Action, {}, OptionsPolicy, Owner, [&](auto Value) { Result = std::move(Value); });
+		Owner.Wait();
 		ASSERT_TRUE(Result);
-		EXPECT_EQ(Result->GetStatus(), EStatus::Error);
-		EXPECT_EQ(Result->GetOutput(), nullptr);
-		EXPECT_NE(Result->GetDiagnostic().find("identity does not match"), std::string_view::npos);
+		EXPECT_EQ(Result->Status, EStatus::Error);
+		EXPECT_TRUE(Result->Output.IsValid());
+		EXPECT_NE((Result->Output.GetLogs().empty() ? std::string_view{} : std::string_view(Result->Output.GetLogs().front().Text)).find("identity does not match"), std::string_view::npos);
 	};
 	Check(MakeTexture2DBuildAction({.SourceIdentity = {1, 2},
 		.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::Texture2D) ^ 1ull,

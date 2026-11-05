@@ -812,16 +812,12 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5, {}, Properties, Program));
 	FAssetBuildTaskContext Cancelled;
-	Cancelled.Cancellation.Cancel();
+	Cancelled.IsCancellationRequested = [] { return true; };
 	const auto Canceled = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Cancelled);
 	EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
 	EXPECT_FALSE(Canceled.Value);
 	EXPECT_TRUE(Canceled.Error.empty());
-	MaterialBuildPrivate::CloseTranslationSessions();
-	struct FReopen { ~FReopen() { MaterialBuildPrivate::OpenTranslationSessions(); } } Reopen;
-	const auto Failed = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations);
-	EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
-	EXPECT_FALSE(Failed.Value);
+
 }
 
 TEST_F(FCookFunctionalTests, PreparationOmitsTransientAssetSubtrees)

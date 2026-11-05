@@ -5,6 +5,7 @@
 #include "CacheDispatchPrivate.h"
 #include "ShaderBuildAPI.h"
 #include "DerivedDataBuildSession.h"
+
 #include "ShaderCompileUtilities.h"
 
 namespace Durin
@@ -50,9 +51,9 @@ namespace Durin
 		auto GetCompilerEnvironmentIdentity() const -> const std::string&;
 		auto GetProducerMicroseconds() const -> uint64;
 		auto GetCacheMicroseconds() const -> uint64;
-		auto Execute(FShaderSessionRequest Request, DerivedData::FBuildRequestOptions Options)
+		auto Execute(FShaderSessionRequest Request, DerivedData::FBuildPolicy Policy = {})
 			-> DerivedData::FBuildCompleteParams;
-		auto Submit(FShaderSessionRequest Request, DerivedData::IRequestOwner& Owner, DerivedData::FBuildCompletionCallback Completion, DerivedData::FBuildRequestOptions Options, bool bInlineExecution) -> std::expected<void, DerivedData::FBuildAdmissionError>;
+		auto Submit(FShaderSessionRequest Request, DerivedData::IRequestOwner& Owner, DerivedData::FBuildCompletionCallback Completion, DerivedData::FBuildPolicy Policy = {}) -> void;
 		auto Close() -> void;
 		auto ResetCacheForTests(DerivedData::Private::FBuildBackendOptions Options) -> void;
 

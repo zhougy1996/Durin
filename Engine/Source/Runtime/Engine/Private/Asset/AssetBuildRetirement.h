@@ -13,7 +13,7 @@ namespace Durin::AssetPrivate
 	inline auto WaitForAssetBuildOwner(const Tasks::FTask& Task, DerivedData::FRequestOwner& Owner) -> bool
 	{
 		if (!Task.IsValid() || !Task.IsCompleted() || Owner.Poll()) return false;
-		require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
+		Owner.Wait();
 		return true;
 	}
 #endif
