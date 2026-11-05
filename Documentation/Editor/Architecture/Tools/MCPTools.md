@@ -1,14 +1,14 @@
 # Local MCP Toolset Adapter
 
 Summary: DurinMCP exposes external editor Toolsets and session-owned Python script jobs through authenticated loopback Streamable HTTP.
-Modules: DurinMCP, DurinPython, HTTPServer, DurinEd, MainFrame, Core
+Modules: DurinMCP, DurinPython, HTTPServer, DurinEd, Core
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-11-04
 
 ## Ownership and Entry Points
 
 DurinMCP owns protocol handling, transport policy, schema/value conversion,
-discovery names, pending MCP calls and script job ownership. It depends privately on DurinEd, DurinPython and
+discovery names, pending MCP calls and script job ownership. Its editor subsystem contract depends publicly on DurinEd; transport implementation depends privately on DurinPython and
 [HTTPServer](../../../Runtime/Networking/HTTPServer.md). HTTPServer owns listeners,
 socket lifecycle, HTTP routing, and chunked response writes, and privately wraps
 the pinned MIT cpp-httplib dependency. MCP authentication, sessions, SSE message
@@ -24,9 +24,13 @@ detached `FEditorToolService` on the GameThread. Start and Stop are control-thre
 operations and must not race one another. Workers retain only owned protocol data
 and the detached endpoint; they never resolve DObjects or invoke providers.
 
-MainFrame loads DurinMCP and calls `StartForEditor` during explicit host creation.
-Its host destruction stops the server before releasing the host. Module shutdown
-also stops the module-owned server. Merely loading DurinMCP does not open a port.
+Editor initialization loads DurinMCP before the editor subsystem snapshot.
+The module registers `DMCPServerSubsystem`, which starts the optional server for
+its owning editor and stops it during subsystem deinitialization. Its dependency
+on `DPythonEditorSubsystem` orders MCP shutdown before Python retirement.
+Module shutdown unregisters and reconciles its subsystem before the final
+idempotent server stop. MainFrame construction and destruction do not control
+the transport. Merely loading DurinMCP does not open a port.
 Startup failure logs a bounded explanation and leaves normal editor use available.
 When MCP is enabled, its host acquires the Python module's shared runtime through
 EnsureRuntime on GameThread. Python initialization failure omits script tools and

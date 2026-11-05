@@ -10,6 +10,10 @@ namespace Durin
 			[Host = GetEditor()](std::function<void()> Callback) { Host->DispatchSubsystemCallback(std::move(Callback)); });
 		return {};
 	}
+	auto DEditorNotificationSubsystem::Tick(float DeltaSeconds) -> void
+	{
+		if (Manager && GetWorkGate()->IsOpen()) Manager->Tick(DeltaSeconds);
+	}
 	auto DEditorNotificationSubsystem::Deinitialize() noexcept -> void
 	{
 		if (Manager) Manager->Retire();

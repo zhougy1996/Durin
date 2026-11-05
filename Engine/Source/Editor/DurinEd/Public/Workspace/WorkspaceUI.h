@@ -12,16 +12,16 @@ namespace Durin::Editor
 }
 namespace Durin::Editor::WorkspaceUI
 {
-	inline constexpr uint32 HostLayoutVersion = 3;
+	inline constexpr uint32 MainFrameLayoutVersion = 3;
 
-	DURINED_API auto MakeHostDockSpaceName(uint32 LayoutVersion) -> std::string;
+	DURINED_API auto MakeMainFrameDockSpaceName(uint32 LayoutVersion) -> std::string;
 	DURINED_API auto MakeRootWindowName(std::string_view DisplayName, std::string_view RootKey) -> std::string;
 	DURINED_API auto MakeDocumentRootKey(std::string_view WorkspaceRootKey, std::string_view DocumentKey) -> std::string;
 	DURINED_API auto MakeDockClassName(const FWorkspaceTypeId& WorkspaceType) -> std::string;
 	DURINED_API auto MakeDockSpaceName(const FWorkspaceTypeId& WorkspaceType, uint32 LayoutVersion) -> std::string;
 	DURINED_API auto MakePanelWindowName(std::string_view DisplayName, const FWorkspaceTypeId& WorkspaceType, std::string_view PanelKey) -> std::string;
 	DURINED_API auto MakeRootDockClassId() -> ImGuiID;
-	DURINED_API auto MakeHostDockSpaceId(uint32 LayoutVersion) -> ImGuiID;
+	DURINED_API auto MakeMainFrameDockSpaceId(uint32 LayoutVersion) -> ImGuiID;
 	DURINED_API auto MakeDockClassId(const FWorkspaceTypeId& WorkspaceType) -> ImGuiID;
 	DURINED_API auto MakeDockSpaceId(const FWorkspaceTypeId& WorkspaceType, uint32 LayoutVersion) -> ImGuiID;
 	DURINED_API auto MakeRootWindowClass() -> ImGuiWindowClass;
@@ -41,7 +41,7 @@ namespace Durin::Editor::WorkspaceUI
 		const ImVec2& Size,
 		ImGuiDockNodeFlags Flags = ImGuiDockNodeFlags_None
 	) -> ImGuiID;
-	DURINED_API auto SubmitHostDockSpace(
+	DURINED_API auto SubmitMainFrameDockSpace(
 		uint32 LayoutVersion,
 		const ImVec2& Size,
 		ImGuiDockNodeFlags Flags = ImGuiDockNodeFlags_None

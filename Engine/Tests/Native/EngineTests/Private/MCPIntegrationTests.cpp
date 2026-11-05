@@ -1,5 +1,8 @@
 #include <httplib.h>
 #include "MCPServer.h"
+#include "DurinMCPModule.h"
+#include "MCPServerSubsystem.h"
+#include "Editor/EditorEnvironmentTestSupport.h"
 #include "MCPCodec.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
@@ -456,4 +459,44 @@ namespace
 		EXPECT_EQ(1, Calls); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
 	}
 
+}
+
+namespace Durin
+{
+    struct FMCPModuleTestAccess
+    {
+        static auto Port(const FDurinMCPModule& Module) -> uint16 { return Module.BoundPort; }
+    };
+}
+
+TEST(FMCPEditorSessionTests, EditorSubsystemStartsAndStopsTransportWithoutMainFrame)
+{
+    using namespace Durin;
+    Testing::InitializeDObjectSystemForTests();
+    const auto File = Testing::GetTestWorkDirectory() / "module_token.txt";
+    { std::ofstream Stream(File); Stream << Token; ASSERT_TRUE(Stream.good()); }
+    Testing::FScopedEditorEnvironment PortEnvironment("DURIN_MCP_PORT", "0");
+    Testing::FScopedEditorEnvironment TokenEnvironment("DURIN_MCP_TOKEN_FILE", File.string());
+    auto& Module = FModuleManager::LoadModuleChecked<FDurinMCPModule>("DurinMCP");
+    TStrongObjectPtr<DEditorEngine> Editor(NewObject<DEditorEngine>(nullptr, {}));
+    struct FCleanup
+    {
+        TStrongObjectPtr<DEditorEngine>& Editor;
+        ~FCleanup() { Editor->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Editor.Get()); Editor.Reset(); CollectGarbage(); }
+    } Cleanup{Editor};
+    ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Editor));
+    ASSERT_NE(Editor->GetEditorSubsystem<DMCPServerSubsystem>(), nullptr);
+    const auto Port = FMCPModuleTestAccess::Port(Module);
+    ASSERT_NE(Port, 0u);
+    TestSession.clear();
+    httplib::Client Client("127.0.0.1", Port);
+    Client.set_connection_timeout(1, 0); Client.set_read_timeout(2, 0);
+    auto Result = Client.Post("/mcp", Headers(), Body("initialize", InitializeParams()), "application/json");
+    ASSERT_TRUE(Result);
+    EXPECT_EQ(200, Result->status);
+    ASSERT_TRUE(Editor->RefreshEditorSubsystems(true));
+    EXPECT_EQ(Port, FMCPModuleTestAccess::Port(Module));
+    Editor->PrepareForShutdown();
+    EXPECT_EQ(0u, FMCPModuleTestAccess::Port(Module));
+    EXPECT_FALSE(Client.Post("/mcp", Headers(), Body("initialize", InitializeParams()), "application/json"));
 }

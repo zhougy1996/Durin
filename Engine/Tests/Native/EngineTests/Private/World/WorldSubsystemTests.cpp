@@ -714,7 +714,7 @@ TEST_F(FWorldSubsystemTests, NotificationServiceOwnsFacadeAndRejectsRetainedActi
 	int Invocations = 0;
 	Host->GetNotificationManager().Post({.Message = "Ready", .Action = Editor::FNotificationAction{
 		.Label = "Open", .Invoke = [&] { ++Invocations; }}});
-	Host->UpdateNotifications(0.0f);
+	Host->GetNotificationManager().Tick(0.0f);
 	ASSERT_EQ(Service->GetManager().GetNotifications().size(), 1u);
 	auto Action = Service->GetManager().GetNotifications().front().Action;
 	auto Gate = Service->GetWorkGate();
@@ -793,7 +793,7 @@ TEST_F(FWorldSubsystemTests, NotificationShutdownCallbackRetiresAtTheNextHostBou
 			CollectGarbage();
 			EXPECT_FALSE(Service->IsPendingKill());
 		}}});
-	Host->UpdateNotifications(0.0f);
+	Host->GetNotificationManager().Tick(0.0f);
 	EXPECT_TRUE(Host->GetNotificationManager().InvokeAction(Id));
 	EXPECT_EQ(Host->GetEditorSubsystem<DEditorNotificationSubsystem>(), Service);
 	Host->Tick(0.0f, false);

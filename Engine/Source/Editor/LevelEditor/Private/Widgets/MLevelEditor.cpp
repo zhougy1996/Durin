@@ -62,6 +62,7 @@ namespace Durin::Editor::Level
 	{
 		ViewportSettingsPage = {};
 		ProjectSettingsPage = {};
+		if (Context && Context->EditorHost) Context->EditorHost->SetStartupLevelCallbacks({});
 		RequestDeactivate();
 		if (Context && SceneViewportPanel)
 		{
@@ -94,7 +95,7 @@ namespace Durin::Editor::Level
 			.Description = "Settings shared by the current project. Apply saves the default startup level.",
 			.bProject = true,
 			.Draw = [this](std::string& Error) { DrawProjectSettings(Error); },
-			.OnOpen = [this] { PendingDefaultLevel = DefaultLevel; },
+			.OnOpen = [this] { (void)LoadProjectSettings(); PendingDefaultLevel = DefaultLevel; },
 		});
 	}
 
@@ -131,7 +132,6 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::InitializeSession() -> void
 	{
 		SessionSettings.PruneInvalidViewportStates();
-		bProjectSettingsValid = LoadProjectSettings();
 		SessionSettings.Save(nullptr);
 	}
 
@@ -171,7 +171,6 @@ namespace Durin::Editor::Level
 			SessionSettings,
 			*SceneViewportPanel,
 			*AssetMoveCoordinator,
-			DefaultLevel,
 			[this] { EditorError.clear(); },
 			[this](std::string Message) { SetError(std::move(Message)); },
 			[this](bool bSucceeded) {
@@ -237,38 +236,17 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::FinalizeSessionConstruction() -> void
 	{
 		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
-	}
-
-	auto MLevelEditor::AdvancePendingDocument() -> void
-	{
-	}
-
-	auto MLevelEditor::OpenDefaultDocument(std::string& OutError) -> EHostStartupState
-	{
-		if (!bProjectSettingsValid)
+		if (Context->EditorHost)
 		{
-			OutError = EditorError.empty() ? "Project startup settings could not be loaded." : EditorError;
-			return EHostStartupState::Failed;
+			auto Callbacks = DocumentController->MakeStartupLevelCallbacks();
+			auto PrepareDocument = std::move(Callbacks.PrepareDocument);
+			Callbacks.PrepareDocument = [this, PrepareDocument = std::move(PrepareDocument)] {
+				if (!PrepareDocument()) return false;
+				RootWindow.RequestFocus();
+				return true;
+			};
+			Context->EditorHost->SetStartupLevelCallbacks(std::move(Callbacks));
 		}
-		if (!bDefaultDocumentStarted)
-		{
-			bDefaultDocumentStarted = true;
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
-		}
-		EHostStartupState State;
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument");
-			State = DocumentController->OpenDefaultLevel();
-		}
-		if (State != EHostStartupState::Pending)
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
-		OutError = State == EHostStartupState::Failed ? EditorError : std::string{};
-		if (State == EHostStartupState::Ready && !std::exchange(bDefaultDocumentPrepared, true))
-		{
-			RootWindow.RequestFocus();
-			SceneViewportPanel->RequestInitialPresentation();
-		}
-		return State;
 	}
 
 	auto MLevelEditor::LoadProjectSettings() -> bool
@@ -276,36 +254,14 @@ namespace Durin::Editor::Level
 		DefaultLevel.Reset();
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project) return false;
-		FProjectGameSettings Settings;
-		const FProjectGameSettingsResult Result =
-			FProjectGameSettingsStore::ForProject(*Project).Load(Settings);
-		if (!Result)
+		FObjectPath Path;
+		std::string Error;
+		if (!Startup::ResolveStartupLevel(*Project, Path, Error))
 		{
-			SetError(std::format("Failed to load project game settings: {}", Result.Message));
+			SetError(std::move(Error));
 			return false;
 		}
-		if (!Settings.DefaultLevel.empty())
-		{
-			FPackagePath PackagePath;
-			std::string PathError;
-			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(
-					Settings.DefaultLevel, PackagePath); !PathValidation)
-			{
-				PathError = ToString(PathValidation.error());
-				SetError(std::format("Project default level '{}' is invalid: {}", Settings.DefaultLevel, PathError));
-				return false;
-			}
-			FObjectPath LevelPath;
-			const auto ResolveResult =
-				ResolveLevelPackage(PackagePath, LevelPath);
-			if (!ResolveResult)
-			{
-				SetError(std::format("Project default level '{}' is invalid: {}",
-					Settings.DefaultLevel, ResolveResult.Message));
-				return false;
-			}
-			DefaultLevel.SetPath(std::move(LevelPath));
-		}
+		if (Path.IsValid()) DefaultLevel.SetPath(std::move(Path));
 		return true;
 	}
 

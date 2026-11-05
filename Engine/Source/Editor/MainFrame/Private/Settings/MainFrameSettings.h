@@ -8,8 +8,8 @@ namespace Durin { class DEngine; }
 
 namespace Durin::Editor::MainFrame
 {
-	// Persists editor-host layout and startup behavior outside project settings.
-	class FHostSettings
+	// Persists main-window, appearance, and frame-pacing settings outside project settings.
+	class FMainFrameSettings
 	{
 	public:
 		auto Load() -> bool;
@@ -47,5 +47,5 @@ namespace Durin::Editor::MainFrame
 	};
 
 	// Applies the persisted presentation policy at startup, on edits, and on reset.
-	auto ApplyDisplaySettings(const FHostSettings& Settings, DEngine* Engine) -> void;
+	auto ApplyDisplaySettings(const FMainFrameSettings& Settings, DEngine* Engine) -> void;
 }

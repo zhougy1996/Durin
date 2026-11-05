@@ -53,6 +53,7 @@ namespace Durin::Mona
 		MONA_API auto RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void override;
 		MONA_API auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void override;
 
+		MONA_API auto IsOutputPresented(const MWindow& Window, const FViewportOutputReceipt& Receipt, uint64 Generation) const -> bool override;
 		MONA_API auto PrepareViewportForDraw(const MWindow& Window) -> TRefCountPtr<FRHIViewport> override;
 		MONA_API auto GetViewportPresentMode(const MWindow& Window) const -> EViewportPresentMode override;
 

@@ -587,7 +587,7 @@ durin_add_native_test(EditorHostToolTests
 		${_durin_main_frame_private}/Panels/ConsoleToolAdapter.cpp
 		${_durin_main_frame_private}/Panels/ConsoleToolArguments.cpp
 		${_durin_main_frame_private}/Settings/EditorSettingsWindow.cpp
-		${_durin_main_frame_private}/Settings/HostSettings.cpp
+		${_durin_main_frame_private}/Settings/MainFrameSettings.cpp
 		${_durin_main_frame_private}/AssetCompatibilityWindow.cpp
 		${_durin_main_frame_private}/Widgets/EditorNotificationOverlay.cpp
 	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditor MainFrame AssetMaintenance AssetTools

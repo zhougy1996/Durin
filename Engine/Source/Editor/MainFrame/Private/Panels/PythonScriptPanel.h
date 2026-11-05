@@ -18,12 +18,14 @@ namespace Durin::Editor::MainFrame
         auto Draw(bool& Open) -> void;
     private:
         friend struct FPythonScriptPanelTestAccess;
+        auto ObserveStartupScript() -> void;
         auto Run() -> bool;
         auto IsBusy() const -> bool;
         DEditorEngine& Editor;
         std::array<char, 4096> Path{};
         uint64 Job = 0;
         bool Reported = false;
+        bool bStartupScriptObserved = false;
         std::string Message;
         std::optional<FPythonJobResult> Result;
         bool OpenRequested = false;

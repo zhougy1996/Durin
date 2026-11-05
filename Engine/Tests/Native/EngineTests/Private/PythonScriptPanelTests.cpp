@@ -1,5 +1,7 @@
 #include "Panels/PythonScriptPanel.h"
 #include "DurinPythonModule.h"
+#include "PythonEditorSubsystem.h"
+#include "Editor/EditorEnvironmentTestSupport.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/EditorScriptCall.h"
@@ -50,9 +52,17 @@ namespace
         auto TearDown() -> void override
         {
             Panel.reset();
-            if (Python) Python->StopRuntime();
             if (Host) { Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
             CollectGarbage();
+            if (Python) { EXPECT_EQ(0u, Python->GetSession()); EXPECT_EQ(0u, Python->GetStartupJob()); }
+        }
+        auto RestartHostWithoutPanel() -> void
+        {
+            Panel.reset(); Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+            Host = NewObject<DEditorEngine>(nullptr, {});
+            ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+            Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
+            ASSERT_NE(Tools, nullptr);
         }
         auto Action() -> Browser::FExtensionDescriptor
         {
@@ -192,4 +202,46 @@ namespace
         ASSERT_TRUE(Host->GetTransactor()->Redo());
         EXPECT_EQ(Level->GetActors().size(), 6u);
     }
+}
+
+TEST_F(PythonScriptPanelTests, StartupScriptRunsOnceWithoutMainFrameAndPanelsObserveTheExistingJob)
+{
+    const auto File = Script("print('startup once')", "startup_owned.py");
+    Testing::FScopedEditorEnvironment Environment("DURIN_PYTHON_SCRIPT", File.string());
+    RestartHostWithoutPanel();
+    ASSERT_NE(Host->GetEditorSubsystem<DPythonEditorSubsystem>(), nullptr);
+    const auto Job = Python->GetStartupJob();
+    ASSERT_NE(Job, 0u);
+    Tools->TickScripts();
+    const auto Result = Python->GetRuntime().GetJobResult(Job);
+    ASSERT_TRUE(Result);
+    EXPECT_EQ(Result->State, EPythonJobState::Succeeded);
+    EXPECT_EQ(Result->Output, "startup once\n");
+    ASSERT_TRUE(Host->RefreshEditorSubsystems(true));
+    EXPECT_EQ(Job, Python->GetStartupJob());
+    for (int Reopen = 0; Reopen < 2; ++Reopen)
+    {
+        Panel = std::make_unique<FPythonScriptPanel>(*Host);
+        EXPECT_EQ(Job, FPythonScriptPanelTestAccess::Job(*Panel));
+        EXPECT_TRUE(FPythonScriptPanelTestAccess::OpenRequested(*Panel));
+        Panel->Tick();
+        ASSERT_TRUE(FPythonScriptPanelTestAccess::Result(*Panel));
+        EXPECT_EQ(FPythonScriptPanelTestAccess::Result(*Panel)->Output, "startup once\n");
+        Panel.reset();
+        EXPECT_NE(0u, Python->GetSession());
+    }
+}
+
+TEST_F(PythonScriptPanelTests, StartupSubmissionFailureRemainsVisibleWithoutRetryingFromThePanel)
+{
+    const auto File = Testing::GetTestWorkDirectory() / "absent_startup_script.py";
+    Testing::FScopedEditorEnvironment Environment("DURIN_PYTHON_SCRIPT", File.string());
+    RestartHostWithoutPanel();
+    EXPECT_EQ(0u, Python->GetStartupJob());
+    ASSERT_FALSE(Python->GetStartupError().empty());
+    Panel = std::make_unique<FPythonScriptPanel>(*Host);
+    EXPECT_TRUE(FPythonScriptPanelTestAccess::OpenRequested(*Panel));
+    EXPECT_EQ(Python->GetStartupError(), FPythonScriptPanelTestAccess::Message(*Panel));
+    Panel->Tick();
+    EXPECT_EQ(0u, FPythonScriptPanelTestAccess::Job(*Panel));
 }

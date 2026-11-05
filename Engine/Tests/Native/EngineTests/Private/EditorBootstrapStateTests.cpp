@@ -1,16 +1,16 @@
 #include "gtest/gtest.h"
 
-#include "Editor/EditorHost.h"
+#include "Editor/EditorStartup.h"
 
-namespace Durin::Editor::Host
+namespace Durin::Editor::Startup
 {
 	TEST(FEditorBootstrapStateTests, ValidatesEveryStatePairAgainstDocumentedTransitions)
 	{
 		constexpr std::array States{
 			EBootstrapState::ConstructingShell,
 			EBootstrapState::WaitingForFirstPresent,
+			EBootstrapState::InitializingProject,
 			EBootstrapState::LoadingWorkspace,
-			EBootstrapState::WorkspaceReady,
 			EBootstrapState::LoadingDefaultDocument,
 			EBootstrapState::Ready,
 			EBootstrapState::Failed,
@@ -23,13 +23,14 @@ namespace Durin::Editor::Host
 					(From == EBootstrapState::ConstructingShell
 						&& To == EBootstrapState::WaitingForFirstPresent)
 					|| (From == EBootstrapState::WaitingForFirstPresent
-						&& (To == EBootstrapState::LoadingWorkspace
+						&& (To == EBootstrapState::InitializingProject
 							|| To == EBootstrapState::Ready || To == EBootstrapState::Failed))
-					|| (From == EBootstrapState::LoadingWorkspace
-						&& (To == EBootstrapState::WorkspaceReady
+					|| (From == EBootstrapState::InitializingProject
+						&& (To == EBootstrapState::LoadingWorkspace
 							|| To == EBootstrapState::Failed))
-					|| (From == EBootstrapState::WorkspaceReady
-						&& To == EBootstrapState::LoadingDefaultDocument)
+					|| (From == EBootstrapState::LoadingWorkspace
+						&& (To == EBootstrapState::LoadingDefaultDocument
+							|| To == EBootstrapState::Failed))
 					|| (From == EBootstrapState::LoadingDefaultDocument
 						&& (To == EBootstrapState::Ready
 							|| To == EBootstrapState::Failed));
@@ -41,12 +42,12 @@ namespace Durin::Editor::Host
 	TEST(FEditorBootstrapStateTests, MapsTerminalAndPendingStatesToStepStatus)
 	{
 		EXPECT_EQ(GetBootstrapStepStatus(EBootstrapState::Ready),
-			EBootstrapStepStatus::Ready);
+			EHostStartupState::Ready);
 		EXPECT_EQ(GetBootstrapStepStatus(EBootstrapState::Failed),
-			EBootstrapStepStatus::Failed);
+			EHostStartupState::Failed);
 		EXPECT_EQ(GetBootstrapStepStatus(
 			EBootstrapState::LoadingDefaultDocument),
-			EBootstrapStepStatus::Pending);
+			EHostStartupState::Pending);
 	}
 
 }

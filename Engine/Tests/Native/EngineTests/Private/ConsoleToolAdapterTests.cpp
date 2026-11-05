@@ -14,6 +14,8 @@
 #include "Transactions/Transactor.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Json/Json.h"
+#include "Widgets/EditorNotificationOverlay.h"
+#include "Notifications/Notification.h"
 
 #include <gtest/gtest.h>
 
@@ -104,6 +106,23 @@ namespace Durin::Editor::MainFrame
 		};
 	}
 
+	TEST_F(FConsoleToolTests, NotificationSubsystemUsesFrameDeltaWithoutMainFrameOrAnImGuiFrame)
+	{
+		auto& Notifications = Host->GetNotificationManager();
+		const auto Id = Notifications.Post({.Message = "Headless notification", .DurationSeconds = 1.0f});
+		Host->Tick(0.0f, false);
+		const auto Find = [&] {
+			return std::ranges::find(Notifications.GetNotifications(), Id, &FNotification::Id);
+		};
+		ASSERT_NE(Notifications.GetNotifications().end(), Find());
+		Host->Tick(0.25f, false);
+		ASSERT_NE(Notifications.GetNotifications().end(), Find());
+		ASSERT_TRUE(Find()->RemainingSeconds);
+		EXPECT_FLOAT_EQ(0.75f, *Find()->RemainingSeconds);
+		Host->Tick(0.8f, false);
+		EXPECT_EQ(Notifications.GetNotifications().end(), Find());
+	}
+
 	TEST_F(FConsoleToolTests, TracyToolsAreDiscoverableAndStatusUsesStructuredConsoleOutput)
 	{
 		ASSERT_TRUE(FModuleManager::Get().LoadModule("MainFrame"));
@@ -127,6 +146,7 @@ namespace Durin::Editor::MainFrame
 
 	TEST_F(FConsoleToolTests, NamePoolStatsAreDiscoverableAndCallableWithoutArguments)
 	{
+		ASSERT_TRUE(FModuleManager::Get().LoadModule("MainFrame"));
 		EXPECT_EQ((std::vector<std::string>{"core.namepool/stats"}), Adapter->FindCompletions("core.namepool/"));
 		const auto Help = Adapter->Execute("help core.namepool/stats");
 		ASSERT_TRUE(Help.bSuccess);

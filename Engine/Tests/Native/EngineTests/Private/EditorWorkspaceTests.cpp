@@ -891,7 +891,7 @@ TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 	using namespace Durin::Editor;
 	const FWorkspaceTypeId WorkspaceType("LevelEditor");
 
-	EXPECT_EQ(WorkspaceUI::MakeHostDockSpaceName(2), "Durin.DockSpace.EditorHost.v2");
+	EXPECT_EQ(WorkspaceUI::MakeMainFrameDockSpaceName(2), "Durin.DockSpace.EditorHost.v2");
 	EXPECT_EQ(
 		WorkspaceUI::MakeRootWindowName("Level Editor", "LevelEditor"),
 		"Level Editor###Durin.Editor.Root.LevelEditor"
@@ -907,7 +907,7 @@ TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 		"Details###Durin.LevelEditor.Panel.Details"
 	);
 	EXPECT_EQ(WorkspaceUI::MakeRootDockClassId(), ImHashStr("Durin.DockClass.EditorRoot"));
-	EXPECT_EQ(WorkspaceUI::MakeHostDockSpaceId(2), ImHashStr("Durin.DockSpace.EditorHost.v2"));
+	EXPECT_EQ(WorkspaceUI::MakeMainFrameDockSpaceId(2), ImHashStr("Durin.DockSpace.EditorHost.v2"));
 	EXPECT_EQ(WorkspaceUI::MakeDockClassId(WorkspaceType), ImHashStr("Durin.DockClass.LevelEditor"));
 	EXPECT_EQ(WorkspaceUI::MakeDockSpaceId(WorkspaceType, 4), ImHashStr("Durin.DockSpace.LevelEditor.v4"));
 }

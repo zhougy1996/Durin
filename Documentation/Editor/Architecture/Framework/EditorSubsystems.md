@@ -2,9 +2,9 @@
 
 Summary: Define per-editor native services, reflected PIE controls, Actor/Component editing, and notification ownership and update timing.
 
-Modules: DurinEd, LevelEditor, MainFrame, Engine
+Modules: DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-11-04
 
 ## Host Contract
 
@@ -34,8 +34,9 @@ concrete Editor types in the same collection. The host enumerates
 both collections for GC. Runtime Engine has no dependency on DurinEd.
 
 Editor Init loads project providers and AssetForgeBuiltins, runs base Init,
-retains EditorWorld, loads MainFrame, then initializes currently available Editor services before
-CreateEditorHost exposes consumers. The constructor-created transactor is
+retains EditorWorld, loads MainFrame plus optional Python/MCP service providers,
+then initializes currently available Editor services before
+CreateDefaultMainFrame exposes consumers. The constructor-created transactor is
 available; the shell is not yet created. DurinEd's module startup registers the
 Actor editing, asset editor, notification and [tool](../Tools/EditorTools.md) services. LevelEditor
 registers the Level editing service and PIE Toolset. A returned failure, cancellation or exception retires
@@ -280,11 +281,13 @@ successfully initialized notification service. The host does not construct or
 separately destroy a manager. There is one notification history per editor host,
 independent of World replacement and PIE.
 
-MainFrame publishes transaction events and calls `UpdateNotifications` before
-notification overlay drawing. The editor host wraps that update in its operation
-scope and advances the manager once using the UI frame delta. No Tick virtual is
-added to every subsystem and no second Engine Tick update advances notification
-lifetimes. Standalone manager tests may still call Tick directly.
+MainFrame publishes transaction presentation feedback. After the optional
+main-frame update, the normal editor tick calls `DEditorNotificationSubsystem::Tick`
+once using the engine frame delta, including when no MainFrame exists.
+The subsystem owns notification time advancement; the overlay never ages the
+manager. Shutdown suppresses the update and the subsystem work gate rejects
+late ticking. No Tick virtual is added to every subsystem. Standalone manager
+tests may still call Tick directly.
 
 Producer methods serialize through the pending-command mutex. Gate closure
 rejects new commands; Post/BeginProgress return zero when rejected. Deinitialize

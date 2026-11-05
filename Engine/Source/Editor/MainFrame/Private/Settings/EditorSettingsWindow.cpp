@@ -1,7 +1,7 @@
 #include "Settings/EditorSettingsWindow.h"
 
 #include "Settings/EditorSettings.h"
-#include "Settings/HostSettings.h"
+#include "Settings/MainFrameSettings.h"
 #include "Mona.h"
 #include "Engine/Engine.h"
 #include "Widgets/MWindow.h"
@@ -10,7 +10,7 @@ namespace Durin::Editor::MainFrame
 {
 	namespace
 	{
-		auto ApplyAppearance(const FHostSettings& Settings, MWindow& Window) -> void
+		auto ApplyAppearance(const FMainFrameSettings& Settings, MWindow& Window) -> void
 		{
 			MonaImGui::SetColorTheme(Settings.GetColorTheme());
 			MonaImGui::SetGlobalUIScale(Settings.GetUIScale());
@@ -18,9 +18,9 @@ namespace Durin::Editor::MainFrame
 				static_cast<float>(Settings.GetWindowWidth()), static_cast<float>(Settings.GetWindowHeight())});
 		}
 
-		auto DrawAppearance(FHostSettings& Settings, MWindow& Window, std::string& Error) -> void
+		auto DrawAppearance(FMainFrameSettings& Settings, MWindow& Window, std::string& Error) -> void
 		{
-			FHostSettings Next = Settings;
+			FMainFrameSettings Next = Settings;
 			int Theme = Settings.GetColorTheme() == MonaImGui::EColorTheme::Light ? 1 : 0;
 			ImGui::SeparatorText("Theme and scale");
 			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(200.0f));
@@ -50,14 +50,14 @@ namespace Durin::Editor::MainFrame
 		}
 	}
 
-	auto FEditorSettingsWindow::Draw(FHostSettings& Settings, MWindow& RootWindow) -> void
+	auto FEditorSettingsWindow::Draw(FMainFrameSettings& Settings, MWindow& RootWindow) -> void
 	{
 		auto Pages = FEditorSettingsRegistry::Get().GetPages();
 		Pages.insert(Pages.begin(), {
 			{"editor.appearance", "Appearance", "theme dark light scale font UI", "Theme and interface scale. Changes take effect immediately.", false,
 				[&](std::string& OutError) { DrawAppearance(Settings, RootWindow, OutError); },
 				[&] {
-					FHostSettings Next = Settings;
+					FMainFrameSettings Next = Settings;
 					Next.SetColorTheme(MonaImGui::EColorTheme::Dark);
 					Next.SetDisplaySettings(Settings.GetWindowWidth(), Settings.GetWindowHeight(), 1.0f);
 					if (!Next.Save()) return false;
@@ -104,7 +104,7 @@ namespace Durin::Editor::MainFrame
 					ImGui::TextDisabled("Background reduction pauses while Tracy is connected.");
 					ImGui::TextDisabled("When all editor windows are minimized, the limit remains 5 FPS.");
 					if (!bChanged) return;
-					FHostSettings Next = Settings;
+					FMainFrameSettings Next = Settings;
 					Next.SetVSyncEnabled(bVSync);
 					Next.SetFrameRateLimit(FrameRateLimit);
 					Next.SetLimitBackgroundFrameRate(bLimitBackgroundFrameRate);
@@ -115,7 +115,7 @@ namespace Durin::Editor::MainFrame
 					OutError.clear();
 				},
 				[&] {
-					FHostSettings Next = Settings;
+					FMainFrameSettings Next = Settings;
 					Next.SetVSyncEnabled(true);
 					Next.SetFrameRateLimit(0);
 					Next.SetLimitBackgroundFrameRate(true);

@@ -5,8 +5,9 @@
 
 namespace Durin::Editor::WorkspaceUI
 {
-	auto MakeHostDockSpaceName(uint32 LayoutVersion) -> std::string
+	auto MakeMainFrameDockSpaceName(uint32 LayoutVersion) -> std::string
 	{
+		// Persisted docking identity predates the MainFrame API naming.
 		return std::format("Durin.DockSpace.EditorHost.v{}", LayoutVersion);
 	}
 
@@ -40,9 +41,9 @@ namespace Durin::Editor::WorkspaceUI
 		return ImHashStr("Durin.DockClass.EditorRoot");
 	}
 
-	auto MakeHostDockSpaceId(uint32 LayoutVersion) -> ImGuiID
+	auto MakeMainFrameDockSpaceId(uint32 LayoutVersion) -> ImGuiID
 	{
-		const std::string Name = MakeHostDockSpaceName(LayoutVersion);
+		const std::string Name = MakeMainFrameDockSpaceName(LayoutVersion);
 		return ImHashStr(Name.c_str());
 	}
 
@@ -111,10 +112,10 @@ namespace Durin::Editor::WorkspaceUI
 		return ImGui::DockSpace(DockSpaceId, Size, Flags, &WindowClass);
 	}
 
-	auto SubmitHostDockSpace(uint32 LayoutVersion, const ImVec2& Size, ImGuiDockNodeFlags Flags) -> ImGuiID
+	auto SubmitMainFrameDockSpace(uint32 LayoutVersion, const ImVec2& Size, ImGuiDockNodeFlags Flags) -> ImGuiID
 	{
 		const ImGuiWindowClass WindowClass = MakeRootWindowClass();
-		const ImGuiID DockSpaceId = MakeHostDockSpaceId(LayoutVersion);
+		const ImGuiID DockSpaceId = MakeMainFrameDockSpaceId(LayoutVersion);
 		return ImGui::DockSpace(DockSpaceId, Size, Flags, &WindowClass);
 	}
 

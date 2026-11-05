@@ -1,4 +1,4 @@
-#include "Settings/HostSettings.h"
+#include "Settings/MainFrameSettings.h"
 
 #include "Application/GenericApplication.h"
 #include "Engine/Engine.h"
@@ -11,9 +11,10 @@ namespace Durin::Editor::MainFrame
 {
 	namespace
 	{
-		constexpr const char* HostSettingsFileName = "EditorHostSettings.yaml";
+		// Keep the persisted filename compatible with existing editor settings.
+		constexpr const char* MainFrameSettingsFileName = "EditorHostSettings.yaml";
 
-		auto LoadDisplaySettings(const FYamlNodeView& Display, FHostSettings& Settings) -> void
+		auto LoadDisplaySettings(const FYamlNodeView& Display, FMainFrameSettings& Settings) -> void
 		{
 			Settings.SetDisplaySettings(
 				static_cast<int32>(Display.GetView("WindowWidth").GetInt(Settings.GetWindowWidth())),
@@ -31,7 +32,7 @@ namespace Durin::Editor::MainFrame
 		}
 	}
 
-	auto ApplyDisplaySettings(const FHostSettings& Settings, DEngine* Engine) -> void
+	auto ApplyDisplaySettings(const FMainFrameSettings& Settings, DEngine* Engine) -> void
 	{
 		if (Engine)
 		{
@@ -43,7 +44,7 @@ namespace Durin::Editor::MainFrame
 				? EViewportPresentationPolicy::FramePaced : EViewportPresentationPolicy::Unsynchronized);
 	}
 
-	auto FHostSettings::Load() -> bool
+	auto FMainFrameSettings::Load() -> bool
 	{
 		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
 		if (!Monitors.empty())
@@ -53,7 +54,7 @@ namespace Durin::Editor::MainFrame
 			UIScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f : 1.0f;
 		}
 
-		const std::string HostPath = FPaths::LaunchConfigsDir() + HostSettingsFileName;
+		const std::string HostPath = FPaths::LaunchConfigsDir() + MainFrameSettingsFileName;
 		if (!std::filesystem::exists(HostPath)) return true;
 
 		FYamlDocument Document;
@@ -66,7 +67,7 @@ namespace Durin::Editor::MainFrame
 		return true;
 	}
 
-	auto FHostSettings::Save() const -> bool
+	auto FMainFrameSettings::Save() const -> bool
 	{
 		FYamlDocument Document;
 		FYamlNodeRef Display = Document.GetMutableRoot().AddMap("Display");
@@ -79,7 +80,7 @@ namespace Durin::Editor::MainFrame
 		Display.SetChildValue("FrameRateLimit", FrameRateLimit);
 		Display.SetChildValue("LimitBackgroundFrameRate", bLimitBackgroundFrameRate);
 		Display.SetChildValue("BackgroundFrameRateLimit", BackgroundFrameRateLimit);
-		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + HostSettingsFileName))
+		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + MainFrameSettingsFileName))
 		{
 			DURIN_WARN("Failed to save editor host settings.");
 			return false;
@@ -87,7 +88,7 @@ namespace Durin::Editor::MainFrame
 		return true;
 	}
 
-	auto FHostSettings::SetDisplaySettings(int32 Width, int32 Height, float Scale) -> void
+	auto FMainFrameSettings::SetDisplaySettings(int32 Width, int32 Height, float Scale) -> void
 	{
 		WindowWidth = Width;
 		WindowHeight = Height;

@@ -1,7 +1,4 @@
 #include "MainFrameModule.h"
-#include "Rendering/ViewportDisplaySource.h"
-#include "DurinMCPModule.h"
-#include "DurinPythonModule.h"
 #include "Panels/PythonScriptPanel.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "AssetCompatibilityWindow.h"
@@ -11,11 +8,13 @@
 #include "ProjectBrowser.h"
 #include "ProfilingToolService.h"
 #include "Tools/TracyToolset.h"
+#include "Tools/NamePoolToolset.h"
 #include "Modules/ModularFeature.h"
 
 #include "Workspace/WorkspaceManager.h"
 #include "Workspace/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
+#include "Engine/HostStartup.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Transactions/Transaction.h"
@@ -35,7 +34,7 @@
 #include "Misc/Version.h"
 #include "RHIGlobals.h"
 #include "Profiling/Profiling.h"
-#include "Settings/HostSettings.h"
+#include "Settings/MainFrameSettings.h"
 #include "Settings/EditorSettingsWindow.h"
 #include "Settings/EditorSettings.h"
 #include "Panels/ConsolePanel.h"
@@ -51,11 +50,11 @@
 
 namespace Durin::Editor::MainFrame
 {
-	using namespace Host;
+	using namespace Startup;
 
-	struct FBootstrapContext
+	struct FMainFrameContext
 	{
-		~FBootstrapContext()
+		~FMainFrameContext()
 		{
 			if (RootWindow) RootWindow->SetCloseRequestHandler({});
 			if (ContentBrowserTool)
@@ -78,13 +77,12 @@ namespace Durin::Editor::MainFrame
 		}
 
 		Editor::FSlowTaskDialogPresenter SlowTaskDialogs;
-		EBootstrapState State = EBootstrapState::ConstructingShell;
+		TWeakObjectPtr<DEditorEngine> Editor;
 		bool bHasProject = false;
 		bool bProjectBrowserOpen = false;
 		bool bExitRequested = false;
 		bool bExitSaveFailed = false;
-		std::string FailureMessage;
-		std::shared_ptr<FHostSettings> HostSettings;
+		std::shared_ptr<FMainFrameSettings> MainFrameSettings;
 		std::shared_ptr<MWindow> RootWindow;
 		TRefCountPtr<FRHIViewport> ShellViewport;
 		uint64 ShellPresentationBaseline = 0;
@@ -184,7 +182,7 @@ namespace Durin::Editor::MainFrame
 				*Object, Files, {}, std::move(Completion));
 		}
 
-		enum class EHostDrawerTool : uint8
+		enum class EMainFrameDrawerTool : uint8
 		{
 			ContentBrowser,
 			Console,
@@ -199,8 +197,8 @@ namespace Durin::Editor::MainFrame
 			bool bConsoleOpen = false;
 			bool bPythonOpen = false;
 			bool bActivityHistoryRequested = false;
-			bool bResetHostLayoutRequested = false;
-			EHostDrawerTool DrawerTool = EHostDrawerTool::ContentBrowser;
+			bool bResetMainFrameLayoutRequested = false;
+			EMainFrameDrawerTool DrawerTool = EMainFrameDrawerTool::ContentBrowser;
 			MonaImGui::FBottomDrawerState Drawer;
 		};
 		constexpr float EditorTitleBarHeight = 44.0f;
@@ -211,16 +209,8 @@ namespace Durin::Editor::MainFrame
 		constexpr float EditorTitleBarMenuGap = 28.0f;
 		constexpr float EditorTitleBarTitleGap = 12.0f;
 
-		auto TransitionBootstrap(
-			FBootstrapContext& Context,
-			EBootstrapState NextState) -> void
-		{
-			check(IsValidBootstrapTransition(Context.State, NextState));
-			Context.State = NextState;
-		}
-
 		auto RegisterEditorWorkspaces(
-			FBootstrapContext& Context,
+			FMainFrameContext& Context,
 			Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::FLevelEditorModule& LevelEditorModule,
 			::Durin::FMaterialEditorModule& MaterialEditorModule,
@@ -296,8 +286,8 @@ namespace Durin::Editor::MainFrame
 			return false;
 		}
 
-		auto ActivateEditorWorkspaces(
-			FBootstrapContext& Context) -> bool
+		auto InitializeEditorWorkspaces(
+			FMainFrameContext& Context) -> bool
 		{
 			Profiling::RecordStartupMilestone(
 				Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
@@ -402,7 +392,7 @@ namespace Durin::Editor::MainFrame
 				Profiling::EStartupMilestone::DefaultWorkspaceReady);
 			return true;
 		}
-		auto DrawExitConfirmation(FBootstrapContext& Context) -> void
+		auto DrawExitConfirmation(FMainFrameContext& Context) -> void
 		{
 			if (!Context.bExitRequested) return;
 			auto& Manager = *Context.WorkspaceManager;
@@ -444,7 +434,7 @@ namespace Durin::Editor::MainFrame
 			if (bExit) Context.RootWindow->RequestDestroyWindow();
 		}
 
-		auto DrawLoadingState(const FBootstrapContext& Context) -> void
+		auto DrawLoadingState(const DEditorEngine& Editor) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
 			ImGui::SetNextWindowPos(Viewport->WorkPos);
@@ -457,22 +447,24 @@ namespace Durin::Editor::MainFrame
 				| ImGuiWindowFlags_NoNavFocus;
 			ImGui::Begin("###Durin.Editor.LoadingHost", nullptr, Flags);
 			const char* Message = "Loading project workspace...";
-			if (Context.State == EBootstrapState::WaitingForFirstPresent)
+			if (Editor.GetStartupPhase() == EBootstrapState::WaitingForFirstPresent)
 				Message = "Preparing editor...";
-			else if (Context.State == EBootstrapState::LoadingDefaultDocument)
+			else if (Editor.GetStartupPhase() == EBootstrapState::InitializingProject)
+				Message = "Initializing project...";
+			else if (Editor.GetStartupPhase() == EBootstrapState::LoadingDefaultDocument)
 				Message = "Opening default level...";
 			FSlowTaskSnapshot Feedback{.Title = "Starting editor...", .Message = Message};
 			bool bShowElapsed = false;
-			if (GEditor && Context.State == EBootstrapState::LoadingDefaultDocument)
+			if (Editor.GetStartupPhase() == EBootstrapState::LoadingDefaultDocument)
 			{
-				if (const auto Progress = GEditor->GetMapChangeProgress(); Progress && GEditor->IsPreparingMapChange())
+				if (const auto Progress = Editor.GetMapChangeProgress(); Progress && Editor.IsPreparingMapChange())
 				{
 					Feedback.Message = Progress->Phase == EMapChangePhase::Ready
 						? "Activating level" : std::string(GetMapChangePhaseLabel(Progress->Phase));
 					Feedback.ElapsedSeconds = Progress->ElapsedSeconds;
 					bShowElapsed = true;
 				}
-				else if (GEditor->GetSceneGeneration() != 0) Feedback.Message = "Waiting for the scene's first presentation";
+				else if (Editor.GetSceneGeneration() != 0) Feedback.Message = "Waiting for the scene's first presentation";
 			}
 			const ImVec2 ContentOrigin = ImGui::GetCursorPos();
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
@@ -484,7 +476,7 @@ namespace Durin::Editor::MainFrame
 			ImGui::End();
 		}
 
-		auto BuildDefaultEditorHostLayout(
+		auto BuildDefaultMainFrameLayout(
 			ImGuiID DockSpaceId,
 			const ImVec2& DockSpaceSize,
 			const std::vector<Editor::FWorkspaceDescriptor>& Descriptors
@@ -541,7 +533,7 @@ namespace Durin::Editor::MainFrame
 			ImGui::End();
 		}
 
-		auto ObserveHostWindowState(FHostSettings& Settings, const MWindow& RootWindow) -> void
+		auto ObserveMainWindowState(FMainFrameSettings& Settings, const MWindow& RootWindow) -> void
 		{
 			const bool bMaximized = RootWindow.IsMaximized();
 			const auto* Renderer = Mona::FMonaApplication::Get().GetRenderer();
@@ -653,8 +645,8 @@ namespace Durin::Editor::MainFrame
 					if (ImGui::MenuItem("Reset Active Editor Layout")) ActiveWorkspace->ResetLayout();
 				}
 				ImGui::Separator();
-				if (ImGui::MenuItem("Reset Editor Host Layout"))
-					ViewState.bResetHostLayoutRequested = true;
+				if (ImGui::MenuItem("Reset Editor Layout"))
+					ViewState.bResetMainFrameLayoutRequested = true;
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Help"))
@@ -857,9 +849,9 @@ namespace Durin::Editor::MainFrame
 			ImGui::PopStyleVar();
 		}
 
-		auto DrawWorkspaceHost(
+		auto DrawMainFrame(
 			Editor::FWorkspaceManager& WorkspaceManager,
-			FHostSettings& HostSettings,
+			FMainFrameSettings& MainFrameSettings,
 			MWindow& RootWindow,
 			FMainFrameViewState& ViewState,
 			FAssetCompatibilityWindow& AssetCompatibilityWindow,
@@ -877,20 +869,13 @@ namespace Durin::Editor::MainFrame
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 			const bool bCustomTitleBar = RootWindow.GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar;
-			const ImGuiWindowFlags HostFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
+			const ImGuiWindowFlags MainFrameFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
 				ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
 				ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
 				(bCustomTitleBar ? ImGuiWindowFlags_None : ImGuiWindowFlags_MenuBar);
-			ImGui::Begin("###Durin.Editor.WorkspaceHost", nullptr, HostFlags);
+			ImGui::Begin("###Durin.Editor.WorkspaceHost", nullptr, MainFrameFlags);
 			ImGui::PopStyleVar(3);
 
-			WorkspaceManager.RefreshDocumentState();
-			Console.Tick();
-			PythonScripts.Tick();
-			if (GEditor)
-				Activity.UpdateNotifications(
-					GEditor->GetNotificationManager(),
-					*GEditor->GetTransactor());
 			std::shared_ptr<Editor::IWorkspace> ActiveWorkspace;
 			if (const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
 				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
@@ -907,11 +892,11 @@ namespace Durin::Editor::MainFrame
 					ContentBrowserTool.RequestFocus();
 				}
 				else if (ViewState.Drawer.IsOpen()
-					&& ViewState.DrawerTool == EHostDrawerTool::ContentBrowser)
+					&& ViewState.DrawerTool == EMainFrameDrawerTool::ContentBrowser)
 					ViewState.Drawer.Close();
 				else
 				{
-					ViewState.DrawerTool = EHostDrawerTool::ContentBrowser;
+					ViewState.DrawerTool = EMainFrameDrawerTool::ContentBrowser;
 					ViewState.Drawer.Open();
 					ContentBrowserTool.RequestFocus();
 				}
@@ -928,7 +913,7 @@ namespace Durin::Editor::MainFrame
 				ImGui::EndMenuBar();
 			}
 			DrawAboutDialog(ViewState.bAboutDialogOpen);
-			ViewState.SettingsWindow.Draw(HostSettings, RootWindow);
+			ViewState.SettingsWindow.Draw(MainFrameSettings, RootWindow);
 			AssetCompatibilityWindow.Draw(ViewState.bAssetUpgradeOpen,
 				[&ContentBrowserTool, &ViewState](const FPackagePath& Path) {
 					ViewState.bContentBrowserOpen = true;
@@ -947,22 +932,22 @@ namespace Durin::Editor::MainFrame
 					0.0f, DockSpaceSize.y - Activity.GetStatusBarHeight());
 			const ImVec2 DrawerAnchorMin = ImGui::GetCursorScreenPos();
 			const ImVec2 DrawerAnchorMax = DrawerAnchorMin + DockSpaceSize;
-			const ImGuiID DockSpaceId = Editor::WorkspaceUI::MakeHostDockSpaceId(Editor::WorkspaceUI::HostLayoutVersion);
+			const ImGuiID DockSpaceId = Editor::WorkspaceUI::MakeMainFrameDockSpaceId(Editor::WorkspaceUI::MainFrameLayoutVersion);
 			const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
-			if (bNeedsDefaultLayout || ViewState.bResetHostLayoutRequested)
+			if (bNeedsDefaultLayout || ViewState.bResetMainFrameLayoutRequested)
 			{
 				// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
-				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize, WorkspaceManager.GetWorkspaceDescriptors());
+				BuildDefaultMainFrameLayout(DockSpaceId, DockSpaceSize, WorkspaceManager.GetWorkspaceDescriptors());
 				ViewState.bContentBrowserOpen = false;
 				ViewState.bConsoleOpen = false;
 				ViewState.Drawer.Reset();
-				ViewState.DrawerTool = EHostDrawerTool::ContentBrowser;
-				ViewState.bResetHostLayoutRequested = false;
+				ViewState.DrawerTool = EMainFrameDrawerTool::ContentBrowser;
+				ViewState.bResetMainFrameLayoutRequested = false;
 			}
-			const ImVec2 HostItemSpacing(
+			const ImVec2 MainFrameItemSpacing(
 				ImGui::GetStyle().ItemSpacing.x, 0.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, HostItemSpacing);
-			Editor::WorkspaceUI::SubmitHostDockSpace(Editor::WorkspaceUI::HostLayoutVersion,
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, MainFrameItemSpacing);
+			Editor::WorkspaceUI::SubmitMainFrameDockSpace(Editor::WorkspaceUI::MainFrameLayoutVersion,
 				DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 			ImGui::PopStyleVar();
 
@@ -998,21 +983,21 @@ namespace Durin::Editor::MainFrame
 			{
 				EEditorStatusBarAction Selected = EEditorStatusBarAction::None;
 				if (ViewState.Drawer.IsOpen())
-					Selected = ViewState.DrawerTool == EHostDrawerTool::Console
+					Selected = ViewState.DrawerTool == EMainFrameDrawerTool::Console
 						? EEditorStatusBarAction::Console
 						: EEditorStatusBarAction::ContentBrowser;
 				const EEditorStatusBarAction Action = Activity.DrawStatusBar(
 					GEditor->GetNotificationManager(), Selected,
 					Console.GetUnreadImportantRecordCount());
-				const auto ToggleDrawer = [&](EHostDrawerTool Tool) {
-					const bool bDocked = Tool == EHostDrawerTool::Console
+				const auto ToggleDrawer = [&](EMainFrameDrawerTool Tool) {
+					const bool bDocked = Tool == EMainFrameDrawerTool::Console
 						? ViewState.bConsoleOpen : ViewState.bContentBrowserOpen;
 					if (bDocked)
 					{
-						ImGui::SetWindowFocus(Tool == EHostDrawerTool::Console
+						ImGui::SetWindowFocus(Tool == EMainFrameDrawerTool::Console
 							? "Console###Durin.EditorHost.Console"
 							: "Content Browser###Durin.EditorHost.ContentBrowser");
-						if (Tool == EHostDrawerTool::Console) Console.RequestInputFocus();
+						if (Tool == EMainFrameDrawerTool::Console) Console.RequestInputFocus();
 						else ContentBrowserTool.RequestFocus();
 						return;
 					}
@@ -1022,7 +1007,7 @@ namespace Durin::Editor::MainFrame
 					{
 						ViewState.DrawerTool = Tool;
 						ViewState.Drawer.Open();
-						if (Tool == EHostDrawerTool::Console)
+						if (Tool == EMainFrameDrawerTool::Console)
 						{
 							Console.RequestInputFocus();
 							Console.RequestScrollToLatest();
@@ -1033,9 +1018,9 @@ namespace Durin::Editor::MainFrame
 				switch (Action)
 				{
 				case EEditorStatusBarAction::ContentBrowser:
-					ToggleDrawer(EHostDrawerTool::ContentBrowser); break;
+					ToggleDrawer(EMainFrameDrawerTool::ContentBrowser); break;
 				case EEditorStatusBarAction::Console:
-					ToggleDrawer(EHostDrawerTool::Console); break;
+					ToggleDrawer(EMainFrameDrawerTool::Console); break;
 				case EEditorStatusBarAction::ActivityHistory:
 					Activity.OpenHistory(); break;
 				case EEditorStatusBarAction::None: break;
@@ -1058,7 +1043,7 @@ namespace Durin::Editor::MainFrame
 				ImGui::PopStyleVar();
 				if (bDrawerVisible)
 				{
-					const bool bConsole = ViewState.DrawerTool == EHostDrawerTool::Console;
+					const bool bConsole = ViewState.DrawerTool == EMainFrameDrawerTool::Console;
 					ImGui::AlignTextToFramePadding();
 					ImGui::TextUnformatted(bConsole ? "Console" : "Content Browser");
 					const char* DockLabel = "Dock in Layout";
@@ -1130,76 +1115,71 @@ namespace Durin
 
 	IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
 
-	struct Editor::MainFrame::FTracyToolsetState
+	struct Editor::MainFrame::FMainFrameToolsetState
 	{
-		std::unique_ptr<FNativeToolset> Toolset;
-		FModularFeatureRegistration Registration;
+		std::unique_ptr<FNativeToolset> Tracy;
+		FModularFeatureRegistration TracyRegistration;
+		std::unique_ptr<FNativeToolset> NamePool;
+		FModularFeatureRegistration NamePoolRegistration;
 	};
 
 	auto FMainFrameModule::StartupModule() -> void
 	{
-		TracyTools = std::make_shared<FTracyToolsetState>();
-		TracyTools->Toolset = CreateTracyToolset(std::make_shared<FProfilingToolService>(FPaths::RootDir()));
-		TracyTools->Registration = FModularFeatureRegistry::Get().RegisterFeature(*TracyTools->Toolset);
+		Toolsets = std::make_shared<FMainFrameToolsetState>();
+		Toolsets->Tracy = CreateTracyToolset(std::make_shared<FProfilingToolService>(FPaths::RootDir()));
+		Toolsets->TracyRegistration = FModularFeatureRegistry::Get().RegisterFeature(*Toolsets->Tracy);
+		Toolsets->NamePool = CreateNamePoolToolset();
+		Toolsets->NamePoolRegistration = FModularFeatureRegistry::Get().RegisterFeature(*Toolsets->NamePool);
 	}
 
 	auto FMainFrameModule::ShutdownModule() -> void
 	{
-		DestroyEditorHost();
-		TracyTools->Registration.Reset();
-		TracyTools.reset();
+		DestroyMainFrame();
+		Toolsets->NamePoolRegistration.Reset();
+		Toolsets->TracyRegistration.Reset();
+		Toolsets.reset();
 		if (GEditor)
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("ContentBrowser"),
 				"ContentBrowser cannot retire while one of its custom changes is active");
 	}
 
-	auto FMainFrameModule::CreateEditorHost(
-		DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow, std::string InitialProjectError) -> void
+	auto FMainFrameModule::CreateDefaultMainFrame(
+		DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void
 	{
-		check(BootstrapContext == nullptr);
+		check(MainFrameContext == nullptr);
 		check(StartupWindow != nullptr);
 		check(StartupWindow->GetNativeWindow() != nullptr);
 		// Reserve a small entry-storage floor before workspace bootstrap creates names.
 		ReserveNamePoolBlocks(4);
-		BootstrapContext = std::make_shared<FBootstrapContext>();
-		FBootstrapContext& Context = *BootstrapContext;
+		MainFrameContext = std::make_shared<FMainFrameContext>();
+		FMainFrameContext& Context = *MainFrameContext;
+		Context.Editor = &Editor;
 		Context.bHasProject = HasCurrentProject();
-		Context.HostSettings = std::make_shared<FHostSettings>();
-		Context.HostSettings->Load();
-		ApplyDisplaySettings(*Context.HostSettings, &Editor);
-		MonaImGui::SetColorTheme(Context.HostSettings->GetColorTheme());
-		MonaImGui::SetGlobalUIScale(Context.HostSettings->GetUIScale());
+		Context.MainFrameSettings = std::make_shared<FMainFrameSettings>();
+		Context.MainFrameSettings->Load();
+		ApplyDisplaySettings(*Context.MainFrameSettings, &Editor);
+		MonaImGui::SetColorTheme(Context.MainFrameSettings->GetColorTheme());
+		MonaImGui::SetGlobalUIScale(Context.MainFrameSettings->GetUIScale());
 		Context.RootWindow = std::move(StartupWindow);
 		MonaImGui::BindMainViewportToWindow(Context.RootWindow);
 		Context.AssetEditors = Editor.GetEditorSubsystem<DAssetEditorSubsystem>();
 		check(Context.AssetEditors.IsValid());
 		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>(Context.AssetEditors.Get());
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
-		Context.FailureMessage = std::move(InitialProjectError);
-		if (!Context.FailureMessage.empty()) Context.ProjectBrowser->SetError(Context.FailureMessage);
 		Context.BrandTexture = std::make_unique<FEditorBrandTexture>();
 		std::string BrandTextureError;
 		if (!Context.BrandTexture->Load(BrandTextureError))
 			DURIN_WARN("Could not load the editor branding texture: {}", BrandTextureError);
-		FModuleManager::LoadModuleChecked<FDurinMCPModule>("DurinMCP").StartForEditor(Editor);
 		Context.AssetCompatibilityWindow =
 			std::make_shared<FAssetCompatibilityWindow>();
 		Context.Console = std::make_unique<FConsolePanel>(Editor);
 		Context.PythonScripts = std::make_unique<FPythonScriptPanel>(Editor);
-#if defined(_WIN32)
-		char* StartupScript = nullptr; size_t StartupScriptSize = 0;
-		if (_dupenv_s(&StartupScript, &StartupScriptSize, "DURIN_PYTHON_SCRIPT") == 0 && StartupScript)
-		{
-			std::unique_ptr<char, decltype(&std::free)> Owner(StartupScript, &std::free);
-			if (StartupScriptSize > 1) Context.PythonScripts->RunFile(std::filesystem::u8path(StartupScript));
-		}
-#endif
 		Context.Activity = std::make_unique<FEditorNotificationOverlay>();
 
 		const FIntPoint WindowSize{
-			Context.HostSettings->GetWindowWidth(),
-			Context.HostSettings->GetWindowHeight()};
+			Context.MainFrameSettings->GetWindowWidth(),
+			Context.MainFrameSettings->GetWindowHeight()};
 		Context.RootWindow->SetTitle(GetCurrentProject()
 			? std::format("Durin - {}", GetCurrentProject()->Name)
 			: "Durin - Project Browser");
@@ -1207,8 +1187,8 @@ namespace Durin
 			{100.0f, 100.0f},
 			{static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		const std::weak_ptr<FBootstrapContext> WeakContext =
-			BootstrapContext;
+		const std::weak_ptr<FMainFrameContext> WeakContext =
+			MainFrameContext;
 		Context.RootWindow->SetCloseRequestHandler([WeakContext] {
 			if (const auto Context = WeakContext.lock())
 			{
@@ -1219,7 +1199,7 @@ namespace Durin
 		});
 		Context.ProjectBrowser->SetOpenProject([WeakContext](
 			std::string_view ProjectFile, std::string& OutError) {
-			const std::shared_ptr<FBootstrapContext> Context =
+			const std::shared_ptr<FMainFrameContext> Context =
 				WeakContext.lock();
 			if (!Context)
 			{
@@ -1249,7 +1229,7 @@ namespace Durin
 			return RelaunchEditorForProjectResult.has_value();
 		});
 		Context.ProjectBrowser->SetClose([WeakContext] {
-			if (const std::shared_ptr<FBootstrapContext> Context =
+			if (const std::shared_ptr<FMainFrameContext> Context =
 					WeakContext.lock())
 				Context->bProjectBrowserOpen = false;
 		});
@@ -1257,16 +1237,14 @@ namespace Durin
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
 		EditorRootWidget->Construct([WeakContext,
 			ViewState = FMainFrameViewState{}]() mutable {
-			auto* Host = GEditor;
-			if (!Host) return;
-			Host->DispatchSubsystemCallback([&] {
-				const std::shared_ptr<FBootstrapContext> Context =
+			auto* Editor = GEditor;
+			if (!Editor) return;
+			Editor->DispatchSubsystemCallback([&] {
+				const std::shared_ptr<FMainFrameContext> Context =
 					WeakContext.lock();
 				if (!Context) return;
-				ObserveHostWindowState(
-					*Context->HostSettings, *Context->RootWindow);
-				const bool bReadyWorkspace = (Context->State == EBootstrapState::Ready
-					|| (Context->State == EBootstrapState::LoadingDefaultDocument && Host->GetSceneGeneration() != 0))
+				const bool bReadyWorkspace = (Editor->GetStartupPhase() == EBootstrapState::Ready
+					|| (Editor->GetStartupPhase() == EBootstrapState::LoadingDefaultDocument && Editor->GetSceneGeneration() != 0))
 					&& Context->bHasProject && Context->LevelEditorModule
 					&& Context->MaterialEditorModule && Context->TextureEditorModule
 					&& Context->StaticMeshEditorModule
@@ -1285,9 +1263,9 @@ namespace Durin
 				{
 					auto& ThumbnailPool = Editor::GetDefaultThumbnailManager().GetSharedPool();
 					ThumbnailPool.BeginFrame();
-					DrawWorkspaceHost(
+					DrawMainFrame(
 						*Context->WorkspaceManager,
-						*Context->HostSettings,
+						*Context->MainFrameSettings,
 						*Context->RootWindow,
 						ViewState,
 						*Context->AssetCompatibilityWindow,
@@ -1295,21 +1273,21 @@ namespace Durin
 						*Context->Console,
 						*Context->PythonScripts,
 						*Context->Activity);
-					ThumbnailPool.EndFrame(Host->GetStartupState() == EHostStartupState::Ready && !Host->IsPreparingMapChange());
+					ThumbnailPool.EndFrame(Editor->GetStartupState() == EHostStartupState::Ready && !Editor->IsPreparingMapChange());
 					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 					DrawExitConfirmation(*Context);
 					return;
 				}
 				if (Context->bProjectBrowserOpen || !Context->bHasProject
-					|| Context->State == EBootstrapState::Failed)
+					|| Editor->GetStartupPhase() == EBootstrapState::Failed)
 				{
 					Context->ProjectBrowser->Draw(
-						BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen);
+						BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen, Editor->GetStartupError());
 					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 					DrawExitConfirmation(*Context);
 					return;
 				}
-				DrawLoadingState(*Context);
+				DrawLoadingState(*Editor);
 				Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 				DrawExitConfirmation(*Context);
 			});
@@ -1319,7 +1297,7 @@ namespace Durin
 		// Keep the native window hidden until its persisted display state has been
 		// applied. Showing it before maximizing causes a visible normal-size frame
 		// during editor startup.
-		if (Context.HostSettings->IsWindowMaximized())
+		if (Context.MainFrameSettings->IsWindowMaximized())
 		{
 			Context.RootWindow->MaximizeWindow();
 		}
@@ -1333,68 +1311,40 @@ namespace Durin
 		Context.ShellPresentationBaseline = Context.ShellViewport ? Context.ShellViewport->GetPresentationSerial() : 0;
 		Profiling::ArmEditorShellFirstPresent();
 		Context.RootWindow->ShowWindow();
-		TransitionBootstrap(
-			Context, EBootstrapState::WaitingForFirstPresent);
 	}
 
-	auto FMainFrameModule::DestroyEditorHost() -> void
+	auto FMainFrameModule::DestroyMainFrame() -> void
 	{
-		if (!BootstrapContext) return;
-		if (FModuleManager::Get().IsModuleLoaded("DurinMCP"))
-			static_cast<FDurinMCPModule*>(FModuleManager::Get().GetModule("DurinMCP"))->StopServer();
-		if (FModuleManager::Get().IsModuleLoaded("DurinPython"))
-			static_cast<FDurinPythonModule*>(FModuleManager::Get().GetModule("DurinPython"))->StopRuntime();
-		BootstrapContext.reset();
-	}
-
-	auto FMainFrameModule::IsScenePresented(const FViewportOutputReceipt& Receipt, uint64 Generation) const -> bool
-	{
-		if (BootstrapContext && GFrameCounter % 60 == 0)
-		{
-			const auto [Presented, Viewport] = Receipt.GetPresentation();
-			DURIN_DEBUG("Scene presentation pending: generation={}, produced={}, presented={}, viewport={}, primary={}",
-				Generation, Receipt.GetProduced(), Presented, static_cast<const void*>(Viewport.GetReference()),
-				static_cast<const void*>(BootstrapContext->ShellViewport.GetReference()));
-		}
-		return BootstrapContext && Receipt.IsPresented(Generation, BootstrapContext->ShellViewport.GetReference());
+		if (!MainFrameContext) return;
+		MainFrameContext.reset();
 	}
 
 	auto FMainFrameModule::IsShellPresented() const -> bool
 	{
-		return BootstrapContext && BootstrapContext->ShellViewport
-			&& BootstrapContext->ShellViewport->GetPresentationSerial() > BootstrapContext->ShellPresentationBaseline;
+		return MainFrameContext && MainFrameContext->ShellViewport
+			&& MainFrameContext->ShellViewport->GetPresentationSerial() > MainFrameContext->ShellPresentationBaseline;
 	}
 
-	auto FMainFrameModule::PublishBootstrapState(EBootstrapState State, std::string Error) -> void
+	auto FMainFrameModule::InitializeWorkspaces(std::string& OutError) -> bool
 	{
-		if (!BootstrapContext) return;
-		auto& Context = *BootstrapContext;
-		Context.FailureMessage = std::move(Error);
-		if (!Context.FailureMessage.empty()) Context.ProjectBrowser->SetError(Context.FailureMessage);
-		if (Context.State != State) TransitionBootstrap(Context, State);
-	}
-
-	auto FMainFrameModule::ActivateWorkspaces(std::string& OutError) -> bool
-	{
-		if (BootstrapContext && ActivateEditorWorkspaces(*BootstrapContext)) return true;
+		OutError.clear();
+		if (MainFrameContext && InitializeEditorWorkspaces(*MainFrameContext)) return true;
 		OutError = "Could not initialize the editor workspaces.";
 		return false;
 	}
 
-	auto FMainFrameModule::AdvanceDocumentOperations() -> void
+	auto FMainFrameModule::TickMainFrame(float DeltaSeconds) -> void
 	{
-		if (BootstrapContext && BootstrapContext->LevelEditorModule) BootstrapContext->LevelEditorModule->AdvancePendingDocument();
-		if (BootstrapContext && BootstrapContext->AssetCompatibilityWindow)
-			BootstrapContext->AssetCompatibilityWindow->Tick(FPaths::ProjectFile(),
-				GEditor && !GEditor->IsPlaying() && GEditor->CanTransact());
-	}
-
-	auto FMainFrameModule::OpenDefaultDocument(std::string& OutError) -> EHostStartupState
-	{
-		if (BootstrapContext && BootstrapContext->LevelEditorModule)
-			return BootstrapContext->LevelEditorModule->OpenDefaultDocument(OutError);
-		OutError = "The Level Editor workspace is unavailable.";
-		return EHostStartupState::Failed;
+		const auto Context = MainFrameContext;
+		if (!Context) return;
+		auto* Editor = Context->Editor.Get();
+		if (!Editor) return;
+		ObserveMainWindowState(*Context->MainFrameSettings, *Context->RootWindow);
+		Context->AssetCompatibilityWindow->Tick(FPaths::ProjectFile(), !Editor->IsPlaying() && Editor->CanTransact());
+		Context->WorkspaceManager->RefreshDocumentState();
+		Context->PythonScripts->Tick();
+		Context->Console->Tick();
+		Context->Activity->Tick(Editor->GetNotificationManager(), *Editor->GetTransactor());
 	}
 
 } // namespace Durin

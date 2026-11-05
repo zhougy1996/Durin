@@ -24,11 +24,11 @@ namespace Durin::Editor::MainFrame
 		auto SetClose(FClose InClose) -> void { Close = std::move(InClose); }
 		auto SetError(std::string InError) -> void { Error = std::move(InError); }
 		auto RecordCurrentProject() -> void;
-		auto Draw(const FRHITexture* BrandTexture, bool bCanClose = false) -> void;
+		auto Draw(const FRHITexture* BrandTexture, bool bCanClose = false, const std::string& StartupError = {}) -> void;
 
 	private:
 		auto DrawBrandPanel(bool bCompact, const FRHITexture* BrandTexture) -> void;
-		auto DrawProjectContent(bool bCanClose) -> void;
+		auto DrawProjectContent(bool bCanClose, const std::string& StartupError) -> void;
 		auto DrawRecentProjects(float Height) -> void;
 		auto DrawProjectRow(size_t Index, const FRecentProjectInfo& Project) -> bool;
 		auto OpenProjectFile(std::string_view ProjectFile) -> void;

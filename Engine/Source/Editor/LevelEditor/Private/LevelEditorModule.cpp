@@ -290,19 +290,6 @@ namespace Durin
 		LevelEditorWorkspace.reset();
 	}
 
-	auto FLevelEditorModule::AdvancePendingDocument() -> void
-	{
-		if (const auto Workspace = LevelEditorWorkspace.lock()) Workspace->AdvancePendingDocument();
-	}
-
-	LEVELEDITOR_API auto FLevelEditorModule::OpenDefaultDocument(std::string& OutError) -> EHostStartupState
-	{
-		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
-		if (Workspace) return Workspace->OpenDefaultDocument(OutError);
-		OutError = "The Level Editor workspace is unavailable.";
-		return EHostStartupState::Failed;
-	}
-
 	LEVELEDITOR_API auto FLevelEditorModule::RequestOpenProject(
 		std::string ProjectFile) -> bool
 	{

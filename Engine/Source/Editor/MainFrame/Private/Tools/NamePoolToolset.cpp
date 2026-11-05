@@ -1,7 +1,7 @@
 #include "Tools/NamePoolToolset.h"
 #include "Misc/Name.h"
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	namespace
 	{

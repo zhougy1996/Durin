@@ -3,12 +3,16 @@
     "LinkType": "Shared",
     "PCH": "Self",
     "PrivateDependencies": [
-        "Core",
-        "DurinEd",
         "DurinPython",
         "HTTPServer"
     ],
-    "PublicDependencies": [],
+    "PublicDependencies": [
+        "Core",
+        "DurinEd"
+    ],
     "OptionalPrivateDependencies": [],
-    "OptionalPublicDependencies": []
+    "OptionalPublicDependencies": [],
+    "ReflectHeaders": [
+        "Public/MCPServerSubsystem.h"
+    ]
 }

@@ -18,15 +18,16 @@ particular, `DEditorEngine` keeps its stable reflection identity. Module lookup
 strings and persisted workspace/document
 identities are independent of these C++ namespaces.
 
-## Host Ownership
+## MainFrame Ownership
 
-`DurinEd` owns the implementation-neutral host lifecycle and bootstrap
-contracts under `Durin::Editor::Host`, exposed to `DEditorEngine` through
-`Durin::IEditorHost`. `MainFrame` depends on that contract and owns the editor
+`DurinEd` owns the implementation-neutral `Durin::IMainFrameModule` lifecycle
+contract and the bootstrap states under `Durin::Editor::Startup`. `DEditorEngine`
+uses this interface to drive main-frame startup and shutdown. `MainFrame` depends on that contract and owns the editor
 root window plus its concrete implementation under
-`Durin::Editor::MainFrame`. `FHostSettings` stores the native window size and
+`Durin::Editor::MainFrame`. `FMainFrameSettings` stores the native window size and
 maximized state together with the global UI scale and color theme in the stable
-`EditorHostSettings.yaml` file. When that file does not exist, the host uses
+`EditorHostSettings.yaml` file. The historical settings filename and dock/window
+identities remain unchanged for compatibility; C++ APIs use MainFrame naming. When that file does not exist, the host uses
 monitor-derived defaults and creates it when host display state is first
 persisted. The reflected `DEditorEngine` remains in `Durin` and does not depend
 on `MainFrame` headers.
@@ -79,14 +80,31 @@ resizing. These controls continue to share the same state as their settings page
 `MainFrame` constructs and owns a lightweight native shell before loading
 concrete editor modules. Persisted maximized state is applied while the window
 is hidden and before native viewport creation. `DEditorEngine::Init()` then
-advances the `IEditorHost` game-thread bootstrap to completion through a narrow
-Launch-owned startup pump. Widget drawing observes state but never admits
+creates the shell through `IMainFrameModule::CreateDefaultMainFrame()`.
+The Launch-owned startup pump calls `DEditorEngine::AdvanceStartup()` to advance
+the game-thread bootstrap. `DEditorEngine` is the sole owner of startup phase,
+terminal status, and diagnostic; MainFrame reads these values for presentation
+and does not maintain a second state machine. Widget drawing observes state but never admits
 startup work, and ordinary `DEditorEngine::Tick()` performs no bootstrap
 transition.
 
+`AdvanceStartup()` only advances a pending startup. Once ready, the ordinary
+editor tick drains Toolset invocations, pumps Python/scripts, updates worlds, then
+calls `IMainFrameModule::TickMainFrame(DeltaSeconds)` before rendering. MainFrame
+updates native-window settings, project upgrade work, document state, Python
+snapshots, Console receipts/logs, and transaction presentation feedback there.
+After that optional UI update, the editor ticks its notification subsystem once
+using the engine frame delta. Notification timing does not require MainFrame.
+Python/MCP subsystem providers own service startup and shutdown; Python startup
+script submission also runs without the panel. MainFrame only observes the job
+and owns its presenter interactions.
+These updates run without drawing, including minimized frames and while the
+Project Browser or individual tools are hidden. Shutdown suppresses the normal
+main-frame tick; modal render continuations do not run another editor tick.
+
 Project startup follows the forward-only sequence
-`ConstructingShell -> WaitingForFirstPresent -> LoadingWorkspace ->
-WorkspaceReady -> LoadingDefaultDocument -> Ready`. Workspace registration or
+`ConstructingShell -> WaitingForFirstPresent -> InitializingProject ->
+LoadingWorkspace -> LoadingDefaultDocument -> Ready`. Workspace registration or
 opening failure enters terminal `Failed`. Project Browser uses the shell-only
 `WaitingForFirstPresent -> Ready` path and does not register project workspaces
 or load a default document.
@@ -100,24 +118,66 @@ without requiring an active native window. A close request is initialization
 cancellation and never enters the normal main loop.
 
 Workspace readiness and default-document readiness are separate contracts.
+`IMainFrameModule::InitializeWorkspaces(OutError)` synchronously registers and
+opens workspaces, returning `bool` with a diagnostic on failure. Once workspaces
+are available, DurinEd resolves the project's configured default level through
+`Editor::Startup::ResolveStartupLevel()`, then `DEditorEngine` starts one ordinary
+`OpenLevel()` request and owns its pending/completed/failed state. Resolution
+preserves settings diagnostics, unique top-level Level validation and redirects,
+and verifies that the resolved target belongs to the selected project mount.
+An absent default level succeeds without starting a map change. MainFrame and
+LevelEditor do not select or load the startup level; there is no LevelEditor
+module interface in DurinEd.
+
+LevelEditor supplies `FStartupLevelCallbacks` for pre-commit viewport preparation
+and post-commit document association, transaction checkpoint handoff, viewport
+state restoration and initial presentation preparation. These callbacks do not
+own startup status or configuration. They carry a weak controller lifetime;
+closing a document invalidates them, and workspace destruction unbinds them.
+A missing or retired workspace cannot make startup ready. The engine invokes
+post-commit preparation once, then waits for the existing scene-presentation
+receipt without reopening or reassociating the level. Interactive opens retain
+their document confirmations and use the same map-change and association paths.
+
+MainFrame exposes the shell's first-presentation check. `DEditorEngine` retains
+only a weak reference to the exact startup window supplied by Launch. While
+waiting for scene presentation it gets the current renderer from MonaApplication
+and calls `FMonaRenderer::IsOutputPresented(Window, Receipt, Generation)`.
+The renderer checks its current window mapping and the receipt's nonzero output
+generation and presenting viewport internally. Missing applications, renderers,
+windows or mappings, auxiliary-window presents, stale generations and receipts
+for replaced viewports do not make startup ready. Shutdown clears the window
+reference before retiring the main frame. Window creation and produced scene
+output alone do not satisfy the first-presentation gates. Queries do not prepare
+draws or consume pending resize/presentation-policy changes.
+The Project Browser receives the engine's startup diagnostic as display input,
+keeping its own interactive project-opening errors independent.
+
 After Level, Material, Texture, and StaticMesh registration and default
-workspace opening succeed, MainFrame publishes `WorkspaceReady` for one frame
-before asking LevelEditor to load the configured default level. The document
-state advances independently through `Pending -> Loading -> Ready|Failed`.
+workspace opening succeed, the engine enters `LoadingDefaultDocument` and yields
+to the startup pump before resolving and loading the configured default level.
+There is no idle workspace-ready phase. Project modules, initial content and
+subsystem reconciliation run once in `InitializingProject`, after the shell
+presentation gate and before workspace registration. Subsystem reconciliation
+runs outside the project-admission operation scope so it can safely admit new
+providers; completion is represented by the next phase rather than a separate
+project-content readiness flag. Map-change failure
+or cancellation enters terminal startup `Failed`; a successful commit still
+requires document preparation and actual scene presentation.
 Missing, incompatible, corrupt, or unactivatable default levels publish document
 `Failed`, force the overall bootstrap to terminal `Failed`, preserve one
 actionable owning diagnostic, and fail engine initialization. Successful
 `FEngineLoop::Init()` is therefore authoritative evidence that a project editor
-has an active default Level and is ready for ordinary ticking.
+has activated its configured default Level, if any, and is ready for ordinary ticking.
 
 Loading progress is phase-based rather than time- or byte-based. The compact
 themed view reports shell presentation, workspace activation, and default-Level
-opening with a stable phase index and progress bar. Because the underlying
-loads remain synchronous, it does not promise animation or fabricate
-intra-operation percentages while one phase blocks the game thread.
+opening using the existing asynchronous map-change phase and elapsed time.
+Workspace registration can still block the game thread; the UI does not
+fabricate intra-operation percentages.
 
-Destroying the editor host removes the bootstrap context, so no later startup
-callback can admit work. MainFrame then stops request admission and unwinds
+Editor shutdown suppresses startup advancement, discards map-change callbacks,
+and clears startup-level workspace hooks before destroying the MainFrame context. MainFrame then stops request admission and unwinds
 workspace integrations in the reverse order described below. Partially loaded
 default documents use the normal request-scoped package snapshot and release
 only ownership introduced by that request.
@@ -158,7 +218,7 @@ host policy reaches feature-owned import presenters, so a dialog opened before
 Play cannot submit new work after Play starts. Console and Activity History
 remain usable. Console polling, unread counts,
 transaction feedback, notification aggregation, and toasts update once per host
-frame even when the Level workspace root is hidden. Reset Editor Host Layout
+frame even when the Level workspace root is hidden. Reset Editor Layout
 restores global tool defaults without resetting any asset-editor layout.
 
 ## Workspace Registration

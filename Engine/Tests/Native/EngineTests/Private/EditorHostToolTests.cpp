@@ -9,7 +9,7 @@
 #include "Panels/ConsolePanelLayout.h"
 #include "Settings/EditorSettings.h"
 #include "Settings/EditorSettingsWindow.h"
-#include "Settings/HostSettings.h"
+#include "Settings/MainFrameSettings.h"
 #include "Widgets/MWindow.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
@@ -51,12 +51,12 @@ namespace Durin::Editor::MainFrame
 				.Draw = [&](std::string&) { ++Draws; ImGui::TextUnformatted("Test page content"); },
 			});
 			FEditorSettingsWindow Window;
-			FHostSettings HostSettings;
+			FMainFrameSettings MainFrameSettings;
 			MWindow HostWindow;
 			FEditorSettingsRegistry::Get().RequestOpen("test.settings.routing");
 			const auto Frame = [&] {
 				ImGui::NewFrame();
-				Window.Draw(HostSettings, HostWindow);
+				Window.Draw(MainFrameSettings, HostWindow);
 				ImGui::Render();
 			};
 			Frame();
@@ -159,8 +159,8 @@ namespace Durin::Editor::MainFrame
 		const ImVec2 DockSize(1280.0f, 690.0f);
 		const ImVec2 HostItemSpacing(ImGui::GetStyle().ItemSpacing.x, 0.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, HostItemSpacing);
-		WorkspaceUI::SubmitHostDockSpace(
-			WorkspaceUI::HostLayoutVersion, DockSize);
+		WorkspaceUI::SubmitMainFrameDockSpace(
+			WorkspaceUI::MainFrameLayoutVersion, DockSize);
 		ImGui::PopStyleVar();
 
 		ASSERT_TRUE(ImGui::BeginChild("StatusBar", ImVec2(0.0f, 30.0f)));

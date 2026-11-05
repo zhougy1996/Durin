@@ -32,7 +32,8 @@ namespace Durin::Editor::MainFrame
 		FEditorNotificationOverlay() = default;
 		~FEditorNotificationOverlay();
 		auto DrawHistoryWindow() -> void;
-		auto UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void;
+		// Publishes transaction presentation feedback without requiring an ImGui frame.
+		auto Tick(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void;
 		auto GetStatusBarHeight() const -> float;
 		auto DrawStatusBar(
 			::Durin::Editor::FNotificationManager& Notifications,

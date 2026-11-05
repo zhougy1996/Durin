@@ -136,8 +136,15 @@ and RHI commands before calling the main-thread `RHIResizeViewport()` interface.
 This keeps older ImGui draw snapshots paired with their original back buffer even
 when a backend, such as Metal, replaces that buffer immediately. The barrier runs
 only for a new extent; ordinary frames and duplicate sizes do not add a wait, and
-no GPU-idle wait is added. An accessor never resizes a viewport, and intermediate
-native sizes do not accumulate as render commands. Backend modules do not acquire
+no GPU-idle wait is added. `FMonaRenderer::IsOutputPresented(Window, Receipt, Generation)` is a
+read-only application-thread query. It checks the receipt against the window's
+current RHI viewport and the requested nonzero generation; missing or removed
+mappings and receipts from replaced viewports return false. Window-to-viewport
+lookup stays inside the renderer. The query does not create a viewport, consume
+pending resize, request a presentation policy, flush, enqueue work or count as a
+successful presentation. Receipt polling uses this query rather than
+`PrepareViewportForDraw()`. Intermediate native sizes do not accumulate as
+render commands. Backend modules do not acquire
 a RenderCore dependency for this ordering guarantee.
 
 On Windows, the native move/resize modal loop continues to request engine frames on

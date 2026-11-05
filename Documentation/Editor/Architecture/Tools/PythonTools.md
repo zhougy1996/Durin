@@ -3,7 +3,7 @@
 Summary: Embed trusted editor scripts with native Toolsets, reflected type/object wrappers and transaction scopes.
 Modules: DurinPython, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-11-04
 
 ## Ownership and Runtime
 
@@ -349,8 +349,13 @@ native code must actually return before teardown can complete.
 
 ## Editor Entry and Verification
 
-Window > Python Scripts lazily starts the runtime/session for the selected
-MainFrame editor. `DURIN_PYTHON_SCRIPT` optionally submits a trusted startup file.
+DurinPython registers `DPythonEditorSubsystem` with a dependency on the owning
+editor's tool subsystem. Initialization stays lazy unless `DURIN_PYTHON_SCRIPT`
+selects a trusted startup file. The subsystem submits that file once without a
+MainFrame or panel, and the ordinary script pump executes it after editor
+startup. The module retains its job identifier, selected path and admission
+error for presentation. Window > Python Scripts can also request a lazy
+runtime/session for its explicitly selected editor.
 MainFrame's Python presenter owns a scoped Content Browser context action for
 one ordinary `.py` file (case-insensitive extension). It declares content mutation
 so browser Play policy gates both presentation and dispatch. Invocation uses the
@@ -358,11 +363,16 @@ owned physical path, opens the same presenter and submits through its existing
 session/RunFile path. It never executes inline in the menu callback. Busy checks
 include newly queued jobs before the first snapshot, preventing replacement of
 the displayed/cancellable job. Scoped unregistration rejects retained action
-identities after presenter retirement. Host startup explicitly submits its
-environment-selected script through this same presenter entrypoint.
-The panel/log show terminal output and errors. Long individual steps block panel interaction;
-external detached cancellation remains available. Host shutdown stops Python
-before releasing editor state; module shutdown repeats the idempotent Stop.
+identities after presenter retirement. A newly created presenter observes the module's startup submission, including
+its admission failure, rather than submitting the file again. Recreating or
+closing the panel does not restart the job or stop its session.
+MainFrame polls panel job snapshots from `TickMainFrame` after the script pump,
+independently of panel visibility or rendering; terminal output and errors also
+reach the Console log. Long individual steps block panel interaction;
+external detached cancellation remains available. Editor subsystem deinitialization closes the Python session and stops its
+runtime before tool-service retirement; module shutdown unregisters and
+reconciles the subsystem and repeats the idempotent Stop. The MainFrame only
+owns the presenter and its browser action.
 
 EnsureRuntime registers the ordinary `editor.python` submit/status/cancel
 Toolset. Submission remains an ordinary GameThread provider operation. During the

@@ -90,7 +90,7 @@ durin_add_native_test(EditorPropertyTests
 durin_add_native_test(EditorOperationTests
 	KIND contract
 	DOMAINS editor-operation tools
-	MODULES asset-tools durin-ed
+	MODULES asset-tools durin-ed mona
 	STACKS editor
 	SOURCES
 		Private/Editor/CompensatingAsyncOperationTests.cpp
@@ -103,7 +103,7 @@ durin_add_native_test(EditorOperationTests
 		Private/Editor/TransactionObjectEventTests.cpp
 		Private/Editor/TransactionAnnotationTests.cpp
 		Private/Editor/TransactionReinstancingTests.cpp
-	LIBRARIES Core CoreDObject Engine AssetTools DurinEd
+	LIBRARIES Core CoreDObject Engine AssetTools DurinEd Mona
 	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -255,7 +255,7 @@ durin_add_native_test(ContentBrowserWorkflowTests
 durin_add_native_test(AssetReferenceStoreTests
 	KIND contract
 	DOMAINS asset-reference
-	MODULES level-editor
+	MODULES durin-ed level-editor
 	STACKS editor
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -267,7 +267,7 @@ durin_add_native_test(AssetReferenceStoreTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE "Exercises production external asset-reference stores."
-	LIBRARIES Core CoreDObject Engine AssetTools
+	LIBRARIES Core CoreDObject Engine AssetTools DurinEd
 )
 
 durin_add_native_test(EditorHierarchyTests

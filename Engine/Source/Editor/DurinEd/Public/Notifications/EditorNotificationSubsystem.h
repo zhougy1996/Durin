@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	// Owns editor-session notifications; MainFrame drives one update before overlay drawing.
+	// Owns editor-session notifications; the editor ticks their lifetimes independently of UI.
 	DCLASS(NoClassDefaultObject)
 	class DEditorNotificationSubsystem : public DEditorSubsystem
 	{
@@ -17,6 +17,7 @@ namespace Durin
 		DURINED_API explicit DEditorNotificationSubsystem(const FObjectInitializer& Initializer);
 		DURINED_API auto Initialize() -> FSubsystemResult override;
 		DURINED_API auto Deinitialize() noexcept -> void override;
+		DURINED_API auto Tick(float DeltaSeconds) -> void;
 		auto GetManager() -> Editor::FNotificationManager& { return *Manager; }
 	private:
 		std::unique_ptr<Editor::FNotificationManager> Manager;

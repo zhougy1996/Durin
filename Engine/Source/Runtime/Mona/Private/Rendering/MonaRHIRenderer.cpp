@@ -1,4 +1,5 @@
 #include "Rendering/MonaRHIRenderer.h"
+#include "Rendering/ViewportDisplaySource.h"
 
 #include "DynamicRHI.h"
 #include "CoreGlobals.h"
@@ -142,6 +143,13 @@ namespace Durin::Mona
 			ReleaseViewportInfo(it->second);
 			WindowToViewportInfoMap.erase(Window.get());
 		}
+	}
+
+	auto FMonaRHIRenderer::IsOutputPresented(const MWindow& Window, const FViewportOutputReceipt& Receipt, uint64 Generation) const -> bool
+	{
+		const auto It = WindowToViewportInfoMap.find(&Window);
+		return It != WindowToViewportInfoMap.end() && It->second
+			&& Receipt.IsPresented(Generation, It->second->ViewportRHI.GetReference());
 	}
 
 	auto FMonaRHIRenderer::PrepareViewportForDraw(const MWindow& Window) -> TRefCountPtr<FRHIViewport>

@@ -391,3 +391,45 @@ TEST(FViewportDisplaySourceTests, HandlesExpirationDestructionAndUnavailableBack
 	}
 	EXPECT_EQ(Backend.Unregistered.size(), 2u);
 }
+
+TEST(FViewportDisplaySourceTests, WindowOutputQueryIsReadOnlyAndValidatesWindowGenerationAndReplacement)
+{
+	using namespace Durin;
+	auto Window = std::make_shared<MWindow>();
+	MWindow OtherWindow;
+	Mona::FMonaRHIRenderer Renderer(false);
+	const Mona::FMonaRenderer& Query = Renderer;
+	FViewportOutputReceipt Receipt;
+	Receipt.RecordProduced(17);
+	EXPECT_FALSE(Query.IsOutputPresented(*Window, Receipt, 17));
+	auto Primary = MakeRefCount<FTestPresentationViewport>();
+	auto Auxiliary = MakeRefCount<FTestPresentationViewport>();
+	auto Replacement = MakeRefCount<FTestPresentationViewport>();
+	auto* Info = new Mona::FMonaViewportInfo();
+	Info->ViewportRHI = Primary;
+	Info->SubmittedExtent = {640, 480};
+	Info->QueueResize({1280, 720});
+	Renderer.WindowToViewportInfoMap.emplace(Window.get(), Info);
+	Renderer.SetPresentationPolicyOverride(EViewportPresentationPolicy::Unsynchronized);
+	EXPECT_FALSE(Query.IsOutputPresented(*Window, Receipt, 17));
+	Receipt.RecordPresented(17, Auxiliary);
+	EXPECT_FALSE(Query.IsOutputPresented(*Window, Receipt, 17));
+	Receipt.RecordPresented(16, Primary);
+	EXPECT_FALSE(Query.IsOutputPresented(*Window, Receipt, 17));
+	Receipt.RecordPresented(17, Primary);
+	for (int Poll = 0; Poll < 3; ++Poll)
+		EXPECT_TRUE(Query.IsOutputPresented(*Window, Receipt, 17));
+	EXPECT_TRUE(Info->PendingExtent.has_value());
+	EXPECT_EQ(Info->SubmittedExtent, FIntPoint(640, 480));
+	EXPECT_EQ(Primary->RequestCount, 0u);
+	EXPECT_EQ(Primary->GetPresentationSerial(), 0u);
+	EXPECT_FALSE(Query.IsOutputPresented(OtherWindow, Receipt, 17));
+	EXPECT_FALSE(Query.IsOutputPresented(*Window, Receipt, 0));
+	EXPECT_FALSE(Query.IsOutputPresented(*Window, Receipt, 18));
+	Info->ViewportRHI = Replacement;
+	EXPECT_FALSE(Query.IsOutputPresented(*Window, Receipt, 17));
+	Receipt.RecordPresented(17, Replacement);
+	EXPECT_TRUE(Query.IsOutputPresented(*Window, Receipt, 17));
+	Renderer.OnWindowDestroyed(Window);
+	EXPECT_FALSE(Query.IsOutputPresented(*Window, Receipt, 17));
+}

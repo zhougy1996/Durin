@@ -32,6 +32,21 @@ namespace Durin::Editor::MainFrame
             },
         }, Message);
         if (!BrowserAction.IsValid()) DURIN_WARN("Python browser action registration failed: {}", Message);
+        ObserveStartupScript();
+    }
+    auto FPythonScriptPanel::ObserveStartupScript() -> void
+    {
+        if (bStartupScriptObserved) return;
+        auto* Module = static_cast<FDurinPythonModule*>(FModuleManager::Get().GetModule("DurinPython"));
+        if (!Module || Module->GetStartupScript().empty()) return;
+        bStartupScriptObserved = true;
+        if (Job) return;
+        Job = Module->GetStartupJob();
+        Message = Module->GetStartupError();
+        const auto Text = Module->GetStartupScript().u8string();
+        const auto Size = std::min(Text.size(), Path.size() - 1);
+        std::memcpy(Path.data(), Text.data(), Size); Path[Size] = '\0';
+        OpenRequested = true;
     }
     auto FPythonScriptPanel::IsBusy() const -> bool
     { return Job && (!Result || Result->State == EPythonJobState::Queued || Result->State == EPythonJobState::Running); }
@@ -49,15 +64,14 @@ namespace Durin::Editor::MainFrame
     {
         if (IsBusy()) { Message = "A Python script is already running."; return false; }
         auto& Module = PythonModule();
-        if (!Module.GetSession()) Module.StartForEditor(Editor);
-        if (!Module.GetSession()) { Message = "Python is unavailable. Check the editor log for setup details."; return false; }
-        auto Submitted = Module.GetRuntime().RunFile(Module.GetSession(), std::filesystem::u8path(Path.data()));
+        auto Submitted = Module.RunFileForEditor(Editor, std::filesystem::u8path(Path.data()));
         if (!Submitted) { Message = Submitted.error(); DURIN_WARN("Python script admission failed: {}", Message); return false; }
         Job = *Submitted; Reported = false; Result.reset(); Message.clear();
         return true;
     }
     auto FPythonScriptPanel::Tick() -> void
     {
+        ObserveStartupScript();
         if (!Job) return;
         auto Snapshot = PythonModule().GetRuntime().GetJobResult(Job);
         if (!Snapshot) { Message = Snapshot.error(); Job = 0; return; }

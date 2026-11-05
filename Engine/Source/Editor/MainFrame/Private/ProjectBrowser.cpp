@@ -61,7 +61,7 @@ namespace Durin::Editor::MainFrame
 	}
 
 	auto FProjectBrowser::Draw(
-		const FRHITexture* BrandTexture, bool bCanClose) -> void
+		const FRHITexture* BrandTexture, bool bCanClose, const std::string& StartupError) -> void
 	{
 		ImGuiViewport* Viewport = ImGui::GetMainViewport();
 		ImGui::SetNextWindowPos(Viewport->WorkPos);
@@ -89,7 +89,7 @@ namespace Durin::Editor::MainFrame
 			if (ImGui::BeginChild("ProjectBrowserBrand", ImVec2(Available.x, MonaImGui::ScaleUI(CompactBrandHeight)))) DrawBrandPanel(true, BrandTexture);
 			ImGui::EndChild();
 			ImGui::PopStyleColor();
-			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(Available.x, 0.0f))) DrawProjectContent(bCanClose);
+			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(Available.x, 0.0f))) DrawProjectContent(bCanClose, StartupError);
 			ImGui::EndChild();
 		}
 		else
@@ -99,7 +99,7 @@ namespace Durin::Editor::MainFrame
 			ImGui::EndChild();
 			ImGui::PopStyleColor();
 			ImGui::SameLine(0.0f, 0.0f);
-			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(0.0f, Available.y))) DrawProjectContent(bCanClose);
+			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(0.0f, Available.y))) DrawProjectContent(bCanClose, StartupError);
 			ImGui::EndChild();
 		}
 
@@ -140,7 +140,7 @@ namespace Durin::Editor::MainFrame
 		ImGui::TextDisabled("DURIN PROJECT BROWSER");
 	}
 
-	auto FProjectBrowser::DrawProjectContent(bool bCanClose) -> void
+	auto FProjectBrowser::DrawProjectContent(bool bCanClose, const std::string& StartupError) -> void
 	{
 		const float Padding = MonaImGui::ScaleUI(32.0f);
 		const float ButtonWidth = MonaImGui::ScaleUI(168.0f);
@@ -169,17 +169,20 @@ namespace Durin::Editor::MainFrame
 		ImGui::SetCursorPosX(Padding);
 		ImGui::Dummy(ImVec2(0.0f, MonaImGui::ScaleUI(6.0f)));
 
-		const float ErrorHeight = Error.empty() ? 0.0f : MonaImGui::ScaleUI(60.0f);
+		const bool bHasError = !Error.empty() || !StartupError.empty();
+		const bool bHasDistinctErrors = !Error.empty() && !StartupError.empty() && Error != StartupError;
+		const float ErrorHeight = !bHasError ? 0.0f : MonaImGui::ScaleUI(bHasDistinctErrors ? 100.0f : 60.0f);
 		ImGui::SetCursorPosX(Padding);
 		DrawRecentProjects(std::max(0.0f, ImGui::GetContentRegionAvail().y - ErrorHeight));
-		if (!Error.empty())
+		if (bHasError)
 		{
 			ImGui::SetCursorPosX(Padding);
 			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
 			if (ImGui::BeginChild("ProjectBrowserError", ImVec2(-Padding, ErrorHeight), ImGuiChildFlags_Borders))
 			{
 				ImGui::PushStyleColor(ImGuiCol_Text, MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error));
-				ImGui::TextWrapped("%s  %s", Icons::Error, Error.c_str());
+				if (!StartupError.empty()) ImGui::TextWrapped("%s  %s", Icons::Error, StartupError.c_str());
+				if (!Error.empty() && Error != StartupError) ImGui::TextWrapped("%s  %s", Icons::Error, Error.c_str());
 				ImGui::PopStyleColor();
 			}
 			ImGui::EndChild();

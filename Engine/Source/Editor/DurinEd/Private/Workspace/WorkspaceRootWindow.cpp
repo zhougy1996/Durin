@@ -22,7 +22,7 @@ namespace Durin::Editor
 		checkf(!bWindowBegun, "An editor workspace root window must be ended before it begins again");
 		WorkspaceUI::SetNextRootWindowClass();
 		if (Config.bDockInEditorHost)
-			ImGui::SetNextWindowDockID(WorkspaceUI::MakeHostDockSpaceId(WorkspaceUI::HostLayoutVersion), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowDockID(WorkspaceUI::MakeMainFrameDockSpaceId(WorkspaceUI::MainFrameLayoutVersion), ImGuiCond_FirstUseEver);
 		if (bFocusRequested)
 		{
 			ImGui::SetNextWindowFocus();

@@ -1,20 +1,19 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Engine/HostStartup.h"
 
-#include "Editor/EditorHost.h"
+#include "Editor/IMainFrameModule.h"
 
 namespace Durin::Editor::MainFrame
 {
-	struct FBootstrapContext;
-	struct FTracyToolsetState;
+	struct FMainFrameContext;
+	struct FMainFrameToolsetState;
 }
 
 namespace Durin
 {
 	// Owns the editor host window and workspace manager for the process.
-	class FMainFrameModule : public IEditorHost
+	class FMainFrameModule : public IMainFrameModule
 	{
 	public:
 		FMainFrameModule() = default;
@@ -22,18 +21,15 @@ namespace Durin
 
 		auto StartupModule() -> void override;
 		auto ShutdownModule() -> void override;
-		auto CreateEditorHost(
-			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow, std::string InitialProjectError) -> void override;
-		auto DestroyEditorHost() -> void override;
+		auto CreateDefaultMainFrame(
+			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void override;
+		auto DestroyMainFrame() -> void override;
 		auto IsShellPresented() const -> bool override;
-		auto IsScenePresented(const FViewportOutputReceipt& Receipt, uint64 Generation) const -> bool override;
-		auto PublishBootstrapState(Editor::Host::EBootstrapState State, std::string Error) -> void override;
-		auto ActivateWorkspaces(std::string& OutError) -> bool override;
-		auto OpenDefaultDocument(std::string& OutError) -> EHostStartupState override;
-		auto AdvanceDocumentOperations() -> void override;
+		auto InitializeWorkspaces(std::string& OutError) -> bool override;
+		auto TickMainFrame(float DeltaSeconds) -> void override;
 
 	private:
-		std::shared_ptr<Editor::MainFrame::FTracyToolsetState> TracyTools;
-		std::shared_ptr<Editor::MainFrame::FBootstrapContext> BootstrapContext;
+		std::shared_ptr<Editor::MainFrame::FMainFrameToolsetState> Toolsets;
+		std::shared_ptr<Editor::MainFrame::FMainFrameContext> MainFrameContext;
 	};
 }

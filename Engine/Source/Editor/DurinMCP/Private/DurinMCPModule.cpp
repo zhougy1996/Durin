@@ -1,5 +1,7 @@
 #include "DurinMCPModule.h"
 #include "DurinPythonModule.h"
+#include "MCPServerSubsystem.h"
+#include "PythonEditorSubsystem.h"
 
 namespace Durin
 {
@@ -20,6 +22,7 @@ namespace Durin
 	}
 	auto FDurinMCPModule::StartForEditor(DEditorEngine& Editor) -> void
 	{
+		if (BoundPort) return;
 		const auto PortText = Environment("DURIN_MCP_PORT");
 		if (PortText.empty()) return;
 		uint16 Port = 0;
@@ -49,9 +52,36 @@ namespace Durin
 		if (!Python) DURIN_WARN("MCP Python tools unavailable: {}", Python.error());
 		auto Started = Server.Start(Editor, Options);
 		if (!Started) DURIN_WARN("MCP disabled: {}", Started.error());
-		else DURIN_INFO("MCP listening at http://127.0.0.1:{}/mcp", *Started);
+		else { BoundPort = *Started; DURIN_INFO("MCP listening at http://127.0.0.1:{}/mcp", BoundPort); }
 	}
-	auto FDurinMCPModule::StopServer() noexcept -> void { Server.Stop(); }
+	auto FDurinMCPModule::StopServer() noexcept -> void { Server.Stop(); BoundPort = 0; }
 
+	auto FDurinMCPModule::StartupModule() -> void
+	{
+		FModuleManager::Get().LoadModuleChecked("DurinPython");
+		EditorRegistration = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
+			.Type = DMCPServerSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName(),
+			.Dependencies = {DPythonEditorSubsystem::StaticClass()}});
+	}
+	auto FDurinMCPModule::CanShutdownModule() const -> bool
+	{ return FEditorSubsystemCollection::CanSynchronizeActiveEditor(); }
+	auto FDurinMCPModule::ShutdownModule() -> void
+	{
+		require(CanShutdownModule());
+		EditorRegistration.reset();
+		FEditorSubsystemCollection::SynchronizeActiveEditor();
+		StopServer();
+	}
+	DMCPServerSubsystem::DMCPServerSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
+	auto DMCPServerSubsystem::Initialize() -> FSubsystemResult
+	{
+		FModuleManager::LoadModuleChecked<FDurinMCPModule>("DurinMCP").StartForEditor(*GetEditor());
+		return {};
+	}
+	auto DMCPServerSubsystem::Deinitialize() noexcept -> void
+	{
+		if (auto* Module = FModuleManager::Get().GetModule("DurinMCP"))
+			static_cast<FDurinMCPModule*>(Module)->StopServer();
+	}
 	IMPLEMENT_MODULE(FDurinMCPModule, DurinMCP)
 }

@@ -11,7 +11,7 @@ Last reviewed: 2026-11-03
 MainFrame's private `FConsoleToolAdapter` merges the existing
 `FConsoleCommandRegistry` metadata with the owning editor's
 [tool catalog](EditorTools.md). MainFrame receives that editor explicitly through
-`IEditorHost::CreateEditorHost`; the adapter holds a weak object handle and a
+`IMainFrameModule::CreateDefaultMainFrame`; the adapter holds a weak object handle and a
 detached service endpoint, never a process-global editor lookup or cached provider.
 ConsolePanel uses the adapter for execution, help, completion, and receipt polling.
 Ordinary legacy commands retain their original argument parser and callbacks.
@@ -72,6 +72,8 @@ Immediate successful tool calls render JSON data; failures render diagnostic
 codes, paths, and messages. Result display truncates at 64 KiB. Queued calls display a session/sequence receipt
 immediately. Console Tick polls up to 256 retained receipt identities and appends
 their completion, cancellation, or expiration without blocking GameThread.
+MainFrame invokes this polling from `TickMainFrame` after script and world
+updates, independently of rendering and Console visibility.
 Closing the panel cancels its queued submissions; running cancellation remains
 cooperative. Host shutdown closes admission and settles pending work through the
 tool service. A retained adapter remains safe after host GC and cannot retarget a
@@ -79,8 +81,10 @@ replacement editor.
 
 ## Name Pool Diagnostics
 
-DurinEd registers the module-owned `core.namepool` Toolset and unregisters it
-before destroying its native bindings. Run `core.namepool/stats` without
+MainFrame registers the module-owned `core.namepool` Toolset at module startup,
+independently of host-window creation, and unregisters it before destroying its
+native bindings. DurinEd retains only the shared Toolset infrastructure.
+Run `core.namepool/stats` without
 arguments for an on-demand process-wide snapshot from Core's `GetNamePoolStats()`.
 The read-only, idempotent tool is available to Console and native callers; it does
 not declare external exposure. Console help and completion use the shared catalog.

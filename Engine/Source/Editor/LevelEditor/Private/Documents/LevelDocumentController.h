@@ -6,7 +6,7 @@
 #include "Asset/Load.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
-#include "Engine/HostStartup.h"
+#include "Editor/EditorStartup.h"
 #include "Feedback/SlowTaskWidget.h"
 
 namespace Durin
@@ -49,7 +49,6 @@ namespace Durin::Editor::Level
 			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
 			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
-			TSoftObjectPtr<DLevel>& InDefaultLevel,
 			std::function<void()> InClearError,
 			std::function<void(std::string)> InReportError,
 			std::function<void(bool)> InCompleteDeferredOpen
@@ -59,7 +58,7 @@ namespace Durin::Editor::Level
 		// Interactive entry point: resolves unsaved changes before loading the selected level.
 		auto OpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
-		auto OpenDefaultLevel() -> EHostStartupState;
+		auto MakeStartupLevelCallbacks() -> Startup::FStartupLevelCallbacks;
 		auto CanSaveCurrentLevel() const -> bool;
 		auto IsOpening() const -> bool;
 		auto SaveCurrentLevel() -> bool;
@@ -76,9 +75,10 @@ namespace Durin::Editor::Level
 
 		auto ExecutePendingAction() -> ELevelDocumentOpenResult;
 		// No save prompt. Completion is delivered after activation by the ordinary host frame.
-		auto LoadLevel(std::string_view Path, bool bShowProgress = true) -> ELevelDocumentOpenResult;
+		auto LoadLevel(std::string_view Path) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
 		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
+		auto AssociateCurrentLevel() -> bool;
 		auto PrepareLevelActivation(DLevel& Level) -> bool;
 		auto CompleteMapChange(const FMapChangeProgress& Progress) -> void;
 		auto SetError(std::string Message) const -> void;
@@ -87,7 +87,6 @@ namespace Durin::Editor::Level
 		FLevelEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
 		FEditorAssetMoveCoordinator& AssetMoveCoordinator;
-		TSoftObjectPtr<DLevel>& DefaultLevel;
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
 		std::function<void(bool)> CompleteDeferredOpen;
@@ -100,8 +99,6 @@ namespace Durin::Editor::Level
 		::Durin::Editor::FSlowTaskDialogPresenter LoadingDialog;
 		// Deferred completion must not borrow a controller after its document closes.
 		std::shared_ptr<void> CallbackLifetime = std::make_shared<uint8>(0);
-		bool bDefaultStarted = false;
-		EHostStartupState DefaultOpenState = EHostStartupState::Pending;
 		TWeakObjectPtr<DPackage> DocumentPackage;
 		TWeakObjectPtr<DWorld> DocumentWorld;
 		bool bPendingDocumentOpen = false;

@@ -131,7 +131,7 @@ namespace Durin::Editor::MainFrame
 		if (auto* Source = Cast<DTransactor>(ResolveObjectKey(TransactionSource))) Source->RemoveTransactionListener(TransactionListener);
 	}
 
-	auto FEditorNotificationOverlay::UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void
+	auto FEditorNotificationOverlay::Tick(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void
 	{
 		if (TransactionSource != FObjectKey(&Transactions))
 		{
@@ -142,7 +142,6 @@ namespace Durin::Editor::MainFrame
 			});
 		}
 		Transactions.DispatchEvents();
-		if (GEditor) GEditor->UpdateNotifications(ImGui::GetIO().DeltaTime);
 	}
 
 	auto FEditorNotificationOverlay::GetStatusBarHeight() const -> float

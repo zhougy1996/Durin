@@ -23,7 +23,6 @@
         "TextureEditor",
         "StaticMeshEditor",
         "DurinEd",
-        "DurinMCP",
         "DurinPython"
     ]
 }

@@ -2,6 +2,12 @@
     "ModuleName": "DurinPython",
     "LinkType": "Shared",
     "PCH": "Self",
-    "PrivateDependencies": ["DurinEd"],
-    "PublicDependencies": ["Core"]
+    "PrivateDependencies": [],
+    "PublicDependencies": [
+        "Core",
+        "DurinEd"
+    ],
+    "ReflectHeaders": [
+        "Public/PythonEditorSubsystem.h"
+    ]
 }

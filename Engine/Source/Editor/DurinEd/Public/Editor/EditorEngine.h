@@ -5,7 +5,7 @@
 #include "DurinEdAPI.h"
 #include "Engine/Engine.h"
 #include "Editor/EditorSubsystem.h"
-#include "Editor/EditorHost.h"
+#include "Editor/EditorStartup.h"
 #include "Transactions/Transactor.h"
 
 #include "EditorEngine.gen.h"
@@ -74,7 +74,7 @@ namespace Durin
 	class MWindow;
 	class FGenericWindow;
 	struct FEditorEngineTestAccess;
-	class IEditorHost;
+	class IMainFrameModule;
 
 	// Owns editor services and coordinates editor and play-world lifetimes.
 	DCLASS(NoClassDefaultObject)
@@ -94,6 +94,8 @@ namespace Durin
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
 		DURINED_API auto AdvanceStartup() -> void override;
 		auto GetStartupState() const -> EHostStartupState override { return StartupState; }
+		DURINED_API auto SetStartupLevelCallbacks(Editor::Startup::FStartupLevelCallbacks Callbacks) -> void;
+		auto GetStartupPhase() const -> Editor::Startup::EBootstrapState { return StartupPhase; }
 		auto GetStartupError() const -> const std::string& override { return StartupError; }
 		DURINED_API auto PrepareForShutdown() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
@@ -112,7 +114,6 @@ namespace Durin
 		DURINED_API auto RefreshEditorSubsystems(bool bForce = false) -> FSubsystemResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		// MainFrame phase: after transaction event publication and before notification drawing.
-		DURINED_API auto UpdateNotifications(float DeltaSeconds) -> void;
 		DURINED_API auto GetNotificationManager() -> Editor::FNotificationManager&;
 		DURINED_API auto StartPlaySession(DLevel* SourceLevel, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto StartPlaySession(const Editor::FPlayRequest& Request, std::string* OutError = nullptr) -> bool;
@@ -133,7 +134,7 @@ namespace Durin
 		auto IsPlaySessionPaused() const -> bool { return PlayState == Editor::EPlayState::Paused; }
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
 		auto ShouldDrawStartupScene() const -> bool override
-		{ return StartupPhase == Editor::Host::EBootstrapState::LoadingDefaultDocument && GetSceneGeneration() != 0; }
+		{ return StartupPhase == Editor::Startup::EBootstrapState::LoadingDefaultDocument && GetSceneGeneration() != 0; }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
 		DURINED_API auto GetEditorWorldContext() const -> const FWorldContext&;
 		DURINED_API auto GetPIEWorldContext() const -> const FWorldContext*;
@@ -159,6 +160,8 @@ namespace Durin
 		DURINED_API auto InitializePlayWindowViewportClient(
 			const FViewportClient* SourceClient) -> void;
 
+		auto AdvanceDefaultLevel() -> EHostStartupState;
+		DURINED_API auto CompleteStartupLevel(const FMapChangeProgress& Progress) -> void;
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
 		DURINED_API auto CloseSubsystemWork() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;
@@ -166,8 +169,11 @@ namespace Durin
 		bool bEditorInitStarted = false;
 		EHostStartupState StartupState = EHostStartupState::Ready;
 		std::string StartupError;
-		bool bProjectContentReady = false;
-		Editor::Host::EBootstrapState StartupPhase = Editor::Host::EBootstrapState::WaitingForFirstPresent;
+		bool bStartupLevelStarted = false;
+		bool bStartupDocumentPrepared = false;
+		EHostStartupState StartupLevelState = EHostStartupState::Pending;
+		Editor::Startup::FStartupLevelCallbacks StartupLevelCallbacks;
+		Editor::Startup::EBootstrapState StartupPhase = Editor::Startup::EBootstrapState::WaitingForFirstPresent;
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> FSubsystemResult;
 	private:
@@ -209,7 +215,8 @@ namespace Durin
 		Editor::EMouseCaptureState MouseCaptureState = Editor::EMouseCaptureState::Released;
 		std::vector<std::unique_ptr<FRenderCommandFence>> RetiredPlayFences;
 		std::vector<uint64> ConsoleCommandHandles;
-		IEditorHost* EditorHost = nullptr;
+		IMainFrameModule* MainFrameModule = nullptr;
+		std::weak_ptr<MWindow> StartupWindow;
 
 		friend struct FEditorEngineTestAccess;
 		friend class FEditorSubsystemCollection;

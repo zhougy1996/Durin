@@ -12,6 +12,8 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Engine/Level.h"
+#include "Engine/ProjectGameSettings.h"
+#include "Editor/EditorStartup.h"
 #include "Engine/World.h"
 
 #include "Misc/Paths.h"
@@ -261,4 +263,60 @@ TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithMultipleTopLevel
 		Durin::ResolveLevelPackage(Scenario.NewPath, LevelPath);
 	EXPECT_EQ(Result.Error, Durin::EAssetReadError::InvalidPackageType);
 	EXPECT_FALSE(LevelPath.IsValid());
+}
+
+TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionFollowsRedirectsAndChecksTheResolvedProjectMount)
+{
+	FDefaultLevelScenario Scenario = BuildScenario("StartupResolution");
+	auto MountFixture = ConfigureAssets(Scenario);
+	Durin::FObjectPath Path;
+	std::string Error;
+	ASSERT_TRUE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
+	EXPECT_EQ(Path.GetPackagePath(), Scenario.NewPath);
+	EXPECT_EQ(Path.GetAssetPath().GetAssetName(), "Old");
+	EXPECT_TRUE(Error.empty());
+	// A similarly prefixed mount must not admit a resolved level from another project.
+	Scenario.Project.MountRoot = "/DefaultLevelTest";
+	EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
+	EXPECT_FALSE(Path.IsValid());
+	EXPECT_NE(Error.find("outside the selected project mount"), std::string::npos);
+}
+
+TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionAcceptsNoLevelAndRejectsMalformedSettingsAndPaths)
+{
+	FDefaultLevelScenario Scenario = BuildScenario("StartupConfiguration");
+	Durin::FObjectPath Path;
+	std::string Error = "stale error";
+	ASSERT_TRUE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
+	EXPECT_FALSE(Path.IsValid());
+	EXPECT_TRUE(Error.empty());
+	for (const auto Text : {"Game: [", "Game:\n  DefaultLevel: not-an-absolute-package\n"})
+	{
+		std::ofstream Settings(Scenario.Root / "Configs" / "Project.yaml");
+		Settings << Text;
+		Settings.close();
+		EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
+		EXPECT_FALSE(Path.IsValid());
+		EXPECT_FALSE(Error.empty());
+	}
+}
+
+TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionRejectsMissingAndAmbiguousLevels)
+{
+	FDefaultLevelScenario Scenario = BuildScenario("StartupInvalidAssets");
+	auto MountFixture = ConfigureAssets(Scenario);
+	auto Store = Durin::FProjectGameSettingsStore::ForProject(Scenario.Project);
+	ASSERT_TRUE(Store.SaveDefaultLevel("/DefaultLevelTests/Levels/Missing"));
+	Durin::FObjectPath Path;
+	std::string Error;
+	EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
+	EXPECT_FALSE(Error.empty());
+	ASSERT_TRUE(Store.SaveDefaultLevel(Scenario.NewPath.ToString()));
+	auto* Package = Durin::FindResidentPackage(Scenario.NewPath);
+	ASSERT_NE(Package, nullptr);
+	ASSERT_NE(Durin::NewObject<Durin::DLevel>(Package, "Secondary"), nullptr);
+	ASSERT_TRUE(Durin::SavePackage(Package));
+	EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
+	EXPECT_FALSE(Path.IsValid());
+	EXPECT_FALSE(Error.empty());
 }

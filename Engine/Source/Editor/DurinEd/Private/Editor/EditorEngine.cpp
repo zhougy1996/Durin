@@ -20,7 +20,7 @@
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
-#include "Editor/EditorHost.h"
+#include "Editor/IMainFrameModule.h"
 #include "Modules/ModuleManager.h"
 #include "Threading/RunnableThread.h"
 #include "Misc/Project.h"
@@ -31,6 +31,7 @@
 #include "Client/ViewportClient.h"
 #include "Application/MonaApplication.h"
 #include "Widgets/MWindow.h"
+#include "Rendering/MonaRenderer.h"
 
 namespace Durin
 {
@@ -96,6 +97,7 @@ namespace Durin
 		}
 		bEditorInitStarted = true;
 		StartupState = EHostStartupState::Pending;
+		StartupPhase = Editor::Startup::EBootstrapState::ConstructingShell;
 		StartupError = Context.ProjectAdmissionError;
 		FHostOperationScope Operation(*this);
 		bool bInitialized = false;
@@ -118,8 +120,10 @@ namespace Durin
 			return false;
 		EditorWorld = GetWorld();
 
-		EditorHost =
-			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
+		MainFrameModule =
+			&FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+		FModuleManager::Get().LoadModuleChecked("DurinPython");
+		FModuleManager::Get().LoadModuleChecked("DurinMCP");
 		if (auto Result = InitializeEditorSubsystems(); !Result)
 		{
 			DURIN_ERROR("{}", Result.Message);
@@ -129,8 +133,10 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.EditorShell");
-			EditorHost->CreateEditorHost(*this, InitContext.StartupWindow, InitContext.ProjectAdmissionError);
+			MainFrameModule->CreateDefaultMainFrame(*this, InitContext.StartupWindow);
+			StartupWindow = InitContext.StartupWindow;
 		}
+		StartupPhase = Editor::Startup::EBootstrapState::WaitingForFirstPresent;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 
 
@@ -162,33 +168,39 @@ namespace Durin
 
 	auto DEditorEngine::AdvanceStartup() -> void
 	{
-		if (bShutdownRequested) return;
-		if (StartupState == EHostStartupState::Ready)
-		{
-			FHostOperationScope Operation(*this);
-			EditorHost->AdvanceDocumentOperations();
-			return;
-		}
-		if (StartupState != EHostStartupState::Pending) return;
-		using namespace Editor::Host;
-		auto Publish = [&](EBootstrapState Phase) {
+		if (bShutdownRequested || StartupState != EHostStartupState::Pending) return;
+		using namespace Editor::Startup;
+		auto Transition = [&](EBootstrapState Phase) {
 			check(IsValidBootstrapTransition(StartupPhase, Phase));
 			StartupPhase = Phase;
-			EditorHost->PublishBootstrapState(Phase, StartupError);
 			const auto Status = GetBootstrapStepStatus(Phase);
-			if (Status == EBootstrapStepStatus::Ready)
+			if (Status == EHostStartupState::Ready)
 			{
 				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
 				StartupState = EHostStartupState::Ready;
 			}
-			if (Status == EBootstrapStepStatus::Failed) StartupState = EHostStartupState::Failed;
+			if (Status == EHostStartupState::Failed) StartupState = EHostStartupState::Failed;
 			if (StartupState != EHostStartupState::Pending)
 			{
 				FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
 				Profiling::TryLogStartupTimingSummary();
 			}
 		};
-		if (EditorHost->IsShellPresented() && HasCurrentProject() && !bProjectContentReady)
+		switch (StartupPhase)
+		{
+		case EBootstrapState::WaitingForFirstPresent:
+			if (!MainFrameModule->IsShellPresented()) return;
+			if (!StartupError.empty()) { Transition(EBootstrapState::Failed); return; }
+			if (!HasCurrentProject())
+			{
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultWorkspaceReady);
+				Transition(EBootstrapState::Ready);
+			}
+			else Transition(EBootstrapState::InitializingProject);
+			return;
+		case EBootstrapState::InitializingProject:
 		{
 			std::string AdmissionError;
 			{
@@ -210,53 +222,118 @@ namespace Durin
 			if (!AdmissionError.empty())
 			{
 				StartupError = std::move(AdmissionError);
-				Publish(EBootstrapState::Failed);
+				Transition(EBootstrapState::Failed);
 				return;
 			}
-			bProjectContentReady = true;
+			Transition(EBootstrapState::LoadingWorkspace);
 			return;
 		}
-		FHostOperationScope Operation(*this);
-		switch (StartupPhase)
-		{
-		case EBootstrapState::WaitingForFirstPresent:
-			if (!EditorHost->IsShellPresented()) return;
-			if (!StartupError.empty()) { Publish(EBootstrapState::Failed); return; }
-			if (!HasCurrentProject())
-			{
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultWorkspaceReady);
-				Publish(EBootstrapState::Ready);
-			}
-			else Publish(EBootstrapState::LoadingWorkspace);
-			return;
 		case EBootstrapState::LoadingWorkspace:
-			Publish(EditorHost->ActivateWorkspaces(StartupError) ? EBootstrapState::WorkspaceReady : EBootstrapState::Failed);
+		{
+			FHostOperationScope Operation(*this);
+			StartupError.clear();
+			if (!MainFrameModule->InitializeWorkspaces(StartupError))
+			{
+				if (StartupError.empty()) StartupError = "Could not initialize the editor workspaces.";
+				Transition(EBootstrapState::Failed);
+				return;
+			}
+			StartupError.clear();
+			Transition(EBootstrapState::LoadingDefaultDocument);
 			return;
-		case EBootstrapState::WorkspaceReady:
-			Publish(EBootstrapState::LoadingDefaultDocument);
-			return;
+		}
 		case EBootstrapState::LoadingDefaultDocument:
 		{
-			const auto Document = EditorHost->OpenDefaultDocument(StartupError);
+			FHostOperationScope Operation(*this);
+			const auto Document = AdvanceDefaultLevel();
+			if (bShutdownRequested) return;
 			if (Document == EHostStartupState::Ready && GetWorld() && GetWorld()->GetCurrentLevel() && MainSceneViewport)
 			{
 				if (MainSceneViewport->HasRenderFailed())
 				{
 					StartupError = "The committed initial scene could not render for primary presentation.";
-					Publish(EBootstrapState::Failed);
+					Transition(EBootstrapState::Failed);
 					return;
 				}
-				if (!EditorHost->IsScenePresented(*MainSceneViewport->GetOutputReceipt(), GetSceneGeneration())) return;
+				const auto Window = StartupWindow.lock();
+				const auto* Renderer = Mona::FMonaApplication::IsInitialized()
+					? Mona::FMonaApplication::Get().GetRenderer() : nullptr;
+				if (!Window || !Renderer || !Renderer->IsOutputPresented(
+					*Window, *MainSceneViewport->GetOutputReceipt(), GetSceneGeneration())) return;
 			}
 			if (Document != EHostStartupState::Pending)
-				Publish(Document == EHostStartupState::Ready ? EBootstrapState::Ready : EBootstrapState::Failed);
+				Transition(Document == EHostStartupState::Ready ? EBootstrapState::Ready : EBootstrapState::Failed);
 			return;
 		}
 		default:
 			return;
 		}
+	}
+
+	auto DEditorEngine::SetStartupLevelCallbacks(Editor::Startup::FStartupLevelCallbacks Callbacks) -> void
+	{
+		CheckGameThread();
+		// A retired workspace must not receive deferred document preparation.
+		StartupLevelCallbacks = std::move(Callbacks);
+	}
+
+	auto DEditorEngine::CompleteStartupLevel(const FMapChangeProgress& Progress) -> void
+	{
+		if (bShutdownRequested) return;
+		StartupLevelState = Progress.Phase == EMapChangePhase::Committed
+			? EHostStartupState::Ready : EHostStartupState::Failed;
+		if (StartupLevelState == EHostStartupState::Failed)
+			StartupError = Progress.Diagnostic.empty() ? "Could not open the default level." : Progress.Diagnostic;
+		else Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
+	}
+
+	auto DEditorEngine::AdvanceDefaultLevel() -> EHostStartupState
+	{
+		using namespace Editor::Startup;
+		if (!bStartupLevelStarted)
+		{
+			bStartupLevelStarted = true;
+			StartupError.clear();
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
+			FObjectPath Path;
+			const auto* Project = GetCurrentProject();
+			if (Project && !ResolveStartupLevel(*Project, Path, StartupError))
+				StartupLevelState = EHostStartupState::Failed;
+			else if (!Path.IsValid() || (GetEditorWorld() && GetEditorWorld()->GetCurrentLevel()
+				&& GetEditorWorld()->GetCurrentLevel()->GetObjectPath() == Path.ToString()))
+				StartupLevelState = EHostStartupState::Ready;
+			else
+			{
+				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
+				if (!OpenLevel({.Path = Path,
+					.BeforeCommit = [this, Prepare = StartupLevelCallbacks.BeforeCommit](DLevel& Level) {
+						Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
+						Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
+						if (bShutdownRequested || !Prepare) return false;
+						const bool bPrepared = Prepare(Level);
+						return bPrepared && !bShutdownRequested;
+					},
+					.OnComplete = [this](const FMapChangeProgress& Progress) { CompleteStartupLevel(Progress); }}))
+				{
+					StartupError = "Unable to start loading the default level.";
+					StartupLevelState = EHostStartupState::Failed;
+				}
+			}
+		}
+		if (StartupLevelState == EHostStartupState::Ready && !bStartupDocumentPrepared)
+		{
+			const auto PrepareDocument = StartupLevelCallbacks.PrepareDocument;
+			if (!PrepareDocument || !PrepareDocument())
+			{
+				StartupError = "The Level Editor workspace could not prepare the startup document.";
+				StartupLevelState = EHostStartupState::Failed;
+			}
+			else bStartupDocumentPrepared = true;
+		}
+		if (StartupLevelState != EHostStartupState::Pending)
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
+		if (StartupLevelState != EHostStartupState::Failed) StartupError.clear();
+		return StartupLevelState;
 	}
 
 	auto DEditorEngine::AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void
@@ -290,6 +367,9 @@ namespace Durin
 		}
 		if (EditorWorld && EditorWorld.Get() != GetWorld()) EditorWorld->Tick({.DeltaSeconds = DeltaSeconds});
 		DEngine::Tick(DeltaSeconds, bIdleMode);
+		if (!bShutdownRequested && MainFrameModule) MainFrameModule->TickMainFrame(DeltaSeconds);
+		if (!bShutdownRequested)
+			if (auto* Notifications = GetEditorSubsystem<DEditorNotificationSubsystem>()) Notifications->Tick(DeltaSeconds);
 	}
 
 	auto DEditorEngine::CanRefreshEditorSubsystems() -> bool
@@ -319,7 +399,9 @@ namespace Durin
 		TeardownPlaySession();
 		if (Trans) Trans->Cancel();
 		if (EditorWorld) EditorWorld->Shutdown();
-		if (EditorHost) EditorHost->DestroyEditorHost();
+		StartupWindow.reset();
+		StartupLevelCallbacks = {};
+		if (MainFrameModule) MainFrameModule->DestroyMainFrame();
 		EditorSubsystems.Shutdown();
 	}
 
@@ -340,7 +422,9 @@ namespace Durin
 		}
 		for (const uint64 Handle : ConsoleCommandHandles) FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		ConsoleCommandHandles.clear();
-		EditorHost = nullptr;
+		MainFrameModule = nullptr;
+		StartupWindow.reset();
+		StartupLevelCallbacks = {};
 		EditorLevel = nullptr;
 		EditorWorld = nullptr;
 		DEngine::BeginDestroy();
@@ -800,13 +884,6 @@ namespace Durin
 		}
 		if (OutAppliedActorCount) *OutAppliedActorCount = static_cast<uint32>(SelectedRoots.size());
 		return true;
-	}
-
-	auto DEditorEngine::UpdateNotifications(float DeltaSeconds) -> void
-	{
-		if (bShutdownRequested) return;
-		FHostOperationScope Operation(*this);
-		if (auto* Service = GetEditorSubsystem<DEditorNotificationSubsystem>()) Service->GetManager().Tick(DeltaSeconds);
 	}
 
 	auto DEditorEngine::GetNotificationManager() -> Editor::FNotificationManager&

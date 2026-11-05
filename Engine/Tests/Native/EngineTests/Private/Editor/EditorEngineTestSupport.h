@@ -24,6 +24,24 @@ namespace Durin
 		static auto SetState(DEditorEngine& Editor, Editor::EPlayState State) -> void
 		{ Editor.PlayState = State; }
 
+		static auto SetStartupState(DEditorEngine& Editor, EHostStartupState State) -> void
+		{ Editor.StartupState = State; }
+		static auto SetStartupPhase(DEditorEngine& Editor, Editor::Startup::EBootstrapState Phase, std::string Error = {}) -> void
+		{ Editor.StartupState = EHostStartupState::Pending; Editor.StartupPhase = Phase; Editor.StartupError = std::move(Error); }
+		static auto BindMainFrameModule(DEditorEngine& Editor, IMainFrameModule* Module) -> IMainFrameModule*
+		{ return std::exchange(Editor.MainFrameModule, Module); }
+
+		static auto SetStartupWindow(DEditorEngine& Editor, const std::shared_ptr<MWindow>& Window) -> void
+		{ Editor.StartupWindow = Window; }
+
+		static auto SetStartupViewport(DEditorEngine& Editor, std::shared_ptr<FSceneViewport> Viewport) -> void
+		{ Editor.MainSceneViewport = std::move(Viewport); }
+
+		static auto CompleteStartupLevel(DEditorEngine& Editor, const FMapChangeProgress& Progress) -> void
+		{ Editor.CompleteStartupLevel(Progress); }
+		static auto SetStartupLevelPending(DEditorEngine& Editor) -> void
+		{ Editor.bStartupLevelStarted = true; Editor.StartupLevelState = EHostStartupState::Pending; Editor.bStartupDocumentPrepared = false; }
+
 		static auto StartPlaySession(
 			DEditorEngine& Engine,
 			const Editor::FPlayRequest& Request,

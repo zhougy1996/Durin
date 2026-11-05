@@ -143,13 +143,16 @@ close request therefore takes precedence over an initialization error for exit
 code selection, while the error remains logged.
 
 DurinEd owns the ordered bootstrap state, including project admission,
-workspace activation, default-document loading, and terminal outcome. MainFrame
-adapts requested workspace/document actions and presents published phase/error
-snapshots; it does not advance the workflow. Each step advances at most once per
+workspace activation, default-document loading, and terminal outcome. MainFrame initializes requested workspaces and presents the engine's phase/error
+state; DurinEd selects and loads the default level and advances the workflow. Each step advances at most once per
 ordinary outer frame. Shell
 presentation is observed from the retained primary RHI viewport's successful
 presentation serial, relative to its shell baseline, rather than a profiling
-timestamp. An auxiliary viewport cannot satisfy that gate.
+timestamp. An auxiliary viewport cannot satisfy that gate. The editor's scene
+gate uses the current MonaApplication renderer's read-only `IsOutputPresented`
+query for the Launch-supplied window. The renderer matches the receipt's nonzero
+scene generation and its current presenting viewport internally. A replaced or removed mapping
+cannot be satisfied by an old viewport receipt.
 
 `DEngine::Init()` constructs minimum runtime/renderer services without admitting
 project content or creating the initial World. After schema providers are active,
