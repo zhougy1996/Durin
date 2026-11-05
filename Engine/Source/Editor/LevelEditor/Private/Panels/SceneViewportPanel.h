@@ -51,7 +51,7 @@ namespace Durin::Editor::Level
 		auto RequestInitialPresentation() -> void { SetOpen(true); bInitialPresentationRequested = true; }
 		auto PrepareForLevelChange(FLevelEditorContext& Context) -> bool;
 		auto FinalizeViewportFrame(FLevelEditorContext& Context) -> void;
-		auto SetPreferredPlayMode(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void;
+		auto SetPreferredPlayMode(EPlayStartLocation StartLocation, EPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
 		auto GetEditModeManager() -> FLevelViewportEditModeManager& { return EditModeManager; }
@@ -92,8 +92,8 @@ namespace Durin::Editor::Level
 		bool bViewportFocused = false;
 		bool bShowStatistics = false;
 		std::function<void()> OpenRenderingDiagnostics;
-		::Durin::Editor::EPlayStartLocation PreferredPlayStartLocation;
-		::Durin::Editor::EPlayDestination PreferredPlayDestination;
+		EPlayStartLocation PreferredPlayStartLocation;
+		EPlayDestination PreferredPlayDestination;
 		std::vector<FConsoleCommandHandle> ViewportConsoleCommandHandles;
 	};
 } // namespace Durin::Editor::Level

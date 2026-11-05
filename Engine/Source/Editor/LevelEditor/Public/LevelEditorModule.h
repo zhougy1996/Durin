@@ -18,8 +18,8 @@ namespace Durin { class IAssetReferenceStore; }
 
 namespace Durin::Editor
 {
-	class FWorkspaceRegistrationHandle;
-	class FWorkspaceManager;
+	class FAssetEditorToolkitRegistrationHandle;
+	class FEditorDocumentManager;
 	class DThumbnailManager;
 	class FThumbnailRendererRegistrationHandle;
 }
@@ -41,20 +41,20 @@ namespace Durin
 		LEVELEDITOR_API auto StartupModule() -> void override;
 		LEVELEDITOR_API auto CanShutdownModule() const -> bool override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
-		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::DThumbnailManager& ThumbnailManager,
+		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(Editor::FEditorDocumentManager& DocumentManager,
+			Editor::DThumbnailManager& ThumbnailManager,
 			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks,
 			std::function<void()> OpenProjectBrowser) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto RequestOpenProject(std::string ProjectFile) -> bool;
 	private:
-		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
+		std::unique_ptr<Editor::FAssetEditorToolkitRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<Editor::Level::FLevelEditorSessionSettings> SessionSettings;
 		std::vector<Editor::Level::FLevelEditorCustomizationHandle> CustomizationHandles;
 		std::vector<Editor::FDetailCustomizationHandle> DetailCustomizationHandles;
 		Editor::Level::FLevelViewportEditModeHandle SplineEditModeHandle;
 		std::weak_ptr<Editor::Level::MLevelEditor> LevelEditorWorkspace;
-		std::unique_ptr<::Durin::IAssetReferenceStore>
+		std::unique_ptr<IAssetReferenceStore>
 			ProjectDefaultLevelReferenceStore;
 		uint64 ProjectDefaultLevelReferenceStoreHandle = 0;
 		struct FIntegrationState;

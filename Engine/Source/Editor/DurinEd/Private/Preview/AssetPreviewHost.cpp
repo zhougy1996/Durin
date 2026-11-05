@@ -52,7 +52,7 @@ namespace Durin::Editor
 				return;
 			}
 
-			(void)Editor::AddStudioSkyLight(*PreviewScene->GetWorld()->GetCurrentLevel());
+			(void)AddStudioSkyLight(*PreviewScene->GetWorld()->GetCurrentLevel());
 			ContentActor = PreviewScene->GetWorld()->SpawnActor<AActor>(Config.ContentActorName);
 			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(Config.LightActorName);
 			Light = LightActor

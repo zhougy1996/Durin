@@ -88,16 +88,16 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			Min.y + NameAreaHeight);
 	}
 
-	auto ResolveThumbnailPresentation(const ::Durin::Editor::FAssetThumbnailView& Thumbnail)
+	auto ResolveThumbnailPresentation(const FAssetThumbnailView& Thumbnail)
 		-> EThumbnailPresentation
 	{
-		if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Ready && Thumbnail.Texture)
+		if (Thumbnail.State == EAssetThumbnailState::Ready && Thumbnail.Texture)
 			return EThumbnailPresentation::Ready;
-		if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Queued
-			|| Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Loading
-			|| Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Uploading)
+		if (Thumbnail.State == EAssetThumbnailState::Queued
+			|| Thumbnail.State == EAssetThumbnailState::Loading
+			|| Thumbnail.State == EAssetThumbnailState::Uploading)
 			return EThumbnailPresentation::Loading;
-		if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Failed)
+		if (Thumbnail.State == EAssetThumbnailState::Failed)
 			return EThumbnailPresentation::Failed;
 		return EThumbnailPresentation::Icon;
 	}
@@ -203,7 +203,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 
 	auto DrawThumbnail(
 		const FContentBrowserItem& Item,
-		const ::Durin::Editor::FAssetThumbnailView& Thumbnail,
+		const FAssetThumbnailView& Thumbnail,
 		const FGridMetrics& Metrics,
 		const ImVec2& PreviewMin,
 		const ImVec2& PreviewMax,

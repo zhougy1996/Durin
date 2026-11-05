@@ -12,7 +12,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Framework/TabLayout.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transactor.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -160,7 +160,7 @@ namespace Durin::Editor::Level
 
 	auto FWorldOutlinerPanel::SetActorVisibility(FLevelEditorContext& Context, const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void
 	{
-		::Durin::Editor::FScopedTransaction Transaction(bHidden ? "Hide actors" : "Show actors");
+		FScopedTransaction Transaction(bHidden ? "Hide actors" : "Show actors");
 		for (const TObjectPtr<AActor>& Actor : TargetActors)
 		{
 			if (!Actor || Actor->IsHidden() == bHidden) continue;
@@ -233,7 +233,7 @@ namespace Durin::Editor::Level
 				}
 				else if (ImGui::MenuItem("Set as Primary Camera"))
 				{
-					::Durin::Editor::FScopedTransaction Transaction("Set primary camera");
+					FScopedTransaction Transaction("Set primary camera");
 					(void)Context.Level->Modify();
 					if (!Context.Level->SetPrimaryCameraActor(Camera))
 						Context.SetError("Failed to set the primary camera.");
@@ -519,7 +519,7 @@ namespace Durin::Editor::Level
 	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.WorldOutliner");
-		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
+		if (!TabLayout::BeginDockablePanel(Workspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;

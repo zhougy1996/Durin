@@ -33,12 +33,12 @@ namespace Durin::Editor::Level
 	private:
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
 		auto FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> bool;
-		auto MakePropertyViewContext(FLevelEditorContext& Context) const -> ::Durin::Editor::FPropertyViewContext;
+		auto MakePropertyViewContext(FLevelEditorContext& Context) const -> FPropertyViewContext;
 
 		std::array<char, 128> PropertySearchText{};
 		TObjectPtr<AActor> PropertyActor;
 		FLevelEditorSessionSettings& SessionSettings;
-		::Durin::Editor::FPropertyView PropertyView;
+		FPropertyView PropertyView;
 		FDetailsComponentTree ComponentTree;
 		float ComponentPaneRatio;
 	};

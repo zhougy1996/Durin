@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Workspace/WorkspaceProvider.h"
+#include "Toolkits/AssetEditorModule.h"
 
 #include "Modules/ModuleManager.h"
 #include "StaticMeshEditorAPI.h"
@@ -9,8 +9,8 @@
 
 namespace Durin::Editor
 {
-	class FWorkspaceManager;
-	class FWorkspaceRegistrationHandle;
+	class FEditorDocumentManager;
+	class FAssetEditorToolkitRegistrationHandle;
 	class DThumbnailManager;
 	class FThumbnailRendererRegistrationHandle;
 }
@@ -18,23 +18,22 @@ namespace Durin::Editor
 namespace Durin
 {
 	// Registers the read-only StaticMesh inspector and its exact asset route.
-	class FStaticMeshEditorModule final : public IModuleInterface, public Editor::IWorkspaceProvider
+	class FStaticMeshEditorModule final : public Editor::IAssetEditorModule
 	{
 	public:
 		STATICMESHEDITOR_API FStaticMeshEditorModule();
 		STATICMESHEDITOR_API ~FStaticMeshEditorModule() override;
 		STATICMESHEDITOR_API auto StartupModule() -> void override;
 		STATICMESHEDITOR_API auto ShutdownModule() -> void override;
-		STATICMESHEDITOR_API auto RegisterWorkspaces(
-			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::DThumbnailManager& ThumbnailManager,
-			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool override;
-		STATICMESHEDITOR_API auto UnregisterWorkspaces() -> void override;
+		STATICMESHEDITOR_API auto RegisterToolkits(
+			Editor::FEditorDocumentManager& DocumentManager,
+			Editor::DThumbnailManager& ThumbnailManager,
+			Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool override;
+		STATICMESHEDITOR_API auto UnregisterToolkits() -> void override;
 	private:
-		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> ThumbnailRegistration;
+		std::unique_ptr<Editor::FAssetEditorToolkitRegistrationHandle> WorkspaceRegistration;
+		std::unique_ptr<Editor::FThumbnailRendererRegistrationHandle> ThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
-		FModularFeatureRegistration ProviderRegistration;
 	};
 }

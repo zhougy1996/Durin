@@ -3,7 +3,7 @@
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
 #include "Diagnostics/TexturePayloadInspection.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "MonaCoreGlobals.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
@@ -64,26 +64,26 @@ namespace Durin::Editor::Texture
 	}
 
 	MVolumeTextureEditor::MVolumeTextureEditor(
-		::Durin::Editor::FWorkspaceManager& InManager) : Manager(InManager)
+		FEditorDocumentManager& InManager) : Manager(InManager)
 	{
 
 	}
 
-	auto MVolumeTextureEditor::GetWorkspaceType() const
-		-> const ::Durin::Editor::FWorkspaceTypeId& { return VolumeWorkspace::Type; }
+	auto MVolumeTextureEditor::GetToolkitId() const
+		-> const FAssetEditorToolkitId& { return VolumeWorkspace::Type; }
 
-	auto MVolumeTextureEditor::OpenDocument(const ::Durin::Editor::FDocumentTab& Document)
-		-> ::Durin::Editor::EDocumentOpenResult
+	auto MVolumeTextureEditor::OpenDocument(const FEditorDocument& Document)
+		-> EDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		if (Find(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
+		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
+		if (Find(Document.ResourceId)) return EDocumentOpenResult::Opened;
 		FObjectPath Path;
 		std::string Error;
 		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, Path); !PathValidation)
 		{
-			Error = Durin::ToString(PathValidation.error());
+			Error = ToString(PathValidation.error());
 			SetError(std::move(Error));
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
 		DVolumeTexture* Texture = nullptr;
 		const auto Result = LoadObject<DVolumeTexture>(Path);
@@ -91,35 +91,35 @@ namespace Durin::Editor::Texture
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a VolumeTexture." : (Result ? std::string{} : Result.error().Message));
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);
 		PreviewStates.try_emplace(Document.ResourceId);
-		return ::Durin::Editor::EDocumentOpenResult::Opened;
+		return EDocumentOpenResult::Opened;
 	}
 
-	auto MVolumeTextureEditor::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
+	auto MVolumeTextureEditor::ActivateDocument(const FEditorDocument& Document) -> void
 	{
 		Documents.Activate(Document, Find(Document.ResourceId));
 	}
 
-	auto MVolumeTextureEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document)
-		-> ::Durin::Editor::EDocumentCloseResult
+	auto MVolumeTextureEditor::RequestCloseDocument(const FEditorDocument& Document)
+		-> EDocumentCloseResult
 	{
 		if (IsDocumentDirty(Document))
-			return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
+			return EDocumentCloseResult::PendingConfirmation;
 		OpenTextures.erase(Document.ResourceId);
 		PreviewStates.erase(Document.ResourceId);
 		Documents.Close(Document.ResourceId);
-		return ::Durin::Editor::EDocumentCloseResult::Closed;
+		return EDocumentCloseResult::Closed;
 	}
 
-	auto MVolumeTextureEditor::SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
+	auto MVolumeTextureEditor::SaveDocument(const FEditorDocument& Document) -> bool
 	{
 		return Save(Find(Document.ResourceId));
 	}
 
-	auto MVolumeTextureEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
+	auto MVolumeTextureEditor::DiscardDocument(const FEditorDocument& Document) -> bool
 	{
 		return Documents.Discard(Find(Document.ResourceId), {},
 			[this](DPackage* Previous, DPackage* Replacement) {
@@ -142,7 +142,7 @@ namespace Durin::Editor::Texture
 			}
 	}
 
-	auto MVolumeTextureEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
+	auto MVolumeTextureEditor::IsDocumentDirty(const FEditorDocument& Document) const -> bool
 	{
 		return Documents.IsDirty(Find(Document.ResourceId));
 	}
@@ -154,9 +154,9 @@ namespace Durin::Editor::Texture
 
 	auto MVolumeTextureEditor::SaveActiveDocument() -> bool { return Save(Active()); }
 
-	auto MVolumeTextureEditor::DrawWorkspace(bool) -> bool
+	auto MVolumeTextureEditor::DrawToolkit(bool) -> bool
 	{
-		return Documents.GetDocumentHost().DrawDocuments(Manager,
+		return Documents.GetTabManager().DrawDocuments(Manager,
 			VolumeWorkspace::Type, VolumeWorkspace::RootKey,
 			[this](const auto& Document) { return Find(Document.ResourceId) != nullptr; },
 			[this](const auto& Document) { DrawDocument(Document, Find(Document.ResourceId)); });
@@ -193,7 +193,7 @@ namespace Durin::Editor::Texture
 		});
 	}
 
-	auto MVolumeTextureEditor::DrawDocument(const ::Durin::Editor::FDocumentTab& Document,
+	auto MVolumeTextureEditor::DrawDocument(const FEditorDocument& Document,
 		DVolumeTexture* Texture) -> void
 	{
 		if (!Texture) return;

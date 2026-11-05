@@ -176,7 +176,7 @@ namespace Durin::Editor
 
 		FThumbnailVisualContract Contract;
 		FAssetThumbnailOutputSettings Output;
-		std::unique_ptr<Editor::FPreviewScene> PreviewScene;
+		std::unique_ptr<FPreviewScene> PreviewScene;
 		std::unordered_map<std::string, TObjectPtr<AActor>> ReusableActors;
 		TObjectPtr<DDirectionalLightComponent> Light;
 		FTextureRHIRef RenderTarget;
@@ -210,7 +210,7 @@ namespace Durin::Editor
 				Error = "The renderer is not available.";
 				return;
 			}
-			PreviewScene = std::make_unique<Editor::FPreviewScene>("RenderedAssetThumbnailPreview");
+			PreviewScene = std::make_unique<FPreviewScene>("RenderedAssetThumbnailPreview");
 			if (!PreviewScene->IsAvailable())
 			{
 				Error = PreviewScene->GetDiagnostic();

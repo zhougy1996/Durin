@@ -16,8 +16,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string_view SourcePhysicalPath;
 		uintmax_t SourceFileSize = 0;
 		std::filesystem::file_time_type SourceLastWriteTime{};
-		std::optional<::Durin::Editor::FAssetThumbnailPackageFingerprint> Asset;
-		::Durin::Editor::EAssetThumbnailPriority Priority = ::Durin::Editor::EAssetThumbnailPriority::Prefetch;
+		std::optional<FAssetThumbnailPackageFingerprint> Asset;
+		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
 	};
 
 	// Keeps ordinary-file previews private while asset entries are represented by
@@ -34,7 +34,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		auto BeginFrame() -> void;
 		auto Request(const FContentBrowserThumbnailRequest& Request) -> void;
-		auto Find(std::string_view Identity) const -> ::Durin::Editor::FAssetThumbnailView;
+		auto Find(std::string_view Identity) const -> FAssetThumbnailView;
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;
 		auto Clear() -> void;
@@ -45,6 +45,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::unique_ptr<FSourceImageThumbnailCache> SourceImages;
 		std::unordered_map<std::string, FAssetDependencyClosureSnapshot> Dependencies;
 		std::unordered_map<std::string, std::string> SourcePaths;
-		std::unordered_map<std::string, std::unique_ptr<::Durin::Editor::FAssetThumbnail>> AssetThumbnails;
+		std::unordered_map<std::string, std::unique_ptr<FAssetThumbnail>> AssetThumbnails;
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

@@ -23,7 +23,7 @@
 #include "MaterialFunctionPreview.h"
 #include "MaterialEditorModule.h"
 #include "Widgets/MMaterialFunctionEditor.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"

@@ -1,7 +1,7 @@
 #include "Panels/RenderingDiagnosticsPanel.h"
 
 #include "Client/SceneViewport.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Framework/TabLayout.h"
 #include "Engine/EngineGlobals.h"
 #include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"
@@ -135,7 +135,7 @@ namespace Durin::Editor::Level
 		ImGui::SetNextWindowSize(
 			ImVec2(MonaImGui::ScaleUI(980.0f), MonaImGui::ScaleUI(700.0f)),
 			ImGuiCond_FirstUseEver);
-		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+		if (!TabLayout::BeginDockablePanel(
 			Workspace::Type, "Rendering Diagnostics", "RenderingDiagnostics",
 			GetOpenPtr()))
 		{

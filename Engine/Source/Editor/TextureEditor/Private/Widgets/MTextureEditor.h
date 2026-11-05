@@ -4,8 +4,8 @@
 
 #include "DObject/ObjectPtr.h"
 #include "Texture/Texture.h"
-#include "Workspace/Workspace.h"
-#include "Workspace/WorkspaceRootWindow.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Documents/AssetEditorDocumentModels.h"
 #include "PropertyEditor/PropertyView.h"
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
@@ -16,20 +16,20 @@ namespace Durin { class DTexture2D; struct FTexturePlatformData; }
 namespace Durin::Editor::Texture
 {
 	// Hosts one texture document with preview, mip, and metadata controls.
-	class MTextureEditor final : public ::Durin::Editor::IWorkspace
+	class MTextureEditor final : public IAssetEditorToolkit
 	{
 	public:
-		explicit MTextureEditor(::Durin::Editor::FWorkspaceManager& InWorkspaceManager);
+		explicit MTextureEditor(FEditorDocumentManager& InWorkspaceManager);
 		TEXTUREEDITOR_API ~MTextureEditor() override;
-		TEXTUREEDITOR_API auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
-		TEXTUREEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
-		TEXTUREEDITOR_API auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
+		TEXTUREEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
+		TEXTUREEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
+		TEXTUREEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		TEXTUREEDITOR_API auto RequestDeactivate() -> bool override;
-		TEXTUREEDITOR_API auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
-		TEXTUREEDITOR_API auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
-		TEXTUREEDITOR_API auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
+		TEXTUREEDITOR_API auto SaveDocument(const FEditorDocument& Document) -> bool override;
+		TEXTUREEDITOR_API auto DiscardDocument(const FEditorDocument& Document) -> bool override;
 		TEXTUREEDITOR_API auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
-		TEXTUREEDITOR_API auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override;
+		TEXTUREEDITOR_API auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override;
 		TEXTUREEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		TEXTUREEDITOR_API auto SaveActiveDocument() -> bool override;
 		TEXTUREEDITOR_API auto CanUndo() const -> bool override;
@@ -38,15 +38,15 @@ namespace Durin::Editor::Texture
 		TEXTUREEDITOR_API auto GetRedoDescription() const -> std::string override;
 		TEXTUREEDITOR_API auto Undo() -> bool override;
 		TEXTUREEDITOR_API auto Redo() -> bool override;
-		TEXTUREEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
+		TEXTUREEDITOR_API auto DrawToolkit(bool bActive) -> bool override;
 		TEXTUREEDITOR_API auto ResetLayout() -> void override;
 
 	private:
 		auto FindOpenTexture(std::string_view ResourceId) const -> DTexture2D*;
 		auto GetActiveTexture() const -> DTexture2D*;
 		auto SaveTexture(DTexture2D* Texture) -> bool;
-		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void;
-		auto DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void;
+		auto DrawDocument(const FEditorDocument& Document, DTexture2D* Texture) -> void;
+		auto DrawToolbar(const FEditorDocument& Document, DTexture2D* Texture) -> void;
 		auto DrawWideLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawNarrowLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawPreviewPanel(const std::string& ResourceId, DTexture2D* Texture, float Width, float Height) -> void;
@@ -58,15 +58,15 @@ namespace Durin::Editor::Texture
 		auto ReimportSource(DTexture2D* Texture) -> void;
 		auto ReimportFromFile(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
-		auto MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext;
+		auto MakePropertyViewContext() -> FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 
-		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
+		FEditorDocumentManager& DocumentManager;
 		std::unordered_map<std::string, TObjectPtr<DTexture2D>> OpenTextures;
-		::Durin::Editor::FEditableAssetDocumentModel Documents;
+		FEditableAssetDocumentModel Documents;
 		std::string ErrorMessage;
-		::Durin::Editor::FPropertyView PropertyView;
-		::Durin::Editor::FSourceReferenceIndex SourceReferenceIndex;
+		FPropertyView PropertyView;
+		FSourceReferenceIndex SourceReferenceIndex;
 		// Retains the preview selection independently for each open texture.
 		struct FTexturePreviewState
 		{

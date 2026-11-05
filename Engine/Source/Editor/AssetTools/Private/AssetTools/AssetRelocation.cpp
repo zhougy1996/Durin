@@ -51,7 +51,7 @@ namespace Durin
 					"AssetSystem",
 					"Failed to resolve asset path {}: {}",
 					Path.ToString(),
-					(Resolved ? std::string{} : Durin::ToString(Resolved.error())));
+					(Resolved ? std::string{} : ToString(Resolved.error())));
 			return Resolved
 				? Resolved->PhysicalPath.generic_string() + ".dasset"
 				: std::string{};
@@ -186,7 +186,7 @@ namespace Durin
 						"Asset {} already exists.",
 						Mapping.DestinationPath.ToString()));
 				const FAssetPathResolveResult DestinationResolution =
-					Durin::ResolveAssetPathForOperation(Mapping.DestinationPath);
+					ResolveAssetPathForOperation(Mapping.DestinationPath);
 				if (!DestinationResolution
 					|| DestinationResolution.FinalPath != Mapping.SourcePath)
 					return Error(EAssetWriteError::AlreadyExists, std::format(

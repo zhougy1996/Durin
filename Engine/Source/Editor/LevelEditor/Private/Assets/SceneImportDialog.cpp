@@ -64,7 +64,7 @@ namespace Durin::Editor::Level
 			&& Session->GetProgress().Phase != ESceneImportPhase::Completed)
 		{
 			const auto Progress = AssetForge::Builtins::MakeAssetImportFeedback(Session->GetProgress(), SourcePathBuffer.data());
-			if (::Durin::Editor::DrawSlowTaskProgress(Progress, true, false))
+			if (DrawSlowTaskProgress(Progress, true, false))
 			{
 				Session->Cancel();
 				bCloseWhenFinished = true;

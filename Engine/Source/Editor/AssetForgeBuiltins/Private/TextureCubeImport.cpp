@@ -36,7 +36,7 @@ namespace Durin::AssetForge::Builtins
 			const auto Resolved =
 				FMountPaths::ResolveAssetPath(Texture.GetPackage()->GetPackagePath(),
 					EMountPathExistence::AllowMissing);
-			if (!Resolved) { OutError = (Resolved ? std::string{} : Durin::ToString(Resolved.error())); return false; }
+			if (!Resolved) { OutError = (Resolved ? std::string{} : ToString(Resolved.error())); return false; }
 			OutPath = Resolved->PhysicalPath;
 			OutPath += ".dasset";
 			return true;
@@ -510,7 +510,7 @@ namespace Durin::AssetForge::Builtins
 		FTextureCubePlatformData Product;
 		auto BuildResult = BuildTextureCubeDetached({.Input = FTextureCubeFacesBuildInput{.FaceImages = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
 		Error = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
-		CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+		CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : FTextureCubeCanonicalBuildInput{};
 		Product = BuildResult ? std::move(BuildResult->PlatformData) : FTextureCubePlatformData{};
 		if (!BuildResult)
 			return {false, std::move(Error)};
@@ -537,7 +537,7 @@ namespace Durin::AssetForge::Builtins
 			|| !std::visit([&](auto&& Source) {
 				   auto BuildResult = BuildTextureCubeDetached({.Input = FTextureCubePanoramaBuildInput{.Image = std::move(Source), .Settings = Settings}});
 				   Error = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
-				   CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+				   CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : FTextureCubeCanonicalBuildInput{};
 				   Product = BuildResult ? std::move(BuildResult->PlatformData) : FTextureCubePlatformData{};
 				   return static_cast<bool>(BuildResult);
 			   },

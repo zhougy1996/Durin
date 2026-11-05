@@ -45,11 +45,11 @@ namespace Durin::Editor::Level
 		}
 
 		template<typename F>
-		auto CommitSplineEdit(DSplineComponent& Spline, ::Durin::Editor::ETransactionMode Mode, std::string Description, F&& Edit) -> bool
+		auto CommitSplineEdit(DSplineComponent& Spline, ETransactionMode Mode, std::string Description, F&& Edit) -> bool
 		{
-			auto Service = ::Durin::Editor::ResolveEditorTransactor(Mode);
+			auto Service = ResolveEditorTransactor(Mode);
 			if (!Service) return false;
-			::Durin::Editor::FScopedTransaction Transaction(*Service, {
+			FScopedTransaction Transaction(*Service, {
 				.Name = "SplineEdit",
 				.Description = std::move(Description),
 			});
@@ -68,7 +68,7 @@ namespace Durin::Editor::Level
 		}
 
 		template<typename F>
-		auto EditSelectedPoints(FLevelEditorContext& Context, DSplineComponent& Spline, ::Durin::Editor::ETransactionMode Mode,
+		auto EditSelectedPoints(FLevelEditorContext& Context, DSplineComponent& Spline, ETransactionMode Mode,
 			std::string Description, F&& Edit) -> bool
 		{
 			const std::vector<uint32> Indices = GetSelectedPointIndices(Context, Spline);
@@ -263,9 +263,9 @@ namespace Durin::Editor::Level
 				bExitRequested = false;
 			}
 			auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-				FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool override
+				FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool override
 			{
-				constexpr auto Mode = ::Durin::Editor::ETransactionMode::Record;
+				constexpr auto Mode = ETransactionMode::Record;
 				LastClient = &Client;
 				auto* Spline = Cast<DSplineComponent>(Context.GetSelectedComponent());
 				if (!Spline) return false;
@@ -343,7 +343,7 @@ namespace Durin::Editor::Level
 				Context.ClearSubElementSelection();
 				for (const auto& Element : Valid) Context.ToggleSubElement(&Spline, Element);
 			}
-			static auto DeleteSelected(FLevelEditorContext& Context, DSplineComponent& Spline, ::Durin::Editor::ETransactionMode Mode) -> bool
+			static auto DeleteSelected(FLevelEditorContext& Context, DSplineComponent& Spline, ETransactionMode Mode) -> bool
 			{
 				std::unordered_set<FGuid> Ids;
 				for (const auto& Element : Context.GetSelectedSubElements()) if (Element.Kind == EEditorSubElementKind::Point) Ids.insert(Element.StableId);
@@ -356,7 +356,7 @@ namespace Durin::Editor::Level
 				if (Changed) Context.ClearSubElementSelection();
 				return Changed;
 			}
-			static auto DuplicateSelected(FLevelEditorContext& Context, DSplineComponent& Spline, ::Durin::Editor::ETransactionMode Mode) -> bool
+			static auto DuplicateSelected(FLevelEditorContext& Context, DSplineComponent& Spline, ETransactionMode Mode) -> bool
 			{
 				const auto Index = Spline.GetSplineCurve().FindPointIndex(Context.GetSelectedSubElement().StableId);
 				FGuid NewId;
@@ -367,7 +367,7 @@ namespace Durin::Editor::Level
 				if (Changed) Context.SelectSubElement(&Spline, {EEditorSubElementKind::Point, NewId});
 				return Changed;
 			}
-			static auto AppendPoint(FLevelEditorContext& Context, DSplineComponent& Spline, ::Durin::Editor::ETransactionMode Mode) -> bool
+			static auto AppendPoint(FLevelEditorContext& Context, DSplineComponent& Spline, ETransactionMode Mode) -> bool
 			{
 				FGuid NewId;
 				const bool Changed = CommitSplineEdit(Spline, Mode, "Append Spline Point", [&] {
@@ -390,7 +390,7 @@ namespace Durin::Editor::Level
 				if (!Spline) return;
 				if (FProperty* SplineCurve = Spline->GetClass()->FindPropertyByName("SplineCurve")) Builder.HideProperty(SplineCurve);
 				Builder.EditCategory("Spline").AddCustomRow("Spline Edit Points Segments Length Position Tangents Interpolation Automatic Clamped Aligned Broken Add Duplicate Delete Loop Reorder",
-					[&Context, Spline](::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
+					[&Context, Spline](FPropertyView&, const FPropertyViewContext& ViewContext) {
 					ImGui::PushID(Spline);
 					bool Changed = false;
 					{
@@ -581,7 +581,7 @@ namespace Durin::Editor::Level
 				if (!Actor) return;
 				Builder.EditCategory("Diagnostics").AddCustomRow("Spline Path Generated Segments Diagnostics Edit",
 					[Actor = TWeakObjectPtr<ASplineMeshActor>(Actor), &Context](
-						::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
+						FPropertyView&, const FPropertyViewContext& ViewContext) {
 						auto* Resolved = Actor.Get();
 						if (!Resolved) return false;
 						MonaImGui::PropertyEdit::BeginRow("Path Output", ViewContext.bReadOnly);

@@ -807,7 +807,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 				{
 					co_return AddError(
 					    Result, EImportDiagnosticCategory::CandidateFailure, "scene-materialization",
-					    (PackageResolution ? std::string{} : Durin::ToString(PackageResolution.error())),
+					    (PackageResolution ? std::string{} : ToString(PackageResolution.error())),
 					    Descriptor.StableIdentity);
 				}
 				std::filesystem::path PackagePath = PackageResolution->PhysicalPath;

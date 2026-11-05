@@ -38,7 +38,7 @@ namespace Durin::Editor::Level
 		std::function<void(std::string)> ReportError;
 		std::function<bool(std::string_view)> RenameLevel;
 		std::function<void(AActor*)> FocusActor;
-		std::function<void(::Durin::Editor::EPlayStartLocation, ::Durin::Editor::EPlayDestination)> StartPlay;
+		std::function<void(EPlayStartLocation, EPlayDestination)> StartPlay;
 		std::function<void(bool)> ApplyPlayChanges;
 		std::function<bool(std::string_view)> ActivateViewportEditMode;
 		std::function<bool(const FPackagePath&, std::string&)> RevealAsset;

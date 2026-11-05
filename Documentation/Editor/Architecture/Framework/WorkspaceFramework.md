@@ -1,15 +1,15 @@
-# Editor Workspace Framework
+# Editor Framework, Toolkits and Documents
 
-Summary: Define editor workspaces, documents, panels, commands, layout, and host integration.
+Summary: Define editor toolkits, document ownership, tab presentation, panels, commands, layout, and host integration.
 
-Modules: AssetMaintenance, DurinEd, LevelEditor, MainFrame
+Modules: AssetMaintenance, DurinEd, LevelEditor, MainFrame, MaterialEditor, StaticMeshEditor, TextureEditor
 
 This document defines editor-host ownership, persistent settings, application
-commands, workspace registration, and document lifecycle contracts.
+commands, toolkit registration, tab presentation, and document lifecycle contracts.
 
 ## C++ Ownership Boundary
 
-Shared workspace, document, transaction, property, asset, preview, and
+Shared toolkit, document, transaction, property, asset, preview, and
 interaction contracts live directly in `Durin::Editor`. Concrete editor modules
 own their ordinary C++ APIs under `Durin::Editor::MainFrame`, `LevelEditor`,
 `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor`. Runtime and reflected
@@ -221,58 +221,62 @@ transaction feedback, notification aggregation, and toasts update once per host
 frame even when the Level workspace root is hidden. Reset Editor Layout
 restores global tool defaults without resetting any asset-editor layout.
 
-## Workspace Registration
-`DurinEd` owns the reusable editor workspace and document framework under
-`Durin::Editor`. `WorkspaceTypes.h` defines IDs, document metadata, descriptors,
-and asset routes; `Workspace.h` defines the implementation-facing `IWorkspace`
-contract; and `WorkspaceManager.h` owns registration leases and document
-lifecycle. Workspace modules register their workspace descriptor, implementation,
-and asset-class routes as one scoped batch. The manager validates the complete
-batch before mutation, and destroying its registration handle removes the routes
-and documents owned by that module.
+## Asset Editor Toolkit Registration
 
-`MainFrame` derives the default host layout and singleton reopen commands from
-registered descriptors. The Window menu lists every open document, marks the
-active document, and exposes layout reset and workspace-specific panel commands
-for the active editor; it does not name concrete editor root windows.
+`DurinEd` owns the reusable editor toolkit and document framework under
+`Durin::Editor`. `Documents/EditorDocumentTypes.h` defines toolkit IDs, document
+metadata, descriptors and asset routes. `Toolkits/AssetEditorToolkit.h` defines
+`IAssetEditorToolkit`: the concrete editor's resource operations, activation,
+commands, menus and presentation. LevelEditor implements this contract for Level
+assets, including its singleton-document policy.
 
-`LevelEditor`, `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own
-their editor-specific panels and resource behavior. `DurinEd` must not depend on
-those concrete modules. Rendering dependencies belong in an editor module only
-when its preview implementation actually uses them. MainFrame explicitly connects
-the Level workspace for its default-level and project-switch interactions, then
-asks the workspace manager to connect the published asset-editor providers.
+`FEditorDocumentManager` owns document identity, asset routing, strong asset
+associations, pending opens, activation, dirty-state refresh and close decisions.
+It validates complete toolkit/asset-route batches before mutation; each module
+owns an `FAssetEditorToolkitRegistrationHandle` that removes its routes and
+documents on release. The manager contains no ImGui docking state and does not
+load or discover editor modules.
 
-`MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` publish
-`IWorkspaceProvider` through the existing modular-feature registry during module
-startup. Each module owns its publication token and its existing workspace,
-thumbnail and browser-extension handles; module shutdown withdraws publication
-and releases those handles. No additional provider registry or subsystem is used.
-`FWorkspaceManager::RegisterProviders()` connects the current published snapshot
-with the long-lived thumbnail service and host import callbacks. MainFrame loads
-the default module composition by name but does not include or cache their
-concrete module types. The module dependencies still declare that composition
-for build and deployment.
+`Framework/TabManager.h` owns `FTabManager` and `FEditorTabWindow`, which present
+per-document root tabs, preserve focus intent and report visibility, activation
+and close requests. `Framework/TabLayout.h` owns docking classes, layout IDs and
+panel layout helpers. These presentation objects do not own assets, decide dirty
+close policy, or save/discard resources. A close click is submitted to the document
+manager after tab iteration; `Documents/EditorDocumentUI.h` renders the manager's
+single pending confirmation. Resource models live separately in
+`Documents/AssetEditorDocumentModels.h`.
 
-A false registration result leaves no new contribution from that provider. A
-failed composition unwinds successful registrations in reverse publication order;
-throwing registrations also receive cleanup. The manager retains exact feature
-registration identities, not borrowed module pointers: a retired provider is
-skipped, and a replacement publication cannot receive cleanup for its predecessor.
-Explicit teardown or manager destruction releases the connected snapshot once.
-The thumbnail service and host callbacks must outlive these connections. Providers
-loaded later are not automatically attached to an existing manager.
+`MainFrame` derives default host layout and singleton reopen commands from toolkit
+descriptors. The Window menu lists documents and the active toolkit's panel
+commands without naming concrete editor root windows. Existing persisted window,
+docking and document-key strings are unchanged by the C++ API names.
+
+`MaterialEditor`, `TextureEditor` and `StaticMeshEditor` implement
+`IAssetEditorModule`, obtained by name through the existing `FModuleManager`.
+MainFrame connects this fixed composition to the document manager, thumbnail
+service and host import callbacks. It records only the names of successfully
+connected modules and releases them in reverse composition order; inactive
+modules are skipped because their shutdown already releases their handles.
+There is no modular-feature publication, discovery, feature identity cache or
+additional registry. These modules do not support dynamic reloading. Their build
+dependencies still declare the default composition for build and deployment.
+
+A false registration result unwinds that module's new partial contributions.
+MainFrame unwinds previously connected modules on failure and also cleans a
+throwing module before propagating the exception. Each module owns its existing
+toolkit, thumbnail and browser-extension handles and releases them on shutdown.
+LevelEditor retains its specialized registration connection for startup-level and
+project-switch interactions. `DurinEd` depends on none of these concrete modules.
 
 MainFrame shutdown first stops Content Browser request admission and destroys
 the browser, draining admitted imports and releasing UI-held thumbnails and
-source-thumbnail caches. It then asks the workspace manager to unregister its
-connected asset-editor providers in reverse composition order, followed by the
-specialized Level integration. Scoped browser extensions and feature-owned
-dialogs close while their modules remain mapped, and each concrete thumbnail
-handle drains its queued and in-flight leases before its workspace documents
-close. Shared thumbnail, workspace and notification state is released afterward.
-Concrete editor modules may unload only after those steps, so no route, document,
-provider, session, preview object, import or queued upload can retain module code.
+source-thumbnail caches. It then unregisters connected asset-editor modules in
+reverse composition order, followed by the specialized Level integration.
+Scoped browser extensions and feature-owned dialogs close while their modules
+remain mapped; each concrete thumbnail handle drains its queued and in-flight
+leases before its documents close. Shared thumbnail, document and notification
+state is released afterward. The thumbnail service and host callbacks outlive
+all integration handles.
 
 Asset opening from the Content Browser enters the per-host
 [`DAssetEditorSubsystem`](EditorSubsystems.md#asset-editors), which focuses an
@@ -284,12 +288,12 @@ relocation and package reload update the same associations.
 
 ## Document Ownership
 
-`Editor::FDocumentTab` is document identity and presentation metadata, not a
-resource controller. Each workspace remains responsible for loading, saving,
+`Editor::FEditorDocument` is document identity and presentation metadata, not a
+resource controller. Each toolkit remains responsible for loading, saving,
 discarding, releasing, and drawing its resource.
 
-`Editor::FWorkspaceRootWindow` provides the shared root-window state transition,
-while `Editor::FWorkspaceDocumentHost` composes that transition across the
+`Editor::FEditorTabWindow` provides the shared root-window state transition,
+while `Editor::FTabManager` composes that transition across the
 per-resource documents used by Material, Texture, and StaticMesh editors. The
 singleton Level workspace keeps its specialized internal dock-space lifecycle.
 
@@ -305,8 +309,8 @@ this editable composition because their document semantics differ.
 
 Document open and close operations return explicit results. A deferred singleton
 open preserves the current document until its replacement succeeds. For dirty
-closes, `Editor::FWorkspaceManager` owns the single pending document and routes
-Save, Discard, or Cancel back to resource-specific workspace callbacks.
+closes, `Editor::FEditorDocumentManager` owns the single pending document and routes
+Save, Discard, or Cancel back to resource-specific toolkit callbacks.
 `MainFrame` renders the one shared confirmation modal. Repeated close requests
 cannot create duplicate confirmations.
 

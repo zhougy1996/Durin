@@ -80,7 +80,7 @@ namespace Durin::Editor::Level
 					}
 				}
 				auto Drawer =
-					[Component](::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
+					[Component](FPropertyView& PropertyView, const FPropertyViewContext& ViewContext) {
 						return DrawMaterials(Component, PropertyView, ViewContext);
 					};
 				if (Category.empty()) Builder.AddCustomRow(SearchKeywords, std::move(Drawer));
@@ -88,8 +88,8 @@ namespace Durin::Editor::Level
 			}
 
 		private:
-			static auto DrawMaterials(DStaticMeshComponent* Component, ::Durin::Editor::FPropertyView& PropertyView,
-				const ::Durin::Editor::FPropertyViewContext& Context) -> bool
+			static auto DrawMaterials(DStaticMeshComponent* Component, FPropertyView& PropertyView,
+				const FPropertyViewContext& Context) -> bool
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.Details.Materials");
 				const auto* Mesh = Component->GetStaticMesh();
@@ -130,14 +130,14 @@ namespace Durin::Editor::Level
 			}
 
 			static auto DrawCurrentRow(const FStaticMeshMaterialSlotDetailsModel& Model, const FStaticMeshMaterialSlotDetailsEntry& Entry,
-				::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& Context) -> bool
+				FPropertyView& PropertyView, const FPropertyViewContext& Context) -> bool
 			{
 				bool bChanged = false;
 				FPackagePath MaterialPath;
 				const bool bHasMaterialAsset = Entry.Material && Entry.Material->GetPackage()
 					&& FPackagePath::TryCreate(Entry.Material->GetPackage()->GetPackagePath(), MaterialPath)
 					&& FindAssetExact(MaterialPath);
-				const std::array<::Durin::Editor::FAssetPickerAction, 2> AssetActions{{
+				const std::array<FAssetPickerAction, 2> AssetActions{{
 					{
 						.Icon = Icons::Crosshairs,
 						.ButtonId = "RevealMaterial",
@@ -161,9 +161,9 @@ namespace Durin::Editor::Level
 				}};
 				ImGui::PushID(static_cast<int>(Entry.SlotIndex));
 				MonaImGui::PropertyEdit::BeginRow(Entry.Label.c_str(), Context.bReadOnly);
-				const ::Durin::Editor::FAssetPickerResult Result = ::Durin::Editor::AssetPicker::Draw({
+				const FAssetPickerResult Result = AssetPicker::Draw({
 					.ComboId = "##Material", .SearchId = "##MaterialSearch", .SearchHint = "Search materials...",
-					.RequiredClass = DMaterialInterface::StaticClass(), .ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Derived,
+					.RequiredClass = DMaterialInterface::StaticClass(), .ClassPolicy = EAssetClassPolicy::Derived,
 					.CurrentSelection = Entry.Material, .SearchText = AssetSearchText, .bAllowNone = false,
 					.AssignSelection = [&](DObject* Selection, std::string& Error) {
 						if (Context.bReadOnly) { Error = "Details are read-only."; return false; }
@@ -213,7 +213,7 @@ namespace Durin::Editor::Level
 
 	auto FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(const DClass* CandidateClass) -> bool
 	{
-		return ::Durin::Editor::AssetPicker::MatchesClass(CandidateClass, DMaterialInterface::StaticClass(), ::Durin::Editor::EAssetClassPolicy::Derived);
+		return AssetPicker::MatchesClass(CandidateClass, DMaterialInterface::StaticClass(), EAssetClassPolicy::Derived);
 	}
 
 	auto FStaticMeshMaterialSlotDetailsModel::GetSourceLabel(EStaticMeshMaterialSource Source) -> std::string_view
@@ -227,13 +227,13 @@ namespace Durin::Editor::Level
 		return "Unknown";
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::SubmitOverrideEdit(::Durin::Editor::FPropertyView& PropertyView,
-		const ::Durin::Editor::FPropertyViewContext& Context, uint32 SlotIndex, DMaterialInterface* Material,
+	auto FStaticMeshMaterialSlotDetailsModel::SubmitOverrideEdit(FPropertyView& PropertyView,
+		const FPropertyViewContext& Context, uint32 SlotIndex, DMaterialInterface* Material,
 		EPropertyChangeKind Kind, bool bContinuous) const -> bool
 	{
 		FArrayProperty* Property = FindOverridesProperty(Component);
 		if (!Component || !Property) return false;
-		::Durin::Editor::FPropertyEditTarget Target = ::Durin::Editor::FPropertyEditTarget::ForMember(Component, Property);
+		FPropertyEditTarget Target = FPropertyEditTarget::ForMember(Component, Property);
 		Target.LogicalIdentity.resize(sizeof(SlotIndex));
 		std::memcpy(Target.LogicalIdentity.data(), &SlotIndex, sizeof(SlotIndex));
 		Target.Kind = Kind;
@@ -253,8 +253,8 @@ namespace Durin::Editor::Level
 			}, bContinuous);
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::AssignMaterial(::Durin::Editor::FPropertyView& PropertyView,
-		const ::Durin::Editor::FPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry,
+	auto FStaticMeshMaterialSlotDetailsModel::AssignMaterial(FPropertyView& PropertyView,
+		const FPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry,
 		DMaterialInterface* Material, bool bContinuous) const -> bool
 	{
 		if (!Material || !Component || Entry.SlotIndex >= Component->GetNumMaterials()) return false;
@@ -262,19 +262,19 @@ namespace Durin::Editor::Level
 			Entry.bHasOverride ? EPropertyChangeKind::ValueSet : EPropertyChangeKind::ArrayAdd, bContinuous);
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::ResetOverride(::Durin::Editor::FPropertyView& PropertyView,
-		const ::Durin::Editor::FPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry) const -> bool
+	auto FStaticMeshMaterialSlotDetailsModel::ResetOverride(FPropertyView& PropertyView,
+		const FPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry) const -> bool
 	{
 		if (!Entry.bHasOverride) return false;
 		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotIndex, nullptr, EPropertyChangeKind::ArrayRemove);
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::ClearOverrides(::Durin::Editor::FPropertyView& PropertyView,
-		const ::Durin::Editor::FPropertyViewContext& Context) const -> bool
+	auto FStaticMeshMaterialSlotDetailsModel::ClearOverrides(FPropertyView& PropertyView,
+		const FPropertyViewContext& Context) const -> bool
 	{
 		FArrayProperty* Property = FindOverridesProperty(Component);
 		if (!Component || !Property || !bHasStoredOverrides) return false;
-		::Durin::Editor::FPropertyEditTarget Target = ::Durin::Editor::FPropertyEditTarget::ForMember(Component, Property);
+		FPropertyEditTarget Target = FPropertyEditTarget::ForMember(Component, Property);
 		Target.Kind = EPropertyChangeKind::ArrayRemove;
 		return PropertyView.SubmitPropertyValueEdit(Context, Target,
 			[](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {

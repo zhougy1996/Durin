@@ -12,7 +12,7 @@
 
 namespace Durin::Editor::ContentBrowser::Private
 {
-	using FEditorAssetMove = ::Durin::Editor::ContentBrowser::FAssetMove;
+	using FEditorAssetMove = ContentBrowser::FAssetMove;
 	// Classifies every preflight condition that can keep a deletion plan read-only.
 	enum class EContentDeletionBlocker : uint8
 	{

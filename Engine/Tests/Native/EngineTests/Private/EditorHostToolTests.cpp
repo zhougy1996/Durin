@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Workspace/WorkspaceUI.h"
+#include "Framework/TabLayout.h"
 #include "AssetCompatibilityWindow.h"
 #include "Widgets/EditorNotificationOverlay.h"
 #include "Notifications/Notification.h"
@@ -159,8 +159,8 @@ namespace Durin::Editor::MainFrame
 		const ImVec2 DockSize(1280.0f, 690.0f);
 		const ImVec2 HostItemSpacing(ImGui::GetStyle().ItemSpacing.x, 0.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, HostItemSpacing);
-		WorkspaceUI::SubmitMainFrameDockSpace(
-			WorkspaceUI::MainFrameLayoutVersion, DockSize);
+		TabLayout::SubmitMainFrameDockSpace(
+			TabLayout::MainFrameLayoutVersion, DockSize);
 		ImGui::PopStyleVar();
 
 		ASSERT_TRUE(ImGui::BeginChild("StatusBar", ImVec2(0.0f, 30.0f)));

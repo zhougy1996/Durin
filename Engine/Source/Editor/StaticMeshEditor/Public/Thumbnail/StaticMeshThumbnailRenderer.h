@@ -51,35 +51,35 @@ namespace Durin::Editor::StaticMesh
 
 	// Carries only the mounted identity and frozen visual inputs across the shared pipeline.
 	class FStaticMeshThumbnailRendererGenerationInput final
-		: public ::Durin::Editor::IAssetThumbnailGenerationInput
+		: public IAssetThumbnailGenerationInput
 	{
 	public:
 		FStaticMeshThumbnailRendererGenerationInput(
 			FTopLevelAssetPath InAssetPath,
-			::Durin::Editor::FThumbnailVisualContract InVisualContract)
+			FThumbnailVisualContract InVisualContract)
 			: AssetPath(std::move(InAssetPath))
 			, VisualContract(std::move(InVisualContract))
 		{
 		}
 
 		FTopLevelAssetPath AssetPath;
-		::Durin::Editor::FThumbnailVisualContract VisualContract;
+		FThumbnailVisualContract VisualContract;
 	};
 
 	// Captures the exact StaticMesh fingerprint and sorted transitive dependency closure.
-	class DStaticMeshThumbnailRenderer final : public ::Durin::Editor::DDefaultSizedThumbnailRenderer
+	class DStaticMeshThumbnailRenderer final : public DDefaultSizedThumbnailRenderer
 	{
 	public:
 		STATICMESHEDITOR_API auto GetRegistration() const
-			-> ::Durin::Editor::FThumbnailRenderingInfo override;
+			-> FThumbnailRenderingInfo override;
 		STATICMESHEDITOR_API auto CaptureGenerationRequest(
-			const ::Durin::Editor::FAssetThumbnailRequest& Request,
+			const FAssetThumbnailRequest& Request,
 			uint64 RendererGeneration)
-			-> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string> override;
+			-> std::expected<FAssetThumbnailGenerationRequest, std::string> override;
 		STATICMESHEDITOR_API auto CreateGenerationSession(
-			const ::Durin::Editor::FAssetThumbnailGenerationRequest& Request,
-			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input)
-			-> std::expected<std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>, std::string> override;
+			const FAssetThumbnailGenerationRequest& Request,
+			const IAssetThumbnailGenerationInput& Input)
+			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override;
 	};
 
 	// Fits all finite, valid bounds corners, including zero-thickness bounds, inside the image margin.

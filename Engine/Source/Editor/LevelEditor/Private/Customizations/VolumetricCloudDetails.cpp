@@ -80,8 +80,8 @@ namespace Durin::Editor::Level
 				Builder.EditCategory("Diagnostics").AddCustomRow(
 					"Volumetric Cloud Active Ignored Ineligible Eligibility Status",
 					[Component, Level = EditorContext.Level](
-						::Durin::Editor::FPropertyView&,
-						const ::Durin::Editor::FPropertyViewContext&) {
+						FPropertyView&,
+						const FPropertyViewContext&) {
 						Component->RefreshEligibilityDiagnostic();
 						DVolumetricCloudComponent* Active = FindActive(Level);
 						DrawFact("Cloud status", GetCloudStatus(Component, Active));

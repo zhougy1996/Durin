@@ -1908,7 +1908,7 @@ namespace Durin
 		};
 		struct FSourceTransaction
 		{
-			::Durin::FTransactionId Id = 0;
+			FTransactionId Id = 0;
 			FPersistentObjectRef Primary;
 			std::vector<Editor::FTransactionPackageRevisionTransition> Transitions;
 			std::vector<FSourceRecord> Records;

@@ -8,7 +8,7 @@
 #include "Toolkits/IAssetEditorInstance.h"
 #include "AssetEditorSubsystem.gen.h"
 
-namespace Durin::Editor { class FWorkspaceManager; }
+namespace Durin::Editor { class FEditorDocumentManager; }
 
 namespace Durin
 {
@@ -44,7 +44,7 @@ namespace Durin
 		std::unordered_map<FObjectKey, std::vector<IAssetEditorInstance*>, FObjectKeyHash> OpenedAssets;
 		std::unordered_map<IAssetEditorInstance*, std::vector<FObjectKey>> OpenedEditors;
 		std::unordered_set<FObjectKey, FObjectKeyHash> OpeningAssets;
-		Editor::FWorkspaceManager* WorkspaceManager = nullptr;
-		friend class Editor::FWorkspaceManager;
+		Editor::FEditorDocumentManager* DocumentManager = nullptr;
+		friend class Editor::FEditorDocumentManager;
 	};
 }

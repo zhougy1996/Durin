@@ -108,7 +108,7 @@ namespace Durin::Editor::Texture
 	}
 
 	auto DTextureThumbnailRenderer::GetRegistration() const
-		-> ::Durin::Editor::FThumbnailRenderingInfo
+		-> FThumbnailRenderingInfo
 	{
 		return {
 			.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
@@ -117,10 +117,10 @@ namespace Durin::Editor::Texture
 	}
 
 	auto DTextureThumbnailRenderer::CaptureGenerationRequest(
-		const ::Durin::Editor::FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration) -> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string>
+		const FAssetThumbnailRequest& Request,
+		uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>
 	{
-		::Durin::Editor::FAssetThumbnailGenerationRequest GenerationRequest;
+		FAssetThumbnailGenerationRequest GenerationRequest;
 
 		if (Request.Asset.AssetClassName != GetRegistration().AssetClassName)
 		{

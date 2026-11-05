@@ -23,12 +23,12 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	ASSERT_TRUE(FMaterialGraphDocument(*Second).InsertFunctionCall(*First, 0, 300, Durin::Editor::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(SavePackage(First->GetPackage()));
 	ASSERT_TRUE(SavePackage(Second->GetPackage()));
-	FWorkspaceManager Manager;
+	FEditorDocumentManager Manager;
 	DThumbnailManager Thumbnails;
 	FMaterialEditorModule Module;
 	FModuleTestHarness Harness("MaterialEditor");
 	Harness.Start(Module);
-	ASSERT_TRUE(Module.RegisterWorkspaces(Manager, Thumbnails));
+	ASSERT_TRUE(Module.RegisterToolkits(Manager, Thumbnails));
 	const auto Class = DMaterialFunction::StaticClass()->GetQualifiedName().ToString();
 	const auto Resource = First->GetObjectPath();
 	ASSERT_TRUE(Manager.OpenAsset(Resource, Class));
@@ -37,7 +37,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	const auto FirstTab = *Manager.GetActiveDocument();
 	ASSERT_TRUE(Manager.OpenAsset(Second->GetObjectPath(), Class));
 	ASSERT_EQ(Manager.GetDocuments().size(), 2u);
-	const auto Workspace = Manager.FindWorkspace(FWorkspaceTypeId("MaterialFunctionEditor"));
+	const auto Workspace = Manager.FindToolkit(FAssetEditorToolkitId("MaterialFunctionEditor"));
 	ASSERT_TRUE(Workspace);
 	auto Signature = First->GetFunctionSignature();
 	Signature.Outputs[0].Name = "Saved Surface";
@@ -59,7 +59,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	if (!Discarded)
 	{
 		const auto Error = std::string(static_cast<MMaterialFunctionEditor*>(Workspace.get())->GetLastError());
-		Module.UnregisterWorkspaces(); Harness.Shutdown();
+		Module.UnregisterToolkits(); Harness.Shutdown();
 		FAIL() << Error;
 	}
 	DMaterialFunction* Reloaded = nullptr;
@@ -76,6 +76,6 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_TRUE(Pasted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
 	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));
-	Module.UnregisterWorkspaces();
+	Module.UnregisterToolkits();
 	Harness.Shutdown();
 }

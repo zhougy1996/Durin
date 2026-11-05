@@ -25,20 +25,20 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	// Coordinates content-browser model, operation, thumbnail, and immediate UI state.
 	class FContentBrowserPanel final
-		: public ::Durin::Editor::ContentBrowser::IContentBrowserTool
+		: public IContentBrowserTool
 	{
 	public:
 		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
 		using FQueryReimport = std::function<
-			::Durin::Editor::ContentBrowser::FReimportAvailability(std::string_view)>;
+			FReimportAvailability(std::string_view)>;
 		using FReimport = std::function<void(
 			bool, std::string, std::function<void(std::string)>)>;
 
 		FContentBrowserPanel(
-			::Durin::Editor::ContentBrowser::FPresentationSettings InSettings,
-			::Durin::Editor::ContentBrowser::FSavePresentationSettings InSaveSettings,
+			FPresentationSettings InSettings,
+			FSavePresentationSettings InSaveSettings,
 			FOpenAsset InOpenAsset,
 			std::function<bool()> InCanMutate,
 			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
@@ -68,7 +68,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto NotifyMountedContentChanged() -> bool override;
 		auto StopRequestAdmission() -> void override;
 		auto GetAdmissionState() const
-			-> ::Durin::Editor::ContentBrowser::EAdmissionState override
+			-> EAdmissionState override
 		{
 			return AdmissionState;
 		}
@@ -152,8 +152,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto ResetPreferences() -> bool;
 		auto ApplyPreferences(const FPresentationSettings& Next) -> bool;
 		FEditorSettingsPageRegistration SettingsPage;
-		::Durin::Editor::ContentBrowser::FPresentationSettings PresentationSettings;
-		::Durin::Editor::ContentBrowser::FSavePresentationSettings SavePresentationSettings;
+		FPresentationSettings PresentationSettings;
+		FSavePresentationSettings SavePresentationSettings;
 		FOpenAsset OpenAsset;
 		FGetMountedContentMutationRevision GetMountedContentMutationRevision;
 		std::function<FContentChangeBatch(uint64)> CaptureMountedContentChanges;
@@ -189,8 +189,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::unique_ptr<FContentBrowserThumbnailReferences> ThumbnailReferences;
 		std::vector<FDetailRow> SelectionDetails;
 		uint64 PresentationRevision = 0;
-		::Durin::Editor::ContentBrowser::EAdmissionState AdmissionState =
-			::Durin::Editor::ContentBrowser::EAdmissionState::Accepting;
+		EAdmissionState AdmissionState =
+			EAdmissionState::Accepting;
 		bool bAllowAssetMutation = true;
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

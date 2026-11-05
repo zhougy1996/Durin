@@ -2,7 +2,7 @@
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
@@ -30,19 +30,17 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::StartupModule() -> void
 	{
-		ProviderRegistration = FModularFeatureRegistry::Get().RegisterFeature<Editor::IWorkspaceProvider>(*this);
 	}
 
 	auto FStaticMeshEditorModule::ShutdownModule() -> void
 	{
-		ProviderRegistration.Reset();
-		UnregisterWorkspaces();
+		UnregisterToolkits();
 	}
 
-	auto FStaticMeshEditorModule::RegisterWorkspaces(
-		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::DThumbnailManager& ThumbnailManager,
-		::Durin::Editor::FImportDialogCallbacks ImportCallbacks) -> bool
+	auto FStaticMeshEditorModule::RegisterToolkits(
+		Editor::FEditorDocumentManager& DocumentManager,
+		Editor::DThumbnailManager& ThumbnailManager,
+		Editor::FImportDialogCallbacks ImportCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
@@ -50,46 +48,46 @@ namespace Durin
 		ThumbnailRegistration.reset();
 		Integration->ImportDialog = std::make_unique<Editor::StaticMesh::FStaticMeshImportDialog>(
 			std::move(ImportCallbacks));
-		std::shared_ptr<MStaticMeshInspector> Workspace = std::make_shared<MStaticMeshInspector>(WorkspaceManager);
-		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
-			.Workspaces = {
+		std::shared_ptr<MStaticMeshInspector> Workspace = std::make_shared<MStaticMeshInspector>(DocumentManager);
+		Editor::FAssetEditorToolkitRegistrationHandle Registration = DocumentManager.RegisterBatch({
+			.Toolkits = {
 				{
 					.Descriptor = {
-						.WorkspaceType = Workspace::Type,
+						.ToolkitId = Workspace::Type,
 						.DisplayName = "StaticMesh Inspector",
 						.RootKey = std::string(Workspace::RootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
-						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = Editor::EToolkitHostDockPreference::Center,
 					},
-					.Workspace = Workspace,
+					.Toolkit = Workspace,
 				},
 			},
 			.AssetEditors = {
 				{
 					.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = Workspace::Type,
-					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
+					.ToolkitId = Workspace::Type,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 			},
 		});
 		if (!Registration)
 		{
-			UnregisterWorkspaces();
+			UnregisterToolkits();
 			return false;
 		}
-		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<Editor::FAssetEditorToolkitRegistrationHandle>(std::move(Registration));
 
 		auto ThumbnailHandle = ThumbnailManager.RegisterScoped(
 				std::make_unique<DStaticMeshThumbnailRenderer>());
 		if (!ThumbnailHandle)
 		{
-			UnregisterWorkspaces();
+			UnregisterToolkits();
 			return false;
 		}
 		ThumbnailRegistration =
-			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
+			std::make_unique<Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(*ThumbnailHandle));
 		std::string Error;
 		auto ImportExtension = Editor::ContentBrowser::RegisterExtension({
@@ -97,7 +95,7 @@ namespace Durin
 			.Label = "Static Mesh (Geometry Only)...",
 			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
 			.Order = 400,
-			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
@@ -114,7 +112,7 @@ namespace Durin
 		if (!ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser Static Mesh import: {}", Error);
-			UnregisterWorkspaces();
+			UnregisterToolkits();
 			return false;
 		}
 		Integration->ImportExtension = std::move(ImportExtension);
@@ -129,7 +127,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterWorkspaces();
+				UnregisterToolkits();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -137,7 +135,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FStaticMeshEditorModule::UnregisterWorkspaces() -> void
+	auto FStaticMeshEditorModule::UnregisterToolkits() -> void
 	{
 		Integration->TypePresentations.clear();
 		Integration->ImportExtension.Reset();

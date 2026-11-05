@@ -791,8 +791,8 @@ namespace Durin::Editor::Level
 		FLevelEditorViewportClient* EditorViewportClient,
 		FViewportClient* RenderSettingsClient,
 		FLevelViewportEditModeManager* EditModeManager,
-		::Durin::Editor::EPlayStartLocation& PreferredPlayStartLocation,
-		::Durin::Editor::EPlayDestination& PreferredPlayDestination,
+		EPlayStartLocation& PreferredPlayStartLocation,
+		EPlayDestination& PreferredPlayDestination,
 		const FViewportToolbarLayout& Layout
 	) const -> void
 	{
@@ -1267,8 +1267,8 @@ namespace Durin::Editor::Level
 		const float PlayY = Layout.PlayButtonPosition.y;
 		if (!bPlaying)
 		{
-			const char* StartLabel = PreferredPlayStartLocation == ::Durin::Editor::EPlayStartLocation::EditorCamera ? "Editor Camera" : "Level Start";
-			const char* DestinationLabel = PreferredPlayDestination == ::Durin::Editor::EPlayDestination::NewWindow ? "New Window" : "Viewport";
+			const char* StartLabel = PreferredPlayStartLocation == EPlayStartLocation::EditorCamera ? "Editor Camera" : "Level Start";
+			const char* DestinationLabel = PreferredPlayDestination == EPlayDestination::NewWindow ? "New Window" : "Viewport";
 			const std::string PlayTooltip = std::format("Play from {} in {} (F5)", StartLabel, DestinationLabel);
 			const FSplitButtonResult PlayResult = DrawPlaySplitButton(ImVec2(PlayX, PlayY), Layout.PlayButtonWidth, Layout.DropDownWidth, Layout.Height, "Play", PlayTooltip.c_str());
 			if (PlayResult.bPrimaryPressed && Context.StartPlay)
@@ -1279,12 +1279,12 @@ namespace Durin::Editor::Level
 			if (ImGui::BeginPopup("ViewportPlayOptionsPopup"))
 			{
 				ImGui::TextDisabled("Start Location");
-				if (ImGui::RadioButton("Level Start", PreferredPlayStartLocation == ::Durin::Editor::EPlayStartLocation::LevelStart)) PreferredPlayStartLocation = ::Durin::Editor::EPlayStartLocation::LevelStart;
-				if (ImGui::RadioButton("Editor Camera", PreferredPlayStartLocation == ::Durin::Editor::EPlayStartLocation::EditorCamera)) PreferredPlayStartLocation = ::Durin::Editor::EPlayStartLocation::EditorCamera;
+				if (ImGui::RadioButton("Level Start", PreferredPlayStartLocation == EPlayStartLocation::LevelStart)) PreferredPlayStartLocation = EPlayStartLocation::LevelStart;
+				if (ImGui::RadioButton("Editor Camera", PreferredPlayStartLocation == EPlayStartLocation::EditorCamera)) PreferredPlayStartLocation = EPlayStartLocation::EditorCamera;
 				ImGui::Separator();
 				ImGui::TextDisabled("Destination");
-				if (ImGui::RadioButton("Embedded Viewport", PreferredPlayDestination == ::Durin::Editor::EPlayDestination::EmbeddedViewport)) PreferredPlayDestination = ::Durin::Editor::EPlayDestination::EmbeddedViewport;
-				if (ImGui::RadioButton("New Window", PreferredPlayDestination == ::Durin::Editor::EPlayDestination::NewWindow)) PreferredPlayDestination = ::Durin::Editor::EPlayDestination::NewWindow;
+				if (ImGui::RadioButton("Embedded Viewport", PreferredPlayDestination == EPlayDestination::EmbeddedViewport)) PreferredPlayDestination = EPlayDestination::EmbeddedViewport;
+				if (ImGui::RadioButton("New Window", PreferredPlayDestination == EPlayDestination::NewWindow)) PreferredPlayDestination = EPlayDestination::NewWindow;
 				ImGui::Separator();
 				ImGui::Checkbox("Simulate Physics", &Context.bSimulatePhysics);
 				ImGui::Spacing();

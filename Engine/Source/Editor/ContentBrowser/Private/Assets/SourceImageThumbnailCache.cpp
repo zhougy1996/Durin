@@ -50,7 +50,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Keeps worker queues alive independently from the public cache object.
 		struct FAsyncThumbnailState
 		{
-			::Durin::Tasks::FCancellationToken Cancellation;
+			Tasks::FCancellationToken Cancellation;
 			std::mutex Mutex;
 			std::vector<FUploadResult> UploadedResults;
 			std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = std::make_shared<FSourceImageThumbnailDiskCache>();
@@ -64,7 +64,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Owns one thumbnail's state, texture, revision, and recency metadata.
 		struct FEntry
 		{
-			::Durin::Editor::EAssetThumbnailState State = ::Durin::Editor::EAssetThumbnailState::NotRequested;
+			EAssetThumbnailState State = EAssetThumbnailState::NotRequested;
 			uintmax_t FileSize = 0;
 			std::filesystem::file_time_type LastWriteTime{};
 			uint64 Serial = 1;
@@ -95,7 +95,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			std::string PhysicalPath;
 			uint64 Serial;
-			::Durin::Tasks::TTask<FDecodeResult> Task;
+			Tasks::TTask<FDecodeResult> Task;
 		};
 		std::vector<FDecodeFlight> Tasks;
 		std::unordered_set<std::string> BypassDiskSources;
@@ -113,7 +113,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto ResetEntry(FEntry& Entry, uintmax_t FileSize, const std::filesystem::file_time_type& LastWriteTime) -> void
 		{
 			UnregisterTexture(Entry);
-			Entry.State = ::Durin::Editor::EAssetThumbnailState::NotRequested;
+			Entry.State = EAssetThumbnailState::NotRequested;
 			Entry.FileSize = FileSize;
 			Entry.LastWriteTime = LastWriteTime;
 			++Entry.Serial;
@@ -133,12 +133,12 @@ namespace Durin::Editor::ContentBrowser::Private
 			for (FUploadResult& Result : Results)
 			{
 				auto It = Entries.find(Result.PhysicalPath);
-				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != ::Durin::Editor::EAssetThumbnailState::Uploading)
+				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != EAssetThumbnailState::Uploading)
 					continue;
 				FEntry& Entry = It->second;
 				if (!Result.Texture || !Mona::GetActiveUIBackend())
 				{
-					Entry.State = ::Durin::Editor::EAssetThumbnailState::Failed;
+					Entry.State = EAssetThumbnailState::Failed;
 					Entry.Error = "Unable to create the preview texture.";
 					continue;
 				}
@@ -147,7 +147,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				Entry.Width = Result.Width;
 				Entry.Height = Result.Height;
 				Entry.bHasTransparency = Result.bHasTransparency;
-				Entry.State = ::Durin::Editor::EAssetThumbnailState::Ready;
+				Entry.State = EAssetThumbnailState::Ready;
 				Entry.LastUsedFrame = FrameNumber;
 			}
 		}
@@ -171,11 +171,11 @@ namespace Durin::Editor::ContentBrowser::Private
 				require(ActiveDecodeCount > 0);
 				--ActiveDecodeCount;
 				auto It = Entries.find(Result.PhysicalPath);
-				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != ::Durin::Editor::EAssetThumbnailState::Loading)
+				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != EAssetThumbnailState::Loading)
 					continue;
 				if (!Result.bSucceeded)
 				{
-					It->second.State = ::Durin::Editor::EAssetThumbnailState::Failed;
+					It->second.State = EAssetThumbnailState::Failed;
 					It->second.Error = std::move(Result.Error);
 					continue;
 				}
@@ -191,9 +191,9 @@ namespace Durin::Editor::ContentBrowser::Private
 				FDecodeResult Result = std::move(PendingUploads.front());
 				PendingUploads.erase(PendingUploads.begin());
 				auto It = Entries.find(Result.PhysicalPath);
-				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != ::Durin::Editor::EAssetThumbnailState::Loading)
+				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != EAssetThumbnailState::Loading)
 					continue;
-				It->second.State = ::Durin::Editor::EAssetThumbnailState::Uploading;
+				It->second.State = EAssetThumbnailState::Uploading;
 				const std::weak_ptr<FAsyncThumbnailState> WeakState = AsyncState;
 				const std::string PhysicalPath = std::move(Result.PhysicalPath);
 				const uint64 Serial = Result.Serial;
@@ -209,9 +209,9 @@ namespace Durin::Editor::ContentBrowser::Private
 					{
 						const FUpdateTextureRegion2D Region(0, 0, 0, 0, Width, Height);
 						CommandList.UpdateTexture2D(Texture, 0, 0, Region, Width * 4, *Pixels);
-						CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
-							Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
-							Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+						CommandList.TransitionTextures(std::array{FRHITextureTransition{
+							Texture, {ERHITextureAspect::Color, 0, 1, 0, 1},
+							ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
 					}
 					if (const std::shared_ptr<FAsyncThumbnailState> State = WeakState.lock())
 					{
@@ -230,18 +230,18 @@ namespace Durin::Editor::ContentBrowser::Private
 			{
 				if (ActiveDecodeCount >= MaximumConcurrentDecodes) break;
 				auto It = Entries.find(Request.PhysicalPath);
-				if (It == Entries.end() || It->second.State != ::Durin::Editor::EAssetThumbnailState::Queued) continue;
+				if (It == Entries.end() || It->second.State != EAssetThumbnailState::Queued) continue;
 				FEntry& Entry = It->second;
-				Entry.State = ::Durin::Editor::EAssetThumbnailState::Loading;
+				Entry.State = EAssetThumbnailState::Loading;
 				const uint64 Serial = Entry.Serial;
 				const uintmax_t FileSize = Entry.FileSize;
 				const std::filesystem::file_time_type LastWriteTime = Entry.LastWriteTime;
 				const std::string PhysicalPath = Request.PhysicalPath;
 				const std::shared_ptr<FAsyncThumbnailState> State = AsyncState;
 				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = State->DiskCache;
-				::Durin::Tasks::FTaskExecutionOptions DecodeOptions;
+				Tasks::FTaskExecutionOptions DecodeOptions;
 				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
-				auto Task = ::Durin::Tasks::LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)]() {
+				auto Task = Tasks::LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)]() {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
 					Result.Serial = Serial;
@@ -259,13 +259,13 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			std::erase_if(PendingRequests, [&](const FPendingRequest& Request) {
 				const auto Entry = Entries.find(Request.PhysicalPath);
-				return Entry == Entries.end() || Entry->second.State != ::Durin::Editor::EAssetThumbnailState::Queued;
+				return Entry == Entries.end() || Entry->second.State != EAssetThumbnailState::Queued;
 			});
 		}
 
 		auto EvictToBudget() -> void
 		{
-			std::vector<::Durin::Editor::FThumbnailBudgetEntry> BudgetEntries;
+			std::vector<FThumbnailBudgetEntry> BudgetEntries;
 			BudgetEntries.reserve(Entries.size());
 			for (const auto& [Path, Entry] : Entries)
 			{
@@ -275,7 +275,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					.LastUsed = Entry.LastUsedFrame,
 					.bPinned = Entry.bVisible});
 			}
-			for (const std::string& Key : ::Durin::Editor::SelectThumbnailBudgetEvictions(BudgetEntries, ThumbnailMemoryBudget))
+			for (const std::string& Key : SelectThumbnailBudgetEvictions(BudgetEntries, ThumbnailMemoryBudget))
 				if (auto It = Entries.find(Key); It != Entries.end())
 				{
 					UnregisterTexture(It->second);
@@ -327,12 +327,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		else if (Entry.FileSize != Request.FileSize || Entry.LastWriteTime != Request.LastWriteTime)
 			Impl->ResetEntry(Entry, Request.FileSize, Request.LastWriteTime);
-		const bool bVisible = Request.Priority == ::Durin::Editor::EAssetThumbnailPriority::Visible;
+		const bool bVisible = Request.Priority == EAssetThumbnailPriority::Visible;
 		Entry.bVisible |= bVisible;
 		Entry.LastUsedFrame = Impl->FrameNumber;
 		if (Entry.RequestedFrame == Impl->FrameNumber)
 		{
-			if (Entry.State == ::Durin::Editor::EAssetThumbnailState::Queued && bVisible)
+			if (Entry.State == EAssetThumbnailState::Queued && bVisible)
 			{
 				const auto Pending = std::ranges::find_if(Impl->PendingRequests,
 					[&](const FImpl::FPendingRequest& PendingRequest) { return PendingRequest.PhysicalPath == Key; });
@@ -341,12 +341,12 @@ namespace Durin::Editor::ContentBrowser::Private
 			return;
 		}
 		Entry.RequestedFrame = Impl->FrameNumber;
-		if (Entry.State == ::Durin::Editor::EAssetThumbnailState::NotRequested)
+		if (Entry.State == EAssetThumbnailState::NotRequested)
 		{
-			Entry.State = ::Durin::Editor::EAssetThumbnailState::Queued;
+			Entry.State = EAssetThumbnailState::Queued;
 			Impl->PendingRequests.push_back({Key, bVisible});
 		}
-		else if (Entry.State == ::Durin::Editor::EAssetThumbnailState::Queued && bVisible)
+		else if (Entry.State == EAssetThumbnailState::Queued && bVisible)
 		{
 			auto Pending = std::ranges::find_if(Impl->PendingRequests, [&](const FImpl::FPendingRequest& Request) { return Request.PhysicalPath == Key; });
 			if (Pending != Impl->PendingRequests.end())
@@ -354,14 +354,14 @@ namespace Durin::Editor::ContentBrowser::Private
 			else
 				Impl->PendingRequests.push_back({Key, true});
 		}
-		else if (Entry.State == ::Durin::Editor::EAssetThumbnailState::Queued)
+		else if (Entry.State == EAssetThumbnailState::Queued)
 		{
 			const auto Pending = std::ranges::find_if(Impl->PendingRequests, [&](const FImpl::FPendingRequest& Request) { return Request.PhysicalPath == Key; });
 			if (Pending == Impl->PendingRequests.end()) Impl->PendingRequests.push_back({Key, false});
 		}
 	}
 
-	auto FSourceImageThumbnailCache::Find(std::string_view Identity) const -> ::Durin::Editor::FAssetThumbnailView
+	auto FSourceImageThumbnailCache::Find(std::string_view Identity) const -> FAssetThumbnailView
 	{
 		const auto IdentityIt = Impl->IdentityToSource.find(std::string(Identity));
 		if (IdentityIt == Impl->IdentityToSource.end()) return {};
@@ -390,9 +390,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		Impl->PendingRequests.clear();
 		Impl->PendingUploads.clear();
 		for (auto& [Path, Entry] : Impl->Entries)
-			if (Entry.State == ::Durin::Editor::EAssetThumbnailState::Queued || Entry.State == ::Durin::Editor::EAssetThumbnailState::Loading || Entry.State == ::Durin::Editor::EAssetThumbnailState::Uploading)
+			if (Entry.State == EAssetThumbnailState::Queued || Entry.State == EAssetThumbnailState::Loading || Entry.State == EAssetThumbnailState::Uploading)
 			{
-				Entry.State = ::Durin::Editor::EAssetThumbnailState::NotRequested;
+				Entry.State = EAssetThumbnailState::NotRequested;
 				++Entry.Serial;
 			}
 	}

@@ -11,7 +11,7 @@
 #include "Asset/AssetCook.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -681,7 +681,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 
-	Durin::Editor::FWorkspaceManager Manager;
+	Durin::Editor::FEditorDocumentManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FMaterialEditorModule MaterialModule;
 	Durin::FTextureEditorModule TextureModule;
@@ -692,12 +692,12 @@ TEST(FStaticMeshThumbnailRendererTests,
 	MaterialHarness.Start(MaterialModule);
 	TextureHarness.Start(TextureModule);
 	StaticMeshHarness.Start(StaticMeshModule);
-	ASSERT_TRUE(MaterialModule.RegisterWorkspaces(Manager, ThumbnailManager));
-	ASSERT_TRUE(TextureModule.RegisterWorkspaces(Manager, ThumbnailManager));
-	ASSERT_TRUE(StaticMeshModule.RegisterWorkspaces(Manager, ThumbnailManager));
+	ASSERT_TRUE(MaterialModule.RegisterToolkits(Manager, ThumbnailManager));
+	ASSERT_TRUE(TextureModule.RegisterToolkits(Manager, ThumbnailManager));
+	ASSERT_TRUE(StaticMeshModule.RegisterToolkits(Manager, ThumbnailManager));
 	// Material, Material Function, Material Parameter Collection, Texture,
 	// Volume Texture, and Static Mesh.
-	EXPECT_EQ(Manager.GetWorkspaceDescriptors().size(), 6u);
+	EXPECT_EQ(Manager.GetToolkitDescriptors().size(), 6u);
 
 	const std::string MaterialClass =
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();
@@ -734,33 +734,33 @@ TEST(FStaticMeshThumbnailRendererTests,
 
 	// MainFrame shutdown removes concrete modules in reverse composition order.
 	// Removing one renderer drains its queued lease without disturbing the others.
-	StaticMeshModule.UnregisterWorkspaces();
+	StaticMeshModule.UnregisterToolkits();
 	EXPECT_FALSE(ThumbnailManager.Find(StaticMeshClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_TRUE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_EQ(
-		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("StaticMeshEditor")),
+		Manager.FindToolkit(Durin::Editor::FAssetEditorToolkitId("StaticMeshEditor")),
 		nullptr);
 	Cache.EndFrame();
 
-	TextureModule.UnregisterWorkspaces();
+	TextureModule.UnregisterToolkits();
 	EXPECT_FALSE(ThumbnailManager.Find(Texture2DClass));
 	EXPECT_FALSE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_EQ(
-		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("TextureEditor")),
+		Manager.FindToolkit(Durin::Editor::FAssetEditorToolkitId("TextureEditor")),
 		nullptr);
 	EXPECT_EQ(
-		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("VolumeTextureEditor")),
+		Manager.FindToolkit(Durin::Editor::FAssetEditorToolkitId("VolumeTextureEditor")),
 		nullptr);
 
-	MaterialModule.UnregisterWorkspaces();
+	MaterialModule.UnregisterToolkits();
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialInstanceClass));
 	EXPECT_EQ(
-		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("MaterialEditor")),
+		Manager.FindToolkit(Durin::Editor::FAssetEditorToolkitId("MaterialEditor")),
 		nullptr);
-	EXPECT_TRUE(Manager.GetWorkspaceDescriptors().empty());
+	EXPECT_TRUE(Manager.GetToolkitDescriptors().empty());
 
 	Cache.CancelPendingRequests();
 	Cache.Clear();

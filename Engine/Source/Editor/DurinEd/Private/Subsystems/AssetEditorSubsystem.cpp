@@ -6,7 +6,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Editor/EditorEngine.h"
 #include "Threading/RunnableThread.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 
 namespace Durin
 {
@@ -26,7 +26,7 @@ namespace Durin
 		OpenedAssets.clear();
 		OpenedEditors.clear();
 		OpeningAssets.clear();
-		WorkspaceManager = nullptr;
+		DocumentManager = nullptr;
 	}
 
 	auto DAssetEditorSubsystem::CanOpenEditorForAsset(DObject* Asset, std::string* OutErrorMsg) -> bool
@@ -34,7 +34,7 @@ namespace Durin
 		FObjectPath Path;
 		const bool bAllowed = CanCall() && IsValid(Asset) && !Asset->IsTemplateObject()
 			&& FObjectPath::TryCreate(Asset->GetObjectPath(), Path)
-			&& WorkspaceManager && WorkspaceManager->CanOpenAsset(Asset->GetClass()->GetQualifiedName().ToString());
+			&& DocumentManager && DocumentManager->CanOpenAsset(Asset->GetClass()->GetQualifiedName().ToString());
 		if (OutErrorMsg) *OutErrorMsg = bAllowed ? std::string{} : "The asset or its editor is unavailable.";
 		return bAllowed;
 	}
@@ -56,7 +56,7 @@ namespace Durin
 			TStrongObjectPtr<DObject> KeepAlive(Asset);
 			if (FindEditorForAsset(Asset, true)) { bOpened = CanCall(); return; }
 			if (!CanOpenEditorForAsset(Asset)) return;
-			bOpened = WorkspaceManager->OpenAsset(Asset->GetObjectPath(), Asset->GetClass()->GetQualifiedName().ToString());
+			bOpened = DocumentManager->OpenAsset(Asset->GetObjectPath(), Asset->GetClass()->GetQualifiedName().ToString());
 			bOpened = bOpened && CanCall();
 		});
 		return bOpened;

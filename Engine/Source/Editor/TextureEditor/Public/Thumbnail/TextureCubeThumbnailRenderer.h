@@ -16,7 +16,7 @@ namespace Durin::Editor::Texture
 
 	// Immutable renderer input used by the shared rendered-thumbnail scheduler.
 	class FTextureCubeThumbnailGenerationInput final
-		: public ::Durin::Editor::IAssetThumbnailGenerationInput
+		: public IAssetThumbnailGenerationInput
 	{
 	public:
 		explicit FTextureCubeThumbnailGenerationInput(FTopLevelAssetPath InAssetPath)
@@ -28,18 +28,18 @@ namespace Durin::Editor::Texture
 	};
 
 	// Captures the exact TextureCube package identity and preview visual contract.
-	class DTextureCubeThumbnailRenderer final : public ::Durin::Editor::DDefaultSizedThumbnailRenderer
+	class DTextureCubeThumbnailRenderer final : public DDefaultSizedThumbnailRenderer
 	{
 	public:
 		TEXTUREEDITOR_API auto GetRegistration() const
-			-> ::Durin::Editor::FThumbnailRenderingInfo override;
+			-> FThumbnailRenderingInfo override;
 		TEXTUREEDITOR_API auto CaptureGenerationRequest(
-			const ::Durin::Editor::FAssetThumbnailRequest& Request,
+			const FAssetThumbnailRequest& Request,
 			uint64 RendererGeneration)
-			-> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string> override;
+			-> std::expected<FAssetThumbnailGenerationRequest, std::string> override;
 		TEXTUREEDITOR_API auto CreateGenerationSession(
-			const ::Durin::Editor::FAssetThumbnailGenerationRequest& Request,
-			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input)
-			-> std::expected<std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>, std::string> override;
+			const FAssetThumbnailGenerationRequest& Request,
+			const IAssetThumbnailGenerationInput& Input)
+			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override;
 	};
 } // namespace Durin::Editor::Texture

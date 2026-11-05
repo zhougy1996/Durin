@@ -1456,14 +1456,14 @@ TEST(FMaterialGraphInteractionTests, DocumentDockLayoutsRemainIsolatedAndSurvive
 	IO.DisplaySize = {1600.0f, 1000.0f};
 	IO.DeltaTime = 1.0f / 60.0f;
 	IO.Fonts->Build();
-	const FDocumentTab Wide{.DocumentKey = "/Test/Wide"};
-	const FDocumentTab Narrow{.DocumentKey = "/Test/Narrow"};
+	const FEditorDocument Wide{.DocumentKey = "/Test/Wide"};
+	const FEditorDocument Narrow{.DocumentKey = "/Test/Narrow"};
 	const auto WideType = Workspace::MakeDocumentDockType(Wide);
 	const auto NarrowType = Workspace::MakeDocumentDockType(Narrow);
-	const ImGuiID WideId = WorkspaceUI::MakeDockSpaceId(WideType, Workspace::LayoutVersion);
-	const ImGuiID NarrowId = WorkspaceUI::MakeDockSpaceId(NarrowType, Workspace::LayoutVersion);
+	const ImGuiID WideId = TabLayout::MakeDockSpaceId(WideType, Workspace::LayoutVersion);
+	const ImGuiID NarrowId = TabLayout::MakeDockSpaceId(NarrowType, Workspace::LayoutVersion);
 	EXPECT_NE(WideId, NarrowId);
-	EXPECT_NE(WorkspaceUI::MakeDockClassId(WideType), WorkspaceUI::MakeDockClassId(NarrowType));
+	EXPECT_NE(TabLayout::MakeDockClassId(WideType), TabLayout::MakeDockClassId(NarrowType));
 	ImGuiID GraphId = 0;
 	ImGuiID PreviewId = 0;
 	ImGuiID DetailsId = 0;
@@ -1478,14 +1478,14 @@ TEST(FMaterialGraphInteractionTests, DocumentDockLayoutsRemainIsolatedAndSurvive
 			ImGui::SetNextWindowSize(Size);
 			ImGui::Begin(bWide ? "WideHost" : "NarrowHost");
 			if (Frame == 0) Workspace::BuildDefaultLayout(*Document, Size);
-			WorkspaceUI::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size,
+			TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size,
 				Frame == 2 ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
 			if (Frame != 2)
 			{
 				for (const char* Key : {"Graph", "Preview", "Details", "Parameters", "Diagnostics"})
 				{
 					if (Frame == 0 && std::string_view(Key) == "Diagnostics") continue;
-					WorkspaceUI::BeginDockablePanel(DockType, Key, Key);
+					TabLayout::BeginDockablePanel(DockType, Key, Key);
 					const ImGuiWindow* Window = ImGui::GetCurrentWindow();
 					EXPECT_NE(Window->DockId, 0u);
 					if (!bWide) EXPECT_EQ(Window->DockId, NarrowId);

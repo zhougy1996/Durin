@@ -157,7 +157,7 @@ package.
 MaterialEditor registers the authoritative Engine move observer for its
 workspace lifetime. The owner unregisters the observer and finishes
 active relocation before unloading its code. A relocation moves the loaded-material entry and asks
-`FWorkspaceManager` to remap the existing document resource ID, per-resource
+`FEditorDocumentManager` to remap the existing document resource ID, per-resource
 document key, and label without changing document identity. There is no local
 asset catalog mirror. Deletion is observed through the existing object handle;
 before drawing, an invalid owner closes its document and releases canvas and

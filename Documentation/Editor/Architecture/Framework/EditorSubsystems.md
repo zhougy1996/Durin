@@ -77,7 +77,7 @@ registered owning host and open work gate. Open/focus/close callbacks use the
 host operation scope; shutdown closes admission immediately and defers resource
 retirement until callbacks unwind. Close notifications remain legal during cleanup.
 
-MainFrame supplies its host-owned `FWorkspaceManager` to the service's workspace
+MainFrame supplies its host-owned `FEditorDocumentManager` to the service's workspace
 adapter. The service does not own tabs or the main window. Each committed asset
 document has one `IAssetEditorInstance` adapter. Successful open, deferred
 completion, singleton resource replacement, close, route removal, package reload

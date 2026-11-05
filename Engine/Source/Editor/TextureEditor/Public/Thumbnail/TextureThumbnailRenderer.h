@@ -9,18 +9,18 @@
 namespace Durin::Editor::Texture
 {
 	// Captures built GPU texture output through the shared thumbnail scheduler.
-	class DTextureThumbnailRenderer final : public ::Durin::Editor::DDefaultSizedThumbnailRenderer
+	class DTextureThumbnailRenderer final : public DDefaultSizedThumbnailRenderer
 	{
 	public:
 		TEXTUREEDITOR_API auto GetRegistration() const
-			-> ::Durin::Editor::FThumbnailRenderingInfo override;
+			-> FThumbnailRenderingInfo override;
 		TEXTUREEDITOR_API auto CaptureGenerationRequest(
-			const ::Durin::Editor::FAssetThumbnailRequest& Request,
+			const FAssetThumbnailRequest& Request,
 			uint64 RendererGeneration)
-			-> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string> override;
+			-> std::expected<FAssetThumbnailGenerationRequest, std::string> override;
 		TEXTUREEDITOR_API auto CreateGenerationSession(
-			const ::Durin::Editor::FAssetThumbnailGenerationRequest& Request,
-			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input)
-			-> std::expected<std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>, std::string> override;
+			const FAssetThumbnailGenerationRequest& Request,
+			const IAssetThumbnailGenerationInput& Input)
+			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override;
 	};
 } // namespace Durin::Editor::Texture

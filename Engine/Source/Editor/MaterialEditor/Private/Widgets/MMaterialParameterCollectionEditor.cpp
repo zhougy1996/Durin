@@ -7,18 +7,18 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "ThirdParty/ImGui/imgui.h"
 #include "Workspace/MaterialEditorWorkspace.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 
 namespace Durin::Editor::Material
 {
-	auto MMaterialParameterCollectionEditor::GetWorkspaceType() const
-		-> const FWorkspaceTypeId&
+	auto MMaterialParameterCollectionEditor::GetToolkitId() const
+		-> const FAssetEditorToolkitId&
 	{
 		return Workspace::CollectionType;
 	}
 
 	auto MMaterialParameterCollectionEditor::OpenDocument(
-		const FDocumentTab& Document) -> EDocumentOpenResult
+		const FEditorDocument& Document) -> EDocumentOpenResult
 	{
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (Find(Document.ResourceId)) return EDocumentOpenResult::Opened;
@@ -40,7 +40,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialParameterCollectionEditor::ActivateDocument(
-		const FDocumentTab& Document) -> void
+		const FEditorDocument& Document) -> void
 	{
 		auto* Collection = Find(Document.ResourceId);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Collection))
@@ -54,7 +54,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialParameterCollectionEditor::RequestCloseDocument(
-		const FDocumentTab& Document) -> EDocumentCloseResult
+		const FEditorDocument& Document) -> EDocumentCloseResult
 	{
 		if (PropertyView.IsEditingObject(Find(Document.ResourceId))
 			&& !FinishEdit(true)) return EDocumentCloseResult::Rejected;
@@ -66,7 +66,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialParameterCollectionEditor::SaveDocument(
-		const FDocumentTab& Document) -> bool
+		const FEditorDocument& Document) -> bool
 	{
 		if (!FinishEdit(false)) return false;
 		return Documents.Save(Find(Document.ResourceId), {},
@@ -74,7 +74,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialParameterCollectionEditor::DiscardDocument(
-		const FDocumentTab& Document) -> bool
+		const FEditorDocument& Document) -> bool
 	{
 		auto* Collection = Find(Document.ResourceId);
 		if (!Collection || !FinishEdit(true)) return false;
@@ -95,7 +95,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialParameterCollectionEditor::IsDocumentDirty(
-		const FDocumentTab& Document) const -> bool
+		const FEditorDocument& Document) const -> bool
 	{
 		return Documents.IsDirty(Find(Document.ResourceId));
 	}
@@ -114,14 +114,14 @@ namespace Durin::Editor::Material
 			[this](std::string Message) { Report(std::move(Message)); });
 	}
 
-	auto MMaterialParameterCollectionEditor::DrawWorkspace(bool bActive) -> bool
+	auto MMaterialParameterCollectionEditor::DrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishEdit(true);
-		return Documents.GetDocumentHost().DrawDocuments(
+		return Documents.GetTabManager().DrawDocuments(
 			Manager, Workspace::CollectionType, Workspace::CollectionRootKey,
-			[this](const FDocumentTab& Document) {
+			[this](const FEditorDocument& Document) {
 				return Find(Document.ResourceId) != nullptr;
-			}, [this](const FDocumentTab& Document) {
+			}, [this](const FEditorDocument& Document) {
 				auto* Collection = Find(Document.ResourceId);
 				if (!Collection) return;
 				ImGui::TextDisabled("Up to %u numeric declarations; names are case-insensitively unique.",

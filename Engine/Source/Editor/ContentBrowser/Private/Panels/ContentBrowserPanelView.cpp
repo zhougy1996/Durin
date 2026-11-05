@@ -13,7 +13,7 @@
 #include "AssetRegistry/References.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Asset/AssetDragDrop.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Framework/TabLayout.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"
 #include "MonaImGui.h"
@@ -52,12 +52,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 		auto MakeThumbnailFingerprint(const FContentBrowserItem& Item)
-			-> std::optional<::Durin::Editor::FAssetThumbnailPackageFingerprint>
+			-> std::optional<FAssetThumbnailPackageFingerprint>
 		{
 			if (!Item.ThumbnailSourcePath.empty()) return std::nullopt;
 			FTopLevelAssetPath Path;
 			if (!FTopLevelAssetPath::TryCreate(Item.VirtualPath, Path)) return std::nullopt;
-			return ::Durin::Editor::FAssetThumbnailPackageFingerprint{
+			return FAssetThumbnailPackageFingerprint{
 				.AssetPath = std::move(Path),
 				.PackagePath = Item.PackagePath,
 				.AssetClassName = Item.AssetClassName,
@@ -100,14 +100,14 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::TickWhenHidden() -> void
 	{
-		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
+		if (AdmissionState != EAdmissionState::Accepting)
 			return;
 		PrepareForDraw();
 	}
 
 	auto FContentBrowserPanel::DrawContents(bool bInAllowAssetMutation) -> void
 	{
-		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
+		if (AdmissionState != EAdmissionState::Accepting)
 			return;
 		bAllowAssetMutation = bInAllowAssetMutation;
 		PrepareForDraw();
@@ -118,11 +118,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		bool bInAllowAssetMutation) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.HostPresenters");
-		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
+		if (AdmissionState != EAdmissionState::Accepting)
 			return;
-		const auto Presenters = ::Durin::Editor::ContentBrowser::CaptureHostPresenters();
+		const auto Presenters = CaptureHostPresenters();
 		for (const auto& Extension : *Presenters)
-			(void)::Durin::Editor::ContentBrowser::DrawHostPresentation(
+			(void)DrawHostPresentation(
 				Extension, bInAllowAssetMutation);
 	}
 
@@ -203,7 +203,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		ExecuteContentAction();
 		DrawDialogs();
 
-		::Durin::Editor::ContentBrowser::FPresentationSettings NextSettings =
+		FPresentationSettings NextSettings =
 			PresentationSettings;
 		NextSettings.ViewMode = static_cast<uint8>(ViewMode);
 		NextSettings.IconSize = IconSize;
@@ -434,8 +434,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (ViewMode == EContentBrowserViewMode::Grid && !bIconSizeLocked && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && IO.KeyCtrl && IO.MouseWheel != 0.0f)
 			IconSize = std::clamp(IconSize + IO.MouseWheel * MonaImGui::ScaleUI(8.0f),
-				::Durin::Editor::ContentBrowser::FPresentationSettings::MinimumIconSize,
-				::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize);
+				FPresentationSettings::MinimumIconSize,
+				FPresentationSettings::MaximumIconSize);
 		const bool bReserveDetails = bShowSelectionDetails && !SelectionState.Selected.empty();
 		if (bReserveDetails) ImGui::BeginChild("ContentBrowserMainView", ImVec2(0.0f, -132.0f));
 		if (bResetContentScroll) ImGui::SetScrollY(0.0f);
@@ -628,8 +628,8 @@ namespace Durin::Editor::ContentBrowser::Private
 							.SourceLastWriteTime = Item.ThumbnailLastWriteTime,
 							.Asset = MakeThumbnailFingerprint(Item),
 							.Priority = Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd
-								? ::Durin::Editor::EAssetThumbnailPriority::Visible
-								: ::Durin::Editor::EAssetThumbnailPriority::Prefetch});
+								? EAssetThumbnailPriority::Visible
+								: EAssetThumbnailPriority::Prefetch});
 				}
 
 			for (int32 Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
@@ -694,7 +694,7 @@ namespace Durin::Editor::ContentBrowser::Private
 								MonaImGui::ScaleUI(1.0f));
 					}
 
-					const ::Durin::Editor::FAssetThumbnailView Thumbnail = ThumbnailReferences->Find(Item.ThumbnailIdentity);
+					const FAssetThumbnailView Thumbnail = ThumbnailReferences->Find(Item.ThumbnailIdentity);
 					const ContentBrowserItemView::EThumbnailPresentation ThumbnailPresentation =
 						ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail);
 					const bool bDrewThumbnail = ContentBrowserItemView::DrawThumbnail(
@@ -748,7 +748,7 @@ namespace Durin::Editor::ContentBrowser::Private
 							ImGui::SameLine();
 							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileTime(Item.LastWriteTime).c_str());
 						}
-						if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
+						if (Thumbnail.State == EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
 						{
 							ImGui::TextDisabled("Preview");
 							ImGui::SameLine();
@@ -904,7 +904,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			const auto Availability = QueryReimport
 				? QueryReimport(Item.AssetClassName)
-				: ::Durin::Editor::ContentBrowser::FReimportAvailability{};
+				: FReimportAvailability{};
 			if (Availability.bCanReimport || Availability.bCanReimportFromFile)
 			{
 				if (Availability.bCanReimport)
@@ -1159,10 +1159,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			ImGui::EndDragDropSource();
 			return;
 		}
-		::Durin::Editor::FAssetDragDropPayload Payload;
+		FAssetDragDropPayload Payload;
 		std::memcpy(Payload.AssetPath.data(), Item.VirtualPath.data(), std::min(Item.VirtualPath.size(), Payload.AssetPath.size() - 1));
 		std::memcpy(Payload.AssetClassName.data(), Item.AssetClassName.data(), std::min(Item.AssetClassName.size(), Payload.AssetClassName.size() - 1));
-		ImGui::SetDragDropPayload(::Durin::Editor::AssetDragDropPayloadType, &Payload, sizeof(Payload));
+		ImGui::SetDragDropPayload(AssetDragDropPayloadType, &Payload, sizeof(Payload));
 		ImGui::Text("%s %s", ContentBrowserItemView::Icon(Item).c_str(), Item.Name.c_str());
 		ImGui::EndDragDropSource();
 	}
@@ -1194,9 +1194,9 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (!Result.Warning.empty()) SetWarning(Result.Warning);
 			});
 		}
-		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
+		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
 		{
-			const auto* AssetPayload = static_cast<const ::Durin::Editor::FAssetDragDropPayload*>(Payload->Data);
+			const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
 			FObjectPath OldObjectPath;
 			if (FObjectPath::TryCreate(AssetPayload->AssetPath.data(), OldObjectPath))
 			{

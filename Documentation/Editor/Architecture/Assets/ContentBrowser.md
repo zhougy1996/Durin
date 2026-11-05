@@ -229,7 +229,7 @@ Presentation never turns a resave recommendation into an unsaved-change
 decoration or close prompt. Registry and item snapshots refresh only after
 verified publication.
 
-Double-click routing is resolved by the live `Editor::FWorkspaceManager` exact-class
+Double-click routing is resolved by the live `Editor::FEditorDocumentManager` exact-class
 route table. `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own their
 respective asset routes; StaticMesh opens a closable per-resource document in
 the user-visible **StaticMesh Inspector** workspace. The Content Browser does

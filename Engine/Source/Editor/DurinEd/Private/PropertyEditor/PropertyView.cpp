@@ -402,8 +402,8 @@ namespace Durin::Editor
 			*Reference, Property->GetExpectedClass(), ESoftObjectNullPolicy::Reject);
 		if (!Resolve)
 		{
-			ViewState.State = (Resolve ? Durin::EAssetReadError::None : Resolve.error().Code) == EAssetReadError::TypeMismatch
-				|| (Resolve ? Durin::EAssetReadError::None : Resolve.error().Code) == EAssetReadError::UnknownClass
+			ViewState.State = (Resolve ? EAssetReadError::None : Resolve.error().Code) == EAssetReadError::TypeMismatch
+				|| (Resolve ? EAssetReadError::None : Resolve.error().Code) == EAssetReadError::UnknownClass
 				? ESoftObjectViewState::TypeMismatch
 				: ESoftObjectViewState::Missing;
 			ViewState.Error = ESoftObjectViewError::Asset;

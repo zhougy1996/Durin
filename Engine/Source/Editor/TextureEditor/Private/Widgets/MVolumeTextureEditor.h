@@ -4,8 +4,8 @@
 
 #include "DObject/ObjectPtr.h"
 #include "Texture/Texture.h"
-#include "Workspace/Workspace.h"
-#include "Workspace/WorkspaceRootWindow.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Documents/AssetEditorDocumentModels.h"
 #include "TexturePreview.h"
 #include "VolumeTexturePreview.h"
 
@@ -13,19 +13,19 @@ namespace Durin { class DVolumeTexture; struct FVolumeTexturePlatformData; }
 
 namespace Durin::Editor::Texture
 {
-	class MVolumeTextureEditor final : public ::Durin::Editor::IWorkspace
+	class MVolumeTextureEditor final : public IAssetEditorToolkit
 	{
 	public:
-		explicit MVolumeTextureEditor(::Durin::Editor::FWorkspaceManager& InManager);
-		auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
-		auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
-		auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
+		explicit MVolumeTextureEditor(FEditorDocumentManager& InManager);
+		auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
+		auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
+		auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		auto RequestDeactivate() -> bool override { return true; }
-		auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
-		auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
-		auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
+		auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
+		auto SaveDocument(const FEditorDocument& Document) -> bool override;
+		auto DiscardDocument(const FEditorDocument& Document) -> bool override;
 		auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
-		auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override;
+		auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override;
 		auto CanSaveActiveDocument() const -> bool override;
 		auto SaveActiveDocument() -> bool override;
 		auto CanUndo() const -> bool override { return Documents.CanUndo(); }
@@ -34,7 +34,7 @@ namespace Durin::Editor::Texture
 		auto GetRedoDescription() const -> std::string override { return Documents.GetRedoDescription(); }
 		auto Undo() -> bool override { return Documents.Undo(); }
 		auto Redo() -> bool override { return Documents.Redo(); }
-		auto DrawWorkspace(bool bActive) -> bool override;
+		auto DrawToolkit(bool bActive) -> bool override;
 		auto ResetLayout() -> void override;
 
 	private:
@@ -54,16 +54,16 @@ namespace Durin::Editor::Texture
 		auto Find(std::string_view ResourceId) const -> DVolumeTexture*;
 		auto Active() const -> DVolumeTexture*;
 		auto Save(DVolumeTexture* Texture) -> bool;
-		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document,
+		auto DrawDocument(const FEditorDocument& Document,
 			DVolumeTexture* Texture) -> void;
 		auto DrawPreview(const std::string& ResourceId, DVolumeTexture* Texture) -> void;
 		auto DrawDetails(DVolumeTexture* Texture) -> void;
 		auto SetError(std::string Message) -> void { ErrorMessage = std::move(Message); }
 
-		::Durin::Editor::FWorkspaceManager& Manager;
+		FEditorDocumentManager& Manager;
 		std::unordered_map<std::string, TObjectPtr<DVolumeTexture>> OpenTextures;
 		std::unordered_map<std::string, FPreviewState> PreviewStates;
-		::Durin::Editor::FEditableAssetDocumentModel Documents;
+		FEditableAssetDocumentModel Documents;
 		std::string ErrorMessage;
 	};
 }

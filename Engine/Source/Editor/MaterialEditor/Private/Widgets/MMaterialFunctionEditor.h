@@ -2,28 +2,28 @@
 
 #include "CoreMinimal.h"
 
-#include "Workspace/Workspace.h"
-#include "Workspace/WorkspaceRootWindow.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Documents/AssetEditorDocumentModels.h"
 #include "Asset/MutationExtensions.h"
 #include "MaterialEditorAPI.h"
 
 namespace Durin::Editor::Material
 {
-	inline const FWorkspaceTypeId MaterialFunctionWorkspaceType("MaterialFunctionEditor");
+	inline const FAssetEditorToolkitId MaterialFunctionWorkspaceType("MaterialFunctionEditor");
 	class FMaterialEditorSessionSettings;
-	class MMaterialFunctionEditor final : public IWorkspace, public IAssetMoveObserver
+	class MMaterialFunctionEditor final : public IAssetEditorToolkit, public IAssetMoveObserver
 	{
 	public:
-		explicit MMaterialFunctionEditor(FWorkspaceManager& Manager);
+		explicit MMaterialFunctionEditor(FEditorDocumentManager& Manager);
 		~MMaterialFunctionEditor() override;
-		auto GetWorkspaceType() const -> const FWorkspaceTypeId& override { return MaterialFunctionWorkspaceType; }
-		auto OpenDocument(const FDocumentTab& Document) -> EDocumentOpenResult override;
-		auto ActivateDocument(const FDocumentTab& Document) -> void override;
+		auto GetToolkitId() const -> const FAssetEditorToolkitId& override { return MaterialFunctionWorkspaceType; }
+		auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
+		auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		auto RequestDeactivate() -> bool override;
-		auto RequestCloseDocument(const FDocumentTab& Document) -> EDocumentCloseResult override;
-		auto SaveDocument(const FDocumentTab& Document) -> bool override;
-		auto DiscardDocument(const FDocumentTab& Document) -> bool override;
-		auto IsDocumentDirty(const FDocumentTab& Document) const -> bool override;
+		auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
+		auto SaveDocument(const FEditorDocument& Document) -> bool override;
+		auto DiscardDocument(const FEditorDocument& Document) -> bool override;
+		auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override;
 		auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
 		auto CanSaveActiveDocument() const -> bool override;
 		auto SaveActiveDocument() -> bool override;
@@ -33,19 +33,19 @@ namespace Durin::Editor::Material
 		auto GetRedoDescription() const -> std::string override { return Documents.GetRedoDescription(); }
 		auto Undo() -> bool override { RequestDeactivate(); return Documents.Undo(); }
 		auto Redo() -> bool override { RequestDeactivate(); return Documents.Redo(); }
-		auto DrawWorkspace(bool bActive) -> bool override;
+		auto DrawToolkit(bool bActive) -> bool override;
 		auto ResetLayout() -> void override;
 		auto NavigateToNode(std::string_view Resource, const FGuid& NodeId) -> bool;
 		auto GetLastError() const -> std::string_view { return Error; }
 	private:
 		struct FDocument;
 		auto Find(std::string_view Resource) const -> FDocument*;
-		auto DrawDocument(const FDocumentTab& Tab, FDocument& Document) -> void;
+		auto DrawDocument(const FEditorDocument& Tab, FDocument& Document) -> void;
 		auto DrawInterface(FDocument& Document) -> void;
 		auto DrawInputs(FDocument& Document) -> void;
 		auto OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void override;
 		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
-		FWorkspaceManager& Manager;
+		FEditorDocumentManager& Manager;
 		FEditableAssetDocumentModel Documents;
 		std::unordered_map<std::string, std::unique_ptr<FDocument>> Open;
 		FAssetMoveObserverHandle MoveObserver = 0;

@@ -14,7 +14,7 @@ Compile/Apply/Save behavior are defined in
 ## Editor panels
 
 Each material document owns an isolated ImGui dock space, keyed by its stable
-`DocumentKey`, using the shared WorkspaceUI panel and docking helpers. Preview,
+`DocumentKey`, using the shared TabLayout panel and docking helpers. Preview,
 Material Graph, Details, Parameters and Diagnostics are dockable windows. Wide initial
 layouts reserve the left 30% for Preview above Details; the graph fills the
 remaining width and height. Parameters shares the Details dock as a visible tab,

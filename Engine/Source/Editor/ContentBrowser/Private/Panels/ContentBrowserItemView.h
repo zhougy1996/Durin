@@ -44,7 +44,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		auto NameMax(const ImVec2& TileStart, const ImVec2& TileSize) const -> ImVec2;
 	};
 
-	auto ResolveThumbnailPresentation(const ::Durin::Editor::FAssetThumbnailView& Thumbnail)
+	auto ResolveThumbnailPresentation(const FAssetThumbnailView& Thumbnail)
 		-> EThumbnailPresentation;
 	auto TypeLabel(const FContentBrowserItem& Item) -> std::string;
 	auto Icon(const FContentBrowserItem& Item) -> std::string;
@@ -57,7 +57,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		const ImVec2& PreviewMax, const char* BadgeIcon) -> void;
 	auto DrawThumbnail(
 		const FContentBrowserItem& Item,
-		const ::Durin::Editor::FAssetThumbnailView& Thumbnail,
+		const FAssetThumbnailView& Thumbnail,
 		const FGridMetrics& Metrics,
 		const ImVec2& PreviewMin,
 		const ImVec2& PreviewMax,

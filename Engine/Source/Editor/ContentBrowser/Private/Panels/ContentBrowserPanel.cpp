@@ -56,8 +56,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	FContentBrowserPanel::FContentBrowserPanel(
-		::Durin::Editor::ContentBrowser::FPresentationSettings InSettings,
-		::Durin::Editor::ContentBrowser::FSavePresentationSettings InSaveSettings,
+		FPresentationSettings InSettings,
+		FSavePresentationSettings InSaveSettings,
 		FOpenAsset InOpenAsset,
 		std::function<bool()> InCanMutate,
 		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
@@ -119,7 +119,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::NotifyMountedContentChanged() -> bool
 	{
-		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
+		if (AdmissionState != EAdmissionState::Accepting)
 			return false;
 		PublishMountedContentMutation();
 		return true;
@@ -128,13 +128,13 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::RevealDirectory(
 		std::string_view DirectoryPath) -> bool
 	{
-		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
+		if (AdmissionState != EAdmissionState::Accepting)
 			return false;
 		const auto Resolved =
 			FMountPaths::ResolveAssetPath(DirectoryPath);
 		if (!Resolved)
 		{
-			SetError((Resolved ? std::string{} : Durin::ToString(Resolved.error())));
+			SetError((Resolved ? std::string{} : ToString(Resolved.error())));
 			return false;
 		}
 		if (!NavigateToPhysical(Resolved->PhysicalPath.generic_string()))
@@ -648,7 +648,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (GetMountedContentMutationRevision)
 			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
-		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
+		if (AdmissionState != EAdmissionState::Accepting)
 			return false;
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		PendingItemAction.reset();
@@ -668,7 +668,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RequestFocus() -> bool
 	{
-		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
+		if (AdmissionState != EAdmissionState::Accepting)
 			return false;
 		bFocusSearch = true;
 		return true;
@@ -676,14 +676,14 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::StopRequestAdmission() -> void
 	{
-		if (AdmissionState == ::Durin::Editor::ContentBrowser::EAdmissionState::Stopped)
+		if (AdmissionState == EAdmissionState::Stopped)
 			return;
-		AdmissionState = ::Durin::Editor::ContentBrowser::EAdmissionState::Stopping;
+		AdmissionState = EAdmissionState::Stopping;
 		Operations.StopRequestAdmission();
 		Model.CancelPendingSnapshots();
 		PendingItemAction.reset();
 		if (ThumbnailReferences) ThumbnailReferences->CancelPendingRequests();
-		AdmissionState = ::Durin::Editor::ContentBrowser::EAdmissionState::Stopped;
+		AdmissionState = EAdmissionState::Stopped;
 	}
 
 	auto FContentBrowserPanel::ShowInExplorer(

@@ -48,16 +48,16 @@ namespace Durin::Editor::Level
 		LEVELEDITOR_API static auto IsSupportedMaterialClass(const DClass* CandidateClass) -> bool;
 		LEVELEDITOR_API static auto GetSourceLabel(EStaticMeshMaterialSource Source) -> std::string_view;
 
-		LEVELEDITOR_API auto AssignMaterial(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& Context,
+		LEVELEDITOR_API auto AssignMaterial(FPropertyView& PropertyView, const FPropertyViewContext& Context,
 			const FStaticMeshMaterialSlotDetailsEntry& Entry, DMaterialInterface* Material,
 			bool bContinuous = false) const -> bool;
-		LEVELEDITOR_API auto ResetOverride(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& Context,
+		LEVELEDITOR_API auto ResetOverride(FPropertyView& PropertyView, const FPropertyViewContext& Context,
 			const FStaticMeshMaterialSlotDetailsEntry& Entry) const -> bool;
-		LEVELEDITOR_API auto ClearOverrides(::Durin::Editor::FPropertyView& PropertyView,
-			const ::Durin::Editor::FPropertyViewContext& Context) const -> bool;
+		LEVELEDITOR_API auto ClearOverrides(FPropertyView& PropertyView,
+			const FPropertyViewContext& Context) const -> bool;
 
 	private:
-		LEVELEDITOR_API auto SubmitOverrideEdit(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& Context,
+		LEVELEDITOR_API auto SubmitOverrideEdit(FPropertyView& PropertyView, const FPropertyViewContext& Context,
 			uint32 SlotIndex, DMaterialInterface* Material, EPropertyChangeKind Kind, bool bContinuous = false) const -> bool;
 
 		// Non-owning component whose current slot state is snapshotted by this model.

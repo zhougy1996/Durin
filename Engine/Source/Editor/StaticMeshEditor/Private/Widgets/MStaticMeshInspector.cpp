@@ -3,8 +3,8 @@
 #include "Asset/Asset.h"
 #include "Diagnostics/StaticMeshPayloadInspection.h"
 #include "DObject/Object.h"
-#include "Workspace/WorkspaceManager.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Documents/EditorDocumentManager.h"
+#include "Framework/TabLayout.h"
 #include "Materials/MaterialInterface.h"
 #include "MonaImGui.h"
 #include "Physics/BodySetup.h"
@@ -75,30 +75,30 @@ namespace Durin::Editor::StaticMesh
 
 	}
 
-	MStaticMeshInspector::MStaticMeshInspector(::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
-		: WorkspaceManager(InWorkspaceManager)
+	MStaticMeshInspector::MStaticMeshInspector(FEditorDocumentManager& InWorkspaceManager)
+		: DocumentManager(InWorkspaceManager)
 	{
 	}
 
 	MStaticMeshInspector::~MStaticMeshInspector() = default;
 
-	auto MStaticMeshInspector::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
+	auto MStaticMeshInspector::GetToolkitId() const -> const FAssetEditorToolkitId&
 	{
 		return Workspace::Type;
 	}
 
-	auto MStaticMeshInspector::OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult
+	auto MStaticMeshInspector::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		if (FindState(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
+		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
+		if (FindState(Document.ResourceId)) return EDocumentOpenResult::Opened;
 
 		FObjectPath AssetPath;
 		std::string PathError;
 		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
 		{
-			PathError = Durin::ToString(PathValidation.error());
+			PathError = ToString(PathValidation.error());
 			ErrorMessage = std::move(PathError);
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
 		DStaticMesh* Mesh = nullptr;
 		const auto Result = LoadObject<DStaticMesh>(AssetPath);
@@ -106,41 +106,41 @@ namespace Durin::Editor::StaticMesh
 		if (!Result || !Mesh)
 		{
 			ErrorMessage = Result ? "The selected asset is not a StaticMesh." : (Result ? std::string{} : Result.error().Message);
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
 		FDocumentState State;
 		State.Mesh = Mesh;
 		State.PreviewId = Document.Id.Value;
 		Documents.emplace(Document.ResourceId, std::move(State));
-		return ::Durin::Editor::EDocumentOpenResult::Opened;
+		return EDocumentOpenResult::Opened;
 	}
 
-	auto MStaticMeshInspector::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
+	auto MStaticMeshInspector::ActivateDocument(const FEditorDocument& Document) -> void
 	{
 		FDocumentState* State = FindState(Document.ResourceId);
 		DocumentModel.Activate(Document, State ? State->Mesh.Get() : nullptr);
 	}
 
-	auto MStaticMeshInspector::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
+	auto MStaticMeshInspector::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
 	{
 		if (FDocumentState* State = FindState(Document.ResourceId); State && State->Preview)
 			State->Preview->SetVisible(false);
 		Documents.erase(Document.ResourceId);
 		DocumentModel.Close(Document.ResourceId);
-		return ::Durin::Editor::EDocumentCloseResult::Closed;
+		return EDocumentCloseResult::Closed;
 	}
 
-	auto MStaticMeshInspector::DrawWorkspace(bool bActive) -> bool
+	auto MStaticMeshInspector::DrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive)
 			for (auto& [ResourceId, State] : Documents)
 				if (State.Preview) State.Preview->SetVisible(false);
-		return DocumentModel.GetDocumentHost().DrawDocuments(
-			WorkspaceManager,
+		return DocumentModel.GetTabManager().DrawDocuments(
+			DocumentManager,
 			Workspace::Type,
 			Workspace::RootKey,
-			[this](const ::Durin::Editor::FDocumentTab& Document) { return FindState(Document.ResourceId) != nullptr; },
-			[this](const ::Durin::Editor::FDocumentTab& Document) {
+			[this](const FEditorDocument& Document) { return FindState(Document.ResourceId) != nullptr; },
+			[this](const FEditorDocument& Document) {
 				if (FDocumentState* State = FindState(Document.ResourceId)) DrawDocument(Document, *State);
 			});
 	}
@@ -167,7 +167,7 @@ namespace Durin::Editor::StaticMesh
 		return It == Documents.end() ? nullptr : &It->second;
 	}
 
-	auto MStaticMeshInspector::DrawDocument(const ::Durin::Editor::FDocumentTab& Document, FDocumentState& State) -> void
+	auto MStaticMeshInspector::DrawDocument(const FEditorDocument& Document, FDocumentState& State) -> void
 	{
 		DStaticMesh* Mesh = State.Mesh.Get();
 		if (!Mesh)
@@ -227,7 +227,7 @@ namespace Durin::Editor::StaticMesh
 		if (State.Preview) State.Preview->Draw(Mesh, Status.Revision, Height);
 	}
 
-	auto MStaticMeshInspector::DrawDetails(const ::Durin::Editor::FDocumentTab& Document, FDocumentState& State, float Height) -> void
+	auto MStaticMeshInspector::DrawDetails(const FEditorDocument& Document, FDocumentState& State, float Height) -> void
 	{
 		if (!ImGui::BeginChild("StaticMeshDetails", ImVec2(0.0f, Height), ImGuiChildFlags_Borders))
 		{

@@ -370,9 +370,9 @@ namespace Durin::Editor::Texture
 			{
 				const FUpdateTextureRegion2D Region(0, 0, 0, 0, Width, Height);
 				CommandList.UpdateTexture2D(NewTexture, 0, 0, Region, RowPitch, *PixelSnapshot);
-				CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
-					NewTexture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
-					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+				CommandList.TransitionTextures(std::array{FRHITextureTransition{
+					NewTexture, {ERHITextureAspect::Color, 0, 1, 0, 1},
+					ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
 			}
 		});
 		FlushRenderingCommands();

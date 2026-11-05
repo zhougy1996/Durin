@@ -2,10 +2,10 @@
 
 #include "CoreMinimal.h"
 
-#include "Workspace/WorkspaceTypes.h"
+#include "Documents/EditorDocumentTypes.h"
 
 namespace Durin::Editor::Texture::Workspace
 {
-	inline const ::Durin::Editor::FWorkspaceTypeId Type("TextureEditor");
+	inline const FAssetEditorToolkitId Type("TextureEditor");
 	inline constexpr std::string_view RootKey = "TextureEditor";
 }

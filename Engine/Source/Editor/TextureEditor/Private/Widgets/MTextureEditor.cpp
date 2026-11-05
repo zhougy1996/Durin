@@ -9,8 +9,8 @@
 #include "Dialogs/FileDialog.h"
 #include "Diagnostics/TexturePayloadInspection.h"
 #include "Editor/EditorEngine.h"
-#include "Workspace/WorkspaceManager.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Documents/EditorDocumentManager.h"
+#include "Framework/TabLayout.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 #include "Widgets/MonaImGuiWidgets.h"
@@ -121,8 +121,8 @@ namespace Durin::Editor::Texture
 		}
 	}
 
-	MTextureEditor::MTextureEditor(::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
-		: WorkspaceManager(InWorkspaceManager)
+	MTextureEditor::MTextureEditor(FEditorDocumentManager& InWorkspaceManager)
+		: DocumentManager(InWorkspaceManager)
 	{
 
 	}
@@ -139,22 +139,22 @@ namespace Durin::Editor::Texture
 		}
 	}
 
-	auto MTextureEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
+	auto MTextureEditor::GetToolkitId() const -> const FAssetEditorToolkitId&
 	{
 		return Workspace::Type;
 	}
 
-	auto MTextureEditor::OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult
+	auto MTextureEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		if (FindOpenTexture(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
+		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
+		if (FindOpenTexture(Document.ResourceId)) return EDocumentOpenResult::Opened;
 		FObjectPath AssetPath;
 		std::string PathError;
 		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
 		{
-			PathError = Durin::ToString(PathValidation.error());
+			PathError = ToString(PathValidation.error());
 			SetError(std::move(PathError));
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
 		const auto Result = LoadObject<DTexture2D>(AssetPath);
@@ -162,14 +162,14 @@ namespace Durin::Editor::Texture
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a Texture2D." : (Result ? std::string{} : Result.error().Message));
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);
 		PreviewStates.try_emplace(Document.ResourceId);
-		return ::Durin::Editor::EDocumentOpenResult::Opened;
+		return EDocumentOpenResult::Opened;
 	}
 
-	auto MTextureEditor::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
+	auto MTextureEditor::ActivateDocument(const FEditorDocument& Document) -> void
 	{
 		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Texture) && !FinishActivePropertyEdit(true)) return;
@@ -181,32 +181,32 @@ namespace Durin::Editor::Texture
 		return FinishActivePropertyEdit(true);
 	}
 
-	auto MTextureEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
+	auto MTextureEditor::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
 	{
 		if (PropertyView.IsEditingObject(FindOpenTexture(Document.ResourceId)) && !FinishActivePropertyEdit(true))
-			return ::Durin::Editor::EDocumentCloseResult::Rejected;
-		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
+			return EDocumentCloseResult::Rejected;
+		if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
 		if (DTexture2D* Texture = FindOpenTexture(Document.ResourceId))
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		OpenTextures.erase(Document.ResourceId);
 		PreviewStates.erase(Document.ResourceId);
 		Documents.Close(Document.ResourceId);
-		return ::Durin::Editor::EDocumentCloseResult::Closed;
+		return EDocumentCloseResult::Closed;
 	}
 
-	auto MTextureEditor::SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
+	auto MTextureEditor::SaveDocument(const FEditorDocument& Document) -> bool
 	{
 		return SaveTexture(FindOpenTexture(Document.ResourceId));
 	}
 
-	auto MTextureEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
+	auto MTextureEditor::DiscardDocument(const FEditorDocument& Document) -> bool
 	{
 		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
 		return Documents.Discard(Texture, [Texture] {
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		}, [this](DPackage* Previous, DPackage* Replacement) {
-			WorkspaceManager.NotifyPackageReloaded(Previous, Replacement);
-		}, [this](std::string Message) { SetError(std::move(Message)); }, &WorkspaceManager);
+			DocumentManager.NotifyPackageReloaded(Previous, Replacement);
+		}, [this](std::string Message) { SetError(std::move(Message)); }, &DocumentManager);
 	}
 
 	auto MTextureEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
@@ -224,7 +224,7 @@ namespace Durin::Editor::Texture
 			}
 	}
 
-	auto MTextureEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
+	auto MTextureEditor::IsDocumentDirty(const FEditorDocument& Document) const -> bool
 	{
 		return Documents.IsDirty(FindOpenTexture(Document.ResourceId));
 	}
@@ -271,17 +271,17 @@ namespace Durin::Editor::Texture
 		return FinishActivePropertyEdit(false) && Documents.Redo();
 	}
 
-	auto MTextureEditor::DrawWorkspace(bool bActive) -> bool
+	auto MTextureEditor::DrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		return Documents.GetDocumentHost().DrawDocuments(
-			WorkspaceManager,
+		return Documents.GetTabManager().DrawDocuments(
+			DocumentManager,
 			Workspace::Type,
 			Workspace::RootKey,
-			[this](const ::Durin::Editor::FDocumentTab& Document) {
+			[this](const FEditorDocument& Document) {
 				return FindOpenTexture(Document.ResourceId) != nullptr;
 			},
-			[this](const ::Durin::Editor::FDocumentTab& Document) {
+			[this](const FEditorDocument& Document) {
 				DrawDocument(Document, FindOpenTexture(Document.ResourceId));
 			}
 		);
@@ -321,7 +321,7 @@ namespace Durin::Editor::Texture
 		}, [this](std::string Message) { SetError(std::move(Message)); });
 	}
 
-	auto MTextureEditor::DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void
+	auto MTextureEditor::DrawDocument(const FEditorDocument& Document, DTexture2D* Texture) -> void
 	{
 
 		DrawToolbar(Document, Texture);
@@ -336,7 +336,7 @@ namespace Durin::Editor::Texture
 		MonaImGui::ErrorDialog("Texture Editor Error", ErrorMessage);
 	}
 
-	auto MTextureEditor::DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void
+	auto MTextureEditor::DrawToolbar(const FEditorDocument& Document, DTexture2D* Texture) -> void
 	{
 		const bool bPending = !Texture->IsAsyncCacheComplete();
 		if (bPending) ImGui::BeginDisabled();
@@ -679,7 +679,7 @@ namespace Durin::Editor::Texture
 		{
 			if (SourceReferenceIndex.IsCurrent())
 			{
-				const std::span<const ::Durin::Editor::FSourceReference> References =
+				const std::span<const FSourceReference> References =
 					SourceReferenceIndex.FindReferences(SourceHint);
 				DrawInfoRow("Shared References", std::format("{} asset(s)", References.size()));
 			}
@@ -764,11 +764,11 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::FinishActivePropertyEdit(bool bCancel) -> bool
 	{
-		const ::Durin::Editor::FPropertyViewContext Context = MakePropertyViewContext();
+		const FPropertyViewContext Context = MakePropertyViewContext();
 		return PropertyView.FinishActiveEdit(&Context, bCancel);
 	}
 
-	auto MTextureEditor::MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext
+	auto MTextureEditor::MakePropertyViewContext() -> FPropertyViewContext
 	{
 		return {
 			.ReportError = [this](std::string Error) { SetError(std::move(Error)); },

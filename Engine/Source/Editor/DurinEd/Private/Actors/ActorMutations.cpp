@@ -235,7 +235,7 @@ namespace Durin
 
 		auto Execute(std::unique_ptr<FActorCommandChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> bool
 		{
-			const auto Result = ::Durin::Editor::ApplyEditorChange(Transactions, std::move(Change));
+			const auto Result = Editor::ApplyEditorChange(Transactions, std::move(Change));
 			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired)
 				for (const auto& Actor : Actors)
 					if (IsValid(Actor.Get()))

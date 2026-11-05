@@ -70,7 +70,7 @@ namespace Durin::Editor
 	}
 
 	auto FDetailLayoutBuilder::FCategory::AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
-		const ::Durin::Editor::FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void
+		const FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void
 	{
 		const size_t Before = Owner.Rows.size();
 		Owner.AddProperty(Object, Property, ArrayIndex, Options, SearchKeywords);
@@ -88,10 +88,10 @@ namespace Durin::Editor
 	}
 
 	auto FDetailLayoutBuilder::AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
-		const ::Durin::Editor::FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void
+		const FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void
 	{
 		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return;
-		const std::string Label = Options.Label.empty() ? ::Durin::Editor::MakePropertyLabel(*Property, ArrayIndex) : Options.Label;
+		const std::string Label = Options.Label.empty() ? MakePropertyLabel(*Property, ArrayIndex) : Options.Label;
 		auto RowOptions = Options;
 		RowOptions.Label = Label;
 		std::string RowSearchText;
@@ -247,8 +247,8 @@ namespace Durin::Editor
 		bVisibleRowsDirty = false;
 	}
 
-	auto FDetailLayoutBuilder::DrawRows(::Durin::Editor::FPropertyView& PropertyView,
-		const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FDetailLayoutBuilderResult
+	auto FDetailLayoutBuilder::DrawRows(FPropertyView& PropertyView,
+		const FPropertyViewContext& ViewContext) const -> FDetailLayoutBuilderResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.DrawRows");
 		FDetailLayoutBuilderResult Result;

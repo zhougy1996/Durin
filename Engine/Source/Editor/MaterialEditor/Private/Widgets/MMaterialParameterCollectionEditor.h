@@ -4,30 +4,30 @@
 
 #include "DObject/ObjectPtr.h"
 #include "PropertyEditor/PropertyView.h"
-#include "Workspace/Workspace.h"
-#include "Workspace/WorkspaceRootWindow.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Documents/AssetEditorDocumentModels.h"
 
 namespace Durin { class DMaterialParameterCollection; }
 
 namespace Durin::Editor::Material
 {
-	class MMaterialParameterCollectionEditor final : public IWorkspace
+	class MMaterialParameterCollectionEditor final : public IAssetEditorToolkit
 	{
 	public:
-		explicit MMaterialParameterCollectionEditor(FWorkspaceManager& InManager)
+		explicit MMaterialParameterCollectionEditor(FEditorDocumentManager& InManager)
 			: Manager(InManager) {}
-		auto GetWorkspaceType() const -> const FWorkspaceTypeId& override;
-		auto OpenDocument(const FDocumentTab& Document)
+		auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
+		auto OpenDocument(const FEditorDocument& Document)
 			-> EDocumentOpenResult override;
-		auto ActivateDocument(const FDocumentTab& Document) -> void override;
+		auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		auto RequestDeactivate() -> bool override;
-		auto RequestCloseDocument(const FDocumentTab& Document)
+		auto RequestCloseDocument(const FEditorDocument& Document)
 			-> EDocumentCloseResult override;
-		auto SaveDocument(const FDocumentTab& Document) -> bool override;
-		auto DiscardDocument(const FDocumentTab& Document) -> bool override;
+		auto SaveDocument(const FEditorDocument& Document) -> bool override;
+		auto DiscardDocument(const FEditorDocument& Document) -> bool override;
 		auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement)
 			-> void override;
-		auto IsDocumentDirty(const FDocumentTab& Document) const -> bool override;
+		auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override;
 		auto CanSaveActiveDocument() const -> bool override;
 		auto SaveActiveDocument() -> bool override;
 		auto CanUndo() const -> bool override { return Documents.CanUndo(); }
@@ -38,7 +38,7 @@ namespace Durin::Editor::Material
 			{ return Documents.GetRedoDescription(); }
 		auto Undo() -> bool override { return Documents.Undo(); }
 		auto Redo() -> bool override { return Documents.Redo(); }
-		auto DrawWorkspace(bool bActive) -> bool override;
+		auto DrawToolkit(bool bActive) -> bool override;
 		auto ResetLayout() -> void override {}
 
 	private:
@@ -49,7 +49,7 @@ namespace Durin::Editor::Material
 		auto Context() -> FPropertyViewContext;
 		auto Report(std::string Message) -> void;
 
-		FWorkspaceManager& Manager;
+		FEditorDocumentManager& Manager;
 		std::unordered_map<std::string,
 			TObjectPtr<DMaterialParameterCollection>> Collections;
 		FEditableAssetDocumentModel Documents;

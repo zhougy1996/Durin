@@ -2,7 +2,7 @@
 #include "Editor/EditorSubsystem.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Subsystems/AssetEditorSubsystem.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "DObject/Package.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
@@ -416,19 +416,19 @@ namespace
 		Service->NotifyEditorClosed(&Instance);
 	}
 
-	class FAssetEditorWorkspace final : public Editor::IWorkspace
+	class FAssetEditorWorkspace final : public Editor::IAssetEditorToolkit
 	{
 	public:
-		auto GetWorkspaceType() const -> const Editor::FWorkspaceTypeId& override { return Type; }
-		auto OpenDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentOpenResult override
+		auto GetToolkitId() const -> const Editor::FAssetEditorToolkitId& override { return Type; }
+		auto OpenDocument(const Editor::FEditorDocument& Document) -> Editor::EDocumentOpenResult override
 		{ LastRequestedId = Document.Id; ++OpenCount; return OpenResult; }
-		auto ActivateDocument(const Editor::FDocumentTab&) -> void override { ++FocusCount; }
-		auto RequestCloseDocument(const Editor::FDocumentTab&) -> Editor::EDocumentCloseResult override
+		auto ActivateDocument(const Editor::FEditorDocument&) -> void override { ++FocusCount; }
+		auto RequestCloseDocument(const Editor::FEditorDocument&) -> Editor::EDocumentCloseResult override
 		{ return bDirty ? Editor::EDocumentCloseResult::PendingConfirmation : Editor::EDocumentCloseResult::Closed; }
-		auto DiscardDocument(const Editor::FDocumentTab&) -> bool override { bDirty = false; return true; }
-		auto DrawWorkspace(bool) -> bool override { return true; }
+		auto DiscardDocument(const Editor::FEditorDocument&) -> bool override { bDirty = false; return true; }
+		auto DrawToolkit(bool) -> bool override { return true; }
 		auto ResetLayout() -> void override {}
-		Editor::FWorkspaceTypeId Type{"AssetEditorTest"};
+		Editor::FAssetEditorToolkitId Type{"AssetEditorTest"};
 		Editor::EDocumentOpenResult OpenResult = Editor::EDocumentOpenResult::Opened;
 		Editor::FDocumentId LastRequestedId;
 		int OpenCount = 0;
@@ -449,11 +449,11 @@ namespace
 		auto* Host = NewHost();
 		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 		{
-			Editor::FWorkspaceManager Manager(Service);
+			Editor::FEditorDocumentManager Manager(Service);
 			auto Workspace = std::make_shared<FAssetEditorWorkspace>();
-			Editor::FWorkspaceRegistrationBatch Batch;
-			Batch.Workspaces.push_back({{.WorkspaceType = Workspace->Type, .DisplayName = "Test", .RootKey = "AssetEditorTest"}, Workspace});
-			Batch.AssetEditors.push_back({.AssetClassName = "Durin::DObject", .WorkspaceType = Workspace->Type});
+			Editor::FAssetEditorToolkitRegistrationBatch Batch;
+			Batch.Toolkits.push_back({{.ToolkitId = Workspace->Type, .DisplayName = "Test", .RootKey = "AssetEditorTest"}, Workspace});
+			Batch.AssetEditors.push_back({.AssetClassName = "Durin::DObject", .ToolkitId = Workspace->Type});
 			auto Registration = Manager.RegisterBatch(std::move(Batch));
 			ASSERT_TRUE(Registration);
 			EXPECT_TRUE(Service->CanOpenEditorForAsset(Asset));
@@ -493,11 +493,11 @@ namespace
 		auto* Second = NewObject<DObject>(Package, "Second");
 		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		{
-			Editor::FWorkspaceManager Manager(Service);
+			Editor::FEditorDocumentManager Manager(Service);
 			auto Workspace = std::make_shared<FAssetEditorWorkspace>();
-			Editor::FWorkspaceRegistrationBatch Batch;
-			Batch.Workspaces.push_back({{.WorkspaceType = Workspace->Type, .DisplayName = "Test", .RootKey = "SingletonTest"}, Workspace});
-			Batch.AssetEditors.push_back({.AssetClassName = "Durin::DObject", .WorkspaceType = Workspace->Type,
+			Editor::FAssetEditorToolkitRegistrationBatch Batch;
+			Batch.Toolkits.push_back({{.ToolkitId = Workspace->Type, .DisplayName = "Test", .RootKey = "SingletonTest"}, Workspace});
+			Batch.AssetEditors.push_back({.AssetClassName = "Durin::DObject", .ToolkitId = Workspace->Type,
 				.DocumentPolicy = Editor::EDocumentPolicy::Singleton, .SingletonDocumentKey = "Shared", .SingletonLabel = "Shared"});
 			auto Registration = Manager.RegisterBatch(std::move(Batch));
 			ASSERT_TRUE(Registration);

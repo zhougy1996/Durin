@@ -104,7 +104,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 		FSourceImageThumbnailDiskCacheSettings Settings;
-		::Durin::Editor::FThumbnailObjectStore ObjectStore;
+		FThumbnailObjectStore ObjectStore;
 		uint64 SourceDecodes = 0;
 		mutable std::mutex Mutex;
 	};
@@ -149,7 +149,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!Desired.SourceIdentity.empty())
 		{
 			FByteBuffer EncodedBytes;
-			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == ::Durin::Editor::EThumbnailObjectLoadResult::Hit)
+			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == EThumbnailObjectLoadResult::Hit)
 			{
 				if (DecodeCachedPng(EncodedBytes, Impl->Settings.MaximumDimension, OutThumbnail))
 					return OutThumbnail;
@@ -175,7 +175,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FSourceImageThumbnailDiskCache::GetStats() const -> FSourceImageThumbnailDiskCacheStats
 	{
-		const ::Durin::Editor::FThumbnailObjectStoreStats StoreStats = Impl->ObjectStore.GetStats();
+		const FThumbnailObjectStoreStats StoreStats = Impl->ObjectStore.GetStats();
 		std::lock_guard Lock(Impl->Mutex);
 		return {
 			.CacheHits = StoreStats.CacheHits,

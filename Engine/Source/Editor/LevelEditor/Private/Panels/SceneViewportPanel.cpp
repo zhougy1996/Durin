@@ -9,7 +9,7 @@
 #include "Asset/AssetDragDrop.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Framework/TabLayout.h"
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -49,8 +49,8 @@ namespace Durin::Editor::Level
 	} // namespace
 
 	FSceneViewportPanel::FSceneViewportPanel()
-		: PreferredPlayStartLocation(::Durin::Editor::EPlayStartLocation::LevelStart)
-		, PreferredPlayDestination(::Durin::Editor::EPlayDestination::EmbeddedViewport)
+		: PreferredPlayStartLocation(EPlayStartLocation::LevelStart)
+		, PreferredPlayDestination(EPlayDestination::EmbeddedViewport)
 	{
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
 		ViewportToolbar = std::make_unique<FViewportToolbar>();
@@ -219,7 +219,7 @@ namespace Durin::Editor::Level
 		ViewportClient->PrepareSceneView(Context.Level, Width, Height);
 	}
 
-	auto FSceneViewportPanel::SetPreferredPlayMode(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void
+	auto FSceneViewportPanel::SetPreferredPlayMode(EPlayStartLocation StartLocation, EPlayDestination Destination) -> void
 	{
 		PreferredPlayStartLocation = StartLocation;
 		PreferredPlayDestination = Destination;
@@ -274,7 +274,7 @@ namespace Durin::Editor::Level
 		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		const bool bPanelVisible = ::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+		const bool bPanelVisible = TabLayout::BeginDockablePanel(
 			Workspace::Type,
 			"Scene Viewport",
 			"SceneViewport",
@@ -328,9 +328,9 @@ namespace Durin::Editor::Level
 				if (!Context.bReadOnly && !bStatisticsInitiallyHovered
 					&& ImGui::BeginDragDropTarget())
 				{
-					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
+					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
 					{
-						const auto* AssetPayload = static_cast<const ::Durin::Editor::FAssetDragDropPayload*>(Payload->Data);
+						const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
 						FObjectPath AssetPath;
 						DObject* Asset = nullptr;
 						AActor* Actor = nullptr;
@@ -581,7 +581,7 @@ namespace Durin::Editor::Level
 			|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
 		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
-		::Durin::DTransactor* Transactions = GEditor != nullptr ? GEditor->GetTransactor() : nullptr;
+		DTransactor* Transactions = GEditor != nullptr ? GEditor->GetTransactor() : nullptr;
 		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
 		if (Input.bFocusSelection && !Input.bWantTextInput
 			&& Context.GetPrimarySelectedActor() != nullptr && SceneViewport)

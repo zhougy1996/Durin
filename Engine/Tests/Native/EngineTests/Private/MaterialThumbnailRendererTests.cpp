@@ -2,7 +2,7 @@
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "MaterialEditorModule.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 
 #include "Materials/MaterialTestSupport.h"
 
@@ -91,7 +91,7 @@ TEST(FMaterialThumbnailRendererTests, ModuleOwnsBothExactRenderersAndWorkspaceLi
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-	Durin::Editor::FWorkspaceManager Manager;
+	Durin::Editor::FEditorDocumentManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FMaterialEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("MaterialEditor");
@@ -100,18 +100,18 @@ TEST(FMaterialThumbnailRendererTests, ModuleOwnsBothExactRenderersAndWorkspaceLi
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();
 	const std::string InstanceClass =
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString();
-	ASSERT_TRUE(Manager.RegisterProviders(ThumbnailManager, {}));
+	ASSERT_TRUE(Module.RegisterToolkits(Manager, ThumbnailManager));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_TRUE(ThumbnailManager.Find(InstanceClass));
-	EXPECT_NE(Manager.FindWorkspace(
-		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
-	EXPECT_FALSE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
+	EXPECT_NE(Manager.FindToolkit(
+		Durin::Editor::FAssetEditorToolkitId("MaterialEditor")), nullptr);
+	EXPECT_FALSE(Module.RegisterToolkits(Manager, ThumbnailManager));
 	ModuleHarness.Shutdown();
-	Manager.UnregisterProviders();
+	Module.UnregisterToolkits();
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_FALSE(ThumbnailManager.Find(InstanceClass));
-	EXPECT_EQ(Manager.FindWorkspace(
-		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
+	EXPECT_EQ(Manager.FindToolkit(
+		Durin::Editor::FAssetEditorToolkitId("MaterialEditor")), nullptr);
 }
 
 TEST(FMaterialThumbnailRendererTests, RendererConflictRollsBackWholeIntegration)
@@ -119,7 +119,7 @@ TEST(FMaterialThumbnailRendererTests, RendererConflictRollsBackWholeIntegration)
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-	Durin::Editor::FWorkspaceManager Manager;
+	Durin::Editor::FEditorDocumentManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterScoped(
@@ -129,13 +129,13 @@ TEST(FMaterialThumbnailRendererTests, RendererConflictRollsBackWholeIntegration)
 	Durin::FMaterialEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("MaterialEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
+	EXPECT_FALSE(Module.RegisterToolkits(Manager, ThumbnailManager));
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(ThumbnailManager.Find(
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
-	EXPECT_EQ(Manager.FindWorkspace(
-		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
+	EXPECT_EQ(Manager.FindToolkit(
+		Durin::Editor::FAssetEditorToolkitId("MaterialEditor")), nullptr);
 	ModuleHarness.Shutdown();
 }
 

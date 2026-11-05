@@ -39,7 +39,7 @@ namespace Durin::Editor::Level
 			DLevel& Level,
 			DTextureCube* TextureCube,
 			FName RequestedName,
-			::Durin::DTransactor* Transactions,
+			DTransactor* Transactions,
 			bool bReadOnly = false) -> FSkyBoxPlacementResult;
 	};
 }

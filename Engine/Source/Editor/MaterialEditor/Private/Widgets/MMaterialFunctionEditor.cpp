@@ -18,7 +18,7 @@
 #include "Asset/AssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::Editor::Material
@@ -50,7 +50,7 @@ namespace Durin::Editor::Material
 		}
 	};
 
-	MMaterialFunctionEditor::MMaterialFunctionEditor(FWorkspaceManager& InManager)
+	MMaterialFunctionEditor::MMaterialFunctionEditor(FEditorDocumentManager& InManager)
 		: SessionSettings(std::make_unique<FMaterialEditorSessionSettings>("MaterialFunctionEditorSession.yaml")), Manager(InManager)
 	{
 		SessionSettings->Load();
@@ -71,11 +71,11 @@ namespace Durin::Editor::Material
 		const auto It = Open.find(std::string(Resource));
 		return It == Open.end() ? nullptr : It->second.get();
 	}
-	auto MMaterialFunctionEditor::OpenDocument(const FDocumentTab& Tab) -> EDocumentOpenResult
+	auto MMaterialFunctionEditor::OpenDocument(const FEditorDocument& Tab) -> EDocumentOpenResult
 	{
 		if (Find(Tab.ResourceId)) return EDocumentOpenResult::Opened;
 		FObjectPath Path;
-		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Tab.ResourceId, Path); !PathValidation) { Error = Durin::ToString(PathValidation.error()); return EDocumentOpenResult::Rejected; }
+		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Tab.ResourceId, Path); !PathValidation) { Error = ToString(PathValidation.error()); return EDocumentOpenResult::Rejected; }
 		DMaterialFunction* Function = nullptr;
 		const auto Loaded = LoadObject<DMaterialFunction>(Path);
 		Function = Loaded.value_or(nullptr);
@@ -90,11 +90,11 @@ namespace Durin::Editor::Material
 			Document->Canvas->SetViewport(State->Zoom, State->Pan);
 		Document->PreviewInvalidation.SetFunction(Function);
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Function->GetPackage()->GetPackagePath());
-		if (!Mount) { Error = (Mount ? std::string{} : Durin::ToString(Mount.error())); return EDocumentOpenResult::Rejected; }
+		if (!Mount) { Error = (Mount ? std::string{} : ToString(Mount.error())); return EDocumentOpenResult::Rejected; }
 		FPackagePath PreviewPath;
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::format("{}__FunctionPreview/{}", Mount->Mount->VirtualRoot, FGuid::NewGuid().ToString()), PreviewPath); !PathValidation)
 		{
-			Error = Durin::ToString(PathValidation.error());
+			Error = ToString(PathValidation.error());
 			return EDocumentOpenResult::Rejected;
 		}
 		auto* Package = NewObject<DPackage>(DPackage::StaticClass(), nullptr, NAME_None, EObjectFlags::Transient);
@@ -109,7 +109,7 @@ namespace Durin::Editor::Material
 		Open.emplace(Tab.ResourceId, std::move(Document));
 		return EDocumentOpenResult::Opened;
 	}
-	auto MMaterialFunctionEditor::ActivateDocument(const FDocumentTab& Tab) -> void
+	auto MMaterialFunctionEditor::ActivateDocument(const FEditorDocument& Tab) -> void
 	{
 		RequestDeactivate();
 		if (auto* Document = Find(Tab.ResourceId)) Documents.Activate(Tab, Document->Function());
@@ -119,7 +119,7 @@ namespace Durin::Editor::Material
 		for (auto& [Resource, Document] : Open) Document->Canvas->CancelInteraction();
 		return true;
 	}
-	auto MMaterialFunctionEditor::RequestCloseDocument(const FDocumentTab& Tab) -> EDocumentCloseResult
+	auto MMaterialFunctionEditor::RequestCloseDocument(const FEditorDocument& Tab) -> EDocumentCloseResult
 	{
 		if (IsDocumentDirty(Tab)) return EDocumentCloseResult::PendingConfirmation;
 		if (const auto* Document = Find(Tab.ResourceId))
@@ -131,19 +131,19 @@ namespace Durin::Editor::Material
 		Open.erase(Tab.ResourceId); Documents.Close(Tab.ResourceId);
 		return EDocumentCloseResult::Closed;
 	}
-	auto MMaterialFunctionEditor::SaveDocument(const FDocumentTab& Tab) -> bool
+	auto MMaterialFunctionEditor::SaveDocument(const FEditorDocument& Tab) -> bool
 	{
 		auto* Document = Find(Tab.ResourceId);
 		return Document && Documents.Save(Document->Function(), {}, [this](std::string Message) { Error = std::move(Message); });
 	}
-	auto MMaterialFunctionEditor::DiscardDocument(const FDocumentTab& Tab) -> bool
+	auto MMaterialFunctionEditor::DiscardDocument(const FEditorDocument& Tab) -> bool
 	{
 		auto* Document = Find(Tab.ResourceId);
 		return Document && Documents.Discard(Document->Function(), [this] { RequestDeactivate(); },
 			[this](DPackage* Old, DPackage* New) { Manager.NotifyPackageReloaded(Old, New); },
 			[this](std::string Message) { Error = std::move(Message); }, &Manager);
 	}
-	auto MMaterialFunctionEditor::IsDocumentDirty(const FDocumentTab& Tab) const -> bool
+	auto MMaterialFunctionEditor::IsDocumentDirty(const FEditorDocument& Tab) const -> bool
 	{
 		const auto* Document = Find(Tab.ResourceId);
 		return Document && Documents.IsDirty(Document->Function());
@@ -202,24 +202,24 @@ namespace Durin::Editor::Material
 		const auto& Nodes = Document->Function()->GetExpressionCollection().Expressions;
 		return std::ranges::any_of(Nodes, [&](const auto& Node) { return Node->Id == NodeId; }) && Document->Canvas->SelectAndFrame(NodeId);
 	}
-	auto MMaterialFunctionEditor::DrawWorkspace(bool bActive) -> bool
+	auto MMaterialFunctionEditor::DrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive) RequestDeactivate();
 		std::vector<FDocumentId> Deleted;
 		for (const auto& Tab : Manager.GetDocuments())
-			if (Tab.WorkspaceType == MaterialFunctionWorkspaceType)
+			if (Tab.ToolkitId == MaterialFunctionWorkspaceType)
 				if (auto* Document = Find(Tab.ResourceId); Document && !Document->Function()) Deleted.push_back(Tab.Id);
 		for (const auto Id : Deleted) Manager.RequestCloseDocument(Id);
-		return Documents.GetDocumentHost().DrawDocuments(Manager, MaterialFunctionWorkspaceType, "MaterialFunctionEditor",
-			[this](const FDocumentTab& Tab) { const auto* Document = Find(Tab.ResourceId); return Document && Document->Function(); },
-			[this](const FDocumentTab& Tab) { DrawDocument(Tab, *Find(Tab.ResourceId)); },
-			[this](const FDocumentTab& Tab, bool Visible) {
+		return Documents.GetTabManager().DrawDocuments(Manager, MaterialFunctionWorkspaceType, "MaterialFunctionEditor",
+			[this](const FEditorDocument& Tab) { const auto* Document = Find(Tab.ResourceId); return Document && Document->Function(); },
+			[this](const FEditorDocument& Tab) { DrawDocument(Tab, *Find(Tab.ResourceId)); },
+			[this](const FEditorDocument& Tab, bool Visible) {
 				if (auto* Document = Find(Tab.ResourceId)) Document->Preview->SetVisible(Visible);
 				if (!Visible)
 				{
 					const auto DockType = Workspace::MakeDocumentDockType(Tab);
-					if (ImGui::DockBuilderGetNode(WorkspaceUI::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
-						WorkspaceUI::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion,
+					if (ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
+						TabLayout::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion,
 							{0.0f, 0.0f}, ImGuiDockNodeFlags_KeepAliveOnly);
 				}
 			});
@@ -364,7 +364,7 @@ namespace Durin::Editor::Material
 		}
 	}
 
-	auto MMaterialFunctionEditor::DrawDocument(const FDocumentTab& Tab, FDocument& Document) -> void
+	auto MMaterialFunctionEditor::DrawDocument(const FEditorDocument& Tab, FDocument& Document) -> void
 	{
 		auto& Function = *Document.Function();
 		if (!GEditor) { ImGui::TextDisabled("Editor transactions are unavailable."); return; }
@@ -403,14 +403,14 @@ namespace Durin::Editor::Material
 		const auto DockType = Workspace::MakeDocumentDockType(Tab);
 		const auto Size = ImGui::GetContentRegionAvail();
 		if (Size.x <= 0.0f || Size.y <= 0.0f) return;
-		if (Document.bResetLayout || !ImGui::DockBuilderGetNode(WorkspaceUI::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
+		if (Document.bResetLayout || !ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
 		{
 			Workspace::BuildDefaultLayout(Tab, Size, true);
 			Document.bResetLayout = false;
 		}
-		WorkspaceUI::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion, Size);
+		TabLayout::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion, Size);
 		const auto BeginPanel = [&](const char* Label, const char* Key, bool* Open = nullptr) {
-			const bool Visible = WorkspaceUI::BeginDockablePanel(DockType, Label, Key, Open, ImGuiWindowFlags_NoCollapse);
+			const bool Visible = TabLayout::BeginDockablePanel(DockType, Label, Key, Open, ImGuiWindowFlags_NoCollapse);
 			if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
 			{
 				const auto* Active = Manager.GetActiveDocument();

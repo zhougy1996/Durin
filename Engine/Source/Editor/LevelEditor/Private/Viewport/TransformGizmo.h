@@ -55,8 +55,8 @@ namespace Durin::Editor::Level
 	class FTransformGizmo
 	{
 	public:
-		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool;
-		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool;
+		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
+		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
 		auto AppendOverlayPrimitives(FSceneView& View) const -> void;
 		// False retains an unfinished restore for retry and keeps saving blocked.
 		auto CancelDrag() -> bool;
@@ -94,7 +94,7 @@ namespace Durin::Editor::Level
 		auto HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle;
 		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
 		auto UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
-		auto FinishDrag(::Durin::DTransactor* Transactions) -> bool;
+		auto FinishDrag(DTransactor* Transactions) -> bool;
 		auto RestoreSnapshots() -> bool;
 		auto CheckPreviewOwnership() -> bool;
 		auto CapturePreviewValues() -> bool;

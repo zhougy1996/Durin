@@ -346,7 +346,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		OutError = "Scene translation failed.";
 		auto CheckCanceled = [&]() -> bool {
-			if (!::Durin::AssetForge::Builtins::Private::IsSceneImportCancellationRequested())
+			if (!Private::IsSceneImportCancellationRequested())
 				return false;
 			AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::Canceled,
 				"scene-parse", "Scene import preparation was canceled.", "root");

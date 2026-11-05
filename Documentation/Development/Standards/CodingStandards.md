@@ -29,6 +29,16 @@ specialized Core services and all DObject, rendering, editor, and backend
 dependencies in their declaring headers; add no upward module dependencies
 to `CoreMinimal.h`.
 
+## Namespace Qualification
+
+Use the shortest unambiguous qualification within the current namespace. Inside
+`Durin`, prefer `Editor::Type` to `::Durin::Editor::Type`; inside `Durin::Editor`
+and its child namespaces, use visible parent types directly. Retain a namespace
+prefix where local names, overloads or declaration lookup require disambiguation,
+including friend declarations that must name an existing type. Implementation
+files may use local using declarations; public headers must not introduce broad
+using directives. Do not shorten persisted identifiers or textual protocol names.
+
 ## Byte Data
 
 Use `std::byte` for repository-owned untyped byte storage and views, including

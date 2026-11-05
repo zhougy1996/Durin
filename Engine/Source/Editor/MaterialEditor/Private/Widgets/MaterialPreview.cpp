@@ -44,7 +44,7 @@ namespace Durin::Editor::Material
 		};
 
 		// Builds the orbiting scene view for the material preview viewport.
-		class FMaterialPreviewViewportClient final : public ::Durin::Editor::FAssetPreviewViewportClient
+		class FMaterialPreviewViewportClient final : public FAssetPreviewViewportClient
 		{
 		public:
 			auto Zoom(float MouseWheel) -> void
@@ -111,8 +111,8 @@ namespace Durin::Editor::Material
 		{
 			auto Client = std::make_unique<FMaterialPreviewViewportClient>();
 			ViewportClient = Client.get();
-			Host = std::make_unique<::Durin::Editor::FAssetPreviewHost>(
-				::Durin::Editor::FAssetPreviewHostConfig{
+			Host = std::make_unique<FAssetPreviewHost>(
+				FAssetPreviewHostConfig{
 					.SceneName = FName(std::format("MaterialPreview_{}", PreviewId)),
 					.ContentActorName = FName(std::format("MaterialPreviewActor_{}", PreviewId)),
 					.LightActorName = FName(std::format("MaterialPreviewLightActor_{}", PreviewId)),
@@ -137,8 +137,8 @@ namespace Durin::Editor::Material
 				Error = ToString(Validation.error());
 				return;
 			}
-			if (!::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
-				|| !::Durin::Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
+			if (!FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
+				|| !FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
 			{
 				return;
 			}
@@ -256,13 +256,13 @@ namespace Durin::Editor::Material
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
 			const float Width = std::max(8.0f, Available.x);
 			const float Height = std::max(8.0f, Available.y);
-			::Durin::Editor::FAssetPreviewViewportInput Input;
+			FAssetPreviewViewportInput Input;
 			if (Host->DrawViewport(Width, Height, &Input)) UpdateViewportInput(Input);
 			ImGui::EndChild();
 		}
 
 	private:
-		auto UpdateViewportInput(const ::Durin::Editor::FAssetPreviewViewportInput& Input) -> void
+		auto UpdateViewportInput(const FAssetPreviewViewportInput& Input) -> void
 		{
 			if (Input.bLeftDragging && (Input.MouseDeltaX != 0.0f || Input.MouseDeltaY != 0.0f))
 			{
@@ -313,10 +313,10 @@ namespace Durin::Editor::Material
 			}
 		}
 
-		std::unique_ptr<::Durin::Editor::FAssetPreviewHost> Host;
+		std::unique_ptr<FAssetPreviewHost> Host;
 		FMaterialPreviewViewportClient* ViewportClient = nullptr;
-		::Durin::Editor::FRetainedAsset SphereAsset;
-		::Durin::Editor::FRetainedAsset BoxAsset;
+		FRetainedAsset SphereAsset;
+		FRetainedAsset BoxAsset;
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
 		DMaterialInterface* CurrentMaterial = nullptr;
 		FQuat PreviewRotation = FQuatConstants::Identity;

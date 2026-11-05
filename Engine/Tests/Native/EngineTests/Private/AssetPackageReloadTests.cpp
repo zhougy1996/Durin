@@ -16,8 +16,8 @@
 #include "DObject/Class.h"
 #include "DObject/Archive.h"
 #include "Transactions/Transactor.h"
-#include "Workspace/WorkspaceRootWindow.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/AssetEditorDocumentModels.h"
+#include "Documents/EditorDocumentManager.h"
 #include "Asset/PackageRemoval.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -36,17 +36,17 @@
 
 namespace
 {
-	class FReloadTestWorkspace final : public Durin::Editor::IWorkspace
+	class FReloadTestWorkspace final : public Durin::Editor::IAssetEditorToolkit
 	{
 	public:
-		auto GetWorkspaceType() const -> const Durin::Editor::FWorkspaceTypeId& override { return Type; }
-		auto OpenDocument(const Durin::Editor::FDocumentTab&) -> Durin::Editor::EDocumentOpenResult override
+		auto GetToolkitId() const -> const Durin::Editor::FAssetEditorToolkitId& override { return Type; }
+		auto OpenDocument(const Durin::Editor::FEditorDocument&) -> Durin::Editor::EDocumentOpenResult override
 		{ return Durin::Editor::EDocumentOpenResult::Opened; }
-		auto ActivateDocument(const Durin::Editor::FDocumentTab&) -> void override {}
-		auto DrawWorkspace(bool) -> bool override { return false; }
+		auto ActivateDocument(const Durin::Editor::FEditorDocument&) -> void override {}
+		auto DrawToolkit(bool) -> bool override { return false; }
 		auto ResetLayout() -> void override {}
 	private:
-		Durin::Editor::FWorkspaceTypeId Type{"ReloadTest"};
+		Durin::Editor::FAssetEditorToolkitId Type{"ReloadTest"};
 	};
 
 	auto CaptureFunctionExpressions(const Durin::DMaterialFunction& Function)
@@ -133,12 +133,12 @@ namespace
 			else Cloud->SetBaseDensityTexture(Texture);
 
 			Durin::Editor::FEditableAssetDocumentModel Documents;
-			Durin::Editor::FWorkspaceManager Manager;
+			Durin::Editor::FEditorDocumentManager Manager;
 			auto Workspace = std::make_shared<FReloadTestWorkspace>();
-			auto Registration = Manager.RegisterBatch({.Workspaces = {{
-				.Descriptor = {.WorkspaceType = Workspace->GetWorkspaceType(),
-					.DisplayName = "Reload test", .RootKey = "ReloadTest"}, .Workspace = Workspace}}});
-			const auto Document = Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+			auto Registration = Manager.RegisterBatch({.Toolkits = {{
+				.Descriptor = {.ToolkitId = Workspace->GetToolkitId(),
+					.DisplayName = "Reload test", .RootKey = "ReloadTest"}, .Toolkit = Workspace}}});
+			const auto Document = Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 				.DocumentKey = Texture->GetObjectPath(), .ResourceId = Texture->GetObjectPath(), .Label = "Texture"});
 			ASSERT_TRUE(Document.IsValid());
 			const std::array Paths{Path};

@@ -49,11 +49,11 @@ namespace Durin::Editor::MainFrame
 		auto BeginCanonicalResave() -> void;
 		auto TickCanonicalResave() -> void;
 
-		Editor::FAssetCompatibilityAuditModel Audit;
+		FAssetCompatibilityAuditModel Audit;
 		std::optional<uint64> ReconciledCatalogRevision;
 		std::optional<uint64> SummaryPresentationRevision;
 		std::optional<uint64> FilteredPresentationRevision;
-		Editor::FAssetCompatibilityAuditCounts PresentationCounts;
+		FAssetCompatibilityAuditCounts PresentationCounts;
 		std::vector<size_t> FilteredRecordIndices;
 		size_t CanonicalDebt = 0;
 		FPackagePath SelectedPath;

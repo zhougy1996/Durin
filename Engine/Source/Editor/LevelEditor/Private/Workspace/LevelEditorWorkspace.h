@@ -2,11 +2,11 @@
 
 #include "CoreMinimal.h"
 
-#include "Workspace/WorkspaceTypes.h"
+#include "Documents/EditorDocumentTypes.h"
 
 namespace Durin::Editor::Level::Workspace
 {
-	inline const ::Durin::Editor::FWorkspaceTypeId Type{"LevelEditor"};
+	inline const FAssetEditorToolkitId Type{"LevelEditor"};
 	inline constexpr uint32 LayoutVersion = 6;
 	inline constexpr const char* RootKey = "LevelEditor";
 }

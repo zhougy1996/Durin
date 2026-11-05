@@ -12,7 +12,7 @@ namespace Durin::Editor
 	public:
 		virtual ~IDetailHostContext() = default;
 	};
-	using FDetailRowDrawer = std::function<bool(::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext&)>;
+	using FDetailRowDrawer = std::function<bool(FPropertyView&, const FPropertyViewContext&)>;
 
 	// Declares the contents and order of a named details category.
 	class IDetailCategoryBuilder
@@ -20,7 +20,7 @@ namespace Durin::Editor
 	public:
 		virtual ~IDetailCategoryBuilder() = default;
 		virtual auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex = 0,
-			const ::Durin::Editor::FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void = 0;
+			const FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void = 0;
 		virtual auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void = 0;
 		virtual auto AddFunction(const DFunction& Function) -> void = 0;
 		virtual auto SetSortOrder(int32 SortOrder) -> void = 0;
@@ -39,7 +39,7 @@ namespace Durin::Editor
 		virtual auto EditCategory(std::string_view Name, std::string_view DisplayName = {}) -> IDetailCategoryBuilder& = 0;
 		virtual auto HideCategory(std::string_view Name) -> void = 0;
 		virtual auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex = 0,
-			const ::Durin::Editor::FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void = 0;
+			const FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void = 0;
 		virtual auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void = 0;
 		virtual auto HideProperty(FProperty* Property) -> void = 0;
 		virtual auto ReplaceDefaultProperties() -> void = 0;

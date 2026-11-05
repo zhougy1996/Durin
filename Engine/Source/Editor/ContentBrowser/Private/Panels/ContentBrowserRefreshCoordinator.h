@@ -8,7 +8,7 @@
 
 namespace Durin::Editor::ContentBrowser::Private
 {
-	using FMountedContentReconciliationState = ::Durin::Editor::ContentBrowser::FMountedContentReconciliationState;
+	using FMountedContentReconciliationState = ContentBrowser::FMountedContentReconciliationState;
 
 	// Separates mounted-filesystem reconciliation from registry-only view refresh.
 	// A failed mounted revision is retained but suppressed until an explicit retry

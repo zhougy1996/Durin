@@ -44,14 +44,14 @@ namespace Durin::Editor::ContentBrowser::Private
 			Dependencies.emplace(std::string(Request.Identity), CaptureAssetDependencyClosure(Request.Asset->AssetPath.GetPackagePath()));
 		auto& Thumbnail = AssetThumbnails[std::string(Request.Identity)];
 		if (!Thumbnail)
-			Thumbnail = std::make_unique<::Durin::Editor::FAssetThumbnail>(*Request.Asset);
+			Thumbnail = std::make_unique<FAssetThumbnail>(*Request.Asset);
 		else
 			Thumbnail->Reassign(*Request.Asset);
 		Thumbnail->Request(Request.Priority);
 	}
 
 	auto FContentBrowserThumbnailReferences::Find(std::string_view Identity) const
-		-> ::Durin::Editor::FAssetThumbnailView
+		-> FAssetThumbnailView
 	{
 		const auto It = AssetThumbnails.find(std::string(Identity));
 		return It == AssetThumbnails.end()

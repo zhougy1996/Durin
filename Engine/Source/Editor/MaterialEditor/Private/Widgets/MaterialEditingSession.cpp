@@ -86,7 +86,7 @@ namespace Durin::Editor::Material
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Source->GetPackage()->GetPackagePath());
 		if (!Mount)
 		{
-			Error = (Mount ? std::string{} : Durin::ToString(Mount.error()));
+			Error = (Mount ? std::string{} : ToString(Mount.error()));
 			return false;
 		}
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::format("{}__MaterialEditorPreview/{}",

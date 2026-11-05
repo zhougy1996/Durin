@@ -194,8 +194,8 @@ namespace Durin::Editor::Level
 			FLevelEditorViewportClient* EditorViewportClient,
 			FViewportClient* RenderSettingsClient,
 			FLevelViewportEditModeManager* EditModeManager,
-			::Durin::Editor::EPlayStartLocation& PreferredPlayStartLocation,
-			::Durin::Editor::EPlayDestination& PreferredPlayDestination,
+			EPlayStartLocation& PreferredPlayStartLocation,
+			EPlayDestination& PreferredPlayDestination,
 			const FViewportToolbarLayout& Layout
 		) const -> void;
 	};

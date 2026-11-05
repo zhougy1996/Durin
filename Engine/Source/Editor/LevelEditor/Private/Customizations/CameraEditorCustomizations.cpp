@@ -112,7 +112,7 @@ namespace Durin::Editor::Level
 				Builder.HideProperty(Camera->GetClass()->FindPropertyByName("ViewDistance"));
 				Builder.EditCategory("Projection").AddCustomRow(
 					"Camera Projection Field Of View Near Clip Far Clip Aspect Ratio Custom Ratio",
-					[&Context, Camera](::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
+					[&Context, Camera](FPropertyView& PropertyView, const FPropertyViewContext& ViewContext) {
 						return DrawCameraDetails(Context, *Camera, PropertyView, ViewContext);
 					});
 				Builder.EditCategory("View Distance").AddCustomRow(
@@ -130,7 +130,7 @@ namespace Durin::Editor::Level
 
 		private:
 			static auto DrawCameraDetails(FLevelEditorContext& Context, DCameraComponent& Camera,
-				::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) -> bool
+				FPropertyView& PropertyView, const FPropertyViewContext& ViewContext) -> bool
 			{
 				const FReflection Reflection = ResolveReflection(Camera);
 				if (!Reflection.IsValid())
@@ -180,13 +180,13 @@ namespace Durin::Editor::Level
 				{
 					return ViewDistance->ContainerPtrToValuePtr<FViewDistanceSettings>(&Camera);
 				}
-				auto MakeTarget(DCameraComponent& Camera, FProperty* Field) const -> ::Durin::Editor::FPropertyEditTarget
+				auto MakeTarget(DCameraComponent& Camera, FProperty* Field) const -> FPropertyEditTarget
 				{
-					return ::Durin::Editor::FPropertyEditTarget::ForMember(&Camera, Projection).ForStructMember(Field);
+					return FPropertyEditTarget::ForMember(&Camera, Projection).ForStructMember(Field);
 				}
-				auto MakeViewDistanceTarget(DCameraComponent& Camera, FProperty* Field) const -> ::Durin::Editor::FPropertyEditTarget
+				auto MakeViewDistanceTarget(DCameraComponent& Camera, FProperty* Field) const -> FPropertyEditTarget
 				{
-					return ::Durin::Editor::FPropertyEditTarget::ForMember(&Camera, ViewDistance).ForStructMember(Field);
+					return FPropertyEditTarget::ForMember(&Camera, ViewDistance).ForStructMember(Field);
 				}
 			};
 
@@ -230,15 +230,15 @@ namespace Durin::Editor::Level
 				return Result;
 			}
 
-			static auto FinishContinuousEdit(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext,
-				const ::Durin::Editor::FPropertyEditTarget& Target, const MonaImGui::PropertyEdit::FWidgetState& State) -> void
+			static auto FinishContinuousEdit(FPropertyView& PropertyView, const FPropertyViewContext& ViewContext,
+				const FPropertyEditTarget& Target, const MonaImGui::PropertyEdit::FWidgetState& State) -> void
 			{
 				if (State.bDeactivatedAfterEdit && PropertyView.IsEditingTarget(Target)) PropertyView.FinishActiveEdit(&ViewContext, false);
 				else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditingTarget(Target))
 					PropertyView.FinishActiveEdit(&ViewContext, true);
 			}
 
-			static auto DrawAspectRatioMode(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext,
+			static auto DrawAspectRatioMode(FPropertyView& PropertyView, const FPropertyViewContext& ViewContext,
 				DCameraComponent& Camera, const FReflection& Reflection) -> void
 			{
 				const ECameraAspectRatioMode CurrentMode = Camera.GetAspectRatioMode();
@@ -268,8 +268,8 @@ namespace Durin::Editor::Level
 				ImGui::PopID();
 			}
 
-			static auto DrawFloatValue(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext,
-				void* Container, FProperty* Field, const ::Durin::Editor::FPropertyEditTarget& Target,
+			static auto DrawFloatValue(FPropertyView& PropertyView, const FPropertyViewContext& ViewContext,
+				void* Container, FProperty* Field, const FPropertyEditTarget& Target,
 				const char* Label, float Speed, float Min, float Max, const char* Format) -> void
 			{
 				float Value = *Field->ContainerPtrToValuePtr<float>(Container);
@@ -290,7 +290,7 @@ namespace Durin::Editor::Level
 				ImGui::PopID();
 			}
 
-			static auto DrawValue(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext,
+			static auto DrawValue(FPropertyView& PropertyView, const FPropertyViewContext& ViewContext,
 				DCameraComponent& Camera, const FReflection& Reflection, const char* Label, FProperty* Field,
 				float Speed, float Min, float Max, const char* Format) -> void
 			{
@@ -298,7 +298,7 @@ namespace Durin::Editor::Level
 					Reflection.MakeTarget(Camera, Field), Label, Speed, Min, Max, Format);
 			}
 
-			static auto DrawViewDistanceValue(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext,
+			static auto DrawViewDistanceValue(FPropertyView& PropertyView, const FPropertyViewContext& ViewContext,
 				DCameraComponent& Camera, const FReflection& Reflection, const char* Label, FProperty* Field,
 				float Speed, float Min, float Max, const char* Format) -> void
 			{

@@ -120,7 +120,7 @@ namespace Durin::Editor::Level
 			catch (...) { return false; }
 		}
 		// Restores before/after transforms for every target changed by one gizmo drag.
-		class FTransformTargetTransaction final : public ::Durin::Editor::FActorCommandChange
+		class FTransformTargetTransaction final : public FActorCommandChange
 		{
 		public:
 			struct FEntry
@@ -156,10 +156,10 @@ namespace Durin::Editor::Level
 				return Objects;
 			}
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
-			auto GetDetails(::Durin::ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ::Durin::ETransactionOperation::Undo); }
+			auto GetDetails(ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ETransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Replay(::Durin::ETransactionOperation Operation) -> ::Durin::Editor::FActorChangeResult override
-			{ return Apply(Operation != ::Durin::ETransactionOperation::Undo); }
+			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
+			{ return Apply(Operation != ETransactionOperation::Undo); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
 				for (const FEntry& Entry : Entries)
@@ -215,7 +215,7 @@ namespace Durin::Editor::Level
 				return Result;
 			}
 
-			auto Apply(bool bAfter) -> ::Durin::Editor::FActorChangeResult
+			auto Apply(bool bAfter) -> FActorChangeResult
 			{
 				std::vector<FTransform> Previous;
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
@@ -640,7 +640,7 @@ namespace Durin::Editor::Level
 		}
 	}
 
-	auto FTransformGizmo::FinishDrag(::Durin::DTransactor* Transactions) -> bool
+	auto FTransformGizmo::FinishDrag(DTransactor* Transactions) -> bool
 	{
 		if (!CheckPreviewOwnership()) { CancelDrag(); return false; }
 		const bool bChanged = std::ranges::any_of(Snapshots, [](const auto& Snapshot) {
@@ -678,14 +678,14 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool
+	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
 	{
 		const bool bSucceeded = Update(MakeActorTransformGizmoTargets(Context), View, Input, Transactions);
 		if (!bSucceeded) Context.SetError("Unable to apply or restore the transform gesture.");
 		return bSucceeded;
 	}
 
-	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool
+	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
 	{
 		if (GUndo || (Transactions && (!Transactions->CanTransact() || Transactions->IsActive())))
 		{

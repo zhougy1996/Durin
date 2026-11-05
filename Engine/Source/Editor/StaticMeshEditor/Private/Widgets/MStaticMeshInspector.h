@@ -3,8 +3,8 @@
 #include "CoreMinimal.h"
 
 #include "DObject/ObjectPtr.h"
-#include "Workspace/Workspace.h"
-#include "Workspace/WorkspaceRootWindow.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Documents/AssetEditorDocumentModels.h"
 #include "StaticMeshEditorAPI.h"
 #include "Widgets/StaticMeshPreview.h"
 
@@ -13,21 +13,21 @@ namespace Durin { class DStaticMesh; }
 namespace Durin::Editor::StaticMesh
 {
 	// Hosts read-only, per-resource StaticMesh inspection documents.
-	class MStaticMeshInspector final : public ::Durin::Editor::IWorkspace
+	class MStaticMeshInspector final : public IAssetEditorToolkit
 	{
 	public:
-		explicit MStaticMeshInspector(::Durin::Editor::FWorkspaceManager& InWorkspaceManager);
+		explicit MStaticMeshInspector(FEditorDocumentManager& InWorkspaceManager);
 		STATICMESHEDITOR_API ~MStaticMeshInspector() override;
-		STATICMESHEDITOR_API auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
-		STATICMESHEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
-		STATICMESHEDITOR_API auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
-		STATICMESHEDITOR_API auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
-		STATICMESHEDITOR_API auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override { return DocumentModel.SaveDocument(Document); }
-		STATICMESHEDITOR_API auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override { return DocumentModel.DiscardDocument(Document); }
-		STATICMESHEDITOR_API auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override { return DocumentModel.IsDocumentDirty(Document); }
+		STATICMESHEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
+		STATICMESHEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
+		STATICMESHEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
+		STATICMESHEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
+		STATICMESHEDITOR_API auto SaveDocument(const FEditorDocument& Document) -> bool override { return DocumentModel.SaveDocument(Document); }
+		STATICMESHEDITOR_API auto DiscardDocument(const FEditorDocument& Document) -> bool override { return DocumentModel.DiscardDocument(Document); }
+		STATICMESHEDITOR_API auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override { return DocumentModel.IsDocumentDirty(Document); }
 		STATICMESHEDITOR_API auto CanSaveActiveDocument() const -> bool override { return DocumentModel.CanSaveActiveDocument(); }
 		STATICMESHEDITOR_API auto SaveActiveDocument() -> bool override { return DocumentModel.SaveActiveDocument(); }
-		STATICMESHEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
+		STATICMESHEDITOR_API auto DrawToolkit(bool bActive) -> bool override;
 		STATICMESHEDITOR_API auto ResetLayout() -> void override;
 
 	private:
@@ -41,13 +41,13 @@ namespace Durin::Editor::StaticMesh
 
 		auto FindState(std::string_view ResourceId) -> FDocumentState*;
 		auto FindState(std::string_view ResourceId) const -> const FDocumentState*;
-		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, FDocumentState& State) -> void;
-		auto DrawDetails(const ::Durin::Editor::FDocumentTab& Document, FDocumentState& State, float Height) -> void;
+		auto DrawDocument(const FEditorDocument& Document, FDocumentState& State) -> void;
+		auto DrawDetails(const FEditorDocument& Document, FDocumentState& State, float Height) -> void;
 		auto DrawPreview(FDocumentState& State, float Height) -> void;
 
-		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
+		FEditorDocumentManager& DocumentManager;
 		std::unordered_map<std::string, FDocumentState> Documents;
-		::Durin::Editor::FReadOnlyAssetDocumentModel DocumentModel;
+		FReadOnlyAssetDocumentModel DocumentModel;
 		std::string ErrorMessage;
 		float PreviewPaneRatio = 0.70f;
 	};

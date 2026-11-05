@@ -32,15 +32,15 @@ namespace Durin::Editor::MainFrame
 			return "Unknown";
 		}
 
-		auto StateName(Editor::EAssetCompatibilityAuditState Value) -> const char*
+		auto StateName(EAssetCompatibilityAuditState Value) -> const char*
 		{
 			switch (Value)
 			{
-			case Editor::EAssetCompatibilityAuditState::Idle: return "Ready to run";
-			case Editor::EAssetCompatibilityAuditState::Running: return "Running";
-			case Editor::EAssetCompatibilityAuditState::Completed: return "Completed";
-			case Editor::EAssetCompatibilityAuditState::Cancelled: return "Cancelled";
-			case Editor::EAssetCompatibilityAuditState::Failed: return "Failed";
+			case EAssetCompatibilityAuditState::Idle: return "Ready to run";
+			case EAssetCompatibilityAuditState::Running: return "Running";
+			case EAssetCompatibilityAuditState::Completed: return "Completed";
+			case EAssetCompatibilityAuditState::Cancelled: return "Cancelled";
+			case EAssetCompatibilityAuditState::Failed: return "Failed";
 			}
 			return "Unknown";
 		}
@@ -97,7 +97,7 @@ namespace Durin::Editor::MainFrame
 			ActiveProjectFile = ProjectFile;
 		}
 		bAllowAssetWrites = bInAllowAssetWrites;
-		if (Audit.GetState() == Editor::EAssetCompatibilityAuditState::Idle && !PendingMaintenancePlan) return;
+		if (Audit.GetState() == EAssetCompatibilityAuditState::Idle && !PendingMaintenancePlan) return;
 		Audit.Tick();
 		const uint64 Revision = GetAssetCatalogRevision();
 		if (!ReconciledCatalogRevision || *ReconciledCatalogRevision != Revision)
@@ -130,12 +130,12 @@ namespace Durin::Editor::MainFrame
 			return;
 		}
 		const auto State = Audit.GetState();
-		const bool bChecking = State == Editor::EAssetCompatibilityAuditState::Running;
+		const bool bChecking = State == EAssetCompatibilityAuditState::Running;
 		const bool bApplying = PendingMaintenancePlan.has_value();
 		ImGui::TextWrapped("Check this project's assets, review recommended upgrades, then confirm which files to rewrite. "
 			"Opening a project or this window does not scan or rewrite assets.");
 		ImGui::BeginDisabled(bChecking || bApplying || PreviewMaintenancePlan.has_value());
-		if (ImGui::Button(State == Editor::EAssetCompatibilityAuditState::Idle ? "Check Project Assets" : "Check Again"))
+		if (ImGui::Button(State == EAssetCompatibilityAuditState::Idle ? "Check Project Assets" : "Check Again"))
 		{
 			if (RefreshCatalog()) RunAudit();
 		}
@@ -157,7 +157,7 @@ namespace Durin::Editor::MainFrame
 		const uint64 Revision = Audit.GetPresentationRevision();
 		if (!SummaryPresentationRevision || *SummaryPresentationRevision != Revision)
 		{
-			PresentationCounts = Editor::CountAssetCompatibilityAuditRecords(Records);
+			PresentationCounts = CountAssetCompatibilityAuditRecords(Records);
 			CanonicalDebt = static_cast<size_t>(std::ranges::count_if(Records, IsCanonicalResaveRecommended));
 			SummaryPresentationRevision = Revision;
 		}
@@ -173,18 +173,18 @@ namespace Durin::Editor::MainFrame
 				.Message = std::format("Upgraded {} / {} packages", MaintenanceCompleted, Total),
 				.Fraction = Total ? double(MaintenanceCompleted) / double(Total) : 1.0,
 				.bCanCancel = true, .bCancelRequested = bCancelMaintenance};
-			if (Editor::DrawSlowTaskProgress(Progress, true, false)) bCancelMaintenance = true;
+			if (DrawSlowTaskProgress(Progress, true, false)) bCancelMaintenance = true;
 		}
 		if (!MaintenanceMessage.empty())
 		{
 			ImGui::TextWrapped("%s", MaintenanceMessage.c_str());
 			if (ImGui::SmallButton("Copy Upgrade Result")) ImGui::SetClipboardText(MaintenanceMessage.c_str());
 		}
-		if (State == Editor::EAssetCompatibilityAuditState::Failed) ImGui::TextWrapped("Check failed: %s", Audit.GetFailure().c_str());
-		if (State == Editor::EAssetCompatibilityAuditState::Cancelled)
+		if (State == EAssetCompatibilityAuditState::Failed) ImGui::TextWrapped("Check failed: %s", Audit.GetFailure().c_str());
+		if (State == EAssetCompatibilityAuditState::Cancelled)
 			ImGui::TextDisabled("Check cancelled. Completed results are retained; unchecked assets cannot be upgraded.");
-		if (State == Editor::EAssetCompatibilityAuditState::Completed && Records.empty()) ImGui::TextDisabled("No registered packages to check.");
-		const bool bCanPlan = State == Editor::EAssetCompatibilityAuditState::Completed && !bApplying && !PreviewMaintenancePlan;
+		if (State == EAssetCompatibilityAuditState::Completed && Records.empty()) ImGui::TextDisabled("No registered packages to check.");
+		const bool bCanPlan = State == EAssetCompatibilityAuditState::Completed && !bApplying && !PreviewMaintenancePlan;
 		ImGui::BeginDisabled(!bCanPlan || CanonicalDebt == 0 || !bAllowAssetWrites);
 		if (ImGui::Button("Preview Recommended Upgrades"))
 		{
@@ -213,7 +213,7 @@ namespace Durin::Editor::MainFrame
 			FilteredPresentationRevision = Revision;
 		}
 		if (ImGui::SmallButton("Copy Check Report")) CopyCheckReport();
-		if (State == Editor::EAssetCompatibilityAuditState::Completed && FilteredRecordIndices.empty())
+		if (State == EAssetCompatibilityAuditState::Completed && FilteredRecordIndices.empty())
 			ImGui::TextDisabled("No upgrade recommendations or compatibility issues were found.");
 		if (ImGui::BeginTable("CompatibilityRows", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY,
 			ImVec2(0.0f, -MonaImGui::ScaleUI(205.0f))))
@@ -387,7 +387,7 @@ namespace Durin::Editor::MainFrame
 
 	auto FAssetCompatibilityWindow::CopyCheckReport() const -> void
 	{
-		const std::string Report = Editor::FormatAssetCompatibilityAuditReport(Audit.GetPresentationRecords());
+		const std::string Report = FormatAssetCompatibilityAuditReport(Audit.GetPresentationRecords());
 		ImGui::SetClipboardText(Report.c_str());
 	}
 
@@ -425,7 +425,7 @@ namespace Durin::Editor::MainFrame
 		std::string Scope) -> void
 	{
 		if (PendingMaintenancePlan
-			|| Audit.GetState() != Editor::EAssetCompatibilityAuditState::Completed) return;
+			|| Audit.GetState() != EAssetCompatibilityAuditState::Completed) return;
 		PreviewMaintenanceSelection = Selection;
 		PreviewMaintenanceScope = std::move(Scope);
 		PreviewMaintenancePlan = PlanAssetCanonicalResaves(
@@ -509,7 +509,7 @@ namespace Durin::Editor::MainFrame
 	{
 		const auto* Record = Audit.FindRecord(SelectedPath);
 		if (!Record) return;
-		const std::string Text = Editor::FormatAssetCompatibilityAuditDiagnostics(*Record);
+		const std::string Text = FormatAssetCompatibilityAuditDiagnostics(*Record);
 		ImGui::SetClipboardText(Text.c_str());
 	}
 }

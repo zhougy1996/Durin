@@ -96,7 +96,7 @@ namespace Durin::Editor::Level
 		std::string PendingProjectFile;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
 		bool bShowLoadingProgress = false;
-		::Durin::Editor::FSlowTaskDialogPresenter LoadingDialog;
+		FSlowTaskDialogPresenter LoadingDialog;
 		// Deferred completion must not borrow a controller after its document closes.
 		std::shared_ptr<void> CallbackLifetime = std::make_shared<uint8>(0);
 		TWeakObjectPtr<DPackage> DocumentPackage;

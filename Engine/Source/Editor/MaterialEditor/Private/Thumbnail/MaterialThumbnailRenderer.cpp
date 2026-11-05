@@ -25,7 +25,7 @@ namespace Durin::Editor::Material
 		constexpr float MaterialThumbnailSphereScale = 1.65f;
 
 		class FMaterialThumbnailGenerationInput final
-			: public ::Durin::Editor::IAssetThumbnailGenerationInput
+			: public IAssetThumbnailGenerationInput
 		{
 		public:
 			explicit FMaterialThumbnailGenerationInput(FTopLevelAssetPath InAssetPath)
@@ -38,7 +38,7 @@ namespace Durin::Editor::Material
 
 		auto MakeFingerprint(const FAssetData& Data,
 			FTopLevelAssetPath AssetPath = {})
-			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
+			-> FAssetThumbnailPackageFingerprint
 		{
 			return {
 				.AssetPath = std::move(AssetPath),
@@ -130,9 +130,9 @@ namespace Durin::Editor::Material
 			return Package->GetEditRevision();
 		}
 
-		auto MakeMaterialPreviewView() -> ::Durin::Editor::FThumbnailPreviewView
+		auto MakeMaterialPreviewView() -> FThumbnailPreviewView
 		{
-			const ::Durin::Editor::FThumbnailVisualContract Contract;
+			const FThumbnailVisualContract Contract;
 			const FVector3 Eye = Math::Normalize(FVector3(
 				Contract.CameraDirectionX,
 				Contract.CameraDirectionY,
@@ -156,7 +156,7 @@ namespace Durin::Editor::Material
 		}
 
 		class FMaterialThumbnailGenerationSession final
-			: public ::Durin::Editor::IThumbnailRendererSession
+			: public IThumbnailRendererSession
 		{
 		public:
 			FMaterialThumbnailGenerationSession(
@@ -172,14 +172,14 @@ namespace Durin::Editor::Material
 				ResetPreview();
 			}
 
-			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
+			auto Load() -> FThumbnailRendererSessionUpdate override
 			{
 				ResetPreview();
 				MaterialLoad = RequestAsyncLoad(AssetPath, {}, DMaterialInterface::StaticClass());
-				return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+				return {.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 
-			auto FinishLoad() -> ::Durin::Editor::FThumbnailRendererSessionUpdate
+			auto FinishLoad() -> FThumbnailRendererSessionUpdate
 			{
 				std::string SphereError;
 				const auto& Result = MaterialLoad->GetResult();
@@ -189,7 +189,7 @@ namespace Durin::Editor::Material
 				{
 					Material = nullptr;
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailRendererSessionState::Failed,
 						.Diagnostic = (Result ? std::string{} : Result.error().Message).empty()
 							? "The requested asset is not an exact material class."
 							: (Result ? std::string{} : Result.error().Message)};
@@ -198,25 +198,25 @@ namespace Durin::Editor::Material
 					Instance != nullptr && Instance->GetParent() == nullptr)
 				{
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailRendererSessionState::Failed,
 						.Diagnostic = "The material instance has no valid parent."};
 				}
 				if (!SphereLoad)
 				{
 					FObjectPath SpherePath;
 					if (!FObjectPath::TryCreate(
-						::Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath))
+						FThumbnailVisualContract::SphereAssetPath, SpherePath))
 						return {.Diagnostic = "The thumbnail sphere path is invalid."};
 					SphereLoad = RequestAsyncLoad(SpherePath, {}, DStaticMesh::StaticClass());
 				}
 				if (!SphereLoad->IsComplete())
-					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+					return {.State = EThumbnailRendererSessionState::WaitingForResources};
 				SphereError = (SphereLoad->GetResult() ? std::string{} : SphereLoad->GetResult().error().Message);
 				if (!SphereLoad->GetResult()
 					|| (Sphere = Cast<DStaticMesh>(SphereLoad->GetLoadedObject())) == nullptr)
 				{
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailRendererSessionState::Failed,
 						.Diagnostic = SphereError.empty()
 							? "The rendered-thumbnail sphere mesh is unavailable."
 							: std::move(SphereError)};
@@ -225,20 +225,20 @@ namespace Durin::Editor::Material
 				if (!Revision)
 				{
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailRendererSessionState::Failed,
 						.Diagnostic = Revision.error()};
 				}
 				AssetRevision = *Revision;
 				bAssetsLoaded = true;
 				return {
-					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+					.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 
-			auto PollResources() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
+			auto PollResources() -> FThumbnailRendererSessionUpdate override
 			{
 				if (!MaterialLoad) return {.Diagnostic = "The thumbnail load was reset."};
 				if (!MaterialLoad->IsComplete())
-					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+					return {.State = EThumbnailRendererSessionState::WaitingForResources};
 				if (!bAssetsLoaded)
 				{
 					const auto Loaded = FinishLoad();
@@ -254,19 +254,19 @@ namespace Durin::Editor::Material
 				auto Resource = GetMaterialResourceSnapshot(Material);
 				if (!Resource)
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailRendererSessionState::Failed,
 						.Diagnostic = std::move(Resource.error())};
 				if (!Resource->bReady)
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+						.State = EThumbnailRendererSessionState::WaitingForResources};
 				if (Sphere == nullptr)
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailRendererSessionState::Failed,
 						.Diagnostic = "The rendered-thumbnail sphere mesh is unavailable."};
 				// PostLoad schedules mesh compilation; asset residency does not imply render data is ready.
 				if (Sphere->IsCompiling())
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+						.State = EThumbnailRendererSessionState::WaitingForResources};
 				FStaticMeshRenderResourceStatus SphereStatus =
 					Sphere->GetRenderResourceStatus();
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
@@ -275,16 +275,16 @@ namespace Durin::Editor::Material
 					if (LoadStatus.CpuPhase == ECookedMeshCpuPhase::Failed
 						|| LoadStatus.CpuPhase == ECookedMeshCpuPhase::Cancelled)
 						return {
-							.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+							.State = EThumbnailRendererSessionState::Failed,
 							.Diagnostic = "The thumbnail sphere render data could not be loaded."};
 					if (!LoadStatus.HasCpuData())
-						return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+						return {.State = EThumbnailRendererSessionState::WaitingForResources};
 					SphereStatus = Sphere->GetRenderResourceStatus();
 				}
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::InvalidData
 					|| SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailRendererSessionState::Failed,
 						.Diagnostic = "The rendered-thumbnail sphere render resource is unavailable."};
 				const bool bSphereReady = SphereStatus.Readiness
 					== EStaticMeshRenderResourceReadiness::Ready;
@@ -292,12 +292,12 @@ namespace Durin::Editor::Material
 				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
 				return {
 					.State = Resource->bReady && bSphereReady && *ShaderReady
-						? ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender
-						: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+						? EThumbnailRendererSessionState::ReadyToRender
+						: EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PreparePreview(
-				::Durin::Editor::IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
+				IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
 			{
 				ResetScenePreview();
 				if (!Material) { return std::unexpected("The material is unavailable."); }
@@ -447,7 +447,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto DMaterialThumbnailRenderer::GetRegistration() const
-		-> ::Durin::Editor::FThumbnailRenderingInfo
+		-> FThumbnailRenderingInfo
 	{
 		return {
 			.AssetClassName = AssetClassName,
@@ -456,10 +456,10 @@ namespace Durin::Editor::Material
 	}
 
 	auto DMaterialThumbnailRenderer::CaptureGenerationRequest(
-		const ::Durin::Editor::FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration) -> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string>
+		const FAssetThumbnailRequest& Request,
+		uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>
 	{
-		::Durin::Editor::FAssetThumbnailGenerationRequest GenerationRequest;
+		FAssetThumbnailGenerationRequest GenerationRequest;
 
 		if (Request.Asset.AssetClassName != AssetClassName)
 		{
@@ -491,19 +491,19 @@ namespace Durin::Editor::Material
 				"Material thumbnail registry data changed for {}; refresh the request snapshot.",
 				Request.Asset.AssetPath.ToString()));
 		}
-		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
+		std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
 		Dependencies.reserve(Closure.Assets.size() - 1);
 		for (const FAssetData& Data : Closure.Assets)
 			if (Data.PackagePath != Request.Asset.PackagePath)
 				Dependencies.push_back(MakeFingerprint(Data));
 
-		const ::Durin::Editor::FThumbnailVisualContract Visual;
+		const FThumbnailVisualContract Visual;
 		GenerationRequest.KeyInput = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity = std::string(
-				::Durin::Editor::FThumbnailVisualContract::SphereAssetPath),
+				FThumbnailVisualContract::SphereAssetPath),
 			.PreviewFixtureVersion =
-				::Durin::Editor::FThumbnailVisualContract::SphereFixtureVersion,
+				FThumbnailVisualContract::SphereFixtureVersion,
 			.ShaderContractVersion = MaterialThumbnailShaderContract,
 			.Dependencies = std::move(Dependencies)};
 		GenerationRequest.Input =
@@ -514,9 +514,9 @@ namespace Durin::Editor::Material
 	}
 
 	auto DMaterialThumbnailRenderer::CreateGenerationSession(
-		const ::Durin::Editor::FAssetThumbnailGenerationRequest&,
-		const ::Durin::Editor::IAssetThumbnailGenerationInput& Input)
-		-> std::expected<std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>, std::string>
+		const FAssetThumbnailGenerationRequest&,
+		const IAssetThumbnailGenerationInput& Input)
+		-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>
 	{
 		const auto* MaterialInput = dynamic_cast<const FMaterialThumbnailGenerationInput*>(&Input);
 		if (MaterialInput == nullptr)

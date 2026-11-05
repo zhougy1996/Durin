@@ -25,8 +25,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		CancelPendingSnapshots();
 		// Module code must remain loaded until both owned worker bodies have exited.
-		if (ItemsTask.IsValid()) (void)WaitTask(Durin::Tasks::FTask(ItemsTask));
-		if (TreeTask.IsValid()) (void)WaitTask(Durin::Tasks::FTask(TreeTask));
+		if (ItemsTask.IsValid()) (void)WaitTask(Tasks::FTask(ItemsTask));
+		if (TreeTask.IsValid()) (void)WaitTask(Tasks::FTask(TreeTask));
 	}
 
 	auto FContentBrowserModel::InvalidateDirectoryTree() -> void
@@ -146,8 +146,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		do
 		{
 			(void)PumpPendingSnapshots();
-			if (ItemsTask.IsValid()) (void)WaitTask(Durin::Tasks::FTask(ItemsTask));
-			if (TreeTask.IsValid()) (void)WaitTask(Durin::Tasks::FTask(TreeTask));
+			if (ItemsTask.IsValid()) (void)WaitTask(Tasks::FTask(ItemsTask));
+			if (TreeTask.IsValid()) (void)WaitTask(Tasks::FTask(TreeTask));
 		} while (ItemsTask.IsValid() || TreeTask.IsValid() || IsLoading()
 			|| (bAsync && !RequestedDirectoryChildrenSnapshots.empty()));
 	}
@@ -423,7 +423,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				Item.VirtualPath = PhysicalToVirtualDirectory(Item.PhysicalPath);
 			if ((Item.Kind == EContentBrowserItemKind::Asset
 				|| Item.Kind == EContentBrowserItemKind::Redirector)
-				&& ::Durin::Editor::GetDefaultThumbnailManager().Find(Item.AssetClassName))
+				&& GetDefaultThumbnailManager().Find(Item.AssetClassName))
 				Item.ThumbnailIdentity = Item.VirtualPath;
 		}
 		// Tree completions may have published diagnostics while item I/O was pending.

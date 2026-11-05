@@ -342,7 +342,7 @@ namespace Durin
 						|| !Visited.insert(Edge.SourcePackage).second) continue;
 					const auto* Alias = PreparedSnapshot.Catalog.FindExact(Edge.SourcePackage);
 					if (!Alias || Alias->EntryKind != EAssetRegistryEntryKind::Redirector) continue;
-					const auto Resolution = Durin::ResolveAssetPathForOperation(Edge.SourcePackage);
+					const auto Resolution = ResolveAssetPathForOperation(Edge.SourcePackage);
 					if (!Resolution || Resolution.FinalPath != Target) continue;
 					RedirectorsByTarget[Target].push_back(Edge.SourcePackage);
 					Pending.push_back(Edge.SourcePackage);
@@ -362,7 +362,7 @@ namespace Durin
 			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
 			{
 				const FAssetPathResolveResult Resolution =
-					Durin::ResolveAssetPathForOperation(Path);
+					ResolveAssetPathForOperation(Path);
 				if (!Resolution || !DeletionSet.contains(Resolution.FinalPath))
 				{
 					const FPackagePath Related = Resolution.FinalPath.IsValid()

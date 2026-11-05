@@ -11,8 +11,10 @@
 #include "Tools/NamePoolToolset.h"
 #include "Modules/ModularFeature.h"
 
-#include "Workspace/WorkspaceManager.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Documents/EditorDocumentManager.h"
+#include "Documents/EditorDocumentUI.h"
+#include "Toolkits/AssetEditorModule.h"
+#include "Framework/TabLayout.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/HostStartup.h"
 #include "Subsystems/AssetEditorSubsystem.h"
@@ -60,16 +62,26 @@ namespace Durin::Editor::MainFrame
 			// Release every UI-held FAssetThumbnail reference before renderer
 			// registrations and their owning modules begin retirement.
 			ContentBrowserTool.reset();
-			if (WorkspaceManager) WorkspaceManager->UnregisterProviders();
+			ReleaseAssetEditors();
 			if (LevelEditorModule)
 				LevelEditorModule->UnregisterLevelEditorWorkspace();
-			Editor::GetDefaultThumbnailManager().ResetSharedPool();
-			WorkspaceManager.reset();
+			GetDefaultThumbnailManager().ResetSharedPool();
+			DocumentManager.reset();
 			Activity.reset();
 			Console.reset();
 		}
 
-		Editor::FSlowTaskDialogPresenter SlowTaskDialogs;
+		auto ReleaseAssetEditors() -> void
+		{
+			for (auto It = AssetEditorModules.rbegin(); It != AssetEditorModules.rend(); ++It)
+				if (FModuleManager::Get().IsModuleLoaded(*It))
+					if (auto* Module = FModuleManager::Get().GetModule(*It))
+						static_cast<IAssetEditorModule*>(Module)->UnregisterToolkits();
+			AssetEditorModules.clear();
+		}
+		std::vector<FName> AssetEditorModules;
+
+		FSlowTaskDialogPresenter SlowTaskDialogs;
 		TWeakObjectPtr<DEditorEngine> Editor;
 		bool bHasProject = false;
 		bool bProjectBrowserOpen = false;
@@ -79,12 +91,12 @@ namespace Durin::Editor::MainFrame
 		std::shared_ptr<MWindow> RootWindow;
 		TRefCountPtr<FRHIViewport> ShellViewport;
 		uint64 ShellPresentationBaseline = 0;
-		std::shared_ptr<Editor::FWorkspaceManager> WorkspaceManager;
+		std::shared_ptr<FEditorDocumentManager> DocumentManager;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		std::shared_ptr<FProjectBrowser> ProjectBrowser;
 		std::unique_ptr<FEditorBrandTexture> BrandTexture;
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
-		::Durin::FLevelEditorModule* LevelEditorModule = nullptr;
+		FLevelEditorModule* LevelEditorModule = nullptr;
 		std::unique_ptr<ContentBrowser::IContentBrowserTool> ContentBrowserTool;
 		std::shared_ptr<ContentBrowser::FMountedContentReconciliationState> ContentReconciliation =
 			std::make_shared<ContentBrowser::FMountedContentReconciliationState>();
@@ -201,16 +213,16 @@ namespace Durin::Editor::MainFrame
 
 		auto RegisterEditorWorkspaces(
 			FMainFrameContext& Context,
-			Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::FLevelEditorModule& LevelEditorModule,
-			Editor::DThumbnailManager& ThumbnailManager
+			FEditorDocumentManager& DocumentManager,
+			FLevelEditorModule& LevelEditorModule,
+			DThumbnailManager& ThumbnailManager
 		) -> bool
 		{
-			const Editor::FImportDialogCallbacks ImportCallbacks{
+			const FImportDialogCallbacks ImportCallbacks{
 				.ReportError = [](std::string Message) {
 					if (GEditor)
 						GEditor->GetNotificationManager().Post({
-							.Type = Editor::ENotificationType::Error,
+							.Type = ENotificationType::Error,
 							.Message = std::move(Message)});
 				},
 				.AssetCreated = [&Context](std::string AssetPath) {
@@ -225,7 +237,7 @@ namespace Durin::Editor::MainFrame
 				},
 			};
 			if (!LevelEditorModule.RegisterLevelEditorWorkspace(
-				WorkspaceManager, ThumbnailManager,
+				DocumentManager, ThumbnailManager,
 				{
 					.RevealAsset = [&Context](std::string_view Path) {
 						return Context.ContentBrowserTool
@@ -241,9 +253,28 @@ namespace Durin::Editor::MainFrame
 					},
 				},
 				[&Context] { Context.bProjectBrowserOpen = true; })) return false;
-			if (WorkspaceManager.RegisterProviders(ThumbnailManager, ImportCallbacks)
-				&& WorkspaceManager.OpenDefaultWorkspaces()) return true;
-			WorkspaceManager.UnregisterProviders();
+			bool bRegistered = true;
+			for (const auto* Name : {"MaterialEditor", "TextureEditor", "StaticMeshEditor"})
+			{
+				auto& Module = FModuleManager::LoadModuleChecked<IAssetEditorModule>(Name);
+				bool bModuleRegistered = false;
+				try { bModuleRegistered = Module.RegisterToolkits(DocumentManager, ThumbnailManager, ImportCallbacks); }
+				catch (...)
+				{
+					Module.UnregisterToolkits();
+					Context.ReleaseAssetEditors();
+					LevelEditorModule.UnregisterLevelEditorWorkspace();
+					throw;
+				}
+				if (!bModuleRegistered)
+				{
+					bRegistered = false;
+					break;
+				}
+				Context.AssetEditorModules.emplace_back(Name);
+			}
+			if (bRegistered && DocumentManager.OpenDefaultToolkits()) return true;
+			Context.ReleaseAssetEditors();
 			LevelEditorModule.UnregisterLevelEditorWorkspace();
 			return false;
 		}
@@ -259,17 +290,14 @@ namespace Durin::Editor::MainFrame
 				FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 				FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-				Editor::DThumbnailManager& ThumbnailManager =
-					Editor::GetDefaultThumbnailManager();
-				::Durin::FLevelEditorModule& LevelEditorModule =
-					FModuleManager::LoadModuleChecked<::Durin::FLevelEditorModule>("LevelEditor");
-				FModuleManager::Get().LoadModuleChecked("MaterialEditor");
-				FModuleManager::Get().LoadModuleChecked("TextureEditor");
-				FModuleManager::Get().LoadModuleChecked("StaticMeshEditor");
+				DThumbnailManager& ThumbnailManager =
+					GetDefaultThumbnailManager();
+				FLevelEditorModule& LevelEditorModule =
+					FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 				Context.LevelEditorModule = &LevelEditorModule;
 				bWorkspaceReady = RegisterEditorWorkspaces(
 					Context,
-					*Context.WorkspaceManager,
+					*Context.DocumentManager,
 					LevelEditorModule,
 					ThumbnailManager);
 				if (bWorkspaceReady)
@@ -348,9 +376,9 @@ namespace Durin::Editor::MainFrame
 		auto DrawExitConfirmation(FMainFrameContext& Context) -> void
 		{
 			if (!Context.bExitRequested) return;
-			auto& Manager = *Context.WorkspaceManager;
+			auto& Manager = *Context.DocumentManager;
 			const bool bPrepared = Manager.PrepareForExit();
-			const bool bDirty = std::ranges::any_of(Manager.GetDocuments(), &Editor::FDocumentTab::bDirty);
+			const bool bDirty = std::ranges::any_of(Manager.GetDocuments(), &FEditorDocument::bDirty);
 			if (bPrepared && !bDirty && !Context.bExitSaveFailed)
 			{
 				Context.bExitRequested = false;
@@ -425,33 +453,33 @@ namespace Durin::Editor::MainFrame
 			const float ContentHeight = MonaImGui::ScaleUI(100.0f);
 			ImGui::SetCursorPos({ContentOrigin.x + std::max(0.0f, (Available.x - ContentWidth) * 0.5f),
 				ContentOrigin.y + std::max(0.0f, (Available.y - ContentHeight) * 0.5f)});
-			Editor::DrawSlowTaskProgress(Feedback, false, bShowElapsed);
+			DrawSlowTaskProgress(Feedback, false, bShowElapsed);
 			ImGui::End();
 		}
 
 		auto BuildDefaultMainFrameLayout(
 			ImGuiID DockSpaceId,
 			const ImVec2& DockSpaceSize,
-			const std::vector<Editor::FWorkspaceDescriptor>& Descriptors
+			const std::vector<FAssetEditorToolkitDescriptor>& Descriptors
 		) -> void
 		{
 			ImGui::DockBuilderRemoveNode(DockSpaceId);
 			ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace | ImGuiDockNodeFlags_NoWindowMenuButton);
 			ImGui::DockBuilderSetNodeSize(DockSpaceId, DockSpaceSize);
 			if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
-				DockSpaceNode->WindowClass = Editor::WorkspaceUI::MakeRootWindowClass();
+				DockSpaceNode->WindowClass = TabLayout::MakeRootWindowClass();
 			ImGuiID CenterDockId = DockSpaceId;
 			ImGuiID ToolDockId = 0;
 			ImGui::DockBuilderSplitNode(
 				DockSpaceId, ImGuiDir_Down, 0.28f, &ToolDockId, &CenterDockId);
 			ImGui::DockBuilderDockWindow(
 				"Content Browser###Durin.EditorHost.ContentBrowser", ToolDockId);
-			for (const Editor::FWorkspaceDescriptor& Descriptor : Descriptors)
+			for (const FAssetEditorToolkitDescriptor& Descriptor : Descriptors)
 			{
 				// Per-resource windows do not exist during the initial layout build; their root helper
 				// applies the same host preference when each document first appears.
-				if (Descriptor.DefaultHostDockPreference != Editor::EWorkspaceHostDockPreference::Center || !Descriptor.HasSingletonDocument()) continue;
-				const std::string RootWindowName = Editor::WorkspaceUI::MakeRootWindowName(Descriptor.DisplayName, Descriptor.RootKey);
+				if (Descriptor.DefaultHostDockPreference != EToolkitHostDockPreference::Center || !Descriptor.HasSingletonDocument()) continue;
+				const std::string RootWindowName = TabLayout::MakeRootWindowName(Descriptor.DisplayName, Descriptor.RootKey);
 				ImGui::DockBuilderDockWindow(RootWindowName.c_str(), CenterDockId);
 			}
 			ImGui::DockBuilderFinish(DockSpaceId);
@@ -505,28 +533,28 @@ namespace Durin::Editor::MainFrame
 			ImGui::EndMenu();
 		}
 
-		auto DrawOpenEditorsMenu(Editor::FWorkspaceManager& WorkspaceManager) -> void
+		auto DrawOpenEditorsMenu(FEditorDocumentManager& DocumentManager) -> void
 		{
 			if (!ImGui::BeginMenu("Editors")) return;
 
-			const std::vector<Editor::FDocumentTab>& Documents = WorkspaceManager.GetDocuments();
-			const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+			const std::vector<FEditorDocument>& Documents = DocumentManager.GetDocuments();
+			const FEditorDocument* ActiveDocument = DocumentManager.GetActiveDocument();
 			if (Documents.empty()) ImGui::MenuItem("No Open Editors", nullptr, false, false);
-			for (const Editor::FDocumentTab& Document : Documents)
+			for (const FEditorDocument& Document : Documents)
 			{
 				const std::string DisplayLabel = Document.bDirty ? std::format("{} *", Document.Label) : Document.Label;
 				const std::string MenuLabel = std::format("{}###Durin.Editor.DocumentMenu.{}", DisplayLabel, Document.Id.Value);
 				const bool bActive = ActiveDocument && ActiveDocument->Id == Document.Id;
 				if (ImGui::MenuItem(MenuLabel.c_str(), nullptr, bActive) && !bActive)
-					WorkspaceManager.ActivateDocument(Document.Id);
+					DocumentManager.ActivateDocument(Document.Id);
 			}
 
 			bool bDrewOpenCommand = false;
-			for (const Editor::FWorkspaceDescriptor& Descriptor : WorkspaceManager.GetWorkspaceDescriptors())
+			for (const FAssetEditorToolkitDescriptor& Descriptor : DocumentManager.GetToolkitDescriptors())
 			{
 				if (!Descriptor.bShowInWindowMenu || !Descriptor.HasSingletonDocument()) continue;
-				const bool bDocumentOpen = std::ranges::any_of(Documents, [&](const Editor::FDocumentTab& Document) {
-					return Document.WorkspaceType == Descriptor.WorkspaceType
+				const bool bDocumentOpen = std::ranges::any_of(Documents, [&](const FEditorDocument& Document) {
+					return Document.ToolkitId == Descriptor.ToolkitId
 						&& Document.DocumentKey == Descriptor.SingletonDocumentKey;
 				});
 				if (bDocumentOpen) continue;
@@ -540,8 +568,8 @@ namespace Durin::Editor::MainFrame
 				);
 				if (ImGui::MenuItem(MenuLabel.c_str()))
 				{
-					WorkspaceManager.OpenDocument({
-						.WorkspaceType = Descriptor.WorkspaceType,
+					DocumentManager.OpenDocument({
+						.ToolkitId = Descriptor.ToolkitId,
 						.DocumentKey = Descriptor.SingletonDocumentKey,
 						.Label = Descriptor.SingletonDocumentLabel,
 						.bClosable = Descriptor.bSingletonDocumentClosable,
@@ -552,17 +580,17 @@ namespace Durin::Editor::MainFrame
 		}
 
 		auto DrawWorkspaceMenus(
-			Editor::FWorkspaceManager& WorkspaceManager,
-			const std::shared_ptr<Editor::IWorkspace>& ActiveWorkspace,
+			FEditorDocumentManager& DocumentManager,
+			const std::shared_ptr<IAssetEditorToolkit>& ActiveWorkspace,
 			FMainFrameViewState& ViewState) -> void
 		{
-			const std::vector<std::shared_ptr<Editor::IWorkspace>> Workspaces = WorkspaceManager.GetRegisteredWorkspaces();
+			const std::vector<std::shared_ptr<IAssetEditorToolkit>> Toolkits = DocumentManager.GetRegisteredToolkits();
 			if (ImGui::BeginMenu("File"))
 			{
 				if (ImGui::MenuItem("Save Current", "Ctrl+S", false, ActiveWorkspace && ActiveWorkspace->CanSaveActiveDocument()))
 					ActiveWorkspace->SaveActiveDocument();
 				ImGui::Separator();
-				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawFileMenu();
+				for (const std::shared_ptr<IAssetEditorToolkit>& Workspace : Toolkits) Workspace->DrawFileMenu();
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Edit"))
@@ -577,13 +605,13 @@ namespace Durin::Editor::MainFrame
 				if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, bCanRedo)) ActiveWorkspace->Redo();
 				ImGui::Separator();
 				if (ImGui::MenuItem("Editor Preferences...")) FEditorSettingsRegistry::Get().RequestOpen("editor.appearance");
-				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
+				for (const std::shared_ptr<IAssetEditorToolkit>& Workspace : Toolkits) Workspace->DrawEditMenu();
 				ImGui::EndMenu();
 			}
 			DrawToolsMenu(ViewState.bAssetUpgradeOpen);
 			if (ImGui::BeginMenu("Window"))
 			{
-				DrawOpenEditorsMenu(WorkspaceManager);
+				DrawOpenEditorsMenu(DocumentManager);
 				ImGui::Separator();
 				ImGui::MenuItem("Content Browser", "Ctrl+Space",
 					&ViewState.bContentBrowserOpen);
@@ -610,7 +638,7 @@ namespace Durin::Editor::MainFrame
 		}
 
 		auto DrawCustomEditorTitleBar(
-			Editor::FWorkspaceManager& WorkspaceManager,
+			FEditorDocumentManager& DocumentManager,
 			MWindow& RootWindow,
 			const FRHITexture* BrandTexture,
 			bool bDrawWorkspaceMenus,
@@ -723,13 +751,13 @@ namespace Durin::Editor::MainFrame
 			}
 
 			const float FirstMenuX = ImGui::GetCursorScreenPos().x;
-			std::shared_ptr<Editor::IWorkspace> ActiveWorkspace;
-			if (const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
-				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
+			std::shared_ptr<IAssetEditorToolkit> ActiveWorkspace;
+			if (const FEditorDocument* ActiveDocument = DocumentManager.GetActiveDocument())
+				ActiveWorkspace = DocumentManager.FindToolkit(ActiveDocument->ToolkitId);
 			if (bDrawWorkspaceMenus)
 			{
 				DrawWorkspaceMenus(
-					WorkspaceManager, ActiveWorkspace, ViewState);
+					DocumentManager, ActiveWorkspace, ViewState);
 			}
 			const float MenuEndX = ImGui::GetCursorScreenPos().x;
 
@@ -803,7 +831,7 @@ namespace Durin::Editor::MainFrame
 		}
 
 		auto DrawMainFrame(
-			Editor::FWorkspaceManager& WorkspaceManager,
+			FEditorDocumentManager& DocumentManager,
 			FMainFrameSettings& MainFrameSettings,
 			MWindow& RootWindow,
 			FMainFrameViewState& ViewState,
@@ -829,9 +857,9 @@ namespace Durin::Editor::MainFrame
 			ImGui::Begin("###Durin.Editor.WorkspaceHost", nullptr, MainFrameFlags);
 			ImGui::PopStyleVar(3);
 
-			std::shared_ptr<Editor::IWorkspace> ActiveWorkspace;
-			if (const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
-				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
+			std::shared_ptr<IAssetEditorToolkit> ActiveWorkspace;
+			if (const FEditorDocument* ActiveDocument = DocumentManager.GetActiveDocument())
+				ActiveWorkspace = DocumentManager.FindToolkit(ActiveDocument->ToolkitId);
 			const ImGuiIO& IO = ImGui::GetIO();
 			if (ActiveWorkspace && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
 				ActiveWorkspace->SaveActiveDocument();
@@ -862,7 +890,7 @@ namespace Durin::Editor::MainFrame
 			if (!bCustomTitleBar && ImGui::BeginMenuBar())
 			{
 				DrawWorkspaceMenus(
-					WorkspaceManager, ActiveWorkspace, ViewState);
+					DocumentManager, ActiveWorkspace, ViewState);
 				ImGui::EndMenuBar();
 			}
 			DrawAboutDialog(ViewState.bAboutDialogOpen);
@@ -885,12 +913,12 @@ namespace Durin::Editor::MainFrame
 					0.0f, DockSpaceSize.y - Activity.GetStatusBarHeight());
 			const ImVec2 DrawerAnchorMin = ImGui::GetCursorScreenPos();
 			const ImVec2 DrawerAnchorMax = DrawerAnchorMin + DockSpaceSize;
-			const ImGuiID DockSpaceId = Editor::WorkspaceUI::MakeMainFrameDockSpaceId(Editor::WorkspaceUI::MainFrameLayoutVersion);
+			const ImGuiID DockSpaceId = TabLayout::MakeMainFrameDockSpaceId(TabLayout::MainFrameLayoutVersion);
 			const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
 			if (bNeedsDefaultLayout || ViewState.bResetMainFrameLayoutRequested)
 			{
 				// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
-				BuildDefaultMainFrameLayout(DockSpaceId, DockSpaceSize, WorkspaceManager.GetWorkspaceDescriptors());
+				BuildDefaultMainFrameLayout(DockSpaceId, DockSpaceSize, DocumentManager.GetToolkitDescriptors());
 				ViewState.bContentBrowserOpen = false;
 				ViewState.bConsoleOpen = false;
 				ViewState.Drawer.Reset();
@@ -900,7 +928,7 @@ namespace Durin::Editor::MainFrame
 			const ImVec2 MainFrameItemSpacing(
 				ImGui::GetStyle().ItemSpacing.x, 0.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, MainFrameItemSpacing);
-			Editor::WorkspaceUI::SubmitMainFrameDockSpace(Editor::WorkspaceUI::MainFrameLayoutVersion,
+			TabLayout::SubmitMainFrameDockSpace(TabLayout::MainFrameLayoutVersion,
 				DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 			ImGui::PopStyleVar();
 
@@ -1045,12 +1073,12 @@ namespace Durin::Editor::MainFrame
 			if (!bBrowserSubmitted) ContentBrowserTool.TickWhenHidden();
 			ContentBrowserTool.DrawHostPresenters(bAllowAssetMutation);
 
-			for (const std::shared_ptr<Editor::IWorkspace>& Workspace : WorkspaceManager.GetRegisteredWorkspaces())
+			for (const std::shared_ptr<IAssetEditorToolkit>& Workspace : DocumentManager.GetRegisteredToolkits())
 			{
-				if (Workspace->DrawWorkspace(Workspace == ActiveWorkspace))
-					WorkspaceManager.ActivateWorkspace(Workspace->GetWorkspaceType());
+				if (Workspace->DrawToolkit(Workspace == ActiveWorkspace))
+					DocumentManager.ActivateToolkit(Workspace->GetToolkitId());
 			}
-			Editor::WorkspaceUI::DrawDocumentCloseConfirmation(WorkspaceManager);
+			DocumentUI::DrawCloseConfirmation(DocumentManager);
 			Activity.DrawHistoryWindow();
 			PythonScripts.Draw(ViewState.bPythonOpen);
 			if (GEditor)
@@ -1118,7 +1146,7 @@ namespace Durin
 		MonaImGui::BindMainViewportToWindow(Context.RootWindow);
 		Context.AssetEditors = Editor.GetEditorSubsystem<DAssetEditorSubsystem>();
 		check(Context.AssetEditors.IsValid());
-		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>(Context.AssetEditors.Get());
+		Context.DocumentManager = std::make_shared<Editor::FEditorDocumentManager>(Context.AssetEditors.Get());
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
 		Context.BrandTexture = std::make_unique<FEditorBrandTexture>();
 		std::string BrandTextureError;
@@ -1146,7 +1174,7 @@ namespace Durin
 			if (const auto Context = WeakContext.lock())
 			{
 				// An existing document confirmation retains ownership of its response.
-				if (!Context->WorkspaceManager->GetPendingCloseDocument())
+				if (!Context->DocumentManager->GetPendingCloseDocument())
 					Context->bExitRequested = true;
 			}
 		});
@@ -1204,7 +1232,7 @@ namespace Durin
 				if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
 				{
 					DrawCustomEditorTitleBar(
-						*Context->WorkspaceManager,
+						*Context->DocumentManager,
 						*Context->RootWindow,
 						BrandTexture,
 						bReadyWorkspace && !Context->bProjectBrowserOpen,
@@ -1215,7 +1243,7 @@ namespace Durin
 					auto& ThumbnailPool = Editor::GetDefaultThumbnailManager().GetSharedPool();
 					ThumbnailPool.BeginFrame();
 					DrawMainFrame(
-						*Context->WorkspaceManager,
+						*Context->DocumentManager,
 						*Context->MainFrameSettings,
 						*Context->RootWindow,
 						ViewState,
@@ -1292,7 +1320,7 @@ namespace Durin
 		if (!Editor) return;
 		ObserveMainWindowState(*Context->MainFrameSettings, *Context->RootWindow);
 		Context->AssetCompatibilityWindow->Tick(FPaths::ProjectFile(), !Editor->IsPlaying() && Editor->CanTransact());
-		Context->WorkspaceManager->RefreshDocumentState();
+		Context->DocumentManager->RefreshDocumentState();
 		Context->PythonScripts->Tick();
 		Context->Console->Tick();
 		Context->Activity->Tick(Editor->GetNotificationManager(), *Editor->GetTransactor());

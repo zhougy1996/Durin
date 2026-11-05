@@ -22,7 +22,7 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		auto GetLevelTransactions() -> ::Durin::DTransactor*
+		auto GetLevelTransactions() -> DTransactor*
 		{
 			return GEditor ? GEditor->GetTransactor() : nullptr;
 		}
@@ -216,7 +216,7 @@ namespace Durin::Editor::Level
 		FObjectPath Path;
 		if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !Validation)
 		{
-			SetError(Durin::ToString(Validation.error()));
+			SetError(ToString(Validation.error()));
 			return ELevelDocumentOpenResult::Rejected;
 		}
 		if (Context.EditorHost->IsPreparingMapChange()) return ELevelDocumentOpenResult::Rejected;
@@ -342,7 +342,7 @@ namespace Durin::Editor::Level
 		std::string PathError;
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Package->GetPackagePath(), OldPath); !PathValidation)
 		{
-			PathError = Durin::ToString(PathValidation.error());
+			PathError = ToString(PathValidation.error());
 			SetError(PathError);
 			return false;
 		}
@@ -352,7 +352,7 @@ namespace Durin::Editor::Level
 		FPackagePath NewPath;
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(NewPathString, NewPath); !PathValidation)
 		{
-			PathError = Durin::ToString(PathValidation.error());
+			PathError = ToString(PathValidation.error());
 			SetError(PathError);
 			return false;
 		}

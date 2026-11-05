@@ -2,10 +2,10 @@
 
 #include "CoreMinimal.h"
 
-#include "Workspace/WorkspaceTypes.h"
+#include "Documents/EditorDocumentTypes.h"
 
 namespace Durin::Editor::Texture::VolumeWorkspace
 {
-	inline const ::Durin::Editor::FWorkspaceTypeId Type("VolumeTextureEditor");
+	inline const FAssetEditorToolkitId Type("VolumeTextureEditor");
 	inline constexpr std::string_view RootKey = "VolumeTextureEditor";
 }

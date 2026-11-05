@@ -14,10 +14,10 @@ namespace Durin::Editor::StaticMesh
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			auto Client = std::make_unique<::Durin::Editor::FOrbitAssetPreviewViewportClient>();
+			auto Client = std::make_unique<FOrbitAssetPreviewViewportClient>();
 			ViewportClient = Client.get();
-			Host = std::make_unique<::Durin::Editor::FAssetPreviewHost>(
-				::Durin::Editor::FAssetPreviewHostConfig{
+			Host = std::make_unique<FAssetPreviewHost>(
+				FAssetPreviewHostConfig{
 					.SceneName = FName(std::format("StaticMeshPreview_{}", PreviewId)),
 					.ContentActorName = FName(std::format("StaticMeshPreviewActor_{}", PreviewId)),
 					.LightActorName = FName(std::format("StaticMeshPreviewLightActor_{}", PreviewId))},
@@ -104,15 +104,15 @@ namespace Durin::Editor::StaticMesh
 			}
 			SetVisible(true);
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
-			::Durin::Editor::FAssetPreviewViewportInput Input;
+			FAssetPreviewViewportInput Input;
 			if (Host->DrawViewport(Available.x, Available.y, &Input))
 				ViewportClient->GetController().ApplyInput(Input);
 			ImGui::EndChild();
 		}
 
 	private:
-		std::unique_ptr<::Durin::Editor::FAssetPreviewHost> Host;
-		::Durin::Editor::FOrbitAssetPreviewViewportClient* ViewportClient = nullptr;
+		std::unique_ptr<FAssetPreviewHost> Host;
+		FOrbitAssetPreviewViewportClient* ViewportClient = nullptr;
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
 		DStaticMesh* CurrentMesh = nullptr;
 		uint64 CurrentRevision = 0;

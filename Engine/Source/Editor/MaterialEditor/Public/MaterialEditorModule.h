@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Workspace/WorkspaceProvider.h"
+#include "Toolkits/AssetEditorModule.h"
 #include "PropertyEditor/DetailCustomizationRegistry.h"
 
 #include "MaterialEditorAPI.h"
@@ -9,8 +9,8 @@
 
 namespace Durin::Editor
 {
-	class FWorkspaceRegistrationHandle;
-	class FWorkspaceManager;
+	class FAssetEditorToolkitRegistrationHandle;
+	class FEditorDocumentManager;
 	class DThumbnailManager;
 	class FThumbnailRendererRegistrationHandle;
 }
@@ -18,26 +18,25 @@ namespace Durin::Editor
 namespace Durin
 {
 	// Registers the material workspace and material asset-editor mapping.
-	class FMaterialEditorModule final : public IModuleInterface, public Editor::IWorkspaceProvider
+	class FMaterialEditorModule final : public Editor::IAssetEditorModule
 	{
 	public:
 		MATERIALEDITOR_API FMaterialEditorModule();
 		MATERIALEDITOR_API ~FMaterialEditorModule() override;
 		MATERIALEDITOR_API auto StartupModule() -> void override;
 		MATERIALEDITOR_API auto ShutdownModule() -> void override;
-		MATERIALEDITOR_API auto RegisterWorkspaces(
-			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::DThumbnailManager& ThumbnailManager,
-			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool override;
-		MATERIALEDITOR_API auto UnregisterWorkspaces() -> void override;
+		MATERIALEDITOR_API auto RegisterToolkits(
+			Editor::FEditorDocumentManager& DocumentManager,
+			Editor::DThumbnailManager& ThumbnailManager,
+			Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool override;
+		MATERIALEDITOR_API auto UnregisterToolkits() -> void override;
 
 	private:
 		Editor::FDetailCustomizationHandle DetailCustomizationRegistration;
-		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> MaterialThumbnailRegistration;
-		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> MaterialInstanceThumbnailRegistration;
+		std::unique_ptr<Editor::FAssetEditorToolkitRegistrationHandle> WorkspaceRegistration;
+		std::unique_ptr<Editor::FThumbnailRendererRegistrationHandle> MaterialThumbnailRegistration;
+		std::unique_ptr<Editor::FThumbnailRendererRegistrationHandle> MaterialInstanceThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
-		FModularFeatureRegistration ProviderRegistration;
 	};
 }

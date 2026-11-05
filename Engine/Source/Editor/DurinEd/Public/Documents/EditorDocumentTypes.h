@@ -6,25 +6,25 @@
 
 namespace Durin::Editor
 {
-	// Provides a stable string identity for one editor workspace kind.
-	class FWorkspaceTypeId
+	// Provides a stable string identity for one editor toolkit kind.
+	class FAssetEditorToolkitId
 	{
 	public:
-		FWorkspaceTypeId() = default;
-		explicit FWorkspaceTypeId(std::string Value)
+		FAssetEditorToolkitId() = default;
+		explicit FAssetEditorToolkitId(std::string Value)
 			: Value(std::move(Value))
 		{
 		}
 
 		auto GetValue() const -> std::string_view { return Value; }
 		auto IsValid() const -> bool { return !Value.empty(); }
-		auto operator==(const FWorkspaceTypeId&) const -> bool = default;
+		auto operator==(const FAssetEditorToolkitId&) const -> bool = default;
 
 	private:
 		std::string Value;
 	};
 
-	// Identifies an open editor document within the current workspace session.
+	// Identifies an open editor document within the current toolkit session.
 	struct FDocumentId
 	{
 		uint64 Value = 0;
@@ -34,10 +34,10 @@ namespace Durin::Editor
 	};
 
 	// Stores host-visible state for one open editor document tab.
-	struct FDocumentTab
+	struct FEditorDocument
 	{
 		FDocumentId Id;
-		FWorkspaceTypeId WorkspaceType;
+		FAssetEditorToolkitId ToolkitId;
 		std::string DocumentKey;
 		std::string ResourceId;
 		std::string Label;
@@ -45,17 +45,17 @@ namespace Durin::Editor
 		bool bClosable = true;
 	};
 
-	// Describes a request to open or activate a workspace document.
+	// Describes a request to open or activate a toolkit document.
 	struct FDocumentRequest
 	{
-		FWorkspaceTypeId WorkspaceType;
+		FAssetEditorToolkitId ToolkitId;
 		std::string DocumentKey;
 		std::string ResourceId;
 		std::string Label;
 		bool bClosable = true;
 	};
 
-	// Reports whether a workspace rejected, completed, or deferred an open request.
+	// Reports whether a toolkit rejected, completed, or deferred an open request.
 	enum class EDocumentOpenResult : uint8
 	{
 		Rejected,
@@ -87,22 +87,22 @@ namespace Durin::Editor
 		PerResource,
 	};
 
-	// Suggests where a workspace should dock when first hosted.
-	enum class EWorkspaceHostDockPreference : uint8
+	// Suggests where a toolkit should dock when first hosted.
+	enum class EToolkitHostDockPreference : uint8
 	{
 		None,
 		Center,
 	};
 
-	// Defines host-facing metadata and singleton-document policy for a workspace.
-	struct FWorkspaceDescriptor
+	// Defines host-facing metadata and singleton-document policy for a toolkit.
+	struct FAssetEditorToolkitDescriptor
 	{
-		FWorkspaceTypeId WorkspaceType;
+		FAssetEditorToolkitId ToolkitId;
 		std::string DisplayName;
 		std::string RootKey;
 		bool bShowInWindowMenu = true;
 		bool bOpenByDefault = false;
-		EWorkspaceHostDockPreference DefaultHostDockPreference = EWorkspaceHostDockPreference::Center;
+		EToolkitHostDockPreference DefaultHostDockPreference = EToolkitHostDockPreference::Center;
 		std::string SingletonDocumentKey;
 		std::string SingletonDocumentLabel;
 		bool bSingletonDocumentClosable = true;
@@ -113,11 +113,11 @@ namespace Durin::Editor
 		}
 	};
 
-	// Maps an asset class to the workspace and document policy that edits it.
+	// Maps an asset class to the toolkit and document policy that edits it.
 	struct FAssetEditorRegistration
 	{
 		std::string AssetClassName;
-		FWorkspaceTypeId WorkspaceType;
+		FAssetEditorToolkitId ToolkitId;
 		EDocumentPolicy DocumentPolicy = EDocumentPolicy::PerResource;
 		std::string SingletonDocumentKey;
 		std::string SingletonLabel;

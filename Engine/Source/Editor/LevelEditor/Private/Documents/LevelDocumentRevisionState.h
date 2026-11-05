@@ -11,7 +11,7 @@ namespace Durin::Editor::Level
 	struct FLevelDocumentRevisionState
 	{
 		static auto CompleteSave(
-			::Durin::DTransactor* Transactions,
+			DTransactor* Transactions,
 			DPackage& Package,
 			bool bSucceeded
 		) -> void
@@ -20,7 +20,7 @@ namespace Durin::Editor::Level
 		}
 
 		static auto Activate(
-			::Durin::DTransactor* Transactions, DPackage* PreviousPackage, DPackage* Package) -> void
+			DTransactor* Transactions, DPackage* PreviousPackage, DPackage* Package) -> void
 		{
 			if (!Transactions) return;
 			if (PreviousPackage == Package) return;
@@ -34,7 +34,7 @@ namespace Durin::Editor::Level
 				Transactions->EstablishSavedState(*Package);
 		}
 
-		static auto Discard(::Durin::DTransactor* Transactions, DPackage& Package) -> void
+		static auto Discard(DTransactor* Transactions, DPackage& Package) -> void
 		{
 			if (Transactions) Transactions->ForgetPackage(Package);
 			Package.ClearDirty();

@@ -145,7 +145,7 @@ namespace Durin::Editor::Level
 			ComponentBuilder->AddDefaultProperties(Component, false);
 			if (ComponentBuilder->GetVisibleRowCount() == 0) continue;
 			Builder.AddCustomRow(SearchText, [ComponentBuilder, Component, Label, TypeName, bShowComponentGroup, bSearching = !SearchText.empty()](
-				::Durin::Editor::FPropertyView& View, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
+				FPropertyView& View, const FPropertyViewContext& ViewContext) {
 				ImGui::PushID(Component);
 				if (!bShowComponentGroup)
 				{

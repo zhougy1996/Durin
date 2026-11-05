@@ -204,7 +204,7 @@ namespace Durin
 				&& FindResidentPackage(Alias))
 				return Error(EAssetWriteError::InUse,
 					"A loaded redirector must be unloaded before Fix Up deletion.");
-			for (FPackagePath Upstream : Durin::FindRedirectorsTo(Alias))
+			for (FPackagePath Upstream : FindRedirectorsTo(Alias))
 				Pending.push_back(std::move(Upstream));
 		}
 		State->Redirectors.assign(Closure.begin(), Closure.end());
@@ -214,7 +214,7 @@ namespace Durin
 			});
 		for (const FPackagePath& Alias : State->Redirectors)
 		{
-			const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Alias);
+			const FAssetPathResolveResult Resolution = ResolveAssetPathForOperation(Alias);
 			if (!Resolution)
 				return Error(EAssetWriteError::InvalidData, std::format(
 					"Fix Up could not resolve {} (state {}).", Alias.ToString(),

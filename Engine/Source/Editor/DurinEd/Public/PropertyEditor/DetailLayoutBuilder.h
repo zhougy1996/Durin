@@ -35,7 +35,7 @@ namespace Durin::Editor
 		DURINED_API auto HideCategory(std::string_view Name) -> void override;
 		DURINED_API auto IsCategoryHidden(std::string_view Name) const -> bool;
 		DURINED_API auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex = 0,
-			const ::Durin::Editor::FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void override;
+			const FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void override;
 		DURINED_API auto AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void override;
 		DURINED_API auto HideProperty(FProperty* Property) -> void override;
 		DURINED_API auto ReplaceDefaultProperties() -> void override;
@@ -49,8 +49,8 @@ namespace Durin::Editor
 		DURINED_API auto AddFunction(const DFunction& Function) -> void override;
 		DURINED_API auto HideFunction(const DFunction& Function) -> void override;
 		DURINED_API auto GetVisibleRowCount() const -> uint32;
-		DURINED_API auto DrawRows(::Durin::Editor::FPropertyView& PropertyView,
-			const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FDetailLayoutBuilderResult;
+		DURINED_API auto DrawRows(FPropertyView& PropertyView,
+			const FPropertyViewContext& ViewContext) const -> FDetailLayoutBuilderResult;
 
 	private:
 		class FCategory;
@@ -90,7 +90,7 @@ namespace Durin::Editor
 			FCategory(FDetailLayoutBuilder& InOwner, std::string_view InName, std::string_view InLabel)
 				: Owner(InOwner), Name(InName), Label(InLabel) {}
 			auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
-				const ::Durin::Editor::FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void override;
+				const FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void override;
 			auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void override;
 			auto AddFunction(const DFunction& Function) -> void override;
 			auto SetSortOrder(int32 InOrder) -> void override { SortOrder = InOrder; Owner.bVisibleRowsDirty = true; }

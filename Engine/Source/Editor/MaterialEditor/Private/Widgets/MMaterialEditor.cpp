@@ -19,8 +19,8 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Asset/AssetPicker.h"
 #include "Editor/EditorEngine.h"
-#include "Workspace/WorkspaceManager.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Documents/EditorDocumentManager.h"
+#include "Framework/TabLayout.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -267,8 +267,8 @@ namespace Durin::Editor::Material
 	};
 
 	MMaterialEditor::MMaterialEditor(
-		::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
-		: WorkspaceManager(InWorkspaceManager)
+		FEditorDocumentManager& InWorkspaceManager)
+		: DocumentManager(InWorkspaceManager)
 		, MaterialParameterPanelCache(std::make_unique<FMaterialParameterPanelCache>())
 		, SessionSettings(std::make_unique<FMaterialEditorSessionSettings>())
 	{
@@ -295,22 +295,22 @@ namespace Durin::Editor::Material
 		EditingSessions.clear();
 	}
 
-	auto MMaterialEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
+	auto MMaterialEditor::GetToolkitId() const -> const FAssetEditorToolkitId&
 	{
 		return Workspace::Type;
 	}
 
-	auto MMaterialEditor::OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult
+	auto MMaterialEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		if (FindOpenMaterial(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
+		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
+		if (FindOpenMaterial(Document.ResourceId)) return EDocumentOpenResult::Opened;
 		FObjectPath AssetPath;
 		std::string PathError;
 		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
 		{
-			PathError = Durin::ToString(PathValidation.error());
+			PathError = ToString(PathValidation.error());
 			SetError(std::move(PathError));
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
 		DMaterialInterface* Material = nullptr;
 		const auto Result = LoadObject<DMaterialInterface>(AssetPath);
@@ -318,21 +318,21 @@ namespace Durin::Editor::Material
 		if (!Result || !Material)
 		{
 			SetError(Result ? "The selected asset is not a material." : (Result ? std::string{} : Result.error().Message));
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
 		OpenMaterials.emplace(Document.ResourceId, Material);
 		if (!ResetEditingSession(Document.ResourceId))
 		{
 			OpenMaterials.erase(Document.ResourceId);
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Rejected;
 		}
-		return ::Durin::Editor::EDocumentOpenResult::Opened;
+		return EDocumentOpenResult::Opened;
 	}
 
-	auto MMaterialEditor::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
+	auto MMaterialEditor::ActivateDocument(const FEditorDocument& Document) -> void
 	{
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
-		if (const ::Durin::Editor::FDocumentTab* Active = WorkspaceManager.GetActiveDocument();
+		if (const FEditorDocument* Active = DocumentManager.GetActiveDocument();
 			Active && Active->Id != Document.Id)
 			CancelCanvasInteraction(Active->Id.Value);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material) && !FinishActivePropertyEdit(true)) return;
@@ -341,20 +341,20 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::RequestDeactivate() -> bool
 	{
-		if (const ::Durin::Editor::FDocumentTab* Active = WorkspaceManager.GetActiveDocument())
+		if (const FEditorDocument* Active = DocumentManager.GetActiveDocument())
 			CancelCanvasInteraction(Active->Id.Value);
 		return FinishActivePropertyEdit(true);
 	}
 
-	auto MMaterialEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
+	auto MMaterialEditor::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
 	{
 		CancelCanvasInteraction(Document.Id.Value);
 		const auto SessionIt = EditingSessions.find(Document.ResourceId);
 		auto* EditingMaterial = SessionIt == EditingSessions.end()
 			? FindOpenMaterial(Document.ResourceId) : SessionIt->second->GetWorkingMaterial();
 		if (PropertyView.IsEditingObject(EditingMaterial) && !FinishActivePropertyEdit(true))
-			return ::Durin::Editor::EDocumentCloseResult::Rejected;
-		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
+			return EDocumentCloseResult::Rejected;
+		if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
 		CaptureCanvasViewport(Document);
 		SessionSettings->Save();
 		OpenMaterials.erase(Document.ResourceId);
@@ -364,15 +364,15 @@ namespace Durin::Editor::Material
 		EditingSessions.erase(Document.ResourceId);
 		PendingLayoutResets.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
-		return ::Durin::Editor::EDocumentCloseResult::Closed;
+		return EDocumentCloseResult::Closed;
 	}
 
-	auto MMaterialEditor::SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
+	auto MMaterialEditor::SaveDocument(const FEditorDocument& Document) -> bool
 	{
 		return SaveMaterial(FindOpenMaterial(Document.ResourceId));
 	}
 
-	auto MMaterialEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
+	auto MMaterialEditor::DiscardDocument(const FEditorDocument& Document) -> bool
 	{
 		CancelCanvasInteraction(Document.Id.Value);
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
@@ -393,8 +393,8 @@ namespace Durin::Editor::Material
 		}
 		return Documents.Discard(Material, {},
 			[this](DPackage* Previous, DPackage* Replacement) {
-				WorkspaceManager.NotifyPackageReloaded(Previous, Replacement);
-			}, [this](std::string Message) { SetError(std::move(Message)); }, &WorkspaceManager);
+				DocumentManager.NotifyPackageReloaded(Previous, Replacement);
+			}, [this](std::string Message) { SetError(std::move(Message)); }, &DocumentManager);
 	}
 
 	auto MMaterialEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
@@ -409,8 +409,8 @@ namespace Durin::Editor::Material
 			}
 		if (ReboundResources.contains(std::string(Documents.GetActiveResourceId())))
 			MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
-		for (const auto& Document : WorkspaceManager.GetDocuments())
-			if (Document.WorkspaceType == Workspace::Type
+		for (const auto& Document : DocumentManager.GetDocuments())
+			if (Document.ToolkitId == Workspace::Type
 				&& ReboundResources.contains(Document.ResourceId))
 			{
 				CancelCanvasInteraction(Document.Id.Value);
@@ -421,7 +421,7 @@ namespace Durin::Editor::Material
 			}
 	}
 
-	auto MMaterialEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
+	auto MMaterialEditor::IsDocumentDirty(const FEditorDocument& Document) const -> bool
 	{
 		const auto* Material = FindOpenMaterial(Document.ResourceId);
 		if (const auto* Session = FindEditingSession(Material))
@@ -439,7 +439,7 @@ namespace Durin::Editor::Material
 		return SaveMaterial(GetActiveMaterial());
 	}
 
-	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
+	auto MMaterialEditor::DrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
 		if (!bActive)
@@ -450,36 +450,36 @@ namespace Durin::Editor::Material
 			Session->Tick(Error);
 			if (!Error.empty()) SetError(std::move(Error));
 		}
-		std::vector<::Durin::Editor::FDocumentId> DeletedDocuments;
-		for (const ::Durin::Editor::FDocumentTab& Document : WorkspaceManager.GetDocuments())
+		std::vector<FDocumentId> DeletedDocuments;
+		for (const FEditorDocument& Document : DocumentManager.GetDocuments())
 		{
-			if (Document.WorkspaceType != Workspace::Type) continue;
+			if (Document.ToolkitId != Workspace::Type) continue;
 			const auto It = OpenMaterials.find(Document.ResourceId);
 			if (It != OpenMaterials.end() && !It->second.IsValid())
 				DeletedDocuments.push_back(Document.Id);
 		}
-		for (const ::Durin::Editor::FDocumentId Id : DeletedDocuments)
-			WorkspaceManager.RequestCloseDocument(Id);
-		return Documents.GetDocumentHost().DrawDocuments(
-			WorkspaceManager,
+		for (const FDocumentId Id : DeletedDocuments)
+			DocumentManager.RequestCloseDocument(Id);
+		return Documents.GetTabManager().DrawDocuments(
+			DocumentManager,
 			Workspace::Type,
 			Workspace::RootKey,
-			[this](const ::Durin::Editor::FDocumentTab& Document) {
+			[this](const FEditorDocument& Document) {
 				return FindOpenMaterial(Document.ResourceId) != nullptr;
 			},
-			[this](const ::Durin::Editor::FDocumentTab& Document) {
+			[this](const FEditorDocument& Document) {
 				DrawDocument(Document, FindOpenMaterial(Document.ResourceId));
 			},
-			[this](const ::Durin::Editor::FDocumentTab& Document, bool bVisible) {
+			[this](const FEditorDocument& Document, bool bVisible) {
 				if (!bVisible)
 				{
 					CancelCanvasInteraction(Document.Id.Value);
 					if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
 						PreviewIt->second->SetVisible(false);
 					const auto DockType = Workspace::MakeDocumentDockType(Document);
-					if (ImGui::DockBuilderGetNode(::Durin::Editor::WorkspaceUI::MakeDockSpaceId(
+					if (ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(
 						DockType, Workspace::LayoutVersion)))
-						::Durin::Editor::WorkspaceUI::SubmitDockSpace(DockType, Workspace::LayoutVersion,
+						TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion,
 							{0.0f, 0.0f}, ImGuiDockNodeFlags_KeepAliveOnly);
 				}
 			}
@@ -492,8 +492,8 @@ namespace Durin::Editor::Material
 		SessionSettings->bDetailsVisible = true;
 		SessionSettings->bParametersVisible = true;
 		SessionSettings->bDiagnosticsVisible = false;
-		for (const auto& Document : WorkspaceManager.GetDocuments())
-			if (Document.WorkspaceType == Workspace::Type)
+		for (const auto& Document : DocumentManager.GetDocuments())
+			if (Document.ToolkitId == Workspace::Type)
 				PendingLayoutResets.insert(Document.Id.Value);
 	}
 
@@ -545,7 +545,7 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::SaveMaterial(DMaterialInterface* Material) -> bool
 	{
-		if (const auto* Active = WorkspaceManager.GetActiveDocument())
+		if (const auto* Active = DocumentManager.GetActiveDocument())
 			CancelCanvasInteraction(Active->Id.Value);
 		if (!FinishActivePropertyEdit(false)) return false;
 		auto* Session = FindEditingSession(Material);
@@ -596,7 +596,7 @@ namespace Durin::Editor::Material
 		return Documents.Redo();
 	}
 
-	auto MMaterialEditor::DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
+	auto MMaterialEditor::DrawDocument(const FEditorDocument& Document, DMaterialInterface* Material) -> void
 	{
 		DrawToolbar(Material);
 		ImGui::Spacing();
@@ -624,7 +624,7 @@ namespace Durin::Editor::Material
 					if (ImGui::Button(Session->IsApplyPending() ? "Applying..." : "Apply")
 						&& FinishActivePropertyEdit(false))
 					{
-						if (const auto* Active = WorkspaceManager.GetActiveDocument())
+						if (const auto* Active = DocumentManager.GetActiveDocument())
 							CancelCanvasInteraction(Active->Id.Value);
 						std::string Error;
 						if (!Session->RequestApply(Error)) SetError(std::move(Error));
@@ -689,25 +689,25 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialEditor::DrawDockLayout(
-		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
+		const FEditorDocument& Document, DMaterialInterface* Material) -> void
 	{
 		const auto DockType = Workspace::MakeDocumentDockType(Document);
-		const ImGuiID DockSpaceId = ::Durin::Editor::WorkspaceUI::MakeDockSpaceId(DockType, Workspace::LayoutVersion);
+		const ImGuiID DockSpaceId = TabLayout::MakeDockSpaceId(DockType, Workspace::LayoutVersion);
 		const ImVec2 Size = ImGui::GetContentRegionAvail();
 		if (Size.x <= 0.0f || Size.y <= 0.0f) return;
 		const bool bReset = PendingLayoutResets.erase(Document.Id.Value) != 0;
 		if (!ImGui::DockBuilderGetNode(DockSpaceId) || bReset)
 			Workspace::BuildDefaultLayout(Document, Size);
-		::Durin::Editor::WorkspaceUI::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size);
+		TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size);
 
 		const auto BeginPanel = [&](const char* Label, const char* Key, bool* Open = nullptr) {
-			const bool bVisible = ::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+			const bool bVisible = TabLayout::BeginDockablePanel(
 				DockType, Label, Key, Open, ImGuiWindowFlags_NoCollapse);
 			if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
 			{
-				const auto* Active = WorkspaceManager.GetActiveDocument();
+				const auto* Active = DocumentManager.GetActiveDocument();
 				if (!Active || Active->Id != Document.Id)
-					WorkspaceManager.ActivateDocument(Document.Id);
+					DocumentManager.ActivateDocument(Document.Id);
 			}
 			return bVisible;
 		};
@@ -744,7 +744,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialEditor::DrawPreviewPanel(
-		const ::Durin::Editor::FDocumentTab& Document,
+		const FEditorDocument& Document,
 		DMaterialInterface* Material,
 		float Height
 	) -> void
@@ -755,7 +755,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialEditor::DrawGraphPanel(
-		const ::Durin::Editor::FDocumentTab& Document,
+		const FEditorDocument& Document,
 		DMaterialInterface* Material,
 		float Height) -> void
 	{
@@ -781,7 +781,7 @@ namespace Durin::Editor::Material
 		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
 	}
 
-	auto MMaterialEditor::DrawSelectedFunction(const ::Durin::Editor::FDocumentTab& Document, DMaterial* Base) -> void
+	auto MMaterialEditor::DrawSelectedFunction(const FEditorDocument& Document, DMaterial* Base) -> void
 	{
 		auto& Canvas = GetOrCreateCanvas(Document);
 		for (const auto& Selected : Canvas.GetSelection())
@@ -791,14 +791,14 @@ namespace Durin::Editor::Material
 						Call && Call->Id == *Id && Call->Function.IsValid())
 					{
 						ImGui::PushID(Id->ToString().c_str());
-						if (ImGui::Button("Open Function")) WorkspaceManager.OpenAsset(Call->Function->GetObjectPath(),
+						if (ImGui::Button("Open Function")) DocumentManager.OpenAsset(Call->Function->GetObjectPath(),
 							Call->Function->GetClass()->GetQualifiedName().ToString());
 						ImGui::PopID();
 					}
 	}
 
 	auto MMaterialEditor::DrawCompileStatus(
-		const ::Durin::Editor::FDocumentTab& Document,
+		const FEditorDocument& Document,
 		DMaterialInterface* Material) -> void
 	{
 		DMaterial* Base = FindCompiledBase(Material);
@@ -896,7 +896,7 @@ namespace Durin::Editor::Material
 			if (!Diagnostic.FunctionAssetPath.empty())
 			{
 				if (ImGui::SmallButton("Open Function"))
-					if (const auto Editor = std::dynamic_pointer_cast<MMaterialFunctionEditor>(WorkspaceManager.FindWorkspace(MaterialFunctionWorkspaceType)))
+					if (const auto Editor = std::dynamic_pointer_cast<MMaterialFunctionEditor>(DocumentManager.FindToolkit(MaterialFunctionWorkspaceType)))
 						Editor->NavigateToNode(Diagnostic.FunctionAssetPath, Diagnostic.NodeId);
 				ImGui::SameLine();
 			}
@@ -906,7 +906,7 @@ namespace Durin::Editor::Material
 				{
 					GetOrCreateCanvas(Document).SelectAndFrameDiagnostic(
 						Diagnostic);
-					const auto GraphName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName(
+					const auto GraphName = TabLayout::MakePanelWindowName(
 						"Material Graph", Workspace::MakeDocumentDockType(Document), "Graph");
 					ImGui::SetWindowFocus(GraphName.c_str());
 				}
@@ -925,7 +925,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialEditor::DrawParametersPanel(
-		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
+		const FEditorDocument& Document, DMaterialInterface* Material) -> void
 	{
 		if (auto* Instance = Cast<DMaterialInstance>(Material))
 		{
@@ -1089,7 +1089,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialEditor::DrawDetailsPanel(
-		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
+		const FEditorDocument& Document, DMaterialInterface* Material) -> void
 	{
 		auto* BaseMaterial = Cast<DMaterial>(Material);
 		const bool bShowMaterialDetails = !BaseMaterial
@@ -1138,7 +1138,7 @@ namespace Durin::Editor::Material
 				if (bChanged)
 					if (auto* Property = BaseMaterial->GetClass()->FindPropertyByName(FName("StaticProperties")))
 						PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
-							::Durin::Editor::FPropertyEditTarget::ForMember(BaseMaterial, Property),
+							FPropertyEditTarget::ForMember(BaseMaterial, Property),
 							[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 								*ScratchProperty->ContainerPtrToValuePtr<FMaterialStaticProperties>(ScratchContainer, ScratchArrayIndex) = Properties;
 							}, false);
@@ -1154,7 +1154,7 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DrawMaterialInstance(DMaterialInstance* Instance) -> void
 	{
 		if (auto* Parent = Instance->GetParent(); Parent && ImGui::Button("Open Parent Material"))
-			WorkspaceManager.OpenAsset(Parent->GetObjectPath(), Parent->GetClass()->GetQualifiedName().ToString());
+			DocumentManager.OpenAsset(Parent->GetObjectPath(), Parent->GetClass()->GetQualifiedName().ToString());
 		ImGui::SeparatorText("Inheritance");
 		if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParent", MakeMaterialPropertyTableConfig()))
 		{
@@ -1220,7 +1220,7 @@ namespace Durin::Editor::Material
 		{
 			if (auto* Property = Instance->GetClass()->FindPropertyByName(FName("PropertyOverrides")))
 				PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
-					::Durin::Editor::FPropertyEditTarget::ForMember(Instance, Property),
+					FPropertyEditTarget::ForMember(Instance, Property),
 					[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 						*ScratchProperty->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(ScratchContainer, ScratchArrayIndex) = Overrides;
 					}, false);
@@ -1232,12 +1232,12 @@ namespace Durin::Editor::Material
 		ImGui::PushID("MaterialParent");
 		MonaImGui::PropertyEdit::BeginRow("Parent");
 		DMaterialInterface* Current = Instance->GetParent();
-		const ::Durin::Editor::FAssetPickerResult PickerResult = ::Durin::Editor::AssetPicker::Draw({
+		const FAssetPickerResult PickerResult = AssetPicker::Draw({
 			.ComboId = "##Parent",
 			.SearchId = "##ParentSearch",
 			.SearchHint = "Search materials...",
 			.RequiredClass = DMaterialInterface::StaticClass(),
-			.ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Derived,
+			.ClassPolicy = EAssetClassPolicy::Derived,
 			.CurrentSelection = Current,
 			.SearchText = ParentSearchText,
 			.bAllowNone = true,
@@ -1255,7 +1255,7 @@ namespace Durin::Editor::Material
 					return false;
 				}
 				const bool bAssigned = PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
-					::Durin::Editor::FPropertyEditTarget::ForMember(Instance, Property), [&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+					FPropertyEditTarget::ForMember(Instance, Property), [&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					static_cast<FObjectProperty*>(ScratchProperty)->SetObjectPropertyValue(ScratchContainer, Parent, ScratchArrayIndex);
 				}, false);
 				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected material parent.";
@@ -1427,12 +1427,12 @@ namespace Durin::Editor::Material
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
 		DTexture2D* Texture = Entry.Value.GetTexture().Texture.Get();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
-		const ::Durin::Editor::FAssetPickerResult PickerResult = ::Durin::Editor::AssetPicker::Draw({
+		const FAssetPickerResult PickerResult = AssetPicker::Draw({
 			.ComboId = "##Texture",
 			.SearchId = "##TextureSearch",
 			.SearchHint = "Search textures...",
 			.RequiredClass = DTexture2D::StaticClass(),
-			.ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Derived,
+			.ClassPolicy = EAssetClassPolicy::Derived,
 			.CurrentSelection = Texture,
 			.SearchText = TextureSearchText,
 			.bAllowNone = true,
@@ -1495,11 +1495,11 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::FinishActivePropertyEdit(bool bCancel) -> bool
 	{
-		const ::Durin::Editor::FPropertyViewContext Context = MakePropertyViewContext();
+		const FPropertyViewContext Context = MakePropertyViewContext();
 		return PropertyView.FinishActiveEdit(&Context, bCancel);
 	}
 
-	auto MMaterialEditor::MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext
+	auto MMaterialEditor::MakePropertyViewContext() -> FPropertyViewContext
 	{
 		return {
 			.ReportError = [this](std::string Error) { SetError(std::move(Error)); },
@@ -1539,7 +1539,7 @@ namespace Durin::Editor::Material
 				EditingSessions.insert(std::move(Node));
 			}
 			SessionSettings->MoveViewport(Move.Source, Move.Destination);
-			WorkspaceManager.RemapResourceId(Move.Source, Move.Destination);
+			DocumentManager.RemapResourceId(Move.Source, Move.Destination);
 		}
 	}
 
@@ -1551,7 +1551,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialEditor::GetOrCreateCanvas(
-		const ::Durin::Editor::FDocumentTab& Document) -> FMaterialGraphCanvas&
+		const FEditorDocument& Document) -> FMaterialGraphCanvas&
 	{
 		std::unique_ptr<FMaterialGraphCanvas>& Canvas =
 			MaterialGraphCanvases[Document.Id.Value];
@@ -1560,7 +1560,7 @@ namespace Durin::Editor::Material
 			Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*FindOpenMaterial(Document.ResourceId)),
 				FMaterialGraphEditorServices{
 					.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
-					.OpenFunction = [this](std::string_view Path) { WorkspaceManager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
+					.OpenFunction = [this](std::string_view Path) { DocumentManager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 			if (const FMaterialGraphViewportState* State =
 				SessionSettings->FindViewport(Document.ResourceId))
 				Canvas->SetViewport(State->Zoom, State->Pan);
@@ -1569,7 +1569,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialEditor::CaptureCanvasViewport(
-		const ::Durin::Editor::FDocumentTab& Document) -> void
+		const FEditorDocument& Document) -> void
 	{
 		const auto It = MaterialGraphCanvases.find(Document.Id.Value);
 		if (It == MaterialGraphCanvases.end()) return;

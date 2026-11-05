@@ -148,7 +148,7 @@ namespace Durin::Editor::StaticMesh
 		else if (!bSupportedSource)
 			ValidationMessage = "Supported model formats are OBJ, FBX, glTF, COLLADA, 3DS, PLY, and STL.";
 		else if (!bImportSettingsValid) ValidationMessage = ImportSettingsError;
-		else if (!DestinationValidation) ValidationMessage = ::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation);
+		else if (!DestinationValidation) ValidationMessage = FormatAssetDestinationValidation(DestinationValidation);
 
 		DrawImportDialogWarning(ValidationMessage);
 		if (!bAllowAssetMutation)
@@ -234,7 +234,7 @@ namespace Durin::Editor::StaticMesh
 			Destination.Inspect();
 		if (!DestinationValidation)
 		{
-			SetError(::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation));
+			SetError(FormatAssetDestinationValidation(DestinationValidation));
 			return false;
 		}
 		const FPackagePath& AssetPath = DestinationValidation.AssetPath;

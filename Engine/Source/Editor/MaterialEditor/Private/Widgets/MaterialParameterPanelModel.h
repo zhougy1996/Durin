@@ -63,21 +63,21 @@ namespace Durin::Editor::Material
 
 		static auto SelectControl(const FMaterialParameterDefinition& Definition) -> EMaterialParameterControlKind;
 		auto SubmitValueEdit(
-			::Durin::Editor::FPropertyView& PropertyView,
-			const ::Durin::Editor::FPropertyViewContext& Context,
+			FPropertyView& PropertyView,
+			const FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry,
 			const FMaterialParameterValue& Value,
 			bool bContinuous
 		) const -> bool;
 		auto SetOverrideEnabled(
-			::Durin::Editor::FPropertyView& PropertyView,
-			const ::Durin::Editor::FPropertyViewContext& Context,
+			FPropertyView& PropertyView,
+			const FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry,
 			bool bEnabled
 		) const -> bool;
 		auto RemoveOrphan(
-			::Durin::Editor::FPropertyView& PropertyView,
-			const ::Durin::Editor::FPropertyViewContext& Context,
+			FPropertyView& PropertyView,
+			const FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry
 		) const -> bool;
 

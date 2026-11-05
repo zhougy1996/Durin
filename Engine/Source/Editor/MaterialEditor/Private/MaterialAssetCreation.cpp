@@ -27,7 +27,7 @@ namespace Durin
 		{
 			OutError = static_cast<bool>(Layout)
 				? "The new material graph presentation could not be initialized."
-				: ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Layout);
+				: Editor::Material::FormatMaterialGraphCommandResult(Layout);
 			return false;
 		}
 		if (RequestMaterialRecompile(Material))

@@ -33,18 +33,18 @@ namespace Durin::Editor::MainFrame
 		~FEditorNotificationOverlay();
 		auto DrawHistoryWindow() -> void;
 		// Publishes transaction presentation feedback without requiring an ImGui frame.
-		auto Tick(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void;
+		auto Tick(FNotificationManager& Notifications, DTransactor& Transactions) -> void;
 		auto GetStatusBarHeight() const -> float;
 		auto DrawStatusBar(
-			::Durin::Editor::FNotificationManager& Notifications,
+			FNotificationManager& Notifications,
 			EEditorStatusBarAction SelectedDrawer,
 			uint32 ConsoleUnreadCount) -> EEditorStatusBarAction;
-		auto DrawToasts(::Durin::Editor::FNotificationManager& Notifications) -> void;
+		auto DrawToasts(FNotificationManager& Notifications) -> void;
 		auto OpenHistory() -> void;
 
 	private:
-		static auto DrawHistory(::Durin::Editor::FNotificationManager& Notifications, bool* bOpen) -> void;
-		static auto PublishTransactionEvent(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions, const ::Durin::Editor::FTransactionEvent& Event) -> void;
+		static auto DrawHistory(FNotificationManager& Notifications, bool* bOpen) -> void;
+		static auto PublishTransactionEvent(FNotificationManager& Notifications, DTransactor& Transactions, const FTransactionEvent& Event) -> void;
 		FObjectKey TransactionSource;
 		uint64 TransactionListener = 0;
 

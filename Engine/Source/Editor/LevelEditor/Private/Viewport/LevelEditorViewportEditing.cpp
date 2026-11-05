@@ -14,7 +14,7 @@ namespace Durin::Editor::Level
 		{
 		public:
 			auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-				FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool override
+				FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool override
 			{
 				if (!Context.bReadOnly && Context.Level && !Context.GetSelectedActors().empty() && (Input.bDuplicate || Input.bDelete))
 				{
@@ -184,7 +184,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto FLevelViewportEditModeManager::Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-		FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool
+		FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
 	{
 		Synchronize(Context);
 		if (!ActiveMode) return false;

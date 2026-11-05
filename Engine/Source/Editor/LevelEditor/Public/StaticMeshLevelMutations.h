@@ -110,7 +110,7 @@ namespace Durin::Editor::Level
 	struct FStaticMeshLevelExecutionContext
 	{
 		DLevel* OpenLevel = nullptr;
-		::Durin::DTransactor* Transactions = nullptr;
+		DTransactor* Transactions = nullptr;
 		bool bReadOnly = false;
 	};
 

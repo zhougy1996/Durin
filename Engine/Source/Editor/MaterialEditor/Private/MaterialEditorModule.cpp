@@ -8,7 +8,7 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/Asset.h"
 #include "AssetTools/IAssetTools.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
 #include "MaterialAssetCreation.h"
@@ -84,13 +84,11 @@ namespace Durin
 		DetailCustomizationRegistration = Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(
 			DMaterialParameterCollection::StaticClass(), Editor::Material::CreateMaterialParameterCollectionDetails());
 		require(static_cast<bool>(DetailCustomizationRegistration));
-		ProviderRegistration = FModularFeatureRegistry::Get().RegisterFeature<Editor::IWorkspaceProvider>(*this);
 	}
 
 	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
-		ProviderRegistration.Reset();
-		UnregisterWorkspaces();
+		UnregisterToolkits();
 		Editor::FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
 		DetailCustomizationRegistration = {};
 		Editor::Material::FMaterialGraphCanvas::ClearSharedClipboard();
@@ -100,10 +98,10 @@ namespace Durin
 				"MaterialEditor cannot retire while one of its custom changes is active");
 	}
 
-	auto FMaterialEditorModule::RegisterWorkspaces(
-		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::DThumbnailManager& ThumbnailManager,
-		::Durin::Editor::FImportDialogCallbacks) -> bool
+	auto FMaterialEditorModule::RegisterToolkits(
+		Editor::FEditorDocumentManager& DocumentManager,
+		Editor::DThumbnailManager& ThumbnailManager,
+		Editor::FImportDialogCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (MaterialThumbnailRegistration && MaterialThumbnailRegistration->IsValid())
@@ -113,70 +111,70 @@ namespace Durin
 		MaterialThumbnailRegistration.reset();
 		MaterialInstanceThumbnailRegistration.reset();
 		std::shared_ptr<MMaterialEditor> Workspace = std::make_shared<MMaterialEditor>(
-			WorkspaceManager);
+			DocumentManager);
 		std::shared_ptr<MMaterialParameterCollectionEditor> CollectionWorkspace =
-			std::make_shared<MMaterialParameterCollectionEditor>(WorkspaceManager);
-		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
-			.Workspaces = {
+			std::make_shared<MMaterialParameterCollectionEditor>(DocumentManager);
+		Editor::FAssetEditorToolkitRegistrationHandle Registration = DocumentManager.RegisterBatch({
+			.Toolkits = {
 				{
-					.Descriptor = {.WorkspaceType = MaterialFunctionWorkspaceType, .DisplayName = "Material Function Editor",
+					.Descriptor = {.ToolkitId = MaterialFunctionWorkspaceType, .DisplayName = "Material Function Editor",
 						.RootKey = "MaterialFunctionEditor", .bShowInWindowMenu = false, .bOpenByDefault = false,
-						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center},
-					.Workspace = std::make_shared<MMaterialFunctionEditor>(WorkspaceManager),
+						.DefaultHostDockPreference = Editor::EToolkitHostDockPreference::Center},
+					.Toolkit = std::make_shared<MMaterialFunctionEditor>(DocumentManager),
 				},
 				{
 					.Descriptor = {
-						.WorkspaceType = Workspace::Type,
+						.ToolkitId = Workspace::Type,
 						.DisplayName = "Material Editor",
 						.RootKey = std::string(Workspace::RootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
-						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = Editor::EToolkitHostDockPreference::Center,
 					},
-					.Workspace = Workspace,
+					.Toolkit = Workspace,
 				},
 				{
 					.Descriptor = {
-						.WorkspaceType = Workspace::CollectionType,
+						.ToolkitId = Workspace::CollectionType,
 						.DisplayName = "Material Parameter Collection",
 						.RootKey = std::string(Workspace::CollectionRootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
 						.DefaultHostDockPreference =
-							::Durin::Editor::EWorkspaceHostDockPreference::Center,
+							Editor::EToolkitHostDockPreference::Center,
 					},
-					.Workspace = CollectionWorkspace,
+					.Toolkit = CollectionWorkspace,
 				},
 			},
 			.AssetEditors = {
 				{
 					.AssetClassName = DMaterialFunction::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = MaterialFunctionWorkspaceType,
-					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource, .bClosable = true,
+					.ToolkitId = MaterialFunctionWorkspaceType,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource, .bClosable = true,
 				},
 				{
 					.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = Workspace::Type,
-					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
+					.ToolkitId = Workspace::Type,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 				{
 					.AssetClassName = DMaterialInstance::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = Workspace::Type,
-					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
+					.ToolkitId = Workspace::Type,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 				{
 					.AssetClassName = DMaterialParameterCollection::StaticClass()
 						->GetQualifiedName().ToString(),
-					.WorkspaceType = Workspace::CollectionType,
-					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
+					.ToolkitId = Workspace::CollectionType,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<Editor::FAssetEditorToolkitRegistrationHandle>(std::move(Registration));
 		auto MaterialHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DMaterialThumbnailRenderer>(
 				DMaterial::StaticClass()->GetQualifiedName().ToString()));
@@ -186,7 +184,7 @@ namespace Durin
 			return false;
 		}
 		MaterialThumbnailRegistration =
-			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
+			std::make_unique<Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(*MaterialHandle));
 		auto InstanceHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DMaterialThumbnailRenderer>(
@@ -198,12 +196,12 @@ namespace Durin
 			return false;
 		}
 		MaterialInstanceThumbnailRegistration =
-			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
+			std::make_unique<Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(*InstanceHandle));
 		const auto RegisterCreate = [this](std::string Id, std::string Label,
 			std::string BaseName, bool bInstance) {
 			std::string Error;
-			auto Handle = ::Durin::Editor::ContentBrowser::RegisterAssetCreation({
+			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
 				.Id = std::move(Id),
 				.Label = std::move(Label),
 				.DefaultName = std::move(BaseName),
@@ -237,12 +235,12 @@ namespace Durin
 				.Id = "material.create-function", .Label = "Material Function", .DefaultName = "NewMaterialFunction", .Order = 220,
 				.Create = CreateMaterialAsset<DMaterialFunction>,
 				.AssetClassNameToOpen = DMaterialFunction::StaticClass()->GetQualifiedName().ToString()}, PresentationError);
-			if (!Handle.IsValid()) { UnregisterWorkspaces(); return false; }
+			if (!Handle.IsValid()) { UnregisterToolkits(); return false; }
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 			auto Presentation = Editor::ContentBrowser::RegisterAssetTypePresentation({
 				.AssetClassName = DMaterialFunction::StaticClass()->GetQualifiedName().ToString(), .DisplayName = "Material Function",
 				.Category = Editor::ContentBrowser::EAssetCategory::Material, .Icon = Icons::FileLines}, PresentationError);
-			if (!Presentation.IsValid()) { UnregisterWorkspaces(); return false; }
+			if (!Presentation.IsValid()) { UnregisterToolkits(); return false; }
 			Integration->TypePresentations.push_back(std::move(Presentation));
 		}
 		{
@@ -254,7 +252,7 @@ namespace Durin
 				.AssetClassNameToOpen = DMaterialParameterCollection::StaticClass()
 					->GetQualifiedName().ToString()},
 				PresentationError);
-			if (!Handle.IsValid()) { UnregisterWorkspaces(); return false; }
+			if (!Handle.IsValid()) { UnregisterToolkits(); return false; }
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 			auto Presentation = Editor::ContentBrowser::RegisterAssetTypePresentation({
 				.AssetClassName = DMaterialParameterCollection::StaticClass()
@@ -262,7 +260,7 @@ namespace Durin
 				.DisplayName = "Material Parameter Collection",
 				.Category = Editor::ContentBrowser::EAssetCategory::Material,
 				.Icon = Icons::FileLines}, PresentationError);
-			if (!Presentation.IsValid()) { UnregisterWorkspaces(); return false; }
+			if (!Presentation.IsValid()) { UnregisterToolkits(); return false; }
 			Integration->TypePresentations.push_back(std::move(Presentation));
 		}
 		{
@@ -275,7 +273,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterWorkspaces();
+				UnregisterToolkits();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -290,7 +288,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterWorkspaces();
+				UnregisterToolkits();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -298,7 +296,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FMaterialEditorModule::UnregisterWorkspaces() -> void
+	auto FMaterialEditorModule::UnregisterToolkits() -> void
 	{
 		Integration->TypePresentations.clear();
 		Integration->ContentBrowserExtensions.clear();

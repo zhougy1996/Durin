@@ -22,7 +22,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Rendering/StaticMeshSceneProxy.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialTypes.h"
@@ -226,20 +226,20 @@ namespace Durin
 		auto BeforeSaveRead = FFileHelper::LoadFileToArray(MaterialFile);
 		ASSERT_TRUE(BeforeSaveRead) << BeforeSaveRead.error().ToString();
 		BeforeSave = std::move(*BeforeSaveRead);
-		Editor::FWorkspaceManager WorkspaceManager;
+		Editor::FEditorDocumentManager DocumentManager;
 		Editor::DThumbnailManager ThumbnailManager;
 		Durin::FMaterialEditorModule MaterialEditorModule;
 		Durin::FModuleTestHarness MaterialEditorHarness("MaterialEditor");
 		MaterialEditorHarness.Start(MaterialEditorModule);
-		ASSERT_TRUE(MaterialEditorModule.RegisterWorkspaces(
-			WorkspaceManager, ThumbnailManager));
+		ASSERT_TRUE(MaterialEditorModule.RegisterToolkits(
+			DocumentManager, ThumbnailManager));
 		const FObjectPath MaterialObjectPath =
 			Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath);
-		ASSERT_TRUE(WorkspaceManager.OpenAsset(
+		ASSERT_TRUE(DocumentManager.OpenAsset(
 			MaterialObjectPath.ToString(),
 			DMaterial::StaticClass()->GetQualifiedName().ToString()));
-		auto MaterialWorkspace = WorkspaceManager.FindWorkspace(
-			Editor::FWorkspaceTypeId("MaterialEditor"));
+		auto MaterialWorkspace = DocumentManager.FindToolkit(
+			Editor::FAssetEditorToolkitId("MaterialEditor"));
 		ASSERT_NE(MaterialWorkspace, nullptr);
 		LoadedMaterial->MarkPackageDirty();
 		EXPECT_TRUE(MaterialWorkspace->CanSaveActiveDocument());

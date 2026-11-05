@@ -34,7 +34,7 @@ namespace Durin::Editor::Material
 		static auto ClearSharedClipboard() -> void;
 
 		auto Draw(
-			::Durin::DTransactor& Transactions,
+			DTransactor& Transactions,
 			float Height) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
 		auto DrawSelectionDetails(DTransactor& Transactions) -> void;
@@ -146,24 +146,24 @@ namespace Durin::Editor::Material
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasMaximum,
 			ImDrawList& DrawList) const -> void;
 		auto HandleKeyboardInput(DObject& Owner,
-			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
+			DTransactor& Transactions, const FMaterialGraphView& View,
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasSize,
 			const ImVec2& Mouse, bool bInputAvailable) -> void;
 		auto CopyNodes(DObject& Owner, std::span<const FGuid> NodeIds) -> void;
-		auto CutNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
+		auto CutNodes(DObject& Owner, DTransactor& Transactions,
 			std::span<const FGuid> NodeIds) -> void;
 		auto DuplicateNodes(DObject& Owner,
-			::Durin::DTransactor& Transactions, std::span<const FGuid> NodeIds) -> void;
-		auto PasteNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
+			DTransactor& Transactions, std::span<const FGuid> NodeIds) -> void;
+		auto PasteNodes(DObject& Owner, DTransactor& Transactions,
 			const ImVec2& GraphPosition) -> void;
-		auto RemoveNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
+		auto RemoveNodes(DObject& Owner, DTransactor& Transactions,
 			std::span<const FGuid> NodeIds) -> void;
 		auto DrawContextMenu(DObject& Owner,
-			::Durin::DTransactor& Transactions, const FMaterialGraphView& View) -> void;
+			DTransactor& Transactions, const FMaterialGraphView& View) -> void;
 		auto RememberCreation(const FMaterialGraphCreationAction& Node) -> void;
 		auto HasClipboard() const -> bool;
 		auto DrawCreationMenu(DObject& Owner,
-			::Durin::DTransactor& Transactions, const FMaterialGraphView& View) -> void;
+			DTransactor& Transactions, const FMaterialGraphView& View) -> void;
 		auto ResetInteraction() -> void;
 		auto ToggleNodePins(const FGuid& NodeId) -> void;
 		auto PrepareFunctionView(DMaterialFunction& Function) -> void;

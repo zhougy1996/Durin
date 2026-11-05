@@ -13,7 +13,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string_view PhysicalPath;
 		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
-		::Durin::Editor::EAssetThumbnailPriority Priority = ::Durin::Editor::EAssetThumbnailPriority::Prefetch;
+		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
 	};
 
 	// Coordinates asynchronous decode, GPU upload, memory eviction, and disk reuse.
@@ -30,7 +30,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		auto BeginFrame() -> void;
 		auto Request(const FSourceImageThumbnailRequest& Request) -> void;
-		auto Find(std::string_view Identity) const -> ::Durin::Editor::FAssetThumbnailView;
+		auto Find(std::string_view Identity) const -> FAssetThumbnailView;
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;
 		auto Clear() -> void;

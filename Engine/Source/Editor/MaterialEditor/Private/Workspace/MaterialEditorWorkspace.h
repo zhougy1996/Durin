@@ -2,16 +2,16 @@
 
 #include "CoreMinimal.h"
 
-#include "Workspace/WorkspaceTypes.h"
+#include "Documents/EditorDocumentTypes.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Framework/TabLayout.h"
 #include "Widgets/MonaImGuiWidgets.h"
 
 namespace Durin::Editor::Material::Workspace
 {
-	inline const ::Durin::Editor::FWorkspaceTypeId Type("MaterialEditor");
+	inline const FAssetEditorToolkitId Type("MaterialEditor");
 	inline constexpr std::string_view RootKey = "MaterialEditor";
-	inline const ::Durin::Editor::FWorkspaceTypeId CollectionType(
+	inline const FAssetEditorToolkitId CollectionType(
 		"MaterialParameterCollectionEditor");
 	inline constexpr std::string_view CollectionRootKey =
 		"MaterialParameterCollectionEditor";
@@ -19,21 +19,21 @@ namespace Durin::Editor::Material::Workspace
 	inline constexpr uint32 FunctionLayoutVersion = 5;
 
 	// Isolates panel docking and persisted layouts for each material document.
-	inline auto MakeDocumentDockType(const ::Durin::Editor::FDocumentTab& Document)
-		-> ::Durin::Editor::FWorkspaceTypeId
+	inline auto MakeDocumentDockType(const FEditorDocument& Document)
+		-> FAssetEditorToolkitId
 	{
-		return ::Durin::Editor::FWorkspaceTypeId(std::format("MaterialEditor.{}", Document.DocumentKey));
+		return FAssetEditorToolkitId(std::format("MaterialEditor.{}", Document.DocumentKey));
 	}
 
 	inline auto BuildDefaultLayout(
-		const ::Durin::Editor::FDocumentTab& Document, const ImVec2& Size, bool bFunction = false) -> void
+		const FEditorDocument& Document, const ImVec2& Size, bool bFunction = false) -> void
 	{
 		const auto DockType = MakeDocumentDockType(Document);
-		const ImGuiID DockSpaceId = ::Durin::Editor::WorkspaceUI::MakeDockSpaceId(DockType, bFunction ? FunctionLayoutVersion : LayoutVersion);
+		const ImGuiID DockSpaceId = TabLayout::MakeDockSpaceId(DockType, bFunction ? FunctionLayoutVersion : LayoutVersion);
 		ImGui::DockBuilderRemoveNode(DockSpaceId);
 		ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(DockSpaceId, Size);
-		ImGui::DockBuilderGetNode(DockSpaceId)->WindowClass = ::Durin::Editor::WorkspaceUI::MakeWindowClass(DockType);
+		ImGui::DockBuilderGetNode(DockSpaceId)->WindowClass = TabLayout::MakeWindowClass(DockType);
 
 		ImGuiID GraphId = DockSpaceId;
 		ImGuiID PreviewId = GraphId;
@@ -48,7 +48,7 @@ namespace Durin::Editor::Material::Workspace
 		}
 		// Small initial windows use real dock tabs; resizing never overwrites the user's arrangement.
 		const auto DockPanel = [&](const char* Label, const char* Key, ImGuiID NodeId) {
-			const auto Name = ::Durin::Editor::WorkspaceUI::MakePanelWindowName(Label, DockType, Key);
+			const auto Name = TabLayout::MakePanelWindowName(Label, DockType, Key);
 			ImGui::DockBuilderDockWindow(Name.c_str(), NodeId);
 		};
 		DockPanel("Material Graph", "Graph", GraphId);

@@ -7,8 +7,8 @@
 #include "Editor/EditorEngine.h"
 #include "Notifications/Notification.h"
 #include "Transactions/Transaction.h"
-#include "Workspace/WorkspaceManager.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Documents/EditorDocumentManager.h"
+#include "Framework/TabLayout.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Engine.h"
@@ -48,11 +48,11 @@ namespace Durin::Editor::Level
 
 	// MLevelEditor is the composition root for the editor-specific controllers.
 	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
-		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
+		FEditorDocumentManager& InWorkspaceManager,
 		FContentBrowserCallbacks InContentBrowserCallbacks,
 		std::function<void()> InOpenProjectBrowser)
 		: SessionSettings(InSessionSettings)
-		, WorkspaceManager(InWorkspaceManager)
+		, DocumentManager(InWorkspaceManager)
 		, ContentBrowserCallbacks(std::move(InContentBrowserCallbacks))
 		, OpenProjectBrowser(std::move(InOpenProjectBrowser))
 	{
@@ -107,7 +107,7 @@ namespace Durin::Editor::Level
 		Context->RenameLevel = [this](std::string_view NewName) {
 			return DocumentController && DocumentController->RenameCurrentLevel(NewName);
 		};
-		Context->StartPlay = [this](::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) {
+		Context->StartPlay = [this](EPlayStartLocation StartLocation, EPlayDestination Destination) {
 			StartPlay(StartLocation, Destination);
 		};
 		Context->ApplyPlayChanges = [this](bool bSelectedOnly) { ApplyPlayChanges(bSelectedOnly); };
@@ -122,7 +122,7 @@ namespace Durin::Editor::Level
 			const FAssetPathResolveResult Resolution =
 				ResolveAssetPathForOperation(Path);
 			if (Resolution && Resolution.FinalAssetData
-				&& WorkspaceManager.OpenAsset(
+				&& DocumentManager.OpenAsset(
 					Resolution.FinalPath.ToString(), Resolution.FinalAssetData->AssetClassName)) return true;
 			Error = "The loaded asset could not be opened.";
 			return false;
@@ -175,8 +175,8 @@ namespace Durin::Editor::Level
 			[this](std::string Message) { SetError(std::move(Message)); },
 			[this](bool bSucceeded) {
 				if (!DeferredOpenDocumentId.IsValid()) return;
-				const ::Durin::Editor::FDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
-				if (!WorkspaceManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded))
+				const FDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
+				if (!DocumentManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded))
 					SetError("The deferred level document request is no longer available.");
 			}
 		);
@@ -316,28 +316,28 @@ namespace Durin::Editor::Level
 			PendingDefaultLevel.SetPath(std::move(LevelPath));
 	}
 
-	auto MLevelEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
+	auto MLevelEditor::GetToolkitId() const -> const FAssetEditorToolkitId&
 	{
 		return Workspace::Type;
 	}
 
-	auto MLevelEditor::OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult
+	auto MLevelEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Opened;
-		if (!DocumentController) return ::Durin::Editor::EDocumentOpenResult::Rejected;
+		if (Document.ResourceId.empty()) return EDocumentOpenResult::Opened;
+		if (!DocumentController) return EDocumentOpenResult::Rejected;
 		switch (DocumentController->OpenLevel(Document.ResourceId))
 		{
-		case ELevelDocumentOpenResult::Opened: return ::Durin::Editor::EDocumentOpenResult::Opened;
+		case ELevelDocumentOpenResult::Opened: return EDocumentOpenResult::Opened;
 		case ELevelDocumentOpenResult::AwaitingConfirmation:
 		case ELevelDocumentOpenResult::Loading:
 			DeferredOpenDocumentId = Document.Id;
-			return ::Durin::Editor::EDocumentOpenResult::Deferred;
-		case ELevelDocumentOpenResult::Rejected: return ::Durin::Editor::EDocumentOpenResult::Rejected;
+			return EDocumentOpenResult::Deferred;
+		case ELevelDocumentOpenResult::Rejected: return EDocumentOpenResult::Rejected;
 		}
-		return ::Durin::Editor::EDocumentOpenResult::Rejected;
+		return EDocumentOpenResult::Rejected;
 	}
 
-	auto MLevelEditor::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
+	auto MLevelEditor::ActivateDocument(const FEditorDocument& Document) -> void
 	{
 		(void)Document;
 		RootWindow.RequestFocus();
@@ -348,21 +348,21 @@ namespace Durin::Editor::Level
 		return !Context || !DetailsPanel || DetailsPanel->RequestDeactivate(*Context);
 	}
 
-	auto MLevelEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
+	auto MLevelEditor::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
 	{
-		if (!RequestDeactivate()) return ::Durin::Editor::EDocumentCloseResult::Rejected;
-		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
-		if (DocumentController && !DocumentController->CloseLevel()) return ::Durin::Editor::EDocumentCloseResult::Rejected;
-		return ::Durin::Editor::EDocumentCloseResult::Closed;
+		if (!RequestDeactivate()) return EDocumentCloseResult::Rejected;
+		if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
+		if (DocumentController && !DocumentController->CloseLevel()) return EDocumentCloseResult::Rejected;
+		return EDocumentCloseResult::Closed;
 	}
 
-	auto MLevelEditor::SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
+	auto MLevelEditor::SaveDocument(const FEditorDocument& Document) -> bool
 	{
 		(void)Document;
 		return SaveActiveDocument();
 	}
 
-	auto MLevelEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
+	auto MLevelEditor::DiscardDocument(const FEditorDocument& Document) -> bool
 	{
 		(void)Document;
 		if (!Context || !Context->Level || !Context->Level->GetPackage()) return false;
@@ -373,7 +373,7 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto MLevelEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
+	auto MLevelEditor::IsDocumentDirty(const FEditorDocument& Document) const -> bool
 	{
 		(void)Document;
 		return Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
@@ -392,14 +392,14 @@ namespace Durin::Editor::Level
 		}
 	}
 
-	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
+	auto MLevelEditor::DrawToolkit(bool bActive) -> bool
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.DrawWorkspace");
+		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.DrawToolkit");
 		if (!Context || !DocumentController) return false;
 		DocumentController->DrawDialogs();
 		bWasActive = bActive;
-		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const ::Durin::Editor::FDocumentTab& Document) {
-			return Document.WorkspaceType == Workspace::Type;
+		const bool bDocumentOpen = std::ranges::any_of(DocumentManager.GetDocuments(), [](const FEditorDocument& Document) {
+			return Document.ToolkitId == Workspace::Type;
 		});
 		if (!bDocumentOpen)
 		{
@@ -407,15 +407,15 @@ namespace Durin::Editor::Level
 			return false;
 		}
 
-		const ImGuiID DockSpaceId = ::Durin::Editor::WorkspaceUI::MakeDockSpaceId(Workspace::Type, Workspace::LayoutVersion);
+		const ImGuiID DockSpaceId = TabLayout::MakeDockSpaceId(Workspace::Type, Workspace::LayoutVersion);
 		const bool bLevelDirty = Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
-		const ::Durin::Editor::FWorkspaceRootWindowState RootWindowState = RootWindow.Begin({
+		const FEditorTabWindowState RootWindowState = RootWindow.Begin({
 			.DisplayName = "Level Editor",
 			.RootKey = Workspace::RootKey,
 			.bDirty = bLevelDirty,
 			.bZeroPadding = true,
-			.InternalDockSpace = ::Durin::Editor::FWorkspaceInternalDockSpace{
-				.WorkspaceType = Workspace::Type,
+			.InternalDockSpace = FToolkitInternalDockSpace{
+				.ToolkitId = Workspace::Type,
 				.LayoutVersion = Workspace::LayoutVersion,
 			},
 		});
@@ -424,9 +424,9 @@ namespace Durin::Editor::Level
 			RootWindow.End();
 			if (RootWindowState.bCloseRequested)
 			{
-				const ::Durin::Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
-				if (ActiveDocument && ActiveDocument->WorkspaceType == Workspace::Type)
-					WorkspaceManager.RequestCloseDocument(ActiveDocument->Id);
+				const FEditorDocument* ActiveDocument = DocumentManager.GetActiveDocument();
+				if (ActiveDocument && ActiveDocument->ToolkitId == Workspace::Type)
+					DocumentManager.RequestCloseDocument(ActiveDocument->Id);
 			}
 			return RootWindowState.bActivated;
 		}
@@ -445,7 +445,7 @@ namespace Durin::Editor::Level
 				if (GEditor->IsPlaying()) GEditor->StopPlaySession();
 				else
 				{
-					StartPlay(::Durin::Editor::EPlayStartLocation::LevelStart, IO.KeyCtrl ? ::Durin::Editor::EPlayDestination::NewWindow : ::Durin::Editor::EPlayDestination::EmbeddedViewport);
+					StartPlay(EPlayStartLocation::LevelStart, IO.KeyCtrl ? EPlayDestination::NewWindow : EPlayDestination::EmbeddedViewport);
 				}
 			}
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
@@ -470,14 +470,14 @@ namespace Durin::Editor::Level
 		}
 		const ImVec2 ItemSpacing = ImGui::GetStyle().ItemSpacing;
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ItemSpacing.x, 0.0f));
-		::Durin::Editor::WorkspaceUI::SubmitDockSpace(Workspace::Type, Workspace::LayoutVersion, DockSpaceSize);
+		TabLayout::SubmitDockSpace(Workspace::Type, Workspace::LayoutVersion, DockSpaceSize);
 		ImGui::PopStyleVar();
 		RootWindow.End();
 		if (RootWindowState.bCloseRequested)
 		{
-			const ::Durin::Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
-			if (ActiveDocument && ActiveDocument->WorkspaceType == Workspace::Type)
-				WorkspaceManager.RequestCloseDocument(ActiveDocument->Id);
+			const FEditorDocument* ActiveDocument = DocumentManager.GetActiveDocument();
+			if (ActiveDocument && ActiveDocument->ToolkitId == Workspace::Type)
+				DocumentManager.RequestCloseDocument(ActiveDocument->Id);
 		}
 
 
@@ -617,13 +617,13 @@ namespace Durin::Editor::Level
 			ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
 			ImGui::SetNextItemWidth(-1.0f);
 			static std::array<char, 128> LevelSearchText{};
-			const ::Durin::Editor::FAssetPickerResult PickerResult = ::Durin::Editor::AssetPicker::Draw({
+			const FAssetPickerResult PickerResult = AssetPicker::Draw({
 				.ComboId = "##DefaultLevel",
 				.SearchId = "##DefaultLevelSearch",
 				.SearchHint = "Search levels...",
 				.RequiredClass = DLevel::StaticClass(),
-				.ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Exact,
-				.AssignmentMode = ::Durin::Editor::EAssetAssignmentMode::AssetPath,
+				.ClassPolicy = EAssetClassPolicy::Exact,
+				.AssignmentMode = EAssetAssignmentMode::AssetPath,
 				.CurrentSelectionPath =
 					PendingDefaultLevel.GetPath().ToString(),
 				.SearchText = LevelSearchText,
@@ -693,18 +693,18 @@ namespace Durin::Editor::Level
 		DURIN_ERROR("Level editor: {}", EditorError);
 	}
 
-	auto MLevelEditor::StartPlay(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void
+	auto MLevelEditor::StartPlay(EPlayStartLocation StartLocation, EPlayDestination Destination) -> void
 	{
 		if (DocumentController && DocumentController->IsOpening()) return;
 		if (!GEditor || !Context || !Context->Level) return;
 		if (!RequestDeactivate()) return;
 		if (SceneViewportPanel) SceneViewportPanel->SetPreferredPlayMode(StartLocation, Destination);
-		::Durin::Editor::FPlayRequest Request;
+		FPlayRequest Request;
 		Request.SourceLevel = Context->Level;
 		Request.StartLocation = StartLocation;
 		Request.Destination = Destination;
 		Request.bSimulatePhysics = Context->bSimulatePhysics;
-		if (StartLocation == ::Durin::Editor::EPlayStartLocation::EditorCamera && SceneViewportPanel)
+		if (StartLocation == EPlayStartLocation::EditorCamera && SceneViewportPanel)
 		{
 			FLevelViewportCameraState CameraState;
 			if (!SceneViewportPanel->CaptureCameraState(Context->Level, CameraState))
@@ -746,7 +746,7 @@ namespace Durin::Editor::Level
 		ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(DockSpaceId, ImVec2(DockSpaceWidth, DockSpaceHeight));
 		if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
-			DockSpaceNode->WindowClass = ::Durin::Editor::WorkspaceUI::MakeWindowClass(Workspace::Type);
+			DockSpaceNode->WindowClass = TabLayout::MakeWindowClass(Workspace::Type);
 
 		ImGuiID MainDockId = DockSpaceId;
 		ImGuiID DetailsDockId = ImGui::DockBuilderSplitNode(
@@ -754,9 +754,9 @@ namespace Durin::Editor::Level
 		const ImGuiID WorldOutlinerDockId = ImGui::DockBuilderSplitNode(
 			DetailsDockId, ImGuiDir_Up, 0.35f, nullptr, &DetailsDockId);
 
-		const std::string WorldOutlinerName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("World Outliner", Workspace::Type, "WorldOutliner");
-		const std::string DetailsName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Details", Workspace::Type, "Details");
-		const std::string SceneViewportName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Scene Viewport", Workspace::Type, "SceneViewport");
+		const std::string WorldOutlinerName = TabLayout::MakePanelWindowName("World Outliner", Workspace::Type, "WorldOutliner");
+		const std::string DetailsName = TabLayout::MakePanelWindowName("Details", Workspace::Type, "Details");
+		const std::string SceneViewportName = TabLayout::MakePanelWindowName("Scene Viewport", Workspace::Type, "SceneViewport");
 		ImGui::DockBuilderDockWindow(WorldOutlinerName.c_str(), WorldOutlinerDockId);
 		ImGui::DockBuilderDockWindow(DetailsName.c_str(), DetailsDockId);
 		ImGui::DockBuilderDockWindow(SceneViewportName.c_str(), MainDockId);

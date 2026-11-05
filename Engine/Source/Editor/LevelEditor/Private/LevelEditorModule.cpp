@@ -9,7 +9,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "AssetTools/IAssetTools.h"
-#include "Workspace/WorkspaceManager.h"
+#include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
 #include "Settings/LevelEditorSessionSettings.h"
@@ -160,39 +160,39 @@ namespace Durin
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(
-		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::DThumbnailManager&,
+		Editor::FEditorDocumentManager& DocumentManager,
+		Editor::DThumbnailManager&,
 		Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks,
 		std::function<void()> OpenProjectBrowser) -> bool
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
-			*SessionSettings, WorkspaceManager,
+			*SessionSettings, DocumentManager,
 			std::move(ContentBrowserCallbacks), std::move(OpenProjectBrowser));
 		Workspace->Construct();
-		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
-			.Workspaces = {
+		Editor::FAssetEditorToolkitRegistrationHandle Registration = DocumentManager.RegisterBatch({
+			.Toolkits = {
 				{
 					.Descriptor = {
-						.WorkspaceType = Workspace::Type,
+						.ToolkitId = Workspace::Type,
 						.DisplayName = "Level Editor",
 						.RootKey = Workspace::RootKey,
 						.bShowInWindowMenu = true,
 						.bOpenByDefault = true,
-						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = Editor::EToolkitHostDockPreference::Center,
 						.SingletonDocumentKey = "LevelEditor",
 						.SingletonDocumentLabel = "Level Editor",
 						.bSingletonDocumentClosable = true,
 					},
-					.Workspace = Workspace,
+					.Toolkit = Workspace,
 				},
 			},
 			.AssetEditors = {
 				{
 					.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = Workspace::Type,
-					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::Singleton,
+					.ToolkitId = Workspace::Type,
+					.DocumentPolicy = Editor::EDocumentPolicy::Singleton,
 					.SingletonDocumentKey = "LevelEditor",
 					.SingletonLabel = "Level Editor",
 					.bClosable = true,
@@ -200,7 +200,7 @@ namespace Durin
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<Editor::FAssetEditorToolkitRegistrationHandle>(std::move(Registration));
 		LevelEditorWorkspace = Workspace;
 		{
 			std::string Error;
@@ -229,7 +229,7 @@ namespace Durin
 				.Label = std::move(Label),
 				.Category = Editor::ContentBrowser::EExtensionCategory::Import,
 				.Order = Order,
-				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+				.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto& Context) {
 					return !Context.VirtualDirectory.empty();
 				},

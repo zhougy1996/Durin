@@ -14,7 +14,7 @@
 #include "Components/ActorComponent.h"
 #include "Engine/Actor.h"
 #include "Editor/EditorEngine.h"
-#include "Workspace/WorkspaceUI.h"
+#include "Framework/TabLayout.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorHelpers.h"
 #include "Workspace/LevelEditorWorkspace.h"
@@ -88,7 +88,7 @@ namespace Durin::Editor::Level
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.Details");
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		const bool bPanelVisible = ::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+		const bool bPanelVisible = TabLayout::BeginDockablePanel(
 			Workspace::Type, "Details", "Details", GetOpenPtr());
 		ImGui::PopStyleVar();
 		if (!bPanelVisible)
@@ -200,7 +200,7 @@ namespace Durin::Editor::Level
 
 	auto FDetailsPanel::DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void
 	{
-		const ::Durin::Editor::FPropertyViewContext ViewContext = MakePropertyViewContext(Context);
+		const FPropertyViewContext ViewContext = MakePropertyViewContext(Context);
 		if (!PropertyView.HandleOwnerContext(ViewContext, Object))
 		{
 			ImGui::TextDisabled("The active property preview must be restored before changing targets.");
@@ -232,7 +232,7 @@ namespace Durin::Editor::Level
 		ImGui::EndChild();
 	}
 
-	auto FDetailsPanel::MakePropertyViewContext(FLevelEditorContext& Context) const -> ::Durin::Editor::FPropertyViewContext
+	auto FDetailsPanel::MakePropertyViewContext(FLevelEditorContext& Context) const -> FPropertyViewContext
 	{
 		return {
 			.ReportError = [&Context](std::string Error) { Context.SetError(std::move(Error)); },
@@ -252,7 +252,7 @@ namespace Durin::Editor::Level
 	{
 		if (!Context)
 			return PropertyView.FinishActiveEdit(nullptr, bCancel);
-		const ::Durin::Editor::FPropertyViewContext ViewContext = MakePropertyViewContext(*Context);
+		const FPropertyViewContext ViewContext = MakePropertyViewContext(*Context);
 		return PropertyView.FinishActiveEdit(&ViewContext, bCancel);
 	}
 } // namespace Durin::Editor::Level
