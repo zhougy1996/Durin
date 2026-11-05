@@ -120,15 +120,15 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactRenderersAndWorkspaceLifecy
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString();
 	const std::string TextureCubeClass =
 		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString();
-	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
+	ASSERT_TRUE(Manager.RegisterProviders(ThumbnailManager, {}));
 	EXPECT_TRUE(ThumbnailManager.Find(Texture2DClass));
 	EXPECT_TRUE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_NE(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
 	EXPECT_NE(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("VolumeTextureEditor")), nullptr);
-	EXPECT_FALSE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
-	Module.UnregisterTextureEditor();
+	EXPECT_FALSE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
+	Manager.UnregisterProviders();
 	EXPECT_FALSE(ThumbnailManager.Find(Texture2DClass));
 	EXPECT_FALSE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_EQ(Manager.FindWorkspace(
@@ -237,7 +237,7 @@ TEST(FTextureAssetThumbnailTests, RendererConflictRollsBackWholeIntegration)
 	Durin::FTextureEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
+	EXPECT_FALSE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(ThumbnailManager.Find(
@@ -259,7 +259,7 @@ TEST(FTextureAssetThumbnailTests,
 	Durin::FTextureEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
 	ModuleHarness.Start(Module);
-	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
+	ASSERT_TRUE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
 	Durin::FPackagePath ParentTexturePackagePath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath,

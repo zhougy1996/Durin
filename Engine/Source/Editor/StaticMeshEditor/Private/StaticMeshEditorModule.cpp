@@ -30,14 +30,16 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::StartupModule() -> void
 	{
+		ProviderRegistration = FModularFeatureRegistry::Get().RegisterFeature<Editor::IWorkspaceProvider>(*this);
 	}
 
 	auto FStaticMeshEditorModule::ShutdownModule() -> void
 	{
-		UnregisterStaticMeshEditor();
+		ProviderRegistration.Reset();
+		UnregisterWorkspaces();
 	}
 
-	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(
+	auto FStaticMeshEditorModule::RegisterWorkspaces(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 		::Durin::Editor::DThumbnailManager& ThumbnailManager,
 		::Durin::Editor::FImportDialogCallbacks ImportCallbacks) -> bool
@@ -74,7 +76,7 @@ namespace Durin
 		});
 		if (!Registration)
 		{
-			UnregisterStaticMeshEditor();
+			UnregisterWorkspaces();
 			return false;
 		}
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
@@ -83,7 +85,7 @@ namespace Durin
 				std::make_unique<DStaticMeshThumbnailRenderer>());
 		if (!ThumbnailHandle)
 		{
-			UnregisterStaticMeshEditor();
+			UnregisterWorkspaces();
 			return false;
 		}
 		ThumbnailRegistration =
@@ -112,7 +114,7 @@ namespace Durin
 		if (!ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser Static Mesh import: {}", Error);
-			UnregisterStaticMeshEditor();
+			UnregisterWorkspaces();
 			return false;
 		}
 		Integration->ImportExtension = std::move(ImportExtension);
@@ -127,7 +129,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterStaticMeshEditor();
+				UnregisterWorkspaces();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -135,7 +137,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FStaticMeshEditorModule::UnregisterStaticMeshEditor() -> void
+	auto FStaticMeshEditorModule::UnregisterWorkspaces() -> void
 	{
 		Integration->TypePresentations.clear();
 		Integration->ImportExtension.Reset();

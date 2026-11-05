@@ -84,11 +84,13 @@ namespace Durin
 		DetailCustomizationRegistration = Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(
 			DMaterialParameterCollection::StaticClass(), Editor::Material::CreateMaterialParameterCollectionDetails());
 		require(static_cast<bool>(DetailCustomizationRegistration));
+		ProviderRegistration = FModularFeatureRegistry::Get().RegisterFeature<Editor::IWorkspaceProvider>(*this);
 	}
 
 	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
-		UnregisterMaterialEditor();
+		ProviderRegistration.Reset();
+		UnregisterWorkspaces();
 		Editor::FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
 		DetailCustomizationRegistration = {};
 		Editor::Material::FMaterialGraphCanvas::ClearSharedClipboard();
@@ -98,9 +100,10 @@ namespace Durin
 				"MaterialEditor cannot retire while one of its custom changes is active");
 	}
 
-	auto FMaterialEditorModule::RegisterMaterialEditor(
+	auto FMaterialEditorModule::RegisterWorkspaces(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::DThumbnailManager& ThumbnailManager) -> bool
+		::Durin::Editor::DThumbnailManager& ThumbnailManager,
+		::Durin::Editor::FImportDialogCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (MaterialThumbnailRegistration && MaterialThumbnailRegistration->IsValid())
@@ -234,12 +237,12 @@ namespace Durin
 				.Id = "material.create-function", .Label = "Material Function", .DefaultName = "NewMaterialFunction", .Order = 220,
 				.Create = CreateMaterialAsset<DMaterialFunction>,
 				.AssetClassNameToOpen = DMaterialFunction::StaticClass()->GetQualifiedName().ToString()}, PresentationError);
-			if (!Handle.IsValid()) { UnregisterMaterialEditor(); return false; }
+			if (!Handle.IsValid()) { UnregisterWorkspaces(); return false; }
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 			auto Presentation = Editor::ContentBrowser::RegisterAssetTypePresentation({
 				.AssetClassName = DMaterialFunction::StaticClass()->GetQualifiedName().ToString(), .DisplayName = "Material Function",
 				.Category = Editor::ContentBrowser::EAssetCategory::Material, .Icon = Icons::FileLines}, PresentationError);
-			if (!Presentation.IsValid()) { UnregisterMaterialEditor(); return false; }
+			if (!Presentation.IsValid()) { UnregisterWorkspaces(); return false; }
 			Integration->TypePresentations.push_back(std::move(Presentation));
 		}
 		{
@@ -251,7 +254,7 @@ namespace Durin
 				.AssetClassNameToOpen = DMaterialParameterCollection::StaticClass()
 					->GetQualifiedName().ToString()},
 				PresentationError);
-			if (!Handle.IsValid()) { UnregisterMaterialEditor(); return false; }
+			if (!Handle.IsValid()) { UnregisterWorkspaces(); return false; }
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 			auto Presentation = Editor::ContentBrowser::RegisterAssetTypePresentation({
 				.AssetClassName = DMaterialParameterCollection::StaticClass()
@@ -259,7 +262,7 @@ namespace Durin
 				.DisplayName = "Material Parameter Collection",
 				.Category = Editor::ContentBrowser::EAssetCategory::Material,
 				.Icon = Icons::FileLines}, PresentationError);
-			if (!Presentation.IsValid()) { UnregisterMaterialEditor(); return false; }
+			if (!Presentation.IsValid()) { UnregisterWorkspaces(); return false; }
 			Integration->TypePresentations.push_back(std::move(Presentation));
 		}
 		{
@@ -272,7 +275,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterMaterialEditor();
+				UnregisterWorkspaces();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -287,7 +290,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterMaterialEditor();
+				UnregisterWorkspaces();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -295,7 +298,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FMaterialEditorModule::UnregisterMaterialEditor() -> void
+	auto FMaterialEditorModule::UnregisterWorkspaces() -> void
 	{
 		Integration->TypePresentations.clear();
 		Integration->ContentBrowserExtensions.clear();

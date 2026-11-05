@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Workspace/WorkspaceProvider.h"
 
 #include "Modules/ModuleManager.h"
 #include "StaticMeshEditorAPI.h"
@@ -17,22 +18,23 @@ namespace Durin::Editor
 namespace Durin
 {
 	// Registers the read-only StaticMesh inspector and its exact asset route.
-	class FStaticMeshEditorModule final : public IModuleInterface
+	class FStaticMeshEditorModule final : public IModuleInterface, public Editor::IWorkspaceProvider
 	{
 	public:
 		STATICMESHEDITOR_API FStaticMeshEditorModule();
 		STATICMESHEDITOR_API ~FStaticMeshEditorModule() override;
 		STATICMESHEDITOR_API auto StartupModule() -> void override;
 		STATICMESHEDITOR_API auto ShutdownModule() -> void override;
-		STATICMESHEDITOR_API auto RegisterStaticMeshEditor(
+		STATICMESHEDITOR_API auto RegisterWorkspaces(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::DThumbnailManager& ThumbnailManager,
-			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
-		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
+			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool override;
+		STATICMESHEDITOR_API auto UnregisterWorkspaces() -> void override;
 	private:
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> ThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
+		FModularFeatureRegistration ProviderRegistration;
 	};
 }

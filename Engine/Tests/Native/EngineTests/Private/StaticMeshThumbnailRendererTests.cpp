@@ -692,9 +692,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 	MaterialHarness.Start(MaterialModule);
 	TextureHarness.Start(TextureModule);
 	StaticMeshHarness.Start(StaticMeshModule);
-	ASSERT_TRUE(MaterialModule.RegisterMaterialEditor(Manager, ThumbnailManager));
-	ASSERT_TRUE(TextureModule.RegisterTextureEditor(Manager, ThumbnailManager));
-	ASSERT_TRUE(StaticMeshModule.RegisterStaticMeshEditor(Manager, ThumbnailManager));
+	ASSERT_TRUE(MaterialModule.RegisterWorkspaces(Manager, ThumbnailManager));
+	ASSERT_TRUE(TextureModule.RegisterWorkspaces(Manager, ThumbnailManager));
+	ASSERT_TRUE(StaticMeshModule.RegisterWorkspaces(Manager, ThumbnailManager));
 	// Material, Material Function, Material Parameter Collection, Texture,
 	// Volume Texture, and Static Mesh.
 	EXPECT_EQ(Manager.GetWorkspaceDescriptors().size(), 6u);
@@ -734,7 +734,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 
 	// MainFrame shutdown removes concrete modules in reverse composition order.
 	// Removing one renderer drains its queued lease without disturbing the others.
-	StaticMeshModule.UnregisterStaticMeshEditor();
+	StaticMeshModule.UnregisterWorkspaces();
 	EXPECT_FALSE(ThumbnailManager.Find(StaticMeshClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_TRUE(ThumbnailManager.Find(TextureCubeClass));
@@ -743,7 +743,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		nullptr);
 	Cache.EndFrame();
 
-	TextureModule.UnregisterTextureEditor();
+	TextureModule.UnregisterWorkspaces();
 	EXPECT_FALSE(ThumbnailManager.Find(Texture2DClass));
 	EXPECT_FALSE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
@@ -754,7 +754,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("VolumeTextureEditor")),
 		nullptr);
 
-	MaterialModule.UnregisterMaterialEditor();
+	MaterialModule.UnregisterWorkspaces();
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialInstanceClass));
 	EXPECT_EQ(

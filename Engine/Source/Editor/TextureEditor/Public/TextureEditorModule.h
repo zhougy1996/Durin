@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Workspace/WorkspaceProvider.h"
 #include "PropertyEditor/DetailCustomizationRegistry.h"
 
 #include "Modules/ModuleManager.h"
@@ -18,18 +19,18 @@ namespace Durin::Editor
 namespace Durin
 {
 	// Registers the texture workspace and texture asset-editor mapping.
-	class FTextureEditorModule final : public IModuleInterface
+	class FTextureEditorModule final : public IModuleInterface, public Editor::IWorkspaceProvider
 	{
 	public:
 		TEXTUREEDITOR_API FTextureEditorModule();
 		TEXTUREEDITOR_API ~FTextureEditorModule() override;
 		TEXTUREEDITOR_API auto StartupModule() -> void override;
 		TEXTUREEDITOR_API auto ShutdownModule() -> void override;
-		TEXTUREEDITOR_API auto RegisterTextureEditor(
+		TEXTUREEDITOR_API auto RegisterWorkspaces(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::DThumbnailManager& ThumbnailManager,
-			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
-		TEXTUREEDITOR_API auto UnregisterTextureEditor() -> void;
+			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool override;
+		TEXTUREEDITOR_API auto UnregisterWorkspaces() -> void override;
 	private:
 		Editor::FDetailCustomizationHandle DetailCustomizationRegistration;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
@@ -37,5 +38,6 @@ namespace Durin
 		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> TextureCubeThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
+		FModularFeatureRegistration ProviderRegistration;
 	};
 }

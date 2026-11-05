@@ -17,6 +17,8 @@
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
 #include "Workspace/WorkspaceManager.h"
+#include "Workspace/WorkspaceProvider.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "Workspace/WorkspaceRootWindow.h"
 #include "Workspace/WorkspaceUI.h"
 #include "Materials/Material.h"
@@ -85,6 +87,25 @@ namespace
 
 	private:
 		std::array<Durin::DPackage*, 1> Package{};
+	};
+
+	class FRecordingWorkspaceProvider final : public Durin::Editor::IWorkspaceProvider
+	{
+	public:
+		std::string Name;
+		std::vector<std::string>& Events;
+		bool bSucceed = true;
+		bool bThrow = false;
+		FRecordingWorkspaceProvider(std::string InName, std::vector<std::string>& InEvents)
+			: Name(std::move(InName)), Events(InEvents) {}
+		auto RegisterWorkspaces(Durin::Editor::FWorkspaceManager&, Durin::Editor::DThumbnailManager&,
+			Durin::Editor::FImportDialogCallbacks) -> bool override
+		{
+			Events.push_back("register " + Name);
+			if (bThrow) throw std::runtime_error("Workspace registration failed");
+			return bSucceed;
+		}
+		auto UnregisterWorkspaces() -> void override { Events.push_back("unregister " + Name); }
 	};
 
 	class FTestWorkspace final : public Durin::Editor::IWorkspace
@@ -184,6 +205,65 @@ namespace
 			.Workspace = Workspace,
 		};
 	}
+}
+
+TEST(FWorkspaceProviderTests, RegistrationIsSingleShotAndTeardownUsesReverseCompositionOrder)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	std::vector<std::string> Events;
+	FRecordingWorkspaceProvider First("first", Events), Second("second", Events);
+	auto FirstToken = Durin::FModularFeatureRegistry::Get().RegisterFeature<Durin::Editor::IWorkspaceProvider>(First);
+	auto SecondToken = Durin::FModularFeatureRegistry::Get().RegisterFeature<Durin::Editor::IWorkspaceProvider>(Second);
+	Durin::Editor::DThumbnailManager Thumbnails;
+	Durin::Editor::FWorkspaceManager Manager;
+	ASSERT_TRUE(Manager.RegisterProviders(Thumbnails, {}));
+	EXPECT_FALSE(Manager.RegisterProviders(Thumbnails, {}));
+	Manager.UnregisterProviders();
+	Manager.UnregisterProviders();
+	EXPECT_EQ((std::vector<std::string>{"register first", "register second", "unregister second", "unregister first"}), Events);
+}
+
+TEST(FWorkspaceProviderTests, FailedAndThrowingProvidersRollBackSuccessfulContributions)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	for (const bool bThrow : {false, true})
+	{
+		std::vector<std::string> Events;
+		FRecordingWorkspaceProvider First("first", Events), Second("second", Events), Third("third", Events);
+		Second.bSucceed = false;
+		Second.bThrow = bThrow;
+		auto FirstToken = Durin::FModularFeatureRegistry::Get().RegisterFeature<Durin::Editor::IWorkspaceProvider>(First);
+		auto SecondToken = Durin::FModularFeatureRegistry::Get().RegisterFeature<Durin::Editor::IWorkspaceProvider>(Second);
+		auto ThirdToken = Durin::FModularFeatureRegistry::Get().RegisterFeature<Durin::Editor::IWorkspaceProvider>(Third);
+		Durin::Editor::DThumbnailManager Thumbnails;
+		Durin::Editor::FWorkspaceManager Manager;
+		EXPECT_FALSE(Manager.RegisterProviders(Thumbnails, {}));
+		std::vector<std::string> Expected{"register first", "register second", "register third", "unregister third"};
+		if (bThrow) Expected.push_back("unregister second");
+		Expected.push_back("unregister first");
+		EXPECT_EQ(Expected, Events);
+		Second.bThrow = false;
+		Second.bSucceed = true;
+		EXPECT_TRUE(Manager.RegisterProviders(Thumbnails, {}));
+	}
+}
+
+TEST(FWorkspaceProviderTests, DestructionSkipsRetiredProviderAndDoesNotUnregisterItsReplacement)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	std::vector<std::string> Events;
+	FRecordingWorkspaceProvider Original("original", Events), Replacement("replacement", Events);
+	auto OriginalToken = Durin::FModularFeatureRegistry::Get().RegisterFeature<Durin::Editor::IWorkspaceProvider>(Original);
+	Durin::Editor::DThumbnailManager Thumbnails;
+	Durin::FModularFeatureRegistration ReplacementToken;
+	{
+		Durin::Editor::FWorkspaceManager Manager;
+		ASSERT_TRUE(Manager.RegisterProviders(Thumbnails, {}));
+		OriginalToken.Reset();
+		Original.UnregisterWorkspaces(); // The retiring module owns this cleanup.
+		ReplacementToken = Durin::FModularFeatureRegistry::Get().RegisterFeature<Durin::Editor::IWorkspaceProvider>(Replacement);
+	}
+	EXPECT_EQ((std::vector<std::string>{"register original", "unregister original"}), Events);
 }
 
 TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnShutdown)

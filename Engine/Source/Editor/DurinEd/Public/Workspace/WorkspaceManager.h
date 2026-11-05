@@ -10,6 +10,8 @@ namespace Durin { class DAssetEditorSubsystem; class IPackageReloadParticipant; 
 
 namespace Durin::Editor
 {
+	class DThumbnailManager;
+	struct FImportDialogCallbacks;
 	// Couples a workspace implementation with its host descriptor.
 	struct FWorkspaceRegistration
 	{
@@ -66,6 +68,11 @@ namespace Durin::Editor
 		FWorkspaceManager(const FWorkspaceManager&) = delete;
 		auto operator=(const FWorkspaceManager&) -> FWorkspaceManager& = delete;
 
+		// Connect the current provider set; failure unwinds successful registrations.
+		DURINED_API auto RegisterProviders(DThumbnailManager& Thumbnails,
+			const FImportDialogCallbacks& ImportCallbacks) -> bool;
+		DURINED_API auto UnregisterProviders() -> void;
+
 		// Keep provider code mapped until registration and all borrowed workspace
 		// shared pointers are released; removal does not invalidate external copies.
 		DURINED_API auto RegisterBatch(
@@ -113,5 +120,6 @@ namespace Durin::Editor
 
 		std::shared_ptr<Detail::FWorkspaceRegistryState> State;
 		FAssetMoveObserverHandle AssetMoveObserverHandle = 0;
+		std::vector<uint64> ProviderRegistrations;
 	};
 }

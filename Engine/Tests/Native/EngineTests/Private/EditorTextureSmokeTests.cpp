@@ -231,7 +231,7 @@ namespace Durin
 		Durin::FMaterialEditorModule MaterialEditorModule;
 		Durin::FModuleTestHarness MaterialEditorHarness("MaterialEditor");
 		MaterialEditorHarness.Start(MaterialEditorModule);
-		ASSERT_TRUE(MaterialEditorModule.RegisterMaterialEditor(
+		ASSERT_TRUE(MaterialEditorModule.RegisterWorkspaces(
 			WorkspaceManager, ThumbnailManager));
 		const FObjectPath MaterialObjectPath =
 			Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath);

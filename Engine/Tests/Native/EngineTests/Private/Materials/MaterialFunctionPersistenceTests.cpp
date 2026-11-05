@@ -28,7 +28,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	FMaterialEditorModule Module;
 	FModuleTestHarness Harness("MaterialEditor");
 	Harness.Start(Module);
-	ASSERT_TRUE(Module.RegisterMaterialEditor(Manager, Thumbnails));
+	ASSERT_TRUE(Module.RegisterWorkspaces(Manager, Thumbnails));
 	const auto Class = DMaterialFunction::StaticClass()->GetQualifiedName().ToString();
 	const auto Resource = First->GetObjectPath();
 	ASSERT_TRUE(Manager.OpenAsset(Resource, Class));
@@ -59,7 +59,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	if (!Discarded)
 	{
 		const auto Error = std::string(static_cast<MMaterialFunctionEditor*>(Workspace.get())->GetLastError());
-		Module.UnregisterMaterialEditor(); Harness.Shutdown();
+		Module.UnregisterWorkspaces(); Harness.Shutdown();
 		FAIL() << Error;
 	}
 	DMaterialFunction* Reloaded = nullptr;
@@ -76,6 +76,6 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_TRUE(Pasted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
 	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));
-	Module.UnregisterMaterialEditor();
+	Module.UnregisterWorkspaces();
 	Harness.Shutdown();
 }

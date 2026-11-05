@@ -56,8 +56,8 @@ TEST(FStaticMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 	Durin::FStaticMeshEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
 	ModuleHarness.Start(Module);
-	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
-	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
+	ASSERT_TRUE(Manager.RegisterProviders(ThumbnailManager, {}));
+	EXPECT_FALSE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
 	EXPECT_TRUE(ThumbnailManager.Find(
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString()));
 
@@ -68,11 +68,11 @@ TEST(FStaticMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 	ASSERT_EQ(Manager.GetWorkspaceDescriptors().size(), 1u);
 	EXPECT_EQ(Manager.GetWorkspaceDescriptors().front().DisplayName, "StaticMesh Inspector");
 
-	Module.UnregisterStaticMeshEditor();
+	Manager.UnregisterProviders();
 	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("StaticMeshEditor")), nullptr);
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString()));
-	EXPECT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
+	EXPECT_TRUE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
 	Workspace.reset();
 	ModuleHarness.Shutdown();
 }
@@ -113,7 +113,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictRollsBackWorkspaceRegistration)
 	Durin::FStaticMeshEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
+	EXPECT_FALSE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
 	EXPECT_EQ(
 		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("StaticMeshEditor")),
 		nullptr);
@@ -142,7 +142,7 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	Durin::FStaticMeshEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
 	ModuleHarness.Start(Module);
-	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
+	ASSERT_TRUE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
 	const std::string ClassName = Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
 	const std::string FirstPath = "/StaticMeshEditorTests/First.First";
 	const std::string SecondPath = "/StaticMeshEditorTests/Second.Second";

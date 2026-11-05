@@ -22,9 +22,6 @@
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
-#include "MaterialEditorModule.h"
-#include "TextureEditorModule.h"
-#include "StaticMeshEditorModule.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -42,6 +39,7 @@
 #include "Asset/Asset.h"
 #include "AssetTools/IAssetTools.h"
 #include "Import/EditorReimportHandler.h"
+#include "Import/ImportDialogSupport.h"
 #include "Dialogs/FileDialog.h"
 
 #include "Widgets/MFunctionWidget.h"
@@ -62,12 +60,7 @@ namespace Durin::Editor::MainFrame
 			// Release every UI-held FAssetThumbnail reference before renderer
 			// registrations and their owning modules begin retirement.
 			ContentBrowserTool.reset();
-			if (StaticMeshEditorModule)
-				StaticMeshEditorModule->UnregisterStaticMeshEditor();
-			if (TextureEditorModule)
-				TextureEditorModule->UnregisterTextureEditor();
-			if (MaterialEditorModule)
-				MaterialEditorModule->UnregisterMaterialEditor();
+			if (WorkspaceManager) WorkspaceManager->UnregisterProviders();
 			if (LevelEditorModule)
 				LevelEditorModule->UnregisterLevelEditorWorkspace();
 			Editor::GetDefaultThumbnailManager().ResetSharedPool();
@@ -92,9 +85,6 @@ namespace Durin::Editor::MainFrame
 		std::unique_ptr<FEditorBrandTexture> BrandTexture;
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
 		::Durin::FLevelEditorModule* LevelEditorModule = nullptr;
-		::Durin::FMaterialEditorModule* MaterialEditorModule = nullptr;
-		::Durin::FTextureEditorModule* TextureEditorModule = nullptr;
-		::Durin::FStaticMeshEditorModule* StaticMeshEditorModule = nullptr;
 		std::unique_ptr<ContentBrowser::IContentBrowserTool> ContentBrowserTool;
 		std::shared_ptr<ContentBrowser::FMountedContentReconciliationState> ContentReconciliation =
 			std::make_shared<ContentBrowser::FMountedContentReconciliationState>();
@@ -213,9 +203,6 @@ namespace Durin::Editor::MainFrame
 			FMainFrameContext& Context,
 			Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::FLevelEditorModule& LevelEditorModule,
-			::Durin::FMaterialEditorModule& MaterialEditorModule,
-			::Durin::FTextureEditorModule& TextureEditorModule,
-			::Durin::FStaticMeshEditorModule& StaticMeshEditorModule,
 			Editor::DThumbnailManager& ThumbnailManager
 		) -> bool
 		{
@@ -254,34 +241,9 @@ namespace Durin::Editor::MainFrame
 					},
 				},
 				[&Context] { Context.bProjectBrowserOpen = true; })) return false;
-			if (!MaterialEditorModule.RegisterMaterialEditor(
-				WorkspaceManager, ThumbnailManager))
-			{
-				LevelEditorModule.UnregisterLevelEditorWorkspace();
-				return false;
-			}
-			if (!TextureEditorModule.RegisterTextureEditor(
-				WorkspaceManager, ThumbnailManager, ImportCallbacks))
-			{
-				MaterialEditorModule.UnregisterMaterialEditor();
-				LevelEditorModule.UnregisterLevelEditorWorkspace();
-				return false;
-			}
-			if (!StaticMeshEditorModule.RegisterStaticMeshEditor(
-				WorkspaceManager, ThumbnailManager, ImportCallbacks))
-			{
-				TextureEditorModule.UnregisterTextureEditor();
-				MaterialEditorModule.UnregisterMaterialEditor();
-				LevelEditorModule.UnregisterLevelEditorWorkspace();
-				return false;
-			}
-			if (WorkspaceManager.OpenDefaultWorkspaces()) return true;
-
-			// Feature modules own their handles, but the host coordinates this multi-module
-			// startup so a failed default document cannot leave a partial editor behind.
-			StaticMeshEditorModule.UnregisterStaticMeshEditor();
-			TextureEditorModule.UnregisterTextureEditor();
-			MaterialEditorModule.UnregisterMaterialEditor();
+			if (WorkspaceManager.RegisterProviders(ThumbnailManager, ImportCallbacks)
+				&& WorkspaceManager.OpenDefaultWorkspaces()) return true;
+			WorkspaceManager.UnregisterProviders();
 			LevelEditorModule.UnregisterLevelEditorWorkspace();
 			return false;
 		}
@@ -301,23 +263,14 @@ namespace Durin::Editor::MainFrame
 					Editor::GetDefaultThumbnailManager();
 				::Durin::FLevelEditorModule& LevelEditorModule =
 					FModuleManager::LoadModuleChecked<::Durin::FLevelEditorModule>("LevelEditor");
-				::Durin::FMaterialEditorModule& MaterialEditorModule =
-					FModuleManager::LoadModuleChecked<::Durin::FMaterialEditorModule>("MaterialEditor");
-				::Durin::FTextureEditorModule& TextureEditorModule =
-					FModuleManager::LoadModuleChecked<::Durin::FTextureEditorModule>("TextureEditor");
-				::Durin::FStaticMeshEditorModule& StaticMeshEditorModule =
-					FModuleManager::LoadModuleChecked<::Durin::FStaticMeshEditorModule>("StaticMeshEditor");
+				FModuleManager::Get().LoadModuleChecked("MaterialEditor");
+				FModuleManager::Get().LoadModuleChecked("TextureEditor");
+				FModuleManager::Get().LoadModuleChecked("StaticMeshEditor");
 				Context.LevelEditorModule = &LevelEditorModule;
-				Context.MaterialEditorModule = &MaterialEditorModule;
-				Context.TextureEditorModule = &TextureEditorModule;
-				Context.StaticMeshEditorModule = &StaticMeshEditorModule;
 				bWorkspaceReady = RegisterEditorWorkspaces(
 					Context,
 					*Context.WorkspaceManager,
 					LevelEditorModule,
-					MaterialEditorModule,
-					TextureEditorModule,
-					StaticMeshEditorModule,
 					ThumbnailManager);
 				if (bWorkspaceReady)
 				{
@@ -1246,8 +1199,6 @@ namespace Durin
 				const bool bReadyWorkspace = (Editor->GetStartupPhase() == EBootstrapState::Ready
 					|| (Editor->GetStartupPhase() == EBootstrapState::LoadingDefaultDocument && Editor->GetSceneGeneration() != 0))
 					&& Context->bHasProject && Context->LevelEditorModule
-					&& Context->MaterialEditorModule && Context->TextureEditorModule
-					&& Context->StaticMeshEditorModule
 					&& Context->ContentBrowserTool;
 				const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
 				if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)

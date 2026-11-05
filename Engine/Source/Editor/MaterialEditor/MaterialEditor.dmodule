@@ -3,14 +3,16 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [
-		"AssetTools",
+        "AssetTools",
         "TextureEditor",
         "Core",
-		"RenderCore",
+        "RenderCore",
         "Engine",
-		"Mona",
+        "Mona",
         "MonaImGui",
-		"ContentBrowser",
-		"DurinEd"
+        "ContentBrowser"
+    ],
+    "PublicDependencies": [
+        "DurinEd"
     ]
 }

@@ -100,18 +100,18 @@ TEST(FMaterialThumbnailRendererTests, ModuleOwnsBothExactRenderersAndWorkspaceLi
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();
 	const std::string InstanceClass =
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString();
-	ASSERT_TRUE(Module.RegisterMaterialEditor(Manager, ThumbnailManager));
+	ASSERT_TRUE(Manager.RegisterProviders(ThumbnailManager, {}));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_TRUE(ThumbnailManager.Find(InstanceClass));
 	EXPECT_NE(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
-	EXPECT_FALSE(Module.RegisterMaterialEditor(Manager, ThumbnailManager));
-	Module.UnregisterMaterialEditor();
+	EXPECT_FALSE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
+	ModuleHarness.Shutdown();
+	Manager.UnregisterProviders();
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_FALSE(ThumbnailManager.Find(InstanceClass));
 	EXPECT_EQ(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
-	ModuleHarness.Shutdown();
 }
 
 TEST(FMaterialThumbnailRendererTests, RendererConflictRollsBackWholeIntegration)
@@ -129,7 +129,7 @@ TEST(FMaterialThumbnailRendererTests, RendererConflictRollsBackWholeIntegration)
 	Durin::FMaterialEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("MaterialEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(Module.RegisterMaterialEditor(Manager, ThumbnailManager));
+	EXPECT_FALSE(Module.RegisterWorkspaces(Manager, ThumbnailManager));
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(ThumbnailManager.Find(

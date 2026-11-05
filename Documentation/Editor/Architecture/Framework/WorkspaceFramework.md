@@ -239,26 +239,40 @@ for the active editor; it does not name concrete editor root windows.
 `LevelEditor`, `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own
 their editor-specific panels and resource behavior. `DurinEd` must not depend on
 those concrete modules. Rendering dependencies belong in an editor module only
-when its preview implementation actually uses them. MainFrame registers these
-modules in that order and rolls them back in reverse order.
+when its preview implementation actually uses them. MainFrame explicitly connects
+the Level workspace for its default-level and project-switch interactions, then
+asks the workspace manager to connect the published asset-editor providers.
 
-`MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` each expose one
-integration lifecycle for their workspace routes and thumbnail extensions.
-MainFrame supplies the long-lived thumbnail service; a failed exact-class
-provider registration removes every earlier contribution from that module, and
-unregistration removes thumbnail admission in reverse order before closing its
-documents.
+`MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` publish
+`IWorkspaceProvider` through the existing modular-feature registry during module
+startup. Each module owns its publication token and its existing workspace,
+thumbnail and browser-extension handles; module shutdown withdraws publication
+and releases those handles. No additional provider registry or subsystem is used.
+`FWorkspaceManager::RegisterProviders()` connects the current published snapshot
+with the long-lived thumbnail service and host import callbacks. MainFrame loads
+the default module composition by name but does not include or cache their
+concrete module types. The module dependencies still declare that composition
+for build and deployment.
 
-MainFrame shutdown first stops Content Browser request admission. It then
-unregisters StaticMesh, Texture, Material, and Level integrations
-in reverse composition order. Scoped browser extensions and feature-owned
-dialogs close while their modules remain mapped, and each concrete thumbnail handle
-drains its queued and in-flight leases before its workspace documents close.
-The host then destroys Content Browser, which drains an admitted import and
-releases its provider-neutral and source-thumbnail caches, followed by shared
-workspace and notification state. Concrete editor modules may unload only after
-those steps, so no route, document, provider, session, preview object, import,
-or queued upload can retain module code.
+A false registration result leaves no new contribution from that provider. A
+failed composition unwinds successful registrations in reverse publication order;
+throwing registrations also receive cleanup. The manager retains exact feature
+registration identities, not borrowed module pointers: a retired provider is
+skipped, and a replacement publication cannot receive cleanup for its predecessor.
+Explicit teardown or manager destruction releases the connected snapshot once.
+The thumbnail service and host callbacks must outlive these connections. Providers
+loaded later are not automatically attached to an existing manager.
+
+MainFrame shutdown first stops Content Browser request admission and destroys
+the browser, draining admitted imports and releasing UI-held thumbnails and
+source-thumbnail caches. It then asks the workspace manager to unregister its
+connected asset-editor providers in reverse composition order, followed by the
+specialized Level integration. Scoped browser extensions and feature-owned
+dialogs close while their modules remain mapped, and each concrete thumbnail
+handle drains its queued and in-flight leases before its workspace documents
+close. Shared thumbnail, workspace and notification state is released afterward.
+Concrete editor modules may unload only after those steps, so no route, document,
+provider, session, preview object, import or queued upload can retain module code.
 
 Asset opening from the Content Browser enters the per-host
 [`DAssetEditorSubsystem`](EditorSubsystems.md#asset-editors), which focuses an

@@ -1,4 +1,5 @@
 #include "Workspace/WorkspaceManager.h"
+#include "Workspace/WorkspaceProvider.h"
 
 #include "DObject/AssetPath.h"
 #include "Asset/Load.h"
@@ -251,11 +252,40 @@ namespace Durin::Editor
 
 	FWorkspaceManager::~FWorkspaceManager()
 	{
+		UnregisterProviders();
 		State->SynchronizeAssetEditors = {};
 		State->EditorInstances.clear();
 		if (auto* Service = State->AssetEditorSubsystem.Get(); Service && Service->WorkspaceManager == this)
 			Service->WorkspaceManager = nullptr;
 		UnregisterAssetMoveObserver(AssetMoveObserverHandle);
+	}
+
+	auto FWorkspaceManager::RegisterProviders(DThumbnailManager& Thumbnails,
+		const FImportDialogCallbacks& ImportCallbacks) -> bool
+	{
+		if (!ProviderRegistrations.empty()) return false;
+		const auto Result = FModularFeatureRegistry::Get().InvokeAll<IWorkspaceProvider>(
+			[&](IWorkspaceProvider& Provider) { return Provider.RegisterWorkspaces(*this, Thumbnails, ImportCallbacks); });
+		bool bSucceeded = Result.WasAvailable();
+		for (const auto& Invocation : Result.Invocations)
+		{
+			// A false return must unwind its own partial registration. An exception
+			// still needs cleanup, as does every successful member of a failed batch.
+			if (!Invocation.WasInvoked() || Invocation.Value.value_or(false))
+				ProviderRegistrations.push_back(Invocation.RegistrationIdentity);
+			if (!Invocation.WasInvoked() || !Invocation.Value.value_or(false)) bSucceeded = false;
+		}
+		if (bSucceeded) return true;
+		UnregisterProviders();
+		return false;
+	}
+
+	auto FWorkspaceManager::UnregisterProviders() -> void
+	{
+		const auto Registrations = std::exchange(ProviderRegistrations, {});
+		for (auto It = Registrations.rbegin(); It != Registrations.rend(); ++It)
+			(void)FModularFeatureRegistry::Get().InvokeRegistered<IWorkspaceProvider>(*It,
+				[](IWorkspaceProvider& Provider) { Provider.UnregisterWorkspaces(); });
 	}
 
 	auto FWorkspaceManager::SynchronizeAssetEditors() -> void

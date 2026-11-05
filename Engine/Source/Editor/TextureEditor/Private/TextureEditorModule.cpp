@@ -53,18 +53,20 @@ namespace Durin
 			DTexture2D::StaticClass(), Editor::Texture::CreateTextureBuildSettingsDetails());
 		require(static_cast<bool>(DetailCustomizationRegistration));
 
+		ProviderRegistration = FModularFeatureRegistry::Get().RegisterFeature<Editor::IWorkspaceProvider>(*this);
 	}
 
 	auto FTextureEditorModule::ShutdownModule() -> void
 	{
-		UnregisterTextureEditor();
+		ProviderRegistration.Reset();
+		UnregisterWorkspaces();
 		Editor::FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
 		DetailCustomizationRegistration = {};
 		Editor::Texture::UnregisterTexture2DPropertyEditing();
 		FTexturePreview::ReleaseSharedResources();
 	}
 
-	auto FTextureEditorModule::RegisterTextureEditor(
+	auto FTextureEditorModule::RegisterWorkspaces(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 		::Durin::Editor::DThumbnailManager& ThumbnailManager,
 		::Durin::Editor::FImportDialogCallbacks ImportCallbacks) -> bool
@@ -122,7 +124,7 @@ namespace Durin
 		});
 		if (!Registration)
 		{
-			UnregisterTextureEditor();
+			UnregisterWorkspaces();
 			return false;
 		}
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
@@ -130,7 +132,7 @@ namespace Durin
 			std::make_unique<DTextureThumbnailRenderer>());
 		if (!Texture2DHandle)
 		{
-			UnregisterTextureEditor();
+			UnregisterWorkspaces();
 			return false;
 		}
 		Texture2DThumbnailRegistration =
@@ -140,7 +142,7 @@ namespace Durin
 			std::make_unique<DTextureCubeThumbnailRenderer>());
 		if (!TextureCubeHandle)
 		{
-			UnregisterTextureEditor();
+			UnregisterWorkspaces();
 			return false;
 		}
 		TextureCubeThumbnailRegistration =
@@ -226,7 +228,7 @@ namespace Durin
 		if (!ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser Texture import: {}", Error);
-			UnregisterTextureEditor();
+			UnregisterWorkspaces();
 			return false;
 		}
 		Integration->ImportExtension = std::move(ImportExtension);
@@ -242,7 +244,7 @@ namespace Durin
 		if (!Integration->RetrySaveExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register texture import save retry: {}", Error);
-			UnregisterTextureEditor();
+			UnregisterWorkspaces();
 			return false;
 		}
 		std::string PresentationError;
@@ -256,7 +258,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterTextureEditor();
+				UnregisterWorkspaces();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -273,7 +275,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterTextureEditor();
+				UnregisterWorkspaces();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -288,7 +290,7 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterTextureEditor();
+				UnregisterWorkspaces();
 				return false;
 			}
 			Integration->TypePresentations.push_back(std::move(Handle));
@@ -296,7 +298,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FTextureEditorModule::UnregisterTextureEditor() -> void
+	auto FTextureEditorModule::UnregisterWorkspaces() -> void
 	{
 		Integration->TypePresentations.clear();
 		Integration->ImportExtension.Reset();
