@@ -50,11 +50,12 @@ namespace Durin::DerivedData
 				}
 				for (const auto& Request : Snapshot) ApplyPriority(*Request);
 			}
-			auto RequestCancel() -> void override
+			auto RequestCancel() -> bool override
 			{
 				std::vector<TRefCountPtr<IRequest>> Snapshot;
-				{ std::lock_guard Lock(Mutex); Canceled = true; for (const auto& [Key, Request] : Requests) Snapshot.push_back(Request); }
+				{ std::lock_guard Lock(Mutex); if (Canceled.exchange(true)) return false; for (const auto& [Key, Request] : Requests) Snapshot.push_back(Request); }
 				for (const auto& Request : Snapshot) FOwnerAccess::RequestCancel(*Request);
+				return true;
 			}
 			auto Cancel() -> void override { Canceled = true; Drain(true); }
 			auto Wait() -> void override { Drain(false); }
@@ -98,14 +99,15 @@ namespace Durin::DerivedData
 		public:
 			bool Started = false;
 			std::function<void()> Work, OnCanceled;
-			auto Run(bool Canceled = false) -> void
+			auto Run(bool Canceled = false) -> bool
 			{
 				std::function<void()> Invoke, Discard;
-				{ std::lock_guard Lock(Mutex); if (Started) return; Started = true; Invoke = Canceled ? std::move(OnCanceled) : std::move(Work); Discard = Canceled ? std::move(Work) : std::move(OnCanceled); }
+				{ std::lock_guard Lock(Mutex); if (Started) return false; Started = true; Invoke = Canceled ? std::move(OnCanceled) : std::move(Work); Discard = Canceled ? std::move(Work) : std::move(OnCanceled); }
 				Discard = {};
 				Complete([&] { try { if (Invoke) Invoke(); } catch (...) {} Invoke = {}; });
+				return true;
 			}
-			auto RequestCancel() -> void override { Run(true); }
+			auto RequestCancel() -> bool override { return Run(true); }
 		};
 		struct FTaskDispatch
 		{
@@ -156,13 +158,6 @@ namespace Durin::DerivedData
 	auto FRequestOwner::GetPriority() const -> ERequestPriority { return Owner->GetPriority(); }
 	auto FRequestOwner::IsCanceled() const -> bool { return Owner->IsCanceled(); }
 	auto FRequestOwner::LaunchTask(std::string_view Name, TMoveOnlyFunction<void()>&& Work) -> void { Owner->LaunchTask(Name, std::move(Work)); }
-	auto Private::FOwnerAccess::Invoke(IRequestOwner& Owner, TMoveOnlyFunction<void()>&& Callback) -> void
-	{ FRequestBarrier Barrier(Owner, ERequestBarrierFlags::Priority); Callback(); }
-	auto Private::FOwnerAccess::End(IRequestOwner& Owner, IRequest* Request, TMoveOnlyFunction<void()>&& Callback) -> TRefCountPtr<IRequest>
-	{
-		FRequestOwnerScope Scope(Request);
-		return Owner.End(Request, Callback);
-	}
 
 	auto IRequestOwner::LaunchTask(std::string_view Name, TMoveOnlyFunction<void()>&& Work) -> void
 	{

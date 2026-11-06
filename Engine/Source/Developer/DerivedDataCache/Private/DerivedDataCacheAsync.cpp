@@ -24,7 +24,7 @@ namespace Durin::DerivedData::Private
 		uint64 RetainedBytes = 0;
 		auto IsCanceled() const -> bool { return Canceled.load() || Group->IsCanceled(); }
 		auto OnFinished() -> void override;
-		auto RequestCancel() -> void override;
+		auto RequestCancel() -> bool override;
 		auto Finish(FCacheGetResult GetResult, FCachePutResult PutResult) -> void;
 		auto Run() -> void;
 
@@ -76,12 +76,13 @@ namespace Durin::DerivedData::Private
 		});
 
 	}
-	auto FCacheOperation::RequestCancel() -> void
+	auto FCacheOperation::RequestCancel() -> bool
 	{
-		Canceled.store(true);
+		const bool Changed = !Canceled.exchange(true);
 		bool Pending = false, CompleteNow = false;
 		{ std::lock_guard Lock(Cache->Mutex); Pending = std::erase_if(Cache->Pending, [&](const auto& Op) { return Op.GetReference() == this; }) != 0; CompleteNow = (Pending || Active) && !Started.exchange(true); }
 		if (CompleteNow) { Finish(std::unexpected(CanceledError()), std::unexpected(CanceledError())); }
+		return Changed;
 	}
 	auto FCacheOperation::Run() -> void
 	{
@@ -229,7 +230,8 @@ namespace Durin::DerivedData::Private
 			catch (...) { Result = std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache admission failed."}); }
 			if (Result) return;
 			const auto Status = Owner.IsCanceled() || Result.error().Code == ECacheError::Canceled ? EStatus::Canceled : EStatus::Error;
-			FOwnerAccess::Invoke(Owner, [&] {
+			{
+				FRequestBarrier CallbackBarrier(Owner, ERequestBarrierFlags::Priority);
 				for (const auto& Op : Operations) {
 					if (Result.error().Code == ECacheError::Capacity)
 						ObserveCache(Op->PutRequest ? Op->PutRequest->Record.GetKey() : Op->GetRequest.Key, ECacheObservation::CapacityRejected);
@@ -238,7 +240,7 @@ namespace Durin::DerivedData::Private
 						else Op->PutCallback({.Name = Op->Name, .Record = Op->PutRequest->Record, .Key = Op->PutRequest->Record.GetKey(), .UserData = Op->UserData, .Status = Status});
 					} catch (...) {}
 				}
-			});
+			}
 		}
 		auto Close() -> void
 		{ std::vector<TRefCountPtr<FCacheOperation>> Snapshot; { std::lock_guard Lock(State->Mutex); State->Closed = true; Snapshot = State->All; } for (const auto& Op : Snapshot) Op->RequestCancel(); }
@@ -269,11 +271,12 @@ namespace Durin::DerivedData::Private
 			std::vector<FCacheGetResponse> Responses; Responses.reserve(Requests.size());
 			const auto Status = Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error;
 			for (const auto& Request : Requests) Responses.push_back(Request.MakeResponse(Status));
-			FOwnerAccess::Invoke(Owner, [&] {
+			{
+				FRequestBarrier CallbackBarrier(Owner, ERequestBarrierFlags::Priority);
 				for (auto& Response : Responses) {
 					try { Completion(std::move(Response)); } catch (...) {}
 				}
-			});
+			}
 			return;
 		}
 		auto Notify = std::make_shared<FOnCacheGetComplete>(std::move(Completion));
@@ -298,11 +301,12 @@ namespace Durin::DerivedData::Private
 			std::vector<FCachePutResponse> Responses; Responses.reserve(Requests.size());
 			const auto Status = Owner.IsCanceled() ? EStatus::Canceled : EStatus::Error;
 			for (const auto& Request : Requests) Responses.push_back(Request.MakeResponse(Status));
-			FOwnerAccess::Invoke(Owner, [&] {
+			{
+				FRequestBarrier CallbackBarrier(Owner, ERequestBarrierFlags::Priority);
 				for (auto& Response : Responses) {
 					try { Completion(std::move(Response)); } catch (...) {}
 				}
-			});
+			}
 			return;
 		}
 		auto Notify = std::make_shared<FOnCachePutComplete>(std::move(Completion));

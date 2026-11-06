@@ -40,7 +40,8 @@ namespace Durin::DerivedData::Private
 		}
 		template <typename F> auto Complete(F&& Callback) -> void
 		{
-			FOwnerAccess::End(*Group, this, [&] {
+			FRequestOwnerScope Scope(this);
+			Group->End(this, [&] {
 				try { Callback(); } catch (...) {}
 				OnFinished();
 			});

@@ -15,13 +15,6 @@ namespace Durin::DerivedData::Private
 			FBuildOutputLimits Limits) -> FBuildOutputBuilder;
 	};
 
-	struct FBuildCompletionAccess
-	{
-		static auto Ok(FBuildOutput Output, FCacheKey Key,
-			EBuildExecutionFlags ExecutionFlags) -> FBuildCompleteParams;
-		static auto Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams;
-	};
-
 	struct FRegisteredBuildFunction
 	{
 		FBuildFunctionDescriptor Descriptor;

@@ -4,31 +4,31 @@
 
 namespace Durin::DerivedData
 {
-	auto FBuildCompleteParams::Error(std::optional<FCacheKey> Key, EBuildExecutionFlags Flags, std::string Diagnostic, std::optional<FBuildOutput> Observations) -> FBuildCompleteParams
+	auto FBuildCompleteParams::Error(FCacheKey Key, EBuildExecutionFlags Flags, std::string Diagnostic, FBuildOutput Observations) -> FBuildCompleteParams
 	{
-		if (Observations && !Observations->IsValid()) Observations.reset();
-		FBuildOutputBuilder Builder(Observations ? std::string(Observations->GetSchema()) : "Build.Diagnostics", Observations ? Observations->GetSchemaVersion() : 1);
-		if (Observations) for (const auto& Value : Observations->GetObservations()) Builder.AddObservation(Value.Id, Value.Object);
+		FBuildOutputBuilder Builder(Observations.IsValid() ? std::string(Observations.GetSchema()) : "Build.Diagnostics", Observations.IsValid() ? Observations.GetSchemaVersion() : 1);
+		if (Observations.IsValid()) for (const auto& Value : Observations.GetObservations()) Builder.AddObservation(Value.Id, Value.Object);
 		Diagnostic.resize(std::min<size_t>(Diagnostic.size(), 4096));
 		std::replace(Diagnostic.begin(), Diagnostic.end(), '\0', '?');
 		Builder.AddLog("DerivedData", EBuildLogSeverity::Error, Diagnostic.empty() ? "Build failed." : std::move(Diagnostic));
-		return {Key.value_or(FCacheKey{}), std::move(Builder).Build().value(), Key && Key->IsValid() ? Flags : EBuildExecutionFlags::None, EStatus::Error};
+		return {Key, std::move(Builder).Build().value(), Key.IsValid() ? Flags : EBuildExecutionFlags::None, EStatus::Error};
 	}
-	auto FBuildCompleteParams::Canceled(std::optional<FCacheKey> Key, EBuildExecutionFlags Flags) -> FBuildCompleteParams
+	auto FBuildCompleteParams::Canceled(FCacheKey Key, EBuildExecutionFlags Flags, FBuildOutput Output) -> FBuildCompleteParams
 	{
-		auto Result = Error(Key, Flags, "Build was canceled."); Result.Status = EStatus::Canceled; return Result;
+		if (!Output.IsValid() || !Output.GetValues().empty() || !Output.GetMetadata().empty()) {
+			FBuildOutputBuilder Builder(Output.IsValid() ? std::string(Output.GetSchema()) : "Build.Diagnostics", Output.IsValid() ? Output.GetSchemaVersion() : 1);
+			if (Output.IsValid()) {
+				for (const auto& Observation : Output.GetObservations()) Builder.AddObservation(Observation.Id, Observation.Object);
+				for (const auto& Message : Output.GetMessages()) Builder.AddMessage(Message.Severity, Message.Text);
+				for (const auto& Log : Output.GetLogs()) Builder.AddLog(Log.Category, Log.Severity, Log.Text);
+			}
+			Output = std::move(Builder).Build().value();
+		}
+		return {Key, std::move(Output), Key.IsValid() ? Flags : EBuildExecutionFlags::None, EStatus::Canceled};
 	}
 }
 namespace Durin::DerivedData::Private
 {
-	auto FBuildCompletionAccess::Ok(FBuildOutput Output, FCacheKey Key, EBuildExecutionFlags Flags) -> FBuildCompleteParams
-	{
-		if (!Output.IsValid() || !Key.IsValid()) return FBuildCompleteParams::Error({}, Flags);
-		const auto Status = Output.HasError() ? EStatus::Error : EStatus::Ok;
-		return {Key, std::move(Output), Flags, Status};
-	}
-	auto FBuildCompletionAccess::Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams
-	{ return FBuildCompleteParams::Canceled(Completion.CacheKey, Completion.BuildStatus); }
 	auto PrepareBuildAction(const FBuildDefinition& Definition,
 		const FBuildRegistrySnapshot& Registry, std::span<const FBuildInputReference> Identities) -> std::expected<FBuildAction, std::string>
 	{
@@ -46,7 +46,7 @@ namespace Durin::DerivedData::Private
 		const auto CacheKey = Action.GetKey();
 		EBuildExecutionFlags ExecutionFlags = EBuildExecutionFlags::None;
 		auto Canceled = [&] { return FBuildCompleteParams::Canceled(CacheKey, ExecutionFlags); };
-		auto Failed = [&](std::string_view Message, std::optional<FBuildOutput> DiagnosticOutput = {})
+		auto Failed = [&](std::string_view Message, FBuildOutput DiagnosticOutput = {})
 		{
 			DURIN_ERROR_CATEGORY("DerivedData", "{} build failed [{}]: {}", Action.GetFunction().Name,
 				CacheKey.ToString(), Message);
@@ -72,7 +72,10 @@ namespace Durin::DerivedData::Private
 			}
 			ExecutionFlags |= EBuildExecutionFlags::BuildLocal;
 			FBuildOutputBuilder Builder = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Limits.Output); auto Context = FBuildExecutionAccess::MakeContext(Action, *Inputs, Builder, Owner); Entry->Function->Build(Context);
-			if (Owner.IsCanceled()) return Canceled();
+			if (Owner.IsCanceled()) {
+				auto Output = std::move(Builder).Build();
+				return FBuildCompleteParams::Canceled(CacheKey, ExecutionFlags, Output ? std::move(*Output) : FBuildOutput{});
+			}
 			if (const auto& Failure = FBuildExecutionAccess::GetExecutionFailure(Context); Failure) {
 				auto Partial = std::move(Builder).Build();
 				if (!Partial || Partial->GetObservations().empty()) return Failed(*Failure);
@@ -83,8 +86,9 @@ namespace Durin::DerivedData::Private
 				return Output ? Failed(*Failure, std::move(*Output)) : Failed(*Failure);
 			}
 			Inputs->clear(); auto Output = std::move(Builder).Build(); if (!Output) return Failed(Output.error());
-			if (Owner.IsCanceled()) return Canceled();
-			return FBuildCompletionAccess::Ok(std::move(*Output), CacheKey, ExecutionFlags);
+			if (Owner.IsCanceled()) return FBuildCompleteParams::Canceled(CacheKey, ExecutionFlags, std::move(*Output));
+			const auto Status = Output->HasError() ? EStatus::Error : EStatus::Ok;
+			return {CacheKey, std::move(*Output), ExecutionFlags, Status};
 		}
 		catch (const std::exception& E) { return Failed(E.what()); }
 		catch (...) { return Failed("Build execution threw an exception."); }

@@ -534,6 +534,57 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		PeerRelease.Trigger(); EXPECT_EQ(Second.Wait(), EShaderBuildWaitResult::Completed); Builder->Close();
 	}
 
+	TEST_F(FShaderBuilderTests, FanoutCancellationRetiresSubscriberBeforeDelivery)
+	{
+		ASSERT_FALSE(IsTaskSchedulerRunning());
+		struct FGate final : DerivedData::ICacheBackend
+		{
+			mutable FThreadEvent Entered, Release;
+			auto Get(const DerivedData::FCacheGetBackendRequest&) const -> DerivedData::FCacheGetResult override { Entered.Trigger(); Release.WaitFor(10); return std::optional<DerivedData::FCacheRecord>{}; }
+			auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override { return Request.Record; }
+		};
+		auto Gate = std::make_shared<FGate>();
+		struct FRelease { std::shared_ptr<FGate> Gate; ~FRelease() { Gate->Release.Trigger(); } } Release{Gate};
+		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, DerivedData::Private::FBuildBackendOptions{.Cache = Gate});
+		Builder = std::make_unique<FShaderBuilder>(Service);
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/CancelMetalFanout";
+		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return float4(1,0,0,1); }";
+#if defined(__APPLE__)
+		Request.Target = MetalShaderTarget;
+#endif
+		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
+		const auto FirstTarget = Request.Target;
+		FShaderBuildHandle Canceled;
+		std::atomic_uint32_t SourceCallbacks = 0, CanceledCallbacks = 0;
+		auto OnSource = [&](auto Output) {
+			EXPECT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
+			Canceled.RequestCancel();
+			EXPECT_EQ(Canceled.Wait(), EShaderBuildWaitResult::Completed);
+			EXPECT_TRUE(Canceled.IsComplete());
+			++SourceCallbacks;
+		};
+		auto FirstSubmission = std::async(std::launch::async, [&] { return Builder->CompileGenerated(Request, {.bInlineExecution = true}, OnSource); });
+		ASSERT_TRUE(Gate->Entered.WaitFor(5));
+		FShaderBuildRequestOptions SubscriberOptions{.bInlineExecution = true};
+#if defined(__APPLE__)
+		Request.Target = MetalLibraryShaderTarget;
+		SubscriberOptions.NativeProducerIdentity = "fanout-test";
+		SubscriberOptions.bNativeCacheOnly = true;
+#endif
+		Canceled = Builder->CompileGenerated(Request, SubscriberOptions, [&](auto Output) {
+			EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); ++CanceledCallbacks;
+		});
+		Request.Target = FirstTarget;
+		auto Last = Builder->CompileGenerated(Request, {.bInlineExecution = true}, OnSource);
+		Gate->Release.Trigger();
+		auto First = FirstSubmission.get();
+		EXPECT_EQ(First.Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(Last.Wait(), EShaderBuildWaitResult::Completed);
+		Builder->Close();
+		EXPECT_EQ(SourceCallbacks, 2u); EXPECT_EQ(CanceledCallbacks, 1u);
+	}
+
 	TEST_F(FShaderBuilderTests, InlineReentryAndDispatchFailureCompleteThroughOutputs)
 	{
 		Builder = std::make_unique<FShaderBuilder>();
@@ -580,7 +631,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
 		std::atomic_uint32_t Calls = 0;
 		auto Handle = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Output.Errors.empty()); EXPECT_TRUE(Output.CompiledShaders.empty()); ++Calls; });
-		Handle.RequestCancel(); EXPECT_EQ(Calls, 1u);
+		EXPECT_TRUE(Handle.RequestCancel()); EXPECT_FALSE(Handle.RequestCancel()); EXPECT_EQ(Calls, 1u);
 		auto Closing = std::async(std::launch::async, [&] { Builder->Close(); });
 		Release.Trigger(); Closing.get(); EXPECT_EQ(Handle.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Calls, 1u); EXPECT_EQ(Builder->GetStats().Compilations, 0u);

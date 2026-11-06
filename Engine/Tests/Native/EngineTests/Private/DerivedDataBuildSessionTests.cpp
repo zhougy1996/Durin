@@ -697,7 +697,10 @@ TEST(FBuildSessionTests, OwnerCancellationCoversExistingAndFutureRequestsAcrossS
 	auto Second = Fixture.Session();
 	FRequestOwner Owner;
 	uint32 Calls = 0;
-	auto Completed = [&](FBuildCompleteParams Result) { ++Calls; EXPECT_EQ(Result.Status, EStatus::Canceled); };
+	auto Completed = [&](FBuildCompleteParams Result) {
+		++Calls; EXPECT_EQ(Result.Status, EStatus::Canceled);
+		ASSERT_TRUE(Result.Output.IsValid()); EXPECT_TRUE(Result.Output.GetValues().empty());
+	};
 	First->Build(Definition(), {}, Options(), Owner, Completed);
 	EXPECT_FALSE(Owner.Poll());
 	Owner.Cancel();
@@ -975,6 +978,44 @@ TEST(FBuildContinuationTests, CompletionWaitsForPersistenceAndRetiresCaptures)
 	}
 }
 
+TEST(FBuildSessionTests, CancellationPreservesProducerDiagnostics)
+{
+	FFixture Fixture;
+	FRequestOwner Owner;
+	Fixture.Function->Negative = true;
+	Fixture.Function->OnBuild = [&] { Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); };
+	uint32 Calls = 0;
+	Fixture.Session()->Build(Definition(), {}, Options(), Owner, [&](auto Completion) {
+		++Calls; EXPECT_EQ(Completion.Status, EStatus::Canceled);
+		EXPECT_EQ(Completion.Output.GetSchema(), "Fixture.Output");
+		ASSERT_EQ(Completion.Output.GetMessages().size(), 1u);
+		EXPECT_EQ(Completion.Output.GetMessages()[0].Text, "deterministic fixture failure");
+		EXPECT_TRUE(Completion.Output.GetLogs().empty()); EXPECT_TRUE(Completion.Output.GetValues().empty());
+	});
+	Owner.Wait(); EXPECT_EQ(Calls, 1u);
+}
+
+TEST(FBuildSessionTests, CanceledCompletionPreservesDiagnosticsWithoutProductsAndIsIdempotent)
+{
+	FBuildOutputBuilder Builder("Fixture.Output", 1);
+	Builder.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(16, std::byte{7})));
+	FCbWriter Writer; Writer.AddUInt64(17, "Code"); auto Object = Writer.SaveObject(); ASSERT_TRUE(Object);
+	Builder.AddMeta(FValueId::FromName("Product"), *Object);
+	Builder.AddObservation(FValueId::FromName("Observation"), *Object);
+	Builder.AddMessage(EBuildMessageSeverity::Warning, "producer warning");
+	Builder.AddLog("Fixture", EBuildLogSeverity::Display, "producer log");
+	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
+	auto Canceled = FBuildCompleteParams::Canceled({}, EBuildExecutionFlags::None, std::move(*Output));
+	EXPECT_EQ(Canceled.Status, EStatus::Canceled); EXPECT_FALSE(Canceled.Output.HasError());
+	EXPECT_EQ(Canceled.Output.GetSchema(), "Fixture.Output");
+	EXPECT_TRUE(Canceled.Output.GetValues().empty()); EXPECT_TRUE(Canceled.Output.GetMetadata().empty());
+	ASSERT_EQ(Canceled.Output.GetObservations().size(), 1u); EXPECT_TRUE(std::ranges::equal(Canceled.Output.GetObservations()[0].Object.GetBytes().GetBytes(), Object->GetBytes().GetBytes()));
+	ASSERT_EQ(Canceled.Output.GetMessages().size(), 1u); EXPECT_EQ(Canceled.Output.GetMessages()[0].Text, "producer warning");
+	ASSERT_EQ(Canceled.Output.GetLogs().size(), 1u); EXPECT_EQ(Canceled.Output.GetLogs()[0].Text, "producer log");
+	auto Repeated = FBuildCompleteParams::Canceled(Canceled.CacheKey, Canceled.BuildStatus, Canceled.Output);
+	EXPECT_TRUE(Repeated.Output.SharesStateWith(Canceled.Output));
+}
+
 TEST(FBuildContinuationTests, CancellationWhileStoreQueuedDiscardsLocalResultOnce)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
@@ -1171,7 +1212,7 @@ namespace
 		std::function<void(ERequestPriority)> OnPriority;
 		std::shared_ptr<bool> Destroyed;
 		~FOwnerTestRequest() override { if (Destroyed) *Destroyed = true; }
-		auto RequestCancel() -> void override {}
+		auto RequestCancel() -> bool override { return false; }
 		auto Cancel() -> void override {}
 		auto Wait() -> void override {}
 		auto SetPriority(ERequestPriority Priority) -> void override { if (OnPriority) OnPriority(Priority); }
@@ -1433,7 +1474,7 @@ TEST(FBuildSessionTests, ResolverFailureAndCancellationUseTheCompletionProtocol)
 		FBuildDefinitionBuilder Builder("Session.Fixture"); Builder.AddInput("Source", "Capture"); auto Request = std::move(Builder).Build().value();
 		FRequestOwner Owner; uint32 Calls = 0;
 		Session.Build(Request, {}, EBuildPolicy::Build, Owner, [&](auto Result) {
-			++Calls; EXPECT_EQ(Result.Status, Status); EXPECT_TRUE(Result.Output.IsValid()); EXPECT_TRUE(Result.Output.HasError());
+			++Calls; EXPECT_EQ(Result.Status, Status); EXPECT_TRUE(Result.Output.IsValid()); EXPECT_EQ(Result.Output.HasError(), Status == EStatus::Error);
 			EXPECT_EQ(Result.CacheKey.IsValid(), !Metadata); EXPECT_FALSE(Owner.IsCanceled());
 		});
 		Owner.Wait(); EXPECT_EQ(Calls, 1u); EXPECT_EQ(Fixture.Function->Builds, 0u);

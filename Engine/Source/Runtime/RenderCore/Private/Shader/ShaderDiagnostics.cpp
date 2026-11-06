@@ -3,6 +3,23 @@
 
 namespace Durin
 {
+	auto FShaderCompilerOutput::GetRetainedSize() const -> uint64
+	{
+		uint64 Bytes = sizeof(*this) + CompiledShaders.capacity() * sizeof(FShaderCode);
+		Bytes += Errors.capacity() * sizeof(FShaderCompilerError);
+		for (const auto& Error : Errors) Bytes += Error.ErrorVirtualFilePath.capacity() + Error.ErrorLineString.capacity()
+			+ Error.StrippedErrorMessage.capacity() + Error.HighlightedLine.capacity() + Error.HighlightedLineMarker.capacity();
+		for (const auto& Shader : CompiledShaders)
+		{
+			Bytes += Shader.Code.GetRetainedCapacityBytes() + Shader.PlatformData.GetRetainedCapacityBytes()
+				+ Shader.Reflection.ResourceBindings.capacity() * sizeof(FShaderResourceBinding)
+				+ Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange)
+				+ Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity();
+			for (const auto& Binding : Shader.Reflection.ResourceBindings) Bytes += Binding.Name.capacity();
+		}
+		return Bytes;
+	}
+
 	auto FShaderCompilerError::ExtractSourceLocation() -> bool
 	{
 		const auto Close = StrippedErrorMessage.find("):");

@@ -1053,7 +1053,8 @@ TEST(FTexturePlatformSessionTests, SyncCompletionCarriesCancellationAndFailureDi
 	const auto& Canceled = *CanceledResult;
 	EXPECT_EQ(Canceled.Status, DerivedData::EStatus::Canceled);
 	EXPECT_TRUE(Canceled.Output.IsValid());
-	EXPECT_TRUE(Canceled.Output.HasError()); EXPECT_FALSE(Canceled.Output.GetLogs().empty());
+	EXPECT_FALSE(Canceled.Output.HasError()); EXPECT_TRUE(Canceled.Output.GetLogs().empty());
+	EXPECT_TRUE(Canceled.Output.GetValues().empty());
 	Durin::DerivedData::FBuildPolicy OptionsPolicy = DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheStore;
 	// No resolver is supplied for a definition requiring source inputs.
 	auto Failed = TexturePrivate::Build(*Definition, {}, OptionsPolicy);

@@ -407,7 +407,7 @@ namespace Durin
 			std::lock_guard Lock(State->Mutex);
 			if (!State->Closed) Service = State->Service;
 		}
-		if (!Service) { Completion(FBuildCompleteParams::Canceled(std::nullopt, EBuildExecutionFlags::None)); return; }
+		if (!Service) { Completion(FBuildCompleteParams::Canceled({}, EBuildExecutionFlags::None)); return; }
 		auto Session = Service->CreateSession("ShaderBuild", std::move(Request.Resolver));
 		Session.Build(std::move(Request.Definition), {}, Policy, Owner, std::move(Completion));
 	}

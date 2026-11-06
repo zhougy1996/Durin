@@ -61,7 +61,7 @@ namespace
 	struct FHarness
 	{
 		std::shared_ptr<FResolver> Resolver = std::make_shared<FResolver>(); std::shared_ptr<FFunction> Function = std::make_shared<FFunction>(); std::shared_ptr<FMemoryCache> Cache = std::make_shared<FMemoryCache>();
-		std::shared_ptr<IBuild> Service; std::shared_ptr<FBuildSession> Session;
+		std::shared_ptr<IBuild> Service;
 		FCacheResourceLimits CacheLimits;
 		FHarness(FCacheResourceLimits Limits = {}) : CacheLimits(Limits)
 		{
@@ -70,14 +70,13 @@ namespace
 			O.CacheLimits = Limits;
 			Service = Durin::DerivedData::Private::CreateBuildForBackend(std::move(O));
 			Service->Register(Function).value();
-			Session = std::make_shared<Durin::DerivedData::FBuildSession>(Service->CreateSession("Fixture"));
 		}
-		auto Run(FBuildRequestLimits Limits = {}, bool Canceled = false, FBuildPolicy Policy = {}) -> FBuildCompleteParams
+		auto Run(FBuildRequestLimits Limits = {}, FBuildPolicy Policy = {}) -> FBuildCompleteParams
 		{
 			auto Configured = Durin::DerivedData::Private::CreateBuildForBackend({.BuildLimits = Limits, .Cache = Cache, .CacheLimits = CacheLimits});
 			Configured->Register(Function).value();
 			auto Session = Configured->CreateSession("Fixture", Resolver);
-			FRequestOwner Owner; if (Canceled) Owner.Cancel(); std::optional<FBuildCompleteParams> Result;
+			FRequestOwner Owner; std::optional<FBuildCompleteParams> Result;
 			Session.Build(Definition(), {}, Policy, Owner, [&](auto Value) { Result = std::move(Value); });
 			Owner.Wait(); return std::move(*Result);
 		}
@@ -89,6 +88,9 @@ TEST(FBuildExecutionTests, ColdBuildPersistsAndWarmHitAvoidsResolve)
 {
 	FHarness H; auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Cache->Puts, 1u); EXPECT_EQ(H.Resolver->Describes, 1u);
 	auto Warm = H.Run(); ASSERT_EQ(Warm.Status, EStatus::Ok); EXPECT_TRUE(HasBuildExecutionFlag(Warm.BuildStatus, EBuildExecutionFlags::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Resolver->Describes, 2u);
+	ASSERT_TRUE(Cold.Output.IsValid()); ASSERT_TRUE(Warm.Output.IsValid());
+	ASSERT_EQ(Cold.Output.GetValues().size(), 1u); ASSERT_EQ(Warm.Output.GetValues().size(), 1u);
+	EXPECT_EQ(Cold.Output.GetValues()[0].Value.GetRawHash(), Warm.Output.GetValues()[0].Value.GetRawHash());
 }
 
 TEST(FBuildExecutionTests, CorruptRecordFallsBackOnce)
@@ -134,18 +136,16 @@ TEST(FBuildExecutionTests, TransientLogsPreventCacheStorage)
 TEST(FBuildExecutionTests, ErrorOutputIsNotPersistedAndNextRequestRebuilds)
 {
 	FHarness H; H.Function->Fail = true; auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EStatus::Error); ASSERT_TRUE(Cold.Output.IsValid()); EXPECT_TRUE(Cold.Output.HasError()); EXPECT_EQ(H.Cache->Puts, 0u);
-	H.Function->Fail = false; auto Retry = H.Run(); EXPECT_EQ(Retry.Status, EStatus::Ok); EXPECT_FALSE(HasBuildExecutionFlag(Retry.BuildStatus, EBuildExecutionFlags::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 2u); EXPECT_EQ(H.Cache->Puts, 1u);
-}
-
-TEST(FBuildExecutionTests, CancellationRemainsDistinct)
-{
-	FHarness H; auto Result = H.Run({}, true); EXPECT_EQ(Result.Status, EStatus::Canceled); EXPECT_TRUE(Result.Output.IsValid());
+	auto Repeated = H.Run(); EXPECT_EQ(Repeated.Status, EStatus::Error); EXPECT_EQ(H.Function->Builds, 2u); EXPECT_EQ(H.Cache->Puts, 0u);
+	EXPECT_FALSE(HasBuildExecutionFlag(Repeated.BuildStatus, EBuildExecutionFlags::CacheQueryHit));
+	EXPECT_EQ(H.Resolver->Resolves, 2u);
+	H.Function->Fail = false; auto Retry = H.Run(); EXPECT_EQ(Retry.Status, EStatus::Ok); EXPECT_FALSE(HasBuildExecutionFlag(Retry.BuildStatus, EBuildExecutionFlags::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 3u); EXPECT_EQ(H.Cache->Puts, 1u);
 }
 
 TEST(FBuildExecutionTests, UniformPoliciesControlQueryBuildAndStoreIndependently)
 {
 	FHarness H;
-	auto Run = [&](EBuildPolicy Policy) { return H.Run({}, false, Policy); };
+	auto Run = [&](EBuildPolicy Policy) { return H.Run({}, Policy); };
 	EXPECT_EQ(Run(EBuildPolicy::None).Status, EStatus::Error);
 	EXPECT_EQ(Run(EBuildPolicy::Cache).Status, EStatus::Error);
 	EXPECT_EQ(H.Function->Builds, 0u);
@@ -172,10 +172,10 @@ TEST(FBuildExecutionTests, ProductLimitRejectsBothLocalOutputAndWarmCacheOutput)
 	ASSERT_EQ(H.Run().Status, EStatus::Ok);
 	FBuildRequestLimits Limited; Durin::DerivedData::FBuildPolicy LimitedPolicy = EBuildPolicy::CacheQuery;
 	Limited.Output.MaximumTotalBytes = 1;
-	EXPECT_EQ(H.Run(Limited, false, LimitedPolicy).Status, EStatus::Error);
+	EXPECT_EQ(H.Run(Limited, LimitedPolicy).Status, EStatus::Error);
 	EXPECT_EQ(H.Function->Builds, 1u);
 	LimitedPolicy = EBuildPolicy::Build;
-	EXPECT_EQ(H.Run(Limited, false, LimitedPolicy).Status, EStatus::Error);
+	EXPECT_EQ(H.Run(Limited, LimitedPolicy).Status, EStatus::Error);
 	EXPECT_EQ(H.Function->Builds, 2u);
 	EXPECT_EQ(H.Cache->Puts, 1u);
 	EXPECT_EQ(H.Run().Status, EStatus::Ok);
@@ -308,22 +308,6 @@ TEST(FBuildExecutionTests, QueuedProducerUsesOnePreparationAndSkipsProductionOnW
 	EXPECT_EQ(H.Resolver->Resolves, 1u);
 	EXPECT_EQ(H.Function->Builds, 1u);
 	EXPECT_EQ(H.Cache->Puts, 1u);
-}
-
-TEST(FBuildExecutionTests, InlineSuccessHitsCacheAndErrorsRetry)
-{
-	for (bool Negative : {false, true})
-	{
-		FHarness H; H.Function->Fail = Negative;
-		auto Cold = H.Run(), Warm = H.Run();
-		EXPECT_EQ(Cold.Status, Negative ? EStatus::Error : EStatus::Ok);
-		EXPECT_EQ(Warm.Status, Cold.Status);
-		ASSERT_TRUE(Cold.Output.IsValid()); ASSERT_TRUE(Warm.Output.IsValid());
-		EXPECT_EQ(H.Function->Builds, Negative ? 2u : 1u); EXPECT_EQ(H.Cache->Puts, Negative ? 0u : 1u); EXPECT_EQ(H.Resolver->Resolves, Negative ? 2u : 1u);
-		EXPECT_EQ(HasBuildExecutionFlag(Warm.BuildStatus, EBuildExecutionFlags::CacheQueryHit), !Negative);
-		EXPECT_EQ(Cold.Output.GetValues().size(), Warm.Output.GetValues().size());
-		if (!Negative) EXPECT_EQ(Cold.Output.GetValues()[0].Value.GetRawHash(), Warm.Output.GetValues()[0].Value.GetRawHash());
-	}
 }
 
 TEST(FBuildExecutionTests, ExecutionFailureReturnsOnlyTransientObservationsAndNeverCachesThem)

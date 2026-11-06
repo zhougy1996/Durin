@@ -48,7 +48,7 @@ namespace Durin::DerivedData
 					FBuildInputs RetiredInputs;
 					std::optional<FBuildCompleteParams> RetiredCompletion;
 					{ std::lock_guard Lock(Mutex); if (!Callback) return;
-						if (Group.IsCanceled()) Completion = FBuildCompletionAccess::Canceled(std::move(Completion));
+						if (Group.IsCanceled() || Completion.Status == EStatus::Canceled) Completion = FBuildCompleteParams::Canceled(Completion.CacheKey, Completion.BuildStatus, std::move(Completion.Output));
 						Notify = std::exchange(Callback, {});
 						RetiredDefinition = std::exchange(Definition, {});
 						RetiredAction = std::exchange(Action, {});
@@ -60,9 +60,9 @@ namespace Durin::DerivedData
 			}
 			auto Fail(std::string Diagnostic, EStatus Status = EStatus::Error) -> void
 			{
-				std::optional<FCacheKey> Key;
+				FCacheKey Key;
 				{ std::lock_guard Lock(Mutex); if (!Callback) return;
-					if (CacheKey.IsValid()) Key = CacheKey;
+					Key = CacheKey;
 				}
 				Finish(Status == EStatus::Canceled ? FBuildCompleteParams::Canceled(Key, EBuildExecutionFlags::None) : FBuildCompleteParams::Error(Key, EBuildExecutionFlags::None, std::move(Diagnostic)));
 			}
@@ -112,7 +112,7 @@ namespace Durin::DerivedData
 				if (Response.Status == EStatus::Ok) {
 					auto Output = ReadBuildOutput(Action->GetKey(), Response.Record, Session->Limits.Output);
 					const bool SchemaMismatch = Output && (Output->GetSchema() != Action->GetFunction().OutputType || Output->GetSchemaVersion() != Action->GetFunction().OutputSchema);
-					if (Output && !SchemaMismatch && !Output->HasError()) { Finish(FBuildCompletionAccess::Ok(std::move(*Output), Action->GetKey(), EBuildExecutionFlags::CacheQueryHit)); return; }
+					if (Output && !SchemaMismatch && !Output->HasError()) { Finish(FBuildCompleteParams{Action->GetKey(), std::move(*Output), EBuildExecutionFlags::CacheQueryHit, EStatus::Ok}); return; }
 					ObserveCache(Action->GetKey(), SchemaMismatch ? ECacheObservation::SchemaRejected : ECacheObservation::RecordRejected);
 				}
 				if (Policy.Has(EBuildPolicy::BuildLocal)) ObserveCache(Action->GetKey(), ECacheObservation::Fallback);
@@ -163,7 +163,7 @@ namespace Durin::DerivedData
 			{
 				std::optional<FBuildCompleteParams> Completion;
 				{ std::lock_guard Lock(Mutex); if (!Callback || !LocalCompletion) return; Completion = std::exchange(LocalCompletion, {}); }
-				if (Status == EStatus::Canceled) *Completion = FBuildCompletionAccess::Canceled(std::move(*Completion));
+				if (Status == EStatus::Canceled) Completion->Status = EStatus::Canceled;
 				Finish(std::move(*Completion));
 			}
 		};

@@ -231,6 +231,12 @@ completion observations. Message and log text is display data, never control-flo
 assemblers reparse and revalidate immutable output at their trust boundary.
 
 The completion exposes `CacheKey`, `Output`, `BuildStatus` and `Status` directly.
+There is no expected result or private completion adapter. Diagnostic construction
+uses empty keys and invalid outputs directly, without optional wrappers. Final
+owner cancellation preserves existing messages, logs, observations and schema while
+removing product values and metadata. Cancellation does not synthesize an error log;
+`Status` expresses cancellation independently of any existing producer errors.
+An already diagnostic-only canceled output is reused without rebuilding it.
 `BuildStatus` contains two `EBuildExecutionFlags` facts: cache hit and local build. These flags record the
 execution path; `EStatus` independently records success, failure or cancellation. Its fields contain no query/store bookkeeping,
 execution report, cache error, metric, timing, or internal phase identifier.

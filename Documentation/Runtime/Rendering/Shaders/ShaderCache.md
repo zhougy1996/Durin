@@ -262,11 +262,18 @@ encodes its DDC definition and creates the captured resolver. Macro options are
 normalized once for that recipe. Flight priority is the highest
 live subscriber priority. Task-backed DDC sessions release dispatch workers while
 cache I/O progresses. Synchronous APIs submit through the same pipeline
-and wait at their caller boundary. Shared results publish independent delivery tasks
-on each subscriber's own owner; producer completion does not execute peer business
-callbacks. A delivered subscriber's Poll/Wait does not join the shared Flight owner.
-An unfinished subscriber may help the producer until its own delivery is published,
-then waits only for its own work and callback. Actual self/ancestor callback waits
+and wait at their caller boundary. With Core scheduling available, shared results
+publish independent delivery tasks on each subscriber's own owner; producer completion
+does not execute peer business callbacks. The Core-off fallback delivers inline.
+A delivered subscriber's Poll/Wait does not join the shared Flight owner.
+Delivery publication begins a barrier under the flight membership lock before removing
+the subscriber and clearing its producer reference. Cancellation detaches through the
+same lock. Wait uses that reference to help an attached producer, then joins only
+its own owner and callback; it does not infer publication from an idle owner.
+The subscriber request owner holds the cancellation fact for both delivery and native
+compilation; there is no separate subscriber cancellation flag. The private cancellation
+entry point atomically reports the first cancellation before propagating it.
+Terminal subscribers reject late results before entering native compilation. Actual self/ancestor callback waits
 return `WouldBlock`; waiting for a completed peer is supported.
 Admission bounds are 512 subscribers, 128 compiler flights and 1 GiB captured
 source bytes; the 128-entry output LRU is additionally capped at 256 MiB.

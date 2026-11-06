@@ -93,6 +93,8 @@ namespace Durin
 
 		explicit operator bool() const { return Status == EShaderBuildStatus::Ok; }
 		RENDERCORE_API auto AddDiagnostics(std::string_view Messages) -> void;
+		// Includes retained shared buffers; callers deduplicate shared storage separately.
+		RENDERCORE_API auto GetRetainedSize() const -> uint64;
 		auto AddError(std::string Message) -> void
 		{ Status = EShaderBuildStatus::Error; CompiledShaders.clear(); AddDiagnostics(Message); }
 		static auto Failure(std::string Message) -> FShaderCompilerOutput

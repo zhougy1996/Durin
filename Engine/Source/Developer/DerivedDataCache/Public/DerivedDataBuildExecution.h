@@ -7,8 +7,6 @@
 
 namespace Durin::DerivedData
 {
-	namespace Private { struct FBuildCompletionAccess; }
-
 	// Execution facts are independent of the request completion status (EStatus).
 	enum class EBuildExecutionFlags : uint32
 	{
@@ -27,9 +25,9 @@ namespace Durin::DerivedData
 		FBuildOutput Output;
 		EBuildExecutionFlags BuildStatus = EBuildExecutionFlags::None;
 		EStatus Status = EStatus::Error;
-		DERIVEDDATACACHE_API static auto Error(std::optional<FCacheKey> Key, EBuildExecutionFlags BuildStatus,
-			std::string Diagnostic = {}, std::optional<FBuildOutput> Observations = {}) -> FBuildCompleteParams;
-		DERIVEDDATACACHE_API static auto Canceled(std::optional<FCacheKey> Key, EBuildExecutionFlags BuildStatus) -> FBuildCompleteParams;
+		DERIVEDDATACACHE_API static auto Error(FCacheKey Key, EBuildExecutionFlags BuildStatus,
+			std::string Diagnostic = {}, FBuildOutput Observations = {}) -> FBuildCompleteParams;
+		DERIVEDDATACACHE_API static auto Canceled(FCacheKey Key, EBuildExecutionFlags BuildStatus, FBuildOutput Output = {}) -> FBuildCompleteParams;
 	};
 
 	// Supported UE policy subset: local builds and a single cache store.

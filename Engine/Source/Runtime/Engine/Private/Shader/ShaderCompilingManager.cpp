@@ -15,21 +15,7 @@ namespace Durin
 		thread_local std::vector<const IShaderBuildRequest*> ShaderGroupCallbacks;
 		auto RaisePeak(std::atomic_uint64_t& Peak, uint64 Value) -> void
 		{ auto Previous = Peak.load(); while (Previous < Value && !Peak.compare_exchange_weak(Previous, Value)) {} }
-		auto RetainedBytes(const FShaderCompilerOutput& Output) -> uint64
-		{
-			uint64 Bytes = sizeof(Output) + Output.CompiledShaders.capacity() * sizeof(FShaderCode);
-			Bytes += Output.Errors.capacity() * sizeof(FShaderCompilerError);
-			for (const auto& Error : Output.Errors) Bytes += Error.ErrorVirtualFilePath.capacity() + Error.ErrorLineString.capacity()
-				+ Error.StrippedErrorMessage.capacity() + Error.HighlightedLine.capacity() + Error.HighlightedLineMarker.capacity();
-			for (const auto& Shader : Output.CompiledShaders) {
-				Bytes += Shader.Code.GetRetainedCapacityBytes() + Shader.PlatformData.GetRetainedCapacityBytes()
-					+ Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity()
-					+ Shader.Reflection.ResourceBindings.capacity() * sizeof(FShaderResourceBinding)
-					+ Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange);
-				for (const auto& Binding : Shader.Reflection.ResourceBindings) Bytes += Binding.Name.capacity();
-			}
-			return Bytes;
-		}
+
 	}
 	#if DURIN_WITH_EDITOR
 	class FShaderJobsRequest final : public DerivedData::IRequest, public DerivedData::Private::ICancelableRequest
@@ -37,7 +23,7 @@ namespace Durin
 	public:
 		std::shared_ptr<FShaderBuildHandle> Jobs;
 		DerivedData::IRequestOwner* Owner = nullptr;
-		auto RequestCancel() -> void override { Jobs->RequestCancel(); }
+		auto RequestCancel() -> bool override { return Jobs->RequestCancel(); }
 		auto Cancel() -> void override { RequestCancel(); Wait(); }
 		auto Wait() -> void override { require(Jobs->Wait() == EShaderBuildWaitResult::Completed); }
 		auto SetPriority(DerivedData::ERequestPriority Priority) -> void override
@@ -116,7 +102,7 @@ namespace Durin
 				std::lock_guard Lock(Mutex);
 				Reserved -= Allowance;
 				if (Output) {
-					const auto Bytes = RetainedBytes(Output);
+					const auto Bytes = Output.GetRetainedSize();
 					if (Bytes > MaximumBytes - Retained) Output = FShaderCompilerOutput::Failure(std::format("Shader job group exceeds retained-output byte limit: maximum {}, actual {}.", MaximumBytes, Retained + Bytes));
 					else Retained += Bytes;
 				}
