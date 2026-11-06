@@ -63,12 +63,14 @@ namespace Durin
 			static std::atomic_uint64_t NextCompilingId = 1;
 			ShaderMap->CompilingId = NextCompilingId.fetch_add(1);
 			ShaderMap->Owner = std::make_shared<DerivedData::FRequestOwner>();
+			ShaderMap->BuildOwner = std::make_shared<DerivedData::FRequestOwner>();
 			ShaderMap->Input = CopyInput ? std::make_shared<const MIR::FCompilerInput>(*Input) : std::move(Input);
 			ShaderMap->EncodedInput = std::move(Options.EncodedInput);
 			ShaderMap->Force = Options.bForceRecompile; ShaderMap->IsCancellationRequested = std::move(Options.IsCancellationRequested);
 			ShaderMap->Completion = std::move(Completion);
 			ShaderMap->Inline = !IsTaskSchedulerRunning();
 		DerivedData::FRequestBarrier Submission(*ShaderMap->Owner);
+		static_cast<DerivedData::IRequestOwner&>(*ShaderMap->Owner).Begin(static_cast<DerivedData::IRequest*>(*ShaderMap->BuildOwner));
 		CompilingShaderMaps.push_back(ShaderMap);
 		AdmissionLock.unlock();
 		auto Handle = ShaderMap;
@@ -83,7 +85,7 @@ namespace Durin
 			catch (...) { FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial()); }
 			return;
 		}
-		ShaderMap->Owner->LaunchTask("MaterialCompileStage", [ShaderMap, Work = std::move(Work)] {
+		ShaderMap->BuildOwner->LaunchTask("MaterialCompileStage", [ShaderMap, Work = std::move(Work)] {
 			try { if (PollBuildCancellation(ShaderMap)) FMaterialCompilation::CompleteCompilation(ShaderMap, CanceledMaterial()); else Work(); }
 			catch (...) { FMaterialCompilation::CompleteCompilation(ShaderMap, FailedMaterial()); }
 		});
@@ -121,7 +123,10 @@ namespace Durin
 	auto FShaderCompilingManager::FindOrAddCompilingShaderMap(FShaderMapPtr ShaderMap)
 		-> std::shared_ptr<const FMaterialCompilerResult>
 	{
-		FShaderMapPtr Shared;
+		auto Owner = ShaderMap->Owner;
+		DerivedData::FRequestBarrier Publication(*Owner);
+		std::shared_ptr<DerivedData::FRequestOwner> Shared;
+		DerivedData::ERequestPriority Priority = DerivedData::ERequestPriority::Normal;
 		{
 			std::lock_guard Lock(MaterialMutex);
 			// Cache lookup and joining observe the same handoff as completion.
@@ -136,17 +141,15 @@ namespace Durin
 			if (Existing && !Existing->BuildCancellation.IsCanceled()) {
 				ShaderMap->SingleFlight = true;
 				ProgramJoins.fetch_add(1);
-				{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->Owner->KeepAlive(); ShaderMap->Owner = Existing->Owner; }
+				Shared = Existing->BuildOwner;
+				static_cast<DerivedData::IRequestOwner&>(*Owner).Begin(static_cast<DerivedData::IRequest*>(*Shared));
+				static_cast<DerivedData::IRequestOwner&>(*Owner).End(static_cast<DerivedData::IRequest*>(*ShaderMap->BuildOwner));
+				Priority = Owner->GetPriority();
 				Existing->CompileDependencies.push_back(ShaderMap);
-				Shared = std::move(Existing);
 			}
 			else Programs[ShaderMap->ShaderMapId] = ShaderMap;
 		}
-		if (Shared) {
-			bool HighPriority;
-			{ std::lock_guard Lock(ShaderMap->Mutex); HighPriority = ShaderMap->HighPriority; }
-			if (HighPriority) PrioritizeCompilation(Shared);
-		}
+		if (Shared && Priority == DerivedData::ERequestPriority::High) Shared->SetPriority(Priority);
 		return {};
 	}
 
@@ -192,12 +195,9 @@ namespace Durin
 	auto FShaderCompilingManager::PrioritizeCompilation(const FMaterialProgramCompileHandle& Handle) -> void
 	{
 		if (!Handle) return;
-		auto ShaderMap = FindCompilingShaderMap(Handle);
-		std::shared_ptr<FShaderBuildHandle> Jobs;
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
-		{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->HighPriority = true; Jobs = ShaderMap->ShaderJobs; Owner = ShaderMap->Owner; }
+		{ std::lock_guard Lock(Handle->Mutex); Owner = Handle->Owner; }
 		if (Owner) Owner->SetPriority(DerivedData::ERequestPriority::High);
-		if (Jobs) Jobs->SetPriority(EShaderBuildPriority::High);
 	}
 	auto FShaderCompilingManager::CancelCompilation(const FMaterialProgramCompileHandle& Handle) -> void
 	{
@@ -214,7 +214,7 @@ namespace Durin
 			ShaderMap->BuildCancellation.Cancel();
 		}
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
-		{ std::lock_guard Lock(ShaderMap->Mutex); Owner = ShaderMap->Owner; }
+		{ std::lock_guard Lock(ShaderMap->Mutex); Owner = ShaderMap->BuildOwner; }
 		// Owner propagation includes shader jobs. Accepted CPU tasks still retire.
 		if (Owner) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner);
 	}
@@ -229,12 +229,9 @@ namespace Durin
 		if (!Handle) return;
 		PrioritizeCompilation(Handle);
 		(void)PollBuildCancellation(FindCompilingShaderMap(Handle));
-		for (;;) {
-			std::shared_ptr<DerivedData::FRequestOwner> Owner;
-			{ std::lock_guard Lock(Handle->Mutex); Owner = Handle->Owner; }
-			if (Owner) Owner->Wait();
-			std::lock_guard Lock(Handle->Mutex); if (Owner == Handle->Owner) break;
-		}
+		std::shared_ptr<DerivedData::FRequestOwner> Owner;
+		{ std::lock_guard Lock(Handle->Mutex); Owner = Handle->Owner; }
+		if (Owner) Owner->Wait();
 		require(!IsCompiling(Handle));
 		CleanupFinishedShaderMaps();
 	}
@@ -263,6 +260,7 @@ namespace Durin
 			CapturedMaterialBytes -= ShaderMap->CapturedBytes; ShaderMap->CapturedBytes = 0;
 			ShaderMap->DiagnosticInput.reset(); ShaderMap->Origins.clear();
 			RetiredOwners.push_back(std::move(ShaderMap->Owner));
+			RetiredOwners.push_back(std::move(ShaderMap->BuildOwner));
 			std::erase(CompilingShaderMaps, ShaderMap);
 		}
 	}
@@ -337,7 +335,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	auto MaterialBuildPrivate::FMaterialCompilation::Start(std::shared_ptr<FMaterialCompilation> ShaderMap) -> void
 	{
-		MaterialBuildPrivate::SubmitTranslation(ShaderMap->Input, ShaderMap->Force, *ShaderMap->Owner,
+		MaterialBuildPrivate::SubmitTranslation(ShaderMap->Input, ShaderMap->Force, *ShaderMap->BuildOwner,
 			[ShaderMap](FMaterialTranslatedProgram Product) {
 				try { ProcessTranslation(ShaderMap, std::move(Product)); }
 				catch (...) { CompleteCompilation(ShaderMap, {.Diagnostics = {{
@@ -395,14 +393,22 @@ namespace Durin
 				}
 				Program = std::move(Qualified);
 			}
-			// A subscriber callback cannot prevent another subscriber from retiring.
-			try { FShaderCompilingManager::LaunchTask(Subscriber, [Subscriber, Program = std::move(Program)] { CompleteCompilation(Subscriber, {}, Program); }); } catch (...) {}
+			// Transfer from the shared producer to this subscriber's own completion task.
+			static_cast<DerivedData::IRequestOwner&>(*Subscriber->Owner).End(static_cast<DerivedData::IRequest*>(*ShaderMap->BuildOwner), [&] {
+				Subscriber->Owner->LaunchTask("MaterialCompletion", [Subscriber, Program = std::move(Program)] { CompleteCompilation(Subscriber, {}, Program); });
+			});
 		}
-		if (Hook) Hook(Quality, true);
-		if (FShaderCompilingManager::PollCancellation(ShaderMap)) { Build.Program = std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled}); Build.RetainedHit = false; }
-		Build.Sources = std::move(ShaderMap->Sources);
-		Callback(std::move(Build));
-		if (Hook) Hook(Quality, false);
+		auto Deliver = [ShaderMap, Build = std::move(Build), Callback = std::move(Callback), Hook = std::move(Hook), Quality]() mutable {
+			if (Hook) Hook(Quality, true);
+			if (FShaderCompilingManager::PollCancellation(ShaderMap)) { Build.Program = std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{.Status = EMaterialProgramStatus::Canceled}); Build.RetainedHit = false; }
+			Build.Sources = std::move(ShaderMap->Sources);
+			Callback(std::move(Build));
+			if (Hook) Hook(Quality, false);
+		};
+		if (ShaderMap->SingleFlight) Deliver();
+		else static_cast<DerivedData::IRequestOwner&>(*ShaderMap->Owner).End(static_cast<DerivedData::IRequest*>(*ShaderMap->BuildOwner), [&] {
+			ShaderMap->Owner->LaunchTask("MaterialCompletion", std::move(Deliver));
+		});
 	}
 
 #endif

@@ -1327,8 +1327,9 @@ namespace Durin
 			uint32* WaitCalls = nullptr;
 			uint32* CancelCalls = nullptr;
 			std::vector<EShaderBuildPriority>* Priorities = nullptr;
+			std::function<void(EShaderBuildPriority)>* OnPriority = nullptr;
 			auto RequestCancel() -> bool override { if (CancelCalls) ++*CancelCalls; return false; }
-			auto SetPriority(EShaderBuildPriority Priority) -> void override { if (Priorities) Priorities->push_back(Priority); }
+			auto SetPriority(EShaderBuildPriority Priority) -> void override { if (OnPriority && *OnPriority) (*OnPriority)(Priority); if (Priorities) Priorities->push_back(Priority); }
 			auto Wait() -> EShaderBuildWaitResult override { if (WaitCalls) ++*WaitCalls; return EShaderBuildWaitResult::Completed; }
 			auto IsComplete() const -> bool override { return true; }
 
@@ -1337,6 +1338,7 @@ namespace Durin
 		uint32 Waits = 0;
 		uint32 Cancels = 0;
 		std::vector<EShaderBuildPriority> Priorities;
+		std::function<void(EShaderBuildPriority)> OnPriority;
 		bool LastInlineExecution = false;
 		bool Defer = false;
 		bool DeferMounted = false;
@@ -1350,7 +1352,7 @@ namespace Durin
 			auto Job = std::make_shared<FCompletedRequest>();
 			Job->WaitCalls = &Waits;
 			Job->CancelCalls = &Cancels;
-			Job->Priorities = &Priorities;
+			Job->Priorities = &Priorities; Job->OnPriority = &OnPriority;
 			LastInlineExecution = Options.bInlineExecution;
 			++Compiles;
 			auto Deliver = [Callback = std::move(Callback), Output = Completion]() mutable { Callback(std::move(Output)); };
@@ -1417,6 +1419,36 @@ namespace Durin
 			Info->Module = std::move(Original); Info->State = State;
 		}
 	};
+
+	TEST_F(FShaderFoundationTests, CallbackWaitsAreScopedToTheirOwnRequest)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture()); FScopedShaderCompletionStub Backend;
+		auto& Manager = FShaderCompilingManager::Get();
+		auto First = Manager.PrepareJobs("/Engine/Gizmo", {}, {.bInlineExecution = true}, [](auto) {});
+		Manager.SubmitJobs(First); EXPECT_TRUE(First.IsComplete());
+		FShaderBuildHandle Second; uint32 Calls = 0;
+		Second = Manager.PrepareJobs("/Engine/Gizmo", {}, {.bInlineExecution = true}, [&](auto) {
+			EXPECT_EQ(First.Wait(), EShaderBuildWaitResult::Completed);
+			EXPECT_EQ(Second.Wait(), EShaderBuildWaitResult::WouldBlock); ++Calls;
+		});
+		Manager.SubmitJobs(Second); EXPECT_EQ(Second.Wait(), EShaderBuildWaitResult::Completed); EXPECT_EQ(Calls, 1u);
+	}
+
+	TEST_F(FShaderFoundationTests, PublishedJobPriorityConvergesAfterReentrantUpdate)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture()); FScopedShaderCompletionStub Backend;
+		Backend.Stub->DeferMounted = true;
+		auto& Manager = FShaderCompilingManager::Get(); uint32 Calls = 0;
+		auto Group = Manager.PrepareJobs("/Engine/Gizmo", {}, {.Priority = EShaderBuildPriority::Low}, [&](auto) { ++Calls; });
+		bool Raised = false;
+		Backend.Stub->OnPriority = [&](auto) { if (!std::exchange(Raised, true)) Group.SetPriority(EShaderBuildPriority::High); };
+		Manager.SubmitJobs(Group);
+		ASSERT_TRUE(Raised); ASSERT_FALSE(Backend.Stub->Priorities.empty());
+		EXPECT_EQ(Backend.Stub->Priorities.back(), EShaderBuildPriority::High);
+		Backend.Stub->OnPriority = {};
+		for (auto& Pending : Backend.Stub->Pending) if (auto Callback = std::move(Pending)) Callback();
+		EXPECT_EQ(Group.Wait(), EShaderBuildWaitResult::Completed); EXPECT_EQ(Calls, 1u);
+	}
 
 	TEST_F(FShaderFoundationTests, ExplicitSyncIsHostOnlyAndRenderWaitsNeverBlock)
 	{

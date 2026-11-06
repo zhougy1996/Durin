@@ -29,16 +29,11 @@ namespace Durin::DerivedData::Private
 	}
 	auto FBuildCompletionAccess::Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams
 	{ return FBuildCompleteParams::Canceled(Completion.CacheKey, Completion.BuildStatus); }
-	auto PrepareBuildAction(const std::variant<FBuildDefinition, FBuildAction>& Request,
+	auto PrepareBuildAction(const FBuildDefinition& Definition,
 		const FBuildRegistrySnapshot& Registry, std::span<const FBuildInputReference> Identities) -> std::expected<FBuildAction, std::string>
 	{
-		const auto Name = std::holds_alternative<FBuildDefinition>(Request) ? std::get<FBuildDefinition>(Request).GetFunctionName() : std::get<FBuildAction>(Request).GetFunction().Name;
-		const auto Entry = Registry.Find(Name); if (!Entry) return std::unexpected("Build function is not registered.");
-		if (const auto* Existing = std::get_if<FBuildAction>(&Request)) {
-			if (Existing->GetFunction() != Entry->Descriptor) return std::unexpected("Build action does not match the registered function.");
-			return *Existing;
-		}
-		FBuildActionBuilder Builder(std::get<FBuildDefinition>(Request), Entry->Descriptor);
+		const auto Entry = Registry.Find(Definition.GetFunctionName()); if (!Entry) return std::unexpected("Build function is not registered.");
+		FBuildActionBuilder Builder(Definition, Entry->Descriptor);
 		for (const auto& Identity : Identities) Builder.AddInput(Identity);
 		auto Result = std::move(Builder).Build();
 		if (!Result) return std::unexpected("Resolved metadata does not match the build definition.");

@@ -7,7 +7,7 @@
 
 namespace Durin::DerivedData
 {
-	namespace Private { struct FBuildRequestState; struct FBuildSessionState; struct FBuildServiceState; }
+	namespace Private { class FBuild; struct FBuildRequestState; struct FBuildSessionState; }
 
 	using FBuildCompletionCallback = TMoveOnlyFunction<void(FBuildCompleteParams&&)>;
 
@@ -26,7 +26,7 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto Build(const FBuildAction& Action, const FBuildInputs& Inputs, const FBuildPolicy& Policy, IRequestOwner& Owner, FBuildCompletionCallback&& Completion) -> void;
 		DERIVEDDATACACHE_API auto GetName() const -> std::string_view;
 	private:
-		friend class FBuildService;
+		friend class Private::FBuild;
 		explicit FBuildSession(std::shared_ptr<Private::FBuildSessionState> State);
 		auto BuildImpl(std::variant<FBuildDefinition, FBuildAction> Request, FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildPolicy Policy, IRequestOwner& RequestOwner)
 			-> void;

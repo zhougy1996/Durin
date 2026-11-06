@@ -12,7 +12,7 @@ namespace Durin
 {
 	namespace
 	{
-		thread_local uint32 ShaderGroupCallbackDepth = 0;
+		thread_local std::vector<const IShaderBuildRequest*> ShaderGroupCallbacks;
 		auto RaisePeak(std::atomic_uint64_t& Peak, uint64 Value) -> void
 		{ auto Previous = Peak.load(); while (Previous < Value && !Peak.compare_exchange_weak(Previous, Value)) {} }
 		auto RetainedBytes(const FShaderCompilerOutput& Output) -> uint64
@@ -80,7 +80,16 @@ namespace Durin
 		{
 			std::vector<std::shared_ptr<FShaderBuildHandle>> Pending;
 			{ std::lock_guard Lock(Mutex); Options.Priority = Priority; Pending = Handles; }
-			for (const auto& Handle : Pending) Handle->SetPriority(Priority);
+			for (const auto& Handle : Pending) ApplyPriority(*Handle);
+		}
+		auto ApplyPriority(FShaderBuildHandle& Handle) -> void
+		{
+			for (;;) {
+				EShaderBuildPriority Priority;
+				{ std::lock_guard Lock(Mutex); Priority = Options.Priority; }
+				Handle.SetPriority(Priority);
+				{ std::lock_guard Lock(Mutex); if (Priority == Options.Priority) return; }
+			}
 		}
 		auto IsComplete() const -> bool override
 		{
@@ -90,7 +99,7 @@ namespace Durin
 		}
 		auto Wait() -> EShaderBuildWaitResult override
 		{
-			if (ShaderGroupCallbackDepth || IsInRenderingThread()) return EShaderBuildWaitResult::WouldBlock;
+			if (!IsComplete() && (std::ranges::contains(ShaderGroupCallbacks, this) || IsInRenderingThread())) return EShaderBuildWaitResult::WouldBlock;
 			size_t Joined = 0;
 			for (;;) {
 				std::vector<std::shared_ptr<FShaderBuildHandle>> Pending;
@@ -151,9 +160,9 @@ namespace Durin
 					}
 				}
 				if (Callback) {
-					++ShaderGroupCallbackDepth;
+					ShaderGroupCallbacks.push_back(this);
 					try { Callback(std::move(Result)); } catch (...) {}
-					--ShaderGroupCallbackDepth;
+					ShaderGroupCallbacks.pop_back();
 					std::function<bool()> RetiredObserver;
 					std::shared_ptr<const FShaderSourceArtifacts> RetiredSources;
 					{ std::lock_guard Lock(Mutex); Completed = true; RetiredObserver = std::move(Options.IsCancelled); RetiredSources = std::move(MountedOptions.SourceArtifacts); }
@@ -171,9 +180,8 @@ namespace Durin
 					return Backend->CompileGenerated(std::move(Jobs[Index]), std::move(RequestOptions), std::move(Complete));
 				}();
 				auto Handle = std::make_shared<FShaderBuildHandle>(std::move(Submitted));
-				EShaderBuildPriority Priority;
-				{ std::lock_guard Lock(Mutex); Handles.push_back(Handle); Priority = Options.Priority; }
-				Handle->SetPriority(Priority);
+				{ std::lock_guard Lock(Mutex); Handles.push_back(Handle); }
+				ApplyPriority(*Handle);
 				if (Canceled) Handle->RequestCancel();
 				Condition.notify_all();
 			}
@@ -292,9 +300,9 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	auto FShaderCompilingManager::SubmitCompileJobs(FShaderMapPtr ShaderMap) -> void
 	{
-		DerivedData::FRequestBarrier Submission(*ShaderMap->Owner);
+		DerivedData::FRequestBarrier Submission(*ShaderMap->BuildOwner, DerivedData::ERequestBarrierFlags::Priority);
 		EShaderBuildPriority Priority;
-		{ std::lock_guard Lock(ShaderMap->Mutex); Priority = ShaderMap->HighPriority ? EShaderBuildPriority::High : EShaderBuildPriority::Normal; }
+		{ std::lock_guard Lock(ShaderMap->Mutex); Priority = static_cast<EShaderBuildPriority>(ShaderMap->BuildOwner->GetPriority()); }
 		auto Group = std::make_shared<FJobGroup>();
 		Group->Manager = &Get(); Group->MaterialCompilingId = ShaderMap->CompilingId;
 		Group->Jobs = MakeMaterialShaderStageRequests(*ShaderMap->Translation, ShaderMap->Force);
@@ -311,15 +319,13 @@ namespace Durin
 			};
 		auto Jobs = std::make_shared<FShaderBuildHandle>(Group);
 		auto Request = MakeRefCount<FShaderJobsRequest>(); Request->Jobs = Jobs;
-		Request->Owner = &static_cast<DerivedData::IRequestOwner&>(*ShaderMap->Owner);
-		Request->Owner->Begin(Request.GetReference());
+		Request->Owner = &static_cast<DerivedData::IRequestOwner&>(*ShaderMap->BuildOwner);
 		auto Notify = std::move(Group->Completion);
 		Group->Completion = [Request, Notify = std::move(Notify)](FShaderCompilerOutput Output) mutable {
 			Request->Owner->End(Request.GetReference(), [&] { Notify(std::move(Output)); Notify = {}; });
 		};
-		bool HighPriority;
-		{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->ShaderJobs = Jobs; HighPriority = ShaderMap->HighPriority; }
-		if (HighPriority) Jobs->SetPriority(EShaderBuildPriority::High);
+		Request->Owner->Begin(Request.GetReference());
+		{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->ShaderJobs = Jobs; }
 		if (PollBuildCancellation(ShaderMap)) Jobs->RequestCancel();
 		Get().SubmitJobs(*Jobs);
 	}

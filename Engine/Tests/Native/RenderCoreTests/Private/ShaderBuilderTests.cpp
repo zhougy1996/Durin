@@ -489,8 +489,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			};
 			Mounted = Builder->CompileMounted("/ShaderBuilderTests/Simple", MakeCompileOptions(), {.bInlineExecution = true}, Complete);
 			Generated = Builder->CompileGenerated({}, {.bInlineExecution = true}, Complete);
-			EXPECT_EQ(Mounted.Wait(), EShaderBuildWaitResult::WouldBlock);
-			EXPECT_EQ(Generated.Wait(), EShaderBuildWaitResult::WouldBlock);
+			EXPECT_EQ(Mounted.Wait(), EShaderBuildWaitResult::Completed);
+			EXPECT_EQ(Generated.Wait(), EShaderBuildWaitResult::Completed);
 			EXPECT_EQ(Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()).Status, EShaderBuildStatus::Error);
 			EXPECT_EQ(Builder->GetOrCompileGenerated({}).Status, EShaderBuildStatus::Error);
 		};
@@ -502,6 +502,36 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
 		EXPECT_EQ(Mounted.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Generated.Wait(), EShaderBuildWaitResult::Completed);
+	}
+
+	TEST_F(FShaderBuilderTests, SharedSubscriberWaitDoesNotJoinPeerCallbacks)
+	{
+		ASSERT_FALSE(IsTaskSchedulerRunning()); ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FStop { ~FStop() { ShutdownTaskScheduler(); } } Stop;
+		struct FGate final : DerivedData::ICacheBackend
+		{
+			mutable FThreadEvent Entered, Release;
+			auto Get(const DerivedData::FCacheGetBackendRequest&) const -> DerivedData::FCacheGetResult override { Entered.Trigger(); Release.WaitFor(10); return std::optional<DerivedData::FCacheRecord>{}; }
+			auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override { return Request.Record; }
+		};
+		auto Gate = std::make_shared<FGate>(); FThreadEvent FirstDone, PeerEntered, PeerRelease;
+		struct FRelease { std::shared_ptr<FGate> Gate; FThreadEvent& Peer; ~FRelease() { Gate->Release.Trigger(); Peer.Trigger(); } } Release{Gate, PeerRelease};
+		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, DerivedData::Private::FBuildBackendOptions{.Cache = Gate});
+		Builder = std::make_unique<FShaderBuilder>(Service);
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/PeerCompletion";
+		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return float4(1,0,0,1); }";
+		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
+		auto First = Builder->CompileGenerated(Request, {}, [&](auto Output) { EXPECT_TRUE(Output); FirstDone.Trigger(); });
+		ASSERT_TRUE(Gate->Entered.WaitFor(5));
+		auto Second = Builder->CompileGenerated(Request, {.bInlineExecution = true}, [&](auto Output) {
+			EXPECT_TRUE(Output); EXPECT_EQ(First.Wait(), EShaderBuildWaitResult::Completed);
+			PeerEntered.Trigger(); EXPECT_TRUE(PeerRelease.WaitFor(10));
+		});
+		Gate->Release.Trigger();
+		EXPECT_EQ(First.Wait(), EShaderBuildWaitResult::Completed);
+		ASSERT_TRUE(PeerEntered.WaitFor(5)); EXPECT_TRUE(First.IsComplete()); EXPECT_FALSE(Second.IsComplete());
+		PeerRelease.Trigger(); EXPECT_EQ(Second.Wait(), EShaderBuildWaitResult::Completed); Builder->Close();
 	}
 
 	TEST_F(FShaderBuilderTests, InlineReentryAndDispatchFailureCompleteThroughOutputs)
@@ -517,7 +547,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		auto Inline = Builder->CompileGenerated(Request, {.bInlineExecution = true}, [&](auto Output) {
 			EXPECT_FALSE(Returned); EXPECT_FALSE(Output); ++Callbacks;
 			auto Nested = Builder->CompileGenerated(Request, {.bInlineExecution = true}, [&](auto) { ++Callbacks; });
-			EXPECT_EQ(Nested.Wait(), EShaderBuildWaitResult::WouldBlock);
+			EXPECT_EQ(Nested.Wait(), EShaderBuildWaitResult::Completed);
+			EXPECT_EQ(Deferred.Wait(), EShaderBuildWaitResult::Completed);
 		});
 		Returned = true;
 		EXPECT_EQ(Inline.Wait(), EShaderBuildWaitResult::Completed);

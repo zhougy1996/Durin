@@ -2164,3 +2164,66 @@ TEST(FPublicCacheDeathTests, RejectedResponsesRejectSynchronousOwnerWaitAndCance
 		}()), "outside their callbacks");
 	}
 }
+
+TEST(FAsyncCacheTests, DispatchDoesNotReadOwnerAfterItsLastCompletionBarrier)
+{
+	class FOwner final : public IRequestOwner
+	{
+	public:
+		FRequestOwner Control;
+		bool Drained = false;
+		mutable uint32 LateReads = 0;
+		uint32 Begins = 0;
+		auto Begin(IRequest* Request) -> void override { Drained = false; ++Begins; static_cast<IRequestOwner&>(Control).Begin(Request); }
+		auto End(IRequest* Request) -> TRefCountPtr<IRequest> override { return static_cast<IRequestOwner&>(Control).End(Request); }
+		auto BeginBarrier(const FRequestBarrier& Barrier) -> void override { Drained = false; static_cast<IRequestOwner&>(Control).BeginBarrier(Barrier); }
+		auto EndBarrier(const FRequestBarrier& Barrier) -> void override { static_cast<IRequestOwner&>(Control).EndBarrier(Barrier); Drained = Control.Poll(); }
+		auto GetPriority() const -> ERequestPriority override { return Control.GetPriority(); }
+		auto IsCanceled() const -> bool override { if (Drained) ++LateReads; return Control.IsCanceled(); }
+	};
+	class FScheduler final : public IBuildScheduler
+	{
+	public:
+		std::function<void()> First;
+		uint32 Calls = 0;
+		auto Schedule(const FBuildScheduleParams&, std::function<void()> Work) -> std::shared_ptr<IBuildScheduledWork> override
+		{ if (++Calls == 1) First = std::move(Work); else Work(); return {}; }
+	};
+	auto Scheduler = std::make_shared<FScheduler>();
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
+	FRequestOwner Busy; FOwner Owner; uint32 Calls = 0;
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("Lifetime"), 'a')}};
+	Cache->Get(Requests, Busy, [](auto) {});
+	Cache->Get(Requests, Owner, [&](auto) { ++Calls; });
+	auto Work = std::move(Scheduler->First); Work(); Work = {};
+	Busy.Wait(); Owner.Control.Wait(); EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Owner.Drained); EXPECT_EQ(Owner.LateReads, 0u); EXPECT_EQ(Owner.Begins, 1u);
+}
+
+TEST(FAsyncCacheTests, IOConcurrencyIsReleasedWhileCallbackRemainsActive)
+{
+	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), CreateTaskCacheScheduler(), {.Concurrency = 1});
+	FRequestOwner First, Second; FThreadEvent CallbackEntered, ReleaseCallback, SecondDone;
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("CallbackCapacity"), 'a')}};
+	Cache->Get(Requests, First, [&](auto) { CallbackEntered.Trigger(); ReleaseCallback.Wait(); });
+	const bool Entered = CallbackEntered.WaitFor(5.0);
+	if (Entered) Cache->Get(Requests, Second, [&](auto) { SecondDone.Trigger(); });
+	const bool Progressed = Entered && SecondDone.WaitFor(5.0);
+	EXPECT_FALSE(First.Poll()); ReleaseCallback.Trigger(); First.Wait(); Second.Wait();
+	EXPECT_TRUE(Entered); EXPECT_TRUE(Progressed);
+}
+
+TEST(FAsyncCacheTests, CallbackCanWaitForAnotherOwnerOnTheSameCache)
+{
+	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
+	auto Cache = Durin::DerivedData::Private::CreateCacheForBackend(std::make_shared<FAsyncFixtureCache>(), CreateTaskCacheScheduler(), {.Concurrency = 1});
+	FRequestOwner First, Second; std::atomic_uint32_t Calls = 0;
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("IndependentWait"), 'a')}};
+	Cache->Get(Requests, First, [&](auto) {
+		Cache->Get(Requests, Second, [&](auto) { ++Calls; });
+		Second.Wait(); EXPECT_TRUE(Second.Poll()); ++Calls;
+	});
+	First.Wait(); EXPECT_EQ(Calls.load(), 2u);
+}

@@ -10,10 +10,9 @@ namespace Durin::DerivedData::Private
 	struct FAsyncCacheState;
 	struct FCacheOperation : FRequestCompletion
 	{
-		std::atomic<bool> Started = false, Completing = false, Canceled = false;
+		std::atomic<bool> Started = false, Canceled = false;
 		bool Active = false; // Protected by Cache->Mutex.
 		std::shared_ptr<FAsyncCacheState> Cache;
-		TRefCountPtr<IRequest> Dispatch;
 		FCacheGetBackendRequest GetRequest;
 		std::optional<FCachePutBackendRequest> PutRequest;
 		FOnCacheGetComplete GetCallback;
@@ -23,27 +22,17 @@ namespace Durin::DerivedData::Private
 		std::chrono::steady_clock::time_point QueuedAt;
 		uint64 QueuedTurn = 0; // Protected by Cache->Mutex.
 		uint64 RetainedBytes = 0;
-		bool Admitted = false; // Protected by Cache->Mutex.
 		auto IsCanceled() const -> bool { return Canceled.load() || Group->IsCanceled(); }
 		auto OnFinished() -> void override;
 		auto RequestCancel() -> void override;
 		auto Finish(FCacheGetResult GetResult, FCachePutResult PutResult) -> void;
 		auto Run() -> void;
-		auto WaitInternal() -> ERequestWaitResult override
-		{
-			if (FRequestOwnerScope::Blocks(this, WaitDomain)) return ERequestWaitResult::WouldBlock;
-			for (;;) {
-				TRefCountPtr<IRequest> Work;
-				{ std::lock_guard Lock(Mutex); if (Finished) return ERequestWaitResult::Completed; Work = Dispatch; }
-				if (Work) Work->Wait();
-				std::unique_lock Lock(Mutex); Changed.wait(Lock, [&] { return Finished || Dispatch != Work; });
-			}
-		}
+
 	};
-	struct FAsyncCacheState : std::enable_shared_from_this<FAsyncCacheState>
+	struct FAsyncCacheState
 	{
 		std::mutex Mutex;
-		bool Closed = false, Pumping = false;
+		bool Closed = false;
 		uint32 Active = 0, Concurrency = 2, Capacity = 4096;
 		uint64 DispatchTurn = 0;
 		uint64 RetainedBytes = 0, MaximumRetainedBytes = 512ull * 1024 * 1024;
@@ -56,17 +45,18 @@ namespace Durin::DerivedData::Private
 	auto FCacheOperation::OnFinished() -> void
 	{
 		std::lock_guard Lock(Cache->Mutex);
-		std::erase_if(Cache->All, [&](const auto& Op) { return Op.GetReference() == this; });
-		if (Admitted) { Cache->RetainedBytes -= RetainedBytes; Admitted = false; }
+		if (std::erase_if(Cache->All, [&](const auto& Op) { return Op.GetReference() == this; })) Cache->RetainedBytes -= RetainedBytes;
 	}
 	auto FCacheOperation::Finish(FCacheGetResult GetResult, FCachePutResult PutResult) -> void
 	{
-		if (Completing.exchange(true)) return;
 		if (IsCanceled()) { GetResult = std::unexpected(CanceledError()); PutResult = std::unexpected(CanceledError()); }
 		const FCacheError* Error = PutRequest ? (!PutResult ? &PutResult.error() : nullptr) : (!GetResult ? &GetResult.error() : nullptr);
 		if (Error && Error->Code != ECacheError::Canceled)
 			DURIN_WARN_CATEGORY("DerivedData", "Cache {} [{}]: {}", PutRequest ? "write" : "read",
 				(PutRequest ? PutRequest->Record.GetKey() : GetRequest.Key).ToString(), Error->Diagnostic);
+		{ std::lock_guard Lock(Cache->Mutex); if (Active) { --Cache->Active; Active = false; } }
+		// IO capacity is available before business callbacks; accounting remains until End completes.
+		if (!Cache->Scheduler->IsInline()) Cache->Pump();
 		Complete([&] {
 			try {
 				if (GetCallback) {
@@ -83,11 +73,8 @@ namespace Durin::DerivedData::Private
 			PutCallback = {};
 			GetRequest = {};
 			PutRequest.reset();
-			{ std::lock_guard Lock(Cache->Mutex); if (Active) { --Cache->Active; Active = false; } }
-		}, Cache->Scheduler->IsInline() ? nullptr : Cache.get());
-		// Inline dispatch returns to the existing pump, which advances the batch.
-		// Explicit nested submissions still pump synchronously from Admit.
-		if (!Cache->Scheduler->IsInline()) Cache->Pump();
+		});
+
 	}
 	auto FCacheOperation::RequestCancel() -> void
 	{
@@ -95,9 +82,6 @@ namespace Durin::DerivedData::Private
 		bool Pending = false, CompleteNow = false;
 		{ std::lock_guard Lock(Cache->Mutex); Pending = std::erase_if(Cache->Pending, [&](const auto& Op) { return Op.GetReference() == this; }) != 0; CompleteNow = (Pending || Active) && !Started.exchange(true); }
 		if (CompleteNow) { Finish(std::unexpected(CanceledError()), std::unexpected(CanceledError())); }
-		TRefCountPtr<IRequest> DispatchOperation;
-		{ std::lock_guard Lock(Mutex); DispatchOperation = Dispatch; }
-		if (DispatchOperation) FOwnerAccess::RequestCancel(*DispatchOperation.GetReference());
 	}
 	auto FCacheOperation::Run() -> void
 	{
@@ -130,32 +114,40 @@ namespace Durin::DerivedData::Private
 	auto FAsyncCacheState::Pump() -> void
 	{
 		const bool Inline = Scheduler->IsInline();
-		{ std::lock_guard Lock(Mutex); if (!Inline && Pumping) return; if (!Inline) Pumping = true; }
 		for (;;)
 		{
 			TRefCountPtr<FCacheOperation> Op;
+			std::optional<FRequestBarrier> Publication;
 			{
 				std::lock_guard Lock(Mutex);
-				if ((!Inline && Active == Concurrency) || Pending.empty()) { if (!Inline) Pumping = false; return; }
+				if ((!Inline && Active >= Concurrency) || Pending.empty()) return;
 				// FIFO admission means only the oldest item's age needs checking.
 				// Unsigned turn subtraction also preserves age across counter wrap.
 				auto Next = Pending.begin();
 				if (DispatchTurn - (*Next)->QueuedTurn < 32)
 					Next = std::ranges::min_element(Pending, {}, [](const auto& Item) { return Item->Group->GetPriority(); });
+				// Retain the owner before cancellation can end the selected operation.
+				Publication.emplace(*(*Next)->Group, ERequestBarrierFlags::Priority);
 				Op = std::move(*Next); Pending.erase(Next); ++Active; Op->Active = true;
 				++DispatchTurn;
 			}
+			std::shared_ptr<FCacheOperation> Dispatch;
 			try
 			{
-				auto Dispatch = FOwnerAccess::LaunchTask(*Op->Group, *Scheduler, "DerivedDataCacheIO", [Op] { Op->Run(); },
-					[Op] { Op->RequestCancel(); });
-				{ std::lock_guard Lock(Op->Mutex); Op->Dispatch = Dispatch;  }
+				// The scheduled closure owns this same request; dropping it completes queued work.
+				Dispatch = std::shared_ptr<FCacheOperation>(Op.GetReference(), [KeepAlive = Op](FCacheOperation*) { KeepAlive->RequestCancel(); });
+				auto Scheduled = Scheduler->Schedule({"DerivedDataCacheIO", Op->Group->GetPriority()}, [Dispatch] { Dispatch->Run(); });
+				{ std::lock_guard Lock(Op->Mutex); Op->Scheduled = Scheduled; }
 				Op->Changed.notify_all();
-				if (Dispatch && Op->IsCanceled()) FOwnerAccess::RequestCancel(*Dispatch.GetReference());
+				if (Scheduled) for (;;) {
+					const auto Priority = Op->Group->GetPriority(); Scheduled->SetPriority(Priority);
+					if (Priority == Op->Group->GetPriority()) break;
+				}
 			}
 			catch (...)
 			{
-				Op->Finish(std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache dispatch threw."}),
+				if (!Op->Started.exchange(true)) Op->Finish(
+					std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache dispatch threw."}),
 					std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache dispatch threw."}));
 			}
 		}
@@ -214,7 +206,6 @@ namespace Durin::DerivedData::Private
 				try { for (auto& Op : Operations)
 				{
 					Op->Cache = State; Op->QueuedTurn = State->DispatchTurn; Op->QueuedAt = std::chrono::steady_clock::now();
-					Op->WaitDomain = State->Scheduler->IsInline() ? nullptr : State.get();
 					Owner.Begin(Op.GetReference()); Op->Group = &Owner;
 					State->All.push_back(Op); State->Pending.push_back(Op);
 				} }
@@ -223,11 +214,10 @@ namespace Durin::DerivedData::Private
 						std::erase(State->All, Op); std::erase(State->Pending, Op);
 					}
 					Lock.unlock();
-					for (auto& Op : Operations) if (Op->Group) Op->Complete([] {}, Op->WaitDomain);
+					for (auto& Op : Operations) if (Op->Group) Op->Complete([] {});
 					throw;
 				}
 				State->RetainedBytes += BatchBytes;
-				for (auto& Op : Operations) Op->Admitted = true;
 			}
 			for (auto& Op : Operations) if (Op->IsCanceled()) Op->RequestCancel();
 			State->Pump(); return {};
@@ -248,17 +238,19 @@ namespace Durin::DerivedData::Private
 						else Op->PutCallback({.Name = Op->Name, .Record = Op->PutRequest->Record, .Key = Op->PutRequest->Record.GetKey(), .UserData = Op->UserData, .Status = Status});
 					} catch (...) {}
 				}
-			}, State.get());
+			});
 		}
 		auto Close() -> void
 		{ std::vector<TRefCountPtr<FCacheOperation>> Snapshot; { std::lock_guard Lock(State->Mutex); State->Closed = true; Snapshot = State->All; } for (const auto& Op : Snapshot) Op->RequestCancel(); }
 		auto Drain() -> ERequestWaitResult
 		{
-			if (FRequestOwnerScope::Blocks(nullptr, State.get())) return ERequestWaitResult::WouldBlock;
 			for (;;)
 			{
 				TRefCountPtr<FCacheOperation> Op;
-				{ std::lock_guard Lock(State->Mutex); if (State->All.empty()) return ERequestWaitResult::Completed; Op = State->All.front(); }
+				{ std::lock_guard Lock(State->Mutex); if (State->All.empty()) return ERequestWaitResult::Completed;
+					if (std::ranges::any_of(State->All, [](const auto& Item) { return FRequestOwnerScope::Blocks(Item.GetReference()); })) return ERequestWaitResult::WouldBlock;
+					Op = State->All.front();
+				}
 				if (Op->WaitInternal() != ERequestWaitResult::Completed) return ERequestWaitResult::WouldBlock;
 			}
 		}
@@ -281,7 +273,7 @@ namespace Durin::DerivedData::Private
 				for (auto& Response : Responses) {
 					try { Completion(std::move(Response)); } catch (...) {}
 				}
-			}, State.get());
+			});
 			return;
 		}
 		auto Notify = std::make_shared<FOnCacheGetComplete>(std::move(Completion));
@@ -310,7 +302,7 @@ namespace Durin::DerivedData::Private
 				for (auto& Response : Responses) {
 					try { Completion(std::move(Response)); } catch (...) {}
 				}
-			}, State.get());
+			});
 			return;
 		}
 		auto Notify = std::make_shared<FOnCachePutComplete>(std::move(Completion));

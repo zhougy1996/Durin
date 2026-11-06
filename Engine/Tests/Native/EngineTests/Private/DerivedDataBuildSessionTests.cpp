@@ -1439,3 +1439,60 @@ TEST(FBuildSessionTests, ResolverFailureAndCancellationUseTheCompletionProtocol)
 		Owner.Wait(); EXPECT_EQ(Calls, 1u); EXPECT_EQ(Fixture.Function->Builds, 0u);
 	}
 }
+
+TEST(FRequestOwnerTests, NonblockingCancellationDoesNotExecuteQueuedNativeTasks)
+{
+	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
+	FRequestOwner Owner; uint32 Calls = 0; std::atomic_bool Signaling = false;
+	FThreadEvent Entered, Release, Signaled;
+	Owner.LaunchTask("SignalCancellation", [&] {
+		Entered.Trigger(); Release.Wait(); Signaling = true;
+		Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner);
+		Signaling = false; Signaled.Trigger();
+	});
+	Entered.Wait();
+	Owner.LaunchTask("QueuedNativeTask", [&] { EXPECT_FALSE(Signaling.load()); EXPECT_TRUE(Owner.IsCanceled()); ++Calls; });
+	Release.Trigger(); Signaled.Wait();
+	Owner.Wait(); EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Owner.Poll());
+}
+
+TEST(FBuildSessionTests, DeferredSubmissionExceptionsCompleteWithError)
+{
+	class FResolver final : public IBuildInputResolver
+	{
+	public:
+		auto ResolveInputMeta(const FBuildDefinition&, IRequestOwner&, FOnBuildInputMetaResolved&&) const -> void override { throw std::runtime_error("metadata failure"); }
+		auto ResolveInputData(const FBuildAction&, IRequestOwner&, FOnBuildInputDataResolved&&) const -> void override { FAIL() << "Unexpected payload resolution"; }
+	};
+	class FCache final : public ICache
+	{
+	public:
+		auto Get(std::span<const FCacheGetRequest>, IRequestOwner&, FOnCacheGetComplete&&) -> void override { throw std::runtime_error("query failure"); }
+		auto Put(std::span<const FCachePutRequest>, IRequestOwner&, FOnCachePutComplete&&) -> void override { FAIL() << "Unexpected store"; }
+	};
+	for (bool Resolve : {false, true}) {
+		auto Scheduler = std::make_shared<FStageScheduler>();
+		auto Service = CreateBuild({.Cache = std::make_shared<FCache>()}); ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
+		auto Session = Service->CreateSession("ThrowingStage", std::make_shared<FResolver>(), Scheduler);
+		FBuildDefinitionBuilder Builder("Session.Fixture"); if (Resolve) Builder.AddInput("Source", "Capture");
+		FRequestOwner Owner; uint32 Calls = 0;
+		Session.Build(std::move(Builder).Build().value(), {}, {}, Owner, [&](auto Result) {
+			++Calls; EXPECT_EQ(Result.Status, EStatus::Error); EXPECT_TRUE(Result.Output.HasError());
+		});
+		EXPECT_EQ(Calls, 0u); Scheduler->Run(); Owner.Wait(); EXPECT_EQ(Calls, 1u);
+	}
+}
+
+TEST(FBuildSessionTests, EarlyCompletionReplaysPriorityToContinuations)
+{
+	FFixture Fixture; auto Session = Fixture.Session(); FRequestOwner Owner(ERequestPriority::Low);
+	auto Next = MakeRefCount<FOwnerTestRequest>(); ERequestPriority Applied = ERequestPriority::Low;
+	Next->OnPriority = [&](auto Priority) { Applied = Priority; };
+	Session->Build(Definition(), {}, EBuildPolicy(uint8{0x80}), Owner, [&](auto Result) {
+		EXPECT_EQ(Result.Status, EStatus::Error); Owner.SetPriority(ERequestPriority::High);
+		static_cast<IRequestOwner&>(Owner).Begin(Next);
+	});
+	EXPECT_EQ(Applied, ERequestPriority::High);
+	static_cast<IRequestOwner&>(Owner).End(Next); Owner.Wait();
+}

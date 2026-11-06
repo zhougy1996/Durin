@@ -49,7 +49,7 @@ namespace Durin::DerivedData::Private
 		std::unique_ptr<FState> State;
 	};
 
-	auto PrepareBuildAction(const std::variant<FBuildDefinition, FBuildAction>& Request,
+	auto PrepareBuildAction(const FBuildDefinition& Definition,
 		const FBuildRegistrySnapshot& Registry, std::span<const FBuildInputReference> Identities) -> std::expected<FBuildAction, std::string>;
 	auto ExecuteBuildLocal(const FBuildAction& Action, const FBuildRegistrySnapshot& Registry,
 		std::vector<FBuildInput> Inputs, const FBuildPolicy& Policy, const FBuildRequestLimits& Limits, IRequestOwner& Owner) -> FBuildCompleteParams;

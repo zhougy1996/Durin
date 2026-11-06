@@ -13,7 +13,7 @@ namespace Durin
 {
 	namespace
 	{
-		thread_local uint32 ShaderCallbackDepth = 0;
+		thread_local std::vector<const IShaderBuildRequest*> ShaderCallbacks;
 		auto CanceledShader() -> FShaderCompilerOutput { return {.Status = EShaderBuildStatus::Canceled}; }
 		auto NativeResultBytes(const FShaderCompilerOutput& Result) -> uint64
 		{
@@ -78,10 +78,10 @@ namespace Durin
 					Callback = std::move(Completion);
 				}
 				try { if (Canceled || (Options.IsCancelled && Options.IsCancelled())) Output = CanceledShader(); } catch (...) { Output = FShaderCompilerOutput::Failure("Shader cancellation observer failed."); }
-				++ShaderCallbackDepth;
+				ShaderCallbacks.push_back(this);
 				try { if (Callback) Callback(std::move(Output)); } catch (...) { }
 				Callback = {};
-				--ShaderCallbackDepth;
+				ShaderCallbacks.pop_back();
 				{ std::lock_guard Lock(Mutex); Delivery = EDelivery::Completed; }
 				Condition.notify_all();
 			}
@@ -134,7 +134,10 @@ namespace Durin
 				if (It != Flights.end() && It->second == Flight) Flights.erase(It);
 				Subscribers = std::move(Flight->Subscribers);
 			}
-			for (const auto& Subscriber : Subscribers) Subscriber->Finish(Output);
+			for (const auto& Subscriber : Subscribers) {
+				DerivedData::FRequestBarrier Publication(Subscriber->NativeOwner, DerivedData::ERequestBarrierFlags::Priority);
+				Subscriber->NativeOwner.LaunchTask("ShaderBuildCompletion", [Subscriber, Output] { Subscriber->Finish(Output); });
+			}
 		}
 		auto Prepare(const std::shared_ptr<FSubscriber>& Subscriber) -> void
 		{
@@ -309,25 +312,34 @@ namespace Durin
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::SetPriority(EShaderBuildPriority Priority) -> void
 	{
+		if (auto Owner = State.lock()) {
+			{ std::lock_guard Lock(Owner->Mutex); Options.Priority = Priority; if (Flight) Owner->Priority(Flight); }
+			for (;;) {
+				{ std::lock_guard Lock(Owner->Mutex); Priority = Options.Priority; }
+				NativeOwner.SetPriority(static_cast<DerivedData::ERequestPriority>(Priority));
+				{ std::lock_guard Lock(Owner->Mutex); if (Priority == Options.Priority) return; }
+			}
+		}
 		NativeOwner.SetPriority(static_cast<DerivedData::ERequestPriority>(Priority));
-		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); Options.Priority = Priority; if (Flight) Owner->Priority(Flight); }
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::IsComplete() const -> bool
 	{
 		{ std::lock_guard Lock(Mutex); if (Delivery != EDelivery::Completed || !Published || (Preparation.IsValid() && !Preparation.IsCompleted())) return false; }
-		if (!NativeOwner.Poll()) return false;
-		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); return !Flight || Flight->Owner.Poll(); }
-		return true;
+		return NativeOwner.Poll();
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::Wait() -> EShaderBuildWaitResult
 	{
-		if (ShaderCallbackDepth || IsInRenderingThread()) return EShaderBuildWaitResult::WouldBlock;
+		if (!IsComplete() && (std::ranges::contains(ShaderCallbacks, this) || IsInRenderingThread())) return EShaderBuildWaitResult::WouldBlock;
 		Tasks::FTask Task;
 		{ std::unique_lock Lock(Mutex); Condition.wait(Lock, [&] { return Published; }); Task = Preparation; }
 		if (Task.IsValid() && WaitTask(Task).WaitStatus != ETaskWaitStatus::Completed) return EShaderBuildWaitResult::WouldBlock;
-		std::shared_ptr<FFlight> Pending;
-		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); Pending = Flight; }
-		if (Pending) Pending->Owner.Wait();
+		bool Delivered;
+		{ std::lock_guard Lock(Mutex); Delivered = Delivery == EDelivery::Completed; }
+		if (!Delivered && NativeOwner.Poll()) {
+			std::shared_ptr<FFlight> Pending;
+			if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); Pending = Flight; }
+			if (Pending) Pending->Owner.Wait();
+		}
 		NativeOwner.Wait();
 		{ std::unique_lock Lock(Mutex); Condition.wait(Lock, [&] { return Delivery == EDelivery::Completed; }); }
 		ReleaseCaptures();
@@ -344,6 +356,7 @@ namespace Durin
 		Subscriber->SourceKind = SourceKind; Subscriber->State = Async;
 		Subscriber->Request = std::make_shared<const FGeneratedShaderCompileRequest>(std::move(Request));
 		Subscriber->Options = std::move(Options); Subscriber->Completion = std::move(Completion);
+		Subscriber->NativeOwner.SetPriority(static_cast<DerivedData::ERequestPriority>(Subscriber->Options.Priority));
 		Subscriber->Start();
 		return FShaderBuildHandle(std::move(Subscriber));
 	}
@@ -422,8 +435,10 @@ namespace Durin
 	{
 		if (!Async) return;
 		std::vector<std::shared_ptr<FAsyncState::FSubscriber>> Pending;
-		{ std::lock_guard Lock(Async->Mutex); Async->Closed = true; Pending = Async->Operations; }
+		std::vector<std::shared_ptr<FAsyncState::FFlight>> Producers;
+		{ std::lock_guard Lock(Async->Mutex); Async->Closed = true; Pending = Async->Operations; Producers = Async->CompilerOperations; }
 		for (const auto& Subscriber : Pending) Subscriber->RequestCancel();
+		for (const auto& Producer : Producers) Producer->Owner.Wait();
 		for (const auto& Subscriber : Pending) require(Subscriber->Wait() == EShaderBuildWaitResult::Completed);
 		{ std::lock_guard Lock(Async->Mutex); Async->Operations.clear(); Async->Flights.clear(); Async->CompilerOperations.clear(); }
 	}

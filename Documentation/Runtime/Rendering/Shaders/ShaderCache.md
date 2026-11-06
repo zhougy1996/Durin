@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: Engine, RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-11-06
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -235,8 +235,9 @@ which may be recycled after a thread exits. A new thread therefore cannot inheri
 a departed thread's Slang context even if the OS reuses its identifier.
 Shutdown requires all calls and their leases to drain before destroying the builder. Module startup
 constructs the compiler service and freezes registration before constructing the
-builder. Shutdown closes builder admission, cancels and joins accepted subscribers, then
-closes and drains both service sessions before releasing compiler contexts.
+builder. Shutdown closes admission, cancels accepted subscribers, drains the shared
+compiler-flight owners once, and joins each subscriber's own preparation and delivery
+before releasing service sessions and compiler contexts.
 Requests retain captured resolvers; their input description runs in the build
 session. Synchronous callers use a DDC request owner and wait before reading
 completion, independently of whether the session executes inline.
@@ -261,7 +262,12 @@ encodes its DDC definition and creates the captured resolver. Macro options are
 normalized once for that recipe. Flight priority is the highest
 live subscriber priority. Task-backed DDC sessions release dispatch workers while
 cache I/O progresses. Synchronous APIs submit through the same pipeline
-and wait at their caller boundary. Callback-stack waits return `WouldBlock`.
+and wait at their caller boundary. Shared results publish independent delivery tasks
+on each subscriber's own owner; producer completion does not execute peer business
+callbacks. A delivered subscriber's Poll/Wait does not join the shared Flight owner.
+An unfinished subscriber may help the producer until its own delivery is published,
+then waits only for its own work and callback. Actual self/ancestor callback waits
+return `WouldBlock`; waiting for a completed peer is supported.
 Admission bounds are 512 subscribers, 128 compiler flights and 1 GiB captured
 source bytes; the 128-entry output LRU is additionally capped at 256 MiB.
 `MaximumOutputBytes` applies to the complete build product on both DDC and LRU

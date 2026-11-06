@@ -81,6 +81,7 @@ namespace Durin::MaterialBuildPrivate
 			std::shared_ptr<const FMaterialCompilerResult> Retained = {}) -> void;
 		mutable std::mutex Mutex;
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
+		std::shared_ptr<DerivedData::FRequestOwner> BuildOwner;
 		Tasks::FCancellationToken BuildCancellation;
 		std::vector<std::shared_ptr<FMaterialCompilation>> CompileDependencies;
 		std::shared_ptr<FShaderBuildHandle> ShaderJobs;
@@ -91,7 +92,7 @@ namespace Durin::MaterialBuildPrivate
 		std::unique_ptr<FMaterialTranslatedProgram> Translation;
 		bool SingleFlight = false;
 		std::chrono::steady_clock::time_point CompilationBegin;
-		bool ResultReady = false, HighPriority = false, Inline = false;
+		bool ResultReady = false, Inline = false;
 #endif
 	};
 

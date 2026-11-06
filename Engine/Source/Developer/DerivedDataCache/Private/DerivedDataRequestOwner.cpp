@@ -103,7 +103,7 @@ namespace Durin::DerivedData
 				std::function<void()> Invoke, Discard;
 				{ std::lock_guard Lock(Mutex); if (Started) return; Started = true; Invoke = Canceled ? std::move(OnCanceled) : std::move(Work); Discard = Canceled ? std::move(Work) : std::move(OnCanceled); }
 				Discard = {};
-				Complete([&] { try { if (Invoke) Invoke(); } catch (...) {} Invoke = {}; }, nullptr);
+				Complete([&] { try { if (Invoke) Invoke(); } catch (...) {} Invoke = {}; });
 			}
 			auto RequestCancel() -> void override { Run(true); }
 		};
@@ -156,14 +156,14 @@ namespace Durin::DerivedData
 	auto FRequestOwner::GetPriority() const -> ERequestPriority { return Owner->GetPriority(); }
 	auto FRequestOwner::IsCanceled() const -> bool { return Owner->IsCanceled(); }
 	auto FRequestOwner::LaunchTask(std::string_view Name, TMoveOnlyFunction<void()>&& Work) -> void { Owner->LaunchTask(Name, std::move(Work)); }
-	auto Private::FOwnerAccess::Invoke(IRequestOwner& Owner, TMoveOnlyFunction<void()>&& Callback, const void* Domain, IRequest* Request) -> void
-	{ FRequestBarrier Barrier(Owner, ERequestBarrierFlags::Priority); FRequestOwnerScope Scope(Request, Domain); Callback(); }
-	auto Private::FOwnerAccess::End(IRequestOwner& Owner, IRequest* Request, TMoveOnlyFunction<void()>&& Callback, const void* Domain) -> TRefCountPtr<IRequest>
+	auto Private::FOwnerAccess::Invoke(IRequestOwner& Owner, TMoveOnlyFunction<void()>&& Callback) -> void
+	{ FRequestBarrier Barrier(Owner, ERequestBarrierFlags::Priority); Callback(); }
+	auto Private::FOwnerAccess::End(IRequestOwner& Owner, IRequest* Request, TMoveOnlyFunction<void()>&& Callback) -> TRefCountPtr<IRequest>
 	{
-		TRefCountPtr<IRequest> Retained;
-		Invoke(Owner, [&] { Retained = Owner.End(Request); Callback(); }, Domain, Request);
-		return Retained;
+		FRequestOwnerScope Scope(Request);
+		return Owner.End(Request, Callback);
 	}
+
 	auto IRequestOwner::LaunchTask(std::string_view Name, TMoveOnlyFunction<void()>&& Work) -> void
 	{
 		struct FTaskRequest final : IRequest

@@ -863,8 +863,9 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 		ASSERT_TRUE(First); ASSERT_TRUE(Cache->FirstEntered.WaitFor(10)); ASSERT_TRUE(Cache->SecondEntered.WaitFor(10));
 		auto Second = MaterialBuildPrivate::FMaterialCompilation::Compile(Other, {.bForceRecompile = true, .IsCancellationRequested = [&] { return Observe && Cancellation[1].IsCanceled(); }}, [&](auto Result) { Results[1] = std::move(Result); ++Calls[1]; });
 		ASSERT_TRUE(Second);
-		std::shared_ptr<DerivedData::FRequestOwner> FirstOwner;
-		{ std::lock_guard Lock((*First)->Mutex); FirstOwner = (*First)->Owner; }
+		std::shared_ptr<DerivedData::FRequestOwner> FirstOwner, FirstBuildOwner, SecondOwner;
+		{ std::lock_guard Lock((*First)->Mutex); FirstOwner = (*First)->Owner; FirstBuildOwner = (*First)->BuildOwner; }
+		{ std::lock_guard Lock((*Second)->Mutex); SecondOwner = (*Second)->Owner; }
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (GetMaterialProgramCompileStatsForTests().Joins == Before.Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 		ASSERT_EQ(GetMaterialProgramCompileStatsForTests().Joins, Before.Joins + 1);
@@ -877,7 +878,9 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 			if (Canceled == 2) { Manager.CancelCompilation(*First); Manager.CancelCompilation(*Second); }
 			else if (Canceled >= 0) Manager.CancelCompilation(Canceled == 0 ? *First : *Second);
 		}
-		EXPECT_EQ(FirstOwner->IsCanceled(), Canceled == 2);
+		EXPECT_FALSE(FirstOwner->IsCanceled());
+		EXPECT_EQ(FirstBuildOwner->IsCanceled(), Canceled == 2);
+		EXPECT_EQ((*First)->Owner, FirstOwner); EXPECT_EQ((*Second)->Owner, SecondOwner); EXPECT_NE(FirstOwner, SecondOwner);
 		EXPECT_EQ((*First)->BuildCancellation.IsCanceled(), Canceled == 2);
 		Cache->OthersRelease.Trigger();
 		const auto DrainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -979,6 +982,41 @@ TEST(FMaterialProgramOwnershipTests, CacheHandoffAllowsLookupBeforeDeliveryRetir
 	ASSERT_TRUE(First); EXPECT_EQ(First.Program->ShaderMap, Second.Program->ShaderMap);
 }
 
+TEST(FMaterialProgramOwnershipTests, StableOwnersDoNotJoinOtherSubscriberCallbacks)
+{
+	using namespace Durin; using namespace MaterialBuildPrivate;
+	InitializeDObjectSystem(); FMaterialShaderMap::ClearCache();
+	struct FGate final : DerivedData::ICacheBackend
+	{
+		mutable FThreadEvent Entered, Release;
+		mutable std::atomic_uint32_t Stores = 0;
+		auto Get(const DerivedData::FCacheGetBackendRequest&) const -> DerivedData::FCacheGetResult override { return std::optional<DerivedData::FCacheRecord>{}; }
+		auto Put(const DerivedData::FCachePutBackendRequest& Request) const -> DerivedData::FCachePutResult override
+		{ if (Stores.fetch_add(1) == 0) { Entered.Trigger(); Release.WaitFor(10); } return Request.Record; }
+	};
+	auto Cache = std::make_shared<FGate>(); FThreadEvent PeerEntered, PeerRelease;
+	ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});
+	struct FRestore { std::shared_ptr<FGate> Cache; FThreadEvent& Peer; ~FRestore() { Cache->Release.Trigger(); Peer.Trigger(); FShaderCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); FMaterialShaderMap::ClearCache(); } } Restore{Cache, PeerRelease};
+	auto Input = std::make_shared<MIR::FCompilerInput>(); Input->IR = MakeDefaultMaterialCompilerIR();
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment));
+	auto& Manager = FShaderCompilingManager::Get(); const auto Before = GetMaterialProgramCompileStatsForTests();
+	auto First = FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [](auto Result) { EXPECT_TRUE(Result); });
+	ASSERT_TRUE(First); ASSERT_TRUE(Cache->Entered.WaitFor(10));
+	auto Second = FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Result) {
+		EXPECT_TRUE(Result); Manager.FinishCompilation(*First);
+		PeerEntered.Trigger(); EXPECT_TRUE(PeerRelease.WaitFor(10));
+	});
+	ASSERT_TRUE(Second);
+	auto FirstOwner = (*First)->Owner; auto SecondOwner = (*Second)->Owner;
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (GetMaterialProgramCompileStatsForTests().Joins == Before.Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	ASSERT_EQ(GetMaterialProgramCompileStatsForTests().Joins, Before.Joins + 1);
+	EXPECT_EQ((*First)->Owner, FirstOwner); EXPECT_EQ((*Second)->Owner, SecondOwner); EXPECT_NE(FirstOwner, SecondOwner);
+	Cache->Release.Trigger(); ASSERT_TRUE(PeerEntered.WaitFor(10));
+	Manager.FinishCompilation(*First); EXPECT_TRUE(FirstOwner->Poll()); EXPECT_TRUE(Manager.IsCompiling(*Second));
+	PeerRelease.Trigger(); Manager.FinishCompilation(*Second);
+}
+
 TEST(FMaterialProgramOwnershipTests, CacheRetainsShaderMapWithoutRetainingRequestResult)
 {
 	using namespace Durin; using namespace MaterialBuildPrivate;
@@ -1053,7 +1091,8 @@ TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedA
 		ASSERT_NE(Result.Program, nullptr);
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		EXPECT_FALSE(Result.RetainedHit);
-		EXPECT_TRUE(Request->Owner->IsCanceled());
+		EXPECT_FALSE(Request->Owner->IsCanceled());
+		EXPECT_TRUE(Request->BuildOwner->IsCanceled());
 		++Calls;
 	});
 	ASSERT_TRUE(Compile); Manager.FinishCompilation(*Compile);

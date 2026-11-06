@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-11-05
+Last reviewed: 2026-11-06
 
 ## Ownership
 
@@ -264,7 +264,8 @@ Session creation returns a session handle directly and has no admission-result w
 
 ## Persistent sessions and lifecycle
 
-`IBuild` owns registration. Each session captures an immutable registry snapshot
+`IBuild` is implemented by the private `FBuild`, which owns its registry, cache
+and configuration directly. Each session captures an immutable registry snapshot
 when it is created; later registration affects later sessions without mutating
 existing sessions. Registered functions and required services remain owned
 until the last admitted request releases them.
@@ -434,13 +435,20 @@ Owner completion means it has no active requests or barriers. Public
 Begin precedes execution, and the body calls End with the callback. Cancel waits
 for that task; it does not execute an alternate cancellation body. Native waits
 may help execute queued work. There is no retirement subscription or idle observer.
-Private build/cache dispatch requests end at their logical callback boundary;
-stale scheduler thunks do not extend owner completion. Shader jobs end their
+A cache operation is one owner-registered request and directly holds its scheduler
+wait handle; cache dispatch does not register another request. Private build dispatch
+and cache operations end at their logical callback boundary. Stale scheduler thunks
+do not extend owner completion. Shader jobs end their
 registered request through the group completion callback before publishing completion.
 
 Each Build stage uses the caller's public owner protocol. The pipeline retains
-session resources, data and its unique completion callback. Continuations are
-submitted before the End callback barrier is released. Requests and barriers retain
+session resources, data and its unique completion callback. Request data lives
+directly in the build request state, without a separately shared data allocation.
+An action supplied by the caller is owned once and validated in place. Definitions
+alone go through action construction. Local execution takes action ownership and
+releases definition/action metadata before cache persistence; the cache key remains
+as the completion identity. Inputs and pending store output have independent lifetimes.
+Continuations are submitted before the End callback barrier is released. Requests and barriers retain
 the private concrete owner independently of its facade; implementations consuming
 `IRequestOwner&` do not cast it to that concrete type. Begin requires a barrier
 for registration after the first request, matching UE.
@@ -488,8 +496,15 @@ Managers drain DDC before Core scheduler shutdown.
 
 Inline cache dispatch permits callback reentry and does not use the asynchronous
 queue's concurrency gate. Nested inline builds complete before the enclosing
-callback returns. Asynchronous dispatch retains bounded concurrency and queue
-capacity; private operation wait handles cover only their own operations.
+callback returns. Asynchronous dispatch bounds backend IO concurrency and queued
+request capacity separately. An operation releases its IO slot before invoking its
+business callback, so another owner on the same cache can progress while that
+callback is active. Request buffers and retained-byte accounting remain live until
+the callback exits. Private operation wait handles cover only their own operations.
+Waiting on another request is not rejected solely because it shares the cache.
+Self-waits and draining a cache that includes the current callback remain rejected. Shader
+callback wait checks likewise target the current request and its nested callback
+ancestors; completed and independent requests do not inherit a thread-wide ban.
 
 Request owners cancel and join accepted builds through registered request completion
 and callback exit. Session release does not cancel requests. Stale
@@ -628,8 +643,14 @@ of Shader target/compiler/source identities. Locations use input-relative ordina
 requesting snapshots restore consumer GUIDs, paths and collection defaults. Typed
 validation rejects schema, identity, MIR/layout or requirements disagreement and
 rebuilds a bad hit once without cache query. Force, cancellation and persistence
-failure retain the common session policy. Material compile records retain their DDC
-owners until completion and close family sessions after compilation drain. Complete
+failure retain the common session policy. Material records retain a stable caller
+owner for their own completion and a separate build owner for producer work. The
+caller owner tracks the producer through the existing IRequest conversion. Joining
+transfers that dependency under a publication barrier without replacing the caller
+owner. Shared results end the dependency while publishing each caller's own completion
+task; caller Wait/Poll does not include peer callbacks. Cancellation of shared work
+and its priority propagation target the producer boundary. Managers drain production
+before releasing family services. Complete
 assembled material candidates remain in the shared bounded process cache only.
 
 Cache success never means an asset is current, applied, GPU-ready, or
