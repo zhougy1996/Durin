@@ -4,10 +4,11 @@
 #include "DObject/DObjectFwd.h"
 #include "DurinEdAPI.h"
 #include "Framework/TabManager.h"
+#include "DObject/WeakObjectPtr.h"
 
-namespace Durin { class DObject; class DPackage; }
+namespace Durin { class DObject; class DPackage; class DEditorEngine; }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Composes the class-neutral package, focus, active-document, and transaction
 	// behavior shared by editable asset workspaces. Concrete editors retain
@@ -15,7 +16,12 @@ namespace Durin::Editor
 	class FEditableAssetDocumentModel
 	{
 	public:
+		DURINED_API auto BindEditor(DEditorEngine* Editor) -> void;
+		DURINED_API auto GetEditor() const -> DEditorEngine*;
 		DURINED_API auto Activate(const FEditorDocument& Document, DObject* Object) -> bool;
+		// Inspection activates presentation without installing transaction state on the asset.
+		DURINED_API auto ActivateReadOnly(const FEditorDocument& Document, DObject* Object) -> bool;
+		DURINED_API auto RemapResourceId(std::string_view Source, std::string_view Destination) -> void;
 		DURINED_API auto Close(std::string_view ResourceId) -> void;
 		auto GetActiveResourceId() const -> std::string_view { return ActiveResourceId; }
 		auto GetTabManager() -> FTabManager& { return DocumentHost; }
@@ -43,6 +49,8 @@ namespace Durin::Editor
 	private:
 		FTabManager DocumentHost;
 		std::string ActiveResourceId;
+		TWeakObjectPtr<DEditorEngine> BoundEditor;
+		bool bEditorBound = false;
 	};
 
 	// Composes the root-window, focus, active-document, and immutable command
@@ -52,6 +60,7 @@ namespace Durin::Editor
 	public:
 		DURINED_API auto Activate(const FEditorDocument& Document, const DObject* Object) -> bool;
 		DURINED_API auto Close(std::string_view ResourceId) -> void;
+		DURINED_API auto RemapResourceId(std::string_view Source, std::string_view Destination) -> void;
 		auto GetActiveResourceId() const -> std::string_view { return ActiveResourceId; }
 		auto GetTabManager() -> FTabManager& { return DocumentHost; }
 

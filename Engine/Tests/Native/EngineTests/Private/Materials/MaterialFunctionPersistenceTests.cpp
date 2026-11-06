@@ -1,3 +1,5 @@
+#include "Editor/AssetEditorTestHost.h"
+#include "Toolkits/AssetEditorToolkit.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
 
@@ -23,21 +25,22 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	ASSERT_TRUE(FMaterialGraphDocument(*Second).InsertFunctionCall(*First, 0, 300, Durin::Editor::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(SavePackage(First->GetPackage()));
 	ASSERT_TRUE(SavePackage(Second->GetPackage()));
-	FEditorDocumentManager Manager;
-	DThumbnailManager Thumbnails;
 	FMaterialEditorModule Module;
 	FModuleTestHarness Harness("MaterialEditor");
 	Harness.Start(Module);
-	ASSERT_TRUE(Module.RegisterToolkits(Manager, Thumbnails));
+	Testing::FScopedAssetEditorTestHost TestHost;
+	ASSERT_NE(nullptr, TestHost.GetService());
 	const auto Class = DMaterialFunction::StaticClass()->GetQualifiedName().ToString();
 	const auto Resource = First->GetObjectPath();
-	ASSERT_TRUE(Manager.OpenAsset(Resource, Class));
-	ASSERT_TRUE(Manager.OpenAsset(Resource, Class));
-	ASSERT_EQ(Manager.GetDocuments().size(), 1u);
+	ASSERT_TRUE(TestHost.Open(Resource, Class));
+	ASSERT_TRUE(TestHost.Open(Resource, Class));
+	ASSERT_EQ(TestHost.GetService()->GetOwnedAssetEditors().size(), 1u);
+	auto* FirstSession = TestHost.GetService()->GetOwnedAssetEditors().front().Get();
+	auto& Manager = *FirstSession->GetDocumentManager();
 	const auto FirstTab = *Manager.GetActiveDocument();
-	ASSERT_TRUE(Manager.OpenAsset(Second->GetObjectPath(), Class));
-	ASSERT_EQ(Manager.GetDocuments().size(), 2u);
-	const auto Workspace = Manager.FindToolkit(FAssetEditorToolkitId("MaterialFunctionEditor"));
+	ASSERT_TRUE(TestHost.Open(Second->GetObjectPath(), Class));
+	ASSERT_EQ(TestHost.GetService()->GetOwnedAssetEditors().size(), 2u);
+	auto Workspace = FirstSession->GetToolkit();
 	ASSERT_TRUE(Workspace);
 	auto Signature = First->GetFunctionSignature();
 	Signature.Outputs[0].Name = "Saved Surface";
@@ -59,7 +62,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	if (!Discarded)
 	{
 		const auto Error = std::string(static_cast<MMaterialFunctionEditor*>(Workspace.get())->GetLastError());
-		Module.UnregisterToolkits(); Harness.Shutdown();
+		TestHost.Shutdown(); Workspace.reset(); Harness.Shutdown();
 		FAIL() << Error;
 	}
 	DMaterialFunction* Reloaded = nullptr;
@@ -76,6 +79,6 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_TRUE(Pasted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
 	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));
-	Module.UnregisterToolkits();
+	TestHost.Shutdown(); Workspace.reset();
 	Harness.Shutdown();
 }

@@ -13,13 +13,30 @@
 
 #include "Documents/EditorDocumentManager.h"
 
-namespace Durin::Editor
+namespace Durin
 {
-	auto FEditableAssetDocumentModel::Activate(
-		const FEditorDocument& Document, DObject* Object) -> bool
+	auto FEditableAssetDocumentModel::BindEditor(DEditorEngine* Editor) -> void { BoundEditor = Editor; bEditorBound = true; }
+	auto FEditableAssetDocumentModel::GetEditor() const -> DEditorEngine*
+	{ return bEditorBound ? BoundEditor.Get() : Editor::GetTransactionEditor(); }
+	auto FReadOnlyAssetDocumentModel::RemapResourceId(std::string_view Source, std::string_view Destination) -> void
+	{ if (ActiveResourceId == Source) ActiveResourceId = Destination; }
+	auto FEditableAssetDocumentModel::ActivateReadOnly(const FEditorDocument& Document, DObject* Object) -> bool
 	{
 		DocumentHost.RequestFocus(Document.Id);
 		if (!Object) return false;
+		ActiveResourceId = Document.ResourceId;
+		return true;
+	}
+
+	auto FEditableAssetDocumentModel::RemapResourceId(std::string_view Source, std::string_view Destination) -> void
+	{
+		if (ActiveResourceId == Source) ActiveResourceId = Destination;
+	}
+
+	auto FEditableAssetDocumentModel::Activate(
+		const FEditorDocument& Document, DObject* Object) -> bool
+	{
+		if (!ActivateReadOnly(Document, Object)) return false;
 		std::vector<DObject*> AuthoredObjects{Object};
 		for (size_t Index = 0; Index < AuthoredObjects.size(); ++Index)
 		{
@@ -27,11 +44,11 @@ namespace Durin::Editor
 			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(AuthoredObjects[Index], EObjectQueryScope::LiveOnly))
 				AuthoredObjects.push_back(Child);
 		}
-		if (GEditor)
+		if (GetEditor() && GetEditor()->GetTransactor())
 		{
 			if (DPackage* Package = Object->GetPackage())
 			{
-				DTransactor& Transactions = *GEditor->GetTransactor();
+				DTransactor& Transactions = *GetEditor()->GetTransactor();
 				if (!Transactions.GetPackageRevisionState(*Package))
 				{
 					if (Package->IsDirty()) Transactions.InvalidateSavedState(*Package);
@@ -39,7 +56,6 @@ namespace Durin::Editor
 				}
 			}
 		}
-		ActiveResourceId = Document.ResourceId;
 		return true;
 	}
 
@@ -66,7 +82,7 @@ namespace Durin::Editor
 		const FAssetWriteResult Result = SavePackage(Object->GetPackage());
 		if (Result)
 		{
-			if (GEditor) GEditor->GetTransactor()->MarkSaved(*Object->GetPackage());
+			if (GetEditor() && GetEditor()->GetTransactor()) GetEditor()->GetTransactor()->MarkSaved(*Object->GetPackage());
 			return true;
 		}
 		if (ReportError) ReportError(Result.Message);
@@ -86,10 +102,10 @@ namespace Durin::Editor
 		if (!FPackagePath::TryCreate(PreviousPackage->GetPackagePath(), PackagePath)) return false;
 		FPackageReloadRequest Request{.Packages = {PreviousPackage}};
 		if (DocumentManager) Request.Participants.push_back(DocumentManager->CreateDocumentReloadParticipant());
-		if (GEditor)
+		if (GetEditor() && GetEditor()->GetTransactor())
 		{
 			auto Participant = CreateTransactorReloadParticipant(
-				*GEditor->GetTransactor(), Request.Packages);
+				*GetEditor()->GetTransactor(), Request.Packages);
 			if (!Participant)
 			{
 				if (ReportError) ReportError("Discard requires an idle transaction history.");
@@ -127,34 +143,34 @@ namespace Durin::Editor
 
 	auto FEditableAssetDocumentModel::CanUndo() const -> bool
 	{
-		return GEditor && GEditor->GetTransactor()->CanUndo();
+		return GetEditor() && GetEditor()->GetTransactor() && GetEditor()->GetTransactor()->CanUndo();
 	}
 
 	auto FEditableAssetDocumentModel::CanRedo() const -> bool
 	{
-		return GEditor && GEditor->GetTransactor()->CanRedo();
+		return GetEditor() && GetEditor()->GetTransactor() && GetEditor()->GetTransactor()->CanRedo();
 	}
 
 	auto FEditableAssetDocumentModel::GetUndoDescription() const -> std::string
 	{
 		return CanUndo()
-			? GEditor->GetTransactor()->GetUndoContext().Description : std::string{};
+			? GetEditor()->GetTransactor()->GetUndoContext().Description : std::string{};
 	}
 
 	auto FEditableAssetDocumentModel::GetRedoDescription() const -> std::string
 	{
 		return CanRedo()
-			? GEditor->GetTransactor()->GetRedoContext().Description : std::string{};
+			? GetEditor()->GetTransactor()->GetRedoContext().Description : std::string{};
 	}
 
 	auto FEditableAssetDocumentModel::Undo() -> bool
 	{
-		return CanUndo() && GEditor->GetTransactor()->Undo();
+		return CanUndo() && GetEditor()->GetTransactor()->Undo();
 	}
 
 	auto FEditableAssetDocumentModel::Redo() -> bool
 	{
-		return CanRedo() && GEditor->GetTransactor()->Redo();
+		return CanRedo() && GetEditor()->GetTransactor()->Redo();
 	}
 
 	auto FReadOnlyAssetDocumentModel::Activate(

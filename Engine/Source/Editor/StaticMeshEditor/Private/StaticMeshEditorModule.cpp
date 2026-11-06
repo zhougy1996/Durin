@@ -2,12 +2,9 @@
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
-#include "Documents/EditorDocumentManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
-#include "Widgets/MStaticMeshInspector.h"
-#include "Workspace/StaticMeshEditorWorkspace.h"
 #include "Import/StaticMeshImportDialog.h"
 
 namespace Durin
@@ -17,9 +14,9 @@ namespace Durin
 
 	struct FStaticMeshEditorModule::FIntegrationState
 	{
-		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
 		std::unique_ptr<Editor::StaticMesh::FStaticMeshImportDialog> ImportDialog;
+		std::optional<std::weak_ptr<void>> OwnerLifetime;
 	};
 
 	FStaticMeshEditorModule::FStaticMeshEditorModule()
@@ -30,60 +27,25 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::StartupModule() -> void
 	{
+		require(RegisterContributions(Editor::GetDefaultThumbnailManager()));
 	}
 
 	auto FStaticMeshEditorModule::ShutdownModule() -> void
 	{
-		UnregisterToolkits();
+		UnregisterContributions();
 	}
 
-	auto FStaticMeshEditorModule::RegisterToolkits(
-		Editor::FEditorDocumentManager& DocumentManager,
-		Editor::DThumbnailManager& ThumbnailManager,
-		Editor::FImportDialogCallbacks ImportCallbacks) -> bool
+	auto FStaticMeshEditorModule::RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool
 	{
-		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
-			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
-		WorkspaceRegistration.reset();
+		if ((ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
 		ThumbnailRegistration.reset();
-		Integration->ImportDialog = std::make_unique<Editor::StaticMesh::FStaticMeshImportDialog>(
-			std::move(ImportCallbacks));
-		std::shared_ptr<MStaticMeshInspector> Workspace = std::make_shared<MStaticMeshInspector>(DocumentManager);
-		Editor::FAssetEditorToolkitRegistrationHandle Registration = DocumentManager.RegisterBatch({
-			.Toolkits = {
-				{
-					.Descriptor = {
-						.ToolkitId = Workspace::Type,
-						.DisplayName = "StaticMesh Inspector",
-						.RootKey = std::string(Workspace::RootKey),
-						.bShowInWindowMenu = false,
-						.bOpenByDefault = false,
-						.DefaultHostDockPreference = Editor::EToolkitHostDockPreference::Center,
-					},
-					.Toolkit = Workspace,
-				},
-			},
-			.AssetEditors = {
-				{
-					.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(),
-					.ToolkitId = Workspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
-					.bClosable = true,
-				},
-			},
-		});
-		if (!Registration)
-		{
-			UnregisterToolkits();
-			return false;
-		}
-		WorkspaceRegistration = std::make_unique<Editor::FAssetEditorToolkitRegistrationHandle>(std::move(Registration));
+
 
 		auto ThumbnailHandle = ThumbnailManager.RegisterScoped(
 				std::make_unique<DStaticMeshThumbnailRenderer>());
 		if (!ThumbnailHandle)
 		{
-			UnregisterToolkits();
+			UnregisterContributions();
 			return false;
 		}
 		ThumbnailRegistration =
@@ -100,48 +62,43 @@ namespace Durin
 				return !Context.VirtualDirectory.empty();
 			},
 			.Invoke = [this](const auto& Invocation) {
+				Integration->OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+				Integration->ImportDialog = std::make_unique<FStaticMeshImportDialog>(
+					Editor::ContentBrowser::MakeImportDialogCallbacks(Invocation, {}));
 				if (Integration->ImportDialog)
 					Integration->ImportDialog->Open(
 						Invocation.Context.VirtualDirectory);
 			},
-			.DrawHostPresentation = [this](bool bAllowAssetMutation) {
+			.DrawHostPresentation = [this](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowAssetMutation) {
+				if (Integration->OwnerLifetime && (Integration->OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*Integration->OwnerLifetime))) return;
+				if (Integration->OwnerLifetime && Integration->OwnerLifetime->expired())
+				{ Integration->ImportDialog.reset(); Integration->OwnerLifetime.reset(); return; }
 				if (Integration->ImportDialog)
 					Integration->ImportDialog->Draw(bAllowAssetMutation);
+			},
+			.StopHostPresentation = [this](const std::weak_ptr<void>& Lifetime) {
+				if (!Integration->OwnerLifetime || Integration->OwnerLifetime->owner_before(Lifetime) || Lifetime.owner_before(*Integration->OwnerLifetime)) return;
+				Integration->ImportDialog.reset();
+				Integration->OwnerLifetime.reset();
 			},
 			}, Error);
 		if (!ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser Static Mesh import: {}", Error);
-			UnregisterToolkits();
+			UnregisterContributions();
 			return false;
 		}
 		Integration->ImportExtension = std::move(ImportExtension);
 		std::string PresentationError;
-		{
-			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
-				.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(),
-				.DisplayName = "StaticMesh",
-				.Category = Editor::ContentBrowser::EAssetCategory::StaticMesh,
-				.Icon = Icons::Cube,
-			}, PresentationError);
-			if (!Handle.IsValid())
-			{
-				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterToolkits();
-				return false;
-			}
-			Integration->TypePresentations.push_back(std::move(Handle));
-		}
+
 		return true;
 	}
 
-	auto FStaticMeshEditorModule::UnregisterToolkits() -> void
+	auto FStaticMeshEditorModule::UnregisterContributions() -> void
 	{
-		Integration->TypePresentations.clear();
 		Integration->ImportExtension.Reset();
 		Integration->ImportDialog.reset();
 		ThumbnailRegistration.reset();
-		WorkspaceRegistration.reset();
 	}
 
 }

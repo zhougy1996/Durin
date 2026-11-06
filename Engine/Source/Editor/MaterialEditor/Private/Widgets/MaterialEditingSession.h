@@ -14,6 +14,7 @@ namespace Durin::Editor::Material
 	// and refuses to overwrite an externally changed source package.
 	class FMaterialEditingSession
 	{
+		friend class FMaterialEditorReloadParticipant;
 	public:
 		~FMaterialEditingSession();
 		auto Initialize(DMaterial& Source, EMaterialEditCompileMode Mode,

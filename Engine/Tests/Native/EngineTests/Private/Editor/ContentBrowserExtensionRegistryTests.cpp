@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "Editor/BrowserDefinitionTestSupport.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Panels/ContentBrowserExtensionPresentation.h"
@@ -11,10 +12,155 @@
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
+#include "AssetDefinition/AssetDefinition.h"
+#include "AssetDefinition/AssetDefinitionRegistry.h"
+#include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
+
+namespace Durin
+{
+	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FBrowserTestDefinition)
+}
 
 
 namespace Durin::Editor::ContentBrowser
 {
+	TEST(FContentBrowserExtensionRegistryTests, StopOnlyContributionsWithdrawAndCreationCannotOutliveItsHost)
+	{
+		auto Owner = std::make_shared<uint8>(0);
+		auto Other = std::make_shared<uint8>(0);
+		const std::weak_ptr<void> Lifetime = Owner;
+		int Stops = 0, Creations = 0;
+		std::string Error;
+		auto Registration = RegisterExtension({.Id = "test.stop-only", .Label = "Stop-only tool",
+			.Mutation = EContentMutation::ReadOnly, .IsApplicable = [](const auto&) { return true; }, .Invoke = [](const auto&) {},
+			.StopHostPresentation = [&](const auto& Stopped) { if (!Lifetime.owner_before(Stopped) && !Stopped.owner_before(Lifetime)) ++Stops; }}, Error);
+		ASSERT_TRUE(Registration.IsValid()) << Error;
+		StopHostPresentations(Other);
+		EXPECT_EQ(0, Stops);
+		StopHostPresentations(Lifetime);
+		EXPECT_EQ(1, Stops);
+		Registration.Reset();
+		StopHostPresentations(Lifetime);
+		EXPECT_EQ(1, Stops);
+		Private::FAssetCreationDialog Dialog({.Id = "test.host-creation", .Label = "Host asset", .DefaultName = "Asset",
+			.Create = [&](const auto&, auto&) { ++Creations; return true; }});
+		Dialog.Open({.HostLifetime = Lifetime, .bHasHostLifetime = true});
+		Dialog.StopForHost(Other);
+		EXPECT_TRUE(Dialog.IsPending());
+		Owner.reset();
+		EXPECT_FALSE(Dialog.Confirm(true));
+		EXPECT_FALSE(Dialog.IsPending());
+		EXPECT_EQ(0, Creations);
+	}
+
+	TEST(FContentBrowserExtensionRegistryTests, ImportCallbacksAndQueuedActionsStopWithTheirRequestingHost)
+	{
+		auto Lifetime = std::make_shared<uint8>(0);
+		int Calls = 0;
+		FExtensionInvocation Invocation{
+			.RevealAsset = [&](std::string_view) { ++Calls; return true; },
+			.NotifyMountedContentChanged = [&] { ++Calls; },
+			.ReportError = [&](std::string) { ++Calls; },
+			.HostLifetime = Lifetime, .bHasHostLifetime = true};
+		const auto Callbacks = MakeImportDialogCallbacks(Invocation, {});
+		Callbacks.NotifyAssetCreated("/Project/Asset.Asset");
+		EXPECT_EQ(2, Calls);
+		std::string Error;
+		auto Registration = RegisterExtension({.Id = "test.host-lifetime", .Label = "Host command",
+			.Mutation = EContentMutation::ReadOnly, .IsApplicable = [](const auto&) { return true; },
+			.Invoke = [&](const auto&) { ++Calls; }}, Error);
+		ASSERT_TRUE(Registration.IsValid()) << Error;
+		const auto Entries = CaptureExtensions(EExtensionCategory::ContextMenu);
+		const auto Entry = std::ranges::find(Entries, "test.host-lifetime", &FExtensionDescriptor::Id);
+		ASSERT_NE(Entry, Entries.end());
+		EXPECT_TRUE(InvokeExtension(*Entry, Invocation));
+		Lifetime.reset();
+		Callbacks.NotifyAssetCreated("/Project/Asset.Asset");
+		Callbacks.Report("Retired host");
+		EXPECT_FALSE(InvokeExtension(*Entry, Invocation));
+		EXPECT_EQ(3, Calls);
+	}
+
+	TEST(FContentBrowserExtensionRegistryTests, BuiltInFilterShortcutsUseDefinitionCategoryPaths)
+	{
+		InitializeDObjectSystem();
+		using namespace Private;
+		const std::vector<std::pair<EContentBrowserTypeFilter, std::string>> Cases{
+			{EContentBrowserTypeFilter::Levels, "Level"}, {EContentBrowserTypeFilter::StaticMeshes, "Meshes"},
+			{EContentBrowserTypeFilter::Materials, "Material"}, {EContentBrowserTypeFilter::Textures, "Texture"}};
+		for (const auto& [Filter, Category] : Cases)
+		{
+			auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
+			Definition->Categories = {{Category}};
+			auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+			ASSERT_TRUE(Registration);
+			FContentBrowserModel Model;
+			Model.SetSnapshotForTesting("/content", {{.Kind = EContentBrowserItemKind::Asset,
+				.Name = "Typed", .PhysicalPath = "/content/Typed.dasset", .AssetClassName = Definition->ClassPath}});
+			Model.SetTypeFilter(Filter); EXPECT_EQ(1u, Model.GetItems().size()) << Category;
+			Model.SetCategoryPath({Category}); EXPECT_EQ(1u, Model.GetItems().size()) << Category;
+			Registration.Reset();
+			Model.SetTypeFilter(Filter); EXPECT_TRUE(Model.GetItems().empty()) << Category;
+		}
+	}
+
+	TEST(FContentBrowserExtensionRegistryTests, DefinitionsAndExtrasWithdrawIndependently)
+	{
+		InitializeDObjectSystem();
+		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		std::string Error;
+		auto Extras = RegisterAssetTypeExtras({.AssetClassName = Definition->ClassPath, .ThumbnailBadgeIcon = "badge"}, Error);
+		ASSERT_TRUE(Extras.IsValid());
+		const auto Both = FindAssetTypePresentation(Definition->ClassPath);
+		ASSERT_TRUE(Both); EXPECT_EQ("Project fixture", Both->DisplayName); EXPECT_EQ("badge", Both->ThumbnailBadgeIcon);
+		Extras.Reset();
+		const auto Metadata = FindAssetTypePresentation(Definition->ClassPath);
+		ASSERT_TRUE(Metadata); EXPECT_EQ("Project fixture", Metadata->DisplayName); EXPECT_TRUE(Metadata->ThumbnailBadgeIcon.empty());
+		Extras = RegisterAssetTypeExtras({.AssetClassName = Definition->ClassPath, .ThumbnailBadgeIcon = "badge"}, Error);
+		Registration.Reset();
+		const auto ExtrasOnly = FindAssetTypePresentation(Definition->ClassPath);
+		ASSERT_TRUE(ExtrasOnly); EXPECT_TRUE(ExtrasOnly->DisplayName.empty()); EXPECT_TRUE(ExtrasOnly->CategoryPaths.empty());
+		EXPECT_EQ("badge", ExtrasOnly->ThumbnailBadgeIcon);
+		Extras.Reset(); EXPECT_FALSE(FindAssetTypePresentation(Definition->ClassPath));
+	}
+
+	TEST(FContentBrowserExtensionRegistryTests, DefinitionsDriveMetadataAndNestedFiltersWithoutLoadingAssets)
+	{
+		InitializeDObjectSystem();
+		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		using namespace Private;
+		FContentBrowserModel Model;
+		Model.SetSnapshotForTesting("/content", {
+			{.Kind = EContentBrowserItemKind::Asset, .Name = "Project", .PhysicalPath = "/content/Project.dasset", .AssetClassName = "Project::DCategoryFixture"},
+			{.Kind = EContentBrowserItemKind::Asset, .Name = "Other", .PhysicalPath = "/content/Other.dasset", .AssetClassName = "Project::Other"}});
+		const auto ObjectRevision = GDObjectArray.GetRevision();
+		const auto Type = FindAssetTypePresentation("Project::DCategoryFixture");
+		ASSERT_TRUE(Type);
+		EXPECT_EQ("Project fixture", Type->DisplayName);
+		EXPECT_EQ("project-icon", Type->Icon);
+		EXPECT_FLOAT_EQ(0.2f, Type->Color[1]);
+		const auto Paths = CaptureAssetCategoryPaths();
+		EXPECT_NE(Paths.end(), std::ranges::find(Paths, std::vector<std::string>{"Project", "Simulation"}));
+		Model.SetCategoryPath({"Project", "Simulation"});
+		ASSERT_EQ(1u, Model.GetItems().size());
+		EXPECT_EQ("Project", Model.GetItems().front().Name);
+		Model.SetCategoryPath({"Project", "Missing"});
+		EXPECT_TRUE(Model.GetItems().empty());
+		const auto Revision = GetPresentationRevision();
+		EXPECT_EQ(ObjectRevision, GDObjectArray.GetRevision());
+		Registration.Reset();
+		EXPECT_GT(GetPresentationRevision(), Revision);
+		Model.SetCategoryPath({"Tools"});
+		EXPECT_TRUE(Model.GetItems().empty());
+		// The selected package paths do not exist: metadata and filtering never execute a load.
+		EXPECT_FALSE(std::filesystem::exists("/content/Project.dasset"));
+	}
+
 	TEST(FContentBrowserExtensionRegistryTests, ReusesHostSnapshotAndRejectsRetiredRegistrations)
 	{
 		int Presentations = 0;
@@ -26,8 +172,8 @@ namespace Durin::Editor::ContentBrowser
 				.IsApplicable = [](const auto&) { return true; },
 				.Invoke = [](const auto&) {},
 				.DrawHostPresentation = bPresenter
-					? std::function<void(bool)>{[&](bool) { ++Presentations; }}
-					: std::function<void(bool)>{}}, Error);
+					? std::function<void(const FExtensionHost&, bool)>{[&](const FExtensionHost&, bool) { ++Presentations; }}
+					: std::function<void(const FExtensionHost&, bool)>{}}, Error);
 		};
 		auto Later = Register("test.cached.later", 20);
 		auto Earlier = Register("test.cached.earlier", 10);
@@ -349,13 +495,13 @@ namespace Durin::Editor::ContentBrowser
 				.IsApplicable = [](const auto&) { return true; },
 				.Invoke = [&Invocations](const auto&) { ++Invocations; },
 				.DrawHostPresentation = Category == EExtensionCategory::Import
-					? std::function<void(bool)>{[
+					? std::function<void(const FExtensionHost&, bool)>{[
 						&Presentations,
-						&bLastPresentationAllowedMutation](bool bAllowAssetMutation) {
+						&bLastPresentationAllowedMutation](const FExtensionHost&, bool bAllowAssetMutation) {
 						++Presentations;
 						bLastPresentationAllowedMutation = bAllowAssetMutation;
 					}}
-					: std::function<void(bool)>{},
+					: std::function<void(const FExtensionHost&, bool)>{},
 				}, Error);
 			ASSERT_TRUE(Registration.IsValid()) << Error;
 
@@ -388,9 +534,13 @@ namespace Durin::Editor::ContentBrowser
 		using namespace Private;
 		std::string Error;
 		int Invocations = 0;
-		auto Type = RegisterAssetTypePresentation({
-			.AssetClassName = "Plugin::DNovelAsset", .DisplayName = "Novel Asset",
-			.Category = EAssetCategory::Texture, .Icon = "custom icon",
+		InitializeDObjectSystem();
+		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
+		Definition->ClassPath = "Plugin::DNovelAsset"; Definition->DisplayName = "Novel Asset";
+		Definition->Icon = "custom icon"; Definition->Categories = {{"Texture"}};
+		auto DefinitionRegistration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		ASSERT_TRUE(DefinitionRegistration);
+		auto Type = RegisterAssetTypeExtras({.AssetClassName = Definition->ClassPath,
 			.Details = [](const FExtensionContext& Context) {
 				return std::vector<FDetailRow>{{"Type detail", Context.Selection.front().PhysicalPath}};
 			}}, Error);
@@ -436,6 +586,7 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_EQ(Invocations, 1);
 		Details.Reset();
 		Type.Reset();
+		DefinitionRegistration.Reset();
 		Command.Reset();
 		EXPECT_TRUE(CaptureSelectionDetails(Context).empty());
 		PresentExtensionMenu(EExtensionCategory::ContextMenu, Context, true,
@@ -526,17 +677,18 @@ namespace Durin::Editor::ContentBrowser
 	{
 		using namespace Private;
 		std::string Error;
-		auto Type = RegisterAssetTypePresentation({
-			.AssetClassName = "Durin::DVolumeTexture", .DisplayName = "Localized Material label",
-			.Category = EAssetCategory::Texture, .Icon = "texture"}, Error);
-		ASSERT_TRUE(Type.IsValid());
-		auto Duplicate = RegisterAssetTypePresentation({
-			.AssetClassName = "Durin::DVolumeTexture", .DisplayName = "Duplicate", .Icon = "other"}, Error);
-		EXPECT_FALSE(Duplicate.IsValid());
+		InitializeDObjectSystem();
+		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
+		Definition->ClassPath = "FilterTest::DVolumeTexture"; Definition->DisplayName = "Localized Material label";
+		Definition->Icon = "texture"; Definition->Categories = {{"Texture"}};
+		auto Type = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		ASSERT_TRUE(Type);
+		auto Duplicate = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition, &Error);
+		EXPECT_FALSE(Duplicate);
 		FContentBrowserModel Model;
 		Model.SetSnapshotForTesting("/content", {
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Volume", .VirtualPath = "/Project/Volume",
-				.PhysicalPath = "/content/Volume.dasset", .AssetClassName = "Durin::DVolumeTexture"},
+				.PhysicalPath = "/content/Volume.dasset", .AssetClassName = "FilterTest::DVolumeTexture"},
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Unrelated", .VirtualPath = "/Project/Other",
 				.PhysicalPath = "/content/Other.dasset", .AssetClassName = "Plugin::DVolumeTexture"},
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "MaterialNamed", .VirtualPath = "/Project/Named",

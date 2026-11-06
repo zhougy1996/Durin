@@ -68,7 +68,7 @@ namespace Durin::Editor::Material
 	{
 		const auto Previous = Capture(*SessionSettings);
 		Apply(*SessionSettings, FMaterialPreferences{});
-		if (!SessionSettings->Save()) { Apply(*SessionSettings, Previous); return false; }
+		if (!SessionSettings->Save(true)) { Apply(*SessionSettings, Previous); return false; }
 		SetAutoCompile(true);
 		return true;
 	}

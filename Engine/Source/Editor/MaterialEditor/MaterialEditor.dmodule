@@ -14,5 +14,8 @@
     ],
     "PublicDependencies": [
         "DurinEd"
+    ],
+    "ReflectHeaders": [
+        "Private/MaterialAssetDefinitions.h"
     ]
 }

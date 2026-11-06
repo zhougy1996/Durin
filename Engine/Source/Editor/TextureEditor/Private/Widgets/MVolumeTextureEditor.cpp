@@ -1,4 +1,6 @@
 #include "Widgets/MVolumeTextureEditor.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "Editor/EditorEngine.h"
 
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
@@ -66,6 +68,7 @@ namespace Durin::Editor::Texture
 	MVolumeTextureEditor::MVolumeTextureEditor(
 		FEditorDocumentManager& InManager) : Manager(InManager)
 	{
+		if (auto* Service = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor());
 
 	}
 
@@ -100,7 +103,8 @@ namespace Durin::Editor::Texture
 
 	auto MVolumeTextureEditor::ActivateDocument(const FEditorDocument& Document) -> void
 	{
-		Documents.Activate(Document, Find(Document.ResourceId));
+		if (IsReadOnly()) Documents.ActivateReadOnly(Document, Find(Document.ResourceId));
+		else Documents.Activate(Document, Find(Document.ResourceId));
 	}
 
 	auto MVolumeTextureEditor::RequestCloseDocument(const FEditorDocument& Document)
@@ -114,12 +118,12 @@ namespace Durin::Editor::Texture
 		return EDocumentCloseResult::Closed;
 	}
 
-	auto MVolumeTextureEditor::SaveDocument(const FEditorDocument& Document) -> bool
+	auto MVolumeTextureEditor::OnSaveDocument(const FEditorDocument& Document) -> bool
 	{
 		return Save(Find(Document.ResourceId));
 	}
 
-	auto MVolumeTextureEditor::DiscardDocument(const FEditorDocument& Document) -> bool
+	auto MVolumeTextureEditor::OnDiscardDocument(const FEditorDocument& Document) -> bool
 	{
 		return Documents.Discard(Find(Document.ResourceId), {},
 			[this](DPackage* Previous, DPackage* Replacement) {
@@ -142,22 +146,22 @@ namespace Durin::Editor::Texture
 			}
 	}
 
-	auto MVolumeTextureEditor::IsDocumentDirty(const FEditorDocument& Document) const -> bool
+	auto MVolumeTextureEditor::OnIsDocumentDirty(const FEditorDocument& Document) const -> bool
 	{
 		return Documents.IsDirty(Find(Document.ResourceId));
 	}
 
-	auto MVolumeTextureEditor::CanSaveActiveDocument() const -> bool
+	auto MVolumeTextureEditor::OnCanSaveActiveDocument() const -> bool
 	{
 		return Documents.CanSave(Active());
 	}
 
-	auto MVolumeTextureEditor::SaveActiveDocument() -> bool { return Save(Active()); }
+	auto MVolumeTextureEditor::OnSaveActiveDocument() -> bool { return Save(Active()); }
 
-	auto MVolumeTextureEditor::DrawToolkit(bool) -> bool
+	auto MVolumeTextureEditor::OnDrawToolkit(bool) -> bool
 	{
 		return Documents.GetTabManager().DrawDocuments(Manager,
-			VolumeWorkspace::Type, VolumeWorkspace::RootKey,
+			VolumeWorkspace::Type, GetPresentationRootKey(VolumeWorkspace::RootKey),
 			[this](const auto& Document) { return Find(Document.ResourceId) != nullptr; },
 			[this](const auto& Document) { DrawDocument(Document, Find(Document.ResourceId)); });
 	}
@@ -188,6 +192,7 @@ namespace Durin::Editor::Texture
 
 	auto MVolumeTextureEditor::Save(DVolumeTexture* Texture) -> bool
 	{
+		if (IsReadOnly() || !IsSessionActive()) return false;
 		return Documents.Save(Texture, {}, [this](std::string Error) {
 			SetError(std::move(Error));
 		});
@@ -197,12 +202,14 @@ namespace Durin::Editor::Texture
 		DVolumeTexture* Texture) -> void
 	{
 		if (!Texture) return;
+		ImGui::BeginDisabled(IsReadOnly());
 		if (ImGui::Button("Save")) Save(Texture);
 		ImGui::SameLine();
 		if (ImGui::Button("Refresh"))
 		{
 			Texture->PostLoad();
 		}
+		ImGui::EndDisabled();
 		ImGui::SameLine();
 		ImGui::TextDisabled("%s", Document.ResourceId.c_str());
 		ImGui::Separator();
@@ -364,4 +371,11 @@ namespace Durin::Editor::Texture
 		ImGui::Spacing();
 		ImGui::TextWrapped("Reimport and source repair remain available from the Content Browser asset actions.");
 	}
+	auto MVolumeTextureEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
+	{
+		if (auto Node = OpenTextures.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; OpenTextures.insert(std::move(Node)); }
+		if (auto Node = PreviewStates.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; PreviewStates.insert(std::move(Node)); }
+		Documents.RemapResourceId(Source, Destination);
+	}
+
 }

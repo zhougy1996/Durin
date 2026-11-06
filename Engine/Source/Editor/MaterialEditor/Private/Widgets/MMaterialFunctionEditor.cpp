@@ -20,6 +20,8 @@
 #include "Transactions/Transaction.h"
 #include "Documents/EditorDocumentManager.h"
 #include "Misc/MountPaths.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "Toolkits/AssetEditor.h"
 
 namespace Durin::Editor::Material
 {
@@ -51,10 +53,9 @@ namespace Durin::Editor::Material
 	};
 
 	MMaterialFunctionEditor::MMaterialFunctionEditor(FEditorDocumentManager& InManager)
-		: SessionSettings(std::make_unique<FMaterialEditorSessionSettings>("MaterialFunctionEditorSession.yaml")), Manager(InManager)
+		: SessionSettings(std::make_unique<FMaterialEditorSessionSettings>("MaterialFunctionPreferences.yaml")), Manager(InManager)
 	{
-		SessionSettings->Load();
-		MoveObserver = RegisterAssetMoveObserver(this);
+		if (auto* Service = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor());
 	}
 	MMaterialFunctionEditor::~MMaterialFunctionEditor()
 	{
@@ -64,7 +65,6 @@ namespace Durin::Editor::Material
 			SessionSettings->SetViewport(Resource, {.Zoom = Zoom, .Pan = Pan});
 		}
 		SessionSettings->Save();
-		UnregisterAssetMoveObserver(MoveObserver);
 	}
 	auto MMaterialFunctionEditor::Find(std::string_view Resource) const -> FDocument*
 	{
@@ -85,7 +85,7 @@ namespace Durin::Editor::Material
 		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function),
 			FMaterialGraphEditorServices{
 				.ReportError = [this](std::string Message) { Error = std::move(Message); },
-				.OpenFunction = [this](std::string_view Path) { Manager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
+				.OpenFunction = [this](std::string_view Path) { OpenRelatedAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 		if (const auto* State = SessionSettings->FindViewport(Tab.ResourceId))
 			Document->Canvas->SetViewport(State->Zoom, State->Pan);
 		Document->PreviewInvalidation.SetFunction(Function);
@@ -131,29 +131,29 @@ namespace Durin::Editor::Material
 		Open.erase(Tab.ResourceId); Documents.Close(Tab.ResourceId);
 		return EDocumentCloseResult::Closed;
 	}
-	auto MMaterialFunctionEditor::SaveDocument(const FEditorDocument& Tab) -> bool
+	auto MMaterialFunctionEditor::OnSaveDocument(const FEditorDocument& Tab) -> bool
 	{
 		auto* Document = Find(Tab.ResourceId);
 		return Document && Documents.Save(Document->Function(), {}, [this](std::string Message) { Error = std::move(Message); });
 	}
-	auto MMaterialFunctionEditor::DiscardDocument(const FEditorDocument& Tab) -> bool
+	auto MMaterialFunctionEditor::OnDiscardDocument(const FEditorDocument& Tab) -> bool
 	{
 		auto* Document = Find(Tab.ResourceId);
 		return Document && Documents.Discard(Document->Function(), [this] { RequestDeactivate(); },
 			[this](DPackage* Old, DPackage* New) { Manager.NotifyPackageReloaded(Old, New); },
 			[this](std::string Message) { Error = std::move(Message); }, &Manager);
 	}
-	auto MMaterialFunctionEditor::IsDocumentDirty(const FEditorDocument& Tab) const -> bool
+	auto MMaterialFunctionEditor::OnIsDocumentDirty(const FEditorDocument& Tab) const -> bool
 	{
 		const auto* Document = Find(Tab.ResourceId);
 		return Document && Documents.IsDirty(Document->Function());
 	}
-	auto MMaterialFunctionEditor::CanSaveActiveDocument() const -> bool
+	auto MMaterialFunctionEditor::OnCanSaveActiveDocument() const -> bool
 	{
 		const auto* Document = Find(Documents.GetActiveResourceId());
 		return Document && Documents.CanSave(Document->Function());
 	}
-	auto MMaterialFunctionEditor::SaveActiveDocument() -> bool
+	auto MMaterialFunctionEditor::OnSaveActiveDocument() -> bool
 	{
 		auto* Document = Find(Documents.GetActiveResourceId());
 		return Document && Documents.Save(Document->Function(), {}, [this](std::string Message) { Error = std::move(Message); });
@@ -171,22 +171,13 @@ namespace Durin::Editor::Material
 					Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Document->Function()),
 						FMaterialGraphEditorServices{
 							.ReportError = [this](std::string Message) { Error = std::move(Message); },
-							.OpenFunction = [this](std::string_view Path) { Manager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
+							.OpenFunction = [this](std::string_view Path) { OpenRelatedAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 					Document->Canvas->SetViewport(Zoom, Pan);
 				}
 				Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->SelectedPortNode = {};
 			}
 	}
-	auto MMaterialFunctionEditor::OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void
-	{
-		for (const auto& Mapping : Mappings)
-			if (auto Node = Open.extract(Mapping.SourcePath.ToString()); !Node.empty())
-			{
-				SessionSettings->MoveViewport(Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
-				Node.key() = Mapping.DestinationPath.ToString(); Open.insert(std::move(Node));
-				Manager.RemapResourceId(Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
-			}
-	}
+
 	auto MMaterialFunctionEditor::ResetLayout() -> void
 	{
 		SessionSettings->bPreviewVisible = true;
@@ -196,13 +187,19 @@ namespace Durin::Editor::Material
 	}
 	auto MMaterialFunctionEditor::NavigateToNode(std::string_view Resource, const FGuid& NodeId) -> bool
 	{
-		if (!Manager.OpenAsset(std::string(Resource), DMaterialFunction::StaticClass()->GetQualifiedName().ToString())) return false;
-		auto* Document = Find(Resource);
+		FDocument* Document = nullptr;
+		if (auto* Owner = GetOwningAssetEditor())
+		{
+			if (!OpenRelatedAsset(Resource, DMaterialFunction::StaticClass()->GetQualifiedName().ToString())) return false;
+			for (const auto& Session : Owner->GetAssetEditorSubsystem()->GetOwnedAssetEditors())
+				if (auto Toolkit = std::dynamic_pointer_cast<MMaterialFunctionEditor>(Session->GetToolkit()))
+					if ((Document = Toolkit->Find(Resource))) break;
+		}
 		if (!Document || !Document->Function()) return false;
 		const auto& Nodes = Document->Function()->GetExpressionCollection().Expressions;
 		return std::ranges::any_of(Nodes, [&](const auto& Node) { return Node->Id == NodeId; }) && Document->Canvas->SelectAndFrame(NodeId);
 	}
-	auto MMaterialFunctionEditor::DrawToolkit(bool bActive) -> bool
+	auto MMaterialFunctionEditor::OnDrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive) RequestDeactivate();
 		std::vector<FDocumentId> Deleted;
@@ -210,7 +207,7 @@ namespace Durin::Editor::Material
 			if (Tab.ToolkitId == MaterialFunctionWorkspaceType)
 				if (auto* Document = Find(Tab.ResourceId); Document && !Document->Function()) Deleted.push_back(Tab.Id);
 		for (const auto Id : Deleted) Manager.RequestCloseDocument(Id);
-		return Documents.GetTabManager().DrawDocuments(Manager, MaterialFunctionWorkspaceType, "MaterialFunctionEditor",
+		return Documents.GetTabManager().DrawDocuments(Manager, MaterialFunctionWorkspaceType, GetPresentationRootKey("MaterialFunctionEditor"),
 			[this](const FEditorDocument& Tab) { const auto* Document = Find(Tab.ResourceId); return Document && Document->Function(); },
 			[this](const FEditorDocument& Tab) { DrawDocument(Tab, *Find(Tab.ResourceId)); },
 			[this](const FEditorDocument& Tab, bool Visible) {
@@ -276,9 +273,9 @@ namespace Durin::Editor::Material
 		if (Selected == Expressions.end()) return;
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Selected->Get()); Call && Call->Function.IsValid())
 		{
-			if (ImGui::Button("Open Function")) Manager.OpenAsset(Call->Function->GetObjectPath(),
+			if (ImGui::Button("Open Function")) OpenRelatedAsset(Call->Function->GetObjectPath(),
 				Call->Function->GetClass()->GetQualifiedName().ToString());
-			DrawMaterialFunctionCallInputs(Function, *Id, *GEditor->GetTransactor(), Error);
+			DrawMaterialFunctionCallInputs(Function, *Id, *Documents.GetEditor()->GetTransactor(), Error);
 		}
 		const auto* Input = Cast<DMaterialExpressionFunctionInput>(Selected->Get());
 		const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Selected->Get());
@@ -367,7 +364,7 @@ namespace Durin::Editor::Material
 	auto MMaterialFunctionEditor::DrawDocument(const FEditorDocument& Tab, FDocument& Document) -> void
 	{
 		auto& Function = *Document.Function();
-		if (!GEditor) { ImGui::TextDisabled("Editor transactions are unavailable."); return; }
+		if (!Documents.GetEditor()) { ImGui::TextDisabled("Editor transactions are unavailable."); return; }
 		if (ImGui::Button("Save")) SaveDocument(Tab);
 		ImGui::SameLine();
 		if (ImGui::Button("Compile Preview")) Document.PreviewInvalidation.RequestRefresh();
@@ -401,6 +398,8 @@ namespace Durin::Editor::Material
 		else if (Document.Material()->GetMaterialCompileStatus().State == EMaterialCompileState::NeedsCompile)
 			Document.Material()->CompileEdits();
 		const auto DockType = Workspace::MakeDocumentDockType(Tab);
+		static constexpr std::string_view PanelIds[]{"Graph", "Preview", "Details", "Inputs"};
+		RestoreDockLayout("Document", DockType, Workspace::FunctionLayoutVersion, PanelIds);
 		const auto Size = ImGui::GetContentRegionAvail();
 		if (Size.x <= 0.0f || Size.y <= 0.0f) return;
 		if (Document.bResetLayout || !ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
@@ -410,7 +409,7 @@ namespace Durin::Editor::Material
 		}
 		TabLayout::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion, Size);
 		const auto BeginPanel = [&](const char* Label, const char* Key, bool* Open = nullptr) {
-			const bool Visible = TabLayout::BeginDockablePanel(DockType, Label, Key, Open, ImGuiWindowFlags_NoCollapse);
+			const bool Visible = TabLayout::BeginDockablePanel(DockType, Label, Key, Open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
 			if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
 			{
 				const auto* Active = Manager.GetActiveDocument();
@@ -419,13 +418,13 @@ namespace Durin::Editor::Material
 			return Visible;
 		};
 		if (BeginPanel("Material Graph", "Graph"))
-			Document.Canvas->Draw(*GEditor->GetTransactor(), 0);
+			Document.Canvas->Draw(*Documents.GetEditor()->GetTransactor(), 0);
 		ImGui::End();
 		if (SessionSettings->bDetailsVisible)
 		{
 			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
 			{
-				Document.Canvas->DrawSelectionDetails(*GEditor->GetTransactor());
+				Document.Canvas->DrawSelectionDetails(*Documents.GetEditor()->GetTransactor());
 				DrawInterface(Document);
 			}
 			ImGui::End();
@@ -445,8 +444,7 @@ namespace Durin::Editor::Material
 				if (ImGui::Selectable(Diagnostic.Message.c_str()))
 				{
 					if (Diagnostic.FunctionAssetPath.empty() || Diagnostic.FunctionAssetPath == Function.GetObjectPath()) Document.Canvas->SelectAndFrame(Diagnostic.NodeId);
-					else if (Manager.OpenAsset(Diagnostic.FunctionAssetPath, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()))
-						if (auto* Nested = Find(Diagnostic.FunctionAssetPath)) Nested->Canvas->SelectAndFrame(Diagnostic.NodeId);
+					else NavigateToNode(Diagnostic.FunctionAssetPath, Diagnostic.NodeId);
 				}
 			};
 			for (const auto& Diagnostic : Document.Diagnostics) DrawDiagnostic(Diagnostic);
@@ -455,5 +453,29 @@ namespace Durin::Editor::Material
 			else ImGui::TextDisabled("The selected output is unavailable.");
 		}
 		if (bPreviewPanel) ImGui::End();
+		SaveDockLayout("Document", DockType, Workspace::FunctionLayoutVersion, PanelIds);
 	}
+	auto MMaterialFunctionEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
+	{
+		if (auto Node = Open.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; Open.insert(std::move(Node)); }
+		SessionSettings->MoveViewport(Source, Destination);
+		SessionSettings->Save();
+		Documents.RemapResourceId(Source, Destination);
+	}
+
+	auto MMaterialFunctionEditor::GetLayoutVersion() const -> uint32
+	{ return Workspace::FunctionLayoutVersion; }
+	auto MMaterialFunctionEditor::OnSessionBound() -> void
+	{
+		FBaseAssetToolkit::OnSessionBound();
+		if (const auto* Owner = GetOwningAssetEditor())
+			SessionSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
+	}
+	auto MMaterialFunctionEditor::OnHostChanged() -> void
+	{
+		SessionSettings->Save();
+		FBaseAssetToolkit::OnHostChanged();
+		OnSessionBound();
+	}
+
 }

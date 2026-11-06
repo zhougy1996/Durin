@@ -24,7 +24,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Item.Kind == EContentBrowserItemKind::Redirector) return "Redirector";
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			if (const auto Type = FindAssetTypePresentation(Item.AssetClassName)) return Type->DisplayName;
+			if (const auto Type = FindAssetTypePresentation(Item.AssetClassName); Type && !Type->DisplayName.empty()) return Type->DisplayName;
 			return ClassLeaf(Item.AssetClassName);
 		}
 		return Item.Extension.empty()
@@ -46,14 +46,18 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Item.Kind == EContentBrowserItemKind::Redirector;
 		if (Item.Kind != EContentBrowserItemKind::Asset) return false;
 		const auto Type = FindAssetTypePresentation(Item.AssetClassName);
-		const EAssetCategory Category = Type ? Type->Category : EAssetCategory::Other;
+		const auto HasCategory = [&](std::string_view Category) {
+			return Type && std::ranges::any_of(Type->CategoryPaths,
+				[&](const auto& Path) { return !Path.empty() && Path.front() == Category; });
+		};
+		// Persisted built-in filter shortcuts resolve the same definition categories as the dynamic menu.
 		switch (TypeFilter)
 		{
-		case EContentBrowserTypeFilter::Levels: return Category == EAssetCategory::Level;
-		case EContentBrowserTypeFilter::StaticMeshes: return Category == EAssetCategory::StaticMesh;
-		case EContentBrowserTypeFilter::Materials: return Category == EAssetCategory::Material;
-		case EContentBrowserTypeFilter::Textures: return Category == EAssetCategory::Texture;
-		default: return Category == EAssetCategory::Other;
+		case EContentBrowserTypeFilter::Levels: return HasCategory("Level");
+		case EContentBrowserTypeFilter::StaticMeshes: return HasCategory("Meshes");
+		case EContentBrowserTypeFilter::Materials: return HasCategory("Material");
+		case EContentBrowserTypeFilter::Textures: return HasCategory("Texture");
+		default: return !HasCategory("Level") && !HasCategory("Meshes") && !HasCategory("Material") && !HasCategory("Texture");
 		}
 	}
 
@@ -109,7 +113,13 @@ namespace Durin::Editor::ContentBrowser::Private
 				&& !ContainsInsensitive(
 					Item.RedirectDestination.ToString(), Settings.Search))
 				continue;
-			if (MatchesTypeFilter(Item, Settings.TypeFilter)) Indices.push_back(Index);
+			bool MatchesCategory = Settings.CategoryPath.empty() || Item.Kind == EContentBrowserItemKind::Folder;
+			if (!MatchesCategory && Item.Kind == EContentBrowserItemKind::Asset)
+				if (const auto Type = FindAssetTypePresentation(Item.AssetClassName))
+					MatchesCategory = std::ranges::any_of(Type->CategoryPaths, [&](const auto& Path) {
+						return Path.size() >= Settings.CategoryPath.size() && std::equal(Settings.CategoryPath.begin(), Settings.CategoryPath.end(), Path.begin());
+					});
+			if (MatchesCategory && MatchesTypeFilter(Item, Settings.TypeFilter)) Indices.push_back(Index);
 		}
 
 		auto Compare = [&](size_t AIndex, size_t BIndex) {

@@ -8,104 +8,47 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
-namespace Durin::Editor::Detail
+namespace Durin::DocumentPrivate
 {
-	// A document is one editor instance; the shared workspace is its presentation host.
-	class FWorkspaceAssetEditorInstance final : public IAssetEditorInstance,
-		public std::enable_shared_from_this<FWorkspaceAssetEditorInstance>
+	// Session-local collector roots do not impersonate externally indexed editor instances.
+	class FDocumentAssetRoot
 	{
 	public:
-		FWorkspaceAssetEditorInstance(FEditorDocumentManager& InManager, FDocumentId InId,
-			FName InName, DAssetEditorSubsystem* InSubsystem)
-			: Manager(InManager), Id(InId), Name(InName), Subsystem(InSubsystem) {}
-		~FWorkspaceAssetEditorInstance() override
-		{
-			if (auto* Service = Subsystem.Get()) Service->NotifyEditorClosed(this);
-		}
-		auto GetEditorName() const -> FName override { return Name; }
-		auto FocusWindow(DObject*) -> void override
-		{
-			const auto KeepAlive = shared_from_this();
-			(void)Manager.ActivateDocument(Id);
-			LastActivationTime = FTime::Seconds();
-		}
-		auto GetLastActivationTime() -> double override { return LastActivationTime; }
-		auto RecordActivation() -> void { LastActivationTime = FTime::Seconds(); }
-		auto CloseWindow(EAssetEditorCloseReason) -> bool override
-		{
-			const auto KeepAlive = shared_from_this();
-			return Manager.RequestCloseDocument(Id) == EDocumentCloseResult::Closed;
-		}
 		auto SetAsset(DObject* Object) -> void
-		{
-			if (Asset.GetKey() != FObjectKey(Object)) Asset = FStrongObjectPtr(Object);
-			if (RegisteredAsset == FObjectKey(Object)) return;
-			if (auto* Service = Subsystem.Get())
-			{
-				Service->NotifyEditorClosed(this);
-				if (Object) Service->NotifyAssetOpened(Object, this);
-			}
-			RegisteredAsset = FObjectKey(Object);
-		}
+		{ if (Asset.GetKey() != FObjectKey(Object)) Asset = FStrongObjectPtr(Object); }
 		auto GetAsset() const -> DObject* { return Asset.Get(); }
 		auto CommitReload(FStrongObjectPtr&& Replacement) noexcept -> void { Asset = std::move(Replacement); }
 	private:
-		FEditorDocumentManager& Manager;
-		FDocumentId Id;
-		FName Name;
-		double LastActivationTime = FTime::Seconds();
-		TWeakObjectPtr<DAssetEditorSubsystem> Subsystem;
 		FStrongObjectPtr Asset;
-		// Index notifications follow reload publication, outside its noexcept commit.
-		FObjectKey RegisteredAsset;
-	};
-}
-
-namespace Durin::Editor::Detail
-{
-	struct FRegisteredWorkspace
-	{
-		FAssetEditorToolkitDescriptor Descriptor;
-		std::shared_ptr<IAssetEditorToolkit> Toolkit;
-		uint64 RegistrationId = 0;
-		// Registration order keeps host menus, initial tabs, and drawing deterministic despite map storage.
-		uint64 RegistrationOrder = 0;
 	};
 
-	// Couples an asset-editor mapping with the batch lease that owns it.
-	struct FRegisteredAssetEditor
+	// Owns one toolkit's document state and collector roots.
+	struct FEditorDocumentState
 	{
-		FAssetEditorRegistration Registration;
-		uint64 RegistrationId = 0;
-	};
-
-	// Owns registration tables and removes every entry associated with a lease.
-	struct FEditorDocumentRegistryState
-	{
-		uint64 NextRegistrationId = 1;
-		uint64 NextWorkspaceRegistrationOrder = 1;
-		uint64 NextDocumentId = 1;
 		FDocumentId ActiveDocumentId;
 		FDocumentId PendingCloseDocumentId;
+		uint64 PendingCloseSequence = 0;
+		uint64 CloseCancellationRevision = 0;
 		std::vector<FEditorDocument> Documents;
 		std::unordered_map<uint64, FEditorDocument> DeferredDocumentOpens;
-		std::unordered_map<std::string, FRegisteredWorkspace> Toolkits;
-		std::unordered_map<std::string, FRegisteredAssetEditor> AssetEditors;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditorSubsystem;
-		std::unordered_map<uint64, std::shared_ptr<FWorkspaceAssetEditorInstance>> EditorInstances;
-		std::function<void()> SynchronizeAssetEditors;
+		std::unordered_map<uint64, std::shared_ptr<FDocumentAssetRoot>> AssetRoots;
+		std::weak_ptr<IAssetEditorToolkit> SessionToolkit;
+		bool bToolkitAttached = false;
+		std::function<void()> SessionAssetsChanged;
 	};
 
 	// Rebinds document roots atomically; workspace UI notification follows publication.
-	class FWorkspaceDocumentReloadParticipant final : public IPackageReloadParticipant
+	class FSessionDocumentReloadParticipant final : public IPackageReloadParticipant
 	{
 	public:
-		explicit FWorkspaceDocumentReloadParticipant(std::shared_ptr<FEditorDocumentRegistryState> InState)
-			: State(std::move(InState)) {}
+		explicit FSessionDocumentReloadParticipant(std::shared_ptr<FEditorDocumentState> InState,
+			std::vector<std::shared_ptr<IObjectReplacementParticipant>> InFeatures)
+			: State(std::move(InState)), Features(std::move(InFeatures)) {}
 		auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> override
 		{
 			Bindings.clear();
-			Instances = State->EditorInstances;
+			Instances = State->AssetRoots;
 			for (const auto& [Id, Instance] : Instances)
 				if (const auto* Entry = Map.Find(Instance->GetAsset()))
 				{
@@ -115,152 +58,63 @@ namespace Durin::Editor::Detail
 							.ObjectPath = Entry->Previous->GetObjectPath()});
 					Bindings.push_back({Instance, FObjectKey(Entry->Previous), FStrongObjectPtr(Entry->Replacement)});
 				}
+			for (const auto& Feature : Features)
+				if (auto Prepared = Feature->Prepare(Map); !Prepared) return Prepared;
 			return {};
 		}
 		auto Validate() const -> bool override
 		{
-			if (Instances != State->EditorInstances) return false;
+			if (Instances != State->AssetRoots || !std::ranges::all_of(Features, [](const auto& Feature) { return Feature->Validate(); })) return false;
 			return std::ranges::all_of(Bindings, [](const FBinding& Binding) {
 				return FObjectKey(Binding.Instance->GetAsset()) == Binding.Previous;
 			});
 		}
-		auto CoversNativeReferences(const DObject&) const -> bool override { return false; }
+		auto CoversNativeReferences(const DObject& Owner) const -> bool override
+		{ return std::ranges::any_of(Features, [&](const auto& Feature) { return Feature->CoversNativeReferences(Owner); }); }
 		auto GetStrongReferenceCount(const DObject& Object) const -> uint32 override
 		{
-			return static_cast<uint32>(std::ranges::count(Bindings, FObjectKey(&Object), &FBinding::Previous));
+			uint32 Count = static_cast<uint32>(std::ranges::count(Bindings, FObjectKey(&Object), &FBinding::Previous));
+			for (const auto& Feature : Features) Count += Feature->GetStrongReferenceCount(Object);
+			return Count;
 		}
 		auto Commit() noexcept -> void override
 		{
 			for (auto& Binding : Bindings) Binding.Instance->CommitReload(std::move(Binding.Replacement));
+			for (const auto& Feature : Features) Feature->Commit();
 		}
-		auto Abort() noexcept -> void override { Bindings.clear(); Instances.clear(); }
-		auto CanRetire() const -> bool override { return true; }
+		auto Abort() noexcept -> void override { Bindings.clear(); Instances.clear(); for (const auto& Feature : Features) Feature->Abort(); }
+		auto CanRetire() const -> bool override
+		{ return std::ranges::all_of(Features, [](const auto& Feature) { return Feature->CanRetire(); }); }
 	private:
 		struct FBinding
 		{
-			std::shared_ptr<FWorkspaceAssetEditorInstance> Instance;
+			std::shared_ptr<FDocumentAssetRoot> Instance;
 			FObjectKey Previous;
 			FStrongObjectPtr Replacement;
 		};
-		std::shared_ptr<FEditorDocumentRegistryState> State;
-		std::unordered_map<uint64, std::shared_ptr<FWorkspaceAssetEditorInstance>> Instances;
+		std::shared_ptr<FEditorDocumentState> State;
+		std::unordered_map<uint64, std::shared_ptr<FDocumentAssetRoot>> Instances;
 		std::vector<FBinding> Bindings;
+		std::vector<std::shared_ptr<IObjectReplacementParticipant>> Features;
 	};
 
-	auto UnregisterWorkspaceBatch(FEditorDocumentRegistryState& State, uint64 RegistrationId) -> void
-	{
-		std::unordered_set<std::string> RemovedWorkspaceTypes;
-		for (const auto& [ToolkitId, Entry] : State.Toolkits)
-		{
-			if (Entry.RegistrationId == RegistrationId) RemovedWorkspaceTypes.insert(ToolkitId);
-		}
-
-		const bool bActiveDocumentRemoved = std::ranges::any_of(State.Documents, [&](const FEditorDocument& Document) {
-			return Document.Id == State.ActiveDocumentId && RemovedWorkspaceTypes.contains(std::string(Document.ToolkitId.GetValue()));
-		});
-		if (bActiveDocumentRemoved)
-		{
-			const auto Active = std::ranges::find(State.Documents, State.ActiveDocumentId, &FEditorDocument::Id);
-			if (Active != State.Documents.end())
-			{
-				const auto Workspace = State.Toolkits.find(std::string(Active->ToolkitId.GetValue()));
-				requiref(Workspace == State.Toolkits.end() || Workspace->second.Toolkit->RequestDeactivate(),
-					"An editor workspace cannot be unloaded while an active property preview cannot be cancelled");
-			}
-		}
-		// A module cannot leave documents backed by its code in the manager after unloading.
-		std::erase_if(State.Documents, [&](const FEditorDocument& Document) {
-			return RemovedWorkspaceTypes.contains(std::string(Document.ToolkitId.GetValue()));
-		});
-		if (const auto PendingClose = std::ranges::find(
-				State.Documents, State.PendingCloseDocumentId, &FEditorDocument::Id
-			); PendingClose == State.Documents.end())
-			State.PendingCloseDocumentId = {};
-		std::erase_if(State.DeferredDocumentOpens, [&](const auto& Pair) {
-			return RemovedWorkspaceTypes.contains(std::string(Pair.second.ToolkitId.GetValue()));
-		});
-		std::erase_if(State.AssetEditors, [&](const auto& Pair) {
-			return Pair.second.RegistrationId == RegistrationId ||
-				RemovedWorkspaceTypes.contains(std::string(Pair.second.Registration.ToolkitId.GetValue()));
-		});
-		std::erase_if(State.Toolkits, [RegistrationId](const auto& Pair) {
-			return Pair.second.RegistrationId == RegistrationId;
-		});
-		if (State.SynchronizeAssetEditors) State.SynchronizeAssetEditors();
-
-		if (!bActiveDocumentRemoved) return;
-		State.ActiveDocumentId = {};
-		if (State.Documents.empty()) return;
-		FEditorDocument& NextDocument = State.Documents.front();
-		const auto Workspace = State.Toolkits.find(std::string(NextDocument.ToolkitId.GetValue()));
-		if (Workspace == State.Toolkits.end()) return;
-		State.ActiveDocumentId = NextDocument.Id;
-		Workspace->second.Toolkit->ActivateDocument(NextDocument);
-	}
 }
-namespace Durin::Editor
+namespace Durin
 {
-	FAssetEditorToolkitRegistrationHandle::FAssetEditorToolkitRegistrationHandle(
-		std::weak_ptr<Detail::FEditorDocumentRegistryState> InState, uint64 InRegistrationId
-	)
-		: State(std::move(InState)), RegistrationId(InRegistrationId)
-	{
-	}
 
-	FAssetEditorToolkitRegistrationHandle::~FAssetEditorToolkitRegistrationHandle()
-	{
-		Reset();
-	}
-
-	FAssetEditorToolkitRegistrationHandle::FAssetEditorToolkitRegistrationHandle(FAssetEditorToolkitRegistrationHandle&& Other) noexcept
-		: State(std::move(Other.State)), RegistrationId(std::exchange(Other.RegistrationId, 0))
-	{
-	}
-
-	auto FAssetEditorToolkitRegistrationHandle::operator=(FAssetEditorToolkitRegistrationHandle&& Other) noexcept -> FAssetEditorToolkitRegistrationHandle&
-	{
-		if (this == &Other) return *this;
-		Reset();
-		State = std::move(Other.State);
-		RegistrationId = std::exchange(Other.RegistrationId, 0);
-		return *this;
-	}
-
-	auto FAssetEditorToolkitRegistrationHandle::Reset() -> void
-	{
-		if (RegistrationId == 0) return;
-		if (const std::shared_ptr<Detail::FEditorDocumentRegistryState> PinnedState = State.lock())
-			Detail::UnregisterWorkspaceBatch(*PinnedState, RegistrationId);
-		State.reset();
-		RegistrationId = 0;
-	}
-
-	FEditorDocumentManager::FEditorDocumentManager(DAssetEditorSubsystem* AssetEditors)
-		: State(std::make_shared<Detail::FEditorDocumentRegistryState>())
-	{
-		State->SynchronizeAssetEditors = [this] { SynchronizeAssetEditors(); };
-		if (AssetEditors)
-		{
-			require(AssetEditors->CanCall());
-			require(AssetEditors->DocumentManager == nullptr);
-			AssetEditors->DocumentManager = this;
-			State->AssetEditorSubsystem = AssetEditors;
-		}
-		AssetMoveObserverHandle = RegisterAssetMoveObserver(this);
-	}
+	FEditorDocumentManager::FEditorDocumentManager()
+		: State(std::make_shared<DocumentPrivate::FEditorDocumentState>())
+	{ AssetMoveObserverHandle = RegisterAssetMoveObserver(this); }
 
 	FEditorDocumentManager::~FEditorDocumentManager()
 	{
-		State->SynchronizeAssetEditors = {};
-		State->EditorInstances.clear();
-		if (auto* Service = State->AssetEditorSubsystem.Get(); Service && Service->DocumentManager == this)
-			Service->DocumentManager = nullptr;
+		State->SessionAssetsChanged = {};
+		State->AssetRoots.clear();
 		UnregisterAssetMoveObserver(AssetMoveObserverHandle);
 	}
 
-	auto FEditorDocumentManager::SynchronizeAssetEditors() -> void
+	auto FEditorDocumentManager::SynchronizeAssets() -> void
 	{
-		auto* Service = State->AssetEditorSubsystem.Get();
 		std::unordered_set<uint64> OpenDocuments;
 		for (const auto& Document : State->Documents)
 		{
@@ -270,84 +124,78 @@ namespace Durin::Editor
 			const auto Resolved = ResolveSoftObject(Reference, DObject::StaticClass());
 			auto* Asset = Resolved ? Resolved->Object : nullptr;
 			OpenDocuments.insert(Document.Id.Value);
-			auto& Instance = State->EditorInstances[Document.Id.Value];
-			if (!Instance) Instance = std::make_shared<Detail::FWorkspaceAssetEditorInstance>(
-				*this, Document.Id, FName(Document.ToolkitId.GetValue()), Service);
+			auto& Instance = State->AssetRoots[Document.Id.Value];
+			if (!Instance) Instance = std::make_shared<DocumentPrivate::FDocumentAssetRoot>();
 			Instance->SetAsset(Asset);
 		}
-		std::erase_if(State->EditorInstances, [&](const auto& Pair) { return !OpenDocuments.contains(Pair.first); });
+		std::erase_if(State->AssetRoots, [&](const auto& Pair) { return !OpenDocuments.contains(Pair.first); });
+		if (State->SessionAssetsChanged) State->SessionAssetsChanged();
+	}
+
+	auto FEditorDocumentManager::AttachSessionToolkit(std::shared_ptr<IAssetEditorToolkit> Toolkit,
+		std::function<void()> AssetsChanged, DAssetEditorSubsystem* Service) -> bool
+	{
+		if (State->bToolkitAttached || !State->Documents.empty()
+			|| !Toolkit || !Toolkit->GetToolkitId().IsValid()) return false;
+		State->bToolkitAttached = true;
+		State->AssetEditorSubsystem = Service;
+		State->SessionToolkit = Toolkit;
+		State->SessionAssetsChanged = std::move(AssetsChanged);
+		return true;
+	}
+	auto FEditorDocumentManager::AssociateDocumentAsset(FDocumentId Id, DObject* Asset) -> bool
+	{
+		auto* Document = FindDocument(Id);
+		if (!Document || !IsValid(Asset)) return false;
+		Document->ResourceId = Asset->GetObjectPath();
+		SynchronizeAssets();
+		return true;
+	}
+
+	auto FEditorDocumentManager::GetEditedAssets() const -> std::vector<DObject*>
+	{
+		std::vector<DObject*> Assets;
+		for (const auto& [Id, Root] : State->AssetRoots)
+			if (auto* Object = Root->GetAsset(); Object && std::ranges::find(Assets, Object) == Assets.end())
+				Assets.push_back(Object);
+		return Assets;
+	}
+
+	auto FEditorDocumentManager::GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*
+	{
+		return State->AssetEditorSubsystem.Get();
 	}
 
 	auto FEditorDocumentManager::CreateDocumentReloadParticipant() -> std::shared_ptr<IPackageReloadParticipant>
 	{
-		return std::make_shared<Detail::FWorkspaceDocumentReloadParticipant>(State);
+		std::vector<std::shared_ptr<IObjectReplacementParticipant>> Features;
+		if (const auto Toolkit = GetToolkit())
+			if (auto Feature = Toolkit->CreateReloadParticipant()) Features.push_back(std::move(Feature));
+		return std::make_shared<DocumentPrivate::FSessionDocumentReloadParticipant>(State, std::move(Features));
 	}
 
 	auto FEditorDocumentManager::OnAssetsRelocated(
 		std::span<const FAssetRelocationMapping> Mappings) -> void
 	{
 		for (const FAssetRelocationMapping& Mapping : Mappings)
+		{
+			std::vector<std::pair<std::string, std::string>> Resources;
+			const auto Collect = [&](const FEditorDocument& Document) {
+				FObjectPath Source;
+				if (!FObjectPath::TryCreate(Document.ResourceId, Source) || Source.GetPackagePath() != Mapping.SourcePath) return;
+				FTopLevelAssetPath DestinationAsset;
+				FObjectPath Destination;
+				if (FTopLevelAssetPath::TryCreate(Mapping.DestinationPath, Source.GetAssetPath().GetAssetName(), DestinationAsset)
+					&& FObjectPath::TryCreate(DestinationAsset, Source.GetSubobjectNames(), Destination))
+					Resources.emplace_back(Document.ResourceId, Destination.ToString());
+			};
+			for (const auto& Document : State->Documents) Collect(Document);
+			for (const auto& [Id, Document] : State->DeferredDocumentOpens) Collect(Document);
+			for (const auto& [Source, Destination] : Resources) RemapResourceId(Source, Destination);
+			// Non-asset workspace documents may still use package-only resource keys.
 			RemapResourceId(
 				Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
-	}
-
-	auto FEditorDocumentManager::RegisterBatch(
-		FAssetEditorToolkitRegistrationBatch Batch) -> FAssetEditorToolkitRegistrationHandle
-	{
-		if (Batch.Toolkits.empty() && Batch.AssetEditors.empty()) return {};
-		std::unordered_set<std::string> BatchWorkspaceTypes;
-		std::unordered_set<std::string> BatchRootKeys;
-		for (const FAssetEditorToolkitRegistration& Registration : Batch.Toolkits)
-		{
-			const FAssetEditorToolkitDescriptor& Descriptor = Registration.Descriptor;
-			if (!Registration.Toolkit || !Descriptor.ToolkitId.IsValid() || Descriptor.DisplayName.empty() || Descriptor.RootKey.empty()) return {};
-			if (Registration.Toolkit->GetToolkitId() != Descriptor.ToolkitId) return {};
-			if (Descriptor.bOpenByDefault && !Descriptor.HasSingletonDocument()) return {};
-			if (Descriptor.SingletonDocumentKey.empty() != Descriptor.SingletonDocumentLabel.empty()) return {};
-			const std::string ToolkitId(Descriptor.ToolkitId.GetValue());
-			if (State->Toolkits.contains(ToolkitId) || !BatchWorkspaceTypes.insert(ToolkitId).second) return {};
-			for (const auto& [ExistingType, Existing] : State->Toolkits)
-			{
-				(void)ExistingType;
-				if (Existing.Descriptor.RootKey == Descriptor.RootKey) return {};
-			}
-			if (!BatchRootKeys.insert(Descriptor.RootKey).second) return {};
 		}
-
-		std::unordered_set<std::string> BatchAssetClasses;
-		for (const FAssetEditorRegistration& Registration : Batch.AssetEditors)
-		{
-			if (Registration.AssetClassName.empty() || !Registration.ToolkitId.IsValid()) return {};
-			if (State->AssetEditors.contains(Registration.AssetClassName) || !BatchAssetClasses.insert(Registration.AssetClassName).second) return {};
-			const std::string ToolkitId(Registration.ToolkitId.GetValue());
-			if (!State->Toolkits.contains(ToolkitId) && !BatchWorkspaceTypes.contains(ToolkitId)) return {};
-			if (Registration.DocumentPolicy == EDocumentPolicy::Singleton &&
-				(Registration.SingletonDocumentKey.empty() || Registration.SingletonLabel.empty()))
-				return {};
-		}
-
-		// Validation is deliberately complete before mutation, so a malformed later
-		// entry cannot leave an earlier workspace or asset route installed.
-		const uint64 RegistrationId = State->NextRegistrationId++;
-		for (FAssetEditorToolkitRegistration& Registration : Batch.Toolkits)
-		{
-			const std::string ToolkitId(Registration.Descriptor.ToolkitId.GetValue());
-			State->Toolkits.emplace(ToolkitId, Detail::FRegisteredWorkspace{
-				.Descriptor = std::move(Registration.Descriptor),
-				.Toolkit = std::move(Registration.Toolkit),
-				.RegistrationId = RegistrationId,
-				.RegistrationOrder = State->NextWorkspaceRegistrationOrder++,
-			});
-		}
-		for (FAssetEditorRegistration& Registration : Batch.AssetEditors)
-		{
-			const std::string AssetClassName = Registration.AssetClassName;
-			State->AssetEditors.emplace(AssetClassName, Detail::FRegisteredAssetEditor{
-				.Registration = std::move(Registration),
-				.RegistrationId = RegistrationId,
-			});
-		}
-		return FAssetEditorToolkitRegistrationHandle(State, RegistrationId);
 	}
 
 	auto FEditorDocumentManager::OpenDocument(FDocumentRequest Request) -> FDocumentId
@@ -374,12 +222,16 @@ namespace Durin::Editor
 			*Existing = std::move(Candidate);
 			Workspace->ActivateDocument(*Existing);
 			State->ActiveDocumentId = Existing->Id;
-			SynchronizeAssetEditors();
+			SynchronizeAssets();
 			return Existing->Id;
 		}
 
 		FEditorDocument Document;
-		Document.Id.Value = State->NextDocumentId++;
+		// Preview/render resources consume live document IDs across controllers.
+		// Persistent layout identity remains based on canonical assets and stable roles.
+		static uint64 NextDocumentId = 1;
+		require(NextDocumentId != std::numeric_limits<uint64>::max());
+		Document.Id.Value = NextDocumentId++;
 		Document.ToolkitId = std::move(Request.ToolkitId);
 		Document.DocumentKey = std::move(Request.DocumentKey);
 		Document.ResourceId = std::move(Request.ResourceId);
@@ -398,24 +250,31 @@ namespace Durin::Editor
 		State->Documents.push_back(std::move(Document));
 		Workspace->ActivateDocument(State->Documents.back());
 		State->ActiveDocumentId = State->Documents.back().Id;
-		SynchronizeAssetEditors();
+		SynchronizeAssets();
 		return State->Documents.back().Id;
 	}
 
-	auto FEditorDocumentManager::CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded) -> bool
+	auto FEditorDocumentManager::CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded, EAssetOpenStatus FailureStatus) -> bool
 	{
 		const auto Pending = State->DeferredDocumentOpens.find(DocumentId.Value);
 		if (Pending == State->DeferredDocumentOpens.end()) return false;
 		if (!bSucceeded)
 		{
 			State->DeferredDocumentOpens.erase(Pending);
+			if (auto* Service = State->AssetEditorSubsystem.Get())
+				Service->CompleteDocumentOpen(DocumentId.Value, FailureStatus);
 			return true;
 		}
 
 		FEditorDocument Document = std::move(Pending->second);
 		State->DeferredDocumentOpens.erase(Pending);
 		const std::shared_ptr<IAssetEditorToolkit> Workspace = FindToolkit(Document.ToolkitId);
-		if (!Workspace) return false;
+		if (!Workspace)
+		{
+			if (auto* Service = State->AssetEditorSubsystem.Get())
+				Service->CompleteDocumentOpen(DocumentId.Value, EAssetOpenStatus::Failed);
+			return false;
+		}
 
 		if (FEditorDocument* Existing = FindDocument(DocumentId))
 			*Existing = std::move(Document);
@@ -426,36 +285,15 @@ namespace Durin::Editor
 		if (!OpenedDocument) return false;
 		Workspace->ActivateDocument(*OpenedDocument);
 		State->ActiveDocumentId = OpenedDocument->Id;
-		SynchronizeAssetEditors();
+		SynchronizeAssets();
+		if (auto* Service = State->AssetEditorSubsystem.Get())
+			Service->CompleteDocumentOpen(DocumentId.Value, EAssetOpenStatus::Completed);
 		return true;
 	}
 
-	auto FEditorDocumentManager::CanOpenAsset(std::string_view AssetClassName) const -> bool
+	auto FEditorDocumentManager::IsDocumentOpenPending(FDocumentId DocumentId) const -> bool
 	{
-		return State->AssetEditors.contains(std::string(AssetClassName));
-	}
-
-	auto FEditorDocumentManager::OpenAsset(std::string ResourceId, std::string_view AssetClassName) -> bool
-	{
-		const auto Found = State->AssetEditors.find(std::string(AssetClassName));
-		if (Found == State->AssetEditors.end()) return false;
-
-		const FAssetEditorRegistration& AssetEditor = Found->second.Registration;
-		FDocumentRequest Request;
-		Request.ToolkitId = AssetEditor.ToolkitId;
-		Request.ResourceId = std::move(ResourceId);
-		Request.bClosable = AssetEditor.bClosable;
-		if (AssetEditor.DocumentPolicy == EDocumentPolicy::Singleton)
-		{
-			Request.DocumentKey = AssetEditor.SingletonDocumentKey;
-			Request.Label = AssetEditor.SingletonLabel;
-		}
-		else
-		{
-			Request.DocumentKey = Request.ResourceId;
-			Request.Label = AssetLabel(Request.ResourceId);
-		}
-		return OpenDocument(std::move(Request)).IsValid();
+		return State->DeferredDocumentOpens.contains(DocumentId.Value);
 	}
 
 	auto FEditorDocumentManager::ActivateDocument(FDocumentId DocumentId) -> bool
@@ -467,33 +305,12 @@ namespace Durin::Editor
 		if (!RequestDeactivateActiveDocument(DocumentId)) return false;
 		Workspace->ActivateDocument(*Document);
 		State->ActiveDocumentId = DocumentId;
-		if (const auto Instance = State->EditorInstances.find(DocumentId.Value); Instance != State->EditorInstances.end())
-			Instance->second->RecordActivation();
 		return true;
 	}
 
-	auto FEditorDocumentManager::ActivateToolkit(const FAssetEditorToolkitId& ToolkitId) -> bool
+	auto FEditorDocumentManager::RequestDeactivateActiveToolkit() -> bool
 	{
-		if (const FEditorDocument* ActiveDocument = GetActiveDocument(); ActiveDocument && ActiveDocument->ToolkitId == ToolkitId)
-			return true;
-		const auto Found = std::ranges::find(State->Documents, ToolkitId, &FEditorDocument::ToolkitId);
-		return Found != State->Documents.end() && ActivateDocument(Found->Id);
-	}
-
-	auto FEditorDocumentManager::OpenDefaultToolkits() -> bool
-	{
-		for (const FAssetEditorToolkitDescriptor& Descriptor : GetToolkitDescriptors())
-		{
-			if (!Descriptor.bOpenByDefault) continue;
-			if (!Descriptor.HasSingletonDocument()) return false;
-			if (!OpenDocument({
-				.ToolkitId = Descriptor.ToolkitId,
-				.DocumentKey = Descriptor.SingletonDocumentKey,
-				.Label = Descriptor.SingletonDocumentLabel,
-				.bClosable = Descriptor.bSingletonDocumentClosable,
-			}).IsValid()) return false;
-		}
-		return true;
+		return RequestDeactivateActiveDocument();
 	}
 
 	auto FEditorDocumentManager::RequestCloseDocument(FDocumentId DocumentId) -> EDocumentCloseResult
@@ -505,7 +322,11 @@ namespace Durin::Editor
 				: EDocumentCloseResult::Rejected;
 		}
 		if (State->DeferredDocumentOpens.erase(DocumentId.Value) != 0)
+		{
+			if (auto* Service = State->AssetEditorSubsystem.Get())
+				Service->CompleteDocumentOpen(DocumentId.Value, EAssetOpenStatus::Cancelled);
 			return EDocumentCloseResult::Closed;
+		}
 		const auto Found = std::ranges::find(State->Documents, DocumentId, &FEditorDocument::Id);
 		if (Found == State->Documents.end() || !Found->bClosable) return EDocumentCloseResult::Rejected;
 		const std::shared_ptr<IAssetEditorToolkit> Workspace = FindToolkit(Found->ToolkitId);
@@ -514,6 +335,8 @@ namespace Durin::Editor
 		if (CloseResult == EDocumentCloseResult::PendingConfirmation)
 		{
 			State->PendingCloseDocumentId = DocumentId;
+			static uint64 NextCloseSequence = 1;
+			State->PendingCloseSequence = NextCloseSequence++;
 			return CloseResult;
 		}
 		if (CloseResult == EDocumentCloseResult::Rejected) return CloseResult;
@@ -521,7 +344,7 @@ namespace Durin::Editor
 		const size_t ClosedIndex = static_cast<size_t>(std::distance(State->Documents.begin(), Found));
 		const bool bWasActive = State->ActiveDocumentId == DocumentId;
 		State->Documents.erase(Found);
-		SynchronizeAssetEditors();
+		SynchronizeAssets();
 		if (!bWasActive) return EDocumentCloseResult::Closed;
 
 		State->ActiveDocumentId = {};
@@ -543,6 +366,7 @@ namespace Durin::Editor
 		}
 		if (Response == EDocumentCloseResponse::Cancel)
 		{
+			++State->CloseCancellationRevision;
 			State->PendingCloseDocumentId = {};
 			return EDocumentCloseResult::Cancelled;
 		}
@@ -562,7 +386,7 @@ namespace Durin::Editor
 	auto FEditorDocumentManager::PrepareForExit() -> bool
 	{
 		if (State->PendingCloseDocumentId.IsValid() || !State->DeferredDocumentOpens.empty()) return false;
-		for (const auto& Workspace : GetRegisteredToolkits())
+		if (const auto Workspace = GetToolkit())
 			if (!Workspace->RequestDeactivate()) return false;
 		RefreshDocumentState();
 		return true;
@@ -596,9 +420,9 @@ namespace Durin::Editor
 		DPackage* Previous, DPackage* Replacement) -> void
 	{
 		if (!Previous || !Replacement || Previous == Replacement) return;
-		for (const auto& Workspace : GetRegisteredToolkits())
+		if (const auto Workspace = GetToolkit())
 			Workspace->OnPackageReloaded(Previous, Replacement);
-		SynchronizeAssetEditors();
+		SynchronizeAssets();
 	}
 
 	auto FEditorDocumentManager::RemapResourceId(
@@ -620,7 +444,8 @@ namespace Durin::Editor
 			(void)Id;
 			Remap(Document);
 		}
-		SynchronizeAssetEditors();
+		if (const auto Toolkit = GetToolkit()) Toolkit->OnResourceIdRemapped(SourceResourceId, DestinationResourceId);
+		SynchronizeAssets();
 	}
 
 	auto FEditorDocumentManager::GetDocuments() const -> const std::vector<FEditorDocument>&
@@ -645,43 +470,20 @@ namespace Durin::Editor
 		return Found == State->Documents.end() ? nullptr : &*Found;
 	}
 
+	auto FEditorDocumentManager::GetPendingCloseSequence() const -> uint64
+	{
+		return GetPendingCloseDocument() ? State->PendingCloseSequence : 0;
+	}
+	auto FEditorDocumentManager::GetCloseCancellationRevision() const -> uint64 { return State->CloseCancellationRevision; }
+
 	auto FEditorDocumentManager::FindToolkit(const FAssetEditorToolkitId& ToolkitId) const -> std::shared_ptr<IAssetEditorToolkit>
 	{
-		const auto Found = State->Toolkits.find(std::string(ToolkitId.GetValue()));
-		return Found == State->Toolkits.end() ? nullptr : Found->second.Toolkit;
+		const auto Toolkit = GetToolkit();
+		return Toolkit && Toolkit->GetToolkitId() == ToolkitId ? Toolkit : nullptr;
 	}
 
-	auto FEditorDocumentManager::GetRegisteredToolkits() const -> std::vector<std::shared_ptr<IAssetEditorToolkit>>
-	{
-		std::vector<const Detail::FRegisteredWorkspace*> Entries;
-		Entries.reserve(State->Toolkits.size());
-		for (const auto& [Type, Entry] : State->Toolkits)
-		{
-			(void)Type;
-			Entries.push_back(&Entry);
-		}
-		std::ranges::sort(Entries, {}, &Detail::FRegisteredWorkspace::RegistrationOrder);
-		std::vector<std::shared_ptr<IAssetEditorToolkit>> Result;
-		Result.reserve(Entries.size());
-		for (const Detail::FRegisteredWorkspace* Entry : Entries) Result.push_back(Entry->Toolkit);
-		return Result;
-	}
-
-	auto FEditorDocumentManager::GetToolkitDescriptors() const -> std::vector<FAssetEditorToolkitDescriptor>
-	{
-		std::vector<const Detail::FRegisteredWorkspace*> Entries;
-		Entries.reserve(State->Toolkits.size());
-		for (const auto& [Type, Entry] : State->Toolkits)
-		{
-			(void)Type;
-			Entries.push_back(&Entry);
-		}
-		std::ranges::sort(Entries, {}, &Detail::FRegisteredWorkspace::RegistrationOrder);
-		std::vector<FAssetEditorToolkitDescriptor> Result;
-		Result.reserve(Entries.size());
-		for (const Detail::FRegisteredWorkspace* Entry : Entries) Result.push_back(Entry->Descriptor);
-		return Result;
-	}
+	auto FEditorDocumentManager::GetToolkit() const -> std::shared_ptr<IAssetEditorToolkit>
+	{ return State->SessionToolkit.lock(); }
 
 	auto FEditorDocumentManager::FindDocument(FDocumentId DocumentId) -> FEditorDocument*
 	{

@@ -1,4 +1,9 @@
 #include "LevelEditorModule.h"
+#include "LevelAssetEditor.h"
+#include "DObject/DObjectArray.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "Toolkits/AssetEditor.h"
+#include "Toolkits/ToolkitHost.h"
 #include "Editor/LevelEditorSubsystem.h"
 #include "Tools/PIEToolset.h"
 
@@ -71,7 +76,6 @@ namespace Durin
 		std::unique_ptr<FEditorSubsystemRegistration> Levels;
 		std::unique_ptr<FNativeToolset> PIE;
 		FModularFeatureRegistration PIERegistration;
-		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
 	};
@@ -88,15 +92,14 @@ namespace Durin
 		ProjectDefaultLevelReferenceStore =
 			std::make_unique<FProjectDefaultLevelReferenceStore>(
 				[this](const FPackagePath& Path) {
-					if (const std::shared_ptr<MLevelEditor> Workspace =
-							LevelEditorWorkspace.lock())
-						Workspace->ApplyFixedUpDefaultLevelPath(Path);
+					for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+						if (const auto* Session = Cast<DLevelAssetEditor>(Object); Session && !Session->IsClosed())
+							if (auto Workspace = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit())) Workspace->ApplyFixedUpDefaultLevelPath(Path);
 				});
 		ProjectDefaultLevelReferenceStoreHandle =
 			RegisterAssetReferenceStore(
 				ProjectDefaultLevelReferenceStore.get());
-		SessionSettings = std::make_unique<FLevelEditorSessionSettings>();
-		SessionSettings->Load();
+
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
 		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(AStaticMeshActor::StaticClass(),
 			CreateStaticMeshActorDetailsCustomization()));
@@ -136,11 +139,14 @@ namespace Durin
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
 		require(CanShutdownModule());
+		Integration->ContentBrowserExtensions.clear();
 		Integration->PIERegistration.Reset();
 		Integration->PIE.reset();
 		Integration->Levels.reset();
 		FEditorSubsystemCollection::SynchronizeActiveEditor();
-		UnregisterLevelEditorWorkspace();
+		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+			if (auto* Session = Cast<DLevelAssetEditor>(Object); Session && !Session->IsClosed())
+				if (auto* Service = Session->GetAssetEditorSubsystem()) Service->RetireAssetEditor(*Session);
 		if (GEditor)
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("LevelEditor"),
@@ -156,52 +162,22 @@ namespace Durin
 		CustomizationHandles.clear();
 		for (auto It = DetailCustomizationHandles.rbegin(); It != DetailCustomizationHandles.rend(); ++It) Editor::FDetailCustomizationRegistry::Get().Unregister(*It);
 		DetailCustomizationHandles.clear();
-		SessionSettings.reset();
 	}
 
-	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(
-		Editor::FEditorDocumentManager& DocumentManager,
-		Editor::DThumbnailManager&,
-		Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks,
+	LEVELEDITOR_API auto FLevelEditorModule::InitializeLevelEditor(
+		DAssetEditorSubsystem& AssetEditors, FContentBrowserCallbacks ContentBrowserCallbacks,
 		std::function<void()> OpenProjectBrowser) -> bool
 	{
-		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
-		WorkspaceRegistration.reset();
-		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
-			*SessionSettings, DocumentManager,
-			std::move(ContentBrowserCallbacks), std::move(OpenProjectBrowser));
-		Workspace->Construct();
-		Editor::FAssetEditorToolkitRegistrationHandle Registration = DocumentManager.RegisterBatch({
-			.Toolkits = {
-				{
-					.Descriptor = {
-						.ToolkitId = Workspace::Type,
-						.DisplayName = "Level Editor",
-						.RootKey = Workspace::RootKey,
-						.bShowInWindowMenu = true,
-						.bOpenByDefault = true,
-						.DefaultHostDockPreference = Editor::EToolkitHostDockPreference::Center,
-						.SingletonDocumentKey = "LevelEditor",
-						.SingletonDocumentLabel = "Level Editor",
-						.bSingletonDocumentClosable = true,
-					},
-					.Toolkit = Workspace,
-				},
-			},
-			.AssetEditors = {
-				{
-					.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
-					.ToolkitId = Workspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::Singleton,
-					.SingletonDocumentKey = "LevelEditor",
-					.SingletonLabel = "Level Editor",
-					.bClosable = true,
-				},
-			},
-		});
-		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<Editor::FAssetEditorToolkitRegistrationHandle>(std::move(Registration));
-		LevelEditorWorkspace = Workspace;
+		auto* Levels = AssetEditors.GetEditor()->GetEditorSubsystem<DLevelEditorSubsystem>();
+		if (!Levels || Levels->GetHostContext()) return false;
+		auto Context = std::make_shared<FLevelEditorHostContext>();
+		Context->Settings = std::make_shared<FLevelEditorSessionSettings>();
+		Context->Settings->Load();
+		Context->Browser = std::move(ContentBrowserCallbacks);
+		Context->OpenProjectBrowser = std::move(OpenProjectBrowser);
+		Levels->SetHostContext(Context);
+		if (!GetOrCreateLevelEditor(AssetEditors)) { Levels->SetHostContext({}); return false; }
+		if (!Integration->ContentBrowserExtensions.empty()) return true;
 		{
 			std::string Error;
 			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
@@ -214,13 +190,12 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register Content Browser Level creation: {}", Error);
-				LevelEditorWorkspace.reset();
-				WorkspaceRegistration.reset();
+				ReleaseLevelEditor(AssetEditors);
 				return false;
 			}
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 		}
-		const auto RegisterImport = [this, Workspace](
+		const auto RegisterImport = [this](
 			std::string Id, std::string Label, int32 Order,
 			Editor::Level::EImportDialogType Type) -> bool {
 			std::string Error;
@@ -233,19 +208,19 @@ namespace Durin
 				.IsApplicable = [](const auto& Context) {
 					return !Context.VirtualDirectory.empty();
 				},
-				.Invoke = [WeakWorkspace = std::weak_ptr(Workspace), Type](
-					const auto& Invocation) {
-					if (const std::shared_ptr<MLevelEditor> AdmittedWorkspace =
-						WeakWorkspace.lock())
-						AdmittedWorkspace->RequestContentBrowserImport(
-							Invocation.Context.VirtualDirectory, Type);
+				.Invoke = [Type](const auto& Invocation) {
+					auto* Service = Invocation.AssetEditors.Get();
+					if (!Service) return;
+					for (const auto& Session : Service->GetOwnedAssetEditors())
+					if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
+						Toolkit->RequestContentBrowserImport(Invocation.Context.VirtualDirectory, Type);
 				},
-				.DrawHostPresentation = [WeakWorkspace = std::weak_ptr(Workspace), Type](
-					bool bAllowAssetMutation) {
-					if (const std::shared_ptr<MLevelEditor> AdmittedWorkspace =
-						WeakWorkspace.lock())
-						AdmittedWorkspace->DrawContentBrowserImport(
-							Type, bAllowAssetMutation);
+				.DrawHostPresentation = [Type](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowed) {
+					auto* Service = Host.AssetEditors.Get();
+					if (!Service) return;
+					for (const auto& Session : Service->GetOwnedAssetEditors())
+					if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
+						Toolkit->DrawContentBrowserImport(Type, bAllowed);
 				},
 				}, Error);
 			if (!Handle.IsValid())
@@ -260,43 +235,40 @@ namespace Durin
 				"level.import-scene", "Scene Source (FBX)...", 300,
 				Editor::Level::EImportDialogType::Scene))
 		{
-			UnregisterLevelEditorWorkspace();
+			ReleaseLevelEditor(AssetEditors);
 			return false;
-		}
-		std::string PresentationError;
-		{
-			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
-				.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
-				.DisplayName = "Level",
-				.Category = Editor::ContentBrowser::EAssetCategory::Level,
-				.Icon = Icons::Home,
-			}, PresentationError);
-			if (!Handle.IsValid())
-			{
-				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterLevelEditorWorkspace();
-				return false;
-			}
-			Integration->TypePresentations.push_back(std::move(Handle));
 		}
 		return true;
 	}
 
-	LEVELEDITOR_API auto FLevelEditorModule::UnregisterLevelEditorWorkspace() -> void
+	auto FLevelEditorModule::GetOrCreateLevelEditor(DAssetEditorSubsystem& AssetEditors) -> DAssetEditor*
 	{
-		Integration->TypePresentations.clear();
-		Integration->ContentBrowserExtensions.clear();
-		WorkspaceRegistration.reset();
-		LevelEditorWorkspace.reset();
+		for (const auto& Session : AssetEditors.GetOwnedAssetEditors())
+			if (auto* Level = Cast<DLevelAssetEditor>(Session.Get())) { Level->FocusWindow(); return Level; }
+		auto* Levels = AssetEditors.GetEditor()->GetEditorSubsystem<DLevelEditorSubsystem>();
+		if (!Levels || !Levels->GetHostContext()) return nullptr;
+		auto* Session = NewObject<DLevelAssetEditor>(AssetEditors.GetEditor(), {});
+		Session->ConfigureHost(Levels->GetHostContext());
+		return AssetEditors.InitializeAssetEditor(*Session, {
+			.OpenArgs = {.AssetEditors = &AssetEditors, .ToolkitMode = EToolkitMode::WorldCentric},
+			.InitialDocuments = {{.ToolkitId = Workspace::Type,
+				.DocumentKey = "LevelEditor", .Label = "Level Editor"}}});
+	}
+
+	LEVELEDITOR_API auto FLevelEditorModule::ReleaseLevelEditor(DAssetEditorSubsystem& AssetEditors) -> void
+	{
+		for (const auto& Session : AssetEditors.GetOwnedAssetEditors())
+			if (Cast<DLevelAssetEditor>(Session.Get())) AssetEditors.RetireAssetEditor(*Session);
+		if (auto* Levels = AssetEditors.GetEditor()->GetEditorSubsystem<DLevelEditorSubsystem>()) Levels->SetHostContext({});
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::RequestOpenProject(
-		std::string ProjectFile) -> bool
+		DAssetEditorSubsystem& AssetEditors, std::string ProjectFile) -> bool
 	{
-		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
-		if (!Workspace) return false;
-		Workspace->RequestOpenProject(std::move(ProjectFile));
-		return true;
+		for (const auto& Session : AssetEditors.GetOwnedAssetEditors())
+			if (const auto Workspace = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
+			{ Workspace->RequestOpenProject(std::move(ProjectFile)); return true; }
+		return false;
 	}
 
 }

@@ -8,9 +8,12 @@
 #include "ThirdParty/ImGui/imgui.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Documents/EditorDocumentManager.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin::Editor::Material
 {
+	MMaterialParameterCollectionEditor::MMaterialParameterCollectionEditor(FEditorDocumentManager& InManager) : Manager(InManager)
+	{ if (auto* Service = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor()); }
 	auto MMaterialParameterCollectionEditor::GetToolkitId() const
 		-> const FAssetEditorToolkitId&
 	{
@@ -45,7 +48,8 @@ namespace Durin::Editor::Material
 		auto* Collection = Find(Document.ResourceId);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Collection))
 			if (!FinishEdit(true)) return;
-		Documents.Activate(Document, Collection);
+		if (IsReadOnly()) Documents.ActivateReadOnly(Document, Collection);
+		else Documents.Activate(Document, Collection);
 	}
 
 	auto MMaterialParameterCollectionEditor::RequestDeactivate() -> bool
@@ -65,7 +69,7 @@ namespace Durin::Editor::Material
 		return EDocumentCloseResult::Closed;
 	}
 
-	auto MMaterialParameterCollectionEditor::SaveDocument(
+	auto MMaterialParameterCollectionEditor::OnSaveDocument(
 		const FEditorDocument& Document) -> bool
 	{
 		if (!FinishEdit(false)) return false;
@@ -73,7 +77,7 @@ namespace Durin::Editor::Material
 			[this](std::string Message) { Report(std::move(Message)); });
 	}
 
-	auto MMaterialParameterCollectionEditor::DiscardDocument(
+	auto MMaterialParameterCollectionEditor::OnDiscardDocument(
 		const FEditorDocument& Document) -> bool
 	{
 		auto* Collection = Find(Document.ResourceId);
@@ -94,18 +98,18 @@ namespace Durin::Editor::Material
 					Replacement->FindTopLevelAsset(Collection->GetFName()));
 	}
 
-	auto MMaterialParameterCollectionEditor::IsDocumentDirty(
+	auto MMaterialParameterCollectionEditor::OnIsDocumentDirty(
 		const FEditorDocument& Document) const -> bool
 	{
 		return Documents.IsDirty(Find(Document.ResourceId));
 	}
 
-	auto MMaterialParameterCollectionEditor::CanSaveActiveDocument() const -> bool
+	auto MMaterialParameterCollectionEditor::OnCanSaveActiveDocument() const -> bool
 	{
 		return Documents.CanSave(Active());
 	}
 
-	auto MMaterialParameterCollectionEditor::SaveActiveDocument() -> bool
+	auto MMaterialParameterCollectionEditor::OnSaveActiveDocument() -> bool
 	{
 		const auto Resource = std::string(Documents.GetActiveResourceId());
 		if (Resource.empty()) return false;
@@ -114,11 +118,11 @@ namespace Durin::Editor::Material
 			[this](std::string Message) { Report(std::move(Message)); });
 	}
 
-	auto MMaterialParameterCollectionEditor::DrawToolkit(bool bActive) -> bool
+	auto MMaterialParameterCollectionEditor::OnDrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishEdit(true);
 		return Documents.GetTabManager().DrawDocuments(
-			Manager, Workspace::CollectionType, Workspace::CollectionRootKey,
+			Manager, Workspace::CollectionType, GetPresentationRootKey(Workspace::CollectionRootKey),
 			[this](const FEditorDocument& Document) {
 				return Find(Document.ResourceId) != nullptr;
 			}, [this](const FEditorDocument& Document) {
@@ -171,11 +175,17 @@ namespace Durin::Editor::Material
 		return {
 			.ReportError = [this](std::string Message) {
 				Report(std::move(Message));
-			}};
+			}, .bReadOnly = IsReadOnly()};
 	}
 
 	auto MMaterialParameterCollectionEditor::Report(std::string Message) -> void
 	{
 		ErrorMessage = std::move(Message);
 	}
+	auto MMaterialParameterCollectionEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
+	{
+		if (auto Node = Collections.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; Collections.insert(std::move(Node)); }
+		Documents.RemapResourceId(Source, Destination);
+	}
+
 }

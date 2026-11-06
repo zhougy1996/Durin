@@ -296,6 +296,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		Session.Query.Search.clear();
 		Session.Query.TypeFilter = EContentBrowserTypeFilter::All;
+		Session.Query.CategoryPath.clear();
 		RefreshItemsSnapshot(false);
 
 		if (bAsync && IsLoading())
@@ -457,6 +458,13 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::SetTypeFilter(EContentBrowserTypeFilter Filter) -> void
 	{
 		Session.Query.TypeFilter = Filter;
+		Session.Query.CategoryPath.clear();
+		RebuildItems();
+	}
+	auto FContentBrowserModel::SetCategoryPath(std::vector<std::string> Path) -> void
+	{
+		Session.Query.TypeFilter = EContentBrowserTypeFilter::Assets;
+		Session.Query.CategoryPath = std::move(Path);
 		RebuildItems();
 	}
 

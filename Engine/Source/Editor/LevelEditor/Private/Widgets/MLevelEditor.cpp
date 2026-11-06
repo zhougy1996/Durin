@@ -8,6 +8,7 @@
 #include "Notifications/Notification.h"
 #include "Transactions/Transaction.h"
 #include "Documents/EditorDocumentManager.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "Framework/TabLayout.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
@@ -47,19 +48,27 @@ namespace Durin::Editor::Level
 	} // namespace
 
 	// MLevelEditor is the composition root for the editor-specific controllers.
-	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
+	MLevelEditor::MLevelEditor(std::shared_ptr<FLevelEditorSessionSettings> InSessionSettings,
 		FEditorDocumentManager& InWorkspaceManager,
 		FContentBrowserCallbacks InContentBrowserCallbacks,
-		std::function<void()> InOpenProjectBrowser)
-		: SessionSettings(InSessionSettings)
+		std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost)
+		: FBaseAssetToolkit(false, false)
+		, EditorOwner(&EditorHost)
+		, SessionSettingsOwner(std::move(InSessionSettings))
+		, SessionSettings(*SessionSettingsOwner)
 		, DocumentManager(InWorkspaceManager)
 		, ContentBrowserCallbacks(std::move(InContentBrowserCallbacks))
 		, OpenProjectBrowser(std::move(InOpenProjectBrowser))
 	{
 	}
 
-	MLevelEditor::~MLevelEditor()
+	MLevelEditor::~MLevelEditor() { ReleaseSessionUI(); }
+
+	auto MLevelEditor::ReleaseSessionUI() -> void
 	{
+		if (bReleased) return;
+		bReleased = true;
+		FBaseAssetToolkit::ReleaseSessionUI();
 		ViewportSettingsPage = {};
 		ProjectSettingsPage = {};
 		if (Context && Context->EditorHost) Context->EditorHost->SetStartupLevelCallbacks({});
@@ -72,6 +81,12 @@ namespace Durin::Editor::Level
 		if (DocumentController) (void)DocumentController->CloseLevel();
 		DocumentController.reset();
 		AssetMoveCoordinator.reset();
+		SceneImportDialog.reset();
+		Panels.clear();
+		SceneViewportPanel = nullptr; RenderingDiagnosticsPanel = nullptr; DetailsPanel = nullptr;
+		Context.reset();
+		ContentBrowserCallbacks = {};
+		OpenProjectBrowser = {};
 	}
 
 	auto MLevelEditor::Construct() -> void
@@ -83,14 +98,14 @@ namespace Durin::Editor::Level
 		CreateImportDialogs();
 		FinalizeSessionConstruction();
 		ViewportSettingsPage = FEditorSettingsPageRegistration({
-			.Id = "editor.viewport", .Label = "Viewport and Controls",
+			.Id = "editor.viewport.host." + std::to_string(FObjectKeyHash{}(FObjectKey(EditorOwner.Get()))), .Label = "Viewport and Controls",
 			.Keywords = "camera movement speed grid statistics snap translation rotation scale gizmo",
 			.Description = "Level viewport navigation, overlays and transform snapping. Changes take effect immediately and stay in sync with the viewport toolbar.",
 			.Draw = [this](std::string& Error) { DrawViewportPreferences(Error); },
 			.Reset = [this] { return ResetViewportPreferences(); },
 		});
 		ProjectSettingsPage = FEditorSettingsPageRegistration({
-			.Id = "project.general", .Label = "General and Startup",
+			.Id = "project.general.host." + std::to_string(FObjectKeyHash{}(FObjectKey(EditorOwner.Get()))), .Label = "General and Startup",
 			.Keywords = "project name file default level startup",
 			.Description = "Settings shared by the current project. Apply saves the default startup level.",
 			.bProject = true,
@@ -102,7 +117,7 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::InitializeContext() -> void
 	{
 		Context = std::make_unique<FLevelEditorContext>();
-		Context->EditorHost = GEditor;
+		Context->EditorHost = EditorOwner.Get();
 		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
 		Context->RenameLevel = [this](std::string_view NewName) {
 			return DocumentController && DocumentController->RenameCurrentLevel(NewName);
@@ -122,8 +137,7 @@ namespace Durin::Editor::Level
 			const FAssetPathResolveResult Resolution =
 				ResolveAssetPathForOperation(Path);
 			if (Resolution && Resolution.FinalAssetData
-				&& DocumentManager.OpenAsset(
-					Resolution.FinalPath.ToString(), Resolution.FinalAssetData->AssetClassName)) return true;
+				&& OpenRelatedAsset(Resolution.FinalPath.ToString(), Resolution.FinalAssetData->AssetClassName)) return true;
 			Error = "The loaded asset could not be opened.";
 			return false;
 		};
@@ -137,7 +151,7 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::CreatePanels() -> void
 	{
-		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
+		auto SceneViewport = std::make_unique<FSceneViewportPanel>(Context->EditorHost);
 		SceneViewportPanel = SceneViewport.get();
 		Context->FocusActor = [this](AActor* Actor) {
 			if (SceneViewportPanel) SceneViewportPanel->FocusActor(Actor);
@@ -173,10 +187,10 @@ namespace Durin::Editor::Level
 			*AssetMoveCoordinator,
 			[this] { EditorError.clear(); },
 			[this](std::string Message) { SetError(std::move(Message)); },
-			[this](bool bSucceeded) {
+			[this](bool bSucceeded, bool bCancelled) {
 				if (!DeferredOpenDocumentId.IsValid()) return;
 				const FDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
-				if (!DocumentManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded))
+				if (!DocumentManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded, bCancelled ? EAssetOpenStatus::Cancelled : EAssetOpenStatus::Failed))
 					SetError("The deferred level document request is no longer available.");
 			}
 		);
@@ -191,16 +205,16 @@ namespace Durin::Editor::Level
 			.AssetCreated = [this](std::string AssetPath) {
 				if (ContentBrowserCallbacks.NotifyMountedContentChanged)
 					ContentBrowserCallbacks.NotifyMountedContentChanged();
-				else if (GEditor)
-					GEditor->GetTransactor()->NotifyMountedContentMutation();
+				else if (Context->EditorHost)
+					Context->EditorHost->GetTransactor()->NotifyMountedContentMutation();
 				if (ContentBrowserCallbacks.RevealAsset)
 					ContentBrowserCallbacks.RevealAsset(AssetPath);
 			},
 			.ImportedDirectory = [this](std::string DirectoryPath) {
 				if (ContentBrowserCallbacks.NotifyMountedContentChanged)
 					ContentBrowserCallbacks.NotifyMountedContentChanged();
-				else if (GEditor)
-					GEditor->GetTransactor()->NotifyMountedContentMutation();
+				else if (Context->EditorHost)
+					Context->EditorHost->GetTransactor()->NotifyMountedContentMutation();
 				if (ContentBrowserCallbacks.RevealDirectory)
 					ContentBrowserCallbacks.RevealDirectory(DirectoryPath);
 			},
@@ -235,7 +249,7 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::FinalizeSessionConstruction() -> void
 	{
-		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
+		Context->Synchronize(Context->EditorHost != nullptr ? Context->EditorHost->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 		if (Context->EditorHost)
 		{
 			auto Callbacks = DocumentController->MakeStartupLevelCallbacks();
@@ -243,7 +257,8 @@ namespace Durin::Editor::Level
 			Callbacks.PrepareDocument = [this, PrepareDocument = std::move(PrepareDocument)] {
 				if (!PrepareDocument()) return false;
 				RootWindow.RequestFocus();
-				return true;
+				const auto Documents = DocumentManager.GetDocuments();
+				return !Documents.empty() && (!Context->Level || DocumentManager.AssociateDocumentAsset(Documents.front().Id, Context->Level));
 			};
 			Context->EditorHost->SetStartupLevelCallbacks(std::move(Callbacks));
 		}
@@ -321,6 +336,13 @@ namespace Durin::Editor::Level
 		return Workspace::Type;
 	}
 
+	auto MLevelEditor::CancelPendingOpen() -> bool
+	{
+		if (!DocumentController || !DocumentController->IsOpening()) return true;
+		DocumentController->CancelPendingOpen();
+		return !DocumentController->IsOpening();
+	}
+
 	auto MLevelEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Opened;
@@ -356,24 +378,24 @@ namespace Durin::Editor::Level
 		return EDocumentCloseResult::Closed;
 	}
 
-	auto MLevelEditor::SaveDocument(const FEditorDocument& Document) -> bool
+	auto MLevelEditor::OnSaveDocument(const FEditorDocument& Document) -> bool
 	{
 		(void)Document;
 		return SaveActiveDocument();
 	}
 
-	auto MLevelEditor::DiscardDocument(const FEditorDocument& Document) -> bool
+	auto MLevelEditor::OnDiscardDocument(const FEditorDocument& Document) -> bool
 	{
 		(void)Document;
 		if (!Context || !Context->Level || !Context->Level->GetPackage()) return false;
 		DPackage* Package = Context->Level->GetPackage();
 		FLevelDocumentRevisionState::Discard(
-			GEditor ? GEditor->GetTransactor() : nullptr, *Package
+			Context->EditorHost ? Context->EditorHost->GetTransactor() : nullptr, *Package
 		);
 		return true;
 	}
 
-	auto MLevelEditor::IsDocumentDirty(const FEditorDocument& Document) const -> bool
+	auto MLevelEditor::OnIsDocumentDirty(const FEditorDocument& Document) const -> bool
 	{
 		(void)Document;
 		return Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
@@ -392,7 +414,7 @@ namespace Durin::Editor::Level
 		}
 	}
 
-	auto MLevelEditor::DrawToolkit(bool bActive) -> bool
+	auto MLevelEditor::OnDrawToolkit(bool bActive) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.DrawToolkit");
 		if (!Context || !DocumentController) return false;
@@ -431,32 +453,32 @@ namespace Durin::Editor::Level
 			return RootWindowState.bActivated;
 		}
 
-		bool bPlaying = GEditor && GEditor->IsPlaying();
+		bool bPlaying = Context->EditorHost && Context->EditorHost->IsPlaying();
 		Context->bReadOnly = bPlaying || DocumentController->IsOpening()
-			|| (GEditor && GEditor->GetStartupState() != EHostStartupState::Ready);
-		Context->Synchronize(GEditor != nullptr
-			? (bPlaying ? GEditor->GetPlayWorld() : GEditor->GetEditorWorld())
+			|| (Context->EditorHost && Context->EditorHost->GetStartupState() != EHostStartupState::Ready);
+		Context->Synchronize(Context->EditorHost != nullptr
+			? (bPlaying ? Context->EditorHost->GetPlayWorld() : Context->EditorHost->GetEditorWorld())
 			: (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (bActive || RootWindowState.bFocused)
 		{
-			if (!DocumentController->IsOpening() && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false) && GEditor)
+			if (!DocumentController->IsOpening() && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false) && Context->EditorHost)
 			{
-				if (GEditor->IsPlaying()) GEditor->StopPlaySession();
+				if (Context->EditorHost->IsPlaying()) Context->EditorHost->StopPlaySession();
 				else
 				{
 					StartPlay(EPlayStartLocation::LevelStart, IO.KeyCtrl ? EPlayDestination::NewWindow : EPlayDestination::EmbeddedViewport);
 				}
 			}
-			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
-			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F7, false) && GEditor) GEditor->StepPlaySession();
+			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && Context->EditorHost && Context->EditorHost->IsPlaying()) Context->EditorHost->SetPlaySessionPaused(!Context->EditorHost->IsPlaySessionPaused());
+			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F7, false) && Context->EditorHost) Context->EditorHost->StepPlaySession();
 		}
-		if (GEditor && bPlaying != GEditor->IsPlaying())
+		if (Context->EditorHost && bPlaying != Context->EditorHost->IsPlaying())
 		{
-			bPlaying = GEditor->IsPlaying();
+			bPlaying = Context->EditorHost->IsPlaying();
 			Context->bReadOnly = bPlaying || DocumentController->IsOpening()
-				|| GEditor->GetStartupState() != EHostStartupState::Ready;
-			Context->Synchronize(bPlaying ? GEditor->GetPlayWorld() : GEditor->GetEditorWorld());
+				|| Context->EditorHost->GetStartupState() != EHostStartupState::Ready;
+			Context->Synchronize(bPlaying ? Context->EditorHost->GetPlayWorld() : Context->EditorHost->GetEditorWorld());
 		}
 		ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 		const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
@@ -495,53 +517,53 @@ namespace Durin::Editor::Level
 		return RootWindowState.bFocused || RootWindowState.bActivated;
 	}
 
-	auto MLevelEditor::CanSaveActiveDocument() const -> bool
+	auto MLevelEditor::OnCanSaveActiveDocument() const -> bool
 	{
 		return DocumentController && DocumentController->CanSaveCurrentLevel();
 	}
 
-	auto MLevelEditor::SaveActiveDocument() -> bool
+	auto MLevelEditor::OnSaveActiveDocument() -> bool
 	{
 		return CanSaveActiveDocument() && DocumentController->SaveCurrentLevel();
 	}
 
-	auto MLevelEditor::CanUndo() const -> bool
+	auto MLevelEditor::OnCanUndo() const -> bool
 	{
 		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
 		return !(DocumentController && DocumentController->IsOpening())
-			&& !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanUndo();
+			&& !(Context->EditorHost && Context->EditorHost->IsPlaying()) && !bDragging && Context->EditorHost && Context->EditorHost->GetTransactor()->CanUndo();
 	}
 
-	auto MLevelEditor::CanRedo() const -> bool
+	auto MLevelEditor::OnCanRedo() const -> bool
 	{
 		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
 		return !(DocumentController && DocumentController->IsOpening())
-			&& !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanRedo();
+			&& !(Context->EditorHost && Context->EditorHost->IsPlaying()) && !bDragging && Context->EditorHost && Context->EditorHost->GetTransactor()->CanRedo();
 	}
 
 	auto MLevelEditor::GetUndoDescription() const -> std::string
 	{
-		return CanUndo() ? GEditor->GetTransactor()->GetUndoContext().Description : std::string{};
+		return CanUndo() ? Context->EditorHost->GetTransactor()->GetUndoContext().Description : std::string{};
 	}
 
 	auto MLevelEditor::GetRedoDescription() const -> std::string
 	{
-		return CanRedo() ? GEditor->GetTransactor()->GetRedoContext().Description : std::string{};
+		return CanRedo() ? Context->EditorHost->GetTransactor()->GetRedoContext().Description : std::string{};
 	}
 
-	auto MLevelEditor::Undo() -> bool
+	auto MLevelEditor::OnUndo() -> bool
 	{
-		return CanUndo() && GEditor->GetTransactor()->Undo();
+		return CanUndo() && Context->EditorHost->GetTransactor()->Undo();
 	}
 
-	auto MLevelEditor::Redo() -> bool
+	auto MLevelEditor::OnRedo() -> bool
 	{
-		return CanRedo() && GEditor->GetTransactor()->Redo();
+		return CanRedo() && Context->EditorHost->GetTransactor()->Redo();
 	}
 
 	auto MLevelEditor::DrawFileMenu() -> void
 	{
-		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		const bool bPlaying = Context->EditorHost && Context->EditorHost->IsPlaying();
 		if (bPlaying) ImGui::BeginDisabled();
 		if (ImGui::MenuItem("Open Project...") && OpenProjectBrowser)
 			OpenProjectBrowser();
@@ -556,12 +578,12 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::DrawEditMenu() -> void
 	{
-		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		const bool bPlaying = Context->EditorHost && Context->EditorHost->IsPlaying();
 		if (bPlaying) ImGui::BeginDisabled();
 		if (ImGui::MenuItem("Project Settings..."))
 		{
 			PendingDefaultLevel = DefaultLevel;
-			FEditorSettingsRegistry::Get().RequestOpen("project.general");
+			FEditorSettingsRegistry::Get().RequestOpen("project.general.host." + std::to_string(FObjectKeyHash{}(FObjectKey(EditorOwner.Get()))));
 		}
 		if (bPlaying) ImGui::EndDisabled();
 	}
@@ -586,7 +608,7 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::DrawProjectSettings(std::string& OutError) -> void
 	{
-		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		const bool bPlaying = Context->EditorHost && Context->EditorHost->IsPlaying();
 		if (bPlaying) ImGui::TextDisabled("Stop Play before changing project settings.");
 		ImGui::BeginDisabled(bPlaying);
 		const FProjectInfo* Project = GetCurrentProject();
@@ -696,7 +718,7 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::StartPlay(EPlayStartLocation StartLocation, EPlayDestination Destination) -> void
 	{
 		if (DocumentController && DocumentController->IsOpening()) return;
-		if (!GEditor || !Context || !Context->Level) return;
+		if (!Context->EditorHost || !Context || !Context->Level) return;
 		if (!RequestDeactivate()) return;
 		if (SceneViewportPanel) SceneViewportPanel->SetPreferredPlayMode(StartLocation, Destination);
 		FPlayRequest Request;
@@ -719,12 +741,12 @@ namespace Durin::Editor::Level
 			Request.CameraTarget = Request.CameraLocation + Forward;
 		}
 		std::string Error;
-		if (!GEditor->StartPlaySession(Request, &Error)) SetError(std::move(Error));
+		if (!Context->EditorHost->StartPlaySession(Request, &Error)) SetError(std::move(Error));
 	}
 
 	auto MLevelEditor::ApplyPlayChanges(bool bSelectedOnly) -> void
 	{
-		if (!GEditor || !Context) return;
+		if (!Context->EditorHost || !Context) return;
 		std::vector<AActor*> Actors;
 		if (bSelectedOnly)
 		{
@@ -732,7 +754,7 @@ namespace Durin::Editor::Level
 		}
 		uint32 AppliedCount = 0;
 		std::string Error;
-		if (!GEditor->ApplyPlaySessionChanges(Actors, &AppliedCount, &Error))
+		if (!Context->EditorHost->ApplyPlaySessionChanges(Actors, &AppliedCount, &Error))
 		{
 			SetError(std::move(Error));
 			return;

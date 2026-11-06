@@ -232,7 +232,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	};
 	const auto Saved = Render();
 	SaveEvidence("saved", Saved);
-	Editor::FEditableAssetDocumentModel Documents;
+	FEditableAssetDocumentModel Documents;
 	ASSERT_TRUE(Documents.Activate({.Id = {1}, .ResourceId = WeatherPath.ToString()}, Weather));
 	SetWeather(*Weather, 0);
 	Weather->GetPackage()->MarkDirty();

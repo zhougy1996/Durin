@@ -36,17 +36,17 @@
 
 namespace
 {
-	class FReloadTestWorkspace final : public Durin::Editor::IAssetEditorToolkit
+	class FReloadTestWorkspace final : public Durin::IAssetEditorToolkit
 	{
 	public:
-		auto GetToolkitId() const -> const Durin::Editor::FAssetEditorToolkitId& override { return Type; }
-		auto OpenDocument(const Durin::Editor::FEditorDocument&) -> Durin::Editor::EDocumentOpenResult override
-		{ return Durin::Editor::EDocumentOpenResult::Opened; }
-		auto ActivateDocument(const Durin::Editor::FEditorDocument&) -> void override {}
+		auto GetToolkitId() const -> const Durin::FAssetEditorToolkitId& override { return Type; }
+		auto OpenDocument(const Durin::FEditorDocument&) -> Durin::EDocumentOpenResult override
+		{ return Durin::EDocumentOpenResult::Opened; }
+		auto ActivateDocument(const Durin::FEditorDocument&) -> void override {}
 		auto DrawToolkit(bool) -> bool override { return false; }
 		auto ResetLayout() -> void override {}
 	private:
-		Durin::Editor::FAssetEditorToolkitId Type{"ReloadTest"};
+		Durin::FAssetEditorToolkitId Type{"ReloadTest"};
 	};
 
 	auto CaptureFunctionExpressions(const Durin::DMaterialFunction& Function)
@@ -132,12 +132,10 @@ namespace
 			if constexpr (std::is_same_v<T, Durin::DTexture2D>) Cloud->SetWeatherTexture(Texture);
 			else Cloud->SetBaseDensityTexture(Texture);
 
-			Durin::Editor::FEditableAssetDocumentModel Documents;
-			Durin::Editor::FEditorDocumentManager Manager;
+			Durin::FEditableAssetDocumentModel Documents;
+			Durin::FEditorDocumentManager Manager;
 			auto Workspace = std::make_shared<FReloadTestWorkspace>();
-			auto Registration = Manager.RegisterBatch({.Toolkits = {{
-				.Descriptor = {.ToolkitId = Workspace->GetToolkitId(),
-					.DisplayName = "Reload test", .RootKey = "ReloadTest"}, .Toolkit = Workspace}}});
+			ASSERT_TRUE(Manager.AttachSessionToolkit(Workspace, {}));
 			const auto Document = Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 				.DocumentKey = Texture->GetObjectPath(), .ResourceId = Texture->GetObjectPath(), .Label = "Texture"});
 			ASSERT_TRUE(Document.IsValid());
@@ -163,7 +161,7 @@ namespace
 			Cloud->SetWeatherTexture(nullptr);
 			Cloud->SetBaseDensityTexture(nullptr);
 			EXPECT_EQ(Durin::ValidatePackageRemovalReferences(Paths).Error, Durin::EAssetWriteError::InUse);
-			EXPECT_EQ(Manager.RequestCloseDocument(Document), Durin::Editor::EDocumentCloseResult::Closed);
+			EXPECT_EQ(Manager.RequestCloseDocument(Document), Durin::EDocumentCloseResult::Closed);
 			EXPECT_TRUE(Durin::ValidatePackageRemovalReferences(Paths));
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 			Texture = nullptr;
@@ -311,7 +309,7 @@ TEST_F(FAssetPackageReloadTests, MaterialDiscardRestoresBaseAndInstanceAuthoredS
 	EXPECT_EQ(External->GetParent(), Material);
 	EXPECT_EQ(GetLoadedDirectMaterialChildren(Material), std::vector<FObjectKey>{FObjectKey(External.Get())});
 
-	Editor::FEditableAssetDocumentModel Documents;
+	FEditableAssetDocumentModel Documents;
 	std::string ReloadError;
 	ASSERT_TRUE(Documents.Discard(Material, {}, {},
 		[&](std::string Message) { ReloadError = std::move(Message); })) << ReloadError;
@@ -549,7 +547,7 @@ TEST_F(FAssetPackageReloadTests, ReloadsEveryTopLevelExportAndRebindsExternalRef
 	ASSERT_TRUE(SetSource(*Secondary, std::byte{44}, Error)) << Error;
 	Primary->GetPackage()->MarkDirty();
 
-	Editor::FEditableAssetDocumentModel Documents;
+	FEditableAssetDocumentModel Documents;
 	std::string DiscardError;
 	ASSERT_TRUE(Documents.Discard(Primary, {}, {},
 		[&](std::string Message) { DiscardError = std::move(Message); })) << DiscardError;
@@ -765,7 +763,7 @@ TEST_F(FAssetPackageReloadTests, DiscardUsesLatestSaveDespiteDirtyActivationAndF
 	ASSERT_TRUE(SetSource(*Texture, std::byte{91}, Error));
 	Texture->GetPackage()->MarkDirty();
 	Cloud->SetWeatherTexture(Texture);
-	Editor::FEditableAssetDocumentModel Documents;
+	FEditableAssetDocumentModel Documents;
 	ASSERT_TRUE(Documents.Activate({.Id = {1}, .ResourceId = Path.ToString()}, Texture));
 	EXPECT_FALSE(Documents.Save(Texture, [] { return false; }, [](std::string) {}));
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
@@ -865,7 +863,7 @@ TEST_F(FAssetPackageReloadTests, DocumentDiscardPreservesReinstancedHistoryAndTr
 		ASSERT_TRUE(Scope.End());
 	}
 	Cloud->SetWeatherTexture(Texture);
-	Editor::FEditableAssetDocumentModel Documents;
+	FEditableAssetDocumentModel Documents;
 	ASSERT_TRUE(Documents.Activate({.Id = {1}, .ResourceId = Path.ToString()}, Texture));
 	ASSERT_TRUE(Documents.Discard(Texture, {}, {}, [&](std::string Message) { Error = std::move(Message); })) << Error;
 	Texture = Cloud->GetWeatherTexture(); ASSERT_NE(Texture, nullptr);

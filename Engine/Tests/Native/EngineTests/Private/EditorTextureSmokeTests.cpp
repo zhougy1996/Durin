@@ -1,3 +1,5 @@
+#include "Editor/AssetEditorTestHost.h"
+#include "Toolkits/AssetEditorToolkit.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
@@ -226,20 +228,16 @@ namespace Durin
 		auto BeforeSaveRead = FFileHelper::LoadFileToArray(MaterialFile);
 		ASSERT_TRUE(BeforeSaveRead) << BeforeSaveRead.error().ToString();
 		BeforeSave = std::move(*BeforeSaveRead);
-		Editor::FEditorDocumentManager DocumentManager;
-		Editor::DThumbnailManager ThumbnailManager;
 		Durin::FMaterialEditorModule MaterialEditorModule;
 		Durin::FModuleTestHarness MaterialEditorHarness("MaterialEditor");
 		MaterialEditorHarness.Start(MaterialEditorModule);
-		ASSERT_TRUE(MaterialEditorModule.RegisterToolkits(
-			DocumentManager, ThumbnailManager));
-		const FObjectPath MaterialObjectPath =
-			Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath);
-		ASSERT_TRUE(DocumentManager.OpenAsset(
+		Testing::FScopedAssetEditorTestHost TestHost;
+		ASSERT_NE(nullptr, TestHost.GetService());
+		const FObjectPath MaterialObjectPath = Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath);
+		ASSERT_TRUE(TestHost.Open(
 			MaterialObjectPath.ToString(),
 			DMaterial::StaticClass()->GetQualifiedName().ToString()));
-		auto MaterialWorkspace = DocumentManager.FindToolkit(
-			Editor::FAssetEditorToolkitId("MaterialEditor"));
+		auto MaterialWorkspace = TestHost.GetService()->GetActiveAssetToolkit();
 		ASSERT_NE(MaterialWorkspace, nullptr);
 		LoadedMaterial->MarkPackageDirty();
 		EXPECT_TRUE(MaterialWorkspace->CanSaveActiveDocument());
@@ -253,6 +251,7 @@ namespace Durin
 		EXPECT_EQ(FindAssetExact(MaterialPath)
 			->FormatVersion, OrdinaryAssetPackageWriterVersion);
 
+		TestHost.Shutdown();
 		MaterialWorkspace.reset();
 		MaterialEditorHarness.Shutdown();
 		ShutdownRenderingThread();

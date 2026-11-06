@@ -4,6 +4,7 @@
 #include "Widgets/MWindow.h"
 #include "MonaGlobals.h"
 #include "MonaCoreGlobals.h"
+#include "ViewportClosePolicyPrivate.h"
 
 namespace Durin::MonaImGui
 {
@@ -47,6 +48,7 @@ namespace Durin::MonaImGui
 
 	auto Shutdown() -> void
 	{
+		ResetViewportClosePolicies();
 		if (!Backend) return;
 		try
 		{

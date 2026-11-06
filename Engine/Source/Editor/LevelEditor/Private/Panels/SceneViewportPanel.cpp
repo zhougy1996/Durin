@@ -48,8 +48,9 @@ namespace Durin::Editor::Level
 
 	} // namespace
 
-	FSceneViewportPanel::FSceneViewportPanel()
-		: PreferredPlayStartLocation(EPlayStartLocation::LevelStart)
+	FSceneViewportPanel::FSceneViewportPanel(DEditorEngine* Editor)
+		: EditorOwner(Editor)
+		, PreferredPlayStartLocation(EPlayStartLocation::LevelStart)
 		, PreferredPlayDestination(EPlayDestination::EmbeddedViewport)
 	{
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
@@ -58,9 +59,9 @@ namespace Durin::Editor::Level
 		SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get());
 		SceneViewport->RequestResourcePreparation();
 		ViewportWidget->SetDisplaySource(SceneViewport);
-		if (GEngine != nullptr)
+		if (EditorOwner.Get() != nullptr)
 		{
-			GEngine->SetMainSceneViewport(SceneViewport);
+			EditorOwner.Get()->SetMainSceneViewport(SceneViewport);
 		}
 
 		CameraPreviewViewportClient = std::make_unique<FCameraPreviewViewportClient>();
@@ -68,7 +69,7 @@ namespace Durin::Editor::Level
 		CameraPreviewSceneViewport = FSceneViewport::CreateOffscreen(CameraPreviewViewportClient.get());
 		CameraPreviewSceneViewport->RequestResourcePreparation();
 		CameraPreviewViewportWidget->SetDisplaySource(CameraPreviewSceneViewport);
-		if (GEngine != nullptr) GEngine->RegisterAuxiliarySceneViewport(CameraPreviewSceneViewport);
+		if (EditorOwner.Get() != nullptr) EditorOwner.Get()->RegisterAuxiliarySceneViewport(CameraPreviewSceneViewport);
 		RegisterViewportConsoleCommands();
 	}
 
@@ -95,9 +96,9 @@ namespace Durin::Editor::Level
 	{
 		for (const FConsoleCommandHandle Handle : ViewportConsoleCommandHandles)
 			FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
-		if (GEngine != nullptr) GEngine->UnregisterAuxiliarySceneViewport(CameraPreviewSceneViewport.get());
+		if (EditorOwner.Get() != nullptr) EditorOwner.Get()->UnregisterAuxiliarySceneViewport(CameraPreviewSceneViewport.get());
 		CameraPreviewSceneViewport.reset();
-		if (GEngine != nullptr) GEngine->SetMainSceneViewport(nullptr);
+		if (EditorOwner.Get() != nullptr) EditorOwner.Get()->SetMainSceneViewport(nullptr);
 		SceneViewport.reset();
 	}
 
@@ -271,8 +272,9 @@ namespace Durin::Editor::Level
 			ImGui::SetNextWindowCollapsed(false, ImGuiCond_Always);
 			ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
 		}
+		ViewportClient->SetEditorOwner(Context.EditorHost);
 		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
-		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
+		const bool bPlayingInNewWindow = Context.EditorHost && Context.EditorHost->IsPlayingInNewWindow();
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		const bool bPanelVisible = TabLayout::BeginDockablePanel(
 			Workspace::Type,
@@ -284,7 +286,7 @@ namespace Durin::Editor::Level
 		ImGui::PopStyleVar();
 		if (!bPanelVisible)
 		{
-			if (GEditor && !bPlayingInNewWindow) GEditor->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
+			if (Context.EditorHost && !bPlayingInNewWindow) Context.EditorHost->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(nullptr);
 			bViewportHovered = false;
@@ -295,7 +297,7 @@ namespace Durin::Editor::Level
 
 		if (Context.Level == nullptr)
 		{
-			if (GEditor && !bPlayingInNewWindow) GEditor->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
+			if (Context.EditorHost && !bPlayingInNewWindow) Context.EditorHost->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(nullptr);
 			bViewportHovered = false;
@@ -362,7 +364,7 @@ namespace Durin::Editor::Level
 								*Context.Level,
 								TextureCube,
 								FName(std::format("{}_SkyBox", AssetPath.GetAssetPath().GetAssetName())),
-								GEditor ? GEditor->GetTransactor() : nullptr,
+								Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr,
 								Context.bReadOnly);
 							if (!Result)
 								Context.SetError(Result.Message);
@@ -379,8 +381,8 @@ namespace Durin::Editor::Level
 					ImGui::EndDragDropTarget();
 				}
 				EditModeManager.Synchronize(Context);
-				FViewportClient* RenderSettingsClient = bPlayingInNewWindow && GEditor
-					? GEditor->GetPlayViewportRenderSettingsClient()
+				FViewportClient* RenderSettingsClient = bPlayingInNewWindow && Context.EditorHost
+					? Context.EditorHost->GetPlayViewportRenderSettingsClient()
 					: ViewportClient.get();
 				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(
 					RenderSettingsClient, bPlayingInNewWindow,
@@ -407,7 +409,7 @@ namespace Durin::Editor::Level
 					bViewportHovered = true;
 				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-				if (GEditor && Context.bReadOnly && !bPlayingInNewWindow)
+				if (Context.EditorHost && Context.bReadOnly && !bPlayingInNewWindow)
 				{
 					std::shared_ptr<FGenericWindow> HostWindow;
 					FGenericWindow* HostWindowRaw = static_cast<FGenericWindow*>(ImGui::GetWindowViewport()->PlatformHandle);
@@ -421,7 +423,7 @@ namespace Durin::Editor::Level
 					}
 					const bool bCaptureClicked = bViewportHovered && !bToolbarHovered && !bPopupOpen
 						&& ImGui::IsMouseClicked(ImGuiMouseButton_Left);
-					GEditor->UpdateEmbeddedPlayMouseTarget(HostWindow, bViewportFocused, bCaptureClicked);
+					Context.EditorHost->UpdateEmbeddedPlayMouseTarget(HostWindow, bViewportFocused, bCaptureClicked);
 				}
 				if (Context.bReadOnly)
 				{
@@ -429,16 +431,16 @@ namespace Durin::Editor::Level
 					ViewportClient->SetSelectedActors({}, nullptr);
 				}
 				else UpdateViewportInput(Context, ToolbarLayout);
-				if (GEditor && GEditor->IsPlaying())
+				if (Context.EditorHost && Context.EditorHost->IsPlaying())
 				{
-					DrawViewportPlayStateBorder(VpMin, VpMax, GEditor->IsPlaySessionPaused());
+					DrawViewportPlayStateBorder(VpMin, VpMax, Context.EditorHost->IsPlaySessionPaused());
 				}
 				ViewportToolbar->Draw(
 					Context, ViewportClient.get(), RenderSettingsClient, &EditModeManager,
 					PreferredPlayStartLocation, PreferredPlayDestination, ToolbarLayout);
 				DrawCameraPreview(VpMin, VpMax);
 				if (ShouldDrawViewportOrientationOverlay(
-					GEditor && GEditor->IsPlaying(), bPlayingInNewWindow))
+					Context.EditorHost && Context.EditorHost->IsPlaying(), bPlayingInNewWindow))
 				{
 					DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
 				}
@@ -453,8 +455,8 @@ namespace Durin::Editor::Level
 				{
 					ImDrawList* DrawList = ImGui::GetWindowDrawList();
 					const char* Status = bPlayingInNewWindow ? "PLAYING IN NEW WINDOW"
-						: GEditor && GEditor->IsPlaySessionPaused() ? "PLAY PAUSED"
-						: GEditor && !GEditor->IsPlayMouseCaptured() ? "CLICK TO CAPTURE MOUSE"
+						: Context.EditorHost && Context.EditorHost->IsPlaySessionPaused() ? "PLAY PAUSED"
+						: Context.EditorHost && !Context.EditorHost->IsPlayMouseCaptured() ? "CLICK TO CAPTURE MOUSE"
 						: "PLAYING";
 					const ImVec2 TextSize = ImGui::CalcTextSize(Status);
 					const ImVec2 Padding(MonaImGui::ScaleUI(8.0f), MonaImGui::ScaleUI(4.0f));
@@ -471,7 +473,7 @@ namespace Durin::Editor::Level
 		}
 		if (ViewportWidget == nullptr || !ViewportWidget->WasTextureDrawn())
 		{
-			if (GEditor && !bPlayingInNewWindow) GEditor->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
+			if (Context.EditorHost && !bPlayingInNewWindow) Context.EditorHost->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
@@ -483,7 +485,7 @@ namespace Durin::Editor::Level
 	auto FSceneViewportPanel::UpdateCameraPreview(FLevelEditorContext& Context) -> void
 	{
 		DCameraComponent* Camera = nullptr;
-		if (!Context.bReadOnly && !(GEditor && GEditor->IsPlaying()))
+		if (!Context.bReadOnly && !(Context.EditorHost && Context.EditorHost->IsPlaying()))
 		{
 			if (AActor* SelectedActor = Context.GetPrimarySelectedActor())
 			{
@@ -581,7 +583,7 @@ namespace Durin::Editor::Level
 			|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
 		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
-		DTransactor* Transactions = GEditor != nullptr ? GEditor->GetTransactor() : nullptr;
+		DTransactor* Transactions = Context.EditorHost != nullptr ? Context.EditorHost->GetTransactor() : nullptr;
 		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
 		if (Input.bFocusSelection && !Input.bWantTextInput
 			&& Context.GetPrimarySelectedActor() != nullptr && SceneViewport)

@@ -18,6 +18,13 @@
 
 namespace Durin::Editor
 {
+	namespace { thread_local TWeakObjectPtr<DEditorEngine> TransactionEditor; thread_local bool bTransactionEditorBound = false; }
+	FScopedEditorTransactionContext::FScopedEditorTransactionContext(DEditorEngine* Editor)
+		: Previous(TransactionEditor), bPreviousBound(bTransactionEditorBound)
+	{ TransactionEditor = Editor; bTransactionEditorBound = true; }
+	FScopedEditorTransactionContext::~FScopedEditorTransactionContext()
+	{ TransactionEditor = Previous; bTransactionEditorBound = bPreviousBound; }
+	auto GetTransactionEditor() -> DEditorEngine* { return bTransactionEditorBound ? TransactionEditor.Get() : GEditor; }
 	namespace
 	{
 		struct FTransactionBusyScope
@@ -997,16 +1004,16 @@ namespace Durin::Editor
 			if (GUndo) return std::unexpected("Unrecorded edits cannot join an active transaction.");
 			return nullptr;
 		}
-		if (!GEditor || !GEditor->CanTransact())
+		if (!GetTransactionEditor() || !GetTransactionEditor()->CanTransact())
 			return std::unexpected("The active editor transaction service is unavailable or busy.");
-		return GEditor->GetTransactor();
+		return GetTransactionEditor()->GetTransactor();
 	}
 
 	FScopedTransaction::FScopedTransaction(std::string_view Description, bool bShouldActuallyTransact)
-		: FScopedTransaction(GEditor && GEditor->CanTransact() ? GEditor->GetTransactor() : nullptr,
+		: FScopedTransaction(GetTransactionEditor() && GetTransactionEditor()->CanTransact() ? GetTransactionEditor()->GetTransactor() : nullptr,
 			{.Description = std::string(Description)}, bShouldActuallyTransact) {}
 	FScopedTransaction::FScopedTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject, bool bShouldActuallyTransact)
-		: FScopedTransaction(GEditor && GEditor->CanTransact() ? GEditor->GetTransactor() : nullptr,
+		: FScopedTransaction(GetTransactionEditor() && GetTransactionEditor()->CanTransact() ? GetTransactionEditor()->GetTransactor() : nullptr,
 			{std::string(Context), std::string(Description), PrimaryObject}, bShouldActuallyTransact) {}
 	FScopedTransaction::FScopedTransaction(DTransactor* InTransactor, FTransactionContext Context, bool bShouldActuallyTransact)
 	{

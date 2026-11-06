@@ -123,7 +123,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const auto Presenters = CaptureHostPresenters();
 		for (const auto& Extension : *Presenters)
 			(void)DrawHostPresentation(
-				Extension, bInAllowAssetMutation);
+				Extension, bInAllowAssetMutation, {.Lifetime = ExtensionLifetime, .AssetEditors = AssetEditors});
 	}
 
 	auto FContentBrowserPanel::PrepareForDraw() -> void
@@ -297,6 +297,27 @@ namespace Durin::Editor::ContentBrowser::Private
 		};
 
 		const char* Filters[] = {"All content", "Assets", "Files", "Levels", "Static meshes", "Materials", "Textures", "Other assets", "Redirectors"};
+		auto CategoryLabel = [](const std::vector<std::string>& Path) {
+			std::string Result;
+			for (const auto& Part : Path) { if (!Result.empty()) Result += " / "; Result += Part; }
+			return Result;
+		};
+		auto DrawTypeFilter = [&](const char* Id) {
+			const auto& SelectedPath = Model.GetCategoryPath();
+			const std::string Preview = SelectedPath.empty() ? Filters[TypeFilter] : CategoryLabel(SelectedPath);
+			if (ImGui::BeginCombo(Id, Preview.c_str()))
+			{
+				for (const auto Filter : {EContentBrowserTypeFilter::All, EContentBrowserTypeFilter::Assets,
+					EContentBrowserTypeFilter::Files, EContentBrowserTypeFilter::Redirectors})
+					if (ImGui::Selectable(Filters[static_cast<size_t>(Filter)], SelectedPath.empty() && Model.GetTypeFilter() == Filter))
+					{ Model.SetTypeFilter(Filter); TypeFilter = static_cast<int>(Filter); }
+				ImGui::Separator();
+				for (const auto& Path : CaptureAssetCategoryPaths())
+					if (ImGui::Selectable(CategoryLabel(Path).c_str(), SelectedPath == Path))
+					{ Model.SetCategoryPath(Path); TypeFilter = static_cast<int>(EContentBrowserTypeFilter::Assets); }
+				ImGui::EndCombo();
+			}
+		};
 		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
 
 		auto DrawViewControls = [&]() {
@@ -316,8 +337,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				{
 					ImGui::TextDisabled("Type filter");
 					ImGui::SetNextItemWidth(-FLT_MIN);
-					if (ImGui::Combo("##CompactContentTypeFilter", &TypeFilter, Filters, std::size(Filters)))
-						Model.SetTypeFilter(static_cast<EContentBrowserTypeFilter>(TypeFilter));
+					DrawTypeFilter("##CompactContentTypeFilter");
 					ImGui::Separator();
 				}
 				bool bShowRedirectors = Model.IsShowingRedirectors();
@@ -342,8 +362,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			DrawViewControls();
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(FilterWidth);
-			if (ImGui::Combo("##ContentTypeFilter", &TypeFilter, Filters, std::size(Filters)))
-				Model.SetTypeFilter(static_cast<EContentBrowserTypeFilter>(TypeFilter));
+			DrawTypeFilter("##ContentTypeFilter");
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(SearchWidth);
 			FocusSearch();
@@ -1061,16 +1080,19 @@ namespace Durin::Editor::ContentBrowser::Private
 					const auto Entries = CaptureExtensions(Category);
 					const auto Entry = std::ranges::find(Entries, Id, &FExtensionDescriptor::Id);
 					if (Entry == Entries.end() || Entry->RegistrationSerial != Serial) return;
+					const std::weak_ptr<void> Lifetime = ExtensionLifetime;
 					InvokeExtension(*Entry, {
 						.Context = Context,
 						.bAllowAssetMutation = bAllowAssetMutation,
-						.RevealAsset = [this](std::string_view Path) { return RevealAsset(Path); },
-						.RevealDirectory = [this](std::string_view Path) { return RevealDirectory(Path); },
-						.OpenAsset = [this](std::string_view Path, std::string_view Class) {
-							return OpenAsset && OpenAsset(std::string(Path), std::string(Class));
+						.RevealAsset = [this, Lifetime](std::string_view Path) { return !Lifetime.expired() && RevealAsset(Path); },
+						.RevealDirectory = [this, Lifetime](std::string_view Path) { return !Lifetime.expired() && RevealDirectory(Path); },
+						.OpenAsset = [this, Lifetime](std::string_view Path, std::string_view Class) {
+							return !Lifetime.expired() && OpenAsset && OpenAsset(std::string(Path), std::string(Class));
 						},
-						.NotifyMountedContentChanged = [this] { PublishMountedContentMutation(); },
-						.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
+						.NotifyMountedContentChanged = [this, Lifetime] { if (!Lifetime.expired()) PublishMountedContentMutation(); },
+						.ReportError = [this, Lifetime](std::string Message) { if (!Lifetime.expired()) SetError(std::move(Message)); },
+						.HostLifetime = Lifetime, .bHasHostLifetime = true,
+						.AssetEditors = AssetEditors,
 					});
 				});
 			});

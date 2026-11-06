@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	struct FLevelEditorHostContext;
 	DSTRUCT()
 	struct FLevelEditorPlayResult
 	{
@@ -26,6 +27,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		LEVELEDITOR_API explicit DLevelEditorSubsystem(const FObjectInitializer& Initializer);
+		auto Deinitialize() noexcept -> void override { HostContext.reset(); }
 		DFUNCTION(Category = "Play in Editor")
 		LEVELEDITOR_API auto GetPlayStatus() const -> FLevelEditorPlayResult;
 		DFUNCTION(Category = "Play in Editor")
@@ -34,7 +36,10 @@ namespace Durin
 		LEVELEDITOR_API auto StopPlaySession() -> FLevelEditorPlayResult;
 		DFUNCTION(Category = "Play in Editor")
 		LEVELEDITOR_API auto SetPlaySessionPaused(bool bPaused) -> FLevelEditorPlayResult;
+		auto SetHostContext(std::shared_ptr<FLevelEditorHostContext> Context) -> void { HostContext = std::move(Context); }
+		auto GetHostContext() const -> std::shared_ptr<FLevelEditorHostContext> { return HostContext; }
 	private:
+		std::shared_ptr<FLevelEditorHostContext> HostContext;
 		auto Admit() const -> std::expected<DEditorEngine*, FLevelEditorPlayResult>;
 	};
 }

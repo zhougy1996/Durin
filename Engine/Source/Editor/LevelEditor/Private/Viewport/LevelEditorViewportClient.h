@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "DObject/WeakObjectPtr.h"
+namespace Durin { class DEditorEngine; }
 
 #include "Client/ViewportClient.h"
 #include "SceneViewProjection.h"
@@ -63,6 +65,7 @@ namespace Durin::Editor::Level
 	class FLevelEditorViewportClient final : public FViewportClient
 	{
 	public:
+		TWeakObjectPtr<DEditorEngine> EditorOwner;
 		static constexpr float DefaultNearClip = static_cast<float>(SceneViewProjection::DefaultPerspectiveNearClip);
 		static constexpr float DefaultFarClip = static_cast<float>(SceneViewProjection::DefaultPerspectiveFarClip);
 		static constexpr float DefaultViewFadeStart = static_cast<float>(SceneViewProjection::DefaultViewFadeStart);
@@ -70,6 +73,7 @@ namespace Durin::Editor::Level
 
 		FLevelEditorViewportClient();
 		~FLevelEditorViewportClient() override;
+		auto SetEditorOwner(DEditorEngine* Editor) -> void;
 		auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override;
 		// Builds projection state without traversing the level or appending editor overlays.
 		auto BuildViewMatrices(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool;

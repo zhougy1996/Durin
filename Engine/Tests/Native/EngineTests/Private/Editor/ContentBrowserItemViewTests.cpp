@@ -1,6 +1,8 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Icons/FontAwesomeIcons.h"
+#include "Editor/BrowserDefinitionTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -46,18 +48,19 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	TEST(FContentBrowserItemViewTests, PreservesMixedItemLabelsAndFormatting)
 	{
-		std::string Error;
-		auto Registration = RegisterAssetTypePresentation({
-			.AssetClassName = "Durin::DTextureCube", .DisplayName = "Texture Cube",
-			.Category = EAssetCategory::Texture, .Icon = Icons::Cube}, Error);
-		ASSERT_TRUE(Registration.IsValid());
+		Testing::InitializeDObjectSystemForTests();
+		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
+		Definition->ClassPath = "ItemViewTest::DTextureCube"; Definition->DisplayName = "Texture Cube";
+		Definition->Icon = Icons::Cube; Definition->Categories = {{"Texture"}};
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		ASSERT_TRUE(Registration);
 		FContentBrowserItem Folder{
 			.Kind = EContentBrowserItemKind::Folder,
 			.Name = "Textures"};
 		FContentBrowserItem Asset{
 			.Kind = EContentBrowserItemKind::Asset,
 			.Name = "Sky",
-			.AssetClassName = "Durin::DTextureCube"};
+			.AssetClassName = "ItemViewTest::DTextureCube"};
 		FContentBrowserItem Source{
 			.Kind = EContentBrowserItemKind::File,
 			.Name = "Sky.hdr",

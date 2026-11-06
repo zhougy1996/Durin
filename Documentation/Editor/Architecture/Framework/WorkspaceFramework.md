@@ -5,18 +5,22 @@ Summary: Define editor toolkits, document ownership, tab presentation, panels, c
 Modules: AssetMaintenance, DurinEd, LevelEditor, MainFrame, MaterialEditor, StaticMeshEditor, TextureEditor
 
 This document defines editor-host ownership, persistent settings, application
-commands, toolkit registration, tab presentation, and document lifecycle contracts.
+commands, session integration, tab presentation, and document lifecycle contracts.
 
 ## C++ Ownership Boundary
 
-Shared toolkit, document, transaction, property, asset, preview, and
-interaction contracts live directly in `Durin::Editor`. Concrete editor modules
-own their ordinary C++ APIs under `Durin::Editor::MainFrame`, `LevelEditor`,
-`MaterialEditor`, `TextureEditor`, and `StaticMeshEditor`. Runtime and reflected
-object types remain in `Durin`; in
-particular, `DEditorEngine` keeps its stable reflection identity. Module lookup
-strings and persisted workspace/document
-identities are independent of these C++ namespaces.
+Shared toolkit, document and tab APIs live directly in `Durin`, including
+`IAssetEditorToolkit`, `FAssetEditorToolkit`, `FEditorDocumentManager`,
+`FEditorDocument`, `FDocumentId` and `FTabManager`. Responsibility-specific helpers
+remain under `Durin::TabLayout` and `Durin::DocumentUI`. There are no compatibility
+aliases in `Durin::Editor`; consumers and forward declarations use the owning
+namespace directly. Document controller internals stay in `Durin::DocumentPrivate`.
+
+Transaction, property, asset, preview and interaction services retain their
+existing `Durin::Editor` namespaces. Concrete editor implementation namespaces
+also remain unchanged in this migration. Runtime and reflected object types
+retain their existing identities. Module lookup strings and persisted
+window/document/layout identities are independent of these C++ namespaces.
 
 ## MainFrame Ownership
 
@@ -153,7 +157,7 @@ draws or consume pending resize/presentation-policy changes.
 The Project Browser receives the engine's startup diagnostic as display input,
 keeping its own interactive project-opening errors independent.
 
-After Level, Material, Texture, and StaticMesh registration and default
+After Level workspace registration, ordinary feature-module startup and default
 workspace opening succeed, the engine enters `LoadingDefaultDocument` and yields
 to the startup pump before resolving and loading the configured default level.
 There is no idle workspace-ready phase. Project modules, initial content and
@@ -221,86 +225,45 @@ transaction feedback, notification aggregation, and toasts update once per host
 frame even when the Level workspace root is hidden. Reset Editor Layout
 restores global tool defaults without resetting any asset-editor layout.
 
-## Asset Editor Toolkit Registration
+## Asset Editor Session Integration
 
-`DurinEd` owns the reusable editor toolkit and document framework under
-`Durin::Editor`. `Documents/EditorDocumentTypes.h` defines toolkit IDs, document
-metadata, descriptors and asset routes. `Toolkits/AssetEditorToolkit.h` defines
-`IAssetEditorToolkit`: the concrete editor's resource operations, activation,
-commands, menus and presentation. LevelEditor implements this contract for Level
-assets, including its singleton-document policy.
+[Asset definitions and editor sessions](AssetEditors.md) own ordinary asset-type
+metadata, discovery, open execution, toolkit ownership, hosts and panels.
+MaterialEditor, TextureEditor and StaticMeshEditor publish independent scoped
+contributions during normal module startup; MainFrame no longer connects their
+workspaces or import callbacks. They do not support physical dynamic reloading.
 
-`FEditorDocumentManager` owns document identity, asset routing, strong asset
-associations, pending opens, activation, dirty-state refresh and close decisions.
-It validates complete toolkit/asset-route batches before mutation; each module
-owns an `FAssetEditorToolkitRegistrationHandle` that removes its routes and
-documents on release. The manager contains no ImGui docking state and does not
-load or discover editor modules.
+LevelEditor creates its specialized owned session through the asset-editor
+subsystem and publishes Level metadata/opening through its definition. The Level
+session owns its document manager; startup, scene activation, PIE and project
+switching remain with the existing engine/Level controllers. MainFrame has no
+document registry or routing fallback; it enumerates committed sessions for menus,
+drawing, close confirmation and exit preparation. Toolkit registration batches,
+route tables and per-document editor-instance adapters have been removed from
+production and fixtures. Lifecycle and project-scoped restore contracts are
+specified in [asset editors](AssetEditors.md#lifecycle-and-session-restoration).
 
-`Framework/TabManager.h` owns `FTabManager` and `FEditorTabWindow`, which present
-per-document root tabs, preserve focus intent and report visibility, activation
-and close requests. `Framework/TabLayout.h` owns docking classes, layout IDs and
-panel layout helpers. These presentation objects do not own assets, decide dirty
-close policy, or save/discard resources. A close click is submitted to the document
-manager after tab iteration; `Documents/EditorDocumentUI.h` renders the manager's
-single pending confirmation. Resource models live separately in
-`Documents/AssetEditorDocumentModels.h`.
-
-`MainFrame` derives default host layout and singleton reopen commands from toolkit
-descriptors. The Window menu lists documents and the active toolkit's panel
-commands without naming concrete editor root windows. Existing persisted window,
-docking and document-key strings are unchanged by the C++ API names.
-
-`MaterialEditor`, `TextureEditor` and `StaticMeshEditor` implement
-`IAssetEditorModule`, obtained by name through the existing `FModuleManager`.
-MainFrame connects this fixed composition to the document manager, thumbnail
-service and host import callbacks. It records only the names of successfully
-connected modules and releases them in reverse composition order; inactive
-modules are skipped because their shutdown already releases their handles.
-There is no modular-feature publication, discovery, feature identity cache or
-additional registry. These modules do not support dynamic reloading. Their build
-dependencies still declare the default composition for build and deployment.
-
-A false registration result unwinds that module's new partial contributions.
-MainFrame unwinds previously connected modules on failure and also cleans a
-throwing module before propagating the exception. Each module owns its existing
-toolkit, thumbnail and browser-extension handles and releases them on shutdown.
-LevelEditor retains its specialized registration connection for startup-level and
-project-switch interactions. `DurinEd` depends on none of these concrete modules.
-
-MainFrame shutdown first stops Content Browser request admission and destroys
-the browser, draining admitted imports and releasing UI-held thumbnails and
-source-thumbnail caches. It then unregisters connected asset-editor modules in
-reverse composition order, followed by the specialized Level integration.
-Scoped browser extensions and feature-owned dialogs close while their modules
-remain mapped; each concrete thumbnail handle drains its queued and in-flight
-leases before its documents close. Shared thumbnail, document and notification
-state is released afterward. The thumbnail service and host callbacks outlive
-all integration handles.
-
-Asset opening from the Content Browser enters the per-host
-[`DAssetEditorSubsystem`](EditorSubsystems.md#asset-editors), which focuses an
-existing primary editor before dispatching a new open through the workspace
-routes. MainFrame binds its manager to that service. Committed documents supply
-`IAssetEditorInstance` adapters; deferred opens enter the asset-editor registry
-only after completion. Workspace close, lease removal, resource replacement,
-relocation and package reload update the same associations.
+MainFrame shutdown stops browser admission and releases its UI-held thumbnails,
+retires owned asset sessions after exit/save policy settles, and releases the
+specialized Level integration. Ordinary feature registrations live with their
+modules. Browser invocation lifetimes prevent callbacks into a retired host;
+feature controllers drain admitted work before their provider modules stop.
 
 ## Document Ownership
 
-`Editor::FEditorDocument` is document identity and presentation metadata, not a
+`FEditorDocument` is document identity and presentation metadata, not a
 resource controller. Each toolkit remains responsible for loading, saving,
 discarding, releasing, and drawing its resource.
 
-`Editor::FEditorTabWindow` provides the shared root-window state transition,
-while `Editor::FTabManager` composes that transition across the
-per-resource documents used by Material, Texture, and StaticMesh editors. The
+`FEditorTabWindow` provides the shared root-window state transition,
+while `FTabManager` composes that transition across the
+internal document tabs within session roots used by Material, Texture and Mesh editors. The
 singleton Level workspace keeps its specialized internal dock-space lifecycle.
 
 Material and Texture additionally compose
-`Editor::FEditableAssetDocumentModel`. It owns active-resource identity,
+`FEditableAssetDocumentModel`. It owns active-resource identity,
 document focus, package dirty/save/discard behavior, and forwarding to the
-global editor transactor without depending on either concrete editor module.
+bound requesting-editor transactor without depending on either concrete editor module.
 Concrete workspaces still load exact asset types and run hooks before a switch,
 close, discard, or save; Texture retains build cancellation and pending-build
 rejection, while each editor retains its preview and type-specific diagnostics.
@@ -309,9 +272,9 @@ this editable composition because their document semantics differ.
 
 Document open and close operations return explicit results. A deferred singleton
 open preserves the current document until its replacement succeeds. For dirty
-closes, `Editor::FEditorDocumentManager` owns the single pending document and routes
+closes, each `FEditorDocumentManager` owns its single pending document and routes
 Save, Discard, or Cancel back to resource-specific toolkit callbacks.
-`MainFrame` renders the one shared confirmation modal. Repeated close requests
+`MainFrame` renders the oldest outstanding close in one shared confirmation modal. Repeated close requests
 cannot create duplicate confirmations.
 
 The Level document controller separates interactive `OpenLevel` (including the
@@ -360,7 +323,7 @@ action for an incompatible package. Engine's ordinary-save guard remains the
 final persistence boundary if another caller bypasses the workspace policy.
 
 The `StaticMeshEditor` workspace is presented as **StaticMesh Inspector** and is
-strictly read-only. Exact `DStaticMesh` routes open closable per-resource
+strictly read-only. Its definition creates owned sessions with closable internal
 documents. Each document owns an isolated preview world and viewport, supports
 orbit, pan, zoom, framing, and solid/wireframe presentation, and releases its
 mesh component before destroying the scene. Its active document never becomes

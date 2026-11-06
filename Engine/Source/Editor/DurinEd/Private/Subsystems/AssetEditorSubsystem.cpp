@@ -7,14 +7,19 @@
 #include "Editor/EditorEngine.h"
 #include "Threading/RunnableThread.h"
 #include "Documents/EditorDocumentManager.h"
+#include "AssetRegistry/Catalog.h"
+#include "DObject/SoftObjectPtr.h"
+#include "Toolkits/AssetEditor.h"
+#include "Toolkits/ToolkitManager.h"
 
 namespace Durin
 {
-	DAssetEditorSubsystem::DAssetEditorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
+	DAssetEditorSubsystem::DAssetEditorSubsystem(const FObjectInitializer& Initializer)
+		: Super(Initializer), ToolkitManager(std::make_shared<FToolkitManager>()) {}
 
 	auto DAssetEditorSubsystem::CanCall() const -> bool
 	{
-		if (!IsInGameThread() || !IsValid(this)) return false;
+		if (!IsInGameThread() || !IsValid(this) || bStoppingSessions) return false;
 		const auto Gate = GetWorkGate();
 		auto* Host = GetEditor();
 		return Gate && Gate->IsOpen() && IsValid(Host)
@@ -23,10 +28,21 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::Deinitialize() noexcept -> void
 	{
+		std::vector<FAssetOpenRequestId> Pending;
+		for (const auto& [Id, Request] : OpenRequests)
+			if (Request.Result.Status == EAssetOpenStatus::Pending) Pending.push_back({Id});
+		for (const auto Id : Pending)
+			requiref(CancelOpenRequest(Id), "Asset-editor pending work must drain before subsystem retirement");
+		ShutdownAssetEditorSessions();
+		ToolkitHostFactory = {};
+		OpenRequests.clear();
+		CompletedRequests.clear();
+		Lifecycle.reset();
+		DispatchingDefinition.Reset();
+		OpeningPaths.clear();
 		OpenedAssets.clear();
 		OpenedEditors.clear();
 		OpeningAssets.clear();
-		DocumentManager = nullptr;
 	}
 
 	auto DAssetEditorSubsystem::CanOpenEditorForAsset(DObject* Asset, std::string* OutErrorMsg) -> bool
@@ -34,7 +50,7 @@ namespace Durin
 		FObjectPath Path;
 		const bool bAllowed = CanCall() && IsValid(Asset) && !Asset->IsTemplateObject()
 			&& FObjectPath::TryCreate(Asset->GetObjectPath(), Path)
-			&& DocumentManager && DocumentManager->CanOpenAsset(Asset->GetClass()->GetQualifiedName().ToString());
+			&& CanOpenAsset({Path, Asset->GetClass()->GetQualifiedName().ToString()});
 		if (OutErrorMsg) *OutErrorMsg = bAllowed ? std::string{} : "The asset or its editor is unavailable.";
 		return bAllowed;
 	}
@@ -51,12 +67,31 @@ namespace Durin
 			~FOpenScope() { Assets.erase(Key); }
 		} OpenScope{OpeningAssets, Key};
 		bool bOpened = false;
-		GetEditor()->DispatchSubsystemCallback([&] {
+		DispatchEditorCallback([&] {
 			// Keep the object alive through editor callbacks and possible collection.
 			TStrongObjectPtr<DObject> KeepAlive(Asset);
-			if (FindEditorForAsset(Asset, true)) { bOpened = CanCall(); return; }
+			IAssetEditorInstance* Best = nullptr;
+			bool bBestCanonical = false;
+			double BestTime = 0;
+			for (auto* Instance : FindEditorsForAsset(Asset))
+				if (HasEditor(Instance) && Instance->IsPrimaryEditor() && Instance->GetOpenMethod() == EAssetOpenMethod::Edit)
+				{
+					const auto* Session = dynamic_cast<DAssetEditor*>(Instance);
+					const bool bCanonical = !Session || Session->GetInstanceKey().empty();
+					const double ActivationTime = Instance->GetLastActivationTime();
+					if (!Best || (bCanonical && !bBestCanonical) || (bCanonical == bBestCanonical && ActivationTime > BestTime))
+					{ Best = Instance; bBestCanonical = bCanonical; BestTime = ActivationTime; }
+				}
+			if (Best && HasEditor(Best))
+			{
+				Best->FocusWindow(Asset);
+				if (CanCall() && HasEditor(Best)) { bOpened = true; return; }
+			}
 			if (!CanOpenEditorForAsset(Asset)) return;
-			bOpened = DocumentManager->OpenAsset(Asset->GetObjectPath(), Asset->GetClass()->GetQualifiedName().ToString());
+			FObjectPath Path;
+			if (!FObjectPath::TryCreate(Asset->GetObjectPath(), Path)) return;
+			bOpened = OpenAssets({.AssetEditors = this,
+				.Assets = {{Path, Asset->GetClass()->GetQualifiedName().ToString()}}}).IsAccepted();
 			bOpened = bOpened && CanCall();
 		});
 		return bOpened;
@@ -72,7 +107,16 @@ namespace Durin
 	auto DAssetEditorSubsystem::OpenEditorForAsset(const FObjectPath& AssetPath) -> void
 	{
 		if (!CanCall() || !AssetPath.IsValid()) return;
-		GetEditor()->DispatchSubsystemCallback([&] {
+		DispatchEditorCallback([&] {
+			FSoftObjectPtr Resident(AssetPath);
+			if (auto* Object = Resident.Get()) { (void)OpenEditorForAsset(Object); return; }
+			const auto Metadata = ResolveAssetObjectPath(AssetPath);
+			if (Metadata && Metadata.FinalAssetData)
+			{
+				(void)OpenAssets({.AssetEditors = this,
+					.Assets = {{Metadata.FinalPath, Metadata.FinalAssetData->AssetClassName}}});
+				return;
+			}
 			const auto Loaded = LoadObject<DObject>(AssetPath);
 			if (Loaded && *Loaded) (void)OpenEditorForAsset(*Loaded);
 		});
@@ -107,7 +151,7 @@ namespace Durin
 		for (auto* Instance : FindEditorsForAsset(Asset))
 		{
 			if (!HasEditor(Instance) || !Instance->IsPrimaryEditor()) continue;
-			if (bFocusIfOpen) GetEditor()->DispatchSubsystemCallback([&] { Instance->FocusWindow(Asset); });
+			if (bFocusIfOpen) DispatchEditorCallback([&] { Instance->FocusWindow(Asset); });
 			return CanCall() && HasEditor(Instance) ? Instance : nullptr;
 		}
 		return nullptr;
@@ -139,7 +183,7 @@ namespace Durin
 		for (auto* Instance : FindEditorsForAsset(Asset))
 		{
 			if (!CanCall()) break;
-			if (HasEditor(Instance)) GetEditor()->DispatchSubsystemCallback([&] {
+			if (HasEditor(Instance)) DispatchEditorCallback([&] {
 				if (Instance->CloseWindow(EAssetEditorCloseReason::CloseAllEditorsForAsset)) ++Closed;
 			});
 		}
@@ -152,7 +196,7 @@ namespace Durin
 		{
 			if (!CanCall()) break;
 			if (Instance != OnlyEditor && HasEditor(Instance))
-				GetEditor()->DispatchSubsystemCallback([&] { (void)Instance->CloseWindow(EAssetEditorCloseReason::CloseOtherEditors); });
+				DispatchEditorCallback([&] { (void)Instance->CloseWindow(EAssetEditorCloseReason::CloseOtherEditors); });
 		}
 	}
 
@@ -163,7 +207,7 @@ namespace Durin
 		for (auto* Instance : GetAllOpenEditors())
 		{
 			if (!CanCall()) return false;
-			if (HasEditor(Instance)) GetEditor()->DispatchSubsystemCallback([&] {
+			if (HasEditor(Instance)) DispatchEditorCallback([&] {
 				bAllClosed = Instance->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors) && bAllClosed;
 			});
 		}
@@ -178,6 +222,10 @@ namespace Durin
 		if (std::ranges::find(Editors, Instance) != Editors.end()) return;
 		Editors.push_back(Instance);
 		OpenedEditors[Instance].push_back(Key);
+		FObjectPath Path;
+		if (FObjectPath::TryCreate(Asset->GetObjectPath(), Path))
+			PublishEvent({.Type = EAssetEditorEvent::Opened, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
+				.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .Status = EAssetOpenStatus::Completed});
 	}
 
 	auto DAssetEditorSubsystem::NotifyAssetsOpened(const std::vector<DObject*>& Assets, IAssetEditorInstance* Instance) -> void
@@ -190,6 +238,12 @@ namespace Durin
 		// Cleanup remains legal after admission closes, while host consumers retire.
 		if (!IsInGameThread() || !Asset || !Instance) return;
 		const FObjectKey Key(Asset);
+		const auto FoundEditor = OpenedEditors.find(Instance);
+		if (FoundEditor == OpenedEditors.end() || std::ranges::find(FoundEditor->second, Key) == FoundEditor->second.end()) return;
+		FObjectPath Path;
+		FObjectPath::TryCreate(Asset->GetObjectPath(), Path);
+		FAssetEditorEvent Event{.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
+			.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod()};
 		if (auto Found = OpenedAssets.find(Key); Found != OpenedAssets.end())
 		{
 			std::erase(Found->second, Instance);
@@ -200,6 +254,7 @@ namespace Durin
 			std::erase(Found->second, Key);
 			if (Found->second.empty()) OpenedEditors.erase(Found);
 		}
+		PublishEvent(std::move(Event));
 	}
 
 	auto DAssetEditorSubsystem::NotifyEditorClosed(IAssetEditorInstance* Instance) -> void
@@ -207,13 +262,22 @@ namespace Durin
 		if (!IsInGameThread()) return;
 		const auto Found = OpenedEditors.find(Instance);
 		if (Found == OpenedEditors.end()) return;
-		for (const auto& Key : Found->second)
+		const auto Keys = Found->second;
+		OpenedEditors.erase(Found);
+		std::vector<FAssetEditorEvent> Events;
+		for (const auto& Key : Keys)
 		{
 			const auto Asset = OpenedAssets.find(Key);
 			if (Asset == OpenedAssets.end()) continue;
 			std::erase(Asset->second, Instance);
 			if (Asset->second.empty()) OpenedAssets.erase(Asset);
+			if (auto* Object = Key.ResolveObjectPtr())
+			{
+				FObjectPath Path; FObjectPath::TryCreate(Object->GetObjectPath(), Path);
+				Events.push_back({.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Object->GetClass()->GetQualifiedName().ToString()},
+					.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod()});
+			}
 		}
-		OpenedEditors.erase(Found);
+		for (auto& Event : Events) PublishEvent(std::move(Event));
 	}
 }

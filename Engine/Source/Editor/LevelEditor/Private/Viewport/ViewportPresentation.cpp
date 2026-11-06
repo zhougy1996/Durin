@@ -1,6 +1,7 @@
 #include "Viewport/ViewportPresentation.h"
 
 #include "Editor/EditorEngine.h"
+#include "Transactions/Transactor.h"
 #include "Client/SceneViewport.h"
 #include "Client/ViewportClient.h"
 #include "Engine/Engine.h"
@@ -772,7 +773,7 @@ namespace Durin::Editor::Level
 		const float PlayLabelWidth = ImGui::CalcTextSize("Play").x;
 		Layout.PlayButtonWidth = FMath::Max(MonaImGui::ScaleUI(68.0f), TransformIconWidth + ContentGap + PlayLabelWidth + ContentPadding * 2.0f);
 		Layout.RuntimeButtonWidth = Layout.Height;
-		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		const bool bPlaying = Editor::GetTransactionEditor() && Editor::GetTransactionEditor()->IsPlaying();
 		const float PlayControlsWidth = bPlaying ? Layout.RuntimeButtonWidth * 3.0f + Layout.DropDownWidth : Layout.PlayButtonWidth + Layout.DropDownWidth;
 		// Keep Play visually independent from both the editing tools and the viewport edge.
 		// The center anchor is preserved until responsive pressure requires it to clear the left group.
@@ -797,8 +798,8 @@ namespace Durin::Editor::Level
 	) const -> void
 	{
 		FLevelEditorViewportClient* ViewportClient = EditorViewportClient;
-		const bool bPlaying = GEditor && GEditor->IsPlaying();
-		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
+		const bool bPlaying = Context.EditorHost && Context.EditorHost->IsPlaying();
+		const bool bPlayingInNewWindow = Context.EditorHost && Context.EditorHost->IsPlayingInNewWindow();
 		const FViewportToolbarCapabilities Capabilities = ResolveViewportToolbarCapabilities(
 			Context.bReadOnly, bPlaying, bPlayingInNewWindow);
 		const ImVec2& ViewportMin = Layout.ViewportMin;
@@ -1259,10 +1260,10 @@ namespace Durin::Editor::Level
 			if (SnapResult.bPrimaryPressed) Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled;
 			if (SnapResult.bSecondaryPressed) bOpenSnapSettings = true;
 		}
-		if (bOpenSnapSettings) FEditorSettingsRegistry::Get().RequestOpen("editor.viewport");
+		if (bOpenSnapSettings) FEditorSettingsRegistry::Get().RequestOpen("editor.viewport.host." + std::to_string(FObjectKeyHash{}(FObjectKey(Context.EditorHost))));
 		if (!Capabilities.bCanEditScene) ImGui::EndDisabled();
 
-		const bool bPaused = bPlaying && GEditor->IsPlaySessionPaused();
+		const bool bPaused = bPlaying && Context.EditorHost->IsPlaySessionPaused();
 		float PlayX = Layout.PlayButtonPosition.x;
 		const float PlayY = Layout.PlayButtonPosition.y;
 		if (!bPlaying)
@@ -1300,11 +1301,11 @@ namespace Durin::Editor::Level
 		{
 			const FRuntimeControlResult RuntimeResult = DrawRuntimeControlGroup(
 				ImVec2(PlayX, PlayY), Layout.RuntimeButtonWidth, Layout.DropDownWidth, Layout.Height, bPaused);
-			if (RuntimeResult.bStopPressed) GEditor->StopPlaySession();
+			if (RuntimeResult.bStopPressed) Context.EditorHost->StopPlaySession();
 			else
 			{
-				if (RuntimeResult.bPausePressed) GEditor->SetPlaySessionPaused(!bPaused);
-				if (RuntimeResult.bStepPressed) GEditor->StepPlaySession();
+				if (RuntimeResult.bPausePressed) Context.EditorHost->SetPlaySessionPaused(!bPaused);
+				if (RuntimeResult.bStepPressed) Context.EditorHost->StepPlaySession();
 				if (RuntimeResult.bOptionsPressed) ImGui::OpenPopup("ViewportRuntimeOptionsPopup");
 			}
 			SetNextToolbarPopupPosition(ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth * 3.0f + Layout.DropDownWidth, Layout.Height));
@@ -1314,12 +1315,12 @@ namespace Durin::Editor::Level
 				if (ImGui::MenuItem("Apply Selected Runtime Changes", nullptr, false, bHasSelection) && Context.ApplyPlayChanges) Context.ApplyPlayChanges(true);
 				if (ImGui::MenuItem("Apply All Runtime Changes") && Context.ApplyPlayChanges) Context.ApplyPlayChanges(false);
 				ImGui::Separator();
-				bool bPhysicsEnabled = GEditor->GetPlayWorld()
-					&& GEditor->GetPlayWorld()->IsPhysicsSimulationEnabled();
+				bool bPhysicsEnabled = Context.EditorHost->GetPlayWorld()
+					&& Context.EditorHost->GetPlayWorld()->IsPhysicsSimulationEnabled();
 				if (ImGui::Checkbox("Simulate Physics", &bPhysicsEnabled)
-					&& GEditor->GetPlayWorld())
+					&& Context.EditorHost->GetPlayWorld())
 				{
-					GEditor->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
+					Context.EditorHost->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
 				}
 				ImGui::EndPopup();
 			}

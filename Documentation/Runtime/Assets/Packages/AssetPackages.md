@@ -687,10 +687,15 @@ diagnostic without retaining candidate objects or complete asset operations.
 ## Saved Package Reload
 
 `ReloadPackages` is the public GameThread recovery boundary for authored
-Texture2D, VolumeTexture, Material, MaterialInstance, and material-function
+Texture2D, VolumeTexture, Material, MaterialInstance, MaterialParameterCollection, and material-function
 interface implementations. Function candidates validate their bounded detached
 closure before replacement; committed function replacements invalidate loaded
-callers through the existing material edit scheduler. Requests are
+callers through the existing material edit scheduler. Collection candidates
+validate their layouts before publication. The native material replacement
+participant rebinds instantiated World collection states atomically, validating
+their membership/version/snapshot before commit; failed preparation leaves their
+references unchanged. Post-commit collection notification refreshes snapshots and
+loaded material owners while preserving World parameter overrides. Requests are
 deduplicated by resident package identity and bounded by package, object,
 reference-slot, retained-CPU, and candidate-GPU limits. Newly created packages,
 cooked runtimes, missing saved files, unregistered top-level classes, projection

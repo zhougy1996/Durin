@@ -64,9 +64,8 @@ namespace Durin::Editor::Texture
 		EXPECT_FALSE(Details.BuildDiagnostic.empty());
 		EXPECT_EQ(FindResidentPackage(CubePath), nullptr);
 		std::string PresentationError;
-		auto Presentation = ContentBrowser::RegisterAssetTypePresentation({
+		auto Presentation = ContentBrowser::RegisterAssetTypeExtras({
 			.AssetClassName = DTextureCube::StaticClass()->GetQualifiedName().ToString(),
-			.DisplayName = "Cube", .Category = ContentBrowser::EAssetCategory::Texture, .Icon = "cube",
 			.Details = MakeTextureCubeDetailsProvider()}, PresentationError);
 		ASSERT_TRUE(Presentation.IsValid()) << PresentationError;
 		ContentBrowser::FExtensionContext Context;

@@ -6,7 +6,7 @@
 #include "Documents/EditorDocumentTypes.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	class FEditorDocumentManager;
 	// Describes an optional dock space nested inside a toolkit root window.
@@ -24,6 +24,7 @@ namespace Durin::Editor
 		bool bDirty = false;
 		bool bZeroPadding = false;
 		bool bDockInEditorHost = true;
+		bool bNativeStandalone = false;
 		ImGuiWindowFlags AdditionalFlags = ImGuiWindowFlags_None;
 		std::optional<FToolkitInternalDockSpace> InternalDockSpace;
 	};
@@ -70,6 +71,9 @@ namespace Durin::Editor
 
 	private:
 		std::unordered_map<uint64, FEditorTabWindow> DocumentWindows;
+		FEditorTabWindow SessionWindow;
+		bool bSessionFocusRequested = false;
+		FDocumentId FocusDocument;
 	};
 
 }

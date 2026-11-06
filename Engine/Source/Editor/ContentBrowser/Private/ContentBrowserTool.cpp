@@ -22,6 +22,7 @@ namespace Durin::Editor::ContentBrowser
 			std::move(Services.ReconciliationState));
 		Panel->SetContentChangeServices(std::move(Services.CaptureMountedContentChanges),
 			std::move(Services.NotifyScopedContentMutation));
+		Panel->AssetEditors = Services.AssetEditors;
 		return Panel;
 	}
 

@@ -143,10 +143,11 @@ namespace Durin::Editor::Level
 	}
 
 	FLevelEditorViewportClient::~FLevelEditorViewportClient() = default;
+	auto FLevelEditorViewportClient::SetEditorOwner(DEditorEngine* Editor) -> void { EditorOwner = Editor; }
 
 	auto FLevelEditorViewportClient::CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
 	{
-		if (GEditor && GEditor->IsPlaying()) return false;
+		if (EditorOwner.Get() && EditorOwner.Get()->IsPlaying()) return false;
 		if (PreparedSceneView.bReadyForRender && PreparedSceneView.FrameNumber == GFrameCounter
 			&& PreparedSceneView.Level.Get() == CurrentLevel && PreparedSceneView.Width == Width && PreparedSceneView.Height == Height)
 		{
@@ -161,7 +162,7 @@ namespace Durin::Editor::Level
 
 	auto FLevelEditorViewportClient::BuildViewMatrices(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
 	{
-		if ((GEditor && GEditor->IsPlaying()) || Width == 0 || Height == 0) return false;
+		if ((EditorOwner.Get() && EditorOwner.Get()->IsPlaying()) || Width == 0 || Height == 0) return false;
 		OutView = {};
 		const float AspectRatio = Height > 0 ? static_cast<float>(Width) / static_cast<float>(Height) : 1.0f;
 		OutView.ViewportWidth = Width;

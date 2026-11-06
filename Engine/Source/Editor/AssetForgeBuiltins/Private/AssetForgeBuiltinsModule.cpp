@@ -13,7 +13,6 @@ namespace Durin
 			SaveReadinessRegistration = FModularFeatureRegistry::Get().RegisterFeature<
 				IAssetSaveReadinessFeature>(AssetFeatures);
 			require(SaveReadinessRegistration.IsValid());
-			ImportDialog = std::make_unique<Editor::FGltfAssetImportDialog>();
 			std::string Error;
 			ImportExtension = Editor::ContentBrowser::RegisterExtension({
 				.Id = "gltf.import-assets", .Label = "glTF / GLB Assets...",
@@ -21,16 +20,18 @@ namespace Durin
 				.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto& Context) { return !Context.VirtualDirectory.empty(); },
 				.Invoke = [this](const auto& Invocation) {
-					ImportDialog->SetCallbacks({
-						.ReportError = Invocation.ReportError,
-						.AssetCreated = [Reveal = Invocation.RevealAsset](std::string Path) { if (Reveal) (void)Reveal(Path); },
-						.ImportedDirectory = [Changed = Invocation.NotifyMountedContentChanged, Reveal = Invocation.RevealDirectory](std::string Path) {
-							if (Changed) Changed();
-							if (Reveal) (void)Reveal(Path);
-						}});
+					OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+					ImportDialog = std::make_unique<Editor::FGltfAssetImportDialog>(Editor::ContentBrowser::MakeImportDialogCallbacks(Invocation, {}));
 					ImportDialog->Open(Invocation.Context.VirtualDirectory);
 				},
-				.DrawHostPresentation = [this](bool bAllowed) { ImportDialog->Draw(bAllowed); }}, Error);
+				.DrawHostPresentation = [this](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowed) {
+					if (OwnerLifetime && OwnerLifetime->expired()) { ImportDialog.reset(); OwnerLifetime.reset(); return; }
+					if (OwnerLifetime && (OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*OwnerLifetime))) return;
+					if (ImportDialog) ImportDialog->Draw(bAllowed);
+				},
+				.StopHostPresentation = [this](const std::weak_ptr<void>& Lifetime) {
+					if (OwnerLifetime && !OwnerLifetime->owner_before(Lifetime) && !Lifetime.owner_before(*OwnerLifetime)) { ImportDialog.reset(); OwnerLifetime.reset(); }
+				}}, Error);
 			require(ImportExtension.IsValid());
 
 		}
@@ -45,6 +46,7 @@ namespace Durin
 	private:
 		AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
 		FModularFeatureRegistration SaveReadinessRegistration;
+		std::optional<std::weak_ptr<void>> OwnerLifetime;
 		std::unique_ptr<Editor::FGltfAssetImportDialog> ImportDialog;
 		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
 	};

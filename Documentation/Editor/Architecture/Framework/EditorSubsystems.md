@@ -53,8 +53,9 @@ retirement is idempotent and BeginDestroy supplies the same fallback path.
 `DAssetEditorSubsystem` in `Subsystems/AssetEditorSubsystem.h` follows the core
 native asset-editor lifecycle of UE's `UAssetEditorSubsystem`. The active editor owns
 the service. `OpenEditorForAsset(DObject*)` first finds and focuses an
-existing primary `IAssetEditorInstance`; otherwise it resolves the exact-class
-workspace route. Path overloads load the asset before routing. Batch opening
+existing primary `IAssetEditorInstance`; otherwise it enters definition-based
+dispatch. Path overloads use resident objects or registry metadata first and load
+only when class metadata is unavailable. Batch opening
 deduplicates objects, attempts every distinct input, and returns aggregate success;
 an accepted deferred request is not yet an actually opened editor. A recursive
 open of the same asset is rejected while its open/focus callback is in progress.
@@ -86,12 +87,48 @@ objects and never loads additional packages. Destroying the manager detaches its
 routing endpoint and instances before Editor services deinitialize. Native hosts
 may construct a manager with their own service without creating a window.
 
-This implements the supported object/path open, lookup, notification and close
-subset of UE's API, using Durin's `D` object prefix, standard containers and
-Workspace document host. UE Toolkit hosting modes, AssetDefinition-based dispatch,
-read-only open methods, restore/MRU, analytics, editor modes and lifecycle multicast
-events are not provided by this contract. Concrete module startup/rollback remains
-in MainFrame; introducing the service does not change module loading policy.
+`DAssetDefinition` provides immutable reflected type metadata and const open
+behavior. Eligible CDOs register after full construction in `PostInitProperties`
+and retire their exact object generation in `BeginDestroy`. The process-level
+`FAssetDefinitionRegistry` rejects duplicate exact class paths and resolves the
+nearest registered ancestor when no exact definition exists. Membership revision
+changes on insertion/removal; ancestor lookup is uncached, so later definitions
+and removals apply immediately without invalidating stored class pointers.
+Queries do not load asset packages or construct toolkits. Scoped dynamic
+registrations retain their definition across GC; their handles may outlive the
+registry. Dispatch retains a selected definition across callbacks and pending work.
+Automatic registration does not authorize physical DLL reload.
+
+`OpenAssets(FAssetOpenArgs)` requires the requesting subsystem as explicit context
+and returns one result per input, preserving mixed success/failure and duplicate
+outcomes. Metadata includes canonical object path and full class identity.
+Definitions explicitly support Edit or View; unsupported methods are rejected
+before execution. `FAssetOpenArgs::LoadAsset` is execution-only and rejects loaded
+objects whose class disagrees with the selection metadata. A registered definition
+is authoritative: its rejection never falls through to another editor.
+
+When no definition exists, the transitional exact-route workspace adapter supports
+Edit only. MainFrame's browser callback now passes its metadata selection directly
+to this dispatch rather than preloading it. Concrete editor migration and generic
+property editing are separate later steps; `DAssetDefinitionDefault` currently
+supplies shared display/category metadata, not a generic editing implementation.
+
+Definitions create pending operations with `BeginOpenRequest`, supplying an
+explicit cancellation callback. `GetOpenRequest` observes terminal outcomes and
+`CompleteOpenRequest` rejects late completion. A refused cancellation leaves work
+and provider retention unchanged. Legacy pending documents have observable request
+IDs but cancellation stays with their existing controllers; the subsystem must
+not claim that erasing a document drained its asynchronous work. Definition-owned
+pending work must cancel/drain before subsystem retirement. Terminal request data
+remains until teardown; bounded history is introduced with MRU/session restoration.
+
+Texture2D now uses a reflected session and reusable toolkit instead of a
+per-document instance adapter; its View method guards commands and property
+mutation. Other feature editors still use the Workspace document host. See
+[asset definitions and editor sessions](AssetEditors.md) for the implemented
+ownership, host, close-coordination and migration boundary. Native hosting,
+restore/MRU, usage accounting, editor modes and lifecycle multicast events remain
+unimplemented. Concrete module startup/rollback stays in MainFrame during migration.
 
 ## Level Editor Play Controls
 

@@ -188,6 +188,7 @@ namespace Durin
 	class DMaterialParameterCollectionSubsystem : public DWorldSubsystem
 	{
 		GENERATED_BODY()
+		friend class FMaterialReferenceReplacementParticipant;
 	public:
 		ENGINE_API explicit DMaterialParameterCollectionSubsystem(
 			const FObjectInitializer& Initializer);

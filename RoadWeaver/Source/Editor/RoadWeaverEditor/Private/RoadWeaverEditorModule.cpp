@@ -23,15 +23,22 @@ namespace Durin::RoadNet::Editor
 					return !Context.VirtualDirectory.empty();
 				},
 				.Invoke = [this](const auto& Invocation) {
-					if (!CreateDialog) return;
+					OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+					CreateDialog = std::make_unique<FRoadNetCreateDialog>();
 					CreateDialog->Open(Invocation.Context.VirtualDirectory, {
 						.NotifyMountedContentChanged =
 							Invocation.NotifyMountedContentChanged,
 						.RevealAsset = Invocation.RevealAsset,
 						.ReportError = Invocation.ReportError});
 				},
-				.DrawHostPresentation = [this](bool bAllowAssetMutation) {
+				.DrawHostPresentation = [this](const ::Durin::Editor::ContentBrowser::FExtensionHost& Host, bool bAllowAssetMutation) {
+					if (OwnerLifetime && OwnerLifetime->expired()) { CreateDialog.reset(); OwnerLifetime.reset(); return; }
+					if (OwnerLifetime && (OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*OwnerLifetime))) return;
 					if (CreateDialog) CreateDialog->Draw(bAllowAssetMutation);
+				},
+				.StopHostPresentation = [this](const std::weak_ptr<void>& Lifetime) {
+					if (OwnerLifetime && !OwnerLifetime->owner_before(Lifetime) && !Lifetime.owner_before(*OwnerLifetime))
+					{ CreateDialog.reset(); OwnerLifetime.reset(); }
 				},
 			}, Error);
 			if (!CreateExtension.IsValid())
@@ -47,6 +54,7 @@ namespace Durin::RoadNet::Editor
 	private:
 		::Durin::Editor::ContentBrowser::FScopedExtensionRegistration CreateExtension;
 		std::unique_ptr<FRoadNetCreateDialog> CreateDialog;
+		std::optional<std::weak_ptr<void>> OwnerLifetime;
 	};
 
 	IMPLEMENT_MODULE(FRoadWeaverEditorModule, RoadWeaverEditor)

@@ -6,7 +6,7 @@
 #include "Documents/EditorDocumentTypes.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::TabLayout
+namespace Durin::TabLayout
 {
 	inline constexpr uint32 MainFrameLayoutVersion = 3;
 

@@ -16,6 +16,7 @@
 #include "DObject/Package.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "Misc/MountPaths.h"
 #include "DynamicRHI.h"
 #include "RenderResource.h"
@@ -73,6 +74,7 @@ namespace Durin
 				|| Class == DVolumeTexture::StaticClass()
 				|| Class == DMaterial::StaticClass()
 				|| Class == DMaterialInstance::StaticClass()
+				|| Class == DMaterialParameterCollection::StaticClass()
 				|| Object.IsA(DMaterialFunctionInterface::StaticClass());
 		}
 
@@ -152,6 +154,14 @@ namespace Durin
 				FAssetCompilingManager::Get().FinishCompilationForObjects(Objects);
 				for (DObject* Object : Objects)
 				{
+					if (auto* Collection = Cast<DMaterialParameterCollection>(Object))
+						if (const auto Layout = Collection->BuildLayout(); !Layout)
+						{
+							OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
+								Stage::PrepareRuntimeProducts, {}, Reason::MaterialPreparation,
+								{.ObjectPath = Object->GetObjectPath(), .Message = Layout.error().Message});
+							return false;
+						}
 					// Selected compilation must leave installed CPU data; do not retry failed work.
 					if (auto* Texture = Cast<DTexture>(Object);
 						Texture && (!Texture->IsAsyncCacheComplete() || !Texture->HasPlatformData()))
@@ -642,6 +652,7 @@ namespace Durin
 					if (auto* Package = FindResidentPackage(Path))
 						for (DObject* Object : Package->GetTopLevelAssets())
 							if (auto* Function = Cast<DMaterialFunctionInterface>(Object)) NotifyMaterialFunctionChanged(*Function);
+							else if (auto* Collection = Cast<DMaterialParameterCollection>(Object)) NotifyMaterialParameterCollectionChanged(*Collection);
 			}
 			catch (...)
 			{

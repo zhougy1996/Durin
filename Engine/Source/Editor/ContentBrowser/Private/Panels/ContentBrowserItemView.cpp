@@ -113,7 +113,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		if (Item.Kind == EContentBrowserItemKind::File) return Icons::File;
 		if (Item.Kind == EContentBrowserItemKind::Redirector)
 			return Icons::ArrowRight;
-		if (const auto Type = FindAssetTypePresentation(Item.AssetClassName)) return Type->Icon;
+		if (const auto Type = FindAssetTypePresentation(Item.AssetClassName); Type && !Type->Icon.empty()) return Type->Icon;
 		return Icons::FileLines;
 	}
 
@@ -263,7 +263,12 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			ImGui::GetFont(),
 			Metrics.IconFontSize,
 			IconPosition,
-			MonaImGui::GetThemeColorU32(IconColorRole),
+			[&] {
+				if (Item.Kind == EContentBrowserItemKind::Asset)
+					if (const auto Type = FindAssetTypePresentation(Item.AssetClassName); Type && !Type->DisplayName.empty())
+						return ImGui::ColorConvertFloat4ToU32(ImVec4(Type->Color[0], Type->Color[1], Type->Color[2], Type->Color[3]));
+				return MonaImGui::GetThemeColorU32(IconColorRole);
+			}(),
 			Icon(Item).c_str());
 		if (ThumbnailPresentation == EThumbnailPresentation::Loading)
 			DrawList->AddText(

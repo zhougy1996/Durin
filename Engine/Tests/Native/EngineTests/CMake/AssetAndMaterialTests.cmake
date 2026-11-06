@@ -93,6 +93,8 @@ durin_add_native_test(EditorOperationTests
 	MODULES asset-tools durin-ed mona
 	STACKS editor
 	SOURCES
+		Private/Editor/AssetDefinitionTests.cpp
+		Private/Editor/AssetEditorSessionTests.cpp
 		Private/Editor/CompensatingAsyncOperationTests.cpp
 		Private/Editor/EditorToolTests.cpp
 		Private/Editor/EditorSubsystemTests.cpp
@@ -436,6 +438,22 @@ durin_add_native_test(MaterialGraphEditingTests
 	ENVIRONMENTS authored-shaders
 	HEAVY_RUNTIME_RATIONALE
 		"Exercises material and function graph commands, inference, and transaction replay."
+)
+
+durin_add_native_test(AssetEditorFamilyTests
+	KIND feature
+	DOMAINS asset-workflow material texture static-mesh
+	MODULES durin-ed material-editor texture-editor static-mesh-editor asset-tools
+	STACKS editor renderer
+	SOURCES Private/Editor/AssetEditorFamilyTests.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer MonaCore Mona MonaImGui
+		DurinEd AssetTools AssetForgeBuiltins MaterialEditor TextureEditor StaticMeshEditor MeshBuilder
+	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Exercises reflected editor definitions and real feature session lifetimes."
+	ENVIRONMENTS authored-shaders
+	HEAVY_RUNTIME_RATIONALE "Creates deterministic material, texture and mesh assets without requiring a window or GPU."
 )
 
 durin_add_native_test(MaterialEditorInteractionTests

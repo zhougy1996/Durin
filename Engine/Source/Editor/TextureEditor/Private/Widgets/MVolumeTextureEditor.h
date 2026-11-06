@@ -13,28 +13,30 @@ namespace Durin { class DVolumeTexture; struct FVolumeTexturePlatformData; }
 
 namespace Durin::Editor::Texture
 {
-	class MVolumeTextureEditor final : public IAssetEditorToolkit
+	class MVolumeTextureEditor final : public FBaseAssetToolkit
 	{
 	public:
+		auto GetLastOperationError() const -> std::string override { return ErrorMessage; }
+		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
 		explicit MVolumeTextureEditor(FEditorDocumentManager& InManager);
 		auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
 		auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		auto RequestDeactivate() -> bool override { return true; }
 		auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
-		auto SaveDocument(const FEditorDocument& Document) -> bool override;
-		auto DiscardDocument(const FEditorDocument& Document) -> bool override;
+		auto OnSaveDocument(const FEditorDocument& Document) -> bool override;
+		auto OnDiscardDocument(const FEditorDocument& Document) -> bool override;
 		auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
-		auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override;
-		auto CanSaveActiveDocument() const -> bool override;
-		auto SaveActiveDocument() -> bool override;
-		auto CanUndo() const -> bool override { return Documents.CanUndo(); }
-		auto CanRedo() const -> bool override { return Documents.CanRedo(); }
+		auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override;
+		auto OnCanSaveActiveDocument() const -> bool override;
+		auto OnSaveActiveDocument() -> bool override;
+		auto OnCanUndo() const -> bool override { return Documents.CanUndo(); }
+		auto OnCanRedo() const -> bool override { return Documents.CanRedo(); }
 		auto GetUndoDescription() const -> std::string override { return Documents.GetUndoDescription(); }
 		auto GetRedoDescription() const -> std::string override { return Documents.GetRedoDescription(); }
-		auto Undo() -> bool override { return Documents.Undo(); }
-		auto Redo() -> bool override { return Documents.Redo(); }
-		auto DrawToolkit(bool bActive) -> bool override;
+		auto OnUndo() -> bool override { return Documents.Undo(); }
+		auto OnRedo() -> bool override { return Documents.Redo(); }
+		auto OnDrawToolkit(bool bActive) -> bool override;
 		auto ResetLayout() -> void override;
 
 	private:

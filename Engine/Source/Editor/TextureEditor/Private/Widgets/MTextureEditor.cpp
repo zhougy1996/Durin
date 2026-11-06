@@ -10,6 +10,8 @@
 #include "Diagnostics/TexturePayloadInspection.h"
 #include "Editor/EditorEngine.h"
 #include "Documents/EditorDocumentManager.h"
+#include "Toolkits/AssetEditor.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "Framework/TabLayout.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
@@ -124,6 +126,7 @@ namespace Durin::Editor::Texture
 	MTextureEditor::MTextureEditor(FEditorDocumentManager& InWorkspaceManager)
 		: DocumentManager(InWorkspaceManager)
 	{
+		if (auto* Service = DocumentManager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor());
 
 	}
 
@@ -134,8 +137,7 @@ namespace Durin::Editor::Texture
 		for (auto& [ResourceId, Texture] : OpenTextures)
 		{
 			(void)ResourceId;
-			if (Texture)
-				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+			CancelUnobservedCompilation(Texture.Get());
 		}
 	}
 
@@ -173,7 +175,8 @@ namespace Durin::Editor::Texture
 	{
 		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Texture) && !FinishActivePropertyEdit(true)) return;
-		Documents.Activate(Document, Texture);
+		if (IsReadOnly()) Documents.ActivateReadOnly(Document, Texture);
+		else Documents.Activate(Document, Texture);
 	}
 
 	auto MTextureEditor::RequestDeactivate() -> bool
@@ -186,20 +189,19 @@ namespace Durin::Editor::Texture
 		if (PropertyView.IsEditingObject(FindOpenTexture(Document.ResourceId)) && !FinishActivePropertyEdit(true))
 			return EDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
-		if (DTexture2D* Texture = FindOpenTexture(Document.ResourceId))
-			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+		CancelUnobservedCompilation(FindOpenTexture(Document.ResourceId));
 		OpenTextures.erase(Document.ResourceId);
 		PreviewStates.erase(Document.ResourceId);
 		Documents.Close(Document.ResourceId);
 		return EDocumentCloseResult::Closed;
 	}
 
-	auto MTextureEditor::SaveDocument(const FEditorDocument& Document) -> bool
+	auto MTextureEditor::OnSaveDocument(const FEditorDocument& Document) -> bool
 	{
 		return SaveTexture(FindOpenTexture(Document.ResourceId));
 	}
 
-	auto MTextureEditor::DiscardDocument(const FEditorDocument& Document) -> bool
+	auto MTextureEditor::OnDiscardDocument(const FEditorDocument& Document) -> bool
 	{
 		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
 		return Documents.Discard(Texture, [Texture] {
@@ -224,29 +226,44 @@ namespace Durin::Editor::Texture
 			}
 	}
 
-	auto MTextureEditor::IsDocumentDirty(const FEditorDocument& Document) const -> bool
+	auto MTextureEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
+	{
+		if (auto Entry = OpenTextures.extract(std::string(Source)); !Entry.empty())
+		{
+			Entry.key() = Destination;
+			OpenTextures.insert(std::move(Entry));
+		}
+		if (auto Entry = PreviewStates.extract(std::string(Source)); !Entry.empty())
+		{
+			Entry.key() = Destination;
+			PreviewStates.insert(std::move(Entry));
+		}
+		Documents.RemapResourceId(Source, Destination);
+	}
+
+	auto MTextureEditor::OnIsDocumentDirty(const FEditorDocument& Document) const -> bool
 	{
 		return Documents.IsDirty(FindOpenTexture(Document.ResourceId));
 	}
 
-	auto MTextureEditor::CanSaveActiveDocument() const -> bool
+	auto MTextureEditor::OnCanSaveActiveDocument() const -> bool
 	{
 		DTexture2D* Texture = GetActiveTexture();
 		return Texture && Texture->IsAsyncCacheComplete()
 			&& Documents.CanSave(Texture);
 	}
 
-	auto MTextureEditor::SaveActiveDocument() -> bool
+	auto MTextureEditor::OnSaveActiveDocument() -> bool
 	{
 		return SaveTexture(GetActiveTexture());
 	}
 
-	auto MTextureEditor::CanUndo() const -> bool
+	auto MTextureEditor::OnCanUndo() const -> bool
 	{
 		return Documents.CanUndo();
 	}
 
-	auto MTextureEditor::CanRedo() const -> bool
+	auto MTextureEditor::OnCanRedo() const -> bool
 	{
 		return Documents.CanRedo();
 	}
@@ -261,23 +278,24 @@ namespace Durin::Editor::Texture
 		return Documents.GetRedoDescription();
 	}
 
-	auto MTextureEditor::Undo() -> bool
+	auto MTextureEditor::OnUndo() -> bool
 	{
 		return FinishActivePropertyEdit(false) && Documents.Undo();
 	}
 
-	auto MTextureEditor::Redo() -> bool
+	auto MTextureEditor::OnRedo() -> bool
 	{
 		return FinishActivePropertyEdit(false) && Documents.Redo();
 	}
 
-	auto MTextureEditor::DrawToolkit(bool bActive) -> bool
+	auto MTextureEditor::OnDrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
+		const auto RootKey = GetPresentationRootKey(Workspace::RootKey);
 		return Documents.GetTabManager().DrawDocuments(
 			DocumentManager,
 			Workspace::Type,
-			Workspace::RootKey,
+			RootKey,
 			[this](const FEditorDocument& Document) {
 				return FindOpenTexture(Document.ResourceId) != nullptr;
 			},
@@ -312,6 +330,7 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::SaveTexture(DTexture2D* Texture) -> bool
 	{
+		if (IsReadOnly()) return false;
 		return Documents.Save(Texture, [this, Texture] {
 			if (Texture->IsAsyncCacheComplete()) return true;
 			SetError(
@@ -319,6 +338,21 @@ namespace Durin::Editor::Texture
 				"or cancel it to keep the last successful state.");
 			return false;
 		}, [this](std::string Message) { SetError(std::move(Message)); });
+	}
+
+	auto MTextureEditor::CancelUnobservedCompilation(DTexture2D* Texture) -> void
+	{
+		if (!Texture || IsReadOnly()) return;
+		auto* Owner = GetOwningAssetEditor();
+		auto* Service = Owner ? Owner->GetAssetEditorSubsystem() : DocumentManager.GetAssetEditorSubsystem();
+		if (Service)
+		{
+			const auto Observers = Service->FindEditorsForAsset(Texture);
+			if (!Owner && Observers.size() > 1) return;
+			if (Owner)
+				for (auto* Instance : Observers) if (Instance != Owner) return;
+		}
+		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 	}
 
 	auto MTextureEditor::DrawDocument(const FEditorDocument& Document, DTexture2D* Texture) -> void
@@ -339,6 +373,7 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::DrawToolbar(const FEditorDocument& Document, DTexture2D* Texture) -> void
 	{
 		const bool bPending = !Texture->IsAsyncCacheComplete();
+		ImGui::BeginDisabled(IsReadOnly());
 		if (bPending) ImGui::BeginDisabled();
 		if (ImGui::Button("Save")) SaveTexture(Texture);
 		if (bPending) ImGui::EndDisabled();
@@ -353,6 +388,7 @@ namespace Durin::Editor::Texture
 			if (ImGui::Button("Cancel Build"))
 				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		}
+		ImGui::EndDisabled();
 		ImGui::SameLine();
 		ImGui::TextDisabled("|");
 		ImGui::SameLine();
@@ -454,10 +490,12 @@ namespace Durin::Editor::Texture
 		ImGui::PopStyleColor();
 
 		ImGui::Spacing();
+		ImGui::BeginDisabled(IsReadOnly());
 		if (ImGui::Button("Retry Build"))
 		{
 			Texture->PostLoad();
 		}
+		ImGui::EndDisabled();
 
 		ImGui::EndChild();
 		ImGui::PopStyleColor();
@@ -702,6 +740,7 @@ namespace Durin::Editor::Texture
 		}
 		MonaImGui::PropertyEdit::EndTable();
 		const bool bCanReimport = !SourceHint.empty();
+		ImGui::BeginDisabled(IsReadOnly());
 		constexpr const char* ReimportLabel = "Reimport";
 		if (!bCanReimport) ImGui::BeginDisabled();
 		if (ImGui::Button(ReimportLabel))
@@ -715,22 +754,26 @@ namespace Durin::Editor::Texture
 		if (ImGui::Button("Reimport From File...")) ReimportFromFile(Texture);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Captures a selected file and commits it only after decode and Build succeed.");
+		ImGui::EndDisabled();
 	}
 
 	auto MTextureEditor::ReimportSource(DTexture2D* Texture) -> void
 	{
-		if (!Texture) return;
-		FReimportManager::Reimport(*Texture, {}, [this](FReimportResult Result) {
+		if (!Texture || IsReadOnly()) return;
+		FReimportManager::Reimport(*Texture, {}, [Weak = weak_from_this()](FReimportResult Result) {
+			const auto Toolkit = Weak.lock();
+			if (!Toolkit || !Toolkit->IsSessionActive()) return;
+			auto* Self = static_cast<MTextureEditor*>(Toolkit.get());
 			if (Result.Interrupted()) return;
-			if (!Result) SetError(Result.Message.empty()
+			if (!Result) Self->SetError(Result.Message.empty()
 				? "Texture2D reimport failed." : std::move(Result.Message));
-			else SourceReferenceIndex.Invalidate();
+			else Self->SourceReferenceIndex.Invalidate();
 		});
 	}
 
 	auto MTextureEditor::ReimportFromFile(DTexture2D* Texture) -> void
 	{
-		if (!Texture || !Texture->GetPackage()) return;
+		if (!Texture || !Texture->GetPackage() || IsReadOnly()) return;
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Reimport Texture From File";
@@ -747,12 +790,15 @@ namespace Durin::Editor::Texture
 		}
 		const std::array Files{Result.FilePath};
 		FReimportManager::ReimportFromFiles(*Texture, Files, {},
-			[this](FReimportResult Reimported) {
+			[Weak = weak_from_this()](FReimportResult Reimported) {
+				const auto Toolkit = Weak.lock();
+				if (!Toolkit || !Toolkit->IsSessionActive()) return;
+				auto* Self = static_cast<MTextureEditor*>(Toolkit.get());
 				if (Reimported.Interrupted()) return;
-				if (!Reimported) SetError(Reimported.Message.empty()
+				if (!Reimported) Self->SetError(Reimported.Message.empty()
 					? "Texture2D reimport from file failed."
 					: std::move(Reimported.Message));
-				else SourceReferenceIndex.Invalidate();
+				else Self->SourceReferenceIndex.Invalidate();
 			});
 	}
 
@@ -772,6 +818,7 @@ namespace Durin::Editor::Texture
 	{
 		return {
 			.ReportError = [this](std::string Error) { SetError(std::move(Error)); },
+			.bReadOnly = IsReadOnly(),
 		};
 	}
 

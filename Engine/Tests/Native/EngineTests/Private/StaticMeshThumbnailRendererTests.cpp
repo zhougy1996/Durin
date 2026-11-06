@@ -681,8 +681,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 
-	Durin::Editor::FEditorDocumentManager Manager;
-	Durin::Editor::DThumbnailManager ThumbnailManager;
+	Durin::FEditorDocumentManager Manager;
+	auto& ThumbnailManager = Durin::Editor::GetDefaultThumbnailManager();
 	Durin::FMaterialEditorModule MaterialModule;
 	Durin::FTextureEditorModule TextureModule;
 	Durin::FStaticMeshEditorModule StaticMeshModule;
@@ -692,12 +692,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 	MaterialHarness.Start(MaterialModule);
 	TextureHarness.Start(TextureModule);
 	StaticMeshHarness.Start(StaticMeshModule);
-	ASSERT_TRUE(MaterialModule.RegisterToolkits(Manager, ThumbnailManager));
-	ASSERT_TRUE(TextureModule.RegisterToolkits(Manager, ThumbnailManager));
-	ASSERT_TRUE(StaticMeshModule.RegisterToolkits(Manager, ThumbnailManager));
 	// Material, Material Function, Material Parameter Collection, Texture,
 	// Volume Texture, and Static Mesh.
-	EXPECT_EQ(Manager.GetToolkitDescriptors().size(), 6u);
+	EXPECT_TRUE(!Manager.GetToolkit());
 
 	const std::string MaterialClass =
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();
@@ -734,39 +731,36 @@ TEST(FStaticMeshThumbnailRendererTests,
 
 	// MainFrame shutdown removes concrete modules in reverse composition order.
 	// Removing one renderer drains its queued lease without disturbing the others.
-	StaticMeshModule.UnregisterToolkits();
+	StaticMeshHarness.Shutdown();
 	EXPECT_FALSE(ThumbnailManager.Find(StaticMeshClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_TRUE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_EQ(
-		Manager.FindToolkit(Durin::Editor::FAssetEditorToolkitId("StaticMeshEditor")),
+		Manager.FindToolkit(Durin::FAssetEditorToolkitId("StaticMeshEditor")),
 		nullptr);
 	Cache.EndFrame();
 
-	TextureModule.UnregisterToolkits();
+	TextureHarness.Shutdown();
 	EXPECT_FALSE(ThumbnailManager.Find(Texture2DClass));
 	EXPECT_FALSE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_EQ(
-		Manager.FindToolkit(Durin::Editor::FAssetEditorToolkitId("TextureEditor")),
+		Manager.FindToolkit(Durin::FAssetEditorToolkitId("TextureEditor")),
 		nullptr);
 	EXPECT_EQ(
-		Manager.FindToolkit(Durin::Editor::FAssetEditorToolkitId("VolumeTextureEditor")),
+		Manager.FindToolkit(Durin::FAssetEditorToolkitId("VolumeTextureEditor")),
 		nullptr);
 
-	MaterialModule.UnregisterToolkits();
+	MaterialHarness.Shutdown();
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialInstanceClass));
 	EXPECT_EQ(
-		Manager.FindToolkit(Durin::Editor::FAssetEditorToolkitId("MaterialEditor")),
+		Manager.FindToolkit(Durin::FAssetEditorToolkitId("MaterialEditor")),
 		nullptr);
-	EXPECT_TRUE(Manager.GetToolkitDescriptors().empty());
+	EXPECT_TRUE(!Manager.GetToolkit());
 
 	Cache.CancelPendingRequests();
 	Cache.Clear();
 	ThumbnailManager.Shutdown();
 	EXPECT_FALSE(ThumbnailManager.Find(StaticMeshClass));
-	StaticMeshHarness.Shutdown();
-	TextureHarness.Shutdown();
-	MaterialHarness.Shutdown();
 }

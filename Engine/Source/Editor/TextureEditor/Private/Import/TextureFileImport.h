@@ -18,6 +18,8 @@ namespace Durin::Editor::Texture
 		explicit FTextureFileImport(FImportDialogCallbacks InCallbacks = {}, FSaveOperation InSave = {})
 			: Callbacks(std::move(InCallbacks)), SaveOperation(std::move(InSave)) {}
 		~FTextureFileImport();
+		auto SetCallbacks(FImportDialogCallbacks Next) -> bool
+		{ if (IsRunning()) return false; Callbacks = std::move(Next); return true; }
 		// One bounded batch at a time. Tick is called by the editor host, including
 		// when the browser is hidden. Only detached capture/decode runs on our worker.
 		auto Begin(std::vector<std::string> Files, std::string Directory) -> bool;

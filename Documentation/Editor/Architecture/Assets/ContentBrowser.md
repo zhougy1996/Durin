@@ -49,13 +49,20 @@ still draws with submission disabled. Queued commands retain owned context and
 registration identity rather than provider callbacks; unregistering or replacing
 an entry prevents an old queued click from invoking it.
 
-Asset-family editor modules register presentation by the complete qualified class
-identity: display name, stable category, fallback icon, optional thumbnail badge,
-and optional read-only details provider. Filtering uses category IDs, never display
-text or class-name substrings. Texture2D, TextureCube, and VolumeTexture all belong
-to Textures. Unknown classes use their class leaf for display, the generic asset
-icon, and OtherAssets. Registration changes invalidate the browser projection.
-Opening, thumbnail rendering, and Reimport keep their existing registries.
+Asset definitions supply display names, icons, colors and category paths by full
+qualified class identity. The browser resolves those values without loading an
+asset. The legacy type-presentation registration table and fixed category enum
+are removed. Dynamic category filters use path prefixes; persisted built-in filter
+shortcuts resolve the same `Level`, `Meshes`, `Material` and `Texture` roots.
+Filtering never infers type from display labels or class-name substrings.
+Unknown types use their class leaf, generic icon and OtherAssets.
+
+`RegisterAssetTypeExtras` independently supplies exact-class read-only details and
+thumbnail badges. Removing extras preserves definition metadata; removing a
+definition preserves applicable extras without inventing display metadata or
+category membership. Definition and extras revisions invalidate browser
+projections. Opening uses the asset-editor subsystem; thumbnail rendering and
+Reimport retain independent feature registrations.
 
 Production item, directory-tree, and background menus consume applicable Context
 Menu extensions through the same presenter used by Create and Import. Context owns
@@ -229,7 +236,7 @@ Presentation never turns a resave recommendation into an unsaved-change
 decoration or close prompt. Registry and item snapshots refresh only after
 verified publication.
 
-Double-click routing is resolved by the live `Editor::FEditorDocumentManager` exact-class
+Double-click routing is resolved by the live `FEditorDocumentManager` exact-class
 route table. `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own their
 respective asset routes; StaticMesh opens a closable per-resource document in
 the user-visible **StaticMesh Inspector** workspace. The Content Browser does

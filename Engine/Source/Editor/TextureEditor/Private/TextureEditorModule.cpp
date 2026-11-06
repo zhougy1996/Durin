@@ -4,7 +4,6 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "ContentBrowser/TextureCubeDetails.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Texture2DPropertyEditing.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -12,11 +11,7 @@
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
-#include "Widgets/MTextureEditor.h"
-#include "Widgets/MVolumeTextureEditor.h"
 #include "TexturePreview.h"
-#include "Workspace/TextureEditorWorkspace.h"
-#include "Workspace/VolumeTextureEditorWorkspace.h"
 #include "Import/TextureFileImport.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"
@@ -24,6 +19,7 @@
 #include "Asset/Load.h"
 #include "Editor/EditorEngine.h"
 #include "Notifications/Notification.h"
+#include "DObject/WeakObjectPtr.h"
 
 namespace Durin
 {
@@ -32,12 +28,14 @@ namespace Durin
 
 	struct FTextureEditorModule::FIntegrationState
 	{
-		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypeExtras;
 		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
 		Editor::ContentBrowser::FScopedExtensionRegistration RetrySaveExtension;
 		std::shared_ptr<Editor::Texture::FTextureFileImport> FileImport;
 		std::string LastSourceDirectory;
 		Editor::FNotificationId ImportProgress = 0;
+		TWeakObjectPtr<DEditorEngine> ImportEditor;
+		std::optional<std::weak_ptr<void>> OwnerLifetime;
 	};
 
 	FTextureEditorModule::FTextureEditorModule()
@@ -53,84 +51,32 @@ namespace Durin
 			DTexture2D::StaticClass(), Editor::Texture::CreateTextureBuildSettingsDetails());
 		require(static_cast<bool>(DetailCustomizationRegistration));
 
+		require(RegisterContributions(Editor::GetDefaultThumbnailManager()));
 	}
 
 	auto FTextureEditorModule::ShutdownModule() -> void
 	{
-		UnregisterToolkits();
+		UnregisterContributions();
 		Editor::FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
 		DetailCustomizationRegistration = {};
 		Editor::Texture::UnregisterTexture2DPropertyEditing();
 		FTexturePreview::ReleaseSharedResources();
 	}
 
-	auto FTextureEditorModule::RegisterToolkits(
-		Editor::FEditorDocumentManager& DocumentManager,
-		Editor::DThumbnailManager& ThumbnailManager,
-		Editor::FImportDialogCallbacks ImportCallbacks) -> bool
+	auto FTextureEditorModule::RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool
 	{
-		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
-			|| (Texture2DThumbnailRegistration && Texture2DThumbnailRegistration->IsValid())
+		if ((Texture2DThumbnailRegistration && Texture2DThumbnailRegistration->IsValid())
 			|| (TextureCubeThumbnailRegistration && TextureCubeThumbnailRegistration->IsValid()))
 			return false;
-		WorkspaceRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		TextureCubeThumbnailRegistration.reset();
-		Integration->FileImport = std::make_shared<Editor::Texture::FTextureFileImport>(ImportCallbacks);
-		std::shared_ptr<MTextureEditor> Workspace = std::make_shared<MTextureEditor>(DocumentManager);
-		std::shared_ptr<MVolumeTextureEditor> VolumeEditor =
-			std::make_shared<MVolumeTextureEditor>(DocumentManager);
-		Editor::FAssetEditorToolkitRegistrationHandle Registration = DocumentManager.RegisterBatch({
-			.Toolkits = {
-				{
-					.Descriptor = {
-						.ToolkitId = Workspace::Type,
-						.DisplayName = "Texture Editor",
-						.RootKey = std::string(Workspace::RootKey),
-						.bShowInWindowMenu = false,
-						.bOpenByDefault = false,
-						.DefaultHostDockPreference = Editor::EToolkitHostDockPreference::Center,
-					},
-					.Toolkit = Workspace,
-				},
-				{
-					.Descriptor = {
-						.ToolkitId = VolumeWorkspace::Type,
-						.DisplayName = "Texture Editor",
-						.RootKey = std::string(VolumeWorkspace::RootKey),
-						.bShowInWindowMenu = false,
-						.bOpenByDefault = false,
-						.DefaultHostDockPreference = Editor::EToolkitHostDockPreference::Center,
-					},
-					.Toolkit = VolumeEditor,
-				},
-			},
-			.AssetEditors = {
-				{
-					.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
-					.ToolkitId = Workspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
-					.bClosable = true,
-				},
-				{
-					.AssetClassName = DVolumeTexture::StaticClass()->GetQualifiedName().ToString(),
-					.ToolkitId = VolumeWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
-					.bClosable = true,
-				},
-			},
-		});
-		if (!Registration)
-		{
-			UnregisterToolkits();
-			return false;
-		}
-		WorkspaceRegistration = std::make_unique<Editor::FAssetEditorToolkitRegistrationHandle>(std::move(Registration));
+		Integration->FileImport = std::make_shared<Editor::Texture::FTextureFileImport>();
+
 		auto Texture2DHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DTextureThumbnailRenderer>());
 		if (!Texture2DHandle)
 		{
-			UnregisterToolkits();
+			UnregisterContributions();
 			return false;
 		}
 		Texture2DThumbnailRegistration =
@@ -140,7 +86,7 @@ namespace Durin
 			std::make_unique<DTextureCubeThumbnailRenderer>());
 		if (!TextureCubeHandle)
 		{
-			UnregisterToolkits();
+			UnregisterContributions();
 			return false;
 		}
 		TextureCubeThumbnailRegistration =
@@ -156,7 +102,11 @@ namespace Durin
 			.IsApplicable = [this](const auto& Context) {
 				return !Context.VirtualDirectory.empty() && !Integration->FileImport->IsRunning();
 			},
-			.Invoke = [this, ImportCallbacks](const auto& Invocation) {
+			.Invoke = [this](const auto& Invocation) {
+				const auto ImportCallbacks = Editor::ContentBrowser::MakeImportDialogCallbacks(Invocation, {});
+				if (!Integration->FileImport->SetCallbacks(ImportCallbacks)) return;
+				Integration->OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+				Integration->ImportEditor = Editor::GetTransactionEditor();
 				FFileDialogRequest Request;
 				Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 				Request.Title = "Import Textures From Files";
@@ -174,8 +124,8 @@ namespace Durin
 					Integration->LastSourceDirectory =
 						std::filesystem::path(Selected.FilePath).parent_path().generic_string();
 					if (!Integration->FileImport->Begin(Selected.FilePaths, Invocation.Context.VirtualDirectory)) return;
-					if (GEditor)
-						Integration->ImportProgress = GEditor->GetNotificationManager().BeginProgress({
+					if (auto* Owner = Integration->ImportEditor.Get())
+						Integration->ImportProgress = Owner->GetNotificationManager().BeginProgress({
 							.Message = "Importing textures...", .Progress = 0.0f,
 							.Cancel = [Weak = std::weak_ptr(Integration->FileImport)] {
 								if (auto Importer = Weak.lock()) Importer->Cancel();
@@ -183,13 +133,25 @@ namespace Durin
 							.Presentation = Editor::ENotificationPresentation::StatusBar, .bRecordInHistory = false});
 				}
 			},
-			.DrawHostPresentation = [this](bool bAllowMutation) {
+			.DrawHostPresentation = [this](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowMutation) {
+				if (Integration->OwnerLifetime && (Integration->OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*Integration->OwnerLifetime))) return;
 				auto& Importer = *Integration->FileImport;
+				if (Integration->OwnerLifetime && Integration->OwnerLifetime->expired())
+				{
+					Importer.Cancel(); Importer.Tick(false);
+					if (auto* Owner = Integration->ImportEditor.Get(); Owner && Integration->ImportProgress)
+						Owner->GetNotificationManager().CancelProgress(Integration->ImportProgress, "Texture import host stopped.");
+					Integration->ImportProgress = 0;
+					if (!Importer.IsRunning())
+					{ Integration->FileImport = std::make_shared<FTextureFileImport>(); Integration->OwnerLifetime.reset(); }
+					return;
+				}
 				const bool bWasRunning = Importer.IsRunning();
 				Importer.Tick(bAllowMutation);
 				if (!bWasRunning) return;
-				if (!GEditor) return;
-				auto& Notifications = GEditor->GetNotificationManager();
+				auto* Owner = Integration->ImportEditor.Get();
+				if (!Owner) return;
+				auto& Notifications = Owner->GetNotificationManager();
 				if (Importer.IsRunning())
 				{
 					Notifications.UpdateProgress(Integration->ImportProgress,
@@ -222,11 +184,20 @@ namespace Durin
 						}};
 				Notifications.Post(std::move(Result));
 			},
+			.StopHostPresentation = [this](const std::weak_ptr<void>& Lifetime) {
+				if (!Integration->OwnerLifetime || Integration->OwnerLifetime->owner_before(Lifetime) || Lifetime.owner_before(*Integration->OwnerLifetime)) return;
+				if (auto* Owner = Integration->ImportEditor.Get(); Owner && Integration->ImportProgress)
+					Owner->GetNotificationManager().CancelProgress(Integration->ImportProgress, "Texture import host stopped.");
+				Integration->ImportProgress = 0;
+				Integration->FileImport->Cancel();
+				Integration->FileImport = std::make_shared<FTextureFileImport>();
+				Integration->OwnerLifetime.reset();
+			},
 			}, Error);
 		if (!ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser Texture import: {}", Error);
-			UnregisterToolkits();
+			UnregisterContributions();
 			return false;
 		}
 		Integration->ImportExtension = std::move(ImportExtension);
@@ -237,77 +208,50 @@ namespace Durin
 			.Order = 110,
 			.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [this](const auto&) { return !Integration->FileImport->IsRunning() && Integration->FileImport->HasPendingSaves(); },
-			.Invoke = [this](const auto&) { Integration->FileImport->RetryPendingSaves(); },
+			.Invoke = [this](const auto& Invocation) {
+				if (!Integration->FileImport->SetCallbacks(Editor::ContentBrowser::MakeImportDialogCallbacks(Invocation, {}))) return;
+				Integration->OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+				Integration->ImportEditor = Editor::GetTransactionEditor();
+				Integration->FileImport->RetryPendingSaves();
+			},
 		}, Error);
 		if (!Integration->RetrySaveExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register texture import save retry: {}", Error);
-			UnregisterToolkits();
+			UnregisterContributions();
 			return false;
 		}
 		std::string PresentationError;
+
 		{
-			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
-				.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
-				.DisplayName = "Texture2D",
-				.Category = Editor::ContentBrowser::EAssetCategory::Texture,
-				.Icon = Icons::FileLines,
-			}, PresentationError);
-			if (!Handle.IsValid())
-			{
-				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterToolkits();
-				return false;
-			}
-			Integration->TypePresentations.push_back(std::move(Handle));
-		}
-		{
-			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
+			auto Handle = Editor::ContentBrowser::RegisterAssetTypeExtras({
 				.AssetClassName = DTextureCube::StaticClass()->GetQualifiedName().ToString(),
-				.DisplayName = "Texture Cube",
-				.Category = Editor::ContentBrowser::EAssetCategory::Texture,
-				.Icon = Icons::Cube,
 				.ThumbnailBadgeIcon = Icons::Cube,
 				.Details = Editor::Texture::MakeTextureCubeDetailsProvider(),
 			}, PresentationError);
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterToolkits();
+				UnregisterContributions();
 				return false;
 			}
-			Integration->TypePresentations.push_back(std::move(Handle));
+			Integration->TypeExtras.push_back(std::move(Handle));
 		}
-		{
-			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
-				.AssetClassName = DVolumeTexture::StaticClass()->GetQualifiedName().ToString(),
-				.DisplayName = "Volume Texture",
-				.Category = Editor::ContentBrowser::EAssetCategory::Texture,
-				.Icon = Icons::Cube,
-			}, PresentationError);
-			if (!Handle.IsValid())
-			{
-				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
-				UnregisterToolkits();
-				return false;
-			}
-			Integration->TypePresentations.push_back(std::move(Handle));
-		}
+
 		return true;
 	}
 
-	auto FTextureEditorModule::UnregisterToolkits() -> void
+	auto FTextureEditorModule::UnregisterContributions() -> void
 	{
-		Integration->TypePresentations.clear();
+		Integration->TypeExtras.clear();
 		Integration->ImportExtension.Reset();
 		Integration->RetrySaveExtension.Reset();
-		if (Integration->ImportProgress && GEditor)
-			GEditor->GetNotificationManager().CancelProgress(Integration->ImportProgress, "Texture import stopped.");
+		if (auto* Owner = Integration->ImportEditor.Get(); Owner && Integration->ImportProgress)
+			Owner->GetNotificationManager().CancelProgress(Integration->ImportProgress, "Texture import stopped.");
 		Integration->ImportProgress = 0;
 		Integration->FileImport.reset();
 		TextureCubeThumbnailRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
-		WorkspaceRegistration.reset();
 	}
 
 }

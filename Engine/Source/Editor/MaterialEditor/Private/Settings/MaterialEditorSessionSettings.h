@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "MonaImGui.h"
+#include "Asset/MutationExtensions.h"
 
 namespace Durin::Editor::Material
 {
@@ -16,10 +17,13 @@ namespace Durin::Editor::Material
 	class FMaterialEditorSessionSettings
 	{
 	public:
-		explicit FMaterialEditorSessionSettings(std::string InFileName = "MaterialEditorSession.yaml")
+		explicit FMaterialEditorSessionSettings(std::string InFileName = "MaterialEditorPreferences.yaml")
 			: FileName(std::move(InFileName)) {}
 		auto Load() -> bool;
-		auto Save() const -> bool;
+		auto Save(bool bReplacePreferences = false) const -> bool;
+		// Select one editor profile; an absent file starts from defaults.
+		auto SelectStorage(std::string InFileName) -> bool;
+		static auto RemapStoredViewports(std::span<const FAssetRelocationMapping> Mappings) -> void;
 
 		auto FindViewport(std::string_view ResourceId) const
 			-> const FMaterialGraphViewportState*;
@@ -35,7 +39,10 @@ namespace Durin::Editor::Material
 		bool bDiagnosticsVisible = false;
 
 	private:
+		auto Preferences() const -> std::array<bool, 5> { return {bAutoCompile, bPreviewVisible, bDetailsVisible, bParametersVisible, bDiagnosticsVisible}; }
 		std::string FileName;
+		mutable std::array<bool, 5> SavedPreferences{true, true, true, true, false};
+		mutable std::unordered_set<std::string> DirtyViewports;
 		std::unordered_map<std::string, FMaterialGraphViewportState> Viewports;
 	};
 }

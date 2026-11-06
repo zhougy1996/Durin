@@ -1,15 +1,21 @@
 #include "Framework/TabManager.h"
 #include "Framework/TabLayout.h"
 #include "Documents/EditorDocumentManager.h"
+#include "Toolkits/AssetEditor.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Toolkits/ToolkitHost.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FEditorTabWindow::Begin(const FEditorTabWindowConfig& Config) -> FEditorTabWindowState
 	{
 		checkf(!bWindowBegun, "An editor workspace root window must be ended before it begins again");
-		TabLayout::SetNextRootWindowClass();
-		if (Config.bDockInEditorHost)
+		auto WindowClass = TabLayout::MakeRootWindowClass();
+		if (Config.bNativeStandalone) WindowClass.ViewportFlagsOverrideSet |= ImGuiViewportFlags_NoAutoMerge;
+		ImGui::SetNextWindowClass(&WindowClass);
+		if (Config.bNativeStandalone) ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+		if (Config.bDockInEditorHost && !Config.bNativeStandalone)
 			ImGui::SetNextWindowDockID(TabLayout::MakeMainFrameDockSpaceId(TabLayout::MainFrameLayoutVersion), ImGuiCond_FirstUseEver);
 		if (bFocusRequested)
 		{
@@ -22,6 +28,7 @@ namespace Durin::Editor
 		if (Config.bZeroPadding) ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		bool bOpen = true;
 		const ImGuiWindowFlags Flags = ImGuiWindowFlags_NoCollapse | Config.AdditionalFlags |
+			(Config.bNativeStandalone ? ImGuiWindowFlags_NoDocking : ImGuiWindowFlags_None) |
 			(Config.bDirty ? ImGuiWindowFlags_UnsavedDocument : ImGuiWindowFlags_None);
 		FEditorTabWindowState State;
 		State.bVisible = ImGui::Begin(RootWindowName.c_str(), &bOpen, Flags);
@@ -63,6 +70,8 @@ namespace Durin::Editor
 	auto FTabManager::RequestFocus(FDocumentId DocumentId) -> void
 	{
 		DocumentWindows[DocumentId.Value].RequestFocus();
+		bSessionFocusRequested = true;
+		FocusDocument = DocumentId;
 	}
 
 	auto FTabManager::DrawDocuments(
@@ -74,6 +83,55 @@ namespace Durin::Editor
 		const std::function<void(const FEditorDocument&, bool)>& UpdateDocumentVisibility
 	) -> bool
 	{
+		const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(DocumentManager.FindToolkit(ToolkitId));
+		if (auto* Session = Toolkit ? Toolkit->GetOwningAssetEditor() : nullptr)
+		{
+			const auto Documents = DocumentManager.GetDocuments();
+			if (Documents.empty()) return false;
+			const auto Host = Session->GetToolkitHost();
+			if (bSessionFocusRequested) { SessionWindow.RequestFocus(); bSessionFocusRequested = false; }
+			const std::string RootKey = std::string(WorkspaceRootKey);
+			const std::string Label = Documents.size() == 1 ? Documents.front().Label : std::format("{} ({} documents)", Session->GetEditorName().ToString(), Documents.size());
+			FEditorTabWindowConfig Config{.DisplayName = Label, .RootKey = RootKey,
+				.bDirty = std::ranges::any_of(Documents, [](const auto& Document) { return Document.bDirty; }),
+				.AdditionalFlags = ImGuiWindowFlags_NoSavedSettings};
+			if (Host) Host->PrepareRootWindow(Config);
+			const auto WindowState = SessionWindow.Begin(Config);
+			if (Host) Host->OnRootWindowShown(ImGui::GetWindowViewport()->ID);
+			const bool bActivated = WindowState.bFocused || WindowState.bActivated;
+			std::vector<FDocumentId> CloseRequests;
+			if (WindowState.bVisible && Documents.size() > 1 && ImGui::BeginTabBar("Documents"))
+			{
+				for (const auto& Document : Documents)
+				{
+					bool bOpen = true;
+					const auto* Active = DocumentManager.GetActiveDocument();
+					const auto Flags = FocusDocument == Document.Id ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+					const auto TabName = std::format("{}###Document.{}", Document.Label, Document.Id.Value);
+					if (ImGui::BeginTabItem(TabName.c_str(), &bOpen, Flags))
+					{
+						if (!Active || Active->Id != Document.Id) DocumentManager.ActivateDocument(Document.Id);
+						ImGui::EndTabItem();
+					}
+					if (!bOpen) CloseRequests.push_back(Document.Id);
+				}
+				ImGui::EndTabBar();
+				FocusDocument = {};
+			}
+			const auto* Active = DocumentManager.GetActiveDocument();
+			const std::optional<FEditorDocument> ActiveSnapshot = Active ? std::optional(Toolkit->GetPresentationDocument(*Active)) : std::nullopt;
+			for (const auto& Document : Documents)
+				if (UpdateDocumentVisibility) UpdateDocumentVisibility(Toolkit->GetPresentationDocument(Document), WindowState.bVisible && ActiveSnapshot && ActiveSnapshot->Id == Document.Id);
+			if (WindowState.bVisible && ActiveSnapshot && CanDrawDocument(*ActiveSnapshot))
+			{
+				DrawDocument(*ActiveSnapshot);
+				if (auto Base = std::dynamic_pointer_cast<FBaseAssetToolkit>(Toolkit)) Base->DrawRegisteredUI();
+			}
+			SessionWindow.End();
+			for (auto Id : CloseRequests) DocumentManager.RequestCloseDocument(Id);
+			if (WindowState.bCloseRequested) Session->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors);
+			return bActivated;
+		}
 		bool bWorkspaceActivated = false;
 		std::vector<FDocumentId> CloseRequests;
 		std::unordered_set<uint64> OpenDocumentIds;

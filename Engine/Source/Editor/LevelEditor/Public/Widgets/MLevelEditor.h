@@ -17,11 +17,12 @@ namespace Durin
 	class FLevelEditorModule;
 }
 
+namespace Durin { class FEditorDocumentManager; }
 namespace Durin::Editor
 {
 	enum class EPlayStartLocation : uint8;
 	enum class EPlayDestination : uint8;
-	class FEditorDocumentManager;
+
 }
 
 namespace Durin::Editor::Level
@@ -37,13 +38,15 @@ namespace Durin::Editor::Level
 	struct FLevelEditorContext;
 
 	// Hosts level documents, panels, play controls, and project settings.
-	class MLevelEditor final : public IAssetEditorToolkit
+	class MLevelEditor final : public FBaseAssetToolkit
 	{
 	public:
-		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
+		MLevelEditor(std::shared_ptr<FLevelEditorSessionSettings> InSessionSettings,
 			FEditorDocumentManager& InWorkspaceManager,
 			FContentBrowserCallbacks InContentBrowserCallbacks,
-			std::function<void()> InOpenProjectBrowser);
+			std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost);
+		LEVELEDITOR_API auto CancelPendingOpen() -> bool;
+		LEVELEDITOR_API auto ReleaseSessionUI() -> void override;
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
@@ -51,21 +54,21 @@ namespace Durin::Editor::Level
 		LEVELEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		LEVELEDITOR_API auto RequestDeactivate() -> bool override;
 		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
-		LEVELEDITOR_API auto SaveDocument(const FEditorDocument& Document) -> bool override;
-		LEVELEDITOR_API auto DiscardDocument(const FEditorDocument& Document) -> bool override;
-		LEVELEDITOR_API auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override;
-		LEVELEDITOR_API auto CanSaveActiveDocument() const -> bool override;
-		LEVELEDITOR_API auto SaveActiveDocument() -> bool override;
-		LEVELEDITOR_API auto CanUndo() const -> bool override;
-		LEVELEDITOR_API auto CanRedo() const -> bool override;
+		LEVELEDITOR_API auto OnSaveDocument(const FEditorDocument& Document) -> bool override;
+		LEVELEDITOR_API auto OnDiscardDocument(const FEditorDocument& Document) -> bool override;
+		LEVELEDITOR_API auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override;
+		LEVELEDITOR_API auto OnCanSaveActiveDocument() const -> bool override;
+		LEVELEDITOR_API auto OnSaveActiveDocument() -> bool override;
+		LEVELEDITOR_API auto OnCanUndo() const -> bool override;
+		LEVELEDITOR_API auto OnCanRedo() const -> bool override;
 		LEVELEDITOR_API auto GetUndoDescription() const -> std::string override;
 		LEVELEDITOR_API auto GetRedoDescription() const -> std::string override;
-		LEVELEDITOR_API auto Undo() -> bool override;
-		LEVELEDITOR_API auto Redo() -> bool override;
+		LEVELEDITOR_API auto OnUndo() -> bool override;
+		LEVELEDITOR_API auto OnRedo() -> bool override;
 		LEVELEDITOR_API auto DrawFileMenu() -> void override;
 		LEVELEDITOR_API auto DrawEditMenu() -> void override;
 		LEVELEDITOR_API auto DrawWindowMenu() -> void override;
-		LEVELEDITOR_API auto DrawToolkit(bool bActive) -> bool override;
+		LEVELEDITOR_API auto OnDrawToolkit(bool bActive) -> bool override;
 		LEVELEDITOR_API auto ResetLayout() -> void override;
 
 	private:
@@ -93,8 +96,10 @@ namespace Durin::Editor::Level
 		auto ApplyPlayChanges(bool bSelectedOnly) -> void;
 		auto BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void;
 
+		TWeakObjectPtr<DEditorEngine> EditorOwner;
 		std::unique_ptr<FLevelEditorContext> Context;
 		// Module-owned services outlive this registered workspace.
+		std::shared_ptr<FLevelEditorSessionSettings> SessionSettingsOwner;
 		FLevelEditorSessionSettings& SessionSettings;
 		FEditorDocumentManager& DocumentManager;
 		FContentBrowserCallbacks ContentBrowserCallbacks;
@@ -116,5 +121,6 @@ namespace Durin::Editor::Level
 		TSoftObjectPtr<DLevel> PendingDefaultLevel;
 		std::string EditorError;
 		FDocumentId DeferredOpenDocumentId;
+		bool bReleased = false;
 	};
 } // namespace Durin::Editor::Level

@@ -16,6 +16,9 @@
         "MonaImGui"
     ],
 	"ReflectHeaders": [
+        "Public/AssetDefinition/AssetDefinition.h",
+        "Public/Toolkits/AssetEditor.h",
+        "Private/Toolkits/GenericAssetEditor.h",
         "Public/Subsystems/AssetEditorSubsystem.h",
         "Public/Actors/EditorActorSubsystem.h",
         "Public/Tools/EditorToolSubsystem.h",

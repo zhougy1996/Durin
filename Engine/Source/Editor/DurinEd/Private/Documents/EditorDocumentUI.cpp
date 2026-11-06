@@ -2,8 +2,19 @@
 #include "Documents/EditorDocumentManager.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::DocumentUI
+namespace Durin::DocumentUI
 {
+	auto FindPendingClose(std::span<FEditorDocumentManager* const> Controllers) -> FEditorDocumentManager*
+	{
+		FEditorDocumentManager* Selected = nullptr;
+		for (auto* Controller : Controllers)
+		{
+			if (!Controller || !Controller->GetPendingCloseDocument()) continue;
+			if (!Selected || Controller->GetPendingCloseSequence() < Selected->GetPendingCloseSequence()) Selected = Controller;
+		}
+		return Selected;
+	}
+
 	auto DrawCloseConfirmation(FEditorDocumentManager& DocumentManager) -> void
 	{
 		const FEditorDocument* PendingDocument = DocumentManager.GetPendingCloseDocument();

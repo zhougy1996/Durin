@@ -48,6 +48,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::shared_ptr<FMountedContentReconciliationState>
 				InMountedContentReconciliationState);
 		~FContentBrowserPanel() override;
+		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		auto SetContentChangeServices(std::function<FContentChangeBatch(uint64)> Capture,
 			std::function<void(FContentChangeBatch)> Notify) -> void
 		{
@@ -192,5 +193,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		EAdmissionState AdmissionState =
 			EAdmissionState::Accepting;
 		bool bAllowAssetMutation = true;
+		std::shared_ptr<void> ExtensionLifetime = std::make_shared<uint8>(0);
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

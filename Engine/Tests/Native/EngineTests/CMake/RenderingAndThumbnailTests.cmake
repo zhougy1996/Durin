@@ -145,7 +145,7 @@ durin_add_native_test(MaterialThumbnailTests
 durin_add_native_test(TextureThumbnailTests
 	KIND feature
 	DOMAINS texture thumbnail
-	MODULES engine texture-compressor texture-editor
+	MODULES engine texture-compressor texture-editor durin-ed asset-tools
 	STACKS editor renderer
 	TIMEOUT 600
 	SOURCES Private/TextureAssetThumbnailTests.cpp

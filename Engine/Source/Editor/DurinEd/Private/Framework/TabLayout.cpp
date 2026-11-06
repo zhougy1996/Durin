@@ -1,8 +1,7 @@
 #include "Framework/TabLayout.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
-
-namespace Durin::Editor::TabLayout
+namespace Durin::TabLayout
 {
 	auto MakeMainFrameDockSpaceName(uint32 LayoutVersion) -> std::string
 	{
@@ -96,7 +95,24 @@ namespace Durin::Editor::TabLayout
 	{
 		SetNextDockableWindowClass(ToolkitId);
 		const std::string WindowName = MakePanelWindowName(DisplayName, ToolkitId, PanelKey);
-		return ImGui::Begin(WindowName.c_str(), bOpen, Flags);
+		const bool Runtime = (Flags & ImGuiWindowFlags_NoSavedSettings) != 0;
+		if (Runtime)
+		{
+			Flags |= ImGuiWindowFlags_NoSavedSettings;
+			// Apply the named template explicitly: NoSavedSettings intentionally bypasses automatic restore.
+			if (auto* Settings = ImGui::FindWindowSettingsByID(ImHashStr(WindowName.c_str())); Settings && !ImGui::FindWindowByName(WindowName.c_str()))
+			{
+				if (Settings->DockId) ImGui::SetNextWindowDockID(Settings->DockId, ImGuiCond_Always);
+				else if (Settings->Size.x > 0 && Settings->Size.y > 0)
+				{
+					ImGui::SetNextWindowPos(ImVec2(Settings->Pos.x + Settings->ViewportPos.x, Settings->Pos.y + Settings->ViewportPos.y));
+					ImGui::SetNextWindowSize(ImVec2(Settings->Size.x, Settings->Size.y));
+				}
+			}
+		}
+		const bool Visible = ImGui::Begin(WindowName.c_str(), bOpen, Flags);
+		if (Runtime) if (auto* Settings = ImGui::FindWindowSettingsByID(ImHashStr(WindowName.c_str()))) Settings->WantDelete = true;
+		return Visible;
 	}
 
 	auto SubmitDockSpace(

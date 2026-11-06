@@ -56,6 +56,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		auto SetSearch(std::string_view Search) -> void;
 		auto SetTypeFilter(EContentBrowserTypeFilter Filter) -> void;
+		auto SetCategoryPath(std::vector<std::string> Path) -> void;
+		auto GetCategoryPath() const -> const std::vector<std::string>& { return Session.Query.CategoryPath; }
 		auto SetSort(EContentBrowserSortColumn Column, bool bAscending) -> void;
 		auto SetShowHiddenFiles(bool bShow) -> void;
 		auto SetShowRedirectors(bool bShow) -> void;

@@ -4,7 +4,7 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-11-06
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
@@ -148,17 +148,18 @@ notifications, and edits performed by listeners use fresh batches; see
 [scoped material queries](../../../Runtime/Rendering/Materials/MaterialQueries.md#external-notifications-and-reentrancy).
 
 Canvas maps use document IDs, so selection cannot leak across materials or
-instances. User-scoped material-editor session settings retain the left, right,
-and diagnostic pane proportions and the pan/zoom viewport for each material
-resource. Closing a document destroys its controller; reopening restores only
-that material's viewport while authored positions continue to come from the
-package.
+instances. User-scoped editor profiles retain panel preferences and graph pan/zoom
+by resource path. Same-profile windows merge resource edits rather than overwriting
+each other's cached settings. Relocation updates live and stored viewport keys;
+layout-profile identity remains independent of resource names. Window IDs are
+runtime-only. Persistence and the intentional removal of old layout namespaces
+follow [asset editor layout profiles](../Framework/AssetEditors.md#panels-and-tool-extensions).
 
-MaterialEditor registers the authoritative Engine move observer for its
-workspace lifetime. The owner unregisters the observer and finishes
-active relocation before unloading its code. A relocation moves the loaded-material entry and asks
-`FEditorDocumentManager` to remap the existing document resource ID, per-resource
-document key, and label without changing document identity. There is no local
+Session document controllers observe authoritative Engine relocation and remap
+resource IDs, per-resource document keys and labels without changing document
+identity. Material toolkit callbacks rekey their loaded objects and editing state.
+A module-scoped observer separately updates stored profile viewport records and
+unregisters when the module retires. There is no local
 asset catalog mirror. Deletion is observed through the existing object handle;
 before drawing, an invalid owner closes its document and releases canvas and
 preview state. Active graph gestures are canceled before switch, discard,

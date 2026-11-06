@@ -13,22 +13,25 @@ namespace Durin { class DStaticMesh; }
 namespace Durin::Editor::StaticMesh
 {
 	// Hosts read-only, per-resource StaticMesh inspection documents.
-	class MStaticMeshInspector final : public IAssetEditorToolkit
+	class MStaticMeshInspector final : public FBaseAssetToolkit
 	{
 	public:
+		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
 		explicit MStaticMeshInspector(FEditorDocumentManager& InWorkspaceManager);
 		STATICMESHEDITOR_API ~MStaticMeshInspector() override;
 		STATICMESHEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		STATICMESHEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
 		STATICMESHEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		STATICMESHEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
-		STATICMESHEDITOR_API auto SaveDocument(const FEditorDocument& Document) -> bool override { return DocumentModel.SaveDocument(Document); }
-		STATICMESHEDITOR_API auto DiscardDocument(const FEditorDocument& Document) -> bool override { return DocumentModel.DiscardDocument(Document); }
-		STATICMESHEDITOR_API auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override { return DocumentModel.IsDocumentDirty(Document); }
-		STATICMESHEDITOR_API auto CanSaveActiveDocument() const -> bool override { return DocumentModel.CanSaveActiveDocument(); }
-		STATICMESHEDITOR_API auto SaveActiveDocument() -> bool override { return DocumentModel.SaveActiveDocument(); }
-		STATICMESHEDITOR_API auto DrawToolkit(bool bActive) -> bool override;
+		STATICMESHEDITOR_API auto OnSaveDocument(const FEditorDocument& Document) -> bool override { return DocumentModel.SaveDocument(Document); }
+		STATICMESHEDITOR_API auto OnDiscardDocument(const FEditorDocument& Document) -> bool override { return DocumentModel.DiscardDocument(Document); }
+		STATICMESHEDITOR_API auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override { return DocumentModel.IsDocumentDirty(Document); }
+		STATICMESHEDITOR_API auto OnCanSaveActiveDocument() const -> bool override { return DocumentModel.CanSaveActiveDocument(); }
+		STATICMESHEDITOR_API auto OnSaveActiveDocument() -> bool override { return DocumentModel.SaveActiveDocument(); }
+		STATICMESHEDITOR_API auto OnDrawToolkit(bool bActive) -> bool override;
 		STATICMESHEDITOR_API auto ResetLayout() -> void override;
+	protected:
+		auto CanEditAssets() const -> bool override { return false; }
 
 	private:
 		struct FDocumentState

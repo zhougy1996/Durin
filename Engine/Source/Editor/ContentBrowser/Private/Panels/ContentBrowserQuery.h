@@ -11,6 +11,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		std::string Search;
 		EContentBrowserTypeFilter TypeFilter = EContentBrowserTypeFilter::All;
+		std::vector<std::string> CategoryPath;
 		EContentBrowserSortColumn SortColumn = EContentBrowserSortColumn::Name;
 		bool bSortAscending = true;
 		bool bShowHiddenFiles = false;

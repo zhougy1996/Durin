@@ -1,9 +1,19 @@
+#include "Editor/AssetEditorTestHost.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "TextureEditorModule.h"
 #include "VolumeTexturePreview.h"
 #include "Documents/EditorDocumentManager.h"
+#include "Toolkits/AssetEditor.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "AssetDefinition/AssetDefinitionRegistry.h"
+#include "AssetDefinition/AssetDefinition.h"
+#include "Editor/EditorEngineTestSupport.h"
+#include "AssetTools/IAssetTools.h"
+#include "AssetTools/Relocation.h"
+#include "Misc/MountPaths.h"
 
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 
@@ -43,6 +53,131 @@ namespace
 			.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
 			.RequestSerial = 3};
 	}
+}
+
+class FTextureAssetSessionTests : public testing::Test
+{
+protected:
+	auto SetUp() -> void override
+	{
+		std::string Error;
+		ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error)) << Error;
+		Harness = std::make_unique<Durin::FModuleTestHarness>("TextureEditor");
+		Harness->Start(Module);
+		Host = Durin::NewObject<Durin::DEditorEngine>(nullptr, {});
+		ASSERT_TRUE(Durin::FEditorEngineTestAccess::StartEditor(*Host));
+		Service = Host->GetEditorSubsystem<Durin::DAssetEditorSubsystem>();
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath, Path));
+		Durin::FObjectPath ObjectPath;
+		ASSERT_TRUE(Durin::FObjectPath::TryCreate(MakeAssetPath(Path), std::span<const std::string>{}, ObjectPath));
+		Args.AssetEditors = Service;
+		Args.Assets = {{ObjectPath, Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()}};
+	}
+	auto TearDown() -> void override
+	{
+		if (Service) Service->ShutdownAssetEditorSessions();
+		if (Host)
+		{
+			Host->PrepareForShutdown();
+			Durin::MarkObjectHierarchyAsGarbage(Host.Get());
+			Host.Reset();
+		}
+		if (Harness) Harness->Shutdown();
+		Durin::CollectGarbage();
+	}
+	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
+	Durin::FTextureEditorModule Module;
+	std::unique_ptr<Durin::FModuleTestHarness> Harness;
+	Durin::TStrongObjectPtr<Durin::DEditorEngine> Host;
+	Durin::DAssetEditorSubsystem* Service = nullptr;
+	Durin::FAssetOpenArgs Args;
+};
+
+TEST_F(FTextureAssetSessionTests, DefinitionCreatesAndReusesRealTextureSessionsWithSeparateViewIdentity)
+{
+	const auto* Definition = Durin::FAssetDefinitionRegistry::Get().FindDefinition(Args.Assets.front().AssetClassName);
+	ASSERT_NE(nullptr, Definition);
+	EXPECT_TRUE(Definition->GetAssetOpenSupport({Durin::EAssetOpenMethod::View}).IsSupported);
+	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_EQ(1u, Service->GetOwnedAssetEditors().size());
+	const auto Edit = Service->GetOwnedAssetEditors().front();
+	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	EXPECT_EQ(1u, Service->GetOwnedAssetEditors().size());
+	EXPECT_EQ(Edit->GetToolkit(), Service->GetActiveAssetToolkit());
+	Args.OpenMethod = Durin::EAssetOpenMethod::View;
+	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	EXPECT_EQ(2u, Service->GetOwnedAssetEditors().size());
+	const auto View = Service->GetActiveAssetToolkit();
+	ASSERT_TRUE(View);
+	EXPECT_TRUE(View->IsReadOnly());
+	EXPECT_FALSE(View->SaveActiveDocument());
+	EXPECT_FALSE(View->Undo());
+	EXPECT_NE(View->GetPresentationRootKey("TextureEditor"), Edit->GetToolkit()->GetPresentationRootKey("TextureEditor"));
+	EXPECT_TRUE(Service->CloseAllAssetEditors());
+	EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+}
+
+TEST_F(FTextureAssetSessionTests, DiscardMigratesSessionRootsAndRebindsAssetAssociations)
+{
+	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_EQ(1u, Service->GetOwnedAssetEditors().size());
+	const auto Session = Service->GetOwnedAssetEditors().front();
+	const auto Objects = Session->GetObjectsToEdit();
+	ASSERT_EQ(1u, Objects.size());
+	const Durin::FObjectKey Old(Objects.front());
+	const auto Document = Session->GetDocumentManager()->GetDocuments().front();
+	ASSERT_TRUE(Session->GetToolkit()->DiscardDocument(Document));
+	const auto Replacements = Session->GetObjectsToEdit();
+	ASSERT_EQ(1u, Replacements.size());
+	EXPECT_NE(Old, Durin::FObjectKey(Replacements.front()));
+	EXPECT_EQ(Session.Get(), Service->FindEditorForAsset(Replacements.front(), false));
+	EXPECT_EQ(1u, Service->GetAllOpenEditors().size());
+	EXPECT_TRUE(Session->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
+}
+
+TEST_F(FTextureAssetSessionTests, ExistingViewDoesNotInterceptADefaultEditOpen)
+{
+	Args.OpenMethod = Durin::EAssetOpenMethod::View;
+	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_TRUE(Service->GetActiveAssetToolkit()->IsReadOnly());
+	auto* Object = Args.LoadAsset(Args.Assets.front());
+	ASSERT_NE(nullptr, Object);
+	EXPECT_TRUE(Service->OpenEditorForAsset(Object));
+	ASSERT_EQ(2u, Service->GetOwnedAssetEditors().size());
+	EXPECT_FALSE(Service->GetActiveAssetToolkit()->IsReadOnly());
+}
+
+TEST_F(FTextureAssetSessionTests, RelocationPreservesOpenTextureRoutingAndSave)
+{
+	const auto SourcePackage = Args.Assets.front().AssetPath.GetPackagePath().ToString();
+	const auto Duplicate = Durin::IAssetTools::Get().DuplicateAsset({
+		.SourcePath = Args.Assets.front().AssetPath.GetAssetPath(),
+		.DestinationDirectory = SourcePackage.substr(0, SourcePackage.find_last_of('/')) + "/SessionRelocation",
+		.ResolvePhysicalPackagePath = [](const Durin::FPackagePath& Path) {
+			const auto Resolved = Durin::FMountPaths::ResolveAssetPath(Path.GetView(), Durin::EMountPathExistence::AllowMissing);
+			return Resolved ? Resolved->PhysicalPath.generic_string() + ".dasset" : std::string{};
+		}});
+	ASSERT_TRUE(Duplicate) << Duplicate.Message;
+	ASSERT_NE(nullptr, Duplicate.Asset);
+	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate.Asset);
+	ASSERT_TRUE(Durin::Cast<Durin::DTexture2D>(Duplicate.Asset)->IsAsyncCacheComplete());
+	Durin::FObjectPath DuplicatedPath;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(Duplicate.Asset->GetObjectPath(), DuplicatedPath));
+	Args.Assets.front().AssetPath = DuplicatedPath;
+	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	const auto Session = Service->GetOwnedAssetEditors().front();
+	Durin::FPackagePath Destination;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(DuplicatedPath.GetPackagePath().ToString() + "Moved", Destination));
+	const Durin::FAssetRelocationMapping Mapping{DuplicatedPath.GetPackagePath(), Destination};
+	ASSERT_TRUE(Durin::RelocateAssets(std::span{&Mapping, 1}).Result);
+	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate.Asset);
+	const auto Document = Session->GetDocumentManager()->GetDocuments().front();
+	EXPECT_NE(DuplicatedPath.ToString(), Document.ResourceId);
+	EXPECT_EQ(Duplicate.Asset->GetObjectPath(), Document.ResourceId);
+	EXPECT_EQ(Session.Get(), Service->FindEditorForAsset(Duplicate.Asset, false));
+	EXPECT_TRUE(Session->GetToolkit()->SaveDocument(Document));
+	EXPECT_TRUE(Session->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
 }
 
 class FCapturingTextureCubeThumbnailPreviewScene final
@@ -108,35 +243,22 @@ TEST(FTextureAssetThumbnailTests, Texture2DRendererCapturesBuiltSessionWithoutSo
 	EXPECT_FALSE(Captured.KeyInput.PreviewFixtureIdentity.empty());
 }
 
-TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactRenderersAndWorkspaceLifecycle)
+TEST(FTextureAssetThumbnailTests, ModuleStartupPublishesIndependentRenderersWithoutSharedToolkits)
 {
 	InitializeDObjectSystem();
-	Durin::Editor::FEditorDocumentManager Manager;
-	Durin::Editor::DThumbnailManager ThumbnailManager;
+	Durin::FEditorDocumentManager Manager;
+	auto& ThumbnailManager = Durin::Editor::GetDefaultThumbnailManager();
 	Durin::FTextureEditorModule Module;
-	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
-	ModuleHarness.Start(Module);
-	const std::string Texture2DClass =
-		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString();
-	const std::string TextureCubeClass =
-		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString();
-	ASSERT_TRUE(Module.RegisterToolkits(Manager, ThumbnailManager));
-	EXPECT_TRUE(ThumbnailManager.Find(Texture2DClass));
-	EXPECT_TRUE(ThumbnailManager.Find(TextureCubeClass));
-	EXPECT_NE(Manager.FindToolkit(
-		Durin::Editor::FAssetEditorToolkitId("TextureEditor")), nullptr);
-	EXPECT_NE(Manager.FindToolkit(
-		Durin::Editor::FAssetEditorToolkitId("VolumeTextureEditor")), nullptr);
-	EXPECT_FALSE(Module.RegisterToolkits(Manager, ThumbnailManager));
-	Module.UnregisterToolkits();
-	EXPECT_FALSE(ThumbnailManager.Find(Texture2DClass));
-	EXPECT_FALSE(ThumbnailManager.Find(TextureCubeClass));
-	EXPECT_EQ(Manager.FindToolkit(
-		Durin::Editor::FAssetEditorToolkitId("TextureEditor")), nullptr);
-	EXPECT_EQ(Manager.FindToolkit(
-		Durin::Editor::FAssetEditorToolkitId("VolumeTextureEditor")), nullptr);
-	ModuleHarness.Shutdown();
+	Durin::FModuleTestHarness Harness("TextureEditor");
+	Harness.Start(Module);
+	EXPECT_TRUE(ThumbnailManager.Find(Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
+	EXPECT_TRUE(ThumbnailManager.Find(Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString()));
+	EXPECT_TRUE(!Manager.GetToolkit());
+	Harness.Shutdown();
+	EXPECT_FALSE(ThumbnailManager.Find(Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
+	EXPECT_FALSE(ThumbnailManager.Find(Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString()));
 }
+
 
 TEST(FTextureAssetThumbnailTests, VolumePreviewExtractsFrozenR8AxisOrientation)
 {
@@ -225,10 +347,10 @@ TEST(FTextureAssetThumbnailTests, VolumePreviewReadsCanonicalSourceAndRejectsOth
 		Source2D, Durin::Editor::Texture::EVolumeTexturePreviewAxis::XY, 0).IsValid());
 }
 
-TEST(FTextureAssetThumbnailTests, RendererConflictRollsBackWholeIntegration)
+TEST(FTextureAssetThumbnailTests, RendererConflictDoesNotAffectIndependentModuleContributions)
 {
 	InitializeDObjectSystem();
-	Durin::Editor::FEditorDocumentManager Manager;
+	Durin::FEditorDocumentManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterScoped(
@@ -237,13 +359,14 @@ TEST(FTextureAssetThumbnailTests, RendererConflictRollsBackWholeIntegration)
 	Durin::FTextureEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(Module.RegisterToolkits(Manager, ThumbnailManager));
+	EXPECT_FALSE(ThumbnailManager.RegisterScoped(std::make_unique<Durin::Editor::Texture::DTextureCubeThumbnailRenderer>()));
+	EXPECT_TRUE(Durin::Editor::GetDefaultThumbnailManager().Find(Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(ThumbnailManager.Find(
 		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_EQ(Manager.FindToolkit(
-		Durin::Editor::FAssetEditorToolkitId("TextureEditor")), nullptr);
+		Durin::FAssetEditorToolkitId("TextureEditor")), nullptr);
 	ModuleHarness.Shutdown();
 }
 
@@ -254,20 +377,21 @@ TEST(FTextureAssetThumbnailTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
-	Durin::Editor::FEditorDocumentManager Manager;
-	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FTextureEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
 	ModuleHarness.Start(Module);
-	ASSERT_TRUE(Module.RegisterToolkits(Manager, ThumbnailManager));
+	Durin::Testing::FScopedAssetEditorTestHost TestHost;
+	ASSERT_NE(nullptr, TestHost.GetService());
 	Durin::FPackagePath ParentTexturePackagePath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath,
 		ParentTexturePackagePath));
-	ASSERT_TRUE(Manager.OpenAsset(
+	ASSERT_TRUE(TestHost.Open(
 		MakeAssetPath(ParentTexturePackagePath).ToString(),
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
 
+	const auto Session = TestHost.GetService()->GetOwnedAssetEditors().front();
+	auto& Manager = *Session->GetDocumentManager();
 	ImGuiContext* Context = ImGui::CreateContext();
 	ASSERT_NE(Context, nullptr);
 	ImGui::GetIO().IniFilename = nullptr;
@@ -275,16 +399,16 @@ TEST(FTextureAssetThumbnailTests,
 	ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
 	ImGui::GetIO().Fonts->Build();
 	ImGui::NewFrame();
-	auto Workspace = Manager.FindToolkit(
-		Durin::Editor::FAssetEditorToolkitId("TextureEditor"));
+	auto Workspace = Session->GetToolkit();
 	ASSERT_NE(Workspace, nullptr);
 	ImGui::SetNextWindowSize(ImVec2(1280.0f, 720.0f), ImGuiCond_Always);
-	EXPECT_NO_FATAL_FAILURE(Workspace->DrawToolkit(true));
+	EXPECT_NO_FATAL_FAILURE(Session->DrawToolkitFrame(true));
 	ImGui::EndFrame();
 	ImGui::DestroyContext(Context);
 	ASSERT_EQ(Manager.RequestCloseDocument(Manager.GetDocuments().front().Id),
-		Durin::Editor::EDocumentCloseResult::Closed);
+		Durin::EDocumentCloseResult::Closed);
 	Workspace.reset();
+	TestHost.Shutdown();
 	ModuleHarness.Shutdown();
 }
 

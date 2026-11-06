@@ -1,6 +1,7 @@
 {
     "ModuleName": "TextureEditor",
     "LinkType": "Shared",
+    "ReflectHeaders": ["Private/TextureAssetDefinition.h"],
     "PCH": "SharedPCH_DurinEd",
 	"PrivateDependencies": [
 		"AssetTools",

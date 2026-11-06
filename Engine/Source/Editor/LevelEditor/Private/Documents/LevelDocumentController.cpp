@@ -20,15 +20,6 @@
 
 namespace Durin::Editor::Level
 {
-	namespace
-	{
-		auto GetLevelTransactions() -> DTransactor*
-		{
-			return GEditor ? GEditor->GetTransactor() : nullptr;
-		}
-
-	}
-
 	// Owns level document transitions and the unsaved-change workflow.
 	FLevelDocumentController::FLevelDocumentController(
 		FLevelEditorContext& InContext,
@@ -37,7 +28,7 @@ namespace Durin::Editor::Level
 		FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 		std::function<void()> InClearError,
 		std::function<void(std::string)> InReportError,
-		std::function<void(bool)> InCompleteDeferredOpen
+		std::function<void(bool, bool)> InCompleteDeferredOpen
 	)
 		: Context(InContext)
 		, SessionSettings(InSessionSettings)
@@ -141,6 +132,15 @@ namespace Durin::Editor::Level
 		return ELevelDocumentOpenResult::Rejected;
 	}
 
+	auto FLevelDocumentController::CancelPendingOpen() -> void
+	{
+		if (Context.EditorHost && Context.EditorHost->IsPreparingMapChange()) { Context.EditorHost->CancelPendingMapChange(); return; }
+		PendingAction = ELevelDocumentAction::None;
+		QueuedPopup = EQueuedPopup::None;
+		PendingLevelPath.clear();
+		CompletePendingDocumentOpen(false, true);
+	}
+
 	auto FLevelDocumentController::IsOpening() const -> bool
 	{
 		return bPendingDocumentOpen || (Context.EditorHost && Context.EditorHost->IsPreparingMapChange());
@@ -183,7 +183,7 @@ namespace Durin::Editor::Level
 			PendingAction = ELevelDocumentAction::None;
 			PendingLevelPath.clear();
 			PendingProjectFile.clear();
-			if (bCancelsDeferredOpen) CompletePendingDocumentOpen(false);
+			if (bCancelsDeferredOpen) CompletePendingDocumentOpen(false, true);
 			return true;
 		}
 		if (Decision != EUnsavedLevelDialogDecision::Save
@@ -246,7 +246,7 @@ namespace Durin::Editor::Level
 			SetError(Progress.Diagnostic);
 		PendingAction = ELevelDocumentAction::None;
 		PendingLevelPath.clear();
-		CompletePendingDocumentOpen(bSucceeded);
+		CompletePendingDocumentOpen(bSucceeded, Progress.Phase == EMapChangePhase::Canceled);
 	}
 	auto FLevelDocumentController::AssociateCurrentLevel() -> bool
 	{
@@ -255,7 +255,7 @@ namespace Durin::Editor::Level
 		auto* Level = World->GetCurrentLevel();
 		if (Level)
 		{
-			FLevelDocumentRevisionState::Activate(GetLevelTransactions(), DocumentPackage.Get(), Level->GetPackage());
+			FLevelDocumentRevisionState::Activate((Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), DocumentPackage.Get(), Level->GetPackage());
 			Context.Synchronize(World);
 			SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
 			DocumentPackage = Level->GetPackage();
@@ -265,19 +265,19 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded) -> void
+	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded, bool bCancelled) -> void
 	{
 		Context.bReadOnly = Context.EditorHost && (Context.EditorHost->IsPlaying()
 			|| Context.EditorHost->GetStartupState() != EHostStartupState::Ready);
 		if (!std::exchange(bPendingDocumentOpen, false) || !CompleteDeferredOpen) return;
-		CompleteDeferredOpen(bSucceeded);
+		CompleteDeferredOpen(bSucceeded, bCancelled);
 	}
 
 	auto FLevelDocumentController::CanSaveCurrentLevel() const -> bool
 	{
 		const auto* Gizmo = SceneViewportPanel.GetTransformGizmo();
-		const auto* Transactions = GetLevelTransactions();
-		return !(Context.EditorHost && Context.EditorHost->IsPreparingMapChange()) && Context.Level && Context.Level->GetPackage() && !(GEditor && GEditor->IsPlaying())
+		const auto* Transactions = (Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr);
+		return !(Context.EditorHost && Context.EditorHost->IsPreparingMapChange()) && Context.Level && Context.Level->GetPackage() && !(Context.EditorHost && Context.EditorHost->IsPlaying())
 			&& !(Gizmo && Gizmo->IsDragging()) && (!Transactions || (Transactions->CanTransact() && !Transactions->IsActive()));
 	}
 
@@ -298,7 +298,7 @@ namespace Durin::Editor::Level
 		SessionSettings.Save(&SceneViewportPanel);
 		FAssetWriteResult Result = SavePackage(Context.Level->GetPackage());
 		FLevelDocumentRevisionState::CompleteSave(
-			GetLevelTransactions(), *Context.Level->GetPackage(), static_cast<bool>(Result)
+			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Context.Level->GetPackage(), static_cast<bool>(Result)
 		);
 		if (!Result)
 		{
@@ -365,7 +365,7 @@ namespace Durin::Editor::Level
 			Context.Level->Rename(FName(NewName));
 			const FAssetWriteResult SaveResult = SavePackage(Package);
 			FLevelDocumentRevisionState::CompleteSave(
-				GetLevelTransactions(), *Package, static_cast<bool>(SaveResult)
+				(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Package, static_cast<bool>(SaveResult)
 			);
 			if (!SaveResult)
 			{
@@ -381,7 +381,7 @@ namespace Durin::Editor::Level
 		const auto MoveResult =
 			AssetMoveCoordinator.MoveAssets(std::span{&Move, 1});
 		FLevelDocumentRevisionState::CompleteSave(
-			GetLevelTransactions(), *Package, static_cast<bool>(MoveResult)
+			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Package, static_cast<bool>(MoveResult)
 		);
 		if (!MoveResult)
 		{
@@ -399,8 +399,8 @@ namespace Durin::Editor::Level
 		QueuedPopup = EQueuedPopup::None;
 		PendingLevelPath.clear();
 		PendingProjectFile.clear();
-		CompletePendingDocumentOpen(false);
-		if (DocumentWorld.IsValid() && GEditor && GEditor->IsPlaying()) return false;
+		CompletePendingDocumentOpen(false, true);
+		if (DocumentWorld.IsValid() && Context.EditorHost && Context.EditorHost->IsPlaying()) return false;
 		DWorld* World = DocumentWorld.Get();
 		DPackage* Package = DocumentPackage.Get();
 		if (World && World->GetCurrentLevel())
@@ -411,7 +411,7 @@ namespace Durin::Editor::Level
 			SessionSettings.Save(&SceneViewportPanel);
 			if (!SceneViewportPanel.PrepareForLevelChange(Context)) return false;
 			if (!World->SetCurrentLevel(nullptr)) return false;
-			FLevelDocumentRevisionState::Activate(GetLevelTransactions(), Package, nullptr);
+			FLevelDocumentRevisionState::Activate((Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), Package, nullptr);
 			Context.Synchronize(World);
 			SceneViewportPanel.RestoreCameraState(nullptr, nullptr);
 		}

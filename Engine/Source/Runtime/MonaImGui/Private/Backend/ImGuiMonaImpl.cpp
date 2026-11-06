@@ -4,6 +4,7 @@
 #include "Profiling/Profiling.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "MonaImGui.h"
+#include "Viewport/ViewportClosePolicy.h"
 
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
@@ -127,6 +128,11 @@ namespace Durin::MonaImGui
 	{
 		const auto* ViewportData = GetPlatformViewportData(Viewport);
 		return ViewportData != nullptr ? ViewportData->Window : nullptr;
+	}
+
+	auto GetWindowForViewport(uint32 ViewportId) -> std::shared_ptr<MWindow>
+	{
+		return ImGui::GetCurrentContext() ? GetViewportWindow(ImGui::FindViewportByID(ViewportId)) : nullptr;
 	}
 
 	static auto ShouldIgnoreWindowPosEvent(ImGuiViewport* Viewport) -> bool
@@ -715,7 +721,7 @@ namespace Durin::MonaImGui
 			{
 				if (NativeWindow->ShouldClose() && (Viewport->Flags & ImGuiViewportFlags_OwnedByApp) == 0)
 				{
-					Viewport->PlatformRequestClose = true;
+					if (TryCloseViewport(Viewport->ID)) Viewport->PlatformRequestClose = true;
 					NativeWindow->SetShouldClose(false);
 				}
 
@@ -963,7 +969,7 @@ namespace Durin::MonaImGui
 			return false;
 		}
 
-		Viewport->PlatformRequestClose = true;
+		if (TryCloseViewport(Viewport->ID)) Viewport->PlatformRequestClose = true;
 
 		// Turn an OS-level close into an ImGui-managed close request
 		InPlatformWindow->SetShouldClose(false);

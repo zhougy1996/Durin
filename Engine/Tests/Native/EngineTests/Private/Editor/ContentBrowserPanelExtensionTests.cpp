@@ -1,4 +1,5 @@
 #include "Panels/ContentBrowserPanel.h"
+#include "Editor/BrowserDefinitionTestSupport.h"
 #include "EngineTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Materials/Material.h"
@@ -178,8 +179,12 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::make_shared<FMountedContentReconciliationState>());
 		std::string Error;
 		int TypeDetailCalls = 0;
-		auto Type = RegisterAssetTypePresentation({
-			.AssetClassName = "PanelTest::DNovelAsset", .DisplayName = "Novel asset", .Icon = "*",
+		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
+		Definition->ClassPath = "PanelTest::DNovelAsset"; Definition->DisplayName = "Novel asset"; Definition->Icon = "*";
+		auto DefinitionRegistration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		ASSERT_TRUE(DefinitionRegistration);
+		auto Type = RegisterAssetTypeExtras({
+			.AssetClassName = Definition->ClassPath,
 			.Details = [&](const auto&) {
 				++TypeDetailCalls;
 				return std::vector<FDetailRow>{{"Custom property", "Type detail rendered"}};
@@ -233,6 +238,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		Menu.Reset();
 		Details.Reset();
 		Type.Reset();
+		DefinitionRegistration.Reset();
 		EXPECT_EQ(Draw(true).find("Custom context rendered"), std::string::npos);
 		EXPECT_EQ(Draw(false).find("Multiple details rendered"), std::string::npos);
 		Panel.StopRequestAdmission();

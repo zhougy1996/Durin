@@ -16,9 +16,10 @@ namespace Durin { class DTexture2D; struct FTexturePlatformData; }
 namespace Durin::Editor::Texture
 {
 	// Hosts one texture document with preview, mip, and metadata controls.
-	class MTextureEditor final : public IAssetEditorToolkit
+	class MTextureEditor final : public FBaseAssetToolkit
 	{
 	public:
+		auto GetLastOperationError() const -> std::string override { return ErrorMessage; }
 		explicit MTextureEditor(FEditorDocumentManager& InWorkspaceManager);
 		TEXTUREEDITOR_API ~MTextureEditor() override;
 		TEXTUREEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
@@ -26,25 +27,27 @@ namespace Durin::Editor::Texture
 		TEXTUREEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		TEXTUREEDITOR_API auto RequestDeactivate() -> bool override;
 		TEXTUREEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
-		TEXTUREEDITOR_API auto SaveDocument(const FEditorDocument& Document) -> bool override;
-		TEXTUREEDITOR_API auto DiscardDocument(const FEditorDocument& Document) -> bool override;
+		TEXTUREEDITOR_API auto OnSaveDocument(const FEditorDocument& Document) -> bool override;
+		TEXTUREEDITOR_API auto OnDiscardDocument(const FEditorDocument& Document) -> bool override;
 		TEXTUREEDITOR_API auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
-		TEXTUREEDITOR_API auto IsDocumentDirty(const FEditorDocument& Document) const -> bool override;
-		TEXTUREEDITOR_API auto CanSaveActiveDocument() const -> bool override;
-		TEXTUREEDITOR_API auto SaveActiveDocument() -> bool override;
-		TEXTUREEDITOR_API auto CanUndo() const -> bool override;
-		TEXTUREEDITOR_API auto CanRedo() const -> bool override;
+		TEXTUREEDITOR_API auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
+		TEXTUREEDITOR_API auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override;
+		TEXTUREEDITOR_API auto OnCanSaveActiveDocument() const -> bool override;
+		TEXTUREEDITOR_API auto OnSaveActiveDocument() -> bool override;
+		TEXTUREEDITOR_API auto OnCanUndo() const -> bool override;
+		TEXTUREEDITOR_API auto OnCanRedo() const -> bool override;
 		TEXTUREEDITOR_API auto GetUndoDescription() const -> std::string override;
 		TEXTUREEDITOR_API auto GetRedoDescription() const -> std::string override;
-		TEXTUREEDITOR_API auto Undo() -> bool override;
-		TEXTUREEDITOR_API auto Redo() -> bool override;
-		TEXTUREEDITOR_API auto DrawToolkit(bool bActive) -> bool override;
+		TEXTUREEDITOR_API auto OnUndo() -> bool override;
+		TEXTUREEDITOR_API auto OnRedo() -> bool override;
+		TEXTUREEDITOR_API auto OnDrawToolkit(bool bActive) -> bool override;
 		TEXTUREEDITOR_API auto ResetLayout() -> void override;
 
 	private:
 		auto FindOpenTexture(std::string_view ResourceId) const -> DTexture2D*;
 		auto GetActiveTexture() const -> DTexture2D*;
 		auto SaveTexture(DTexture2D* Texture) -> bool;
+		auto CancelUnobservedCompilation(DTexture2D* Texture) -> void;
 		auto DrawDocument(const FEditorDocument& Document, DTexture2D* Texture) -> void;
 		auto DrawToolbar(const FEditorDocument& Document, DTexture2D* Texture) -> void;
 		auto DrawWideLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;

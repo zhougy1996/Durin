@@ -130,7 +130,7 @@ namespace Durin::Editor::StaticMesh
 		return EDocumentCloseResult::Closed;
 	}
 
-	auto MStaticMeshInspector::DrawToolkit(bool bActive) -> bool
+	auto MStaticMeshInspector::OnDrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive)
 			for (auto& [ResourceId, State] : Documents)
@@ -138,7 +138,7 @@ namespace Durin::Editor::StaticMesh
 		return DocumentModel.GetTabManager().DrawDocuments(
 			DocumentManager,
 			Workspace::Type,
-			Workspace::RootKey,
+			GetPresentationRootKey(Workspace::RootKey),
 			[this](const FEditorDocument& Document) { return FindState(Document.ResourceId) != nullptr; },
 			[this](const FEditorDocument& Document) {
 				if (FDocumentState* State = FindState(Document.ResourceId)) DrawDocument(Document, *State);
@@ -393,4 +393,10 @@ namespace Durin::Editor::StaticMesh
 		}
 		ImGui::EndChild();
 	}
+	auto MStaticMeshInspector::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
+	{
+		if (auto Node = Documents.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; Documents.insert(std::move(Node)); }
+		DocumentModel.RemapResourceId(Source, Destination);
+	}
+
 }

@@ -3,7 +3,7 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [
-		"AssetTools",
+        "AssetTools",
         "Core",
         "CoreDObject",
         "ApplicationCore",
@@ -11,12 +11,15 @@
         "RenderCore",
         "Renderer",
         "Engine",
-		"AssetForgeBuiltins",
+        "AssetForgeBuiltins",
         "Mona",
-		"MonaImGui",
-		"ContentBrowser"
-	],
-	"PublicDependencies": [
-		"DurinEd"
+        "MonaImGui",
+        "ContentBrowser"
+    ],
+    "PublicDependencies": [
+        "DurinEd"
+    ],
+    "ReflectHeaders": [
+        "Private/StaticMeshAssetDefinitions.h"
     ]
 }

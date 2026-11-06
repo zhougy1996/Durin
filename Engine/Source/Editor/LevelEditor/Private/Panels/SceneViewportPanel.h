@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "DObject/WeakObjectPtr.h"
+namespace Durin { class DEditorEngine; }
 
 #include "Panels/LevelEditorPanel.h"
 #include "Viewport/TransformGizmo.h"
@@ -38,7 +40,7 @@ namespace Durin::Editor::Level
 	class FSceneViewportPanel final : public ILevelEditorPanel
 	{
 	public:
-		explicit FSceneViewportPanel();
+		explicit FSceneViewportPanel(DEditorEngine* Editor = nullptr);
 		~FSceneViewportPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Scene Viewport"; }
@@ -79,6 +81,7 @@ namespace Durin::Editor::Level
 		auto UpdateViewportInput(FLevelEditorContext& Context, const FViewportToolbarLayout& ToolbarLayout) -> void;
 		auto RegisterViewportConsoleCommands() -> void;
 
+		TWeakObjectPtr<DEditorEngine> EditorOwner;
 		std::unique_ptr<FLevelEditorViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
 		std::shared_ptr<FSceneViewport> SceneViewport;

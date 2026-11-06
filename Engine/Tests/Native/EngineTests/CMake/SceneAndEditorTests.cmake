@@ -523,6 +523,7 @@ durin_add_native_test(EditorShellTests
 		Private/EditorBootstrapStateTests.cpp
 		Private/EditorNotificationTests.cpp
 		Private/EditorWorkspaceTests.cpp
+		Private/ViewportClosePolicyTests.cpp
 		Private/UIStyleTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
@@ -581,7 +582,7 @@ durin_add_native_test(EditorHostToolTests
 	PRIVATE_SOURCE_OWNER MainFrame
 	PRIVATE_SOURCE_RATIONALE
 		"MainFrame-owned host-tool, settings, and maintenance feedback coverage avoids exporting private implementations."
-	SOURCES Private/ConsoleRecordModelTests.cpp Private/EditorHostToolTests.cpp Private/ConsoleToolAdapterTests.cpp
+	SOURCES Private/ConsoleRecordModelTests.cpp Private/EditorHostToolTests.cpp Private/ConsoleToolAdapterTests.cpp Private/Editor/LevelAssetEditorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_main_frame_private}/Panels/ConsoleRecordModel.cpp
 		${_durin_main_frame_private}/Panels/ConsoleToolAdapter.cpp

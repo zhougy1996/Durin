@@ -3,9 +3,12 @@
 #include "CoreMinimal.h"
 
 #include "DObject/AssetPath.h"
+#include "DObject/WeakObjectPtr.h"
 #include "AssetRegistry/ContentChanges.h"
 #include "ContentBrowserAPI.h"
+#include "Import/ImportDialogSupport.h"
 
+namespace Durin { class DAssetEditorSubsystem; }
 namespace Durin::Editor::ContentBrowser
 {
 	// Identifies the extension surface contributed by an asset-family module.
@@ -62,19 +65,18 @@ namespace Durin::Editor::ContentBrowser
 	// Independent of the UI surface; unspecified command policies are rejected at registration.
 	enum class EContentMutation : uint8 { Unspecified, ReadOnly, MutatesContent };
 
-	// Stable filter identities shared by asset-family registrations and the browser.
-	enum class EAssetCategory : uint8 { Other, Level, StaticMesh, Material, Texture };
-
-	// Full class identity owns presentation only, independent of opening, thumbnails and reimport.
+	// Resolved definition metadata plus independent details/thumbnail contributions.
 	struct FAssetTypePresentation
 	{
 		std::string AssetClassName;
 		std::string DisplayName;
-		EAssetCategory Category = EAssetCategory::Other;
 		std::string Icon;
 		std::string ThumbnailBadgeIcon;
 		FDetailsProvider Details;
+		std::vector<std::vector<std::string>> CategoryPaths;
+		std::array<float, 4> Color = {0.5f, 0.5f, 0.5f, 1.0f};
 	};
+	CONTENTBROWSER_API auto CaptureAssetCategoryPaths() -> std::vector<std::vector<std::string>>;
 
 	struct FExtensionInvocation
 	{
@@ -86,6 +88,22 @@ namespace Durin::Editor::ContentBrowser
 		std::function<bool(std::string_view, std::string_view)> OpenAsset;
 		std::function<void()> NotifyMountedContentChanged;
 		std::function<void(std::string)> ReportError;
+		std::weak_ptr<void> HostLifetime;
+		bool bHasHostLifetime = false;
+		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
+	};
+	struct FExtensionHost
+	{
+		std::weak_ptr<void> Lifetime;
+		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
+	};
+	CONTENTBROWSER_API auto MakeImportDialogCallbacks(const FExtensionInvocation& Invocation,
+		std::string AssetClassName) -> FImportDialogCallbacks;
+	struct FAssetTypeExtras
+	{
+		std::string AssetClassName;
+		std::string ThumbnailBadgeIcon;
+		FDetailsProvider Details;
 	};
 
 	// Defines one deterministically ordered browser contribution. Owners unregister
@@ -102,7 +120,9 @@ namespace Durin::Editor::ContentBrowser
 		// Required instead of Invoke for Details contributions; details are always read-only.
 		FDetailsProvider Details;
 		// Draws feature-owned modal state without exposing its concrete module to the host.
-		std::function<void(bool)> DrawHostPresentation;
+		std::function<void(const FExtensionHost&, bool)> DrawHostPresentation;
+		// Drains this request owner's dialogs/work before its browser and project retire.
+		std::function<void(const std::weak_ptr<void>&)> StopHostPresentation;
 		// Assigned by the registry; queued identities cannot bind to a replacement registration.
 		uint64 RegistrationSerial = 0;
 	};
@@ -200,6 +220,7 @@ namespace Durin::Editor::ContentBrowser
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
 		std::shared_ptr<FMountedContentReconciliationState> ReconciliationState;
+		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 	};
 
 	// Exposes host-level browser requests without leaking models or UI types.
@@ -215,11 +236,12 @@ namespace Durin::Editor::ContentBrowser
 		virtual auto GetAdmissionState() const -> EAdmissionState = 0;
 	};
 
-	CONTENTBROWSER_API auto RegisterAssetTypePresentation(
-		FAssetTypePresentation Descriptor, std::string& OutError) -> FScopedExtensionRegistration;
+	CONTENTBROWSER_API auto RegisterAssetTypeExtras(
+		FAssetTypeExtras Descriptor, std::string& OutError) -> FScopedExtensionRegistration;
 	CONTENTBROWSER_API auto FindAssetTypePresentation(std::string_view QualifiedClassName)
 		-> std::optional<FAssetTypePresentation>;
 	CONTENTBROWSER_API auto GetPresentationRevision() -> uint64;
+	CONTENTBROWSER_API auto StopHostPresentations(const std::weak_ptr<void>& HostLifetime) -> void;
 	CONTENTBROWSER_API auto CaptureSelectionDetails(const FExtensionContext& Context)
 		-> std::vector<FDetailRow>;
 	CONTENTBROWSER_API auto CanInvokeExtension(const FExtensionDescriptor& Descriptor,
@@ -238,5 +260,5 @@ namespace Durin::Editor::ContentBrowser
 		const FExtensionInvocation& Invocation) -> bool;
 	CONTENTBROWSER_API auto DrawHostPresentation(
 		const FExtensionDescriptor& Descriptor,
-		bool bAllowAssetMutation) -> bool;
+		bool bAllowAssetMutation, const FExtensionHost& Host = {}) -> bool;
 } // namespace Durin::Editor::ContentBrowser

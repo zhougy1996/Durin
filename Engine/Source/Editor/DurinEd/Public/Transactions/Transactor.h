@@ -7,6 +7,7 @@
 #include "DObject/Object.h"
 #include "Misc/ITransaction.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/TransactionObjectRecord.h"
 #include "Transactions/TransactionArrayRecord.h"
@@ -14,10 +15,23 @@
 
 #include "Transactor.gen.h"
 
-namespace Durin { class DTransactor; class DTransBuffer; class FTransactorReloadParticipant; }
+namespace Durin { class DTransactor; class DTransBuffer; class FTransactorReloadParticipant; class DEditorEngine; }
 
 namespace Durin::Editor
 {
+	// Selects a transaction owner for nested UI/asset callbacks without publishing GEditor.
+	class FScopedEditorTransactionContext
+	{
+	public:
+		DURINED_API explicit FScopedEditorTransactionContext(DEditorEngine* Editor);
+		DURINED_API ~FScopedEditorTransactionContext();
+		FScopedEditorTransactionContext(const FScopedEditorTransactionContext&) = delete;
+		auto operator=(const FScopedEditorTransactionContext&) -> FScopedEditorTransactionContext& = delete;
+	private:
+		TWeakObjectPtr<DEditorEngine> Previous;
+		bool bPreviousBound = false;
+	};
+	DURINED_API auto GetTransactionEditor() -> DEditorEngine*;
 
 	class FPropertyEditSession;
 	class FScopedTransaction;

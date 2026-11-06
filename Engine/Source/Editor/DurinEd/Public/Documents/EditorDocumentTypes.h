@@ -4,7 +4,7 @@
 
 #include "DurinEdAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Provides a stable string identity for one editor toolkit kind.
 	class FAssetEditorToolkitId
@@ -80,47 +80,4 @@ namespace Durin::Editor
 		Cancel,
 	};
 
-	// Selects whether an asset editor shares one document or opens per resource.
-	enum class EDocumentPolicy : uint8
-	{
-		Singleton,
-		PerResource,
-	};
-
-	// Suggests where a toolkit should dock when first hosted.
-	enum class EToolkitHostDockPreference : uint8
-	{
-		None,
-		Center,
-	};
-
-	// Defines host-facing metadata and singleton-document policy for a toolkit.
-	struct FAssetEditorToolkitDescriptor
-	{
-		FAssetEditorToolkitId ToolkitId;
-		std::string DisplayName;
-		std::string RootKey;
-		bool bShowInWindowMenu = true;
-		bool bOpenByDefault = false;
-		EToolkitHostDockPreference DefaultHostDockPreference = EToolkitHostDockPreference::Center;
-		std::string SingletonDocumentKey;
-		std::string SingletonDocumentLabel;
-		bool bSingletonDocumentClosable = true;
-
-		auto HasSingletonDocument() const -> bool
-		{
-			return !SingletonDocumentKey.empty() && !SingletonDocumentLabel.empty();
-		}
-	};
-
-	// Maps an asset class to the toolkit and document policy that edits it.
-	struct FAssetEditorRegistration
-	{
-		std::string AssetClassName;
-		FAssetEditorToolkitId ToolkitId;
-		EDocumentPolicy DocumentPolicy = EDocumentPolicy::PerResource;
-		std::string SingletonDocumentKey;
-		std::string SingletonLabel;
-		bool bClosable = true;
-	};
 }

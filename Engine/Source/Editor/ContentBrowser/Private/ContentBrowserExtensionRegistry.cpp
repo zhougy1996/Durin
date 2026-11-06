@@ -1,7 +1,38 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
+#include "AssetDefinition/AssetDefinition.h"
+#include "AssetDefinition/AssetDefinitionRegistry.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin::Editor::ContentBrowser
 {
+	namespace
+	{
+		auto DispatchHostCallback(const TWeakObjectPtr<DAssetEditorSubsystem>& Owner, std::function<void()> Callback) -> bool
+		{
+			if (Owner.GetKey() == FObjectKey{}) { Callback(); return true; }
+			auto* Service = Owner.Get();
+			if (!Service || !Service->GetWorkGate() || !Service->GetWorkGate()->IsOpen()) return false;
+			bool Invoked = false;
+			Service->DispatchEditorCallback([&] { Invoked = true; Callback(); });
+			return Invoked;
+		}
+	}
+	auto MakeImportDialogCallbacks(const FExtensionInvocation& Invocation, std::string ClassName) -> FImportDialogCallbacks
+	{
+		auto IsAlive = [Lifetime = Invocation.HostLifetime, Bound = Invocation.bHasHostLifetime] { return !Bound || !Lifetime.expired(); };
+		return {
+			.ClearError = [IsAlive, Report = Invocation.ReportError] { if (IsAlive() && Report) Report({}); },
+			.ReportError = [IsAlive, Report = Invocation.ReportError](std::string Message) { if (IsAlive() && Report) Report(std::move(Message)); },
+			.AssetCreated = [IsAlive, Changed = Invocation.NotifyMountedContentChanged, Reveal = Invocation.RevealAsset, Open = Invocation.OpenAsset, ClassName](std::string Path) {
+				if (!IsAlive()) return;
+				if (Changed) Changed(); if (Reveal) Reveal(Path); if (Open && !ClassName.empty()) Open(Path, ClassName);
+			},
+			.ImportedDirectory = [IsAlive, Changed = Invocation.NotifyMountedContentChanged, Reveal = Invocation.RevealDirectory](std::string Path) {
+				if (!IsAlive()) return;
+				if (Changed) Changed(); if (Reveal) Reveal(Path);
+			}};
+	}
 	namespace
 	{
 		struct FRegistryState
@@ -9,7 +40,7 @@ namespace Durin::Editor::ContentBrowser
 			std::mutex Mutex;
 			std::unordered_map<std::string, FExtensionDescriptor> Entries;
 			std::shared_ptr<const std::vector<FExtensionDescriptor>> HostPresenters;
-			std::unordered_map<std::string, FAssetTypePresentation> Types;
+			std::unordered_map<std::string, FAssetTypeExtras> Extras;
 			uint64 PresentationRevision = 0;
 			uint64 NextExtensionSerial = 1;
 		};
@@ -49,7 +80,7 @@ namespace Durin::Editor::ContentBrowser
 				return {};
 			}
 			Descriptor.RegistrationSerial = State->NextExtensionSerial++;
-			if (Descriptor.DrawHostPresentation) State->HostPresenters.reset();
+			if (Descriptor.DrawHostPresentation || Descriptor.StopHostPresentation) State->HostPresenters.reset();
 			State->Entries.emplace(Descriptor.Id, std::move(Descriptor));
 		}
 		return FScopedExtensionRegistration([WeakState = std::weak_ptr(State), Id] {
@@ -59,7 +90,7 @@ namespace Durin::Editor::ContentBrowser
 				const auto It = Registry->Entries.find(Id);
 				if (It != Registry->Entries.end())
 				{
-					if (It->second.DrawHostPresentation) Registry->HostPresenters.reset();
+					if (It->second.DrawHostPresentation || It->second.StopHostPresentation) Registry->HostPresenters.reset();
 					Registry->Entries.erase(It);
 				}
 			}
@@ -92,7 +123,7 @@ namespace Durin::Editor::ContentBrowser
 		if (State->HostPresenters) return State->HostPresenters;
 		auto Snapshot = std::make_shared<std::vector<FExtensionDescriptor>>();
 		for (const auto& [Id, Descriptor] : State->Entries)
-			if (Descriptor.DrawHostPresentation)
+			if (Descriptor.DrawHostPresentation || Descriptor.StopHostPresentation)
 				Snapshot->push_back(Descriptor);
 		std::ranges::sort(*Snapshot, [](const FExtensionDescriptor& Left,
 			const FExtensionDescriptor& Right) {
@@ -107,6 +138,7 @@ namespace Durin::Editor::ContentBrowser
 		const FExtensionDescriptor& Descriptor,
 		const FExtensionInvocation& Invocation) -> bool
 	{
+		if (Invocation.bHasHostLifetime && Invocation.HostLifetime.expired()) return false;
 		const auto State = GetRegistryState();
 		{
 			std::scoped_lock Lock(State->Mutex);
@@ -116,8 +148,7 @@ namespace Durin::Editor::ContentBrowser
 		}
 		if (!CanInvokeExtension(Descriptor, Invocation.Context, Invocation.bAllowAssetMutation))
 			return false;
-		Descriptor.Invoke(Invocation);
-		return true;
+		return DispatchHostCallback(Invocation.AssetEditors, [&] { Descriptor.Invoke(Invocation); });
 	}
 
 	auto CanInvokeExtension(const FExtensionDescriptor& Descriptor,
@@ -129,50 +160,84 @@ namespace Durin::Editor::ContentBrowser
 			&& Descriptor.IsApplicable && Descriptor.Invoke && Descriptor.IsApplicable(Context);
 	}
 
-	auto RegisterAssetTypePresentation(FAssetTypePresentation Descriptor, std::string& OutError)
-		-> FScopedExtensionRegistration
+	auto RegisterAssetTypeExtras(FAssetTypeExtras Descriptor, std::string& OutError) -> FScopedExtensionRegistration
 	{
 		OutError.clear();
-		if (Descriptor.AssetClassName.empty() || Descriptor.DisplayName.empty() || Descriptor.Icon.empty())
-		{
-			OutError = "Type presentation requires a qualified class identity, display name and icon.";
-			return {};
-		}
+		if (Descriptor.AssetClassName.empty() || (!Descriptor.Details && Descriptor.ThumbnailBadgeIcon.empty()))
+		{ OutError = "Type extras require a class identity and a details or badge contribution."; return {}; }
 		const auto State = GetRegistryState();
-		const std::string ClassName = Descriptor.AssetClassName;
+		const auto ClassName = Descriptor.AssetClassName;
 		{
 			std::scoped_lock Lock(State->Mutex);
-			if (!State->Types.emplace(ClassName, std::move(Descriptor)).second)
-			{
-				OutError = std::format("Type presentation '{}' is already registered.", ClassName);
-				return {};
-			}
+			if (!State->Extras.emplace(ClassName, std::move(Descriptor)).second)
+			{ OutError = "Type extras are already registered."; return {}; }
 			++State->PresentationRevision;
 		}
-		return FScopedExtensionRegistration([WeakState = std::weak_ptr(State), ClassName] {
-			if (const auto Registry = WeakState.lock())
-			{
-				std::scoped_lock Lock(Registry->Mutex);
-				Registry->Types.erase(ClassName);
-				++Registry->PresentationRevision;
-			}
+		return FScopedExtensionRegistration([Weak = std::weak_ptr(State), ClassName] {
+			if (const auto Registry = Weak.lock())
+			{ std::scoped_lock Lock(Registry->Mutex); Registry->Extras.erase(ClassName); ++Registry->PresentationRevision; }
 		});
 	}
 
 	auto FindAssetTypePresentation(std::string_view QualifiedClassName)
 		-> std::optional<FAssetTypePresentation>
 	{
+		std::optional<FAssetTypePresentation> Result;
 		const auto State = GetRegistryState();
-		std::scoped_lock Lock(State->Mutex);
-		const auto It = State->Types.find(std::string(QualifiedClassName));
-		return It == State->Types.end() ? std::nullopt : std::optional(It->second);
+		{
+			std::scoped_lock Lock(State->Mutex);
+			if (const auto It = State->Extras.find(std::string(QualifiedClassName)); It != State->Extras.end())
+			{
+				if (!Result) Result.emplace();
+				Result->Details = It->second.Details;
+				Result->ThumbnailBadgeIcon = It->second.ThumbnailBadgeIcon;
+			}
+		}
+		if (const auto* Definition = FAssetDefinitionRegistry::Get().FindDefinition(QualifiedClassName))
+		{
+			const FStrongObjectPtr Lease(const_cast<DAssetDefinition*>(Definition));
+			if (!Result) Result.emplace();
+			Result->AssetClassName = QualifiedClassName;
+			Result->DisplayName = Definition->GetAssetDisplayName();
+			Result->Icon = Definition->GetAssetIcon();
+			Result->Color = Definition->GetAssetColor();
+			Result->CategoryPaths = Definition->GetAssetCategories();
+		}
+		if (Result) Result->AssetClassName = QualifiedClassName;
+		return Result;
+	}
+	auto CaptureAssetCategoryPaths() -> std::vector<std::vector<std::string>>
+	{
+		std::vector<std::string> Classes = FAssetDefinitionRegistry::Get().GetRegisteredClassPaths();
+		std::set<std::vector<std::string>> Paths;
+		for (const auto& Name : Classes)
+			if (const auto Type = FindAssetTypePresentation(Name))
+				for (const auto& Path : Type->CategoryPaths)
+					for (size_t Length = 1; Length <= Path.size(); ++Length)
+						Paths.emplace(Path.begin(), Path.begin() + Length);
+		return {Paths.begin(), Paths.end()};
 	}
 
 	auto GetPresentationRevision() -> uint64
 	{
 		const auto State = GetRegistryState();
 		std::scoped_lock Lock(State->Mutex);
-		return State->PresentationRevision;
+		return State->PresentationRevision + FAssetDefinitionRegistry::Get().GetRevision();
+	}
+	auto StopHostPresentations(const std::weak_ptr<void>& HostLifetime) -> void
+	{
+		const auto Snapshot = CaptureHostPresenters();
+		const auto State = GetRegistryState();
+		for (const auto& Entry : *Snapshot)
+		{
+			if (!Entry.StopHostPresentation) continue;
+			{
+				std::scoped_lock Lock(State->Mutex);
+				const auto Current = State->Entries.find(Entry.Id);
+				if (Current == State->Entries.end() || Current->second.RegistrationSerial != Entry.RegistrationSerial) continue;
+			}
+			Entry.StopHostPresentation(HostLifetime);
+		}
 	}
 
 	auto CaptureSelectionDetails(const FExtensionContext& Context) -> std::vector<FDetailRow>
@@ -194,7 +259,7 @@ namespace Durin::Editor::ContentBrowser
 
 	auto DrawHostPresentation(
 		const FExtensionDescriptor& Descriptor,
-		bool bAllowAssetMutation) -> bool
+		bool bAllowAssetMutation, const FExtensionHost& Host) -> bool
 	{
 		if (!Descriptor.DrawHostPresentation) return false;
 		const auto State = GetRegistryState();
@@ -204,7 +269,6 @@ namespace Durin::Editor::ContentBrowser
 			if (It == State->Entries.end() || It->second.RegistrationSerial != Descriptor.RegistrationSerial)
 				return false;
 		}
-		Descriptor.DrawHostPresentation(bAllowAssetMutation);
-		return true;
+		return DispatchHostCallback(Host.AssetEditors, [&] { Descriptor.DrawHostPresentation(Host, bAllowAssetMutation); });
 	}
 } // namespace Durin::Editor::ContentBrowser

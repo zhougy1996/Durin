@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Misc/Name.h"
+#include "AssetDefinition/AssetOpenTypes.h"
 
 namespace Durin
 {
@@ -32,5 +33,6 @@ namespace Durin
 		// False includes a deferred dirty-document confirmation; never implies discard.
 		virtual auto CloseWindow(EAssetEditorCloseReason InCloseReason) -> bool = 0;
 		virtual auto CloseWindow() -> bool { return CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed); }
+		virtual auto GetOpenMethod() const -> EAssetOpenMethod { return EAssetOpenMethod::Edit; }
 	};
 }

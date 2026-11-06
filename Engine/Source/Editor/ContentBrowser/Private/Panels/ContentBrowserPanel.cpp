@@ -114,6 +114,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	FContentBrowserPanel::~FContentBrowserPanel()
 	{
+		StopRequestAdmission();
 		SettingsPage = {};
 	}
 
@@ -679,6 +680,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (AdmissionState == EAdmissionState::Stopped)
 			return;
 		AdmissionState = EAdmissionState::Stopping;
+		const std::weak_ptr<void> Lifetime = ExtensionLifetime;
+		ExtensionLifetime.reset();
+		StopHostPresentations(Lifetime);
 		Operations.StopRequestAdmission();
 		Model.CancelPendingSnapshots();
 		PendingItemAction.reset();

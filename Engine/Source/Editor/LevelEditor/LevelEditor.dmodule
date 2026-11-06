@@ -3,7 +3,7 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_DurinEd",
     "PublicDependencies": ["DurinEd"],
-    "ReflectHeaders": ["Public/Editor/LevelEditorSubsystem.h"],
+    "ReflectHeaders": ["Public/Editor/LevelEditorSubsystem.h", "Private/LevelAssetEditor.h"],
     "PrivateDependencies": [
 		"AssetTools",
         "Core",
