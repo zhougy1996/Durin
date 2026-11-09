@@ -333,6 +333,7 @@ TEST_F(FEditorToolTests, StartupWaitsForDocumentCompletionAndPrimaryScenePresent
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "StartupLevel")));
 	FEditorEngineTestAccess::SetEditorWorld(*Editor, World);
 	auto SceneViewport = FSceneViewport::CreateOffscreen(nullptr);
+	SceneViewport->SetSceneGeneration(17);
 	FEditorEngineTestAccess::SetStartupViewport(*Editor, SceneViewport);
 	auto Window = std::make_shared<MWindow>();
 	FEditorEngineTestAccess::SetStartupWindow(*Editor, Window);

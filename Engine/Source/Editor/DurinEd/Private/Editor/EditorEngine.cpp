@@ -271,17 +271,15 @@ namespace Durin
 			if (bShutdownRequested) return;
 			if (Document == EHostStartupState::Ready && GetWorld() && GetWorld()->GetCurrentLevel() && MainSceneViewport)
 			{
-				if (MainSceneViewport->HasRenderFailed())
+				const auto Window = StartupWindow.lock();
+				const auto Presentation = MainSceneViewport->QueryPresentation(GetSceneGeneration(), Window.get());
+				if (Presentation == EScenePresentationState::Failed)
 				{
 					StartupError = "The committed initial scene could not render for primary presentation.";
 					Transition(EBootstrapState::Failed);
 					return;
 				}
-				const auto Window = StartupWindow.lock();
-				const auto* Renderer = Mona::FMonaApplication::IsInitialized()
-					? Mona::FMonaApplication::Get().GetRenderer() : nullptr;
-				if (!Window || !Renderer || !Renderer->IsOutputPresented(
-					*Window, *MainSceneViewport->GetOutputReceipt(), GetSceneGeneration())) return;
+				if (Presentation != EScenePresentationState::Presented) return;
 			}
 			if (Document != EHostStartupState::Pending)
 				Transition(Document == EHostStartupState::Ready ? EBootstrapState::Ready : EBootstrapState::Failed);

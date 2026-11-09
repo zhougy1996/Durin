@@ -1,4 +1,3 @@
-#include "RequestOwnerAccess.h"
 #include "Threading/Task.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Asset/AssetCompilingManager.h"
@@ -6,6 +5,7 @@
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMeshBuildPrivate.h"
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+	#include "RequestOwnerAccess.h"
 	#include "DerivedDataRequestOwner.h"
 #endif
 

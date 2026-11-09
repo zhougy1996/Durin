@@ -43,9 +43,11 @@ namespace Durin
 
 	auto FShaderCompilingManager::PollMaterialCancellation() -> void
 	{
+#if DURIN_WITH_EDITOR
 		std::vector<FShaderMapPtr> Pending;
 		{ std::scoped_lock Lock(MaterialMutex); Pending = CompilingShaderMaps; }
 		for (const auto& ShaderMap : Pending) (void)PollCancellation(ShaderMap);
+#endif
 	}
 
 	auto FShaderCompilingManager::RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners) -> void

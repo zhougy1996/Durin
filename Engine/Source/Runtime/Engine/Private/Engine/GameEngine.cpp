@@ -129,8 +129,9 @@ namespace Durin
 		if (Progress->Phase == EMapChangePhase::Committed)
 		{
 			const auto& Viewport = GetMainSceneViewport();
-			if (Viewport->HasRenderFailed()) { StartupError = "The committed game scene could not render for presentation."; bStartupPending = false; return; }
-			if (!Viewport->GetOutputReceipt()->IsPresented(GetSceneGeneration(), Viewport->GetRHIViewport().GetReference())) return;
+			const auto Presentation = Viewport->QueryPresentation(GetSceneGeneration());
+			if (Presentation == EScenePresentationState::Failed) { StartupError = "The committed game scene could not render for presentation."; bStartupPending = false; return; }
+			if (Presentation != EScenePresentationState::Presented) return;
 			bStartupPending = false;
 			if (const auto Window = GameInputWindow.lock()) RequestGameMouseCapture(Window);
 		}

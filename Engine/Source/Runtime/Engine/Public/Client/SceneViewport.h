@@ -23,6 +23,8 @@ namespace Durin
 	class FSceneInterface;
 	class MWindow;
 
+	enum class EScenePresentationState : uint8 { Pending, Presented, Failed };
+
 	// Identifies the latest complete render result published for one scene viewport.
 	struct FSceneViewportStatisticsSnapshot
 	{
@@ -80,7 +82,9 @@ namespace Durin
 		auto GetOutputReceipt() const -> std::shared_ptr<FViewportOutputReceipt> override { return OutputReceipt; }
 		auto OnDisplaySubmitted() -> void override { bDisplayRequested = true; }
 		auto ConsumeDisplayRequest() -> bool { return std::exchange(bDisplayRequested, false); }
-		auto HasRenderFailed() const -> bool { return bRenderFailed.load(); }
+		// Read-only application-thread query for the current scene generation.
+		// Window output uses its own window; offscreen output requires its composition window.
+		ENGINE_API auto QueryPresentation(uint64 Generation, const MWindow* CompositionWindow = nullptr) const -> EScenePresentationState;
 		ENGINE_API auto PublishRenderOutcome_RenderThread(ERenderViewResult Result) -> void;
 
 		ENGINE_API auto PrepareDisplay(const FVector2f& DesiredSize) -> void override;

@@ -1,4 +1,3 @@
-#include "RequestOwnerAccess.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMeshBuildPrivate.h"
@@ -6,6 +5,7 @@
 #include "StaticMesh/StaticMeshCompilationTestSupport.h"
 
 #if DURIN_WITH_EDITOR
+	#include "RequestOwnerAccess.h"
 	#include "BuildServiceBackendPrivate.h"
 	#include "CacheDispatchPrivate.h"
 	#include "DerivedDataBuildSession.h"

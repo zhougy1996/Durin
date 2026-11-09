@@ -1,11 +1,14 @@
 #include <gtest/gtest.h>
 
 #include "Client/SceneViewport.h"
+#include "Application/MonaApplication.h"
+#include "ApplicationCoreGlobals.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "RHI.h"
 #include "RHIContext.h"
 #include "RenderingThread.h"
+#include "IRendererModule.h"
 #include "Threading/TaskRuntime.h"
 #include "Rendering/MonaRHIRenderer.h"
 #include "Widgets/MWindow.h"
@@ -25,6 +28,15 @@ namespace Durin
 		{
 		public:
 			FViewportTestBuffer() : FRHIBuffer(FRHIBufferCreateDesc::CreateVertex("ViewportTestUpload", 4)) {}
+		};
+
+		class FPresentationTestViewport final : public FRHIViewport
+		{
+		public:
+			auto GetBackBuffer(FRHICommandListImmediate&) -> FTextureRHIRef override { return {}; }
+			auto GetFormat() const -> EPixelFormat override { return EPixelFormat::SRGBA8_UNORM; }
+			auto RequestPresentationPolicy(EViewportPresentationPolicy) -> void override { ++PolicyRequests; }
+			uint32 PolicyRequests = 0;
 		};
 
 		class FViewportTestRHI final : public FDynamicRHI, public IRHICommandContext
@@ -133,6 +145,98 @@ namespace Durin
 			FViewportTestRHI RHI;
 			bool bRenderingStarted = false;
 		};
+	}
+
+	TEST_F(FSceneViewportResourceTests, PresentationQuerySharesCurrentWindowReceiptsWithoutPreparingOrResizing)
+	{
+		ASSERT_FALSE(Mona::FMonaApplication::IsInitialized());
+		auto Window = std::make_shared<MWindow>();
+		MWindow OtherWindow;
+		auto Direct = FSceneViewport::CreateWindowBacked(nullptr, Window);
+		auto Offscreen = FSceneViewport::CreateOffscreen(nullptr);
+		Direct->SetSceneGeneration(17);
+		Offscreen->SetSceneGeneration(17);
+		EXPECT_EQ(Direct->QueryPresentation(17), EScenePresentationState::Pending);
+		const auto PreviousApplication = GApp;
+		Mona::FMonaApplication::Create();
+		struct FRestoreApplication
+		{
+			std::shared_ptr<FGenericApplication> Previous;
+			~FRestoreApplication() { Mona::FMonaApplication::Shutdown(); GApp = std::move(Previous); }
+		} Restore{PreviousApplication};
+		EXPECT_EQ(Direct->QueryPresentation(17), EScenePresentationState::Pending);
+		Mona::FMonaApplication::Get().InitializeRenderer(false);
+		auto& Renderer = static_cast<Mona::FMonaRHIRenderer&>(*Mona::FMonaApplication::Get().GetRenderer());
+		const auto Primary = MakeRefCount<FPresentationTestViewport>();
+		const auto Auxiliary = MakeRefCount<FPresentationTestViewport>();
+		const auto Replacement = MakeRefCount<FPresentationTestViewport>();
+		auto* Info = new Mona::FMonaViewportInfo();
+		Info->ViewportRHI = Primary;
+		Info->SubmittedExtent = {640, 480};
+		Info->QueueResize({1280, 720});
+		Renderer.WindowToViewportInfoMap.emplace(Window.get(), Info);
+		Renderer.SetPresentationPolicyOverride(EViewportPresentationPolicy::Unsynchronized);
+		const std::array Viewports{Direct, Offscreen};
+		for (const auto& Viewport : Viewports)
+		{
+			const auto Receipt = Viewport->GetOutputReceipt();
+			Receipt->RecordProduced(17);
+			EXPECT_EQ(Viewport->QueryPresentation(17, Window.get()), EScenePresentationState::Pending);
+			Receipt->RecordPresented(17, Auxiliary);
+			EXPECT_EQ(Viewport->QueryPresentation(17, Window.get()), EScenePresentationState::Pending);
+			Receipt->RecordPresented(16, Primary);
+			EXPECT_EQ(Viewport->QueryPresentation(17, Window.get()), EScenePresentationState::Pending);
+			Receipt->RecordPresented(17, Primary);
+			for (int Poll = 0; Poll != 3; ++Poll)
+				EXPECT_EQ(Viewport->QueryPresentation(17, Window.get()), EScenePresentationState::Presented);
+			EXPECT_EQ(Viewport->QueryPresentation(0, Window.get()), EScenePresentationState::Pending);
+			EXPECT_EQ(Viewport->QueryPresentation(18, Window.get()), EScenePresentationState::Pending);
+		}
+		EXPECT_EQ(Direct->QueryPresentation(17), EScenePresentationState::Presented);
+		EXPECT_EQ(Offscreen->QueryPresentation(17), EScenePresentationState::Pending);
+		EXPECT_EQ(Offscreen->QueryPresentation(17, &OtherWindow), EScenePresentationState::Pending);
+		Info->ViewportRHI = Replacement;
+		for (const auto& Viewport : Viewports)
+		{
+			EXPECT_EQ(Viewport->QueryPresentation(17, Window.get()), EScenePresentationState::Pending);
+			Viewport->GetOutputReceipt()->RecordPresented(17, Replacement);
+			EXPECT_EQ(Viewport->QueryPresentation(17, Window.get()), EScenePresentationState::Presented);
+		}
+		const auto OldReceipt = Offscreen->GetOutputReceipt();
+		Offscreen->SetSceneGeneration(18);
+		OldReceipt->RecordPresented(18, Replacement);
+		EXPECT_EQ(Offscreen->QueryPresentation(18, Window.get()), EScenePresentationState::Pending);
+		Offscreen->GetOutputReceipt()->RecordPresented(18, Replacement);
+		EXPECT_EQ(Offscreen->QueryPresentation(18, Window.get()), EScenePresentationState::Presented);
+		EXPECT_TRUE(Info->PendingExtent.has_value());
+		EXPECT_EQ(Info->SubmittedExtent, FIntPoint(640, 480));
+		EXPECT_EQ(Primary->PolicyRequests, 0u);
+		EXPECT_EQ(Replacement->PolicyRequests, 0u);
+		EXPECT_EQ(RHI.ResizeCount, 0u);
+		EXPECT_EQ(RHI.GPUIdleCount, 0u);
+		Renderer.OnWindowDestroyed(Window);
+		EXPECT_EQ(Direct->QueryPresentation(17), EScenePresentationState::Pending);
+		EXPECT_EQ(Offscreen->QueryPresentation(18, Window.get()), EScenePresentationState::Pending);
+	}
+
+	TEST_F(FSceneViewportResourceTests, PresentationFailureIsScopedToTheRequestedCurrentGeneration)
+	{
+		auto Viewport = FSceneViewport::CreateOffscreen(nullptr);
+		Viewport->SetSceneGeneration(17);
+		ENQUEUE_RENDER_COMMAND(FailSceneForPresentation)([Viewport](FRHICommandListImmediate&) {
+			Viewport->PublishRenderOutcome_RenderThread(ERenderViewResult::RendererResourcesUnavailable);
+		});
+		FlushRenderingCommands();
+		EXPECT_EQ(Viewport->QueryPresentation(17), EScenePresentationState::Failed);
+		EXPECT_EQ(Viewport->QueryPresentation(0), EScenePresentationState::Pending);
+		EXPECT_EQ(Viewport->QueryPresentation(18), EScenePresentationState::Pending);
+		Viewport->SetSceneGeneration(18);
+		EXPECT_EQ(Viewport->QueryPresentation(18), EScenePresentationState::Pending);
+		ENQUEUE_RENDER_COMMAND(WaitForSceneResources)([Viewport](FRHICommandListImmediate&) {
+			Viewport->PublishRenderOutcome_RenderThread(ERenderViewResult::RendererResourcesPending);
+		});
+		FlushRenderingCommands();
+		EXPECT_EQ(Viewport->QueryPresentation(18), EScenePresentationState::Pending);
 	}
 
 	TEST_F(FSceneViewportResourceTests, CreationAndResizeRunAfterEarlierRenderUploads)

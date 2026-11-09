@@ -51,7 +51,7 @@ Engine/World, and records only textures consumed by actual unclipped draw comman
 `EndDrawingViewportWithReceipts` observes the native presentation serial during
 RHI command replay, on either side of Present. Recording EndDrawingViewport on
 the render thread is not presentation success. A startup gate matches both the
-operation generation and the retained primary RHI viewport identity.
+operation generation and the current primary RHI viewport identity.
 
 `FSceneViewport` is held by the engine through `DEngine::MainSceneViewport`. This keeps the scene viewport alive independently of transient widget references.
 
@@ -136,13 +136,16 @@ and RHI commands before calling the main-thread `RHIResizeViewport()` interface.
 This keeps older ImGui draw snapshots paired with their original back buffer even
 when a backend, such as Metal, replaces that buffer immediately. The barrier runs
 only for a new extent; ordinary frames and duplicate sizes do not add a wait, and
-no GPU-idle wait is added. `FMonaRenderer::IsOutputPresented(Window, Receipt, Generation)` is a
-read-only application-thread query. It checks the receipt against the window's
-current RHI viewport and the requested nonzero generation; missing or removed
-mappings and receipts from replaced viewports return false. Window-to-viewport
-lookup stays inside the renderer. The query does not create a viewport, consume
-pending resize, request a presentation policy, flush, enqueue work or count as a
-successful presentation. Receipt polling uses this query rather than
+no GPU-idle wait is added. `FSceneViewport::QueryPresentation(Generation, CompositionWindow)`
+is the shared read-only application-thread query for Editor and Game. It returns
+Pending for a zero/stale generation or an unpresented output, Failed for a current
+render failure, and Presented only after receipt matching succeeds. Window-backed
+output uses its bound window; offscreen output requires its composition window.
+Internally, `FMonaRenderer::IsOutputPresented` matches the receipt against that
+window's current RHI viewport; missing/removed mappings and replaced-view receipts
+remain pending. Window-to-viewport lookup stays inside Mona. Polling does not
+create a viewport, consume pending resize, change presentation policy, flush,
+enqueue work or count as a successful presentation. Receipt polling never calls
 `PrepareViewportForDraw()`. Intermediate native sizes do not accumulate as
 render commands. Backend modules do not acquire
 a RenderCore dependency for this ordering guarantee.

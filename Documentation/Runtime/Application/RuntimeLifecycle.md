@@ -160,11 +160,12 @@ open request's terminal result and then the primary scene presentation receipt.
 Each step advances at most once per ordinary outer frame. Shell
 presentation is observed from the retained primary RHI viewport's successful
 presentation serial, relative to its shell baseline, rather than a profiling
-timestamp. An auxiliary viewport cannot satisfy that gate. The editor's scene
-gate uses the current MonaApplication renderer's read-only `IsOutputPresented`
-query for the Launch-supplied window. The renderer matches the receipt's nonzero
-scene generation and its current presenting viewport internally. A replaced or removed mapping
-cannot be satisfied by an old viewport receipt.
+timestamp. An auxiliary viewport cannot satisfy that gate. Editor and Game query
+`FSceneViewport::QueryPresentation()` for Pending, Presented or Failed. The
+viewport owns generation/render-outcome validation and delegates current-window
+receipt matching to Mona. Editor supplies its composition window; window-backed
+Game output uses its bound window. Replaced or removed mappings cannot be
+satisfied by old receipts; startup code never inspects RHI viewport identities.
 
 `DEngine::Init()` constructs minimum runtime/renderer services without admitting
 project content or creating the initial World. After schema providers are active,

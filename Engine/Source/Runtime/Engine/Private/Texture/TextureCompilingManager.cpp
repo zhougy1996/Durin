@@ -1,6 +1,6 @@
-#include "RequestOwnerAccess.h"
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
+#include "RequestOwnerAccess.h"
 #include "Texture/TextureCompilingManager.h"
 #include "TextureBuildInternal.h"
 #include "DerivedDataRequestOwner.h"

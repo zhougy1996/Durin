@@ -9,6 +9,18 @@
 
 namespace Durin
 {
+	auto FSceneViewport::QueryPresentation(uint64 Generation, const MWindow* CompositionWindow) const -> EScenePresentationState
+	{
+		if (!Generation || Generation != SceneGeneration) return EScenePresentationState::Pending;
+		if (bRenderFailed.load()) return EScenePresentationState::Failed;
+		const auto OwnedWindow = Window.lock();
+		const auto* PresentingWindow = IsWindowBacked() ? OwnedWindow.get() : CompositionWindow;
+		if (!PresentingWindow || !Mona::FMonaApplication::IsInitialized()) return EScenePresentationState::Pending;
+		const auto* Renderer = Mona::FMonaApplication::Get().GetRenderer();
+		return Renderer && Renderer->IsOutputPresented(*PresentingWindow, *OutputReceipt, Generation)
+			? EScenePresentationState::Presented : EScenePresentationState::Pending;
+	}
+
 	auto FSceneViewport::PublishRenderOutcome_RenderThread(ERenderViewResult Result) -> void
 	{
 		bRenderFailed = Result != ERenderViewResult::Success && Result != ERenderViewResult::RendererResourcesPending;

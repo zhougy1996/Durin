@@ -1,6 +1,6 @@
-#include "RequestOwnerAccess.h"
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITOR
+#include "RequestOwnerAccess.h"
 #include "Asset/ResourceBuildSessions.h"
 #endif
 #if DURIN_WITH_EDITORONLY_DATA

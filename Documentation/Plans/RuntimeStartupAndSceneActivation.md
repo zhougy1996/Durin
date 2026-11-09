@@ -18,6 +18,34 @@ The current implemented contracts still live in [Runtime lifecycle](../Runtime/A
 [Load preparation](../Runtime/Rendering/Pipeline/LoadPreparation.md), and
 [Subsystems](../Runtime/Engine/Subsystems.md).
 
+Stage 5 presentation-query refinement (2026-11-09): put the shared
+Pending/Presented/Failed query on FSceneViewport. Window-backed output checks its
+own window; offscreen output checks the supplied composition window. The viewport
+validates the requested current nonzero scene generation, render outcome and
+receipt against Mona's current window mapping. Editor and Game observe only the
+typed result. Polling must remain read-only, including during resize/replacement;
+it must not prepare a viewport, wait for rendering or fabricate a presentation.
+
+Presentation-query validation (working tree based on `99b449e05`, Windows Debug,
+Vulkan): final ViewportTests passed 118/118, EditorOperationTests 326/326,
+EngineViewportHeaderTests 1/1 and LaunchStartupCharacterizationTests 6/6. Reports
+are `Build/EditorStartupDiagnosis/presentation-query-{viewport,editor,header,process}.xml`.
+The viewport regressions cover direct-window and offscreen composition, missing
+application/renderer/window mappings, nonzero/current generation, production
+without presentation, auxiliary/replaced viewport receipts, old receipt retention,
+render failure and read-only polling with an unconsumed resize. The Editor
+launcher and the non-editor Game DurinLauncher target built successfully.
+Game validation also exposed four unconditional editor-only RequestOwnerAccess
+includes and an unguarded material-cancellation poll; these now follow their
+existing editor/data conditions, restoring Game compilation and linking.
+Final Sandbox and RoadWeaver Editor runs reached project readiness, completed
+three running ticks and exited normally with startup diagnostics enabled; logs
+are `20261109-143956-063971-4016-DurinEditor.log` and
+`20261109-144002-390811-35920-DurinEditor.log` under `Build/.agent-state/logs/`.
+Cooked Game process and Metal execution were not rerun; direct-window query
+behavior is covered by the shared CPU viewport fixture. Remaining full-plan
+acceptance matrices stay open.
+
 Stage 2 readiness refinement (2026-11-09): make the editor bootstrap phase the
 only stored startup state and derive Pending/Ready/Failed from it. Derive one
 editor capability snapshot for normal ticking, tool admission, World editing,
@@ -545,6 +573,7 @@ second complete resource-preparation traversal on steady frames.
 
 - [x] Separate preparation observation/ownership from PrepareOnly execution mode; continue from a ready prepared frame directly into drawing.
 - [x] Produce operation/generation-scoped successful scene-output and primary-composition receipts.
+- [x] Encapsulate scene presentation validation in one viewport query shared by Editor and Game startup.
 - [ ] Preserve pending/failure visibility, scoped invalidation, retention limits, component gates, and tools/thumbnail/hit-proxy coverage.
 - [ ] Capture cold/warm, resized, camera/feature/material-changed, device-invalidated, and two-view workloads; verify one preparation traversal per actual view invocation.
 
