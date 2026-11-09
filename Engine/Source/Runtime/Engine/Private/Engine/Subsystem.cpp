@@ -10,7 +10,7 @@ namespace Durin
 {
 	namespace
 	{
-		struct FRegistrationEntry { uint64 Identity; DClass* Scope; FSubsystemDescriptor Snapshot; };
+		struct FRegistrationEntry { DClass* Scope; FSubsystemDescriptor Descriptor; };
 		auto Registry() -> std::vector<FRegistrationEntry>&
 		{
 			// Tokens can retire during static teardown, after ordinary static objects.
@@ -26,13 +26,13 @@ namespace Durin
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		Identity = ++NextRegistration;
 		Descriptor.RegistrationIdentity = Identity;
-		Registry().push_back({Identity, Scope, std::move(Descriptor)});
+		Registry().push_back({Scope, std::move(Descriptor)});
 		++PublicationRevision;
 	}
 	FSubsystemRegistration::~FSubsystemRegistration()
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		std::erase_if(Registry(), [this](const auto& Entry) { return Entry.Identity == Identity; });
+		std::erase_if(Registry(), [this](const auto& Entry) { return Entry.Descriptor.RegistrationIdentity == Identity; });
 		++PublicationRevision;
 	}
 	auto FSubsystemRegistration::GetRevision() -> uint64
@@ -44,7 +44,7 @@ namespace Durin
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		std::vector<FSubsystemDescriptor> Result;
-		for (const auto& Entry : Registry()) if (Entry.Scope == Scope) Result.push_back(Entry.Snapshot);
+		for (const auto& Entry : Registry()) if (Entry.Scope == Scope) Result.push_back(Entry.Descriptor);
 		return Result;
 	}
 
@@ -78,11 +78,11 @@ namespace Durin
 			std::vector<FEntry> Selected;
 			for (const auto& Descriptor : Descriptors)
 			{
-				if (!Descriptor.Type || !CanConstructObjectOfClass(Descriptor.Type, Scope))
+				if (!CanConstructObjectOfClass(Descriptor.Type, Scope))
 					return Fail(ESubsystemError::InvalidDescriptor, (Descriptor.Type ? Descriptor.Type->GetQualifiedName().ToString() : "<null>") + " is not a concrete service in scope " + Scope->GetQualifiedName().ToString());
 				if (!Descriptor.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Descriptor.Provider))
 					return Fail(ESubsystemError::ProviderUnavailable, Descriptor.Provider.ToString());
-				const auto* Default = Cast<DSubsystem>(Descriptor.Type->GetDefaultObject());
+				const auto* Default = static_cast<const DSubsystem*>(Descriptor.Type->GetDefaultObject());
 				if (!Default) return Fail(ESubsystemError::InvalidDescriptor, Descriptor.Type->GetQualifiedName().ToString() + " requires a class default object.");
 				const bool bCreate = Default->ShouldCreateSubsystem(&Host);
 				if (bClosed) return Fail(ESubsystemError::Aborted, "Host retired during subsystem eligibility selection.");
@@ -123,8 +123,8 @@ namespace Durin
 			for (size_t Index = 0; Index < Entries.size(); ++Index)
 			{
 				if (bClosed) return Fail(ESubsystemError::Aborted, "Host retired before subsystem construction.");
-				auto* Object = Cast<DSubsystem>(NewObject(Entries[Index].Descriptor.Type, &Host, {}, EObjectFlags::Transient));
-				if (!Object) return Fail(ESubsystemError::InitializationFailed, "Subsystem construction failed.");
+				// Selection validates immutable class metadata; construction failures throw.
+				auto* Object = static_cast<DSubsystem*>(NewObject(Entries[Index].Descriptor.Type, &Host, {}, EObjectFlags::Transient));
 				Entries[Index].Object = Object;
 				Object->WorkGate = std::make_shared<FSubsystemWorkGate>();
 				if (bClosed) return Fail(ESubsystemError::Aborted, "Host retired during subsystem construction.");
@@ -158,14 +158,10 @@ namespace Durin
 		try
 		{
 			std::erase_if(Descriptors, [&](const auto& Descriptor) {
-				if (bClosed || !Descriptor.Type || !CanConstructObjectOfClass(Descriptor.Type, Scope)) return false;
-				const auto* Default = Cast<DSubsystem>(Descriptor.Type->GetDefaultObject());
+				if (bClosed || !CanConstructObjectOfClass(Descriptor.Type, Scope)) return false;
+				const auto* Default = static_cast<const DSubsystem*>(Descriptor.Type->GetDefaultObject());
 				if (!Default) { Report(ESubsystemError::InvalidDescriptor, "Dynamic subsystem requires a class default object."); return true; }
-				if (!Default->ShouldCreateSubsystem(&Host)) return true;
-				if (bClosed) return false;
-				if (auto Result = ValidateSelectedDescriptor(Descriptor); !Result)
-				{ Report(Result.Error, std::move(Result.Message)); return true; }
-				return false;
+				return !Default->ShouldCreateSubsystem(&Host);
 			});
 		}
 		catch (...) { return {ESubsystemError::InitializationFailed, "Subsystem eligibility selection threw."}; }
@@ -174,7 +170,7 @@ namespace Durin
 		for (const auto& Descriptor : Descriptors) ++Counts[Descriptor.Type];
 		std::erase_if(Descriptors, [&](const auto& Descriptor) {
 			if (Counts[Descriptor.Type] != 1) { Report(ESubsystemError::DuplicateType, "Duplicate dynamic subsystem type."); return true; }
-			if (!Descriptor.Type || !CanConstructObjectOfClass(Descriptor.Type, Scope))
+			if (!CanConstructObjectOfClass(Descriptor.Type, Scope))
 			{ Report(ESubsystemError::InvalidDescriptor, "Invalid dynamic subsystem type or scope."); return true; }
 			return false;
 		});
@@ -251,8 +247,7 @@ namespace Durin
 				if (!Descriptor.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Descriptor.Provider))
 				{ Rollback(); return {ESubsystemError::ProviderUnavailable, Descriptor.Provider.ToString()}; }
 				Entries.push_back({Descriptor});
-				auto* Object = Cast<DSubsystem>(NewObject(Descriptor.Type, &Host, {}, EObjectFlags::Transient));
-				if (!Object) { Rollback(); return {ESubsystemError::InitializationFailed, "Dynamic subsystem construction failed."}; }
+				auto* Object = static_cast<DSubsystem*>(NewObject(Descriptor.Type, &Host, {}, EObjectFlags::Transient));
 				auto& Entry = Entries.back(); Entry.Object = Object;
 				Object->WorkGate = std::make_shared<FSubsystemWorkGate>();
 				if (bClosed) { Rollback(); return {ESubsystemError::Aborted, "Host retired during dynamic subsystem construction."}; }
@@ -281,7 +276,6 @@ namespace Durin
 		if (bInitializing || State == ESubsystemState::Shutdown || State == ESubsystemState::ShuttingDown) return;
 		FGarbageCollectionDeferralScope Deferral;
 		State = ESubsystemState::ShuttingDown;
-		CloseWork();
 		for (size_t Index = Entries.size(); Index-- > 0;)
 		{
 			if (auto* Object = Entries[Index].Object.Get())

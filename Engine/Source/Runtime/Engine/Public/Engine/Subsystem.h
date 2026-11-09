@@ -95,7 +95,7 @@ namespace Durin
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 		auto IsDispatching() const -> bool { return bInitializing; }
 	protected:
-		// Scope-specific configuration is checked only after CDO eligibility selection.
+		// Scope-specific configuration for one-shot initialization, after CDO selection.
 		virtual auto ValidateSelectedDescriptor(const FSubsystemDescriptor&) const -> FSubsystemResult { return {}; }
 		// Explicit opt-in for dynamic scope adapters; Engine/World retain frozen membership.
 		ENGINE_API auto Reconcile(std::vector<FSubsystemDescriptor> Descriptors) -> FSubsystemResult;

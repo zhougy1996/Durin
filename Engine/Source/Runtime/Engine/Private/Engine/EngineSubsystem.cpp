@@ -19,8 +19,6 @@ namespace Durin
 	FEngineSubsystemCollection::FEngineSubsystemCollection(DEngine& Host) : FSubsystemCollection(Host, DEngineSubsystem::StaticClass()) {}
 	auto FEngineSubsystemCollection::Initialize() -> FSubsystemResult
 	{
-		std::vector<FSubsystemDescriptor> Selected;
-		for (const auto& Entry : FSubsystemRegistration::Snapshot(DEngineSubsystem::StaticClass())) Selected.push_back(Entry);
-		return FSubsystemCollection::Initialize(std::move(Selected));
+		return FSubsystemCollection::Initialize(FSubsystemRegistration::Snapshot(DEngineSubsystem::StaticClass()));
 	}
 }

@@ -25,8 +25,8 @@ namespace Durin
 
 	auto DWorldSubsystem::IsReadyForFinishDestroy() -> bool
 	{
-		const auto* World = GetWorld();
-		return !World || const_cast<DWorld*>(World)->IsReadyForFinishDestroy();
+		auto* World = GetWorld();
+		return !World || World->IsReadyForFinishDestroy();
 	}
 
 	auto DWorldSubsystem::GetWorld() const -> DWorld* { return Cast<DWorld>(GetOuter()); }
@@ -132,9 +132,7 @@ namespace Durin
 		FSceneInterface* Previous, FSceneInterface* Current) -> void
 	{
 		for (auto& Entry : Entries)
-			if (Entry.bInitialized)
-				static_cast<DWorldSubsystem*>(Entry.Object.Get())
-					->OnRenderSceneChanged(Previous, Current);
+			static_cast<DWorldSubsystem*>(Entry.Object.Get())->OnRenderSceneChanged(Previous, Current);
 	}
 	auto FWorldSubsystemCollection::StartTick() -> void
 	{
@@ -145,7 +143,6 @@ namespace Durin
 		const bool bEditor = World.GetWorldType() == EWorldType::Editor || World.GetWorldType() == EWorldType::EditorPreview;
 		for (size_t Index = 0; Index < Entries.size() && World.CanDispatchSubsystems(); ++Index)
 		{
-			if (bGameplay && !World.HasBegunPlay()) break;
 			const auto& Entry = WorldEntries[Entries[Index].Descriptor.Type];
 			if (!Entry.bFrameTickEnabled || !Entry.bTick || Entry.TickGroup != Group) continue;
 			if (!bGameplay && !(bEditor && Entry.bTickInEditorAndPreview)) continue;

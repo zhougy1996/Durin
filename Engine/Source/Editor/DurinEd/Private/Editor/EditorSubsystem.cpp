@@ -24,12 +24,10 @@ namespace Durin
 	FEditorSubsystemCollection::FEditorSubsystemCollection(DEditorEngine& Host) : FSubsystemCollection(Host, DEditorSubsystem::StaticClass()) {}
 	auto FEditorSubsystemCollection::Initialize() -> FSubsystemResult
 	{
-		std::vector<FSubsystemDescriptor> Selected;
-		for (const auto& Entry : FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass()))
-		{
-			if (!Entry.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Entry.Provider)) continue;
-			Selected.push_back(Entry);
-		}
+		auto Selected = FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass());
+		std::erase_if(Selected, [](const auto& Entry) {
+			return !Entry.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Entry.Provider);
+		});
 		return FSubsystemCollection::Initialize(std::move(Selected));
 	}
 	FEditorSubsystemCollection::~FEditorSubsystemCollection() = default;
