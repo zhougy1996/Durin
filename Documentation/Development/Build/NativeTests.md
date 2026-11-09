@@ -45,6 +45,9 @@ Exact target names take precedence over set syntax. Empty sets are errors and
 never fall back to `all`. Ordinary selections exclude characterization and
 qualification; their admission requires the corresponding explicit mode.
 Classification meanings are in [Target Classification](NativeTestAuthoring.md#target-classification).
+Full startup regression selection follows the
+[startup validation policy](../../Agents/Testing.md#full-application-startup);
+explicit characterization admission does not imply running every startup case.
 Native-test executables and GoogleTest are excluded from CMake's default `all`
 build target even when `BUILD_TESTING` is enabled.
 
@@ -116,7 +119,7 @@ combine with each supported execution mode.
 .\DevTool.bat test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
 .\DevTool.bat test "@viewport" --isolate --test-jobs 4 --report
 .\DevTool.bat test "@viewport" --mode stress
-.\DevTool.bat test "@kind=characterization,domain=launch" --mode characterization
+.\DevTool.bat test LaunchStartupCharacterizationTests FLaunchStartupCharacterizationTests.AutomatedLaunchPreservesInteractiveHistory --mode characterization
 .\DevTool.bat test "@kind=qualification,domain=renderer" --mode qualification
 ```
 

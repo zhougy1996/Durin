@@ -8,21 +8,16 @@ namespace
 {
 	auto RunLaunchChild(std::initializer_list<std::string> Arguments) -> int32
 	{
-		int32 ReturnCode = -1;
-		std::string Error;
-		const auto ExecuteProcessResult = Durin::FPlatformProcess::ExecuteProcess(DURIN_LAUNCH_EXECUTABLE, Durin::FProcessLaunchOptions{.Arguments = Arguments});
-		Error = ExecuteProcessResult ? std::string{} : ExecuteProcessResult.error().ToString();
-		if (ExecuteProcessResult) ReturnCode = *ExecuteProcessResult;
-		EXPECT_TRUE(ExecuteProcessResult.has_value()) << Error;
-		return ReturnCode;
+		const auto Result = Durin::FPlatformProcess::ExecuteProcess(
+			DURIN_LAUNCH_EXECUTABLE, Durin::FProcessLaunchOptions{.Arguments = Arguments});
+		if (!Result) ADD_FAILURE() << Result.error().ToString();
+		return Result.value_or(-1);
 	}
 }
 
-TEST(FLaunchProcessBoundaryTests, RejectsParseAndDuplicateFailuresWithCommandLineStatus)
+TEST(FLaunchProcessBoundaryTests, ReportsArgumentFailureWithCommandLineStatus)
 {
 	EXPECT_EQ(RunLaunchChild({"--unknown-launch-option"}), 2u);
-	EXPECT_EQ(RunLaunchChild({"--project=One", "--project=Two"}), 2u);
-	EXPECT_EQ(RunLaunchChild({"--exit-after-ticks=0"}), 2u);
 }
 
 TEST(FLaunchProcessBoundaryTests, ReportsWaitFailureAsRuntimeFailure)

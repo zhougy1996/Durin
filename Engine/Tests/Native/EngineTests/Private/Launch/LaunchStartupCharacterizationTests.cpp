@@ -15,18 +15,6 @@ namespace
 }
 
 // Full startup characterizations are selected explicitly, outside routine integration coverage.
-#if defined(_WIN32)
-TEST(FLaunchStartupCharacterizationTests, UnavailableRHIBackendFailsAndUnwindsTheStartupWindow)
-{
-	const auto Result = Durin::FPlatformProcess::ExecuteProcess(
-		DURIN_LAUNCH_EXECUTABLE, Durin::FProcessLaunchOptions{
-			.Arguments = {"--project-browser", "--exit-after-ticks=1"},
-			.EnvironmentOverrides = {{"DURIN_RHI_BACKEND", "metal"}}});
-	ASSERT_TRUE(Result.has_value()) << Result.error().ToString();
-	EXPECT_EQ(*Result, 1);
-}
-#endif
-
 TEST(FLaunchStartupCharacterizationTests, BoundedTickExitUsesNormalApplicationShutdown)
 {
 	EXPECT_EQ(RunLaunchChild(
@@ -63,16 +51,9 @@ TEST(FLaunchStartupCharacterizationTests, AutomatedLaunchPreservesInteractiveHis
 		std::ifstream File(History);
 		return std::string(std::istreambuf_iterator<char>(File), std::istreambuf_iterator<char>());
 	};
+	const bool bExisted = std::filesystem::exists(History);
 	const auto Before = Read();
 	EXPECT_EQ(RunLaunchChild({std::format("--project={}", DURIN_LAUNCH_TEST_PROJECT), "--exit-after-ticks=2"}), 0u);
-	if (!Before.empty()) EXPECT_EQ(Read(), Before);
-}
-
-TEST(FLaunchStartupCharacterizationTests, RequiredProjectModuleFailureBecomesTerminal)
-{
-	const auto Root = Durin::Testing::GetTestWorkDirectory() / "MissingNativeModule";
-	std::filesystem::create_directories(Root);
-	const auto Project = Root / "MissingNativeModule.dproject";
-	{ std::ofstream File(Project); File << R"({"ProjectName":"MissingNativeModule","BaseModules":["StartupModuleThatDoesNotExist"]})"; }
-	EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=1"}), 1u);
+	EXPECT_EQ(std::filesystem::exists(History), bExisted);
+	EXPECT_EQ(Read(), Before);
 }

@@ -8,11 +8,6 @@ Honor explicit acceptance gates and report validation performed or omitted.
 Documentation-only changes need document validation and diff review, without
 native builds or tests unless executable behavior or an explicit gate requires them.
 
-Generate Cook packages, manifests, state and DDC records in test fixture directories
-under ignored `Build/`; do not copy generated output snapshots into versioned test
-data. Prefer runtime-generated inputs and focused codec assertions. Historical
-qualification snapshots belong in local ignored storage or CI artifacts.
-
 Use the smallest sufficient selection. These are alternatives; inspect affected
 coverage before executing it:
 
@@ -25,43 +20,29 @@ coverage before executing it:
 .\DevTool.bat test "@domain=<domain>,backend=<backend>"
 ```
 
+### Full Application Startup
+
+Full executable startup is integration and lifecycle regression coverage, not a
+default routine correctness check. Do not run the entire
+`LaunchStartupCharacterizationTests` suite merely because Launch, Engine, Editor,
+or startup-test files changed. Select coverage by the behavior changed:
+
+- Use contract and feature tests for local logic and mechanical cleanup.
+- When normal startup or shutdown changes, use one relevant bounded startup smoke.
+- For project admission, default-Level opening, startup commands, or history
+  policy, select the corresponding startup case instead of the whole suite.
+
+Run the whole suite only for an explicit user, plan, or CI gate, or when a broad
+lifecycle change cannot be covered reliably by selected cases; state that reason
+before running it. Characterization remains excluded from ordinary selections.
+
 ## Choose Execution
 
-`test <Target>` runs its cases sequentially in one process for direct-hosted
-native tests. It can expose shared-state cleanup failures, but can also mask
-missing per-case setup. A case must pass when run alone.
-
-```powershell
-.\DevTool.bat test MaterialCompilerTests --isolate --test-jobs 4
-.\DevTool.bat test MaterialCompilerTests FMaterialExpressionTests.* --isolate --test-jobs 1
-.\DevTool.bat test affected --test-jobs 4 --report
-```
-
-`--isolate` runs each selected case in a separate process through CTest. It
-accepts a named target or `@set` in routine mode. Use `--test-jobs 1` for serial
-isolation, or begin with 4 slots for bounded CPU correctness feedback after
-checking isolation. Without `--isolate`, scheduling does not split target cases.
-
-`--test-jobs N` controls CTest scheduling slots for whole-target or isolated
-runs; omitting it uses configured concurrency. Direct execution of one target
-still uses one process. Builds use configured concurrency independently; `test`
-does not accept `--jobs`.
-
-`--report [path]` saves XML without changing execution, including for `affected`.
-The default is `Build/NativeTestResults/<Preset>/<Selection>.xml`. Direct runs
-produce GoogleTest XML; CTest runs produce JUnit XML. Empty affected selections
-write no report and leave any previous report unchanged; check the command log.
-Use the positional case filter and `--isolate [--test-jobs N]` for isolated
-execution; routine execution needs no `--mode`.
-
-Existing CTest resource locks and execution-host rules still apply; parallelism does not authorize GPU
-or application-hosted coverage. A failure that also occurs when run alone is an
-isolation/setup issue, not evidence of a concurrency conflict.
-
-`affected`, `fast-all`, and ordinary `@set` runs instead schedule whole test
-targets through CTest. Their cases remain sequential inside each process.
-Configured concurrency is the default for builds and whole-target CTest scheduling;
-it does not parallelize cases for ordinary `test <Target>`.
+Routine execution needs no `--mode`. A named target runs sequential cases in one
+process; use a positional case filter for focused validation. Read
+[execution and reports](../Development/Build/NativeTests.md#execution-and-reports)
+only when case isolation, scheduling, reports, or timeouts are needed. Parallelism
+does not authorize GPU or application-hosted coverage.
 
 `test affected` defaults to staged, unstaged, and untracked changes. Use `--base`
 for changes relative to a Git ref. When runtime tests are needed, first inspect
@@ -132,9 +113,15 @@ Use positional selections; whole-target execution is the default. Test execution
 and transitive builds follow [Build And Run](BuildAndRun.md) timeout and recovery
 rules. Read-only discovery does not need a long-running execution budget.
 
-## Read the Complete Specifications
+## Read Task-Relevant Sections
 
-- [Native Test Execution](../Development/Build/NativeTests.md): execution
-  mechanisms, advanced modes, CI, or diagnosis beyond a focused rerun.
-- [Native Test Authoring](../Development/Build/NativeTestAuthoring.md): target
-  registration, fixtures, dependencies, or isolation and resource ownership.
+This workflow is the routine entrypoint. Follow only the link matching the task;
+locate the needed heading before reading, rather than loading every test guide.
+
+| Task | Reference section |
+| --- | --- |
+| Unknown target, selector, or affected expansion | [Discover and select](../Development/Build/NativeTests.md#discover-and-select) |
+| Flags, case filters, or explicit execution modes | [Parameter contract](../Development/Build/NativeTests.md#parameter-contract) |
+| Failure diagnosis | [Failure diagnosis](../Development/Build/NativeTests.md#failure-diagnosis) |
+| Generated fixtures or writable test output | [Output layout](../Development/Build/NativeTestAuthoring.md#output-layout) |
+| Adding or changing test registration, classification, dependencies, or locks | [Add a test target](../Development/Build/NativeTestAuthoring.md#add-a-test-target) |

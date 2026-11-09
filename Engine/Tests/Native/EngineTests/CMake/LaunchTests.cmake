@@ -64,9 +64,7 @@ durin_add_native_test(LaunchProcessBoundaryTests
 	DEPENDENCIES DurinLauncher
 	COMPILE_DEFINITIONS
 		DURIN_LAUNCH_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
-		DURIN_LAUNCH_TEST_PROJECT="${DURIN_WORKSPACE_DIR}/Sandbox/Sandbox.dproject"
-	HEAVY_RUNTIME_RATIONALE "Launches isolated runtime children to verify process exit and cleanup policy."
-	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
+	HEAVY_RUNTIME_RATIONALE "Launches isolated runtime children to verify argument, wait, and project-ownership failures before RHI startup."
 	TARGET_LOCK_RATIONALE "Serializes child processes that share the configured launcher binary."
 )
 
