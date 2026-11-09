@@ -13,7 +13,8 @@ namespace Durin
 	DWorldSubsystem::DWorldSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DWorldSubsystem::BeginDestroy() -> void
 	{
-		if (DWorld* World = GetWorld()) World->Shutdown();
+		if (!HasCompletedDeinitialization())
+			if (DWorld* World = GetWorld()) World->Shutdown();
 		Super::BeginDestroy();
 	}
 
@@ -25,6 +26,7 @@ namespace Durin
 
 	auto DWorldSubsystem::IsReadyForFinishDestroy() -> bool
 	{
+		if (HasCompletedDeinitialization()) return true;
 		auto* World = GetWorld();
 		return !World || World->IsReadyForFinishDestroy();
 	}

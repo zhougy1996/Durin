@@ -12,6 +12,7 @@
 #include "NativeTestSupport.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include <gtest/gtest.h>
@@ -400,6 +401,49 @@ namespace
 		EXPECT_EQ(nullptr, First->GetEditorSubsystem<FDynamicEditorA>());
 	}
 
+	TEST_F(FEditorSubsystemTests, RemovalReleasesCollectionReferencesWithoutInvalidatingRetainedObjects)
+	{
+		auto* Host = NewHost(); auto Registration = RegisterA();
+		ASSERT_TRUE(Host->RefreshEditorSubsystems());
+		TStrongObjectPtr<FDynamicEditorA> Retained(Host->GetEditorSubsystem<FDynamicEditorA>());
+		TWeakObjectPtr<FDynamicEditorA> Weak(Retained.Get());
+		int Cleanups = 0, Destructions = 0;
+		FDynamicEditorA::Deinit = [&](auto&) { ++Cleanups; };
+		FDynamicEditorA::Destroy = [&](auto&) { ++Destructions; };
+		Registration.reset(); ASSERT_TRUE(Host->RefreshEditorSubsystems());
+		EXPECT_EQ(1, Cleanups); EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
+		EXPECT_TRUE(IsValid(Retained.Get())); EXPECT_FALSE(Retained->IsGarbage());
+		EXPECT_FALSE(Retained->GetWorkGate()->IsOpen());
+		CollectGarbage();
+		EXPECT_TRUE(Weak.IsValid()); EXPECT_EQ(0, Destructions);
+		Retained.Reset(); CollectGarbage();
+		EXPECT_FALSE(Weak.IsValid()); EXPECT_EQ(1, Destructions); EXPECT_EQ(1, Cleanups);
+		EXPECT_EQ(ESubsystemState::Ready, Host->GetEditorSubsystemState());
+		FDynamicEditorA::Deinit = {}; FDynamicEditorA::Destroy = {};
+	}
+
+	TEST_F(FEditorSubsystemTests, FailedAdditionDeinitializesRetainedObjectWithoutForcingGarbage)
+	{
+		auto* Host = NewHost(); auto Registration = RegisterA();
+		TStrongObjectPtr<FDynamicEditorA> Retained;
+		int Cleanups = 0;
+		FDynamicEditorA::Init = [&](auto& Object) {
+			Retained = &Object;
+			return FSubsystemResult{ESubsystemError::InitializationFailed, "fixture"};
+		};
+		FDynamicEditorA::Deinit = [&](auto&) { ++Cleanups; };
+		EXPECT_EQ(ESubsystemError::InitializationFailed, Host->RefreshEditorSubsystems().Error);
+		ASSERT_NE(nullptr, Retained.Get());
+		EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
+		EXPECT_EQ(1, Cleanups); EXPECT_FALSE(Retained->IsGarbage());
+		EXPECT_FALSE(Retained->GetWorkGate()->IsOpen());
+		CollectGarbage(); EXPECT_TRUE(IsValid(Retained.Get()));
+		Retained.Reset(); CollectGarbage();
+		EXPECT_EQ(ESubsystemState::Ready, Host->GetEditorSubsystemState());
+		EXPECT_EQ(1, Cleanups);
+		FDynamicEditorA::Init = {}; FDynamicEditorA::Deinit = {};
+	}
+
 	TEST_F(FEditorSubsystemTests, InitializationRequiresExplicitActivationAndNeverPublishesEditor)
 	{
 		auto* First = NewObject<DEditorEngine>(nullptr, "ExplicitFirstEditor"); Hosts.emplace_back(First);
@@ -441,10 +485,89 @@ namespace
 		EXPECT_FALSE(First->ActivateEditor());
 	}
 
+	TEST_F(FEditorSubsystemTests, CloseObserversCannotReenterCollectionCleanup)
+	{
+		auto* Host = NewHost();
+		for (bool bDeinitialize : {false, true})
+		{
+			FSubsystemCollection Collection(*Host, DEditorSubsystem::StaticClass());
+			ASSERT_TRUE(Collection.Initialize({{.Type = FDynamicEditorA::StaticClass()},
+				{.Type = FDynamicEditorB::StaticClass(), .Dependencies = {FDynamicEditorA::StaticClass()}}}));
+			auto* A = Collection.Find(FDynamicEditorA::StaticClass());
+			auto* B = Collection.Find(FDynamicEditorB::StaticClass());
+			ASSERT_NE(nullptr, A); ASSERT_NE(nullptr, B);
+			auto GateA = A->GetWorkGate(); auto GateB = B->GetWorkGate();
+			bool bInObserver = false, bObserved = false;
+			std::vector<DClass*> Cleanup;
+			FDynamicEditorA::Deinit = [&](auto& Object) {
+				EXPECT_FALSE(bInObserver);
+				EXPECT_FALSE(GateA->IsOpen()); EXPECT_FALSE(GateB->IsOpen());
+				Cleanup.push_back(Object.GetClass());
+				Collection.CloseWork(); Collection.Deinitialize();
+			};
+			FObjectReferencePurgeRegistration Observer([&](DObject& Object) {
+				if (&Object != A || bObserved) return;
+				bObserved = true; bInObserver = true;
+				Collection.CloseWork(); Collection.Deinitialize(); CollectGarbage();
+				EXPECT_TRUE(Cleanup.empty());
+				EXPECT_EQ(A, Collection.Find(FDynamicEditorA::StaticClass()));
+				EXPECT_EQ(B, Collection.Find(FDynamicEditorB::StaticClass()));
+				bInObserver = false;
+			});
+			if (bDeinitialize) Collection.Deinitialize(); else Collection.CloseWork();
+			EXPECT_TRUE(bObserved);
+			EXPECT_EQ((std::vector<DClass*>{FDynamicEditorB::StaticClass(), FDynamicEditorA::StaticClass()}), Cleanup);
+			EXPECT_EQ(ESubsystemState::Shutdown, Collection.GetState());
+			EXPECT_EQ(nullptr, Collection.Find(FDynamicEditorA::StaticClass()));
+			EXPECT_EQ(nullptr, Collection.Find(FDynamicEditorB::StaticClass()));
+			FDynamicEditorA::Deinit = {};
+		}
+	}
+
+	TEST_F(FEditorSubsystemTests, RuntimeAndTypedLookupAgreeDuringInitializationAndCleanup)
+	{
+		auto A = RegisterA();
+		FEditorSubsystemRegistration B({.Type = FDynamicEditorB::StaticClass(), .Dependencies = {FDynamicEditorA::StaticClass()}});
+		auto* Host = NewObject<DEditorEngine>(nullptr, {}); Hosts.emplace_back(Host);
+		int DependenciesObserved = 0;
+		auto CheckDependency = [&](auto& Object) {
+			if (Object.GetClass() != FDynamicEditorB::StaticClass()) return;
+			auto* Dependency = Host->GetEditorSubsystem<FDynamicEditorA>();
+			ASSERT_NE(nullptr, Dependency);
+			EXPECT_EQ(Dependency, Host->GetEditorSubsystem(FDynamicEditorA::StaticClass()));
+			++DependenciesObserved;
+		};
+		FDynamicEditorA::Init = [&](auto& Object) {
+			CheckDependency(Object);
+			EXPECT_EQ(nullptr, Host->GetEditorSubsystem(Object.GetClass()));
+			return FSubsystemResult{};
+		};
+		FDynamicEditorA::Deinit = CheckDependency;
+		ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+		EXPECT_EQ(1, DependenciesObserved);
+		EXPECT_EQ(nullptr, Host->GetEditorSubsystem(nullptr));
+		EXPECT_EQ(nullptr, Host->GetEditorSubsystem(DObject::StaticClass()));
+		A.reset(); EXPECT_EQ(ESubsystemError::MissingDependency, Host->RefreshEditorSubsystems().Error);
+		EXPECT_EQ(2, DependenciesObserved);
+		A = RegisterA(); ASSERT_TRUE(Host->RefreshEditorSubsystems());
+		EXPECT_EQ(3, DependenciesObserved);
+		Host->PrepareForShutdown();
+		EXPECT_EQ(4, DependenciesObserved);
+		EXPECT_EQ(nullptr, Host->GetEditorSubsystem(FDynamicEditorA::StaticClass()));
+		FDynamicEditorA::Init = {}; FDynamicEditorA::Deinit = {};
+	}
+
 	TEST_F(FEditorSubsystemTests, ResolvesLateDependenciesAndRetiresDependentsFirst)
 	{
 		auto* Host = NewHost(); std::vector<std::string> Events;
+		FDynamicEditorA* BoundDependency = nullptr;
 		FDynamicEditorA::Init = [&](auto& Object) {
+			EXPECT_TRUE(Host->AreEditorSubsystemsUpdating());
+			if (Object.GetClass() == FDynamicEditorB::StaticClass())
+			{
+				BoundDependency = Host->GetEditorSubsystem<FDynamicEditorA>();
+				EXPECT_NE(nullptr, BoundDependency);
+			}
 			Events.push_back(Object.GetClass() == FDynamicEditorA::StaticClass() ? "A+" : "B+"); return FSubsystemResult{};
 		};
 		FDynamicEditorA::Deinit = [&](auto& Object) {
@@ -460,10 +583,33 @@ namespace
 		EXPECT_EQ((std::vector<std::string>{"A+", "B+", "B-", "A-"}), Events);
 		A = RegisterA(); ASSERT_TRUE(Host->RefreshEditorSubsystems());
 		ASSERT_NE(nullptr, Host->GetEditorSubsystem<FDynamicEditorB>());
-		// A replacement also rebuilds a dependent whose own token did not change.
-		auto OldGate = Host->GetEditorSubsystem<FDynamicEditorB>()->GetWorkGate();
-		A.reset(); A = RegisterA(); ASSERT_TRUE(Host->RefreshEditorSubsystems());
-		EXPECT_FALSE(OldGate->IsOpen());
+		TStrongObjectPtr<FDynamicEditorA> OldA(Host->GetEditorSubsystem<FDynamicEditorA>());
+		TStrongObjectPtr<FDynamicEditorB> OldB(Host->GetEditorSubsystem<FDynamicEditorB>());
+		const auto BeforeReplacement = Events;
+		A.reset(); A = RegisterA();
+		auto Result = Host->RefreshEditorSubsystems();
+		EXPECT_EQ(ESubsystemError::InvalidState, Result.Error);
+		EXPECT_NE(std::string::npos, Result.Message.find("FDynamicEditorB"));
+		EXPECT_NE(std::string::npos, Result.Message.find("FDynamicEditorA"));
+		EXPECT_EQ(BeforeReplacement, Events);
+		EXPECT_EQ(OldA.Get(), Host->GetEditorSubsystem<FDynamicEditorA>());
+		EXPECT_EQ(OldB.Get(), Host->GetEditorSubsystem<FDynamicEditorB>());
+		EXPECT_EQ(OldA.Get(), BoundDependency);
+		EXPECT_TRUE(OldA->GetWorkGate()->IsOpen()); EXPECT_TRUE(OldB->GetWorkGate()->IsOpen());
+
+		// Only an explicit consumer registration change authorizes recreating B.
+		B.reset();
+		B = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
+			.Type = FDynamicEditorB::StaticClass(), .Dependencies = {FDynamicEditorA::StaticClass()}});
+		ASSERT_TRUE(Host->RefreshEditorSubsystems());
+		EXPECT_FALSE(OldA->GetWorkGate()->IsOpen()); EXPECT_FALSE(OldB->GetWorkGate()->IsOpen());
+		EXPECT_NE(OldA.Get(), Host->GetEditorSubsystem<FDynamicEditorA>());
+		EXPECT_NE(OldB.Get(), Host->GetEditorSubsystem<FDynamicEditorB>());
+		EXPECT_EQ(Host->GetEditorSubsystem<FDynamicEditorA>(), BoundDependency);
+		EXPECT_NE(OldA.Get(), BoundDependency);
+		auto Expected = BeforeReplacement;
+		Expected.insert(Expected.end(), {"B-", "A-", "A+", "B+"});
+		EXPECT_EQ(Expected, Events);
 		FDynamicEditorA::Init = {}; FDynamicEditorA::Deinit = {};
 	}
 
@@ -480,6 +626,54 @@ namespace
 		EXPECT_EQ(Tools, Host->GetEditorSubsystem<DEditorToolSubsystem>());
 	}
 
+	TEST_F(FEditorSubsystemTests, SharedDependencyValidationPreservesInitialAndDynamicFailurePolicies)
+	{
+		class FCollection : public FSubsystemCollection
+		{
+		public:
+			using FSubsystemCollection::FSubsystemCollection;
+			using FSubsystemCollection::Reconcile;
+		};
+		auto* Host = NewHost();
+		const FSubsystemDescriptor Independent{.Type = FDynamicEditorB::StaticClass()};
+		const FSubsystemDescriptor Invalid{.Type = FDynamicEditorA::StaticClass(), .Dependencies = {DObject::StaticClass()}};
+		FCollection Initial(*Host, DEditorSubsystem::StaticClass());
+		auto Result = Initial.Initialize({Independent, Invalid});
+		EXPECT_EQ(ESubsystemError::InvalidDescriptor, Result.Error);
+		EXPECT_NE(std::string::npos, Result.Message.find("wrong-scope dependency"));
+		EXPECT_EQ(ESubsystemState::Failed, Initial.GetState());
+		EXPECT_FALSE(Initial.IsPopulating());
+		EXPECT_EQ(nullptr, Initial.Find(Independent.Type));
+
+		FCollection Dynamic(*Host, DEditorSubsystem::StaticClass());
+		ASSERT_TRUE(Dynamic.Initialize({Independent}));
+		auto* Existing = Dynamic.Find(Independent.Type);
+		ASSERT_NE(nullptr, Existing);
+		Result = Dynamic.Reconcile({Independent, Invalid});
+		EXPECT_EQ(ESubsystemError::InvalidDescriptor, Result.Error);
+		EXPECT_NE(std::string::npos, Result.Message.find("wrong-scope dependency"));
+		EXPECT_EQ(ESubsystemState::Ready, Dynamic.GetState());
+		EXPECT_EQ(Existing, Dynamic.Find(Independent.Type));
+		EXPECT_EQ(nullptr, Dynamic.Find(Invalid.Type));
+
+		// Invalid types must be removed before CDO selection and dependency ordering.
+		for (auto* Type : std::array<DClass*, 3>{nullptr, DEditorSubsystem::StaticClass(), DObject::StaticClass()})
+		{
+			Result = Dynamic.Reconcile({Independent, {.Type = Type},
+				{.Type = FDynamicEditorA::StaticClass(), .Dependencies = {Type}}});
+			EXPECT_EQ(ESubsystemError::InvalidDescriptor, Result.Error);
+			EXPECT_EQ(ESubsystemState::Ready, Dynamic.GetState());
+			EXPECT_EQ(Existing, Dynamic.Find(Independent.Type));
+			EXPECT_EQ(nullptr, Dynamic.Find(FDynamicEditorA::StaticClass()));
+		}
+		Dynamic.Deinitialize();
+		EXPECT_EQ(nullptr, Dynamic.Find(Independent.Type));
+		EXPECT_EQ(ESubsystemState::Shutdown, Dynamic.GetState());
+		EXPECT_FALSE(Dynamic.IsPopulating());
+		Dynamic.Deinitialize();
+		Initial.Deinitialize();
+	}
+
 	TEST_F(FEditorSubsystemTests, RollsBackFailedAdditionAndRetriesOnlyWhenRequested)
 	{
 		auto* Host = NewHost(); int Initializations = 0, Cleanups = 0;
@@ -489,7 +683,16 @@ namespace
 			return Object.GetClass() == FDynamicEditorB::StaticClass()
 				? FSubsystemResult{ESubsystemError::InitializationFailed, "expected failure"} : FSubsystemResult{};
 		};
-		FDynamicEditorA::Deinit = [&](auto&) { ++Cleanups; };
+		FDynamicEditorA::Deinit = [&](auto& Object) {
+			++Cleanups;
+			EXPECT_FALSE(Object.GetWorkGate()->IsOpen());
+			if (Object.GetClass() == FDynamicEditorB::StaticClass())
+			{
+				auto* Dependency = Host->GetEditorSubsystem<FDynamicEditorA>();
+				ASSERT_NE(nullptr, Dependency);
+				EXPECT_FALSE(Dependency->GetWorkGate()->IsOpen());
+			}
+		};
 		EXPECT_EQ(ESubsystemError::InitializationFailed, Host->RefreshEditorSubsystems().Error);
 		EXPECT_EQ(2, Cleanups); EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		(void)Host->RefreshEditorSubsystems(); EXPECT_EQ(2, Initializations);
@@ -854,23 +1057,48 @@ TEST_F(FEditorSubsystemTests, FailedLateAssetEditorInitializationRetainsExisting
 	EXPECT_TRUE(Existing->GetWorkGate()->IsOpen());
 }
 
-TEST_F(FEditorSubsystemTests, CdoEligibilityRetiresDependentsAndAllowsExplicitReadmission)
+TEST_F(FEditorSubsystemTests, CreationEligibilityDoesNotReevaluateExistingInstances)
 {
-	auto A = RegisterA();
-	FEditorSubsystemRegistration B({.Type = FDynamicEditorB::StaticClass(), .Dependencies = {FDynamicEditorA::StaticClass()}});
-	auto* Host = NewHost();
-	ASSERT_NE(Host->GetEditorSubsystem<FDynamicEditorA>(), nullptr);
-	ASSERT_NE(Host->GetEditorSubsystem<FDynamicEditorB>(), nullptr);
-	FDynamicEditorA::Create = [&](const auto& Default, DObject* Outer) {
+	int Selections = 0;
+	bool bAllowA = true;
+	FDynamicEditorA::Create = [&](const auto& Default, DObject*) {
 		EXPECT_TRUE(Default.IsClassDefaultObject());
-		EXPECT_EQ(Outer, Host);
-		return Default.GetClass() != FDynamicEditorA::StaticClass();
+		++Selections;
+		return bAllowA || Default.GetClass() != FDynamicEditorA::StaticClass();
 	};
-	EXPECT_EQ(Host->RefreshEditorSubsystems(true).Error, ESubsystemError::MissingDependency);
-	EXPECT_EQ(Host->GetEditorSubsystem<FDynamicEditorA>(), nullptr);
-	EXPECT_EQ(Host->GetEditorSubsystem<FDynamicEditorB>(), nullptr);
-	FDynamicEditorA::Create = {};
+	auto A = RegisterA();
+	auto B = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
+		.Type = FDynamicEditorB::StaticClass(), .Dependencies = {FDynamicEditorA::StaticClass()}});
+	auto* Host = NewHost();
+	TStrongObjectPtr<FDynamicEditorA> ExistingA(Host->GetEditorSubsystem<FDynamicEditorA>());
+	TStrongObjectPtr<FDynamicEditorB> ExistingB(Host->GetEditorSubsystem<FDynamicEditorB>());
+	ASSERT_NE(nullptr, ExistingA.Get()); ASSERT_NE(nullptr, ExistingB.Get());
+	EXPECT_EQ(2, Selections);
+	bAllowA = false;
 	ASSERT_TRUE(Host->RefreshEditorSubsystems(true));
-	EXPECT_NE(Host->GetEditorSubsystem<FDynamicEditorA>(), nullptr);
-	EXPECT_NE(Host->GetEditorSubsystem<FDynamicEditorB>(), nullptr);
+	EXPECT_EQ(2, Selections);
+	EXPECT_EQ(ExistingA.Get(), Host->GetEditorSubsystem<FDynamicEditorA>());
+	EXPECT_EQ(ExistingB.Get(), Host->GetEditorSubsystem<FDynamicEditorB>());
+
+	// Refusing implicit replacement does not run creation callbacks or disturb live instances.
+	A.reset(); A = RegisterA();
+	EXPECT_EQ(ESubsystemError::InvalidState, Host->RefreshEditorSubsystems().Error);
+	EXPECT_EQ(2, Selections);
+	EXPECT_EQ(ExistingA.Get(), Host->GetEditorSubsystem<FDynamicEditorA>());
+	EXPECT_EQ(ExistingB.Get(), Host->GetEditorSubsystem<FDynamicEditorB>());
+	B.reset();
+	B = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
+		.Type = FDynamicEditorB::StaticClass(), .Dependencies = {FDynamicEditorA::StaticClass()}});
+	EXPECT_EQ(ESubsystemError::MissingDependency, Host->RefreshEditorSubsystems().Error);
+	EXPECT_EQ(4, Selections);
+	EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
+	EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorB>());
+	EXPECT_TRUE(IsValid(ExistingA.Get())); EXPECT_TRUE(IsValid(ExistingB.Get()));
+	EXPECT_FALSE(ExistingA->GetWorkGate()->IsOpen()); EXPECT_FALSE(ExistingB->GetWorkGate()->IsOpen());
+	bAllowA = true;
+	ASSERT_TRUE(Host->RefreshEditorSubsystems(true));
+	EXPECT_EQ(6, Selections);
+	EXPECT_NE(ExistingA.Get(), Host->GetEditorSubsystem<FDynamicEditorA>());
+	EXPECT_NE(ExistingB.Get(), Host->GetEditorSubsystem<FDynamicEditorB>());
+	FDynamicEditorA::Create = {};
 }

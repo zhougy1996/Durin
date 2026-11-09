@@ -343,7 +343,7 @@ namespace Durin
 		RetireHostConsumers();
 		const auto Contexts = WorldContexts;
 		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->Shutdown();
-		EngineSubsystems.Shutdown();
+		EngineSubsystems.Deinitialize();
 		if (MainSceneViewport) MainSceneViewport->ReleaseViewState();
 		for (const auto& Viewport : AuxiliarySceneViewports) if (Viewport) Viewport->ReleaseViewState();
 		bShutdownComplete = true;

@@ -379,7 +379,7 @@ namespace Durin
 	{
 		return IsInGameThread() && !IsGarbageCollecting() && !bShutdownRequested && IsHostOperationIdle()
 			&& (!GetTransactor() || GetTransactor()->CanTransact())
-			&& !FModularFeatureRegistry::Get().IsDispatching() && !EditorSubsystems.IsDispatching()
+			&& !FModularFeatureRegistry::Get().IsDispatching() && !EditorSubsystems.IsPopulating()
 			&& EditorSubsystems.GetState() == ESubsystemState::Ready;
 	}
 	auto DEditorEngine::RefreshEditorSubsystems(bool bForce) -> FSubsystemResult
@@ -405,7 +405,7 @@ namespace Durin
 		StartupWindow.reset();
 		StartupDocumentOpen.reset();
 		if (MainFrameModule) MainFrameModule->DestroyMainFrame();
-		EditorSubsystems.Shutdown();
+		EditorSubsystems.Deinitialize();
 	}
 
 	auto DEditorEngine::PrepareForShutdown() -> void
@@ -901,8 +901,7 @@ namespace Durin
 {
     auto DEditorEngine::GetEditorSubsystem(DClass* Type) const -> DEditorSubsystem*
     {
-        if (!IsInGameThread() || !IsValid(Type) || !Type->IsChildOf(DEditorSubsystem::StaticClass())
-            || EditorSubsystems.GetState() != ESubsystemState::Ready || EditorSubsystems.IsDispatching()) return nullptr;
+        if (!IsInGameThread() || !IsValid(Type) || !Type->IsChildOf(DEditorSubsystem::StaticClass())) return nullptr;
         return static_cast<DEditorSubsystem*>(EditorSubsystems.Find(Type));
     }
 }

@@ -58,46 +58,40 @@ changes affect future collections only. Editor collections explicitly opt into
 controlled reconciliation at host safe points; see the Editor subsystem contract.
 
 Concrete subsystem classes require a published class default object (CDO).
-`ShouldCreateSubsystem(DObject* Outer) const` runs on that CDO with the prospective
-host before any service instances are constructed. The base returns true;
-World subclasses additionally check supported World types. Returning false
-excludes the service before dependency resolution. A selected service requiring
-an excluded dependency fails with MissingDependency. Missing CDOs are invalid
-descriptors, and thrown eligibility checks fail initialization. The selected
-membership freezes before instance construction. Eligibility must be a read-only
-query: the CDO has its class as Outer, no host endpoint and no work gate.
-Constructors establish defaults only; host resources and callbacks belong in
-Initialize and Deinitialize. CDO construction and destruction do not run the
-service initialization/retirement protocol.
+`ShouldCreateSubsystem(DObject* Outer) const` is a read-only creation query on that
+CDO. It runs before instance construction and dependency resolution; returning
+false excludes the proposed instance. A selected service requiring an excluded
+dependency reports MissingDependency. Existing instances are not reevaluated on
+refresh. An explicitly replaced registration is a new creation; dependencies do
+not trigger automatic reconstruction of consumers.
+Constructors establish defaults; host resources belong in Initialize/Deinitialize.
 
 ## Common Lifecycle
 
-`FSubsystemCollection` validates scope/concreteness, duplicate types, provider
-availability, missing dependencies and dependency cycles before construction.
-`FSubsystemResult` reports a categorized `ESubsystemError` and a diagnostic.
-Topological ordering selects the lexically first available qualified type name.
-There is one dependency implementation shared by all scope adapters.
+Call registration, lookup and lifecycle operations on the game thread. Declare
+same-collection dependencies, and implement `Deinitialize` as non-throwing cleanup
+that also tolerates failed initialization. External callbacks that use host
+resources enter through `DispatchSubsystemCallback`.
+
+The collection validates descriptors and initializes dependencies before their
+users, choosing the first available qualified type name in lexical order. Both
+typed and runtime-type lookup return only initialized instances. Dependencies
+remain queryable until their own Deinitialize returns; lookup is independent of
+permission to execute scripts, tools or new work.
 
 Initialization is one-shot: Uninitialized becomes Initializing, then Ready or
-Failed. Returned errors and exceptions clean the failed object too, close all
-gates, reverse-deinitialize constructed objects and mark them as garbage. An
-explicit later shutdown may transition Failed to Shutdown; neither state admits
-reinitialization. Hosts propagate failures through their initialization result.
-Cleanup is `noexcept` and must tolerate partially initialized resources.
+Failed. Errors and exceptions also clean the failed object. Deinitialization
+closes work, reverse-deinitializes constructed services and releases collection
+references. It does not mark objects as garbage: external strong references can
+retain stopped objects until ordinary GC. Their later destruction does not shut
+down the host again. An explicit deinitialization may transition Failed to
+Shutdown; neither terminal state admits reinitialization.
 
-The kernel defers GC during initialization and retirement. Registration, lookup,
-initialization, callbacks and mutation run on the game thread. Closing work does
-not remove lookup visibility while dependent consumers retire. Shutdown requests close the Engine, Editor and owned World gates immediately.
-DWorld::RequestShutdown records retirement without destructive cleanup; the
-current World operation stops later callbacks and unwinds before cleanup.
-Host initialization and update scopes defer host cleanup until the operation
-returns. External service callbacks use DispatchSubsystemCallback, which keeps
-resources alive through callback return and postpones cleanup to the next host
-Tick/shutdown boundary. Constructors that request retirement are cleaned without
-entering Initialize. Requests during an externally driven World
-operation are completed at a later host shutdown/Tick boundary when the World is
-idle. World retains its own complete operation and callback admission rules in
-[World subsystems](../World/WorldSubsystems.md).
+The framework protects lifecycle and close-notification callbacks from GC and
+reentrant collection cleanup. Shutdown requests close work immediately; cleanup
+waits for active callbacks to unwind. Closing work preserves dependency lookup
+while rejecting new work. Host shutdown owns the surrounding World, play and
+resource teardown; see [World subsystems](../World/WorldSubsystems.md).
 
 ## Work And Code Lifetime
 

@@ -7,11 +7,13 @@ namespace Durin
 	DEngineSubsystem::DEngineSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DEngineSubsystem::BeginDestroy() -> void
 	{
-		if (auto* Host = GetEngine()) Host->PrepareForShutdown();
+		if (!HasCompletedDeinitialization())
+			if (auto* Host = GetEngine()) Host->PrepareForShutdown();
 		Super::BeginDestroy();
 	}
 	auto DEngineSubsystem::IsReadyForFinishDestroy() -> bool
 	{
+		if (HasCompletedDeinitialization()) return true;
 		auto* Host = GetEngine();
 		return !Host || Host->IsReadyForFinishDestroy();
 	}

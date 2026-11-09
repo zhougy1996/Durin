@@ -168,35 +168,39 @@ routing. Dynamic test providers belong in the runtime deployment closure.
 
 ## Controlled Dynamic Membership
 
-Only Editor collections opt into reconciliation; Engine and World collections
-retain frozen membership. `RefreshEditorSubsystems()` is a checked native safe
-point and returns `FSubsystemResult`. It rejects wrong threads, active host/World
-operations, collection callbacks, feature dispatch, GC and non-idle history.
-Registration inside Initialize, Deinitialize or another callback is deferred to
-a later pass. Tool execution is unavailable during reconciliation. Each pass
-uses an owned snapshot; a callback cannot alter the pass being processed.
-Providers still in module Startup are not instantiated. Initial module loading
-and later loading therefore share the same registration mechanism.
+Only Editor collections update live membership; Engine and World collections
+remain frozen. Providers retain registration tokens for their published services.
+Registration changes are reconciled at the next editor safe point. Explicit
+`RefreshEditorSubsystems()` requires an idle host and reports `FSubsystemResult`;
+callback-time registration changes wait for a later pass. Providers still in
+module Startup are not instantiated, and tool execution is unavailable during
+updates.
 
-Registration identities distinguish replacement from an unchanged type. Each
-reconciliation pass evaluates ShouldCreateSubsystem on the concrete CDO before
-resolving dependencies. A rejected service and its affected dependents retire;
-an explicit forced refresh reevaluates changed host conditions without requiring
-a registration change. Eligibility callbacks must remain read-only. Valid
-services initialize in deterministic dependency order. Missing dependencies,
-duplicate types and cycles exclude affected services while retaining unrelated
-instances. Removing or replacing a dependency also retires its dependents:
-all affected work gates close first, then Deinitialize runs in reverse dependency
-order, with dependencies still queryable during dependent cleanup. Objects are
-marked as garbage; their physical destruction does not shut down the host.
-An unsuccessful addition rolls back that pass's new instances, including the
-failed object, while retaining pre-existing services. Host shutdown during an
-update aborts additions and completes host retirement after callbacks unwind.
+`ShouldCreateSubsystem` selects new instances only. Refreshing an unchanged
+registration preserves its instance without reevaluating its CDO. Replacing a
+dependency never implicitly rebuilds its consumers. If an existing consumer's
+registration is unchanged, replacement returns InvalidState before changing live
+instances. Unregister the consumers first, or explicitly re-register every
+affected consumer in the same update. Removing a dependency still removes
+services whose required dependencies are missing; no live consumer keeps an
+unavailable dependency.
+Missing dependencies, duplicate types and cycles exclude affected services while
+retaining unrelated instances. The framework owns dependency ordering, GC
+protection and callback reentrancy; callers do not manage collection iteration.
 
-Failed passes are not retried every frame. A publication change retries the
-pending graph; an explicit `RefreshEditorSubsystems(true)` can retry an unchanged
-failed batch. Its result exposes missing-dependency, duplicate, cycle, provider,
-initialization and safe-point diagnostics to native hosts.
+Removal closes work, deinitializes dependents before dependencies, then releases
+collection references. Dependencies remain queryable during cleanup. Retained
+objects stay valid but stopped; ordinary GC reclaims them after their remaining
+strong references are released, without shutting down the active editor.
+Script proxies and tool endpoints reject use once work closes.
+
+Updates remove obsolete instances before adding new ones. A failed addition
+rolls back that pass's new instances, including the failed object, and preserves
+instances not selected for removal. Already removed instances are not restored.
+Failed passes retry after a registration change or explicit
+`RefreshEditorSubsystems(true)`; forced refresh can retry creation but does not
+reevaluate or remove existing instances. Host shutdown aborts additions and
+completes cleanup after callbacks unwind.
 
 Providers own removal in `ShutdownModule()`: DurinEd and LevelEditor destroy
 their registration tokens and call `FEditorSubsystemCollection::SynchronizeActiveEditor()`
@@ -216,7 +220,7 @@ unwind.
 Work gates provide cancellation, not module residency. Providers must finish
 module-owned work and detach external callbacks in their existing ShutdownModule
 contract. DurinEd and LevelEditor remain process-resident: unregistering their
-services marks the objects as garbage for later GC without releasing their DLLs.
+services releases collection references without releasing their DLLs.
 A provider that opts into `SupportsDynamicReloading()` must also ensure no live
 object, reflected type, callable or task can enter its code after shutdown.
 Dynamic service membership does not imply reflected-module hot reload support;

@@ -74,8 +74,8 @@ Initialization dependencies do not create arbitrary Actor Tick prerequisites.
 
 Only completed initialization becomes lookup-visible. Initialization exceptions
 become failures. On failure, the failed object receives `Deinitialize` too,
-then predecessors unwind in reverse order. All gates close, constructed objects
-are marked as garbage, and the collection enters terminal `Failed`. A host must
+then predecessors unwind in reverse order. All gates close, collection references
+are released for ordinary GC, and the collection enters terminal `Failed`. A host must
 not publish it. Cleanup and other lifecycle callbacks are `noexcept`.
 
 `Shutdown()` immediately closes work gates and records retirement. It ends play,

@@ -290,6 +290,29 @@ TEST_F(FWorldSubsystemTests, CleansFailedServiceThenUnwindsDependenciesAndCloses
 	EXPECT_EQ(Cleanup.size(), 2u);
 }
 
+TEST_F(FWorldSubsystemTests, FailedInitializationReleasesRetainedServiceWithoutForcingGarbage)
+{
+	FWorldSubsystemRegistration Registration({.Type = FSubsystemProbeA::StaticClass()});
+	TStrongObjectPtr<FSubsystemProbeA> Retained;
+	int Cleanups = 0;
+	FSubsystemProbeA::Callback = [&](auto& Object, std::string_view Event) {
+		if (Event == "Init") { Retained = &Object; Object.Failure = true; }
+		if (Event == "Deinit") ++Cleanups;
+	};
+	auto* World = MakeWorld();
+	EXPECT_EQ(EWorldSubsystemError::InitializationFailed, World->InitializeSubsystems().Error);
+	ASSERT_NE(nullptr, Retained.Get());
+	EXPECT_FALSE(Retained->IsGarbage()); EXPECT_FALSE(Retained->GetWorkGate()->IsOpen());
+	EXPECT_EQ(1, Cleanups);
+	CollectGarbage(); EXPECT_TRUE(IsValid(Retained.Get()));
+	TWeakObjectPtr<FSubsystemProbeA> Weak(Retained.Get());
+	Retained.Reset(); CollectGarbage();
+	EXPECT_FALSE(Weak.IsValid());
+	EXPECT_EQ(EWorldSubsystemState::Failed, World->GetSubsystemState());
+	EXPECT_EQ(1, Cleanups);
+	FSubsystemProbeA::Callback = {};
+}
+
 TEST_F(FWorldSubsystemTests, SurvivesLevelReplacementAndPairsRepeatedPlay)
 {
 	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass()});
@@ -735,6 +758,29 @@ namespace Durin
 		for (auto* Class : Classes) DObjectForceRegistration(Class);
 		return Private::CreateClassDefaultObjectsForBatch(Classes);
 	}
+}
+
+TEST_F(FWorldSubsystemTests, DeinitializedEngineAndWorldObjectsDoNotShutDownTheirHostsDuringGc)
+{
+	TStrongObjectPtr<FSubsystemEditorHost> Host(NewObject<FSubsystemEditorHost>(nullptr, {}));
+	ASSERT_TRUE(Host->StartEngine());
+	auto* World = MakeWorld(); ASSERT_TRUE(World->InitializeSubsystems());
+	FSubsystemCollection EngineCollection(*Host, DEngineSubsystem::StaticClass());
+	FSubsystemCollection WorldCollection(*World, DWorldSubsystem::StaticClass());
+	ASSERT_TRUE(EngineCollection.Initialize({{.Type = FEngineSubsystemProbe::StaticClass()}}));
+	ASSERT_TRUE(WorldCollection.Initialize({{.Type = FSubsystemProbeA::StaticClass()}}));
+	TStrongObjectPtr<DSubsystem> EngineService(EngineCollection.Find(FEngineSubsystemProbe::StaticClass()));
+	TStrongObjectPtr<DSubsystem> WorldService(WorldCollection.Find(FSubsystemProbeA::StaticClass()));
+	TWeakObjectPtr<DSubsystem> WeakEngine(EngineService.Get()), WeakWorld(WorldService.Get());
+	EngineCollection.Deinitialize(); WorldCollection.Deinitialize();
+	EXPECT_TRUE(IsValid(EngineService.Get())); EXPECT_TRUE(IsValid(WorldService.Get()));
+	EXPECT_FALSE(EngineService->IsGarbage()); EXPECT_FALSE(WorldService->IsGarbage());
+	CollectGarbage(); EXPECT_TRUE(WeakEngine.IsValid()); EXPECT_TRUE(WeakWorld.IsValid());
+	EngineService.Reset(); WorldService.Reset(); CollectGarbage();
+	EXPECT_FALSE(WeakEngine.IsValid()); EXPECT_FALSE(WeakWorld.IsValid());
+	EXPECT_EQ(ESubsystemState::Ready, Host->GetSubsystemState());
+	EXPECT_EQ(EWorldSubsystemState::Ready, World->GetSubsystemState());
+	Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get());
 }
 
 TEST_F(FWorldSubsystemTests, EngineEligibilityRunsOnCdoBeforeConstruction)

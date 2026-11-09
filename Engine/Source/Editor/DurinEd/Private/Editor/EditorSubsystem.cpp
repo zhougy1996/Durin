@@ -63,7 +63,7 @@ namespace Durin
 		if (IsGarbageCollecting() || FModularFeatureRegistry::Get().IsDispatching()) return false;
 		if (!GEditor) return true;
 		const auto& Collection = GEditor->EditorSubsystems;
-		if (Collection.IsDispatching() || Collection.GetState() == ESubsystemState::Initializing
+		if (Collection.IsPopulating() || Collection.GetState() == ESubsystemState::Initializing
 			|| Collection.GetState() == ESubsystemState::ShuttingDown) return false;
 		if (Collection.GetState() == ESubsystemState::Ready && !GEditor->CanRefreshEditorSubsystems()) return false;
 		return true;

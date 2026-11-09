@@ -41,7 +41,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DSubsystem(const FObjectInitializer& Initializer);
-		// Called on the class default object before any service instance is constructed.
+		// Creation-only CDO query; existing instances are not reevaluated during refresh.
 		virtual auto ShouldCreateSubsystem(DObject* Outer) const -> bool { return true; }
 		// Cleanup is paired even with failed Initialize and must not throw.
 		virtual auto Initialize() -> FSubsystemResult { return {}; }
@@ -60,7 +60,7 @@ namespace Durin
 		DClass* Type = nullptr;
 		FName Provider;
 		std::vector<DClass*> Dependencies;
-		// Assigned by a publication token; distinguishes retirement/replacement of the same type.
+		// Assigned by a publication token; distinguishes removal/replacement of the same type.
 		uint64 RegistrationIdentity = 0;
 	};
 
@@ -78,7 +78,7 @@ namespace Durin
 		uint64 Identity;
 	};
 
-	// Owns deterministic construction and retirement; hosts retain objects through enumeration.
+	// Owns deterministic initialization and removal; hosts retain objects through enumeration.
 	class FSubsystemCollection
 	{
 	public:
@@ -91,9 +91,10 @@ namespace Durin
 		// Membership is frozen before any user factory or Initialize callback runs.
 		ENGINE_API auto Initialize(std::vector<FSubsystemDescriptor> Descriptors) -> FSubsystemResult;
 		ENGINE_API auto CloseWork() -> void;
-		ENGINE_API auto Shutdown() -> void;
+		// Deinitializes and removes every subsystem; host shutdown remains the host's responsibility.
+		ENGINE_API auto Deinitialize() -> void;
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
-		auto IsDispatching() const -> bool { return bInitializing; }
+		auto IsPopulating() const -> bool { return bPopulating; }
 	protected:
 		// Scope-specific configuration for one-shot initialization, after CDO selection.
 		virtual auto ValidateSelectedDescriptor(const FSubsystemDescriptor&) const -> FSubsystemResult { return {}; }
@@ -110,7 +111,20 @@ namespace Durin
 		ESubsystemState State = ESubsystemState::Uninitialized;
 		std::vector<FEntry> Entries;
 	private:
+		auto ValidateType(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult;
+		// Input types have passed scope/concreteness and CDO eligibility selection.
+		// Returns the first diagnostic and the valid dependency-closed subset in construction order.
+		// Initialize rejects diagnostics; Reconcile can retain unrelated services.
+		auto OrderSelectedDescriptors(std::vector<FSubsystemDescriptor> Descriptors,
+			std::vector<FSubsystemDescriptor>& Ordered) const -> FSubsystemResult;
+		// Ordered descriptors are already selected and validated; failed objects remain owned for rollback.
+		auto AddAndInitializeSubsystem(const FSubsystemDescriptor& Descriptor) -> FSubsystemResult;
+		auto CloseEntryWork(FEntry& Entry) -> void;
+		// Callers close all selected entries first, then remove them in reverse dependency order.
+		auto RemoveAndDeinitializeSubsystem(size_t Index) -> void;
 		bool bClosed = false;
-		bool bInitializing = false;
+		bool bClosingWork = false;
+		bool bDeinitializeRequested = false;
+		bool bPopulating = false;
 	};
 }

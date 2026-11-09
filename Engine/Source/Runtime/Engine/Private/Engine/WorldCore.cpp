@@ -91,7 +91,7 @@ namespace Durin
 		Timers.Reset();
 		PendingLevelTransition.reset();
 		SetCurrentLevelInternal(nullptr, true);
-		Subsystems.Shutdown();
+		Subsystems.Deinitialize();
 		RenderScene = nullptr;
 		if (auto* Engine = HostEngine.Get()) Engine->DestroyWorldContext(this);
 	}
