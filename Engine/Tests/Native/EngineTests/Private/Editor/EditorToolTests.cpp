@@ -5,6 +5,7 @@
 #include "Editor/IMainFrameModule.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
+#include "Engine/MapChange.h"
 #include "Client/SceneViewport.h"
 #include "Rendering/MonaRHIRenderer.h"
 #include "Application/MonaApplication.h"
@@ -124,6 +125,70 @@ namespace
 	};
 }
 
+TEST_F(FEditorToolTests, ServiceOnlyHostStartsReadyAndKeepsToolsAvailableDuringPlay)
+{
+	auto* Editor = MakeHost();
+	EXPECT_EQ(Editor::Startup::EBootstrapState::Ready, Editor->GetStartupPhase());
+	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
+	EXPECT_TRUE(Editor->CanTransact());
+	EXPECT_TRUE(Editor->GetCapabilities().bEditWorld);
+	FEditorEngineTestAccess::SetState(*Editor, Editor::EPlayState::Playing);
+	const auto Playing = Editor->GetCapabilities();
+	EXPECT_TRUE(Playing.bTick);
+	EXPECT_TRUE(Playing.bRunTools);
+	EXPECT_TRUE(Playing.bPresentWorkspace);
+	EXPECT_FALSE(Playing.bEditWorld);
+	// PIE control tools still need admission while the editor World is read-only.
+	EXPECT_TRUE(Editor->CanTransact());
+	FEditorEngineTestAccess::SetState(*Editor, Editor::EPlayState::Stopped);
+}
+
+TEST_F(FEditorToolTests, CommittedStartupSceneIsVisibleBeforeEditingAndSimulationAreAdmitted)
+{
+	auto* Editor = MakeHost();
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::LoadingDefaultDocument);
+	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupState());
+	EXPECT_FALSE(Editor->GetCapabilities().bPresentWorkspace);
+	FMapChangeTestAccess::SetSceneGeneration(*Editor, 17);
+	const auto Committed = Editor->GetCapabilities();
+	EXPECT_TRUE(Committed.bPresentWorkspace);
+	EXPECT_TRUE(Editor->ShouldDrawStartupScene());
+	EXPECT_FALSE(Committed.bTick);
+	EXPECT_FALSE(Committed.bRunTools);
+	EXPECT_FALSE(Committed.bEditWorld);
+	EXPECT_FALSE(Editor->CanTransact());
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Ready);
+	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
+	EXPECT_TRUE(Editor->GetCapabilities().bTick);
+	EXPECT_TRUE(Editor->GetCapabilities().bRunTools);
+	EXPECT_TRUE(Editor->GetCapabilities().bEditWorld);
+	EXPECT_FALSE(Editor->ShouldDrawStartupScene());
+}
+
+TEST_F(FEditorToolTests, MapChangesFailureAndShutdownCloseTheirOwnCapabilityGates)
+{
+	auto* Editor = MakeHost();
+	ASSERT_TRUE(Editor->PrepareMapChange({}));
+	const auto Loading = Editor->GetCapabilities();
+	EXPECT_TRUE(Loading.bTick);
+	EXPECT_TRUE(Loading.bPresentWorkspace);
+	EXPECT_FALSE(Loading.bRunTools);
+	EXPECT_FALSE(Loading.bEditWorld);
+	EXPECT_FALSE(Editor->CanTransact());
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Failed, "startup failed");
+	EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupState());
+	EXPECT_FALSE(Editor->GetCapabilities().bTick);
+	EXPECT_FALSE(Editor->GetCapabilities().bPresentWorkspace);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Ready);
+	Editor->PrepareForShutdown();
+	const auto Retired = Editor->GetCapabilities();
+	EXPECT_FALSE(Retired.bTick);
+	EXPECT_FALSE(Retired.bRunTools);
+	EXPECT_FALSE(Retired.bEditWorld);
+	EXPECT_FALSE(Retired.bPresentWorkspace);
+	EXPECT_FALSE(Editor->CanTransact());
+}
+
 TEST_F(FEditorToolTests, MainFrameUpdatesOnlyOnNormalTicksAfterToolsWithoutDrawing)
 {
 	FTestToolset Toolset;
@@ -148,11 +213,11 @@ TEST_F(FEditorToolTests, MainFrameUpdatesOnlyOnNormalTicksAfterToolsWithoutDrawi
 		IMainFrameModule* Previous;
 		~FRestoreModule() { FEditorEngineTestAccess::BindMainFrameModule(Editor, Previous); }
 	} Restore{*Editor, FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame)};
-	FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Pending);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::WaitingForFirstPresent);
 	Editor->AdvanceStartup();
 	Editor->Tick(0.25f, false);
 	EXPECT_TRUE(Events.empty());
-	FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Ready);
 	Editor->AdvanceStartup();
 	EXPECT_TRUE(Events.empty());
 	auto* Tools = Editor->GetEditorSubsystem<DEditorToolSubsystem>();

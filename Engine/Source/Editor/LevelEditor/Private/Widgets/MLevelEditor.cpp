@@ -438,8 +438,8 @@ namespace Durin::Editor::Level
 		}
 
 		bool bPlaying = Context->EditorHost && Context->EditorHost->IsPlaying();
-		Context->bReadOnly = bPlaying || DocumentController->IsOpening()
-			|| (Context->EditorHost && Context->EditorHost->GetStartupState() != EHostStartupState::Ready);
+		Context->bReadOnly = DocumentController->IsOpening()
+			|| (Context->EditorHost && !Context->EditorHost->GetCapabilities().bEditWorld);
 		Context->Synchronize(Context->EditorHost != nullptr
 			? (bPlaying ? Context->EditorHost->GetPlayWorld() : Context->EditorHost->GetEditorWorld())
 			: (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
@@ -460,8 +460,8 @@ namespace Durin::Editor::Level
 		if (Context->EditorHost && bPlaying != Context->EditorHost->IsPlaying())
 		{
 			bPlaying = Context->EditorHost->IsPlaying();
-			Context->bReadOnly = bPlaying || DocumentController->IsOpening()
-				|| Context->EditorHost->GetStartupState() != EHostStartupState::Ready;
+			Context->bReadOnly = DocumentController->IsOpening()
+				|| !Context->EditorHost->GetCapabilities().bEditWorld;
 			Context->Synchronize(bPlaying ? Context->EditorHost->GetPlayWorld() : Context->EditorHost->GetEditorWorld());
 		}
 		ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();

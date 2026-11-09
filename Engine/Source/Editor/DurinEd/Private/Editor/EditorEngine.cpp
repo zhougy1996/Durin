@@ -66,9 +66,19 @@ namespace Durin
 		return Index;
 	}
 	auto DEditorEngine::EndTransaction() -> int32 { return Trans ? Trans->End() : 0; }
+	auto DEditorEngine::GetCapabilities() const -> Editor::FEditorCapabilities
+	{
+		const bool bReady = !bShutdownRequested && GetStartupState() == EHostStartupState::Ready;
+		const bool bRunTools = bReady && !IsPreparingMapChange();
+		return {
+			.bTick = bReady,
+			.bRunTools = bRunTools,
+			.bEditWorld = bRunTools && !IsPlaying(),
+			.bPresentWorkspace = !bShutdownRequested && (bReady
+				|| (StartupPhase == Editor::Startup::EBootstrapState::LoadingDefaultDocument && GetSceneGeneration() != 0))};
+	}
 	auto DEditorEngine::CanTransact() const -> bool
-	{ return GEditor == this && StartupState == EHostStartupState::Ready
-		&& !bShutdownRequested && !IsPreparingMapChange() && Trans && Trans->CanTransact(); }
+	{ return GEditor == this && GetCapabilities().bRunTools && Trans && Trans->CanTransact(); }
 	auto DEditorEngine::CancelTransaction(int32 StartIndex) -> void { if (Trans) Trans->Cancel(StartIndex); }
 
 	auto DEditorEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -97,7 +107,6 @@ namespace Durin
 			return false;
 		}
 		bEditorInitStarted = true;
-		StartupState = EHostStartupState::Pending;
 		StartupPhase = Editor::Startup::EBootstrapState::ConstructingShell;
 		StartupError = Context.ProjectAdmissionError;
 		FHostOperationScope Operation(*this);
@@ -168,7 +177,7 @@ namespace Durin
 
 	auto DEditorEngine::AdvanceStartup() -> void
 	{
-		if (bShutdownRequested || StartupState != EHostStartupState::Pending) return;
+		if (bShutdownRequested || GetStartupState() != EHostStartupState::Pending) return;
 		using namespace Editor::Startup;
 		auto Transition = [&](EBootstrapState Phase) {
 			check(IsValidBootstrapTransition(StartupPhase, Phase));
@@ -177,10 +186,8 @@ namespace Durin
 			if (Status == EHostStartupState::Ready)
 			{
 				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
-				StartupState = EHostStartupState::Ready;
 			}
-			if (Status == EHostStartupState::Failed) StartupState = EHostStartupState::Failed;
-			if (StartupState != EHostStartupState::Pending)
+			if (Status != EHostStartupState::Pending)
 			{
 				FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
 				Profiling::TryLogStartupTimingSummary();
@@ -346,10 +353,10 @@ namespace Durin
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		if (bShutdownRequested) { PrepareForShutdown(); return; }
-		if (StartupState != EHostStartupState::Ready) return;
+		if (!GetCapabilities().bTick) return;
 		(void)RefreshEditorSubsystems();
 		FHostOperationScope Operation(*this);
-		if (auto* Tools = !IsPreparingMapChange() ? GetEditorSubsystem<DEditorToolSubsystem>() : nullptr)
+		if (auto* Tools = GetCapabilities().bRunTools ? GetEditorSubsystem<DEditorToolSubsystem>() : nullptr)
 		{
 			Tools->TickTools();
 			Tools->TickScripts();
@@ -470,8 +477,7 @@ namespace Durin
 		std::optional<DClass*> GameModeOverride,
 		std::string* OutError) -> bool
 	{
-		if (bShutdownRequested || IsPreparingMapChange()
-			|| (bEditorInitStarted && StartupState != EHostStartupState::Ready)) return false;
+		if (!GetCapabilities().bRunTools) return false;
 		FHostOperationScope Operation(*this);
 		DLevel* SourceLevel = Request.SourceLevel;
 		if (OutError) OutError->clear();

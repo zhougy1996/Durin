@@ -24,10 +24,8 @@ namespace Durin
 		static auto SetState(DEditorEngine& Editor, Editor::EPlayState State) -> void
 		{ Editor.PlayState = State; }
 
-		static auto SetStartupState(DEditorEngine& Editor, EHostStartupState State) -> void
-		{ Editor.StartupState = State; }
 		static auto SetStartupPhase(DEditorEngine& Editor, Editor::Startup::EBootstrapState Phase, std::string Error = {}) -> void
-		{ Editor.StartupState = EHostStartupState::Pending; Editor.StartupPhase = Phase; Editor.StartupError = std::move(Error); }
+		{ Editor.StartupPhase = Phase; Editor.StartupError = std::move(Error); }
 		static auto BindMainFrameModule(DEditorEngine& Editor, IMainFrameModule* Module) -> IMainFrameModule*
 		{ return std::exchange(Editor.MainFrameModule, Module); }
 

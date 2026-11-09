@@ -20,6 +20,15 @@ namespace Durin::Editor
 {
 	class FNotificationManager;
 
+	// Derived host admission; individual tools, documents and transactions retain their own vetoes.
+	struct FEditorCapabilities
+	{
+		bool bTick = false;
+		bool bRunTools = false;
+		bool bEditWorld = false;
+		bool bPresentWorkspace = false;
+	};
+
 	// Tracks the lifecycle transition of a play-in-editor session.
 	enum class EPlayState : uint8
 	{
@@ -94,8 +103,9 @@ namespace Durin
 			-> bool override;
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
 		DURINED_API auto AdvanceStartup() -> void override;
-		auto GetStartupState() const -> EHostStartupState override { return StartupState; }
+		auto GetStartupState() const -> EHostStartupState override { return Editor::Startup::GetBootstrapStepStatus(StartupPhase); }
 		auto GetStartupPhase() const -> Editor::Startup::EBootstrapState { return StartupPhase; }
+		DURINED_API auto GetCapabilities() const -> Editor::FEditorCapabilities;
 		auto GetStartupError() const -> const std::string& override { return StartupError; }
 		DURINED_API auto PrepareForShutdown() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
@@ -134,7 +144,7 @@ namespace Durin
 		auto IsPlaySessionPaused() const -> bool { return PlayState == Editor::EPlayState::Paused; }
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
 		auto ShouldDrawStartupScene() const -> bool override
-		{ return StartupPhase == Editor::Startup::EBootstrapState::LoadingDefaultDocument && GetSceneGeneration() != 0; }
+		{ return GetStartupState() == EHostStartupState::Pending && GetCapabilities().bPresentWorkspace; }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
 		DURINED_API auto GetEditorWorldContext() const -> const FWorldContext&;
 		DURINED_API auto GetPIEWorldContext() const -> const FWorldContext*;
@@ -166,10 +176,10 @@ namespace Durin
 		DURINED_API auto RetireHostConsumers() -> void override;
 		FEditorSubsystemCollection EditorSubsystems;
 		bool bEditorInitStarted = false;
-		EHostStartupState StartupState = EHostStartupState::Ready;
 		std::string StartupError;
 		std::optional<FAssetOpenItemResult> StartupDocumentOpen;
-		Editor::Startup::EBootstrapState StartupPhase = Editor::Startup::EBootstrapState::WaitingForFirstPresent;
+		// Service-only hosts are usable without a shell; Init starts the production bootstrap.
+		Editor::Startup::EBootstrapState StartupPhase = Editor::Startup::EBootstrapState::Ready;
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> FSubsystemResult;
 	private:

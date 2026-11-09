@@ -258,8 +258,7 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded, bool bCancelled, std::string Message) -> void
 	{
-		Context.bReadOnly = Context.EditorHost && (Context.EditorHost->IsPlaying()
-			|| Context.EditorHost->GetStartupState() != EHostStartupState::Ready);
+		Context.bReadOnly = Context.EditorHost && !Context.EditorHost->GetCapabilities().bEditWorld;
 		if (!std::exchange(bPendingDocumentOpen, false) || !CompleteDeferredOpen) return;
 		CompleteDeferredOpen(bSucceeded, bCancelled, std::move(Message));
 	}
@@ -268,7 +267,7 @@ namespace Durin::Editor::Level
 	{
 		const auto* Gizmo = SceneViewportPanel.GetTransformGizmo();
 		const auto* Transactions = (Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr);
-		return !(Context.EditorHost && Context.EditorHost->IsPreparingMapChange()) && Context.Level && Context.Level->GetPackage() && !(Context.EditorHost && Context.EditorHost->IsPlaying())
+		return (!Context.EditorHost || Context.EditorHost->GetCapabilities().bEditWorld) && Context.Level && Context.Level->GetPackage()
 			&& !(Gizmo && Gizmo->IsDragging()) && (!Transactions || (Transactions->CanTransact() && !Transactions->IsActive()));
 	}
 

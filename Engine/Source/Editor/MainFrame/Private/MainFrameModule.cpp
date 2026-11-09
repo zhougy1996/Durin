@@ -143,7 +143,7 @@ namespace Durin::Editor::MainFrame
 				if (!IsAvailable()) return false;
 				const auto Owner = Context.lock();
 				const auto* Editor = Owner ? Owner->Editor.Get() : nullptr;
-				if (!Editor || Editor->GetStartupState() != EHostStartupState::Ready) return false;
+				if (!Editor || !Editor->GetCapabilities().bTick) return false;
 				if (GetToolkitMode() == EToolkitMode::WorldCentric) return true;
 				const auto Window = MonaImGui::GetWindowForViewport(ViewportId);
 				return Window && Window->GetNativeWindow();
@@ -342,7 +342,7 @@ namespace Durin::Editor::MainFrame
 					.NotifyScopedContentMutation = [](FContentChangeBatch Changes) {
 						if (GEditor) GEditor->GetTransactor()->NotifyMountedContentMutation(std::move(Changes));
 					},
-					.CanMutateContent = [] { return GEditor && !GEditor->IsPlaying(); },
+					.CanMutateContent = [] { return GEditor && GEditor->GetCapabilities().bEditWorld; },
 					.QueryReimport = [](std::string_view AssetClassName) {
 						const auto Actions = FReimportManager::QueryReimportActions(AssetClassName);
 						return ContentBrowser::FReimportAvailability{
@@ -470,7 +470,7 @@ namespace Durin::Editor::MainFrame
 					Feedback.ElapsedSeconds = Progress->ElapsedSeconds;
 					bShowElapsed = true;
 				}
-				else if (Editor.GetSceneGeneration() != 0) Feedback.Message = "Waiting for the scene's first presentation";
+				else if (Editor.GetCapabilities().bPresentWorkspace) Feedback.Message = "Waiting for the scene's first presentation";
 			}
 			const ImVec2 ContentOrigin = ImGui::GetCursorPos();
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
@@ -939,7 +939,7 @@ namespace Durin::Editor::MainFrame
 
 			bool bBrowserSubmitted = false;
 			bool bConsoleSubmitted = false;
-			const bool bAllowAssetMutation = !GEditor || (!GEditor->IsPlaying() && GEditor->CanTransact());
+			const bool bAllowAssetMutation = !GEditor || (GEditor->GetCapabilities().bEditWorld && GEditor->CanTransact());
 			if (ViewState.bContentBrowserOpen)
 			{
 				const bool bVisible = ImGui::Begin(
@@ -1253,8 +1253,7 @@ namespace Durin
 				const std::shared_ptr<FMainFrameContext> Context =
 					WeakContext.lock();
 				if (!Context) return;
-				const bool bReadyWorkspace = (Editor->GetStartupPhase() == EBootstrapState::Ready
-					|| (Editor->GetStartupPhase() == EBootstrapState::LoadingDefaultDocument && Editor->GetSceneGeneration() != 0))
+				const bool bReadyWorkspace = Editor->GetCapabilities().bPresentWorkspace
 					&& Context->bHasProject && Context->LevelEditorModule
 					&& Context->ContentBrowserTool;
 				const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
@@ -1281,7 +1280,7 @@ namespace Durin
 						*Context->Console,
 						*Context->PythonScripts,
 						*Context->Activity);
-					ThumbnailPool.EndFrame(Editor->GetStartupState() == EHostStartupState::Ready && !Editor->IsPreparingMapChange());
+					ThumbnailPool.EndFrame(Editor->GetCapabilities().bRunTools);
 					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 					DrawExitConfirmation(*Context);
 					return;
@@ -1361,7 +1360,7 @@ namespace Durin
 		auto* Editor = Context->Editor.Get();
 		if (!Editor) return;
 		ObserveMainWindowState(*Context->MainFrameSettings, *Context->RootWindow);
-		Context->AssetCompatibilityWindow->Tick(FPaths::ProjectFile(), !Editor->IsPlaying() && Editor->CanTransact());
+		Context->AssetCompatibilityWindow->Tick(FPaths::ProjectFile(), Editor->GetCapabilities().bEditWorld && Editor->CanTransact());
 		if (auto* Service = Context->AssetEditors.Get()) Service->TickAssetEditors();
 		Context->PythonScripts->Tick();
 		Context->Console->Tick();

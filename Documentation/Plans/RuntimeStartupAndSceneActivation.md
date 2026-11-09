@@ -18,6 +18,32 @@ The current implemented contracts still live in [Runtime lifecycle](../Runtime/A
 [Load preparation](../Runtime/Rendering/Pipeline/LoadPreparation.md), and
 [Subsystems](../Runtime/Engine/Subsystems.md).
 
+Stage 2 readiness refinement (2026-11-09): make the editor bootstrap phase the
+only stored startup state and derive Pending/Ready/Failed from it. Derive one
+editor capability snapshot for normal ticking, tool admission, World editing,
+and workspace presentation from that phase, shutdown admission, pending map
+changes, Play ownership and the committed scene generation. MainFrame and
+LevelEditor consume capabilities rather than reconstructing phase/generation
+rules. Headless service hosts begin in Ready; production Init explicitly enters
+ConstructingShell. Preserve the primary-presentation gate and domain-specific
+transaction, tool and document vetoes.
+
+Readiness validation (working tree based on `22cebd256`, Windows Debug Editor,
+Vulkan, Tracy enabled): EditorOperationTests passed 326/326, EditorShellTests
+65/65, EditorHostToolTests 38/38 and WorldTests 198/198. Coverage includes the
+committed-but-not-presented read-only scene, service-only Ready hosts, PIE control
+tools, pending map-change admission, failed startup, shutdown and native PIE
+lifetimes. Reports are `Build/EditorStartupDiagnosis/startup-capabilities-{operations,shell,host,world}.xml`.
+The incremental Editor `all` build passed for the public header and inline-readiness
+change across dynamic editor modules and project consumers. Final startup
+characterization passed 6/6 (`startup-capabilities-process.xml` in the same evidence
+directory). Sandbox and RoadWeaver each reached project readiness, completed three
+running ticks and exited normally with startup diagnostics enabled; logs are
+`20261109-131710-071272-8064-DurinEditor.log` and
+`20261109-131712-815984-43264-DurinEditor.log` under `Build/.agent-state/logs/`.
+Relevant native-test inputs were unchanged by the final build and documentation
+edits. The remaining plan acceptance matrices are still open.
+
 Stage 4 document-boundary refinement (2026-11-09): route the initial/default Level
 through the ordinary asset-editor open request and LevelEditor document controller,
 instead of a second startup-only preparation/association callback protocol.
@@ -486,6 +512,7 @@ and no control decision reads profiling milestones.
 
 - [x] Split minimum host/UI services from project-dependent paths, caches, modules, catalog, default materials, and World creation.
 - [x] Add owned phase/result snapshots and generation-scoped shell presentation receipts; make MainFrame the presenter rather than the project startup owner.
+- [x] Derive Editor host readiness and capability admission from one stored bootstrap phase; migrate workspace, tool and editing consumers.
 - [x] Specify and implement project selection/history policies and initial catalog failure policy.
 - [ ] Preserve Browser, project relaunch, ownership, module-provider ordering, and partial-init teardown.
 

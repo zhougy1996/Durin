@@ -129,6 +129,14 @@ errors where they occur. Launch supplies an `FEngineInitContext` with the primar
 startup window and any initial project-admission error. Host startup readiness is
 separate: `GetStartupState()` reports Pending, Ready, or Failed, and the ordinary
 frame loop calls `AdvanceStartup()` outside simulation and UI callbacks. Editor
+stores only its bootstrap phase and derives host readiness from it. Service-only
+Editor hosts begin in Ready; production `Init()` enters ConstructingShell.
+`GetCapabilities()` derives normal-tick, tool, World-editing and workspace-display
+admission from this phase and the current shutdown, map-change, Play and scene
+facts. Pending startup can display a committed scene while simulation, tools and
+editing remain closed. Map changes keep normal frame services available but close
+tools and editing; Play keeps control tools available while closing editor-World
+editing. Domain-specific transaction and document vetoes still apply. Editor
 modules do not depend on Launch internals.
 Editor and Game adopt that same window rather than creating
 a replacement after RHI initialization. The parsed `FEngineStartupParams` is
