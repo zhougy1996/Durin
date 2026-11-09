@@ -6,6 +6,7 @@
 #include "Engine/Engine.h"
 #include "Editor/EditorSubsystem.h"
 #include "Editor/EditorStartup.h"
+#include "AssetDefinition/AssetOpenTypes.h"
 #include "Transactions/Transactor.h"
 
 #include "EditorEngine.gen.h"
@@ -94,7 +95,6 @@ namespace Durin
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
 		DURINED_API auto AdvanceStartup() -> void override;
 		auto GetStartupState() const -> EHostStartupState override { return StartupState; }
-		DURINED_API auto SetStartupLevelCallbacks(Editor::Startup::FStartupLevelCallbacks Callbacks) -> void;
 		auto GetStartupPhase() const -> Editor::Startup::EBootstrapState { return StartupPhase; }
 		auto GetStartupError() const -> const std::string& override { return StartupError; }
 		DURINED_API auto PrepareForShutdown() -> void override;
@@ -161,7 +161,6 @@ namespace Durin
 			const FViewportClient* SourceClient) -> void;
 
 		auto AdvanceDefaultLevel() -> EHostStartupState;
-		DURINED_API auto CompleteStartupLevel(const FMapChangeProgress& Progress) -> void;
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
 		DURINED_API auto CloseSubsystemWork() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;
@@ -169,10 +168,7 @@ namespace Durin
 		bool bEditorInitStarted = false;
 		EHostStartupState StartupState = EHostStartupState::Ready;
 		std::string StartupError;
-		bool bStartupLevelStarted = false;
-		bool bStartupDocumentPrepared = false;
-		EHostStartupState StartupLevelState = EHostStartupState::Pending;
-		Editor::Startup::FStartupLevelCallbacks StartupLevelCallbacks;
+		std::optional<FAssetOpenItemResult> StartupDocumentOpen;
 		Editor::Startup::EBootstrapState StartupPhase = Editor::Startup::EBootstrapState::WaitingForFirstPresent;
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> FSubsystemResult;

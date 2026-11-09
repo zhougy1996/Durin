@@ -31,7 +31,7 @@ namespace Durin
 		DURINED_API auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*;
 		DURINED_API auto OpenDocument(FDocumentRequest Request) -> FDocumentId;
 		DURINED_API auto CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded,
-			EAssetOpenStatus FailureStatus = EAssetOpenStatus::Failed) -> bool;
+			EAssetOpenStatus FailureStatus = EAssetOpenStatus::Failed, std::string Message = {}) -> bool;
 		DURINED_API auto IsDocumentOpenPending(FDocumentId DocumentId) const -> bool;
 		DURINED_API auto ActivateDocument(FDocumentId DocumentId) -> bool;
 		DURINED_API auto RequestDeactivateActiveToolkit() -> bool;

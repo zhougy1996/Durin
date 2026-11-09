@@ -3,6 +3,7 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "Notifications/Notification.h"
 #include "Notifications/EditorNotificationSubsystem.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
 
@@ -284,70 +285,55 @@ namespace Durin
 		}
 	}
 
-	auto DEditorEngine::SetStartupLevelCallbacks(Editor::Startup::FStartupLevelCallbacks Callbacks) -> void
-	{
-		CheckGameThread();
-		// A retired workspace must not receive deferred document preparation.
-		StartupLevelCallbacks = std::move(Callbacks);
-	}
-
-	auto DEditorEngine::CompleteStartupLevel(const FMapChangeProgress& Progress) -> void
-	{
-		if (bShutdownRequested) return;
-		StartupLevelState = Progress.Phase == EMapChangePhase::Committed
-			? EHostStartupState::Ready : EHostStartupState::Failed;
-		if (StartupLevelState == EHostStartupState::Failed)
-			StartupError = Progress.Diagnostic.empty() ? "Could not open the default level." : Progress.Diagnostic;
-		else Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
-	}
-
 	auto DEditorEngine::AdvanceDefaultLevel() -> EHostStartupState
 	{
-		using namespace Editor::Startup;
-		if (!bStartupLevelStarted)
+		auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>();
+		if (!StartupDocumentOpen)
 		{
-			bStartupLevelStarted = true;
 			StartupError.clear();
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
 			FObjectPath Path;
 			const auto* Project = GetCurrentProject();
-			if (Project && !ResolveStartupLevel(*Project, Path, StartupError))
-				StartupLevelState = EHostStartupState::Failed;
-			else if (!Path.IsValid() || (GetEditorWorld() && GetEditorWorld()->GetCurrentLevel()
-				&& GetEditorWorld()->GetCurrentLevel()->GetObjectPath() == Path.ToString()))
-				StartupLevelState = EHostStartupState::Ready;
-			else
+			if (Project && !Editor::Startup::ResolveStartupLevel(*Project, Path, StartupError))
+				return EHostStartupState::Failed;
+			if (!Path.IsValid())
+				StartupDocumentOpen = FAssetOpenItemResult{.Status = EAssetOpenStatus::Completed};
+			else if (AssetEditors)
 			{
 				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
-				if (!OpenLevel({.Path = Path,
-					.BeforeCommit = [this, Prepare = StartupLevelCallbacks.BeforeCommit](DLevel& Level) {
-						Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
-						Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
-						if (bShutdownRequested || !Prepare) return false;
-						const bool bPrepared = Prepare(Level);
-						return bPrepared && !bShutdownRequested;
-					},
-					.OnComplete = [this](const FMapChangeProgress& Progress) { CompleteStartupLevel(Progress); }}))
-				{
-					StartupError = "Unable to start loading the default level.";
-					StartupLevelState = EHostStartupState::Failed;
-				}
+				auto Opened = AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
+					.Assets = {{Path, DLevel::StaticClass()->GetQualifiedName().ToString()}},
+					.Origin = "Startup"});
+				if (!Opened.Items.empty()) StartupDocumentOpen = std::move(Opened.Items.front());
 			}
 		}
-		if (StartupLevelState == EHostStartupState::Ready && !bStartupDocumentPrepared)
+		if (bShutdownRequested) return EHostStartupState::Pending;
+		if (StartupDocumentOpen && StartupDocumentOpen->Status == EAssetOpenStatus::Pending)
+			StartupDocumentOpen = AssetEditors ? AssetEditors->GetOpenRequest(StartupDocumentOpen->RequestId) : std::nullopt;
+		if (!StartupDocumentOpen)
 		{
-			const auto PrepareDocument = StartupLevelCallbacks.PrepareDocument;
-			if (!PrepareDocument || !PrepareDocument())
-			{
-				StartupError = "The Level Editor workspace could not prepare the startup document.";
-				StartupLevelState = EHostStartupState::Failed;
-			}
-			else bStartupDocumentPrepared = true;
+			StartupError = "The default level document request is no longer available.";
+			return EHostStartupState::Failed;
 		}
-		if (StartupLevelState != EHostStartupState::Pending)
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
-		if (StartupLevelState != EHostStartupState::Failed) StartupError.clear();
-		return StartupLevelState;
+		if (StartupDocumentOpen->Status == EAssetOpenStatus::Pending) return EHostStartupState::Pending;
+		if (StartupDocumentOpen->Status != EAssetOpenStatus::Completed)
+		{
+			StartupError = StartupDocumentOpen->Message.empty()
+				? "Could not open the default level document." : StartupDocumentOpen->Message;
+			return EHostStartupState::Failed;
+		}
+		if (StartupDocumentOpen->Target.AssetPath.IsValid())
+		{
+			const auto EditedAssets = AssetEditors ? AssetEditors->GetAllEditedAssets() : std::vector<DObject*>{};
+			const auto Path = StartupDocumentOpen->Target.AssetPath.ToString();
+			if (std::ranges::none_of(EditedAssets, [&](const DObject* Asset) { return Asset->GetObjectPath() == Path; }))
+			{
+				StartupError = "The default level document was closed before startup completed.";
+				return EHostStartupState::Failed;
+			}
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
+		return EHostStartupState::Ready;
 	}
 
 	auto DEditorEngine::AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void
@@ -414,7 +400,7 @@ namespace Durin
 		if (Trans) Trans->Cancel();
 		if (EditorWorld) EditorWorld->Shutdown();
 		StartupWindow.reset();
-		StartupLevelCallbacks = {};
+		StartupDocumentOpen.reset();
 		if (MainFrameModule) MainFrameModule->DestroyMainFrame();
 		EditorSubsystems.Shutdown();
 	}
@@ -438,7 +424,7 @@ namespace Durin
 		ConsoleCommandHandles.clear();
 		MainFrameModule = nullptr;
 		StartupWindow.reset();
-		StartupLevelCallbacks = {};
+		StartupDocumentOpen.reset();
 		EditorLevel = nullptr;
 		EditorWorld = nullptr;
 		DEngine::BeginDestroy();

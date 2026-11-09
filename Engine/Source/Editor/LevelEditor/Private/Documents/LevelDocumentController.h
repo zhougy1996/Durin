@@ -6,7 +6,6 @@
 #include "Asset/Load.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
-#include "Editor/EditorStartup.h"
 #include "Feedback/SlowTaskWidget.h"
 
 namespace Durin
@@ -51,14 +50,13 @@ namespace Durin::Editor::Level
 			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 			std::function<void()> InClearError,
 			std::function<void(std::string)> InReportError,
-			std::function<void(bool, bool)> InCompleteDeferredOpen
+			std::function<void(bool, bool, std::string)> InCompleteDeferredOpen
 		);
 
 		auto RequestOpenProject(std::string ProjectFile) -> void;
 		// Interactive entry point: resolves unsaved changes before loading the selected level.
 		auto OpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
-		auto MakeStartupLevelCallbacks() -> Startup::FStartupLevelCallbacks;
 		auto CanSaveCurrentLevel() const -> bool;
 		auto IsOpening() const -> bool;
 		auto CancelPendingOpen() -> void;
@@ -78,7 +76,7 @@ namespace Durin::Editor::Level
 		// No save prompt. Completion is delivered after activation by the ordinary host frame.
 		auto LoadLevel(std::string_view Path) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
-		auto CompletePendingDocumentOpen(bool bSucceeded, bool bCancelled = false) -> void;
+		auto CompletePendingDocumentOpen(bool bSucceeded, bool bCancelled = false, std::string Message = {}) -> void;
 		auto AssociateCurrentLevel() -> bool;
 		auto PrepareLevelActivation(DLevel& Level) -> bool;
 		auto CompleteMapChange(const FMapChangeProgress& Progress) -> void;
@@ -90,7 +88,7 @@ namespace Durin::Editor::Level
 		FEditorAssetMoveCoordinator& AssetMoveCoordinator;
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
-		std::function<void(bool, bool)> CompleteDeferredOpen;
+		std::function<void(bool, bool, std::string)> CompleteDeferredOpen;
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingLevelPath;

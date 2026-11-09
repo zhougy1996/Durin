@@ -28,7 +28,7 @@ namespace Durin::Editor::Level
 		FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 		std::function<void()> InClearError,
 		std::function<void(std::string)> InReportError,
-		std::function<void(bool, bool)> InCompleteDeferredOpen
+		std::function<void(bool, bool, std::string)> InCompleteDeferredOpen
 	)
 		: Context(InContext)
 		, SessionSettings(InSessionSettings)
@@ -196,19 +196,6 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FLevelDocumentController::MakeStartupLevelCallbacks() -> Startup::FStartupLevelCallbacks
-	{
-		const std::weak_ptr<void> Lifetime = CallbackLifetime;
-		return {
-			.BeforeCommit = [this, Lifetime](DLevel& Level) { return !Lifetime.expired() && PrepareLevelActivation(Level); },
-			.PrepareDocument = [this, Lifetime] {
-				if (Lifetime.expired() || !AssociateCurrentLevel()) return false;
-				SceneViewportPanel.RequestInitialPresentation();
-				return true;
-			},
-		};
-	}
-
 	auto FLevelDocumentController::LoadLevel(std::string_view PathString) -> ELevelDocumentOpenResult
 	{
 		if (ClearError) ClearError();
@@ -222,7 +209,7 @@ namespace Durin::Editor::Level
 		if (Context.EditorHost->IsPreparingMapChange()) return ELevelDocumentOpenResult::Rejected;
 		if (Context.Level && Context.Level->GetObjectPath() == Path.ToString())
 		{
-			return ELevelDocumentOpenResult::Opened;
+			return AssociateCurrentLevel() ? ELevelDocumentOpenResult::Opened : ELevelDocumentOpenResult::Rejected;
 		}
 		bShowLoadingProgress = true;
 		if (!CallbackLifetime) CallbackLifetime = std::make_shared<uint8>(0);
@@ -240,13 +227,16 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::CompleteMapChange(const FMapChangeProgress& Progress) -> void
 	{
-		const bool bSucceeded = Progress.Phase == EMapChangePhase::Committed;
-		if (bSucceeded) (void)AssociateCurrentLevel();
-		else if (Progress.Phase == EMapChangePhase::Failed)
-			SetError(Progress.Diagnostic);
+		const bool bCommitted = Progress.Phase == EMapChangePhase::Committed;
+		const bool bSucceeded = bCommitted && AssociateCurrentLevel();
+		if (bCommitted && Context.EditorHost->GetStartupState() == EHostStartupState::Pending)
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
+		const std::string Error = bCommitted && !bSucceeded
+			? "The Level Editor could not associate the opened level document." : Progress.Diagnostic;
+		if (!bSucceeded && Progress.Phase != EMapChangePhase::Canceled) SetError(Error);
 		PendingAction = ELevelDocumentAction::None;
 		PendingLevelPath.clear();
-		CompletePendingDocumentOpen(bSucceeded, Progress.Phase == EMapChangePhase::Canceled);
+		CompletePendingDocumentOpen(bSucceeded, Progress.Phase == EMapChangePhase::Canceled, Error);
 	}
 	auto FLevelDocumentController::AssociateCurrentLevel() -> bool
 	{
@@ -262,15 +252,16 @@ namespace Durin::Editor::Level
 			DocumentWorld = World;
 		}
 		else Context.Synchronize(World);
+		SceneViewportPanel.RequestInitialPresentation();
 		return true;
 	}
 
-	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded, bool bCancelled) -> void
+	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded, bool bCancelled, std::string Message) -> void
 	{
 		Context.bReadOnly = Context.EditorHost && (Context.EditorHost->IsPlaying()
 			|| Context.EditorHost->GetStartupState() != EHostStartupState::Ready);
 		if (!std::exchange(bPendingDocumentOpen, false) || !CompleteDeferredOpen) return;
-		CompleteDeferredOpen(bSucceeded, bCancelled);
+		CompleteDeferredOpen(bSucceeded, bCancelled, std::move(Message));
 	}
 
 	auto FLevelDocumentController::CanSaveCurrentLevel() const -> bool
@@ -423,6 +414,11 @@ namespace Durin::Editor::Level
 	auto FLevelDocumentController::PrepareLevelActivation(DLevel& Level) -> bool
 	{
 		if (!Context.World) return false;
+		if (Context.EditorHost->GetStartupState() == EHostStartupState::Pending)
+		{
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
+		}
 		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		SessionSettings.Save(&SceneViewportPanel);
 		if (const auto* Previous = Context.World->GetCurrentLevel()) DocumentPackage = Previous->GetPackage();

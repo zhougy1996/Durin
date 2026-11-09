@@ -253,7 +253,7 @@ namespace Durin
 		return State->Documents.back().Id;
 	}
 
-	auto FEditorDocumentManager::CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded, EAssetOpenStatus FailureStatus) -> bool
+	auto FEditorDocumentManager::CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded, EAssetOpenStatus FailureStatus, std::string Message) -> bool
 	{
 		const auto Pending = State->DeferredDocumentOpens.find(DocumentId.Value);
 		if (Pending == State->DeferredDocumentOpens.end()) return false;
@@ -261,7 +261,7 @@ namespace Durin
 		{
 			State->DeferredDocumentOpens.erase(Pending);
 			if (auto* Service = State->AssetEditorSubsystem.Get())
-				Service->CompleteDocumentOpen(DocumentId.Value, FailureStatus);
+				Service->CompleteDocumentOpen(DocumentId.Value, FailureStatus, std::move(Message));
 			return true;
 		}
 

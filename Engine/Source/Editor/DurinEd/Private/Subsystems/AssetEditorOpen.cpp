@@ -223,13 +223,13 @@ namespace Durin
 
 
 
-	auto DAssetEditorSubsystem::CompleteDocumentOpen(uint64 DocumentId, EAssetOpenStatus Status) -> void
+	auto DAssetEditorSubsystem::CompleteDocumentOpen(uint64 DocumentId, EAssetOpenStatus Status, std::string Message) -> void
 	{
 		std::vector<FAssetOpenRequestId> Requests;
 		for (const auto& [Id, Request] : OpenRequests)
 			if (Request.DocumentId == DocumentId && Request.Result.Status == EAssetOpenStatus::Pending)
 				Requests.push_back({Id});
-		for (const auto Id : Requests) (void)CompleteOpenRequest(Id, Status);
+		for (const auto Id : Requests) (void)CompleteOpenRequest(Id, Status, Message);
 	}
 
 

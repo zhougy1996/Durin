@@ -233,8 +233,6 @@ TEST_F(FEditorToolTests, ProjectBrowserStartupWaitsForPresentationAndSkipsProjec
 		IMainFrameModule* Previous;
 		~FRestoreModule() { FEditorEngineTestAccess::BindMainFrameModule(Editor, Previous); }
 	} Restore{*Editor, FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame)};
-	int Preparations = 0;
-	Editor->SetStartupLevelCallbacks({.PrepareDocument = [&] { ++Preparations; return true; }});
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::WaitingForFirstPresent);
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EBootstrapState::WaitingForFirstPresent, Editor->GetStartupPhase());
@@ -244,10 +242,9 @@ TEST_F(FEditorToolTests, ProjectBrowserStartupWaitsForPresentationAndSkipsProjec
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	Editor->AdvanceStartup();
 	EXPECT_EQ(0, MainFrame.WorkspaceCalls);
-	EXPECT_EQ(0, Preparations);
 }
 
-TEST_F(FEditorToolTests, StartupLevelWaitsForLoadingDocumentPreparationAndScenePresentation)
+TEST_F(FEditorToolTests, StartupWaitsForDocumentCompletionAndPrimaryScenePresentation)
 {
 	using namespace Editor::Startup;
 	auto* Editor = MakeHost();
@@ -259,19 +256,11 @@ TEST_F(FEditorToolTests, StartupLevelWaitsForLoadingDocumentPreparationAndSceneP
 		IMainFrameModule* Previous;
 		~FRestoreModule() { FEditorEngineTestAccess::BindMainFrameModule(Editor, Previous); }
 	} Restore{*Editor, FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame)};
-	int DocumentPreparations = 0;
-	Editor->SetStartupLevelCallbacks({.PrepareDocument = [&] { ++DocumentPreparations; return true; }});
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingWorkspace, "stale error");
 	Editor->AdvanceStartup();
 	EXPECT_EQ(1, MainFrame.WorkspaceCalls);
 	EXPECT_TRUE(Editor->GetStartupError().empty());
-	EXPECT_EQ(0, DocumentPreparations);
 	EXPECT_EQ(EBootstrapState::LoadingDefaultDocument, Editor->GetStartupPhase());
-	FEditorEngineTestAccess::SetStartupLevelPending(*Editor);
-	Editor->AdvanceStartup();
-	Editor->AdvanceStartup();
-	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupState());
-	EXPECT_EQ(0, DocumentPreparations);
 
 	auto* World = NewObject<DWorld>(Editor, "StartupWorld");
 	World->SetWorldType(EWorldType::Editor);
@@ -300,12 +289,11 @@ TEST_F(FEditorToolTests, StartupLevelWaitsForLoadingDocumentPreparationAndSceneP
 	Info->ViewportRHI = Primary;
 	Renderer.WindowToViewportInfoMap.emplace(Window.get(), Info);
 	const auto Receipt = SceneViewport->GetOutputReceipt();
-	FEditorEngineTestAccess::CompleteStartupLevel(*Editor, {.Phase = EMapChangePhase::Committed});
+	FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = EAssetOpenStatus::Completed});
 	FMapChangeTestAccess::SetSceneGeneration(*Editor, 17);
 	Receipt->RecordProduced(17);
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupState());
-	EXPECT_EQ(1, DocumentPreparations);
 	Receipt->RecordPresented(17, Auxiliary);
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupState());
@@ -331,10 +319,8 @@ TEST_F(FEditorToolTests, StartupLevelWaitsForLoadingDocumentPreparationAndSceneP
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_EQ(EBootstrapState::Ready, Editor->GetStartupPhase());
 	EXPECT_EQ(1, MainFrame.WorkspaceCalls);
-	EXPECT_EQ(1, DocumentPreparations);
 	EXPECT_TRUE(Editor->GetStartupError().empty());
 	Editor->AdvanceStartup();
-	EXPECT_EQ(1, DocumentPreparations);
 
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingWorkspace);
 	MainFrame.bWorkspaceReady = false;
@@ -344,50 +330,48 @@ TEST_F(FEditorToolTests, StartupLevelWaitsForLoadingDocumentPreparationAndSceneP
 	EXPECT_EQ("workspace initialization failed", Editor->GetStartupError());
 }
 
-TEST_F(FEditorToolTests, StartupLevelFailureCancellationAndRetiredWorkspaceCannotBecomeReady)
+TEST_F(FEditorToolTests, StartupDocumentFailureCancellationAndRetiredRequestCannotBecomeReady)
 {
 	using namespace Editor::Startup;
-	std::vector<std::string> Events;
-	FRecordingMainFrameModule MainFrame(Events);
-	for (const auto Phase : {EMapChangePhase::Failed, EMapChangePhase::Canceled})
+	for (const auto Status : {EAssetOpenStatus::Failed, EAssetOpenStatus::Cancelled})
 	{
 		auto* Editor = MakeHost();
-		FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame);
-		int Preparations = 0;
-		Editor->SetStartupLevelCallbacks({.PrepareDocument = [&] { ++Preparations; return true; }});
 		FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingDefaultDocument);
-		FEditorEngineTestAccess::SetStartupLevelPending(*Editor);
-		FEditorEngineTestAccess::CompleteStartupLevel(*Editor, {.Phase = Phase, .Diagnostic = "owning failure or cancellation"});
+		FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = Status, .Message = "owning failure or cancellation"});
 		Editor->AdvanceStartup();
 		EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupState());
 		EXPECT_EQ("owning failure or cancellation", Editor->GetStartupError());
-		EXPECT_EQ(0, Preparations);
 		Editor->PrepareForShutdown();
 	}
 	auto* Editor = MakeHost();
-	FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame);
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingDefaultDocument);
-	FEditorEngineTestAccess::SetStartupLevelPending(*Editor);
-	FEditorEngineTestAccess::CompleteStartupLevel(*Editor, {.Phase = EMapChangePhase::Committed});
-	Editor->SetStartupLevelCallbacks({});
+	FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = EAssetOpenStatus::Pending, .RequestId = {999}});
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupState());
-	EXPECT_NE(std::string::npos, Editor->GetStartupError().find("prepare the startup document"));
+	EXPECT_NE(std::string::npos, Editor->GetStartupError().find("no longer available"));
 	Editor->PrepareForShutdown();
 }
 
-TEST_F(FEditorToolTests, StartupLevelShutdownDropsDeferredDocumentPreparation)
+TEST_F(FEditorToolTests, StartupDocumentShutdownDoesNotPublishLateCompletion)
 {
 	using namespace Editor::Startup;
 	auto* Editor = MakeHost();
-	int Preparations = 0;
-	Editor->SetStartupLevelCallbacks({.PrepareDocument = [&] { ++Preparations; return true; }});
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingDefaultDocument);
-	FEditorEngineTestAccess::SetStartupLevelPending(*Editor);
 	Editor->PrepareForShutdown();
-	FEditorEngineTestAccess::CompleteStartupLevel(*Editor, {.Phase = EMapChangePhase::Committed});
+	FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = EAssetOpenStatus::Completed});
 	Editor->AdvanceStartup();
-	EXPECT_EQ(0, Preparations);
+	EXPECT_NE(EHostStartupState::Ready, Editor->GetStartupState());
+}
+
+TEST_F(FEditorToolTests, StartupWithoutConfiguredLevelCompletesWithoutAnOpenRequest)
+{
+	ASSERT_FALSE(HasCurrentProject());
+	auto* Editor = MakeHost();
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::LoadingDefaultDocument);
+	Editor->AdvanceStartup();
+	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
+	EXPECT_TRUE(Editor->GetStartupError().empty());
+	EXPECT_FALSE(Editor->IsPreparingMapChange());
 }
 
 TEST_F(FEditorToolTests, PublishesSortedOwnedCatalogsAndRefreshesOnlyAfterRegistrationChanges)

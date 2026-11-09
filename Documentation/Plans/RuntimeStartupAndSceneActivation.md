@@ -2,7 +2,7 @@
 
 Summary: Separate process service startup from project and scene opening, keep one responsive frame loop, and make activation, rendering readiness, and recovery explicit.
 
-Last reviewed: 2026-10-26
+Last reviewed: 2026-11-09
 
 Status: Active
 Completed:
@@ -17,6 +17,32 @@ The current implemented contracts still live in [Runtime lifecycle](../Runtime/A
 [Asset packages](../Runtime/Assets/Packages/AssetPackages.md),
 [Load preparation](../Runtime/Rendering/Pipeline/LoadPreparation.md), and
 [Subsystems](../Runtime/Engine/Subsystems.md).
+
+Stage 4 document-boundary refinement (2026-11-09): route the initial/default Level
+through the ordinary asset-editor open request and LevelEditor document controller,
+instead of a second startup-only preparation/association callback protocol.
+DurinEd selects the default path, observes the existing request's terminal outcome,
+and retains the primary-presentation gate. LevelEditor owns activation preparation,
+document association, viewport restoration, cancellation and original diagnostics
+for both initial and later opens. Empty configuration completes without a scene
+request. Remaining Stage 4/6 acceptance gates stay open pending their full matrices.
+
+Document-path validation (working tree based on `432a5ce3f`, Windows Debug Editor,
+Vulkan, Tracy enabled): EditorOperationTests passed 323/323, including ordinary
+deferred document completion, original failure diagnostics, cancellation, closed
+document rejection and primary-presentation gating; EditorHostToolTests passed
+38/38. Reports are `Build/EditorStartupDiagnosis/document-open-{operations,host}.xml`.
+The incremental Editor `all` build passed to cover the changed DEditorEngine
+layout across dynamic editor consumers; Sandbox and RoadWeaverEditor also built
+explicitly. After that build, LaunchStartupCharacterizationTests passed 6/6
+(`document-open-startup.xml` in the same evidence directory). Sandbox and RoadWeaver
+each reached project readiness, completed three running ticks and exited normally
+with startup diagnostics enabled; final run logs are
+`20261109-130417-233732-4472-DurinEditor.log` and
+`20261109-130422-146793-10828-DurinEditor.log` under `Build/.agent-state/logs/`.
+The passing native-test inputs were unchanged by the final build and documentation
+edits. This validates the document-path refinement, not the outstanding Stage 4/6
+workload, cancellation-phase or platform acceptance matrices.
 
 Review baseline: `3baf1f8b3`, Windows Debug Editor, RTX 3090/Vulkan. Diagnostic
 experiments were reverted, and the Engine DLL was rebuilt from unchanged source.
@@ -480,6 +506,7 @@ owned scene operation, with previous-document preservation and typed outcomes.
 
 - [x] Introduce the Engine scene operation using existing service handles, candidate World/scene ownership, and scoped residency.
 - [x] Reduce callers to one request and progress snapshot plus explicit cancel/commit; keep advancement, candidate rendering and publication internals behind Engine ownership.
+- [x] Route the Editor default Level through ordinary asset-editor document opening and remove startup-only workspace callbacks.
 - [ ] Migrate Editor initial/default/open-Level paths and all active-World consumers; retain dirty-document and transaction policy at the document boundary.
 - [x] Migrate authored and cooked Game startup; separate registration, BeginPlay, initial-view preparation, and simulation/input enablement.
 - [ ] Cover explicit empty documents, required failure, stale completion, commit cancellation, scene changes, and exactly-once BeginPlay/retirement.

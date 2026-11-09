@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-11-03
+Last reviewed: 2026-11-09
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -144,8 +144,12 @@ code selection, while the error remains logged.
 
 DurinEd owns the ordered bootstrap state, including project admission,
 workspace activation, default-document loading, and terminal outcome. MainFrame initializes requested workspaces and presents the engine's phase/error
-state; DurinEd selects and loads the default level and advances the workflow. Each step advances at most once per
-ordinary outer frame. Shell
+state. DurinEd selects the default Level and submits an ordinary asset-editor open
+request. LevelEditor owns loading, document association, history, selection, and
+viewport restoration through the same document path used for later Level opens;
+there is no startup-specific workspace callback protocol. DurinEd observes the
+open request's terminal result and then the primary scene presentation receipt.
+Each step advances at most once per ordinary outer frame. Shell
 presentation is observed from the retained primary RHI viewport's successful
 presentation serial, relative to its shell baseline, rather than a profiling
 timestamp. An auxiliary viewport cannot satisfy that gate. The editor's scene

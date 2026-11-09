@@ -71,7 +71,6 @@ namespace Durin::Editor::Level
 		FBaseAssetToolkit::ReleaseSessionUI();
 		ViewportSettingsPage = {};
 		ProjectSettingsPage = {};
-		if (Context && Context->EditorHost) Context->EditorHost->SetStartupLevelCallbacks({});
 		RequestDeactivate();
 		if (Context && SceneViewportPanel)
 		{
@@ -96,7 +95,7 @@ namespace Durin::Editor::Level
 		CreatePanels();
 		CreateDocumentServices();
 		CreateImportDialogs();
-		FinalizeSessionConstruction();
+		Context->Synchronize(Context->EditorHost->GetEditorWorld());
 		ViewportSettingsPage = FEditorSettingsPageRegistration({
 			.Id = "editor.viewport.host." + std::to_string(FObjectKeyHash{}(FObjectKey(EditorOwner.Get()))), .Label = "Viewport and Controls",
 			.Keywords = "camera movement speed grid statistics snap translation rotation scale gizmo",
@@ -188,10 +187,11 @@ namespace Durin::Editor::Level
 			*AssetMoveCoordinator,
 			[this] { EditorError.clear(); },
 			[this](std::string Message) { SetError(std::move(Message)); },
-			[this](bool bSucceeded, bool bCancelled) {
+			[this](bool bSucceeded, bool bCancelled, std::string Message) {
 				if (!DeferredOpenDocumentId.IsValid()) return;
 				const FDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
-				if (!DocumentManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded, bCancelled ? EAssetOpenStatus::Cancelled : EAssetOpenStatus::Failed))
+				if (!DocumentManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded,
+					bCancelled ? EAssetOpenStatus::Cancelled : EAssetOpenStatus::Failed, std::move(Message)))
 					SetError("The deferred level document request is no longer available.");
 			}
 		);
@@ -245,23 +245,6 @@ namespace Durin::Editor::Level
 			if (SceneImportDialog)
 				SceneImportDialog->Draw(bAllowAssetMutation);
 			break;
-		}
-	}
-
-	auto MLevelEditor::FinalizeSessionConstruction() -> void
-	{
-		Context->Synchronize(Context->EditorHost != nullptr ? Context->EditorHost->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
-		if (Context->EditorHost)
-		{
-			auto Callbacks = DocumentController->MakeStartupLevelCallbacks();
-			auto PrepareDocument = std::move(Callbacks.PrepareDocument);
-			Callbacks.PrepareDocument = [this, PrepareDocument = std::move(PrepareDocument)] {
-				if (!PrepareDocument()) return false;
-				RootWindow.RequestFocus();
-				const auto Documents = DocumentManager.GetDocuments();
-				return !Documents.empty() && (!Context->Level || DocumentManager.AssociateDocumentAsset(Documents.front().Id, Context->Level));
-			};
-			Context->EditorHost->SetStartupLevelCallbacks(std::move(Callbacks));
 		}
 	}
 

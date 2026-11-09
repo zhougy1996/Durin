@@ -83,7 +83,6 @@ namespace Durin::Editor::Level
 			std::string_view Directory, EImportDialogType Type) -> void;
 		auto DrawContentBrowserImport(
 			EImportDialogType Type, bool bAllowAssetMutation) -> void;
-		auto FinalizeSessionConstruction() -> void;
 		auto DrawProjectSettings(std::string& OutError) -> void;
 		auto DrawViewportPreferences(std::string& OutError) -> void;
 		auto ResetViewportPreferences() -> bool;

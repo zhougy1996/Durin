@@ -91,7 +91,7 @@ namespace Durin
 		auto CanCall() const -> bool;
 		auto HasEditor(IAssetEditorInstance* Instance) const -> bool;
 		auto CreateAssetEditor(DAssetEditor& Session, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
-		auto CompleteDocumentOpen(uint64 DocumentId, EAssetOpenStatus Status) -> void;
+		auto CompleteDocumentOpen(uint64 DocumentId, EAssetOpenStatus Status, std::string Message = {}) -> void;
 		auto CompleteRestoreFocus() -> void;
 		struct FOpenRequest
 		{
