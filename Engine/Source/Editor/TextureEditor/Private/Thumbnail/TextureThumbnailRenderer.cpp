@@ -90,13 +90,13 @@ namespace Durin::Editor::Texture
 				Texture = nullptr;
 				Platform.reset();
 				bAssetLoaded = false;
-				if (AssetLoad) AssetLoad->Cancel();
+				if (AssetLoad) AssetLoad->CancelHandle();
 				AssetLoad.reset();
 				Shaders = {};
 			}
 		private:
 			FShaderMapPreparation Shaders;
-			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
+			std::shared_ptr<FStreamableHandle> AssetLoad;
 			bool bAssetLoaded = false;
 			FTopLevelAssetPath AssetPath;
 			TWeakObjectPtr<DTexture2D> Texture;

@@ -1,4 +1,5 @@
 #include "AssetTools/Relocation.h"
+#include "Asset/PackageUnloading.h"
 #include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
 #include "NativeAssetTestSupport.h"

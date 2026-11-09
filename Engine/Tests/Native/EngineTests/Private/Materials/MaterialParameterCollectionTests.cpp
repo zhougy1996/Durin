@@ -1,4 +1,5 @@
 #include "NativeRHIBackendTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialCollectionBinding.h"

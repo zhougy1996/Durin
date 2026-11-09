@@ -1,4 +1,5 @@
 #include "Misc/PackageWriter.h"
+#include "PackageLoadTransaction.h"
 #include "CookOutputInternal.h"
 #include "CookDependencyDiscovery.h"
 #include "Asset/OfflinePreparation.h"
@@ -407,14 +408,14 @@ namespace Durin
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		{
 			FScopedOfflinePreparation Preparation;
-			FAssetPackageLoadScope LoadScope;
+			FPackageLoadTransaction LoadScope;
 			struct FReleaseLoads
 			{
-				FAssetPackageLoadScope& Scope;
+				FPackageLoadTransaction& Scope;
 				~FReleaseLoads()
 				{
 					FAssetCompilingManager::Get().FinishAllCompilation();
-					(void)Scope.Release();
+					(void)Scope.Unload();
 				}
 			} ReleaseLoads{LoadScope};
 			AssetPrivate::FCookDependencyDiscovery Inputs(Request, CaptureAssetRegistrySnapshot(), LoadScope,

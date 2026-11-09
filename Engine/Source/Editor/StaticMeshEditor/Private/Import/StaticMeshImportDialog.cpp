@@ -1,4 +1,5 @@
 #include "Physics/BodySetup.h"
+#include "Asset/PackageUnloading.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Import/StaticMeshImportDialog.h"
 

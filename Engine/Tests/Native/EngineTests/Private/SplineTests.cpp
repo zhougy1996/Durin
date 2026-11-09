@@ -1,4 +1,5 @@
 #include "Components/SplineComponent.h"
+#include "Asset/PackageUnloading.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Components/SplineMeshComponent.h"
 #include "Actors/SplineMeshActor.h"

@@ -383,8 +383,8 @@ namespace Durin::Editor::Material
 				Sphere = nullptr;
 				Material = nullptr;
 				bAssetsLoaded = false;
-				if (MaterialLoad) MaterialLoad->Cancel();
-				if (SphereLoad) SphereLoad->Cancel();
+				if (MaterialLoad) MaterialLoad->CancelHandle();
+				if (SphereLoad) SphereLoad->CancelHandle();
 				MaterialLoad.reset();
 				SphereLoad.reset();
 				Shaders = {};
@@ -435,8 +435,8 @@ namespace Durin::Editor::Material
 			bool bOwnsActor = false;
 			DStaticMeshComponent* Component = nullptr;
 			DStaticMesh* Sphere = nullptr;
-			std::shared_ptr<FAsyncLoadHandle> MaterialLoad;
-			std::shared_ptr<FAsyncLoadHandle> SphereLoad;
+			std::shared_ptr<FStreamableHandle> MaterialLoad;
+			std::shared_ptr<FStreamableHandle> SphereLoad;
 			bool bAssetsLoaded = false;
 		};
 	} // namespace

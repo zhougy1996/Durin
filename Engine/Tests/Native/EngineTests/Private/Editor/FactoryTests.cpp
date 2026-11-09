@@ -1,4 +1,5 @@
 #include "Factories/Factory.h"
+#include "Asset/PackageUnloading.h"
 #include "AssetTools/IAssetTools.h"
 #include "Import/EditorReimportHandler.h"
 

@@ -9,7 +9,7 @@ namespace Durin
 {
 	class DEngine;
 	class DWorld;
-	class FAsyncLoadHandle;
+	class FStreamableHandle;
 	// Engine-owned package loading and World registration.
 	class FMapChangeHandler
 	{
@@ -37,7 +37,7 @@ namespace Durin
 		EMapChangePhase Phase = EMapChangePhase::LoadingAssets;
 		std::chrono::steady_clock::time_point Started = std::chrono::steady_clock::now(), PhaseStarted = Started;
 		std::string Error;
-		std::shared_ptr<FAsyncLoadHandle> Assets;
+		std::shared_ptr<FStreamableHandle> Assets;
 		TStrongObjectPtr<DWorld> World;
 		FScenePtr Scene;
 		bool bAdvancing = false, bCancelRequested = false, bCommitRequested = false;

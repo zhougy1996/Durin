@@ -2,7 +2,7 @@
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
-#include "Asset/AsyncLoad.h"
+#include "Asset/StreamableHandle.h"
 #include "Engine/Level.h"
 #include "DObject/ObjectLifecycle.h"
 #include "IRendererModule.h"
@@ -33,7 +33,7 @@ namespace Durin
 	{
 		if (World) { auto* Retired = World.Get(); Retired->Shutdown(); World.Reset(); MarkObjectHierarchyAsGarbage(Retired); }
 		if (Scene) { Scene->Release(); Scene.reset(); }
-		if (Assets) Assets->Cancel();
+		if (Assets) Assets->CancelHandle();
 		Assets.reset();
 	}
 	auto FMapChangeHandler::Fail(std::string Cause) -> void

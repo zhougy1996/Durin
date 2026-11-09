@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "RenderResource.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"

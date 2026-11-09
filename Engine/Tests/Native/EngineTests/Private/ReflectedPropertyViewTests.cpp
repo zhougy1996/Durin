@@ -1,4 +1,5 @@
 #include "PropertyEditor/PropertyView.h"
+#include "Asset/PackageUnloading.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "PropertyEditor/PropertyValueDraft.h"
 

@@ -22,7 +22,7 @@ namespace Durin
 	class FSceneInterface;
 	class FGameInputState;
 	class DEngine;
-	class FAsyncLoadHandle;
+	class FStreamableHandle;
 
 	// Distinguishes editor, play-session, and standalone game world behavior.
 	enum class EWorldType : uint8
@@ -234,7 +234,7 @@ namespace Durin
 		DPROPERTY(Transient)
 		TObjectPtr<DLevel> CurrentLevel;
 		// Residency follows the active Level, not its completed loading handler.
-		std::shared_ptr<FAsyncLoadHandle> LevelResidency;
+		std::shared_ptr<FStreamableHandle> LevelResidency;
 		friend class FMapChangeHandler;
 
 		// Owned by the world host (DEngine or an editor preview scene). Components

@@ -1,4 +1,5 @@
 #include "Transactions/Transactor.h"
+#include "Asset/StreamableHandle.h"
 #include "ViewportTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Application/GenericApplication.h"
@@ -694,8 +695,11 @@ TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollec
 	ASSERT_TRUE(FPackagePath::TryCreate("/Test/DeferredLevelRetirement", Path));
 	DPackage* Package = CreatePackage(Path);
 	ASSERT_NE(Package, nullptr);
-	Package->MarkDirty();
 	auto* Level = NewObject<DLevel>(Package, "Level", EObjectFlags::Public);
+	auto LoadHandle = RequestSyncLoad(Path);
+	ASSERT_TRUE(LoadHandle->IsActive());
+	// The fixture created this package directly; transfer its cache root to the handle.
+	Package->SetStandaloneResidency(false);
 	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "ClosingResidencyWorld"));
 	ASSERT_TRUE(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
@@ -703,7 +707,7 @@ TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollec
 	{
 		FGarbageCollectionDeferralScope Callback;
 		ASSERT_TRUE(World->SetCurrentLevel(nullptr));
-		ASSERT_TRUE(ReleasePackageResidency(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
+		LoadHandle->ReleaseHandle();
 		EXPECT_EQ(WeakPackage.Get(), Package);
 		EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
 		EXPECT_TRUE(IsGarbageCollectionRequested());
@@ -725,11 +729,15 @@ TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwner
 	DPackage* Package = CreatePackage(Path);
 	ASSERT_NE(Package, nullptr);
 	auto* Level = NewObject<DLevel>(Package, "Level", EObjectFlags::Public);
+	auto LoadHandle = RequestSyncLoad(Path);
+	ASSERT_TRUE(LoadHandle->IsActive());
+	// The fixture created this package directly; transfer its cache root to the handle.
+	Package->SetStandaloneResidency(false);
 	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "ReactivatedResidencyWorld"));
 	ASSERT_TRUE(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	TWeakObjectPtr<DPackage> WeakPackage(Package);
-	ASSERT_TRUE(ReleasePackageResidency(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	LoadHandle->ReleaseHandle();
 	CollectGarbage();
 	EXPECT_EQ(WeakPackage.Get(), Package);
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));

@@ -1,4 +1,5 @@
 #include "AssetRuntimeStateInternal.h"
+#include "Asset/PackageUnloading.h"
 
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPathServices.h"

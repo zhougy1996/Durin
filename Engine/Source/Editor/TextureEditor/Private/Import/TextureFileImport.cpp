@@ -1,4 +1,5 @@
 #include "Import/TextureFileImport.h"
+#include "Asset/PackageUnloading.h"
 
 #include "AssetTools/IAssetTools.h"
 #include "AssetForge/Builtins/Texture2DFactory.h"

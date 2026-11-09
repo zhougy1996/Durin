@@ -1,4 +1,5 @@
 #include "Misc/PackageWriter.h"
+#include "PackageLoadTransaction.h"
 #include "CookDependencyDiscovery.h"
 #include "CookMemoryBudget.h"
 #include "DObject/DObjectArray.h"
@@ -88,7 +89,7 @@ namespace Durin::AssetPrivate
 	}
 
 	FCookDependencyDiscovery::FCookDependencyDiscovery(const FCookRequest& InRequest,
-		FAssetRegistrySnapshot InRegistry, FAssetPackageLoadScope& InLoadScope, const FCookState* PreviousState)
+		FAssetRegistrySnapshot InRegistry, FPackageLoadTransaction& InLoadScope, const FCookState* PreviousState)
 		: Request(InRequest), Registry(std::move(InRegistry)), LoadScope(InLoadScope),
 		Schema(FReflectionSchemaCatalog::Capture())
 	{

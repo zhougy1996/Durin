@@ -1,4 +1,5 @@
 #include "Dialogs/RoadNetCreateDialog.h"
+#include "Asset/PackageUnloading.h"
 
 #include "Asset/PackageSerialization.h"
 #include "AssetTools/IAssetTools.h"

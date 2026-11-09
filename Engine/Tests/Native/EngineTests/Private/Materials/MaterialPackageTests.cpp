@@ -1,4 +1,5 @@
 #include "MaterialResourceTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshTestEnvironment.h"
 #include "StaticMeshMaterialTestFixture.h"

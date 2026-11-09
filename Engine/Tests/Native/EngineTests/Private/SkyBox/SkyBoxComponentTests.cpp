@@ -1,4 +1,5 @@
 #include "Actors/ProceduralSkyActor.h"
+#include "Asset/PackageUnloading.h"
 #include "Components/ProceduralSkyComponent.h"
 #include "NativeAssetTestSupport.h"
 #include "SkyBoxTestSupport.h"

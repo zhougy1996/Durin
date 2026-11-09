@@ -115,7 +115,9 @@ package registration is the sole live residency lookup; Engine does not keep a
 second resident-package map. `CreatePackage` detects path collisions through
 that registration. New asset packages begin `NewlyCreated`; a successful first
 save clears that state only after file and catalog publication.
-`DPackage::IsDirty()` independently records unsaved contents.
+`DPackage::IsDirty()` independently records unsaved contents. Marking a live
+authored package dirty restores its editor cache retention, independently of
+load handles. Private preparation graphs retain only their operation owners.
 
 Ordinary asset loads initially cache packages as `Standalone`, so GC retains
 registered residency without a manual root. `DPackage` registers and strongly retains all
@@ -134,63 +136,65 @@ Synchronous package and object loads return `std::expected<DPackage*,
 FAssetReadError>` and `std::expected<T*, FAssetReadError>` respectively. Typed
 object calls specify `LoadObject<T>(Path)`. The returned pointer observes existing
 package residency; it does not transfer ownership or promise rollback on failure.
-`FAssetPackageLoadScope` uses the same value contract and records completed
-dependencies even when the requested root fails. Its explicit `Release()` remains
-the synchronous residency cleanup boundary. `ReleaseResidency()` instead drops
-the scope's admitted packages' cache retention and requests GC at the engine-loop
-safe point. It never collects synchronously or requires independent users to drop
-their references. An optional exact root covers resident-hit document opens;
-explicit discard applies only to that root. Modified dependencies remain cached,
-and dependencies cached before this scope are untouched.
+For bounded ownership, use `RequestSyncLoad` or `RequestAsyncLoad` from
+`Asset/StreamableHandle.h`. Both return the same `FStreamableHandle`. Active
+successful handles strongly retain the selected package/object. A request drops
+the clean cache retention introduced by its own loading transaction when the
+request finishes; the handle does not retain a cache-origin ledger. Previously
+cached packages and unsaved authored edits keep their independent cache owners.
+`ReleaseHandle()` and handle destruction release only that handle's strong
+references and request scheduled GC. They never collect synchronously, return
+`InUse`, or require another user to surrender its references. Other handles,
+Worlds, reflected references and native strong owners continue to retain shared
+graphs. Package resources retire only when the actual graph retires.
 
-`ReleasePackageResidency` drops only the target package's `Standalone` retention.
-The active World, reflected hard references, native strong pointers, and successful
-async handles independently keep their graphs alive. A graph still referenced
-after ordinary release is expected, not an unload failure. Level document close
-and replacement detach the old World/selection/history references and release
-their load scope through this scheduled path. Package resources and soft-cache
-invalidation follow actual package graph retirement; releasing one user does not
-retire resources still used by another user. Explicit `UnloadPackage` retains its
-synchronous attempt-and-report contract below.
+Explicit forced unloading is a separate tools capability in
+`Asset/PackageUnloading.h`. `UnloadPackage` keeps its synchronous
+attempt-and-report contract, including unsaved-state and live-reference checks;
+it is not the ordinary request-release operation.
 
 The optional caller-owned `FAssetLoadReport*` remains available on either branch,
 including mutation and canonicalization evidence emitted before a root failure.
 Existing resident-hit and early-rejection report behavior is unchanged. Read
-errors retain their category, diagnostic text, and available soft-object validation
-context. Resource registration and storage failures are translated at the asset
+errors retain their category and diagnostic text. Resource registration and
+storage failures are translated at the asset
 boundary; their backend error types are not exposed by completed-load errors. Inspect `error()` only after testing failure.
 Codec status and pending-component dependency bindings remain separate from these
 completed-load values because bindings may expose incomplete package skeletons.
 
-`Asset/AsyncLoad.h` provides `LoadPackageAsync(FPackagePath)` and
-`RequestAsyncLoad(FObjectPath/FTopLevelAssetPath)`. Both return a shared
-`FAsyncLoadHandle`; submission, observation, cancellation, callbacks and handle
-destruction belong to GameThread. Successful handles strongly retain their
-package and selected object. Object readiness does not imply compilation or
-render-resource readiness. Releasing all caller handles does not cancel a
-queued request; use `Cancel()` to withdraw that consumer explicitly.
+`RequestSyncLoad` and `RequestAsyncLoad` accept `FPackagePath`, `FObjectPath`, or
+`FTopLevelAssetPath`. Sync calls complete before returning; async calls defer
+completion. Submission, observation, release, cancellation, callbacks and handle
+destruction belong to GameThread. Object readiness does not imply compilation or
+render-resource readiness. Releasing all caller references does not cancel queued
+work; use `CancelHandle()` to withdraw that consumer explicitly.
 `IsPackageLoading` continues to describe incomplete live object construction;
 use the handle state to observe a queued or reading async request. A synchronous
 load may complete the same package while its async read is pending; publication
 then reuses that resident package.
 
-`GetResult()` requires `IsComplete()` and returns an expected `FAsyncLoadedAssets`
-containing the selected package/object pointers, or a typed read error. Pending
-and loading states have no terminal result. Cancellation supplies a terminal
-`Cancelled` error while preserving the existing callback-suppression policy.
+`GetResult()` requires `IsComplete()` and returns an expected
+`FStreamableLoadResult` by value, or a typed read error. Active success results
+observe the current strong references, including explicit object replacement.
+Released success handles observe exact weak identities: after collection their
+package/object pointers are null, without changing historical success to failure.
+Pending and loading states have no terminal result. Cancelling unfinished work
+supplies a terminal `Cancelled` error. `IsActive()` describes request retention,
+not whether a weakly observed package is still resident through another owner.
 
-Requests are deferred, including resident hits and ordinary errors. Guarded or
+Async requests are deferred, including resident hits and ordinary errors. Guarded or
 shutdown admission instead returns a failed handle immediately without invoking
 the callback. The engine loop pumps `ProcessAsyncLoading`; standalone tools and
 tests must pump it explicitly. Completion callbacks run on a later pump after
 input file leases have been released, may enqueue more requests, and never run
-inside a recursive pump. `Cancel()` suppresses undelivered callbacks, including
+inside a recursive pump. `CancelHandle()` suppresses undelivered callbacks, including
 for an already completed request, without cancelling other consumers of the
-same package. Dropping a successful handle releases its strong references;
-cache residency introduced by that request is released for scheduled GC, while
-pre-existing cached packages retain their earlier residency. Other handles and
-hard references continue to keep shared assets alive. Failed async loads also
-release their independently completed clean dependencies through scheduled GC.
+same package, and drops that handle's retention. Calling `ReleaseHandle()` while
+loading or awaiting completion delivery defers release until the callback has
+run; it does not suppress completion. A callback may explicitly release its own
+handle. Failed requests release independently completed clean dependencies for
+scheduled GC. Offline maintenance may collect explicitly at its batch boundary
+after releasing the handle; request release itself never runs global GC.
 
 The initial implementation coalesces active requests for the same root package,
 starts higher-priority pending requests first, and limits detached reads to two
@@ -648,7 +652,7 @@ Only after every package in the batch has restored values does it invoke
 already-restored referenced objects from later packages in the selected batch.
 Failure preserves the caller's previous output and never runs candidate PostLoad.
 External imports bind to captured package identities. Missing dependencies require
-an explicitly supplied, caller-owned `FAssetPackageLoadScope`; without it the call
+an explicitly supplied, caller-owned private `FPackageLoadTransaction`; without it the call
 fails without loading. Scoped loading requires resident replacement targets so a
 recursive dependency load cannot publish one of those targets. The caller admits
 ordinary external loading and PostLoad separately from candidate deserialization.
@@ -661,16 +665,17 @@ Graph owners retain exact strong references to their objects and external depend
 across GC. Active load components and projection fences return Busy; preparation
 rechecks fences after disk validation and never clears a fence.
 
-The load scope records only exact package generations admitted by its calls,
-including transitive dependencies. On failure the caller retains that scope, drops
-candidate graphs, then calls `Release`; InUse retains the records for retry. Scope
-destruction transfers residency and is not abort cleanup. Reload abort may pass
+The private transaction records only exact package generations admitted by its
+calls, including transitive dependencies. On failure the owning tool drops
+candidate graphs, then calls `Unload`; InUse retains the records for retry.
+Transaction destruction is not abort cleanup. Reload abort may pass
 exact weak target identities to ignore those targets' saved dependency edges, which
 may differ from their edited live references. Real live references and dirty/new
 state still protect owned packages. Other packages' saved edges retain their normal
-protection, and neither scope ownership nor the exception follows a same-path
+protection, and neither transaction ownership nor the exception follows a same-path
 replacement. Independent successful dependencies of a failed ordinary request
-remain resident with their resources until normal unload or explicit scope release.
+remain resident with their resources until normal unload or private transaction
+cleanup. This rollback protocol is not exposed by public load handles.
 
 The caller must explicitly admit each export class's construction, serialization,
 and graph-validation callbacks and hold path admission/edit/save leases. The result is `ValuesPrepared`:

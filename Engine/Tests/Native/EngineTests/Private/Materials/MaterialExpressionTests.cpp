@@ -1,4 +1,5 @@
 #include "DObject/PackagePersistence.h"
+#include "Asset/PackageUnloading.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialObjectValidation.h"
 #include "FunctionPortTestFixture.h"

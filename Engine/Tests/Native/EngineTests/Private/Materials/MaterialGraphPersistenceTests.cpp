@@ -1,4 +1,5 @@
 #include "MaterialGraphDocument.h"
+#include "Asset/PackageUnloading.h"
 #include "DObject/OverridableManager.h"
 #include "MaterialGraphTestSupport.h"
 

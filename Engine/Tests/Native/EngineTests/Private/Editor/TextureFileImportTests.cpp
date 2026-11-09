@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "Import/TextureFileImport.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Asset/AssetCompilingManager.h"

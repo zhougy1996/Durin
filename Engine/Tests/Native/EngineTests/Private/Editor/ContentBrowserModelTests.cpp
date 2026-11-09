@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "Actors/ActorChange.h"
 #include "AssetTools/Relocation.h"
 #include "AssetTools/RedirectorFixup.h"

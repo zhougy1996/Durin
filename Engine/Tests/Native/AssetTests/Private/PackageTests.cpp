@@ -1,11 +1,13 @@
 #include "Asset/OfflinePreparation.h"
+#include "Asset/PackageLoadTransaction.h"
+#include "Asset/PackageUnloading.h"
 #include "BulkPackageTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2DBuild.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Asset/RegistryOperations.h"
-#include "Asset/AsyncLoad.h"
+#include "Asset/StreamableHandle.h"
 #include <gtest/gtest.h>
 
 #include "Asset/PackageSerialization.h"
@@ -1863,14 +1865,14 @@ TEST_F(FAsyncAssetLoadTests, ColdObjectAndPackageRequestsSharePublicationAndReta
 	uint32 Callbacks = 0;
 	const auto OwnerThread = std::this_thread::get_id();
 	auto Object = RequestAsyncLoad(Testing::MakePackageLeafAssetObjectPathForTests(Path),
-		[&](const FAsyncLoadHandle& Handle) {
+		[&](const FStreamableHandle& Handle) {
 			EXPECT_EQ(std::this_thread::get_id(), OwnerThread);
 			EXPECT_TRUE(Handle.GetResult());
 			// Completion delivery must not retain the worker's file read lease.
 			EXPECT_TRUE(SavePackage(Handle.GetLoadedPackage()));
 			++Callbacks;
 		}, DPackageAssetForTest::StaticClass());
-	auto Package = LoadPackageAsync(Path, [&](const auto&) { ++Callbacks; });
+	auto Package = RequestAsyncLoad(Path, [&](const auto&) { ++Callbacks; });
 	EXPECT_FALSE(Object->IsComplete());
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	ProcessAsyncLoading();
@@ -1890,8 +1892,8 @@ TEST_F(FAsyncAssetLoadTests, LastHandleReleasesNewResidencyWithoutInvalidatingOt
 	using namespace Durin;
 	const auto Path = SaveAsset("AsyncOwnedResidency");
 	ASSERT_TRUE(UnloadPackage(Path));
-	auto First = LoadPackageAsync(Path);
-	auto Second = LoadPackageAsync(Path);
+	auto First = RequestAsyncLoad(Path);
+	auto Second = RequestAsyncLoad(Path);
 	ASSERT_TRUE(PumpUntil([&] { return First->IsComplete() && Second->IsComplete(); }));
 	ASSERT_TRUE(First->GetResult());
 	ASSERT_TRUE(Second->GetResult());
@@ -1909,12 +1911,89 @@ TEST_F(FAsyncAssetLoadTests, LastHandleReleasesNewResidencyWithoutInvalidatingOt
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
+TEST_F(FAsyncAssetLoadTests, SyncAndAsyncHandlesShareRetentionWithoutOwningEachOther)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("UnifiedRetention");
+	ASSERT_TRUE(UnloadPackage(Path));
+	auto Sync = RequestSyncLoad(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	ASSERT_TRUE(Sync->GetResult());
+	ASSERT_TRUE(Sync->IsActive());
+	auto Async = RequestAsyncLoad(Path);
+	ASSERT_TRUE(PumpUntil([&] { return Async->IsComplete(); }));
+	ASSERT_TRUE(Async->GetResult());
+	DPackage* Package = Sync->GetLoadedPackage();
+	EXPECT_EQ(Async->GetLoadedPackage(), Package);
+	Sync->ReleaseHandle();
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	EXPECT_FALSE(Sync->IsActive());
+	EXPECT_TRUE(Async->IsActive());
+	Async->ReleaseHandle();
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(Sync->GetResult()->Object, nullptr);
+	EXPECT_EQ(Async->GetResult()->Package, nullptr);
+}
+
+TEST_F(FAsyncAssetLoadTests, ReleaseWhileLoadingRetainsUntilCompletionDelivery)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("ReleaseDuringLoad");
+	ASSERT_TRUE(UnloadPackage(Path));
+	uint32 Calls = 0;
+	auto Handle = RequestAsyncLoad(Path, [&](FStreamableHandle& Completed) {
+		EXPECT_TRUE(Completed.IsActive());
+		CollectGarbage();
+		EXPECT_NE(Completed.GetLoadedPackage(), nullptr);
+		++Calls;
+	});
+	Handle->ReleaseHandle();
+	EXPECT_TRUE(Handle->IsActive());
+	ASSERT_TRUE(PumpUntil([&] { return Calls == 1; }));
+	EXPECT_FALSE(Handle->IsActive());
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(Handle->GetLoadedPackage(), nullptr);
+}
+
+TEST_F(FAsyncAssetLoadTests, CancelQueuedCompletionSuppressesCallbackAndReleasesRetention)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("CancelQueuedCompletion");
+	ASSERT_TRUE(UnloadPackage(Path));
+	uint32 Calls = 0;
+	auto Handle = RequestAsyncLoad(Path, [&](auto&) { ++Calls; });
+	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
+	EXPECT_EQ(Calls, 0u);
+	ASSERT_TRUE(Handle->GetResult());
+	Handle->CancelHandle();
+	EXPECT_FALSE(Handle->IsActive());
+	CollectGarbage();
+	EXPECT_EQ(Handle->GetLoadedPackage(), nullptr);
+	ProcessAsyncLoading(100.0, 100);
+	EXPECT_EQ(Calls, 0u);
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+}
+
+TEST_F(FAsyncAssetLoadTests, SyncFailureHasNoActiveRetention)
+{
+	using namespace Durin;
+	auto Handle = RequestSyncLoad(FPackagePath{});
+	EXPECT_TRUE(Handle->IsComplete());
+	EXPECT_FALSE(Handle->IsActive());
+	ASSERT_FALSE(Handle->GetResult());
+	EXPECT_EQ(Handle->GetResult().error().Code, EAssetReadError::InvalidPath);
+	Handle->ReleaseHandle();
+	Handle->CancelHandle();
+}
+
 TEST_F(FAsyncAssetLoadTests, ResidentHitReleasePreservesEarlierCachedResidency)
 {
 	using namespace Durin;
 	const auto Path = SaveAsset("AsyncExistingResidency");
 	DPackage* Package = FindResidentPackage(Path);
-	auto Handle = LoadPackageAsync(Path);
+	auto Handle = RequestAsyncLoad(Path);
 	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
 	ASSERT_TRUE(Handle->GetResult());
 	Handle.reset();
@@ -1938,7 +2017,7 @@ TEST_F(FAsyncAssetLoadTests, FailedRequestSchedulesCompletedDependencyResourcesF
 	ASSERT_TRUE(UnloadPackage(RootPath));
 	ASSERT_TRUE(UnloadPackage(BulkPath));
 	GRejectPackageAssetDeserialize = true;
-	auto Handle = LoadPackageAsync(RootPath);
+	auto Handle = RequestAsyncLoad(RootPath);
 	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
 	GRejectPackageAssetDeserialize = false;
 	EXPECT_FALSE(Handle->GetResult());
@@ -1957,10 +2036,10 @@ TEST_F(FAsyncAssetLoadTests, ResidentCallbacksAreDeferredAndCanEnqueueWithoutRee
 	using namespace Durin;
 	const auto Path = SaveAsset("AsyncResident");
 	uint32 Callbacks = 0;
-	std::shared_ptr<FAsyncLoadHandle> Nested;
-	auto Handle = LoadPackageAsync(Path, [&](const auto&) {
+	std::shared_ptr<FStreamableHandle> Nested;
+	auto Handle = RequestAsyncLoad(Path, [&](const auto&) {
 		++Callbacks;
-		Nested = LoadPackageAsync(Path, [&](const auto&) { ++Callbacks; });
+		Nested = RequestAsyncLoad(Path, [&](const auto&) { ++Callbacks; });
 		ProcessAsyncLoading();
 		EXPECT_FALSE(Nested->IsComplete());
 	});
@@ -1976,12 +2055,12 @@ TEST_F(FAsyncAssetLoadTests, CancellationDoesNotCancelSharedPackageConsumer)
 	const auto Path = SaveAsset("AsyncSharedCancel");
 	ASSERT_TRUE(UnloadPackage(Path));
 	uint32 Callbacks = 0;
-	auto Cancelled = LoadPackageAsync(Path, [&](const auto&) { ADD_FAILURE(); });
-	auto Survivor = LoadPackageAsync(Path, [&](const auto&) { ++Callbacks; });
+	auto Cancelled = RequestAsyncLoad(Path, [&](const auto&) { ADD_FAILURE(); });
+	auto Survivor = RequestAsyncLoad(Path, [&](const auto&) { ++Callbacks; });
 	ProcessAsyncLoading();
-	Cancelled->Cancel();
+	Cancelled->CancelHandle();
 	ASSERT_TRUE(PumpUntil([&] { return Callbacks == 1; }));
-	EXPECT_EQ(Cancelled->GetState(), EAsyncLoadState::Cancelled);
+	EXPECT_EQ(Cancelled->GetState(), EAssetLoadState::Cancelled);
 	EXPECT_TRUE(Survivor->GetResult());
 }
 
@@ -1990,12 +2069,12 @@ TEST_F(FAsyncAssetLoadTests, CancelAllDrainsWithoutPublishingAndAllowsNewRequest
 	using namespace Durin;
 	const auto Path = SaveAsset("AsyncCancelAll");
 	ASSERT_TRUE(UnloadPackage(Path));
-	auto Handle = LoadPackageAsync(Path, [&](const auto&) { ADD_FAILURE(); });
+	auto Handle = RequestAsyncLoad(Path, [&](const auto&) { ADD_FAILURE(); });
 	ProcessAsyncLoading();
 	CancelAsyncLoading();
-	EXPECT_EQ(Handle->GetState(), EAsyncLoadState::Cancelled);
+	EXPECT_EQ(Handle->GetState(), EAssetLoadState::Cancelled);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
-	auto Retry = LoadPackageAsync(Path);
+	auto Retry = RequestAsyncLoad(Path);
 	ASSERT_TRUE(PumpUntil([&] { return Retry->IsComplete(); }));
 	EXPECT_TRUE(Retry->GetResult()) << (Retry->GetResult() ? std::string{} : Retry->GetResult().error().Message);
 }
@@ -2003,7 +2082,7 @@ TEST_F(FAsyncAssetLoadTests, CancelAllDrainsWithoutPublishingAndAllowsNewRequest
 TEST_F(FAsyncAssetLoadTests, DeferredErrorsAndExactSubobjectSelection)
 {
 	using namespace Durin;
-	auto Invalid = LoadPackageAsync({});
+	auto Invalid = RequestAsyncLoad(FPackagePath{});
 	EXPECT_FALSE(Invalid->IsComplete());
 	ASSERT_TRUE(PumpUntil([&] { return Invalid->IsComplete(); }));
 	EXPECT_EQ((Invalid->GetResult() ? Durin::EAssetReadError::None : Invalid->GetResult().error().Code), EAssetReadError::InvalidPath);
@@ -2025,7 +2104,7 @@ TEST_F(FAsyncAssetLoadTests, CatalogChangeRejectsStaleReadBeforePublication)
 	using namespace Durin;
 	const auto Path = SaveAsset("AsyncStale");
 	ASSERT_TRUE(UnloadPackage(Path));
-	auto Handle = LoadPackageAsync(Path);
+	auto Handle = RequestAsyncLoad(Path);
 	ProcessAsyncLoading();
 	SaveAsset("AsyncUnrelatedPublication");
 	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
@@ -2039,12 +2118,12 @@ TEST_F(FAsyncAssetLoadTests, DeserializeFailureRollsBackAndCanRetry)
 	const auto Path = SaveAsset("AsyncRollback");
 	ASSERT_TRUE(UnloadPackage(Path));
 	GRejectPackageAssetDeserialize = true;
-	auto Handle = LoadPackageAsync(Path);
+	auto Handle = RequestAsyncLoad(Path);
 	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
 	EXPECT_FALSE(Handle->GetResult());
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	GRejectPackageAssetDeserialize = false;
-	auto Retry = LoadPackageAsync(Path);
+	auto Retry = RequestAsyncLoad(Path);
 	ASSERT_TRUE(PumpUntil([&] { return Retry->IsComplete(); }));
 	EXPECT_TRUE(Retry->GetResult()) << (Retry->GetResult() ? std::string{} : Retry->GetResult().error().Message);
 }
@@ -2054,17 +2133,17 @@ TEST_F(FAsyncAssetLoadTests, ShutdownCancelsPendingAndRejectsNewAdmissions)
 	using namespace Durin;
 	const auto Path = SaveAsset("AsyncShutdown");
 	ASSERT_TRUE(UnloadPackage(Path));
-	auto Active = LoadPackageAsync(Path, [&](const auto&) { ADD_FAILURE(); });
+	auto Active = RequestAsyncLoad(Path, [&](const auto&) { ADD_FAILURE(); });
 	ProcessAsyncLoading();
-	auto Pending = LoadPackageAsync(Path, [&](const auto&) { ADD_FAILURE(); });
+	auto Pending = RequestAsyncLoad(Path, [&](const auto&) { ADD_FAILURE(); });
 	ShutdownAssetManager();
-	EXPECT_EQ(Active->GetState(), EAsyncLoadState::Cancelled);
-	EXPECT_EQ(Pending->GetState(), EAsyncLoadState::Cancelled);
-	auto Rejected = LoadPackageAsync(Path, [&](const auto&) { ADD_FAILURE(); });
+	EXPECT_EQ(Active->GetState(), EAssetLoadState::Cancelled);
+	EXPECT_EQ(Pending->GetState(), EAssetLoadState::Cancelled);
+	auto Rejected = RequestAsyncLoad(Path, [&](const auto&) { ADD_FAILURE(); });
 	EXPECT_EQ((Rejected->GetResult() ? Durin::EAssetReadError::None : Rejected->GetResult().error().Code), EAssetReadError::ShuttingDown);
 	CollectGarbage();
 	ASSERT_TRUE(InitializeAssetManager());
-	auto Retry = LoadPackageAsync(Path);
+	auto Retry = RequestAsyncLoad(Path);
 	ASSERT_TRUE(PumpUntil([&] { return Retry->IsComplete(); }));
 	EXPECT_TRUE(Retry->GetResult()) << (Retry->GetResult() ? std::string{} : Retry->GetResult().error().Message);
 }
@@ -2100,7 +2179,7 @@ TEST_F(FAsyncAssetLoadTests, HardReferenceCyclePublishesOnlyAfterWholeComponentP
 		EXPECT_EQ(FindResidentPackage(APath), nullptr);
 		EXPECT_EQ(FindResidentPackage(BPath), nullptr);
 	};
-	auto Handle = LoadPackageAsync(APath);
+	auto Handle = RequestAsyncLoad(APath);
 	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
 	ASSERT_TRUE(Handle->GetResult()) << (Handle->GetResult() ? std::string{} : Handle->GetResult().error().Message);
 	EXPECT_EQ(Notifications, 2u);
@@ -2115,13 +2194,33 @@ TEST_F(FAsyncAssetLoadTests, ConstructorCannotEscapeLiveLoadGuardThroughAsyncReq
 	const auto Other = SaveAsset("AsyncGuardOther");
 	ASSERT_TRUE(UnloadPackage(Path));
 	ASSERT_TRUE(UnloadPackage(Other));
-	std::shared_ptr<FAsyncLoadHandle> Escaped;
-	GPackageConstructorLoadProbe = [&] { Escaped = LoadPackageAsync(Other); };
-	auto Handle = LoadPackageAsync(Path);
+	std::shared_ptr<FStreamableHandle> Escaped;
+	GPackageConstructorLoadProbe = [&] { Escaped = RequestAsyncLoad(Other); };
+	auto Handle = RequestAsyncLoad(Path);
 	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
 	EXPECT_FALSE(Handle->GetResult());
 	ASSERT_NE(Escaped, nullptr);
 	EXPECT_EQ((Escaped->GetResult() ? Durin::EAssetReadError::None : Escaped->GetResult().error().Code), EAssetReadError::InUse);
+	EXPECT_EQ(FindResidentPackage(Other), nullptr);
+}
+
+TEST_F(FAsyncAssetLoadTests, SynchronousHandleCannotEscapeGuardedConstruction)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("SyncGuardOwner");
+	const auto Other = SaveAsset("SyncGuardOther");
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(UnloadPackage(Other));
+	std::shared_ptr<FStreamableHandle> Escaped;
+	GPackageConstructorLoadProbe = [&] { Escaped = RequestSyncLoad(Other); };
+	auto Handle = RequestAsyncLoad(Path);
+	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
+	ASSERT_FALSE(Handle->GetResult());
+	EXPECT_EQ(Handle->GetResult().error().Code, EAssetReadError::InUse);
+	ASSERT_NE(Escaped, nullptr);
+	ASSERT_FALSE(Escaped->GetResult());
+	EXPECT_EQ(Escaped->GetResult().error().Code, EAssetReadError::InUse);
+	EXPECT_FALSE(Escaped->IsActive());
 	EXPECT_EQ(FindResidentPackage(Other), nullptr);
 }
 
@@ -2903,7 +3002,7 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 	std::vector<FPreparedPackageGraph> Graphs;
 	for (const bool bCancel : {false, true})
 	{
-		FAssetPackageLoadScope Scope;
+		FPackageLoadTransaction Scope;
 		Options.DependencyLoadScope = &Scope;
 		bool bCancelled = false;
 		Options.IsCancelled = [&] { return bCancelled; };
@@ -2917,13 +3016,13 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 		EXPECT_TRUE(Graphs.empty());
 		EXPECT_NE(FindResidentPackage(DependencyPath), nullptr);
 		EXPECT_NE(GetPackageResourceManager().FindPackage(BulkPath.ToString()), nullptr);
-		EXPECT_EQ(Scope.Release().Error, EAssetReadError::InUse); // saved root edges still protect the loaded closure
-		ASSERT_TRUE(Scope.Release(Targets));
+		EXPECT_EQ(Scope.Unload().Error, EAssetReadError::InUse); // saved root edges still protect the loaded closure
+		ASSERT_TRUE(Scope.Unload(Targets));
 		EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
 		EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
 		EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), Resources);
 	}
-	FAssetPackageLoadScope Scope;
+	FPackageLoadTransaction Scope;
 	Options.DependencyLoadScope = &Scope;
 	Options.IsCancelled = {};
 	Options.ShouldFail = {};
@@ -2932,15 +3031,15 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 	Dependency = static_cast<DPackageAssetForTest*>(FindResidentPackage(DependencyPath)->GetTopLevelAssets()[0]);
 	const auto* Candidate = static_cast<DPackageAssetForTest*>(Graphs[0].GetPackage()->GetTopLevelAssets()[0]);
 	EXPECT_EQ(Candidate->ExternalReference.Get(), Dependency);
-	EXPECT_EQ(Scope.Release(Targets).Error, EAssetReadError::InUse); // candidate pins still own the dependency
+	EXPECT_EQ(Scope.Unload(Targets).Error, EAssetReadError::InUse); // candidate pins still own the dependency
 	Graphs.clear();
 	Live[0]->ExternalReference = Dependency;
-	EXPECT_EQ(Scope.Release(Targets).Error, EAssetReadError::InUse); // real live edge always protects it
+	EXPECT_EQ(Scope.Unload(Targets).Error, EAssetReadError::InUse); // real live edge always protects it
 	Live[0]->ExternalReference = nullptr;
 	Dependency->GetPackage()->MarkDirty();
-	EXPECT_EQ(Scope.Release(Targets).Error, EAssetReadError::InUse);
+	EXPECT_EQ(Scope.Unload(Targets).Error, EAssetReadError::InUse);
 	Dependency->GetPackage()->ClearDirty();
-	ASSERT_TRUE(Scope.Release(Targets));
+	ASSERT_TRUE(Scope.Unload(Targets));
 	EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
 	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), Resources);
@@ -3031,11 +3130,11 @@ TEST(FPackageAssetTests, PreparedGraphsRespectTargetAndResidentDependencyProject
 	Graphs.clear();
 	CollectGarbage();
 	ASSERT_TRUE(UnloadPackage(Source.PackagePath));
-	FAssetPackageLoadScope Scope;
+	FPackageLoadTransaction Scope;
 	Options.DependencyLoadScope = &Scope;
 	EXPECT_EQ(PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs).Status, EPackageGraphPrepareStatus::Unsupported);
 	EXPECT_EQ(FindResidentPackage(Source.PackagePath), nullptr);
-	EXPECT_TRUE(Scope.Release());
+	EXPECT_TRUE(Scope.Unload());
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Source.PackagePath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
 }
@@ -3050,7 +3149,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeNeverClaimsPublishedReplacementWhileOl
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
-	FAssetPackageLoadScope Scope;
+	FPackageLoadTransaction Scope;
 	DPackage* Previous = nullptr;
 	{
 		auto LoadedValue = Scope.LoadPackage(Path);
@@ -3069,9 +3168,9 @@ TEST(FPackageAssetTests, ExplicitLoadScopeNeverClaimsPublishedReplacementWhileOl
 	EXPECT_TRUE(WeakPrevious.IsValid());
 	EXPECT_TRUE(Previous->IsGraphPrivate());
 	EXPECT_EQ(FindResidentPackage(Path), Candidate);
-	EXPECT_TRUE(Scope.Release());
+	EXPECT_TRUE(Scope.Unload());
 	EXPECT_EQ(FindResidentPackage(Path), Candidate);
-	EXPECT_TRUE(Scope.ReleaseResidency());
+	EXPECT_TRUE(Scope.ReleaseCache());
 	EXPECT_TRUE(Candidate->HasAnyObjectFlags(EObjectFlags::Standalone));
 	EXPECT_TRUE(Replacement.Retire());
 	CollectGarbage();
@@ -3095,7 +3194,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeSavedDependencyExceptionDoesNotFollowR
 	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(OwnerPath));
 	ASSERT_TRUE(UnloadPackage(DependencyPath));
-	FAssetPackageLoadScope Scope;
+	FPackageLoadTransaction Scope;
 	DPackage* Loaded = nullptr;
 	{
 		auto LoadedValue = Scope.LoadPackage(DependencyPath);
@@ -3117,10 +3216,10 @@ TEST(FPackageAssetTests, ExplicitLoadScopeSavedDependencyExceptionDoesNotFollowR
 	}
 	Owner = static_cast<DPackageAssetForTest*>(Loaded->GetTopLevelAssets()[0]);
 	Owner->ExternalReference = nullptr;
-	EXPECT_EQ(Scope.Release(std::span{&PreviousOwner, 1}).Error, EAssetReadError::InUse);
+	EXPECT_EQ(Scope.Unload(std::span{&PreviousOwner, 1}).Error, EAssetReadError::InUse);
 	EXPECT_NE(FindResidentPackage(DependencyPath), nullptr);
 	const TWeakObjectPtr<DPackage> CurrentOwner(Loaded);
-	ASSERT_TRUE(Scope.Release(std::span{&CurrentOwner, 1}));
+	ASSERT_TRUE(Scope.Unload(std::span{&CurrentOwner, 1}));
 	EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(OwnerPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
@@ -3149,22 +3248,24 @@ TEST(FPackageAssetTests, ScheduledResidencyReleasePreservesSharedDependencyUntil
 	ASSERT_TRUE(UnloadPackage(SecondPath));
 	ASSERT_TRUE(UnloadPackage(BulkPath));
 	const auto ResourceCount = GetPackageResourceManager().GetRegisteredPackageCount();
-	FAssetPackageLoadScope FirstScope, SecondScope;
-	const auto LoadedFirst = FirstScope.LoadPackage(FirstPath);
-	const auto LoadedSecond = SecondScope.LoadPackage(SecondPath);
+	auto FirstHandle = RequestSyncLoad(FirstPath);
+	auto SecondHandle = RequestSyncLoad(SecondPath);
+	const auto LoadedFirst = FirstHandle->GetResult();
+	const auto LoadedSecond = SecondHandle->GetResult();
 	ASSERT_TRUE(LoadedFirst);
 	ASSERT_TRUE(LoadedSecond);
 	const auto Resource = GetPackageResourceManager().FindPackage(BulkPath.ToString());
 	ASSERT_NE(Resource, nullptr);
-	ASSERT_TRUE(FirstScope.ReleaseResidency(*LoadedFirst));
+	FirstHandle->ReleaseHandle();
+	EXPECT_FALSE(FirstHandle->IsActive());
 	// Release is legal inside callbacks and does not synchronously collect anything.
-	EXPECT_EQ(FindResidentPackage(FirstPath), *LoadedFirst);
+	EXPECT_EQ(FindResidentPackage(FirstPath), LoadedFirst->Package);
 	CollectGarbage();
 	EXPECT_EQ(FindResidentPackage(FirstPath), nullptr);
 	ASSERT_NE(FindResidentPackage(BulkPath), nullptr);
 	EXPECT_FALSE(FindResidentPackage(BulkPath)->HasAnyObjectFlags(EObjectFlags::Standalone));
 	EXPECT_FALSE(Resource->IsRetired());
-	ASSERT_TRUE(SecondScope.ReleaseResidency(*LoadedSecond));
+	SecondHandle->ReleaseHandle();
 	CollectGarbage();
 	EXPECT_EQ(FindResidentPackage(SecondPath), nullptr);
 	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
@@ -3175,7 +3276,7 @@ TEST(FPackageAssetTests, ScheduledResidencyReleasePreservesSharedDependencyUntil
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
 }
 
-TEST(FPackageAssetTests, ScheduledResidencyReleaseKeepsIndependentStrongUsersAndUnsavedPackages)
+TEST(FPackageAssetTests, StreamableReleaseKeepsIndependentStrongOwnersAndUnsavedEdits)
 {
 	using namespace Durin;
 	InitializeAssetTests();
@@ -3183,31 +3284,36 @@ TEST(FPackageAssetTests, ScheduledResidencyReleaseKeepsIndependentStrongUsersAnd
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ResidencyStrongUser", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	auto Handle = RequestSyncLoad(MakeFormerMainObjectPath(Path));
+	ASSERT_TRUE(Handle->GetResult());
+	Asset = Cast<DPackageAssetForTest>(Handle->GetLoadedObject());
+	ASSERT_NE(Asset, nullptr);
 	DPackage* Package = Asset->GetPackage();
-	ASSERT_TRUE(SavePackage(Package));
 	TStrongObjectPtr<DObject> EditorUser(Asset);
-	ASSERT_TRUE(ReleasePackageResidency(Package));
+	Handle->ReleaseHandle();
+	EXPECT_FALSE(Handle->IsActive());
 	CollectGarbage();
 	EXPECT_EQ(FindResidentPackage(Path), Package);
-	EXPECT_EQ(EditorUser.Get(), Asset);
+	EXPECT_EQ(Handle->GetLoadedObject(), Asset);
 	EditorUser.Reset();
 	CollectGarbage();
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
-
-	const auto Reloaded = LoadPackage(Path);
-	ASSERT_TRUE(Reloaded);
-	Package = *Reloaded;
+	EXPECT_EQ(Handle->GetLoadedObject(), nullptr);
+	EXPECT_EQ(Handle->GetResult()->Package, nullptr);
+	Handle = RequestSyncLoad(Path);
+	ASSERT_TRUE(Handle->GetResult());
+	Package = Handle->GetLoadedPackage();
 	Package->MarkDirty();
-	EXPECT_EQ(ReleasePackageResidency(Package).Error, EAssetReadError::InUse);
+	Handle->ReleaseHandle();
 	CollectGarbage();
 	EXPECT_EQ(FindResidentPackage(Path), Package);
-	ASSERT_TRUE(ReleasePackageResidency(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
-	CollectGarbage();
-	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	ASSERT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
-TEST(FPackageAssetTests, ScheduledScopeReleasePreservesModifiedDependenciesAndPreexistingCache)
+TEST(FPackageAssetTests, StreamableReleasePreservesModifiedDependenciesAndExistingCache)
 {
 	using namespace Durin;
 	InitializeAssetTests();
@@ -3222,21 +3328,21 @@ TEST(FPackageAssetTests, ScheduledScopeReleasePreservesModifiedDependenciesAndPr
 	ASSERT_TRUE(SavePackage(Root->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(RootPath));
 	ASSERT_TRUE(UnloadPackage(DependencyPath));
-	FAssetPackageLoadScope Scope;
-	auto Loaded = Scope.LoadPackage(RootPath);
-	ASSERT_TRUE(Loaded);
+	auto Handle = RequestSyncLoad(RootPath);
+	ASSERT_TRUE(Handle->GetResult());
 	FindResidentPackage(DependencyPath)->MarkDirty();
-	(*Loaded)->MarkDirty();
-	ASSERT_TRUE(Scope.ReleaseResidency(*Loaded, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	Handle->GetLoadedPackage()->MarkDirty();
+	Handle->ReleaseHandle();
 	CollectGarbage();
-	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
+	EXPECT_NE(FindResidentPackage(RootPath), nullptr);
+	ASSERT_TRUE(UnloadPackage(RootPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_NE(FindResidentPackage(DependencyPath), nullptr);
 	EXPECT_TRUE(FindResidentPackage(DependencyPath)->IsDirty());
 	ASSERT_TRUE(SavePackage(FindResidentPackage(DependencyPath)));
 	// A later scope must not claim a dependency already cached by an earlier user.
-	Loaded = Scope.LoadPackage(RootPath);
-	ASSERT_TRUE(Loaded);
-	ASSERT_TRUE(Scope.ReleaseResidency(*Loaded));
+	Handle = RequestSyncLoad(RootPath);
+	ASSERT_TRUE(Handle->GetResult());
+	Handle->ReleaseHandle();
 	CollectGarbage();
 	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
 	EXPECT_NE(FindResidentPackage(DependencyPath), nullptr);
@@ -3263,7 +3369,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeRetainsIndependentDependenciesUntilRel
 	ASSERT_TRUE(UnloadPackage(RootPath));
 	ASSERT_TRUE(UnloadPackage(BulkPath));
 	const auto Count = GetPackageResourceManager().GetRegisteredPackageCount();
-	FAssetPackageLoadScope Scope;
+	FPackageLoadTransaction Scope;
 	DPackage* Loaded = nullptr;
 	GRejectPackageAssetDeserialize = true;
 	const auto Result = Scope.LoadPackage(RootPath);
@@ -3282,7 +3388,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeRetainsIndependentDependenciesUntilRel
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Retained, nullptr);
-	EXPECT_TRUE(Scope.Release());
+	EXPECT_TRUE(Scope.Unload());
 	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), Count);
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(RootPath));
@@ -4534,13 +4640,13 @@ TEST(FPackageAssetTests, CyclicLoadsCompleteTogetherAndRejectPrematurePublicAcce
 	EXPECT_NE(FindResidentPackage(IndependentPath), nullptr);
 	GAuthoredLoadProbe = {};
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(ReentrantPath));
-	FAssetPackageLoadScope Retry;
+	FPackageLoadTransaction Retry;
 	{
 		auto LoadedValue = Retry.LoadPackage(APath);
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_TRUE(Retry.Release());
+	EXPECT_TRUE(Retry.Unload());
 	EXPECT_EQ(FindResidentPackage(APath), nullptr);
 	EXPECT_EQ(FindResidentPackage(BPath), nullptr);
 	ASSERT_TRUE(UnloadPackage(IndependentPath));
@@ -9467,7 +9573,7 @@ TEST(FPackageAssetTests, ExplicitObjectLoadScopePreservesExistingResidency)
 	DPackageAssetForTest* Existing = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(ExistingPath, Existing));
 	ASSERT_TRUE(Durin::SavePackage(Existing->GetPackage()));
-	Durin::FAssetPackageLoadScope Scope;
+	Durin::FPackageLoadTransaction Scope;
 
 	DPackageAssetForTest* Introduced = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(IntroducedPath, Introduced));
@@ -9483,7 +9589,7 @@ TEST(FPackageAssetTests, ExplicitObjectLoadScopePreservesExistingResidency)
 		Existing = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
-	ASSERT_TRUE(Scope.Release());
+	ASSERT_TRUE(Scope.Unload());
 
 	EXPECT_NE(Durin::FindResidentPackage(ExistingPath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(IntroducedPath), nullptr);
@@ -9500,7 +9606,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopePreservesTransientReferencesAndRetries
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SnapshotFree", FreePath));
 	DPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Durin::FAssetPackageLoadScope Scope;
+	Durin::FPackageLoadTransaction Scope;
 	DPackageAssetForTest* Target = nullptr;
 	DPackageAssetForTest* Peer = nullptr;
 	DPackageAssetForTest* Free = nullptr;
@@ -9533,7 +9639,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopePreservesTransientReferencesAndRetries
 	Target->ExternalReference = Peer;
 	Peer->ExternalReference = Target;
 	Durin::TWeakObjectPtr<DPackageAssetForTest> WeakTarget(Target), WeakPeer(Peer);
-	EXPECT_EQ(Scope.Release().Error, Durin::EAssetReadError::InUse);
+	EXPECT_EQ(Scope.Unload().Error, Durin::EAssetReadError::InUse);
 	ASSERT_EQ(WeakTarget.Get(), Target);
 	ASSERT_EQ(WeakPeer.Get(), Peer);
 	EXPECT_EQ(Owner->ExternalReference.Get(), Target);
@@ -9542,7 +9648,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopePreservesTransientReferencesAndRetries
 	EXPECT_TRUE(Peer->GetPackage()->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_EQ(Durin::FindResidentPackage(FreePath), nullptr);
 	Owner->ExternalReference = nullptr;
-	EXPECT_TRUE(Scope.Release());
+	EXPECT_TRUE(Scope.Unload());
 	EXPECT_FALSE(WeakTarget.IsValid());
 	EXPECT_FALSE(WeakPeer.IsValid());
 	EXPECT_TRUE(Durin::UnloadPackage(OwnerPath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
@@ -9560,19 +9666,19 @@ TEST(FPackageAssetTests, ExplicitSoftLoadScopeTransfersSuccessAndReleasesOnAbort
 	ASSERT_TRUE(UnloadPackage(Path));
 	TSoftObjectPtr<DPackageAssetForTest> Soft(MakeFormerMainObjectPath(Path));
 	{
-		FAssetPackageLoadScope Scope;
+		FPackageLoadTransaction Scope;
 		{
 			auto LoadedValue = Scope.LoadObject<DPackageAssetForTest>(Soft.ToSoftObjectPath());
 			Asset = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}
 		EXPECT_EQ(Soft.Get(), Asset);
-		ASSERT_TRUE(Scope.Release());
+		ASSERT_TRUE(Scope.Unload());
 		EXPECT_EQ(FindResidentPackage(Path), nullptr);
 		EXPECT_EQ(Soft.Get(), nullptr);
 	}
 	{
-		FAssetPackageLoadScope Scope;
+		FPackageLoadTransaction Scope;
 		{
 			auto LoadedValue = Scope.LoadObject<DPackageAssetForTest>(Soft.ToSoftObjectPath());
 			Asset = LoadedValue.value_or(nullptr);
@@ -9604,7 +9710,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeOwnsOnlyItsLoadClosureAndKeepsReplacem
 	ASSERT_TRUE(Durin::UnloadPackage(RootPath));
 	ASSERT_TRUE(Durin::UnloadPackage(DependencyPath));
 	ASSERT_TRUE(Durin::UnloadPackage(OtherPath));
-	Durin::FAssetPackageLoadScope Scope;
+	Durin::FPackageLoadTransaction Scope;
 	Durin::DPackage* Loaded = nullptr;
 	{
 		auto LoadedValue = Scope.LoadPackage(RootPath);
@@ -9623,15 +9729,15 @@ TEST(FPackageAssetTests, ExplicitLoadScopeOwnsOnlyItsLoadClosureAndKeepsReplacem
 		Durin::FindResidentPackage(RootPath)->GetTopLevelAssets()[0]);
 	ASSERT_NE(Root, nullptr);
 	Root->GetPackage()->MarkDirty();
-	EXPECT_EQ(Scope.Release().Error, Durin::EAssetReadError::InUse);
+	EXPECT_EQ(Scope.Unload().Error, Durin::EAssetReadError::InUse);
 	EXPECT_NE(Durin::FindResidentPackage(DependencyPath), nullptr);
 	Root->GetPackage()->ClearDirty();
 	Other->ExternalReference = Root;
-	EXPECT_EQ(Scope.Release().Error, Durin::EAssetReadError::InUse);
+	EXPECT_EQ(Scope.Unload().Error, Durin::EAssetReadError::InUse);
 	EXPECT_EQ(Other->ExternalReference.Get(), Root);
 	EXPECT_TRUE(Root->GetPackage()->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	Other->ExternalReference = nullptr;
-	ASSERT_TRUE(Scope.Release());
+	ASSERT_TRUE(Scope.Unload());
 	EXPECT_EQ(Durin::FindResidentPackage(RootPath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(DependencyPath), nullptr);
 	EXPECT_NE(Durin::FindResidentPackage(OtherPath), nullptr);
@@ -9652,11 +9758,11 @@ TEST(FPackageAssetTests, ExplicitLoadScopeOwnsOnlyItsLoadClosureAndKeepsReplacem
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_EQ(Scope.Release().Error, Durin::EAssetReadError::InUse);
+	EXPECT_EQ(Scope.Unload().Error, Durin::EAssetReadError::InUse);
 	EXPECT_NE(Durin::FindResidentPackage(RootPath), nullptr);
 	EXPECT_NE(Durin::FindResidentPackage(OtherPath), nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(RootPath));
-	EXPECT_TRUE(Scope.Release());
+	EXPECT_TRUE(Scope.Unload());
 	EXPECT_TRUE(Durin::UnloadPackage(OtherPath));
 }
 
@@ -11330,7 +11436,7 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
 	MarkObjectHierarchyAsGarbage(Mesh->GetPackage()); CollectGarbage();
     {
         FScopedOfflinePreparation Offline;
-        FAssetPackageLoadScope Scope;
+        FPackageLoadTransaction Scope;
         const auto Loaded = Scope.LoadPackage(Path);
         ASSERT_TRUE(Loaded);
         EXPECT_FALSE((*Loaded)->IsGraphPrivate());
@@ -11338,7 +11444,7 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
         auto* LoadedMesh = Cast<DStaticMesh>((*Loaded)->GetTopLevelAssets().front());
         ASSERT_NE(LoadedMesh, nullptr);
         EXPECT_FALSE(LoadedMesh->IsCompiling());
-        EXPECT_TRUE(Scope.Release());
+        EXPECT_TRUE(Scope.Unload());
     }
 	for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		if (auto* Package = Object->GetPackage()) EXPECT_NE(Package->GetPackagePath(), Path.ToString());

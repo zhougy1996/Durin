@@ -1,4 +1,5 @@
 #include "TextureTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "Threading/TaskRuntime.h"
 #include "DObject/StrongObjectPtr.h"
 

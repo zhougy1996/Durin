@@ -1,4 +1,5 @@
 #include "HAL/PlatformLibrary.h"
+#include "Asset/PackageUnloading.h"
 #include "HAL/PlatformProcess.h"
 #include "Profiling/Profiling.h"
 #include "Asset/PackageSerialization.h"

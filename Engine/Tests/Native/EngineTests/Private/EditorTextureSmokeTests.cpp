@@ -1,4 +1,5 @@
 #include "Editor/AssetEditorTestHost.h"
+#include "Asset/PackageUnloading.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"

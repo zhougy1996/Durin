@@ -1,10 +1,12 @@
 #include "DObject/PackagePersistence.h"
+#include "PackageLoadTransaction.h"
+#include "Asset/PackageUnloading.h"
 #include "DObject/SoftObjectPathServices.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetAsyncLoadInternal.h"
 #include "AssetObjectLoadTiming.h"
-#include "Asset/AsyncLoad.h"
+#include "Asset/StreamableHandle.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRegistry/Scan.h"
 #include "AssetMutationRegistryInternal.h"
@@ -188,7 +190,7 @@ namespace Durin
 		}
 	}
 
-	auto FAssetPackageLoadScope::LoadPackage(const FPackagePath& Path,
+	auto FPackageLoadTransaction::LoadPackage(const FPackagePath& Path,
 		FAssetLoadReport* OutReport) -> std::expected<DPackage*, FAssetReadError>
 	{
 		CheckSoftObjectThread();
@@ -204,7 +206,7 @@ namespace Durin
 		return Durin::LoadPackage(Path, OutReport);
 	}
 
-	auto FAssetPackageLoadScope::LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
+	auto FPackageLoadTransaction::LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
 		FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>
 	{
 		CheckSoftObjectThread();
@@ -220,7 +222,7 @@ namespace Durin
 		return Durin::LoadObject(Path, ExpectedClass, OutReport);
 	}
 
-	auto FAssetPackageLoadScope::Release(
+	auto FPackageLoadTransaction::Unload(
 		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetReadResult
 	{
 		CheckSoftObjectThread();
@@ -230,10 +232,10 @@ namespace Durin
 		return Result;
 	}
 
-	auto ReleasePackageResidency(DPackage* Package, EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
+	auto ReleasePackageCache(DPackage* Package, EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
 	{
 		CheckSoftObjectThread();
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackageResidency", ""); !Result) return Result;
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackageCache", ""); !Result) return Result;
 		if (!IsValid(Package) || !Package->IsAssetPackage() || Package->IsGraphPrivate())
 			return Error(EAssetReadError::InvalidPackageType, "The package to release is invalid.");
 		auto& Loader = FAssetRuntimeState::Get().GetLoadService();
@@ -248,13 +250,13 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetPackageLoadScope::ReleaseResidency(DPackage* Root, EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
+	auto FPackageLoadTransaction::ReleaseCache(DPackage* Root, EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
 	{
 		CheckSoftObjectThread();
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleaseResidency", ""); !Result) return Result;
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleaseCache", ""); !Result) return Result;
 		if (Root)
 		{
-			const auto Result = ReleasePackageResidency(Root, Policy);
+			const auto Result = ReleasePackageCache(Root, Policy);
 			if (!Result) return Result;
 		}
 		for (const auto& Entry : Packages)
@@ -262,7 +264,7 @@ namespace Durin
 			DPackage* Package = Entry.Get();
 			if (!IsValid(Package) || Package == Root || Package->IsGraphPrivate()) continue;
 			// A modified dependency belongs to its editing user, not the closing map.
-			(void)ReleasePackageResidency(Package);
+			(void)ReleasePackageCache(Package);
 		}
 		Packages.clear();
 		return {};

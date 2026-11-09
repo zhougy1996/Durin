@@ -1,4 +1,5 @@
 #include "ComponentPSOPrecacheTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "RenderResource.h"
 #include "Components/PrimitiveComponent.h"

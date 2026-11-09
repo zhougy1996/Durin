@@ -1,4 +1,5 @@
 #include "Texture/Texture2DBuildDiagnostics.h"
+#include "Asset/PackageUnloading.h"
 #include "DObject/PropertyChange.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "../DerivedDataBuildTestSupport.h"

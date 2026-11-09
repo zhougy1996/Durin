@@ -1,4 +1,5 @@
 #include "AssetTools/AssetToolsModule.h"
+#include "Asset/PackageUnloading.h"
 
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Load.h"

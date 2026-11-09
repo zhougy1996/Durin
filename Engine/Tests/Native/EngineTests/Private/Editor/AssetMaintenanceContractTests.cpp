@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "Asset/PackageUnloading.h"
 
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"

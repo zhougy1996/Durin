@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "Asset/PackageLoadTransaction.h"
+#include "Asset/PackageUnloading.h"
 #include <gtest/gtest-spi.h>
 
 #include "Asset/PackageSerialization.h"
@@ -533,7 +535,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 {
 	(void)MakePackageBytes();
 	FCookRequest Request;
-	FAssetPackageLoadScope LoadScope;
+	FPackageLoadTransaction LoadScope;
 	AssetPrivate::FCookDependencyDiscovery Limited(Request, CaptureAssetRegistrySnapshot(), LoadScope);
 	std::vector<FPackagePath> Roots(MaximumCookDependencyRecords + 1);
 	const auto Rejected = Limited.Acquire(Roots, {});

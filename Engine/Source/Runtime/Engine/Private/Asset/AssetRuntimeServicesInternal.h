@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Asset/PackageUnloading.h"
 
 #include "AssetSubsystemFwd.h"
 #include "Asset/Load.h"
@@ -10,7 +11,7 @@
 namespace Durin
 {
 	struct FAsyncPackageInput;
-	class FAsyncAssetLoadService;
+	class FAssetLoadRequestService;
 	// Owns incomplete load components and coordinates completed package residency.
 	class FAssetLoadService
 	{
@@ -100,7 +101,7 @@ namespace Durin
 		const std::unordered_map<FPackagePath, FAsyncPackageInput>* AsyncInputs = nullptr;
 
 		friend class FAssetMutationCoordinator;
-		friend class FAsyncAssetLoadService;
+		friend class FAssetLoadRequestService;
 	};
 
 	// Coordinates persistent asset mutations across catalog, residency, and disk.

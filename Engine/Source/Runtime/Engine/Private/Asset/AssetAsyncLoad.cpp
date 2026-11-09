@@ -1,4 +1,5 @@
-#include "Asset/AsyncLoad.h"
+#include "Asset/StreamableHandle.h"
+#include "PackageLoadTransaction.h"
 #include "AssetAsyncLoadInternal.h"
 #include "AssetObjectLoadTiming.h"
 #include "AssetRuntimeStateInternal.h"
@@ -70,90 +71,125 @@ namespace Durin
 		}
 	}
 
-	struct FAsyncLoadHandle::FImpl
+	struct FStreamableHandle::FImpl
 	{
-		EAsyncLoadState State = EAsyncLoadState::Pending;
-		std::optional<std::expected<FAsyncLoadedAssets, FAssetReadError>> Result;
+		EAssetLoadState State = EAssetLoadState::Pending;
+		std::optional<FAssetReadError> Failure;
 		FAssetLoadReport Report;
 		FPackagePath PackagePath;
 		std::optional<FObjectPath> ObjectPath;
 		const DClass* ExpectedClass = nullptr;
 		int32 Priority = 0;
-		FAsyncLoadCallback Callback;
+		FStreamableDelegate Callback;
 		TStrongObjectPtr<DPackage> Package;
 		TStrongObjectPtr<DObject> Object;
-		FAssetPackageLoadScope LoadScope;
+		TWeakObjectPtr<DPackage> LoadedPackage;
+		TWeakObjectPtr<DObject> LoadedObject;
+		bool bReleaseRequested = false;
+		bool bReleased = false;
+		bool bCompletionPending = false;
 	};
 
-	FAsyncLoadHandle::FAsyncLoadHandle() : Impl(std::make_unique<FImpl>()) {}
-	FAsyncLoadHandle::~FAsyncLoadHandle()
-	{
-		CheckAsyncLoadThread();
-		// Like a streamable handle, release this request's retention only. Other
-		// handles and live object references remain independent GC owners.
-		(void)Impl->LoadScope.ReleaseResidency();
-		if (Impl->Package.IsValid()) RequestGarbageCollection();
-	}
-	auto FAsyncLoadHandle::GetState() const -> EAsyncLoadState { CheckAsyncLoadThread(); return Impl->State; }
-	auto FAsyncLoadHandle::IsComplete() const -> bool
+	FStreamableHandle::FStreamableHandle() : Impl(std::make_unique<FImpl>()) {}
+	FStreamableHandle::~FStreamableHandle() { CheckAsyncLoadThread(); ReleaseRetention(); }
+	auto FStreamableHandle::GetState() const -> EAssetLoadState { CheckAsyncLoadThread(); return Impl->State; }
+	auto FStreamableHandle::IsComplete() const -> bool
 	{
 		const auto State = GetState();
-		return State == EAsyncLoadState::Succeeded || State == EAsyncLoadState::Failed
-			|| State == EAsyncLoadState::Cancelled;
+		return State == EAssetLoadState::Succeeded || State == EAssetLoadState::Failed || State == EAssetLoadState::Cancelled;
 	}
-	auto FAsyncLoadHandle::GetResult() const -> const std::expected<FAsyncLoadedAssets, FAssetReadError>&
+	auto FStreamableHandle::IsActive() const -> bool
 	{
 		CheckAsyncLoadThread();
-		check(IsComplete() && Impl->Result);
-		return *Impl->Result;
+		return !Impl->bReleased && (Impl->State == EAssetLoadState::Pending
+			|| Impl->State == EAssetLoadState::Loading || Impl->State == EAssetLoadState::Succeeded);
 	}
-	auto FAsyncLoadHandle::GetReport() const -> const FAssetLoadReport& { CheckAsyncLoadThread(); return Impl->Report; }
-	auto FAsyncLoadHandle::GetLoadedPackage() const -> DPackage* { CheckAsyncLoadThread(); return Impl->Package.Get(); }
-	auto FAsyncLoadHandle::GetLoadedObject() const -> DObject* { CheckAsyncLoadThread(); return Impl->Object.Get(); }
-	auto FAsyncLoadHandle::Cancel() -> void
+	auto FStreamableHandle::GetResult() const -> std::expected<FStreamableLoadResult, FAssetReadError>
 	{
 		CheckAsyncLoadThread();
-		if (IsComplete()) { Impl->Callback = {}; return; }
-		Impl->State = EAsyncLoadState::Cancelled;
-		Impl->Result = std::unexpected(FAssetReadError{EAssetReadError::Cancelled, "Async load request cancelled."});
-		Impl->Report.Error = Impl->Result->error().Code;
-		Impl->Report.ErrorMessage = Impl->Result->error().Message;
+		check(IsComplete());
+		if (Impl->Failure) return std::unexpected(*Impl->Failure);
+		return FStreamableLoadResult{GetLoadedPackage(), GetLoadedObject()};
+	}
+	auto FStreamableHandle::GetReport() const -> const FAssetLoadReport& { CheckAsyncLoadThread(); return Impl->Report; }
+	auto FStreamableHandle::GetLoadedPackage() const -> DPackage*
+	{
+		CheckAsyncLoadThread();
+		return Impl->bReleased ? Impl->LoadedPackage.Get() : Impl->Package.Get();
+	}
+	auto FStreamableHandle::GetLoadedObject() const -> DObject*
+	{
+		CheckAsyncLoadThread();
+		return Impl->bReleased ? Impl->LoadedObject.Get() : Impl->Object.Get();
+	}
+	auto FStreamableHandle::ReleaseRetention() -> void
+	{
+		if (Impl->bReleased) return;
+		const bool bHadRetention = Impl->Package.IsValid() || Impl->Object.IsValid();
+		Impl->LoadedPackage = Impl->Package.Get();
+		Impl->LoadedObject = Impl->Object.Get();
+		Impl->Object.Reset();
+		Impl->Package.Reset();
+		Impl->bReleased = true;
+		if (bHadRetention) RequestGarbageCollection();
+	}
+	auto FStreamableHandle::ReleaseHandle() -> void
+	{
+		CheckAsyncLoadThread();
+		Impl->bReleaseRequested = true;
+		if (IsComplete() && !Impl->bCompletionPending) ReleaseRetention();
+	}
+	auto FStreamableHandle::CancelHandle() -> void
+	{
+		CheckAsyncLoadThread();
 		Impl->Callback = {};
+		Impl->bCompletionPending = false;
+		Impl->bReleaseRequested = true;
+		if (!IsComplete())
+		{
+			Impl->State = EAssetLoadState::Cancelled;
+			Impl->Failure = FAssetReadError{EAssetReadError::Cancelled, "Asset load request cancelled."};
+			Impl->Report.Error = Impl->Failure->Code;
+			Impl->Report.ErrorMessage = Impl->Failure->Message;
+		}
+		ReleaseRetention();
 	}
 
-	class FAsyncAssetLoadService
+	class FAssetLoadRequestService
 	{
 		struct FJob
 		{
 			FPackagePath Path;
 			uint64 Revision = 0;
-			std::vector<std::shared_ptr<FAsyncLoadHandle>> Handles;
+			std::vector<std::shared_ptr<FStreamableHandle>> Handles;
 			Tasks::TTask<FAsyncPackageInputs> Read;
 			Tasks::FCancellationToken Cancellation;
 		};
-		std::vector<std::shared_ptr<FAsyncLoadHandle>> Pending;
-		std::vector<std::shared_ptr<FAsyncLoadHandle>> Deliveries;
+		std::vector<std::shared_ptr<FStreamableHandle>> Pending;
+		std::vector<std::shared_ptr<FStreamableHandle>> Deliveries;
 		std::vector<std::shared_ptr<FJob>> Jobs;
 		bool bProcessing = false;
 
-		auto Complete(const std::shared_ptr<FAsyncLoadHandle>& Handle, FAssetReadResult Result,
+		auto Complete(const std::shared_ptr<FStreamableHandle>& Handle, FAssetReadResult Result,
 			DPackage* Package = nullptr, DObject* Object = nullptr) -> void
 		{
 			if (Handle->IsComplete()) return;
 			auto& State = *Handle->Impl;
 			State.Report.Error = Result.Error;
 			State.Report.ErrorMessage = Result.Message;
-			State.State = Result ? EAsyncLoadState::Succeeded : EAsyncLoadState::Failed;
+			State.State = Result ? EAssetLoadState::Succeeded : EAssetLoadState::Failed;
 			if (Result)
 			{
 				State.Package = Package; State.Object = Object;
-				State.Result = FAsyncLoadedAssets{Package, Object};
+				State.LoadedPackage = Package; State.LoadedObject = Object;
 			}
-			else State.Result = std::unexpected(AssetReadErrorFromResult(Result));
+			else State.Failure = AssetReadErrorFromResult(Result);
+			State.bCompletionPending = static_cast<bool>(State.Callback);
 			if (State.Callback) Deliveries.push_back(Handle);
+			else if (State.bReleaseRequested) Handle->ReleaseRetention();
 		}
 
-		auto Apply(const std::shared_ptr<FAsyncLoadHandle>& Handle, const FAsyncPackageInputs& Inputs) -> void
+		auto Apply(const std::shared_ptr<FStreamableHandle>& Handle, const FAsyncPackageInputs* Inputs = nullptr) -> void
 		{
 			if (Handle->IsComplete()) return;
 			AssetPrivate::FObjectLoadTimingSession TimingSession(Handle->Impl->PackagePath);
@@ -163,11 +199,11 @@ namespace Durin
 			DPackage* Package = nullptr;
 			DObject* Object = nullptr;
 			FAssetReadResult Result;
-			FAssetPackageLoadScope LoadScope;
+			FPackageLoadTransaction LoadScope;
 			{
 				// Preserve the synchronous loader's SCC ordering, rollback and publication.
 				// No uncaptured dependency may silently perform disk I/O on GameThread.
-				const auto* Previous = std::exchange(Loader.AsyncInputs, &Inputs);
+				const auto* Previous = std::exchange(Loader.AsyncInputs, Inputs);
 				struct FRestore { decltype(Loader.AsyncInputs)& Slot; decltype(Previous) Value;
 					~FRestore() { Slot = Value; } } Restore{Loader.AsyncInputs, Previous};
 				if (State.ObjectPath)
@@ -185,17 +221,16 @@ namespace Durin
 				}
 			}
 			Complete(Handle, std::move(Result), Package, Object);
-			if (State.State == EAsyncLoadState::Succeeded) State.LoadScope = std::move(LoadScope);
-			else (void)LoadScope.ReleaseResidency();
+			(void)LoadScope.ReleaseCache();
 		}
 
 	public:
 		auto Request(FPackagePath PackagePath, std::optional<FObjectPath> ObjectPath,
-			const DClass* ExpectedClass, FAsyncLoadCallback Callback, int32 Priority)
-			-> std::shared_ptr<FAsyncLoadHandle>
+			const DClass* ExpectedClass, FStreamableDelegate Callback, int32 Priority)
+			-> std::shared_ptr<FStreamableHandle>
 		{
 			CheckAsyncLoadThread();
-			auto Handle = std::shared_ptr<FAsyncLoadHandle>(new FAsyncLoadHandle());
+			auto Handle = std::shared_ptr<FStreamableHandle>(new FStreamableHandle());
 			auto& State = *Handle->Impl;
 			State.PackagePath = std::move(PackagePath);
 			State.ObjectPath = std::move(ObjectPath);
@@ -216,6 +251,26 @@ namespace Durin
 			return Handle;
 		}
 
+		auto RequestSync(FPackagePath PackagePath, std::optional<FObjectPath> ObjectPath,
+			const DClass* ExpectedClass) -> std::shared_ptr<FStreamableHandle>
+		{
+			CheckAsyncLoadThread();
+			auto Handle = std::shared_ptr<FStreamableHandle>(new FStreamableHandle());
+			Handle->Impl->PackagePath = std::move(PackagePath);
+			Handle->Impl->ObjectPath = std::move(ObjectPath);
+			Handle->Impl->ExpectedClass = ExpectedClass;
+			Handle->Impl->Report.RequestedPath = Handle->Impl->PackagePath;
+			auto Admission = AssetPrivate::FAssetLiveLoadGuard::Check("sync load", Handle->Impl->PackagePath.ToString());
+			if (Admission && !FAssetRuntimeState::Get().IsAcceptingRequests())
+				Admission = {EAssetReadError::ShuttingDown, "Asset loading is closed."};
+			if (Admission && (!Handle->Impl->PackagePath.IsValid()
+				|| (Handle->Impl->ObjectPath && !Handle->Impl->ObjectPath->IsValid())))
+				Admission = {EAssetReadError::InvalidPath, "A load request requires a valid package or object path."};
+			if (Admission) Apply(Handle);
+			else Complete(Handle, std::move(Admission));
+			return Handle;
+		}
+
 		auto Process(double Milliseconds, uint32 MaximumCompletions) -> void
 		{
 			CheckAsyncLoadThread();
@@ -225,6 +280,7 @@ namespace Durin
 			struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bProcessing};
 			const auto Start = std::chrono::steady_clock::now();
 			uint32 Completed = 0;
+			const FAsyncPackageInputs EmptyInputs;
 			auto HasBudget = [&] {
 				return Completed < MaximumCompletions && (Completed == 0 ||
 					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count() < Milliseconds);
@@ -236,12 +292,14 @@ namespace Durin
 				auto Handle = std::move(Deliveries.front());
 				Deliveries.erase(Deliveries.begin());
 				auto Callback = std::move(Handle->Impl->Callback);
+				Handle->Impl->bCompletionPending = false;
 				if (Callback)
 				{
 					try { Callback(*Handle); }
 					catch (...) { DURIN_ERROR("Async asset load completion callback threw an exception."); }
 					++Completed;
 				}
+				if (Handle->Impl->bReleaseRequested) Handle->ReleaseRetention();
 			}
 			for (size_t Index = 0; Index < Jobs.size() && HasBudget();)
 			{
@@ -263,7 +321,7 @@ namespace Durin
 					Result = {EAssetReadError::StaleData, "Asset catalog changed during async loading; retry the request."};
 				for (auto& Handle : Finished->Handles)
 				{
-					if (Result) Apply(Handle, Inputs);
+					if (Result) Apply(Handle, &Inputs);
 					else Complete(Handle, Result);
 				}
 				++Completed;
@@ -288,7 +346,7 @@ namespace Durin
 				{
 					const auto Resolution = ResolveAssetObjectPathForOperation(*State.ObjectPath,
 						{.ExpectedClass = State.ExpectedClass});
-					if (!Resolution) { Apply(Handle, {}); ++Completed; continue; }
+					if (!Resolution) { Apply(Handle, &EmptyInputs); ++Completed; continue; }
 					Root = Resolution.FinalPath.GetPackagePath();
 				}
 				if (!Root.IsValid())
@@ -296,12 +354,12 @@ namespace Durin
 					Complete(Handle, {EAssetReadError::InvalidPath, "Async load requires a valid package path."});
 					++Completed; continue;
 				}
-				if (FindResidentPackage(Root)) { Apply(Handle, {}); ++Completed; continue; }
+				if (FindResidentPackage(Root)) { Apply(Handle, &EmptyInputs); ++Completed; continue; }
 				const auto Existing = std::ranges::find_if(Jobs, [&](const auto& Job) { return Job->Path == Root; });
 				if (Existing != Jobs.end() && !(*Existing)->Cancellation.IsCanceled())
 				{
 					(*Existing)->Handles.push_back(Handle);
-					State.State = EAsyncLoadState::Loading;
+					State.State = EAssetLoadState::Loading;
 					continue;
 				}
 				if (Jobs.size() >= MaximumConcurrentReads) { Pending.push_back(Handle); continue; }
@@ -333,7 +391,7 @@ namespace Durin
 					[Sources = std::move(Sources), Job]() mutable {
 						return ReadInputs(std::move(Sources), Job->Cancellation);
 					});
-				State.State = EAsyncLoadState::Loading;
+				State.State = EAssetLoadState::Loading;
 				Jobs.push_back(std::move(Job));
 			}
 		}
@@ -342,13 +400,13 @@ namespace Durin
 		{
 			CheckAsyncLoadThread();
 			if (!AssetPrivate::FAssetLiveLoadGuard::Check("async load cancellation", "")) return;
-			for (auto& Handle : Pending) Handle->Cancel();
+			for (auto& Handle : Pending) Handle->CancelHandle();
 			Pending.clear();
-			for (auto& Handle : Deliveries) Handle->Cancel();
+			for (auto& Handle : Deliveries) Handle->CancelHandle();
 			Deliveries.clear();
 			for (auto& Job : Jobs)
 			{
-				for (auto& Handle : Job->Handles) Handle->Cancel();
+				for (auto& Handle : Job->Handles) Handle->CancelHandle();
 				Job->Cancellation.Cancel();
 				(void)WaitTask(Durin::Tasks::FTask(Job->Read));
 			}
@@ -356,19 +414,33 @@ namespace Durin
 		}
 	};
 
-	namespace { auto AsyncLoader() -> FAsyncAssetLoadService& { static FAsyncAssetLoadService Loader; return Loader; } }
-	auto LoadPackageAsync(const FPackagePath& Path, FAsyncLoadCallback Callback, int32 Priority)
-		-> std::shared_ptr<FAsyncLoadHandle>
+	namespace { auto AsyncLoader() -> FAssetLoadRequestService& { static FAssetLoadRequestService Loader; return Loader; } }
+	auto RequestSyncLoad(const FPackagePath& Path) -> std::shared_ptr<FStreamableHandle>
+	{
+		return AsyncLoader().RequestSync(Path, {}, nullptr);
+	}
+	auto RequestSyncLoad(const FObjectPath& Path, const DClass* ExpectedClass) -> std::shared_ptr<FStreamableHandle>
+	{
+		return AsyncLoader().RequestSync(Path.GetPackagePath(), Path, ExpectedClass);
+	}
+	auto RequestSyncLoad(const FTopLevelAssetPath& Path, const DClass* ExpectedClass) -> std::shared_ptr<FStreamableHandle>
+	{
+		FObjectPath ObjectPath;
+		FObjectPath::TryCreate(Path, std::span<const std::string>{}, ObjectPath);
+		return RequestSyncLoad(ObjectPath, ExpectedClass);
+	}
+	auto RequestAsyncLoad(const FPackagePath& Path, FStreamableDelegate Callback, int32 Priority)
+		-> std::shared_ptr<FStreamableHandle>
 	{
 		return AsyncLoader().Request(Path, {}, nullptr, std::move(Callback), Priority);
 	}
-	auto RequestAsyncLoad(const FObjectPath& Path, FAsyncLoadCallback Callback,
-		const DClass* ExpectedClass, int32 Priority) -> std::shared_ptr<FAsyncLoadHandle>
+	auto RequestAsyncLoad(const FObjectPath& Path, FStreamableDelegate Callback,
+		const DClass* ExpectedClass, int32 Priority) -> std::shared_ptr<FStreamableHandle>
 	{
 		return AsyncLoader().Request(Path.GetPackagePath(), Path, ExpectedClass, std::move(Callback), Priority);
 	}
-	auto RequestAsyncLoad(const FTopLevelAssetPath& Path, FAsyncLoadCallback Callback,
-		const DClass* ExpectedClass, int32 Priority) -> std::shared_ptr<FAsyncLoadHandle>
+	auto RequestAsyncLoad(const FTopLevelAssetPath& Path, FStreamableDelegate Callback,
+		const DClass* ExpectedClass, int32 Priority) -> std::shared_ptr<FStreamableHandle>
 	{
 		FObjectPath ObjectPath;
 		FObjectPath::TryCreate(Path, std::span<const std::string>{}, ObjectPath);

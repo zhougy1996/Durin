@@ -1,4 +1,5 @@
 #include "AssetMaintenance/CanonicalResave.h"
+#include "Asset/StreamableHandle.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageSerialization.h"
 
@@ -322,7 +323,7 @@ namespace Durin
 					&& static_cast<bool>(RegistryRestored);
 			};
 
-			FAssetPackageLoadScope LoadScope;
+			std::shared_ptr<FStreamableHandle> LoadHandle;
 			DPackage* Package = FindResidentPackage(PackagePlan.PackagePath);
 			const bool bWasLoaded = Package != nullptr;
 			std::vector<std::pair<DTexture*, FTextureSource>> Originals;
@@ -332,7 +333,12 @@ namespace Durin
 					for (auto& [Texture, Source] : Originals)
 						(void)Texture->ReplaceSourceStorage(std::move(Source));
 				Originals.clear();
-				return bWasLoaded ? FAssetReadResult{} : LoadScope.Release();
+				if (!bWasLoaded && LoadHandle)
+				{
+					LoadHandle->ReleaseHandle();
+					CollectGarbage(); // Explicit offline batch boundary, after dropping local source values.
+				}
+				return FAssetReadResult{};
 			};
 			FAssetLoadReport LoadReport;
 			if (!Package)
@@ -344,8 +350,10 @@ namespace Durin
 					Result.Diagnostic = "Injected canonical-resave load failure.";
 					return Result;
 				}
-				auto Load = LoadScope.LoadPackage(PackagePlan.PackagePath, &LoadReport);
-				Package = Load.value_or(nullptr);
+				LoadHandle = RequestSyncLoad(PackagePlan.PackagePath);
+				LoadReport = LoadHandle->GetReport();
+				const auto Load = LoadHandle->GetResult();
+				Package = Load ? Load->Package : nullptr;
 				if (!Load || !Package || LoadReport.HasNonUpgradeMutations())
 				{
 					(void)ReleaseLoaded();

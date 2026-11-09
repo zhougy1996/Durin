@@ -1,4 +1,5 @@
 #include "Texture/Texture2DCompilationTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "Asset/Cook.h"

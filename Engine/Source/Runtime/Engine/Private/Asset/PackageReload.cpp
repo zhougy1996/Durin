@@ -1,4 +1,5 @@
 #include "Materials/MaterialExpressionBuild.h"
+#include "PackageLoadTransaction.h"
 #include "Asset/PackageReload.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -499,7 +500,7 @@ namespace Durin
 						Stage::ReadAndPrepare, Paths[Index], Reason::InjectedBulkReadFailure));
 			}
 
-			FAssetPackageLoadScope DependencyScope;
+			FPackageLoadTransaction DependencyScope;
 			std::vector<AssetPrivate::FPreparedPackageGraph> Graphs;
 			AssetPrivate::FPackageGraphPrepareOptions Options;
 			Options.AdmittedClasses = MakeAdmittedClasses();
@@ -528,7 +529,7 @@ namespace Durin
 				Graphs.clear();
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-				(void)DependencyScope.Release(Ignore);
+				(void)DependencyScope.Unload(Ignore);
 				const bool bCancelled = Prepared.Status == AssetPrivate::EPackageGraphPrepareStatus::Cancelled;
 				return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
 					bCancelled ? Failure::None : MapGraphFailure(Prepared.Status),
@@ -545,7 +546,7 @@ namespace Durin
 				Graphs.clear();
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-				(void)DependencyScope.Release(Ignore);
+				(void)DependencyScope.Unload(Ignore);
 				if (RuntimeResult.Status == Status::Pending)
 					RuntimeResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
 						Stage::PrepareRuntimeProducts, {}, Reason::InjectedRuntimeFailure);
@@ -566,7 +567,7 @@ namespace Durin
 				Graphs.clear();
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-				(void)DependencyScope.Release(Ignore);
+				(void)DependencyScope.Unload(Ignore);
 				return Finish(MakeResult(Status::Failed, Failure::ParticipantRejected,
 					Stage::PrepareReferences, {}, Reason::InjectedReferenceFailure));
 			}
@@ -580,7 +581,7 @@ namespace Durin
 				Graphs.clear();
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-				(void)DependencyScope.Release(Ignore);
+				(void)DependencyScope.Unload(Ignore);
 				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.error().Code),
 					Stage::PrepareReferences, {}, Reason::Replacement, {.Message = ToString(ReplaceResult.error())}));
 			}
@@ -592,7 +593,7 @@ namespace Durin
 					Replacement->Abort(); Graphs.clear();
 					std::vector<TWeakObjectPtr<DPackage>> Ignore;
 					for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-					(void)DependencyScope.Release(Ignore);
+					(void)DependencyScope.Unload(Ignore);
 					return Finish(MakeResult(Status::Failed, Failure::Stale,
 						Stage::Revalidate, Paths[SourceIndex], Reason::InjectedDiskRevalidationFailure));
 				}
@@ -601,7 +602,7 @@ namespace Durin
 					Replacement->Abort(); Graphs.clear();
 					std::vector<TWeakObjectPtr<DPackage>> Ignore;
 					for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-					(void)DependencyScope.Release(Ignore);
+					(void)DependencyScope.Unload(Ignore);
 					const bool bCancelled = Revalidate.error().Code == EPreparedPackageResourceError::Cancelled;
 					return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
 						bCancelled ? Failure::None : Failure::Stale, Stage::Revalidate, {}, Reason::ResourceRevalidation, {.Message = FormatPreparedPackageResourceError(Revalidate.error())}));
@@ -613,7 +614,7 @@ namespace Durin
 				Replacement->Abort(); Graphs.clear();
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-				(void)DependencyScope.Release(Ignore);
+				(void)DependencyScope.Unload(Ignore);
 				return Finish(MakeResult(Status::Failed, Failure::Stale,
 					Stage::Revalidate, {}, Reason::InjectedFinalValidationFailure));
 			}
@@ -623,7 +624,7 @@ namespace Durin
 				Replacement->Abort(); Graphs.clear();
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-				(void)DependencyScope.Release(Ignore);
+				(void)DependencyScope.Unload(Ignore);
 				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.error().Code),
 					Stage::Commit, {}, Reason::Replacement, {.Message = ToString(ReplaceResult.error())}));
 			}
@@ -636,7 +637,7 @@ namespace Durin
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				Ignore.reserve(Packages.size());
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-				const auto ReleaseResult = DependencyScope.Release(Ignore);
+				const auto ReleaseResult = DependencyScope.Unload(Ignore);
 				if (!ReleaseResult)
 				{
 					// Publication is already committed. Dependency retention is safe and

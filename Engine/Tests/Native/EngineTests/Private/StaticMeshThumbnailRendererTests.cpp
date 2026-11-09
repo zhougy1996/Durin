@@ -1,4 +1,5 @@
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/PackageUnloading.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
 #include "Assets/ContentBrowserThumbnailReferences.h"

@@ -309,7 +309,7 @@ namespace Durin::Editor::StaticMesh
 			{
 				ResetScenePreview();
 				StaticMesh = nullptr;
-				if (AssetLoad) AssetLoad->Cancel();
+				if (AssetLoad) AssetLoad->CancelHandle();
 				AssetLoad.reset();
 				Shaders = {};
 				bShadersRequested = false;
@@ -326,7 +326,7 @@ namespace Durin::Editor::StaticMesh
 
 			FStaticMeshThumbnailRendererGenerationInput Input;
 			DStaticMesh* StaticMesh = nullptr;
-			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
+			std::shared_ptr<FStreamableHandle> AssetLoad;
 			uint64 AssetRevision = 0;
 			uint64 PreparedResourceRevision = 0;
 			std::vector<std::pair<FWeakObjectPtr, FMaterialResource>> PreparedMaterials;

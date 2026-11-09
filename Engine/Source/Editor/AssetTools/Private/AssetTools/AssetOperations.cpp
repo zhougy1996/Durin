@@ -1,4 +1,5 @@
 #include "AssetTools/IAssetTools.h"
+#include "Asset/PackageUnloading.h"
 
 #include "Asset/PackageSerialization.h"
 #include "AssetMaintenance/CanonicalResave.h"

@@ -1,4 +1,5 @@
 #include "ComponentPSOPrecacheTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "StaticMeshRenderPreparationTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "PSOPrecache.h"

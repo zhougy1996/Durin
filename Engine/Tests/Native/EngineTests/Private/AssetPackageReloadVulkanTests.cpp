@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "EngineTestSupport.h"
 #include "VulkanEngineTestSupport.h"
 #include "Asset/AssetCompilingManager.h"

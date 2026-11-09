@@ -1,4 +1,5 @@
 #pragma once
+#include "PackageLoadTransaction.h"
 
 #include "CoreMinimal.h"
 #include "DObject/PackageCapture.h"
@@ -63,7 +64,7 @@ namespace Durin::AssetPrivate
 		// their PostLoad). The caller admits that closure separately, retains the
 		// scope on failure and releases it after dropping candidate references.
 		// Scoped loads require resident targets to prevent recursive publication of them.
-		FAssetPackageLoadScope* DependencyLoadScope = nullptr;
+		FPackageLoadTransaction* DependencyLoadScope = nullptr;
 		std::function<bool()> IsCancelled;
 		std::function<bool(uint64, ELinkerLoadPhase, uint64)> ShouldFail;
 	};

@@ -1,4 +1,5 @@
 #pragma once
+#include "PackageLoadTransaction.h"
 
 #include "CoreMinimal.h"
 
@@ -20,7 +21,7 @@ namespace Durin::AssetPrivate
 	{
 	public:
 		ENGINE_API FCookDependencyDiscovery(const FCookRequest& Request, FAssetRegistrySnapshot Registry,
-			FAssetPackageLoadScope& LoadScope, const FCookState* PreviousState = nullptr);
+			FPackageLoadTransaction& LoadScope, const FCookState* PreviousState = nullptr);
 		FCookDependencyDiscovery(const FCookDependencyDiscovery&) = delete;
 		auto operator=(const FCookDependencyDiscovery&) -> FCookDependencyDiscovery& = delete;
 		ENGINE_API auto Acquire(std::span<const FPackagePath> Roots, const FAssetReferenceStoreCapture& ExternalRoots) -> FCookInputResult;
@@ -65,7 +66,7 @@ namespace Durin::AssetPrivate
 		auto Fail(const FCookContributionResult& Result) -> FCookInputResult { return Fail(Result.Status == ECookContributionStatus::Canceled ? FCookInputResult{ECookInputStatus::Cancelled} : FCookInputResult{ECookInputStatus::InvalidDependency, FormatCookContributionError(Result)}); }
 		const FCookRequest& Request;
 		FAssetRegistrySnapshot Registry;
-		FAssetPackageLoadScope& LoadScope;
+		FPackageLoadTransaction& LoadScope;
 		std::unordered_map<std::string, const FCookInputProjection*> PreviousProjections;
 		std::unordered_map<std::string, FObjectCookContext> NativeSchemas;
 		FReflectionSchemaCatalog Schema;

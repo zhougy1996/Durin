@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "Asset/PackageUnloading.h"
 #include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"
 #include "DObject/Package.h"

@@ -95,6 +95,8 @@ namespace Durin
 		auto MarkDirty() -> void
 		{
 			if (!IsAssetPackage()) return;
+			// Unsaved authored edits are an editor owner, independent of load handles.
+			if (!bGraphPrivate) SetStandaloneResidency(true);
 			bDirty = true;
 			++EditRevision;
 		}

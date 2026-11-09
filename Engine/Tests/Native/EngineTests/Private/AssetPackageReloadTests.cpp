@@ -1,4 +1,5 @@
 #include "HAL/PlatformLTS.h"
+#include "Asset/PackageUnloading.h"
 #include "CoreGlobals.h"
 #include "Asset/AssetObjectLoadTiming.h"
 #include "NativeAssetBuildTestSupport.h"

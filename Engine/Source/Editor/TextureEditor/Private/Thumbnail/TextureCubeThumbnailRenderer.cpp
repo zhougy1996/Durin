@@ -197,7 +197,7 @@ namespace Durin::Editor::Texture
 				Snapshot = nullptr;
 				TextureCube = nullptr;
 				bAssetLoaded = false;
-				if (AssetLoad) AssetLoad->Cancel();
+				if (AssetLoad) AssetLoad->CancelHandle();
 				AssetLoad.reset();
 				Shaders = {};
 				bShadersRequested = false;
@@ -206,7 +206,7 @@ namespace Durin::Editor::Texture
 		private:
 			FShaderMapPreparation Shaders;
 			bool bShadersRequested = false;
-			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
+			std::shared_ptr<FStreamableHandle> AssetLoad;
 			bool bAssetLoaded = false;
 			FXxHash128 SourceIdentity{};
 			FTextureRHIRef Snapshot;

@@ -1,4 +1,5 @@
 #include "Physics/BodySetup.h"
+#include "Asset/PackageUnloading.h"
 #include "RoadNet/RoadPropertyEditValidation.h"
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"
