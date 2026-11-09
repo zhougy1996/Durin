@@ -48,6 +48,7 @@ namespace Durin
 		LEVELEDITOR_API auto GetOrCreateLevelEditor(DAssetEditorSubsystem& AssetEditors) -> DAssetEditor*;
 		LEVELEDITOR_API auto RequestOpenProject(DAssetEditorSubsystem& AssetEditors, std::string ProjectFile) -> bool;
 	private:
+		auto RegisterContentBrowserExtensions() -> bool;
 		std::vector<Editor::Level::FLevelEditorCustomizationHandle> CustomizationHandles;
 		std::vector<Editor::FDetailCustomizationHandle> DetailCustomizationHandles;
 		Editor::Level::FLevelViewportEditModeHandle SplineEditModeHandle;

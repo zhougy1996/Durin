@@ -129,6 +129,7 @@ namespace Durin
 			.Type = DLevelEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 		Integration->PIE = CreatePIEToolset();
 		Integration->PIERegistration = FModularFeatureRegistry::Get().RegisterFeature(*Integration->PIE);
+		require(RegisterContentBrowserExtensions());
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::CanShutdownModule() const -> bool
@@ -177,7 +178,11 @@ namespace Durin
 		Context->OpenProjectBrowser = std::move(OpenProjectBrowser);
 		Levels->SetHostContext(Context);
 		if (!GetOrCreateLevelEditor(AssetEditors)) { Levels->SetHostContext({}); return false; }
-		if (!Integration->ContentBrowserExtensions.empty()) return true;
+		return true;
+	}
+
+	auto FLevelEditorModule::RegisterContentBrowserExtensions() -> bool
+	{
 		{
 			std::string Error;
 			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
@@ -190,7 +195,6 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register Content Browser Level creation: {}", Error);
-				ReleaseLevelEditor(AssetEditors);
 				return false;
 			}
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
@@ -231,14 +235,8 @@ namespace Durin
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 			return true;
 		};
-		if (!RegisterImport(
-				"level.import-scene", "Scene Source (FBX)...", 300,
-				Editor::Level::EImportDialogType::Scene))
-		{
-			ReleaseLevelEditor(AssetEditors);
-			return false;
-		}
-		return true;
+		return RegisterImport("level.import-scene", "Scene Source (FBX)...", 300,
+			Editor::Level::EImportDialogType::Scene);
 	}
 
 	auto FLevelEditorModule::GetOrCreateLevelEditor(DAssetEditorSubsystem& AssetEditors) -> DAssetEditor*

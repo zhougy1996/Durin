@@ -1,5 +1,6 @@
 #include "Editor/EditorEngineTestSupport.h"
 #include "Editor/EditorSubsystem.h"
+#include "Editor/IMainFrameModule.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/ToolkitHost.h"
@@ -571,6 +572,70 @@ namespace
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(Name, std::move(Provider)));
 		ASSERT_TRUE(Host->RefreshEditorSubsystems()); ASSERT_NE(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		EXPECT_TRUE(FModuleManager::Get().UnloadModule(Name)); CollectGarbage();
+	}
+
+	class FWorkspaceStartupFrame final : public IMainFrameModule
+	{
+	public:
+		std::function<bool(std::string&)> LoadModules;
+		std::function<void()> CreateWorkspace;
+		auto CreateDefaultMainFrame(DEditorEngine&, std::shared_ptr<MWindow>) -> void override {}
+		auto DestroyMainFrame() -> void override {}
+		auto IsShellPresented() const -> bool override { return true; }
+		auto LoadWorkspaceModules(std::string& OutError) -> bool override { return LoadModules(OutError); }
+		auto InitializeWorkspaces(std::string&) -> bool override { CreateWorkspace(); return true; }
+		auto TickMainFrame(float) -> void override {}
+	};
+
+	TEST_F(FEditorSubsystemTests, WorkspaceStartupInitializesLateModuleServicesBeforeCreatingConsumers)
+	{
+		auto* Host = NewHost();
+		const FName Name("WorkspaceStartupProviderTest");
+		std::vector<std::string> Events;
+		FDynamicEditorA::Init = [&](auto&) { Events.emplace_back("service"); return FSubsystemResult{}; };
+		FWorkspaceStartupFrame Frame;
+		Frame.LoadModules = [&](std::string&) {
+			auto Provider = std::make_unique<FDynamicProvider>(std::make_shared<int>(0));
+			Provider->DuringStartup = [&] {
+				Events.emplace_back("module");
+				EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
+			};
+			return FModuleTestHarness::InstallStartedModule(Name, std::move(Provider)) != nullptr;
+		};
+		Frame.CreateWorkspace = [&] {
+			Events.emplace_back("workspace");
+			EXPECT_NE(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
+		};
+		auto* Previous = FEditorEngineTestAccess::BindMainFrameModule(*Host, &Frame);
+		FEditorEngineTestAccess::SetStartupPhase(*Host, Editor::Startup::EBootstrapState::LoadingWorkspace);
+		Host->AdvanceStartup();
+		EXPECT_EQ((std::vector<std::string>{"module", "service", "workspace"}), Events);
+		EXPECT_EQ(Editor::Startup::EBootstrapState::LoadingDefaultDocument, Host->GetStartupPhase());
+		FEditorEngineTestAccess::BindMainFrameModule(*Host, Previous);
+		EXPECT_TRUE(FModuleManager::Get().UnloadModule(Name));
+	}
+
+	TEST_F(FEditorSubsystemTests, WorkspaceStartupPropagatesModuleAndServiceFailuresBeforeCreatingConsumers)
+	{
+		auto* Host = NewHost();
+		FWorkspaceStartupFrame Frame;
+		Frame.CreateWorkspace = [] { ADD_FAILURE() << "Failed providers must not expose workspace consumers."; };
+		Frame.LoadModules = [](std::string& Error) { Error = "workspace provider failed"; return false; };
+		auto* Previous = FEditorEngineTestAccess::BindMainFrameModule(*Host, &Frame);
+		FEditorEngineTestAccess::SetStartupPhase(*Host, Editor::Startup::EBootstrapState::LoadingWorkspace);
+		Host->AdvanceStartup();
+		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupState());
+		EXPECT_EQ("workspace provider failed", Host->GetStartupError());
+
+		auto Registration = RegisterA();
+		FDynamicEditorA::Init = [](auto&) { return FSubsystemResult{ESubsystemError::InitializationFailed, "workspace service failed"}; };
+		Frame.LoadModules = [](std::string&) { return true; };
+		FEditorEngineTestAccess::SetStartupPhase(*Host, Editor::Startup::EBootstrapState::LoadingWorkspace);
+		Host->AdvanceStartup();
+		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupState());
+		EXPECT_NE(std::string::npos, Host->GetStartupError().find("workspace service failed"));
+		EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
+		FEditorEngineTestAccess::BindMainFrameModule(*Host, Previous);
 	}
 
 	class FTestAssetEditorInstance final : public IAssetEditorInstance

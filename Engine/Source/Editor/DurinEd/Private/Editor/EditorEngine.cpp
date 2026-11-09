@@ -230,8 +230,21 @@ namespace Durin
 		}
 		case EBootstrapState::LoadingWorkspace:
 		{
-			FHostOperationScope Operation(*this);
 			StartupError.clear();
+			bool bModulesReady;
+			{
+				FHostOperationScope Operation(*this);
+				bModulesReady = MainFrameModule->LoadWorkspaceModules(StartupError);
+			}
+			if (bShutdownRequested) return;
+			if (bModulesReady)
+				if (const auto Services = RefreshEditorSubsystems(true); !Services) StartupError = Services.Message;
+			if (!bModulesReady || !StartupError.empty())
+			{
+				Transition(EBootstrapState::Failed);
+				return;
+			}
+			FHostOperationScope Operation(*this);
 			if (!MainFrameModule->InitializeWorkspaces(StartupError))
 			{
 				if (StartupError.empty()) StartupError = "Could not initialize the editor workspaces.";

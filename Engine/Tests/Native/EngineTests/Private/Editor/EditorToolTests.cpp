@@ -117,6 +117,7 @@ namespace
 		auto CreateDefaultMainFrame(DEditorEngine&, std::shared_ptr<MWindow>) -> void override {}
 		auto DestroyMainFrame() -> void override {}
 		auto IsShellPresented() const -> bool override { return bShellPresented; }
+		auto LoadWorkspaceModules(std::string& OutError) -> bool override { OutError.clear(); return true; }
 		auto InitializeWorkspaces(std::string& OutError) -> bool override
 		{ ++WorkspaceCalls; OutError = WorkspaceError; return bWorkspaceReady; }
 		auto TickMainFrame(float DeltaSeconds) -> void override { Events.emplace_back("mainframe"); Deltas.push_back(DeltaSeconds); }

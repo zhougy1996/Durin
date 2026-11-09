@@ -122,8 +122,14 @@ without requiring an active native window. A close request is initialization
 cancellation and never enters the normal main loop.
 
 Workspace readiness and default-document readiness are separate contracts.
-`IMainFrameModule::InitializeWorkspaces(OutError)` synchronously registers and
-opens workspaces, returning `bool` with a diagnostic on failure. Once workspaces
+`IMainFrameModule::LoadWorkspaceModules(OutError)` starts the concrete workspace
+providers after project admission. Each provider registers its contributions in
+`StartupModule()`. DurinEd synchronizes Editor subsystems after module startup
+returns and before entering the workspace creation operation. Module or service
+failure prevents consumer creation and preserves its diagnostic in startup status.
+`IMainFrameModule::InitializeWorkspaces(OutError)` then creates and opens workspaces
+using the already active modules and services, returning `bool` with a diagnostic
+on failure. Once workspaces
 are available, DurinEd resolves the project's configured default level through
 `Editor::Startup::ResolveStartupLevel()`, then `DEditorEngine` starts one ordinary
 `OpenLevel()` request and owns its pending/completed/failed state. Resolution

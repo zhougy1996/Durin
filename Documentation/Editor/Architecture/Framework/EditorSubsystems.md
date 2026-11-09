@@ -33,13 +33,19 @@ and later editor lifetimes; instances change only at a host safe point. Dependen
 concrete Editor types in the same collection. The host enumerates
 both collections for GC. Runtime Engine has no dependency on DurinEd.
 
-Editor Init loads project providers and AssetForgeBuiltins, runs base Init,
-retains EditorWorld, loads MainFrame plus optional Python/MCP service providers,
+Editor Init runs base Init, loads MainFrame plus Python/MCP service providers,
 then initializes currently available Editor services before
-CreateDefaultMainFrame exposes consumers. The constructor-created transactor is
-available; the shell is not yet created. DurinEd's module startup registers the
+CreateDefaultMainFrame exposes shell consumers. The constructor-created transactor is
+available; the shell is not yet created. After first presentation, project admission
+loads project providers and AssetForgeBuiltins, initializes project content, and
+synchronizes Editor services. Workspace startup then loads all concrete workspace
+modules, synchronizes services at a host safe point, and only then creates workspaces.
+Module loading and consumer creation use separate host operation scopes; synchronization
+runs between them. DurinEd's module startup registers the
 Actor editing, asset editor, notification and [tool](../Tools/EditorTools.md) services. LevelEditor
-registers the Level editing service and PIE Toolset. A returned failure, cancellation or exception retires
+registers the Level editing service, PIE Toolset and Content Browser extensions.
+MaterialEditor, TextureEditor and StaticMeshEditor likewise publish their contributions
+in StartupModule, independently of workspace instances. A returned failure, cancellation or exception retires
 partial host state and prevents successful initialization.
 
 Shutdown closes both collections' gates, stops PIE, shuts down EditorWorld,

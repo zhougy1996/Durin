@@ -286,8 +286,7 @@ namespace Durin::Editor::MainFrame
 
 		auto RegisterEditorWorkspaces(
 			FMainFrameContext& Context,
-			FLevelEditorModule& LevelEditorModule,
-			DThumbnailManager& ThumbnailManager
+			FLevelEditorModule& LevelEditorModule
 		) -> bool
 		{
 
@@ -308,31 +307,21 @@ namespace Durin::Editor::MainFrame
 					},
 				},
 				[&Context] { Context.bProjectBrowserOpen = true; })) return false;
-			for (const auto* Name : {"MaterialEditor", "TextureEditor", "StaticMeshEditor"})
-				FModuleManager::Get().LoadModuleChecked(Name);
 			return true;
 		}
 
 		auto InitializeEditorWorkspaces(
 			FMainFrameContext& Context) -> bool
 		{
-			Profiling::RecordStartupMilestone(
-				Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
 			bool bWorkspaceReady = false;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
-				FModuleManager::Get().LoadModuleChecked("TextureCompressor");
-				FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-				DThumbnailManager& ThumbnailManager =
-					GetDefaultThumbnailManager();
 				FLevelEditorModule& LevelEditorModule =
-					FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+					*static_cast<FLevelEditorModule*>(FModuleManager::Get().GetModule("LevelEditor"));
 				Context.LevelEditorModule = &LevelEditorModule;
 				bWorkspaceReady = RegisterEditorWorkspaces(
 					Context,
-					LevelEditorModule,
-					ThumbnailManager);
+					LevelEditorModule);
 				if (bWorkspaceReady)
 				{
 					ContentBrowser::FConstructionServices Services{
@@ -594,7 +583,7 @@ namespace Durin::Editor::MainFrame
 				if (ImGui::MenuItem(Label.c_str(), nullptr, AssetEditors.GetActiveAssetToolkit() == Session->GetToolkit())) Session->FocusWindow();
 			}
 			if (!bLevelOpen && ImGui::MenuItem("Level Editor"))
-				FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor").GetOrCreateLevelEditor(AssetEditors);
+				static_cast<FLevelEditorModule*>(FModuleManager::Get().GetModule("LevelEditor"))->GetOrCreateLevelEditor(AssetEditors);
 			ImGui::EndMenu();
 		}
 
@@ -1360,6 +1349,21 @@ namespace Durin
 	{
 		return MainFrameContext && MainFrameContext->ShellViewport
 			&& MainFrameContext->ShellViewport->GetPresentationSerial() > MainFrameContext->ShellPresentationBaseline;
+	}
+
+	auto FMainFrameModule::LoadWorkspaceModules(std::string& OutError) -> bool
+	{
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
+		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceModules");
+		OutError.clear();
+		for (const auto* Name : {"TextureCompressor", "MeshBuilder", "AssetForgeBuiltins",
+			"LevelEditor", "MaterialEditor", "TextureEditor", "StaticMeshEditor"})
+			if (!FModuleManager::Get().LoadModule(Name))
+			{
+				OutError = std::format("Workspace module '{}' could not start.", Name);
+				return false;
+			}
+		return true;
 	}
 
 	auto FMainFrameModule::InitializeWorkspaces(std::string& OutError) -> bool
